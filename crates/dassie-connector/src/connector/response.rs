@@ -194,7 +194,16 @@ impl Connector {
                 .remove(&(entry.source, entry.source_request_id));
             if let Some(source) = self.endpoints.get_mut(entry.source) {
                 source.pending_from -= 1;
+                if entry.source.is_peer() {
+                    source.money_from -= entry.amount_in;
+                }
             }
+        }
+        // A peer's ID is never reused, so a peer of that ID is this one.
+        if let Some(to) = self.endpoints.get_mut(destination)
+            && destination.is_peer()
+        {
+            to.money_to -= entry.amount_out;
         }
         Some(entry)
     }

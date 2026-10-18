@@ -248,12 +248,43 @@ impl Connector {
             });
         }
         let (fee, amount_out) = self.amounts(now_ms, source, to, prepare.amount, rates)?;
+        self.admits_in_flight(source, to, prepare.amount, amount_out)?;
         Ok(Route {
             to,
             expires_at,
             fee,
             amount_out,
         })
+    }
+
+    /// Whether the money in flight with each peer the packet passes stays
+    /// within [`Config::max_in_flight`] each way, or T05 (D24). A crash
+    /// loses the Fulfills of what was in flight, so this bounds how far
+    /// a crash makes two peers' books drift apart. Half a packet of it
+    /// stays free for smaller packets while a payment fills the link. A
+    /// packet always passes alone, even one a conversion made larger than
+    /// the limit.
+    fn admits_in_flight(
+        &self,
+        source: EndpointId,
+        to: EndpointId,
+        amount_in: u64,
+        amount_out: u64,
+    ) -> Result<(), Refusal> {
+        let max = self.config.max_in_flight();
+        let over = |in_flight: u64, amount: u64| {
+            amount > 0 && in_flight > 0 && in_flight.saturating_add(amount) > max
+        };
+        let from = self.endpoints.get(source).map_or(0, |e| e.money_from);
+        let onward = self.endpoints.get(to).map_or(0, |e| e.money_to);
+        if (source.is_peer() && over(from, amount_in)) || (to.is_peer() && over(onward, amount_out))
+        {
+            return Err(refuse(
+                ErrorCode::T05_RATE_LIMITED,
+                "too much money in flight",
+            ));
+        }
+        Ok(())
     }
 
     /// Our fee on a packet from `source` to `to`, and what goes on: only
@@ -452,6 +483,8 @@ impl Connector {
                 source_request_id,
                 source_gone: false,
                 condition: prepare.execution_condition,
+                amount_in: prepare.amount,
+                amount_out: route.amount_out,
                 expires_at_ms,
                 transfers,
                 failure: None,
@@ -462,6 +495,14 @@ impl Connector {
         self.incoming.insert((source, source_request_id));
         if let Some(endpoint) = self.endpoints.get_mut(source) {
             endpoint.pending_from += 1;
+            if source.is_peer() {
+                endpoint.money_from += prepare.amount;
+            }
+        }
+        if let Some(endpoint) = self.endpoints.get_mut(route.to)
+            && route.to.is_peer()
+        {
+            endpoint.money_to += route.amount_out;
         }
         let outgoing = Prepare {
             amount: route.amount_out,

@@ -30,13 +30,24 @@ pub struct Config {
     /// The longest the next hop gets (`MAXIMUM_HOLD_TIME`).
     pub max_hold_ms: u64,
     /// The largest incoming amount, in the source ledger's units; more gets
-    /// F08. Per ledger in a later milestone (D6).
+    /// F08. Per ledger in a later milestone (D6). It also sets how much
+    /// money may be in flight with a peer: [`IN_FLIGHT_PACKETS`] of it, and
+    /// half of it more.
     pub max_packet_amount: u64,
     /// Rates older than this refuse cross-currency packets with T00 (D7).
     pub max_rate_age_ms: u64,
     /// Most accounts with a spending cap.
     pub max_caps: usize,
 }
+
+/// How much money may be in flight with one peer each way, in packets of
+/// [`Config::max_packet_amount`] (D24), and half a packet more: three of
+/// the largest fit, a fourth does not, so half a packet stays free for
+/// smaller ones, such as a quote's probes while a payment fills the link.
+/// A crash loses the Fulfills of what was in flight, and that is how far
+/// two peers' books drift apart for it. Both numbers say how much the
+/// owner is prepared to lose on a link, so one follows from the other.
+pub const IN_FLIGHT_PACKETS: u64 = 3;
 
 impl Config {
     /// The production values: 0.1 units per packet at scale 9, packets held
@@ -69,6 +80,8 @@ impl Config {
         assert!(self.max_pending_per_endpoint > 0);
         assert!(self.max_pending_per_endpoint <= self.max_pending);
         assert!(self.max_pending_per_peer > 0);
+        // What is in flight with a peer, and one packet more, fits a u64.
+        assert!(self.max_packet_amount <= u64::MAX / (IN_FLIGHT_PACKETS + 1));
         assert!(self.trace_capacity > 0 && self.max_events > 0);
         assert!(self.max_hold_ms >= self.min_timeout_ms);
         // Request IDs are u32s: a counter skipping IDs in use always finds
@@ -84,6 +97,12 @@ impl Config {
         } else {
             self.max_pending_per_endpoint
         }
+    }
+
+    /// The most money in flight with one peer each way (D24).
+    #[must_use]
+    pub const fn max_in_flight(&self) -> u64 {
+        self.max_packet_amount * IN_FLIGHT_PACKETS + self.max_packet_amount / 2
     }
 
     /// The pending transfers the ledger must have room for: up to three
