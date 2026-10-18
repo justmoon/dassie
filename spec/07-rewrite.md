@@ -484,13 +484,14 @@ settlementRequest [11] SEQUENCE { settlementSchemeId SettlementSchemeId }  -- ne
 position   = IL.credits_posted − IL.debits_posted − IL.debits_pending     -- IL = L:assets/interledger/<peer>
 credit_out = TR.debits_posted − TR.credits_posted                          -- TR = L:contra/trust/<peer>
 ask the peer to settle when position ≤ credit_out / 2                      -- our room for it
-when asked, settle min(position / 2, position − (credit_out / 2 + 1))     -- never into asking back
+when asked, settle min(position / 2, position − (credit_out / 2 + 1))     -- never into asking back,
+                 or nothing if that is less than credit_out / 10              -- nor a fee per drop
 on termination, settle position − credit_out
 ```
 
 - `position` is what the peer may still owe us: the credit we extend, plus what we owe it. The creditor's predicate and the debtor's amount are simple rules, to be tuned later (expected settlement latency, fees, volume on the link).
-- **Asking.** Every 4 s, the node asks each peer whose position has fallen to half the credit it extends, at most once a minute per peer, with `settlementRequest`. With no credit extended, it asks once the peer has nothing paid in advance left. Nothing about a request is kept: a restart looks again.
-- **Settling on request.** The debtor settles half its own position with the asker, but never so much that it would ask the asker in turn: when two nodes' books have drifted apart ([D19](08-decisions.md#d19-each-node-keeps-its-own-books)), settling back and forth would not end. It settles nothing while a settlement to that peer is on its way (no pending settlement transfer and no undelivered `settlement` message, ACC-17): that one is the answer. A node never settles on its own but at a peering's end.
+- **Asking.** Every 4 s, the node asks each peer whose position has fallen to half the credit it extends, with `settlementRequest`: again at the next check once a settlement from that peer came, otherwise at most once a minute, so a peer that does not answer is not flooded. With no credit extended, it asks once the peer has nothing paid in advance left. Nothing about a request is kept: a restart looks again.
+- **Settling on request.** The debtor settles half its own position with the asker, but never so much that it would ask the asker in turn: when two nodes' books have drifted apart ([D19](08-decisions.md#d19-each-node-keeps-its-own-books)), settling back and forth would not end. It settles nothing less than a tenth of the credit it extends, so a peer that keeps asking cannot make it pay a ledger fee for every few drops. It settles nothing while a settlement to that peer is on its way (no pending settlement transfer and no undelivered `settlement` message, ACC-17): that one is the answer. A node never settles on its own but at a peering's end.
 - A settlement is prepared, booked as a durable pending transfer (Dr IL, Cr `assets/settlement`), and executed only once that transfer is on disk. A restart in between hands the scheme its pending settlements to reconcile (ACC-16).
 - Only a settlement that executed is posted and announced to the peer. A cancelled one is voided, and the node backs off settling with that peer, from 1 s up to 1 h.
 - **Delivery is exactly once.** The `settlement` message is sent again until a 200 arrives, with a backoff from 1 s up to 1 h, and is never dropped; it survives restarts. Its `sequence` belongs to the pair of nodes, not to the peering. The receiver keeps the highest sequence it applied from each sender, acknowledges anything at or below it without applying it again, applies the next one, and refuses any other with 400: the sender sends one at a time, in order.
@@ -527,7 +528,7 @@ on termination, settle position − credit_out
 | Termination message retries | 2 min (20 s) |
 | No new peering after an owner's termination | 24 h (5 min) |
 | Settlement check | 4 s (1 s) |
-| Settlement requests to one peer | at most one a minute (5 s) |
+| Settlement requests to a peer that did not settle since | at most one a minute (5 s) |
 | Settlement message retries | 1 s doubling to 1 h, never dropped (1 s to 10 s) |
 | Request body | 64 KiB |
 

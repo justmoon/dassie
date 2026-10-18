@@ -7,9 +7,10 @@ use proptest::prelude::*;
 const MAX: u64 = 1 << 62;
 
 proptest! {
-    // What a peer settles on request is at most half its position, and
-    // never leaves it asking in turn: unless it was asking already, as
-    // books that drifted apart may have it, when it pays nothing.
+    // What a peer settles on request is at most half its position, at
+    // least a tenth of its credit, and never leaves it asking in turn:
+    // unless it was asking already, as books that drifted apart may have
+    // it, when it pays nothing.
     #[test]
     fn a_requested_settlement_never_asks_back(
         credit_out in 0..MAX,
@@ -17,6 +18,7 @@ proptest! {
     ) {
         let paid = u128::from(requested_amount(position, credit_out));
         prop_assert!(paid <= position / 2);
+        prop_assert!(paid == 0 || paid >= u128::from(credit_out) / 10);
         if ask(position, credit_out) {
             prop_assert_eq!(paid, 0);
         } else {

@@ -40,9 +40,9 @@ pub(super) struct Settlements {
     /// When what is owed to peers is checked next.
     pub at_ms: u64,
     pub interval_ms: u64,
-    /// How often a peer is asked to settle, at most.
+    /// How often a peer that did not settle since is asked again, at most.
     pub request_every_ms: u64,
-    /// When each peer was last asked to settle.
+    /// When each peer was last asked to settle, until it settles.
     pub asked: BTreeMap<NodeId, u64>,
     /// Our settlements prepared and not yet final, by scheme and ID.
     pub settling: BTreeMap<(Name, Name), Settling>,
@@ -126,8 +126,10 @@ impl Core {
     }
 
     /// Asks each peer whose room has fallen to half the credit we extend to
-    /// settle, at most once per [`Settlements::request_every_ms`]. Only our
-    /// own books decide; the peer decides how much (D23).
+    /// settle: again at the next check once a settlement from it came, and
+    /// otherwise at most once per [`Settlements::request_every_ms`], for a
+    /// peer that does not answer. Only our own books decide; the peer
+    /// decides how much (D23).
     fn ask_peers(&mut self) {
         let now = self.now_ms;
         let every = self.settle.request_every_ms;

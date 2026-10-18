@@ -8,7 +8,9 @@
 //! position, what it may pay without the creditor owing it past the credit
 //! it extends in turn, but never so much that it would have to ask in
 //! turn: when two books have drifted apart, settling back and forth would
-//! not end. Both are simple rules, to be tuned later.
+//! not end. It settles nothing less than a tenth of the credit it extends,
+//! so a peer that asks again and again cannot make it pay a ledger fee
+//! for every few drops. Both are simple rules, to be tuned later.
 
 use dassie_ledger::{Balance, MAX_TOTAL};
 
@@ -40,12 +42,17 @@ pub fn ask(position: u128, credit_out: u64) -> bool {
 }
 
 /// What to settle when a peer asks: half our `position`, but no more than
-/// keeps us short of our own ask point for it, given the credit we extend.
+/// keeps us short of our own ask point for it, given the credit we extend,
+/// and nothing if that is less than a tenth of the credit.
 #[must_use]
 pub fn requested_amount(position: u128, credit_out: u64) -> u64 {
     // The least position at which we would not ask in turn.
     let floor = u128::from(credit_out) / 2 + 1;
-    clamp((position / 2).min(position.saturating_sub(floor)))
+    let amount = (position / 2).min(position.saturating_sub(floor));
+    if amount < u128::from(credit_out) / 10 {
+        return 0;
+    }
+    clamp(amount)
 }
 
 /// What to settle when a peering ends: everything we owe, so the
@@ -99,6 +106,17 @@ mod tests {
         assert!(!ask(position - u128::from(paid), C));
         // At its own ask point already, it pays nothing.
         assert_eq!(requested_amount(u128::from(C) / 2, C), 0);
+    }
+
+    // A peer that asks again and again gets nothing less than a tenth of
+    // the credit at a time, so it cannot make us pay a fee per drop.
+    #[test]
+    fn nothing_less_than_a_tenth_of_the_credit_is_settled() {
+        let floor = u128::from(C) / 2 + 1;
+        assert_eq!(requested_amount(floor + u128::from(C) / 10 - 1, C), 0);
+        assert_eq!(requested_amount(floor + u128::from(C) / 10, C), C / 10);
+        // Without credit extended, any amount is settled.
+        assert_eq!(requested_amount(2, 0), 1);
     }
 
     #[test]

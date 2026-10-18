@@ -94,7 +94,8 @@ pub struct Policies {
     /// How often peers are checked, to ask those near the credit we extend
     /// to settle (D23).
     pub settlement_interval_ms: u64,
-    /// How often one peer is asked to settle, at most.
+    /// How often a peer that did not settle since it was last asked is
+    /// asked again, at most.
     pub settlement_request_every_ms: u64,
     /// Open Payments' incoming payments.
     pub incoming: crate::engine::IncomingPolicy,
