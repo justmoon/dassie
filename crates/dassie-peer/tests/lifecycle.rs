@@ -20,7 +20,7 @@ use dassie_peer::wire::{
     Authentication, Content, Entry, NodeInfo, PeeringRequest, PeeringResponse, RefusalReason,
     ResponseEnvelope, SchemeId, SignedNodeInfo, TerminationReason, encode_envelope, sign_node_info,
 };
-use dassie_peer::{Config, Event, PeerStatus, SendError};
+use dassie_peer::{Config, Event, PeerStatus, SendError, VERDICT_ACCEPTED};
 use support::{Network, START, key, url};
 
 fn settle(network: &mut Network, ms: u64) {
@@ -469,65 +469,34 @@ fn a_restart_keeps_the_neighbors() {
     assert!(network.node(0).is_advertised(&b));
 }
 
-fn verdicts(network: &Network, index: usize) -> Vec<(u64, bool)> {
-    network
-        .events
-        .iter()
-        .filter_map(|(at, event)| match event {
-            Event::Verdict { tag, accepted, .. } if *at == index => Some((*tag, *accepted)),
-            _ => None,
-        })
-        .collect()
-}
-
-// D17: a Fulfill gets the peer's verdict in its reply, and still does
-// after the peering ended, from a node we hold a channel with; a Prepare
-// then does not.
+// A Fulfill's reply says it was accepted, which nodes of 0.1 read as the
+// verdict that keeps their books as they are (D23). A node we hold a
+// channel with still gets it after the peering ended; a Prepare does not.
 #[test]
-fn a_fulfill_gets_a_verdict_before_and_after_the_end() {
+fn a_fulfill_is_accepted_before_and_after_the_end() {
     let (mut network, a, b) = peered(48);
-    network.refused.insert(5);
-    let fulfill = [13, 1, 0];
-    network.act(1, |node, now| {
-        node.send_fulfill(now, &a, 4, &fulfill, 40).unwrap();
-        node.send_fulfill(now, &a, 5, &fulfill, 50).unwrap();
-    });
-    settle(&mut network, 1_000);
-    assert_eq!(verdicts(&network, 1), [(40, true), (50, false)]);
+    let fulfill = Content::InterledgerPacket {
+        request_id: 6,
+        packet: &[13, 1, 0],
+    };
+    let mut sender = Sender::new(&key(1));
+    let body = sender.request(&network, 0, &fulfill);
+    let reply = network.inbound(0, &body);
+    assert_eq!(reply.status, 200);
+    assert_eq!(reply.body.last(), Some(&VERDICT_ACCEPTED));
     network.act(0, |node, now| {
         assert!(node.terminate(now, &b, TerminationReason::Owner));
     });
     settle(&mut network, 10_000);
     assert!(network.node(1).peering_of(&a).is_none());
-    network.act(1, |node, now| {
-        node.send_fulfill(now, &a, 6, &fulfill, 60).unwrap();
-    });
-    settle(&mut network, 1_000);
-    assert_eq!(verdicts(&network, 1).last(), Some(&(60, true)));
-    let mut sender = Sender::new(&key(1));
+    let body = sender.request(&network, 0, &fulfill);
+    let reply = network.inbound(0, &body);
+    assert_eq!(reply.status, 200);
+    assert_eq!(reply.body.last(), Some(&VERDICT_ACCEPTED));
     let prepare = Content::InterledgerPacket {
         request_id: 7,
         packet: &[12, 1, 0],
     };
     let body = sender.request(&network, 0, &prepare);
     assert_eq!(network.inbound(0, &body).status, 409);
-}
-
-// Without a verdict in the reply, the node hears that none came, and
-// sends the Fulfill again itself.
-#[test]
-fn an_unreachable_peer_gives_no_verdict() {
-    let (mut network, a, _) = peered(49);
-    network.cut.insert((1, 0));
-    network.cut.insert((0, 1));
-    network.act(1, |node, now| {
-        node.send_fulfill(now, &a, 4, &[13, 1, 0], 40).unwrap();
-    });
-    settle(&mut network, 40_000);
-    assert!(verdicts(&network, 1).is_empty());
-    let missing = network
-        .events
-        .iter()
-        .any(|(at, event)| *at == 1 && matches!(event, Event::VerdictMissing { tag: 40, .. }));
-    assert!(missing);
 }

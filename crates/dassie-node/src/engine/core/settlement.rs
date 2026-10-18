@@ -19,13 +19,20 @@ use crate::node::Policies;
 
 /// The first wait after a cancelled settlement; it doubles with each one
 /// in a row, up to ten minutes, so a node without funds does not journal a
-/// pair of rows every few seconds, and one with funds again settles well
-/// within its peers' grace for settling (D18).
+/// pair of rows every few seconds, and one with funds again settles soon.
 const CANCEL_BACKOFF_MIN_MS: u64 = 1_000;
 const CANCEL_BACKOFF_MAX_MS: u64 = 600_000;
 
 /// How often a scheme that cannot settle says so, at most.
 const UNAVAILABLE_WARN_MS: u64 = 10 * 60 * 1_000;
+
+/// A lie a node tells its peers, in a simulation of a dishonest network:
+/// its own code stays honest otherwise.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Lie {
+    /// It never settles what it owes.
+    NeverSettle,
+}
 
 /// The settling side of the core.
 pub(super) struct Settlements {
@@ -45,6 +52,8 @@ pub(super) struct Settlements {
     pub announce: Vec<(Name, Name)>,
     /// When each scheme last said it cannot settle.
     pub unavailable_warned: BTreeMap<Name, u64>,
+    /// Whether this node lies that it never settles, in a simulation.
+    pub never_settles: bool,
 }
 
 impl Settlements {
@@ -58,6 +67,7 @@ impl Settlements {
             backoff: BTreeMap::new(),
             announce: Vec::new(),
             unavailable_warned: BTreeMap::new(),
+            never_settles: false,
         }
     }
 }
@@ -86,6 +96,14 @@ struct Position {
 }
 
 impl Core {
+    /// Makes this node tell `lie`, in a simulation of a dishonest network.
+    #[cfg(feature = "testing")]
+    pub fn lie(&mut self, lie: Lie) {
+        match lie {
+            Lie::NeverSettle => self.settle.never_settles = true,
+        }
+    }
+
     /// Checks every peer, and every ended peering still owed its final
     /// settlement, and prepares what is due.
     pub(super) fn settlement_timers(&mut self) {
@@ -94,7 +112,7 @@ impl Core {
             return;
         }
         self.settle.at_ms = now.saturating_add(self.settle.interval_ms);
-        if self.lies(super::grace::Lie::NeverSettle) {
+        if self.settle.never_settles {
             return;
         }
         let peers: Vec<(NodeId, SchemeId, u64, Vec<u8>)> = self
@@ -341,8 +359,8 @@ impl Core {
         {
             Ok(prepared) => Some(prepared),
             // Not now: asked again at the next check, with no backoff, so
-            // a slow ledger does not make us overdue to our peers (D18).
-            // Said now and then, for the owner: peers' grace is running.
+            // a slow ledger does not hold our peers' liquidity for long.
+            // Said now and then, for the owner.
             Err(dassie_settlement::SchemeError::Unavailable) => {
                 let warned = settle.unavailable_warned.entry(scheme).or_insert(0);
                 if *warned == 0 || now.saturating_sub(*warned) >= UNAVAILABLE_WARN_MS {

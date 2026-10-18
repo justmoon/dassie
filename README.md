@@ -53,7 +53,7 @@ Environment='DASSIE_BOOTSTRAP_NODES=[{"id":"dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk","
 
 `listNodes`, `listPeers`, `listRoutes` and `getRegistrationStatus` show what your node knows, and the wallet's network page shows the same.
 
-Peers extend each other 1.1 units of credit. A node settles with a peer once it owes it a tenth more than the middle of that range, checking every 4 seconds; `listSettlementChannels` shows the settlements on their way. Because a peer may cheat, each one also gets a grace limit ([D18](spec/08-decisions.md#d18-one-grace-limit-per-peer)): by default, a peer that costs your node more than 75% of the credit it extends within 30 days is banned. The wallet's settings, or `getPeerSettings` and `setPeerSettings`, change that share, together with the fee and the exchange spread your node charges for passing payments on.
+Peers extend each other 1.1 units of credit. A node settles with a peer once it owes it a tenth more than the middle of that range, checking every 4 seconds; `listSettlementChannels` shows the settlements on their way. Each node keeps its own books, Fulfills it sent included, whatever its peer counted ([D23](spec/08-decisions.md#d23-each-node-books-its-own-fulfills)): a peer can cost your node at most the credit it extends, since packets past it are refused. The wallet's settings, or `getPeerSettings` and `setPeerSettings`, change the fee and the exchange spread your node charges for passing payments on.
 
 `terminatePeering` ends a peering: it drains, ends on both sides, and each side settles what it owes. `banNode`, `unbanNode` and `listBans` keep nodes away. `GET /stats` tells anyone the node's version and the peers it advertises.
 
@@ -74,7 +74,7 @@ Peers extend each other 1.1 units of credit. A node settles with a peer once it 
 | `crates/dassie-peer` | Peer protocol v1: wire format, authentication, node table, link state, membership, registration, peering and its lifecycle, settlement delivery, routing |
 | `crates/dassie-payments` | Open Payments without IO: resources, GNAP grants, HTTP message signatures, payment pointers, intervals, quote math |
 | `crates/dassie-node-core` | The node's decisions without IO: config, setup, sessions, origins, rate limits, ACME and TLS policy |
-| `crates/dassie-node` | The daemon: database, HTTP(S) and IPC listeners, TLS, ACME, owner login, RPC with its live streams, the engine (ledger, peer protocol, Open Payments, grace limits and bans), `/peer` and the peer client, the BTP server, the STREAM receiver, the rate fetcher, `/stats`, the log ring, and a fake XRP Ledger for tests |
+| `crates/dassie-node` | The daemon: database, HTTP(S) and IPC listeners, TLS, ACME, owner login, RPC with its live streams, the engine (ledger, peer protocol, Open Payments, bans), `/peer` and the peer client, the BTP server, the STREAM receiver, the rate fetcher, `/stats`, the log ring, and a fake XRP Ledger for tests |
 | `crates/dassie-cli` | The `dassie` binary: `daemon`, `init`, `update`, `verify-install` |
 | `crates/dassie-release` | What a release is and how to trust one: versions and channels, the mirror's layout, `SHA256SUMS` and its minisign signature |
 | `nix/release.nix` | The release builds: the wallet, static binaries for x64 and arm64, their bundles, the mirror tree, and the install tests' releases |

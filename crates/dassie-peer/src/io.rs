@@ -95,11 +95,10 @@ pub enum Inbound<'a> {
         request_id: u32,
         /// The ILP packet.
         packet: &'a [u8],
-        /// The acknowledgement, for a Prepare or a Reject.
+        /// The acknowledgement. A Fulfill's says it was accepted, whatever
+        /// the node does with it: each side books its own Fulfills (D23),
+        /// and nodes of 0.1 still read the reply as a verdict.
         reply: Reply,
-        /// For a Fulfill, the two replies the node chooses between: the
-        /// verdict on it (D17). Its body is what the peer's books follow.
-        verdicts: Option<Verdicts>,
     },
     /// A settlement not applied before. The node books it, then calls
     /// [`PeerNode::settlement_applied`](crate::PeerNode::settlement_applied)
@@ -132,19 +131,9 @@ pub enum Inbound<'a> {
     },
 }
 
-/// The replies to a Fulfill, authenticated, one for each verdict.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Verdicts {
-    /// We posted the packet's transfers.
-    pub accepted: Reply,
-    /// We did not, and will not.
-    pub refused: Reply,
-}
-
-/// The body of a reply that accepts a Fulfill.
+/// The body of the reply to a Fulfill. Nodes of 0.1 read it as a verdict
+/// (D17), which "accepted" tells them to keep their own books by (D23).
 pub const VERDICT_ACCEPTED: u8 = 1;
-/// The body of a reply that refuses a Fulfill.
-pub const VERDICT_REFUSED: u8 = 0;
 
 /// What the node hands its driver.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -230,24 +219,6 @@ pub enum Event {
         peer: NodeId,
         /// Its sequence.
         sequence: u64,
-    },
-    /// A peer's verdict on a Fulfill we sent it with
-    /// [`PeerNode::send_fulfill`](crate::PeerNode::send_fulfill).
-    Verdict {
-        /// The peer.
-        peer: NodeId,
-        /// The node's tag for the Fulfill.
-        tag: u64,
-        /// Whether it took the Fulfill.
-        accepted: bool,
-    },
-    /// A Fulfill we sent got no verdict: no answer, another status, or a
-    /// body that is not one. The node sends it again later.
-    VerdictMissing {
-        /// The peer.
-        peer: NodeId,
-        /// The node's tag for the Fulfill.
-        tag: u64,
     },
     /// A settlement message was refused for being malformed or out of
     /// place, which is a bug: it is kept, and sent again later.

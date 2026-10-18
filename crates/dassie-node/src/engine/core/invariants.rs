@@ -3,13 +3,11 @@
 //! they fit together. The parts whose fields a module keeps to itself are
 //! checked in that module.
 
-use dassie_connector::EndpointId;
 use dassie_ledger::{AccountName, Name, Reference};
 
 use super::Core;
 use super::settlement::Settling;
 use super::tokens::{MAX_TOKEN_ROWS, MAX_TOKENS};
-use super::verdicts::MAX_OWED_PER_PEER;
 
 impl Core {
     pub(super) fn check_invariants(&self) {
@@ -26,22 +24,8 @@ impl Core {
         self.check_incoming();
         self.check_outgoing();
         self.check_probes();
-        self.owed.check();
-        self.check_owed_bounds();
         self.check_settling();
         self.events.check_invariants();
-    }
-
-    /// What a peer owes verdicts on, and may still come to, within its
-    /// bound: each packet in flight from it may become one more.
-    fn check_owed_bounds(&self) {
-        for (node, endpoint) in &self.peer_endpoints {
-            let pending = self.connector.pending_from(EndpointId::Peer(*endpoint));
-            assert!(
-                self.owed.count(node) + pending <= MAX_OWED_PER_PEER,
-                "a peer owes more verdicts than it may"
-            );
-        }
     }
 
     /// Our settlements in progress: each is its pending transfer, and what

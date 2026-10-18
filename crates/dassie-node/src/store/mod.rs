@@ -13,19 +13,18 @@
 //! once to keep that affordable.
 
 mod gnap;
-mod grace;
-#[cfg(test)]
-mod grace_tests;
 mod inspect;
 mod ledger;
 #[cfg(test)]
 mod ledger_tests;
 mod outgoing;
-mod owed;
 #[cfg(test)]
 mod owed_tests;
 mod payments;
 mod peer;
+mod peer_settings;
+#[cfg(test)]
+mod peer_settings_tests;
 #[cfg(test)]
 mod peer_tests;
 mod rates;
@@ -45,18 +44,17 @@ use dassie_node_core::session::{SessionId, SessionPolicy, SessionTimes};
 use rusqlite::{Connection, OptionalExtension, params};
 
 pub use gnap::{GrantRow, GrantState, MAX_GRANTS, TokenRow};
-pub use grace::{BanChange, BanReason, BanRecord, MAX_BAN_RECORDS, PeerCost, PeerSettings};
 pub use inspect::{BLOB_CUT, Cell, ColumnInfo, MAX_ROWS, RowsPage, TEXT_CUT, TableInfo, Value};
 pub use ledger::{BtpTokenRow, Checkpoint, JournalRow, LedgerBatch, StoredLedger, TokenCap};
 pub use outgoing::{
     ForeignAmount, MAX_LIVE_OWNER_QUOTES, MAX_LIVE_QUOTES, OutgoingBatch, OutgoingProgress,
     OutgoingRow, OutgoingState, QuoteRow,
 };
-pub use owed::{Compensation, OwedFulfill, PostedTransfer, TakenFulfill, VerdictBatch};
 pub use payments::{
     ConnectionKey, IncomingPage, IncomingPaid, IncomingProgress, IncomingQuery, IncomingRow,
     Listed, MAX_LISTED, MAX_OPEN_LOADED, Page, PaymentId, UNPAID_RETENTION_MS,
 };
+pub use peer_settings::PeerSettings;
 pub use rates::StoredRate;
 pub use schema::{APPLICATION_ID, SCHEMA_VERSION, V0_APPLICATION_ID};
 pub use snapshot::{PRE_MIGRATION_FILE, ROLLED_BACK_FILE, Restored, restore_pre_migration};

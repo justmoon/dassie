@@ -24,7 +24,7 @@ use dassie_peer::wire::{
 };
 use dassie_peer::{
     Agreed, Bootstrap, Config, Declined, Event, Failure, Inbound, InboundId, Output, OwnInfo,
-    PeerBatch, PeerNode, PeeringHooks, Request, RequestId, Response, Stored, Termination,
+    PeerBatch, PeerNode, PeeringHooks, Request, RequestId, Response, Stored,
 };
 
 pub const START: u64 = 1_800_000_000_000;
@@ -96,7 +96,7 @@ impl PeeringHooks for StubHooks {
         })
     }
 
-    fn drained(&self, peer: NodeId, _termination: &Termination, _now_ms: u64) -> bool {
+    fn drained(&self, peer: NodeId) -> bool {
         !self.busy.contains(&peer)
     }
 }
@@ -206,8 +206,6 @@ pub struct Network {
     /// Whether a node settles everything it owes when a peering ends, as
     /// the node's core does: one unit, here.
     pub settle_on_end: bool,
-    /// The request IDs whose Fulfills are refused.
-    pub refused: BTreeSet<u32>,
     /// Rewrites the body of every response with status 200 before it
     /// arrives, as a node would that answers anything it likes: the MAC is
     /// made again, so the body gets past it to what reads it.
@@ -244,7 +242,6 @@ impl Network {
             applied: Vec::new(),
             settled: Vec::new(),
             settle_on_end: false,
-            refused: BTreeSet::new(),
             tamper: None,
             macs: BTreeMap::new(),
         };
@@ -583,16 +580,10 @@ impl Network {
                 reply,
                 from: sender,
                 request_id,
-                verdicts,
                 ..
             } => {
                 self.packets.push((to, sender, request_id));
-                // A Fulfill is taken, unless its ID is one to refuse.
-                Some(match verdicts {
-                    Some(verdicts) if self.refused.contains(&request_id) => verdicts.refused,
-                    Some(verdicts) => verdicts.accepted,
-                    None => reply,
-                })
+                Some(reply)
             }
             Inbound::Settlement {
                 from: sender,

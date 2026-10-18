@@ -1,6 +1,6 @@
 /**
  * Settings (spec 6 §1.6.12): the wallet and logging out, the theme, the
- * node's alias, peers' grace limit and what transit is charged, exchange
+ * node's alias, what transit is charged, exchange
  * rates and the display currency, the owner's sessions, and the BTP
  * tokens with their caps.
  */
@@ -26,7 +26,6 @@ import type { ThemeSetting } from "@dassie/ui/theme";
 import { ApiKeys } from "./ApiKeys.tsx";
 import { RateSettings } from "./RateSettings.tsx";
 import { chargeText, parseCharge } from "./rates.ts";
-import { parseShare, shareText } from "../network/grace.ts";
 
 export function Settings(): JSX.Element {
   return (
@@ -175,8 +174,7 @@ function NodeSettings(): JSX.Element {
   );
 }
 
-/** The share of the credit a peer may cost before it is banned (D18),
- * and what passing a packet from one peer to another is charged (D7). */
+/** What passing a packet from one peer to another is charged (D7). */
 function PeerSettings(): JSX.Element {
   const client = useClient();
   const toast = useToast();
@@ -186,13 +184,9 @@ function PeerSettings(): JSX.Element {
     version();
     return (await client.call("getPeerSettings", {})).settings;
   });
-  const [share, setShare] = createSignal<string>();
   const [fee, setFee] = createSignal<string>();
   const [spread, setSpread] = createSignal<string>();
   const [error, setError] = createSignal<string>();
-  const shown = () =>
-    share() ??
-      (settings() ? shareText(settings()!.graceSharePpm).replace("%", "") : "");
   const shownFee = () =>
     fee() ?? (settings() ? chargeText(settings()!.connectorFeePpm) : "");
   const shownSpread = () =>
@@ -200,11 +194,6 @@ function PeerSettings(): JSX.Element {
   const save = async (event: SubmitEvent) => {
     event.preventDefault();
     setError(undefined);
-    const ppm = parseShare(shown());
-    if (ppm === undefined) {
-      setError("A share is more than 0% and at most 1000%.");
-      return;
-    }
     const [feePpm, spreadPpm] = [
       parseCharge(shownFee()),
       parseCharge(shownSpread()),
@@ -216,13 +205,11 @@ function PeerSettings(): JSX.Element {
     try {
       await client.call("setPeerSettings", {
         settings: {
-          graceSharePpm: ppm,
           connectorFeePpm: feePpm,
           fxSpreadPpm: spreadPpm,
         },
       });
       toast({ title: "Peer settings saved" });
-      setShare(undefined);
       setFee(undefined);
       setSpread(undefined);
       setVersion((n) => n + 1);
@@ -233,19 +220,6 @@ function PeerSettings(): JSX.Element {
   return (
     <Card title="Peers" testid="peer-settings">
       <form onSubmit={save}>
-        <Field
-          label="Grace limit (% of the credit you extend)"
-          for={`${id}-share`}
-          hint="A peer that costs you more than this in 30 days, in Fulfills it refused or debts it did not settle, is banned."
-        >
-          <input
-            id={`${id}-share`}
-            data-testid="grace-share-input"
-            inputmode="decimal"
-            value={shown()}
-            onInput={(event) => setShare(event.currentTarget.value)}
-          />
-        </Field>
         <Field
           label="Fee (% of what passes)"
           for={`${id}-fee`}
@@ -273,7 +247,11 @@ function PeerSettings(): JSX.Element {
           />
         </Field>
         <div class="actions">
-          <button type="submit" class="primary" data-testid="grace-share-save">
+          <button
+            type="submit"
+            class="primary"
+            data-testid="peer-settings-save"
+          >
             Save
           </button>
         </div>

@@ -33,8 +33,9 @@ pub enum Responded {
         posted: Option<Posted>,
     },
     /// No packet in flight is its: an unknown request ID, or a peer's
-    /// Fulfill whose fulfillment is not the packet's (a resend from
-    /// before, D17), which leaves the packet waiting for its own response.
+    /// Fulfill whose fulfillment is not the packet's (a resend of an
+    /// earlier packet's with the same request ID), which leaves the packet
+    /// waiting for its own response.
     Unmatched,
 }
 
@@ -49,8 +50,7 @@ impl Responded {
     }
 }
 
-/// A fulfilled packet whose transfers were posted: what a node keeps to
-/// learn whether its upstream took the Fulfill too (D17).
+/// A fulfilled packet whose transfers were posted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Posted {
     /// The packet.

@@ -3,7 +3,7 @@
 //! logged for itself, so filters and the log's redaction work as before.
 
 use super::core::{
-    BtpEvent, EngineEvent, Event, PaymentEvent, PeerEvent, SettlementEvent, Severity, StoreRead,
+    BtpEvent, EngineEvent, Event, PaymentEvent, PeerEvent, SettlementEvent, Severity,
 };
 use crate::log::target;
 
@@ -92,16 +92,6 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         Event::SettlementDelivered { peer, sequence } => {
             emit!(severity, target: target::SETTLEMENT, %peer, sequence, "the peer has our settlement");
         }
-        Event::Verdict {
-            peer,
-            tag,
-            accepted,
-        } => {
-            emit!(severity, target: target::PEER, %peer, tag, accepted, "verdict on a Fulfill");
-        }
-        Event::VerdictMissing { peer, tag } => {
-            emit!(severity, target: target::PEER, %peer, tag, "no verdict on a Fulfill yet");
-        }
         Event::SettlementRefused {
             peer,
             sequence,
@@ -119,37 +109,6 @@ fn peer(severity: Severity, event: &PeerEvent) {
         }
         PeerEvent::DuplicateRequest { source, request_id } => {
             emit!(severity, target: target::PEER, %source, request_id, "duplicate request ID");
-        }
-        PeerEvent::StoreReadFailed { what, error } => {
-            let what = match what {
-                StoreRead::FulfillTaken => "looking up a Fulfill taken",
-                StoreRead::FulfillOwed => "reading a Fulfill owed",
-                StoreRead::PeerLosses => "reading what a peer refused",
-            };
-            emit!(severity, target: target::PEER, %error, "{what}");
-        }
-        PeerEvent::VerdictOverdue { peer, trace } => {
-            emit!(severity, target: target::PEER, %peer, ?trace, "no verdict on a Fulfill for 29 days: booked as refused, since the upstream may have forgotten it");
-        }
-        PeerEvent::FulfillRefused {
-            peer,
-            amount,
-            trace,
-            compensation,
-        } => {
-            emit!(severity, target: target::PEER, %peer, amount, ?trace, ?compensation, "a peer refused our Fulfill");
-        }
-        PeerEvent::Banned {
-            node,
-            ledger,
-            refused,
-            overdue,
-            grace,
-        } => {
-            emit!(severity, target: target::PEER, %node, %ledger, refused, overdue, grace, "a peer cost us more than its grace limit: banned");
-        }
-        PeerEvent::BanListFull { node } => {
-            emit!(severity, target: target::PEER, %node, "the ban list is full: the peering ends, but the node is not banned");
         }
     }
 }
@@ -187,12 +146,6 @@ fn payment(severity: Severity, event: &PaymentEvent) {
         }
         PaymentEvent::IncomingCompleted { id } => {
             emit!(severity, target: target::PAYMENT, %id, "incoming payment completed");
-        }
-        PaymentEvent::ConfirmedPaymentGone { id } => {
-            emit!(severity, target: target::PAYMENT, %id, "a confirmed payment is gone");
-        }
-        PaymentEvent::ConfirmedPaymentUnread { id, error } => {
-            emit!(severity, target: target::PAYMENT, %id, %error, "reading a confirmed payment");
         }
         PaymentEvent::StreamClosed {
             connection,
@@ -347,7 +300,11 @@ mod tests {
                 amount: 5,
             }
             .into());
-            log(&PeerEvent::BanListFull { node }.into());
+            log(&PeerEvent::NoEndpoint {
+                node,
+                error: "gone".into(),
+            }
+            .into());
             log(&dassie_peer::Event::NodeAdded(node).into());
             log(&EngineEvent::EventsDropped { count: 2 }.into());
         });
@@ -359,11 +316,7 @@ mod tests {
             summary,
             [
                 (LogLevel::Info, target::SETTLEMENT, "a peer settled"),
-                (
-                    LogLevel::Error,
-                    target::PEER,
-                    "the ban list is full: the peering ends, but the node is not banned"
-                ),
+                (LogLevel::Error, target::PEER, "the peer has no endpoint"),
                 (LogLevel::Debug, target::PEER, "node added"),
                 (
                     LogLevel::Warn,
@@ -379,19 +332,5 @@ mod tests {
                 ("amount".to_string(), "5".to_string())
             ]
         );
-    }
-
-    // What is read from the database names what was being read.
-    #[test]
-    fn store_reads_say_what_failed() {
-        let lines = capture(|| {
-            log(&PeerEvent::StoreReadFailed {
-                what: StoreRead::FulfillOwed,
-                error: "disk".into(),
-            }
-            .into());
-        });
-        assert_eq!(lines[0].message, "reading a Fulfill owed");
-        assert_eq!(lines[0].fields, [("error".to_string(), "disk".to_string())]);
     }
 }

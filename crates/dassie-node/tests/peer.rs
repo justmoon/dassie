@@ -266,11 +266,6 @@ async fn two_daemons_peer_and_keep_their_peering() {
         panic!("no bans")
     };
     assert_eq!(bans.nodes, std::slice::from_ref(&node_b));
-    // It says who banned it, and when (D18).
-    assert_eq!(bans.bans.len(), 1);
-    assert_eq!(bans.bans[0].node, node_b);
-    assert_eq!(bans.bans[0].reason, "owner");
-    assert!(bans.bans[0].banned_at_unix_ms > 0 && bans.bans[0].cost.is_none());
     let unbanned = owner_a
         .call(Method::UnbanNode(proto::UnbanNodeRequest { node: node_b }))
         .await;
@@ -279,39 +274,42 @@ async fn two_daemons_peer_and_keep_their_peering() {
     b.stop().await;
 }
 
-// D18: the owner's grace share is read, changed within range, and kept.
+// D7: the owner's fee and spread are read, changed within range, and
+// kept.
 #[tokio::test(flavor = "multi_thread")]
-async fn the_grace_share_is_the_owners() {
+async fn the_peer_settings_are_the_owners() {
     let node = TestNode::start().await;
     prepare(&node, &key(1)).await;
     let mut owner = node.ipc().await;
     let read = |response| match response {
-        Ok(response::Method::GetPeerSettings(reply)) => reply.settings.unwrap().grace_share_ppm,
-        Ok(response::Method::SetPeerSettings(reply)) => reply.settings.unwrap().grace_share_ppm,
+        Ok(response::Method::GetPeerSettings(reply)) => reply.settings.unwrap().connector_fee_ppm,
+        Ok(response::Method::SetPeerSettings(reply)) => reply.settings.unwrap().connector_fee_ppm,
         other => panic!("{other:?}"),
     };
     let get = || Method::GetPeerSettings(proto::GetPeerSettingsRequest {});
-    assert_eq!(read(owner.call(get()).await), 750_000);
-    let set = |ppm, connector_fee_ppm| {
+    assert_eq!(read(owner.call(get()).await), 0);
+    let set = |connector_fee_ppm, fx_spread_ppm| {
         Method::SetPeerSettings(proto::SetPeerSettingsRequest {
             settings: Some(proto::PeerSettings {
-                grace_share_ppm: ppm,
                 connector_fee_ppm,
-                fx_spread_ppm: 0,
+                fx_spread_ppm,
             }),
         })
     };
-    assert_eq!(read(owner.call(set(2_000_000, 1_000)).await), 2_000_000);
-    for (refused, fee) in [(0, 0), (10_000_001, 0), (1, 100_001)] {
-        assert!(owner.call(set(refused, fee)).await.is_err(), "{refused}");
+    assert_eq!(read(owner.call(set(1_000, 2_000)).await), 1_000);
+    for (fee, spread) in [(100_001, 0), (0, 100_001)] {
+        assert!(
+            owner.call(set(fee, spread)).await.is_err(),
+            "{fee} {spread}"
+        );
     }
     let Ok(response::Method::GetPeerSettings(reply)) = owner.call(get()).await else {
         panic!("no settings");
     };
     let settings = reply.settings.unwrap();
     assert_eq!(
-        (settings.grace_share_ppm, settings.connector_fee_ppm),
-        (2_000_000, 1_000)
+        (settings.connector_fee_ppm, settings.fx_spread_ppm),
+        (1_000, 2_000)
     );
     node.stop().await;
 }

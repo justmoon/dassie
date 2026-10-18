@@ -226,7 +226,7 @@ impl PeerNode {
             .filter(|(id, entry)| {
                 entry
                     .termination()
-                    .is_some_and(|t| t.told(now, timeout) && hooks.drained(**id, t, now))
+                    .is_some_and(|t| t.told(now, timeout) && hooks.drained(**id))
                     && !self.answering(id)
             })
             .map(|(id, _)| *id)

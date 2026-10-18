@@ -242,7 +242,7 @@ fn fulfill_bytes(fulfillment: [u8; 32]) -> Vec<u8> {
     .to_vec()
 }
 
-// D17: a peer's Fulfill that is not the packet's is a resend from before
+// A peer's Fulfill that is not the packet's is a resend from before
 // a restart, for a request ID used again: it is unmatched, and the packet
 // waits for its own response.
 #[test]

@@ -35,6 +35,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_12,
     MIGRATION_13,
     MIGRATION_14,
+    MIGRATION_15,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -666,6 +667,39 @@ CREATE TABLE setup_token (
 ) STRICT;
 ";
 
+/// Each node books its own Fulfills (D23): a downstream no longer keeps the
+/// Fulfills it owes a verdict, nor an upstream those it took, and no peer
+/// is banned for what it cost. What our receiver took for a Fulfill still
+/// owed a verdict counts as received, as it would now. The bans the node
+/// made for a grace limit are lifted, with every ban's record, and the
+/// owner's grace share goes.
+const MIGRATION_15: &str = "
+UPDATE incoming_payments SET received_amount = received_amount
+  + (SELECT sum(o.incoming_amount) FROM owed_fulfills o WHERE o.incoming_payment = incoming_payments.id)
+  WHERE id IN (SELECT incoming_payment FROM owed_fulfills WHERE incoming_payment IS NOT NULL);
+
+UPDATE incoming_payments SET completed_at_ms = max(created_at_ms,
+    (SELECT max(o.created_at_ms) FROM owed_fulfills o WHERE o.incoming_payment = incoming_payments.id))
+  WHERE completed_at_ms IS NULL AND received_amount = incoming_amount
+    AND id IN (SELECT incoming_payment FROM owed_fulfills WHERE incoming_payment IS NOT NULL);
+
+INSERT INTO incoming_connections (incoming_payment, connection, received)
+  SELECT incoming_payment, incoming_connection, sum(incoming_amount) FROM owed_fulfills
+  WHERE incoming_payment IS NOT NULL
+    AND incoming_payment IN (SELECT id FROM incoming_payments)
+  GROUP BY incoming_payment, incoming_connection
+  ON CONFLICT (incoming_payment, connection) DO UPDATE SET received = received + excluded.received;
+
+DROP TABLE owed_fulfills;
+DROP TABLE peer_fulfills;
+
+DELETE FROM peer_bans WHERE node IN
+  (SELECT node FROM peer_ban_records WHERE reason = 'grace-limit' AND unbanned_at_ms IS NULL);
+DROP TABLE peer_ban_records;
+
+ALTER TABLE peer_settings DROP COLUMN grace_share_ppm;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -946,42 +980,6 @@ pub const TABLES: &[Table] = &[
         ],
     },
     Table {
-        name: "owed_fulfills",
-        without_rowid: true,
-        columns: &[
-            ("packet_epoch", "INTEGER", true, true),
-            ("packet_sequence", "INTEGER", true, true),
-            ("peer", "TEXT", true, false),
-            ("request_id", "INTEGER", true, false),
-            ("fulfill", "BLOB", true, false),
-            ("compensation", "TEXT", true, false),
-            ("debit_1", "INTEGER", true, false),
-            ("credit_1", "INTEGER", true, false),
-            ("amount_1", "INTEGER", true, false),
-            ("debit_2", "INTEGER", false, false),
-            ("credit_2", "INTEGER", false, false),
-            ("amount_2", "INTEGER", false, false),
-            ("incoming_payment", "BLOB", false, false),
-            ("incoming_amount", "INTEGER", false, false),
-            ("expires_at_ms", "INTEGER", true, false),
-            ("created_at_ms", "INTEGER", true, false),
-            ("debit_3", "INTEGER", false, false),
-            ("credit_3", "INTEGER", false, false),
-            ("amount_3", "INTEGER", false, false),
-            ("incoming_connection", "BLOB", false, false),
-        ],
-    },
-    Table {
-        name: "peer_fulfills",
-        without_rowid: true,
-        columns: &[
-            ("peer", "TEXT", true, true),
-            ("request_id", "INTEGER", true, true),
-            ("condition", "BLOB", true, true),
-            ("taken_at_ms", "INTEGER", true, false),
-        ],
-    },
-    Table {
         name: "quotes",
         without_rowid: true,
         columns: &[
@@ -1056,23 +1054,8 @@ pub const TABLES: &[Table] = &[
         without_rowid: false,
         columns: &[
             ("id", "INTEGER", false, true),
-            ("grace_share_ppm", "INTEGER", true, false),
             ("connector_fee_ppm", "INTEGER", true, false),
             ("fx_spread_ppm", "INTEGER", true, false),
-        ],
-    },
-    Table {
-        name: "peer_ban_records",
-        without_rowid: true,
-        columns: &[
-            ("node", "TEXT", true, true),
-            ("reason", "TEXT", true, false),
-            ("banned_at_ms", "INTEGER", true, false),
-            ("cost_ledger", "TEXT", false, false),
-            ("cost_refused", "INTEGER", false, false),
-            ("cost_overdue", "INTEGER", false, false),
-            ("cost_grace", "INTEGER", false, false),
-            ("unbanned_at_ms", "INTEGER", false, false),
         ],
     },
     Table {

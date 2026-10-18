@@ -302,8 +302,8 @@ test("a third-party client pays from one node to another with consent", {
     }
     assertEquals(payment.failed, false);
     assertEquals(payment.sentAmount.value, `${AMOUNT}`);
-    // The payer counts a packet sent on its Fulfill, the receiver counts
-    // it received only on the payer's verdict (D17), a moment later.
+    // The receiver counted each packet received as it posted it, before
+    // its Fulfill went back to the payer (D23).
     const receivedNow = () =>
       op.incomingPayment.get({
         url: incoming.id,

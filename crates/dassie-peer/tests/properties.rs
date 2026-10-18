@@ -184,7 +184,7 @@ proptest! {
     // Every response with status 200, or every second or third, carries a
     // body of the responder's choosing, MACed properly. From the start,
     // registrations, list polls, peering and probes get them; after the
-    // network formed, gossip, packets, verdicts, settlements and the end
+    // network formed, gossip, packets, settlements and the end
     // of a peering.
     #[test]
     fn responses_never_panic(
@@ -214,7 +214,7 @@ proptest! {
                 let peers: Vec<NodeId> = node.peers().map(|(peer, _)| *peer).collect();
                 for peer in &peers {
                     let _ = node.send_packet(now, peer, 1, &[12, 0], 10_000);
-                    let _ = node.send_fulfill(now, peer, 2, &[13, 0], 3);
+                    node.send_response(now, peer, 2, &[13, 0]);
                     node.send_response(now, peer, 4, &[14, 0]);
                     let _ = node.send_settlement(now, peer, stub(), 1, Vec::new());
                 }

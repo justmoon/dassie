@@ -17,9 +17,10 @@
 //! books say it owes past its threshold. No check compares two nodes'
 //! books, or adds them up: each keeps its own, and they may drift.
 //!
-//! A node also crashes mid-payment: a sender, a hop or a receiver. Its
-//! peers learn from each other's verdicts which Fulfills counted (D17); a
-//! hop whose Fulfill its upstream refused books the loss.
+//! A node also crashes mid-payment: a sender, a hop or a receiver. Each
+//! node books the Fulfills it sent as final, whether or not its upstream
+//! took them (D23), and its books still hold against what its own clients
+//! and receivers moved.
 //!
 //! Outgoing payments go between nodes and to a node's own receiver: each
 //! sends exactly its debit amount, across a crash of its node too, and
@@ -35,11 +36,8 @@
 //! spread: BTP clients pay receivers in the other currency, through the
 //! nodes that convert. No ledger makes or loses any asset.
 //!
-//! An honest network never bans a peer for what it cost (D18), crashes and
-//! all. A node that lies to its peers, refusing Fulfills it took or never
-//! settling, is banned by the peer it cost, which loses at most its grace
-//! limit and the credit both ways. One that spends the credit it was
-//! given and vanishes costs that peer no more than that credit.
+//! A node that never settles, or spends the credit it was given and
+//! vanishes, costs its peer no more than that credit (D23).
 
 #![allow(
     clippy::disallowed_macros,
@@ -63,7 +61,7 @@ use dassie_node::engine::{
     Output, Severity,
 };
 use dassie_node::node::Policies;
-use dassie_node::store::{BanReason, ForeignAmount, OutgoingState, PaymentId, PeerSettings, Store};
+use dassie_node::store::{ForeignAmount, OutgoingState, PaymentId, PeerSettings, Store};
 use dassie_node_core::config::Realm;
 use dassie_node_core::testing::SeededRng;
 use dassie_oer::Decode;
@@ -140,7 +138,6 @@ const RATES: [(&str, u128); 2] = [
 const CHARGES: PeerSettings = PeerSettings {
     connector_fee_ppm: 10_000,
     fx_spread_ppm: 5_000,
-    ..PeerSettings::DEFAULT
 };
 
 /// A node's connection to the fake ledger.
@@ -203,7 +200,7 @@ struct Payment {
     link: u64,
     connection: Connection,
     /// Its address, the receiver's, and the shared secret: what a new
-    /// connection needs when the receiver closed the old one (D17).
+    /// connection needs when the old one closed.
     credentials: (String, String, [u8; 32]),
     /// What earlier connections sent.
     sent_before: u64,
@@ -270,16 +267,6 @@ impl Drop for Sim {
 impl Sim {
     fn new(seed: u64, count: usize, bootstraps: usize) -> Self {
         Self::with(seed, count, bootstraps, BTreeMap::new(), Settling::Stub)
-    }
-
-    /// As [`Sim::new`], with some nodes extending other credit to peers.
-    fn with_credits(
-        seed: u64,
-        count: usize,
-        bootstraps: usize,
-        credits: BTreeMap<usize, u64>,
-    ) -> Self {
-        Self::with(seed, count, bootstraps, credits, Settling::Stub)
     }
 
     fn with(
@@ -880,13 +867,20 @@ impl Sim {
                 continue;
             }
             // An incoming payment that takes less stops the stream there.
+            // Its receiver may have all of it before the sender counts it:
+            // a hop that crashed counted a Fulfill the sender never got,
+            // and the receiver says so (D23).
             let expected = payment.amount.min(payment.limit.unwrap_or(u64::MAX));
-            if sent(payment) == expected {
+            let remote = payment
+                .stream
+                .and_then(|id| payment.connection.stream(id))
+                .map_or(0, |stream| payment.sent_before + stream.remote_received());
+            if sent(payment) == expected || remote >= expected {
                 payment.done = true;
                 continue;
             }
-            // The receiver closed the connection, when a refusal took back
-            // what it had counted: a sender starts anew for the rest.
+            // The connection closed, its receiver gone: a sender starts
+            // anew for the rest.
             if payment.connection.is_closed() && payment.in_flight.is_empty() {
                 payment.sent_before = sent(payment);
                 payment.connection = client(&payment.credentials, payment.ledger);
@@ -1005,67 +999,6 @@ fn seeds() -> std::ops::Range<u64> {
 struct Run {
     /// Its trace, to compare runs by.
     trace: Vec<String>,
-    /// Fulfills peers refused, as journal rows.
-    refusals: usize,
-    /// What hops lost to refusals.
-    lost: i128,
-    /// The most a peer cost a node at the end, in parts per million of the
-    /// credit the node extends to it.
-    worst_cost_ppm: u64,
-}
-
-/// The nodes each node banned for what they cost (D18).
-fn automatic_bans(sim: &Sim) -> Vec<(usize, NodeId)> {
-    let mut bans = Vec::new();
-    for (index, node) in sim.nodes.iter().enumerate() {
-        let Some(core) = node.core.as_ref() else {
-            continue;
-        };
-        for (banned, record) in core.network().bans {
-            if record.is_some_and(|record| record.reason == BanReason::GraceLimit) {
-                bans.push((index, banned));
-            }
-        }
-    }
-    bans
-}
-
-/// The most any peer cost any node, as a share of its credit.
-fn worst_cost_ppm(sim: &Sim) -> u64 {
-    let mut worst = 0;
-    for node in &sim.nodes {
-        let Some(core) = node.core.as_ref() else {
-            continue;
-        };
-        for peer in core.network().peers {
-            if let Some(cost) = peer.cost {
-                let credit = u128::from(peer.peering.credit_out.max(1));
-                let ppm = u128::from(cost.total()) * 1_000_000 / credit;
-                worst = worst.max(u64::try_from(ppm).unwrap_or(u64::MAX));
-            }
-        }
-    }
-    worst
-}
-
-/// The refusals in every node's journal.
-fn refusals(sim: &Sim) -> usize {
-    let mut count = 0;
-    for node in &sim.nodes {
-        let mut after = None;
-        loop {
-            let page = node.store.transfers_after(after, 1_000, None).unwrap();
-            let Some(last) = page.last() else { break };
-            after = Some(last.sequence);
-            count += page
-                .iter()
-                .filter(|row| {
-                    matches!(row.transfer.reference, dassie_ledger::Reference::Refusal(_))
-                })
-                .count();
-        }
-    }
-    count
 }
 
 /// A run: the network forms, a node crashes and comes back, payments cross
@@ -1153,14 +1086,16 @@ fn run_on(seed: u64, settling: Settling) -> Result<Run, String> {
             return Err(format!("node {ender}'s peering with {peer} did not end"));
         }
         // Each side settled everything its own books say it owed the
-        // other.
+        // other. What a side is still owed is a Fulfill the other never
+        // counted: each books its own (D23).
         let other = (0..count).find(|i| key(*i).node_id() == peer).unwrap();
-        let mine = sim.balances(ender)[&format!("assets/interledger/{peer}")];
-        let theirs = sim.balances(other)[&format!("assets/interledger/{}", key(ender).node_id())];
+        let mine = sim.balances(ender)[&format!("assets/interledger/{peer}")] - CREDIT;
+        let theirs =
+            sim.balances(other)[&format!("assets/interledger/{}", key(ender).node_id())] - CREDIT;
         // Less than the ledger can move stays owed: a drop on the XRP
         // Ledger.
         let unit = if settling == Settling::Xrpl { 1_000 } else { 1 };
-        if (mine - CREDIT).abs() >= unit || (theirs - CREDIT).abs() >= unit {
+        if mine >= unit || theirs >= unit {
             return Err(format!(
                 "nodes {ender} and {other} parted owing: {mine}, {theirs}"
             ));
@@ -1168,9 +1103,6 @@ fn run_on(seed: u64, settling: Settling) -> Result<Run, String> {
     }
     check(&sim)?;
     Ok(Run {
-        refusals: refusals(&sim),
-        lost: (0..count).map(|index| -losses(&sim, index)).sum(),
-        worst_cost_ppm: worst_cost_ppm(&sim),
         trace: std::mem::take(&mut sim.trace),
     })
 }
@@ -1345,12 +1277,6 @@ fn check_owner_books(sim: &Sim) -> Result<(), String> {
                 "node {index}'s payer paid {payer} for {paid} its outgoing payments sent"
             ));
         }
-        if let Some(owed) = sim.nodes[index].store.owed_fulfills().unwrap().first() {
-            return Err(format!(
-                "node {index} still waits for {}'s verdict on {:?}",
-                owed.peer, owed.trace
-            ));
-        }
     }
     Ok(())
 }
@@ -1380,14 +1306,6 @@ fn outgoing_flows(sim: &Sim) -> impl Iterator<Item = Flow> + '_ {
                 .unwrap()
                 .map_or(0, |row| row.received_amount),
         })
-}
-
-/// What a node booked as lost to refusals, as a net credit (so negative).
-fn losses(sim: &Sim, index: usize) -> i128 {
-    sim.balances(index)
-        .get("expenses/losses")
-        .copied()
-        .unwrap_or(0)
 }
 
 /// No honest node owes a peer past its own threshold once the network is
@@ -1498,23 +1416,12 @@ fn check_outgoing(sim: &Sim) -> Result<(), String> {
     Ok(())
 }
 
-/// Each node's books, on their own: they hold what its scheme holds, it
-/// settled what it owed, and it banned no honest peer for what it cost.
-/// The underlying ledgers neither made nor lost money. No check compares
+/// Each node's books, on their own: they hold what its scheme holds, and
+/// it settled what it owed. The underlying ledgers neither made nor lost
+/// money. No check compares
 /// two nodes' books, or adds them up: each keeps its own, and they may
 /// drift (D19).
 fn check_books(sim: &Sim) -> Result<(), String> {
-    if let Some((index, node)) = automatic_bans(sim).first() {
-        let record = sim
-            .core(*index)
-            .network()
-            .bans
-            .into_iter()
-            .find(|(id, _)| id == node);
-        return Err(format!(
-            "node {index} banned {node} for what it cost, in an honest network: {record:?}"
-        ));
-    }
     check_owner_books(sim)?;
     check_settled(sim)?;
     let count = sim.nodes.len();
@@ -1608,28 +1515,11 @@ fn a_seed_replays_the_same_run() {
     assert_eq!(run(2).unwrap().trace, run(2).unwrap().trace);
 }
 
-// The crashes mid-payment are not vacuous: some Fulfills are refused, and
-// some hop books a loss, which the checks then account for.
-#[test]
-fn crashes_mid_payment_bring_refusals_and_losses() {
-    let runs: Vec<Run> = (0..40).map(|seed| run(seed).unwrap()).collect();
-    assert!(
-        runs.iter().any(|run| run.refusals > 0),
-        "no refusal in 40 seeds"
-    );
-    assert!(runs.iter().any(|run| run.lost > 0), "no loss in 40 seeds");
-}
-
 /// Two nodes, peered, and a client of node 0 paying node 1's receiver,
-/// run until node 1 owes node 0 a verdict: it posted a packet and wrote
-/// the Fulfill down, which is on its way.
-fn owing(seed: u64) -> Sim {
-    owing_after(seed, |_| {})
-}
-
-/// As [`owing`], with `before` done to the network once the payment knows
-/// its rate, before any money moves.
-fn owing_after(seed: u64, before: impl FnOnce(&mut Sim)) -> Sim {
+/// run until node 1's receiver took money: it posted a packet, and its
+/// Fulfill is on its way. `before` is done to the network once the
+/// payment knows its rate, before any money moves.
+fn paying(seed: u64, before: impl FnOnce(&mut Sim)) -> Sim {
     let mut sim = Sim::new(seed, 2, 1);
     sim.loss_per_mille = 0;
     sim.run_until(START + 60_000);
@@ -1638,89 +1528,66 @@ fn owing_after(seed: u64, before: impl FnOnce(&mut Sim)) -> Sim {
     let rate = |sim: &Sim| sim.payments[0].connection.exchange_rate().is_some();
     assert!(sim.run_until_or(sim.now + 30_000, rate), "no rate");
     before(&mut sim);
-    let owes = |sim: &Sim| !sim.nodes[1].store.owed_fulfills().unwrap().is_empty();
-    assert!(sim.run_until_or(sim.now + 30_000, owes), "nothing owed");
+    let took = |sim: &Sim| received(sim, &sim.payments[0]) > 0;
+    assert!(sim.run_until_or(sim.now + 30_000, took), "nothing received");
     sim
 }
 
-// D17: the hop crashes once it posted, before the verdict comes back. The
-// upstream took the Fulfill; asked again after the restart, it says so
-// from its record, and nothing is refused.
+// D23: the receiver's node crashes once it posted, before its Fulfill
+// arrives. What it booked stays, and the payment still completes.
 #[test]
-fn a_hop_that_crashes_after_posting_learns_the_verdict() {
-    let mut sim = owing(70);
+fn a_hop_that_crashes_after_posting_keeps_its_books() {
+    let mut sim = paying(70, |_| {});
     sim.crash(1);
     sim.run_until(sim.now + 2_000);
     sim.start(1);
     sim.run_until(sim.now + 120_000);
     check(&sim).unwrap();
-    assert_eq!(refusals(&sim), 0);
 }
 
-// D17: the upstream crashes before the Fulfill reaches it, and forgets the
-// packet. Asked after its restart, it refuses: the receiver's side reverses
-// the packet, and the payment does not count it.
+// D23: the sender's node crashes before the Fulfill reaches it, and
+// forgets the packet. The receiver's node keeps what it booked; each
+// node's books still hold against what its own clients moved.
 #[test]
-fn an_upstream_that_forgot_the_packet_refuses_it() {
-    let mut sim = owing(71);
+fn an_upstream_that_forgot_the_packet_changes_nothing_downstream() {
+    let mut sim = paying(71, |_| {});
+    let before = received(&sim, &sim.payments[0]);
     sim.crash(0);
     sim.run_until(sim.now + 3_000);
     sim.start(0);
     sim.run_until(sim.now + 60_000);
     check_books(&sim).unwrap();
-    assert!(refusals(&sim) > 0);
-    assert_eq!(losses(&sim, 1), 0, "a reversal, not a loss");
+    assert!(received(&sim, &sim.abandoned[0]) >= before);
 }
 
-// D17: the Fulfill gets through only after the upstream's expiry, with no
-// crash at all: the upstream refuses it, and the downstream books what it
-// said.
+// D23: a Fulfill that cannot get through before the upstream's expiry
+// counts in the downstream's books, and not in the upstream's, which
+// expired the packet. Neither is wrong by its own books, and the payment
+// completes.
 #[test]
-fn a_late_fulfill_is_refused_and_the_downstream_books_it() {
-    let mut sim = owing_after(72, |sim| {
+fn a_late_fulfill_counts_downstream_only() {
+    let mut sim = paying(72, |sim| {
         sim.cut.insert((1, 0));
     });
     sim.run_until(sim.now + 40_000);
     sim.cut.clear();
     sim.run_until(sim.now + 120_000);
     check(&sim).unwrap();
-    assert!(refusals(&sim) > 0);
 }
 
-// D17: a peering being ended waits for the verdicts it is owed, which
-// still come once the peers reach each other again.
+// D23: a peering being ended waits only for the packets in flight, not
+// for Fulfills that cannot get through.
 #[test]
-fn a_peering_ends_only_once_its_verdicts_came() {
-    let mut sim = owing_after(73, |sim| {
+fn a_peering_ends_while_its_fulfills_cannot_arrive() {
+    let mut sim = paying(73, |sim| {
         sim.cut.insert((1, 0));
     });
     let peer = key(1).node_id();
     sim.step(0, |core| core.terminate_peering(peer).unwrap());
-    sim.run_until(sim.now + 40_000);
-    assert!(
-        sim.peers(1).contains(&key(0).node_id()),
-        "node 1 ended the peering with verdicts owed"
-    );
-    sim.cut.clear();
     sim.run_until(sim.now + 60_000);
     assert!(sim.peers(1).is_empty() && sim.peers(0).is_empty());
-    check_books(&sim).unwrap();
-}
-
-// D17: verdicts hold up an ending peering for 10 minutes at most; asked
-// for over the settlement channel after, they still come.
-#[test]
-fn a_silent_peer_holds_up_its_end_for_a_while_only() {
-    let mut sim = owing_after(74, |sim| {
-        sim.cut.insert((1, 0));
-    });
-    let peer = key(1).node_id();
-    sim.step(0, |core| core.terminate_peering(peer).unwrap());
-    sim.run_until(sim.now + 12 * 60_000);
-    assert!(sim.peers(1).is_empty(), "the peering never ended");
-    assert!(!sim.nodes[1].store.owed_fulfills().unwrap().is_empty());
     sim.cut.clear();
-    sim.run_until(sim.now + 2 * 60 * 60_000);
+    sim.run_until(sim.now + 60_000);
     check_books(&sim).unwrap();
 }
 
@@ -1832,28 +1699,6 @@ fn outgoing_payments_never_share_credentials() {
     });
 }
 
-// D18: honest peers cost each other only through crashes and late
-// Fulfills, which stay below the default grace limit. A crash of an
-// upstream with packets in flight is what costs most.
-#[test]
-fn honest_peers_stay_below_their_grace_limits() {
-    let mut costs: Vec<u64> = seeds()
-        .map(|seed| run(seed).unwrap_or_else(|problem| panic!("seed {seed}: {problem}")))
-        .map(|run| run.worst_cost_ppm)
-        .collect();
-    costs.sort_unstable();
-    let worst = costs.last().copied().unwrap_or(0);
-    let costly = costs.iter().filter(|cost| **cost > 0).count();
-    eprintln!(
-        "the most a peer cost: {worst} ppm of its credit; {costly} of {} runs cost anything",
-        costs.len()
-    );
-    assert!(
-        worst < u64::from(PeerSettings::DEFAULT.grace_share_ppm),
-        "an honest peer cost {worst} ppm of its credit"
-    );
-}
-
 /// Three nodes where the liar, node 1, reaches node 2 only through node
 /// 0: node 2 bans it before they can peer. Node 1 then lies.
 fn liar_network(seed: u64, lie: Lie) -> Sim {
@@ -1875,109 +1720,37 @@ fn liar_network(seed: u64, lie: Lie) -> Sim {
     sim
 }
 
-/// Whether node 0 banned node 1 for what it cost.
-fn victim_banned_liar(sim: &Sim) -> bool {
-    automatic_bans(sim)
-        .iter()
-        .any(|(index, node)| *index == 0 && *node == key(1).node_id())
-}
-
-/// What node 1 cost node 0, as node 0's ban says.
-fn liar_cost(sim: &Sim) -> dassie_node::store::PeerCost {
-    sim.core(0)
-        .network()
-        .bans
-        .into_iter()
-        .find(|(node, _)| *node == key(1).node_id())
-        .and_then(|(_, record)| record?.cost)
-        .expect("a ban with what the liar cost")
-}
-
-/// What a liar tries to pay: far more than the credit both ways and the
-/// grace limit, so the exposure bound is put to the test.
+/// What a liar tries to pay: far more than the credit both ways, so the
+/// exposure bound is put to the test.
 const LIAR_PAYS: u64 = 10_000_000_000;
 
-/// What node 1 cost node 0 is at most its grace limit and the credit both
-/// ways (D18): its losses to the liar, and what the liar owes it.
-fn check_exposure(sim: &Sim, seed: u64) {
-    let liar = key(1).node_id();
-    let balances = sim.balances(0);
-    let lost = -losses(sim, 0);
-    let position = balances[&format!("assets/interledger/{liar}")];
-    let owes = (CREDIT - position).max(0);
-    let grace = CREDIT * i128::from(PeerSettings::DEFAULT.grace_share_ppm) / 1_000_000;
-    assert!(
-        lost + owes <= grace + 2 * CREDIT,
-        "seed {seed}: the liar cost {lost} lost and {owes} owed, past {grace} + 2 × {CREDIT}"
-    );
+/// What node 1 owes node 0, by node 0's books.
+fn liar_owes(sim: &Sim) -> i128 {
+    let position = sim.balances(0)[&format!("assets/interledger/{}", key(1).node_id())];
+    CREDIT - position
 }
 
-// D18: a peer that takes Fulfills and says it refused them costs the hop
-// that paid on, which bans it once its losses pass the grace limit.
+// D23: a peer that never settles uses the credit it was given, and no
+// more: past it, its packets are refused. It is not banned for it.
 #[test]
-fn a_peer_that_refuses_what_it_took_is_banned() {
-    for seed in 0..20 {
-        let mut sim = liar_network(seed, Lie::RefuseFulfills);
-        sim.pay(1, 2, LIAR_PAYS, None, None);
-        assert!(
-            sim.run_until_or(sim.now + 120_000, victim_banned_liar),
-            "seed {seed}: node 0 never banned the liar; it lost {}",
-            -losses(&sim, 0)
-        );
-        let cost = liar_cost(&sim);
-        assert!(
-            cost.refused > cost.grace && cost.overdue == 0,
-            "seed {seed}: banned for {cost:?}"
-        );
-        // The ban ends the peering, and only the liar's: once the verdicts
-        // it is owed came, or after ten minutes.
-        let ending = sim
-            .core(0)
-            .network()
-            .peers
-            .iter()
-            .any(|peer| peer.id == key(1).node_id() && peer.termination.is_some());
-        assert!(ending, "seed {seed}: the peering is not ending");
-        // It keeps paying on: the bound must hold however long it goes.
-        sim.run_until(sim.now + 12 * 60_000);
-        check_exposure(&sim, seed);
-        assert!(!sim.peers(0).contains(&key(1).node_id()), "seed {seed}");
-        assert!(sim.peers(0).contains(&key(2).node_id()), "seed {seed}");
-    }
-}
-
-// D18: a peer that never settles what it owes is banned once its debt has
-// stayed past 1.1 times half its credit for longer than the grace for
-// settling.
-#[test]
-fn a_peer_that_never_settles_is_banned() {
+fn a_peer_that_never_settles_costs_at_most_its_credit() {
     for seed in 0..20 {
         let mut sim = liar_network(seed, Lie::NeverSettle);
         sim.pay(1, 0, LIAR_PAYS, None, None);
-        // The liar owes past where it should have settled from here on.
-        let due = |sim: &Sim| {
-            let position = sim.balances(0)[&format!("assets/interledger/{}", key(1).node_id())];
-            CREDIT - position > CREDIT * 55 / 100
-        };
-        assert!(sim.run_until_or(sim.now + 120_000, due), "seed {seed}");
-        let due_at = sim.now;
+        let spent = |sim: &Sim| liar_owes(sim) > CREDIT * 9 / 10;
         assert!(
-            sim.run_until_or(sim.now + 10 * 60_000, victim_banned_liar),
-            "seed {seed}: node 0 never banned the liar"
+            sim.run_until_or(sim.now + 120_000, spent),
+            "seed {seed}: it never spent its credit"
         );
-        let grace = Policies::DEV.grace.settle_grace_ms;
+        sim.run_until(sim.now + 10 * 60_000);
+        let owed = liar_owes(&sim);
+        assert!(owed <= CREDIT, "seed {seed}: it owes {owed}");
         assert!(
-            sim.now - due_at >= grace,
-            "seed {seed}: banned before its grace for settling passed"
+            !sim.payments[0].done,
+            "seed {seed}: it paid past its credit"
         );
-        let cost = liar_cost(&sim);
-        assert!(
-            cost.overdue > cost.grace && cost.refused == 0,
-            "seed {seed}: banned for {cost:?}"
-        );
-        sim.run_until(sim.now + 60_000);
-        check_exposure(&sim, seed);
-        assert_eq!(losses(&sim, 0), 0, "seed {seed}");
+        assert!(sim.peers(0).contains(&key(1).node_id()), "seed {seed}");
+        assert!(sim.core(0).network().bans.is_empty(), "seed {seed}");
     }
 }
 
@@ -1987,15 +1760,11 @@ fn a_peer_that_never_settles_is_banned() {
 // of the network loses nothing.
 #[test]
 fn a_peer_that_spends_its_credit_and_vanishes_costs_at_most_that_credit() {
-    let owes = |sim: &Sim| {
-        let position = sim.balances(0)[&format!("assets/interledger/{}", key(1).node_id())];
-        CREDIT - position
-    };
     for seed in 0..20 {
         let mut sim = liar_network(seed, Lie::NeverSettle);
         sim.pay(1, 2, LIAR_PAYS, None, None);
         assert!(
-            sim.run_until_or(sim.now + 120_000, |sim| owes(sim) > CREDIT * 9 / 10),
+            sim.run_until_or(sim.now + 120_000, |sim| liar_owes(sim) > CREDIT * 9 / 10),
             "seed {seed}: it never spent its credit"
         );
         sim.crash(1);
@@ -2004,45 +1773,10 @@ fn a_peer_that_spends_its_credit_and_vanishes_costs_at_most_that_credit() {
             !sim.peers(0).contains(&key(1).node_id()),
             "seed {seed}: node 0 still peers with it"
         );
-        let owed = owes(&sim);
+        let owed = liar_owes(&sim);
         assert!(owed <= CREDIT, "seed {seed}: it left owing {owed}");
-        assert_eq!(losses(&sim, 0), 0, "seed {seed}");
-        assert_eq!(losses(&sim, 2), 0, "seed {seed}");
         assert!(sim.peers(0).contains(&key(2).node_id()), "seed {seed}");
     }
-}
-
-// Found in review: a peer that extends us little credit settles only past
-// half the credit we extend, at 1.1 times half. Owing short of that, it
-// is not overdue, however long it waits.
-#[test]
-fn an_honest_peer_with_little_credit_is_not_overdue() {
-    let mut credits = BTreeMap::new();
-    credits.insert(1, 1);
-    let mut sim = Sim::with_credits(90, 2, 1, credits);
-    sim.loss_per_mille = 0;
-    sim.run_until(START + 60_000);
-    assert!(
-        sim.peers(0).contains(&key(1).node_id()),
-        "the nodes did not peer"
-    );
-    // With credit this uneven, node 0 settled half of it to node 1 as
-    // they peered, so node 1 owes it half (spec 5 §4.6). Node 1 then
-    // pays 0.03 more: it owes more than half of node 0's credit of 1.1,
-    // and less than the 0.605 it settles at, 1.1 × 1.1 / 2.
-    sim.pay(1, 0, 30_000_000, None, None);
-    sim.run_until(sim.now + 10 * Policies::DEV.grace.settle_grace_ms);
-    let peer = sim
-        .core(0)
-        .network()
-        .peers
-        .into_iter()
-        .find(|peer| peer.id == key(1).node_id())
-        .unwrap();
-    let owes = CREDIT - peer.owed.map(|owed| owed + CREDIT).unwrap();
-    assert!(owes > CREDIT / 2, "it owes {owes}");
-    assert_eq!(peer.cost.unwrap().overdue, 0);
-    assert!(automatic_bans(&sim).is_empty());
 }
 
 impl Sim {
@@ -2137,9 +1871,6 @@ fn run_across(seed: u64) -> Result<Run, String> {
     sim.run_until(sim.now + 180_000);
     check_across(&sim)?;
     Ok(Run {
-        refusals: refusals(&sim),
-        lost: 0,
-        worst_cost_ppm: worst_cost_ppm(&sim),
         trace: std::mem::take(&mut sim.trace),
     })
 }
@@ -2191,9 +1922,6 @@ fn check_across(sim: &Sim) -> Result<(), String> {
             ));
         }
     }
-    if let Some((index, node)) = automatic_bans(sim).first() {
-        return Err(format!("node {index} banned {node} in an honest network"));
-    }
     let count = sim.nodes.len();
     check_settled(sim)?;
     for ledger in [USD, XRP] {
@@ -2201,12 +1929,6 @@ fn check_across(sim: &Sim) -> Result<(), String> {
         for index in (0..count).filter(|i| sim.settling.ledgers(*i).contains(&ledger)) {
             nodes += 1;
             schemes -= sim.balances_on(index, ledger)["assets/settlement"];
-            if let Some(owed) = sim.nodes[index].store.owed_fulfills().unwrap().first() {
-                return Err(format!(
-                    "node {index} still waits for {}'s verdict on {:?}",
-                    owed.peer, owed.trace
-                ));
-            }
         }
         let made = match ledger {
             USD => schemes != Settling::deposit(USD) * nodes,
@@ -2249,7 +1971,11 @@ fn an_error_event_fails_the_run() {
     let node = key(1).node_id();
     sim.record(
         0,
-        &dassie_node::engine::PeerEvent::BanListFull { node }.into(),
+        &dassie_node::engine::PeerEvent::NoEndpoint {
+            node,
+            error: "gone".into(),
+        }
+        .into(),
     );
     assert!(check_events(&sim).is_err());
     sim.record(0, &EngineEvent::EventsDropped { count: 1 }.into());

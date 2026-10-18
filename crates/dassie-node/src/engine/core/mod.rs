@@ -12,7 +12,6 @@
 )]
 
 mod events;
-mod grace;
 mod incoming;
 mod invariants;
 mod ledgers;
@@ -23,7 +22,6 @@ mod probes;
 mod schemes;
 mod settlement;
 mod tokens;
-mod verdicts;
 
 #[cfg(test)]
 mod tests;
@@ -40,9 +38,7 @@ use dassie_stream::BUFFER_LENGTH;
 
 pub use events::{
     BtpEvent, EngineEvent, Event, MAX_EVENTS, PaymentEvent, PeerEvent, SettlementEvent, Severity,
-    StoreRead,
 };
-pub use grace::{GracePolicy, Lie};
 pub use incoming::{IncomingPolicy, NewIncoming};
 pub use ledgers::{LedgerView, RemovalBlocker};
 pub use packets::ledger_slug;
@@ -50,6 +46,7 @@ pub use payers::{CreatedOutgoing, NewOutgoing};
 pub use peers::{NetworkView, PeerView};
 pub use probes::{MAX_PROBES, PROBE_TIMEOUT_MS};
 pub use schemes::{LedgerEvent, SCHEMES};
+pub use settlement::Lie;
 pub use tokens::{BtpSession, NewToken, TokenView, token_hash};
 
 use incoming::OpenIncoming;
@@ -60,9 +57,7 @@ use tokens::{BtpLink, TokenState};
 
 use crate::clock::SharedRng;
 use crate::node::Policies;
-use crate::store::{
-    BanRecord, Checkpoint, LedgerBatch, PaymentId, PeerSettings, Store, StoreError,
-};
+use crate::store::{Checkpoint, LedgerBatch, PaymentId, PeerSettings, Store, StoreError};
 use events::Events;
 
 /// Why the engine did not do something.
@@ -292,16 +287,10 @@ pub struct Core {
     /// The ledger's counters when last looked at: pending transfers move
     /// balances without a journal entry.
     ledger_stats: dassie_ledger::Stats,
-    /// The Fulfills owed a verdict (D17).
-    owed: verdicts::Owed,
     /// What sends outgoing payments.
     spending: payers::Spending,
-    /// What peers cost us, against their grace limits (D18).
-    grace: grace::Grace,
     /// The owner's peer settings.
     peer_settings: PeerSettings,
-    /// Why nodes were banned, and when bans were lifted.
-    ban_records: BTreeMap<dassie_identity::NodeId, BanRecord>,
     /// When the invariants are swept.
     sweeps: Sweeps,
     /// What the core reports, until it is handed over.
@@ -329,8 +318,8 @@ impl Sweeps {
 }
 
 /// Most rounds a step's end takes (D16). A round repeats only for what the
-/// one before set going, which is finite: settlements executed, peers
-/// banned, links closed. A few suffice; past this, what is left waits for
+/// one before set going, which is finite: settlements executed, links
+/// closed. A few suffice; past this, what is left waits for
 /// the next step.
 const MAX_FINISH_ROUNDS: usize = 16;
 
@@ -347,9 +336,8 @@ pub(super) const MAX_SENDS_PER_POLL: usize = 256;
 ///
 /// Measured with the tables full (October 2026, optimized): the ledger's
 /// part takes 0.4 ms (4 000 accounts, 25 000 pending), the connector's
-/// 1.3 ms (8 000 packets in flight), and the Fulfills owed 1.5 ms for 8
-/// peers owing 1 024 each, growing with the peers: 13.5 ms for 64. A busy
-/// commit (256 packets) takes 6 ms. Every commit would cost a node at its
+/// 1.3 ms (8 000 packets in flight). A busy commit (256 packets) takes
+/// 6 ms. Every commit would cost a node at its
 /// limits more than the commit; once a second costs it under 1 %, and a
 /// node with small tables microseconds. In the simulations the sweep runs
 /// every step and costs less than their runs vary.
@@ -424,11 +412,8 @@ impl Core {
             settle: Settlements::new(now_ms, &policies),
             changes: Changes::default(),
             ledger_stats: dassie_ledger::Stats::default(),
-            owed: verdicts::Owed::new(now_ms),
             spending: payers::Spending::default(),
-            grace: grace::Grace::new(now_ms, policies.grace, policies.settlement_ratio_ppm),
             peer_settings: PeerSettings::DEFAULT,
-            ban_records: BTreeMap::new(),
             sweeps: Sweeps::DUE,
             events: Events::new(),
         };
@@ -445,16 +430,9 @@ impl Core {
         }
         self.peer_settings = store.peer_settings().map_err(text)?;
         self.connector.set_charges(self.peer_settings.charges());
-        self.ban_records = store
-            .ban_records()
-            .map_err(text)?
-            .into_iter()
-            .map(|record| (record.node, record))
-            .collect();
         self.load_tokens(&store).map_err(text)?;
         self.load_schemes(&store)?;
         self.load_incoming()?;
-        self.load_owed()?;
         self.load_outgoing()?;
         self.update_peer_schemes();
         let peers: Vec<dassie_identity::NodeId> = self.peer.peers().map(|(id, _)| *id).collect();
@@ -526,17 +504,14 @@ impl Core {
             .channels()
             .any(|(_, channel)| channel.final_due.is_some())
             .then_some(self.settle.at_ms);
-        let grace = self.peer.channels().next().map(|_| self.grace.at_ms());
         [
             self.connector.poll_timeout(),
             receiver,
             self.peer.poll_timeout(),
             settlement,
             finals,
-            self.owed.deadline(),
             self.outgoing_deadline(),
             self.probe_deadline(),
-            grace,
             self.schemes_deadline(),
             self.work_left(),
         ]
@@ -569,18 +544,12 @@ impl Core {
         self.expire(self.now_ms);
         self.drain_local(self.now_ms);
         self.pump_outgoing(self.now_ms);
-        self.verdict_timers();
         self.flush();
         // Settlements run once their pending transfers are on disk; what
         // they did is persisted in turn (ACC-16).
         if self.execute_settlements() {
             // Their announcements go out with this step's outputs.
             self.after_peer();
-            return false;
-        }
-        // What peers cost is read from the books on disk; a ban is
-        // persisted in turn (D18).
-        if self.grace_checks() {
             return false;
         }
         self.hand_over(out);
@@ -606,11 +575,10 @@ impl Core {
     }
 
     /// Now, if a step left work for the next: settlements to execute,
-    /// links to close, peers to check, or packets to send.
+    /// links to close, or packets to send.
     fn work_left(&self) -> Option<u64> {
         let left = !self.settle.to_execute.is_empty()
             || !self.closing.is_empty()
-            || self.grace.has_queued()
             || self.spending.sends_left;
         left.then_some(self.now_ms)
     }
@@ -785,14 +753,6 @@ fn check_bounds(policies: &Policies) {
     assert!(
         policies.ledger.max_journal >= 64,
         "a command's journal entries fit the journal"
-    );
-    assert!(
-        verdicts::MAX_OWED_PER_PEER > connector.max_pending_per_peer,
-        "a peer can fill its share of the table without owing too many verdicts"
-    );
-    assert!(
-        policies.peer.max_bans + policies.peer.max_channels <= crate::store::MAX_BAN_RECORDS,
-        "every ban, and every peer that could be banned, has room for its record"
     );
 }
 

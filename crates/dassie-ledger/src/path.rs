@@ -42,8 +42,9 @@ pub enum AccountName {
     ExpensesFees,
     /// The destination side of currency exchange.
     ExpensesFx,
-    /// Money paid on for packets an upstream peer then refused: what a
-    /// hop bears when its Fulfill did not count upstream (D17).
+    /// Money paid on for packets an upstream peer then refused, as nodes
+    /// booked it before each kept its own Fulfills (D17, D23): kept for
+    /// the journals that have it, and in the owner's group.
     ExpensesLosses,
 }
 

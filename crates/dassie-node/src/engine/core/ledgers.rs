@@ -345,11 +345,7 @@ impl Core {
             Some(id) => Reference::Settlement { scheme, id },
             None => self.incoming_reference(scheme),
         };
-        self.post(settlement, interledger, amount, reference)?;
-        if let Ok(node) = dassie_identity::NodeId::parse(peer.as_str()) {
-            self.grace_settled(node);
-        }
-        Ok(())
+        self.post(settlement, interledger, amount, reference)
     }
 
     fn post(

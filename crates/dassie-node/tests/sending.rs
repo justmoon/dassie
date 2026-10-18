@@ -127,9 +127,9 @@ async fn finished(clock: &ManualClock, node: &TestNode, id: &str) -> proto::Outg
 }
 
 /// Moves `clock` on until the incoming payment on `node` that `which`
-/// picks has received `amount`, and returns it. The sender counts a packet
-/// sent on its Fulfill, but the receiver counts it received only on the
-/// verdict of the peer it came from (D17), which may come a moment later.
+/// picks has received `amount`, and returns it. The receiver counts a
+/// packet as it posts it, before its Fulfill goes back, so this returns at
+/// once unless the payment is still sending.
 async fn paid_in(
     clock: &ManualClock,
     node: &TestNode,

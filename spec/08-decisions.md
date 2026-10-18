@@ -202,8 +202,8 @@ Revised on 2026-10-14; it first served SPSP and deferred GNAP, quotes and outgoi
     - Until M7 every ledger has one asset and the connector charges no fees, so a quote is same-asset at a rate of 1 and needs no probe. A receiver in another asset is refused. STREAM rate probing comes with M7's exchange rates; the quote math already takes a rate.
     - **From M7c,** a quote probes the route to its receiver, same asset or not, since intermediaries charge fees: the measured rate less STREAM's 1% slippage, one for one to the node's own receivers. It pays from the ledger the route starts on. The payment sends at no worse than its quote's rate. The owner's Send fixes either the amount the recipient gets or the amount sent; a fixed amount to send goes out whole, and the incoming payment it creates at a wallet address takes any amount.
     - A quote lasts 5 minutes, or less if its receiver expires sooner, and pays one outgoing payment.
-    - An outgoing payment never debits more than its debit amount, across crashes too: its sent amount is what was posted (D17).
-    - It completes once it has sent that, or once its receiver says it has all it asked for, which a hop that lost a packet may have paid for (D17): a completed incoming payment tells a sender what its connection delivered and that no more fits. A connection that closes early is opened again for the rest, up to 8 times, a while later each time.
+    - An outgoing payment never debits more than its debit amount, across crashes too: its sent amount is what was posted.
+    - It completes once it has sent that, or once its receiver says it has all it asked for, which a hop that lost a Fulfill may have paid for (D23): a completed incoming payment tells a sender what its connection delivered and that no more fits. A connection that closes early is opened again for the rest, up to 8 times, a while later each time.
     - **Each payment has a STREAM connection of its own.** Each read of an incoming payment gets credentials of its own, and the receiver tells each connection what it received, so two payments to one incoming payment never take each other's delivery for their own: the one that delivered less fails rather than completes. An outgoing payment never uses credentials another used, as a wallet that gives the same credentials to every read would make them share a connection.
     - Grant limits are reserved in the interval window the payment is created in; a failed payment releases what it did not send.
   - **Client side:**
@@ -344,7 +344,7 @@ Confirmed on 2026-10-12, after the others.
 
 ### D17. The upstream decides whether a Fulfill counted
 
-Decided on 2026-10-14, after M6a.
+Decided on 2026-10-14, after M6a. **Superseded by [D23](#d23-each-node-books-its-own-fulfills)** (2026-10-18): each node books its own Fulfills, and no verdict is asked for. The reply to a Fulfill keeps its body, always `accepted`, for nodes of 0.1.
 
 - **Facts:** each hop books one transfer per packet, pending in memory while the packet is in flight. A Fulfill one side posted may never count on the other, and the downstream then holds the upstream to a debt the upstream never had: an honest upstream would look overdue and be banned ([D18](#d18-one-grace-limit-per-peer)). It happens when:
   - the downstream crashes after posting, before its Fulfill reaches the upstream, which expires the packet;
@@ -369,7 +369,7 @@ Decided on 2026-10-14, after M6a.
 
 ### D18. One grace limit per peer
 
-Decided on 2026-10-14, with D17.
+Decided on 2026-10-14, with D17. **Superseded by [D23](#d23-each-node-books-its-own-fulfills)** (2026-10-18): a peer costs us at most the credit we extend, and only the owner bans.
 
 - **Facts:** a peer can cost us money in several ways: Fulfills it refuses (D17), debt it never settles, settlements it announces that never arrive. The credit we extend caps what it owes us at any moment, not what it takes over time.
 - **Decision:** each peer has **one** grace limit, a share of the credit we extend to it (a setting). Everything a peer cost us in a rolling window counts against the same limit, not a budget per kind:
@@ -395,11 +395,11 @@ Decided on 2026-10-16.
 
 - **Facts:** Dassie is not a consensus system. Each node books what it saw, and two peers' books can drift apart: a crash with packets in flight, a Fulfill that comes late, less than the least unit a ledger can move, or a peer that lies. A node cannot tell these apart, and does not need to.
 - **Decision:** each node keeps its own books and enforces its own limits from them. Agreement between nodes' books is a non-goal.
-  - **What a node decides,** from its own books and limits alone: whether it takes a Prepare, whether it takes a settlement, when it settles and how much, and when it ends a peering or bans a peer ([D18](#d18-one-grace-limit-per-peer)). What a peer says (a verdict, a settlement, the credit it extends) is an input to these decisions, never trusted past the limits.
-  - **Drift and malice are one case.** However a peer behaves, and however far its books are from ours, it costs us at most what our limits allow: its grace limit plus what it has in flight, at most the credit both ways (D18). That bound is the design's safety property, and the simulation holds every adversary it models to it.
-  - **What a node keeps** is its own books, and the protocol state it needs to deliver messages: settlement sequences, the verdicts it is owed, whether a termination was acknowledged. It does not model the peer's books or the peer's decisions, and does not measure, store or show drift. A term a peer announced, such as the credit it extends us, serves only our own choices (when we settle); acting on a stale one costs liquidity, not money.
+  - **What a node decides,** from its own books and limits alone: whether it takes a Prepare, whether it takes a settlement, when it settles and how much, and when it ends a peering. What a peer says (a settlement, the credit it extends) is an input to these decisions, never trusted past the limits.
+  - **Drift and malice are one case.** However a peer behaves, and however far its books are from ours, it costs us at most what our limits allow: the credit we extend, plus what it has in flight ([D23](#d23-each-node-books-its-own-fulfills)). That bound is the design's safety property, and the simulation holds every adversary it models to it.
+  - **What a node keeps** is its own books, and the protocol state it needs to deliver messages: settlement sequences, whether a termination was acknowledged. It does not model the peer's books or the peer's decisions, and does not measure, store or show drift. A term a peer announced, such as the credit it extends us, serves only our own choices (when we settle); acting on a stale one costs liquidity, not money.
   - **What the simulation checks** ([7 §7](07-rewrite.md#7-testing-strategy)) is each node against its own books and against what really happened, and each node's decisions against the liquidity its own books show. No check compares two nodes' books, or adds them up.
-- **D17 and D18 under this rule.** D17's verdict decides who bears a loss, as ILP's rule says; it is not there to make two books agree. It stays because without it an honest upstream would look overdue to its downstream and be banned. D18's overdue point uses only the credit we extend: it no longer works out the peer's own threshold from the credit the peer announced.
+- **D17 and D18 under this rule.** D17's verdict decided who bears a loss, as ILP's rule says, and D18's overdue point used only the credit we extend. [D23](#d23-each-node-books-its-own-fulfills) took the rule further: each node books its own Fulfills, and no grace limit remains.
 - **Rejected:** reconciling peers' books (mirrored balances, a reconciliation message, drift metrics). It adds state and messages for nothing the limits do not already bound, and a liar cannot be made to agree.
 - **Affects:** [7 §1](07-rewrite.md#1-goals-and-non-goals), [7 §4.5](07-rewrite.md#45-settlement-and-ledgers), [7 §7](07-rewrite.md#7-testing-strategy), D17, D18.
 
@@ -413,16 +413,15 @@ Decided on 2026-10-16, with D19.
   - **Starting credit.** The junior extends the senior the default credit line (1.1 units, a setting). The senior extends the junior nothing (a setting, 0 by default). The settlement policy of [7 §4.7](07-rewrite.md#47-peer-protocol-v1) then has the junior pay in advance: with credit C one way and none the other, the middle of the range is C/2, so the junior settles C/2 at once, and can send that much before it owes anything. Payments to it flow at once, within the credit it extends.
   - **Growth.** Each side raises the credit it extends to the other by a share k of what it earned on packets that came in or went out through that peer: its fee, and the spread's gain on a conversion ([D7](#d7-exchange-rates-fees-and-spread)). A packet comes in through one peer and leaves through another, so it counts toward both: k is at most 50%, so that the credit a node hands out never exceeds what it earned. The default is 10%, for a margin. The rule is the same both ways; only the starting points differ.
   - **Measured from the books.** What a peer earned is read from the journal, never kept in counters, and the credit is raised by an explicit trust transfer (Dr `contra/trust/<peer>`, Cr `assets/interledger/<peer>`), as [7 §4.4](07-rewrite.md#44-persistence-what-must-survive-a-restart) has credit change. The owner may cap it.
-  - **Retirement is accepted.** A node that leaves can spend everything its peers trust it with and disappear. Each peer loses at most k of what it earned through that node, and D18 bans the node once its debt is overdue.
+  - **Retirement is accepted.** A node that leaves can spend everything its peers trust it with and disappear. Each peer loses at most k of what it earned through that node.
   - **Announcing.** A peer must know the credit it gets, to settle by it. A new peer message carries the credit the sender extends, as an absolute amount with a sequence, and the receiver keeps the latest. It is sent again until a 200 arrives, when the credit moved by at least 1%, at most once a minute per peer. A lost or stale announcement costs only liquidity: the peer settles earlier than it had to.
-  - **The grace limit** stays a share of the credit we extend ([D18](#d18-one-grace-limit-per-peer)), so it grows with trust.
   - **Fees default to 0** ([D7](#d7-exchange-rates-fees-and-spread)), so trust grows only once an owner charges for passing payments on. Until then a junior keeps settling in advance.
 - **Rejected:**
   - *Growth by the amount forwarded:* at a low fee a node would extend more than it earned, and lose money to every peer that retires.
   - *Growth with time:* time earns nothing.
   - *The same credit both ways at peering* (today): a newcomer gets credit it did not earn from every node it peers with.
 - **When:** M10 ([7 §8](07-rewrite.md#8-milestones)). Until then both sides extend the default credit line.
-- **Affects:** [7 §4.7](07-rewrite.md#47-peer-protocol-v1) (peering, settlement, a new message), D6 (the per-ledger trust line becomes the junior's starting credit), D18.
+- **Affects:** [7 §4.7](07-rewrite.md#47-peer-protocol-v1) (peering, settlement, a new message), D6 (the per-ledger trust line becomes the junior's starting credit).
 
 ### D21. Tooling on Node and pnpm, not Deno
 
@@ -447,10 +446,10 @@ Decided on 2026-10-16.
 
 Decided on 2026-10-17.
 
-- **Facts:** settling is up to the node that owes, so peering needs trust, which credit and the grace limit ([D18](#d18-one-grace-limit-per-peer)) only bound. Some owners would rather trust a few well-known validators once than every peer.
+- **Facts:** settling is up to the node that owes, so peering needs trust, which the credit a node extends only bounds. Some owners would rather trust a few well-known validators once than every peer.
 - **Decision:** add settlement hubs as another way to peer, beside bilateral peering, which stays ([9](09-settlement-hubs.md)):
   - **A hub** is a ledger kept by n = 3f + 1 validators from a default list of acceptable ones, backed by an escrow account on the XRP Ledger that their signer list controls with quorum 2f + 1. Anyone can found one; a node uses a hub only when it accepts all of its validators.
-  - **Holds, not a hub operation per packet.** A payer sets funds aside for each payee, signs a commitment with each Prepare and a cumulative claim with each verdict, and the payee takes from the hold with either. The hub sees settlements and disputes, never the packet path. A commitment expires the hub's margin before its Prepare, and a payer whose packet timed out waits for the hub before it rejects upstream, since its payee may still win a claim ([9 §4](09-settlement-hubs.md#4-peering-over-a-hub)).
+  - **Holds, not a hub operation per packet.** A payer sets funds aside for each payee, signs a commitment with each Prepare and a cumulative claim with its reply to each Fulfill, and the payee takes from the hold with either. The hub sees settlements and disputes, never the packet path. A commitment expires the hub's margin before its Prepare, and a payer whose packet timed out waits for the hub before it rejects upstream, since its payee may still win a claim ([9 §4](09-settlement-hubs.md#4-peering-over-a-hub)).
   - **One ordered log** for every operation, with Simplex, built without IO as D16 asks, and time taken from block timestamps ([9 §10](09-settlement-hubs.md#10-consensus)).
   - **Native multi-signing** for the escrow, each validator signing alone.
   - **Payout even from a stalled hub.** A hub shuts down, through its log, when a validator is gone for a period and not replaced. One that stalls instead, having lost more than f, pays out too: each validator that saw no block become final for a period stops voting for good, passes around the highest certified block it knows, and signs the payout set for the highest it learns of. Every payout set starts with a `SignerListSet` that hands the escrow to keys made for that set alone, which anyone can derive from each validator's public payout key, so the XRP Ledger applies one set and refuses the rest, and sets for different blocks can never be mixed. Each validator signs alone, so a payout completes with signatures collected over time ([9 §9](09-settlement-hubs.md#9-shutdown)).
@@ -466,7 +465,26 @@ Decided on 2026-10-17.
   - *Chaining a payout set's transactions by `AccountTxnID`:* the hash of a multi-signed transaction depends on which signatures were put together, so no validator knows it in advance.
   - *AlephBFT, HotStuff-2 or Jolteon, Mysticeti:* slower, or built for many validators. *Depending on Commonware or Malachite:* async runtimes of their own, or alpha and unaudited; Commonware's Simplex is the reference instead.
 - **When:** M11 ([7 §8](07-rewrite.md#8-milestones)), after real money ([D8](#d8-real-money)).
-- **Affects:** [7 §4.5](07-rewrite.md#45-settlement-and-ledgers) (a `hub` scheme), [7 §4.7](07-rewrite.md#47-peer-protocol-v1) (commitments and claims, a node info extension), [7 §7](07-rewrite.md#7-testing-strategy), D13 (over a hub, a payer holds back its Reject, and the window is wider), D15, D17 (a verdict carries a claim), D18 (the grace limit stays, and counts the hub fees and unpaid refusals a peer caused), D20 (a hold is credit, so no slow start).
+- **Affects:** [7 §4.5](07-rewrite.md#45-settlement-and-ledgers) (a `hub` scheme), [7 §4.7](07-rewrite.md#47-peer-protocol-v1) (commitments and claims, a node info extension), [7 §7](07-rewrite.md#7-testing-strategy), D13 (over a hub, a payer holds back its Reject, and the window is wider), D15, D23 (the reply to a Fulfill carries a claim; what a hub peering can cost beyond its holds is for M11 to bound), D20 (a hold is credit, so no slow start).
+
+### D23. Each node books its own Fulfills
+
+Decided on 2026-10-18, during M10. Supersedes D17's downstream side and D18.
+
+- **Facts:** D20 has a senior extend its junior nothing, so D18's grace limit for a junior fell to its floor, a hundredth of a unit, and the simulation banned honest juniors for the Fulfills that one of their crashes made them refuse. The limit counted two things that need no limit of their own:
+  - **Debt.** A peer can never owe us more than the credit we extend: past it, its packets are refused (T04). Using all of it is what the credit is for.
+  - **Refused Fulfills.** D17 had the downstream book a loss when its upstream refused a Fulfill, so a refusal moved our books toward the peer's. Without that, a refusal changes nothing in our books: it only means the upstream does not see that it owes us more.
+- **Decision:** each node books the Fulfills it sends as final, and only its owner bans.
+  - **A node keeps its own Fulfills.** A downstream posts a Fulfill when it takes it, as before, and keeps it whatever its upstream does with it. A Fulfill goes upstream as a Reject does: again every second until it arrives, or 30 s have passed. No verdict is asked for, none is owed, and a peering being ended waits only for its packets in flight.
+  - **Incoming payments** count what our receiver took as soon as it is posted, and tell their senders that.
+  - **A peer costs us at most the credit we extend,** plus what it has in flight. That bound replaces the grace limit.
+  - **Only the owner bans.** A node no longer bans a peer for what it cost. The bans a node made for a grace limit are lifted when it upgrades, and the owner's grace share goes. Which peers are worth keeping is judged by what they earn us (D20), not by what they lose us.
+  - **The reply to a Fulfill** keeps its one-byte body, always `accepted`. Nodes of 0.1 read it as D17's verdict, so they keep their own books too, and never book a loss or ban for it. A later protocol version drops it.
+- **Accepted:** after a crash, two honest peers' books can drift apart. A node that crashed with Prepares in flight never learns that its downstream paid them, and a Fulfill that arrives after the upstream's expiry counts only downstream. The node that sees its peer owing more than the peer sees can find the peer near its credit, and refuse it (T04), while the peer's own books give it no reason to settle.
+- **Rejected:**
+  - *Keeping D18, with the limit at least a share of the default credit line:* honest juniors would pass, but a limit would remain for losses the credit already bounds.
+  - *A grace limit for refusals alone:* a refusal does not cost us anything our books show.
+- **Affects:** D17, D18, D19, D20, D22, [7 §4.4](07-rewrite.md#44-persistence-what-must-survive-a-restart), [7 §4.5](07-rewrite.md#45-settlement-and-ledgers), [7 §4.7](07-rewrite.md#47-peer-protocol-v1), [7 §7](07-rewrite.md#7-testing-strategy), [9](09-settlement-hubs.md).
 
 ## 4. Gaps by decision
 

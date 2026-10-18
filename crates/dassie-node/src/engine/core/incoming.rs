@@ -13,11 +13,6 @@
 //! journal row, so the payment never shows money the books lack, nor the
 //! other way round.
 //!
-//! A packet that came from a peer counts only once that peer's verdict
-//! says the Fulfill counted there too (D17): until then it waits, still
-//! taking its place against what the payment may receive, and a refusal
-//! frees that place again.
-//!
 //! The owner's payments and clients' are bounded apart, so that clients,
 //! whom anyone can be, never crowd out the owner's own requests. When the
 //! clients' share is full, the oldest of their payments that received
@@ -70,36 +65,19 @@ pub(super) struct OpenIncoming {
     ledger: LedgerId,
     incoming_amount: Option<u64>,
     received: u64,
-    /// What fulfilled packets brought that waits for a peer's verdict.
-    waiting: u64,
-    /// The same, by connection: at most [`MAX_CONNECTIONS_PER_PAYMENT`].
-    connections: BTreeMap<ConnectionKey, Counted>,
+    /// What each connection received: at most
+    /// [`MAX_CONNECTIONS_PER_PAYMENT`] of them.
+    connections: BTreeMap<ConnectionKey, u64>,
     created_at_ms: u64,
     expires_at_ms: u64,
     client: Option<String>,
-}
-
-/// What one connection of an incoming payment brought.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct Counted {
-    received: u64,
-    waiting: u64,
 }
 
 impl OpenIncoming {
     /// What it may still receive. The books keep totals below `i64::MAX`.
     fn remaining(&self) -> u64 {
         let ceiling = self.incoming_amount.unwrap_or(dassie_ledger::MAX_TOTAL);
-        ceiling.saturating_sub(self.received + self.waiting)
-    }
-
-    /// What each connection received.
-    fn received_by_connection(&self) -> BTreeMap<ConnectionKey, u64> {
-        self.connections
-            .iter()
-            .filter(|(_, counted)| counted.received > 0)
-            .map(|(key, counted)| (*key, counted.received))
-            .collect()
+        ceiling.saturating_sub(self.received)
     }
 }
 
@@ -155,7 +133,7 @@ const MAX_FINISHED: usize = 4_096;
 /// Incoming payments completed lately, with what each connection received:
 /// a sender still sending is told what its connection delivered and that
 /// no more fits, rather than refused without a word, so it learns what got
-/// there, which a hop that lost a packet may have paid for (D17).
+/// there, which may be more than it heard of when a Fulfill was lost.
 #[derive(Default)]
 pub(super) struct Finished {
     payments: BTreeMap<PaymentId, (LedgerId, BTreeMap<ConnectionKey, u64>)>,
@@ -180,17 +158,6 @@ impl Finished {
             if let Some(oldest) = self.order.pop_front() {
                 self.payments.remove(&oldest);
             }
-        }
-    }
-
-    /// Adds what a verdict confirmed after the payment closed to what its
-    /// connection received, if the payment is remembered and the
-    /// connection known or there is room for it.
-    fn add(&mut self, id: PaymentId, connection: ConnectionKey, amount: u64) {
-        if let Some((_, received)) = self.payments.get_mut(&id)
-            && (received.contains_key(&connection) || received.len() < MAX_CONNECTIONS_PER_PAYMENT)
-        {
-            *received.entry(connection).or_default() += amount;
         }
     }
 }
@@ -219,9 +186,7 @@ pub(super) fn admission(
             (
                 Admission::Accept {
                     money_limit: payment.remaining(),
-                    // What it counts: not what waits for a peer's verdict,
-                    // which a refusal may take back (D17).
-                    received: counted.map_or(0, |counted| counted.received),
+                    received: counted.copied().unwrap_or(0),
                 },
                 Some((id, key)),
             )
@@ -281,7 +246,7 @@ impl Core {
             if let Some(payment) = self.incoming.get_mut(&id)
                 && payment.connections.len() < MAX_CONNECTIONS_PER_PAYMENT
             {
-                payment.connections.entry(key).or_default().received = received;
+                payment.connections.insert(key, received);
             }
         }
         Ok(())
@@ -399,9 +364,7 @@ impl Core {
             .then(|| {
                 self.incoming
                     .iter()
-                    .filter(|(_, payment)| {
-                        payment.client.is_some() && payment.received == 0 && payment.waiting == 0
-                    })
+                    .filter(|(_, payment)| payment.client.is_some() && payment.received == 0)
                     .min_by_key(|(id, payment)| (payment.created_at_ms, **id))
                     .map(|(id, _)| *id)
             })
@@ -423,7 +386,7 @@ impl Core {
             return;
         };
         self.finished_incoming
-            .remember(id, payment.ledger, payment.received_by_connection());
+            .remember(id, payment.ledger, payment.connections.clone());
         self.batch.incoming_progress.insert(
             id,
             IncomingProgress {
@@ -475,7 +438,7 @@ impl Core {
         }
         if let Some(payment) = self.incoming.remove(&id) {
             self.finished_incoming
-                .remember(id, payment.ledger, payment.received_by_connection());
+                .remember(id, payment.ledger, payment.connections.clone());
         }
         // A clock that went back since it was made must not date its end
         // before its start.
@@ -488,123 +451,6 @@ impl Core {
             },
         );
         Ok(row)
-    }
-
-    /// Counts what a fulfilled packet from a peer brought as waiting for
-    /// the peer's verdict, if the payment is still open.
-    pub(super) fn incoming_waiting(&mut self, paid: IncomingPaid) {
-        if let Some(payment) = self.incoming.get_mut(&paid.payment) {
-            assert!(
-                paid.amount <= payment.remaining(),
-                "a payment took more than it may"
-            );
-            payment.waiting += paid.amount;
-            payment
-                .connections
-                .entry(paid.connection)
-                .or_default()
-                .waiting += paid.amount;
-        }
-    }
-
-    /// The peer's verdict counted what was waiting: it is received. A
-    /// payment closed since, by its client or its expiry, still gets it.
-    pub(super) fn incoming_confirmed(&mut self, paid: IncomingPaid) {
-        let IncomingPaid {
-            payment: id,
-            connection,
-            amount,
-        } = paid;
-        if let Some(payment) = self.incoming.get_mut(&id) {
-            let counted = payment.connections.entry(connection).or_default();
-            assert!(
-                payment.waiting >= amount && counted.waiting >= amount,
-                "confirmed more than waited"
-            );
-            payment.waiting -= amount;
-            counted.waiting -= amount;
-            self.incoming_received(paid);
-            return;
-        }
-        self.finished_incoming.add(id, connection, amount);
-        let row = match self.batch.incoming_progress.get(&id) {
-            Some(progress) => Ok(Some((progress.received_amount, progress.completed_at_ms))),
-            None => self
-                .store
-                .incoming_payment(id)
-                .map(|row| row.map(|row| (row.received_amount, row.completed_at_ms))),
-        };
-        let (received, completed_at_ms) = match row {
-            Ok(Some(row)) => row,
-            // Payments that received nothing are pruned a week after they
-            // close; a verdict may come later than that.
-            Ok(None) => {
-                self.report(PaymentEvent::ConfirmedPaymentGone { id });
-                return;
-            }
-            Err(error) => {
-                let error = error.to_string();
-                self.report(PaymentEvent::ConfirmedPaymentUnread { id, error });
-                return;
-            }
-        };
-        // What it received is on the receiver's account, which never
-        // holds more than `MAX_TOTAL`.
-        let received = received
-            .checked_add(amount)
-            .filter(|&total| total <= dassie_ledger::MAX_TOTAL);
-        assert!(
-            received.is_some(),
-            "a payment received more than the books hold"
-        );
-        self.batch.incoming_progress.insert(
-            id,
-            IncomingProgress {
-                received_amount: received.unwrap_or_default(),
-                completed_at_ms,
-            },
-        );
-    }
-
-    /// The peer refused: what was waiting is free to arrive again. The
-    /// STREAM connection that took it counted it, and would tell its sender
-    /// more arrived than did: it is closed, and the sender starts anew.
-    pub(super) fn incoming_released(&mut self, paid: IncomingPaid) {
-        let IncomingPaid {
-            payment: id,
-            connection,
-            amount,
-        } = paid;
-        let Some(payment) = self.incoming.get_mut(&id) else {
-            return;
-        };
-        let counted = payment.connections.entry(connection).or_default();
-        assert!(
-            payment.waiting >= amount && counted.waiting >= amount,
-            "released more than waited"
-        );
-        payment.waiting -= amount;
-        counted.waiting -= amount;
-        if *counted == Counted::default() {
-            // It frees its place for another connection.
-            payment.connections.remove(&connection);
-        }
-        let at = dassie_ilp::Timestamp::from_unix_ms(self.now_ms);
-        let Some(receiver) = self.receivers.get_mut(&payment.ledger) else {
-            return;
-        };
-        let tag = connection_tag(id, connection);
-        let tagged: Vec<dassie_stream::ConnectionId> = receiver
-            .server
-            .connections()
-            .map(|(connection, _)| connection)
-            .filter(|connection| receiver.server.connection_tag(*connection) == Some(&tag[..]))
-            .collect();
-        for connection in tagged {
-            if let Some(connection) = receiver.server.connection_mut(connection) {
-                connection.close(at, dassie_stream::ErrorCode::NO_ERROR);
-            }
-        }
     }
 
     /// Adds what a fulfilled packet brought to its payment and its
@@ -627,18 +473,18 @@ impl Core {
         );
         payment.received += amount;
         let counted = payment.connections.entry(connection).or_default();
-        counted.received += amount;
+        *counted += amount;
         self.batch
             .incoming_connections
-            .insert((id, connection), counted.received);
-        let complete = payment.incoming_amount == Some(payment.received) && payment.waiting == 0;
+            .insert((id, connection), *counted);
+        let complete = payment.incoming_amount == Some(payment.received);
         let progress = IncomingProgress {
             received_amount: payment.received,
             completed_at_ms: complete.then_some(now.max(payment.created_at_ms)),
         };
         if complete {
             let ledger = payment.ledger;
-            let received = payment.received_by_connection();
+            let received = payment.connections.clone();
             self.incoming.remove(&id);
             self.finished_incoming.remember(id, ledger, received);
             self.report(PaymentEvent::IncomingCompleted { id });
@@ -654,18 +500,12 @@ impl Core {
                 && self.open_count(false) <= policy.max_open_clients,
             "too many open incoming payments"
         );
-        let waiting = self.owed.waiting();
-        for (id, payment) in &self.incoming {
+        for payment in self.incoming.values() {
             assert!(
                 payment
                     .incoming_amount
-                    .is_none_or(|amount| payment.received + payment.waiting <= amount),
+                    .is_none_or(|amount| payment.received <= amount),
                 "a payment took more than it may"
-            );
-            assert_eq!(
-                payment.waiting,
-                waiting.get(id).copied().unwrap_or_default(),
-                "what a payment waits for is what peers owe verdicts on"
             );
             assert!(
                 payment.incoming_amount != Some(payment.received),
@@ -675,17 +515,11 @@ impl Core {
                 payment.connections.len() <= MAX_CONNECTIONS_PER_PAYMENT,
                 "a payment has too many connections"
             );
-            let (received, waiting) =
-                payment
-                    .connections
-                    .values()
-                    .fold((0u64, 0u64), |(received, waiting), counted| {
-                        (received + counted.received, waiting + counted.waiting)
-                    });
+            let received: u64 = payment.connections.values().sum();
             // What connections received before a restart may be counted by
             // the payment alone, if their rows were not all read back.
             assert!(
-                received <= payment.received && waiting == payment.waiting,
+                received <= payment.received,
                 "a payment's connections do not add up"
             );
         }
@@ -697,7 +531,6 @@ fn open_of(row: &IncomingRow) -> OpenIncoming {
         ledger: row.ledger,
         incoming_amount: row.incoming_amount,
         received: row.received_amount,
-        waiting: 0,
         connections: BTreeMap::new(),
         created_at_ms: row.created_at_ms,
         expires_at_ms: row.expires_at_ms,

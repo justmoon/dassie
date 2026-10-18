@@ -1,6 +1,6 @@
 # 9. Settlement hubs
 
-Peering rests on trust today. Settling is up to the node that owes, so a peer can always walk away with what it owes, and the credit a node extends and its grace limit ([D18](08-decisions.md#d18-one-grace-limit-per-peer)) bound the loss. A **settlement hub** is another way to peer, for nodes that choose it: a small ledger kept by a few validators and backed by an escrow on an underlying ledger such as the XRP Ledger. Two nodes that peer over a hub cannot walk away with what they owe each other: what one owes the other can be taken from funds the hub holds, without the debtor's help.
+Peering rests on trust today. Settling is up to the node that owes, so a peer can always walk away with what it owes, and the credit a node extends bounds the loss ([D23](08-decisions.md#d23-each-node-books-its-own-fulfills)). A **settlement hub** is another way to peer, for nodes that choose it: a small ledger kept by a few validators and backed by an escrow on an underlying ledger such as the XRP Ledger. Two nodes that peer over a hub cannot walk away with what they owe each other: what one owes the other can be taken from funds the hub holds, without the debtor's help.
 
 A hub moves trust, it does not remove it. Instead of trusting each peer up to its credit, a node trusts one set of validators with the balance it keeps in the hub. That set is known in advance, its members are chosen for their reputation, and one relationship covers every peer in the hub.
 
@@ -89,24 +89,24 @@ Two members peer with the hub as their settlement scheme. Each direction has its
 
 - With every Prepare it sends B, A sends a **commitment**: its signature over the hub ID, the hold, a sequence (increasing per hold), the amount, the condition and an expiry: the Prepare's own expiry less the hub's margin M (below).
 - B forwards the packet at once, as long as the packets in flight and what it has not yet taken from the hold fit in the hold. The hub is not involved.
-- When the Fulfill comes back, A's verdict ([D17](08-decisions.md#d17-the-upstream-decides-whether-a-fulfill-counted)) carries a **claim**: A's signature over the hold, the total T it owes B on the hold, and the sequence W up to which T covers every fulfilled packet. B accepts a claim only when T is right by its own record of what it fulfilled.
+- When the Fulfill comes back, A's reply to it ([D23](08-decisions.md#d23-each-node-books-its-own-fulfills)) carries a **claim**: A's signature over the hold, the total T it owes B on the hold, and the sequence W up to which T covers every fulfilled packet. B accepts a claim only when T is right by its own record of what it fulfilled.
 
 **Taking from the hold.**
 
 - `redeem (T, W)` pays B what the claim adds, less anything B already took with `claim` for packets up to W. W only grows, and T only grows.
-- `claim` is for when A's claim does not come. B submits commitments above the last redeemed W together with their fulfillments; the hub checks that each fulfillment hashes to the commitment's condition and that the block is stamped before the commitment's expiry, then pays the amounts. Each hold remembers the sequences claimed this way until a `redeem` passes them, so nothing is paid twice. The table belongs to the hold, not the hub, and has room for at least as many as the verdicts B lets A owe (1024), so other members cannot fill it to make B's claims fail. Only a commitment's own expiry decides: once it passed, the packet can no longer be claimed, as in ILP.
+- `claim` is for when A's claim does not come. B submits commitments above the last redeemed W together with their fulfillments; the hub checks that each fulfillment hashes to the commitment's condition and that the block is stamped before the commitment's expiry, then pays the amounts. Each hold remembers the sequences claimed this way until a `redeem` passes them, so nothing is paid twice. The table belongs to the hold, not the hub, and has room for at least as many as the claims B lets A leave missing (1024), so other members cannot fill it to make B's claims fail. Only a commitment's own expiry decides: once it passed, the packet can no longer be claimed, as in ILP.
 - B redeems often enough that what it has not taken stays a small part of the hold, much as a node settles today at 1.1 times the middle of its range ([7 §4.7](07-rewrite.md#47-peer-protocol-v1)). Every redeem costs a fee, so B does not redeem after each packet.
 
 **Why A is safe.** B is paid only for what A signed: a claim, or a commitment with its fulfillment in a block stamped before the commitment's expiry.
 
 - **A learns every claim.** The validators send A the receipt of each `claim` on its holds, so A learns the fulfillment and fulfills upstream.
-- **The hub overrules a verdict.** When A refused B's Fulfill ([D17](08-decisions.md#d17-the-upstream-decides-whether-a-fulfill-counted)), for being late say, and B then wins a claim for the packet, A's books follow the hub: the packet counts as fulfilled, and A answers a resend of the Fulfill with `accepted`. M11b specifies this with the verdict.
+- **The hub overrules A's books.** When A did not take B's Fulfill, for being late say, and B then wins a claim for the packet, A's books follow the hub: the packet counts as fulfilled. M11b specifies this with the claim.
 - **A does not reject early.** When its outgoing packet times out at its expiry E, A does not reject upstream at once, as [D13](08-decisions.md#d13-connector-timing-and-packet-limits) has a node do: B may still win a claim stamped before the commitment's expiry. A waits for a final block stamped at or after that expiry. Blocks become final in order and their stamps only grow, so that block settles it: if no claim for the packet came before it, A rejects; if one did, A fulfills. A peering over a hub is the one exception to D13's timeout. B does not have to cheat for this to matter: its Fulfill only has to reach A after E.
 - **The margin M** is the hub's timestamp precision plus the longest it takes to finalize a block with f validators faulty: f views skipped, each after its timeout, then a block. The rules state it. The commitment expires M before the Prepare, so the block that settles a packet is normally final by E.
 - **The window.** After E, A still needs the receipt or the final block from a validator, and its Fulfill or Reject must then reach its upstream before the upstream's own expiry. B, on its side, needs time after its downstream answers to get a claim to the validators before the commitment's expiry. These legs cross the open network between members, not the hub's region. So a peering over a hub uses a wider window than the 1 s of [4 §4.3](04-interledger.md): M plus those legs. A node works it out from the hub's rules and the delays it measures, and does not peer over a hub whose window it cannot afford.
-- **Outside the fault model,** with more than f faulty validators or a network slower than the rules assume, A can still learn of a claim too late to fulfill upstream. That loss counts against B's grace limit (§13).
+- **Outside the fault model,** with more than f faulty validators or a network slower than the rules assume, A can still learn of a claim too late to fulfill upstream. That loss is at most what A had in flight to B (§13).
 
-**Why B is safe.** B never forwards more than the hold covers. A hold cannot shrink before its notice period, which the rules make longer than any packet can be held (30 s, D13), so B learns of a reduction before it matters, and accepts no Prepare that expires after the hold would shrink. If A stops sending claims, B claims on the hub before each commitment's expiry, which may take most of the window, so B submits a claim as soon as a verdict is late, and stops taking Prepares from A when too many verdicts are owed (1024, as today).
+**Why B is safe.** B never forwards more than the hold covers. A hold cannot shrink before its notice period, which the rules make longer than any packet can be held (30 s, D13), so B learns of a reduction before it matters, and accepts no Prepare that expires after the hold would shrink. If A stops sending claims, B claims on the hub before each commitment's expiry, which may take most of the window, so B submits a claim as soon as a claim from A is late, and stops taking Prepares from A when too many are missing (1024).
 
 **Liquidity.** A's funds are set aside up to the size of its holds, not only for the seconds a packet is in flight. A hold only has to cover what is in flight plus what B has not yet taken, and resizing it is one operation. What B redeems lands in its own balance, from which it funds its holds toward other peers, so the same escrowed funds serve many peerings.
 
@@ -119,7 +119,7 @@ A node joins a hub in one of two ways.
 - **By deposit** (§6): a deposit with destination tag 0 and the new account's public key as its memo creates the account.
 - **By being paid.** A peers with B over a hub, and B has no account yet. Who trusts whom at first follows [D20](08-decisions.md#d20-trust-follows-what-a-peer-earned-us):
   - **A asked to peer,** so B extends it nothing. A submits `pay` before it sends any packet, which creates B's account with the key B gave in the peering and pays it the hub's minimum for a new account. From then on the peering works as in §4.
-  - **B asked to peer,** so B extends A its starting credit: A sends packets on it, which D18 bounds, and submits `pay` once it owes B the hub's minimum.
+  - **B asked to peer,** so B extends A its starting credit: A sends packets on it, which that credit bounds, and submits `pay` once it owes B the hub's minimum.
 
 A new account must set its disbursal address before the hub accepts any other operation from it. Without one, its funds at shutdown stay in the escrow (§9).
 
@@ -243,11 +243,10 @@ Two sets can therefore never be mixed, which would pay out more than the escrow 
 
 - **A new crate, `dassie-hub`:** the ledger, its rules and operations, Simplex, the payout set, and their wire types, all without IO. Validators are Dassie nodes that run it.
 - **A new settlement scheme, `hub`,** in the node's registry of schemes ([7 §4.5](07-rewrite.md#45-settlement-and-ledgers)): a member's side of a hub, which peers, opens and funds holds, signs commitments and claims, redeems and claims, deposits and withdraws.
-- **The peer protocol** gains the commitment on a Prepare and the claim in a Fulfill's verdict, for peerings over a hub.
+- **The peer protocol** gains the commitment on a Prepare and the claim in the reply to a Fulfill, for peerings over a hub.
 - **Credit.** A hold is the credit its payee extends, so a peer over a hub needs no slow start ([D20](08-decisions.md#d20-trust-follows-what-a-peer-earned-us)).
-- **The grace limit stays** ([D18](08-decisions.md#d18-one-grace-limit-per-peer)). A peering over a hub can still cost money, and what one peer cost counts against its one limit:
-  - the hub fees of every `claim` that its missing, late or refused verdicts made us submit: the 1024 owed at once bound the verdicts, not the fees over time, and a payer could route through us to itself to make us pay them for ever;
-  - packets it refused that the hub did not pay;
+- **What a peering over a hub can still cost**, beyond its holds, is for M11 to bound, as no grace limit remains ([D23](08-decisions.md#d23-each-node-books-its-own-fulfills)):
+  - the hub fees of every `claim` that its missing or late claims made us submit: the 1024 missing at once bound the claims, not the fees over time, and a payer could route through us to itself to make us pay them for ever;
   - packets we paid on the hub but learned of too late to fulfill upstream (§4);
   - what it owed before its account existed (§5).
 - **The simulation** runs validators as nodes with the fake XRP Ledger ([7 §7](07-rewrite.md#7-testing-strategy)), with:

@@ -5,22 +5,19 @@
  */
 
 import type { JSX } from "@solidjs/web";
-import { createMemo, For, Show } from "solid-js";
+import { For, Show } from "solid-js";
 import { Amount, ledgerCurrency } from "@dassie/ui/amount";
-import { shortId } from "@dassie/ui/format";
 import { useNodeData } from "@dassie/ui/node-data";
 import { Link } from "@dassie/ui/router";
 import { useWalletAddresses } from "./payments/WalletAddresses.tsx";
 import { Card, LiveNote, PageTitle } from "@dassie/ui/ui";
 import { schemeName } from "./schemes.ts";
-import { banText, recentAutomaticBans } from "./network/grace.ts";
 
 export function Account(): JSX.Element {
   const data = useNodeData();
   return (
     <div class="page-wide stack">
       <PageTitle>Dashboard</PageTitle>
-      <RecentBans />
       <PaymentPointer />
       <Card title="Balance" testid="page-account">
         <LiveNote status={data.ledgersStatus()} />
@@ -72,33 +69,6 @@ export function Account(): JSX.Element {
         </div>
       </Card>
     </div>
-  );
-}
-
-/** Peers the node banned lately for what they cost (D18): the owner is
- * told, and can look. */
-function RecentBans(): JSX.Element {
-  const data = useNodeData();
-  const bans = createMemo(() =>
-    recentAutomaticBans(Object.values(data.nodes.byId), Date.now())
-  );
-  return (
-    <Show when={bans().length > 0}>
-      <Card title="Peers Banned" testid="recent-bans">
-        <ul>
-          <For each={bans()}>
-            {(node) => (
-              <li>
-                <Link href={`/network/${node.id}`}>
-                  {node.alias || shortId(node.id, 20)}
-                </Link>
-                : {banText(node.ban!)}
-              </li>
-            )}
-          </For>
-        </ul>
-      </Card>
-    </Show>
   );
 }
 

@@ -56,7 +56,8 @@ message Transfer {
     // "trust", "deposit", "withdrawal" or "reconciliation".
     string other = 12;
     // The packet whose Fulfill the upstream peer refused: this row
-    // reverses it or books the loss (D17).
+    // reverses it or books the loss, as nodes did before each kept its
+    // own Fulfills (D17, D23).
     TraceId refusal = 14;
     // "<scheme>:<transaction>": the fee the underlying ledger charged for
     // one of this node's transactions.

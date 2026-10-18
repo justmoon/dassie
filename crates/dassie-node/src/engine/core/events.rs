@@ -6,12 +6,12 @@ use std::collections::VecDeque;
 
 use dassie_connector::{EndpointId, SpendingCap};
 use dassie_identity::NodeId;
-use dassie_ledger::{LedgerId, Name, Reference, TraceId, TransferError};
+use dassie_ledger::{LedgerId, Name, Reference, TransferError};
 use dassie_peer::SendError;
 use dassie_settlement::{LedgerStatus, SchemeError};
 
 use super::EngineError;
-use crate::store::{Compensation, OutgoingState, PaymentId};
+use crate::store::{OutgoingState, PaymentId};
 
 /// Most events kept between two hand-overs: a step's worth, with room for
 /// a peer's whole node table arriving at once. Past it, the oldest go, and
@@ -68,17 +68,6 @@ pub enum EngineEvent {
     RoundsLeft,
 }
 
-/// What the core read from its database and could not.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum StoreRead {
-    /// Whether a Fulfill was taken from a peer.
-    FulfillTaken,
-    /// A Fulfill owed a verdict.
-    FulfillOwed,
-    /// What a peer refused.
-    PeerLosses,
-}
-
 /// Peers, as the core deals with them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PeerEvent {
@@ -95,49 +84,6 @@ pub enum PeerEvent {
         source: EndpointId,
         /// The request ID.
         request_id: u32,
-    },
-    /// A read from the database failed.
-    StoreReadFailed {
-        /// What was read.
-        what: StoreRead,
-        /// Why it failed.
-        error: String,
-    },
-    /// A Fulfill got no verdict for 29 days: booked as refused (D17).
-    VerdictOverdue {
-        /// The peer.
-        peer: NodeId,
-        /// The packet.
-        trace: TraceId,
-    },
-    /// A peer refused a Fulfill we sent it: compensated (D17).
-    FulfillRefused {
-        /// The peer.
-        peer: NodeId,
-        /// What it did not take.
-        amount: u64,
-        /// The packet.
-        trace: TraceId,
-        /// How it was booked.
-        compensation: Compensation,
-    },
-    /// A peer cost more than its grace limit, and is banned (D18).
-    Banned {
-        /// The peer.
-        node: NodeId,
-        /// The ledger it cost us on.
-        ledger: LedgerId,
-        /// What it refused of ours.
-        refused: u64,
-        /// What it owes us and is overdue.
-        overdue: u64,
-        /// Its grace limit.
-        grace: u64,
-    },
-    /// The ban list is full: a peering ends without a ban.
-    BanListFull {
-        /// The peer.
-        node: NodeId,
     },
 }
 
@@ -199,18 +145,6 @@ pub enum PaymentEvent {
     IncomingCompleted {
         /// Its ID.
         id: PaymentId,
-    },
-    /// A verdict confirmed money for a payment pruned since.
-    ConfirmedPaymentGone {
-        /// Its ID.
-        id: PaymentId,
-    },
-    /// A verdict confirmed money for a payment that could not be read.
-    ConfirmedPaymentUnread {
-        /// Its ID.
-        id: PaymentId,
-        /// Why.
-        error: String,
     },
     /// A receiver's STREAM connection closed.
     StreamClosed {
@@ -418,11 +352,7 @@ impl Event {
             Self::PeerNode(event) => peer_node_severity(event),
             Self::Peer(event) => match event {
                 PeerEvent::DuplicateRequest { .. } => Severity::Debug,
-                PeerEvent::FulfillRefused { .. } | PeerEvent::Banned { .. } => Severity::Warn,
-                PeerEvent::NoEndpoint { .. }
-                | PeerEvent::StoreReadFailed { .. }
-                | PeerEvent::VerdictOverdue { .. }
-                | PeerEvent::BanListFull { .. } => Severity::Error,
+                PeerEvent::NoEndpoint { .. } => Severity::Error,
             },
             Self::Btp(event) => match event {
                 BtpEvent::TokenCreated { .. }
@@ -451,9 +381,7 @@ const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
         | Event::PacketFailed { .. }
         | Event::PeeringFailed { .. }
         | Event::Advertised { .. }
-        | Event::SettlementDelivered { .. }
-        | Event::Verdict { .. }
-        | Event::VerdictMissing { .. } => Severity::Debug,
+        | Event::SettlementDelivered { .. } => Severity::Debug,
     }
 }
 
@@ -468,10 +396,7 @@ const fn payment_severity(event: &PaymentEvent) -> Severity {
         PaymentEvent::OutgoingCreated { .. } | PaymentEvent::OutgoingFinished { .. } => {
             Severity::Info
         }
-        PaymentEvent::IncomingOverBounds { .. } | PaymentEvent::ConfirmedPaymentGone { .. } => {
-            Severity::Warn
-        }
-        PaymentEvent::ConfirmedPaymentUnread { .. } => Severity::Error,
+        PaymentEvent::IncomingOverBounds { .. } => Severity::Warn,
     }
 }
 

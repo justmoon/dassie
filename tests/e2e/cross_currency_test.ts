@@ -144,7 +144,6 @@ test("cross-currency pays across assets, and reconciles across restarts", {
     await scenario.until("funded", () => ready(scenario), 120_000);
     await d2.rpc.call("setPeerSettings", {
       settings: {
-        graceSharePpm: 750_000,
         connectorFeePpm: FEE_PPM,
         fxSpreadPpm: SPREAD_PPM,
       },
@@ -193,8 +192,8 @@ test("cross-currency pays across assets, and reconciles across restarts", {
     }, 240_000);
     const { payments } = await d1.rpc.call("listOutgoingPayments", {});
     const sent = payments.find((entry) => entry.id === payment.id)!;
-    // d1 counts a packet sent on its Fulfill, d3 counts it received only
-    // on d2's verdict (D17), a moment later.
+    // d3 counted each packet received as it posted it, before its Fulfill
+    // went back (D23).
     const arrived = async () => {
       const { payments: received } = await d3.rpc.call(
         "listIncomingPayments",

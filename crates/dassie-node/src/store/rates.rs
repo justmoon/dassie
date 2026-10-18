@@ -202,10 +202,10 @@ mod tests {
         assert_eq!(store.display_currency().unwrap(), None);
     }
 
-    // Migration 12 keeps what was owed, with no third transfer, and starts
-    // with no fee and the three sources.
+    // Migration 12 takes a Fulfill owed without a third transfer, which
+    // migration 15 lets go, and starts with no fee and the three sources.
     #[test]
-    fn migration_12_keeps_what_was_owed() {
+    fn migration_12_starts_with_no_fee_and_the_sources() {
         let temp = tempfile::tempdir().unwrap();
         let mut connection =
             Connection::open(temp.path().join(super::super::DATABASE_FILE)).unwrap();
@@ -225,16 +225,6 @@ mod tests {
             .unwrap();
         drop(connection);
         let store = Store::open(temp.path()).unwrap();
-        let owed = store.owed_fulfills().unwrap();
-        assert_eq!(owed.len(), 1);
-        assert_eq!(
-            owed[0].transfers,
-            [
-                Some((dassie_ledger::AccountId(0), dassie_ledger::AccountId(1), 5)),
-                None,
-                None
-            ]
-        );
         let settings = store.peer_settings().unwrap();
         assert_eq!((settings.connector_fee_ppm, settings.fx_spread_ppm), (0, 0));
         assert_eq!(store.rate_sources().unwrap(), RateSource::defaults());
