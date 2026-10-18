@@ -12,7 +12,7 @@ use dassie_ledger::{
     AccountName, AccountPath, LedgerId, Name, Reference, TransferId, TransferSpec,
 };
 use dassie_peer::wire::SchemeId;
-use dassie_settlement::policy;
+use dassie_settlement::{LedgerStatus, policy};
 
 use super::events::SettlementEvent;
 use super::{Core, EngineError};
@@ -130,6 +130,11 @@ impl Core {
     /// and otherwise at most once per [`Settlements::request_every_ms`],
     /// for a peer that does not answer. Only our own books decide; the peer
     /// decides how much (D23).
+    ///
+    /// A peer is asked only while our scheme sees its ledger. An honest
+    /// peer settles only when asked, so none of its settlements reaches the
+    /// ledger before our scheme first synced, which books what the account
+    /// held by then as the owner's deposit.
     fn ask_peers(&mut self) {
         let now = self.now_ms;
         let every = self.settle.request_every_ms;
@@ -142,6 +147,14 @@ impl Core {
             .asked
             .retain(|node, _| peers.iter().any(|(peer, _)| peer == node));
         for (node, scheme) in peers {
+            let synced = Name::new(scheme.as_str()).ok().is_some_and(|name| {
+                self.schemes
+                    .get(&name)
+                    .is_some_and(|active| active.scheme.status() == LedgerStatus::Synced)
+            });
+            if !synced {
+                continue;
+            }
             let due = self
                 .settle
                 .asked

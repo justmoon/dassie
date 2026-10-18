@@ -252,6 +252,8 @@ struct Sim {
     trace: Vec<String>,
     /// What the nodes reported as errors, or the events they lost.
     errors: Vec<String>,
+    /// Nodes whose connection to the ledger carries nothing.
+    ledger_down: BTreeSet<usize>,
 }
 
 // Every run, whatever it checks besides, ends without an error event: a
@@ -304,6 +306,7 @@ impl Sim {
             next_close: START + LEDGER_CLOSE_MS,
             trace: Vec::new(),
             errors: Vec::new(),
+            ledger_down: BTreeSet::new(),
         };
         for _ in 0..count {
             sim.nodes.push(SimNode {
@@ -498,6 +501,9 @@ impl Sim {
                 let Some(link) = self.links.get(&index).filter(|link| link.epoch == epoch) else {
                     return;
                 };
+                if self.ledger_down.contains(&index) {
+                    return;
+                }
                 let connection = link.connection;
                 // A request may be lost; the scheme hears nothing, and
                 // connects anew.
@@ -965,6 +971,13 @@ impl Sim {
                 (name.to_string(), account.balance().net_credit())
             })
             .collect()
+    }
+
+    /// What node `index` owes `peer` net, by its own books: its position
+    /// less the credit it extends.
+    fn owes(&self, index: usize, peer: &NodeId) -> i128 {
+        let balances = self.balances(index);
+        balances[&format!("assets/interledger/{peer}")] + balances[&format!("contra/trust/{peer}")]
     }
 
     /// Each account's net credit on `ledger`, by name.
@@ -1957,6 +1970,44 @@ fn simulated_networks_pay_across_currencies() {
             Err(_) => panic!("seed {seed} panicked"),
         }
     }
+}
+
+// Review of #118: a node asks no peer to settle while its scheme cannot see
+// its ledger. An honest peer settles only when asked, so its settlement
+// never reaches the ledger before the scheme first synced, which would
+// book it as the owner's deposit. Once the ledger is back, the node asks,
+// and books what the peer pays as its settlement.
+#[test]
+fn a_node_asks_no_one_to_settle_before_it_sees_its_ledger() {
+    let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::Xrpl);
+    sim.loss_per_mille = 0;
+    sim.ledger_down.insert(0);
+    sim.run_until(START + 60_000);
+    let (zero, one) = (key(0).node_id(), key(1).node_id());
+    assert!(sim.peers(0).contains(&one), "the nodes did not peer");
+    // Node 1 pays node 0 more than the credit node 0 extends to it.
+    sim.pay(1, 0, 3_000_000_000, None, None);
+    sim.run_until(sim.now + 60_000);
+    let owes = -sim.owes(0, &one);
+    assert!(owes > CREDIT * 9 / 10, "node 1 owes node 0 only {owes}");
+    let settled = |sim: &Sim| {
+        sim.core(1)
+            .network()
+            .channels
+            .iter()
+            .find(|(node, _)| *node == zero)
+            .map_or(0, |(_, channel)| channel.settled_out)
+    };
+    assert_eq!(
+        settled(&sim),
+        0,
+        "node 1 settled before node 0 could see it"
+    );
+    sim.ledger_down.clear();
+    sim.run_until(sim.now + 180_000);
+    assert!(settled(&sim) > 0, "node 1 never settled");
+    assert!(sim.payments[0].done, "the payment did not finish");
+    check(&sim).unwrap();
 }
 
 // A run that reports an error fails, whatever else it checks.
