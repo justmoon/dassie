@@ -128,16 +128,17 @@ fn peer_packets_book_against_its_credit() {
     );
 }
 
-// D24: money in flight with a peer stays within three of the largest
-// packets each way, whatever the credit: a crash loses the Fulfills of what
-// was in flight, so this is how far it makes two peers' books drift apart.
+// D24: money in flight with a peer stays within three and a half of the
+// largest packets each way, whatever the credit: a crash loses the Fulfills
+// of what was in flight, so this is how far it makes two peers' books drift
+// apart. Three of the largest fit, and the half left takes smaller ones.
 #[test]
 fn money_in_flight_with_a_peer_is_capped() {
     let mut harness = harness();
     set(&mut harness, &[("test.das.dfar", &[TWO])]);
     let max = Config::DEFAULT.max_packet_amount;
     let mut ids = Vec::new();
-    // From a peer: three of the largest packets, then T05.
+    // From a peer: three of the largest packets, but not a fourth.
     for request_id in 0..3 {
         let packet = prepare(&format!("{OWN}.alice"), max, NOW + 20_000, [4; 32]);
         let Outcome::Forward(forwarded) = harness.prepare(NOW, ONE, request_id, &packet) else {
@@ -145,9 +146,24 @@ fn money_in_flight_with_a_peer_is_capped() {
         };
         ids.push(forwarded.request_id);
     }
-    let packet = prepare(&format!("{OWN}.alice"), 1, NOW + 20_000, [4; 32]);
+    let packet = prepare(&format!("{OWN}.alice"), max, NOW + 20_000, [4; 32]);
     let outcome = harness.prepare(NOW, ONE, 3, &packet);
     assert_eq!(rejected(&harness, outcome), ErrorCode::T05_RATE_LIMITED);
+    // The half packet left takes the first volley of a quote's probes, which
+    // need only one of them answered; past it, T05 again.
+    for (request_id, amount) in [(10, 1), (11, 1_000), (12, 1_000_000)] {
+        let probe = prepare(&format!("{OWN}.alice"), amount, NOW + 20_000, [6; 32]);
+        assert_eq!(
+            forwarded_to(harness.prepare(NOW, ONE, request_id, &probe)),
+            BTP
+        );
+    }
+    let rest = max / 2 - 1_001_001;
+    let probe = prepare(&format!("{OWN}.alice"), rest + 1, NOW + 20_000, [6; 32]);
+    let outcome = harness.prepare(NOW, ONE, 13, &probe);
+    assert_eq!(rejected(&harness, outcome), ErrorCode::T05_RATE_LIMITED);
+    let probe = prepare(&format!("{OWN}.alice"), rest, NOW + 20_000, [6; 32]);
+    assert_eq!(forwarded_to(harness.prepare(NOW, ONE, 14, &probe)), BTP);
     // Packets without money still pass, and so does money to another peer.
     let empty = prepare(&format!("{OWN}.alice"), 0, NOW + 20_000, [4; 32]);
     assert_eq!(forwarded_to(harness.prepare(NOW, ONE, 4, &empty)), BTP);
@@ -169,7 +185,7 @@ fn money_in_flight_with_a_peer_is_capped() {
             TWO
         );
     }
-    let onward = prepare("test.das.dfar", 1, NOW + 20_000, [5; 32]);
+    let onward = prepare("test.das.dfar", max, NOW + 20_000, [5; 32]);
     let outcome = harness.prepare(NOW, BTP, 4, &onward);
     assert_eq!(rejected(&harness, outcome), ErrorCode::T05_RATE_LIMITED);
     // Expired packets leave nothing in flight.

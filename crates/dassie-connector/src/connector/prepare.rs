@@ -260,8 +260,10 @@ impl Connector {
     /// Whether the money in flight with each peer the packet passes stays
     /// within [`Config::max_in_flight`] each way, or T05 (D24). A crash
     /// loses the Fulfills of what was in flight, so this bounds how far
-    /// a crash makes two peers' books drift apart. A packet always passes
-    /// alone, even one a conversion made larger than the limit.
+    /// a crash makes two peers' books drift apart. Half a packet of it
+    /// stays free for smaller packets while a payment fills the link. A
+    /// packet always passes alone, even one a conversion made larger than
+    /// the limit.
     fn admits_in_flight(
         &self,
         source: EndpointId,
