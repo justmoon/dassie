@@ -1,6 +1,6 @@
 [package]
 name = "dassie-xrpl"
-version = "0.1.2"
+version = "0.1.3"
 description = "The XRP Ledger for Dassie: wallets, the Payment codec, the rippled API and the testnet settlement scheme, sans-IO; and a fake ledger for tests"
 edition.workspace = true
 rust-version.workspace = true
