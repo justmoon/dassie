@@ -384,6 +384,7 @@
       "does": [
         "Endpoints: BTP clients, the local STREAM receiver, ILDCP",
         "Peers and the route table",
+        "A cap on money in flight with each peer, which bounds what a crash loses",
         "Exchange between currencies, with fees and a spread",
         "A spending cap per BTP token",
         "A packet trace for the debug pages"

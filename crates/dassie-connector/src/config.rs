@@ -30,13 +30,21 @@ pub struct Config {
     /// The longest the next hop gets (`MAXIMUM_HOLD_TIME`).
     pub max_hold_ms: u64,
     /// The largest incoming amount, in the source ledger's units; more gets
-    /// F08. Per ledger in a later milestone (D6).
+    /// F08. Per ledger in a later milestone (D6). It also sets how much
+    /// money may be in flight with a peer: [`IN_FLIGHT_PACKETS`] of it.
     pub max_packet_amount: u64,
     /// Rates older than this refuse cross-currency packets with T00 (D7).
     pub max_rate_age_ms: u64,
     /// Most accounts with a spending cap.
     pub max_caps: usize,
 }
+
+/// How much money may be in flight with one peer each way, in packets of
+/// [`Config::max_packet_amount`] (D24). A crash loses the Fulfills of
+/// what was in flight, and that is how far two peers' books drift apart
+/// for it. Both numbers say how much the owner is prepared to lose on a
+/// link, so one follows from the other.
+pub const IN_FLIGHT_PACKETS: u64 = 3;
 
 impl Config {
     /// The production values: 0.1 units per packet at scale 9, packets held
@@ -84,6 +92,12 @@ impl Config {
         } else {
             self.max_pending_per_endpoint
         }
+    }
+
+    /// The most money in flight with one peer each way (D24).
+    #[must_use]
+    pub const fn max_in_flight(&self) -> u64 {
+        self.max_packet_amount.saturating_mul(IN_FLIGHT_PACKETS)
     }
 
     /// The pending transfers the ledger must have room for: up to three

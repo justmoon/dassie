@@ -103,6 +103,9 @@ pub(crate) struct Pending {
     /// transfers are still settled by it.
     pub source_gone: bool,
     pub condition: [u8; 32],
+    /// What it carries in from its source, and out to its destination.
+    pub amount_in: u64,
+    pub amount_out: u64,
     /// The outgoing packet's expiry.
     pub expires_at_ms: u64,
     pub transfers: PacketTransfers,
@@ -218,6 +221,8 @@ impl Connector {
             ledger,
             next_request_id: 0,
             pending_from: 0,
+            money_from: 0,
+            money_to: 0,
             draining: false,
         };
         self.endpoints.insert(id, endpoint, own)
@@ -253,6 +258,8 @@ impl Connector {
             ledger,
             next_request_id: first_request_id,
             pending_from: 0,
+            money_from: 0,
+            money_to: 0,
             draining: false,
         };
         self.endpoints.insert(id, endpoint, own)

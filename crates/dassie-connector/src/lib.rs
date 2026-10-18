@@ -45,7 +45,7 @@ mod trace;
 
 pub use cap::{CapError, CapUsage, CapView, SpendingCap, replay};
 pub use charges::Charges;
-pub use config::Config;
+pub use config::{Config, IN_FLIGHT_PACKETS};
 pub use connector::{
     Connector, Forwarded, MAX_ROUTE_OPTIONS, Outcome, Posted, Responded, RoutesError, Stats,
     Upstream,

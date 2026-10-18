@@ -72,6 +72,10 @@ pub(crate) struct Endpoint {
     pub next_request_id: u32,
     /// Packets from it in flight.
     pub pending_from: usize,
+    /// If a peer, the money its packets in flight carry to us (D24).
+    pub money_from: u64,
+    /// If a peer, the money our packets in flight carry to it.
+    pub money_to: u64,
     /// It takes no new Prepares, either way: its peering is ending.
     pub draining: bool,
 }

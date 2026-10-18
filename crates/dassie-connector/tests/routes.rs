@@ -15,7 +15,7 @@ mod support;
 use dassie_connector::{Config, EndpointId, Outcome, Responded, RoutesError};
 use dassie_ilp::{ErrorCode, Fulfill, Response, ildcp};
 use dassie_oer::{Decode, Encode};
-use support::{Harness, NOW, OWN, decode_prepare, prepare};
+use support::{Harness, NOW, OWN, decode_prepare, fulfill, prepare};
 
 const BTP: EndpointId = EndpointId::Btp(1);
 const ONE: EndpointId = EndpointId::Peer(1);
@@ -107,11 +107,17 @@ fn peer_packets_book_against_its_credit() {
     let mut harness = harness();
     let three = EndpointId::Peer(3);
     harness.add_peer(3, "dthree", TRUST, 0);
+    // Each fulfilled before the next, as only a few may be in flight.
     for request_id in 0..11 {
         let packet = prepare(&format!("{OWN}.alice"), 100_000_000, NOW + 20_000, [4; 32]);
-        assert_eq!(
-            forwarded_to(harness.prepare(NOW, three, request_id, &packet)),
-            BTP
+        let Outcome::Forward(forwarded) = harness.prepare(NOW, three, request_id, &packet) else {
+            panic!("not forwarded")
+        };
+        assert_eq!(forwarded.to, BTP);
+        assert!(
+            harness
+                .respond(NOW, BTP, forwarded.request_id, &fulfill([4; 32]))
+                .is_some()
         );
     }
     let packet = prepare(&format!("{OWN}.alice"), 100_000_000, NOW + 20_000, [4; 32]);
@@ -119,6 +125,59 @@ fn peer_packets_book_against_its_credit() {
     assert_eq!(
         rejected(&harness, outcome),
         ErrorCode::T04_INSUFFICIENT_LIQUIDITY
+    );
+}
+
+// D24: money in flight with a peer stays within three of the largest
+// packets each way, whatever the credit: a crash loses the Fulfills of what
+// was in flight, so this is how far it makes two peers' books drift apart.
+#[test]
+fn money_in_flight_with_a_peer_is_capped() {
+    let mut harness = harness();
+    set(&mut harness, &[("test.das.dfar", &[TWO])]);
+    let max = Config::DEFAULT.max_packet_amount;
+    let mut ids = Vec::new();
+    // From a peer: three of the largest packets, then T05.
+    for request_id in 0..3 {
+        let packet = prepare(&format!("{OWN}.alice"), max, NOW + 20_000, [4; 32]);
+        let Outcome::Forward(forwarded) = harness.prepare(NOW, ONE, request_id, &packet) else {
+            panic!("not forwarded")
+        };
+        ids.push(forwarded.request_id);
+    }
+    let packet = prepare(&format!("{OWN}.alice"), 1, NOW + 20_000, [4; 32]);
+    let outcome = harness.prepare(NOW, ONE, 3, &packet);
+    assert_eq!(rejected(&harness, outcome), ErrorCode::T05_RATE_LIMITED);
+    // Packets without money still pass, and so does money to another peer.
+    let empty = prepare(&format!("{OWN}.alice"), 0, NOW + 20_000, [4; 32]);
+    assert_eq!(forwarded_to(harness.prepare(NOW, ONE, 4, &empty)), BTP);
+    let onward = prepare("test.das.dfar", max, NOW + 20_000, [5; 32]);
+    assert_eq!(forwarded_to(harness.prepare(NOW, BTP, 1, &onward)), TWO);
+    // A packet resolved makes room again.
+    assert!(
+        harness
+            .respond(NOW, BTP, ids[0], &fulfill([4; 32]))
+            .is_some()
+    );
+    assert_eq!(forwarded_to(harness.prepare(NOW, ONE, 5, &packet)), BTP);
+
+    // To a peer: the same, counted on what goes out.
+    for request_id in 2..4 {
+        let onward = prepare("test.das.dfar", max, NOW + 20_000, [5; 32]);
+        assert_eq!(
+            forwarded_to(harness.prepare(NOW, BTP, request_id, &onward)),
+            TWO
+        );
+    }
+    let onward = prepare("test.das.dfar", 1, NOW + 20_000, [5; 32]);
+    let outcome = harness.prepare(NOW, BTP, 4, &onward);
+    assert_eq!(rejected(&harness, outcome), ErrorCode::T05_RATE_LIMITED);
+    // Expired packets leave nothing in flight.
+    while harness.timeout(NOW + 20_000).is_some() {}
+    let onward = prepare("test.das.dfar", max, NOW + 40_000, [5; 32]);
+    assert_eq!(
+        forwarded_to(harness.prepare(NOW + 20_000, BTP, 5, &onward)),
+        TWO
     );
 }
 
