@@ -1,6 +1,6 @@
 [package]
 name = "dassie-ledger"
-version = "0.1.2"
+version = "0.1.3"
 description = "Dassie's internal double-entry ledger and its transfer journal, as a sans-IO state machine"
 edition.workspace = true
 rust-version.workspace = true

@@ -1159,6 +1159,17 @@
   ],
   "releases": [
     {
+      "version": "0.1.3",
+      "date": "2026-10-17",
+      "changes": [
+        "The wallet's Network page draws the routing table, and lists peers that have gone offline apart from those still heard from.",
+        "A grant may limit what it debits or what it delivers, not both, as Open Payments asks; the wallet says which.",
+        "STREAM backs off once for a burst of rejected packets, so a payment that runs out of credit resumes in moments instead of tens of seconds.",
+        "The daily updater runs in a systemd sandbox, and the node's unit is tighter.",
+        "Hardening: another wallet's URL can no longer reach private addresses through an IPv6 literal, a bootstrap key of the wrong length is refused instead of stopping the node, far-apart exchange rates no longer stop the rate task, and every payment ID has one spelling."
+      ]
+    },
+    {
       "version": "0.1.2",
       "date": "2026-10-16",
       "changes": [

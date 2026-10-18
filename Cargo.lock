@@ -421,7 +421,7 @@ dependencies = [
 
 [[package]]
 name = "dassie-cli"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "bytes",
  "cliclack",
@@ -446,7 +446,7 @@ dependencies = [
 
 [[package]]
 name = "dassie-connector"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "dassie-ilp",
  "dassie-ledger",
@@ -458,7 +458,7 @@ dependencies = [
 
 [[package]]
 name = "dassie-identity"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "curve25519-dalek",
  "dassie-oer",
@@ -478,7 +478,7 @@ dependencies = [
 
 [[package]]
 name = "dassie-ilp"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "dassie-oer",
  "proptest",
@@ -489,14 +489,14 @@ dependencies = [
 
 [[package]]
 name = "dassie-ledger"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "proptest",
 ]
 
 [[package]]
 name = "dassie-node"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -549,7 +549,7 @@ dependencies = [
 
 [[package]]
 name = "dassie-node-core"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "dassie-identity",
  "dassie-node-core",
@@ -561,7 +561,7 @@ dependencies = [
 
 [[package]]
 name = "dassie-oer"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "proptest",
  "serde_json",
@@ -569,7 +569,7 @@ dependencies = [
 
 [[package]]
 name = "dassie-payments"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
@@ -582,7 +582,7 @@ dependencies = [
 
 [[package]]
 name = "dassie-peer"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "dassie-identity",
  "dassie-node-core",
@@ -598,7 +598,7 @@ dependencies = [
 
 [[package]]
 name = "dassie-release"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "base64 0.22.1",
  "blake2",
@@ -609,7 +609,7 @@ dependencies = [
 
 [[package]]
 name = "dassie-settlement"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "dassie-ledger",
  "dassie-node-core",
@@ -619,7 +619,7 @@ dependencies = [
 
 [[package]]
 name = "dassie-stream"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "aes-gcm",
  "dassie-ilp",
@@ -636,7 +636,7 @@ dependencies = [
 
 [[package]]
 name = "dassie-xrpl"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "dassie-identity",
  "dassie-ledger",
