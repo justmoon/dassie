@@ -133,7 +133,7 @@ function assertMirrored(accounts: Map<string, bigint>) {
 /**
  * Whether settling has gone quiet: no settlement on its way anywhere, no
  * node's books showing a peer at its ask point (its room for the peer at
- * half the credit it extends, D23), and every pair's books mirrored.
+ * a tenth of the credit it extends, D23), and every pair's books mirrored.
  */
 async function quiet(scenario: Scenario): Promise<boolean> {
   for (const node of scenario.nodes) {
@@ -141,7 +141,7 @@ async function quiet(scenario: Scenario): Promise<boolean> {
     if (channels.some((channel) => channel.sending)) return false;
     const { peers } = await node.rpc.call("listPeers", {});
     if (
-      peers.some((peer) => 2n * (peer.creditOut + peer.owed) <= peer.creditOut)
+      peers.some((peer) => 10n * (peer.creditOut + peer.owed) <= peer.creditOut)
     ) {
       return false;
     }

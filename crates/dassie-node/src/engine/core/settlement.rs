@@ -1,6 +1,6 @@
 //! Settling with peers (D23, spec 7 §4.7): a node asks a peer to settle
-//! once its room for the peer falls to half the credit it extends, and
-//! settles half its own position when a peer asks it. A settlement is
+//! once the peer is close to the credit it extends, and settles half the
+//! way to its own trigger when a peer asks it. A settlement is
 //! prepared, booked as a durable pending transfer, executed once that is on
 //! disk, and announced to the peer once it executed. Incoming settlements
 //! are booked before the scheme sees them.
@@ -125,11 +125,10 @@ impl Core {
         self.announce_deferred();
     }
 
-    /// Asks each peer whose room has fallen to half the credit we extend to
-    /// settle: again at the next check once our books show a settlement
-    /// from it, and
-    /// otherwise at most once per [`Settlements::request_every_ms`], for a
-    /// peer that does not answer. Only our own books decide; the peer
+    /// Asks each peer that is close to the credit we extend to settle:
+    /// again at the next check once our books show a settlement from it,
+    /// and otherwise at most once per [`Settlements::request_every_ms`],
+    /// for a peer that does not answer. Only our own books decide; the peer
     /// decides how much (D23).
     fn ask_peers(&mut self) {
         let now = self.now_ms;
@@ -158,9 +157,9 @@ impl Core {
         self.after_peer();
     }
 
-    /// A peer asks us to settle on `scheme`: we settle half our position
-    /// with it, short of our own ask point, unless a settlement to it is on
-    /// its way already, which is the answer (D23).
+    /// A peer asks us to settle on `scheme`: we settle half the way to our
+    /// own trigger for it, unless a settlement to it is on its way already,
+    /// which is the answer (D23).
     pub(super) fn settlement_requested(&mut self, node: NodeId, scheme: SchemeId) {
         if self.settle.never_settles || !self.can_settle(&node) {
             return;
