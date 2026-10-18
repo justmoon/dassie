@@ -28,11 +28,6 @@ import { Scenario, type ScenarioNode } from "@dassie/dev/scenario";
 const PAYMENT = 5_000_000_000n;
 /** What a node extends to each peer: 1.1 USD (spec 5 §2.7). */
 const CREDIT = 1_100_000_000n;
-/**
- * A node settles once it owes a peer this much net: a tenth of the credit
- * above the middle (spec 5 §4.6).
- */
-const THRESHOLD = CREDIT / 10n;
 const DEPOSIT = 100_000_000_000n;
 
 const missing = await missingScenarioTools();
@@ -137,14 +132,19 @@ function assertMirrored(accounts: Map<string, bigint>) {
 
 /**
  * Whether settling has gone quiet: no settlement on its way anywhere, no
- * one owing a peer past the threshold, and every pair's books mirrored.
+ * node's books showing a peer at its ask point (its room for the peer at
+ * half the credit it extends, D23), and every pair's books mirrored.
  */
 async function quiet(scenario: Scenario): Promise<boolean> {
   for (const node of scenario.nodes) {
     const { channels } = await node.rpc.call("listSettlementChannels", {});
     if (channels.some((channel) => channel.sending)) return false;
     const { peers } = await node.rpc.call("listPeers", {});
-    if (peers.some((peer) => peer.owed >= THRESHOLD)) return false;
+    if (
+      peers.some((peer) => 2n * (peer.creditOut + peer.owed) <= peer.creditOut)
+    ) {
+      return false;
+    }
   }
   return mirrored(await peerAccounts(scenario));
 }
