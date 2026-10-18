@@ -126,7 +126,8 @@ impl Core {
     }
 
     /// Asks each peer whose room has fallen to half the credit we extend to
-    /// settle: again at the next check once a settlement from it came, and
+    /// settle: again at the next check once our books show a settlement
+    /// from it, and
     /// otherwise at most once per [`Settlements::request_every_ms`], for a
     /// peer that does not answer. Only our own books decide; the peer
     /// decides how much (D23).

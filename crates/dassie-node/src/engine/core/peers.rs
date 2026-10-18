@@ -357,9 +357,6 @@ impl Core {
         match self.incoming_settlement(from, scheme, amount, data) {
             Ok(()) => {
                 self.peer.settlement_applied(self.now_ms, &from, sequence);
-                // It answered: it may be asked again at the next check
-                // (D23).
-                self.settle.asked.remove(&from);
                 reply
             }
             Err(error) => {

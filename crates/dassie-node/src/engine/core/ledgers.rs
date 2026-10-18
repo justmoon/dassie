@@ -345,7 +345,15 @@ impl Core {
             Some(id) => Reference::Settlement { scheme, id },
             None => self.incoming_reference(scheme),
         };
-        self.post(settlement, interledger, amount, reference)
+        self.post(settlement, interledger, amount, reference)?;
+        // It answered, and our books show it: it may be asked again at the
+        // next check (D23). Not on its message alone, which on a ledger
+        // like the XRP Ledger books nothing: asked again before our books
+        // moved, an honest peer would pay twice.
+        if let Ok(node) = dassie_identity::NodeId::parse(peer.as_str()) {
+            self.settle.asked.remove(&node);
+        }
+        Ok(())
     }
 
     fn post(
