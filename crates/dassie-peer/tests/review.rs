@@ -15,7 +15,7 @@ use dassie_peer::wire::{
     ResponseEnvelope, SchemeId, SignedNodeInfo, encode_envelope, sign_node_info,
 };
 use dassie_peer::{Config, OwnInfo, PeerBatch, PeerNode, Stored};
-use support::{CREDIT, Network, START, key, url};
+use support::{Network, START, key, url};
 
 fn settle(network: &mut Network, ms: u64) {
     let until = network.now + ms;
@@ -205,14 +205,14 @@ fn a_repeated_peering_request_keeps_the_peering() {
         answer,
         PeeringResponse::Accepted {
             version: 1,
-            credit: CREDIT,
+            credit: 0,
             data: &[],
         }
     );
     let after = network.node(0).peering_of(&node1).unwrap();
     assert_eq!(
-        (after.credit_in, after.inbound),
-        (before.credit_in, before.inbound)
+        (after.credit_out, after.inbound),
+        (before.credit_out, before.inbound)
     );
 }
 

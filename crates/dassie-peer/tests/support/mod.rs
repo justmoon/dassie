@@ -42,10 +42,6 @@ impl PeeringHooks for StubHooks {
         if scheme.as_str() == "stub" { &[1] } else { &[] }
     }
 
-    fn credit(&self, _: NodeId, _: SchemeId) -> u64 {
-        CREDIT
-    }
-
     fn peering_info(&mut self, scheme: SchemeId, _: &mut Vec<u8>) -> Result<(), Declined> {
         if scheme.as_str() == "stub" {
             Ok(())
@@ -70,7 +66,6 @@ impl PeeringHooks for StubHooks {
         _: NodeId,
         _: SchemeId,
         _: u16,
-        _: u64,
         _: &[u8],
         _: &mut Vec<u8>,
     ) -> Result<Agreed, RefusalReason> {
@@ -86,7 +81,6 @@ impl PeeringHooks for StubHooks {
         _: NodeId,
         _: SchemeId,
         _: u16,
-        _: u64,
         _: &[u8],
         _: &[u8],
     ) -> Result<Agreed, Declined> {
@@ -200,6 +194,8 @@ pub struct Network {
     pub packets: Vec<(usize, NodeId, u32)>,
     /// Settlements applied.
     pub applied: Vec<Applied>,
+    /// Settlement requests taken: by which node, from whom.
+    pub settlement_requests: Vec<(usize, NodeId)>,
     /// Settlements sent: by which node, to whom, how much, with which
     /// sequence.
     pub settled: Vec<(usize, NodeId, u64, u64)>,
@@ -240,6 +236,7 @@ impl Network {
             events: Vec::new(),
             packets: Vec::new(),
             applied: Vec::new(),
+            settlement_requests: Vec::new(),
             settled: Vec::new(),
             settle_on_end: false,
             tamper: None,
@@ -602,6 +599,14 @@ impl Network {
                 Some(reply)
             }
             Inbound::SchemeMessage { reply, .. } => Some(reply),
+            Inbound::SettlementRequest {
+                from: sender,
+                reply,
+                ..
+            } => {
+                self.settlement_requests.push((to, sender));
+                Some(reply)
+            }
         };
         self.drain(to);
         if let Some(reply) = reply {
@@ -727,7 +732,8 @@ impl Network {
         let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, body, None) {
             Inbound::Reply(reply)
             | Inbound::Packet { reply, .. }
-            | Inbound::SchemeMessage { reply, .. } => reply,
+            | Inbound::SchemeMessage { reply, .. }
+            | Inbound::SettlementRequest { reply, .. } => reply,
             Inbound::Settlement {
                 from,
                 sequence,

@@ -9,6 +9,7 @@ use super::{PeerNode, Problem, Purpose, SendError};
 use crate::auth::Accepted;
 use crate::channel::{Channel, Outgoing, Retry};
 use crate::io::{Event, Inbound, Reply};
+use crate::table::Entry;
 use crate::table::backoff;
 use crate::wire::{Content, SchemeId};
 
@@ -291,6 +292,36 @@ impl PeerNode {
             self.channels_dirty.insert(*node);
             self.stats.settlements_applied += 1;
         }
+    }
+
+    /// Asks `peer` to settle on `scheme`, once: the node asks again later
+    /// if it still has to (D23). The peer decides how much.
+    ///
+    /// # Errors
+    ///
+    /// The node is not a peer, or too much is in flight.
+    pub fn request_settlement(
+        &mut self,
+        now_ms: u64,
+        peer: &NodeId,
+        scheme: SchemeId,
+    ) -> Result<(), SendError> {
+        self.advance(now_ms);
+        if self
+            .table
+            .get(peer)
+            .and_then(Entry::active_peering)
+            .is_none()
+        {
+            return Err(SendError::NotPeered);
+        }
+        let content = Content::SettlementRequest { scheme };
+        let timeout = self.config.request_timeout_ms;
+        self.send(*peer, &content, Purpose::Gossip, timeout)
+            .map(|_| ())
+            .ok_or(SendError::Busy)?;
+        self.stats.settlements_requested += 1;
+        Ok(())
     }
 
     /// Sends a scheme's message to a peer, once: schemes do not depend on

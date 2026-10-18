@@ -500,3 +500,33 @@ fn a_fulfill_is_accepted_before_and_after_the_end() {
     let body = sender.request(&network, 0, &prepare);
     assert_eq!(network.inbound(0, &body).status, 409);
 }
+
+// D23: a node asks a peer to settle, naming only the scheme; the peer
+// takes it on that scheme while peered, and refuses it on another, or
+// once the peering ended.
+#[test]
+fn a_settlement_request_reaches_the_peer_only() {
+    let (mut network, a, b) = peered(50);
+    network.act(1, |node, now| {
+        node.request_settlement(now, &a, stub()).unwrap();
+    });
+    settle(&mut network, 1_000);
+    assert_eq!(network.settlement_requests, [(0, b)]);
+    assert_eq!(network.node(1).stats().settlements_requested, 1);
+    let mut sender = Sender::new(&key(1));
+    let other = Content::SettlementRequest {
+        scheme: SchemeId::parse("other").unwrap(),
+    };
+    let body = sender.request(&network, 0, &other);
+    assert_eq!(network.inbound(0, &body).status, 409);
+    network.act(0, |node, now| {
+        assert!(node.terminate(now, &b, TerminationReason::Owner));
+    });
+    settle(&mut network, 10_000);
+    network.act(1, |node, now| {
+        assert!(node.request_settlement(now, &a, stub()).is_err());
+    });
+    let request = Content::SettlementRequest { scheme: stub() };
+    let body = sender.request(&network, 0, &request);
+    assert_eq!(network.inbound(0, &body).status, 409);
+}

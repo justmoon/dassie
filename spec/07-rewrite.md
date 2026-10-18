@@ -408,11 +408,11 @@ peeringRequest [0] SEQUENCE {
   nodeInfo             OCTET STRING CONTAINING SignedPeerNodeInfo,
   settlementSchemeData OCTET STRING,
   versions             SEQUENCE (SIZE(1..16)) OF UINT16,   -- the scheme versions the sender supports (NET-26)
-  credit               UINT64 }                            -- credit the sender extends, in the scheme ledger's units (ACC-24)
+  credit               UINT64 }                            -- sent as 0 and ignored: a node keeps the credit it extends to itself ([D23](08-decisions.md#d23-each-node-books-its-own-fulfills))
 
 -- response body
 PeeringResponse ::= CHOICE {
-  accepted [0] SEQUENCE { version UINT16, credit UINT64, data OCTET STRING },
+  accepted [0] SEQUENCE { version UINT16, credit UINT64, data OCTET STRING },   -- credit as in the request
   refused  [1] SEQUENCE { reason UINT8 } }
   -- 0 unspecified, 1 unknown node, 2 unsupported scheme, 3 no common version, 4 capacity,
   -- 5 concurrent request, 6 refused by the scheme, 7 unreachable, 8 banned,
@@ -433,6 +433,10 @@ peeringTermination [10] SEQUENCE { reason UINT8 }
   -- 0 unspecified, 1 by the owner, 2 unresponsive, 3 not peered (the sender holds no peering
   -- with the recipient); unknown values read as 0
 -- both responses are empty
+
+settlementRequest [11] SEQUENCE { settlementSchemeId SettlementSchemeId }  -- new (D23)
+  -- authenticated; 409 unless the sender is peered with the recipient on that scheme, and
+  -- the peering is not being ended; the response is empty
 ```
 
 **Membership** ([D4](08-decisions.md#d4-network-membership-economics)):
@@ -474,17 +478,19 @@ peeringTermination [10] SEQUENCE { reason UINT8 }
 - **Bans** are a list the owner keeps ([D23](08-decisions.md#d23-each-node-books-its-own-fulfills)). A banned node is never asked, is refused with reason 8, and its messages do not confirm it as a peer. Its link states still flood. A ban ends a peering as the owner's termination does, with the same wire reason.
 - **One-sided peerings.** A node that holds no peering with a sender, and is not asking for one, answers an authenticated heartbeat that lists it as a neighbor with a `peeringTermination` of reason 3, at most once per backoff period. The other side then ends its peering.
 
-**Settlement** ([5 §4.6](05-accounting-and-settlement.md), kept with the credit the peer extends; ACC-24):
+**Settlement** ([D23](08-decisions.md#d23-each-node-books-its-own-fulfills)). A node knows only the credit it extends to a peer, not the credit the peer extends to it, so only the creditor can tell when a peer should settle. It asks; the debtor decides how much.
 
 ```
-balance    = IL.credits_posted − IL.debits_posted − IL.debits_pending     -- IL = L:assets/interledger/<peer>
+position   = IL.credits_posted − IL.debits_posted − IL.debits_pending     -- IL = L:assets/interledger/<peer>
 credit_out = TR.debits_posted − TR.credits_posted                          -- TR = L:contra/trust/<peer>
-midpoint   = (credit_in + credit_out) / 2                                  -- credit_in as the peer announced it
-settle balance − midpoint when balance ≥ midpoint · 1.1; on termination, settle balance − credit_out
+ask the peer to settle when position ≤ credit_out / 2                      -- our room for it
+when asked, settle min(position / 2, position − (credit_out / 2 + 1))     -- never into asking back
+on termination, settle position − credit_out
 ```
 
-- `credit_in` is a term the peer announced, and serves only our choice of when to settle ([D19](08-decisions.md#d19-each-node-keeps-its-own-books)): a stale one costs liquidity, not money. From M10 the credit each side extends depends on which asked to peer, grows with what the peering earned, and is announced again when it changes ([D20](08-decisions.md#d20-trust-follows-what-a-peer-earned-us)).
-- Every 4 s, for each peer with nothing in flight: no pending settlement transfer and no undelivered `settlement` message (ACC-17).
+- `position` is what the peer may still owe us: the credit we extend, plus what we owe it. The creditor's predicate and the debtor's amount are simple rules, to be tuned later (expected settlement latency, fees, volume on the link).
+- **Asking.** Every 4 s, the node asks each peer whose position has fallen to half the credit it extends, at most once a minute per peer, with `settlementRequest`. With no credit extended, it asks once the peer has nothing paid in advance left. Nothing about a request is kept: a restart looks again.
+- **Settling on request.** The debtor settles half its own position with the asker, but never so much that it would ask the asker in turn: when two nodes' books have drifted apart ([D19](08-decisions.md#d19-each-node-keeps-its-own-books)), settling back and forth would not end. It settles nothing while a settlement to that peer is on its way (no pending settlement transfer and no undelivered `settlement` message, ACC-17): that one is the answer. A node never settles on its own but at a peering's end.
 - A settlement is prepared, booked as a durable pending transfer (Dr IL, Cr `assets/settlement`), and executed only once that transfer is on disk. A restart in between hands the scheme its pending settlements to reconcile (ACC-16).
 - Only a settlement that executed is posted and announced to the peer. A cancelled one is voided, and the node backs off settling with that peer, from 1 s up to 1 h.
 - **Delivery is exactly once.** The `settlement` message is sent again until a 200 arrives, with a backoff from 1 s up to 1 h, and is never dropped; it survives restarts. Its `sequence` belongs to the pair of nodes, not to the peering. The receiver keeps the highest sequence it applied from each sender, acknowledges anything at or below it without applying it again, applies the next one, and refuses any other with 400: the sender sends one at a time, in order.
@@ -521,6 +527,7 @@ settle balance − midpoint when balance ≥ midpoint · 1.1; on termination, se
 | Termination message retries | 2 min (20 s) |
 | No new peering after an owner's termination | 24 h (5 min) |
 | Settlement check | 4 s (1 s) |
+| Settlement requests to one peer | at most one a minute (5 s) |
 | Settlement message retries | 1 s doubling to 1 h, never dropped (1 s to 10 s) |
 | Request body | 64 KiB |
 
@@ -737,4 +744,4 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
 | M8 | Release: static binaries (x64, arm64), signed artifacts, installer, updater, systemd units. Delivered in two PRs: **M8a** (the static binaries with the wallet, the bundles and the mirror tree, SHA256SUMS signed with minisign, the release workflow) and **M8b** (the systemd units, the installer, `dassie update`, and their tests in containers) | Installer and updater tests pass on Debian, Ubuntu, Fedora and CentOS images. A tampered bundle is refused. M8a stops at signed releases built and published by CI, verified by `dassie-release`. |
 | M9 | Website and STREAM toy | `dassie.land` builds from `apps/website`. The toy runs on `dassie-stream` WASM. |
 | M10 | Trust from earnings ([D20](08-decisions.md#d20-trust-follows-what-a-peer-earned-us)): junior and senior, the senior's credit starting at 0, credit that grows with what a peering earned, and its announcement | In the simulation, a junior sends through its senior only after settling in advance; credit grows only with fees, by at most k of them; a junior that spends its credit and vanishes costs its senior no more than that; and settlement keeps working when announcements are lost, repeated or reordered. |
-| M11 | Settlement hubs ([D22](08-decisions.md#d22-settlement-hubs), [9](09-settlement-hubs.md)). Delivered in three PRs: **M11a** (`dassie-hub`: the ledger, its operations and Simplex, in the simulation without an escrow), **M11b** (the `hub` scheme: holds, commitments and claims, peering over a hub, joining by being paid) and **M11c** (the escrow on the XRPL testnet: founding, deposits, withdrawals, changing validators, shutdown and payout) | In the simulation, with up to f faulty validators, members peered over a hub pay each other across hops without trusting each other: a payer that sends no claims and a payee that claims twice or late cost the other no more than its grace limit. f + 1 colluding validators leave evidence. A hub that loses a validator shuts down, and the escrow pays out exactly the final balances, with signatures collected over time. |
+| M11 | Settlement hubs ([D22](08-decisions.md#d22-settlement-hubs), [9](09-settlement-hubs.md)). Delivered in three PRs: **M11a** (`dassie-hub`: the ledger, its operations and Simplex, in the simulation without an escrow), **M11b** (the `hub` scheme: holds, commitments and claims, peering over a hub, joining by being paid) and **M11c** (the escrow on the XRPL testnet: founding, deposits, withdrawals, changing validators, shutdown and payout) | In the simulation, with up to f faulty validators, members peered over a hub pay each other across hops without trusting each other: a payer that sends no claims and a payee that claims twice or late cost the other no more than its hold. f + 1 colluding validators leave evidence. A hub that loses a validator shuts down, and the escrow pays out exactly the final balances, with signatures collected over time. |

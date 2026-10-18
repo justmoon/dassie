@@ -1308,24 +1308,19 @@ fn outgoing_flows(sim: &Sim) -> impl Iterator<Item = Flow> + '_ {
         })
 }
 
-/// No honest node owes a peer past its own threshold once the network is
-/// calm, by its own books and the credit the peer announced (spec 7
-/// §4.7): it settled.
+/// Once the network is calm, no node's books show an honest peer still at
+/// its ask point: asked, the peer settled (D23, spec 7 §4.7).
 fn check_settled(sim: &Sim) -> Result<(), String> {
     for index in 0..sim.nodes.len() {
         for peer in sim.core(index).network().peers {
             let Some(owed) = peer.owed.filter(|_| peer.termination.is_none()) else {
                 continue;
             };
-            let terms = policy::Terms {
-                credit_in: peer.peering.credit_in,
-                credit_out: peer.peering.credit_out,
-                ratio_ppm: policy::DEFAULT_RATIO_PPM,
-            };
-            let position = u128::try_from(owed + i128::from(terms.credit_out)).unwrap();
-            if policy::amount(position, terms) > 0 {
+            let credit = peer.peering.credit_out;
+            let position = u128::try_from(owed + i128::from(credit)).unwrap();
+            if policy::ask(position, credit) {
                 return Err(format!(
-                    "node {index} owes {} {owed} and never settled",
+                    "node {index}'s room for {} is {position} of {credit}: it never settled",
                     peer.id
                 ));
             }

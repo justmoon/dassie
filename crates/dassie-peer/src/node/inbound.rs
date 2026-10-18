@@ -15,7 +15,7 @@ use super::{PeerNode, Problem, Purpose};
 use crate::auth::{Accepted, AuthError};
 use crate::hooks::PeeringHooks;
 use crate::io::{Event, Inbound, InboundId, Output, Reply, VERDICT_ACCEPTED};
-use crate::table::{Network, Registration, Sources};
+use crate::table::{Entry, Network, Registration, Sources};
 use crate::wire::{
     Content, Envelope, EnvelopeError, LinkStateResponse, SignedNodeInfo, encode_expiry,
     encode_link_states, encode_octets, encode_response,
@@ -124,6 +124,22 @@ impl PeerNode {
             Content::PeeringTermination(reason) => {
                 Inbound::Reply(self.termination_request(&accepted, reason))
             }
+            Content::SettlementRequest { scheme } => {
+                // Only an active peering on that scheme is settled on
+                // request; one being ended settles in full at its end.
+                let peering = self
+                    .table
+                    .get(&accepted.sender)
+                    .and_then(Entry::active_peering);
+                if peering.is_none_or(|peering| peering.scheme != scheme) {
+                    return refuse(409, "not peered on that scheme");
+                }
+                Inbound::SettlementRequest {
+                    from: accepted.sender,
+                    scheme,
+                    reply: ok(&accepted, &[]),
+                }
+            }
             other => Inbound::Reply(self.answer(hooks, &accepted, other)),
         }
     }
@@ -223,6 +239,7 @@ impl PeerNode {
             | Content::PeeringRequest(_)
             | Content::Settlement { .. }
             | Content::SettlementMessage { .. }
+            | Content::SettlementRequest { .. }
             | Content::PeeringTermination(_) => Reply::refuse(400, "unexpected"),
         }
     }

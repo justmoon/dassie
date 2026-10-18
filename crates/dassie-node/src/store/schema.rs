@@ -36,6 +36,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_13,
     MIGRATION_14,
     MIGRATION_15,
+    MIGRATION_16,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -700,6 +701,12 @@ DROP TABLE peer_ban_records;
 ALTER TABLE peer_settings DROP COLUMN grace_share_ppm;
 ";
 
+/// A node knows only the credit it extends to a peer, not the credit the
+/// peer extends to it (D23).
+const MIGRATION_16: &str = "
+ALTER TABLE peers DROP COLUMN credit_in;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -881,7 +888,6 @@ pub const TABLES: &[Table] = &[
             ("scheme", "TEXT", true, false),
             ("version", "INTEGER", true, false),
             ("state", "BLOB", true, false),
-            ("credit_in", "INTEGER", true, false),
             ("credit_out", "INTEGER", true, false),
             ("since_ms", "INTEGER", true, false),
             ("inbound", "INTEGER", true, false),

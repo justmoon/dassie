@@ -69,10 +69,7 @@ fn two_nodes_register_peer_and_route() {
     assert!(a.majority().contains(b.own()), "registered, so on the list");
     assert!(b.registration_status()[0].listed);
     let peering = a.peering_of(b.own()).unwrap();
-    assert_eq!(
-        (peering.credit_in, peering.credit_out),
-        (support::CREDIT, support::CREDIT)
-    );
+    assert_eq!(peering.credit_out, support::CREDIT);
     let views = a.nodes();
     let view = |id: &dassie_identity::NodeId| views.iter().find(|view| view.id == *id).unwrap();
     let (own, peer) = (view(a.own()), view(b.own()));

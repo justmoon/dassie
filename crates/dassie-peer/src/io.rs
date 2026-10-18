@@ -118,6 +118,16 @@ pub enum Inbound<'a> {
         /// The acknowledgement.
         reply: Reply,
     },
+    /// A peer asks us to settle on its scheme: the node decides how much,
+    /// if anything, and sends `reply` (D23).
+    SettlementRequest {
+        /// The peer.
+        from: NodeId,
+        /// The scheme.
+        scheme: SchemeId,
+        /// The acknowledgement.
+        reply: Reply,
+    },
     /// A scheme's message from a peer, for the scheme.
     SchemeMessage {
         /// The peer.
@@ -260,4 +270,6 @@ pub struct Stats {
     pub settlements_applied: u64,
     /// Settlement messages that arrived again and were not applied twice.
     pub settlements_duplicate: u64,
+    /// Settlement requests sent (D23).
+    pub settlements_requested: u64,
 }

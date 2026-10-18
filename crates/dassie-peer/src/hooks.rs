@@ -28,11 +28,6 @@ pub trait PeeringHooks {
     /// active.
     fn versions(&self, scheme: SchemeId) -> &'static [u16];
 
-    /// The credit the node extends to `peer` on `scheme`, in its ledger's
-    /// units: what it posted before, if they were peered, else what it
-    /// extends now.
-    fn credit(&self, peer: NodeId, scheme: SchemeId) -> u64;
-
     /// The scheme's peering info, for a node about to ask.
     ///
     /// # Errors
@@ -53,8 +48,8 @@ pub trait PeeringHooks {
         out: &mut Vec<u8>,
     ) -> Result<(), Declined>;
 
-    /// Accepts a request from `peer`, which extends `credit_in`: opens its
-    /// accounts and writes the scheme's response into `response`. Called
+    /// Accepts a request from `peer`: opens its accounts, and writes the
+    /// scheme's response into `response`. Called
     /// again for a peer already peered (D12), which must change nothing.
     ///
     /// # Errors
@@ -67,13 +62,12 @@ pub trait PeeringHooks {
         peer: NodeId,
         scheme: SchemeId,
         version: u16,
-        credit_in: u64,
         data: &[u8],
         response: &mut Vec<u8>,
     ) -> Result<Agreed, RefusalReason>;
 
-    /// Completes our request to `peer`, which accepted with `version` and
-    /// `credit_in`: opens its accounts.
+    /// Completes our request to `peer`, which accepted with `version`:
+    /// opens its accounts.
     ///
     /// # Errors
     ///
@@ -85,7 +79,6 @@ pub trait PeeringHooks {
         peer: NodeId,
         scheme: SchemeId,
         version: u16,
-        credit_in: u64,
         info: &[u8],
         data: &[u8],
     ) -> Result<Agreed, Declined>;

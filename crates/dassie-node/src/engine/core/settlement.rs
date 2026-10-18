@@ -1,8 +1,9 @@
-//! Settling with peers (spec 5 §4.6, spec 7 §4.7): when what we owe a peer
-//! passes the threshold, a settlement is prepared, booked as a durable
-//! pending transfer, executed once that is on disk, and announced to the
-//! peer once it executed. Incoming settlements are booked before the
-//! scheme sees them.
+//! Settling with peers (D23, spec 7 §4.7): a node asks a peer to settle
+//! once its room for the peer falls to half the credit it extends, and
+//! settles half its own position when a peer asks it. A settlement is
+//! prepared, booked as a durable pending transfer, executed once that is on
+//! disk, and announced to the peer once it executed. Incoming settlements
+//! are booked before the scheme sees them.
 
 use std::collections::BTreeMap;
 
@@ -11,7 +12,7 @@ use dassie_ledger::{
     AccountName, AccountPath, LedgerId, Name, Reference, TransferId, TransferSpec,
 };
 use dassie_peer::wire::SchemeId;
-use dassie_settlement::policy::{self, Terms};
+use dassie_settlement::policy;
 
 use super::events::SettlementEvent;
 use super::{Core, EngineError};
@@ -39,7 +40,10 @@ pub(super) struct Settlements {
     /// When what is owed to peers is checked next.
     pub at_ms: u64,
     pub interval_ms: u64,
-    pub ratio_ppm: u32,
+    /// How often a peer is asked to settle, at most.
+    pub request_every_ms: u64,
+    /// When each peer was last asked to settle.
+    pub asked: BTreeMap<NodeId, u64>,
     /// Our settlements prepared and not yet final, by scheme and ID.
     pub settling: BTreeMap<(Name, Name), Settling>,
     /// Settlements to execute once their pending transfers are on disk.
@@ -61,7 +65,8 @@ impl Settlements {
         Self {
             at_ms: now_ms.saturating_add(policies.settlement_interval_ms),
             interval_ms: policies.settlement_interval_ms,
-            ratio_ppm: policies.settlement_ratio_ppm,
+            request_every_ms: policies.settlement_request_every_ms,
+            asked: BTreeMap::new(),
             settling: BTreeMap::new(),
             to_execute: Vec::new(),
             backoff: BTreeMap::new(),
@@ -104,48 +109,77 @@ impl Core {
         }
     }
 
-    /// Checks every peer, and every ended peering still owed its final
-    /// settlement, and prepares what is due.
+    /// Checks every peer, asking those near the credit we extend to settle,
+    /// and every ended peering still owed its final settlement.
     pub(super) fn settlement_timers(&mut self) {
         let now = self.now_ms;
         if self.settle.at_ms > now {
             return;
         }
         self.settle.at_ms = now.saturating_add(self.settle.interval_ms);
+        self.ask_peers();
         if self.settle.never_settles {
             return;
         }
-        let peers: Vec<(NodeId, SchemeId, u64, Vec<u8>)> = self
-            .peer
-            .active_peers()
-            .map(|(id, peering)| {
-                (
-                    *id,
-                    peering.scheme,
-                    peering.credit_in,
-                    peering.state.clone(),
-                )
-            })
-            .collect();
-        for (node, scheme, credit_in, state) in peers {
-            if !self.can_settle(&node) {
-                continue;
-            }
-            let Some(at) = self.position(node, scheme) else {
-                continue;
-            };
-            let terms = Terms {
-                credit_in,
-                credit_out: at.credit_out,
-                ratio_ppm: self.settle.ratio_ppm,
-            };
-            let amount = self.whole_units(&at.scheme, policy::amount(at.position, terms));
-            if amount > 0 {
-                self.prepare_settlement(node, &at, amount, &state);
-            }
-        }
         self.settle_finals();
         self.announce_deferred();
+    }
+
+    /// Asks each peer whose room has fallen to half the credit we extend to
+    /// settle, at most once per [`Settlements::request_every_ms`]. Only our
+    /// own books decide; the peer decides how much (D23).
+    fn ask_peers(&mut self) {
+        let now = self.now_ms;
+        let every = self.settle.request_every_ms;
+        let peers: Vec<(NodeId, SchemeId)> = self
+            .peer
+            .active_peers()
+            .map(|(id, peering)| (*id, peering.scheme))
+            .collect();
+        self.settle
+            .asked
+            .retain(|node, _| peers.iter().any(|(peer, _)| peer == node));
+        for (node, scheme) in peers {
+            let due = self
+                .settle
+                .asked
+                .get(&node)
+                .is_none_or(|at| at.saturating_add(every) <= now);
+            let close = self
+                .position(node, scheme)
+                .is_some_and(|at| policy::ask(at.position, at.credit_out));
+            if due && close && self.peer.request_settlement(now, &node, scheme).is_ok() {
+                self.settle.asked.insert(node, now);
+            }
+        }
+        self.after_peer();
+    }
+
+    /// A peer asks us to settle on `scheme`: we settle half our position
+    /// with it, short of our own ask point, unless a settlement to it is on
+    /// its way already, which is the answer (D23).
+    pub(super) fn settlement_requested(&mut self, node: NodeId, scheme: SchemeId) {
+        if self.settle.never_settles || !self.can_settle(&node) {
+            return;
+        }
+        let Some(state) = self
+            .peer
+            .peering_of(&node)
+            .filter(|peering| peering.scheme == scheme)
+            .map(|peering| peering.state.clone())
+        else {
+            return;
+        };
+        let Some(at) = self.position(node, scheme) else {
+            return;
+        };
+        let amount = self.whole_units(
+            &at.scheme,
+            policy::requested_amount(at.position, at.credit_out),
+        );
+        if amount > 0 {
+            self.prepare_settlement(node, &at, amount, &state);
+        }
     }
 
     /// Settles everything owed with peerings that ended while the other

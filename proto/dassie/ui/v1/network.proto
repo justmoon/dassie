@@ -75,10 +75,11 @@ message NetworkPeer {
   string scheme = 2;
   // The scheme's version both speak.
   uint32 version = 3;
-  // The credit the peer extends to this node, in the scheme ledger's
+  // The credit the peer extends to this node is not its to know (D23).
+  reserved 4;
+  reserved "credit_in";
+  // The credit this node extends to the peer, in the scheme ledger's
   // units.
-  uint64 credit_in = 4;
-  // The credit this node extends to the peer.
   uint64 credit_out = 5;
   int64 since_unix_ms = 6;
   // The last authenticated message from the peer.

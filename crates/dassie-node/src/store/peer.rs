@@ -37,7 +37,7 @@ impl Store {
             "SELECT n.id, n.link_state, n.sources, n.first_seen_ms,
                     n.registered_at_ms, n.renewed_at_ms, n.registration_expires_ms,
                     n.registered_url, n.registered_network,
-                    p.scheme, p.version, p.state, p.credit_in, p.credit_out, p.since_ms,
+                    p.scheme, p.version, p.state, p.credit_out, p.since_ms,
                     p.inbound, p.last_seen_ms, p.replay_floor_ms,
                     t.since_ms, t.reason, t.by_us, t.acknowledged
              FROM peer_nodes n LEFT JOIN peers p ON p.node = n.id
@@ -153,13 +153,13 @@ fn read_node(row: &Row<'_>) -> rusqlite::Result<Result<StoredNode, StoreError>> 
         },
         None => None,
     };
-    let replay_floor: Option<i64> = row.get(17)?;
-    let termination = match row.get::<_, Option<i64>>(18)? {
+    let replay_floor: Option<i64> = row.get(16)?;
+    let termination = match row.get::<_, Option<i64>>(17)? {
         Some(since) if peering.is_some() => Some(Termination {
             since_ms: from_sql_time(since),
-            reason: TerminationReason::from_code(u8::try_from(row.get::<_, i64>(19)?).unwrap_or(0)),
-            by_us: row.get::<_, i64>(20)? != 0,
-            acknowledged: row.get::<_, i64>(21)? != 0,
+            reason: TerminationReason::from_code(u8::try_from(row.get::<_, i64>(18)?).unwrap_or(0)),
+            by_us: row.get::<_, i64>(19)? != 0,
+            acknowledged: row.get::<_, i64>(20)? != 0,
         }),
         _ => None,
     };
@@ -182,11 +182,10 @@ fn read_peering(row: &Row<'_>, scheme: &str) -> Result<Peering, StoreError> {
         scheme,
         version: u16::try_from(version).map_err(|_| StoreError::Corrupt("scheme version"))?,
         state: row.get(11)?,
-        credit_in: from_sql_amount(row.get(12)?)?,
-        credit_out: from_sql_amount(row.get(13)?)?,
-        since_ms: from_sql_time(row.get(14)?),
-        inbound: row.get::<_, i64>(15)? != 0,
-        last_seen_ms: from_sql_time(row.get(16)?),
+        credit_out: from_sql_amount(row.get(12)?)?,
+        since_ms: from_sql_time(row.get(13)?),
+        inbound: row.get::<_, i64>(14)? != 0,
+        last_seen_ms: from_sql_time(row.get(15)?),
     })
 }
 
@@ -280,18 +279,17 @@ fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), St
         return Ok(());
     };
     transaction.execute(
-        "INSERT INTO peers (node, scheme, version, state, credit_in, credit_out, since_ms,
+        "INSERT INTO peers (node, scheme, version, state, credit_out, since_ms,
            inbound, last_seen_ms, replay_floor_ms)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
          ON CONFLICT (node) DO UPDATE SET scheme = ?2, version = ?3, state = ?4,
-           credit_in = ?5, credit_out = ?6, since_ms = ?7, inbound = ?8,
-           last_seen_ms = ?9, replay_floor_ms = ?10",
+           credit_out = ?5, since_ms = ?6, inbound = ?7,
+           last_seen_ms = ?8, replay_floor_ms = ?9",
         params![
             node.id.as_str(),
             peering.scheme.as_str(),
             i64::from(peering.version),
             peering.state,
-            to_sql_amount(peering.credit_in)?,
             to_sql_amount(peering.credit_out)?,
             to_sql_time(peering.since_ms),
             i64::from(peering.inbound),

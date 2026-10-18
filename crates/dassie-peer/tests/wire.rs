@@ -337,7 +337,15 @@ fn settlements_and_terminations_are_pinned() {
     );
     assert_eq!(Kind::from_tag(10), Some(Kind::PeeringTermination));
     assert!(Kind::PeeringTermination.requires_authentication());
+    // D23: a settlement request names its scheme alone.
+    let request = Content::SettlementRequest {
+        scheme: SchemeId::parse("stub").unwrap(),
+    };
+    assert_eq!(to_hex(&request.to_vec()), "8b0473747562");
+    assert_eq!(Kind::from_tag(11), Some(Kind::SettlementRequest));
+    assert!(Kind::SettlementRequest.requires_authentication());
     assert!(Content::decode_exact(&[0x8b]).is_err());
+    assert!(Content::decode_exact(&[0x8c]).is_err());
     assert_eq!(
         to_hex(&PeeringResponse::Refused(RefusalReason::Terminating).to_vec()),
         "8109"

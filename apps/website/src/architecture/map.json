@@ -369,7 +369,7 @@
         "The wire format and message authentication",
         "The node table, link-state flooding, membership by majority and registration",
         "Peering on its own, and routing",
-        "Delivering settlements, ending peerings, bans"
+        "Delivering settlements and requests to settle, ending peerings, bans"
       ]
     },
     "connector": {
@@ -1046,7 +1046,7 @@
             "settlement",
             "xrpl"
           ],
-          "text": "Once a node owes a peer more than a threshold, it settles through a scheme they share, such as the XRP Ledger testnet."
+          "text": "Once a peer owes a node half the credit the node extends to it, the node asks it to settle, and the peer pays through a scheme they share, such as the XRP Ledger testnet."
         },
         {
           "ids": [

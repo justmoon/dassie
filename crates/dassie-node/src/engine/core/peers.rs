@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use dassie_connector::{Connector, EndpointId};
 use dassie_identity::NodeId;
 use dassie_ilp::ErrorCode;
-use dassie_ledger::{AccountName, AccountPath, Ledger, LedgerId, MAX_TOTAL, Name};
+use dassie_ledger::{AccountName, AccountPath, Ledger, LedgerId, Name};
 use dassie_peer::wire::{RefusalReason, SchemeId, TerminationReason};
 use dassie_peer::{
     Agreed, BanError, Declined, Event, InboundId, Output as PeerOutput, PeeringHooks, Reply,
@@ -66,6 +66,7 @@ enum Inbound {
     Packet(NodeId, u32, Vec<u8>, Reply),
     Settlement(NodeId, SchemeId, u64, Vec<u8>, u64, Reply),
     SchemeMessage(NodeId, SchemeId, Vec<u8>, Reply),
+    SettlementRequest(NodeId, SchemeId, Reply),
 }
 
 /// A node's name in the ledger.
@@ -108,13 +109,9 @@ impl PeeringHooks for Hooks<'_> {
         peer: NodeId,
         scheme: SchemeId,
         _version: u16,
-        credit_in: u64,
         data: &[u8],
         response: &mut Vec<u8>,
     ) -> Result<Agreed, RefusalReason> {
-        if credit_in > MAX_TOTAL {
-            return Err(RefusalReason::SchemeRefused);
-        }
         let peer_name = name(peer).ok_or(RefusalReason::Unspecified)?;
         let active = self
             .scheme(scheme)
@@ -139,13 +136,9 @@ impl PeeringHooks for Hooks<'_> {
         peer: NodeId,
         scheme: SchemeId,
         _version: u16,
-        credit_in: u64,
         info: &[u8],
         data: &[u8],
     ) -> Result<Agreed, Declined> {
-        if credit_in > MAX_TOTAL {
-            return Err(Declined);
-        }
         let peer_name = name(peer).ok_or(Declined)?;
         let active = self.scheme(scheme).ok_or(Declined)?;
         let ledger = active.scheme.ledger();
@@ -163,15 +156,6 @@ impl PeeringHooks for Hooks<'_> {
         self.endpoints
             .get(&peer)
             .is_none_or(|id| self.connector.pending_for(EndpointId::Peer(*id)) == 0)
-    }
-
-    fn credit(&self, peer: NodeId, scheme: SchemeId) -> u64 {
-        Name::new(scheme.as_str())
-            .ok()
-            .and_then(|name| self.schemes.get(&name))
-            .map_or(self.credit, |active| {
-                self.credit_for(peer, active.scheme.ledger())
-            })
     }
 }
 
@@ -327,6 +311,11 @@ impl Core {
                     message,
                     reply,
                 } => Inbound::SchemeMessage(from, scheme, message.to_vec(), reply),
+                dassie_peer::Inbound::SettlementRequest {
+                    from,
+                    scheme,
+                    reply,
+                } => Inbound::SettlementRequest(from, scheme, reply),
             }
         });
         let reply = match outcome {
@@ -341,6 +330,10 @@ impl Core {
             }
             Inbound::SchemeMessage(from, scheme, message, reply) => {
                 self.scheme_message(from, scheme, &message);
+                Some(reply)
+            }
+            Inbound::SettlementRequest(from, scheme, reply) => {
+                self.settlement_requested(from, scheme);
                 Some(reply)
             }
         };

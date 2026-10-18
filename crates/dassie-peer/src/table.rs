@@ -188,9 +188,8 @@ pub struct Peering {
     pub version: u16,
     /// The scheme's state for this peer (ACC-15).
     pub state: Vec<u8>,
-    /// The credit the peer extends to us (ACC-24).
-    pub credit_in: u64,
-    /// The credit we extend to the peer.
+    /// The credit we extend to the peer. The credit it extends to us is
+    /// not ours to know (D23).
     pub credit_out: u64,
     /// When it began.
     pub since_ms: u64,

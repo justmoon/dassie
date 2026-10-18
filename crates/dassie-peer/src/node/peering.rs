@@ -193,7 +193,9 @@ impl PeerNode {
             node_info,
             data: &data,
             versions: hooks.versions(scheme).to_vec(),
-            credit: hooks.credit(node, scheme),
+            // A node knows only the credit it extends, and says nothing of
+            // it (D23); nodes of 0.1 read 0.
+            credit: 0,
         });
         if let Some(entry) = self.table.get_mut(&node) {
             entry.peer = PeerState::Requesting {
@@ -223,19 +225,14 @@ impl PeerNode {
             return self.fail_attempt(node, "no answer");
         };
         match PeeringResponse::decode_exact(&body) {
-            Ok(PeeringResponse::Accepted {
-                version,
-                credit,
-                data,
-            }) if self.peers().count() >= self.config.max_peers || !self.channel_room(&node) => {
-                let _ = (version, credit, data);
+            Ok(PeeringResponse::Accepted { .. })
+                if self.peers().count() >= self.config.max_peers || !self.channel_room(&node) =>
+            {
                 self.fail_attempt(node, "no room left");
             }
-            Ok(PeeringResponse::Accepted {
-                version,
-                credit,
-                data,
-            }) if hooks.versions(scheme).contains(&version) => {
+            Ok(PeeringResponse::Accepted { version, data, .. })
+                if hooks.versions(scheme).contains(&version) =>
+            {
                 let info = match self.table.get(&node).map(|e| &e.peer) {
                     Some(PeerState::Requesting {
                         info: Some(info), ..
@@ -243,8 +240,8 @@ impl PeerNode {
                     _ => Vec::new(),
                 };
                 let now = self.now_ms;
-                match hooks.finalize(now, node, scheme, version, credit, &info, data) {
-                    Ok(agreed) => self.become_peered(node, scheme, version, credit, agreed, false),
+                match hooks.finalize(now, node, scheme, version, &info, data) {
+                    Ok(agreed) => self.become_peered(node, scheme, version, agreed, false),
                     Err(_) => self.fail_attempt(node, "the scheme would not finalize"),
                 }
             }
@@ -303,7 +300,6 @@ impl PeerNode {
         node: NodeId,
         scheme: SchemeId,
         version: u16,
-        credit_in: u64,
         agreed: crate::hooks::Agreed,
         inbound: bool,
     ) {
@@ -331,7 +327,6 @@ impl PeerNode {
             scheme,
             version,
             state: agreed.state,
-            credit_in,
             credit_out: agreed.credit_out,
             since_ms,
             inbound,
@@ -394,7 +389,7 @@ impl PeerNode {
         {
             let answer = PeeringResponse::Accepted {
                 version: peering.version,
-                credit: peering.credit_out,
+                credit: 0,
                 data: &[],
             };
             return Inbound::Reply(ok(&accepted, &answer.to_vec()));
@@ -501,25 +496,16 @@ impl PeerNode {
             sender,
             request.scheme,
             version,
-            request.credit,
             request.data,
             &mut response,
         ) {
             Ok(agreed) => agreed,
             Err(reason) => return refused(accepted, reason),
         };
-        let credit_out = agreed.credit_out;
-        self.become_peered(
-            sender,
-            request.scheme,
-            version,
-            request.credit,
-            agreed,
-            true,
-        );
+        self.become_peered(sender, request.scheme, version, agreed, true);
         let answer = PeeringResponse::Accepted {
             version,
-            credit: credit_out,
+            credit: 0,
             data: &response,
         };
         ok(accepted, &answer.to_vec())

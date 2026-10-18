@@ -100,6 +100,8 @@ pub enum Kind {
     PeeringInfoRequest,
     /// `peeringTermination [10]`.
     PeeringTermination,
+    /// `settlementRequest [11]`.
+    SettlementRequest,
 }
 
 impl Kind {
@@ -118,6 +120,7 @@ impl Kind {
             8 => Self::Registration,
             9 => Self::PeeringInfoRequest,
             10 => Self::PeeringTermination,
+            11 => Self::SettlementRequest,
             _ => return None,
         })
     }
@@ -137,6 +140,7 @@ impl Kind {
             Self::Registration => 8,
             Self::PeeringInfoRequest => 9,
             Self::PeeringTermination => 10,
+            Self::SettlementRequest => 11,
         }
     }
 
@@ -151,6 +155,7 @@ impl Kind {
                 | Self::SettlementMessage
                 | Self::Registration
                 | Self::PeeringTermination
+                | Self::SettlementRequest
         )
     }
 }

@@ -60,7 +60,7 @@ async fn check_network(node: &TestNode, own: &NodeKey, other: &NodeKey) {
     let peer = &peers.peers[0];
     assert_eq!(peer.node, other.node_id().to_string());
     assert_eq!((peer.scheme.as_str(), peer.version), ("stub", 1));
-    assert_eq!((peer.credit_in, peer.credit_out), (CREDIT, CREDIT));
+    assert_eq!(peer.credit_out, CREDIT);
     let Ok(response::Method::ListRoutes(routes)) = owner
         .call(Method::ListRoutes(proto::ListRoutesRequest {}))
         .await
