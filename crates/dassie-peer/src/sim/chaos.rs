@@ -67,7 +67,6 @@ pub fn network(seed: u64) -> Network {
     let (mut rng, count, bootstraps) = size(seed);
     let mut network = Network::new(seed, count, bootstraps, CONFIG);
     network.faults = Faults::ROUGH;
-    network.settle_on_end = true;
     let mut at = START;
     while at < START + CHAOS_MS {
         at += 2_000 + rng.next_u64() % 3_000;

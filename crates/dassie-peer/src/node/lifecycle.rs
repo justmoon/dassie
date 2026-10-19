@@ -409,7 +409,7 @@ impl PeerNode {
         let Some(entry) = self.table.get_mut(&peer) else {
             return;
         };
-        let PeerState::Terminating(peering, termination) =
+        let PeerState::Terminating(_, termination) =
             core::mem::replace(&mut entry.peer, PeerState::None)
         else {
             return;
@@ -428,19 +428,9 @@ impl PeerNode {
         self.drop_source(&peer, Sources::PEER);
         self.gossip.routes_dirty = true;
         self.stats.terminations += 1;
-        if termination.acknowledged
-            && let Some(channel) = self.channels.get_mut(&peer)
-        {
-            channel.final_due = Some(crate::channel::FinalDue {
-                scheme: peering.scheme,
-                state: peering.state,
-            });
-            self.channels_dirty.insert(peer);
-        }
-        self.event(Event::PeeringEnded {
-            peer,
-            settle: termination.acknowledged,
-        });
+        // Nothing is settled at the end: what the accounts show carries
+        // into a later peering (D28).
+        self.event(Event::PeeringEnded { peer });
     }
 
     /// An authenticated link state from its own subject that lists us as a

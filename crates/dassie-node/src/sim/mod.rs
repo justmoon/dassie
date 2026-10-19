@@ -8,7 +8,8 @@
 //!
 //! It checks what only the whole node can show: peerings and balances
 //! survive restarts, payments of several times the credit cross hops, so
-//! every hop settles, an owner's termination ends a peering settled, and
+//! every hop settles, an owner's termination ends a peering with nothing
+//! settled for its end (D28), and
 //! the stubs' "underlying ledger" neither makes nor loses money. One
 //! payment's token has a spending cap, which the journal must show it
 //! kept to.

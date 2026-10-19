@@ -55,8 +55,6 @@ pub enum RemovalBlocker {
     BtpTokens(u32),
     /// Peers settle with it, or are ending a peering that does.
     Peers(u32),
-    /// Peerings that ended still have to be settled with it.
-    FinalSettlements(u32),
     /// Outgoing payments from its ledger have not finished.
     OutgoingPayments(u32),
 }
@@ -68,7 +66,6 @@ impl RemovalBlocker {
         match self {
             Self::BtpTokens(_) => "BTP tokens use its ledger",
             Self::Peers(_) => "peers settle with it",
-            Self::FinalSettlements(_) => "a peering that ended still has to be settled with it",
             Self::OutgoingPayments(_) => "outgoing payments from its ledger have not finished",
         }
     }
@@ -478,20 +475,9 @@ impl Core {
             .peers()
             .filter(|(_, peering)| peering.scheme.as_str() == id.as_str())
             .count();
-        let finals = self
-            .peer
-            .channels()
-            .filter(|(_, channel)| {
-                channel
-                    .final_due
-                    .as_ref()
-                    .is_some_and(|due| due.scheme.as_str() == id.as_str())
-            })
-            .count();
         [
             (tokens, RemovalBlocker::BtpTokens(count(tokens))),
             (peers, RemovalBlocker::Peers(count(peers))),
-            (finals, RemovalBlocker::FinalSettlements(count(finals))),
             (
                 self.unfinished_on(ledger),
                 RemovalBlocker::OutgoingPayments(count(self.unfinished_on(ledger))),

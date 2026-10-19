@@ -581,13 +581,8 @@ impl Core {
                 }
                 self.update_routes();
             }
-            Event::PeeringEnded { peer, settle } => {
+            Event::PeeringEnded { peer } => {
                 self.remove_peer_endpoint(&peer);
-                if settle {
-                    // The final settlement, at once rather than at the next
-                    // check.
-                    self.settle.at_ms = self.now_ms;
-                }
                 self.update_routes();
             }
             _ => {}

@@ -39,6 +39,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_16,
     MIGRATION_17,
     MIGRATION_18,
+    MIGRATION_19,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -727,6 +728,14 @@ const MIGRATION_18: &str = "
 ALTER TABLE peers ADD COLUMN short_for_ms INTEGER NOT NULL DEFAULT 0;
 ";
 
+/// Nothing is settled at a peering's end (D28): a final settlement still
+/// due when the node upgrades is not made, and what it would have paid
+/// stays on the accounts, which a later peering settles as usual.
+const MIGRATION_19: &str = "
+ALTER TABLE settlement_channels DROP COLUMN final_state;
+ALTER TABLE settlement_channels DROP COLUMN final_scheme;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -949,8 +958,6 @@ pub const TABLES: &[Table] = &[
             ("outbox_amount", "INTEGER", false, false),
             ("outbox_data", "BLOB", false, false),
             ("outbox_attempts", "INTEGER", false, false),
-            ("final_scheme", "TEXT", false, false),
-            ("final_state", "BLOB", false, false),
         ],
     },
     Table {

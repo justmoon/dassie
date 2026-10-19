@@ -1,6 +1,6 @@
 //! Properties of the settlement policy.
 
-use dassie_settlement::policy::{ask, final_amount, minimum, requested_amount, trigger};
+use dassie_settlement::policy::{ask, minimum, requested_amount, trigger};
 use proptest::prelude::*;
 
 /// Amounts up to the ledger's bound, so sums stay meaningful.
@@ -40,15 +40,5 @@ proptest! {
         let trigger = trigger(max_packet);
         prop_assert_eq!(u128::from(trigger), u128::from(max_packet) * 3 / 2);
         prop_assert_eq!(ask(position, trigger), position <= u128::from(trigger));
-    }
-
-    #[test]
-    fn the_final_settlement_pays_what_is_owed(
-        credit_out in 0..MAX,
-        position in 0..u128::from(MAX) * 2,
-    ) {
-        let paid = u128::from(final_amount(position, credit_out));
-        prop_assert!(paid <= position);
-        prop_assert_eq!(position - paid, position.min(u128::from(credit_out)));
     }
 }

@@ -28,7 +28,7 @@ pub mod sim;
 mod table;
 pub mod wire;
 
-pub use channel::{Channel, FinalDue, Outgoing};
+pub use channel::{Channel, Outgoing};
 pub use config::{Config, Rate};
 pub use hooks::{Agreed, Declined, PeeringHooks};
 pub use io::{
