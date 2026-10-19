@@ -134,7 +134,7 @@ fn execute(command: Command) -> ExitCode {
 
 fn list(out: &mut impl Write) -> io::Result<ExitCode> {
     for sim in &SIMS {
-        writeln!(out, "{:<10} {}", sim.name, sim.about)?;
+        writeln!(out, "{:<16} {}", sim.name, sim.about)?;
     }
     Ok(ExitCode::SUCCESS)
 }

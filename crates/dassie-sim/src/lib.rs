@@ -24,7 +24,25 @@ pub struct Sim {
 }
 
 /// Every simulation the runner knows.
-pub static SIMS: [Sim; 3] = [
+pub static SIMS: [Sim; 6] = [
+    Sim {
+        name: "node-stub",
+        about: "whole nodes' engine cores paying, crashing and settling over the stub, as scripted",
+        describe: dassie_node::sim::scripted::describe,
+        run: dassie_node::sim::scripted::run,
+    },
+    Sim {
+        name: "node-xrpl",
+        about: "the same, settling on a fake XRP Ledger whose connections lag and drop",
+        describe: dassie_node::sim::scripted::describe,
+        run: dassie_node::sim::scripted::run_xrpl,
+    },
+    Sim {
+        name: "node-currencies",
+        about: "the same across dollars and XRP, through a node that converts and charges",
+        describe: dassie_node::sim::scripted::describe_across,
+        run: dassie_node::sim::scripted::run_across,
+    },
     Sim {
         name: "peer",
         about: "peer networks through chaos and calm: membership, peering, routes and settlements",
