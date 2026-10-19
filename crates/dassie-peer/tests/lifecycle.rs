@@ -901,6 +901,17 @@ fn a_node_ending_a_peering_collects_before_it_tells() {
     });
     assert!(network.node(0).is_advertised(&b));
     assert!(network.node(1).peering_of(&a).unwrap().depeering.is_none());
+    // Its owner sees it ending; the peer, nothing.
+    let status = |network: &Network, index: usize, peer: &NodeId| {
+        let views = network.node(index).nodes();
+        views
+            .into_iter()
+            .find(|view| view.id == *peer)
+            .unwrap()
+            .peer_status
+    };
+    assert_eq!(status(&network, 0, &b), PeerStatus::Terminating);
+    assert_eq!(status(&network, 1, &a), PeerStatus::Peered);
     settle(&mut network, 10_000);
     assert_eq!(
         ending(&network, 0, &b),

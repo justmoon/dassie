@@ -360,9 +360,13 @@ impl PeerNode {
                 advertise: entry.advertise,
                 banned: self.bans.contains(id),
                 registered_until_ms: entry.registration.as_ref().map(|r| r.expires_ms),
-                peer_status: match entry.peer {
+                peer_status: match &entry.peer {
                     PeerState::None => PeerStatus::None,
                     PeerState::Requesting { .. } => PeerStatus::Requesting,
+                    // Ending it privately is ending it, to its owner (D28).
+                    PeerState::Peered(peering) if peering.depeering.is_some() => {
+                        PeerStatus::Terminating
+                    }
                     PeerState::Peered(_) => PeerStatus::Peered,
                     PeerState::Terminating(..) => PeerStatus::Terminating,
                 },
