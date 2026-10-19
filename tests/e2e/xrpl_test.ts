@@ -34,6 +34,8 @@ const LEDGER = "xrpl-testnet+xrp";
 const PAYMENT = 5_000_000_000n;
 /** What a node extends to each peer: 1.1 XRP. */
 const CREDIT = 1_100_000_000n;
+/** Every node's trigger: one and a half of the largest packets (D25). */
+const TRIGGER = 150_000_000n;
 const PORT_OFFSET = SCENARIO_PORT_OFFSET + 600;
 
 const missing = await missingScenarioTools();
@@ -81,13 +83,22 @@ async function peerAccounts(scenario: Scenario): Promise<Map<string, bigint>> {
   return accounts;
 }
 
-/** Settling went quiet: nothing on its way, and both books agree. */
+/**
+ * Settling went quiet: nothing on its way, no node's books showing a peer
+ * at its trigger (its room for the peer down to one and a half of the
+ * largest packets, D25), and both books agree. A senior extends its junior
+ * nothing, so until the junior paid in advance it is at its trigger.
+ */
 async function quiet(scenario: Scenario): Promise<boolean> {
   for (const node of scenario.nodes) {
     const { channels } = await node.rpc.call("listSettlementChannels", {});
     if (channels.some((channel) => channel.sending)) return false;
     const view = await ledger(node);
     if (view.connection !== LedgerConnection.SYNCED) return false;
+    const { peers } = await node.rpc.call("listPeers", {});
+    if (peers.some((peer) => peer.creditOut + peer.owed <= TRIGGER)) {
+      return false;
+    }
   }
   const accounts = await peerAccounts(scenario);
   for (const [pair, mine] of accounts) {
@@ -146,6 +157,9 @@ test(
       const [d1, d2] = scenario.nodes;
       const address = (await ledger(d1)).depositAddress;
       assert(address.startsWith("r"), address);
+      // The junior pays its senior in advance before it can send through
+      // it, on the ledger (D20).
+      await scenario.until("paid in advance", () => settled(scenario), 120_000);
 
       const before = await ledger(d1);
       const token = await d1.rpc.call("createBtpToken", {
