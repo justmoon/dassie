@@ -276,8 +276,10 @@ pub struct Core {
     next_peer_endpoint: u64,
     /// `test` or `g`, for nodes' addresses.
     allocation_scheme: &'static str,
-    /// The credit extended to a new peer.
+    /// The credit a junior extends to its senior, and a senior to its
+    /// junior, at first (D20).
     peer_credit: u64,
+    senior_credit: u64,
     /// Peer requests and replies, handed over once the batch is persisted.
     outputs_peer: Vec<Output>,
     /// Settling with peers.
@@ -408,6 +410,7 @@ impl Core {
             next_peer_endpoint: 0,
             allocation_scheme: realm.ilp_allocation_scheme(),
             peer_credit: policies.peer_credit,
+            senior_credit: policies.senior_credit,
             outputs_peer: Vec::new(),
             settle: Settlements::new(now_ms, &policies),
             changes: Changes::default(),
@@ -743,8 +746,21 @@ fn check_bounds(policies: &Policies) {
         "incoming payments need room"
     );
     assert!(
-        policies.peer_credit <= dassie_ledger::MAX_TOTAL,
+        policies.peer_credit <= dassie_ledger::MAX_TOTAL
+            && policies.senior_credit <= dassie_ledger::MAX_TOTAL,
         "the credit fits the ledger"
+    );
+    // Less credit, and a link could stop settling after one crash: its
+    // drift, up to what was in flight, would leave the debtor less than
+    // the minimum to settle when asked (D25).
+    let least = dassie_settlement::policy::least_credit(
+        connector.max_packet_amount,
+        connector.max_in_flight(),
+    );
+    assert!(
+        policies.peer_credit >= least
+            && (policies.senior_credit == 0 || policies.senior_credit >= least),
+        "the credit survives a crash"
     );
     assert!(
         connector.max_routes >= policies.peer.max_nodes,

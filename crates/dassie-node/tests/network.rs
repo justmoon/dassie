@@ -72,6 +72,8 @@ use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger};
 
 const START: u64 = 1_800_000_000_000;
 const CREDIT: i128 = 1_100_000_000;
+/// Every node's trigger, one and a half of the largest packets (D25).
+const TRIGGER: u64 = policy::trigger(Policies::DEV.connector.max_packet_amount);
 /// How often the fake ledger closes a ledger.
 const LEDGER_CLOSE_MS: u64 = 3_500;
 
@@ -1102,9 +1104,8 @@ fn run_on(seed: u64, settling: Settling) -> Result<Run, String> {
         // other. What a side is still owed is a Fulfill the other never
         // counted: each books its own (D23).
         let other = (0..count).find(|i| key(*i).node_id() == peer).unwrap();
-        let mine = sim.balances(ender)[&format!("assets/interledger/{peer}")] - CREDIT;
-        let theirs =
-            sim.balances(other)[&format!("assets/interledger/{}", key(ender).node_id())] - CREDIT;
+        let mine = sim.owes(ender, &peer);
+        let theirs = sim.owes(other, &key(ender).node_id());
         // Less than the ledger can move stays owed: a drop on the XRP
         // Ledger.
         let unit = if settling == Settling::Xrpl { 1_000 } else { 1 };
@@ -1331,7 +1332,7 @@ fn check_settled(sim: &Sim) -> Result<(), String> {
             };
             let credit = peer.peering.credit_out;
             let position = u128::try_from(owed + i128::from(credit)).unwrap();
-            if policy::ask(position, credit) {
+            if policy::ask(position, TRIGGER) {
                 return Err(format!(
                     "node {index}'s room for {} is {position} of {credit}: it never settled",
                     peer.id
@@ -2006,6 +2007,34 @@ fn a_node_asks_no_one_to_settle_before_it_sees_its_ledger() {
     sim.ledger_down.clear();
     sim.run_until(sim.now + 180_000);
     assert!(settled(&sim) > 0, "node 1 never settled");
+    assert!(sim.payments[0].done, "the payment did not finish");
+    check(&sim).unwrap();
+}
+
+// D20: the node whose peering request was accepted, the junior, extends
+// its senior the default credit; the senior extends it nothing. So the
+// senior asks at once, and the junior pays half the way to its trigger in
+// advance, (1.1 - 0.15) / 2 = 0.475, before anything flows. Then the
+// junior pays through its senior, settling as it goes.
+#[test]
+fn a_junior_pays_its_senior_in_advance() {
+    let mut sim = Sim::new(3, 2, 1);
+    sim.loss_per_mille = 0;
+    sim.run_until(START + 60_000);
+    let peering = |sim: &Sim, index: usize| sim.core(index).network().peers[0].peering.clone();
+    let (senior, junior) = if peering(&sim, 0).inbound {
+        (0, 1)
+    } else {
+        (1, 0)
+    };
+    assert!(!peering(&sim, junior).inbound, "both sides accepted");
+    assert_eq!(peering(&sim, senior).credit_out, 0);
+    assert_eq!(i128::from(peering(&sim, junior).credit_out), CREDIT);
+    let (senior_id, junior_id) = (key(senior).node_id(), key(junior).node_id());
+    assert_eq!(sim.owes(senior, &junior_id), 475_000_000, "paid in advance");
+    assert_eq!(sim.owes(junior, &senior_id), -475_000_000);
+    sim.pay(junior, senior, 3_000_000_000, None, None);
+    sim.run_until(sim.now + 180_000);
     assert!(sim.payments[0].done, "the payment did not finish");
     check(&sim).unwrap();
 }

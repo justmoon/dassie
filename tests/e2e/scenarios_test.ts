@@ -28,6 +28,8 @@ import { Scenario, type ScenarioNode } from "@dassie/dev/scenario";
 const PAYMENT = 5_000_000_000n;
 /** What a node extends to each peer: 1.1 USD (spec 5 §2.7). */
 const CREDIT = 1_100_000_000n;
+/** Every node's trigger: one and a half of the largest packets (D25). */
+const TRIGGER = 150_000_000n;
 const DEPOSIT = 100_000_000_000n;
 
 const missing = await missingScenarioTools();
@@ -97,31 +99,34 @@ async function stubs(scenario: Scenario): Promise<Map<string, bigint>> {
   return balances;
 }
 
-/** Each node's peer accounts: net credit, by `node>peer`. */
+/**
+ * What each node owes each peer net, by its own books, by `node>peer`: its
+ * peer account less the credit it extends, negative when the peer owes it.
+ */
 async function peerAccounts(scenario: Scenario): Promise<Map<string, bigint>> {
   const byId = new Map(scenario.nodes.map((node) => [node.id, node.name]));
   const accounts = new Map<string, bigint>();
   for (const node of scenario.nodes) {
     const list = await node.rpc.call("listAccounts", {});
     for (const account of list.accounts) {
-      const prefix = "stub+usd:assets/interledger/";
-      if (!account.path.startsWith(prefix)) continue;
-      const peer = byId.get(account.path.slice(prefix.length));
-      accounts.set(
-        `${node.name}>${peer}`,
-        account.creditsPosted - account.debitsPosted,
-      );
+      const match = /^stub\+usd:(assets\/interledger|contra\/trust)\/(.+)$/
+        .exec(account.path);
+      if (!match) continue;
+      const key = `${node.name}>${byId.get(match[2])}`;
+      const net = account.creditsPosted - account.debitsPosted;
+      accounts.set(key, (accounts.get(key) ?? 0n) + net);
     }
   }
   return accounts;
 }
 
-/** Whether every pair of accounts mirrors the other around the credits. */
+/** Whether every pair of books mirrors the other: what one owes, the other
+ * is owed. */
 function mirrored(accounts: Map<string, bigint>): boolean {
   for (const [pair, mine] of accounts) {
     const [node, peer] = pair.split(">");
     const theirs = accounts.get(`${peer}>${node}`);
-    if (theirs === undefined || mine + theirs !== 2n * CREDIT) return false;
+    if (theirs === undefined || mine + theirs !== 0n) return false;
   }
   return true;
 }
@@ -132,8 +137,9 @@ function assertMirrored(accounts: Map<string, bigint>) {
 
 /**
  * Whether settling has gone quiet: no settlement on its way anywhere, no
- * node's books showing a peer at its ask point (its room for the peer at
- * a tenth of the credit it extends, D23), and every pair's books mirrored.
+ * node's books showing a peer at its trigger (its room for the peer down
+ * to one and a half of the largest packets, D25), and every pair's books
+ * mirrored.
  */
 async function quiet(scenario: Scenario): Promise<boolean> {
   for (const node of scenario.nodes) {
@@ -141,7 +147,7 @@ async function quiet(scenario: Scenario): Promise<boolean> {
     if (channels.some((channel) => channel.sending)) return false;
     const { peers } = await node.rpc.call("listPeers", {});
     if (
-      peers.some((peer) => 10n * (peer.creditOut + peer.owed) <= peer.creditOut)
+      peers.some((peer) => peer.creditOut + peer.owed <= TRIGGER)
     ) {
       return false;
     }
@@ -165,7 +171,7 @@ async function assertSettled(scenario: Scenario) {
   for (const node of scenario.nodes) {
     let owed = 0n;
     for (const [pair, net] of accounts) {
-      if (pair.startsWith(`${node.name}>`)) owed += net - CREDIT;
+      if (pair.startsWith(`${node.name}>`)) owed += net;
     }
     // What the owner spent net is what the stub paid plus what is owed.
     const spent = DEPOSIT - ownerBalances.get(node.name)!;
@@ -251,8 +257,8 @@ test(
           peerings.get("d2")!.length === 0 && await quiet(scenario);
       });
       const accounts = await peerAccounts(scenario);
-      assertEquals(accounts.get("d1>d2"), CREDIT, "d1 owes nothing");
-      assertEquals(accounts.get("d2>d1"), CREDIT, "d2 owes nothing");
+      assertEquals(accounts.get("d1>d2"), 0n, "d1 owes nothing");
+      assertEquals(accounts.get("d2>d1"), 0n, "d2 owes nothing");
       await assertSettled(scenario);
       await new Promise((resolve) => setTimeout(resolve, 5_000));
       assertEquals(
@@ -290,11 +296,13 @@ test(
         assertEquals(balances.get(node.name), expected, node.name);
       }
       await assertSettled(scenario);
-      const settled = await stubs(scenario);
-      assert(
-        settled.get(from.name)! <= DEPOSIT - (PAYMENT - CREDIT),
-        "the payer settled",
-      );
+      // The payer settled as it paid: it owes its peers no more than the
+      // credit a junior extends.
+      let owes = 0n;
+      for (const [pair, net] of await peerAccounts(scenario)) {
+        if (pair.startsWith(`${from.name}>`) && net > 0n) owes += net;
+      }
+      assert(owes <= CREDIT, `the payer still owes ${owes}`);
       await restartAll(scenario);
     });
   },

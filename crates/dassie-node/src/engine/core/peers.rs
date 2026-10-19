@@ -22,7 +22,10 @@ use crate::store::PeerSettings;
 pub(super) struct Hooks<'a> {
     pub schemes: &'a mut BTreeMap<Name, ActiveScheme>,
     pub ledger: &'a mut Ledger,
+    /// The credit a junior extends to its senior at first (D20).
     pub credit: u64,
+    /// The credit a senior extends to its junior at first.
+    pub senior_credit: u64,
     pub connector: &'a Connector,
     pub endpoints: &'a BTreeMap<NodeId, u64>,
 }
@@ -35,8 +38,8 @@ impl Hooks<'_> {
 
     /// The credit we extend to `peer` on `ledger`: what was posted to its
     /// trust account, if it has one from an earlier peering, which is not
-    /// posted again (ACC-5); otherwise what we would extend now.
-    fn credit_for(&self, peer: NodeId, ledger: LedgerId) -> u64 {
+    /// posted again (ACC-5); otherwise `start`, what we would extend now.
+    fn credit_for(&self, peer: NodeId, ledger: LedgerId, start: u64) -> u64 {
         Name::new(peer.as_str())
             .ok()
             .and_then(|name| {
@@ -44,16 +47,47 @@ impl Hooks<'_> {
                     .find(&AccountPath::new(ledger, AccountName::ContraTrust(name)))
             })
             .and_then(|id| self.ledger.account(id))
-            .map_or(self.credit, |account| {
+            .map_or(start, |account| {
                 dassie_settlement::policy::trust(account.balance())
             })
     }
 
-    /// Opens the peer's accounts and extends it our credit, once (ACC-5).
-    fn open(&mut self, now_ms: u64, peer: NodeId, ledger: LedgerId) -> Result<(), ()> {
+    /// Raises the credit we extend to `peer` on `ledger` by `amount`.
+    fn raise(
+        &mut self,
+        now_ms: u64,
+        peer: NodeId,
+        ledger: LedgerId,
+        amount: u64,
+    ) -> Result<(), ()> {
+        let name = Name::new(peer.as_str()).map_err(|_| ())?;
+        let find = |account| self.ledger.find(&AccountPath::new(ledger, account));
+        let (Some(contra), Some(interledger)) = (
+            find(AccountName::ContraTrust(name)),
+            find(AccountName::AssetsInterledger(name)),
+        ) else {
+            return Err(());
+        };
+        self.ledger
+            .create(
+                now_ms,
+                &dassie_ledger::TransferSpec {
+                    debit: contra,
+                    credit: interledger,
+                    amount,
+                    pending: false,
+                    reference: dassie_ledger::Reference::Trust,
+                },
+            )
+            .map(|_| ())
+            .map_err(|_| ())
+    }
+
+    /// Opens the peer's accounts and extends it `start`, once (ACC-5).
+    fn open(&mut self, now_ms: u64, peer: NodeId, ledger: LedgerId, start: u64) -> Result<(), ()> {
         let name = Name::new(peer.as_str()).map_err(|_| ())?;
         self.ledger
-            .open_peer(now_ms, ledger, name, self.credit)
+            .open_peer(now_ms, ledger, name, start)
             .map(|_| ())
             .map_err(|_| ())
     }
@@ -117,7 +151,10 @@ impl PeeringHooks for Hooks<'_> {
             .scheme(scheme)
             .ok_or(RefusalReason::UnsupportedScheme)?;
         let ledger = active.scheme.ledger();
-        let credit_out = self.credit_for(peer, ledger);
+        // We accept, so we are the senior: the requester gets our credit
+        // only once the peering earned it (D20).
+        let start = self.senior_credit;
+        let credit_out = self.credit_for(peer, ledger, start);
         let active = self
             .scheme(scheme)
             .ok_or(RefusalReason::UnsupportedScheme)?;
@@ -125,7 +162,7 @@ impl PeeringHooks for Hooks<'_> {
             .scheme
             .accept_peering_request(peer_name, data, response)
             .map_err(|_| RefusalReason::SchemeRefused)?;
-        self.open(now_ms, peer, ledger)
+        self.open(now_ms, peer, ledger, start)
             .map_err(|()| RefusalReason::Capacity)?;
         Ok(Agreed { state, credit_out })
     }
@@ -142,13 +179,26 @@ impl PeeringHooks for Hooks<'_> {
         let peer_name = name(peer).ok_or(Declined)?;
         let active = self.scheme(scheme).ok_or(Declined)?;
         let ledger = active.scheme.ledger();
-        let credit_out = self.credit_for(peer, ledger);
+        // Our request was accepted, so we are the junior, and extend the
+        // default credit line (D20).
+        let start = self.credit;
+        let credit_out = self.credit_for(peer, ledger, start);
         let active = self.scheme(scheme).ok_or(Declined)?;
         let state = active
             .scheme
             .finalize_peering_request(peer_name, info, data)
             .map_err(|_| Declined)?;
-        self.open(now_ms, peer, ledger).map_err(|()| Declined)?;
+        self.open(now_ms, peer, ledger, start)
+            .map_err(|()| Declined)?;
+        // A trust account from an earlier peering may hold less, from a
+        // time we were the senior: a junior extends at least the default.
+        let credit_out = if credit_out < start {
+            self.raise(now_ms, peer, ledger, start - credit_out)
+                .map_err(|()| Declined)?;
+            start
+        } else {
+            credit_out
+        };
         Ok(Agreed { state, credit_out })
     }
 
@@ -273,6 +323,7 @@ impl Core {
             schemes: &mut self.schemes,
             ledger: &mut self.ledger,
             credit: self.peer_credit,
+            senior_credit: self.senior_credit,
             connector: &self.connector,
             endpoints: &self.peer_endpoints,
         };

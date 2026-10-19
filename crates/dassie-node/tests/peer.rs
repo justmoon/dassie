@@ -28,12 +28,13 @@ const PAYMENT: u64 = 5_000_000_000;
 /// What each stub starts with: 100 USD.
 const DEPOSIT: u64 = 100_000_000_000;
 
-/// The credit a node extends to a peer: 1.1 USD.
+/// The credit a junior extends to its senior: 1.1 USD. The senior
+/// extends the junior nothing (D20).
 const CREDIT: u64 = 1_100_000_000;
 
-/// The net credit of `node`'s account for its peer `peer`.
-async fn net(node: &TestNode, peer: &NodeKey) -> i128 {
-    let path = format!("stub+usd:assets/interledger/{}", peer.node_id());
+/// The net credit of `node`'s account `account` for its peer `peer`.
+async fn net_of(node: &TestNode, account: &str, peer: &NodeKey) -> i128 {
+    let path = format!("stub+usd:{account}/{}", peer.node_id());
     let reply = node
         .ipc()
         .await
@@ -44,6 +45,12 @@ async fn net(node: &TestNode, peer: &NodeKey) -> i128 {
     };
     let account = list.accounts.into_iter().find(|a| a.path == path).unwrap();
     i128::from(account.credits_posted) - i128::from(account.debits_posted)
+}
+
+/// What `node` owes its peer `peer` net, by its own books: its position
+/// less the credit it extends; negative when the peer owes it.
+async fn owes(node: &TestNode, peer: &NodeKey) -> i128 {
+    net_of(node, "assets/interledger", peer).await + net_of(node, "contra/trust", peer).await
 }
 
 /// What the network methods say of a pair: one peer, one route, the
@@ -60,7 +67,8 @@ async fn check_network(node: &TestNode, own: &NodeKey, other: &NodeKey) {
     let peer = &peers.peers[0];
     assert_eq!(peer.node, other.node_id().to_string());
     assert_eq!((peer.scheme.as_str(), peer.version), ("stub", 1));
-    assert_eq!(peer.credit_out, CREDIT);
+    // The node that asked is the junior, and extends the credit (D20).
+    assert_eq!(peer.credit_out, if peer.inbound { 0 } else { CREDIT });
     let Ok(response::Method::ListRoutes(routes)) = owner
         .call(Method::ListRoutes(proto::ListRoutesRequest {}))
         .await
@@ -141,7 +149,7 @@ async fn quiet(a: &TestNode, b: &TestNode, key_a: &NodeKey, key_b: &NodeKey) -> 
             return false;
         }
     }
-    net(a, key_b).await + net(b, key_a).await == 2 * i128::from(CREDIT)
+    owes(a, key_b).await + owes(b, key_a).await == 0
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -211,23 +219,24 @@ async fn two_daemons_peer_and_keep_their_peering() {
     )
     .await;
     // A settled as it paid; once quiet, the books mirror each other, and
-    // what A settled left its stub for B's.
+    // what A settled, less what B paid in advance if it is the junior,
+    // moved from A's stub to B's.
     until(&clock, async || quiet(&a, &b, &key_a, &key_b).await).await;
-    let at_a = net(&a, &key_b).await;
-    let settled = u64::try_from(i128::from(PAYMENT) - (at_a - i128::from(CREDIT))).unwrap();
-    assert!(settled >= PAYMENT - CREDIT, "settled {settled}");
-    assert_eq!(stub_balance(&a).await, DEPOSIT - settled);
-    assert_eq!(stub_balance(&b).await, DEPOSIT + settled);
+    let moved = DEPOSIT - stub_balance(&a).await;
+    assert_eq!(stub_balance(&b).await, DEPOSIT + moved);
+    let left = i128::from(PAYMENT) - i128::from(moved);
+    assert_eq!(owes(&a, &key_b).await, left);
+    assert!(left <= i128::from(CREDIT), "A owes {left}");
     // Restarted, B still has its peering and its accounts: nothing to redo.
-    let at_b = net(&b, &key_a).await;
+    let at_b = owes(&b, &key_a).await;
     let (dir, clock_b) = b.stop().await;
     assert_eq!(clock_b.now_ms(), clock.now_ms());
     let b = Bound::bind_in(dir)
         .start(clock.clone(), 3, Policies::DEV, &env)
         .await;
     assert!(peered(&b, &key_a).await);
-    assert_eq!(net(&b, &key_a).await, at_b);
-    assert_eq!(stub_balance(&b).await, DEPOSIT + settled);
+    assert_eq!(owes(&b, &key_a).await, at_b);
+    assert_eq!(stub_balance(&b).await, DEPOSIT + moved);
     // A's owner ends the peering: it ends on both sides, and A settles
     // everything it still owes.
     let ended = a
@@ -242,7 +251,7 @@ async fn two_daemons_peer_and_keep_their_peering() {
         peers(&a).await.is_empty()
             && peers(&b).await.is_empty()
             && quiet(&a, &b, &key_a, &key_b).await
-            && net(&a, &key_b).await == i128::from(CREDIT)
+            && owes(&a, &key_b).await == 0
     })
     .await;
     assert_eq!(stub_balance(&a).await + stub_balance(&b).await, 2 * DEPOSIT);

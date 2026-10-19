@@ -26,8 +26,6 @@ const USD = "stub+usd";
 const XRP = "xrpl-testnet+xrp";
 /** 4 XRP: more than a peer's credit, so every node must settle. */
 const RECEIVE = 4_000_000_000n;
-/** What a node extends to each peer, on either ledger. */
-const CREDIT = 1_100_000_000n;
 /** d2's fee, 1%, and spread, 0.5%. */
 const FEE_PPM = 10_000;
 const SPREAD_PPM = 5_000;
@@ -60,20 +58,24 @@ async function balance(node: ScenarioNode, path: string): Promise<bigint> {
   return account ? account.creditsPosted - account.debitsPosted : 0n;
 }
 
-/** Every peer account, net credit, by `node>peer@ledger`. */
+/**
+ * What each node owes each peer net, by its own books, by
+ * `node>peer@ledger`: its peer account less the credit it extends,
+ * negative when the peer owes it.
+ */
 async function peerAccounts(scenario: Scenario): Promise<Map<string, bigint>> {
   const byId = new Map(scenario.nodes.map((node) => [node.id, node.name]));
   const accounts = new Map<string, bigint>();
   for (const node of scenario.nodes) {
     const list = await node.rpc.call("listAccounts", {});
     for (const account of list.accounts) {
-      const match = /^(.+):assets\/interledger\/(.+)$/.exec(account.path);
+      const match = /^(.+):(assets\/interledger|contra\/trust)\/(.+)$/
+        .exec(account.path);
       if (!match) continue;
-      const peer = byId.get(match[2]) ?? match[2];
-      accounts.set(
-        `${node.name}>${peer}@${match[1]}`,
-        account.creditsPosted - account.debitsPosted,
-      );
+      const peer = byId.get(match[3]) ?? match[3];
+      const key = `${node.name}>${peer}@${match[1]}`;
+      const net = account.creditsPosted - account.debitsPosted;
+      accounts.set(key, (accounts.get(key) ?? 0n) + net);
     }
   }
   return accounts;
@@ -93,7 +95,7 @@ async function quiet(scenario: Scenario): Promise<boolean> {
     const [pair, on] = key.split("@");
     const [node, peer] = pair.split(">");
     const theirs = accounts.get(`${peer}>${node}@${on}`);
-    if (theirs === undefined || mine + theirs !== 2n * CREDIT) return false;
+    if (theirs === undefined || mine + theirs !== 0n) return false;
   }
   return accounts.size === 4;
 }
