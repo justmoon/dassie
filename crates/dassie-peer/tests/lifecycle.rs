@@ -215,18 +215,35 @@ fn a_settlement_goes_as_soon_as_its_node_is_back() {
 // gets it at the pace of the backoff, not once per answer.
 #[test]
 fn a_busy_node_gets_a_settlement_at_the_pace_of_the_backoff() {
+    // Tries at 0, 1, 3, 7, ... 1023 s.
+    refused_settlement(Some(503), 11);
+}
+
+// A node that answers our other requests but never a settlement gets it at
+// most twice as often as the backoff alone would send it: an early try
+// that gets no answer does not make another.
+#[test]
+fn a_node_that_drops_settlements_gets_them_at_the_pace_of_the_backoff() {
+    // Each try times out after 30 s: some 10 in the backoff, and as many
+    // early.
+    refused_settlement(None, 20);
+}
+
+/// Settles while node 1 refuses settlement messages with `status`, or
+/// drops them, for 25 minutes at production timings, and checks it got at
+/// most `tries`; then that the settlement arrives once node 1 takes it.
+fn refused_settlement(status: Option<u16>, tries: usize) {
     let config = Config {
         settlement_retry_max_ms: 3_600_000,
         ..Config::DEV
     };
     let (mut network, a, b) = peered_with(41, config);
-    network.refuse_settlements.insert(1);
+    network.refuse_settlements.insert(1, status);
     assert!(network.settle(0, b, 5));
-    // Tries at 0, 1, 3, 7, ... 1023 s.
     settle(&mut network, 25 * 60_000);
     assert!(network.node(0).settling(&b));
     assert!(
-        network.settlements_refused <= 11,
+        network.settlements_refused <= tries,
         "{} tries in 25 minutes",
         network.settlements_refused
     );

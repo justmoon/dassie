@@ -96,6 +96,7 @@ impl PeerNode {
                 at_ms: self.now_ms,
                 in_flight: false,
                 early: true,
+                went_early: false,
             },
         );
         self.deliver_settlement(*node);
@@ -222,7 +223,8 @@ impl PeerNode {
     /// answered waits out its backoff (see
     /// [`settlement_failed`](Self::settlement_failed)), and a copy that
     /// arrives twice is acknowledged and not applied again, so going early
-    /// costs at most one more request per try that got no answer.
+    /// costs at most one more request per try in its backoff that got no
+    /// answer.
     pub(crate) fn settlement_reachable(&mut self, node: &NodeId) {
         let now = self.now_ms;
         if let Some(retry) = self.retries.get_mut(node)
@@ -231,6 +233,7 @@ impl PeerNode {
             && retry.at_ms > now
         {
             retry.early = false;
+            retry.went_early = true;
             retry.at_ms = now;
         }
     }
@@ -238,13 +241,15 @@ impl PeerNode {
     /// Waits before sending the channel's outbox again, longer each time,
     /// after a try that ended in `problem`, or was never sent (`None`). It
     /// may go early once its node answers a request of ours (see
-    /// [`settlement_reachable`](Self::settlement_reachable)) only if no
-    /// try got an answer since it last went early. A 401 leaves that as it
-    /// was: a node that just started refuses messages dated before its
-    /// start, and the copy that goes early is dated anew. Any other answer
-    /// refuses it for good reason (it is malformed, has no channel, or the
-    /// node is busy), and the node answering something else changes none
-    /// of that.
+    /// [`settlement_reachable`](Self::settlement_reachable)) only after a
+    /// try in its backoff that got no answer, and not after one that went
+    /// early itself, so that a node that never answers it gets it at most
+    /// twice as often as the backoff alone would send it. A 401 leaves that
+    /// as it was: a node that just started refuses messages dated before
+    /// its start, and the copy that goes early is dated anew. Any other
+    /// answer refuses it for good reason (it is malformed, has no channel,
+    /// or the node is busy), and the node answering something else changes
+    /// none of that.
     fn settlement_failed(&mut self, node: NodeId, problem: Option<Problem>) {
         let (min, max) = (
             self.config.settlement_retry_min_ms,
@@ -261,9 +266,10 @@ impl PeerNode {
         let wait = backoff(min, max, outbox.attempts);
         outbox.attempts = outbox.attempts.saturating_add(1);
         self.channels_dirty.insert(node);
+        let last = self.retries.get(&node).copied().unwrap_or_default();
         let early = match problem {
-            None | Some(Problem::Failed(_)) => true,
-            Some(Problem::Status(401)) => self.retries.get(&node).is_some_and(|retry| retry.early),
+            None | Some(Problem::Failed(_)) => !last.went_early,
+            Some(Problem::Status(401)) => last.early,
             Some(Problem::Status(_) | Problem::Invalid) => false,
         };
         self.retries.insert(
@@ -272,6 +278,7 @@ impl PeerNode {
                 at_ms: now.saturating_add(wait),
                 in_flight: false,
                 early,
+                went_early: false,
             },
         );
     }
