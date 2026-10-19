@@ -57,6 +57,7 @@ Beyond the invariants, a simulation judges each node on its own, by its own book
 - **Against what really happened:** a node's books hold what its scheme holds; its owner's funds moved by what its receivers took and its payers sent, and each token's by what its client sent. The underlying ledgers neither make nor lose money, each asset apart in runs across currencies.
 - **Its decisions, against the liquidity its books show:** it refuses a Prepare for liquidity only by the limits its books set; it takes every settlement an honest peer sends; once the network is calm, it owes no peer past its own threshold for long; and when a peering ends, its books say it owes nothing.
 - **Against adversaries:** whatever a lying peer does (never settle, spend the credit it was given and vanish), an honest node loses no more than the credit it extends ([D23](../decisions/D23-each-node-books-its-own-fulfills.md)); one that vanishes loses its peering.
+- **Against replays:** a copy of a request, sent again by someone who saw it arrive, is refused if its original was answered 200 or is still under way. Only a copy of a request that had no effect, refused or lost in a crash, may be taken once ([Peer protocol](peer-protocol.md#replay-protection)).
 - **Liveness:** payments complete, and settlements arrive.
 
 The peer protocol's own simulation checks what the protocol must make agree, which is not money: link states and routes converge, peerings are two-sided, and each settlement is applied exactly once.
@@ -69,7 +70,7 @@ The `node` simulation counts what it reached (crashes mid-payment, cuts, settlem
 
 ### Outcomes
 
-A run ends as `pass`, `safety` (something that must never happen did: an assertion, an invariant or a check of what the run did), `liveness` (something that must happen did not, once the network was calm), or `unsupported` (the run drew a situation no code could recover from, such as a majority of bootstrap nodes cut off; it neither passes nor fails) (`dassie_node_core::testing::Outcome`). Each of the node simulation's checks says which of the two failures it found.
+A run ends as `pass`, `safety` (something that must never happen did: an assertion, an invariant or a check of what the run did), `liveness` (something that must happen did not, once the network was calm), or `unsupported` (the run drew a situation no code could recover from, such as a majority of bootstrap nodes cut off; it neither passes nor fails) (`dassie_node_core::testing::Outcome`). Each of the node simulation's checks says which of the two failures it found. A run that broke both says safety: one that did not settle down is first checked for what must not happen even with money in flight, and one that did, by its books, before anything that only failed to happen.
 
 ### The runner: `dassie-sim`
 

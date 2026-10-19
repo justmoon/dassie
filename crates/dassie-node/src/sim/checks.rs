@@ -239,6 +239,48 @@ pub fn check_events(sim: &Sim) -> Result<(), String> {
     }
 }
 
+/// What must never happen, even with packets in flight: a capped token
+/// spent past its cap, a payment received more than it asked for, or a
+/// payment vanished. A run that did not settle down checks these, and
+/// fails for safety, before it fails for liveness.
+pub fn check_mid_flight(sim: &Sim) -> Result<(), Outcome> {
+    for payment in &sim.payments {
+        check_cap(sim, payment).map_err(Outcome::Safety)?;
+        let row = sim.nodes[payment.to]
+            .store
+            .incoming_payment(payment.incoming)
+            .unwrap()
+            .ok_or_else(|| Outcome::Safety("an incoming payment vanished".into()))?;
+        if let Some(limit) = payment.limit
+            && row.received_amount > limit
+        {
+            return Err(Outcome::Safety(format!(
+                "an incoming payment of {limit} received {}",
+                row.received_amount
+            )));
+        }
+    }
+    for &(from, to, incoming, outgoing) in &sim.outgoing {
+        let row = sim.nodes[from]
+            .store
+            .outgoing_payment(outgoing)
+            .unwrap()
+            .ok_or_else(|| Outcome::Safety("an outgoing payment vanished".into()))?;
+        let received = sim.nodes[to]
+            .store
+            .incoming_payment(incoming)
+            .unwrap()
+            .map_or(0, |row| row.received_amount);
+        if received > row.receive_amount.value {
+            return Err(Outcome::Safety(format!(
+                "node {to} received {received}, more than the {} it asked for",
+                row.receive_amount.value
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Everything a run over one ledger checks once the network is calm: what
 /// must never happen first, so that a run that broke both says safety.
 pub fn check(sim: &Sim) -> Result<(), Outcome> {

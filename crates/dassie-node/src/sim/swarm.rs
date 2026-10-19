@@ -4,11 +4,12 @@
 //! entirely, so that rare combinations get their turn.
 //!
 //! A run has two phases. In the chaos, payments start while nodes crash
-//! and restart, links are cut and healed, messages are lost and ledger
-//! connections drop. Then the network heals: every node runs, no link is
-//! cut and nothing is lost, and within [`HEAL_MS`] the network must settle
-//! down. Then each node is checked by its own books (D19), as the scripted
-//! runs are.
+//! and restart, links are cut and healed, messages are lost, requests are
+//! replayed and ledger connections drop; each node's clock is off the
+//! network's by up to 10 s, throughout. Then the network heals: every node
+//! runs, no link is cut, nothing is lost or replayed, and within
+//! [`HEAL_MS`] the network must settle down. Then each node is checked by
+//! its own books (D19), as the scripted runs are.
 
 use std::fmt;
 
@@ -16,7 +17,9 @@ use dassie_connector::SpendingCap;
 use dassie_node_core::testing::{Outcome, Run, SeededRng};
 use dassie_settlement::LedgerStatus;
 
-use super::checks::{check, check_delivered, check_events, check_finished, check_settled};
+use super::checks::{
+    check, check_delivered, check_events, check_finished, check_mid_flight, check_settled,
+};
 use super::scripted::{READY_WITHIN_MS, ended, ready};
 use super::{Delivery, START, Settling, Sim};
 use crate::engine::LedgerEvent;
@@ -35,6 +38,11 @@ const LOOK_MS: u64 = 5_000;
 
 /// The least a payment sends: 0.1 units.
 const LEAST_PAYMENT: u64 = 100_000_000;
+
+/// The most a node's clock is off the network's, either way: as the peer
+/// simulation's, and well inside the peer protocol's replay window of
+/// 60 s, which a node with a clock further off fails anyway.
+const MOST_SKEW_MS: u64 = 10_000;
 
 /// How often each kind of chaos happens, relative to the others. A weight
 /// of 0 switches it off.
@@ -79,6 +87,11 @@ pub struct Options {
     pub payments: (u64, u64),
     /// The most a payment sends.
     pub largest_payment: u64,
+    /// How many of a thousand requests that get through are replayed in
+    /// the chaos.
+    pub replay_per_mille: u64,
+    /// The most a node's clock is off the network's, either way.
+    pub skew_ms: u64,
 }
 
 impl Options {
@@ -113,6 +126,8 @@ impl Options {
         };
         let payments = (1 + rng.below(8), rng.below(3));
         let largest_payment = LEAST_PAYMENT + rng.below(3_300_000_001);
+        let replay_per_mille = switched(&mut rng, 51);
+        let skew_ms = switched(&mut rng, MOST_SKEW_MS + 1);
         Self {
             nodes,
             bootstraps,
@@ -124,7 +139,20 @@ impl Options {
             weights,
             payments,
             largest_payment,
+            replay_per_mille,
+            skew_ms,
         }
+    }
+
+    /// Each node's clock: how far it is ahead of the network's, or behind
+    /// it, drawn from `seed`.
+    #[must_use]
+    pub fn skews(&self, seed: u64) -> Vec<i64> {
+        let mut rng = SeededRng::new(seed ^ 0x5c3e_0000);
+        let skew = i64::try_from(self.skew_ms).unwrap();
+        (0..self.nodes)
+            .map(|_| i64::try_from(rng.below(2 * self.skew_ms + 1)).unwrap() - skew)
+            .collect()
     }
 }
 
@@ -142,7 +170,8 @@ impl fmt::Display for Options {
         let w = &self.weights;
         write!(
             f,
-            "{} nodes, {} bootstrap, {:?}; latency {}–{} ms, loss {}‰; chaos {} s, \
+            "{} nodes, {} bootstrap, {:?}; latency {}–{} ms, loss {}‰, replays {}‰, \
+             clocks off by up to {} ms; chaos {} s, \
              every ~{} ms: pay {} crash {} restart {} cut {} heal {} ledger drop {} idle {}; \
              {} payments and {} outgoing, up to {}",
             self.nodes,
@@ -151,6 +180,8 @@ impl fmt::Display for Options {
             self.latency_ms.0,
             self.latency_ms.1,
             self.loss_per_mille,
+            self.replay_per_mille,
+            self.skew_ms,
             self.chaos_ms / 1_000,
             self.step_ms,
             w.pay,
@@ -178,13 +209,18 @@ pub fn describe(seed: u64) -> String {
 pub fn run(seed: u64) -> Run {
     let options = Options::swarm(seed);
     let mut rng = SeededRng::new(seed ^ 0xc4a0_5000);
-    let mut sim = Sim::with(
+    let skews = options.skews(seed);
+    let mut sim = Sim::with_skews(
         seed,
-        options.nodes,
         options.bootstraps,
         std::collections::BTreeMap::new(),
         options.settling,
+        Policies::DEFAULT.peer,
+        &skews,
     );
+    for _ in skews.iter().filter(|skew| **skew != 0) {
+        sim.count("clocks off");
+    }
     sim.latency_ms = options.latency_ms;
     // The network forms first, calm, as the scripted runs' does: at
     // production timings that takes minutes, longer than a payer keeps
@@ -198,6 +234,7 @@ pub fn run(seed: u64) -> Run {
     }
     sim.trace.push(format!("{} ready", sim.now));
     sim.loss_per_mille = options.loss_per_mille;
+    sim.replay_per_mille = options.replay_per_mille;
     let mut left = options.payments;
     chaos(&mut sim, &options, &mut rng, &mut left);
     let result = heal(&mut sim, &options, &mut rng, &mut left);
@@ -321,7 +358,7 @@ fn pay(sim: &mut Sim, options: &Options, rng: &mut SeededRng, left: &mut (u64, u
                     sim.count("outgoing refused");
                 } else {
                     let now = sim.now;
-                    sim.errors.push(format!(
+                    sim.refused.push(format!(
                         "{now} node {from} refused an outgoing payment of {amount} \
                          its owner's {pool} covers: {refusal}"
                     ));
@@ -386,6 +423,7 @@ fn heal(
     }
     sim.cut.clear();
     sim.loss_per_mille = 0;
+    sim.replay_per_mille = 0;
     sim.trace.push(format!("{} heal", sim.now));
     // A payer gives up after its reconnects (a few minutes), and the chaos
     // may have cut it off that long, or the network not yet formed: what
@@ -429,17 +467,24 @@ fn heal(
         let completed = u64::try_from(completed).unwrap_or(u64::MAX);
         sim.counts.insert("outgoing payments completed", completed);
     }
-    // An error a node reported ranks first. A network that never settled
-    // down is a liveness failure, and its books are not judged: with money
-    // in flight they rightly differ.
+    // An error a node reported ranks first, then what must not happen even
+    // with money in flight. A network that never settled down is a liveness
+    // failure, and its books are not judged: with money in flight they
+    // rightly differ. Nor is a payment refused that should have been made:
+    // nothing was lost, but something did not happen.
     check_events(sim).map_err(Outcome::Safety)?;
+    check_mid_flight(sim)?;
     if let Some(what) = stuck {
         return Err(Outcome::Liveness(format!(
             "healed, the network did not settle down in {} s: {what}",
             HEAL_MS / 1_000
         )));
     }
-    check(sim)
+    check(sim)?;
+    match sim.refused.first() {
+        Some(refused) => Err(Outcome::Liveness(refused.clone())),
+        None => Ok(()),
+    }
 }
 
 /// What is left to happen, if anything: a node whose scheme does not see
