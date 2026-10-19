@@ -132,7 +132,7 @@ async fn subscribe_packets(engine: &Engine, items: &Items) -> Result<Reply, RpcE
     let mut events = engine.subscribe_packets()?;
     let mut lost = 0u64;
     // An empty `lagged` says the stream is live, at once and then at least
-    // every minute (spec 7 §4.6).
+    // every minute (spec/areas/rpc.md#live-streams).
     let alive = || {
         stream_item::Method::SubscribePackets(proto::PacketEvent {
             event: Some(proto::packet_event::Event::Lagged(0)),

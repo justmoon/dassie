@@ -2,7 +2,7 @@
  * A node of a scenario: the real `dassie` binary, with a vanity identity,
  * named `dN.localhost` on ports `4000+N` (HTTP) and `5000+N` (HTTPS), and
  * set up the way its owner would set it up: over IPC and the HTTPS API,
- * never by writing its database (spec 7 §6).
+ * never by writing its database (spec/areas/dev.md#setting-nodes-up).
  *
  * Setting up can run again on a node that is set up already: it then
  * checks that the data is this node's, and adds only what is missing.

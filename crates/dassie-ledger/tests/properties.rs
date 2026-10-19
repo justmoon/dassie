@@ -1,4 +1,5 @@
-//! Random sequences of operations against the ledger (spec 7 §7 item 2):
+//! Random sequences of operations against the ledger
+//! (spec/areas/testing.md#property-tests):
 //! the invariants hold after every step, no transfer that checks limits
 //! breaks one that held, and the journal alone rebuilds the ledger. And the
 //! decoders of what the network and the database hand the ledger never

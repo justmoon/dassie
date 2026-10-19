@@ -1,8 +1,8 @@
 /**
- * The dashboard's origin (spec 7 §6): its pages, its control channel at
- * `/control`, and the relay to each node at `/nodes/<dN>/rpc`, all on one
- * origin, so the page keeps `connect-src 'self'`. It listens on loopback
- * only.
+ * The dashboard's origin (spec/areas/dev.md#the-dashboards-origin): its pages,
+ * its control channel at `/control`, and the relay to each node at
+ * `/nodes/<dN>/rpc`, all on one origin, so the page keeps `connect-src 'self'`.
+ * It listens on loopback only.
  *
  * The control channel and the relay act as the nodes' owner, so before
  * any upgrade the `Host` must be one of the dashboard's names (no rebound

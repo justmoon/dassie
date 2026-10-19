@@ -1,6 +1,6 @@
 /**
- * Removing a ledger (spec 6 §1.6.9): what must hold first, as the node
- * reports it, and the confirmation the owner types.
+ * Removing a ledger (spec/areas/wallet.md#remove-a-ledger): what must hold
+ * first, as the node reports it, and the confirmation the owner types.
  */
 
 import {

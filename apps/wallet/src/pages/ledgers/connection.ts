@@ -1,6 +1,7 @@
 /**
  * How a ledger's scheme stands with its underlying ledger, for people
- * (spec 7 §4.5): connecting, catching up, waiting for funds, or failed.
+ * (spec/areas/wallet.md#ledgers): connecting, catching up, waiting for funds,
+ * or failed.
  */
 
 import { LedgerConnection } from "@dassie/rpc/proto";

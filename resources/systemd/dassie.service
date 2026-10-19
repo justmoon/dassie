@@ -1,4 +1,5 @@
-# The Dassie node (spec 2 §3, 7 §4.8). It takes its sockets from the socket
+# The Dassie node (spec/areas/release.md#systemd-units,
+# spec/areas/node.md#socket-activation). It takes its sockets from the socket
 # units, by name, and reports readiness itself (--runtime=systemd).
 [Unit]
 Description=Dassie node

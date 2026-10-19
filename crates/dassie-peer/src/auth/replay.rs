@@ -1,4 +1,5 @@
-//! Replay protection for one sender (spec 7 §4.7): a timestamp window, a
+//! Replay protection for one sender
+//! (spec/areas/peer-protocol.md#replay-protection): a timestamp window, a
 //! floor, and per session a sliding window of counters, as IPsec does
 //! (RFC 6479). Checking changes nothing; committing does, once the MAC has
 //! verified.

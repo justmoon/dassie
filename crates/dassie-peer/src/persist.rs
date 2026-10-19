@@ -1,8 +1,8 @@
-//! What the peer node persists (spec 7 §4.4): the table's nodes with their
-//! link states, registrations and peerings, our own sequence, the
-//! settlement channels and the bans (NET-1, NET-2, NET-7, ACC-18). Changes
-//! come out as snapshots of what changed, written in the same transaction
-//! as the ledger.
+//! What the peer node persists (spec/areas/network.md#persistence): the
+//! table's nodes with their link states, registrations and peerings, our
+//! own sequence, the settlement channels and the bans (NET-1, NET-2, NET-7,
+//! ACC-18). Changes come out as snapshots of what changed, written in the
+//! same transaction as the ledger.
 
 use alloc::vec::Vec;
 

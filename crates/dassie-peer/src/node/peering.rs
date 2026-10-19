@@ -1,5 +1,5 @@
-//! Peering (spec 3 §12, D12, spec 7 §4.7): looking for peers, asking, and
-//! answering. Termination, bans and the advertise flag are in
+//! Peering (spec/areas/network.md#peering, D12): looking for peers, asking,
+//! and answering. Termination, bans and the advertise flag are in
 //! [`lifecycle`](super::lifecycle).
 
 use alloc::vec::Vec;

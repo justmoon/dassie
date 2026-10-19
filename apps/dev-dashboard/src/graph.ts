@@ -1,6 +1,6 @@
 /**
- * The dashboard's network graph (spec 6 §2): a link between two nodes
- * only when each lists the other as its peer, and a link lit up for a
+ * The dashboard's network graph (spec/areas/dev.md#dashboard): a link between
+ * two nodes only when each lists the other as its peer, and a link lit up for a
  * moment when a packet goes along it.
  */
 

@@ -1,4 +1,4 @@
-//! Keys and MACs of `hmacSha256V1` (spec 7 §4.7).
+//! Keys and MACs of `hmacSha256V1` (spec/areas/peer-protocol.md#keys-and-macs).
 //!
 //! The key between two nodes comes from their static X25519 keys alone: a
 //! scheme that only MACs gains nothing from an ephemeral key (D2). It is

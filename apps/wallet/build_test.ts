@@ -2,7 +2,8 @@
 //
 // - the page's CSP (see `@dassie/ui/testing/csp`);
 // - the production build has none of the development build's auto-login
-//   (spec 7 §6), which reads a login proof from the URL.
+//   (spec/areas/wallet.md#dev-auto-login), which reads a login proof from
+//   the URL.
 //
 // The checks run only once `node --run build:wallet` has run.
 

@@ -1,4 +1,5 @@
-//! Cases where the original lib-oer was wrong (spec 4 §2, OER-q1 to OER-q3,
+//! Cases where the original lib-oer was wrong
+//! (spec/areas/encoding.md#what-the-original-got-wrong, OER-q1 to OER-q3,
 //! ILP-12). Each test fails against the original's behaviour.
 
 mod support;

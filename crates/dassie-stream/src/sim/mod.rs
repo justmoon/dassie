@@ -1,7 +1,7 @@
 //! A deterministic simulation of one STREAM client and one server joined
 //! by a connector: mock clock, seeded RNG, latency, loss, an exchange rate
-//! and a maximum packet amount (spec 7 §7, D16). For this crate's tests and
-//! the simulation runner (D27).
+//! and a maximum packet amount (spec/areas/testing.md#deterministic-simulation,
+//! D16). For this crate's tests and the simulation runner (D27).
 //!
 //! Test code, behind the `sim` feature: a panic here is a failed run.
 

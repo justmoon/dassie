@@ -97,11 +97,11 @@ export const BtpTokenSchema: GenMessage<BtpToken> = /*@__PURE__*/
   messageDesc(file_dassie_ui_v1_btp, 0);
 
 /**
- * At most `amount` per `window_ms`, refilling continuously (spec 7 §4.5):
- * what the token's clients send out of the owner's funds. Paying the
- * node's own receiver, or another token's client, does not count. A packet
- * larger than the amount is refused with F08, one the cap has no room for
- * now with T04.
+ * At most `amount` per `window_ms`, refilling continuously
+ * (spec/areas/connector.md#spending-caps): what the token's clients send out of
+ * the owner's funds. Paying the node's own receiver, or another token's client,
+ * does not count. A packet larger than the amount is refused with F08, one the
+ * cap has no room for now with T04.
  *
  * @generated from message dassie.ui.v1.SpendingCap
  */

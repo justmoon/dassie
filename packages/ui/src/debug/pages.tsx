@@ -1,8 +1,8 @@
 /**
- * The debug pages (spec 6 §1.6.13, spec 7 §5): logs, nodes, ledger and its
- * accounts, routing, packets, the services and cells, and the database.
- * They read the node only through the RPC client and the node's live data
- * of their context, so the dev dashboard shows them for any node.
+ * The debug pages (spec/areas/wallet.md#debug-pages): logs, nodes, ledger and
+ * its accounts, routing, packets, the services and cells, and the database.
+ * They read the node only through the RPC client and the node's live data of
+ * their context, so the dev dashboard shows them for any node.
  */
 
 import type { JSX } from "@solidjs/web";

@@ -1,7 +1,7 @@
 /**
- * Receive (spec 6 §1.6.6): the wallet addresses other wallets pay through
- * Open Payments, a request for a payment, and a tab per ledger with a
- * deposit method: the stub's test money.
+ * Receive (spec/areas/wallet.md#receive): the wallet addresses other wallets
+ * pay through Open Payments, a request for a payment, and a tab per ledger with
+ * a deposit method: the stub's test money.
  */
 
 import type { JSX } from "@solidjs/web";

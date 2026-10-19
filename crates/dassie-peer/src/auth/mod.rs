@@ -1,4 +1,4 @@
-//! Message authentication, v1 (D2, spec 7 §4.7).
+//! Message authentication, v1 (D2, spec/areas/peer-protocol.md#keys-and-macs).
 //!
 //! A request names its sender's key, which must hash to the sender's node
 //! ID; the MAC key comes from the two nodes' static keys; the MAC covers
@@ -36,7 +36,8 @@ pub struct AuthConfig {
 }
 
 impl AuthConfig {
-    /// The values of spec 7 §4.7.
+    /// The values of the spec (spec/areas/peer-protocol.md#sessions,
+    /// spec/areas/peer-protocol.md#replay-protection).
     pub const DEFAULT: Self = Self {
         skew_ms: 60_000,
         max_senders: 1024,

@@ -1,8 +1,8 @@
 /**
- * The M4 done criterion (spec 7 §8): the `two-nodes` and `six-nodes`
- * scenarios converge and route payments across hops; restarts keep
- * peerings and balances. Each payment is several times the credit peers
- * extend, so it only gets through if every hop settles as it goes.
+ * End to end (spec/areas/testing.md#end-to-end): the `two-nodes` and
+ * `six-nodes` scenarios converge and route payments across hops; restarts
+ * keep peerings and balances. Each payment is several times the credit
+ * peers extend, so it only gets through if every hop settles as it goes.
  *
  * Every node is the real binary. Payments are the JavaScript reference
  * stack: `ilp-plugin-btp` connects to one node with a token it issued, and
@@ -26,7 +26,10 @@ import { Scenario, type ScenarioNode } from "@dassie/dev/scenario";
 
 /** 5 USD: over four times what a peer extends, so every hop must settle. */
 const PAYMENT = 5_000_000_000n;
-/** What a node extends to each peer: 1.1 USD (spec 5 §2.7). */
+/**
+ * What a node extends to each peer: 1.1 USD
+ * (spec/areas/settlement.md#credit).
+ */
 const CREDIT = 1_100_000_000n;
 /** Every node's trigger: one and a half of the largest packets (D25). */
 const TRIGGER = 150_000_000n;

@@ -1,7 +1,7 @@
 /**
- * The login page (spec 6 §1.6.2), shown whenever the node is set up and this
- * browser has no session. Unlike the original, it checks the passphrase
- * before deriving from it and says why a login failed.
+ * The login page (spec/areas/wallet.md#login), shown whenever the node is set
+ * up and this browser has no session. Unlike the original, it checks the
+ * passphrase before deriving from it and says why a login failed.
  */
 
 import { type Identity, loadIdentity } from "@dassie/identity-wasm/web";

@@ -1,6 +1,7 @@
 //! The v1 wire format: v0's layouts where v1 keeps them (checked against
-//! the original's vectors, spec 3 §5.5), the v1 changes (spec 7 §4.7), and
-//! decoders that never panic.
+//! the original's vectors, spec/original/03-peer-network.md#55-test-vectors),
+//! the v1 changes (spec/areas/peer-protocol.md#versions), and decoders that
+//! never panic.
 
 #![allow(
     clippy::unwrap_used,
@@ -310,7 +311,7 @@ fn link_state_requests_and_answers_are_bounded() {
 }
 
 // Settlements carry their sequence, and tag 10 is `peeringTermination`
-// (spec 7 §4.7).
+// (spec/areas/peer-protocol.md#message-set).
 #[test]
 fn settlements_and_terminations_are_pinned() {
     let settlement = Content::Settlement {

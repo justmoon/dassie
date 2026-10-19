@@ -7,8 +7,10 @@
 //! - [`Ledger`] holds the accounts and the pending transfers, checks limits,
 //!   and queues a [`JournalEntry`] for everything the database must keep.
 //!
-//! The design follows the original's internal-ledger note (spec 5 §2),
-//! which TigerBeetle inspired, with the gaps of spec 5 §10 closed:
+//! The design follows the original's internal-ledger note (section 2 of
+//! spec/original/05-accounting-and-settlement.md), which TigerBeetle
+//! inspired, with the original's gaps closed
+//! (spec/original/05-accounting-and-settlement.md#10-open-questions--known-gaps-consolidated):
 //!
 //! - transfers have IDs, and refusals are values, never assertions on input
 //!   (ACC-8);
@@ -16,7 +18,8 @@
 //! - opening an account that exists returns it unchanged (ACC-4);
 //! - the owner's accounts on a ledger form a group whose total carries the
 //!   spending limit, so the owner cannot overspend (ACC-9), while each
-//!   spending endpoint has its own sub-account for attribution (spec 7 §4.5).
+//!   spending endpoint has its own sub-account for attribution
+//!   (spec/areas/ledger.md#the-owners-accounts).
 //!
 //! Nothing here performs IO or reads a clock: callers pass `now_ms` in and
 //! persist what [`Ledger::poll_journal`] hands them, before they act on the

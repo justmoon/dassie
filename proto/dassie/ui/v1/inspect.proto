@@ -2,8 +2,9 @@ syntax = "proto3";
 
 package dassie.ui.v1;
 
-// The node's own workings, for the wallet's debug pages (spec 7 §5): its
-// last log lines, its database without secrets, and its services.
+// The node's own workings, for the wallet's debug pages
+// (spec/areas/wallet.md#debug-pages): its last log lines, its database without
+// secrets, and its services.
 
 enum LogLevel {
   LOG_LEVEL_UNSPECIFIED = 0;

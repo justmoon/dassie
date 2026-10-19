@@ -1,4 +1,5 @@
-//! The stub scheme: test money without an underlying ledger (spec 5 §6.1).
+//! The stub scheme: test money without an underlying ledger
+//! (spec/areas/settlement.md#the-stub-scheme).
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;

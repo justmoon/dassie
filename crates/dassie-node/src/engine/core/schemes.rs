@@ -1,5 +1,6 @@
-//! The settlement schemes the node can run, and the connections of those
-//! that follow an underlying ledger (spec 7 §4.5).
+//! The settlement schemes the node can run, and the connections of those that
+//! follow an underlying ledger
+//! (spec/areas/settlement.md#schemes-that-follow-a-ledger).
 //!
 //! A scheme with a ledger to follow does no IO: it hands the core what to
 //! send, and the driver carries it over a WebSocket of its own, bound to the
@@ -121,9 +122,10 @@ impl Core {
     }
 
     /// Closes the connection of a scheme that stopped, by the books or by
-    /// itself (spec 7 §4.5): the driver would otherwise make it again for
-    /// ever, to a ledger the scheme no longer reads. Removing the scheme
-    /// and adding it again, or a restart, connects anew.
+    /// itself (spec/areas/settlement.md#the-scheme-interface): the driver
+    /// would otherwise make it again for ever, to a ledger the scheme no
+    /// longer reads. Removing the scheme and adding it again, or a restart,
+    /// connects anew.
     fn close_if_stopped(&mut self, scheme: Name) {
         let Some(active) = self.schemes.get_mut(&scheme) else {
             return;

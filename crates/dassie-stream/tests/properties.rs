@@ -1,5 +1,6 @@
 //! Properties of the codec, allocation and helpers. The decoders never
-//! panic on anything a remote can send (D16, spec 7 §7).
+//! panic on anything a remote can send (D16,
+//! spec/areas/testing.md#property-tests).
 
 mod support;
 

@@ -1,4 +1,5 @@
-//! Settlement messages over channels (spec 7 §4.7): ours, sent until
+//! Settlement messages over channels
+//! (spec/areas/settlement.md#settlement-channels): ours, sent until
 //! acknowledged; theirs, applied once each.
 
 use alloc::vec::Vec;

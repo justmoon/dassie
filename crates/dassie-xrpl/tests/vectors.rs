@@ -21,8 +21,9 @@ fn text<'a>(value: &'a Value, key: &str) -> &'a str {
     value[key].as_str().unwrap_or_else(|| panic!("{key}"))
 }
 
-// Spec 7 §2: the same passphrase must find the same XRPL account. Every
-// entry of the chain: node key → settlement entropy → wallet.
+// The wallet is the original's (spec/areas/xrpl.md#the-wallet): the same
+// passphrase must find the same XRPL account. Every entry of the chain:
+// node key → settlement entropy → wallet.
 #[test]
 fn the_original_wallets_derive_from_the_node_key() {
     let chain = read("../dassie-identity/tests/data/chain.json");
@@ -74,8 +75,8 @@ fn payment(vector: &Value) -> (Wallet, Payment) {
     (wallet, payment)
 }
 
-// Spec 5 §6.3.5: settlement Payments, field for field and byte for byte as
-// xrpl.js signs them, with the original's memo.
+// Settlement Payments (spec/areas/xrpl.md#the-payment-it-signs), field for
+// field and byte for byte as xrpl.js signs them, with the original's memo.
 #[test]
 fn payments_sign_and_hash_as_xrpl_js_does() {
     let vectors = read("tests/data/vectors.json");

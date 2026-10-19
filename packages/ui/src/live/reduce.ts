@@ -1,7 +1,7 @@
 /**
- * Live collections: a snapshot, then upserts and removals by key (spec 7
- * §4.6). The reducers change a plain draft, so the same code runs inside a
- * Solid store's setter and in tests.
+ * Live collections: a snapshot, then upserts and removals by key
+ * (spec/areas/rpc.md#live-streams). The reducers change a plain draft, so
+ * the same code runs inside a Solid store's setter and in tests.
  */
 
 /** A collection by key, and whether its first snapshot arrived. */

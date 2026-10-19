@@ -1,7 +1,8 @@
 /**
- * BTP tokens (spec 6 §1.6.12, "API Keys"): each with its ledger, what went
- * through it, and its spending cap (spec 7 §4.5). A new token's secret is
- * shown once, in a dialog, and never again: the node keeps only its hash.
+ * BTP tokens (spec/areas/wallet.md#btp-tokens): each with its ledger, what went
+ * through it, and its spending cap (spec/areas/connector.md#spending-caps). A
+ * new token's secret is shown once, in a dialog, and never again: the node
+ * keeps only its hash.
  */
 
 import type { JSX } from "@solidjs/web";

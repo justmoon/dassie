@@ -1,5 +1,6 @@
-//! Deterministic simulation of peer networks (spec 7 §7, D16), on fixed
-//! seeds: `dassie_peer::sim::chaos` is the run. A failure names its seed;
+//! Deterministic simulation of peer networks
+//! (spec/areas/testing.md#deterministic-simulation, D16), on fixed seeds:
+//! `dassie_peer::sim::chaos` is the run. A failure names its seed;
 //! `dassie-sim run peer <seed>` replays it, `dassie-sim explain peer <seed>`
 //! prints its trace, and `dassie-sim run peer <from>..<to>` runs others
 //! (D27).

@@ -1,5 +1,6 @@
 //! Cases where the original deviated from RFC 29 or was otherwise wrong
-//! (spec 4 §11, ILP-11, ILP-13). Each test fails against the original.
+//! (spec/original/04-interledger.md#11-stream-packageslib-protocol-streamsrc,
+//! ILP-11, ILP-13). Each test fails against the original.
 
 mod support;
 

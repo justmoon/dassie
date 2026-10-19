@@ -1,4 +1,4 @@
-//! `dassie init`: the configuration wizard (spec 2 §4.5).
+//! `dassie init`: the configuration wizard (spec/areas/node.md#dassie-init).
 //!
 //! The same steps and prompts as the original: the realm (test only), the
 //! public hostname, the CA's terms and an email address, then the setup
@@ -285,7 +285,7 @@ async fn finish(client: &mut Client, hostname: &str) -> Result<(), Stopped> {
 }
 
 /// The node's URL, with the port its HTTPS listener actually has, which
-/// under systemd may not be the configured one (spec 7 §4.1).
+/// under systemd may not be the configured one (spec/areas/node.md#runtimes).
 async fn node_url(client: &mut Client, hostname: &str) -> Result<String, Stopped> {
     let status = client
         .call(Method::GetStatus(proto::GetStatusRequest {}))

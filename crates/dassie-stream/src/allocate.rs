@@ -1,4 +1,4 @@
-//! Splitting a received amount among streams (spec 4 §11.11).
+//! Splitting a received amount among streams (spec/areas/stream.md#allocation).
 
 /// One stream's claim on an incoming packet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -18,9 +18,10 @@ pub struct ExceedsCapacity;
 /// `allocation` (one per claim).
 ///
 /// This is the original's algorithm, kept because it is a deliberate
-/// improvement over RFC 29's plain proportional split (spec 8 §2): what a
-/// full stream cannot take is redistributed to the others by their shares,
-/// and rounding remainders go to whoever still has room.
+/// improvement over RFC 29's plain proportional split
+/// (spec/areas/stream.md#differences-from-rfc-29-and-ilp-protocol-stream):
+/// what a full stream cannot take is redistributed to the others by their
+/// shares, and rounding remainders go to whoever still has room.
 pub fn allocate(
     total: u64,
     claims: &[Claim],

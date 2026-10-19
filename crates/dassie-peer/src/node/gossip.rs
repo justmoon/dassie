@@ -1,5 +1,5 @@
 //! Link states: our own, those we receive, flooding, heartbeats and
-//! refreshing stale ones (spec 3 §10, spec 7 §4.7).
+//! refreshing stale ones (spec/areas/network.md#link-states).
 
 use alloc::vec::Vec;
 

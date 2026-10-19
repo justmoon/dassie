@@ -1,5 +1,6 @@
-//! A deterministic simulation of the connector (spec 7 §7 item 4), on fixed
-//! seeds: `dassie_connector::sim::traffic` is the run. A failure names its
+//! A deterministic simulation of the connector
+//! (spec/areas/testing.md#the-simulations), on fixed seeds:
+//! `dassie_connector::sim::traffic` is the run. A failure names its
 //! seed; `dassie-sim run connector <seed>` replays it, and
 //! `dassie-sim run connector <from>..<to>` runs others (D27).
 

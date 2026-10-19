@@ -1,5 +1,6 @@
 //! Open Payments' incoming payments, as the money path sees them: which are
-//! open, and what each may still receive (D9, spec 7 §4.5).
+//! open, and what each may still receive (D9,
+//! spec/areas/payments.md#receiving).
 //!
 //! An incoming payment's STREAM credentials carry its ID and a connection
 //! key, sealed in the token as the connection's tag. Each read of the

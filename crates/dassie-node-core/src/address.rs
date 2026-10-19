@@ -1,4 +1,5 @@
-//! Which addresses the node may send peer requests to (spec 7 §4.7).
+//! Which addresses the node may send peer requests to
+//! (spec/areas/peer-protocol.md#outbound-requests).
 //!
 //! A peer's URL comes from its signed link state, which anyone registered
 //! can make say anything. Without a filter, the node could be made to send

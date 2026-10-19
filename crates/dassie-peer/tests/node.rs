@@ -1,6 +1,7 @@
 //! The peer node's rules, one at a time, on small simulated networks. Most
-//! tests are a gap of the original (spec 3 §19) that would fail against
-//! its behaviour.
+//! tests are a gap of the original
+//! (spec/original/03-peer-network.md#19-open-questions--known-gaps) that
+//! would fail against its behaviour.
 
 #![allow(
     clippy::unwrap_used,

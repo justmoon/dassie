@@ -2,9 +2,9 @@ import solid from "@solidjs/vite-plugin";
 import { defineConfig } from "vite";
 import { workspaceResolve } from "@dassie/ui/vite";
 
-// The dev dashboard (spec 6 §2), a static page the dev server serves under
-// the same strict CSP as the wallet's. The dev environment builds it with
-// `--mode development --watch` into dist-dev/; dist/ is the production
+// The dev dashboard (spec/areas/dev.md#dashboard), a static page the dev server
+// serves under the same strict CSP as the wallet's. The dev environment builds
+// it with `--mode development --watch` into dist-dev/; dist/ is the production
 // build CI checks.
 export default defineConfig(({ mode }) => {
   const dev = mode === "development";

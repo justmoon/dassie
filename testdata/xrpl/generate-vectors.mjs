@@ -1,6 +1,6 @@
 // Golden vectors for `dassie-xrpl` from xrpl.js 3.1.0, the library the
-// original's XRPL module used (spec 5 §6.3): settlement Payments as the
-// original builds them, signed by the wallets of
+// original's XRPL module used (spec/areas/xrpl.md#the-payment-it-signs):
+// settlement Payments as the original builds them, signed by the wallets of
 // crates/dassie-identity/tests/data/chain.json, with what xrpl.js signs,
 // the blob it submits and the hash it reports.
 //

@@ -1,7 +1,7 @@
 /**
- * The network (spec 6 §1.6.10): the graph, the node listing by distance,
- * and the selected node's details, with what the owner can do about it
- * (UI-4).
+ * The network (spec/areas/wallet.md#network): the graph, the node listing by
+ * distance, and the selected node's details, with what the owner can do about
+ * it (UI-4).
  */
 
 import type { JSX } from "@solidjs/web";

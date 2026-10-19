@@ -1,7 +1,7 @@
 /**
- * What the dev environment builds (spec 7 §6): the node binary with cargo,
- * again when the Rust sources change, and the wallet and the dashboard with
- * `vite build --watch` in development mode.
+ * What the dev environment builds (spec/areas/dev.md#builds): the node binary
+ * with cargo, again when the Rust sources change, and the wallet and the
+ * dashboard with `vite build --watch` in development mode.
  *
  * @module
  */

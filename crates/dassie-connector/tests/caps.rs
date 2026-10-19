@@ -1,5 +1,6 @@
-//! Spending caps (spec 7 §4.5): a BTP token spends at most its cap per
-//! window out of the owner's funds, refilling continuously.
+//! Spending caps (spec/areas/connector.md#spending-caps): a BTP token spends
+//! at most its cap per window out of the owner's funds, refilling
+//! continuously.
 
 #![allow(
     clippy::unwrap_used,

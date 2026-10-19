@@ -21,7 +21,8 @@ const PKCS8_PREFIX: [u8; 16] = [
 /// `SubjectPublicKeyInfo` for an Ed25519 public key (RFC 8410 §4), up to the
 /// key: algorithm 1.3.101.112 and a BIT STRING of 33 bytes, the first being
 /// the count of unused bits (zero). The original's constant left that byte
-/// out (spec 3 §2.1), so its 44-byte keys started with a stray `00`.
+/// out (spec/original/03-peer-network.md#21-node-private-key), so its
+/// 44-byte keys started with a stray `00`.
 const SPKI_PREFIX: [u8; 12] = [
     0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
 ];
@@ -42,7 +43,7 @@ secret_bytes!(
 /// computed from it once.
 ///
 /// Signing is pure Ed25519 (RFC 8032, no prehash, no context), as in the
-/// original (spec 3 §2.1).
+/// original (spec/areas/identity.md#node-key).
 pub struct NodeKey {
     signing: SigningKey,
     public: PublicKey,
@@ -63,7 +64,8 @@ impl NodeKey {
         Self { signing, public }
     }
 
-    /// The Ed25519 seed (the "raw private key" of spec 3 §2.1).
+    /// The Ed25519 seed (the original's "raw private key",
+    /// spec/original/03-peer-network.md#21-node-private-key).
     #[must_use]
     pub fn as_bytes(&self) -> &[u8; 32] {
         self.signing.as_bytes()
@@ -89,7 +91,8 @@ impl NodeKey {
 
     /// The static X25519 secret used for peer message authentication:
     /// `clamp(SHA-512(seed)[0..32])`, as libsodium's
-    /// `crypto_sign_ed25519_sk_to_curve25519` computes it (spec 3 §2.4).
+    /// `crypto_sign_ed25519_sk_to_curve25519` computes it
+    /// (spec/areas/identity.md#x25519-key).
     #[must_use]
     pub fn x25519_secret(&self) -> X25519Secret {
         let mut hash: [u8; 64] = Sha512::digest(self.as_bytes()).into();
@@ -190,9 +193,9 @@ impl PublicKey {
         NodeId::from_public_key(self.as_bytes())
     }
 
-    /// Verifies `signature` over `message` by the ZIP-215 rules (spec 8
-    /// §2): cofactored, accepting non-canonical encodings of `R` and of the
-    /// key, requiring a canonical `s`. These rules are exactly specified, so
+    /// Verifies `signature` over `message` by the ZIP-215 rules
+    /// (spec/areas/identity.md#node-key): cofactored, accepting non-canonical
+    /// encodings of `R` and of the key, requiring a canonical `s`. These rules are exactly specified, so
     /// every implementation can agree on every signature, edge cases
     /// included; ed25519-dalek's own `verify` is cofactorless and would
     /// refuse some signatures that ZIP-215 accepts.
@@ -205,7 +208,7 @@ impl PublicKey {
 
     /// The X25519 public key: the Montgomery form `u = (1 + y) / (1 - y)` of
     /// this point, as libsodium's `crypto_sign_ed25519_pk_to_curve25519`
-    /// computes it (spec 3 §2.4).
+    /// computes it (spec/areas/identity.md#x25519-key).
     #[must_use]
     pub fn to_x25519(&self) -> X25519Public {
         X25519Public::from_bytes(self.key.to_montgomery().to_bytes())

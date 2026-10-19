@@ -1,4 +1,5 @@
-//! Live streams (spec 7 §4.6): the wallet's views of state that changes.
+//! Live streams (spec/areas/rpc.md#live-streams): the wallet's views of state
+//! that changes.
 //!
 //! A stream does not replay the engine's events. It follows the engine's
 //! change counts ([`Versions`]): when the count it follows moves, it fetches

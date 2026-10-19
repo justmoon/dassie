@@ -1,5 +1,6 @@
-//! The wallet's live streams and debug methods against a daemon (spec 7
-//! §4.6, §5): each stream starts with what is, and follows what changes.
+//! The wallet's live streams and debug methods against a daemon
+//! (spec/areas/rpc.md#live-streams, spec/areas/rpc.md#the-inspector): each
+//! stream starts with what is, and follows what changes.
 
 #![allow(
     clippy::unwrap_used,
@@ -335,7 +336,8 @@ async fn get_stats(node: &TestNode) -> Reply {
     send(node.https, true, request).await
 }
 
-// Spec 2 §14: who the node is, for anyone, once it is set up.
+// Who the node is, for anyone, once it is set up
+// (spec/areas/http.md#get-stats).
 #[tokio::test]
 async fn stats_name_the_node_once_set_up() {
     let node = TestNode::start().await;

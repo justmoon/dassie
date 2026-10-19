@@ -1,6 +1,7 @@
 //! A bounded token-bucket table for login and setup attempts.
 //!
-//! The original had no rate limiting at all (spec 2 §8.4, RT-10). The login
+//! The original had no rate limiting at all
+//! (spec/original/02-node-runtime.md#84-post-apilogin, RT-10). The login
 //! secret is 256 bits, so guessing is hopeless anyway; the limit is there so
 //! that one client cannot make the node do work as fast as it can send.
 //!

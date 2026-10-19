@@ -1,6 +1,7 @@
 /**
- * Which screen the wallet shows (spec 6 §1.5), from the node's basic state,
- * the path, and, once the owner is signed in, the live ledgers.
+ * Which screen the wallet shows (spec/areas/wallet.md#the-gate), from the
+ * node's basic state, the path, and, once the owner is signed in, the live
+ * ledgers.
  */
 
 import { type GetBasicStateResponse, NodeState } from "@dassie/rpc/proto";
@@ -42,9 +43,10 @@ export function decideScreen(
 
 /**
  * What the signed-in owner sees: nothing until the ledgers are known, the
- * forced choice of a first ledger without one (spec 6 §1.6.8), the wallet
- * otherwise. It follows the live ledgers, so adding the first ledger, or
- * removing the last, takes effect at once (UI-7).
+ * forced choice of a first ledger without one
+ * (spec/areas/wallet.md#choose-a-ledger-type), the wallet otherwise. It follows
+ * the live ledgers, so adding the first ledger, or removing the last, takes
+ * effect at once (UI-7).
  */
 export function ownerScreen(
   ledgers: readonly unknown[] | undefined,

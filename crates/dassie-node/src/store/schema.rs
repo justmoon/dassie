@@ -1,9 +1,9 @@
 //! Schema v1, its migrations, and the check that the file matches it.
 //!
 //! The original's database is not read (D3). The new one keeps its ideas: an
-//! application ID that marks the file as Dassie's, `user_version`
-//! migrations each in a transaction, STRICT tables, and a check at every
-//! open that the tables are what the code expects (spec 2 §5.1). The check
+//! application ID that marks the file as Dassie's, `user_version` migrations
+//! each in a transaction, STRICT tables, and a check at every open that the
+//! tables are what the code expects (spec/areas/node.md#database). The check
 //! is stricter than the original's: an extra column is an error too.
 
 use rusqlite::{Connection, OptionalExtension, Transaction};
@@ -118,10 +118,10 @@ CREATE TABLE sessions (
 CREATE INDEX sessions_by_last_use ON sessions (last_used_at_ms);
 ";
 
-/// The ledger (spec 7 §4.4): its accounts with their posted totals cached,
-/// the journal of transfers, the settlement schemes and their checkpoints,
-/// and the BTP tokens, by hash (D10). Amounts are integers in the ledger's
-/// units; the ledger keeps every total below `i64::MAX`.
+/// The ledger (spec/areas/node.md#persistence): its accounts with their
+/// posted totals cached, the journal of transfers, the settlement schemes and
+/// their checkpoints, and the BTP tokens, by hash (D10). Amounts are integers
+/// in the ledger's units; the ledger keeps every total below `i64::MAX`.
 const MIGRATION_2: &str = "
 CREATE TABLE boot (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -183,9 +183,9 @@ CREATE TABLE btp_tokens (
 ) STRICT;
 ";
 
-/// The peer protocol (spec 7 §4.4, §4.7): the node table, with each node's
-/// verified link state, its registration with us and our peering with it;
-/// and our own link state's sequence, which only goes up (NET-7).
+/// The peer protocol (spec/areas/node.md#persistence): the node table, with
+/// each node's verified link state, its registration with us and our peering
+/// with it; and our own link state's sequence, which only goes up (NET-7).
 const MIGRATION_3: &str = "
 CREATE TABLE peer_nodes (
   id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 2 AND 45),
@@ -227,8 +227,9 @@ CREATE TABLE own_link_state (
 INSERT INTO own_link_state VALUES (1, 0);
 ";
 
-/// The peering lifecycle and settlement (spec 7 §4.4, §4.7): peerings
-/// being ended, settlement channels, which outlive peerings, and bans.
+/// The peering lifecycle and settlement (spec/areas/node.md#persistence):
+/// peerings being ended, settlement channels, which outlive peerings, and
+/// bans.
 const MIGRATION_4: &str = "
 CREATE TABLE peer_terminations (
   node TEXT PRIMARY KEY REFERENCES peers (node) ON DELETE CASCADE,
@@ -266,9 +267,9 @@ CREATE TABLE peer_bans (
 ) STRICT, WITHOUT ROWID;
 ";
 
-/// BTP spending caps (spec 7 §4.5), and the journal by account for the
-/// wallet's account pages. `btp_tokens` is rebuilt, since its new CHECKs
-/// span columns; nothing references it.
+/// BTP spending caps (spec/areas/connector.md#spending-caps), and the journal
+/// by account for the wallet's account pages. `btp_tokens` is rebuilt, since
+/// its new CHECKs span columns; nothing references it.
 const MIGRATION_5: &str = "
 CREATE TABLE btp_tokens_new (
   id INTEGER PRIMARY KEY CHECK (id >= 1),
@@ -299,10 +300,10 @@ CREATE INDEX ledger_transfers_by_debit_sequence ON ledger_transfers (debit, sequ
 CREATE INDEX ledger_transfers_by_credit_sequence ON ledger_transfers (credit, sequence);
 ";
 
-/// Open Payments (D9, spec 7 §4.4): incoming payments, written by the
-/// engine with the journal rows that pay them; GNAP grants and their
-/// access tokens, by hash (D10), written by the authorization server; and
-/// which ledger `$host` names.
+/// Open Payments (D9, spec/areas/payments.md#persistence): incoming payments,
+/// written by the engine with the journal rows that pay them; GNAP grants and
+/// their access tokens, by hash (D10), written by the authorization server;
+/// and which ledger `$host` names.
 const MIGRATION_6: &str = "
 CREATE TABLE incoming_payments (
   id BLOB PRIMARY KEY CHECK (length(id) = 16),
@@ -373,12 +374,12 @@ CREATE TABLE payment_settings (
 INSERT INTO payment_settings VALUES (1, NULL);
 ";
 
-/// Verdicts on Fulfills between peers (D17, spec 7 §4.4): the Fulfills we
-/// sent peers and wait for a verdict on, written with the journal rows that
-/// post their packets; the Fulfills we took from peers, kept 30 days to
-/// answer a resend the same way; and refusals in the journal, the
-/// compensation booked when a peer refused a Fulfill, with the packet's
-/// trace.
+/// Verdicts on Fulfills between peers (D17,
+/// spec/areas/ledger.md#fulfills-booked-as-final): the Fulfills we sent peers
+/// and wait for a verdict on, written with the journal rows that post their
+/// packets; the Fulfills we took from peers, kept 30 days to answer a resend
+/// the same way; and refusals in the journal, the compensation booked when a
+/// peer refused a Fulfill, with the packet's trace.
 const MIGRATION_7: &str = "
 CREATE TABLE ledger_transfers_new (
   id INTEGER PRIMARY KEY CHECK (id >= 0),
@@ -461,11 +462,11 @@ ALTER TABLE incoming_payments ADD COLUMN released_amount INTEGER NOT NULL DEFAUL
   CHECK (released_amount >= 0);
 ";
 
-/// Spending through Open Payments (D9, spec 7 §4.4): quotes, which the
-/// resource server writes as it makes them; outgoing payments, written by
-/// the engine with the journal rows that move their money; and what each
-/// grant spent per window of its interval, written with the payments that
-/// spend it.
+/// Spending through Open Payments (D9, spec/areas/payments.md#persistence):
+/// quotes, which the resource server writes as it makes them; outgoing
+/// payments, written by the engine with the journal rows that move their
+/// money; and what each grant spent per window of its interval, written with
+/// the payments that spend it.
 const MIGRATION_8: &str = "
 CREATE TABLE quotes (
   id BLOB PRIMARY KEY CHECK (length(id) = 16),

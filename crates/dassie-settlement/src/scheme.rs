@@ -169,7 +169,8 @@ impl fmt::Display for SchemeError {
     }
 }
 
-/// A settlement scheme (spec 5 §4.3), sans-IO.
+/// A settlement scheme (spec/areas/settlement.md#the-scheme-interface),
+/// sans-IO.
 ///
 /// Peering hooks and settlement are used from M4, when nodes peer; M3 runs
 /// the stub's deposits.

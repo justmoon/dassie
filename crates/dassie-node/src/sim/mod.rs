@@ -1,8 +1,9 @@
-//! A simulated network of real engine cores (spec 7 §7), for this crate's
-//! tests and the simulation runner, dassie-sim (D27): each node's core
-//! with its own in-memory database, wired through a virtual network with
-//! latency and loss, crashed and restarted from its database, paying over
-//! STREAM through BTP clients. Everything comes from one seed.
+//! A simulated network of real engine cores
+//! (spec/areas/testing.md#deterministic-simulation), for this crate's tests and
+//! the simulation runner, dassie-sim (D27): each node's core with its own
+//! in-memory database, wired through a virtual network with latency and loss,
+//! crashed and restarted from its database, paying over STREAM through BTP
+//! clients. Everything comes from one seed.
 //!
 //! It checks what only the whole node can show: peerings and balances
 //! survive restarts, payments of several times the credit cross hops, so

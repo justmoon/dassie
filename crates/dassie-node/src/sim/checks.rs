@@ -1,7 +1,8 @@
-//! What a node simulation checks (spec 7 §7 item 4): each node on its own,
-//! by its own books, against what really happened (D19). A check that
-//! fails says whether something that must never happen did (safety), or
-//! something that must happen did not (liveness).
+//! What a node simulation checks
+//! (spec/areas/testing.md#each-node-judged-by-its-own-books): each node on its
+//! own, by its own books, against what really happened (D19). A check that fails
+//! says whether something that must never happen did (safety), or something that
+//! must happen did not (liveness).
 
 use dassie_connector::{CapUsage, replay};
 use dassie_node_core::testing::Outcome;
@@ -187,7 +188,7 @@ pub fn outgoing_flows(sim: &Sim) -> impl Iterator<Item = Flow> + '_ {
 }
 
 /// Once the network is calm, no node's books show an honest peer still at
-/// its ask point: asked, the peer settled (D23, spec 7 §4.7).
+/// its ask point: asked, the peer settled (D23, spec/areas/settlement.md#asking-a-peer-to-settle).
 pub fn check_settled(sim: &Sim) -> Result<(), String> {
     for index in 0..sim.nodes.len() {
         for peer in sim.core(index).network().peers {

@@ -1,7 +1,7 @@
 /**
- * The dev dashboard (spec 6 §2): a sidebar with the pages and the nodes,
- * and the page. Its data comes from the dev server's control channel;
- * a node's pages talk to that node through the dev server's relay.
+ * The dev dashboard (spec/areas/dev.md#dashboard): a sidebar with the pages and
+ * the nodes, and the page. Its data comes from the dev server's control
+ * channel; a node's pages talk to that node through the dev server's relay.
  */
 
 import type { JSX } from "@solidjs/web";

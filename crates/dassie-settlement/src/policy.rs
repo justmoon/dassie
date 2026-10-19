@@ -1,4 +1,5 @@
-//! When to settle with a peer, and how much (D23, D25, spec 7 §4.7).
+//! When to settle with a peer, and how much (D23, D25,
+//! spec/areas/settlement.md#positions-and-thresholds).
 //!
 //! A node knows only the credit it extends to a peer, never the credit the
 //! peer extends to it. So the debtor cannot tell when it should settle:

@@ -1,8 +1,8 @@
 /**
- * What a built page of the wallet or the dev dashboard must keep to: their
- * CSP allows no inline script or style and nothing from other origins
- * (spec 7 §5), so the built templates hold no `style` attribute and
- * `index.html` no inline script or style.
+ * What a built page of the wallet or the dev dashboard must keep to: their CSP
+ * allows no inline script or style and nothing from other origins
+ * (spec/areas/wallet.md#content-security-policy), so the built templates hold
+ * no `style` attribute and `index.html` no inline script or style.
  *
  * @module
  */

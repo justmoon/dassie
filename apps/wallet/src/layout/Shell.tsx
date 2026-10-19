@@ -1,6 +1,6 @@
 /**
- * The wallet's frame: the navigation, a notice while the connection is
- * down, and the page (spec 6 §1.5's routes, and the Send, payment status,
+ * The wallet's frame: the navigation, a notice while the connection is down,
+ * and the page (spec/areas/wallet.md#routes, and the Send, payment status,
  * consent and connected apps pages of D9).
  */
 

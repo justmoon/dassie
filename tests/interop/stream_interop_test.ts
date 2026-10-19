@@ -1,6 +1,6 @@
 // dassie-stream (WASM) against ilp-protocol-stream, in both directions
-// (spec 7 §7). The native build runs the same scenarios through
-// native_interop_test.ts.
+// (spec/areas/testing.md#interop). The native build runs the same
+// scenarios through native_interop_test.ts.
 
 import { test } from "node:test";
 import { Buffer } from "node:buffer";

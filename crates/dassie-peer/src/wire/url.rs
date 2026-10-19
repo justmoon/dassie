@@ -1,6 +1,7 @@
-//! The syntax of a node's URL (spec 7 §4.7). It is part of verifying a link
-//! state, so every node agrees on which URLs are valid: `https://`, a
-//! lowercase hostname or an IP literal, an optional port, and nothing else.
+//! The syntax of a node's URL (spec/areas/peer-protocol.md#verification).
+//! It is part of verifying a link state, so every node agrees on which URLs
+//! are valid: `https://`, a lowercase hostname or an IP literal, an optional
+//! port, and nothing else.
 
 use super::MAX_URL_BYTES;
 

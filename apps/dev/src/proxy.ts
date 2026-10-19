@@ -1,8 +1,8 @@
 /**
- * The dev environment's entry point on 443 (spec 6 §6.3): reads the name a
- * browser asks for from its ClientHello, and passes the connection on,
- * still encrypted, to that node or to the dashboard. `https://localhost`
- * is the dashboard, `https://dN.localhost` a node's wallet.
+ * The dev environment's entry point on 443 (spec/areas/dev.md#sni-proxy): reads
+ * the name a browser asks for from its ClientHello, and passes the connection
+ * on, still encrypted, to that node or to the dashboard. `https://localhost` is
+ * the dashboard, `https://dN.localhost` a node's wallet.
  *
  * @module
  */

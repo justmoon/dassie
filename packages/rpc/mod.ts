@@ -1,9 +1,11 @@
 /**
  * The browser's client for the node's RPC contract (`proto/dassie/ui/v1`,
- * spec 8 D5): one WebSocket to `/rpc`, binary protobuf frames.
+ * D5, spec/areas/rpc.md#the-typescript-client): one WebSocket to `/rpc`,
+ * binary protobuf frames.
  *
- * What the original's client got wrong, and this one does not (spec 2
- * §10.1, RT-27):
+ * What the original's client got wrong, and this one does not
+ * (spec/original/02-node-runtime.md#10-rpc-apprpc-server--packageslib-rpc,
+ * RT-27):
  *
  * - every call has a timeout, after which it fails and is cancelled on the
  *   node, instead of hanging forever when a response is lost;

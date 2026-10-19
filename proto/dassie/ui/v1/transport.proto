@@ -1,6 +1,8 @@
 // The node's RPC contract with its owner's clients: the wallet in the
-// browser and the `dassie` CLI. Decision D5 (spec 8) chose it; spec 7 §4.6
-// has the details. This file is normative: change it first, then both sides.
+// browser and the `dassie` CLI. Decision D5
+// (spec/decisions/D05-ui-and-cli-rpc-contract.md) chose it;
+// spec/areas/rpc.md has the details. This file is normative: change it
+// first, then both sides.
 //
 // Transports
 // ----------
@@ -29,15 +31,16 @@
 //
 // Live streams
 // ------------
-// The `Subscribe*` methods stream live state (spec 7 §4.6), either the
-// whole value each time, or a snapshot followed by changes: an item with
-// `reset` set replaces what the client holds (a large snapshot comes as
-// several items, the first with `reset`), and later items upsert and remove
-// entries by key. The node publishes only what is on disk, sends at most
-// 4 items a second, coalescing what changed in between, and an item at
-// least every 60 s even when nothing did. A stream ends with UNAVAILABLE
-// when the node's engine restarts; the client subscribes again. A
-// connection may hold 12 streams, and the node 64 in all.
+// The `Subscribe*` methods stream live state
+// (spec/areas/rpc.md#live-streams), either the whole value each time, or a
+// snapshot followed by changes: an item with `reset` set replaces what the
+// client holds (a large snapshot comes as several items, the first with
+// `reset`), and later items upsert and remove entries by key. The node
+// publishes only what is on disk, sends at most 4 items a second, coalescing
+// what changed in between, and an item at least every 60 s even when nothing
+// did. A stream ends with UNAVAILABLE when the node's engine restarts; the
+// client subscribes again. A connection may hold 12 streams, and the node 64
+// in all.
 
 syntax = "proto3";
 

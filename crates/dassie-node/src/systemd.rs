@@ -1,10 +1,10 @@
 //! systemd: socket activation and readiness.
 //!
-//! Under systemd the daemon gets its three sockets from the socket units,
-//! by name (spec 2 §2.3). The original did not check that `LISTEN_PID`
-//! names this process, and reported readiness by running `systemd-notify`
-//! (RT-20). Here both are done in the process: the PID is checked, and
-//! `READY=1` and `STOPPING=1` go straight to `NOTIFY_SOCKET`.
+//! Under systemd the daemon gets its three sockets from the socket units, by
+//! name (spec/areas/node.md#socket-activation). The original did not check
+//! that `LISTEN_PID` names this process, and reported readiness by running
+//! `systemd-notify` (RT-20). Here both are done in the process: the PID is
+//! checked, and `READY=1` and `STOPPING=1` go straight to `NOTIFY_SOCKET`.
 //!
 //! Taking the sockets must happen before any other thread exists, since it
 //! removes `LISTEN_*` from the environment: before the tokio runtime starts.

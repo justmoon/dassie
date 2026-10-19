@@ -1,6 +1,6 @@
-//! Membership (spec 3 §11, D4, spec 7 §4.7): polling the bootstrap nodes'
-//! lists, the majority with its freeze, the list we serve, and registering
-//! with the bootstrap nodes.
+//! Membership (spec/areas/network.md#membership, D4): polling the bootstrap
+//! nodes' lists, the majority with its freeze, the list we serve, and
+//! registering with the bootstrap nodes.
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;

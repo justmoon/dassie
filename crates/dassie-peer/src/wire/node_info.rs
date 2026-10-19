@@ -1,4 +1,4 @@
-//! Node info, the signed link state (spec 3 §5.1, spec 7 §4.7).
+//! Node info, the signed link state (spec/areas/peer-protocol.md#link-states).
 
 use alloc::vec::Vec;
 
@@ -169,7 +169,7 @@ impl<'a> Decode<'a> for NodeInfo<'a> {
 /// Why a link state does not verify.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InvalidNodeInfo {
-    /// The URL is not an HTTPS origin (spec 7 §4.7).
+    /// The URL is not an HTTPS origin (spec/areas/peer-protocol.md#verification).
     Url,
     /// The public key is not a point, or one of small order.
     PublicKey,
@@ -195,7 +195,8 @@ pub struct SignedNodeInfo<'a> {
 
 impl SignedNodeInfo<'_> {
     /// Checks the URL syntax, the key, that the ID is the key's, and the
-    /// signature (ZIP-215, spec 8 §2). Returns the key.
+    /// signature (ZIP-215, spec/areas/peer-protocol.md#verification).
+    /// Returns the key.
     ///
     /// # Errors
     ///

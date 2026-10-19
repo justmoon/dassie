@@ -1,4 +1,5 @@
-//! A STREAM connection as a sans-IO state machine (spec 7 §4.2).
+//! A STREAM connection as a sans-IO state machine
+//! (spec/areas/stream.md#connections).
 //!
 //! The connection never touches a socket, a clock or the OS RNG. The caller
 //! feeds it the current time, randomness and the packets that arrive, and
@@ -557,9 +558,10 @@ impl Connection {
     }
 
     /// Starts measuring the exchange rate with unfulfillable probes of
-    /// growing size, as the original did (spec 4 §11.10). The result is
-    /// reported as an event and, if precise enough, adopted as the rate less
-    /// the policy's slippage.
+    /// growing size, as the original did
+    /// (spec/original/04-interledger.md#1110-sending-connectionsend-ts-streamsend-ts).
+    /// The result is reported as an event and, if precise enough, adopted as
+    /// the rate less the policy's slippage.
     /// A measurement already in progress continues; calling again does
     /// nothing.
     pub fn measure_exchange_rate(&mut self) {

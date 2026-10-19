@@ -195,7 +195,7 @@ pub enum Output {
 }
 
 /// What a step changed that live views show: they fetch again when it
-/// did (spec 7 §4.6).
+/// did (spec/areas/rpc.md#live-streams).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Changes {
     /// The ledgers, balances, tokens or the journal.
@@ -426,7 +426,7 @@ impl Core {
     }
 
     /// The rest of the state: tokens, schemes, and the peers, whose
-    /// accounts the journal must have (spec 7 §4.4).
+    /// accounts the journal must have (spec/areas/node.md#persistence).
     fn restore(&mut self) -> Result<(), String> {
         let store = Arc::clone(&self.store);
         for (code, rate, as_of_ms) in store.exchange_rates().map_err(text)? {

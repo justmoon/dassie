@@ -1,6 +1,6 @@
 /**
- * Registration (spec 6 §1.6.11): this node's standing with each bootstrap
- * node, and registering again now, with feedback (UI-4).
+ * Registration (spec/areas/wallet.md#register): this node's standing with each
+ * bootstrap node, and registering again now, with feedback (UI-4).
  */
 
 import type { JSX } from "@solidjs/web";

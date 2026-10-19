@@ -1,6 +1,6 @@
-//! The peering lifecycle (D12, spec 7 §4.7): the advertise flag and its
-//! damping, termination, bans, peers that went silent, and peerings only
-//! one side still holds.
+//! The peering lifecycle (D12, spec/areas/network.md#lifecycle): the
+//! advertise flag and its damping, termination, bans, peers that went
+//! silent, and peerings only one side still holds.
 
 use alloc::vec::Vec;
 
@@ -24,7 +24,8 @@ pub enum BanError {
 
 impl PeerNode {
     /// Ends the peering with `peer`: no new packets from now on, and once
-    /// those in flight are done, the peering is over (spec 7 §4.7).
+    /// those in flight are done, the peering is over
+    /// (spec/areas/network.md#termination).
     /// Returns whether a peering was there to end.
     pub fn terminate(&mut self, now_ms: u64, peer: &NodeId, reason: TerminationReason) -> bool {
         self.advance(now_ms);

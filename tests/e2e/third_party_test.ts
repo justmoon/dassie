@@ -1,7 +1,7 @@
 /**
- * The M6b done criterion (spec 7 §8): the reference Open Payments client,
- * `@interledger/open-payments`, runs the full third-party flow from one
- * node to another, with consent given in the wallet.
+ * End to end (spec/areas/testing.md#end-to-end): the reference Open
+ * Payments client, `@interledger/open-payments`, runs the full third-party
+ * flow from one node to another, with consent given in the wallet.
  *
  * 1. On d2, a non-interactive grant and an incoming payment.
  * 2. On d1, an interactive outgoing-payment grant: Chrome, signed in to

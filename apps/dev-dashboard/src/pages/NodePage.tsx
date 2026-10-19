@@ -1,7 +1,7 @@
 /**
- * One node (spec 6 §2): its wallet link, and the wallet's debug pages,
- * talking to this node through the dev server's relay to its IPC socket.
- * The pages live under `/nodes/dN/debug/…`.
+ * One node (spec/areas/dev.md#dashboard): its wallet link, and the wallet's
+ * debug pages, talking to this node through the dev server's relay to its IPC
+ * socket. The pages live under `/nodes/dN/debug/…`.
  */
 
 import type { JSX } from "@solidjs/web";

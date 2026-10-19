@@ -1,7 +1,7 @@
 //! The examples of the standards Open Payments builds on, as golden vectors
-//! (spec 7 §7): RFC 9421 B.2.6 (an Ed25519 signature), RFC 9530 (the
-//! `Content-Digest` of RFC 9421's test request), and the interaction hash
-//! of the Open Payments docs.
+//! (spec/areas/testing.md#golden-vectors): RFC 9421 B.2.6 (an Ed25519
+//! signature), RFC 9530 (the `Content-Digest` of RFC 9421's test request),
+//! and the interaction hash of the Open Payments docs.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 

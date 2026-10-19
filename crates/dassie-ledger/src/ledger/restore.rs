@@ -66,7 +66,7 @@ impl Ledger {
     /// Rebuilds a ledger from persisted accounts (in ID order), the pending
     /// transfers that survive restarts (settlements), and the next transfer
     /// ID. Packet transfers that were pending are gone: their packets died
-    /// with the process (spec 7 §4.4).
+    /// with the process (spec/areas/ledger.md#the-journal).
     ///
     /// # Errors
     ///

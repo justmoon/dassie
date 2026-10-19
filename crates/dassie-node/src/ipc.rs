@@ -1,9 +1,9 @@
 //! The IPC socket: the RPC contract for the `dassie` CLI.
 //!
-//! Every connection is the owner's: access is the socket file's
-//! permissions (spec 2 §11). Under systemd the socket unit sets them; in the
-//! standalone runtime the daemon makes the socket `0660` itself, which the
-//! original did not (RT-9). Messages are frames with a 4-byte big-endian
+//! Every connection is the owner's: access is the socket file's permissions
+//! (spec/areas/node.md#ipc-socket). Under systemd the socket unit sets them;
+//! in the standalone runtime the daemon makes the socket `0660` itself, which
+//! the original did not (RT-9). Messages are frames with a 4-byte big-endian
 //! length prefix.
 
 use std::fs::{self, DirBuilder, Permissions};

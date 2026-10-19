@@ -2,8 +2,8 @@ syntax = "proto3";
 
 package dassie.ui.v1;
 
-// A node in the node table (spec 3 §9): what its link state says, and why
-// it is in the table.
+// A node in the node table (spec/areas/network.md#node-table): what its link
+// state says, and why it is in the table.
 message NetworkNode {
   string id = 1;
   // Empty until its link state is known.
@@ -240,9 +240,9 @@ message SetPeerSettingsResponse {
   PeerSettings settings = 1;
 }
 
-// Settlement with one node, both ways (spec 7 §4.7): kept from the first
-// peering on, so a settlement arrives exactly once even after the peering
-// ended.
+// Settlement with one node, both ways
+// (spec/areas/settlement.md#settlement-channels): kept from the first peering
+// on, so a settlement arrives exactly once even after the peering ended.
 message SettlementChannel {
   string node = 1;
   // The highest settlement applied from the node.

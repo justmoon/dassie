@@ -23,8 +23,8 @@ dassie-oer = { path = "../dassie-oer", default-features = false }
 # Ed25519 signing. `fast` keeps the precomputed basepoint tables, since
 # simulations sign a lot; `zeroize` wipes the signing key on drop.
 ed25519-dalek = { version = "3.0", default-features = false, features = ["fast", "zeroize"] }
-# Ed25519 verification by the ZIP-215 rules (spec 8 §2), which dalek's
-# `verify` does not follow. Built on the same curve25519-dalek.
+# Ed25519 verification by the ZIP-215 rules (spec/areas/identity.md#node-key),
+# which dalek's `verify` does not follow. Built on the same curve25519-dalek.
 ed25519-zebra = { version = "5.0", default-features = false }
 # X25519 on the Montgomery form of the node key. Already in the tree through
 # ed25519-dalek, so it costs nothing extra; x25519-dalek would add only a

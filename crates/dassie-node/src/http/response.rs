@@ -9,7 +9,8 @@ use hyper::{Response, StatusCode};
 pub type Body = Full<Bytes>;
 
 /// The page's Content Security Policy: nothing inline, nothing from other
-/// origins; WebAssembly may compile, for the identity module (spec 7 §5).
+/// origins; WebAssembly may compile, for the identity module
+/// (spec/areas/http.md#response-headers).
 pub const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; \
      style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; \
      base-uri 'none'; form-action 'self'; frame-ancestors 'none'";

@@ -1,5 +1,6 @@
 #!/bin/sh
-# Installs Dassie (spec 2 §3.1, 6 §5.5, D11):
+# Installs Dassie (spec/areas/release.md#installsh,
+# spec/areas/release.md#install-layout, D11):
 #
 #   curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh
 #   curl ... | sh -s -- [--channel canary] [--target <version>] [uninstall]

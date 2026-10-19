@@ -1,4 +1,5 @@
-//! Dassie's ILP connector (spec 4 §4), as a sans-IO state machine.
+//! Dassie's ILP connector (spec/areas/connector.md), as a sans-IO state
+//! machine.
 //!
 //! The [`Connector`] knows the node's endpoints and their accounts, routes
 //! each Prepare to one of them, answers ILDCP, books the packet's pending

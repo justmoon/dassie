@@ -2,8 +2,10 @@
 //!
 //! The original checked hourly and, after a failure, simply tried again an
 //! hour later, forever, which walks into Let's Encrypt's limits on failed
-//! validations (spec 2 §7, RT-13). It kept challenge tokens in a table that
-//! threw on a duplicate and never enforced their expiry.
+//! validations
+//! (spec/original/02-node-runtime.md#7-acme-certificate-manager-appacme-certificate-manager,
+//! RT-13). It kept challenge tokens in a table that threw on a duplicate and
+//! never enforced their expiry.
 //!
 //! Here [`Renewal`] decides when to check and whether to renew, backing off
 //! exponentially from [`RenewalPolicy::backoff_min_ms`] to

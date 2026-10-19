@@ -1,9 +1,12 @@
 //! Getting a certificate over ACME (RFC 8555), with the http-01 challenge.
 //!
 //! The daemon runs every order, the first as well as renewals. The original
-//! ran the first order in the CLI and published its challenge tokens
-//! through the daemon's RPC, which made two ACME clients and a token table
-//! that threw on duplicates (spec 2 §4.5, §7, RT-13).
+//! ran the first order in the CLI and published its challenge tokens through
+//! the daemon's RPC, which made two ACME clients and a token table that threw
+//! on duplicates
+//! (spec/original/02-node-runtime.md#45-configuration--setup-wizard-flow-end-to-end,
+//! spec/original/02-node-runtime.md#7-acme-certificate-manager-appacme-certificate-manager,
+//! RT-13).
 //!
 //! The flow: load or create the account for the directory, order the
 //! hostname, publish each http-01 key authorization in the node's challenge

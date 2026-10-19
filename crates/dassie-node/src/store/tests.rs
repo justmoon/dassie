@@ -422,7 +422,8 @@ fn open_payments_keep_what_they_received_over_the_upgrade_to_connections() {
     );
 }
 
-// Spec 7 §5: the inspector shows every table but never reads a secret.
+// The inspector shows every table but never reads a secret
+// (spec/areas/rpc.md#the-inspector).
 #[test]
 fn the_inspector_never_reads_secrets() {
     let store = Store::open_in_memory().unwrap();

@@ -15,7 +15,8 @@ const SCHEMES: [&str; 10] = [
 /// segment   = 1*( ALPHA / DIGIT / "_" / "~" / "-" )
 /// ```
 ///
-/// The original accepted any 7-bit string here (spec 4 §1.4); the governing
+/// The original accepted any 7-bit string here
+/// (spec/original/04-interledger.md#14-reject-type-14); the governing
 /// standard is stricter, and following it keeps malformed destinations out
 /// of the routing table.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -1,9 +1,10 @@
-//! A simulated network of real engine cores (spec 7 §7): `dassie_node::sim`
-//! is the harness, and `dassie_node::sim::scripted` the runs these tests
-//! make on fixed seeds. A failure names its seed: `dassie-sim run node-stub
-//! <seed>` replays it, `dassie-sim explain node-stub <seed>` prints its
-//! trace, and `dassie-sim run node-stub <from>..<to>` runs others (D27); so
-//! do `node-xrpl` and `node-currencies`.
+//! A simulated network of real engine cores
+//! (spec/areas/testing.md#deterministic-simulation): `dassie_node::sim` is the
+//! harness, and `dassie_node::sim::scripted` the runs these tests make on fixed
+//! seeds. A failure names its seed: `dassie-sim run node-stub <seed>` replays it,
+//! `dassie-sim explain node-stub <seed>` prints its trace, and `dassie-sim run
+//! node-stub <from>..<to>` runs others (D27); so do `node-xrpl` and
+//! `node-currencies`.
 //!
 //! The targeted tests below set up one situation each: a hop that crashes
 //! after posting, a late Fulfill, lying peers, a junior paying its senior

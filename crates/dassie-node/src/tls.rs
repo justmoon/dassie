@@ -1,11 +1,11 @@
 //! Certificates: reading and checking them, making the self-signed one, and
 //! serving whichever is current.
 //!
-//! The HTTPS listener always has a certificate. It reads the current one
-//! from a [`CertificateSlot`] at every handshake, so a renewal or an
-//! installed certificate takes effect at once, without restarting the
-//! listener (the original restarted its server, which raced on the port,
-//! spec 2 §2.2).
+//! The HTTPS listener always has a certificate. It reads the current one from
+//! a [`CertificateSlot`] at every handshake, so a renewal or an installed
+//! certificate takes effect at once, without restarting the listener (the
+//! original restarted its server, which raced on the port,
+//! spec/original/02-node-runtime.md#22-nodejs-runtime-appcommand-linecommandsdaemonnodejsindexts).
 //!
 //! Installing a certificate checks it first: the chain parses, the key is
 //! the leaf's, and the leaf is valid now. The original stored whatever the

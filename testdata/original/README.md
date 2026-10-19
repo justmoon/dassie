@@ -5,12 +5,12 @@
 | File | Contents |
 |---|---|
 | `crates/dassie-identity/tests/data/chain.json` | A spread of the dev vanity table (entropy → mnemonic → seed → node ID), extended with node key, public key, login secret, dev session token, settlement entropy and the XRPL wallets |
-| `crates/dassie-identity/tests/data/keys.json` | Bootstrap node IDs, the seed `01`×32 and `03`×32 keys with signatures and X25519 conversions, and the session shared secret of spec 3 §5.5 |
-| `crates/dassie-oer/tests/data/vectors.json` | lib-oer's sample tables (variable unsigned integers, object identifiers, UTF-8 strings, length determinants) and the peer-protocol structures of spec 3 §5.5 |
+| `crates/dassie-identity/tests/data/keys.json` | Bootstrap node IDs, the seed `01`×32 and `03`×32 keys with signatures and X25519 conversions, and the session shared secret of the original's [peer-protocol test vectors](../../spec/original/03-peer-network.md#55-test-vectors) |
+| `crates/dassie-oer/tests/data/vectors.json` | lib-oer's sample tables (variable unsigned integers, object identifiers, UTF-8 strings, length determinants) and the peer-protocol structures of the original's [peer-protocol test vectors](../../spec/original/03-peer-network.md#55-test-vectors) |
 | `crates/dassie-ilp/tests/data/vectors.json` | ILP and ILDCP fixtures, F08 data, Interledger timestamps and BTP messages |
 | `crates/dassie-stream/tests/data/vectors.json` | All STREAM packet fixtures and the STREAM crypto vectors |
 
-Every file records `"source": "e962ab78"`. The vectors describe the original's behaviour. Where the rewrite deliberately differs (a fixed gap, see spec chapter 8), the Rust tests carry their own hand-written vector, named after the gap.
+Every file records `"source": "e962ab78"`. The vectors describe the original's behaviour. Where the rewrite deliberately differs (a fixed gap, see [how the rewrite treated the gaps](../../spec/original/README.md#how-the-rewrite-treated-the-gaps)), the Rust tests carry their own hand-written vector, named after the gap.
 
 ## Regenerating
 

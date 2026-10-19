@@ -1,9 +1,9 @@
 /// Limits and tuning of a connection. Every table, queue and buffer a
 /// connection has is sized from these when it is created (D16).
 ///
-/// The defaults follow the original Dassie where it had a value (spec 4
-/// §11.1) and `ilp-protocol-stream` where it did not, so that both kinds of
-/// peer see familiar behaviour.
+/// The defaults follow the original Dassie where it had a value and
+/// `ilp-protocol-stream` where it did not, so that both kinds of peer see
+/// familiar behaviour (spec/areas/stream.md#policy).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Policy {
     /// How long a sent packet may take before it expires.

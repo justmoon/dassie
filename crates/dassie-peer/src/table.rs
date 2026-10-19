@@ -1,4 +1,5 @@
-//! The node table (spec 3 §9): what a node knows about the others.
+//! The node table (spec/areas/network.md#node-table): what a node knows
+//! about the others.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -208,7 +209,7 @@ impl Peering {
     }
 }
 
-/// A peering being ended (D12, spec 7 §4.7).
+/// A peering being ended (D12, spec/areas/network.md#termination).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Termination {
     /// When it began.

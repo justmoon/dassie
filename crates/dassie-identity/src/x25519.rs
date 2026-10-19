@@ -1,5 +1,5 @@
 //! X25519 on the Montgomery form of node keys, for peer message
-//! authentication (spec 3 §2.4).
+//! authentication (spec/areas/identity.md#x25519-key).
 
 use core::fmt;
 

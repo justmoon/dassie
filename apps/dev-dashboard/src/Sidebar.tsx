@@ -1,6 +1,6 @@
 /**
- * The sidebar (spec 6 §2): the pages, then the nodes, each with its color,
- * its state and a link that opens its wallet signed in.
+ * The sidebar (spec/areas/dev.md#dashboard): the pages, then the nodes, each
+ * with its color, its state and a link that opens its wallet signed in.
  */
 
 import type { JSX } from "@solidjs/web";

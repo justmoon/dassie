@@ -1,10 +1,10 @@
 /**
  * What the dashboard shows of all nodes at once, gathered once by the dev
- * server from each node's own RPC over IPC (spec 7 §6): its log
- * (`SubscribeLogs`), its peerings (`SubscribeNodes`) and the packets it
- * sends to peers (`SubscribePackets`). The pure parts, a bounded log ring,
- * a node's peer set and a filter that counts each packet once, are tested
- * on their own.
+ * server from each node's own RPC over IPC
+ * (spec/areas/dev.md#logs-peerings-and-traffic): its log (`SubscribeLogs`), its
+ * peerings (`SubscribeNodes`) and the packets it sends to peers
+ * (`SubscribePackets`). The pure parts, a bounded log ring, a node's peer set
+ * and a filter that counts each packet once, are tested on their own.
  *
  * @module
  */
