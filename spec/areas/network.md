@@ -66,7 +66,7 @@ The network's members are the nodes that a majority of the bootstrap nodes list.
 
 **Client side.** A node with a link state registers with every bootstrap node other than itself at start, renews before its registration lapses, registers again if a bootstrap node's list still lacks it a while after, and backs off exponentially after failures. The owner can also register at once ([RPC](rpc.md)).
 
-**Bootstrap side.** Registration is free, so it is throttled instead ([roadmap](../roadmap.md#registration-fees-and-child-peers)):
+**Bootstrap side.** Registration is free, so it is throttled instead ([roadmap](../roadmap.md#registration-fees)):
 
 - new registrations draw from a global bucket, spent only when a registration succeeds, so failing probes cannot starve real nodes;
 - one registration per URL host and port, and a cap per /24 (IPv4) or /48 (IPv6) of the address it came from;
@@ -157,7 +157,7 @@ Routing runs a breadth-first search from this node over edges that both ends adv
 - An edge counts only if both ends list each other, so no node can claim a link the other end does not confirm, and a node whose state went stale drops out.
 - Each reachable node's address gets a few first hops on shortest paths. There is no route for the node's own address: destinations under it go only to its own endpoints. Prefix matching, first-hop choice and never sending a packet back where it came from are the connector's ([Connector](connector.md#routing)).
 - Routes are recomputed when the graph may have changed, debounced, and periodically as states go stale.
-- Child (non-majority) peers routed beneath their uplink's address are not built ([roadmap](../roadmap.md#registration-fees-and-child-peers)).
+- Child peers routed beneath their uplink's address, the periphery's downlinks, are not built ([roadmap](../roadmap.md#periphery)).
 
 ## Persistence
 
