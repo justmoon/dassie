@@ -543,6 +543,12 @@ impl Core {
                 self.update_routes();
             }
             Event::RoutesChanged => self.update_routes(),
+            // Asked again at the next check, not a minute later: a junior
+            // that had not yet taken in our acceptance pays in advance at
+            // once (D23).
+            Event::SettlementRequestRefused { peer } => {
+                self.settle.asked.remove(&peer);
+            }
             Event::PacketFailed {
                 peer,
                 request_id,

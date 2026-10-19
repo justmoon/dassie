@@ -317,7 +317,7 @@ impl PeerNode {
         }
         let content = Content::SettlementRequest { scheme };
         let timeout = self.config.request_timeout_ms;
-        self.send(*peer, &content, Purpose::Gossip, timeout)
+        self.send(*peer, &content, Purpose::SettlementRequest, timeout)
             .map(|_| ())
             .ok_or(SendError::Busy)?;
         self.stats.settlements_requested += 1;

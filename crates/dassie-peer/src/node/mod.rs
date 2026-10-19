@@ -123,6 +123,8 @@ pub(crate) enum Purpose {
     Response(Box<Answer>),
     /// A settlement message, by its sequence.
     Settlement(u64),
+    /// Asking a peer to settle.
+    SettlementRequest,
     /// Telling a peer we end the peering.
     Termination,
 }
@@ -440,6 +442,13 @@ impl PeerNode {
     ) {
         match purpose {
             Purpose::Gossip => {}
+            Purpose::SettlementRequest => {
+                // Refused for not being peered: asked before the peer took
+                // in our acceptance. It may be asked again at once.
+                if matches!(result, Err(Problem::Status(409))) {
+                    self.event(Event::SettlementRequestRefused { peer: to });
+                }
+            }
             Purpose::HashPoll => self.on_hash(to, result),
             Purpose::ListDownload => self.on_list(to, result),
             Purpose::Registration => self.on_registered(to, result),

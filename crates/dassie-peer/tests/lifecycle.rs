@@ -531,6 +531,31 @@ fn a_settlement_request_reaches_the_peer_only() {
     assert_eq!(network.inbound(0, &body).status, 409);
 }
 
+// A request to settle that the peer refuses for not being peered with us,
+// as when it has not yet taken in our acceptance, is reported: the node
+// may ask again at once rather than a minute later. Here node 0 ends the
+// peering, and node 1 asks before it hears.
+#[test]
+fn a_refused_settlement_request_is_reported() {
+    let (mut network, a, b) = peered(51);
+    network.act(0, |node, now| {
+        assert!(node.terminate(now, &b, TerminationReason::Owner));
+    });
+    network.act(1, |node, now| {
+        node.request_settlement(now, &a, stub()).unwrap();
+    });
+    settle(&mut network, 1_000);
+    let refused = Event::SettlementRequestRefused { peer: a };
+    assert!(
+        network
+            .events
+            .iter()
+            .any(|(at, event)| *at == 1 && *event == refused),
+        "the refusal was not reported"
+    );
+    assert!(network.settlement_requests.is_empty());
+}
+
 // A node wakes when something is due, not every second: with nothing to
 // refresh and the peers it wants, it waits for its heartbeats, the
 // anti-entropy sweep (every 10 s), its list polls and its route and bridge
