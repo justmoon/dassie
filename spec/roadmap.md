@@ -19,9 +19,8 @@ Another way to peer, beside bilateral peering: a ledger kept by n = 3f + 1 valid
 
 ### Continuous simulation
 
-The simulations run continuously, outside CI, from random seeds; each seed draws its own configuration, and a failure becomes an issue that names its seed ([D27](decisions/D27-simulations-run-continuously-from-random-seeds.md)). On `main` so far: the `dassie-sim` runner, with `list`, `run` and `explain`, and the peer, connector and STREAM simulations as library code in their crates' `sim` modules, run by `cargo test` on fixed seeds and by the runner on any ([Testing](areas/testing.md#the-runner-dassie-sim)). Nothing runs them continuously yet, and the release workflow does not consult them: any tag `v<version>` is built and published once its install tests pass ([Release](areas/release.md#publishing)). Not built, in parts that can be built side by side:
+The simulations run continuously, outside CI, from random seeds; each seed draws its own configuration, and a failure becomes an issue that names its seed ([D27](decisions/D27-simulations-run-continuously-from-random-seeds.md)). On `main` so far: the `dassie-sim` runner, with `list`, `run` and `explain`, and the node, peer, connector and STREAM simulations as library code in their crates' `sim` modules, run by `cargo test` on fixed seeds and by the runner on any ([Testing](areas/testing.md#the-runner-dassie-sim)). Nothing runs them continuously yet, and the release workflow does not consult them: any tag `v<version>` is built and published once its install tests pass ([Release](areas/release.md#publishing)). Not built, in parts that can be built side by side:
 
-- **The node harness as library code** in a `sim` module of `dassie-node`, so that `cargo test` and the runner run the same node simulation. Today it is a test only (`crates/dassie-node/tests/network.rs`), and the runner cannot run it.
 - **Swarm testing.** Before a run starts, its seed draws the whole configuration, and the run prints it first:
   - the number of nodes;
   - latency, loss, duplication and partitions;
