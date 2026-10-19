@@ -14,11 +14,11 @@ Ending a peering is run by the node that ends it, which collects first and pays 
 
 **The node that ends a peering:**
 
-1. **Marks the peer as depeering, privately.** It tells no one: its link state still lists the peer, so the network, and the peer, see no change.
+1. **Marks the peer as depeering, privately.** It tells no one, and changes nothing the peer can see: a peer it still advertised stays in its link state.
 2. **While depeering, it takes nothing new from the peer:** it refuses the peer's new Prepares, with a temporary error as for a peer short of room, and settles nothing the peer asks for. It answers each request as usual, so that the refusal does not tell. It still sends its own Prepares through the peer: each Fulfill the peer forwards is paid for by its upstream, and is never settled. Fulfills and Rejects keep flowing both ways.
 3. **Waits for its own settlements to the peer that are under way** (prepared, executing, pending in the ledger, or announced and not yet acknowledged). That money has left, and the peer should count it.
-4. **Asks the peer to settle, once.** The answer to `settlementRequest` says how much the peer will settle, 0 for nothing. The peer answers as it would any request, so it settles half the way from where it stands to its own trigger, not everything it owes.
-5. **Waits until that settlement is booked,** or a time derived from how long a settlement takes to reach the ledger and be announced has passed. A peer whose answer carries no amount, as an older node's does, gets the whole of that time.
+4. **Asks the peer to settle, once.** The answer to `settlementRequest` says how much the peer has on its way: a settlement already under way, which under the one-at-a-time rule is its whole answer, or the one it makes now, 0 for nothing. The peer answers as it would any request, so it settles half the way from where it stands to its own trigger, not everything it owes.
+5. **Waits until that amount is booked,** or a time derived from how long a settlement takes to reach the ledger and be announced has passed. A peer whose answer carries no amount, as an older node's does, gets the whole of that time.
 6. **Sends `peeringTermination`.** Once it is acknowledged, or the termination times out, the peering ends.
 
 **The node being ended,** once `peeringTermination` arrives, ends the peering at once:
@@ -26,9 +26,11 @@ Ending a peering is run by the node that ends it, which collects first and pays 
 - Fulfills and Rejects for packets already in flight still flow both ways until those packets resolve or expire;
 - it settles nothing.
 
-**Both sides keep the peer's accounts and the settlement channel,** for auditing and accounting. A later peering uses them again.
+**If both sides end the peering at once,** each answers the other's request as a depeering node does, settling nothing. The first `peeringTermination` to arrive makes its recipient the node being ended, which drops its own waits and ends the peering at once.
 
-**A settlement that arrives after the peering ended** is treated as any unexpected payment on the underlying ledger: it is booked as the owner's deposit, not against the peer's account. Its `settlement` message is still acknowledged, so the sender's channel moves on.
+**Both sides keep the peer's accounts and the settlement channel,** for auditing and accounting. "Pays nothing" holds for this peering only: what the accounts still show carries into a later peering, where asking and settling as usual collect it.
+
+**A settlement that arrives after the peering ended** is treated as any unexpected payment on the underlying ledger is today. A payment from a node we hold accounts with is credited to its account, once, as [D12](D12-peering-lifecycle-and-liveness.md) has it. On the XRP Ledger that is the ledger payment, which books the settlement. Its `settlement` message is acknowledged, so the sender's channel moves on.
 
 **Every way a peering ends follows this,** whether the owner ends it, bans the node, or the node ends it for silence or for staying short of room. A step that needs an answer from an unresponsive peer times out.
 
@@ -47,3 +49,4 @@ Ending a peering is run by the node that ends it, which collects first and pays 
 - *The payer holds the end until its settlement is acknowledged:* a protocol change on the other side, and a ledger outage holds every termination.
 - *Stop sending Prepares through the peer while depeering:* each Fulfill it forwards is money the node is paid upstream and never settles.
 - *Announce the depeering first, by withdrawing the peer from the link state:* the link state floods to the peer, which would stop settling.
+- *Book a settlement that arrives after the end as the owner's deposit:* the peer's account would still show it as owed, and a later peering would ask for it again.

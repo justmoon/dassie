@@ -43,10 +43,11 @@ Today both sides of a termination settle everything they owe once the exchange c
   - **The sequence before `peeringTermination`:**
     1. wait for its own settlements to the peer that are under way;
     2. ask the peer to settle once;
-    3. wait until that settlement is booked, or a time derived from how long a settlement takes to reach the ledger and be announced.
-  - **An amount in the answer to `settlementRequest`:** what the peer will settle, 0 for nothing. An answer without one, from an older node, gets the whole wait.
+    3. wait until what the peer has on its way is booked, or a time derived from how long a settlement takes to reach the ledger and be announced.
+  - **An amount in the answer to `settlementRequest`:** what the peer has on its way, whether a settlement already under way or the one it makes now; 0 for nothing. An answer without one, from an older node, gets the whole wait.
   - **The node being ended** ends the peering on `peeringTermination` at once. It stops advertising and routing to the peer, takes no new Prepares and answers no settlement request. It lets Fulfills and Rejects of packets in flight finish both ways, and settles nothing.
-  - **A settlement after the end** is booked as the owner's deposit, not against the peer's account, and its message is still acknowledged.
+  - **A settlement after the end** is credited to the peer's account once, as today, and its message is acknowledged.
+  - **Both sides ending at once:** the first `peeringTermination` to arrive makes its recipient the node being ended.
   - **Every way a peering ends** follows this: the owner, a ban, silence, a peer short of room. Each step that needs the peer times out when it does not answer.
   - **The simulations' checks:**
     - the node that ended a peering may still owe at the end, and the node ended loses no more than the credit it extended;
