@@ -414,13 +414,15 @@ const fn payment_severity(event: &PaymentEvent) -> Severity {
 
 const fn settlement_severity(event: &SettlementEvent) -> Severity {
     match event {
-        SettlementEvent::MessageNotSent { .. } => Severity::Debug,
+        // At every check, for every peer that earned us something.
+        SettlementEvent::MessageNotSent { .. } | SettlementEvent::CreditRaised { .. } => {
+            Severity::Debug
+        }
         SettlementEvent::BalanceBooked { .. }
         | SettlementEvent::SettlingFinal { .. }
         | SettlementEvent::Settling { .. }
         | SettlementEvent::Reconciling { .. }
-        | SettlementEvent::PeerSettled { .. }
-        | SettlementEvent::CreditRaised { .. } => Severity::Info,
+        | SettlementEvent::PeerSettled { .. } => Severity::Info,
         SettlementEvent::Reconciled { .. }
         | SettlementEvent::DepositFromStranger { .. }
         | SettlementEvent::BooksCannotSettle { .. }

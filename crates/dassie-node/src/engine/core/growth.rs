@@ -5,8 +5,10 @@
 //!
 //! What a peer earned is read from the journal, and counted nowhere else:
 //! the trust account holds the credit it led to. At a start, reading
-//! resumes after the last trust transfer, so a crash forgets at most the
-//! fees of the check it cut short.
+//! resumes after the last trust transfer. So a crash forgets the fees not
+//! read yet, those of the check it cut short, and never credits a fee
+//! twice. A node's first start with growth reads from its last trust
+//! transfer too, so what peers earned since then counts.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -21,7 +23,9 @@ use super::events::SettlementEvent;
 use crate::engine::EngineError;
 
 /// Fees read per ledger at a check; the rest wait for the next (D16).
-const FEES_PER_CHECK: u32 = 256;
+/// At a check every 4 s, over a thousand fee-paying packets a second, so
+/// reading keeps up with a busy connector rather than fall behind.
+const FEES_PER_CHECK: u32 = 4_096;
 
 /// Millionths, the unit of [`policy::GROWTH_PPM`].
 const PPM: u128 = 1_000_000;
