@@ -530,6 +530,60 @@ Decided on 2026-10-18, during M10.
   - *A trigger of three and a half packets, at the cap:* with a senior's trigger no longer nothing, two triggers and two settlements took 0.9 of the 1.1 credit, and one crash at the cap stalled the link (39 of 1,200 simulated runs).
 - **Affects:** D20, D23, [D24](#d24-money-in-flight-with-a-peer-stays-within-a-few-packets), [7 §4.7](07-rewrite.md#47-peer-protocol-v1).
 
+### D27. Simulations run continuously, from random seeds
+
+Decided on 2026-10-19, after a look at how TigerBeetle runs its VOPR and its fuzzing fleet.
+
+- **Facts:**
+  - The node, peer, connector and STREAM simulations run in `cargo test`, each on a small fixed range of seeds.
+  - The longer runs behind D18 and D25 were started by hand, and nothing kept their failures.
+  - The node simulation runs one script with a few random parameters. It drives the real engine core, but it only pays, crashes and settles in the ways that script chose.
+- **Decision:** the simulations run continuously, outside CI, from random seeds. Each seed draws its own configuration, and a failure becomes an issue that names its seed.
+  - **One runner.** A dev-only crate, `dassie-sim`, runs every simulation through one interface: a seed in, an outcome out. The outcome is a pass, a safety failure, a liveness failure, or unsupported.
+    - The harnesses move from `tests/` into library code, so `cargo test` and the runner run the same code.
+    - `dassie-sim run <sim> <seed>` replays a run, and `dassie-sim explain` prints its trace.
+    - The runner builds with optimization on, and with debug assertions and overflow checks on. So the invariant sweep runs before every commit, as D16 asks of simulations.
+  - **Swarm testing.** Before a run starts, its seed draws the whole configuration, and the run prints it first:
+    - the number of nodes;
+    - latency, loss, duplication and partitions;
+    - crashes, with a bias toward crashes while payments are in flight;
+    - clock skew;
+    - faults of the link to the ledger;
+    - the share of lying peers;
+    - the payment workload.
+
+    Some seeds switch a fault off entirely, so rare combinations get their turn. A fixed realistic profile runs alongside.
+  - **Two phases.** A run first has a stretch of chaos, with every invariant and every check of [D19](#d19-each-node-keeps-its-own-books) checked throughout. Then it heals: crashed nodes restart, partitions close and faults stop. Within a time derived from the production timings, payments must then complete, settlements must arrive, routes must converge, and no node may owe past its trigger.
+    - A run that cannot converge whatever the code does (for example, with a majority of bootstrap nodes cut off) is unsupported. It neither passes nor fails.
+  - **Faults stay within what the node relies on.** The store commits with `synchronous = FULL`, so a commit that returned is on disk, and a torn write is SQLite's to handle. The only fault injected at the store is a commit that fails. The node must stop, then restart from its last good commit.
+  - **Coverage.** Each run counts what it reached: crashes during a payment, bans, settlements, withdrawals, partitions healed. A test in CI asserts a minimum for each count at a fixed seed, so that a generator cannot quietly stop reaching a case.
+  - **Where it runs.** The campaign runs on spot VMs in the testnet's GCP project. A loop on each VM:
+    1. fetches `main`;
+    2. builds the runner;
+    3. runs seeds on every core for an hour;
+    4. reports, and starts again.
+
+    So changing the runner on `main` changes what every VM runs. Open PRs with the label `sim` get a share of the time.
+  - **Failures become issues.** A failure's signature is its simulation, its outcome, and the assertion or check that failed. Each signature gets one GitHub issue, labelled `sim-failure`.
+    - The issue holds the commit, the configuration, the end of the trace, and the commands that reproduce the failure, with the seed that failed fastest.
+    - Later seeds with the same signature are added to the same issue.
+    - A `canary` simulation fails on purpose once in a thousand seeds. If its issue stops coming back, the campaign has stopped.
+    - A fix comes with a targeted test, because a seed reproduces a failure only at the commit it ran on.
+  - **CI is unchanged.** It runs the fixed seeds, plus the coverage minimums. A random seed per commit would fail pull requests on bugs they did not touch.
+  - **Releases wait for it.** `scripts/release.ts` refuses to tag a commit with an open `sim-failure` issue against it, or one the campaign has not yet run for long enough.
+- **Accepted:**
+  - *A failure surfaces after the merge that caused it,* sometimes hours later.
+  - *Spot VMs cost money,* and their number follows the throughput measured once the runner exists.
+  - *Each VM holds a GitHub token,* scoped to this repository's issues.
+- **Rejected:**
+  - *A random seed per commit in CI:* a pull request would fail on a bug it did not cause.
+  - *Fuzzing in CI* in any form, including a nightly workflow.
+  - *Keeping failing seeds as a regression corpus:* a seed means nothing after the code changes.
+  - *Results in a file that someone has to look at:* agents pick up issues; nobody watches a file.
+- **Not yet decided:** coverage-guided fuzzing (cargo-fuzz) of the decoders that face untrusted input, real binaries behind a proxy that injects faults, and shrinking failing runs.
+- **When:** an open area of work ([7 §8.1](07-rewrite.md#81-open-areas-of-work)).
+- **Affects:** [D16](#d16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation), D19, [7 §7](07-rewrite.md#7-testing-strategy).
+
 ## 4. Gaps by decision
 
 Gaps not listed here follow the default disposition (§1).
