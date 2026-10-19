@@ -41,7 +41,7 @@ Today both sides of a termination settle everything they owe once the exchange c
 - **What it covers:**
   - **A private depeering state** on the side that ends a peering, kept across restarts. In it, the node refuses the peer's new Prepares (as for a peer short of room) and settles nothing the peer asks for, answering both as usual. It still advertises the peer and sends its own Prepares through it.
   - **The sequence before `peeringTermination`:**
-    1. wait for its own settlements to the peer that are under way;
+    1. wait for its own settlements to the peer that are under way, for at most the same time as step 3;
     2. ask the peer to settle once;
     3. wait until what the peer has on its way is booked, or a time derived from how long a settlement takes to reach the ledger and be announced.
   - **An amount in the answer to `settlementRequest`:** what the peer has on its way, whether a settlement already under way or the one it makes now; 0 for nothing. An answer without one, from an older node, gets the whole wait.
