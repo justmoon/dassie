@@ -627,3 +627,33 @@ fn clients_quotes_do_not_crowd_out_the_owners() {
             .unwrap()
     );
 }
+
+// Migration 19: nothing is settled at a peering's end (D28). A final
+// settlement still due when the node upgrades is dropped with its columns;
+// the channel, and what it owes the peer on its accounts, stay.
+#[test]
+fn a_final_settlement_due_is_dropped_over_the_upgrade() {
+    let temp = tempfile::tempdir().unwrap();
+    database_at(temp.path(), 18);
+    let key = dassie_identity::NodeKey::from_bytes(&[3; 32]);
+    Connection::open(temp.path().join(DATABASE_FILE))
+        .unwrap()
+        .execute(
+            "INSERT INTO settlement_channels (node, public_key, url, settled_in, settled_out,
+               final_scheme, final_state)
+             VALUES (?1, ?2, 'https://c.example', 4, 7, 'stub', x'04')",
+            rusqlite::params![key.node_id().as_str(), key.public_key().as_bytes().to_vec()],
+        )
+        .unwrap();
+    let store = Store::open(temp.path()).unwrap();
+    let channels = store.load_peer().unwrap().channels;
+    assert_eq!(channels.len(), 1);
+    assert_eq!(channels[0].node, key.node_id());
+    assert_eq!(
+        (
+            channels[0].channel.settled_in,
+            channels[0].channel.settled_out
+        ),
+        (4, 7)
+    );
+}

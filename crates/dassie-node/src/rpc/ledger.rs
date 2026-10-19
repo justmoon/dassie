@@ -441,7 +441,6 @@ fn blocker(blocker: &RemovalBlocker) -> proto::LedgerRemovalBlocker {
     let (kind, count) = match *blocker {
         RemovalBlocker::Peers(count) => (Kind::Peers, count),
         RemovalBlocker::BtpTokens(count) => (Kind::BtpTokens, count),
-        RemovalBlocker::FinalSettlements(count) => (Kind::FinalSettlements, count),
         RemovalBlocker::OutgoingPayments(count) => (Kind::OutgoingPayments, count),
     };
     proto::LedgerRemovalBlocker {

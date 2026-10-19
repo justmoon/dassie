@@ -11,7 +11,7 @@ Each node keeps its own books and decides from them alone: whether it takes a se
 
 A settlement scheme serves one internal ledger, and a ledger has at most one active scheme. The node's registry is in `engine/core/schemes.rs`. Only ledgers of the test realm activate ([XRPL](xrpl.md#real-money)).
 
-Activating a scheme, when the owner adds it or at start, makes it from its config and its last [checkpoint](#checkpoints-and-activation), opens the ledger's common accounts, books the activation entry, and gives the ledger its STREAM receiver and payer ([Connector](connector.md#local-endpoints)). Removing a scheme is refused while anything still depends on it: tokens, peerings, final settlements due, or outgoing payments on its ledger. Its accounts and checkpoint stay, so adding it again picks up where it was, including the settlements still pending.
+Activating a scheme, when the owner adds it or at start, makes it from its config and its last [checkpoint](#checkpoints-and-activation), opens the ledger's common accounts, books the activation entry, and gives the ledger its STREAM receiver and payer ([Connector](connector.md#local-endpoints)). Removing a scheme is refused while anything still depends on it: tokens, peerings, or outgoing payments on its ledger. Its accounts and checkpoint stay, so adding it again picks up where it was, including the settlements still pending.
 
 ## The scheme interface
 
@@ -71,7 +71,6 @@ position = what the peer may still owe us: the credit we extend, plus what we ow
 
 ask the peer to settle   when position ≤ trigger
 when asked, settle       (position − trigger) / 2, or nothing if that is less than the least settlement
-when a peering ends      settle position − credit we extend
 ```
 
 Every threshold of a link is counted in its [largest packet](connector.md#the-largest-packet) `P`, not in the credit, which differs on each side and grows with earnings ([D25](../decisions/D25-a-links-thresholds-are-counted-in-its-largest-packet.md)). So even a senior that extends nothing asks while its junior still has room.
@@ -85,7 +84,7 @@ Every threshold of a link is counted in its [largest packet](connector.md#the-la
 | Least default credit | 7.5 | [Above](#credit) |
 | Most credit earned | 100 | [Above](#credit) |
 
-Amounts are rounded down to whole units of the scheme's ledger; what is less than a unit stays owed, for good at the end of a peering. Both rules are deliberately simple, to be tuned later (expected settlement latency, fees, volume on the link).
+Amounts are rounded down to whole units of the scheme's ledger; what is less than a unit stays owed. Both rules are deliberately simple, to be tuned later (expected settlement latency, fees, volume on the link).
 
 ## Asking a peer to settle
 
@@ -103,11 +102,11 @@ A request says that the debtor stands near the asker's trigger. The debtor settl
 - **One settlement at a time.** It settles nothing while a settlement to that peer is on its way (prepared, executing, pending in the ledger, or announced and not yet acknowledged): that one is the answer. Nor while a cancelled settlement holds it off ([below](#outgoing-settlements)).
 - **The answer says what is on its way:** the settlement it makes now, or the one already under way, or nothing. So an asker can tell a settlement still coming from none ([D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)).
 - **A lying asker gets at most the credit the debtor extends to it.**
-- A node never settles on its own, but at a peering's end.
+- **A node never settles on its own,** not even at a peering's end.
 
 ## Settling at a peering's end
 
-When a peering ends and the exchange of `peeringTermination` completed ([Network](network.md)), each side settles everything it owes, in whole units. What is due is kept on the [settlement channel](#settlement-channels) across restarts until it is made, and a cancelled or failed attempt is tried again at a later check. An unresponsive peer is not settled with: the debt stays on the books. A new peering with the node settles normally, and a final settlement still due becomes part of it.
+Nothing is settled for a peering's end ([D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)). From the moment a node knows a peering is ending, it settles nothing more with that peer: neither side has a reason to pay at the end. What each side's books show stays on the peer's accounts, and a later peering with the node settles it as usual. A settlement already under way still arrives, and is credited once ([below](#incoming-settlements)).
 
 ## Outgoing settlements
 
@@ -126,12 +125,12 @@ After a restart, settlements still pending in the journal are handed to their sc
 
 - **The books first.** The node checks that it can book a settlement before the scheme sees it, so the scheme's balance never moves without the books. Otherwise it answers 400 and nothing changes.
 - **The scheme decides what it is worth.** The stub books the amount stated; the XRPL scheme books nothing on the message, since its ledger says what arrived ([XRPL](xrpl.md#settlement-messages)).
-- **From a channel, not a peering.** A `settlement` is taken from any authenticated node we hold a [settlement channel](#settlement-channels) with, so a final settlement that arrives after the peering ended is still credited.
+- **From a channel, not a peering.** A `settlement` is taken from any authenticated node we hold a [settlement channel](#settlement-channels) with, so a settlement that arrives after the peering ended is still credited.
 - A settlement the scheme sees on its ledger from a node without accounts there cannot be from a peer: it is booked as the owner's deposit.
 
 ## Settlement channels
 
-The node keeps a settlement channel with every node it has ever peered with (`crates/dassie-peer/src/channel.rs`). A channel belongs to the pair of nodes, not to a peering: it outlives the peering and the node's entry in the node table, and a new peering uses it again. It holds the sequences, our message on its way, and a final settlement due.
+The node keeps a settlement channel with every node it has ever peered with (`crates/dassie-peer/src/channel.rs`). A channel belongs to the pair of nodes, not to a peering: it outlives the peering and the node's entry in the node table, and a new peering uses it again. It holds the sequences and our message on its way.
 
 **Delivery is exactly once.** Each `settlement` message carries a sequence per sender and recipient that never resets. The sender sends one at a time, in order, again until it is acknowledged, across restarts, never dropping it; one that got no answer goes again as soon as the node answers us at all ([Peer protocol](peer-protocol.md#message-set)). The receiver applies only the next sequence, recording it in the batch that books it, acknowledges anything at or below the last one without applying it again, and refuses anything else. So a copy from an old peering is never applied twice, and none is lost.
 
@@ -147,7 +146,8 @@ A peer's settlement is believed as stated. Anyone peered over the stub can mint 
 
 - [D6](../decisions/D06-owner-ledger-and-multi-currency-accounts.md): the default trust line becomes the junior's starting credit.
 - [D8](../decisions/D08-real-money.md): only test-realm ledgers activate.
-- [D12](../decisions/D12-peering-lifecycle-and-liveness.md): settling at a peering's end; channels kept after it, and their limit.
+- [D12](../decisions/D12-peering-lifecycle-and-liveness.md): channels kept after a peering, and their limit.
+- [D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md): nothing settled for a peering's end.
 - [D19](../decisions/D19-each-node-keeps-its-own-books.md): each node decides from its own books, and the bound that holds whatever a peer does.
 - [D20](../decisions/D20-trust-follows-what-a-peer-earned-us.md): junior and senior, starting credit, growth from fees.
 - [D23](../decisions/D23-each-node-books-its-own-fulfills.md): the creditor asks, the debtor decides how much.

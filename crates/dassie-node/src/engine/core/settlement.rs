@@ -102,8 +102,6 @@ pub(super) struct Settling {
     pub amount: u64,
     /// What the scheme gave to send the peer.
     pub message: Vec<u8>,
-    /// Whether it settles everything owed at the end of a peering.
-    pub last: bool,
 }
 
 /// A peer's position, as the settlement policy needs it.
@@ -124,7 +122,7 @@ impl Core {
     }
 
     /// Checks every peer, asking those near the credit we extend to settle,
-    /// and every ended peering still owed its final settlement.
+    /// and announces settlements that waited for an earlier one.
     pub(super) fn settlement_timers(&mut self) {
         let now = self.now_ms;
         if self.settle.at_ms > now {
@@ -137,7 +135,6 @@ impl Core {
         if self.settle.never_settles {
             return;
         }
-        self.settle_finals();
         self.announce_deferred();
     }
 
@@ -277,43 +274,6 @@ impl Core {
             .and_then(|channel| channel.outbox.as_ref())
             .map_or(0, |outbox| outbox.amount);
         pending.saturating_add(announced)
-    }
-
-    /// Settles everything owed with peerings that ended while the other
-    /// side knew. The channel keeps that due, across restarts, until it is
-    /// made: a failure or a cancellation tries again later.
-    fn settle_finals(&mut self) {
-        let finals: Vec<(NodeId, dassie_peer::FinalDue)> = self
-            .peer
-            .channels()
-            .filter_map(|(id, channel)| Some((*id, channel.final_due.clone()?)))
-            .filter(|(id, _)| self.peer.peering_of(id).is_none())
-            .collect();
-        for (node, due) in finals {
-            if !self.can_settle(&node) {
-                continue;
-            }
-            let Some(at) = self.position(node, due.scheme) else {
-                continue;
-            };
-            // What is less than the ledger can move stays owed for good.
-            let amount =
-                self.whole_units(&at.scheme, policy::final_amount(at.position, at.credit_out));
-            if amount == 0 {
-                self.peer.final_settled(&node);
-                continue;
-            }
-            self.report(SettlementEvent::SettlingFinal { node, amount });
-            self.prepare_settlement(node, &at, amount, &due.state);
-            if let Some(settling) = self
-                .settle
-                .settling
-                .values_mut()
-                .find(|settling| settling.peer == node)
-            {
-                settling.last = true;
-            }
-        }
     }
 
     /// `amount`, less what `scheme`'s ledger cannot move.
@@ -467,7 +427,6 @@ impl Core {
                 transfer,
                 amount,
                 message: prepared.message,
-                last: false,
             },
         );
         self.settle.to_execute.push((at.scheme, prepared.id));
@@ -615,7 +574,6 @@ impl Core {
             transfer: transfer.id,
             amount: transfer.amount,
             message,
-            last: false,
         })
     }
 
@@ -644,9 +602,6 @@ impl Core {
             panic!("a settlement's transfer could not be posted: {error}");
         }
         self.settle.backoff.remove(&settling.peer);
-        if settling.last {
-            self.peer.final_settled(&settling.peer);
-        }
         let Some(scheme_id) = SchemeId::parse(scheme.as_str()) else {
             return;
         };

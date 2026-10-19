@@ -8,7 +8,7 @@ In the original, peers are never dropped, there is no termination, advertise fla
 
 ## Decision
 
-A peering is requested, peered or terminating; a peer is advertised in our link state only while it is live and has room; termination settles what is owed; bans are the owner's. The peer target and the timings were set from the network simulation; change them only with its evidence. [Network](../areas/network.md) states the rules. The reasons for the less obvious ones:
+A peering is requested, peered or terminating; a peer is advertised in our link state only while it is live and has room; termination settles nothing ([D28](D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)); bans are the owner's. The peer target and the timings were set from the network simulation; change them only with its evidence. [Network](../areas/network.md) states the rules. The reasons for the less obvious ones:
 
 - **Only confirmed peers count toward the target,** so a node whose stored peerings went stale looks for new peers instead of staying isolated.
 - **A bridge rule joins islands:** while a majority node stays unreachable, a node tries one more peering, so two separate clusters join up.

@@ -127,7 +127,7 @@ impl PeerNode {
             }
             Content::SettlementRequest { scheme } => {
                 // Only an active peering on that scheme is settled on
-                // request; one being ended settles in full at its end.
+                // request; nothing is settled for one being ended (D28).
                 let peering = self
                     .table
                     .get(&accepted.sender)

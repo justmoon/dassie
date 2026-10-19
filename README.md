@@ -55,7 +55,7 @@ Environment='DASSIE_BOOTSTRAP_NODES=[{"id":"dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk","
 
 The node that asks to peer extends the other 1.1 units of credit; the node that accepts extends nothing at first, so the newcomer pays in advance. Each side's credit then grows by a tenth of the fees the other earned it, up to 10 units. A node asks a peer to settle once its room for the peer is down to one and a half of the largest packets, checking every 4 seconds; asked, a node settles half the way to its own point of asking; `listSettlementChannels` shows the settlements on their way. Each node keeps its own books, Fulfills it sent included, whatever its peer counted ([D23](spec/decisions/D23-each-node-books-its-own-fulfills.md)): a peer can cost your node at most the credit it extends, since packets past it are refused. The wallet's settings, or `getPeerSettings` and `setPeerSettings`, change the fee and the exchange spread your node charges for passing payments on.
 
-`terminatePeering` ends a peering: it drains, ends on both sides, and each side settles what it owes. `banNode`, `unbanNode` and `listBans` keep nodes away. `GET /stats` tells anyone the node's version and the peers it advertises.
+`terminatePeering` ends a peering: it drains and ends on both sides. Nothing is settled for its end ([D28](spec/decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)): what either side owes stays on its books, for a later peering to settle. `banNode`, `unbanNode` and `listBans` keep nodes away. `GET /stats` tells anyone the node's version and the peers it advertises.
 
 **Logs.** `DASSIE_LOG_LEVEL` sets how much the node logs (`debug`, `info`, `warn`, `error` or `none`; `info` by default). The wallet's debug pages show the recent log as well.
 

@@ -227,7 +227,7 @@ async function run(
 }
 
 test(
-  "two-nodes: the nodes peer, pay each other by settling, keep it all across restarts, and part settled",
+  "two-nodes: the nodes peer, pay each other by settling, keep it all across restarts, and part settling nothing",
   { skip: missing !== undefined },
   async () => {
     await run("two-nodes", async (scenario) => {
@@ -256,17 +256,25 @@ test(
         new Map([["d1", DEPOSIT], ["d2", DEPOSIT]]),
       );
       await assertSettled(scenario);
-      // d1's owner ends the peering: it ends on both sides, each settles
-      // what it still owes, and they do not peer again at once.
+      // d1's owner ends the peering: it ends on both sides, nothing is
+      // settled for its end (D28), so what each owes stays on its books,
+      // and they do not peer again at once.
+      const before = await peerAccounts(scenario);
       await d1.rpc.call("terminatePeering", { node: d2.id });
       await scenario.until("parted", async () => {
         const peerings = await scenario.peerings();
         return peerings.get("d1")!.length === 0 &&
           peerings.get("d2")!.length === 0 && await quiet(scenario);
       });
-      const accounts = await peerAccounts(scenario);
-      assertEquals(accounts.get("d1>d2"), 0n, "d1 owes nothing");
-      assertEquals(accounts.get("d2>d1"), 0n, "d2 owes nothing");
+      assertEquals(
+        await peerAccounts(scenario),
+        before,
+        "nothing is settled for the end",
+      );
+      assertEquals(
+        await owners(scenario),
+        new Map([["d1", DEPOSIT], ["d2", DEPOSIT]]),
+      );
       await assertSettled(scenario);
       await new Promise((resolve) => setTimeout(resolve, 5_000));
       assertEquals(

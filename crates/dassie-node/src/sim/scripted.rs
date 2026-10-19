@@ -234,8 +234,9 @@ fn crash_mid_payment(sim: &mut Sim, rng: &mut SeededRng, calm_ms: u64) {
     sim.run_until_or(sim.now + PAID_WITHIN_MS, paid);
 }
 
-/// An owner ends a peering: it drains, ends on both sides, and what is
-/// owed is settled.
+/// An owner ends a peering: it drains and ends on both sides, and neither
+/// side settles anything once it knows (D28): what the books show stays
+/// owed, as the check of each node's books then sees.
 fn terminate(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     let count = sim.nodes.len();
     let ender = usize::try_from(rng.next_u64() % count as u64).unwrap();
@@ -244,6 +245,7 @@ fn terminate(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     };
     sim.trace
         .push(format!("{} {ender} terminates {peer}", sim.now));
+    let mark = sim.trace.len();
     sim.step(ender, |core| core.terminate_peering(peer).unwrap());
     sim.run_until(sim.now + 60_000);
     if sim.peers(ender).contains(&peer) {
@@ -251,24 +253,35 @@ fn terminate(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
             "node {ender}'s peering with {peer} did not end"
         )));
     }
-    // Each side settled everything its own books say it owed the other.
-    // What a side is still owed is a Fulfill the other never counted: each
-    // books its own (D23).
     let other = (0..count).find(|i| key(*i).node_id() == peer).unwrap();
-    let mine = sim.owes(ender, &peer);
-    let theirs = sim.owes(other, &key(ender).node_id());
-    // Less than the ledger can move stays owed: a drop on the XRP Ledger.
-    let unit = if sim.settling == Settling::Xrpl {
-        1_000
-    } else {
-        1
-    };
-    if mine >= unit || theirs >= unit {
-        return Err(Outcome::Liveness(format!(
-            "nodes {ender} and {other} parted owing: {mine}, {theirs}"
-        )));
+    for (node, with) in [(ender, other), (other, ender)] {
+        settled_nothing_once_ending(sim, mark, node, with)?;
     }
     Ok(())
+}
+
+/// Node `index` started no settlement to node `with` from when it learned
+/// that their peering ends (D28): an honest node paying then is money the
+/// rule says it keeps.
+fn settled_nothing_once_ending(
+    sim: &Sim,
+    mark: usize,
+    index: usize,
+    with: usize,
+) -> Result<(), Outcome> {
+    let peer = format!("{:?}", key(with).node_id());
+    let ending = format!(" {index} PeerNode(Terminating {{ peer: {peer}");
+    let settling = format!(" {index} Settlement(Settling {{ node: {peer}");
+    let lines = &sim.trace[mark..];
+    let Some(start) = lines.iter().position(|line| line.contains(&ending)) else {
+        return Ok(());
+    };
+    match lines[start..].iter().find(|line| line.contains(&settling)) {
+        Some(line) => Err(Outcome::Safety(format!(
+            "node {index} settled with node {with} while their peering ended: {line}"
+        ))),
+        None => Ok(()),
+    }
 }
 
 fn script_across(sim: &mut Sim, rng: &mut SeededRng) {

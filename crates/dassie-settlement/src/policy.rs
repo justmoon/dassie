@@ -112,13 +112,6 @@ pub fn requested_amount(position: u128, trigger: u64, minimum: u64) -> u64 {
     clamp(amount)
 }
 
-/// What to settle when a peering ends: everything we owe, so the
-/// position comes back to the credit we extend.
-#[must_use]
-pub fn final_amount(position: u128, credit_out: u64) -> u64 {
-    clamp(position.saturating_sub(u128::from(credit_out)))
-}
-
 /// An amount from an account's counters, which never pass `MAX_TOTAL`.
 fn clamp(value: u128) -> u64 {
     assert!(value <= u128::from(MAX_TOTAL), "an amount past MAX_TOTAL");
@@ -200,12 +193,6 @@ mod tests {
         let least = u128::from(T) + 2 * u128::from(M);
         assert_eq!(requested_amount(least - 1, T, M), 0);
         assert_eq!(requested_amount(least, T, M), M);
-    }
-
-    #[test]
-    fn the_final_settlement_pays_what_is_owed() {
-        assert_eq!(final_amount(1_500_000_000, C), 400_000_000);
-        assert_eq!(final_amount(1_000_000_000, C), 0);
     }
 
     #[test]

@@ -233,13 +233,6 @@ pub enum SettlementEvent {
         /// Why.
         error: EngineError,
     },
-    /// What is owed at the end of a peering is settled.
-    SettlingFinal {
-        /// The peer.
-        node: NodeId,
-        /// How much.
-        amount: u64,
-    },
     /// The books cannot take a settlement now.
     BooksCannotSettle {
         /// The peer.
@@ -422,7 +415,6 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
             Severity::Debug
         }
         SettlementEvent::BalanceBooked { .. }
-        | SettlementEvent::SettlingFinal { .. }
         | SettlementEvent::Settling { .. }
         | SettlementEvent::Reconciling { .. }
         | SettlementEvent::PeerSettled { .. } => Severity::Info,

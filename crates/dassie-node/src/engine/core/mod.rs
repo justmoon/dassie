@@ -503,20 +503,15 @@ impl Core {
     pub fn deadline(&self) -> Option<u64> {
         let receiver = self.receivers.values().filter_map(Receiver::deadline).min();
         let settlement = self.peer.peers().next().map(|_| self.settle.at_ms);
-        // With no peer left, a final settlement still due, or one waiting
-        // to be announced, keeps the settlement check due.
-        let finals = (self
-            .peer
-            .channels()
-            .any(|(_, channel)| channel.final_due.is_some())
-            || !self.settle.announce.is_empty())
-        .then_some(self.settle.at_ms);
+        // With no peer left, a settlement waiting to be announced keeps the
+        // settlement check due.
+        let announcing = (!self.settle.announce.is_empty()).then_some(self.settle.at_ms);
         [
             self.connector.poll_timeout(),
             receiver,
             self.peer.poll_timeout(),
             settlement,
-            finals,
+            announcing,
             self.outgoing_deadline(),
             self.probe_deadline(),
             self.schemes_deadline(),

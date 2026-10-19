@@ -7,8 +7,8 @@
 use dassie_identity::{NodeId, PublicKey};
 use dassie_peer::wire::{SchemeId, TerminationReason};
 use dassie_peer::{
-    Channel, FinalDue, Network, Outgoing, PeerBatch, Peering, Registration, Sources, Stored,
-    StoredChannel, StoredNode, Termination,
+    Channel, Network, Outgoing, PeerBatch, Peering, Registration, Sources, Stored, StoredChannel,
+    StoredNode, Termination,
 };
 use rusqlite::{Connection, Row, Transaction, params};
 
@@ -62,8 +62,7 @@ impl Store {
 fn load_channels(connection: &Connection) -> Result<Vec<StoredChannel>, StoreError> {
     let mut statement = connection.prepare(
         "SELECT node, public_key, url, settled_in, settled_out, outbox_sequence,
-                outbox_scheme, outbox_amount, outbox_data, outbox_attempts,
-                final_scheme, final_state
+                outbox_scheme, outbox_amount, outbox_data, outbox_attempts
          FROM settlement_channels ORDER BY node",
     )?;
     let rows = statement.query_map([], |row| Ok(read_channel(row)))?;
@@ -92,13 +91,6 @@ fn read_channel(row: &Row<'_>) -> Result<StoredChannel, StoreError> {
         }),
         None => None,
     };
-    let final_due = match row.get::<_, Option<String>>(10)? {
-        Some(scheme) => Some(FinalDue {
-            scheme: SchemeId::parse(&scheme).ok_or(StoreError::Corrupt("scheme ID"))?,
-            state: row.get(11)?,
-        }),
-        None => None,
-    };
     Ok(StoredChannel {
         node,
         channel: Channel {
@@ -107,7 +99,6 @@ fn read_channel(row: &Row<'_>) -> Result<StoredChannel, StoreError> {
             settled_in: from_sql_amount(row.get(3)?)?,
             settled_out: from_sql_amount(row.get(4)?)?,
             outbox,
-            final_due,
         },
     })
 }
@@ -231,12 +222,11 @@ fn write_channel(transaction: &Transaction<'_>, stored: &StoredChannel) -> Resul
     let outbox = channel.outbox.as_ref();
     transaction.execute(
         "INSERT INTO settlement_channels (node, public_key, url, settled_in, settled_out,
-           outbox_sequence, outbox_scheme, outbox_amount, outbox_data, outbox_attempts,
-           final_scheme, final_state)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+           outbox_sequence, outbox_scheme, outbox_amount, outbox_data, outbox_attempts)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
          ON CONFLICT (node) DO UPDATE SET public_key = ?2, url = ?3, settled_in = ?4,
            settled_out = ?5, outbox_sequence = ?6, outbox_scheme = ?7, outbox_amount = ?8,
-           outbox_data = ?9, outbox_attempts = ?10, final_scheme = ?11, final_state = ?12",
+           outbox_data = ?9, outbox_attempts = ?10",
         params![
             stored.node.as_str(),
             channel.key.as_bytes().to_vec(),
@@ -248,8 +238,6 @@ fn write_channel(transaction: &Transaction<'_>, stored: &StoredChannel) -> Resul
             outbox.map(|o| to_sql_amount(o.amount)).transpose()?,
             outbox.map(|o| o.data.as_slice()),
             outbox.map(|o| i64::from(o.attempts)),
-            channel.final_due.as_ref().map(|f| f.scheme.as_str()),
-            channel.final_due.as_ref().map(|f| f.state.as_slice()),
         ],
     )?;
     Ok(())

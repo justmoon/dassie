@@ -233,9 +233,6 @@ pub struct Network {
     /// Settlements sent: by which node, to whom, how much, with which
     /// sequence.
     pub settled: Vec<(usize, NodeId, u64, u64)>,
-    /// Whether a node settles everything it owes when a peering ends, as
-    /// the node's core does: one unit, here.
-    pub settle_on_end: bool,
     /// Nodes that apply no settlement message: they answer it with the
     /// status, as a busy node would with 503, or not at all (`None`), as
     /// one would that drops the connection.
@@ -280,7 +277,6 @@ impl Network {
             applied: Vec::new(),
             settlement_requests: Vec::new(),
             settled: Vec::new(),
-            settle_on_end: false,
             refuse_settlements: BTreeMap::new(),
             settlements_refused: 0,
             tamper: None,
@@ -407,22 +403,8 @@ impl Network {
         for output in outputs {
             self.carry(index, output);
         }
-        let settle = events.iter().filter_map(|event| match event {
-            Event::PeeringEnded {
-                peer, settle: true, ..
-            } if self.settle_on_end => Some(*peer),
-            _ => None,
-        });
-        let settle: Vec<NodeId> = settle.collect();
         for event in events {
             self.events.push((index, event));
-        }
-        for peer in settle {
-            // The books only owe a node that held the peering, and so a
-            // channel: a peering only one side held moved no money.
-            if self.holds_channel(&peer, index) {
-                self.settle(index, peer, 1);
-            }
         }
     }
 

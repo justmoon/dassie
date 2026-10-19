@@ -186,10 +186,6 @@ fn terminations_channels_and_bans_round_trip() {
                 data: vec![9],
                 attempts: 2,
             }),
-            final_due: Some(dassie_peer::FinalDue {
-                scheme: SchemeId::parse("stub").unwrap(),
-                state: vec![4],
-            }),
         },
     };
     commit(

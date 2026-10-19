@@ -83,8 +83,8 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         } => {
             emit!(severity, target: target::PEER, %peer, ?reason, by_us, "ending a peering");
         }
-        Event::PeeringEnded { peer, settle } => {
-            emit!(severity, target: target::PEER, %peer, settle, "peering ended");
+        Event::PeeringEnded { peer } => {
+            emit!(severity, target: target::PEER, %peer, "peering ended");
         }
         Event::Advertised { peer, on, short } => {
             if *short {
@@ -211,9 +211,6 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         SettlementEvent::SchemeStopped { scheme, error } => {
             emit!(severity, target: target::SETTLEMENT, %scheme, %error, "a scheme's effects could not be booked: it stops");
         }
-        SettlementEvent::SettlingFinal { node, amount } => {
-            emit!(severity, target: target::SETTLEMENT, %node, amount, "settling what is owed at the end of a peering");
-        }
         SettlementEvent::BooksCannotSettle { node, error } => {
             emit!(severity, target: target::SETTLEMENT, %node, %error, "the books cannot take a settlement now");
         }
@@ -289,7 +286,6 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::MessageNotSent { .. }
         | SettlementEvent::DepositFromStranger { .. }
         | SettlementEvent::SchemeStopped { .. }
-        | SettlementEvent::SettlingFinal { .. }
         | SettlementEvent::BooksCannotSettle { .. }
         | SettlementEvent::Settling { .. }
         | SettlementEvent::SchemeUnavailable { .. }

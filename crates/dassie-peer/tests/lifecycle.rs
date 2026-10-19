@@ -53,17 +53,15 @@ fn peered_with(seed: u64, config: Config) -> (Network, NodeId, NodeId) {
     (network, a, b)
 }
 
-fn ended(network: &Network, index: usize, peer: &NodeId) -> Vec<bool> {
+/// How many times node `index` ended its peering with `peer`.
+fn ended(network: &Network, index: usize, peer: &NodeId) -> usize {
     network
         .events
         .iter()
-        .filter_map(|(at, event)| match event {
-            Event::PeeringEnded {
-                peer: p, settle, ..
-            } if *at == index && p == peer => Some(*settle),
-            _ => None,
+        .filter(|(at, event)| {
+            *at == index && matches!(event, Event::PeeringEnded { peer: p } if p == peer)
         })
-        .collect()
+        .count()
 }
 
 /// Messages from a node, in one session of its own.
@@ -266,8 +264,8 @@ fn an_owner_ends_a_peering() {
     settle(&mut network, 10_000);
     assert!(network.node(0).peering_of(&b).is_none());
     assert!(network.node(1).peering_of(&a).is_none());
-    assert_eq!(ended(&network, 0, &b), [true]);
-    assert_eq!(ended(&network, 1, &a), [true]);
+    assert_eq!(ended(&network, 0, &b), 1);
+    assert_eq!(ended(&network, 1, &a), 1);
     let by_them = network.events.iter().any(|(at, event)| {
         *at == 1
             && matches!(
@@ -298,8 +296,8 @@ fn crossed_terminations_end_both_sides() {
         node.terminate(now, &a, TerminationReason::Owner);
     });
     settle(&mut network, 10_000);
-    assert_eq!(ended(&network, 0, &b), [true]);
-    assert_eq!(ended(&network, 1, &a), [true]);
+    assert_eq!(ended(&network, 0, &b), 1);
+    assert_eq!(ended(&network, 1, &a), 1);
 }
 
 // A termination outlives a restart of the side that began it.
@@ -322,8 +320,8 @@ fn a_termination_survives_a_restart() {
     );
     network.cut.clear();
     settle(&mut network, 15_000);
-    assert_eq!(ended(&network, 0, &b), [true]);
-    assert_eq!(ended(&network, 1, &a), [true]);
+    assert_eq!(ended(&network, 0, &b), 1);
+    assert_eq!(ended(&network, 1, &a), 1);
 }
 
 // A peering ends only once nothing is in flight with the peer.
@@ -352,7 +350,7 @@ fn an_unresponsive_peer_is_terminated() {
     let (mut network, a, b) = peered(38);
     network.crash(1);
     settle(&mut network, 150_000);
-    assert_eq!(ended(&network, 0, &b), [false]);
+    assert_eq!(ended(&network, 0, &b), 1);
     network.start(1);
     assert!(
         network.node(1).peering_of(&a).is_some(),
@@ -376,11 +374,11 @@ fn a_one_sided_peering_is_repaired() {
         node.terminate(now, &b, TerminationReason::Owner);
     });
     settle(&mut network, 25_000);
-    assert_eq!(ended(&network, 0, &b), [false], "not told, so not settled");
+    assert_eq!(ended(&network, 0, &b), 1);
     assert!(network.node(1).peering_of(&a).is_some());
     network.cut.clear();
     settle(&mut network, 30_000);
-    assert_eq!(ended(&network, 1, &a), [true]);
+    assert_eq!(ended(&network, 1, &a), 1);
     assert!(
         network.node(0).peering_of(&b).is_none(),
         "the cooldown holds"
@@ -447,23 +445,6 @@ fn a_settlement_out_of_order_is_refused() {
     }
     let channel = network.node(0).channel(&key(1).node_id()).unwrap();
     assert_eq!(channel.settled_in, 0);
-}
-
-// Found in review: the final settlement after a peering ended was kept
-// only in memory. It is on the channel, persisted, until it is made.
-#[test]
-fn a_final_settlement_due_survives_a_restart() {
-    let (mut network, _, b) = peered(45);
-    network.act(0, |node, now| {
-        node.terminate(now, &b, TerminationReason::Owner);
-    });
-    settle(&mut network, 10_000);
-    assert!(network.node(0).channel(&b).unwrap().final_due.is_some());
-    network.crash(0);
-    network.start(0);
-    assert!(network.node(0).channel(&b).unwrap().final_due.is_some());
-    network.act(0, |node, _| node.final_settled(&b));
-    assert!(network.node(0).channel(&b).unwrap().final_due.is_none());
 }
 
 // Found in review: peerings persisted before channels existed (M4a) had

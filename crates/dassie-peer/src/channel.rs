@@ -1,9 +1,9 @@
 //! Settlement channels (spec/areas/settlement.md#settlement-channels): what
 //! makes a settlement message arrive exactly once. A channel belongs to a
 //! pair of nodes, not to one peering: it is made at the first peering, kept
-//! when the peering ends, and used again by the next. So a final settlement
-//! that arrives after the peering ended is still credited, and a copy from
-//! an old peering is never applied twice.
+//! when the peering ends, and used again by the next. So a settlement that
+//! arrives after the peering ended is still credited, and a copy from an
+//! old peering is never applied twice.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -27,17 +27,6 @@ pub struct Outgoing {
     pub attempts: u32,
 }
 
-/// A settlement of everything owed, due because a peering ended while the
-/// other side knew (spec/areas/settlement.md#settling-at-a-peerings-end).
-/// Kept until it is made, across restarts.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FinalDue {
-    /// The scheme the peering settled with.
-    pub scheme: SchemeId,
-    /// The scheme's state for the peer.
-    pub state: Vec<u8>,
-}
-
 /// Settlement with one node, both ways.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Channel {
@@ -52,8 +41,6 @@ pub struct Channel {
     pub settled_out: u64,
     /// Our settlement message on its way, if any: one at a time (ACC-17).
     pub outbox: Option<Outgoing>,
-    /// A final settlement still to be made, if any.
-    pub final_due: Option<FinalDue>,
 }
 
 impl Channel {
@@ -66,7 +53,6 @@ impl Channel {
             settled_in: 0,
             settled_out: 0,
             outbox: None,
-            final_due: None,
         }
     }
 }

@@ -131,7 +131,7 @@ Termination starts when the owner asks, when the owner bans the node, when the p
 1. The peer is no longer advertised and takes no new Prepares to or from it ([Connector](connector.md)). Responses still flow.
 2. The side that started sends `peeringTermination` until it is acknowledged or times out. The other side terminates too; if both started, each one's message tells the other.
 3. Once the exchange is over, no packet is in flight with the peer and no response to it waits to be sent again, the peering ends.
-4. If the exchange completed, each side settles everything it owes ([Settlement](settlement.md#settling-at-a-peerings-end)). An unresponsive peer is not settled with; the debt stays on the books.
+4. Neither side settles anything for the end ([Settlement](settlement.md#settling-at-a-peerings-end)): what the books show stays owed, for a later peering to settle.
 5. The node does not ask the peer again for a while after an owner's termination, and refuses its requests meanwhile. That cooldown does not survive a restart; a ban is the lasting way.
 
 **Termination ends a peering, not a relationship.** The peer's accounts stay, with their balances, as the record of what is owed, and so does the settlement channel with its sequence ([Settlement channels](#settlement-channels)). A settlement that arrives after the peering ended is still credited once, and a later peering with the node reuses both without posting trust twice. A termination under way survives a restart.
