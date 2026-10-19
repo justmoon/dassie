@@ -16,7 +16,7 @@ use dassie_connector::SpendingCap;
 use dassie_node_core::testing::{Outcome, Run, SeededRng};
 use dassie_settlement::LedgerStatus;
 
-use super::checks::{check, check_delivered, check_finished, check_settled};
+use super::checks::{check, check_delivered, check_events, check_finished, check_settled};
 use super::scripted::ended;
 use super::{Delivery, START, Settling, Sim};
 use crate::store::OutgoingState;
@@ -296,11 +296,23 @@ fn pay(sim: &mut Sim, options: &Options, rng: &mut SeededRng, left: &mut (u64, u
         }
     } else if left.1 > 0 {
         left.1 -= 1;
-        sim.count("outgoing payments");
-        // Refused while its owner has too little, before the faucet funded
-        // it: a refusal is no failure.
-        if sim.pay_outgoing(from, to, amount).is_err() {
-            sim.count("outgoing refused");
+        match sim.pay_outgoing(from, to, amount) {
+            Ok(()) => sim.count("outgoing payments"),
+            Err(refusal) => {
+                // Refused rightly only while the owner's pool holds less
+                // than the payment: on the XRP Ledger, before the faucet's
+                // funding is booked. Any other refusal fails the run.
+                let pool = sim.balances(from).get("equity/owner").copied().unwrap_or(0);
+                if pool < i128::from(amount) {
+                    sim.count("outgoing refused");
+                } else {
+                    let now = sim.now;
+                    sim.errors.push(format!(
+                        "{now} node {from} refused an outgoing payment of {amount} \
+                         its owner's {pool} covers: {refusal}"
+                    ));
+                }
+            }
         }
     }
 }
@@ -367,53 +379,77 @@ fn heal(
         pay(sim, options, rng, left);
     }
     let healed = sim.now;
-    while !settled_down(sim) && sim.now < healed + HEAL_MS {
+    let mut stuck = unsettled(sim);
+    while stuck.is_some() && sim.now < healed + HEAL_MS {
         sim.run_until(sim.now + LOOK_MS);
+        stuck = unsettled(sim);
     }
     let seconds = (sim.now - healed) / 1_000;
     *sim.counts.entry("heal seconds").or_default() += seconds;
-    for index in 0..sim.nodes.len() {
-        if sim.nodes.len() > 1 && sim.peers(index).is_empty() {
-            return Err(Outcome::Liveness(format!("node {index} has no peer")));
-        }
+    // An error a node reported ranks first. A network that never settled
+    // down is a liveness failure, and its books are not judged: with money
+    // in flight they rightly differ.
+    check_events(sim).map_err(Outcome::Safety)?;
+    if let Some(what) = stuck {
+        return Err(Outcome::Liveness(format!(
+            "healed, the network did not settle down in {} s: {what}",
+            HEAL_MS / 1_000
+        )));
     }
     check(sim)
 }
 
-/// Whether nothing is left to happen: every node sees its ledgers and has
-/// heard of everything they applied, every node has a peer, every payment
-/// finished, and no node waits for a settlement or still has one to send.
-/// The checks may judge the books only then, when no packet or transaction
-/// is in flight and every scheme knows its balance and reserve.
-fn settled_down(sim: &Sim) -> bool {
-    let synced = (0..sim.nodes.len()).all(|i| {
-        sim.core(i)
-            .ledger_views()
-            .iter()
-            .all(|view| view.status == LedgerStatus::Synced)
-    });
+/// What is left to happen, if anything: a node whose scheme does not see
+/// its ledger, or has not heard of all it applied; a node without a peer;
+/// a payment that did not finish; a node that waits for a settlement or
+/// still has one to send. The checks may judge the books only once nothing
+/// is, when no packet or transaction is in flight and every scheme knows
+/// its balance and reserve.
+fn unsettled(sim: &Sim) -> Option<String> {
+    let count = sim.nodes.len();
+    for index in 0..count {
+        for view in sim.core(index).ledger_views() {
+            if view.status != LedgerStatus::Synced {
+                return Some(format!(
+                    "node {index}'s scheme for {} is {:?}",
+                    view.id, view.status
+                ));
+            }
+        }
+    }
     // A settlement the ledger applied is booked when its node hears of it:
     // until then, the books and the account differ, as they should.
-    let ledger_quiet = sim.ledger.queued() == 0
-        && !sim.queue.values().any(|delivery| {
-            matches!(
-                delivery,
-                Delivery::LedgerRequest { .. } | Delivery::LedgerEvent { .. }
-            )
-        });
-    let peered = sim.nodes.len() < 2 || (0..sim.nodes.len()).all(|i| !sim.peers(i).is_empty());
-    let outgoing = sim.outgoing.iter().all(|&(from, _, _, outgoing)| {
-        sim.nodes[from]
+    if sim.ledger.queued() > 0 {
+        return Some("transactions wait for the ledger to close".into());
+    }
+    let ledger_traffic = sim.queue.values().any(|delivery| {
+        matches!(
+            delivery,
+            Delivery::LedgerRequest { .. } | Delivery::LedgerEvent { .. }
+        )
+    });
+    if ledger_traffic {
+        return Some("messages to or from the ledger are in flight".into());
+    }
+    if count > 1
+        && let Some(index) = (0..count).find(|i| sim.peers(*i).is_empty())
+    {
+        return Some(format!("node {index} has no peer"));
+    }
+    for &(from, to, _, outgoing) in &sim.outgoing {
+        let state = sim.nodes[from]
             .store
             .outgoing_payment(outgoing)
             .unwrap()
-            .is_some_and(|row| row.state == OutgoingState::Completed)
-    });
-    synced
-        && ledger_quiet
-        && peered
-        && outgoing
-        && check_finished(sim).is_ok()
-        && check_settled(sim).is_ok()
-        && check_delivered(sim).is_ok()
+            .map(|row| row.state);
+        if state != Some(OutgoingState::Completed) {
+            return Some(format!(
+                "the outgoing payment from node {from} to node {to} is {state:?}"
+            ));
+        }
+    }
+    check_finished(sim)
+        .err()
+        .or_else(|| check_settled(sim).err())
+        .or_else(|| check_delivered(sim).err())
 }

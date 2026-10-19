@@ -335,8 +335,21 @@ pub fn check_outgoing(sim: &Sim) -> Result<(), Outcome> {
 pub fn check_books(sim: &Sim) -> Result<(), Outcome> {
     check_owner_books(sim).map_err(Outcome::Safety)?;
     check_ledgers(sim).map_err(Outcome::Safety)?;
+    check_funded(sim).map_err(Outcome::Liveness)?;
     check_settled(sim).map_err(Outcome::Liveness)?;
     check_delivered(sim).map_err(Outcome::Liveness)
+}
+
+/// On the XRP Ledger, the faucet funded every node: an owner's books that
+/// match a deposit of nothing would pass the other checks.
+pub fn check_funded(sim: &Sim) -> Result<(), String> {
+    if sim.settling != Settling::Xrpl {
+        return Ok(());
+    }
+    match (0..sim.nodes.len()).find(|index| !sim.fundings.contains_key(index)) {
+        Some(index) => Err(format!("node {index} was never funded")),
+        None => Ok(()),
+    }
 }
 
 /// No settlement is still on its way.

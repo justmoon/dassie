@@ -984,19 +984,15 @@ impl Sim {
             // Its receiver may have all of it before the sender counts it:
             // a hop that crashed counted a Fulfill the sender never got,
             // and the receiver says so (D23).
-            // Under a limit the receiver reports its incoming payment's
-            // total, over every connection; without one, what this
-            // connection's stream delivered.
+            // The receiver reports what its connection key delivered, over
+            // every connection the client made with the same credentials:
+            // it always counts against a limit, the payment's or the most
+            // any payment takes.
             let expected = payment.amount.min(payment.limit.unwrap_or(u64::MAX));
-            let before = if payment.limit.is_some() {
-                0
-            } else {
-                payment.sent_before
-            };
             let remote = payment
                 .stream
                 .and_then(|id| payment.connection.stream(id))
-                .map_or(0, |stream| before + stream.remote_received());
+                .map_or(0, dassie_stream::Stream::remote_received);
             if sent(payment) == expected || remote >= expected {
                 payment.done = true;
                 continue;
