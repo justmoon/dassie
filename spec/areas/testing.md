@@ -7,7 +7,7 @@ How Dassie is tested: the levels of tests, the deterministic simulations and the
 
 ## Levels
 
-Deterministic simulation is the main source of confidence ([D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md)), and the other levels feed it:
+Every level has tests, where the original had none for the app, the GUI or the tooling (UI-17). Deterministic simulation is the main source of confidence ([D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md)), and the other levels feed it:
 
 - golden vectors pin the wire formats a simulation cannot judge;
 - interop tests pin the standards;
@@ -169,6 +169,9 @@ The dev scenarios run headless in CI on real binaries (`target/e2e/dassie` with 
 `tests/e2e/install_test.ts` runs the installer and the updater in containers with systemd as PID 1, as the original's `test-in-docker:*` scripts did, including signature-verification failures. [Release](release.md#tests) states what it checks, on which images, against which releases, and the updater's Rust tests (`crates/dassie-cli/tests/update.rs`, with the `test-key` feature), the store's tests of the pre-migration copy, and the installer's ShellCheck.
 
 - **Images:** Debian 12, Ubuntu 24.04, Fedora 42 and CentOS Stream 9, pinned by digest, privileged (`tests/e2e/install/<distro>.Dockerfile`). `DASSIE_INSTALL_DISTROS` picks some; by default all four.
+- **Between them, the images must take every path the installer has:** both verifiers (OpenSSL on Debian, Ubuntu and CentOS; minisign on Fedora), both downloaders (curl, and wget on Ubuntu, which has no curl), and both compressions (xz, and gzip on CentOS, which has no xz). Each Dockerfile says which path it takes; a change to an image must keep every path covered.
+- **The installer runs under `umask 077`,** as on a hardened host, so what it installs must still be readable by the node's own user.
+- **The mirror** is served by Caddy, pinned by digest, as `https://mirror.test` on a Docker network of the test's own.
 - **Releases:** from `nix build .#install-test-mirror`, which `DASSIE_INSTALL_MIRROR` names. Without it the test is skipped, so `node --run test:e2e` passes over it.
 - **In each container,** in order:
   1. `install.sh` refuses a tampered bundle, sums that are not what was signed, sums signed for another version, and a canary that `meta/latest` names (fresh or run again), and installs nothing;

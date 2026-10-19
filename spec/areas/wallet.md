@@ -33,7 +33,7 @@ The same policy applies in development: there is no HMR proxy in the node, and a
 
 - Keys are derived in the browser with `dassie-identity` compiled to WASM (`@dassie/identity-wasm/web`), the same code the node runs ([Identity](identity.md)).
 - **New passphrase:** 12 BIP-39 words (128 bits of entropy) from the platform's CSPRNG.
-- **Validation:** a passphrase is checked (known words and checksum) and normalized before anything is derived from it. An invalid one gets "That is not a valid passphrase." and nothing is sent.
+- **Validation (UI-5):** a passphrase is checked (known words and checksum) and normalized before anything is derived from it. An invalid one gets "That is not a valid passphrase." and nothing is sent.
 - **What is sent:** setup sends the node key and the login proof derived from it, as hex; login sends only the proof. The passphrase never leaves the browser and is never stored, in the URL or anywhere else.
 - If the WASM module fails to load: "The wallet could not load its key derivation module. Reload the page to try again."
 

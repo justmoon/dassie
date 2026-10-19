@@ -12,3 +12,5 @@ The original's default Bootstrap Node List is `test1.dassie.xyz` and `test2.dass
 The project runs its own v1 bootstrap nodes, at least three so that one failure does not block majority, under new names in `dassie.xyz`, on separate regions. They are the default Bootstrap Node List, with their node IDs checked against their public keys at startup (NET-19). [Network](../areas/network.md) states the list and how to replace it.
 
 `boot1`, `boot2` and `boot3.dassie.xyz` run in GCP project `dassie-390023` (us-east1, europe-west3, asia-northeast1). `dassie.xyz` is a Cloud DNS zone in the same project, and their recovery phrases are the Secret Manager secrets `dassie-boot<N>-phrase`. Each also runs `xrpl-testnet`, so a new node has someone to peer with.
+
+Each lists all three in its own `DASSIE_BOOTSTRAP_NODES`, itself included, through a systemd drop-in. A node takes registrations only when it is one of its own bootstrap nodes, so the drop-in stays, even though the default names the same three.

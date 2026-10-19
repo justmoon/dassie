@@ -19,11 +19,11 @@ The `dassie` binary: the daemon that composes every protocol crate into a runnin
 
 The original was a tree of reactive actors that re-ran when signals they read changed. The node keeps that model's observable behaviour without its framework.
 
-- **Services are supervised tokio tasks.** Each owns a `CancellationToken` and its cleanup. A service that returns or panics before shutdown is restarted after a backoff that doubles from 1 s to 60 s, and the failure is logged at error level. A service that ran 5 minutes before failing starts the backoff over.
+- **Services are supervised tokio tasks.** Each owns a `CancellationToken` and its cleanup. A service that returns or panics before shutdown is restarted (RT-24) after a backoff that doubles from 1 s to 60 s, and the failure is logged at error level. A service that ran 5 minutes before failing starts the backoff over.
   - The supervisor keeps each service's state for the wallet's service inspector: running, restarting or stopped; when it last started; how often it was restarted; the last failure (at most 256 bytes) and when; and, while restarting, when it starts again.
   - The services are `http`, `https`, `ipc`, `acme` (certificate renewal, [HTTP](http.md)), `sessions` (deletes expired sessions every hour), `engine` and `rates` ([Exchange rates](connector.md#exchange-rates)).
-- **Shared state lives in versioned cells** (`tokio::sync::watch`): the config, the node's identity, the node table, the peers, the active settlement schemes, routing, exchange rates and the ledger. A service that the original restarted on a signal change instead waits on `changed()` and reconfigures itself.
-- **Stores the UI replicates also broadcast change events:** the node table and the log ring. The UI gets a snapshot followed by deltas ([RPC](rpc.md)).
+- **The engine owns the node's state:** the node table, peers, routes, registrations, the ledgers, the journal and the Open Payments resources. It counts how often each kind changed on disk (`Versions`: ledger, network, payments), in a `tokio::sync::watch` cell; live views fetch again when the count they follow moves ([RPC](rpc.md)). The config is a `watch` cell too: the engine waits on `changed()` and reconfigures itself, where the original restarted actors on a signal change.
+- **Streams of events** go out on broadcast channels: the packets the engine traces, and session revocations. The log ring keeps the number of its newest line in a `watch` cell, which the logs stream follows.
 - **Time and randomness are injected.** `clock.rs` is the only place the node reads the wall clock or the OS RNG; everything else gets a `Clock` and an RNG from it, so tests and simulations substitute their own. A clock before 1970 or past the representable range reads as the edge rather than panicking. A failing OS RNG panics.
 - **The node's decisions live in `dassie-node-core`:** setup and login checks, session lifetimes, rate limits, the same-origin rule, configuration values and when to renew a certificate are pure functions of their inputs, `now` and an injected RNG ([engineering](../engineering.md)). `dassie-node` only carries them out.
 - **Limits and timings** come from one `Policies` value: production defaults, dev settings ([Dev switches](#dev-switches-warn-on-a-public-node)), and shorter ones in tests.
@@ -64,7 +64,7 @@ Rules:
 
 - **The listeners come up first,** before anything that waits for the network: ACME's HTTP challenge works at the first start (RT-8).
 - **Identity-dependent services start when an identity exists,** which may be long after startup: the engine waits for it.
-- **Nothing blocks on the network.** The exchange-rate fetch, the ledger connections of settlement schemes and the bootstrap polls are readiness conditions with retries, not steps startup waits for.
+- **Nothing blocks on the network.** The exchange-rate fetch, the ledger connections of settlement schemes and the bootstrap polls are readiness conditions with retries, not steps startup waits for (ILP-14, ACC-26, NET-14).
 - **A daemon that cannot start exits with code 1** instead of running half-started: an unusable environment, a database it cannot open or check, sockets it cannot take or bind, a node it cannot make, TLS it cannot set up, or signals it cannot handle. It leaves no IPC socket behind.
 
 ## Shutdown

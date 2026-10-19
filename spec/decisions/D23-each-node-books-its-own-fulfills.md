@@ -31,3 +31,4 @@ After a crash, two honest peers' books can drift apart: a node that crashed with
 - *A grace limit for refusals alone:* a refusal does not cost us anything our books show.
 - *The debtor settling on its own, by the middle of the range* (as the original does, ACC-24): it needs the credit the peer extends, which a node does not know, and drift leaves it no reason to settle.
 - *A request naming an amount:* the creditor does not know what the debtor's books say it owes.
+- *Persisting packets in flight on both sides,* so that a crash loses no Fulfill (first rejected under [D17](D17-the-upstream-decides-whether-a-fulfill-counted.md)): a write per Prepare, and a Fulfill that arrives after the upstream's expiry would still count on one side only.

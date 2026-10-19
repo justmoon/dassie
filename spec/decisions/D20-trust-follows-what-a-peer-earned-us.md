@@ -13,9 +13,9 @@ The node that asked to peer takes the risk at first, and trust grows only from w
 
 - **Roles.** The node whose request was accepted is the **junior**, the node that accepted it the **senior**. The junior extends the default credit line; the senior extends nothing, so the junior pays in advance and can still be paid at once.
 - **Growth.** Each side raises the credit it extends by a share k of what it earned on packets through that peer. A packet comes in through one peer and leaves through another, so it counts toward both: k is at most 50%, so that the credit a node hands out never exceeds what it earned. k is 10%, for a margin.
-- **What counts, for now:** the fee, toward each peer of the packet on whose ledger it was booked. The spread's gain is not booked per packet, and does not count yet.
+- **What counts, for now:** the fee, toward each peer of the packet on whose ledger it was booked. A packet that converts counts toward the peer it came from only, since counting its fee toward the other would need our exchange rates. The spread's gain is not booked per packet, and does not count yet.
 - **A cap,** counted in the largest packet like every threshold of a link ([D25](D25-a-links-thresholds-are-counted-in-its-largest-packet.md)).
-- **Measured from the books,** never kept in counters, so a crash can forget fees not read yet but credits none twice.
+- **Measured from the books,** never kept in counters, so a crash can forget fees not read yet but credits none twice. A check reads a bounded page of fees per ledger, 4,096, which is over a thousand fee-paying packets a second at the check's interval.
 - **Nothing is announced** ([D23](D23-each-node-books-its-own-fulfills.md)): more credit only means the creditor asks later.
 
 ## Accepted

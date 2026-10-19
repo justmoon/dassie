@@ -33,9 +33,9 @@ A failed `accept` (out of file descriptors, say) is logged and retried after 100
 
 | Method | Path | Answer |
 |---|---|---|
-| any | WebSocket upgrade | 404 |
+| any | WebSocket upgrade | 404 (RT-16) |
 | `GET` | `/.well-known/acme-challenge/{token}` | 200 `text/plain` with the key authorization; 404 for an unknown token; 400 `Bad Request` for an empty one ([ACME](#acme)). Other methods: 404 |
-| `GET`, `HEAD` | anything else | 301 `Moved Permanently` to `https://<host>[:<https port>]<path>?<query>`. The host is the configured hostname, or before there is one the request's `Host` (its host part, validated). Path and query are kept. 400 `Bad Request` when neither gives a usable host |
+| `GET`, `HEAD` | anything else | 301 `Moved Permanently` to `https://<host>[:<https port>]<path>?<query>`. The host is the configured hostname, or before there is one the request's `Host` (its host part, validated). Path and query are kept (RT-1). 400 `Bad Request` when neither gives a usable host |
 | other | anything else | 404 |
 
 **HTTPS listener,** matched in this order:
@@ -88,7 +88,7 @@ Open Payments, `/peer`, `/btp`, `/stats` and the wallet's files do not apply it:
 
 The wallet (`apps/wallet`, [wallet.md](wallet.md)) is embedded in the binary at build time.
 
-- Every file has its media type (`mime.rs`): `html`, `js`/`mjs`, `css`, `json`/`map`, `webmanifest`, `svg`, `txt`, `wasm` (`application/wasm`), `png`, `ico`, `woff2`, `woff`; anything else is `application/octet-stream`.
+- Every file has its media type (`mime.rs`): `html`, `js`/`mjs`, `css`, `json`/`map`, `webmanifest`, `svg`, `txt`, `wasm` (`application/wasm`), `png`, `ico`, `woff2`, `woff`; anything else is `application/octet-stream` (RT-15).
 - Every file has an ETag from its content. `If-None-Match` with that tag, or `*`, gets 304.
 - Vite's content-hashed files under `/assets/` are cached for a year (`public, max-age=31536000, immutable`); everything else, `index.html` included, is `no-cache`, so a new build shows at once.
 - A file that gets smaller gzipped is sent gzipped to a client that accepts it. Responses carry `Vary: Accept-Encoding`.
@@ -119,7 +119,7 @@ Setup happens once: whoever opens the setup URL claims the node with their passp
 
 **The setup token.** 32 random bytes, written as 64 lowercase hex digits. It is drawn the first time the daemon starts without a node key and stored in the database until setup is done, when it is deleted with the key's write; so a restart, such as the nightly update, keeps the URL the owner was given.
 
-- The setup URL is `https://<hostname>[:<https port>]/setup/<token>`, with `localhost` before a hostname is configured (it reaches the node from its own machine, or through an SSH tunnel). The HTTPS listener always has a certificate, so the URL always works. The port is left out when it is 443.
+- The setup URL is `https://<hostname>[:<https port>]/setup/<token>`, with `localhost` before a hostname is configured (it reaches the node from its own machine, or through an SSH tunnel). The HTTPS listener always has a certificate, so the URL always works (RT-2). The port is left out when it is 443.
 - `dassie setup-url` prints it, through the RPC method `GetSetupUrl` over the IPC socket, which is `FAILED_PRECONDITION` once setup is done.
 - The daemon never logs the URL, since the journal is readable by groups that do not administer the node. It logs that `sudo dassie setup-url` prints it. Log fields named `setup_url` are redacted.
 

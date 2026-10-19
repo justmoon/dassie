@@ -95,7 +95,7 @@ The network's members are the nodes that a majority of the bootstrap nodes list.
 
 - `DASSIE_BOOTSTRAP_NODES` replaces the list. `[]` makes a node run alone: it warns at startup and neither polls nor registers. Tests and the dev environment set their own list, so they stay off the testnet.
 - Bootstrap nodes are always in the table, with their configured key, and always keep their replay state.
-- A node takes registrations only when it is one of its own bootstrap nodes. So each testnet bootstrap node lists all three in its own `DASSIE_BOOTSTRAP_NODES`, itself included. Each runs `xrpl-testnet`, so a new node has someone to peer with.
+- A node takes registrations only when it is one of its own bootstrap nodes. So each testnet bootstrap node lists all three in its own `DASSIE_BOOTSTRAP_NODES`, itself included, through a systemd drop-in, which stays even though the default names the same three ([D15](../decisions/D15-bootstrap-network-for-v1.md)). Each runs `xrpl-testnet`, so a new node has someone to peer with.
 
 ### Node lists
 
@@ -215,7 +215,8 @@ A peering is `requesting`, `peered` or `terminating` ([D12](../decisions/D12-pee
 
 ### Advertised peers
 
-- A peer is listed as a neighbor in our link state while it is `peered`, has been heard from within the last 60 s, is not banned, and is not held down.
+- A peer is **confirmed** while an authenticated message from it arrived within the last 60 s (`peer_confirm_ms`); its heartbeats keep it so. A banned node's messages do not confirm it.
+- A peer is listed as a neighbor in our link state while it is `peered`, confirmed, not banned, and not held down.
 - Each time it stops being advertised, it is held down for `30 s · 2^flaps`, at most 1 h. `flaps` resets after 1 h advertised without a break.
 - A peer heard from again after its hold-down is listed at once.
 - After a restart, the flag starts from the persisted time the peer was last heard from, without a hold-down: a restart does not drop our neighbors.
@@ -305,7 +306,7 @@ All of these are configuration. The values in brackets are the dev settings (`DA
 | One-sided peering told again after | 2 min (20 s) |
 | Peering check, bridge check | 1 s, 60 s (2 s) |
 | Unreachable before a bridge | 2 min (4 s) |
-| Peer confirmed by a message within | 60 s |
+| Peer confirmed by an authenticated message within ([confirmed](#advertised-peers)) | 60 s |
 | Advertise hold-down | 30 s doubling to 1 h; reset after 1 h stable (5 s to 1 min; 5 min) |
 | Peer unresponsive after | 24 h (2 min) |
 | Termination message retries | 10 s after each failed try, for 2 min (1 s, for 20 s) |

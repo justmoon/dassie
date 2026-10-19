@@ -20,7 +20,7 @@ Scheme IDs follow the peer protocol's `SettlementSchemeId` ([Peer protocol](peer
 
 **Activating** a scheme, when the owner adds it or at start:
 
-1. The scheme is made with its config, which is passed through to it (ACC-12), and with what the books last kept for it, its [checkpoint](#checkpoints-and-activation). An unknown scheme, or a config or state it refuses, is an error.
+1. The scheme is made with its config, which is passed through to it (ACC-12, RT-21), and with what the books last kept for it, its [checkpoint](#checkpoints-and-activation). An unknown scheme, or a config or state it refuses, is an error.
 2. A ledger whose realm is not test is refused: "real money is not supported yet" ([XRPL](xrpl.md#real-money)). A ledger another active scheme serves is refused.
 3. The ledger's common accounts are opened ([Ledger](ledger.md#chart-of-accounts)), and the [activation entry](#checkpoints-and-activation) is booked.
 4. The scheme's connection is opened, if it follows a ledger; the node's link state advertises its schemes; the ledger gets its STREAM receiver and its payer ([Connector](connector.md#addresses-and-endpoints)).

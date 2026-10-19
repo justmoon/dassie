@@ -35,7 +35,7 @@ The HTTP status means something (NET-11):
 | 401 | Authentication is missing where it is required, uses an unsupported scheme, fails, or is a replay. |
 | 406 | `Accept` is not `application/dassie-message`. |
 | 408 | The body did not arrive within 10 s. |
-| 409 | The message needs a state the recipient does not hold: a peering (`interledgerPacket`, `settlement`, `settlementMessage`, `settlementRequest`, `peeringTermination`) or an active scheme (`peeringInfoRequest`); or a `registration` the recipient will not take (it is no bootstrap node, the host or network is taken, the URL did not answer). |
+| 409 | The message needs a state the recipient does not hold: a peering (`interledgerPacket`, `settlementMessage`, `settlementRequest`, `peeringTermination`), a settlement channel (`settlement`) or an active scheme (`peeringInfoRequest`); or a `registration` the recipient will not take (it is no bootstrap node, the host or network is taken, the URL did not answer). |
 | 413 | The body is over 64 KiB. |
 | 415 | `Content-Type` is not `application/dassie-message`. |
 | 429 | Rate limited. |
