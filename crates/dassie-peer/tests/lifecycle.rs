@@ -539,6 +539,28 @@ fn a_silent_peer_short_of_room_is_withdrawn_for_its_silence() {
     assert_eq!(withdrawn, [false], "withdrawn for room, though silent");
 }
 
+// When a peer went short of room is kept across a restart: a node that
+// restarts more often than a day still ends a link that stays short
+// (review of #126).
+#[test]
+fn a_restart_keeps_when_a_peer_went_short() {
+    let (mut network, _, b) = peered(48);
+    let mut since = 0;
+    network.act(0, |node, now| {
+        node.set_short(now, &b, true);
+        since = now;
+    });
+    settle(&mut network, 1_000);
+    network.crash(0);
+    network.start(0);
+    let peering = network.node(0).peering_of(&b).unwrap();
+    assert_eq!(peering.short_since_ms, Some(since));
+    // Reported short again, it keeps the time it first went short.
+    network.act(0, |node, now| node.set_short(now, &b, true));
+    let peering = network.node(0).peering_of(&b).unwrap();
+    assert_eq!(peering.short_since_ms, Some(since));
+}
+
 // A restart does not drop the peers we advertise: the flag starts from
 // when they were last heard from.
 #[test]

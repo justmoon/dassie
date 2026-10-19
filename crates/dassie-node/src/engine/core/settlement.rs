@@ -154,11 +154,15 @@ impl Core {
             .map(|(id, peering)| (*id, peering.scheme))
             .collect();
         for (node, scheme) in peers {
-            let short = self.sees_ledger(scheme)
-                && self
-                    .position(node, scheme)
-                    // `minimum` is one of the largest packets (D25).
-                    .is_some_and(|at| at.position < u128::from(self.settle.minimum));
+            // Nothing is judged while we cannot ask: a timer under way
+            // stays, as across a restart, and none starts.
+            if !self.sees_ledger(scheme) {
+                continue;
+            }
+            let short = self
+                .position(node, scheme)
+                // `minimum` is one of the largest packets (D25).
+                .is_some_and(|at| at.position < u128::from(self.settle.minimum));
             self.peer.set_short(now, &node, short);
         }
     }

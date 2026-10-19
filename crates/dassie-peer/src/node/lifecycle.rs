@@ -257,7 +257,7 @@ impl PeerNode {
                     let advertise = &entry.advertise;
                     // Short of room: withdrawn once the grace is over, and
                     // ended once it stays short as long as a silent peer.
-                    let short = advertise.short_since_ms.map(|since| {
+                    let short = peering.short_since_ms.map(|since| {
                         (
                             since.saturating_add(config.advertise_short_grace_ms),
                             since.saturating_add(config.peer_dead_ms),
@@ -332,11 +332,11 @@ impl PeerNode {
             .table
             .iter()
             .filter(|(_, entry)| {
-                entry.active_peering().is_some()
-                    && entry
-                        .advertise
+                entry.active_peering().is_some_and(|peering| {
+                    peering
                         .short_since_ms
                         .is_some_and(|since| since.saturating_add(dead) <= now)
+                })
             })
             .map(|(id, _)| *id)
             .collect();
@@ -356,8 +356,7 @@ impl PeerNode {
             let Some(peering) = entry.active_peering() else {
                 continue;
             };
-            let short = entry
-                .advertise
+            let short = peering
                 .short_since_ms
                 .is_some_and(|since| since.saturating_add(config.advertise_short_grace_ms) <= now);
             let live = peering.heard_within(now, config.peer_confirm_ms) && !self.bans.contains(id);

@@ -278,14 +278,17 @@ impl PeerNode {
         self.advance(now_ms);
         let now = self.now_ms;
         if let Some(entry) = self.table.get_mut(peer)
-            && entry.active_peering().is_some()
+            && let PeerState::Peered(peering) = &mut entry.peer
         {
-            let since = &mut entry.advertise.short_since_ms;
-            *since = if short {
-                Some(since.unwrap_or(now))
+            let since = if short {
+                Some(peering.short_since_ms.unwrap_or(now))
             } else {
                 None
             };
+            if peering.short_since_ms != since {
+                peering.short_since_ms = since;
+                self.dirty.insert(*peer);
+            }
         }
     }
 

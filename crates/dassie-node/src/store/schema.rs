@@ -38,6 +38,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_15,
     MIGRATION_16,
     MIGRATION_17,
+    MIGRATION_18,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -718,6 +719,13 @@ CREATE INDEX ledger_transfers_by_packet ON ledger_transfers (packet_epoch, packe
 CREATE INDEX ledger_transfers_trust ON ledger_transfers (sequence) WHERE reference = 'trust';
 ";
 
+/// Since when a peer's room has been short of a packet, settling nothing
+/// (D12): kept, so that a node that restarts often still ends a link that
+/// stays short.
+const MIGRATION_18: &str = "
+ALTER TABLE peers ADD COLUMN short_since_ms INTEGER;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -904,6 +912,7 @@ pub const TABLES: &[Table] = &[
             ("inbound", "INTEGER", true, false),
             ("last_seen_ms", "INTEGER", true, false),
             ("replay_floor_ms", "INTEGER", true, false),
+            ("short_since_ms", "INTEGER", false, false),
         ],
     },
     Table {
