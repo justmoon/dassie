@@ -553,7 +553,7 @@ Decided on 2026-10-19, after a look at how TigerBeetle runs its VOPR and its fuz
     - the payment workload.
 
     Some seeds switch a fault off entirely, so rare combinations get their turn. A fixed realistic profile runs alongside.
-  - **Two phases.** A run first has a stretch of chaos, with every invariant and every check of [D19](#d19-each-node-keeps-its-own-books) checked throughout. Then it heals: crashed nodes restart, partitions close and faults stop. Within a time derived from the production timings, payments must then complete, settlements must arrive, routes must converge, and no node may owe past its trigger.
+  - **Two phases.** A run first has a stretch of chaos, with every invariant and every check of [D19](#d19-each-node-keeps-its-own-books) checked throughout. Then it heals: crashed nodes restart, partitions close and faults stop. Within a time derived from the production timings, payments must then complete, settlements must arrive, routes must converge, and no node may owe an honest peer past that peer's trigger. Lying peers are judged only by what they cost the honest ones.
     - A run that cannot converge whatever the code does (for example, with a majority of bootstrap nodes cut off) is unsupported. It neither passes nor fails.
   - **Faults stay within what the node relies on.** The store commits with `synchronous = FULL`, so a commit that returned is on disk, and a torn write is SQLite's to handle. The only fault injected at the store is a commit that fails. The node must stop, then restart from its last good commit.
   - **Coverage.** Each run counts what it reached: crashes during a payment, bans, settlements, withdrawals, partitions healed. A test in CI asserts a minimum for each count at a fixed seed, so that a generator cannot quietly stop reaching a case.
@@ -564,13 +564,15 @@ Decided on 2026-10-19, after a look at how TigerBeetle runs its VOPR and its fuz
     4. reports, and starts again.
 
     So changing the runner on `main` changes what every VM runs. Open PRs with the label `sim` get a share of the time.
-  - **Failures become issues.** A failure's signature is its simulation, its outcome, and the assertion or check that failed. Each signature gets one GitHub issue, labelled `sim-failure`.
+    - The VMs run code from pull requests before anyone has reviewed it, in the project that holds the bootstrap nodes' phrases. So they run as a service account of their own, with no role in the project. It can read one secret, the GitHub token, and nothing else.
+  - **Failures become issues.** A failure's signature is its simulation, its outcome, and the assertion or check that failed. Each signature seen on `main` gets one GitHub issue, labelled `sim-failure`.
     - The issue holds the commit, the configuration, the end of the trace, and the commands that reproduce the failure, with the seed that failed fastest.
     - Later seeds with the same signature are added to the same issue.
-    - A `canary` simulation fails on purpose once in a thousand seeds. If its issue stops coming back, the campaign has stopped.
+    - A failure on a pull request's branch is a comment on that pull request instead, so it never reaches `main`'s issues.
+    - A `tripwire` simulation fails on purpose once in a thousand seeds. It files under its own label, `sim-tripwire`, so it never holds up a release. If its issue stops getting new seeds, the campaign has stopped.
     - A fix comes with a targeted test, because a seed reproduces a failure only at the commit it ran on.
   - **CI is unchanged.** It runs the fixed seeds, plus the coverage minimums. A random seed per commit would fail pull requests on bugs they did not touch.
-  - **Releases wait for it.** `scripts/release.ts` refuses to tag a commit with an open `sim-failure` issue against it, or one the campaign has not yet run for long enough.
+  - **Releases wait for it.** A tag is pushed by hand, and it starts the release workflow. That workflow's first step refuses to build, sign or publish the tagged commit in two cases: an open `sim-failure` issue was seen on it, or the campaign has not yet run on it for long enough. A refused tag is deleted, and the version is tagged again once the campaign has cleared a commit.
 - **Accepted:**
   - *A failure surfaces after the merge that caused it,* sometimes hours later.
   - *Spot VMs cost money,* and their number follows the throughput measured once the runner exists.
