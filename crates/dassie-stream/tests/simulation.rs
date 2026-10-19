@@ -6,7 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
-use dassie_node_core::testing::assert_seeds_pass;
+use dassie_node_core::testing::{Outcome, assert_seeds_pass};
 use dassie_stream::sim::payment::{self, LOSSY, STEPS};
 use dassie_stream::sim::{Path, Side, Simulation};
 use dassie_stream::{ErrorCode, Event, Policy, Rate};
@@ -278,9 +278,13 @@ fn rejects_a_rate_below_the_minimum() {
 
 #[test]
 fn simulations_are_deterministic() {
-    // The same seed must give the same run, event for event (D16).
-    assert_eq!(payment::run(23).trace, payment::run(23).trace);
-    assert_ne!(payment::run(23).trace, payment::run(24).trace);
+    // The same seed must give the same run, event for event (D16), and
+    // runs that differ must still both finish.
+    let (first, again, other) = (payment::run(23), payment::run(23), payment::run(24));
+    assert_eq!(first.outcome, Outcome::Pass);
+    assert_eq!(other.outcome, Outcome::Pass);
+    assert_eq!(first.trace, again.trace);
+    assert_ne!(first.trace, other.trace);
 }
 
 #[test]

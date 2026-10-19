@@ -6,14 +6,17 @@
 //! dassie-sim explain <sim> <seed> [--grep <text>]  runs a seed and prints its trace
 //! ```
 //!
-//! Seeds are a number, a range (`0..1000`) or a git commit. Build it with
+//! Seeds are a number in decimal, as the runner prints them, a range
+//! (`0..1000`, which runs 0 to 999) or a git commit's full SHA. Build it with
 //! `--profile sim`, which keeps assertions on, so that every invariant is
 //! checked before every commit, as in tests.
 //!
 //! The exit status is 1 when a run broke safety, 2 when one broke liveness
-//! and none safety, 64 for a usage error, and 0 otherwise.
+//! and none safety, 3 when the runner itself failed, 64 for a usage error,
+//! and 0 otherwise.
 
-use std::ops::Range;
+use std::io::{self, Write};
+use std::ops::RangeInclusive;
 use std::process::ExitCode;
 use std::time::Instant;
 
@@ -24,7 +27,7 @@ usage: dassie-sim list
        dassie-sim run <sim> [<seeds>]
        dassie-sim explain <sim> <seed> [--grep <text>]
 
-<seeds> is a number, a range such as 0..1000, or a git commit.";
+<seeds> is a number, a range such as 0..1000, or a git commit's full SHA.";
 
 /// What to do.
 enum Command {
@@ -32,7 +35,7 @@ enum Command {
     List,
     Run {
         sim: &'static Sim,
-        seeds: Option<Range<u64>>,
+        seeds: Option<RangeInclusive<u64>>,
     },
     Explain {
         sim: &'static Sim,
@@ -97,75 +100,87 @@ fn named(name: &str) -> Result<&'static Sim, String> {
 
 fn one_seed(text: &str) -> Result<u64, String> {
     let seeds = parse_seeds(text)?;
-    if seeds.end - seeds.start != 1 {
+    if seeds.start() != seeds.end() {
         return Err(format!("{text} is more than one seed"));
     }
-    Ok(seeds.start)
+    Ok(*seeds.start())
 }
 
 fn execute(command: Command) -> ExitCode {
-    match command {
-        Command::Help => {
-            println!("{USAGE}");
-            ExitCode::SUCCESS
-        }
-        Command::List => {
-            for sim in &SIMS {
-                println!("{:<10} {}", sim.name, sim.about);
-            }
-            ExitCode::SUCCESS
-        }
+    let mut out = io::stdout().lock();
+    let printed = match command {
+        Command::Help => writeln!(out, "{USAGE}").map(|()| ExitCode::SUCCESS),
+        Command::List => list(&mut out),
         Command::Run { sim, seeds } => match seeds.map_or_else(random_seed, Ok) {
-            Ok(seeds) => run(sim, seeds),
+            Ok(seeds) => run(&mut out, sim, seeds),
             Err(problem) => {
                 eprintln!("dassie-sim: {problem}");
-                ExitCode::FAILURE
+                return ExitCode::from(3);
             }
         },
-        Command::Explain { sim, seed, grep } => explain(sim, seed, &grep),
+        Command::Explain { sim, seed, grep } => explain(&mut out, sim, seed, &grep),
+    };
+    printed.unwrap_or_else(|error| {
+        // A reader that stops reading, such as `head`, ends the output
+        // without the runner having failed.
+        if error.kind() == io::ErrorKind::BrokenPipe {
+            ExitCode::SUCCESS
+        } else {
+            eprintln!("dassie-sim: {error}");
+            ExitCode::from(3)
+        }
+    })
+}
+
+fn list(out: &mut impl Write) -> io::Result<ExitCode> {
+    for sim in &SIMS {
+        writeln!(out, "{:<10} {}", sim.name, sim.about)?;
     }
+    Ok(ExitCode::SUCCESS)
 }
 
 /// A seed from the OS: the one place the runner draws randomness, and
 /// only to pick which run to make.
-fn random_seed() -> Result<Range<u64>, String> {
+fn random_seed() -> Result<RangeInclusive<u64>, String> {
     let seed = getrandom::u64().map_err(|error| format!("no random seed: {error}"))?;
-    Ok(seed..seed.saturating_add(1))
+    Ok(seed..=seed)
 }
 
 /// Runs every seed, and prints how each ended.
-fn run(sim: &Sim, seeds: Range<u64>) -> ExitCode {
+fn run(out: &mut impl Write, sim: &Sim, seeds: RangeInclusive<u64>) -> io::Result<ExitCode> {
     let mut tally = Tally::default();
     for seed in seeds {
-        println!("{} {seed}: {}", sim.name, (sim.describe)(seed));
+        writeln!(out, "{} {seed}: {}", sim.name, (sim.describe)(seed))?;
+        out.flush()?;
         let started = Instant::now();
         let outcome = caught(|| (sim.run)(seed)).outcome;
-        println!("  {outcome} in {:.2?}", started.elapsed());
+        writeln!(out, "  {outcome} in {:.2?}", started.elapsed())?;
         tally.add(&outcome);
     }
     if tally.runs > 1 {
-        println!(
+        writeln!(
+            out,
             "{} runs: {} passed, {} unsupported, {} broke safety, {} broke liveness",
             tally.runs, tally.passed, tally.unsupported, tally.safety, tally.liveness
-        );
+        )?;
     }
-    tally.status()
+    Ok(tally.status())
 }
 
 /// Runs a seed, and prints its trace, or the lines of it holding `grep`.
-fn explain(sim: &Sim, seed: u64, grep: &str) -> ExitCode {
-    println!("{} {seed}: {}", sim.name, (sim.describe)(seed));
+fn explain(out: &mut impl Write, sim: &Sim, seed: u64, grep: &str) -> io::Result<ExitCode> {
+    writeln!(out, "{} {seed}: {}", sim.name, (sim.describe)(seed))?;
     let run = caught(|| (sim.run)(seed));
     for line in run.trace.iter().filter(|line| line.contains(grep)) {
-        println!("{line}");
+        writeln!(out, "{line}")?;
     }
     if run.trace.is_empty() {
-        println!("(no trace: a run that panics loses it)");
+        writeln!(out, "(no trace: a run that panics loses it)")?;
     }
-    println!("{}", run.outcome);
+    writeln!(out, "{}", run.outcome)?;
     let mut tally = Tally::default();
     tally.add(&run.outcome);
-    tally.status()
+    Ok(tally.status())
 }
 
 /// How a set of runs ended.

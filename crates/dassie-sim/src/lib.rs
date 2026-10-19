@@ -6,7 +6,7 @@
 //! fixed seeds. This crate runs them on any seed: one to replay a failure,
 //! a range to search for one, or a commit's, as TigerBeetle's VOPR does.
 
-use std::ops::Range;
+use std::ops::RangeInclusive;
 
 pub use dassie_node_core::testing::{Outcome, Run, caught};
 
@@ -51,28 +51,30 @@ pub fn find(name: &str) -> Option<&'static Sim> {
     SIMS.iter().find(|sim| sim.name == name)
 }
 
-/// Parses which seeds to run: one seed (`42`), a range (`0..1000`), or a
-/// git commit (`3c3db0fe…`, at least 16 hex digits), whose first 16 hex
-/// digits are its seed, so that a commit names its own run.
+/// Parses which seeds to run: one seed in decimal, as the runner prints it
+/// (`42`), a range (`0..1000`), or a git commit's full 40-digit SHA, whose
+/// first 16 hex digits are its seed, so that a commit names its own run.
+/// Only a full SHA is read as hex: a decimal seed has at most 20 digits.
 ///
 /// # Errors
 ///
 /// When `text` is none of these, or an empty range.
-pub fn parse_seeds(text: &str) -> Result<Range<u64>, String> {
-    let seeds = if let Some((from, to)) = text.split_once("..") {
-        number(from)?..number(to)?
-    } else if text.len() >= 16 && text.chars().all(|c| c.is_ascii_hexdigit()) {
-        let digits = text.get(..16).unwrap_or(text);
-        let seed = u64::from_str_radix(digits, 16).map_err(|error| error.to_string())?;
-        seed..seed.saturating_add(1)
-    } else {
-        let seed = number(text)?;
-        seed..seed.saturating_add(1)
-    };
-    if seeds.is_empty() {
-        return Err(format!("{text} holds no seeds"));
+pub fn parse_seeds(text: &str) -> Result<RangeInclusive<u64>, String> {
+    if let Some((from, to)) = text.split_once("..") {
+        let (from, to) = (number(from)?, number(to)?);
+        let last = to
+            .checked_sub(1)
+            .filter(|last| *last >= from)
+            .ok_or_else(|| format!("{text} holds no seeds"))?;
+        return Ok(from..=last);
     }
-    Ok(seeds)
+    let seed = if text.len() == 40 && text.chars().all(|c| c.is_ascii_hexdigit()) {
+        let digits = text.get(..16).unwrap_or(text);
+        u64::from_str_radix(digits, 16).map_err(|error| error.to_string())?
+    } else {
+        number(text)?
+    };
+    Ok(seed..=seed)
 }
 
 fn number(text: &str) -> Result<u64, String> {
@@ -86,15 +88,30 @@ mod tests {
 
     #[test]
     fn seeds_are_a_number_a_range_or_a_commit() {
-        assert_eq!(parse_seeds("42"), Ok(42..43));
-        assert_eq!(parse_seeds("10..20"), Ok(10..20));
+        assert_eq!(parse_seeds("42"), Ok(42..=42));
+        assert_eq!(parse_seeds("10..20"), Ok(10..=19));
         assert_eq!(
             parse_seeds("3c3db0fe0123456789abcdef0123456789abcdef"),
-            Ok(0x3c3d_b0fe_0123_4567..0x3c3d_b0fe_0123_4568)
+            Ok(0x3c3d_b0fe_0123_4567..=0x3c3d_b0fe_0123_4567)
         );
         assert!(parse_seeds("20..10").is_err());
+        assert!(parse_seeds("10..10").is_err());
         assert!(parse_seeds("abc").is_err());
+        assert!(parse_seeds("3c3db0fe0123456789").is_err());
         assert!(parse_seeds("").is_err());
+    }
+
+    #[test]
+    fn every_seed_the_runner_prints_parses_back() {
+        for seed in [
+            0,
+            9,
+            1_234_567_890_123_456,
+            13_838_123_456_789_012_345,
+            u64::MAX,
+        ] {
+            assert_eq!(parse_seeds(&seed.to_string()), Ok(seed..=seed), "{seed}");
+        }
     }
 
     #[test]

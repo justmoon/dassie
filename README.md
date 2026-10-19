@@ -77,6 +77,7 @@ The node that asks to peer extends the other 1.1 units of credit; the node that 
 | `crates/dassie-node` | The daemon: database, HTTP(S) and IPC listeners, TLS, ACME, owner login, RPC with its live streams, the engine (ledger, peer protocol, Open Payments, bans), `/peer` and the peer client, the BTP server, the STREAM receiver, the rate fetcher, `/stats`, the log ring, and a fake XRP Ledger for tests |
 | `crates/dassie-cli` | The `dassie` binary: `daemon`, `init`, `update`, `verify-install` |
 | `crates/dassie-release` | What a release is and how to trust one: versions and channels, the mirror's layout, `SHA256SUMS` and its minisign signature |
+| `crates/dassie-sim` | Runs the simulations from any seed, to replay and explain failures: `dassie-sim run peer 0..1000`, `dassie-sim explain peer 42` (D27); a developer tool, never released |
 | `nix/release.nix` | The release builds: the wallet, static binaries for x64 and arm64, their bundles, the mirror tree, and the install tests' releases |
 | `resources` | What a release ships beside the binary: the systemd units (the node, its sockets and the daily updater) and `install.sh`, and the release key (`minisign.pub`) |
 | `scripts/build-wasm.ts` | Builds the WASM modules and their bindings (`node --run build:wasm`) |
