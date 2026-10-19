@@ -422,6 +422,69 @@ fn open_payments_keep_what_they_received_over_the_upgrade_to_connections() {
     );
 }
 
+// Found by the simulation (D27): a receiver that restarts after an incoming
+// payment completed must still tell a sender that reconnects what its
+// connection delivered, or the sender, having lost a Fulfill to a crash,
+// gives up on money that arrived. A completed payment's connections are
+// kept for a while, then pruned; an open one's stay.
+#[test]
+fn completed_payments_keep_what_their_connections_received_for_a_while() {
+    let store = Store::open_in_memory().unwrap();
+    store
+        .lock()
+        .execute_batch(
+            "INSERT INTO incoming_payments VALUES (x'01010101010101010101010101010101', \
+             'stub+usd', 'https://a.example/pay', NULL, 100, 100, 'g.a.b', zeroblob(32), NULL, \
+             10, 1000000000, 500, 1); \
+             INSERT INTO incoming_payments VALUES (x'02020202020202020202020202020202', \
+             'stub+usd', 'https://a.example/pay', NULL, 100, 40, 'g.a.c', zeroblob(32), NULL, \
+             10, 1000000000, NULL, 2); \
+             INSERT INTO incoming_payments VALUES (x'03030303030303030303030303030303', \
+             'stub+usd', 'https://a.example/pay', NULL, 10, 10, 'g.a.d', zeroblob(32), NULL, \
+             10, 1000000000, 300, 3); \
+             INSERT INTO incoming_connections VALUES \
+               (x'01010101010101010101010101010101', x'08080808080808080808080808080808', 60), \
+               (x'01010101010101010101010101010101', x'09090909090909090909090909090909', 40), \
+               (x'02020202020202020202020202020202', x'0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a', 40);",
+        )
+        .unwrap();
+    let first = FinishedIncoming {
+        id: PaymentId([1; 16]),
+        ledger: LedgerId::StubUsd,
+        received: vec![(ConnectionKey([8; 16]), 60), (ConnectionKey([9; 16]), 40)],
+    };
+    let third = FinishedIncoming {
+        id: PaymentId([3; 16]),
+        ledger: LedgerId::StubUsd,
+        received: Vec::new(),
+    };
+    // Newest first, open ones left out, and only since a time.
+    assert_eq!(
+        store.finished_incoming(0, 10).unwrap(),
+        [first.clone(), third]
+    );
+    assert_eq!(
+        store.finished_incoming(400, 10).unwrap(),
+        std::slice::from_ref(&first)
+    );
+    assert_eq!(
+        store.finished_incoming(0, 1).unwrap(),
+        std::slice::from_ref(&first)
+    );
+    store
+        .prune_incoming(500 + FINISHED_RETENTION_MS - 1)
+        .unwrap();
+    assert_eq!(store.finished_incoming(0, 1).unwrap(), [first]);
+    store.prune_incoming(500 + FINISHED_RETENTION_MS).unwrap();
+    assert_eq!(store.finished_incoming(0, 1).unwrap()[0].received, []);
+    assert_eq!(
+        store
+            .open_incoming_connections(500 + FINISHED_RETENTION_MS, 10)
+            .unwrap(),
+        [(PaymentId([2; 16]), ConnectionKey([10; 16]), 40)]
+    );
+}
+
 // The inspector shows every table but never reads a secret
 // (spec/areas/rpc.md#the-inspector).
 #[test]

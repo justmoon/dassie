@@ -15,8 +15,26 @@ pub const MAX_OPEN_LOADED: u32 = 65_536;
 /// closed or expired.
 pub const UNPAID_RETENTION_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
 
+/// How long what a completed incoming payment's connections received is
+/// kept: a sender that lost a Fulfill to a crash may still reconnect to
+/// learn what got there (D23), and a node's own payer does so until its
+/// deadline. A node that restarts reads them back.
+pub const FINISHED_RETENTION_MS: u64 = 10 * 60 * 1_000;
+
 /// Most rows one pruning deletes.
 const PRUNE_BATCH: u32 = 1_000;
+
+/// A completed incoming payment, and what each of its connections
+/// received.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FinishedIncoming {
+    /// The payment.
+    pub id: PaymentId,
+    /// The ledger it was paid into.
+    pub ledger: LedgerId,
+    /// What each connection received.
+    pub received: Vec<(ConnectionKey, u64)>,
+}
 
 /// A resource's ID: 16 random bytes, written as a UUID.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -268,6 +286,53 @@ impl Store {
             .collect()
     }
 
+    /// The incoming payments completed at or after `since_ms`, newest
+    /// first, at most `limit`, each with what its connections received: what
+    /// a restarted node tells their senders.
+    pub fn finished_incoming(
+        &self,
+        since_ms: u64,
+        limit: u32,
+    ) -> Result<Vec<FinishedIncoming>, StoreError> {
+        let connection = self.lock();
+        let mut payments = connection.prepare(
+            "SELECT id, ledger FROM incoming_payments WHERE completed_at_ms >= ?1 \
+             ORDER BY completed_at_ms DESC, id LIMIT ?2",
+        )?;
+        let mut connections = connection.prepare(
+            "SELECT connection, received FROM incoming_connections \
+             WHERE incoming_payment = ?1 ORDER BY connection",
+        )?;
+        let rows = payments.query_map(params![to_sql_time(since_ms), limit], |row| {
+            Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut finished = Vec::new();
+        for row in rows {
+            let (id, ledger) = row?;
+            let corrupt = || StoreError::Corrupt("finished incoming payment");
+            let id = PaymentId(<[u8; 16]>::try_from(id.as_slice()).map_err(|_| corrupt())?);
+            let ledger = LedgerId::parse(&ledger).ok_or_else(corrupt)?;
+            let received = connections
+                .query_map([id.0.as_slice()], |row| {
+                    Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, i64>(1)?))
+                })?
+                .map(|row| {
+                    let (key, received) = row?;
+                    Ok((
+                        ConnectionKey(<[u8; 16]>::try_from(key.as_slice()).map_err(|_| corrupt())?),
+                        u64::try_from(received).map_err(|_| corrupt())?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, StoreError>>()?;
+            finished.push(FinishedIncoming {
+                id,
+                ledger,
+                received,
+            });
+        }
+        Ok(finished)
+    }
+
     /// One incoming payment.
     pub fn incoming_payment(&self, id: PaymentId) -> Result<Option<IncomingRow>, StoreError> {
         let connection = self.lock();
@@ -301,14 +366,17 @@ impl Store {
     /// up. Returns how many went.
     pub fn prune_incoming(&self, now_ms: u64) -> Result<u32, StoreError> {
         let before = to_sql_time(now_ms.saturating_sub(UNPAID_RETENTION_MS));
+        let finished = to_sql_time(now_ms.saturating_sub(FINISHED_RETENTION_MS));
         let connection = self.lock();
-        // What a closed payment's connections received is not read again.
+        // What an expired payment's connections received is not read
+        // again; a completed one's only for a while (`finished_incoming`).
         connection.execute(
             "DELETE FROM incoming_connections WHERE (incoming_payment, connection) IN \
              (SELECT c.incoming_payment, c.connection FROM incoming_connections AS c \
              JOIN incoming_payments AS p ON p.id = c.incoming_payment \
-             WHERE p.completed_at_ms IS NOT NULL OR p.expires_at_ms <= ?1 LIMIT ?2)",
-            params![to_sql_time(now_ms), PRUNE_BATCH],
+             WHERE p.completed_at_ms <= ?3 \
+             OR (p.completed_at_ms IS NULL AND p.expires_at_ms <= ?1) LIMIT ?2)",
+            params![to_sql_time(now_ms), PRUNE_BATCH, finished],
         )?;
         let removed = connection.execute(
             "DELETE FROM incoming_payments WHERE id IN (SELECT id FROM incoming_payments \

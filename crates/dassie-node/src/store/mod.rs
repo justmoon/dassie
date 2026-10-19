@@ -53,8 +53,9 @@ pub use outgoing::{
     OutgoingRow, OutgoingState, QuoteRow,
 };
 pub use payments::{
-    ConnectionKey, IncomingPage, IncomingPaid, IncomingProgress, IncomingQuery, IncomingRow,
-    Listed, MAX_LISTED, MAX_OPEN_LOADED, Page, PaymentId, UNPAID_RETENTION_MS,
+    ConnectionKey, FINISHED_RETENTION_MS, FinishedIncoming, IncomingPage, IncomingPaid,
+    IncomingProgress, IncomingQuery, IncomingRow, Listed, MAX_LISTED, MAX_OPEN_LOADED, Page,
+    PaymentId, UNPAID_RETENTION_MS,
 };
 pub use peer_settings::PeerSettings;
 pub use rates::StoredRate;

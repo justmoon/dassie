@@ -35,6 +35,10 @@ pub const MAX_SENDING: usize = 16;
 pub const MAX_UNFINISHED: usize = 4_096;
 /// How long an outgoing payment may take.
 pub const OUTGOING_DEADLINE_MS: u64 = 10 * 60 * 1_000;
+
+// A receiver that restarts remembers its completed payments for as long as
+// a payer may still reconnect to it to learn what got there.
+const _: () = assert!(OUTGOING_DEADLINE_MS <= crate::store::FINISHED_RETENTION_MS);
 /// How often a payment opens a new connection after one closed before it
 /// was done: an idle timeout while liquidity is short, or a receiver that
 /// restarted.

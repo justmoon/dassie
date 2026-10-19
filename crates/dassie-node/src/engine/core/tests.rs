@@ -418,3 +418,59 @@ fn a_junior_extends_at_least_the_default_credit() {
     let trust = dassie_settlement::policy::trust(core.ledger.account(contra).unwrap().balance());
     assert_eq!(trust, Policies::DEFAULT.peer_credit);
 }
+
+// Found by the simulation (D27): a sender crashed before the last Fulfill
+// of a payment reached it, and its receiver restarted after the payment
+// completed. Restarted, the receiver forgot the payment and refused the
+// sender's new connections, so the sender never learned that the money had
+// arrived, and failed the payment. A restarted receiver still tells a
+// sender that reconnects what its connection delivered, and that no more
+// fits.
+#[test]
+fn a_restarted_receiver_tells_a_reconnecting_sender_what_got_there() {
+    use dassie_ledger::LedgerId;
+    use dassie_stream::Admission;
+
+    use super::incoming::{NewIncoming, admission, connection_tag};
+    use crate::store::{ConnectionKey, IncomingPaid};
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let key = ConnectionKey([8; 16]);
+    let id = {
+        let mut core = core_on(Arc::clone(&store), 5);
+        core.add_scheme("stub", String::new()).unwrap();
+        let payment = core
+            .create_incoming_payment(NewIncoming {
+                ledger: LedgerId::StubUsd,
+                wallet_address: "https://a.example/pay".into(),
+                client: None,
+                incoming_amount: Some(100),
+                expires_at_ms: None,
+                metadata: None,
+            })
+            .unwrap();
+        core.incoming_received(IncomingPaid {
+            payment: payment.id,
+            connection: key,
+            amount: 100,
+        });
+        core.flush();
+        payment.id
+    };
+    let core = core_on(store, 6);
+    let tag = connection_tag(id, key);
+    let (admitted, _) = admission(
+        &core.incoming,
+        &core.finished_incoming,
+        LedgerId::StubUsd,
+        NOW,
+        &tag,
+    );
+    assert_eq!(
+        admitted,
+        Admission::Accept {
+            money_limit: 0,
+            received: 100,
+        }
+    );
+}
