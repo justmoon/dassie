@@ -353,7 +353,7 @@ Settlement ::= SEQUENCE {
   sequence             UINT64 }         -- per sender and recipient: increasing, never reset
 ```
 
-It is accepted from any authenticated node we hold a settlement channel with, peered or not, so a final settlement that arrives after the peering ended is still credited. `sequence` belongs to the pair of nodes, not to a peering; the sender sends one at a time, in order, again until a 200 arrives, across restarts. The answers:
+It is accepted from any authenticated node we hold a settlement channel with, peered or not, so a final settlement that arrives after the peering ended is still credited. `sequence` belongs to the pair of nodes, not to a peering; the sender sends one at a time, in order, again until a 200 arrives, across restarts. After its n-th failure in a row it goes again after `1 s · 2^(n−1)`, at most 1 h (10 s in dev). One whose last try got no answer goes at once when the node next answers any request of ours, rather than after up to an hour, since what we send reaches it again. An early try that gets no answer does not make another, so a node that never answers it gets it at most twice as often as the backoff alone would send it. A 401 keeps that early try, since a node that just started refuses messages dated before its start and the early copy is dated anew; any other answer gives it up, since a settlement the node refused (400, 409) or was too busy for (503) is not helped by the node answering something else. A copy that arrives twice is acknowledged and not applied again, so going early costs at most one more request. The answers:
 
 | Case | Answer |
 |---|---|

@@ -161,6 +161,8 @@ impl PeerNode {
                     Retry {
                         at_ms: now,
                         in_flight: false,
+                        early: true,
+                        went_early: false,
                     },
                 );
             }

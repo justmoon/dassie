@@ -35,7 +35,12 @@ fn stub() -> SchemeId {
 /// Two nodes, peered. Their clocks are apart by up to 20 s, and a node
 /// takes nothing dated before its start, so it may take a while.
 fn peered(seed: u64) -> (Network, NodeId, NodeId) {
-    let mut network = Network::new(seed, 2, 1, Config::DEV);
+    peered_with(seed, Config::DEV)
+}
+
+/// Two nodes, peered, with `config`.
+fn peered_with(seed: u64, config: Config) -> (Network, NodeId, NodeId) {
+    let mut network = Network::new(seed, 2, 1, config);
     let (a, b) = (*network.node(0).own(), *network.node(1).own());
     for _ in 0..30 {
         if network.node(0).is_advertised(&b) && network.node(1).is_advertised(&a) {
@@ -178,6 +183,75 @@ fn a_settlement_survives_a_restart() {
     assert!(!network.node(0).settling(&b));
     assert_eq!(network.applied.len(), 1);
     assert_eq!((network.applied[0].from, network.applied[0].amount), (a, 7));
+}
+
+// Found by the node simulation (D27): a settlement that could not be
+// delivered through a long outage backs off, up to an hour at production
+// timings. Once its node answers a request of ours again, it goes at once,
+// rather than when its backoff ends, and arrives once.
+#[test]
+fn a_settlement_goes_as_soon_as_its_node_is_back() {
+    let config = Config {
+        settlement_retry_max_ms: 3_600_000,
+        ..Config::DEV
+    };
+    let (mut network, a, b) = peered_with(41, config);
+    network.crash(1);
+    assert!(network.settle(0, b, 5));
+    // 25 minutes of failures: the next attempt is due some 17 minutes on.
+    settle(&mut network, 25 * 60_000);
+    assert!(network.node(0).settling(&b));
+    network.start(1);
+    settle(&mut network, 60_000);
+    assert!(
+        !network.node(0).settling(&b),
+        "the settlement waited for its backoff"
+    );
+    assert_eq!(network.applied.len(), 1);
+    assert_eq!((network.applied[0].from, network.applied[0].amount), (a, 5));
+}
+
+// A node that answers our other requests but is too busy for a settlement
+// gets it at the pace of the backoff, not once per answer.
+#[test]
+fn a_busy_node_gets_a_settlement_at_the_pace_of_the_backoff() {
+    // Tries at 0, 1, 3, 7, ... 1023 s.
+    refused_settlement(Some(503), 11);
+}
+
+// A node that answers our other requests but never a settlement gets it at
+// most twice as often as the backoff alone would send it: an early try
+// that gets no answer does not make another.
+#[test]
+fn a_node_that_drops_settlements_gets_them_at_the_pace_of_the_backoff() {
+    // Each try times out after 30 s: some 10 in the backoff, and as many
+    // early.
+    refused_settlement(None, 20);
+}
+
+/// Settles while node 1 refuses settlement messages with `status`, or
+/// drops them, for 25 minutes at production timings, and checks it got at
+/// most `tries`; then that the settlement arrives once node 1 takes it.
+fn refused_settlement(status: Option<u16>, tries: usize) {
+    let config = Config {
+        settlement_retry_max_ms: 3_600_000,
+        ..Config::DEV
+    };
+    let (mut network, a, b) = peered_with(41, config);
+    network.refuse_settlements.insert(1, status);
+    assert!(network.settle(0, b, 5));
+    settle(&mut network, 25 * 60_000);
+    assert!(network.node(0).settling(&b));
+    assert!(
+        network.settlements_refused <= tries,
+        "{} tries in 25 minutes",
+        network.settlements_refused
+    );
+    network.refuse_settlements.clear();
+    settle(&mut network, 3_600_000);
+    assert!(!network.node(0).settling(&b));
+    assert_eq!(network.applied.len(), 1);
+    assert_eq!((network.applied[0].from, network.applied[0].amount), (a, 5));
 }
 
 // An owner's termination ends the peering on both sides, settled, and the

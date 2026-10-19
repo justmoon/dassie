@@ -236,6 +236,12 @@ pub struct Network {
     /// Whether a node settles everything it owes when a peering ends, as
     /// the node's core does: one unit, here.
     pub settle_on_end: bool,
+    /// Nodes that apply no settlement message: they answer it with the
+    /// status, as a busy node would with 503, or not at all (`None`), as
+    /// one would that drops the connection.
+    pub refuse_settlements: BTreeMap<usize, Option<u16>>,
+    /// Settlement messages refused for being in `refuse_settlements`.
+    pub settlements_refused: usize,
     /// Rewrites the body of every response with status 200 before it
     /// arrives, as a node would that answers anything it likes: the MAC is
     /// made again, so the body gets past it to what reads it.
@@ -275,6 +281,8 @@ impl Network {
             settlement_requests: Vec::new(),
             settled: Vec::new(),
             settle_on_end: false,
+            refuse_settlements: BTreeMap::new(),
+            settlements_refused: 0,
             tamper: None,
             macs: BTreeMap::new(),
         };
@@ -621,6 +629,10 @@ impl Network {
             } => {
                 self.packets.push((to, sender, request_id));
                 Some(reply)
+            }
+            Inbound::Settlement { .. } if self.refuse_settlements.contains_key(&to) => {
+                self.settlements_refused += 1;
+                self.refuse_settlements[&to].map(|status| crate::Reply::refuse(status, "refused"))
             }
             Inbound::Settlement {
                 from: sender,
