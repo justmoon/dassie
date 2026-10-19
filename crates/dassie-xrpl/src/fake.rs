@@ -121,6 +121,12 @@ impl FakeLedger {
         self.ledger
     }
 
+    /// How many transactions wait for the next close, which applies them.
+    #[must_use]
+    pub fn queued(&self) -> usize {
+        self.queued.len()
+    }
+
     /// An account's balance in drops, if it exists.
     #[must_use]
     pub fn balance(&self, account: AccountId) -> Option<u64> {

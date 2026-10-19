@@ -66,5 +66,5 @@ pub fn run(seed: u64) -> Run {
     };
     let mut trace: alloc::vec::Vec<String> = sim.trace.lines().map(ToString::to_string).collect();
     trace.push(format!("{:?}", sim.client.stats()));
-    Run { outcome, trace }
+    Run::new(outcome, trace)
 }

@@ -1,0 +1,419 @@
+//! The node simulation's random run (D27): every seed draws its own
+//! network, faults and payments, as swarm testing does, so that runs
+//! differ in kind and not only in detail. Some seeds switch a fault off
+//! entirely, so that rare combinations get their turn.
+//!
+//! A run has two phases. In the chaos, payments start while nodes crash
+//! and restart, links are cut and healed, messages are lost and ledger
+//! connections drop. Then the network heals: every node runs, no link is
+//! cut and nothing is lost, and within [`HEAL_MS`] the network must settle
+//! down. Then each node is checked by its own books (D19), as the scripted
+//! runs are.
+
+use std::fmt;
+
+use dassie_connector::SpendingCap;
+use dassie_node_core::testing::{Outcome, Run, SeededRng};
+use dassie_settlement::LedgerStatus;
+
+use super::checks::{check, check_delivered, check_finished, check_settled};
+use super::scripted::ended;
+use super::{Delivery, START, Settling, Sim};
+use crate::store::OutgoingState;
+
+/// How long a healed network has to settle down: ten minutes of engine
+/// time. Generous on purpose, so that a run that exceeds it is stuck, not
+/// slow. What runs take, counted as "heal seconds", is what to tighten it
+/// by; it is never loosened to let a seed pass.
+pub const HEAL_MS: u64 = 600_000;
+
+/// How often a healing network is looked at.
+const LOOK_MS: u64 = 5_000;
+
+/// The least a payment sends: 0.1 units.
+const LEAST_PAYMENT: u64 = 100_000_000;
+
+/// How often each kind of chaos happens, relative to the others. A weight
+/// of 0 switches it off.
+#[derive(Clone, Copy, Debug)]
+pub struct Weights {
+    /// Starting a payment, while any is left to start.
+    pub pay: u64,
+    /// Crashing a node.
+    pub crash: u64,
+    /// Restarting a crashed node.
+    pub restart: u64,
+    /// Cutting a link, one way or both.
+    pub cut: u64,
+    /// Healing a cut.
+    pub heal: u64,
+    /// Dropping a node's connection to the XRP Ledger.
+    pub ledger_drop: u64,
+    /// Doing nothing for a while.
+    pub idle: u64,
+}
+
+/// What a seed draws before its run starts.
+#[derive(Clone, Copy, Debug)]
+pub struct Options {
+    /// How many nodes.
+    pub nodes: usize,
+    /// How many of them are bootstrap nodes.
+    pub bootstraps: usize,
+    /// What they settle over.
+    pub settling: Settling,
+    /// The shortest and the longest a message takes.
+    pub latency_ms: (u64, u64),
+    /// How many of a thousand messages are lost in the chaos.
+    pub loss_per_mille: u64,
+    /// How long the chaos lasts.
+    pub chaos_ms: u64,
+    /// The mean time between two acts of chaos.
+    pub step_ms: u64,
+    /// How often each kind of chaos happens.
+    pub weights: Weights,
+    /// How many payments BTP clients make, and how many outgoing payments.
+    pub payments: (u64, u64),
+    /// The most a payment sends.
+    pub largest_payment: u64,
+}
+
+impl Options {
+    /// The options `seed` draws.
+    #[must_use]
+    pub fn swarm(seed: u64) -> Self {
+        let mut rng = SeededRng::new(seed ^ 0x5a4a_4d00);
+        let nodes = 2 + usize::try_from(rng.below(11)).unwrap();
+        let bootstraps = 1 + usize::try_from(rng.below(3)).unwrap().min(nodes - 1);
+        let settling = if rng.below(2) == 0 {
+            Settling::Stub
+        } else {
+            Settling::Xrpl
+        };
+        let shortest = 1 + rng.below(50);
+        let latency_ms = (shortest, shortest + rng.below(400));
+        let loss_per_mille = switched(&mut rng, 31);
+        let chaos_ms = 30_000 + rng.below(210_001);
+        let step_ms = 500 + rng.below(5_000);
+        let weights = Weights {
+            pay: 1 + rng.below(10),
+            crash: switched(&mut rng, 11),
+            restart: switched(&mut rng, 11),
+            cut: switched(&mut rng, 11),
+            heal: switched(&mut rng, 11),
+            ledger_drop: if settling == Settling::Xrpl {
+                switched(&mut rng, 11)
+            } else {
+                0
+            },
+            idle: rng.below(11),
+        };
+        let payments = (1 + rng.below(8), rng.below(3));
+        let largest_payment = LEAST_PAYMENT + rng.below(3_300_000_001);
+        Self {
+            nodes,
+            bootstraps,
+            settling,
+            latency_ms,
+            loss_per_mille,
+            chaos_ms,
+            step_ms,
+            weights,
+            payments,
+            largest_payment,
+        }
+    }
+}
+
+/// Off in a third of the seeds, and below `bound` in the rest.
+fn switched(rng: &mut SeededRng, bound: u64) -> u64 {
+    if rng.below(3) == 0 {
+        0
+    } else {
+        rng.below(bound)
+    }
+}
+
+impl fmt::Display for Options {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let w = &self.weights;
+        write!(
+            f,
+            "{} nodes, {} bootstrap, {:?}; latency {}–{} ms, loss {}‰; chaos {} s, \
+             every ~{} ms: pay {} crash {} restart {} cut {} heal {} ledger drop {} idle {}; \
+             {} payments and {} outgoing, up to {}",
+            self.nodes,
+            self.bootstraps,
+            self.settling,
+            self.latency_ms.0,
+            self.latency_ms.1,
+            self.loss_per_mille,
+            self.chaos_ms / 1_000,
+            self.step_ms,
+            w.pay,
+            w.crash,
+            w.restart,
+            w.cut,
+            w.heal,
+            w.ledger_drop,
+            w.idle,
+            self.payments.0,
+            self.payments.1,
+            self.largest_payment,
+        )
+    }
+}
+
+/// What a seed draws, before the run starts.
+#[must_use]
+pub fn describe(seed: u64) -> String {
+    Options::swarm(seed).to_string()
+}
+
+/// Runs the seed: its chaos, then its heal, then the checks.
+#[must_use]
+pub fn run(seed: u64) -> Run {
+    let options = Options::swarm(seed);
+    let mut rng = SeededRng::new(seed ^ 0xc4a0_5000);
+    let mut sim = Sim::with(
+        seed,
+        options.nodes,
+        options.bootstraps,
+        std::collections::BTreeMap::new(),
+        options.settling,
+    );
+    sim.latency_ms = options.latency_ms;
+    sim.loss_per_mille = options.loss_per_mille;
+    let mut left = options.payments;
+    chaos(&mut sim, &options, &mut rng, &mut left);
+    let result = heal(&mut sim, &options, &mut rng, &mut left);
+    ended(sim, result)
+}
+
+/// The kinds of chaos.
+#[derive(Clone, Copy)]
+enum Act {
+    Pay,
+    Crash,
+    Restart,
+    Cut,
+    Heal,
+    LedgerDrop,
+    Idle,
+}
+
+fn chaos(sim: &mut Sim, options: &Options, rng: &mut SeededRng, left: &mut (u64, u64)) {
+    let end = START + options.chaos_ms;
+    let mut at = START;
+    while at < end {
+        at += 1 + rng.below(2 * options.step_ms);
+        sim.run_until(at);
+        match pick(&options.weights, rng) {
+            Act::Pay => pay(sim, options, rng, left),
+            Act::Crash => crash(sim, rng),
+            Act::Restart => {
+                let down: Vec<usize> = (0..sim.nodes.len()).filter(|i| !up(sim, *i)).collect();
+                if let Some(&index) = choose(&down, rng) {
+                    sim.start(index);
+                    sim.count("restarts");
+                }
+            }
+            Act::Cut => cut(sim, rng),
+            Act::Heal => {
+                if let Some(&pair) = sim.cut.iter().next() {
+                    sim.cut.remove(&pair);
+                }
+            }
+            Act::LedgerDrop => {
+                let linked: Vec<usize> = sim.links.keys().copied().collect();
+                if let Some(&index) = choose(&linked, rng) {
+                    sim.drop_ledger_link(index);
+                    sim.count("ledger drops");
+                }
+            }
+            Act::Idle => {}
+        }
+    }
+}
+
+fn pick(weights: &Weights, rng: &mut SeededRng) -> Act {
+    let kinds = [
+        (weights.pay, Act::Pay),
+        (weights.crash, Act::Crash),
+        (weights.restart, Act::Restart),
+        (weights.cut, Act::Cut),
+        (weights.heal, Act::Heal),
+        (weights.ledger_drop, Act::LedgerDrop),
+        (weights.idle, Act::Idle),
+    ];
+    let total: u64 = kinds.iter().map(|(weight, _)| weight).sum();
+    let mut drawn = rng.below(total);
+    for (weight, act) in kinds {
+        if drawn < weight {
+            return act;
+        }
+        drawn -= weight;
+    }
+    Act::Idle
+}
+
+fn choose<'a, T>(items: &'a [T], rng: &mut SeededRng) -> Option<&'a T> {
+    let len = u64::try_from(items.len()).unwrap();
+    items.get(usize::try_from(rng.below(len)).unwrap())
+}
+
+fn up(sim: &Sim, index: usize) -> bool {
+    sim.nodes[index].core.is_some()
+}
+
+/// Starts a payment, if any is left: by a BTP client to another node's
+/// receiver, sometimes with a limit or a capped token, or an outgoing
+/// payment, sometimes to the node's own receiver. Both ends must run.
+fn pay(sim: &mut Sim, options: &Options, rng: &mut SeededRng, left: &mut (u64, u64)) {
+    let running: Vec<usize> = (0..sim.nodes.len()).filter(|i| up(sim, *i)).collect();
+    let (Some(&from), Some(&to)) = (choose(&running, rng), choose(&running, rng)) else {
+        return;
+    };
+    let amount = LEAST_PAYMENT + rng.below(options.largest_payment - LEAST_PAYMENT + 1);
+    if left.0 > 0 && (left.1 == 0 || rng.below(4) != 0) {
+        if from == to {
+            return;
+        }
+        left.0 -= 1;
+        sim.count("payments");
+        if rng.below(8) == 0 {
+            // A token capped at 0.1 units per 10 s pays 0.4: it must wait
+            // for its cap to refill.
+            let cap = SpendingCap {
+                amount: LEAST_PAYMENT,
+                window_ms: 10_000,
+            };
+            sim.pay(from, to, 4 * LEAST_PAYMENT, Some(cap), None);
+            sim.count("capped payments");
+        } else {
+            let limit = (rng.below(4) == 0).then_some(amount / 2);
+            sim.pay(from, to, amount, None, limit);
+        }
+    } else if left.1 > 0 {
+        left.1 -= 1;
+        sim.count("outgoing payments");
+        // Refused while its owner has too little, before the faucet funded
+        // it: a refusal is no failure.
+        if sim.pay_outgoing(from, to, amount).is_err() {
+            sim.count("outgoing refused");
+        }
+    }
+}
+
+/// Crashes a running node: half the time one at either end of a payment
+/// still under way, if there is one.
+fn crash(sim: &mut Sim, rng: &mut SeededRng) {
+    let running: Vec<usize> = (0..sim.nodes.len()).filter(|i| up(sim, *i)).collect();
+    let paying: Vec<usize> = sim
+        .payments
+        .iter()
+        .filter(|payment| !payment.done)
+        .flat_map(|payment| [payment.from, payment.to])
+        .filter(|index| up(sim, *index))
+        .collect();
+    let victim = if !paying.is_empty() && rng.below(2) == 0 {
+        choose(&paying, rng)
+    } else {
+        choose(&running, rng)
+    };
+    if let Some(&victim) = victim {
+        if sim.payments.iter().any(|payment| !payment.done) {
+            sim.count("crashes mid-payment");
+        }
+        sim.crash(victim);
+    }
+}
+
+/// Cuts a link one way, or both.
+fn cut(sim: &mut Sim, rng: &mut SeededRng) {
+    let all: Vec<usize> = (0..sim.nodes.len()).collect();
+    let (Some(&a), Some(&b)) = (choose(&all, rng), choose(&all, rng)) else {
+        return;
+    };
+    if a == b {
+        return;
+    }
+    sim.cut.insert((a, b));
+    if rng.below(2) == 0 {
+        sim.cut.insert((b, a));
+    }
+    sim.count("cuts");
+}
+
+/// Heals the network, starts what payments are left, waits for it to
+/// settle down, and checks it.
+fn heal(
+    sim: &mut Sim,
+    options: &Options,
+    rng: &mut SeededRng,
+    left: &mut (u64, u64),
+) -> Result<(), Outcome> {
+    for index in 0..sim.nodes.len() {
+        if !up(sim, index) {
+            sim.start(index);
+        }
+    }
+    sim.cut.clear();
+    sim.loss_per_mille = 0;
+    sim.trace.push(format!("{} heal", sim.now));
+    // Every node runs, and there are at least two: each try that draws
+    // two ends starts one.
+    while *left != (0, 0) {
+        pay(sim, options, rng, left);
+    }
+    let healed = sim.now;
+    while !settled_down(sim) && sim.now < healed + HEAL_MS {
+        sim.run_until(sim.now + LOOK_MS);
+    }
+    let seconds = (sim.now - healed) / 1_000;
+    *sim.counts.entry("heal seconds").or_default() += seconds;
+    for index in 0..sim.nodes.len() {
+        if sim.nodes.len() > 1 && sim.peers(index).is_empty() {
+            return Err(Outcome::Liveness(format!("node {index} has no peer")));
+        }
+    }
+    check(sim)
+}
+
+/// Whether nothing is left to happen: every node sees its ledgers and has
+/// heard of everything they applied, every node has a peer, every payment
+/// finished, and no node waits for a settlement or still has one to send.
+/// The checks may judge the books only then, when no packet or transaction
+/// is in flight and every scheme knows its balance and reserve.
+fn settled_down(sim: &Sim) -> bool {
+    let synced = (0..sim.nodes.len()).all(|i| {
+        sim.core(i)
+            .ledger_views()
+            .iter()
+            .all(|view| view.status == LedgerStatus::Synced)
+    });
+    // A settlement the ledger applied is booked when its node hears of it:
+    // until then, the books and the account differ, as they should.
+    let ledger_quiet = sim.ledger.queued() == 0
+        && !sim.queue.values().any(|delivery| {
+            matches!(
+                delivery,
+                Delivery::LedgerRequest { .. } | Delivery::LedgerEvent { .. }
+            )
+        });
+    let peered = sim.nodes.len() < 2 || (0..sim.nodes.len()).all(|i| !sim.peers(i).is_empty());
+    let outgoing = sim.outgoing.iter().all(|&(from, _, _, outgoing)| {
+        sim.nodes[from]
+            .store
+            .outgoing_payment(outgoing)
+            .unwrap()
+            .is_some_and(|row| row.state == OutgoingState::Completed)
+    });
+    synced
+        && ledger_quiet
+        && peered
+        && outgoing
+        && check_finished(sim).is_ok()
+        && check_settled(sim).is_ok()
+        && check_delivered(sim).is_ok()
+}

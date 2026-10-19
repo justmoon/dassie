@@ -45,8 +45,10 @@ pub fn check_cap(sim: &Sim, payment: &Payment) -> Result<(), String> {
     }
     spent.sort_unstable();
     let total: u64 = spent.iter().map(|(_, amount)| amount).sum();
-    // Less is a payment still under way, which liveness judges.
-    if total > payment.amount || (payment.done && total != payment.amount) {
+    // Less is a payment still under way, or one whose receiver had it all
+    // before its sender counted it (D23): what the token spent is held to
+    // what the client sent by the owner's books.
+    if total > payment.amount {
         return Err(format!(
             "the capped token spent {total} of {}",
             payment.amount
@@ -124,7 +126,7 @@ pub fn check_owner_books(sim: &Sim) -> Result<(), String> {
                 .filter(|flow| flow.to == index)
                 .map(|flow| i128::from(flow.received))
                 .sum::<i128>();
-        let deposit = Settling::deposit(sim.settling.ledger());
+        let deposit = sim.deposit(index);
         if pool - deposit != received {
             return Err(format!(
                 "node {index}'s owner gained {} for {received} received",
@@ -282,8 +284,9 @@ pub fn check_finished(sim: &Sim) -> Result<(), String> {
 
 /// Each outgoing payment completed, having sent its debit amount or what
 /// its receiver still lacked when a hop lost a packet, and its receiver
-/// got what it asked for. A receiver that got less than was sent is a
-/// safety failure; a payment that did not complete, liveness.
+/// got what it asked for. A receiver that got less than was sent, or more
+/// than it asked for, is a safety failure; a payment that did not complete,
+/// liveness.
 pub fn check_outgoing(sim: &Sim) -> Result<(), Outcome> {
     for &(from, to, incoming, outgoing) in &sim.outgoing {
         let row = sim.nodes[from]
@@ -300,6 +303,12 @@ pub fn check_outgoing(sim: &Sim) -> Result<(), Outcome> {
             return Err(Outcome::Safety(format!(
                 "node {to} received {received} of the {} node {from} sent",
                 row.sent_amount
+            )));
+        }
+        if received > row.receive_amount.value {
+            return Err(Outcome::Safety(format!(
+                "node {to} received {received}, more than the {} it asked for",
+                row.receive_amount.value
             )));
         }
         if row.state != OutgoingState::Completed {

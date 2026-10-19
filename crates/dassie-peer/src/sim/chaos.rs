@@ -58,10 +58,7 @@ pub fn describe(seed: u64) -> String {
 #[must_use]
 pub fn run(seed: u64) -> Run {
     let network = network(seed);
-    Run {
-        outcome: check(&network),
-        trace: network.trace,
-    }
+    Run::new(check(&network), network.trace)
 }
 
 /// Runs the seed: its size, its chaos, its calm.

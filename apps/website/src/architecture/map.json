@@ -305,7 +305,7 @@
         "Open Payments over HTTPS: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments",
         "Exchange rates, fetched from several sources, and the fee and spread on what passes between peers",
         "Credit to each peer that grows with the fees it earned the node, read from the journal",
-        "Simulated as a network of real engine cores, crashes mid-payment included, in tests and by `dassie-sim`"
+        "Simulated as a network of real engine cores, in tests and by `dassie-sim`: each seed draws its nodes, faults and payments, runs them through chaos, then heals the network, which must settle down"
       ]
     },
     "release": {
@@ -1181,7 +1181,7 @@
   "tests": [
     {
       "t": "Deterministic simulation",
-      "p": "Whole networks run in one process with a fake clock and a seeded random generator, at the timings of a real node: a simulated day takes seconds. Faults are injected: latency, loss, crashes, mid-payment too, restarts and partitions. Every state machine checks its invariants after each step, and a failure prints the seed that reproduces it. Tests run fixed seeds; `dassie-sim` runs any other.",
+      "p": "Whole networks run in one process with a fake clock and a seeded random generator, at the timings of a real node: a simulated day takes seconds. Faults are injected: latency, loss, crashes, mid-payment too, restarts and partitions. Every state machine checks its invariants after each step, and a failure prints the seed that reproduces it. A node run draws its whole network, its faults and its payments from the seed, and once healed must settle down. Tests run fixed seeds, and check that between them they reach every kind of fault; `dassie-sim` runs any other seed.",
       "ev": "src/sim in dassie-stream, dassie-connector, dassie-peer and dassie-node, run by their tests and by dassie-sim"
     },
     {
