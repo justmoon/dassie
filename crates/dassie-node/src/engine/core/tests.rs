@@ -379,3 +379,41 @@ fn a_stopped_scheme_closes_its_connection() {
     assert!(connected(&outputs).is_some_and(|again| again != epoch));
     assert_eq!(core.ledger_views()[0].status, LedgerStatus::Connecting);
 }
+
+// D20: a node that once accepted a peer's request extended it nothing, on
+// a trust account that stays when the peering ends. Peering again on its
+// own request, it is the junior, and extends at least the default credit:
+// it posts the difference, rather than keep the senior's nothing.
+#[test]
+fn a_junior_extends_at_least_the_default_credit() {
+    use dassie_ledger::{AccountName, AccountPath, LedgerId, Name};
+    use dassie_peer::PeeringHooks;
+
+    let mut core = core(7);
+    core.add_scheme("stub", String::new()).unwrap();
+    let peer = NodeKey::from_bytes(&[9; 32]).node_id();
+    let name = Name::new(peer.as_str()).unwrap();
+    core.ledger
+        .open_peer(NOW, LedgerId::StubUsd, name, core.senior_credit)
+        .unwrap();
+    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
+    let mut hooks = super::peers::Hooks {
+        schemes: &mut core.schemes,
+        ledger: &mut core.ledger,
+        credit: core.peer_credit,
+        senior_credit: core.senior_credit,
+        connector: &core.connector,
+        endpoints: &core.peer_endpoints,
+    };
+    let agreed = hooks.finalize(NOW, peer, scheme, 1, &[], &[]).unwrap();
+    assert_eq!(agreed.credit_out, Policies::DEFAULT.peer_credit);
+    let contra = core
+        .ledger
+        .find(&AccountPath::new(
+            LedgerId::StubUsd,
+            AccountName::ContraTrust(name),
+        ))
+        .unwrap();
+    let trust = dassie_settlement::policy::trust(core.ledger.account(contra).unwrap().balance());
+    assert_eq!(trust, Policies::DEFAULT.peer_credit);
+}

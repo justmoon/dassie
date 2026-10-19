@@ -352,7 +352,7 @@
       "does": [
         "The scheme interface, and when a scheme is active",
         "The stub scheme: 100 test USD, so everything works without a real ledger",
-        "The settlement policy: settle once a node owes a peer more than a threshold",
+        "The settlement policy: when a creditor asks a peer to settle, and how much the debtor pays, counted in the largest packet",
         "Reconciling settlements still pending after a restart"
       ]
     },
@@ -1040,7 +1040,7 @@
           "ids": [
             "ledger"
           ],
-          "text": "Each peer extends the other a little credit, and balances shift as packets flow."
+          "text": "The node that asked to peer extends the other a little credit; the other extends none at first, so the newcomer pays in advance. Balances shift as packets flow."
         },
         {
           "ids": [

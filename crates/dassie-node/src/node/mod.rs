@@ -88,9 +88,15 @@ pub struct Policies {
     pub connector: dassie_connector::Config,
     /// The peer protocol's bounds and timers.
     pub peer: dassie_peer::Config,
-    /// The credit extended to a new peer, in its ledger's units: 1.1 units
-    /// at scale 9 on the test network (spec 5 §2.7).
+    /// The credit a junior extends to the node that accepted its peering
+    /// request, in its ledger's units: 1.1 units at scale 9 on the test
+    /// network (spec 5 §2.7, D20). At least what survives a crash (D25).
     pub peer_credit: u64,
+    /// The credit a senior extends to the node whose peering request it
+    /// accepted, at first: nothing, so a newcomer pays in advance until the
+    /// peering earned it more (D20). Otherwise at least what survives a
+    /// crash, as `peer_credit`.
+    pub senior_credit: u64,
     /// How often peers are checked, to ask those near the credit we extend
     /// to settle (D23).
     pub settlement_interval_ms: u64,
@@ -135,6 +141,7 @@ impl Policies {
         },
         peer: dassie_peer::Config::DEFAULT,
         peer_credit: 1_100_000_000,
+        senior_credit: 0,
         settlement_interval_ms: 4_000,
         settlement_request_every_ms: 60_000,
         incoming: crate::engine::IncomingPolicy::DEFAULT,

@@ -128,18 +128,18 @@ fn peer_packets_book_against_its_credit() {
     );
 }
 
-// D24: money in flight with a peer stays within three and a half of the
+// D24: money in flight with a peer stays within two and a half of the
 // largest packets each way, whatever the credit: a crash loses the Fulfills
 // of what was in flight, so this is how far it makes two peers' books drift
-// apart. Three of the largest fit, and the half left takes smaller ones.
+// apart. Two of the largest fit, and the half left takes smaller ones.
 #[test]
 fn money_in_flight_with_a_peer_is_capped() {
     let mut harness = harness();
     set(&mut harness, &[("test.das.dfar", &[TWO])]);
     let max = Config::DEFAULT.max_packet_amount;
     let mut ids = Vec::new();
-    // From a peer: three of the largest packets, but not a fourth.
-    for request_id in 0..3 {
+    // From a peer: two of the largest packets, but not a third.
+    for request_id in 0..2 {
         let packet = prepare(&format!("{OWN}.alice"), max, NOW + 20_000, [4; 32]);
         let Outcome::Forward(forwarded) = harness.prepare(NOW, ONE, request_id, &packet) else {
             panic!("not forwarded")
@@ -147,7 +147,7 @@ fn money_in_flight_with_a_peer_is_capped() {
         ids.push(forwarded.request_id);
     }
     let packet = prepare(&format!("{OWN}.alice"), max, NOW + 20_000, [4; 32]);
-    let outcome = harness.prepare(NOW, ONE, 3, &packet);
+    let outcome = harness.prepare(NOW, ONE, 2, &packet);
     assert_eq!(rejected(&harness, outcome), ErrorCode::T05_RATE_LIMITED);
     // The half packet left takes the first volley of a quote's probes, which
     // need only one of them answered; past it, T05 again.
@@ -178,7 +178,7 @@ fn money_in_flight_with_a_peer_is_capped() {
     assert_eq!(forwarded_to(harness.prepare(NOW, ONE, 5, &packet)), BTP);
 
     // To a peer: the same, counted on what goes out.
-    for request_id in 2..4 {
+    for request_id in 2..3 {
         let onward = prepare("test.das.dfar", max, NOW + 20_000, [5; 32]);
         assert_eq!(
             forwarded_to(harness.prepare(NOW, BTP, request_id, &onward)),

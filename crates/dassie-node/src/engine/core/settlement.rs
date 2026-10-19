@@ -42,6 +42,10 @@ pub(super) struct Settlements {
     pub interval_ms: u64,
     /// How often a peer that did not settle since is asked again, at most.
     pub request_every_ms: u64,
+    /// Our trigger for every peer, and the least we settle, from the
+    /// largest packet (D25).
+    pub trigger: u64,
+    pub minimum: u64,
     /// When each peer was last asked to settle, until it settles.
     pub asked: BTreeMap<NodeId, u64>,
     /// Our settlements prepared and not yet final, by scheme and ID.
@@ -66,6 +70,8 @@ impl Settlements {
             at_ms: now_ms.saturating_add(policies.settlement_interval_ms),
             interval_ms: policies.settlement_interval_ms,
             request_every_ms: policies.settlement_request_every_ms,
+            trigger: policy::trigger(policies.connector.max_packet_amount),
+            minimum: policy::minimum(policies.connector.max_packet_amount),
             asked: BTreeMap::new(),
             settling: BTreeMap::new(),
             to_execute: Vec::new(),
@@ -162,7 +168,7 @@ impl Core {
                 .is_none_or(|at| at.saturating_add(every) <= now);
             let close = self
                 .position(node, scheme)
-                .is_some_and(|at| policy::ask(at.position, at.credit_out));
+                .is_some_and(|at| policy::ask(at.position, self.settle.trigger));
             if due && close && self.peer.request_settlement(now, &node, scheme).is_ok() {
                 self.settle.asked.insert(node, now);
             }
@@ -190,7 +196,7 @@ impl Core {
         };
         let amount = self.whole_units(
             &at.scheme,
-            policy::requested_amount(at.position, at.credit_out),
+            policy::requested_amount(at.position, self.settle.trigger, self.settle.minimum),
         );
         if amount > 0 {
             self.prepare_settlement(node, &at, amount, &state);

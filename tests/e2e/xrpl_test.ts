@@ -34,6 +34,8 @@ const LEDGER = "xrpl-testnet+xrp";
 const PAYMENT = 5_000_000_000n;
 /** What a node extends to each peer: 1.1 XRP. */
 const CREDIT = 1_100_000_000n;
+/** Every node's trigger: one and a half of the largest packets (D25). */
+const TRIGGER = 150_000_000n;
 const PORT_OFFSET = SCENARIO_PORT_OFFSET + 600;
 
 const missing = await missingScenarioTools();
@@ -57,38 +59,52 @@ async function funded(scenario: Scenario): Promise<boolean> {
   return true;
 }
 
-/** Each node's peer accounts: net credit, by `node>peer`. */
+/**
+ * What each node owes each peer net, by its own books, by `node>peer`: its
+ * peer account less the credit it extends, negative when the peer owes it.
+ */
 async function peerAccounts(scenario: Scenario): Promise<Map<string, bigint>> {
   const byId = new Map(scenario.nodes.map((node) => [node.id, node.name]));
   const accounts = new Map<string, bigint>();
   for (const node of scenario.nodes) {
     const list = await node.rpc.call("listAccounts", {});
     for (const account of list.accounts) {
-      const prefix = `${LEDGER}:assets/interledger/`;
-      if (!account.path.startsWith(prefix)) continue;
-      const peer = byId.get(account.path.slice(prefix.length));
-      accounts.set(
-        `${node.name}>${peer}`,
-        account.creditsPosted - account.debitsPosted,
-      );
+      for (const kind of ["assets/interledger", "contra/trust"]) {
+        const prefix = `${LEDGER}:${kind}/`;
+        if (!account.path.startsWith(prefix)) continue;
+        const key = `${node.name}>${
+          byId.get(account.path.slice(prefix.length))
+        }`;
+        const net = account.creditsPosted - account.debitsPosted;
+        accounts.set(key, (accounts.get(key) ?? 0n) + net);
+      }
     }
   }
   return accounts;
 }
 
-/** Settling went quiet: nothing on its way, and both books agree. */
+/**
+ * Settling went quiet: nothing on its way, no node's books showing a peer
+ * at its trigger (its room for the peer down to one and a half of the
+ * largest packets, D25), and both books agree. A senior extends its junior
+ * nothing, so until the junior paid in advance it is at its trigger.
+ */
 async function quiet(scenario: Scenario): Promise<boolean> {
   for (const node of scenario.nodes) {
     const { channels } = await node.rpc.call("listSettlementChannels", {});
     if (channels.some((channel) => channel.sending)) return false;
     const view = await ledger(node);
     if (view.connection !== LedgerConnection.SYNCED) return false;
+    const { peers } = await node.rpc.call("listPeers", {});
+    if (peers.some((peer) => peer.creditOut + peer.owed <= TRIGGER)) {
+      return false;
+    }
   }
   const accounts = await peerAccounts(scenario);
   for (const [pair, mine] of accounts) {
     const [node, peer] = pair.split(">");
     const theirs = accounts.get(`${peer}>${node}`);
-    if (theirs === undefined || mine + theirs !== 2n * CREDIT) return false;
+    if (theirs === undefined || mine + theirs !== 0n) return false;
   }
   return accounts.size > 0;
 }
@@ -141,6 +157,9 @@ test(
       const [d1, d2] = scenario.nodes;
       const address = (await ledger(d1)).depositAddress;
       assert(address.startsWith("r"), address);
+      // The junior pays its senior in advance before it can send through
+      // it, on the ledger (D20).
+      await scenario.until("paid in advance", () => settled(scenario), 120_000);
 
       const before = await ledger(d1);
       const token = await d1.rpc.call("createBtpToken", {
@@ -176,13 +195,15 @@ test(
         await plugin.disconnect();
       }
       await scenario.until("settled", () => settled(scenario), 120_000);
-      // d1 paid on the ledger: its books fell by what it settled, and
-      // the fees; its owner by what it sent.
+      // d1 paid on the ledger, and owes d2 no more than the credit a
+      // junior extends; its owner's balance fell by what it sent.
       const after = await ledger(d1);
       assert(
-        before.onLedgerBalance - after.onLedgerBalance >= PAYMENT - CREDIT,
+        after.onLedgerBalance < before.onLedgerBalance,
         "d1 settled on the ledger",
       );
+      const owes = (await peerAccounts(scenario)).get("d1>d2")!;
+      assert(owes <= CREDIT, `d1 still owes ${owes}`);
       assertEquals(after.ownerBalance <= before.ownerBalance - PAYMENT, true);
 
       // Restarted, both catch up and book nothing twice.

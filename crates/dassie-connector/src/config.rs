@@ -41,13 +41,13 @@ pub struct Config {
 }
 
 /// How much money may be in flight with one peer each way, in packets of
-/// [`Config::max_packet_amount`] (D24), and half a packet more: three of
-/// the largest fit, a fourth does not, so half a packet stays free for
+/// [`Config::max_packet_amount`] (D24, D25), and half a packet more: two
+/// of the largest fit, a third does not, so half a packet stays free for
 /// smaller ones, such as a quote's probes while a payment fills the link.
 /// A crash loses the Fulfills of what was in flight, and that is how far
 /// two peers' books drift apart for it. Both numbers say how much the
 /// owner is prepared to lose on a link, so one follows from the other.
-pub const IN_FLIGHT_PACKETS: u64 = 3;
+pub const IN_FLIGHT_PACKETS: u64 = 2;
 
 impl Config {
     /// The production values: 0.1 units per packet at scale 9, packets held
