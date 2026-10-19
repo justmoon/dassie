@@ -1433,7 +1433,7 @@ The "failure as return value" pattern runs through the whole app: HTTP handlers 
 
 ## 21. Compatibility surface
 
-This section lists what an implementation would have to keep in order to be a drop-in replacement for the original. [Chapter 7 §2](07-rewrite.md#2-compatibility-contract) decides which of these the rewrite actually keeps. In particular, it does **not** keep the database file format.
+This section lists what an implementation would have to keep in order to be a drop-in replacement for the original. [Chapter 7 §2](../overview.md) decides which of these the rewrite actually keeps. In particular, it does **not** keep the database file format.
 
 Drop-in compatibility would require preserving:
 - The DB file name, `application_id 0x1DA53B81`, `user_version` 13, and the table, column and scalar names and encodings (§5).

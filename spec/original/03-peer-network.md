@@ -1221,7 +1221,7 @@ Every item is a behavior of the original code. For each one the reimplementation
 
 ## 20. Compatibility surface
 
-This section lists what an implementation must match to interoperate with original Dassie nodes. [Chapter 7 §2](07-rewrite.md#2-compatibility-contract) decides how much of it the rewrite keeps. The proposal is to keep the identity derivation, and to version the peer protocol rather than stay byte-compatible with v0.
+This section lists what an implementation must match to interoperate with original Dassie nodes. [Chapter 7 §2](../overview.md) decides how much of it the rewrite keeps. The proposal is to keep the identity derivation, and to version the peer protocol rather than stay byte-compatible with v0.
 
 Interoperating with v0 nodes requires matching exactly:
 - the OER layouts in §5, including tags 0x80–0x89, the asymmetric octet-wrapping of node info in `peeringRequest`, and length determinants;

@@ -1,35 +1,80 @@
 # Dassie specification
 
-This directory specifies everything the original Dassie does, in enough detail to build it again without reading its code. It is the starting point for the new implementation in Rust, Node and Solid 2.
+This directory specifies Dassie as it is on `main`: what each part does, in enough detail to change it without reading all of its code. It is arranged by area, so that you read only what concerns the parts you touch.
 
-## Chapters
+## Where to start
 
-| # | Chapter | What it covers |
-|---|---|---|
-| 1 | [Overview](01-overview.md) | What Dassie is, concepts, system context, the life of a node, feature inventory |
-| 2 | [Node runtime](02-node-runtime.md) | Process model and startup, configuration, filesystem and env vars, database schema, HTTP/HTTPS/IPC, TLS and ACME, authentication, RPC procedures, CLI, logging, security model, the reactive actor model and supporting libraries |
-| 3 | [Peer network](03-peer-network.md) | Node identity and keys, the peer protocol (wire format, transport, authentication, handlers), node table, link state and flooding, membership (bootstrap and majority lists, registration), peering, uplink addresses, routing, BTP server |
-| 4 | [Interledger](04-interledger.md) | ILPv4 packets, the OER library, node addressing, the connector pipeline, exchange rates and conversion, ILDCP, local endpoints, ILP-over-HTTP, Open Payments and payment pointers, BTP schemas, STREAM |
-| 5 | [Accounting and settlement](05-accounting-and-settlement.md) | The double-entry internal ledger, how packets and settlements become transfers, the settlement-scheme interface, the settlement trigger, stub and XRPL modules |
-| 6 | [User interfaces and tooling](06-user-interfaces-and-tooling.md) | The web wallet page by page, the dev dashboard, the website and STREAM toy, release build, installer, updater, the multi-node dev environment |
-| 7 | [The rewrite](07-rewrite.md) | Compatibility contract, mapping onto Rust, Node and Solid 2, node architecture, persistence, testing, milestones |
-| 8 | [Decisions and gap register](08-decisions.md) | What happens to each known gap, and the decisions taken for the rewrite |
-| 9 | [Settlement hubs](09-settlement-hubs.md) | A design: peering backed by a small validated ledger and an escrow, so peers need not trust each other |
+1. [Overview](overview.md): what Dassie is, its concepts, how the parts fit, and which surfaces stay compatible with the original.
+2. [Engineering](engineering.md): the rules every crate and package follows.
+3. The area docs for the paths you touch, from the index below. Each one names the other docs to read with it.
 
-Reading order: 1, then 7 and 8 for direction. Read 2–6 as reference while building the matching part.
+Read a [decision](decisions/README.md) when an area doc links to it and you need to know why a rule is what it is. Read [the original's chapters](original/README.md) only when you need to know what the original did.
 
-## Conventions
+## Index
 
-- **Original behaviour vs. intent.** Chapters 2–6 describe what the original code *does*, including its bugs. Where that differs from its design notes, from a standard, or from obvious intent, the text says so: **Deviation** (differs from an RFC or reference implementation), **Open question / known gap**, or "Observed behaviour".
-- **Gap IDs.** Each chapter numbers its gaps with its own prefix: `RT-n` (2), `NET-n` and `OER-q` (3), `ILP-n` (4), `ACC-n` (5), `UI-n` (6). [Chapter 8](08-decisions.md) refers to them by these IDs.
-- **Normative language.** In chapters 2–6, **MUST** marks behaviour that appears on the wire or changes balances, so an implementation that wants compatibility has to match it. Whether the rewrite wants compatibility on a given surface is decided in [7 §2](07-rewrite.md#2-compatibility-contract), not in the chapter that describes it.
-- **Section references** have the form `[3 §10.2](03-peer-network.md)`: chapter 3, section 10.2.
-- **Byte notation.** `||` or `‖` is concatenation, hex is lowercase unless quoted from a protocol that uses uppercase, and `LEN(x)` is an OER length determinant.
+| Path | Read |
+|---|---|
+| `crates/dassie-oer` | [Encoding](areas/encoding.md) |
+| `crates/dassie-identity` | [Identity](areas/identity.md) |
+| `crates/dassie-ilp` | [ILP](areas/ilp.md) |
+| `crates/dassie-stream` | [STREAM](areas/stream.md) |
+| `crates/dassie-ledger` | [Ledger](areas/ledger.md) |
+| `crates/dassie-connector` | [Connector](areas/connector.md), [Ledger](areas/ledger.md) |
+| `crates/dassie-settlement` | [Settlement](areas/settlement.md), [Ledger](areas/ledger.md) |
+| `crates/dassie-xrpl` | [XRPL](areas/xrpl.md), [Settlement](areas/settlement.md) |
+| `crates/dassie-peer` | [Peer protocol](areas/peer-protocol.md), [Network](areas/network.md), [Settlement](areas/settlement.md) |
+| `crates/dassie-payments` | [Payments](areas/payments.md) |
+| `crates/dassie-node-core` | [Node](areas/node.md), [HTTP](areas/http.md) |
+| `crates/dassie-node` | [Node](areas/node.md), and by module: `engine/` [Connector](areas/connector.md), [Settlement](areas/settlement.md), [Ledger](areas/ledger.md); `http/` [HTTP](areas/http.md), with `http/peer.rs` [Peer protocol](areas/peer-protocol.md), `http/btp.rs` [Connector](areas/connector.md) and `http/open_payments/` [Payments](areas/payments.md); `open_payments/` [Payments](areas/payments.md); `rpc/` [RPC](areas/rpc.md); `store/` [Node](areas/node.md#persistence) and the area of the table; `rates.rs`, `node/rates.rs` [Connector](areas/connector.md#exchange-rates); `peer_client.rs` [Peer protocol](areas/peer-protocol.md); `acme.rs`, `tls.rs` [HTTP](areas/http.md); `fake_ledger.rs` [XRPL](areas/xrpl.md) |
+| `crates/dassie-cli` | [Node](areas/node.md), [Release](areas/release.md) (`dassie update`) |
+| `crates/dassie-release` | [Release](areas/release.md) |
+| `crates/dassie-sim` | [Testing](areas/testing.md) |
+| `proto/dassie/ui/v1` | [RPC](areas/rpc.md) |
+| `proto/dassie/dev/v1` | [Dev](areas/dev.md) |
+| `packages/rpc` | [RPC](areas/rpc.md) |
+| `packages/identity-wasm` | [Identity](areas/identity.md), [STREAM](areas/stream.md) |
+| `packages/ui` | [Wallet](areas/wallet.md) |
+| `apps/wallet` | [Wallet](areas/wallet.md), [RPC](areas/rpc.md) |
+| `apps/dev` | [Dev](areas/dev.md) |
+| `apps/dev-dashboard` | [Dev](areas/dev.md), [Wallet](areas/wallet.md) |
+| `apps/website` | [Website](areas/website.md) |
+| `tests/e2e` | [Testing](areas/testing.md), and the area under test |
+| `tests/interop` | [Testing](areas/testing.md), [STREAM](areas/stream.md), [Payments](areas/payments.md) |
+| `resources/`, `nix/`, `scripts/release.ts`, `.github/workflows/release.yml` | [Release](areas/release.md) |
+| `flake.nix`, `.github/workflows/ci.yml`, `package.json`, `Cargo.toml` | [Engineering](engineering.md) |
+| `testdata/` | [Testing](areas/testing.md), and the area the vectors pin |
 
-## Sources
+## Areas
 
-The original implementation is the `main` branch of this repository at commit `e962ab78` ("chore(x509): allow importing node built-in modules in tests", 2025-11-08). The `rewrite` branch has no shared history with it. Use `git show e962ab78:<path>` to read a cited file.
+| Area | What it covers |
+|---|---|
+| [Identity](areas/identity.md) | The passphrase, the key tree, the node key and ID, the login secret, settlement entropy |
+| [Encoding](areas/encoding.md) | The canonical OER subset every wire format is written in |
+| [ILP](areas/ilp.md) | ILPv4 packets, timestamps, error codes, ILDCP and BTP codecs |
+| [STREAM](areas/stream.md) | STREAM connections, streams, frames and crypto |
+| [Ledger](areas/ledger.md) | The double-entry books: accounts, groups, the owner's funds, the journal |
+| [Connector](areas/connector.md) | The packet path: endpoints, outcomes, timing, fees and spread, spending caps, money in flight, exchange rates, BTP |
+| [Peer protocol](areas/peer-protocol.md) | The wire protocol between nodes: transport, envelope, messages, authentication, replay, link states |
+| [Network](areas/network.md) | The node table, flooding, membership and registration, bootstrap nodes, peering and its lifecycle, routing |
+| [Settlement](areas/settlement.md) | Settlement schemes, credit and its growth, thresholds, settling on request, settlement channels |
+| [XRPL](areas/xrpl.md) | The XRP Ledger testnet scheme and its fake ledger |
+| [Payments](areas/payments.md) | Open Payments: wallet addresses, GNAP, incoming and outgoing payments, quotes, the owner's Send |
+| [Node](areas/node.md) | The daemon: runtime, startup, configuration, environment, CLI, persistence, secrets, logging |
+| [HTTP](areas/http.md) | Listeners, routes, security headers, ACME and TLS, setup, login and sessions |
+| [RPC](areas/rpc.md) | The owner's RPC contract, its transports and live streams |
+| [Release](areas/release.md) | Builds, versions and channels, the mirror, signing, the installer and the updater |
+| [Wallet](areas/wallet.md) | The owner's web app and the shared UI package |
+| [Website](areas/website.md) | dassie.land, the STREAM toy and the architecture page |
+| [Dev](areas/dev.md) | The local dev network and its dashboard |
+| [Testing](areas/testing.md) | Test levels, golden vectors, simulations and the simulation runner |
 
-Source citations use paths relative to that tree. Each chapter's preamble says what its short paths are relative to (`APP/` and `AD/` both mean `packages/app-dassie/src/`). The original's own design notes live in `docs/implementation-notes/` there. Their content is folded into the chapters, including where the code disagrees with them.
+Not built yet: the [roadmap](roadmap.md), and the designs in [`designs/`](designs/settlement-hubs.md).
 
-Test vectors come from the original's fixtures unless marked otherwise. [3 §5.5](03-peer-network.md) contains vectors first computed with an independent encoder written from this spec; they have since been confirmed against the original.
+## Keeping it current
+
+- **A change in behaviour updates its area doc in the same PR.** The area docs state what is on `main`, in the present tense, for someone new to Dassie, without milestones, dates or PR numbers.
+- **A choice between real alternatives gets a decision** ([how](decisions/README.md#adding-a-decision)). The decision keeps the reasons, and the area doc states the rule.
+- **New work that is not built yet** is an open area of the [roadmap](roadmap.md), never a numbered milestone. A large design gets a file in `designs/`.
+- **A new crate, app, package, test suite or contract** gets a row in the index above, and an area doc, or a section in an existing one.
+- **Cite the spec by path and heading,** as `spec/areas/peer-protocol.md#replay` in code and as relative links inside the spec. Decisions may be cited by number, as `D23`. `node --test scripts/spec_test.ts` checks every link and citation, and the index.
+- **Area docs stay short:** at most about 600 lines each. Split one by topic when it grows past that.
