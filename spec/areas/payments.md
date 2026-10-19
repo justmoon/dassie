@@ -360,7 +360,7 @@ What the ledger's [receiver](#stream-endpoints) takes for incoming payments:
   | a completed payment still remembered, on this ledger | accepted with nothing more to receive, and told what it received |
   | anything else: a tag that does not parse, an unknown payment, one on another ledger, one expired | refused (F99) |
 
-- **After it completes,** the node remembers what each connection of the last 4096 completed payments received, so a sender still sending is told what its connection delivered and that no more fits, rather than refused without a word.
+- **After it completes,** the node remembers what each connection of the last 4096 completed payments received, so a sender still sending is told what its connection delivered and that no more fits, rather than refused without a word. That is kept on disk for 10 minutes after the payment completed, the longest a node's own payer tries, and read back when the node starts: a sender that lost a Fulfill to a crash and reconnects to a receiver that restarted meanwhile still learns that its money arrived.
 
 ## Receivers
 

@@ -28,7 +28,9 @@ use dassie_stream::{Admission, Credentials};
 
 use super::events::PaymentEvent;
 use super::{Core, EngineError};
-use crate::store::{ConnectionKey, IncomingPaid, IncomingProgress, IncomingRow, PaymentId};
+use crate::store::{
+    ConnectionKey, FINISHED_RETENTION_MS, IncomingPaid, IncomingProgress, IncomingRow, PaymentId,
+};
 
 /// Most connections that pay one incoming payment: a new one past them is
 /// refused.
@@ -249,6 +251,29 @@ impl Core {
             {
                 payment.connections.insert(key, received);
             }
+        }
+        self.load_finished_incoming()
+    }
+
+    /// Reads back the incoming payments completed lately, so that a sender
+    /// that reconnects after a restart still learns what got there, rather
+    /// than being refused (D23).
+    fn load_finished_incoming(&mut self) -> Result<(), String> {
+        let since = self.now_ms.saturating_sub(FINISHED_RETENTION_MS);
+        let most = u32::try_from(MAX_FINISHED).unwrap_or(u32::MAX);
+        let finished = self
+            .store
+            .finished_incoming(since, most)
+            .map_err(|e| e.to_string())?;
+        // Oldest first, so that the newest are the ones kept.
+        for payment in finished.into_iter().rev() {
+            let received = payment
+                .received
+                .into_iter()
+                .take(MAX_CONNECTIONS_PER_PAYMENT)
+                .collect();
+            self.finished_incoming
+                .remember(payment.id, payment.ledger, received);
         }
         Ok(())
     }
