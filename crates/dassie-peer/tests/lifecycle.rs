@@ -21,7 +21,7 @@ use dassie_peer::wire::{
     Authentication, Content, Entry, NodeInfo, PeeringRequest, PeeringResponse, RefusalReason,
     ResponseEnvelope, SchemeId, SignedNodeInfo, TerminationReason, encode_envelope, sign_node_info,
 };
-use dassie_peer::{Config, Event, PeerStatus, SendError, VERDICT_ACCEPTED};
+use dassie_peer::{Config, Event, PeerStatus, Room, SendError, VERDICT_ACCEPTED};
 
 fn settle(network: &mut Network, ms: u64) {
     let until = network.now + ms;
@@ -474,13 +474,9 @@ fn a_peer_short_of_room_is_withdrawn_after_the_grace() {
             .unwrap()
     };
     let grace = Config::DEV.advertise_short_grace_ms;
-    let now = network.now;
-    network.node_mut(0).set_short(now, &b, true);
-    settle(&mut network, grace / 2);
+    report(&mut network, &b, Room::Short, grace / 2);
     assert!(view(&network).advertised, "withdrawn within the grace");
-    let now = network.now;
-    network.node_mut(0).set_short(now, &b, true);
-    settle(&mut network, grace);
+    report(&mut network, &b, Room::Short, grace);
     let withdrawn = view(&network);
     assert!(!withdrawn.advertised, "still advertised past the grace");
     assert!(withdrawn.online, "withdrawn for room, not for silence");
@@ -493,10 +489,24 @@ fn a_peer_short_of_room_is_withdrawn_after_the_grace() {
                 on: false,
                 short: true
             }));
-    let now = network.now;
-    network.node_mut(0).set_short(now, &b, false);
-    settle(&mut network, Config::DEV.advertise_hold_min_ms + 5_000);
+    report(
+        &mut network,
+        &b,
+        Room::Enough,
+        Config::DEV.advertise_hold_min_ms + 5_000,
+    );
     assert!(view(&network).advertised, "not advertised again");
+}
+
+/// Node 0 reports `room` for `peer` at a check every second, for `ms`, as
+/// its settlement checks do in dev.
+fn report(network: &mut Network, peer: &NodeId, room: Room, ms: u64) {
+    let end = network.now + ms;
+    while network.now < end {
+        network.act(0, |node, now| node.room(now, peer, room));
+        settle(network, 1_000);
+    }
+    network.act(0, |node, now| node.room(now, peer, room));
 }
 
 // A peer that is both silent and short of room when it is withdrawn is
@@ -521,8 +531,13 @@ fn a_silent_peer_short_of_room_is_withdrawn_for_its_silence() {
     // and room a grace after it was reported short.
     let config = Config::DEV;
     let due = last_seen + config.peer_confirm_ms + 1;
-    network.run_until(to_network(due - config.advertise_short_grace_ms));
-    network.act(0, |node, now| node.set_short(now, &b, true));
+    // Short at a check every second from a grace before.
+    let mut check = due - config.advertise_short_grace_ms;
+    while check <= due {
+        network.run_until(to_network(check));
+        network.act(0, |node, now| node.room(now, &b, Room::Short));
+        check += 1_000;
+    }
     network.run_until(to_network(due) + 1_000);
     let withdrawn: Vec<bool> = network
         .events
@@ -537,6 +552,51 @@ fn a_silent_peer_short_of_room_is_withdrawn_for_its_silence() {
         })
         .collect();
     assert_eq!(withdrawn, [false], "withdrawn for room, though silent");
+}
+
+// How long a peer has been short of room is kept across a restart, so a
+// node that restarts more often than a day still ends a link that stays
+// short; and the time the node was down does not count, since it could not
+// ask the peer to settle (review of #126 and #137).
+#[test]
+fn a_restart_keeps_the_time_short_and_counts_no_downtime() {
+    let (mut network, _, b) = peered(48);
+    report(&mut network, &b, Room::Short, 5_000);
+    let short = |network: &Network| network.node(0).peering_of(&b).unwrap().short_for_ms;
+    assert_eq!(short(&network), 5_000);
+    // Down for far longer than the grace, and less than the peer takes
+    // to end a silent peering.
+    network.crash(0);
+    settle(&mut network, 90_000);
+    network.start(0);
+    assert_eq!(short(&network), 5_000, "not kept");
+    network.act(0, |node, now| node.room(now, &b, Room::Short));
+    assert_eq!(short(&network), 5_000, "the downtime counted");
+    report(&mut network, &b, Room::Short, 2_000);
+    assert_eq!(short(&network), 7_000);
+}
+
+// While the node cannot ask a peer to settle (its scheme does not see its
+// ledger), nothing is judged: the time short neither grows nor starts
+// again, and the peer is not withdrawn for it (review of #137).
+#[test]
+fn an_outage_of_the_ledger_pauses_the_time_short() {
+    let (mut network, _, b) = peered(49);
+    let short = |network: &Network| network.node(0).peering_of(&b).unwrap().short_for_ms;
+    report(&mut network, &b, Room::Short, 3_000);
+    assert_eq!(short(&network), 3_000);
+    report(&mut network, &b, Room::Unjudged, 60_000);
+    assert_eq!(short(&network), 3_000, "the outage counted, or cleared it");
+    assert!(
+        network.node(0).is_advertised(&b),
+        "withdrawn during the outage"
+    );
+    network.act(0, |node, now| node.room(now, &b, Room::Short));
+    assert_eq!(short(&network), 3_000);
+    report(&mut network, &b, Room::Short, 2_000);
+    assert_eq!(short(&network), 5_000);
+    report(&mut network, &b, Room::Enough, 0);
+    assert_eq!(short(&network), 0);
 }
 
 // A restart does not drop the peers we advertise: the flag starts from

@@ -257,21 +257,21 @@ impl PeerNode {
                     let advertise = &entry.advertise;
                     // Short of room: withdrawn once the grace is over, and
                     // ended once it stays short as long as a silent peer.
-                    let short = advertise.short_since_ms.map(|since| {
-                        (
-                            since.saturating_add(config.advertise_short_grace_ms),
-                            since.saturating_add(config.peer_dead_ms),
-                        )
-                    });
-                    let stuck = short.is_some_and(|(withdrawn, _)| withdrawn <= now);
-                    let ended = short.map_or(u64::MAX, |(_, ended)| ended);
+                    // The time short grows only at checks, which come with
+                    // an input: due at once when one passed a limit.
+                    let stuck = peering.short_for_ms >= config.advertise_short_grace_ms;
+                    let ended = if peering.short_for_ms >= config.peer_dead_ms {
+                        now
+                    } else {
+                        u64::MAX
+                    };
                     let flag = if advertise.on {
                         // `heard_within` holds up to and including this.
                         let confirmed = peering
                             .last_seen_ms
                             .saturating_add(config.peer_confirm_ms)
                             .saturating_add(1);
-                        short.map_or(confirmed, |(withdrawn, _)| confirmed.min(withdrawn))
+                        if stuck { now } else { confirmed }
                     } else if advertise.hold_until_ms > now {
                         advertise.hold_until_ms
                     } else if peering.heard_within(now, config.peer_confirm_ms)
@@ -327,16 +327,14 @@ impl PeerNode {
     /// without a settlement, for as long as a silent peer is kept: a link
     /// that stuck, or drifted past what it survives, is not saved (D12).
     fn terminate_short(&mut self) {
-        let (now, dead) = (self.now_ms, self.config.peer_dead_ms);
+        let dead = self.config.peer_dead_ms;
         let short: Vec<NodeId> = self
             .table
             .iter()
             .filter(|(_, entry)| {
-                entry.active_peering().is_some()
-                    && entry
-                        .advertise
-                        .short_since_ms
-                        .is_some_and(|since| since.saturating_add(dead) <= now)
+                entry
+                    .active_peering()
+                    .is_some_and(|peering| peering.short_for_ms >= dead)
             })
             .map(|(id, _)| *id)
             .collect();
@@ -356,10 +354,7 @@ impl PeerNode {
             let Some(peering) = entry.active_peering() else {
                 continue;
             };
-            let short = entry
-                .advertise
-                .short_since_ms
-                .is_some_and(|since| since.saturating_add(config.advertise_short_grace_ms) <= now);
+            let short = peering.short_for_ms >= config.advertise_short_grace_ms;
             let live = peering.heard_within(now, config.peer_confirm_ms) && !self.bans.contains(id);
             let healthy = live && !short;
             let advertise = &mut entry.advertise;

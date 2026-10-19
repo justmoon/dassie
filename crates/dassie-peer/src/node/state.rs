@@ -13,7 +13,7 @@ use crate::channel::Retry;
 use crate::io::Event;
 use crate::persist::{PeerBatch, Stored, StoredChannel, StoredNode};
 use crate::routing;
-use crate::table::{Advertise, Entry, LinkState, PeerState, Peering, Sources, Termination};
+use crate::table::{Advertise, Entry, LinkState, PeerState, Peering, Room, Sources, Termination};
 use crate::wire::{SchemeId, SignedNodeInfo};
 
 /// How far our peering with a node has come.
@@ -270,22 +270,37 @@ impl PeerNode {
         }
     }
 
-    /// Notes whether the room our books give `peer` is short of a packet.
-    /// A peer short for longer than
-    /// [`Config::advertise_short_grace_ms`](crate::Config) is no longer
-    /// advertised: it is stuck, not waiting for a routine settlement (D12).
-    pub fn set_short(&mut self, now_ms: u64, peer: &NodeId, short: bool) {
+    /// Notes what a settlement check found of the room our books give
+    /// `peer`. A peer short, settling nothing, for longer than
+    /// [`Config::advertise_short_grace_ms`](crate::Config) of checks at
+    /// which the node could ask is no longer advertised: it is stuck, not
+    /// waiting for a routine settlement (D12).
+    pub fn room(&mut self, now_ms: u64, peer: &NodeId, room: Room) {
         self.advance(now_ms);
         let now = self.now_ms;
-        if let Some(entry) = self.table.get_mut(peer)
-            && entry.active_peering().is_some()
-        {
-            let since = &mut entry.advertise.short_since_ms;
-            *since = if short {
-                Some(since.unwrap_or(now))
-            } else {
-                None
-            };
+        let Some(entry) = self.table.get_mut(peer) else {
+            return;
+        };
+        let PeerState::Peered(peering) = &mut entry.peer else {
+            return;
+        };
+        let checked = &mut entry.advertise.short_checked_ms;
+        let before = peering.short_for_ms;
+        match room {
+            Room::Short => {
+                let since = checked.map_or(0, |at| now.saturating_sub(at));
+                peering.short_for_ms = before.saturating_add(since);
+                *checked = Some(now);
+            }
+            Room::Enough => {
+                peering.short_for_ms = 0;
+                *checked = None;
+            }
+            // The time until the next check that can judge does not count.
+            Room::Unjudged => *checked = None,
+        }
+        if peering.short_for_ms != before {
+            self.dirty.insert(*peer);
         }
     }
 

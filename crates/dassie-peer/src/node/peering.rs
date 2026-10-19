@@ -364,6 +364,7 @@ impl PeerNode {
             since_ms,
             inbound,
             last_seen_ms: now,
+            short_for_ms: 0,
         });
         entry.peering_failures = 0;
         self.dirty.insert(node);
