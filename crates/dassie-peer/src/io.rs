@@ -222,8 +222,8 @@ pub enum Event {
         peer: NodeId,
         /// Whether it is listed.
         on: bool,
-        /// Whether it was withdrawn because the room our books give it
-        /// stayed short of a packet.
+        /// Whether it was withdrawn only because the room our books give
+        /// it stayed short of a packet: it is heard from, and not banned.
         short: bool,
     },
     /// A settlement message arrived.
