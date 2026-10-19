@@ -188,9 +188,7 @@ fn a_settlement_survives_a_restart() {
 // Found by the node simulation (D27): a settlement that could not be
 // delivered through a long outage backs off, up to an hour at production
 // timings. Once its node answers a request of ours again, it goes at once,
-// rather than when its backoff ends, and arrives once. A message the node
-// sent just before the outage, arriving after it began, does not use that
-// up.
+// rather than when its backoff ends, and arrives once.
 #[test]
 fn a_settlement_goes_as_soon_as_its_node_is_back() {
     let config = Config {
@@ -209,6 +207,32 @@ fn a_settlement_goes_as_soon_as_its_node_is_back() {
         !network.node(0).settling(&b),
         "the settlement waited for its backoff"
     );
+    assert_eq!(network.applied.len(), 1);
+    assert_eq!((network.applied[0].from, network.applied[0].amount), (a, 5));
+}
+
+// A node that answers our other requests but is too busy for a settlement
+// gets it at the pace of the backoff, not once per answer.
+#[test]
+fn a_busy_node_gets_a_settlement_at_the_pace_of_the_backoff() {
+    let config = Config {
+        settlement_retry_max_ms: 3_600_000,
+        ..Config::DEV
+    };
+    let (mut network, a, b) = peered_with(41, config);
+    network.refuse_settlements.insert(1);
+    assert!(network.settle(0, b, 5));
+    // Tries at 0, 1, 3, 7, ... 1023 s.
+    settle(&mut network, 25 * 60_000);
+    assert!(network.node(0).settling(&b));
+    assert!(
+        network.settlements_refused <= 11,
+        "{} tries in 25 minutes",
+        network.settlements_refused
+    );
+    network.refuse_settlements.clear();
+    settle(&mut network, 3_600_000);
+    assert!(!network.node(0).settling(&b));
     assert_eq!(network.applied.len(), 1);
     assert_eq!((network.applied[0].from, network.applied[0].amount), (a, 5));
 }

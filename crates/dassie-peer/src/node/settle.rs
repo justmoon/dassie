@@ -143,7 +143,7 @@ impl PeerNode {
                 retry.in_flight = true;
             }
         } else {
-            self.settlement_failed(node, false);
+            self.settlement_failed(node, None);
         }
     }
 
@@ -209,13 +209,7 @@ impl PeerNode {
                         status: *status,
                     });
                 }
-                // Refused for what it says (400) or for want of a channel
-                // (409), it waits out its backoff: that does not change
-                // because the node answers again. Refused before it was
-                // read (401, 503), as by a node that just started, it was
-                // not delivered.
-                let answered = matches!(problem, Problem::Status(400 | 409));
-                self.settlement_failed(node, answered);
+                self.settlement_failed(node, Some(*problem));
             }
         }
     }
@@ -225,9 +219,10 @@ impl PeerNode {
     /// when its backoff ends, which may be up to an hour after a long
     /// outage. Only a request's answer counts, not a message from the node,
     /// which may have been sent before the outage. A settlement the node
-    /// refused waits out its backoff, and a copy that arrives twice is
-    /// acknowledged and not applied again, so going early costs at most one
-    /// more request.
+    /// answered waits out its backoff (see
+    /// [`settlement_failed`](Self::settlement_failed)), and a copy that
+    /// arrives twice is acknowledged and not applied again, so going early
+    /// costs at most one more request per try that got no answer.
     pub(crate) fn settlement_reachable(&mut self, node: &NodeId) {
         let now = self.now_ms;
         if let Some(retry) = self.retries.get_mut(node)
@@ -240,11 +235,17 @@ impl PeerNode {
         }
     }
 
-    /// Waits before sending the channel's outbox again, longer each time.
-    /// It may go early once its node answers a request of ours (see
-    /// [`settlement_reachable`](Self::settlement_reachable)) only if this
-    /// failure was one to deliver it, not an `answered` refusal.
-    fn settlement_failed(&mut self, node: NodeId, answered: bool) {
+    /// Waits before sending the channel's outbox again, longer each time,
+    /// after a try that ended in `problem`, or was never sent (`None`). It
+    /// may go early once its node answers a request of ours (see
+    /// [`settlement_reachable`](Self::settlement_reachable)) only if no
+    /// try got an answer since it last went early. A 401 leaves that as it
+    /// was: a node that just started refuses messages dated before its
+    /// start, and the copy that goes early is dated anew. Any other answer
+    /// refuses it for good reason (it is malformed, has no channel, or the
+    /// node is busy), and the node answering something else changes none
+    /// of that.
+    fn settlement_failed(&mut self, node: NodeId, problem: Option<Problem>) {
         let (min, max) = (
             self.config.settlement_retry_min_ms,
             self.config.settlement_retry_max_ms,
@@ -260,7 +261,11 @@ impl PeerNode {
         let wait = backoff(min, max, outbox.attempts);
         outbox.attempts = outbox.attempts.saturating_add(1);
         self.channels_dirty.insert(node);
-        let early = !answered;
+        let early = match problem {
+            None | Some(Problem::Failed(_)) => true,
+            Some(Problem::Status(401)) => self.retries.get(&node).is_some_and(|retry| retry.early),
+            Some(Problem::Status(_) | Problem::Invalid) => false,
+        };
         self.retries.insert(
             node,
             Retry {

@@ -79,7 +79,7 @@ pub(crate) struct Retry {
     /// Whether a send is in flight.
     pub in_flight: bool,
     /// Whether it may go again as soon as its node answers a request of
-    /// ours, before its backoff ends: once after each failure to deliver
-    /// it, never after an answer refusing it.
+    /// ours, before its backoff ends: once after each try that got no
+    /// answer, never after an answer refusing it.
     pub early: bool,
 }

@@ -231,7 +231,7 @@ Channels persist in `settlement_channels`, written in the batch that changes the
 
 **Delivery is exactly once.**
 - The `settlement` message carries a `sequence` per sender and recipient, increasing and never reset: it belongs to the pair of nodes, not to the peering.
-- The sender sends one at a time, in order. It is sent again until a 200 arrives, with a backoff from 1 s doubling up to 1 h, and is never dropped; it survives restarts.
+- The sender sends one at a time, in order. It is sent again until a 200 arrives, with a backoff from 1 s doubling up to 1 h, or at once when the node answers us again after a try that got no answer ([Peer protocol](peer-protocol.md#settlement-4)), and is never dropped; it survives restarts.
 - The receiver keeps the highest sequence it applied from each sender. It acknowledges anything at or below it without applying it again, applies the next one (recording the sequence in the batch that books it), and refuses any other with 400 "settlement out of order". A sender it holds no channel with gets 409.
 
 ## The stub scheme
