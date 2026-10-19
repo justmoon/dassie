@@ -499,6 +499,46 @@ fn a_peer_short_of_room_is_withdrawn_after_the_grace() {
     assert!(view(&network).advertised, "not advertised again");
 }
 
+// A peer that is both silent and short of room when it is withdrawn is
+// withdrawn for its silence: `short` names room only when it is the one
+// reason (review of #126).
+#[test]
+fn a_silent_peer_short_of_room_is_withdrawn_for_its_silence() {
+    let (mut network, _, b) = peered(47);
+    network.cut.insert((0, 1));
+    // What was already on its way still arrives.
+    settle(&mut network, 5_000);
+    // Node 0's clock runs apart from the network's: its deadlines are on
+    // its own.
+    let at = network.now;
+    let mut local = (0, 0);
+    network.act(0, |node, now| {
+        local = (now, node.peering_of(&b).unwrap().last_seen_ms);
+    });
+    let (now, last_seen) = local;
+    let to_network = |local_ms: u64| local_ms - now + at;
+    // Both come due at once: silence just past the confirmation window,
+    // and room a grace after it was reported short.
+    let config = Config::DEV;
+    let due = last_seen + config.peer_confirm_ms + 1;
+    network.run_until(to_network(due - config.advertise_short_grace_ms));
+    network.act(0, |node, now| node.set_short(now, &b, true));
+    network.run_until(to_network(due) + 1_000);
+    let withdrawn: Vec<bool> = network
+        .events
+        .iter()
+        .filter_map(|(at, event)| match event {
+            Event::Advertised {
+                peer,
+                on: false,
+                short,
+            } if *at == 0 && *peer == b => Some(*short),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(withdrawn, [false], "withdrawn for room, though silent");
+}
+
 // A restart does not drop the peers we advertise: the flag starts from
 // when they were last heard from.
 #[test]

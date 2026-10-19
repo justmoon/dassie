@@ -360,9 +360,8 @@ impl PeerNode {
                 .advertise
                 .short_since_ms
                 .is_some_and(|since| since.saturating_add(config.advertise_short_grace_ms) <= now);
-            let healthy = peering.heard_within(now, config.peer_confirm_ms)
-                && !self.bans.contains(id)
-                && !short;
+            let live = peering.heard_within(now, config.peer_confirm_ms) && !self.bans.contains(id);
+            let healthy = live && !short;
             let advertise = &mut entry.advertise;
             if advertise.on
                 && advertise
@@ -381,7 +380,9 @@ impl PeerNode {
                 );
                 advertise.hold_until_ms = now.saturating_add(hold);
                 advertise.flaps = advertise.flaps.saturating_add(1);
-                changes.push((*id, false, short));
+                // For room only if that is the one reason: a peer that
+                // also fell silent is withdrawn for that.
+                changes.push((*id, false, short && live));
             } else if !advertise.on && healthy && advertise.hold_until_ms <= now {
                 advertise.on = true;
                 advertise.on_since_ms = now;
