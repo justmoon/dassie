@@ -1040,7 +1040,7 @@
           "ids": [
             "ledger"
           ],
-          "text": "Each peer extends the other a little credit, and balances shift as packets flow."
+          "text": "The node that asked to peer extends the other a little credit; the other extends none at first, so the newcomer pays in advance. Balances shift as packets flow."
         },
         {
           "ids": [
