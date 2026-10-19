@@ -54,15 +54,29 @@ Today both sides of a termination settle everything they owe once the exchange c
     - in the scripted run that ends a peering, a settlement that crosses the end is not lost.
 - **Done when:** a node ends a peering by collecting from the peer first and paying nothing. The peer, told only by `peeringTermination`, stops at once and pays nothing. The `node` simulation's runs and the scripted termination show each node's books as D28 says.
 
-### Registration fees and child peers
+### Registration fees
 
 Registration is free, and throttled instead ([Network](areas/network.md#registration)). The design calls for a paid registration whose fee grows with the size of the list ([D4](decisions/D04-network-membership-economics.md)).
 
 - **What it covers:**
   - **The fee quote and payment,** as a v1.x peer-protocol addition: a quote message, and payment by ILP with a signed quote condition (the "naive" variant of the [token payment protocol](original/05-accounting-and-settlement.md)), to the cheapest 75% of bootstrap nodes.
   - **The fee schedule,** set when the quote and payment are built.
-  - **Child peers** ([D12](decisions/D12-peering-lifecycle-and-liveness.md)): non-majority nodes peer as children, routed beneath their uplink's address, which touches the connector, BTP and the STREAM receiver. They matter only once registration costs something: until then any node with a URL registers and becomes a member within minutes. A child's Network graph shows the child itself and its links to its uplinks, although no route reaches it.
-- **Done when:** a node registers by paying the quoted fee, and is refused without it. A non-majority node peers as a child, gets an address beneath its uplink, and pays and is paid through it.
+- **Done when:** a node registers by paying the quoted fee, and is refused without it.
+
+### Periphery
+
+Nodes without a public IP join as periphery nodes: they connect only to core nodes, get child addresses beneath them, and never forward. The design is [designs/periphery.md](designs/periphery.md); the reasons are [D26](decisions/D26-core-and-periphery.md).
+
+- **Parts that can be built side by side:**
+  - QUIC on every peer link, with node keys pinned, and its fallbacks;
+  - periphery nodes: child addresses beneath their uplinks, which touches the connector, BTP and the STREAM receiver ([D12](decisions/D12-peering-lifecycle-and-liveness.md)); the downlink table; a child's Network graph, which shows the child itself and its links to its uplinks, although no route reaches it;
+  - relays, records and home nodes;
+  - owner apps paired on `localhost`;
+  - front doors, with responses signed by the node key;
+  - free receivers, with the XRPL scheme's rules for accounts that do not exist yet;
+  - browser nodes.
+- **It needs** [the channel limit](#not-built-yet) lifted, so that a core node keeps few relationships with core nodes.
+- **Done when:** a periphery node behind a NAT peers with two core nodes, gets an address beneath each, pays and is paid through them, and keeps working when it loses one. Its owner's paired app reaches it through a relay, and a third-party Open Payments client pays it through a front door, whose response a Dassie client checks against the node ID. A free receiver is paid, spends through its uplink, and has its account created by the first settlement. In the simulation, home nodes that withhold, and ground core keys, hide no node from a relay it chose.
 
 ## Not built yet
 
@@ -73,7 +87,8 @@ Gaps between what the spec's contract or decisions ask for and what `main` does.
 - **Per-ledger credit line and largest packet** ([D6](decisions/D06-owner-ledger-and-multi-currency-accounts.md)). Both, and with the largest packet every threshold counted in it, are one value for the whole node ([Connector](areas/connector.md#the-largest-packet), [Settlement](areas/settlement.md#credit)). **Done when** each ledger is configured with its own, and the thresholds and the junior's starting credit follow the ledger's.
 - **Draining in-flight packets on shutdown.** On SIGTERM the engine stops at once; it does not wait for the packets in flight to be answered or to expire ([Node](areas/node.md#shutdown)). Their pending transfers were never on disk, so after the restart the books stand as if they had been rejected, and a Fulfill that came back is lost, as in a crash; the cap on money in flight with a peer bounds what that costs ([Connector](areas/connector.md#money-in-flight-with-a-peer)). **Done when** the node stops taking new Prepares on SIGTERM and waits, up to the latest expiry among them, for the ones in flight before it closes the database.
 - **The channel limit.** A node never closes a peer's accounts or settlement channel, and keeps a bounded number of channels, one per node it has ever peered with; once they are taken, peering with a new node is refused for capacity ([Settlement](areas/settlement.md), [D12](decisions/D12-peering-lifecycle-and-liveness.md)). **Done when** a relationship whose peering has ended and whose balance is settled can be closed, freeing its channel, without a late settlement being lost or credited twice.
-- **Child peers and registration fees:** see [Registration fees and child peers](#registration-fees-and-child-peers).
+- **Registration fees:** see [Registration fees](#registration-fees).
+- **Child peers:** see [Periphery](#periphery).
 - **The rest of D27:** see [Continuous simulation](#continuous-simulation), including the release check.
 
 ## Real money
@@ -112,6 +127,7 @@ Designs that stay future work. The architecture must not preclude them.
 - [D8](decisions/D08-real-money.md): the conditions for real money.
 - [D10](decisions/D10-secrets-at-rest.md): frontend signing stays future work.
 - [D12](decisions/D12-peering-lifecycle-and-liveness.md): child peers deferred; the channel limit.
+- [D26](decisions/D26-core-and-periphery.md): the periphery.
 - [D20](decisions/D20-trust-follows-what-a-peer-earned-us.md), [D23](decisions/D23-each-node-books-its-own-fulfills.md): credit growth's constants; the fields a later protocol version drops.
 - [D22](decisions/D22-settlement-hubs.md): settlement hubs.
 - [D27](decisions/D27-simulations-run-continuously-from-random-seeds.md): the simulation campaign.

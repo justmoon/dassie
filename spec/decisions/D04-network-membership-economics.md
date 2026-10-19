@@ -1,6 +1,6 @@
 # D4. Network membership economics
 
-**Areas:** [Network](../areas/network.md). The fee is not built yet ([roadmap](../roadmap.md#registration-fees-and-child-peers)).
+**Areas:** [Network](../areas/network.md). The fee is not built yet ([roadmap](../roadmap.md#registration-fees)).
 
 ## Facts
 

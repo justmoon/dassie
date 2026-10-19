@@ -27,6 +27,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [D23](D23-each-node-books-its-own-fulfills.md) | Each node books its own Fulfills | settlement, connector, peer-protocol |
 | [D24](D24-money-in-flight-with-a-peer-stays-within-a-few-packets.md) | Money in flight with a peer stays within a few packets | connector, settlement |
 | [D25](D25-a-links-thresholds-are-counted-in-its-largest-packet.md) | A link's thresholds are counted in its largest packet | settlement, connector |
+| [D26](D26-core-and-periphery.md) | Core and periphery (design, not built) | designs/periphery |
 | [D27](D27-simulations-run-continuously-from-random-seeds.md) | Simulations run continuously, from random seeds (partly built) | testing |
 | [D28](D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md) | A node that ends a peering collects first, and pays nothing (not built) | network, settlement, peer-protocol, connector |
 

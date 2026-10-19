@@ -29,7 +29,7 @@ Dassie works with test money only: the `live` realm is refused until the conditi
 | **Bootstrap node list (BNL)** | The configured bootstrap nodes, which serve node lists and take registrations ([Network](areas/network.md)). |
 | **Known node list (KNL)** | The list a bootstrap node serves: its unexpired registrations and itself. |
 | **Majority** | Nodes listed by strictly more than half of the *configured* bootstrap nodes. They are the network's members. |
-| **Registration** | A node asking a bootstrap node to list it, renewed automatically. It is free for now ([roadmap](roadmap.md#registration-fees-and-child-peers)). |
+| **Registration** | A node asking a bootstrap node to list it, renewed automatically. It is free for now ([roadmap](roadmap.md#registration-fees)). |
 | **Link state** | A node's signed self-description (URL, key, neighbors, settlement schemes), flooded through the network. Routing runs on link states. |
 | **Peer** | A node we have a peering with: a shared settlement scheme, ledger accounts, a credit line and a settlement channel. Packets travel only between peers. |
 | **Junior, senior** | The junior is the node whose peering request was accepted, the senior the node that accepted it. The junior extends credit at first, and the senior none ([D20](decisions/D20-trust-follows-what-a-peer-earned-us.md)). |
