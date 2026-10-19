@@ -10,12 +10,20 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = []
+# The test harness and the simulated traffic, for this crate's tests and
+# the simulation runner, dassie-sim (D27).
+sim = ["dep:dassie-node-core", "dassie-oer/alloc"]
+
 [dependencies]
 dassie-ilp = { path = "../dassie-ilp" }
 dassie-ledger = { path = "../dassie-ledger" }
+dassie-node-core = { path = "../dassie-node-core", features = ["testing"], optional = true }
 dassie-oer = { path = "../dassie-oer", default-features = false }
 
 [dev-dependencies]
+dassie-connector = { path = ".", features = ["sim"] }
 dassie-node-core = { path = "../dassie-node-core", features = ["testing"] }
 dassie-oer = { path = "../dassie-oer" }
 proptest = "1.12"

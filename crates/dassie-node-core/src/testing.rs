@@ -1,6 +1,13 @@
-//! A seeded RNG for tests and simulations.
+//! A seeded RNG for tests and simulations, and what the simulations
+//! share: how a run ended, and running a range of seeds (D27).
 
+use alloc::borrow::ToOwned;
+use alloc::string::String;
+use alloc::vec::Vec;
 use core::convert::Infallible;
+use core::fmt;
+use core::ops::Range;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use rand_core::{TryCryptoRng, TryRng};
 
@@ -42,6 +49,11 @@ impl SeededRng {
         *d = d.rotate_left(45);
         result
     }
+
+    /// Uniform enough in `0..bound`, and 0 for a bound of 0.
+    pub fn below(&mut self, bound: u64) -> u64 {
+        self.next_u64().checked_rem(bound).unwrap_or(0)
+    }
 }
 
 impl TryRng for SeededRng {
@@ -68,3 +80,121 @@ impl TryRng for SeededRng {
 }
 
 impl TryCryptoRng for SeededRng {}
+
+/// How a simulated run ended (D27).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// Every check held.
+    Pass,
+    /// Something that must never happen did: an assertion or invariant
+    /// broke, or a check of what the run did failed.
+    Safety(String),
+    /// Something that must happen did not, once the network was calm.
+    Liveness(String),
+    /// The run drew a situation that no code could recover from, so it
+    /// neither passes nor fails.
+    Unsupported(String),
+}
+
+impl Outcome {
+    /// Whether the run found a bug.
+    #[must_use]
+    pub const fn is_failure(&self) -> bool {
+        matches!(self, Self::Safety(_) | Self::Liveness(_))
+    }
+}
+
+impl fmt::Display for Outcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Pass => f.write_str("pass"),
+            Self::Safety(problem) => write!(f, "safety: {problem}"),
+            Self::Liveness(problem) => write!(f, "liveness: {problem}"),
+            Self::Unsupported(reason) => write!(f, "unsupported: {reason}"),
+        }
+    }
+}
+
+/// A simulated run: how it ended, and what happened in it, a line per
+/// event, for comparing and explaining runs.
+#[derive(Clone, Debug)]
+pub struct Run {
+    /// How it ended.
+    pub outcome: Outcome,
+    /// What happened.
+    pub trace: Vec<String>,
+}
+
+/// Runs `run`, and turns a panic into a safety failure with the panic's
+/// message. The trace of a run that panicked is lost.
+pub fn caught(run: impl FnOnce() -> Run) -> Run {
+    catch_unwind(AssertUnwindSafe(run)).unwrap_or_else(|payload| {
+        let message = payload
+            .downcast_ref::<&str>()
+            .map(|message| (*message).to_owned())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "a panic without a message".to_owned());
+        Run {
+            outcome: Outcome::Safety(message),
+            trace: Vec::new(),
+        }
+    })
+}
+
+/// Runs every seed, and fails naming the first one that found a bug.
+pub fn assert_seeds_pass(seeds: Range<u64>, run: impl Fn(u64) -> Run) {
+    for seed in seeds {
+        let outcome = caught(|| run(seed)).outcome;
+        assert!(!outcome.is_failure(), "seed {seed}: {outcome}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::format;
+    use alloc::string::ToString;
+    use alloc::vec;
+
+    use super::*;
+
+    fn ended(outcome: Outcome) -> Run {
+        Run {
+            outcome,
+            trace: vec!["a line".to_string()],
+        }
+    }
+
+    #[test]
+    fn a_panic_is_a_safety_failure_with_its_message() {
+        let seed = 7;
+        let formatted = caught(|| panic!("seed {seed} broke"));
+        let fixed = caught(|| panic!("broke"));
+        assert_eq!(formatted.outcome, Outcome::Safety("seed 7 broke".into()));
+        assert!(formatted.trace.is_empty());
+        assert_eq!(fixed.outcome, Outcome::Safety("broke".into()));
+    }
+
+    #[test]
+    fn a_run_that_returns_keeps_its_outcome_and_trace() {
+        let run = caught(|| ended(Outcome::Liveness("stuck".into())));
+        assert_eq!(run.outcome, Outcome::Liveness("stuck".into()));
+        assert_eq!(run.trace, vec!["a line".to_string()]);
+        assert_eq!(format!("{}", run.outcome), "liveness: stuck");
+    }
+
+    #[test]
+    fn only_safety_and_liveness_are_failures() {
+        assert!(!Outcome::Pass.is_failure());
+        assert!(!Outcome::Unsupported("no quorum".into()).is_failure());
+        assert!(Outcome::Safety(String::new()).is_failure());
+        assert!(Outcome::Liveness(String::new()).is_failure());
+        assert_seeds_pass(0..3, |_| ended(Outcome::Unsupported("never".into())));
+    }
+
+    #[test]
+    fn below_stays_below_its_bound() {
+        let mut rng = SeededRng::new(1);
+        assert!((0..1_000).all(|_| rng.below(10) < 10));
+        assert_eq!(rng.below(0), 0);
+    }
+}

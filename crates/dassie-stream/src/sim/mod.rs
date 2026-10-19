@@ -1,10 +1,11 @@
 //! A deterministic simulation of one STREAM client and one server joined
 //! by a connector: mock clock, seeded RNG, latency, loss, an exchange rate
-//! and a maximum packet amount. The first, small piece of the simulation
-//! testing of spec 7 §7 (D16).
+//! and a maximum packet amount (spec 7 §7, D16). For this crate's tests and
+//! the simulation runner (D27).
+//!
+//! Test code, behind the `sim` feature: a panic here is a failed run.
 
 #![allow(
-    dead_code,
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::too_many_lines,
@@ -12,86 +13,31 @@
     clippy::panic
 )]
 
-use std::collections::BTreeMap;
-use std::convert::Infallible;
-use std::fmt::Write as _;
+pub mod payment;
 
-use dassie_ilp::{
-    Address, AmountTooLarge, ErrorCode as IlpErrorCode, Prepare, Reject, Response, Timestamp,
-};
-use dassie_oer::{Decode, Encode};
-use dassie_stream::{
+use alloc::collections::BTreeMap;
+use alloc::format;
+use alloc::string::String;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::fmt::Write as _;
+
+use crate::{
     Admission, AssetDetails, BUFFER_LENGTH, Config, Connection, ConnectionId, Event, Policy, Role,
     Server, ServerConfig,
 };
-use rand_core::{TryCryptoRng, TryRng};
-
-/// xoshiro256** seeded with SplitMix64: fast, deterministic, and good
-/// enough for simulations. Marked as a crypto RNG only so it can stand in
-/// for one in tests.
-pub struct TestRng {
-    state: [u64; 4],
-}
-
-impl TestRng {
-    pub fn new(seed: u64) -> Self {
-        let mut mix = seed;
-        let mut next = || {
-            mix = mix.wrapping_add(0x9e37_79b9_7f4a_7c15);
-            let mut z = mix;
-            z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-            z ^ (z >> 31)
-        };
-        Self {
-            state: [next(), next(), next(), next()],
-        }
-    }
-
-    pub fn next(&mut self) -> u64 {
-        let [a, b, c, d] = &mut self.state;
-        let result = b.wrapping_mul(5).rotate_left(7).wrapping_mul(9);
-        let t = *b << 17;
-        *c ^= *a;
-        *d ^= *b;
-        *b ^= *c;
-        *a ^= *d;
-        *c ^= t;
-        *d = d.rotate_left(45);
-        result
-    }
-
-    /// Uniform in `0..bound`.
-    pub fn below(&mut self, bound: u64) -> u64 {
-        if bound == 0 { 0 } else { self.next() % bound }
-    }
-}
-
-impl TryRng for TestRng {
-    type Error = Infallible;
-
-    fn try_next_u32(&mut self) -> Result<u32, Infallible> {
-        Ok((self.next() >> 32) as u32)
-    }
-
-    fn try_next_u64(&mut self) -> Result<u64, Infallible> {
-        Ok(self.next())
-    }
-
-    fn try_fill_bytes(&mut self, destination: &mut [u8]) -> Result<(), Infallible> {
-        for chunk in destination.chunks_mut(8) {
-            let bytes = self.next().to_le_bytes();
-            chunk.copy_from_slice(&bytes[..chunk.len()]);
-        }
-        Ok(())
-    }
-}
-
-impl TryCryptoRng for TestRng {}
+use dassie_ilp::{
+    Address, AmountTooLarge, ErrorCode as IlpErrorCode, Prepare, Reject, Response, Timestamp,
+};
+use dassie_node_core::testing::SeededRng;
+use dassie_oer::{Decode, Encode};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+/// One end of the simulation.
 pub enum Side {
+    /// The client.
     Client,
+    /// A connection of the server.
     Server(ConnectionId),
 }
 
@@ -133,11 +79,17 @@ enum Message {
     },
 }
 
+/// A client and a server, the connector between them, and their clock.
 pub struct Simulation {
+    /// The clock.
     pub now: Timestamp,
-    pub rng: TestRng,
+    /// Where all randomness comes from.
+    pub rng: SeededRng,
+    /// The connector between them.
     pub path: Path,
+    /// The client.
     pub client: Connection,
+    /// The server.
     pub server: Server,
     /// What server connections accept per stream they are offered.
     pub server_receive_max: u64,
@@ -156,27 +108,32 @@ pub struct Simulation {
     pub admitted_tags: Vec<Vec<u8>>,
     /// Data each side read, per stream.
     pub received_data: BTreeMap<(Side, u64), Vec<u8>>,
+    /// What happened, a line per event.
     pub trace: String,
     queue: BTreeMap<(u64, u64), Message>,
     sequence: u64,
     buffer: Vec<u8>,
 }
 
+/// The client's address.
 pub const CLIENT_ADDRESS: &str = "test.client";
+/// The server's address.
 pub const SERVER_ADDRESS: &str = "test.server";
 
 impl Simulation {
+    /// A client with fresh credentials for the server, from `seed`.
     pub fn new(seed: u64, path: Path, policy: Policy) -> Self {
         Self::with_receipts(seed, path, policy, None)
     }
 
+    /// As [`new`](Self::new), with receipts by `receipt`.
     pub fn with_receipts(
         seed: u64,
         path: Path,
         policy: Policy,
-        receipt: Option<dassie_stream::receipt::ReceiptSecret>,
+        receipt: Option<crate::receipt::ReceiptSecret>,
     ) -> Self {
-        let mut rng = TestRng::new(seed);
+        let mut rng = SeededRng::new(seed);
         let mut secret = [0u8; 32];
         rand_core::Rng::fill_bytes(&mut rng, &mut secret);
         let server = Server::new(&ServerConfig {
@@ -223,6 +180,7 @@ impl Simulation {
         }
     }
 
+    /// The server's first connection.
     pub fn server_connection(&self) -> Option<&Connection> {
         self.server
             .connections()
@@ -283,7 +241,7 @@ impl Simulation {
         for side in sides {
             loop {
                 let now = self.now;
-                let mut buffer = std::mem::take(&mut self.buffer);
+                let mut buffer = core::mem::take(&mut self.buffer);
                 let transmit = {
                     let rng = &mut self.rng;
                     match side {
@@ -398,7 +356,7 @@ impl Simulation {
                     Err(reject) => reject,
                     Ok(amount) => {
                         let forwarded = Prepare { amount, ..prepare };
-                        let mut buffer = std::mem::take(&mut self.buffer);
+                        let mut buffer = core::mem::take(&mut self.buffer);
                         let length = match to {
                             None => self.admitted(&forwarded, &mut buffer),
                             Some(_) => self.client.handle_prepare(
@@ -429,7 +387,7 @@ impl Simulation {
                     "responses must parse"
                 );
                 let now = self.now;
-                let mut buffer = std::mem::take(&mut self.buffer);
+                let mut buffer = core::mem::take(&mut self.buffer);
                 if let Some(connection) = self.connection_mut(to) {
                     connection.handle_response(now, request_id, &bytes, &mut buffer);
                 }
@@ -482,6 +440,7 @@ impl Simulation {
         }
     }
 
+    /// Checks both sides' invariants.
     pub fn check_invariants(&self) {
         self.client.check_invariants();
         self.server.check_invariants();
@@ -526,34 +485,60 @@ impl Simulation {
     }
 
     /// Steps until `done` holds, failing after `max_steps`.
-    pub fn run_until(&mut self, max_steps: usize, mut done: impl FnMut(&Self) -> bool) {
+    pub fn run_until(&mut self, max_steps: usize, done: impl FnMut(&Self) -> bool) {
+        if let Err(problem) = self.try_run_until(max_steps, done) {
+            panic!("{problem}\n{}", self.trace);
+        }
+    }
+
+    /// Steps until `done` holds, or says why it never did.
+    ///
+    /// # Errors
+    ///
+    /// When the simulation goes idle, or runs `max_steps`, first.
+    pub fn try_run_until(
+        &mut self,
+        max_steps: usize,
+        mut done: impl FnMut(&Self) -> bool,
+    ) -> Result<(), String> {
         for _ in 0..max_steps {
             if done(self) {
-                return;
+                return Ok(());
             }
             if !self.step() && !done(self) {
-                panic!("simulation went idle before finishing\n{}", self.trace);
+                return Err("simulation went idle before finishing".into());
             }
         }
-        assert!(
-            done(self),
-            "simulation did not finish in {max_steps} steps\n{}",
-            self.trace
-        );
+        if done(self) {
+            Ok(())
+        } else {
+            Err(format!("simulation did not finish in {max_steps} steps"))
+        }
     }
 
     /// Steps until nothing is left to happen.
     pub fn run_to_idle(&mut self, max_steps: usize) {
+        if let Err(problem) = self.try_run_to_idle(max_steps) {
+            let tail: Vec<&str> = self.trace.lines().rev().take(30).collect();
+            panic!(
+                "{problem}; last events:\n{}\nclient: {:?}",
+                tail.into_iter().rev().collect::<Vec<_>>().join("\n"),
+                self.client
+            );
+        }
+    }
+
+    /// Steps until nothing is left to happen, or says that it never was.
+    ///
+    /// # Errors
+    ///
+    /// When something is still left after `max_steps`.
+    pub fn try_run_to_idle(&mut self, max_steps: usize) -> Result<(), String> {
         for _ in 0..max_steps {
             if !self.step() {
-                return;
+                return Ok(());
             }
         }
-        let tail: Vec<&str> = self.trace.lines().rev().take(30).collect();
-        panic!(
-            "simulation did not settle in {max_steps} steps; last events:\n{}\nclient: {:?}",
-            tail.into_iter().rev().collect::<Vec<_>>().join("\n"),
-            self.client
-        );
+        Err(format!("simulation did not settle in {max_steps} steps"))
     }
 }

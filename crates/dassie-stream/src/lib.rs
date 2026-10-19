@@ -29,6 +29,8 @@ mod policy;
 mod rate;
 pub mod receipt;
 mod server;
+#[cfg(feature = "sim")]
+pub mod sim;
 mod stream;
 pub mod token;
 #[cfg(feature = "wasm")]

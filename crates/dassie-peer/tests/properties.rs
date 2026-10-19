@@ -13,13 +13,13 @@ use dassie_identity::{NodeId, NodeKey};
 use dassie_node_core::testing::SeededRng;
 use dassie_peer::Config;
 use dassie_peer::auth::{AuthConfig, Authenticator};
+use dassie_peer::sim::{Network, START, key, url};
 use dassie_peer::wire::{
     Authentication, Entry, Envelope, NodeInfo, SchemeId, TerminationReason, encode_envelope,
     sign_node_info,
 };
 use proptest::prelude::*;
 use support::inputs::{KINDS, Mutation, content, mutate, mutations};
-use support::{Network, START, key, url};
 
 fn settle(network: &mut Network, ms: u64) {
     let until = network.now + ms;

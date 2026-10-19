@@ -448,6 +448,7 @@ dependencies = [
 name = "dassie-connector"
 version = "0.1.3"
 dependencies = [
+ "dassie-connector",
  "dassie-ilp",
  "dassie-ledger",
  "dassie-node-core",
@@ -587,6 +588,7 @@ dependencies = [
  "dassie-identity",
  "dassie-node-core",
  "dassie-oer",
+ "dassie-peer",
  "hmac",
  "proptest",
  "rand_core",
@@ -618,12 +620,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "dassie-sim"
+version = "0.1.3"
+dependencies = [
+ "dassie-connector",
+ "dassie-node-core",
+ "dassie-peer",
+ "dassie-stream",
+ "getrandom 0.4.3",
+ "lexopt",
+]
+
+[[package]]
 name = "dassie-stream"
 version = "0.1.3"
 dependencies = [
  "aes-gcm",
  "dassie-ilp",
+ "dassie-node-core",
  "dassie-oer",
+ "dassie-stream",
  "getrandom 0.4.3",
  "hmac",
  "proptest",

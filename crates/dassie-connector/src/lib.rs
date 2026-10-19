@@ -41,6 +41,8 @@ mod config;
 mod connector;
 mod endpoint;
 mod fx;
+#[cfg(feature = "sim")]
+pub mod sim;
 mod trace;
 
 pub use cap::{CapError, CapUsage, CapView, SpendingCap, replay};

@@ -10,20 +10,18 @@
     clippy::unreachable
 )]
 
-mod support;
-
 use std::sync::Arc;
 
 use dassie_identity::NodeKey;
 use dassie_node_core::testing::SeededRng;
 use dassie_oer::{Decode, Encode};
 use dassie_peer::auth::{AuthConfig, Authenticator};
+use dassie_peer::sim::{Network, START, key, url};
 use dassie_peer::wire::{
     Authentication, Content, Entry, NodeInfo, PeeringRequest, PeeringResponse, RefusalReason,
     ResponseEnvelope, SchemeId, SignedNodeInfo, encode_envelope, sign_node_info,
 };
 use dassie_peer::{Config, Event, OwnInfo, PeerNode, PeerStatus, RegisterError, Sources, Stored};
-use support::{Network, START, key, url};
 
 fn settle(network: &mut Network, ms: u64) {
     let until = network.now + ms;
@@ -69,7 +67,7 @@ fn two_nodes_register_peer_and_route() {
     assert!(a.majority().contains(b.own()), "registered, so on the list");
     assert!(b.registration_status()[0].listed);
     let peering = a.peering_of(b.own()).unwrap();
-    assert_eq!(peering.credit_out, support::CREDIT);
+    assert_eq!(peering.credit_out, dassie_peer::sim::CREDIT);
     let views = a.nodes();
     let view = |id: &dassie_identity::NodeId| views.iter().find(|view| view.id == *id).unwrap();
     let (own, peer) = (view(a.own()), view(b.own()));
@@ -216,7 +214,7 @@ fn our_sequence_survives_restarts_and_clock_rollback() {
             Box::new(SeededRng::new(1)),
             START,
         );
-        node.handle_timeout(START, &mut support::StubHooks::default());
+        node.handle_timeout(START, &mut dassie_peer::sim::StubHooks::default());
         let mut batch = dassie_peer::PeerBatch::default();
         node.take_changes(&mut batch);
         batch.own_sequence.unwrap()

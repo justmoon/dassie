@@ -10,7 +10,9 @@
 #
 # The paths are the site, the packages it imports, the crates its WASM
 # modules are built from, and what pins their builds. build_test.ts checks
-# that the list keeps up with them.
+# that the list keeps up with them. It reads the workspace's dependencies,
+# which include dassie-node-core through dassie-stream's `sim` feature: the
+# WASM build leaves that off, but watching it costs only a spare build.
 set -u
 
 previous=${VERCEL_GIT_PREVIOUS_SHA:-}
@@ -24,6 +26,7 @@ exec git diff --quiet "$previous" HEAD -- \
   packages/ui \
   crates/dassie-identity \
   crates/dassie-ilp \
+  crates/dassie-node-core \
   crates/dassie-oer \
   crates/dassie-stream \
   Cargo.toml \

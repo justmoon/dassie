@@ -8,20 +8,18 @@
     clippy::panic
 )]
 
-mod support;
-
 use std::sync::Arc;
 
 use dassie_identity::{NodeId, NodeKey};
 use dassie_node_core::testing::SeededRng;
 use dassie_oer::{Decode, Encode};
 use dassie_peer::auth::{AuthConfig, Authenticator};
+use dassie_peer::sim::{Network, START, key, url};
 use dassie_peer::wire::{
     Authentication, Content, Entry, NodeInfo, PeeringRequest, PeeringResponse, RefusalReason,
     ResponseEnvelope, SchemeId, SignedNodeInfo, TerminationReason, encode_envelope, sign_node_info,
 };
 use dassie_peer::{Config, Event, PeerStatus, SendError, VERDICT_ACCEPTED};
-use support::{Network, START, key, url};
 
 fn settle(network: &mut Network, ms: u64) {
     let until = network.now + ms;

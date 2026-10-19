@@ -15,14 +15,15 @@ mod support;
 use dassie_ilp::{
     Address, ErrorCode as IlpErrorCode, Fulfill, Prepare, Reject, Response, Timestamp,
 };
+use dassie_node_core::testing::SeededRng;
 use dassie_oer::{Decode, Encode, Writer};
 use dassie_stream::crypto::{Keys, OVERHEAD};
 use dassie_stream::packet::{Frames, Packet, PacketType};
+use dassie_stream::sim::{Path, Simulation};
 use dassie_stream::{
     AssetDetails, BUFFER_LENGTH, Config, Connection, ErrorCode, Event, Frame, Policy, Rate, Role,
     Server, ServerConfig,
 };
-use support::sim::{Path, Simulation, TestRng};
 
 const NOW: Timestamp = Timestamp::from_unix_ms(1_700_000_000_000);
 
@@ -97,9 +98,9 @@ fn a_full_server_forgets_its_least_active_connection() {
     // Two connections fill the table. A third still gets in: the one heard
     // from least recently goes, and comes back when its sender returns.
     let mut server = server(Policy::DEFAULT);
-    let mut rng = TestRng::new(9);
+    let mut rng = SeededRng::new(9);
     let mut buffer = vec![0; BUFFER_LENGTH];
-    let mut send = |server: &mut Server, rng: &mut TestRng, tag: u8, at_ms: u64| {
+    let mut send = |server: &mut Server, rng: &mut SeededRng, tag: u8, at_ms: u64| {
         let credentials = server.generate_credentials(rng, &[tag], None);
         let keys = Keys::derive(&credentials.shared_secret);
         let bytes = hostile_prepare(&keys, &credentials.destination, 0, 0, &[]);
@@ -130,7 +131,7 @@ fn hostile_reply_amounts_do_not_overflow_counters() {
     connection.set_exchange_rate(Rate::ONE);
     let stream = connection.open_stream().unwrap();
     connection.set_send_max(stream, 3).unwrap();
-    let mut rng = TestRng::new(1);
+    let mut rng = SeededRng::new(1);
     let mut buffer = vec![0; BUFFER_LENGTH];
     for _ in 0..3 {
         let Some(transmit) = connection.poll_transmit(NOW, &mut rng, &mut buffer) else {
@@ -191,7 +192,7 @@ fn money_in_flight_when_the_remote_closes_is_counted() {
         ..Policy::DEFAULT
     };
     let mut server = server(policy);
-    let mut rng = TestRng::new(2);
+    let mut rng = SeededRng::new(2);
     let credentials = server.generate_credentials(&mut rng, b"", None);
     let mut connection = Connection::new(&Config {
         role: Role::Client,
@@ -240,7 +241,7 @@ fn a_remote_cannot_overflow_the_event_queue() {
     // Finding 4: a remote opening and closing streams in every packet
     // filled the event queue until an assertion fired.
     let mut server = server(Policy::DEFAULT);
-    let mut rng = TestRng::new(3);
+    let mut rng = SeededRng::new(3);
     let credentials = server.generate_credentials(&mut rng, b"", None);
     let keys = Keys::derive(&credentials.shared_secret);
     let mut buffer = vec![0; BUFFER_LENGTH];
@@ -305,7 +306,7 @@ fn measuring_twice_does_not_panic() {
     // Finding 6: a second measurement reset the probe count while probes
     // of the first were in flight, and their replies then underflowed it.
     let mut server = server(Policy::DEFAULT);
-    let mut rng = TestRng::new(9);
+    let mut rng = SeededRng::new(9);
     let credentials = server.generate_credentials(&mut rng, b"", None);
     let mut connection = Connection::new(&Config {
         role: Role::Client,
@@ -349,7 +350,7 @@ fn f08_for_a_packet_without_money_is_ignored() {
     let mut connection = client(&secret, Policy::DEFAULT);
     let stream = connection.open_stream().unwrap();
     connection.write(stream, b"hello").unwrap();
-    let mut rng = TestRng::new(4);
+    let mut rng = SeededRng::new(4);
     let mut buffer = vec![0; BUFFER_LENGTH];
     let transmit = connection
         .poll_transmit(NOW, &mut rng, &mut buffer)
@@ -404,7 +405,7 @@ fn idle_connections_close_and_free_their_slot() {
     // Finding 9: connections never timed out, so anyone with credentials
     // could fill a server's table for good.
     let mut server = server(Policy::DEFAULT);
-    let mut rng = TestRng::new(6);
+    let mut rng = SeededRng::new(6);
     let credentials = server.generate_credentials(&mut rng, b"", None);
     let keys = Keys::derive(&credentials.shared_secret);
     let mut buffer = vec![0; BUFFER_LENGTH];
@@ -428,7 +429,7 @@ fn many_closed_streams_use_fixed_memory() {
     // window is now a fixed array; opening and closing hundreds of streams
     // must still work, and old streams must stay closed.
     let mut server = server(Policy::DEFAULT);
-    let mut rng = TestRng::new(7);
+    let mut rng = SeededRng::new(7);
     let credentials = server.generate_credentials(&mut rng, b"", None);
     let keys = Keys::derive(&credentials.shared_secret);
     let mut buffer = vec![0; BUFFER_LENGTH];
@@ -485,7 +486,7 @@ fn empty_and_repeated_data_frames_are_handled() {
         ..Policy::DEFAULT
     };
     let mut server = server(policy);
-    let mut rng = TestRng::new(8);
+    let mut rng = SeededRng::new(8);
     let credentials = server.generate_credentials(&mut rng, b"", None);
     let keys = Keys::derive(&credentials.shared_secret);
     let mut buffer = vec![0; BUFFER_LENGTH];
@@ -536,7 +537,7 @@ fn a_burst_of_rejects_backs_off_once() {
     connection.set_exchange_rate(Rate::ONE);
     let stream = connection.open_stream().unwrap();
     connection.set_send_max(stream, 100_000).unwrap();
-    let mut rng = TestRng::new(5);
+    let mut rng = SeededRng::new(5);
     let mut buffer = vec![0; BUFFER_LENGTH];
     let reject = Reject {
         code: IlpErrorCode::T04_INSUFFICIENT_LIQUIDITY,

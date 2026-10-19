@@ -3,15 +3,13 @@
 
 #![allow(clippy::panic)]
 
-mod support;
-
+use dassie_connector::sim::*;
 use dassie_connector::{Config, EndpointId, Forwarded, Outcome, PacketState, RATE_PRECISION};
 use dassie_ilp::{AmountTooLarge, ErrorCode, Response, ildcp};
 use dassie_ledger::{
     AccountName, AccountPath, JournalEntry, LedgerId, Name, Reference, TransferState,
 };
 use dassie_oer::{Decode, Encode};
-use support::*;
 
 const ALICE: EndpointId = EndpointId::Btp(1);
 const BOB: EndpointId = EndpointId::Btp(2);

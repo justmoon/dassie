@@ -2,20 +2,18 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
-mod support;
-
 use std::sync::Arc;
 
 use dassie_identity::NodeKey;
 use dassie_node_core::testing::SeededRng;
 use dassie_oer::{Decode, Encode};
 use dassie_peer::auth::{AuthConfig, AuthError, Authenticator};
+use dassie_peer::sim::{Network, START, key, url};
 use dassie_peer::wire::{
     Authentication, Content, Entry, Envelope, NodeInfo, PeeringRequest, PeeringResponse,
     ResponseEnvelope, SchemeId, SignedNodeInfo, encode_envelope, sign_node_info,
 };
 use dassie_peer::{Config, OwnInfo, PeerBatch, PeerNode, Stored};
-use support::{Network, START, key, url};
 
 fn settle(network: &mut Network, ms: u64) {
     let until = network.now + ms;
@@ -271,7 +269,7 @@ fn an_own_url_too_long_is_no_url() {
         Box::new(SeededRng::new(1)),
         START,
     );
-    node.handle_timeout(START, &mut support::StubHooks::default());
+    node.handle_timeout(START, &mut dassie_peer::sim::StubHooks::default());
     let mut batch = PeerBatch::default();
     node.take_changes(&mut batch);
     assert_eq!(batch.own_sequence, None);

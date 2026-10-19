@@ -457,7 +457,23 @@
         "Login, how long sessions last, and the same-origin rule",
         "Rate limits",
         "When to renew the TLS certificate",
-        "A seeded random generator that the other crates' simulations share"
+        "A seeded random generator, and how a simulated run ended, which the other crates' simulations share"
+      ]
+    },
+    "sim": {
+      "name": "dassie-sim",
+      "path": "crates/dassie-sim",
+      "label": "runs simulations",
+      "sub": "tooling",
+      "x": 602,
+      "y": 662,
+      "w": 184,
+      "desc": "A developer tool that runs the simulations from any seed. Each simulation lives in the crate it simulates, and a seed fixes its whole run, so a seed that fails replays the same way every time.",
+      "does": [
+        "Runs one seed, a range of seeds, or the seed a git commit names: `dassie-sim run peer 0..1000`",
+        "Prints a run's trace to explain a failure: `dassie-sim explain peer 42`",
+        "Tells a broken safety property from a network that never settled down",
+        "Builds with assertions on (`--profile sim`), so every invariant is checked as in tests"
       ]
     },
     "stream": {
@@ -874,6 +890,30 @@
       "t": "oer",
       "k": "wasm",
       "h": true
+    },
+    {
+      "f": "sim",
+      "t": "peer",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "sim",
+      "t": "connector",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "sim",
+      "t": "stream",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "sim",
+      "t": "node-core",
+      "k": "uses",
+      "h": true
     }
   ],
   "flows": [
@@ -1134,8 +1174,8 @@
   "tests": [
     {
       "t": "Deterministic simulation",
-      "p": "Whole networks run in one process with a fake clock and a seeded random generator. Faults are injected: latency, loss, crashes, mid-payment too, restarts and partitions. Every state machine checks its invariants after each step, and a failure prints the seed that reproduces it.",
-      "ev": "dassie-stream, dassie-connector and dassie-peer: tests/simulation.rs · dassie-node: tests/network.rs"
+      "p": "Whole networks run in one process with a fake clock and a seeded random generator. Faults are injected: latency, loss, crashes, mid-payment too, restarts and partitions. Every state machine checks its invariants after each step, and a failure prints the seed that reproduces it. Tests run fixed seeds; `dassie-sim` runs any other.",
+      "ev": "dassie-stream, dassie-connector and dassie-peer: src/sim, run by tests/simulation.rs and dassie-sim · dassie-node: tests/network.rs"
     },
     {
       "t": "Golden vectors",

@@ -22,6 +22,8 @@ mod io;
 mod node;
 mod persist;
 pub mod routing;
+#[cfg(feature = "sim")]
+pub mod sim;
 mod table;
 pub mod wire;
 

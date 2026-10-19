@@ -21,6 +21,9 @@ wasm = [
   "getrandom/wasm_js",
   "dassie-ilp/wasm",
 ]
+# The simulated client and server, for this crate's tests and the
+# simulation runner, dassie-sim (D27).
+sim = ["dep:dassie-node-core", "dassie-oer/alloc"]
 
 [dependencies]
 getrandom = { version = "0.4.3", default-features = false, optional = true }
@@ -28,6 +31,7 @@ wasm-bindgen = { version = "=0.2.129", optional = true }
 # Without the default `getrandom` feature: the caller injects randomness.
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes"] }
 dassie-ilp = { path = "../dassie-ilp" }
+dassie-node-core = { path = "../dassie-node-core", features = ["testing"], optional = true }
 dassie-oer = { path = "../dassie-oer", default-features = false }
 hmac = { version = "0.13", default-features = false }
 # The RNG trait shared with dassie-identity and ed25519-dalek 3. Only the
@@ -39,6 +43,8 @@ subtle = { version = "2.6", default-features = false }
 [dev-dependencies]
 # The OS RNG, for the interop example only.
 getrandom = { version = "0.4.3", features = ["sys_rng"] }
+dassie-node-core = { path = "../dassie-node-core", features = ["testing"] }
 dassie-oer = { path = "../dassie-oer" }
+dassie-stream = { path = ".", features = ["sim"] }
 proptest = "1.12"
 serde_json = "1.0.154"

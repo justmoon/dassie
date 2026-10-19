@@ -11,6 +11,7 @@ use dassie_ilp::{
     Address, AmountTooLarge, ErrorCode as IlpErrorCode, Fulfill, Prepare, Reject, Response,
     Timestamp,
 };
+use dassie_node_core::testing::SeededRng;
 use dassie_oer::{Decode, Encode};
 use dassie_stream::base64url;
 use dassie_stream::crypto::{Cipher, Keys};
@@ -22,7 +23,6 @@ use dassie_stream::{
 };
 use proptest::prelude::*;
 use support::arbitrary::{self, Mutation, Payload};
-use support::sim::TestRng;
 
 const NOW: Timestamp = Timestamp::from_unix_ms(1_700_000_000_000);
 const SERVER_SECRET: [u8; 32] = [1; 32];
@@ -242,7 +242,7 @@ proptest! {
         let keys = Keys::derive(&[3; 32]);
         let destination = Address::parse("test.server.abc").unwrap();
         let mut connection = server_connection();
-        let mut rng = TestRng::new(1);
+        let mut rng = SeededRng::new(1);
         let mut buffer = vec![0; BUFFER_LENGTH];
         for (payload, sealed, amount, fulfillable) in packets {
             let data = prepare_data(&keys, &payload, sealed);
@@ -260,7 +260,7 @@ proptest! {
     ) {
         let keys = Keys::derive(&[3; 32]);
         let mut connection = client_connection();
-        let mut rng = TestRng::new(2);
+        let mut rng = SeededRng::new(2);
         let mut buffer = vec![0; BUFFER_LENGTH];
         let mut now = NOW;
         for (reply, mutations) in replies {
@@ -298,7 +298,7 @@ proptest! {
             max_connections: 2,
         });
         let secret = ServerSecret::new(SERVER_SECRET);
-        let mut rng = TestRng::new(3);
+        let mut rng = SeededRng::new(3);
         let mut buffer = vec![0; BUFFER_LENGTH];
         for (target, rest, payload, sealed, amount) in packets {
             let (segment, token) = target.segment_and_token();

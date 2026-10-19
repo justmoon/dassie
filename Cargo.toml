@@ -12,6 +12,7 @@ members = [
   "crates/dassie-peer",
   "crates/dassie-release",
   "crates/dassie-settlement",
+  "crates/dassie-sim",
   "crates/dassie-stream",
   "crates/dassie-xrpl",
 ]
@@ -78,6 +79,12 @@ inherits = "dev"
 # as a local `cargo test` does, under a name that does not put `cargo check`
 # and clippy in test mode, which would lint only cfg(test) code.
 [profile.ci]
+inherits = "test"
+
+# The simulation runner, dassie-sim (D27): the test profile's code, so that
+# a run checks every invariant before every commit, as it does in tests,
+# and replays exactly as the test of the same seed.
+[profile.sim]
 inherits = "test"
 
 # The binaries the install tests run in containers (nix/release.nix): the
