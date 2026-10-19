@@ -15,11 +15,11 @@ use super::gossip::{Processed, Retransmit};
 use super::{PeerNode, Problem, Purpose};
 use crate::auth::{Accepted, AuthError};
 use crate::hooks::PeeringHooks;
-use crate::io::{Event, Inbound, InboundId, Output, Reply, VERDICT_ACCEPTED};
+use crate::io::{Event, Inbound, InboundId, Output, Reply, SettlementAnswer, VERDICT_ACCEPTED};
 use crate::table::{Entry, Network, Registration, Sources};
 use crate::wire::{
     Content, Envelope, EnvelopeError, LinkStateResponse, SignedNodeInfo, encode_expiry,
-    encode_link_states, encode_octets, encode_response,
+    encode_link_states, encode_octets, encode_response, encode_settling,
 };
 
 /// The ILP packet type of a Prepare.
@@ -138,7 +138,7 @@ impl PeerNode {
                 Inbound::SettlementRequest {
                     from: accepted.sender,
                     scheme,
-                    reply: ok(&accepted, &[]),
+                    answer: SettlementAnswer(Box::new(accepted)),
                 }
             }
             other => Inbound::Reply(self.answer(hooks, &accepted, other)),
@@ -482,6 +482,15 @@ impl PeerNode {
         timeout_ms: u64,
     ) -> Option<crate::io::RequestId> {
         self.send_via(to, key, url, content, purpose, timeout_ms)
+    }
+}
+
+impl SettlementAnswer {
+    /// The answer: `settling` on its way to the peer, in the scheme
+    /// ledger's units.
+    #[must_use]
+    pub fn reply(self, settling: u64) -> Reply {
+        ok(&self.0, &encode_settling(settling))
     }
 }
 

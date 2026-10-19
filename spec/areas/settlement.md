@@ -101,6 +101,7 @@ A request says that the debtor stands near the asker's trigger. The debtor settl
 
 - **It never pays itself into asking back:** settling lowers its own position, however far two nodes' books have drifted apart.
 - **One settlement at a time.** It settles nothing while a settlement to that peer is on its way (prepared, executing, pending in the ledger, or announced and not yet acknowledged): that one is the answer. Nor while a cancelled settlement holds it off ([below](#outgoing-settlements)).
+- **The answer says what is on its way:** the settlement it makes now, or the one already under way, or nothing. So an asker can tell a settlement still coming from none ([D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)).
 - **A lying asker gets at most the credit the debtor extends to it.**
 - A node never settles on its own, but at a peering's end.
 

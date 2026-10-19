@@ -53,6 +53,20 @@ pub struct Response {
     pub body: Vec<u8>,
 }
 
+/// The answer to a peer's settlement request, still to be given the amount
+/// on its way.
+#[derive(Debug)]
+pub struct SettlementAnswer(pub(crate) alloc::boxed::Box<crate::auth::Accepted>);
+
+// Two answers are the same if they answer the same request.
+impl PartialEq for SettlementAnswer {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.sender == other.0.sender && self.0.response_mac(&[]) == other.0.response_mac(&[])
+    }
+}
+
+impl Eq for SettlementAnswer {}
+
 /// A reply to an inbound request.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reply {
@@ -119,14 +133,15 @@ pub enum Inbound<'a> {
         reply: Reply,
     },
     /// A peer asks us to settle on its scheme: the node decides how much,
-    /// if anything, and sends `reply` (D23).
+    /// if anything (D23), and answers with what it then has on its way to
+    /// the peer (D28).
     SettlementRequest {
         /// The peer.
         from: NodeId,
         /// The scheme.
         scheme: SchemeId,
-        /// The acknowledgement.
-        reply: Reply,
+        /// The answer, once the node knows the amount.
+        answer: SettlementAnswer,
     },
     /// A scheme's message from a peer, for the scheme.
     SchemeMessage {
@@ -232,6 +247,15 @@ pub enum Event {
         peer: NodeId,
         /// Its sequence.
         sequence: u64,
+    },
+    /// A peer answered our request to settle: with how much it has on its
+    /// way to us, or `None` if its answer does not say, as a node from
+    /// before D28 answers.
+    SettlementRequestAnswered {
+        /// The node.
+        peer: NodeId,
+        /// What it has on its way, in the scheme ledger's units.
+        settling: Option<u64>,
     },
     /// A request to settle was refused because the peer holds no peering
     /// with us on that scheme, as when it has not yet taken in our
