@@ -1,22 +1,15 @@
 //! Deterministic simulations of a client and a server (spec 7 §7, D16).
-//! Every step checks both sides' invariants.
+//! Every step checks both sides' invariants. `dassie_stream::sim::payment`
+//! is the random run: a failure names its seed, `dassie-sim run stream
+//! <seed>` replays it, and `dassie-sim run stream <from>..<to>` runs others
+//! (D27).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
-mod support;
-
+use dassie_node_core::testing::assert_seeds_pass;
+use dassie_stream::sim::payment::{self, LOSSY, STEPS};
+use dassie_stream::sim::{Path, Side, Simulation};
 use dassie_stream::{ErrorCode, Event, Policy, Rate};
-use support::sim::{Path, Side, Simulation};
-
-const STEPS: usize = 100_000;
-
-/// For lossy paths: every lost packet costs its 30-second expiry, and a
-/// few in a row would otherwise trip the 60-second idle timeout, which
-/// these tests are not about.
-const LOSSY: Policy = Policy {
-    idle_timeout_ms: 600_000,
-    ..Policy::DEFAULT
-};
 
 fn measured_rate(path: Path) -> Rate {
     let mut sim = Simulation::new(1, path, Policy::DEFAULT);
@@ -283,42 +276,16 @@ fn rejects_a_rate_below_the_minimum() {
     assert_eq!(sim.client.stream(stream).unwrap().total_sent(), 0);
 }
 
-fn scenario_trace(seed: u64) -> String {
-    let path = Path {
-        loss_permille: 100,
-        max_packet_amount: 7_000,
-        rate: (3, 2),
-        ..Path::default()
-    };
-    let mut sim = Simulation::new(seed, path, LOSSY);
-    sim.client.measure_exchange_rate();
-    let stream = sim.client.open_stream().unwrap();
-    sim.client.set_send_max(stream, 300_000).unwrap();
-    sim.client.write(stream, &[42; 10_000]).unwrap();
-    sim.run_until(STEPS, |sim| {
-        sim.client
-            .stream(stream)
-            .is_some_and(|s| s.total_sent() == 300_000)
-    });
-    let now = sim.now;
-    sim.client.close(now, ErrorCode::NO_ERROR);
-    sim.run_to_idle(STEPS);
-    format!("{}\n{:?}", sim.trace, sim.client.stats())
-}
-
 #[test]
 fn simulations_are_deterministic() {
     // The same seed must give the same run, event for event (D16).
-    assert_eq!(scenario_trace(23), scenario_trace(23));
-    assert_ne!(scenario_trace(23), scenario_trace(24));
+    assert_eq!(payment::run(23).trace, payment::run(23).trace);
+    assert_ne!(payment::run(23).trace, payment::run(24).trace);
 }
 
 #[test]
 fn many_seeds_keep_the_invariants() {
-    for seed in 100..120 {
-        let trace = scenario_trace(seed);
-        assert!(trace.contains("ConnectionClosed"), "seed {seed}");
-    }
+    assert_seeds_pass(100..120, payment::run);
 }
 
 #[test]

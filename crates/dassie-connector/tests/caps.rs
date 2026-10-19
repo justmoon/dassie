@@ -8,8 +8,7 @@
     clippy::panic
 )]
 
-mod support;
-
+use dassie_connector::sim::*;
 use dassie_connector::{
     CapError, CapUsage, Config, EndpointId, Forwarded, Outcome, SpendingCap, replay,
 };
@@ -17,7 +16,6 @@ use dassie_ilp::{AmountTooLarge, ErrorCode};
 use dassie_ledger::AccountId;
 use dassie_oer::Decode;
 use proptest::prelude::*;
-use support::*;
 
 const ALICE: EndpointId = EndpointId::Btp(1);
 const BOB: EndpointId = EndpointId::Btp(2);

@@ -1,14 +1,22 @@
-//! A connector with a funded owner, BTP children and a local receiver.
+//! A connector with a funded owner, BTP children and a local receiver, for
+//! this crate's tests and the simulation runner (D27).
+//!
+//! Test code, behind the `sim` feature: a panic here is a failed run.
 
 #![allow(
-    dead_code,
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::indexing_slicing,
     clippy::panic
 )]
 
-use dassie_connector::{Config, Connector, EndpointId, Outcome, Rates, Responded, Upstream};
+pub mod traffic;
+
+use alloc::format;
+use alloc::vec;
+use alloc::vec::Vec;
+
+use crate::{Config, Connector, EndpointId, Outcome, Rates, Responded, Upstream};
 use dassie_ilp::{
     Address, ErrorCode, Fulfill, MAX_PACKET_LENGTH, Prepare, Reject, Response, Timestamp,
     condition_for,
@@ -19,16 +27,26 @@ use dassie_ledger::{
 };
 use dassie_oer::{Decode, Encode};
 
+/// The connector's own address.
 pub const OWN: &str = "test.das.dnode";
+/// When every test starts.
 pub const NOW: u64 = 1_700_000_000_000;
+/// The local STREAM receiver's endpoint.
 pub const RECEIVER: EndpointId = EndpointId::Local(0);
 
+/// A connector and its ledger, checked after every step.
 pub struct Harness {
+    /// The connector.
     pub connector: Connector,
+    /// Its ledger.
     pub ledger: Ledger,
+    /// Its exchange rates.
     pub rates: Rates,
+    /// Where it writes packets.
     pub buffer: Vec<u8>,
+    /// The owner's pool.
     pub owner: AccountId,
+    /// What the ledger journaled, as the node persists it.
     pub journal: Vec<JournalEntry>,
 }
 
@@ -72,6 +90,8 @@ impl Harness {
         harness
     }
 
+    /// A BTP child `btp:{id}` at `own.{segment}`, on its own token
+    /// sub-account.
     pub fn add_btp(&mut self, id: u64, segment: &str) -> AccountId {
         let account = self
             .ledger
@@ -91,6 +111,7 @@ impl Harness {
         account
     }
 
+    /// Handles a Prepare from `from`.
     pub fn prepare(
         &mut self,
         now: u64,
@@ -111,6 +132,7 @@ impl Harness {
         outcome
     }
 
+    /// Handles a response, and says where it goes on.
     pub fn respond(
         &mut self,
         now: u64,
@@ -150,6 +172,7 @@ impl Harness {
         responded
     }
 
+    /// Expires what is due.
     pub fn timeout(&mut self, now: u64) -> Option<Upstream> {
         let upstream = self
             .connector
@@ -173,6 +196,7 @@ impl Harness {
         self.buffer[..length].to_vec()
     }
 
+    /// The Reject the last call wrote: its code and data.
     pub fn reject_written(&self, length: usize) -> (ErrorCode, Vec<u8>) {
         match Response::decode_exact(&self.buffer[..length]).unwrap() {
             Response::Reject(reject) => (reject.code, reject.data.to_vec()),
@@ -180,6 +204,7 @@ impl Harness {
         }
     }
 
+    /// An account's balance.
     pub fn net(&self, account: AccountId) -> i128 {
         self.ledger.account(account).unwrap().balance().net_credit()
     }
@@ -197,6 +222,7 @@ pub fn prepare(destination: &str, amount: u64, expires_at: u64, fulfillment: [u8
     .to_vec()
 }
 
+/// A Fulfill's bytes.
 pub fn fulfill(fulfillment: [u8; 32]) -> Vec<u8> {
     Fulfill {
         fulfillment,
@@ -205,6 +231,7 @@ pub fn fulfill(fulfillment: [u8; 32]) -> Vec<u8> {
     .to_vec()
 }
 
+/// A Reject's bytes.
 pub fn reject(code: ErrorCode) -> Vec<u8> {
     Reject {
         code,
@@ -215,6 +242,7 @@ pub fn reject(code: ErrorCode) -> Vec<u8> {
     .to_vec()
 }
 
+/// Decodes a Prepare, which must be one.
 pub fn decode_prepare(bytes: &[u8]) -> Prepare<'_> {
     Prepare::decode_exact(bytes).unwrap()
 }

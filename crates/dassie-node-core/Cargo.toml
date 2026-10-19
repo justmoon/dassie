@@ -12,7 +12,8 @@ workspace = true
 
 [features]
 default = []
-# A seeded RNG for tests of this crate and the crates above it.
+# A seeded RNG for tests of this crate and the crates above it, and what
+# their simulations share: how a run ended, and running seeds (D27).
 testing = []
 
 [dependencies]

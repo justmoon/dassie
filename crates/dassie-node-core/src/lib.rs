@@ -22,7 +22,8 @@
 #![no_std]
 
 extern crate alloc;
-#[cfg(test)]
+// The simulations' helpers catch a run's panic, which needs std.
+#[cfg(any(test, feature = "testing"))]
 extern crate std;
 
 pub mod acme;

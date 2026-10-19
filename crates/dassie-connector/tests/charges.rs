@@ -8,15 +8,13 @@
     clippy::panic
 )]
 
-mod support;
-
+use dassie_connector::sim::*;
 use dassie_connector::{
     Charges, Config, EndpointId, Forwarded, Outcome, RATE_PRECISION, Responded, convert,
 };
 use dassie_ilp::ErrorCode;
 use dassie_ledger::{AccountName, LedgerId};
 use proptest::prelude::*;
-use support::*;
 
 const ALICE: EndpointId = EndpointId::Btp(1);
 const ONE: EndpointId = EndpointId::Peer(1);

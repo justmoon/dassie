@@ -10,8 +10,15 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = []
+# The simulated network, for this crate's tests and the simulation runner,
+# dassie-sim (D27).
+sim = ["dep:dassie-node-core"]
+
 [dependencies]
 dassie-identity = { path = "../dassie-identity" }
+dassie-node-core = { path = "../dassie-node-core", features = ["testing"], optional = true }
 dassie-oer = { path = "../dassie-oer", default-features = false, features = ["alloc"] }
 hmac = { version = "0.13", default-features = false, features = ["zeroize"] }
 # The RNG trait only: the caller injects the generator (D16).
@@ -22,6 +29,7 @@ zeroize = { version = "1.9", default-features = false }
 
 [dev-dependencies]
 dassie-node-core = { path = "../dassie-node-core", features = ["testing"] }
+dassie-peer = { path = ".", features = ["sim"] }
 proptest = "1.12"
 rand_core = { version = "0.10", default-features = false }
 serde_json = "1.0.154"

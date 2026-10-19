@@ -45,4 +45,3 @@ pub fn str_field<'a>(value: &'a Value, key: &str) -> &'a str {
 }
 
 pub mod arbitrary;
-pub mod sim;

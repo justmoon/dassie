@@ -10,12 +10,10 @@
     clippy::panic
 )]
 
-mod support;
-
+use dassie_connector::sim::{Harness, NOW, OWN, decode_prepare, fulfill, prepare};
 use dassie_connector::{Config, EndpointId, Outcome, Responded, RoutesError};
 use dassie_ilp::{ErrorCode, Fulfill, Response, ildcp};
 use dassie_oer::{Decode, Encode};
-use support::{Harness, NOW, OWN, decode_prepare, fulfill, prepare};
 
 const BTP: EndpointId = EndpointId::Btp(1);
 const ONE: EndpointId = EndpointId::Peer(1);
@@ -301,7 +299,7 @@ fn draining_peers_finish_what_is_in_flight() {
             NOW + 1,
             ONE,
             forwarded.request_id,
-            &support::fulfill([1; 32]),
+            &dassie_connector::sim::fulfill([1; 32]),
         )
         .unwrap();
     assert_eq!((upstream.to, upstream.request_id), (BTP, 1));

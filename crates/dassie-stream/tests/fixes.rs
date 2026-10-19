@@ -3,6 +3,7 @@
 
 mod support;
 
+use dassie_node_core::testing::SeededRng;
 use dassie_oer::Writer;
 use dassie_stream::allocate::{Claim, ExceedsCapacity, allocate};
 use dassie_stream::crypto::{DecryptionFailure, Keys, OVERHEAD};
@@ -11,7 +12,6 @@ use dassie_stream::packet::{Frames, Packet, PacketType};
 use dassie_stream::receipt::{self, ReceiptSecret};
 use dassie_stream::token::{MAX_TOKEN_LENGTH, ServerSecret, TokenContents};
 use support::hex;
-use support::sim::TestRng;
 
 fn encode(packet: &Packet<'_>) -> Vec<u8> {
     let mut buffer = vec![0; packet.encoded_len()];
@@ -154,7 +154,7 @@ fn allocation_matches_the_original() {
 fn server_tokens_are_stateless_and_authenticated() {
     // The original kept credentials in a map that never expired; tokens
     // carry their parameters encrypted under the server secret instead.
-    let mut rng = TestRng::new(1);
+    let mut rng = SeededRng::new(1);
     let secret = ServerSecret::new([5; 32]);
     let receipt = ReceiptSecret {
         nonce: [1; 16],
