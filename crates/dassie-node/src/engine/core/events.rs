@@ -336,6 +336,18 @@ pub enum SettlementEvent {
         /// Why.
         error: EngineError,
     },
+    /// The fees a peer earned us raised the credit we extend to it (D20).
+    CreditRaised {
+        /// The peer.
+        peer: Name,
+        /// The credit now.
+        credit: u64,
+    },
+    /// The fees peers earned us could not be read, or not credited.
+    EarningsNotRead {
+        /// Why.
+        error: EngineError,
+    },
 }
 
 impl Event {
@@ -407,7 +419,8 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
         | SettlementEvent::SettlingFinal { .. }
         | SettlementEvent::Settling { .. }
         | SettlementEvent::Reconciling { .. }
-        | SettlementEvent::PeerSettled { .. } => Severity::Info,
+        | SettlementEvent::PeerSettled { .. }
+        | SettlementEvent::CreditRaised { .. } => Severity::Info,
         SettlementEvent::Reconciled { .. }
         | SettlementEvent::DepositFromStranger { .. }
         | SettlementEvent::BooksCannotSettle { .. }
@@ -421,7 +434,8 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
         | SettlementEvent::OutcomeNotBooked { .. }
         | SettlementEvent::ReconciliationNotBooked { .. }
         | SettlementEvent::AnnounceFailed { .. }
-        | SettlementEvent::MessageEffectsNotBooked { .. } => Severity::Error,
+        | SettlementEvent::MessageEffectsNotBooked { .. }
+        | SettlementEvent::EarningsNotRead { .. } => Severity::Error,
     }
 }
 

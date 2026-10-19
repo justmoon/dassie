@@ -46,6 +46,10 @@ pub(super) struct Settlements {
     /// largest packet (D25).
     pub trigger: u64,
     pub minimum: u64,
+    /// The most credit a peer can earn (D20).
+    pub credit_cap: u64,
+    /// Where reading the fees peers earned us stands.
+    pub growth: super::growth::Growth,
     /// When each peer was last asked to settle, until it settles.
     pub asked: BTreeMap<NodeId, u64>,
     /// Our settlements prepared and not yet final, by scheme and ID.
@@ -72,6 +76,8 @@ impl Settlements {
             request_every_ms: policies.settlement_request_every_ms,
             trigger: policy::trigger(policies.connector.max_packet_amount),
             minimum: policy::minimum(policies.connector.max_packet_amount),
+            credit_cap: policy::credit_cap(policies.connector.max_packet_amount),
+            growth: super::growth::Growth::new(),
             asked: BTreeMap::new(),
             settling: BTreeMap::new(),
             to_execute: Vec::new(),
@@ -123,6 +129,7 @@ impl Core {
             return;
         }
         self.settle.at_ms = now.saturating_add(self.settle.interval_ms);
+        self.grow_credit();
         self.ask_peers();
         if self.settle.never_settles {
             return;
@@ -279,6 +286,11 @@ impl Core {
                         AccountName::AssetsInterledger(peer) if peer.as_str() == node.as_str())
                 })
         })
+    }
+
+    /// The credit we extend to `node` on `scheme`'s ledger now.
+    pub(super) fn credit_out(&self, node: NodeId, scheme: SchemeId) -> Option<u64> {
+        self.position(node, scheme).map(|at| at.credit_out)
     }
 
     /// Where we stand with `node` on `scheme`'s ledger.

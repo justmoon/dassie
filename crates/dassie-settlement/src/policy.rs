@@ -64,6 +64,33 @@ pub const fn least_credit(max_packet: u64, drift: u64) -> u64 {
         .saturating_add(drift)
 }
 
+/// The share of the fees a peer earned us by which the credit we extend
+/// to it grows, in millionths: 10%. A packet comes in through one peer and
+/// leaves through another, so its fee counts toward both; at most 50%, so
+/// that the credit a node hands out never exceeds what it earned (D20).
+pub const GROWTH_PPM: u64 = 100_000;
+const _: () = assert!(GROWTH_PPM <= 500_000, "growth above half the fees");
+
+/// The most credit a peer can earn: a hundred of the largest packets.
+/// Credit extended above it, as configured or from before, stays.
+#[must_use]
+pub const fn credit_cap(max_packet: u64) -> u64 {
+    max_packet.saturating_mul(100)
+}
+
+/// The credit a peer earned `growth` more of, up to `cap`: never less than
+/// it was.
+#[must_use]
+pub fn raised(credit: u64, growth: u128, cap: u64) -> u64 {
+    if credit >= cap {
+        return credit;
+    }
+    let raised = u128::from(credit)
+        .saturating_add(growth)
+        .min(u128::from(cap));
+    u64::try_from(raised).unwrap_or(cap)
+}
+
 /// Whether to ask a peer to settle: our room for it, our `position`, has
 /// fallen to our `trigger`.
 #[must_use]
@@ -106,6 +133,17 @@ mod tests {
     const P: u64 = 100_000_000;
     const T: u64 = trigger(P);
     const M: u64 = minimum(P);
+
+    // D20: credit grows by a tenth of the fees, up to a hundred packets,
+    // and never falls.
+    #[test]
+    fn credit_grows_up_to_the_cap() {
+        let cap = credit_cap(P);
+        assert_eq!(cap, 10_000_000_000);
+        assert_eq!(raised(C, 5, cap), C + 5);
+        assert_eq!(raised(cap - 1, 5, cap), cap);
+        assert_eq!(raised(cap + 7, 5, cap), cap + 7);
+    }
 
     #[test]
     fn the_thresholds_follow_the_largest_packet() {

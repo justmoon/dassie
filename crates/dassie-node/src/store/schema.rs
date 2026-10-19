@@ -37,6 +37,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_14,
     MIGRATION_15,
     MIGRATION_16,
+    MIGRATION_17,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -705,6 +706,15 @@ ALTER TABLE peer_settings DROP COLUMN grace_share_ppm;
 /// peer extends to it (D23).
 const MIGRATION_16: &str = "
 ALTER TABLE peers DROP COLUMN credit_in;
+";
+
+/// Credit grows with the fees a peer earned us (D20): a fee's packet is
+/// found by its reference, and where to start reading fees by the last
+/// trust transfer.
+const MIGRATION_17: &str = "
+CREATE INDEX ledger_transfers_by_packet ON ledger_transfers (packet_epoch, packet_sequence)
+  WHERE packet_epoch IS NOT NULL;
+CREATE INDEX ledger_transfers_trust ON ledger_transfers (sequence) WHERE reference = 'trust';
 ";
 
 /// Columns that hold secrets: the database inspector never reads them.

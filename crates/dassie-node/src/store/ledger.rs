@@ -341,6 +341,64 @@ impl Store {
         self.journal_rows(filter, order, after, limit, account)
     }
 
+    /// Up to `limit` fees posted to `fees` after the sequence `after`, in
+    /// sequence order (D20). Each comes with the account its packet came
+    /// from, which the fee debits, and the account the packet's other
+    /// transfer from it credits: on the same ledger, the account it went
+    /// to; across ledgers, the FX account.
+    pub fn fees_after(
+        &self,
+        fees: AccountId,
+        after: u64,
+        limit: u32,
+    ) -> Result<Vec<FeeRow>, StoreError> {
+        let after = i64::try_from(after).unwrap_or(i64::MAX);
+        let connection = self.lock();
+        let mut statement = connection.prepare(
+            "SELECT f.sequence, f.debit, o.credit, f.amount FROM ledger_transfers f \
+             LEFT JOIN ledger_transfers o ON o.packet_epoch = f.packet_epoch \
+               AND o.packet_sequence = f.packet_sequence AND o.debit = f.debit AND o.id != f.id \
+             WHERE f.credit = ?1 AND f.sequence > ?2 AND f.reference = 'packet' \
+               AND f.state = 'posted' \
+             ORDER BY f.sequence LIMIT ?3",
+        )?;
+        statement
+            .query_map(params![fees.0, after, limit], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, Option<i64>>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })?
+            .map(|row| {
+                let (sequence, from, onward, value) = row?;
+                let account = |id: i64| {
+                    u32::try_from(id)
+                        .map(AccountId)
+                        .map_err(|_| StoreError::Corrupt("account ID"))
+                };
+                Ok(FeeRow {
+                    sequence: amount(sequence)?,
+                    from: account(from)?,
+                    onward: onward.map(account).transpose()?,
+                    amount: amount(value)?,
+                })
+            })
+            .collect()
+    }
+
+    /// The sequence of the last trust transfer: credit extended, or raised.
+    pub fn last_trust_sequence(&self) -> Result<Option<u64>, StoreError> {
+        let connection = self.lock();
+        let last: Option<i64> = connection.query_row(
+            "SELECT max(sequence) FROM ledger_transfers WHERE reference = 'trust'",
+            [],
+            |row| row.get(0),
+        )?;
+        last.map(amount).transpose()
+    }
+
     /// The last `limit` journal rows, of `account` if given, in sequence
     /// order: where a live view of the journal starts.
     pub fn transfers_last(
@@ -400,6 +458,19 @@ impl Store {
             })
             .collect()
     }
+}
+
+/// A fee our connector earned on a packet from one peer to another.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FeeRow {
+    /// Its place in the journal.
+    pub sequence: u64,
+    /// The account the packet came from.
+    pub from: AccountId,
+    /// The account the packet's other transfer from `from` credits.
+    pub onward: Option<AccountId>,
+    /// The fee.
+    pub amount: u64,
 }
 
 /// The columns [`read_transfer`] reads, in its order.

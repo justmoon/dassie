@@ -304,6 +304,7 @@
         "RPC with live streams, the log ring, the database inspector and `GET /stats`",
         "Open Payments over HTTPS: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments",
         "Exchange rates, fetched from several sources, and the fee and spread on what passes between peers",
+        "Credit to each peer that grows with the fees it earned the node, read from the journal",
         "Simulated in tests as a network of real engine cores, crashes mid-payment included"
       ]
     },

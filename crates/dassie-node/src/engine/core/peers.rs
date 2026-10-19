@@ -61,26 +61,7 @@ impl Hooks<'_> {
         amount: u64,
     ) -> Result<(), ()> {
         let name = Name::new(peer.as_str()).map_err(|_| ())?;
-        let find = |account| self.ledger.find(&AccountPath::new(ledger, account));
-        let (Some(contra), Some(interledger)) = (
-            find(AccountName::ContraTrust(name)),
-            find(AccountName::AssetsInterledger(name)),
-        ) else {
-            return Err(());
-        };
-        self.ledger
-            .create(
-                now_ms,
-                &dassie_ledger::TransferSpec {
-                    debit: contra,
-                    credit: interledger,
-                    amount,
-                    pending: false,
-                    reference: dassie_ledger::Reference::Trust,
-                },
-            )
-            .map(|_| ())
-            .map_err(|_| ())
+        super::growth::raise_trust(self.ledger, now_ms, ledger, name, amount).map_err(|_| ())
     }
 
     /// Opens the peer's accounts and extends it `start`, once (ACC-5).
@@ -285,7 +266,12 @@ impl Core {
                 .nodes()
                 .into_iter()
                 .filter_map(|view| {
-                    let peering = view.peering?;
+                    let mut peering = view.peering?;
+                    // The credit we extend now, which grows (D20); the
+                    // peering keeps what it started with.
+                    if let Some(credit) = self.credit_out(view.id, peering.scheme) {
+                        peering.credit_out = credit;
+                    }
                     Some(PeerView {
                         id: view.id,
                         owed: self.owed(view.id, peering.scheme),
