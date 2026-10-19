@@ -530,3 +530,56 @@ fn a_settlement_request_reaches_the_peer_only() {
     let body = sender.request(&network, 0, &request);
     assert_eq!(network.inbound(0, &body).status, 409);
 }
+
+// A node wakes when something is due, not every second: with nothing to
+// refresh and the peers it wants, it waits for its heartbeats, the
+// anti-entropy sweep (every 10 s), its list polls and its route and bridge
+// checks.
+#[test]
+fn an_idle_node_does_not_wake_every_second() {
+    let mut network = Network::new(44, 3, 1, Config::DEFAULT);
+    settle(&mut network, 3_600_000);
+    assert!(
+        network.node(0).peers().next().is_some(),
+        "node 0 never peered"
+    );
+    let end = network.now + 3_600_000;
+    let mut longest = 0;
+    while network.now < end {
+        let at = network.node(0).poll_timeout().unwrap();
+        longest = longest.max(at.saturating_sub(network.now));
+        network.run_until(at.max(network.now + 1).min(end));
+    }
+    assert!(longest >= 5_000, "node 0 slept {longest} ms at most");
+}
+
+// Review of #127: a withdrawn peer heard from again, its hold-down over, is
+// listed at once, not at the next sweep or heartbeat (production timings,
+// where those are 10 s and more apart).
+#[test]
+fn a_peer_heard_again_after_its_hold_down_is_listed_at_once() {
+    let mut network = Network::new(45, 2, 1, Config::DEFAULT);
+    settle(&mut network, 3_600_000);
+    let b = *network.node(1).own();
+    assert!(network.node(0).is_advertised(&b), "the nodes did not peer");
+    let view = |network: &Network| {
+        network
+            .node(0)
+            .nodes()
+            .into_iter()
+            .find(|view| view.id == b)
+            .unwrap()
+    };
+    // Withdrawn after a minute of silence; its 30 s hold-down ends while it
+    // is still cut off.
+    network.cut.insert((0, 1));
+    network.cut.insert((1, 0));
+    settle(&mut network, 120_000);
+    assert!(!view(&network).advertised, "not withdrawn");
+    network.cut.clear();
+    while !view(&network).online {
+        settle(&mut network, 10);
+    }
+    settle(&mut network, 1);
+    assert!(view(&network).advertised, "heard from, and not listed");
+}

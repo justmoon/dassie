@@ -236,6 +236,60 @@ impl PeerNode {
         }
     }
 
+    /// When the review of peerings next has something to do: an advertised
+    /// peer goes unconfirmed, a peer goes silent for good, a hold-down ends,
+    /// a withdrawn peer heard from again is listed, or a termination is to
+    /// be told again, given up on, or ended once its packets drained.
+    pub(super) fn next_review(&self) -> Option<u64> {
+        let config = &self.config;
+        let (now, start) = (self.now_ms, self.started_ms);
+        let peerings = self
+            .table
+            .iter()
+            .filter_map(|(id, entry)| match &entry.peer {
+                PeerState::Peered(peering) => {
+                    let silent = peering
+                        .last_seen_ms
+                        .max(start)
+                        .saturating_add(config.peer_dead_ms);
+                    let advertise = &entry.advertise;
+                    let flag = if advertise.on {
+                        // `heard_within` holds up to and including this.
+                        peering
+                            .last_seen_ms
+                            .saturating_add(config.peer_confirm_ms)
+                            .saturating_add(1)
+                    } else if advertise.hold_until_ms > now {
+                        advertise.hold_until_ms
+                    } else if peering.heard_within(now, config.peer_confirm_ms)
+                        && !self.bans.contains(id)
+                    {
+                        // Healthy again, as `update_advertised` judges it: it
+                        // is listed at once, so this is never due twice.
+                        now
+                    } else {
+                        u64::MAX
+                    };
+                    Some(silent.min(flag))
+                }
+                PeerState::Terminating(_, termination) => {
+                    Some(if termination.told(now, config.termination_timeout_ms) {
+                        // Ends once its packets drained, which only the hooks
+                        // tell: looked at with each peering check meanwhile, at
+                        // an absolute time that inputs do not push back.
+                        self.peering.check_at_ms()
+                    } else {
+                        termination
+                            .since_ms
+                            .saturating_add(config.termination_timeout_ms)
+                    })
+                }
+                _ => None,
+            });
+        let telling = self.telling.values().copied().filter(|at| *at != u64::MAX);
+        peerings.chain(telling).min()
+    }
+
     /// Terminates peers not heard from for too long, counted from our
     /// start at the earliest, so a node that was down ends nothing for it.
     fn terminate_silent(&mut self) {

@@ -36,8 +36,16 @@ impl Peering {
         }
     }
 
-    pub(crate) fn next_due(&self) -> Option<u64> {
-        Some(self.check_at_ms.min(self.bridge_at_ms))
+    /// When the next check for peers is due, whether or not one is wanted.
+    pub(crate) const fn check_at_ms(&self) -> u64 {
+        self.check_at_ms
+    }
+
+    /// The next check, given when a candidate may first be asked, if the
+    /// node wants a peer and can start a peering; and the next bridge check.
+    pub(crate) fn next_due(&self, candidate_at_ms: Option<u64>) -> Option<u64> {
+        let check = candidate_at_ms.map(|at| at.max(self.check_at_ms));
+        Some(check.map_or(self.bridge_at_ms, |check| check.min(self.bridge_at_ms)))
     }
 
     /// Holds off looking for peers until `at_ms`: after a restart, the
@@ -75,6 +83,32 @@ impl PeerNode {
                 self.start_peering(hooks, node, scheme);
             }
         }
+    }
+
+    /// When a check for peers may next find something to do: never while
+    /// the node has enough peers or cannot start a peering, otherwise when
+    /// the first candidate's backoff ends. A new candidate, a peer lost or
+    /// an attempt answered come with an input, after which the node is
+    /// polled again; nothing needs a check every second.
+    pub(super) fn next_peer_check(&self) -> Option<u64> {
+        if self.confirmed_peers() >= self.config.peer_target || !self.can_start() {
+            return None;
+        }
+        let (now, stale, future) = (self.now_ms, self.config.stale_ms, self.config.max_future_ms);
+        self.table
+            .iter()
+            .filter(|(id, entry)| {
+                **id != self.own
+                    && entry.peer == PeerState::None
+                    && !self.bans.contains(id)
+                    && self.channel_room(id)
+                    && entry.link.as_ref().is_some_and(|link| {
+                        link.is_fresh(now, stale, future)
+                            && link.schemes.iter().any(|s| self.schemes.contains(s))
+                    })
+            })
+            .map(|(_, entry)| entry.peering_at_ms)
+            .min()
     }
 
     fn can_start(&self) -> bool {

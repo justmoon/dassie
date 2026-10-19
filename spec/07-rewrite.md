@@ -514,7 +514,7 @@ on termination, settle position − credit_out
 
 **Dev switches warn on a public node.** `DASSIE_PEER_ALLOW_PRIVATE`, and `DASSIE_DEV_TIMINGS` (the dev timers below), are plain environment variables. If either is set while a listener is bound beyond loopback, the daemon warns at startup and names it. An unspecified address (`0.0.0.0`, `::`) counts as beyond loopback. The address is the one actually bound, whether `--listen`, the standalone default or systemd's socket chose it. Dev and the tests listen on loopback, so they stay quiet.
 
-**Timers and limits.** All of these are configurable; the values in brackets are dev settings.
+**Timers and limits.** All of these are configurable; the values in brackets are dev settings. A node wakes only when one of them is due: the refresh waits for a node to go stale, and the peering check for a candidate while the node wants a peer, rather than looking every second.
 
 | What | Value |
 |---|---|
