@@ -70,7 +70,7 @@ The `node` simulation counts what it reached (crashes mid-payment, cuts, settlem
 
 ### Outcomes
 
-A run ends as `pass`, `safety` (something that must never happen did: an assertion, an invariant or a check of what the run did), `liveness` (something that must happen did not, once the network was calm), or `unsupported` (the run drew a situation no code could recover from, such as a majority of bootstrap nodes cut off; it neither passes nor fails) (`dassie_node_core::testing::Outcome`). Each of the node simulation's checks says which of the two failures it found. A run that broke both says safety: one that did not settle down is first checked for what must not happen even with money in flight, and one that did, by its books, before anything that only failed to happen.
+A run ends as `pass`, `safety` (something that must never happen did: an assertion, an invariant or a check of what the run did), `liveness` (something that must happen did not, once the network was calm), or `unsupported` (the run drew a situation no code could recover from, such as a majority of bootstrap nodes cut off; it neither passes nor fails) (`dassie_node_core::testing::Outcome`). Each of the node simulation's checks says which of the two failures it found. A run that broke both says safety: one that did not settle down is first checked for what must not happen even with money in flight, and one that did runs every check and reports a safety failure before any liveness failure.
 
 ### The runner: `dassie-sim`
 
