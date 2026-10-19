@@ -230,6 +230,13 @@ pub enum Event {
         /// Its sequence.
         sequence: u64,
     },
+    /// A request to settle was refused because the peer holds no peering
+    /// with us on that scheme, as when it has not yet taken in our
+    /// acceptance: it may be asked again at once.
+    SettlementRequestRefused {
+        /// The node.
+        peer: NodeId,
+    },
     /// A settlement message was refused for being malformed or out of
     /// place, which is a bug: it is kept, and sent again later.
     SettlementRefused {
