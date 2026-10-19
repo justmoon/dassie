@@ -1,5 +1,18 @@
 # Notes for agents
 
+## Read the spec for what you touch
+
+[`spec/README.md`](spec/README.md) maps every crate, app, package and contract to the area docs that specify it. Before you change a part of Dassie, read [`spec/overview.md`](spec/overview.md), [`spec/engineering.md`](spec/engineering.md) and the area docs the index names for the paths you touch. They describe what is on `main`; you don't need the rest of the spec.
+
+Keep the spec current in the same PR as the change:
+
+- **Behaviour changes:** update the area doc that states it. Area docs are in the present tense, without milestones, dates or PR numbers.
+- **A choice between real alternatives:** add a decision in [`spec/decisions/`](spec/decisions/README.md), which keeps the reasons; the area doc states the rule.
+- **Work not built yet:** an open area in [`spec/roadmap.md`](spec/roadmap.md), never a numbered milestone.
+- **A new crate, app, package or contract:** a row in the index.
+
+Cite the spec by path and heading, as `spec/areas/peer-protocol.md#replay-protection`, or a decision by number, as `D23`. `node --test scripts/spec_test.ts` checks every link and citation, and the index.
+
 ## Keep the architecture page current
 
 [dassie.land/architecture/](https://dassie.land/architecture/) shows how Dassie is built: its crates, apps, packages and contracts, how they connect, journeys through them, how they are tested, and a short changelog per release. The page draws everything from [`apps/website/src/architecture/map.json`](apps/website/src/architecture/map.json). It describes what is on `main`, not how it got there, so it carries no history beyond the releases.
