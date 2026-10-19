@@ -2039,6 +2039,53 @@ fn a_junior_pays_its_senior_in_advance() {
     check(&sim).unwrap();
 }
 
+// D20: what a peer earned us raises the credit we extend to it, by a tenth
+// of the fees, counted on the peer's own ledger. Node 1 charges for what
+// passes from node 0, on dollars, to node 2, on XRP: the fees are booked
+// on dollars, so they raise its credit to node 0, and not to node 2.
+#[test]
+fn credit_grows_with_the_fees_a_peer_earned() {
+    let mut sim = Sim::with(9, 3, 2, BTreeMap::new(), Settling::Cross);
+    sim.loss_per_mille = 0;
+    sim.run_until(START + 120_000);
+    let (zero, two) = (key(0).node_id(), key(2).node_id());
+    let trust = |sim: &Sim, ledger, peer: &NodeId| {
+        -sim.balances_on(1, ledger)[&format!("contra/trust/{peer}")]
+    };
+    let fees = |sim: &Sim| {
+        sim.balances_on(1, USD)
+            .get("revenue/fees")
+            .copied()
+            .unwrap_or(0)
+    };
+    let (to_zero, to_two) = (trust(&sim, USD, &zero), trust(&sim, XRP, &two));
+    let before = fees(&sim);
+    sim.pay(0, 2, 2_000_000_000, None, None);
+    sim.run_until(sim.now + 180_000);
+    assert!(sim.payments[0].done, "the payment did not finish");
+    let earned = fees(&sim) - before;
+    assert!(earned > 0, "node 1 earned nothing");
+    // A tenth of the fees, less what falls short of a whole unit.
+    let grown = trust(&sim, USD, &zero) - to_zero;
+    assert!(
+        grown <= earned / 10 && earned / 10 - grown <= 1,
+        "grew {grown} on {earned}"
+    );
+    assert_eq!(
+        trust(&sim, XRP, &two),
+        to_two,
+        "the fees were booked on dollars"
+    );
+    // Restarted, node 1 reads on after its last raise: nothing twice.
+    let raised = trust(&sim, USD, &zero);
+    sim.crash(1);
+    sim.run_until(sim.now + 2_000);
+    sim.start(1);
+    sim.run_until(sim.now + 60_000);
+    assert_eq!(trust(&sim, USD, &zero), raised, "fees credited twice");
+    check_across(&sim).unwrap();
+}
+
 // A run that reports an error fails, whatever else it checks.
 #[test]
 fn an_error_event_fails_the_run() {

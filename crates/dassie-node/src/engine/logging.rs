@@ -231,7 +231,9 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::Failed { .. }
         | SettlementEvent::PeerSettled { .. }
         | SettlementEvent::PeerSettlementRefused { .. }
-        | SettlementEvent::MessageEffectsNotBooked { .. } => settlement_outcome(severity, event),
+        | SettlementEvent::MessageEffectsNotBooked { .. }
+        | SettlementEvent::CreditRaised { .. }
+        | SettlementEvent::EarningsNotRead { .. } => settlement_outcome(severity, event),
     }
 }
 
@@ -264,6 +266,12 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         }
         SettlementEvent::MessageEffectsNotBooked { error } => {
             emit!(severity, target: target::SETTLEMENT, %error, "a scheme message's effects were not booked");
+        }
+        SettlementEvent::CreditRaised { peer, credit } => {
+            emit!(severity, target: target::SETTLEMENT, %peer, credit, "a peer earned more credit");
+        }
+        SettlementEvent::EarningsNotRead { error } => {
+            emit!(severity, target: target::SETTLEMENT, %error, "the fees peers earned could not be credited");
         }
         // Logged by `settlement`.
         SettlementEvent::BalanceBooked { .. }

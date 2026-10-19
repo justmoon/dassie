@@ -12,6 +12,7 @@
 )]
 
 mod events;
+mod growth;
 mod incoming;
 mod invariants;
 mod ledgers;

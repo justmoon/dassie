@@ -45,7 +45,9 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 pub use gnap::{GrantRow, GrantState, MAX_GRANTS, TokenRow};
 pub use inspect::{BLOB_CUT, Cell, ColumnInfo, MAX_ROWS, RowsPage, TEXT_CUT, TableInfo, Value};
-pub use ledger::{BtpTokenRow, Checkpoint, JournalRow, LedgerBatch, StoredLedger, TokenCap};
+pub use ledger::{
+    BtpTokenRow, Checkpoint, FeeRow, JournalRow, LedgerBatch, StoredLedger, TokenCap,
+};
 pub use outgoing::{
     ForeignAmount, MAX_LIVE_OWNER_QUOTES, MAX_LIVE_QUOTES, OutgoingBatch, OutgoingProgress,
     OutgoingRow, OutgoingState, QuoteRow,
