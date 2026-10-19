@@ -46,7 +46,7 @@ Every peer link, core or periphery, runs over QUIC. Peer traffic is heavy: a bus
 
 ## 3. Periphery nodes
 
-- **No URL.** A periphery node's link state has an empty `url` and a `periphery` extension entry ([Peer protocol](../areas/peer-protocol.md#link-states)). An empty URL is valid only with that entry.
+- **No URL.** A periphery node's link state has an empty `url` and a `periphery` extension entry ([Peer protocol](../areas/peer-protocol.md#link-states)). An empty URL is valid only with that entry. Every node must agree on what verifies ([Verification](../areas/peer-protocol.md#verification)), and this rule is safe only because a periphery node's link state never floods: only its uplinks see it, in its peering request, so only nodes that take downlinks need the rule.
 - **No registration.** A periphery node registers with no bootstrap node, is in no node list, and takes no place in any node table. Its link state does not flood. Core nodes keep their downlinks apart from the node table (§4).
 - **Peering.** A periphery node asks core nodes to peer, as junior ([Settlement](../areas/settlement.md#credit)), choosing them from the node list among those that say in their link state that they take downlinks. A core node accepts a downlink without probing a URL: the open connection shows the downlink is there. It never asks a downlink to peer.
 - **Addresses.** Each uplink gives its downlink a child address over ILDCP, `<uplink address>.<downlink ID>`. A downlink with several uplinks has an address under each, and its STREAM receiver accepts packets for all of them. An incoming payment names one: that of an uplink the node is connected to when it creates the payment.
@@ -101,7 +101,8 @@ A record lasts 30 minutes and is renewed every 10, and whenever it changes.
 
 **Home nodes.** Every core node knows the same core nodes: the majority node list ([Network](../areas/network.md#node-lists-and-the-majority)). A periphery node's home nodes are the five nodes of that list that rank highest by `SHA-256("dassie home" ‖ periphery ID ‖ core ID)`. Anyone with the list computes the same five, so a lookup is a single request, with no routing through a distributed table.
 
-- **Storing.** An uplink stores its downlink's record with the downlink's home nodes, as an authenticated peer message, when the downlink connects and whenever the downlink renews it. A home node takes a record only from a core node the record names as an uplink, and keeps a bounded number from each such node and in all; a record is about 200 bytes. So nobody can fill home nodes with records of keys that are not peered.
+- **Storing.** An uplink stores its downlink's record with the downlink's home nodes, as an authenticated peer message, when the downlink connects and whenever the downlink renews it. A home node takes a record only from a core node the record names as an uplink, and a record is about 200 bytes.
+- **Sharing a home node.** A core node can name any number of keys it made itself as its downlinks, since keys cost nothing. So a home node bounds its records in all, and gives each submitting core node a fair share of them: when it is full, a new record displaces the oldest of the core node that holds the most, never one of a node within its share. A few registered core nodes can then crowd out only each other, not the records of every other uplink.
 - **Forging.** A record is signed by its node, so a home node can withhold it but not forge it. A newer sequence replaces an older one.
 - **Looking up.** A node or front door asks one of the five home nodes, and the next if it has no answer. It caches a record until it expires.
 - **When the list changes,** a periphery node's home nodes may change; its uplinks store the record with the new ones at the next renewal.
@@ -175,9 +176,11 @@ A new user can receive payments without paying anything up front. A free receive
 - **An account that does not exist yet** is synced with a balance of zero: its first activation happens before the account exists, so the Payment that creates it is booked as what it is, the uplink's settlement, by its memo and sender, not as a deposit. The reserve then goes through `equity/suspense`, as a balance below the reserve already does. A free receiver's scheme asks no faucet.
 - **A settlement to an account that does not exist** is at least the base reserve plus one largest packet, or the scheme is `Unavailable` for that peer. The ledger refuses a smaller Payment that would create an account with a `tec` result, which still costs the fee, and the settlement would be tried again and again.
 
+The first rule narrows a condition for real money, "an account's creation is a deposit" ([Real money](../roadmap.md#real-money), [XRP Ledger](../areas/xrpl.md#real-money)): it holds for every creation but one made by a peer's settlement, and its wording changes when this is built.
+
 **Ending a free receiver's peering** follows [D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md):
 
-- **The uplink evicts** a free receiver that has received nothing and sent nothing for 30 days. Ending the peering, the uplink pays nothing, so the receiver stays owed what it was owed. Its row stays, and counts toward the rows' limit (§4), until the receiver peers again and is settled as usual, or nothing is owed.
+- **The uplink evicts** a free receiver that has received nothing and sent nothing for 30 days. Ending the peering, the uplink pays nothing, and it still asks the receiver to settle once. A receiver whose account exists by then, and holds more than the reserve, answers as any junior does, paying half the way to its own trigger. Either way it loses at most the credit it extends. Its row stays, and counts toward the rows' limit (§4), until the receiver peers again and is settled as usual, or nothing is owed.
 - **A free receiver that leaves** asks the uplink to settle once, as any node ending a peering does. Below the reserve, the uplink has nothing it can send yet, and the receiver stays owed.
 - **On the uplink,** free receivers take at most half of its downlinks.
 
@@ -205,4 +208,5 @@ A browser node is a short-lived periphery node, for demos: it lets someone join 
 - **Choosing uplinks.** Which core nodes a periphery node picks by default, and whether the operator of a front door it uses counts.
 - **Front doors.** Whether anyone may run one, or only core nodes. Dassie-aware clients check signatures either way.
 - **A cold lookup** adds a round trip to a home node before the first stream. Caching and relays make it rare; whether that is enough is for measurement.
+- **Origins.** A node writes absolute URLs into its Open Payments responses (wallet address `id`, `authServer`, `resourceServer`, payment IDs, GNAP URIs), and checks signatures against its own origin, whatever `Host` says ([Payments](../areas/payments.md#http-routes)). A periphery node has no origin of its own and is reachable under many front doors' names and owners' domains. Which origins it accepts signatures for, and which it writes, is open: the one a request came through, if the node knows it as its own, is the likely answer.
 - **Withdrawal for room without debt.** §4 exempts downlinks that owe nothing. A core junior that has spent what it paid in advance is in the same position: withdrawing it also stops the payments that would raise its room.

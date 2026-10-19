@@ -25,7 +25,7 @@ The network has a core and a periphery. [The design](../designs/periphery.md) de
 ## Accepted
 
 - **Clients that do not check signatures trust the front door,** including with the STREAM secret of an incoming payment. The owner is told, and can turn off Open Payments through front doors.
-- **A free receiver trusts its uplink** with up to the credit it extends, and an uplink that evicts it pays nothing ([D28](D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)): the receiver stays owed until it peers again.
+- **A free receiver trusts its uplink** with up to the credit it extends. An uplink that evicts it collects first and pays nothing ([D28](D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)), so the receiver stays owed until it peers again, and loses at most that credit.
 - **Anyone who grinds enough core node keys can hide a node's record,** within registration's limits and, later, its fee. A relay the node chose still reaches it.
 - **A periphery node is reachable only through others.** If its uplinks and relays are gone, nobody can pay it until it connects again.
 
