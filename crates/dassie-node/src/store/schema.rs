@@ -719,11 +719,11 @@ CREATE INDEX ledger_transfers_by_packet ON ledger_transfers (packet_epoch, packe
 CREATE INDEX ledger_transfers_trust ON ledger_transfers (sequence) WHERE reference = 'trust';
 ";
 
-/// Since when a peer's room has been short of a packet, settling nothing
-/// (D12): kept, so that a node that restarts often still ends a link that
-/// stays short.
+/// How long a peer's room has been short of a packet, settling nothing,
+/// counted at checks at which the node could ask (D12): kept, so that a
+/// node that restarts often still ends a link that stays short.
 const MIGRATION_18: &str = "
-ALTER TABLE peers ADD COLUMN short_since_ms INTEGER;
+ALTER TABLE peers ADD COLUMN short_for_ms INTEGER NOT NULL DEFAULT 0;
 ";
 
 /// Columns that hold secrets: the database inspector never reads them.
@@ -912,7 +912,7 @@ pub const TABLES: &[Table] = &[
             ("inbound", "INTEGER", true, false),
             ("last_seen_ms", "INTEGER", true, false),
             ("replay_floor_ms", "INTEGER", true, false),
-            ("short_since_ms", "INTEGER", false, false),
+            ("short_for_ms", "INTEGER", true, false),
         ],
     },
     Table {

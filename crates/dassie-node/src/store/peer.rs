@@ -40,7 +40,7 @@ impl Store {
                     p.scheme, p.version, p.state, p.credit_out, p.since_ms,
                     p.inbound, p.last_seen_ms, p.replay_floor_ms,
                     t.since_ms, t.reason, t.by_us, t.acknowledged,
-                    p.short_since_ms
+                    p.short_for_ms
              FROM peer_nodes n LEFT JOIN peers p ON p.node = n.id
                LEFT JOIN peer_terminations t ON t.node = n.id
              ORDER BY n.id",
@@ -187,7 +187,8 @@ fn read_peering(row: &Row<'_>, scheme: &str) -> Result<Peering, StoreError> {
         since_ms: from_sql_time(row.get(13)?),
         inbound: row.get::<_, i64>(14)? != 0,
         last_seen_ms: from_sql_time(row.get(15)?),
-        short_since_ms: row.get::<_, Option<i64>>(21)?.map(from_sql_time),
+        short_for_ms: u64::try_from(row.get::<_, i64>(21)?)
+            .map_err(|_| StoreError::Corrupt("time short of room"))?,
     })
 }
 
@@ -282,11 +283,11 @@ fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), St
     };
     transaction.execute(
         "INSERT INTO peers (node, scheme, version, state, credit_out, since_ms,
-           inbound, last_seen_ms, replay_floor_ms, short_since_ms)
+           inbound, last_seen_ms, replay_floor_ms, short_for_ms)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
          ON CONFLICT (node) DO UPDATE SET scheme = ?2, version = ?3, state = ?4,
            credit_out = ?5, since_ms = ?6, inbound = ?7,
-           last_seen_ms = ?8, replay_floor_ms = ?9, short_since_ms = ?10",
+           last_seen_ms = ?8, replay_floor_ms = ?9, short_for_ms = ?10",
         params![
             node.id.as_str(),
             peering.scheme.as_str(),
@@ -297,7 +298,8 @@ fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), St
             i64::from(peering.inbound),
             to_sql_time(peering.last_seen_ms),
             to_sql_time(node.replay_floor_ms),
-            peering.short_since_ms.map(to_sql_time),
+            i64::try_from(peering.short_for_ms)
+                .map_err(|_| StoreError::Corrupt("time short of room"))?,
         ],
     )?;
     let Some(termination) = &node.termination else {

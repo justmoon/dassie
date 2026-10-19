@@ -12,6 +12,7 @@ use dassie_identity::NodeId;
 use dassie_ledger::{
     AccountName, AccountPath, LedgerId, Name, Reference, TransferId, TransferSpec,
 };
+use dassie_peer::Room;
 use dassie_peer::wire::SchemeId;
 use dassie_settlement::{LedgerStatus, policy};
 
@@ -145,7 +146,8 @@ impl Core {
     /// past the grace, settling nothing, is withdrawn as stuck rather than
     /// waiting for a routine settlement (D12). Each settlement booked from
     /// it starts the grace again. While our scheme does not see its ledger,
-    /// we cannot ask, and the peer is not counted short.
+    /// we cannot ask: nothing is judged, and the time short neither grows
+    /// nor starts again.
     fn report_room(&mut self) {
         let now = self.now_ms;
         let peers: Vec<(NodeId, SchemeId)> = self
@@ -154,16 +156,18 @@ impl Core {
             .map(|(id, peering)| (*id, peering.scheme))
             .collect();
         for (node, scheme) in peers {
-            // Nothing is judged while we cannot ask: a timer under way
-            // stays, as across a restart, and none starts.
-            if !self.sees_ledger(scheme) {
-                continue;
-            }
-            let short = self
+            let room = if !self.sees_ledger(scheme) {
+                Room::Unjudged
+            } else if self
                 .position(node, scheme)
                 // `minimum` is one of the largest packets (D25).
-                .is_some_and(|at| at.position < u128::from(self.settle.minimum));
-            self.peer.set_short(now, &node, short);
+                .is_some_and(|at| at.position < u128::from(self.settle.minimum))
+            {
+                Room::Short
+            } else {
+                Room::Enough
+            };
+            self.peer.room(now, &node, room);
         }
     }
 

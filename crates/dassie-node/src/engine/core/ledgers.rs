@@ -355,7 +355,8 @@ impl Core {
         // withdrawn for want of room starts again (D12).
         if let Ok(node) = dassie_identity::NodeId::parse(peer.as_str()) {
             self.settle.asked.remove(&node);
-            self.peer.set_short(self.now_ms, &node, false);
+            self.peer
+                .room(self.now_ms, &node, dassie_peer::Room::Enough);
         }
         Ok(())
     }

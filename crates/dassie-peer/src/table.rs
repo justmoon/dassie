@@ -198,11 +198,12 @@ pub struct Peering {
     pub inbound: bool,
     /// The last authenticated message from it (NET-12).
     pub last_seen_ms: u64,
-    /// Since when the room our books give the peer has been short of a
-    /// packet, settling nothing, as the node last reported it (D12). Kept
-    /// across a restart, so a node that restarts often still ends a link
-    /// that stays short.
-    pub short_since_ms: Option<u64>,
+    /// How long the room our books give the peer has been short of a
+    /// packet, settling nothing (D12): counted only between checks at
+    /// which the node could ask it to settle, so neither the node's
+    /// downtime nor an outage of its ledger counts. Kept across a restart,
+    /// so a node that restarts often still ends a link that stays short.
+    pub short_for_ms: u64,
 }
 
 impl Peering {
@@ -265,6 +266,23 @@ pub struct Advertise {
     pub hold_until_ms: u64,
     /// Withdrawals not yet forgotten.
     pub flaps: u32,
+    /// The last check that found the peer short while the node could ask:
+    /// the next one adds the time since. Not kept across a restart.
+    pub short_checked_ms: Option<u64>,
+}
+
+/// What a settlement check found of the room our books give a peer (D12).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Room {
+    /// Short of a packet: the time since the last check counts.
+    Short,
+    /// Room for a packet, or a settlement from the peer just booked: the
+    /// time short starts again from nothing.
+    Enough,
+    /// The node cannot ask the peer to settle (its scheme does not see its
+    /// ledger): nothing is judged, and the time short neither grows nor
+    /// starts again.
+    Unjudged,
 }
 
 /// A registration with us, as a bootstrap node.
@@ -366,6 +384,7 @@ impl Entry {
                 on_since_ms: 0,
                 hold_until_ms: 0,
                 flaps: 0,
+                short_checked_ms: None,
             },
             one_sided_at_ms: None,
             refuse_until_ms: 0,

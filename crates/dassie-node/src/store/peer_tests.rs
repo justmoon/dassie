@@ -31,7 +31,7 @@ fn node(seed: u8) -> StoredNode {
             since_ms: 14,
             inbound: true,
             last_seen_ms: 15,
-            short_since_ms: Some(17),
+            short_for_ms: 17,
         }),
         termination: None,
         replay_floor_ms: 16,
