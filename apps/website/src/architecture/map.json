@@ -1180,7 +1180,7 @@
   "tests": [
     {
       "t": "Deterministic simulation",
-      "p": "Whole networks run in one process with a fake clock and a seeded random generator. Faults are injected: latency, loss, crashes, mid-payment too, restarts and partitions. Every state machine checks its invariants after each step, and a failure prints the seed that reproduces it. Tests run fixed seeds; `dassie-sim` runs any other.",
+      "p": "Whole networks run in one process with a fake clock and a seeded random generator, at the timings of a real node: a simulated day takes seconds. Faults are injected: latency, loss, crashes, mid-payment too, restarts and partitions. Every state machine checks its invariants after each step, and a failure prints the seed that reproduces it. Tests run fixed seeds; `dassie-sim` runs any other.",
       "ev": "src/sim in dassie-stream, dassie-connector, dassie-peer and dassie-node, run by their tests and by dassie-sim"
     },
     {

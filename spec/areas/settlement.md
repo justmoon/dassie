@@ -247,7 +247,7 @@ Test money without an underlying ledger, for the test realm only.
 
 ## Timers and limits
 
-All values are policies of the node, set in its code; the values in brackets are the dev values, which tests and simulations use, and which `DASSIE_DEV_TIMINGS` switches on in the daemon ([Node](node.md)), except where the row says otherwise.
+All values are policies of the node, set in its code; the values in brackets are the dev values, for what runs on a real clock (the dev environment and the end-to-end tests), which `DASSIE_DEV_TIMINGS` switches on in the daemon ([Node](node.md)), except where the row says otherwise. The simulations run the production values ([Testing](testing.md#deterministic-simulation)).
 
 | What | Value |
 |---|---|

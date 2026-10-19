@@ -178,8 +178,9 @@ impl Config {
         settlement_retry_max_ms: 3_600_000,
     };
 
-    /// The dev and test settings (spec/areas/network.md#timers-and-limits):
-    /// the same rules, faster.
+    /// The dev settings (spec/areas/network.md#timers-and-limits): the same
+    /// rules, faster, for what runs on a real clock. The network simulations
+    /// run [`Config::DEFAULT`].
     pub const DEV: Self = Self {
         list_poll_interval_ms: 1_000,
         list_fresh_ms: 10_000,

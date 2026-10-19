@@ -15,11 +15,28 @@ use super::{Faults, Network, START, connected};
 use crate::wire::TerminationReason;
 use crate::{Config, routing};
 
-/// How long the network is rough.
-const CHAOS_MS: u64 = 90_000;
+/// The production settings: on the simulated clock a day costs seconds of
+/// wall time per seed, so nothing is scaled down.
+const CONFIG: Config = Config::DEFAULT;
 
-/// How long it then has to settle.
-const CALM_MS: u64 = 240_000;
+/// How long the network is rough: long enough for a termination toward a
+/// peer we cannot reach to time out, a bridge to be sought, and failed
+/// peerings to be retried, among the faults.
+const CHAOS_MS: u64 = 5 * 60_000;
+const _: () = assert!(
+    CHAOS_MS > CONFIG.termination_timeout_ms
+        && CHAOS_MS > CONFIG.bridge_check_ms + CONFIG.unreachable_grace_ms
+        && CHAOS_MS > CONFIG.list_poll_interval_ms + CONFIG.min_backoff_ms
+);
+
+/// How long it then has to settle: past an owner's cooldown, the longest
+/// backoff and the longest hold-down, so every pair may meet again. In a
+/// small network, a pair an owner parted may be a node's only way to its
+/// target.
+const CALM_MS: u64 = CONFIG.owner_termination_cooldown_ms
+    + CONFIG.max_backoff_ms
+    + CONFIG.advertise_hold_max_ms
+    + 10 * 60_000;
 
 /// The seed's generator for the run, and what it draws first: how many
 /// nodes, and how many of them are bootstrap nodes.
@@ -51,13 +68,7 @@ pub fn run(seed: u64) -> Run {
 #[must_use]
 pub fn network(seed: u64) -> Network {
     let (mut rng, count, bootstraps) = size(seed);
-    // An owner's termination keeps the pair apart for less than the calm,
-    // so the network can converge again.
-    let config = Config {
-        owner_termination_cooldown_ms: 30_000,
-        ..Config::DEV
-    };
-    let mut network = Network::new(seed, count, bootstraps, config);
+    let mut network = Network::new(seed, count, bootstraps, CONFIG);
     network.faults = Faults::ROUGH;
     network.settle_on_end = true;
     let mut at = START;
