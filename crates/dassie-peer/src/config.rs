@@ -101,6 +101,11 @@ pub struct Config {
     pub advertise_hold_max_ms: u64,
     /// Advertised this long without a break, a peer's flaps are forgotten.
     pub advertise_stable_ms: u64,
+    /// A peer whose room in our books stays short of a packet for this
+    /// long, without settling, is withdrawn: longer than a routine
+    /// settlement takes, and at least two requests to settle. One short for
+    /// [`Config::peer_dead_ms`] is terminated.
+    pub advertise_short_grace_ms: u64,
     /// How long the side that terminates keeps telling the other.
     pub termination_timeout_ms: u64,
     /// How long after an owner's termination the node does not ask the
@@ -170,6 +175,7 @@ impl Config {
         advertise_hold_min_ms: 30_000,
         advertise_hold_max_ms: 3_600_000,
         advertise_stable_ms: 3_600_000,
+        advertise_short_grace_ms: 120_000,
         termination_timeout_ms: 120_000,
         owner_termination_cooldown_ms: 86_400_000,
         max_bans: 1024,
@@ -197,6 +203,7 @@ impl Config {
         advertise_hold_min_ms: 5_000,
         advertise_hold_max_ms: 60_000,
         advertise_stable_ms: 300_000,
+        advertise_short_grace_ms: 10_000,
         termination_timeout_ms: 20_000,
         owner_termination_cooldown_ms: 300_000,
         settlement_retry_max_ms: 10_000,
@@ -250,8 +257,13 @@ impl Config {
             "a peer is unconfirmed before it is dead"
         );
         assert!(
-            self.advertise_stable_ms > self.peer_confirm_ms,
+            self.advertise_stable_ms > self.peer_confirm_ms
+                && self.advertise_stable_ms > self.advertise_short_grace_ms,
             "flaps are forgotten only after longer than a withdrawal takes"
+        );
+        assert!(
+            self.advertise_short_grace_ms > 0 && self.peer_dead_ms > self.advertise_short_grace_ms,
+            "a peer short of room is given time to settle, and withdrawn before it is ended"
         );
         assert!(
             self.max_channels >= self.max_peers && self.max_bans >= 1,

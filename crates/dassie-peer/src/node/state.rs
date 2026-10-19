@@ -189,8 +189,7 @@ impl PeerNode {
         entry.advertise = Advertise {
             on: confirmed && termination.is_none(),
             on_since_ms: now,
-            hold_until_ms: 0,
-            flaps: 0,
+            ..Advertise::default()
         };
         entry.peer = match termination {
             Some(termination) => {
@@ -268,6 +267,25 @@ impl PeerNode {
         {
             peering.state = state;
             self.dirty.insert(*peer);
+        }
+    }
+
+    /// Notes whether the room our books give `peer` is short of a packet.
+    /// A peer short for longer than
+    /// [`Config::advertise_short_grace_ms`](crate::Config) is no longer
+    /// advertised: it is stuck, not waiting for a routine settlement (D12).
+    pub fn set_short(&mut self, now_ms: u64, peer: &NodeId, short: bool) {
+        self.advance(now_ms);
+        let now = self.now_ms;
+        if let Some(entry) = self.table.get_mut(peer)
+            && entry.active_peering().is_some()
+        {
+            let since = &mut entry.advertise.short_since_ms;
+            *since = if short {
+                Some(since.unwrap_or(now))
+            } else {
+                None
+            };
         }
     }
 

@@ -164,6 +164,7 @@ when a peering ends      settle position − credit_out
 |---|---|---|
 | Trigger to ask | 1.5 | 0.15 |
 | Least settlement | 1 | 0.1 |
+| Room below which a peer is withdrawn, past a grace ([Network](network.md#advertised-peers)) | 1 | 0.1 |
 | Money in flight with a peer, each way | 2.5 | 0.25 |
 | Least default credit | 7.5 | 0.75 |
 | Most credit earned | 100 | 10 |

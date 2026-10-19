@@ -242,6 +242,7 @@ const fn reason(reason: TerminationReason) -> &'static str {
         TerminationReason::Owner => "owner",
         TerminationReason::Unresponsive => "unresponsive",
         TerminationReason::NotPeered => "not-peered",
+        TerminationReason::ShortOfRoom => "short-of-room",
     }
 }
 

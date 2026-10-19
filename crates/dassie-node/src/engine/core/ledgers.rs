@@ -351,8 +351,11 @@ impl Core {
         // next check (D23). Not on its message alone, which on a ledger
         // like the XRP Ledger books nothing: asked again before our books
         // moved, an honest peer would pay twice.
+        // And a peer that settles is not stuck: the grace before it is
+        // withdrawn for want of room starts again (D12).
         if let Ok(node) = dassie_identity::NodeId::parse(peer.as_str()) {
             self.settle.asked.remove(&node);
+            self.peer.set_short(self.now_ms, &node, false);
         }
         Ok(())
     }

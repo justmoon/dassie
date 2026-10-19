@@ -276,7 +276,8 @@ export type NetworkPeer = Message<"dassie.ui.v1.NetworkPeer"> & {
   state: string;
 
   /**
-   * Why it is being ended, if it is: "owner", "unresponsive", "not-peered"
+   * Why it is being ended, if it is: "owner", "unresponsive", "not-peered",
+   * "short-of-room"
    * or "unspecified".
    *
    * @generated from field: string termination_reason = 10;

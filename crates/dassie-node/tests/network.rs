@@ -266,7 +266,9 @@ fn liar_owes(sim: &Sim) -> i128 {
 }
 
 // D23: a peer that never settles uses the credit it was given, and no
-// more: past it, its packets are refused. It is not banned for it.
+// more: past it, its packets are refused. It is not banned for it, but it
+// is withdrawn once its room stays short of a packet past the grace (D12),
+// and stays peered.
 #[test]
 fn a_peer_that_never_settles_costs_at_most_its_credit() {
     for seed in 0..20 {
@@ -284,8 +286,46 @@ fn a_peer_that_never_settles_costs_at_most_its_credit() {
             !sim.payments[0].done,
             "seed {seed}: it paid past its credit"
         );
-        assert!(sim.peers(0).contains(&key(1).node_id()), "seed {seed}");
+        let liar = key(1).node_id();
         assert!(sim.core(0).network().bans.is_empty(), "seed {seed}");
+        assert!(sim.peers(0).contains(&liar), "seed {seed}");
+        assert!(
+            !sim.advertises(0, &liar),
+            "seed {seed}: node 0 still advertises it"
+        );
+        assert!(
+            sim.withdrawn
+                .iter()
+                .any(|(_, by, peer)| *by == 0 && *peer == liar),
+            "seed {seed}: node 0 did not withdraw it for room"
+        );
+    }
+}
+
+// D12: a peer whose room stays short of a packet, settling nothing, for as
+// long as a silent peer is kept, is ended with reason 4: a link that stuck
+// or drifted past what it survives is not saved.
+#[test]
+fn a_peer_short_of_room_for_a_day_is_ended() {
+    // Each seed simulates a day, about 2.5 s of wall time.
+    for seed in 0..3 {
+        let mut sim = liar_network(seed, Lie::NeverSettle);
+        sim.pay(1, 0, LIAR_PAYS, None, None);
+        let spent = |sim: &Sim| liar_owes(sim) > CREDIT * 9 / 10;
+        assert!(
+            sim.run_until_or(sim.now + 120_000, spent),
+            "seed {seed}: it never spent its credit"
+        );
+        let peer = Policies::DEFAULT.peer;
+        sim.run_until(sim.now + peer.advertise_short_grace_ms + peer.peer_dead_ms + 10 * 60_000);
+        let liar = key(1).node_id();
+        let ended = format!(" 0 PeerNode(Terminating {{ peer: {liar:?}, reason: ShortOfRoom");
+        assert!(
+            sim.trace.iter().any(|line| line.contains(&ended)),
+            "seed {seed}: node 0 did not end the peering for room"
+        );
+        assert!(sim.core(0).network().bans.is_empty(), "seed {seed}");
+        assert!(liar_owes(&sim) <= CREDIT, "seed {seed}");
     }
 }
 
@@ -325,7 +365,15 @@ fn a_peer_that_spends_its_credit_and_vanishes_costs_at_most_that_credit() {
 // and books what the peer pays as its settlement.
 #[test]
 fn a_node_asks_no_one_to_settle_before_it_sees_its_ledger() {
-    let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::Xrpl);
+    // Node 0 cannot pay its senior in advance while its ledger is down, so
+    // node 1 would withdraw it, and end the peering after a day (the next
+    // test): here the grace outlasts the outage.
+    let peer = dassie_peer::Config {
+        advertise_short_grace_ms: 4 * 60_000,
+        peer_dead_ms: 10 * 60_000,
+        ..Policies::DEFAULT.peer
+    };
+    let mut sim = Sim::with_peer(7, 2, 1, BTreeMap::new(), Settling::Xrpl, peer);
     sim.loss_per_mille = 0;
     sim.ledger_down.insert(0);
     sim.run_until(START + 60_000);
@@ -352,6 +400,56 @@ fn a_node_asks_no_one_to_settle_before_it_sees_its_ledger() {
     sim.ledger_down.clear();
     sim.run_until(sim.now + 180_000);
     assert!(settled(&sim) > 0, "node 1 never settled");
+    assert!(sim.payments[0].done, "the payment did not finish");
+    check(&sim).unwrap();
+}
+
+// D12: a peer whose room stays short of a packet past the grace, settling
+// nothing, is withdrawn, and advertised again once it settles. Node 0, the
+// junior, cannot pay its senior in advance while it cannot see its ledger:
+// node 1 asks, and withdraws it once the grace is over. Both stay peered.
+// Once the ledger is back, node 0 pays in advance, node 1 lists it again,
+// and a payment goes through.
+#[test]
+fn a_peer_short_of_room_is_withdrawn_until_it_settles() {
+    let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::Xrpl);
+    sim.loss_per_mille = 0;
+    sim.ledger_down.insert(0);
+    // Past the grace, 2 min, counted from when node 1 could first ask.
+    sim.run_until(START + 4 * 60_000);
+    assert!(!sim.peers(0).is_empty(), "the nodes did not peer");
+    let (senior, junior) = (1, 0);
+    assert!(
+        !sim.core(junior).network().peers[0].peering.inbound,
+        "node 0 is not the junior"
+    );
+    let (senior_id, junior_id) = (key(senior).node_id(), key(junior).node_id());
+    assert!(
+        !sim.advertises(senior, &junior_id),
+        "the senior advertises a junior that has not paid in advance"
+    );
+    assert_eq!(
+        sim.withdrawn
+            .iter()
+            .map(|(_, by, peer)| (*by, *peer))
+            .collect::<Vec<_>>(),
+        [(senior, junior_id)],
+        "only the senior withdraws"
+    );
+    assert!(
+        sim.advertises(junior, &senior_id),
+        "the junior withdrew its senior"
+    );
+    assert!(sim.peers(senior).contains(&junior_id), "the peering ended");
+    sim.ledger_down.clear();
+    let back = |sim: &Sim| sim.advertises(senior, &junior_id);
+    assert!(
+        sim.run_until_or(sim.now + 120_000, back),
+        "the senior never listed the junior again"
+    );
+    assert!(sim.owes(senior, &junior_id) > 0, "not paid in advance");
+    sim.pay(junior, senior, 200_000_000, None, None);
+    sim.run_until(sim.now + 60_000);
     assert!(sim.payments[0].done, "the payment did not finish");
     check(&sim).unwrap();
 }

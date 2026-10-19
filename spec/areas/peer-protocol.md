@@ -401,7 +401,9 @@ RegistrationResponse ::= SEQUENCE { expiresAtMs UINT64 }   -- 8 bytes; v0 answer
 
 ```
 reason: 0 unspecified, 1 by the owner (or a ban), 2 unresponsive,
-        3 not peered (the sender holds no peering with the recipient); unknown values read as 0
+        3 not peered (the sender holds no peering with the recipient),
+        4 short of room (the recipient's room in the sender's books stayed short of a
+          packet, without a settlement); unknown values read as 0
 ```
 
 - From a peer whose peering is `peered`: the recipient begins terminating too, and answers 200.

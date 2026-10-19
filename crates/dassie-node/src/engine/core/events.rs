@@ -381,9 +381,10 @@ impl Event {
 const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
     use dassie_peer::Event;
     match event {
-        Event::Peered { .. } | Event::Terminating { .. } | Event::PeeringEnded { .. } => {
-            Severity::Info
-        }
+        Event::Peered { .. }
+        | Event::Terminating { .. }
+        | Event::PeeringEnded { .. }
+        | Event::Advertised { short: true, .. } => Severity::Info,
         Event::SettlementRefused { .. } => Severity::Error,
         Event::RoutesChanged
         | Event::NodeAdded(_)

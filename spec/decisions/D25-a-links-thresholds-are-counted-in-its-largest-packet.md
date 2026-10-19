@@ -9,7 +9,7 @@
 
 ## Decision
 
-A node counts every threshold of a link in its largest packet, not in the credit: the trigger to ask for settlement (one and a half packets), the least settlement (one), and the most in flight (two and a half, [D24](D24-money-in-flight-with-a-peer-stays-within-a-few-packets.md)). Even a senior that extends nothing then asks while its junior still has room. A node refuses to start with a default credit too small for a link to survive one crash's drift. [Settlement](../areas/settlement.md) states the numbers and the formula.
+A node counts every threshold of a link in its largest packet, not in the credit: the trigger to ask for settlement (one and a half packets), the least settlement (one), and the most in flight (two and a half, [D24](D24-money-in-flight-with-a-peer-stays-within-a-few-packets.md)). Even a senior that extends nothing then asks while its junior still has room. A peer whose room stays below one packet past a grace, settling nothing, is no longer advertised (2026-10-19, [D12](D12-peering-lifecycle-and-liveness.md#refinement-a-peer-that-stays-short-of-room-2026-10-19)). A node refuses to start with a default credit too small for a link to survive one crash's drift. [Settlement](../areas/settlement.md) states the numbers and the formula.
 
 ## Accepted
 

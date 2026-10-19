@@ -354,8 +354,7 @@ impl PeerNode {
         entry.advertise = Advertise {
             on: true,
             on_since_ms: now,
-            hold_until_ms: 0,
-            flaps: 0,
+            ..Advertise::default()
         };
         entry.peer = PeerState::Peered(PeeringState {
             scheme,

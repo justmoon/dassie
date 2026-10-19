@@ -8,7 +8,7 @@ use dassie_connector::{CapUsage, replay};
 use dassie_node_core::testing::Outcome;
 use dassie_settlement::policy;
 
-use super::{Payment, Settling, Sim, TRIGGER, USD, XRP, key, received, sent, xrpl_account};
+use super::{Payment, START, Settling, Sim, TRIGGER, USD, XRP, key, received, sent, xrpl_account};
 use crate::store::OutgoingState;
 
 /// A capped token spent at most its cap plus what refilled, over every
@@ -206,6 +206,18 @@ pub fn check_settled(sim: &Sim) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Routine settlement never withdraws an honest peer for room: only a peer
+/// that stays short, settling nothing, past the grace (D12).
+pub fn check_withdrawn(sim: &Sim) -> Result<(), String> {
+    match sim.withdrawn.first() {
+        Some((at, by, peer)) => Err(format!(
+            "node {by} withdrew {peer} for room at {}",
+            at - START
+        )),
+        None => Ok(()),
+    }
 }
 
 /// No node reported an error, nor lost an event.

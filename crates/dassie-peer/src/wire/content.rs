@@ -97,6 +97,9 @@ pub enum TerminationReason {
     /// The sender holds no peering with the recipient: the recipient's is
     /// left over.
     NotPeered,
+    /// The recipient's room in the sender's books stayed short of a packet,
+    /// without a settlement, for too long (D12).
+    ShortOfRoom,
 }
 
 impl TerminationReason {
@@ -108,6 +111,7 @@ impl TerminationReason {
             Self::Owner => 1,
             Self::Unresponsive => 2,
             Self::NotPeered => 3,
+            Self::ShortOfRoom => 4,
         }
     }
 
@@ -118,6 +122,7 @@ impl TerminationReason {
             1 => Self::Owner,
             2 => Self::Unresponsive,
             3 => Self::NotPeered,
+            4 => Self::ShortOfRoom,
             _ => Self::Unspecified,
         }
     }
