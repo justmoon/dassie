@@ -81,7 +81,7 @@ enum Inbound {
     Packet(NodeId, u32, Vec<u8>, Reply),
     Settlement(NodeId, SchemeId, u64, Vec<u8>, u64, Reply),
     SchemeMessage(NodeId, SchemeId, Vec<u8>, Reply),
-    SettlementRequest(NodeId, SchemeId, Reply),
+    SettlementRequest(NodeId, SchemeId, dassie_peer::SettlementAnswer),
 }
 
 /// A node's name in the ledger.
@@ -351,8 +351,8 @@ impl Core {
                 dassie_peer::Inbound::SettlementRequest {
                     from,
                     scheme,
-                    reply,
-                } => Inbound::SettlementRequest(from, scheme, reply),
+                    answer,
+                } => Inbound::SettlementRequest(from, scheme, answer),
             }
         });
         let reply = match outcome {
@@ -369,9 +369,9 @@ impl Core {
                 self.scheme_message(from, scheme, &message);
                 Some(reply)
             }
-            Inbound::SettlementRequest(from, scheme, reply) => {
-                self.settlement_requested(from, scheme);
-                Some(reply)
+            Inbound::SettlementRequest(from, scheme, answer) => {
+                let settling = self.settlement_requested(from, scheme);
+                Some(answer.reply(settling))
             }
         };
         if let Some(reply) = reply {

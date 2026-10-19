@@ -395,6 +395,7 @@ const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
         | Event::PeeringFailed { .. }
         | Event::Advertised { .. }
         | Event::SettlementDelivered { .. }
+        | Event::SettlementRequestAnswered { .. }
         | Event::SettlementRequestRefused { .. } => Severity::Debug,
     }
 }

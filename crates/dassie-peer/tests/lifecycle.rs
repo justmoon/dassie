@@ -747,6 +747,12 @@ fn a_settlement_request_reaches_the_peer_only() {
     settle(&mut network, 1_000);
     assert_eq!(network.settlement_requests, [(0, b)]);
     assert_eq!(network.node(1).stats().settlements_requested, 1);
+    // Its answer says what it has on its way: nothing, here (D28).
+    let answered = Event::SettlementRequestAnswered {
+        peer: a,
+        settling: Some(0),
+    };
+    assert!(network.events.contains(&(1, answered)));
     let mut sender = Sender::new(&key(1));
     let other = Content::SettlementRequest {
         scheme: SchemeId::parse("other").unwrap(),

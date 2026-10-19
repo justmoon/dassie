@@ -547,3 +547,62 @@ fn an_error_event_fails_the_run() {
     assert_eq!(sim.errors.len(), 2);
     sim.errors.clear();
 }
+
+// A peer asked to settle answers with what it has on its way (D28): the
+// settlement it makes, or one already under way, which under the
+// one-at-a-time rule is the whole answer. Every amount a node is told is
+// one its peer made to it.
+#[test]
+fn a_peer_asked_to_settle_tells_what_it_has_on_its_way() {
+    let id = |index: usize| format!("{:?}", key(index).node_id());
+    let mut told = 0;
+    for seed in 0..6 {
+        let run = scripted::run(seed);
+        assert!(!run.outcome.is_failure(), "seed {seed}: {}", run.outcome);
+        // (who settled, to whom, how much)
+        let mut made = std::collections::BTreeSet::new();
+        for line in &run.trace {
+            let mut words = line.split(' ');
+            let (Some(_), Some(index)) = (words.next(), words.next()) else {
+                continue;
+            };
+            let Ok(index) = index.parse::<usize>() else {
+                continue;
+            };
+            let field = |name: &str| {
+                let start = line.find(name)? + name.len();
+                let rest = &line[start..];
+                Some(rest[..rest.find([',', ' ', '}'])?].to_string())
+            };
+            if line.contains("Settlement(Settling {") {
+                let node = line[line.find("node: ").unwrap() + 6..]
+                    .split(',')
+                    .next()
+                    .unwrap();
+                let amount = field("amount: ").unwrap();
+                made.insert((index, node.to_string(), amount));
+            }
+            if line.contains("SettlementRequestAnswered") {
+                let Some(amount) =
+                    field("settling: Some(").map(|a| a.trim_end_matches(')').to_string())
+                else {
+                    panic!("seed {seed}: an answer without an amount: {line}");
+                };
+                if amount == "0" {
+                    continue;
+                }
+                let peer = line[line.find("peer: ").unwrap() + 6..]
+                    .split(',')
+                    .next()
+                    .unwrap();
+                let from = (0..8).find(|i| id(*i) == peer).unwrap();
+                assert!(
+                    made.contains(&(from, id(index), amount.clone())),
+                    "seed {seed}: node {index} was told of {amount} that node {from} did not make: {line}"
+                );
+                told += 1;
+            }
+        }
+    }
+    assert!(told > 0, "no peer answered with an amount on its way");
+}

@@ -651,13 +651,14 @@ impl Network {
                 Some(reply)
             }
             Inbound::SchemeMessage { reply, .. } => Some(reply),
+            // Nothing settles here: nothing is on its way.
             Inbound::SettlementRequest {
                 from: sender,
-                reply,
+                answer,
                 ..
             } => {
                 self.settlement_requests.push((to, sender));
-                Some(reply)
+                Some(answer.reply(0))
             }
         };
         self.drain(to);
@@ -786,8 +787,8 @@ impl Network {
         let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, body, None) {
             Inbound::Reply(reply)
             | Inbound::Packet { reply, .. }
-            | Inbound::SchemeMessage { reply, .. }
-            | Inbound::SettlementRequest { reply, .. } => reply,
+            | Inbound::SchemeMessage { reply, .. } => reply,
+            Inbound::SettlementRequest { answer, .. } => answer.reply(0),
             Inbound::Settlement {
                 from,
                 sequence,

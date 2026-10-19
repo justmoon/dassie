@@ -19,8 +19,8 @@ use dassie_peer::wire::{
     Authentication, Content, Entry, Envelope, EnvelopeError, HmacAuthentication, InvalidNodeInfo,
     Kind, LinkStateResponse, MAX_URL_BYTES, NodeInfo, NodeListResponse, PeeringRequest,
     PeeringResponse, RefusalReason, ResponseEnvelope, SchemeId, SignedNodeInfo, TerminationReason,
-    decode_expiry, decode_hash, decode_octets, encode_envelope, encode_expiry, encode_octets,
-    encode_response, is_valid_url, peek_kind, sign_node_info,
+    decode_expiry, decode_hash, decode_octets, decode_settling, encode_envelope, encode_expiry,
+    encode_octets, encode_response, encode_settling, is_valid_url, peek_kind, sign_node_info,
 };
 use proptest::prelude::*;
 use sha2::{Digest, Sha256};
@@ -408,7 +408,7 @@ fn decode_content(bytes: &[u8]) -> Result<(), TestCaseError> {
 }
 
 /// How many kinds of response body there are.
-const RESPONSES: usize = 7;
+const RESPONSES: usize = 8;
 
 /// A valid response body of kind `kind`.
 fn response(kind: usize) -> Vec<u8> {
@@ -430,6 +430,7 @@ fn response(kind: usize) -> Vec<u8> {
         4 => vec![7; 32],
         5 => encode_expiry(1_800_000_000_000),
         6 => encode_octets(b"peering info"),
+        7 => encode_settling(433_793_000),
         _ => unreachable!(),
     }
 }
@@ -463,6 +464,10 @@ fn decode_response(kind: usize, body: &[u8]) -> Result<(), TestCaseError> {
                 prop_assert_eq!(encode_octets(data), body);
             }
         }
+        7 => prop_assert_eq!(
+            decode_settling(body).is_ok(),
+            body.is_empty() || body.len() == 8
+        ),
         _ => unreachable!(),
     }
     Ok(())
@@ -622,4 +627,20 @@ proptest! {
         };
         prop_assert!(info.verify().is_err());
     }
+}
+
+// The answer to a settlement request is the amount on its way, eight bytes
+// big-endian; an empty answer, from a node before D28, says nothing.
+#[test]
+fn a_settlement_requests_answer_is_the_amount_on_its_way() {
+    assert_eq!(
+        encode_settling(0x0102_0304_0506_0708),
+        [1, 2, 3, 4, 5, 6, 7, 8]
+    );
+    assert_eq!(
+        decode_settling(&[1, 2, 3, 4, 5, 6, 7, 8]),
+        Ok(Some(0x0102_0304_0506_0708))
+    );
+    assert_eq!(decode_settling(&[]), Ok(None));
+    assert!(decode_settling(&[1, 2, 3]).is_err());
 }

@@ -36,15 +36,14 @@ The simulations are to run continuously, outside CI, from random seeds; each see
 
 ### Ending a peering
 
-Today both sides of a termination settle everything they owe once the exchange completes ([Settlement](areas/settlement.md#settling-at-a-peerings-end)). Under [D28](decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md), the node that ends a peering collects first and pays nothing, and the node being ended stops at once.
+Today both sides of a termination settle everything they owe once the exchange completes ([Settlement](areas/settlement.md#settling-at-a-peerings-end)). Under [D28](decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md), the node that ends a peering collects first and pays nothing, and the node being ended stops at once. On `main` so far: the answer to `settlementRequest` says what the peer has on its way ([Settlement](areas/settlement.md#settling-on-request)).
 
 - **What it covers:**
   - **A private depeering state** on the side that ends a peering, kept across restarts. In it, the node refuses the peer's new Prepares (as for a peer short of room) and settles nothing the peer asks for, answering both as usual. It still advertises the peer and sends its own Prepares through it.
   - **The sequence before `peeringTermination`:**
     1. wait for its own settlements to the peer that are under way, for at most the same time as step 3;
     2. ask the peer to settle once;
-    3. wait until what the peer has on its way is booked, or a time derived from how long a settlement takes to reach the ledger and be announced.
-  - **An amount in the answer to `settlementRequest`:** what the peer has on its way, whether a settlement already under way or the one it makes now; 0 for nothing. An answer without one, from an older node, gets the whole wait.
+    3. wait until what the peer has on its way, by its answer, is booked, or a time derived from how long a settlement takes to reach the ledger and be announced; an answer without an amount, from an older node, gets the whole wait.
   - **The node being ended** ends the peering on `peeringTermination` at once. It stops advertising and routing to the peer, takes no new Prepares and answers no settlement request. It lets Fulfills and Rejects of packets in flight finish both ways, and settles nothing.
   - **A settlement after the end** is credited to the peer's account once, as today, and its message is acknowledged.
   - **Both sides ending at once:** the first `peeringTermination` to arrive makes its recipient the node being ended.

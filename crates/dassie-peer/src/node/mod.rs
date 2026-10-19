@@ -445,13 +445,19 @@ impl PeerNode {
     ) {
         match purpose {
             Purpose::Gossip => {}
-            Purpose::SettlementRequest => {
+            Purpose::SettlementRequest => match result {
+                Ok(body) => {
+                    // An answer it cannot read says nothing of the amount.
+                    let settling = crate::wire::decode_settling(&body).ok().flatten();
+                    self.event(Event::SettlementRequestAnswered { peer: to, settling });
+                }
                 // Refused for not being peered: asked before the peer took
                 // in our acceptance. It may be asked again at once.
-                if matches!(result, Err(Problem::Status(409))) {
+                Err(Problem::Status(409)) => {
                     self.event(Event::SettlementRequestRefused { peer: to });
                 }
-            }
+                Err(_) => {}
+            },
             Purpose::HashPoll => self.on_hash(to, result),
             Purpose::ListDownload => self.on_list(to, result),
             Purpose::Registration => self.on_registered(to, result),

@@ -318,6 +318,29 @@ pub fn decode_expiry(body: &[u8]) -> Result<u64, DecodeError> {
     Ok(expiry)
 }
 
+/// Encodes the answer to a settlement request: how much the answering node
+/// has on its way to the asker, in the scheme ledger's units (D28).
+#[must_use]
+pub fn encode_settling(amount: u64) -> Vec<u8> {
+    amount.to_be_bytes().to_vec()
+}
+
+/// Reads the answer to a settlement request: `None` for an empty one, as a
+/// node from before D28 answers.
+///
+/// # Errors
+///
+/// It is neither empty nor eight bytes.
+pub fn decode_settling(body: &[u8]) -> Result<Option<u64>, DecodeError> {
+    if body.is_empty() {
+        return Ok(None);
+    }
+    let mut reader = Reader::new(body);
+    let amount = reader.read_u64()?;
+    reader.finish()?;
+    Ok(Some(amount))
+}
+
 /// Reads a node-list hash.
 ///
 /// # Errors

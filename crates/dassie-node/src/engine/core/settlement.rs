@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 use dassie_identity::NodeId;
 use dassie_ledger::{
-    AccountName, AccountPath, LedgerId, Name, Reference, TransferId, TransferSpec,
+    AccountName, AccountPath, LedgerId, Name, Reference, Transfer, TransferId, TransferSpec,
 };
 use dassie_peer::Room;
 use dassie_peer::wire::SchemeId;
@@ -227,9 +227,17 @@ impl Core {
     /// A peer asks us to settle on `scheme`: we settle half the way to our
     /// own trigger for it, unless a settlement to it is on its way already,
     /// which is the answer (D23).
-    pub(super) fn settlement_requested(&mut self, node: NodeId, scheme: SchemeId) {
-        if self.settle.never_settles || !self.can_settle(&node) {
-            return;
+    ///
+    /// Returns what is then on its way to the peer, which the answer tells
+    /// it (D28): a settlement already under way, which is the whole answer,
+    /// or the one made now.
+    pub(super) fn settlement_requested(&mut self, node: NodeId, scheme: SchemeId) -> u64 {
+        if self.settle.never_settles {
+            return 0;
+        }
+        let under_way = self.settling_to(&node);
+        if under_way > 0 || !self.can_settle(&node) {
+            return under_way;
         }
         let Some(state) = self
             .peer
@@ -237,10 +245,10 @@ impl Core {
             .filter(|peering| peering.scheme == scheme)
             .map(|peering| peering.state.clone())
         else {
-            return;
+            return 0;
         };
         let Some(at) = self.position(node, scheme) else {
-            return;
+            return 0;
         };
         let amount = self.whole_units(
             &at.scheme,
@@ -249,6 +257,26 @@ impl Core {
         if amount > 0 {
             self.prepare_settlement(node, &at, amount, &state);
         }
+        self.settling_to(&node)
+    }
+
+    /// What is on its way to `node`, in its scheme ledger's units: our
+    /// settlements still pending in the ledger (prepared, executing, or
+    /// waiting to be announced), and the one announced that it has not yet
+    /// acknowledged.
+    fn settling_to(&self, node: &NodeId) -> u64 {
+        let pending: u64 = self
+            .ledger
+            .pending_transfers()
+            .filter(|transfer| self.settles_to(transfer, node))
+            .map(|transfer| transfer.amount)
+            .sum();
+        let announced = self
+            .peer
+            .channel(node)
+            .and_then(|channel| channel.outbox.as_ref())
+            .map_or(0, |outbox| outbox.amount);
+        pending.saturating_add(announced)
     }
 
     /// Settles everything owed with peerings that ended while the other
@@ -320,13 +348,18 @@ impl Core {
     /// Whether a settlement transfer to `node` is pending in the ledger,
     /// on any scheme.
     fn pending_settlement_to(&self, node: &NodeId) -> bool {
-        self.ledger.pending_transfers().any(|transfer| {
-            matches!(transfer.reference, Reference::Settlement { .. })
-                && self.ledger.account(transfer.debit).is_some_and(|account| {
-                    matches!(account.path().name,
-                        AccountName::AssetsInterledger(peer) if peer.as_str() == node.as_str())
-                })
-        })
+        self.ledger
+            .pending_transfers()
+            .any(|transfer| self.settles_to(transfer, node))
+    }
+
+    /// Whether `transfer` is a settlement of ours to `node`.
+    fn settles_to(&self, transfer: &Transfer, node: &NodeId) -> bool {
+        matches!(transfer.reference, Reference::Settlement { .. })
+            && self.ledger.account(transfer.debit).is_some_and(|account| {
+                matches!(account.path().name,
+                    AccountName::AssetsInterledger(peer) if peer.as_str() == node.as_str())
+            })
     }
 
     /// The credit we extend to `node` on `scheme`'s ledger now.
