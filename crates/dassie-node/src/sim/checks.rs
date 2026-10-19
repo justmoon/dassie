@@ -9,7 +9,7 @@ use dassie_node_core::testing::Outcome;
 use dassie_settlement::policy;
 
 use super::{Payment, START, Settling, Sim, TRIGGER, USD, XRP, key, received, sent, xrpl_account};
-use crate::store::OutgoingState;
+use crate::store::{OutgoingState, PaymentId};
 
 /// A capped token spent at most its cap plus what refilled, over every
 /// period the journal shows, and its checkpoint is the journal's replay.
@@ -239,19 +239,90 @@ pub fn check_events(sim: &Sim) -> Result<(), String> {
     }
 }
 
-/// Everything a run over one ledger checks once the network is calm: what
-/// must never happen first, so that a run that broke both says safety.
-pub fn check(sim: &Sim) -> Result<(), Outcome> {
-    check_events(sim).map_err(Outcome::Safety)?;
+/// What must never happen, even with packets in flight: a capped token
+/// spent past its cap, a payment received more than it asked for, or a
+/// payment vanished. A run that did not settle down checks these, and
+/// fails for safety, before it fails for liveness.
+pub fn check_mid_flight(sim: &Sim) -> Result<(), Outcome> {
     for payment in &sim.payments {
         check_cap(sim, payment).map_err(Outcome::Safety)?;
+        let row = sim.nodes[payment.to]
+            .store
+            .incoming_payment(payment.incoming)
+            .unwrap()
+            .ok_or_else(|| Outcome::Safety("an incoming payment vanished".into()))?;
+        if let Some(limit) = payment.limit
+            && row.received_amount > limit
+        {
+            return Err(Outcome::Safety(format!(
+                "an incoming payment of {limit} received {}",
+                row.received_amount
+            )));
+        }
     }
-    check_books(sim)?;
-    check_finished(sim).map_err(Outcome::Liveness)?;
-    for payment in &sim.payments {
-        check_incoming(sim, payment)?;
+    for &(from, to, incoming, outgoing) in &sim.outgoing {
+        let row = sim.nodes[from]
+            .store
+            .outgoing_payment(outgoing)
+            .unwrap()
+            .ok_or_else(|| Outcome::Safety("an outgoing payment vanished".into()))?;
+        let received = sim.nodes[to]
+            .store
+            .incoming_payment(incoming)
+            .unwrap()
+            .map_or(0, |row| row.received_amount);
+        if received > row.receive_amount.value {
+            return Err(Outcome::Safety(format!(
+                "node {to} received {received}, more than the {} it asked for",
+                row.receive_amount.value
+            )));
+        }
     }
-    check_outgoing(sim)
+    Ok(())
+}
+
+/// The first safety failure among `results`, or else the first other
+/// failure: a run that broke something that must never happen says so,
+/// whatever else it failed to do.
+pub fn first_failure(
+    results: impl IntoIterator<Item = Result<(), Outcome>>,
+) -> Result<(), Outcome> {
+    let mut other = None;
+    for result in results {
+        match result {
+            Ok(()) => {}
+            Err(failure @ Outcome::Safety(_)) => return Err(failure),
+            Err(failure) => {
+                other.get_or_insert(failure);
+            }
+        }
+    }
+    other.map_or(Ok(()), Err)
+}
+
+/// Everything a run over one ledger checks once the network is calm. Every
+/// check runs, and a run that broke both says safety.
+pub fn check(sim: &Sim) -> Result<(), Outcome> {
+    let caps = sim
+        .payments
+        .iter()
+        .map(|payment| check_cap(sim, payment).map_err(Outcome::Safety));
+    let incoming = sim
+        .payments
+        .iter()
+        .map(|payment| check_incoming(sim, payment));
+    first_failure(
+        [check_events(sim).map_err(Outcome::Safety)]
+            .into_iter()
+            .chain(caps)
+            .chain([
+                check_books(sim),
+                check_finished(sim).map_err(Outcome::Liveness),
+                check_outgoing(sim),
+            ])
+            .chain(incoming)
+            .collect::<Vec<_>>(),
+    )
 }
 
 /// Every payment's client sent all it meant to.
@@ -288,47 +359,63 @@ pub fn check_finished(sim: &Sim) -> Result<(), String> {
 /// than it asked for, is a safety failure; a payment that did not complete,
 /// liveness, unless its payer gave up while the network was faulty.
 pub fn check_outgoing(sim: &Sim) -> Result<(), Outcome> {
-    for &(from, to, incoming, outgoing) in &sim.outgoing {
-        let row = sim.nodes[from]
-            .store
-            .outgoing_payment(outgoing)
-            .unwrap()
-            .ok_or_else(|| Outcome::Safety("an outgoing payment vanished".into()))?;
-        let received = sim.nodes[to]
-            .store
-            .incoming_payment(incoming)
-            .unwrap()
-            .map_or(0, |row| row.received_amount);
-        if received < row.sent_amount {
-            return Err(Outcome::Safety(format!(
-                "node {to} received {received} of the {} node {from} sent",
-                row.sent_amount
-            )));
-        }
-        if received > row.receive_amount.value {
-            return Err(Outcome::Safety(format!(
-                "node {to} received {received}, more than the {} it asked for",
-                row.receive_amount.value
-            )));
-        }
-        // One whose payer gave up while the network was faulty may have
-        // failed; what it sent still arrived.
-        if row.state == OutgoingState::Failed && sim.given_up.contains(&outgoing) {
-            continue;
-        }
-        if row.state != OutgoingState::Completed {
-            let incoming_row = sim.nodes[to].store.incoming_payment(incoming).unwrap();
-            return Err(Outcome::Liveness(format!(
-                "an outgoing payment from {from} to {to} ended {:?} ({:?}) having sent {} of {}; its receiver: {incoming_row:?}",
-                row.state, row.failure, row.sent_amount, row.debit_amount
-            )));
-        }
-        if received != row.receive_amount.value {
-            return Err(Outcome::Liveness(format!(
-                "node {to} received {received} of the {} node {from} sent, for {}",
-                row.sent_amount, row.receive_amount.value
-            )));
-        }
+    first_failure(
+        sim.outgoing
+            .iter()
+            .map(|&(from, to, incoming, outgoing)| {
+                check_outgoing_payment(sim, from, to, incoming, outgoing)
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
+/// One outgoing payment, as [`check_outgoing`] checks it.
+fn check_outgoing_payment(
+    sim: &Sim,
+    from: usize,
+    to: usize,
+    incoming: PaymentId,
+    outgoing: PaymentId,
+) -> Result<(), Outcome> {
+    let row = sim.nodes[from]
+        .store
+        .outgoing_payment(outgoing)
+        .unwrap()
+        .ok_or_else(|| Outcome::Safety("an outgoing payment vanished".into()))?;
+    let received = sim.nodes[to]
+        .store
+        .incoming_payment(incoming)
+        .unwrap()
+        .map_or(0, |row| row.received_amount);
+    if received < row.sent_amount {
+        return Err(Outcome::Safety(format!(
+            "node {to} received {received} of the {} node {from} sent",
+            row.sent_amount
+        )));
+    }
+    if received > row.receive_amount.value {
+        return Err(Outcome::Safety(format!(
+            "node {to} received {received}, more than the {} it asked for",
+            row.receive_amount.value
+        )));
+    }
+    // One whose payer gave up while the network was faulty may have
+    // failed; what it sent still arrived.
+    if row.state == OutgoingState::Failed && sim.given_up.contains(&outgoing) {
+        return Ok(());
+    }
+    if row.state != OutgoingState::Completed {
+        let incoming_row = sim.nodes[to].store.incoming_payment(incoming).unwrap();
+        return Err(Outcome::Liveness(format!(
+            "an outgoing payment from {from} to {to} ended {:?} ({:?}) having sent {} of {}; its receiver: {incoming_row:?}",
+            row.state, row.failure, row.sent_amount, row.debit_amount
+        )));
+    }
+    if received != row.receive_amount.value {
+        return Err(Outcome::Liveness(format!(
+            "node {to} received {received} of the {} node {from} sent, for {}",
+            row.sent_amount, row.receive_amount.value
+        )));
     }
     Ok(())
 }
@@ -338,11 +425,13 @@ pub fn check_outgoing(sim: &Sim) -> Result<(), Outcome> {
 /// money. No check compares two nodes' books, or adds them up: each keeps
 /// its own, and they may drift (D19).
 pub fn check_books(sim: &Sim) -> Result<(), Outcome> {
-    check_owner_books(sim).map_err(Outcome::Safety)?;
-    check_ledgers(sim).map_err(Outcome::Safety)?;
-    check_funded(sim).map_err(Outcome::Liveness)?;
-    check_settled(sim).map_err(Outcome::Liveness)?;
-    check_delivered(sim).map_err(Outcome::Liveness)
+    first_failure([
+        check_owner_books(sim).map_err(Outcome::Safety),
+        check_ledgers(sim).map_err(Outcome::Safety),
+        check_funded(sim).map_err(Outcome::Liveness),
+        check_settled(sim).map_err(Outcome::Liveness),
+        check_delivered(sim).map_err(Outcome::Liveness),
+    ])
 }
 
 /// On the XRP Ledger, the faucet funded every node: an owner's books that
@@ -425,11 +514,7 @@ pub fn check_ledgers(sim: &Sim) -> Result<(), String> {
 /// what it owed and took every settlement, and no ledger made or lost an
 /// asset. Each node is judged by its own books (D19).
 pub fn check_across(sim: &Sim) -> Result<(), Outcome> {
-    check_events(sim).map_err(Outcome::Safety)?;
-    check_received_across(sim).map_err(Outcome::Safety)?;
-    check_assets(sim).map_err(Outcome::Safety)?;
-    check_finished(sim).map_err(Outcome::Liveness)?;
-    for &(from, to, _, outgoing) in &sim.outgoing {
+    let outgoing = sim.outgoing.iter().map(|&(from, to, _, outgoing)| {
         let row = sim.nodes[from]
             .store
             .outgoing_payment(outgoing)
@@ -441,8 +526,20 @@ pub fn check_across(sim: &Sim) -> Result<(), Outcome> {
                 row.state, row.failure, row.sent_amount, row.debit_amount
             )));
         }
-    }
-    check_settled(sim).map_err(Outcome::Liveness)
+        Ok(())
+    });
+    first_failure(
+        [
+            check_events(sim).map_err(Outcome::Safety),
+            check_received_across(sim).map_err(Outcome::Safety),
+            check_assets(sim).map_err(Outcome::Safety),
+            check_finished(sim).map_err(Outcome::Liveness),
+            check_settled(sim).map_err(Outcome::Liveness),
+        ]
+        .into_iter()
+        .chain(outgoing)
+        .collect::<Vec<_>>(),
+    )
 }
 
 /// What arrived is what was sent at the rates, less what the hops charged;
@@ -499,4 +596,18 @@ fn check_assets(sim: &Sim) -> Result<(), String> {
         return Err("node 1 charged nothing for what passed".into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_safety_failure_ranks_before_an_earlier_liveness_failure() {
+        let liveness = || Err(Outcome::Liveness("late".into()));
+        let safety = || Err(Outcome::Safety("broken".into()));
+        assert_eq!(first_failure([Ok(()), liveness(), safety()]), safety());
+        assert_eq!(first_failure([liveness(), Ok(())]), liveness());
+        assert_eq!(first_failure([Ok(()), Ok(())]), Ok(()));
+    }
 }

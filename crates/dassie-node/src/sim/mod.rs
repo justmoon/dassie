@@ -1,9 +1,10 @@
 //! A simulated network of real engine cores
 //! (spec/areas/testing.md#deterministic-simulation), for this crate's tests and
 //! the simulation runner, dassie-sim (D27): each node's core with its own
-//! in-memory database, wired through a virtual network with latency and loss,
-//! crashed and restarted from its database, paying over STREAM through BTP
-//! clients. Everything comes from one seed.
+//! in-memory database, wired through a virtual network with latency, loss
+//! and replayed requests, each on a clock of its own, crashed and restarted
+//! from its database, paying over STREAM through BTP clients. Everything
+//! comes from one seed.
 //!
 //! It checks what only the whole node can show: peerings and balances
 //! survive restarts, payments of several times the credit cross hops, so
@@ -87,6 +88,10 @@ pub const TRIGGER: u64 = policy::trigger(Policies::DEFAULT.connector.max_packet_
 pub const RATE_RETRY_MS: u64 = 5_000;
 /// How often the fake ledger closes a ledger.
 pub const LEDGER_CLOSE_MS: u64 = 3_500;
+/// The longest a replayed request arrives after the original: past the
+/// peer protocol's replay window of 60 s, so that some copies are refused
+/// for their age rather than as copies.
+pub const REPLAY_WITHIN_MS: u64 = 90_000;
 
 /// What a run settles over.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -191,6 +196,17 @@ enum Delivery {
         id: RequestId,
         result: Result<Response, Failure>,
     },
+    /// A copy of a request, as an attacker who saw it would send it again:
+    /// its answer goes to no one.
+    Replay {
+        from: usize,
+        to: usize,
+        /// When its original arrived.
+        arrived: u64,
+        /// Its original, in [`Sim::originals`].
+        original: usize,
+        body: Vec<u8>,
+    },
     /// A request on a node's connection to the ledger.
     LedgerRequest {
         from: usize,
@@ -205,6 +221,16 @@ enum Delivery {
         epoch: u64,
         event: LedgerEvent,
     },
+}
+
+/// What became of a replayed request's original.
+#[derive(Clone, Copy, Debug)]
+enum Original {
+    /// Not answered yet, by the node in its `generation`: if the node
+    /// crashed since, it was lost.
+    Pending(u64),
+    /// Answered with this status.
+    Answered(u16),
 }
 
 /// A payment by a BTP client of one node to the receiver of another.
@@ -248,10 +274,18 @@ pub struct SimNode {
     pub store: Arc<Store>,
     /// Its engine core, or `None` while it is down.
     pub core: Option<Core>,
+    /// How far its clock is ahead of the network's, or behind it.
+    pub skew_ms: i64,
     generation: u64,
     next_inbound: u64,
     /// Inbound peer requests waiting for the core's reply.
     inbound: BTreeMap<InboundId, (usize, u64, RequestId)>,
+    /// Inbound requests that are copied later: the original's place in
+    /// [`Sim::originals`].
+    copied: BTreeMap<InboundId, usize>,
+    /// Copies waiting for the core's reply, which goes nowhere: their
+    /// original's place in [`Sim::originals`].
+    replays: BTreeMap<InboundId, usize>,
 }
 
 /// The simulated network: its nodes, its clock, its messages, the fake
@@ -267,6 +301,11 @@ pub struct Sim {
     rng: SeededRng,
     /// How many of a thousand messages are lost.
     pub loss_per_mille: u64,
+    /// How many of a thousand requests that arrive are replayed, up to
+    /// [`REPLAY_WITHIN_MS`] later.
+    pub replay_per_mille: u64,
+    /// What became of each replayed request's original.
+    originals: Vec<Original>,
     /// The payments under way or done, of nodes that did not crash.
     pub payments: Vec<Payment>,
     /// Payments whose sender's node crashed: its client is gone.
@@ -292,6 +331,8 @@ pub struct Sim {
     pub trace: Vec<String>,
     /// What the nodes reported as errors, or the events they lost.
     pub errors: Vec<String>,
+    /// Outgoing payments a node refused although its owner could pay them.
+    pub refused: Vec<String>,
     /// Nodes whose connection to the ledger carries nothing.
     pub ledger_down: BTreeSet<usize>,
     /// The peer protocol's settings.
@@ -356,6 +397,20 @@ impl Sim {
         settling: Settling,
         peer: dassie_peer::Config,
     ) -> Self {
+        Self::with_skews(seed, bootstraps, credits, settling, peer, &vec![0; count])
+    }
+
+    /// As [`Sim::with_peer`], a node for each of `skews_ms`, its clock that
+    /// far ahead of the network's, or behind it.
+    pub fn with_skews(
+        seed: u64,
+        bootstraps: usize,
+        credits: BTreeMap<usize, u64>,
+        settling: Settling,
+        peer: dassie_peer::Config,
+        skews_ms: &[i64],
+    ) -> Self {
+        let count = skews_ms.len();
         let bootstrap = (0..bootstraps)
             .map(|index| Bootstrap {
                 id: key(index).node_id(),
@@ -371,6 +426,8 @@ impl Sim {
             sequence: 0,
             rng: SeededRng::new(seed),
             loss_per_mille: 10,
+            replay_per_mille: 0,
+            originals: Vec::new(),
             payments: Vec::new(),
             abandoned: Vec::new(),
             outgoing: Vec::new(),
@@ -384,6 +441,7 @@ impl Sim {
             next_close: START + LEDGER_CLOSE_MS,
             trace: Vec::new(),
             errors: Vec::new(),
+            refused: Vec::new(),
             ledger_down: BTreeSet::new(),
             peer,
             withdrawn: Vec::new(),
@@ -392,13 +450,16 @@ impl Sim {
             fundings: BTreeMap::new(),
             given_up: BTreeSet::new(),
         };
-        for _ in 0..count {
+        for &skew_ms in skews_ms {
             sim.nodes.push(SimNode {
                 store: Arc::new(Store::open_in_memory().unwrap()),
                 core: None,
+                skew_ms,
                 generation: 0,
                 next_inbound: 0,
                 inbound: BTreeMap::new(),
+                copied: BTreeMap::new(),
+                replays: BTreeMap::new(),
             });
         }
         for index in 0..count {
@@ -419,9 +480,12 @@ impl Sim {
     /// Starts node `index` from its database.
     pub fn start(&mut self, index: usize) {
         let seed = self.rng.next_u64();
+        let now = self.local_now(index);
         let node = &mut self.nodes[index];
         node.generation += 1;
         node.inbound.clear();
+        node.copied.clear();
+        node.replays.clear();
         let parts = CoreParts {
             store: Arc::clone(&node.store),
             key: key(index),
@@ -443,9 +507,8 @@ impl Sim {
             },
             bootstrap: self.bootstrap.clone(),
         };
-        node.core = Some(Core::start(parts, self.now).unwrap());
+        node.core = Some(Core::start(parts, now).unwrap());
         self.trace.push(format!("{} start {index}", self.now));
-        let now = self.now;
         let rates = (self.settling == Settling::Cross).then(|| RATES.map(|(c, r)| (c, r, now)));
         self.step(index, |core| {
             if let Some(rates) = rates {
@@ -458,6 +521,11 @@ impl Sim {
     pub fn crash(&mut self, index: usize) {
         self.count("crashes");
         self.nodes[index].core = None;
+        // A copy it was still working on passed the replay check.
+        let replays = std::mem::take(&mut self.nodes[index].replays);
+        for original in replays.into_values() {
+            self.replay_answered(index, original, None);
+        }
         if let Some(link) = self.links.remove(&index) {
             self.ledger.disconnect(link.connection);
         }
@@ -487,6 +555,51 @@ impl Sim {
         self.queue.insert((at, self.sequence), delivery);
     }
 
+    /// Node `index` answered a copy of a request with `status`, or crashed
+    /// still working on it (`None`). Refused as a replay or for its age
+    /// (401), it is refused. Anything else passed the replay check: taken,
+    /// it must be a copy of a request that had no effect, one refused, or
+    /// lost when the node crashed before answering it. A copy of one
+    /// answered 200, or of one still under way, is taken twice, and fails
+    /// the run for safety. A 503 for want of a place for the sender's
+    /// replay state also comes before the check, but every sender here is
+    /// one of a few nodes, which always have one.
+    fn replay_answered(&mut self, index: usize, original: usize, status: Option<u16>) {
+        self.trace.push(format!(
+            "{} {index} answers the replay {status:?}",
+            self.now
+        ));
+        if status == Some(401) {
+            self.count("replays refused");
+            return;
+        }
+        let twice = match self.originals[original] {
+            Original::Answered(answered) => answered == 200,
+            Original::Pending(generation) => generation == self.nodes[index].generation,
+        };
+        if twice {
+            self.errors.push(format!(
+                "{} node {index} took a replayed request twice: answered {status:?}, \
+                 its original {:?}",
+                self.now, self.originals[original]
+            ));
+        } else {
+            self.count("replays of requests that had no effect");
+        }
+    }
+
+    /// The time on node `index`'s clock.
+    fn local_now(&self, index: usize) -> u64 {
+        self.now.saturating_add_signed(self.nodes[index].skew_ms)
+    }
+
+    /// When node `index`'s core is next due, on the network's clock.
+    fn deadline(&self, index: usize) -> Option<u64> {
+        let node = &self.nodes[index];
+        let local = node.core.as_ref()?.deadline()?;
+        Some(local.saturating_add_signed(-node.skew_ms))
+    }
+
     fn latency(&mut self) -> u64 {
         let (shortest, longest) = self.latency_ms;
         shortest + self.rng.next_u64() % (longest - shortest + 1)
@@ -499,7 +612,7 @@ impl Sim {
 
     /// Runs `f` on a node's core as one step, then carries out its outputs.
     pub fn step(&mut self, index: usize, f: impl FnOnce(&mut Core)) {
-        let now = self.now;
+        let now = self.local_now(index);
         let Some(core) = self.nodes[index].core.as_mut() else {
             return;
         };
@@ -571,6 +684,13 @@ impl Sim {
                 );
             }
             Output::PeerReply { inbound, reply } => {
+                if let Some(original) = self.nodes[index].replays.remove(&inbound) {
+                    self.replay_answered(index, original, Some(reply.status));
+                    return;
+                }
+                if let Some(original) = self.nodes[index].copied.remove(&inbound) {
+                    self.originals[original] = Original::Answered(reply.status);
+                }
                 let Some((to, generation, id)) = self.nodes[index].inbound.remove(&inbound) else {
                     return;
                 };
@@ -749,10 +869,49 @@ impl Sim {
                     );
                     return;
                 }
+                // Someone who saw it arrive sends it again, later: a request
+                // that never arrived was never sent, so no one has it. A run
+                // without replays draws nothing for them.
+                if self.replay_per_mille > 0 && self.rng.next_u64() % 1000 < self.replay_per_mille {
+                    let original = self.originals.len();
+                    let node = &mut self.nodes[to];
+                    self.originals.push(Original::Pending(node.generation));
+                    node.copied.insert(InboundId(node.next_inbound), original);
+                    let later = 1 + self.rng.next_u64() % REPLAY_WITHIN_MS;
+                    let replay = Delivery::Replay {
+                        from,
+                        to,
+                        arrived: self.now,
+                        original,
+                        body: body.clone(),
+                    };
+                    self.schedule(later, replay);
+                }
                 let node = &mut self.nodes[to];
                 let inbound = InboundId(node.next_inbound);
                 node.next_inbound += 1;
                 node.inbound.insert(inbound, (from, generation, id));
+                self.step(to, |core| core.peer_inbound(inbound, &body, None));
+            }
+            Delivery::Replay {
+                from,
+                to,
+                arrived,
+                original,
+                body,
+            } => {
+                if self.nodes[to].core.is_none() {
+                    return;
+                }
+                self.count("replays");
+                self.trace.push(format!(
+                    "{} replay to {to} of {from}'s request that arrived at {arrived}",
+                    self.now
+                ));
+                let node = &mut self.nodes[to];
+                let inbound = InboundId(node.next_inbound);
+                node.next_inbound += 1;
+                node.replays.insert(inbound, original);
                 self.step(to, |core| core.peer_inbound(inbound, &body, None));
             }
             Delivery::LedgerRequest {
@@ -819,10 +978,8 @@ impl Sim {
             }
             self.drive_payments();
             let delivery = self.queue.keys().next().map(|(at, _)| *at);
-            let timer = self
-                .nodes
-                .iter()
-                .filter_map(|node| node.core.as_ref()?.deadline())
+            let timer = (0..self.nodes.len())
+                .filter_map(|index| self.deadline(index))
                 .min();
             let earliest = [delivery, timer].into_iter().flatten().min();
             let close = (self.settling != Settling::Stub).then_some(self.next_close);
@@ -848,12 +1005,7 @@ impl Sim {
                 continue;
             }
             for index in 0..self.nodes.len() {
-                let due = self.nodes[index]
-                    .core
-                    .as_ref()
-                    .and_then(Core::deadline)
-                    .is_some_and(|at| at <= self.now);
-                if due {
+                if self.deadline(index).is_some_and(|at| at <= self.now) {
                     self.step(index, |_| {});
                 }
             }

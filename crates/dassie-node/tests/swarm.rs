@@ -19,7 +19,7 @@ use dassie_node_core::testing::caught;
 const SEEDS: Range<u64> = 0..16;
 
 /// What the seeds must reach between them, at least.
-const LEAST: [(&str, u64); 11] = [
+const LEAST: [(&str, u64); 14] = [
     ("payments", 10),
     ("capped payments", 1),
     ("outgoing payments", 1),
@@ -30,6 +30,9 @@ const LEAST: [(&str, u64); 11] = [
     ("restarts", 1),
     ("cuts", 5),
     ("ledger drops", 1),
+    ("replays", 20),
+    ("replays refused", 20),
+    ("clocks off", 10),
     ("heal seconds", 1),
 ];
 
