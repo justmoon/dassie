@@ -427,8 +427,11 @@ impl PeerNode {
         });
         if checked.is_err() {
             self.stats.requests_failed += 1;
-        } else if self.peering_of(&outstanding.to).is_some() {
-            self.saw(&outstanding.to);
+        } else {
+            self.settlement_reachable(&outstanding.to);
+            if self.peering_of(&outstanding.to).is_some() {
+                self.saw(&outstanding.to);
+            }
         }
         self.dispatch_response(hooks, outstanding.to, outstanding.purpose, checked);
     }
