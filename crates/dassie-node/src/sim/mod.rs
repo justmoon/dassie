@@ -288,6 +288,11 @@ pub struct Sim {
     pub errors: Vec<String>,
     /// Nodes whose connection to the ledger carries nothing.
     pub ledger_down: BTreeSet<usize>,
+    /// The peer protocol's settings.
+    peer: dassie_peer::Config,
+    /// Each withdrawal of a peer short of room: when, by which node, of
+    /// which peer.
+    pub withdrawn: Vec<(u64, usize, NodeId)>,
 }
 
 // Every run, whatever it checks besides, ends without an error event: a
@@ -315,6 +320,25 @@ impl Sim {
         bootstraps: usize,
         credits: BTreeMap<usize, u64>,
         settling: Settling,
+    ) -> Self {
+        Self::with_peer(
+            seed,
+            count,
+            bootstraps,
+            credits,
+            settling,
+            Policies::DEFAULT.peer,
+        )
+    }
+
+    /// As [`Sim::with`], with the peer protocol's settings `peer`.
+    pub fn with_peer(
+        seed: u64,
+        count: usize,
+        bootstraps: usize,
+        credits: BTreeMap<usize, u64>,
+        settling: Settling,
+        peer: dassie_peer::Config,
     ) -> Self {
         let bootstrap = (0..bootstraps)
             .map(|index| Bootstrap {
@@ -345,6 +369,8 @@ impl Sim {
             trace: Vec::new(),
             errors: Vec::new(),
             ledger_down: BTreeSet::new(),
+            peer,
+            withdrawn: Vec::new(),
         };
         for _ in 0..count {
             sim.nodes.push(SimNode {
@@ -386,6 +412,7 @@ impl Sim {
                     .get(&index)
                     .copied()
                     .unwrap_or(Policies::DEFAULT.peer_credit),
+                peer: self.peer,
                 ..Policies::DEFAULT
             },
             rng: Box::new(SeededRng::new(seed)),
@@ -462,6 +489,12 @@ impl Sim {
     /// and an error or a lost event as a failure of the run (D16).
     pub fn record(&mut self, index: usize, event: &Event) {
         self.trace.push(format!("{} {index} {event:?}", self.now));
+        if let Event::PeerNode(dassie_peer::Event::Advertised {
+            peer, short: true, ..
+        }) = event
+        {
+            self.withdrawn.push((self.now, index, *peer));
+        }
         let lost = matches!(event, Event::Engine(EngineEvent::EventsDropped { .. }));
         if event.severity() == Severity::Error || lost {
             self.errors
@@ -990,6 +1023,15 @@ impl Sim {
     /// Node `index`'s core, which must be running.
     pub fn core(&self, index: usize) -> &Core {
         self.nodes[index].core.as_ref().unwrap()
+    }
+
+    /// Whether node `index` lists `peer` as its neighbor.
+    pub fn advertises(&self, index: usize, peer: &NodeId) -> bool {
+        self.core(index)
+            .network()
+            .peers
+            .iter()
+            .any(|view| view.id == *peer && view.advertised)
     }
 
     /// Node `index`'s peers.

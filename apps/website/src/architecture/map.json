@@ -370,6 +370,7 @@
         "The wire format and message authentication",
         "The node table, link-state flooding, membership by majority and registration",
         "Peering on its own, and routing",
+        "Advertising only peers that are alive and not stuck short of room",
         "Delivering settlements and requests to settle, ending peerings, bans"
       ]
     },

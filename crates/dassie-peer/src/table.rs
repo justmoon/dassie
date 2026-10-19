@@ -260,6 +260,9 @@ pub struct Advertise {
     pub hold_until_ms: u64,
     /// Withdrawals not yet forgotten.
     pub flaps: u32,
+    /// Since when the room our books give the peer has been short of a
+    /// packet, as the node last reported it; not kept across a restart.
+    pub short_since_ms: Option<u64>,
 }
 
 /// A registration with us, as a bootstrap node.
@@ -361,6 +364,7 @@ impl Entry {
                 on_since_ms: 0,
                 hold_until_ms: 0,
                 flaps: 0,
+                short_since_ms: None,
             },
             one_sided_at_ms: None,
             refuse_until_ms: 0,

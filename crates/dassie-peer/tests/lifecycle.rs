@@ -459,6 +459,46 @@ fn the_advertise_flag_is_damped() {
     assert!(hold > 0);
 }
 
+// A peer whose room in our books stays short of a packet past the grace
+// is withdrawn, as stuck, with the same damping; while short for less, it
+// is waiting for a routine settlement and stays listed (D12).
+#[test]
+fn a_peer_short_of_room_is_withdrawn_after_the_grace() {
+    let (mut network, _, b) = peered(43);
+    let view = |network: &Network| {
+        network
+            .node(0)
+            .nodes()
+            .into_iter()
+            .find(|view| view.id == b)
+            .unwrap()
+    };
+    let grace = Config::DEV.advertise_short_grace_ms;
+    let now = network.now;
+    network.node_mut(0).set_short(now, &b, true);
+    settle(&mut network, grace / 2);
+    assert!(view(&network).advertised, "withdrawn within the grace");
+    let now = network.now;
+    network.node_mut(0).set_short(now, &b, true);
+    settle(&mut network, grace);
+    let withdrawn = view(&network);
+    assert!(!withdrawn.advertised, "still advertised past the grace");
+    assert!(withdrawn.online, "withdrawn for room, not for silence");
+    assert_eq!(withdrawn.peer_status, PeerStatus::Peered);
+    assert_eq!(withdrawn.advertise.flaps, 1);
+    assert!(network.events.iter().any(|(at, event)| *at == 0
+        && *event
+            == Event::Advertised {
+                peer: b,
+                on: false,
+                short: true
+            }));
+    let now = network.now;
+    network.node_mut(0).set_short(now, &b, false);
+    settle(&mut network, Config::DEV.advertise_hold_min_ms + 5_000);
+    assert!(view(&network).advertised, "not advertised again");
+}
+
 // A restart does not drop the peers we advertise: the flag starts from
 // when they were last heard from.
 #[test]

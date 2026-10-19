@@ -131,12 +131,46 @@ impl Core {
         }
         self.settle.at_ms = now.saturating_add(self.settle.interval_ms);
         self.grow_credit();
+        self.report_room();
         self.ask_peers();
         if self.settle.never_settles {
             return;
         }
         self.settle_finals();
         self.announce_deferred();
+    }
+
+    /// Tells the peer protocol which peers our books leave short of room
+    /// for a packet while we can ask them to settle: one that stays short
+    /// past the grace, settling nothing, is withdrawn as stuck rather than
+    /// waiting for a routine settlement (D12). Each settlement booked from
+    /// it starts the grace again. While our scheme does not see its ledger,
+    /// we cannot ask, and the peer is not counted short.
+    fn report_room(&mut self) {
+        let now = self.now_ms;
+        let peers: Vec<(NodeId, SchemeId)> = self
+            .peer
+            .active_peers()
+            .map(|(id, peering)| (*id, peering.scheme))
+            .collect();
+        for (node, scheme) in peers {
+            let short = self.sees_ledger(scheme)
+                && self
+                    .position(node, scheme)
+                    // `minimum` is one of the largest packets (D25).
+                    .is_some_and(|at| at.position < u128::from(self.settle.minimum));
+            self.peer.set_short(now, &node, short);
+        }
+    }
+
+    /// Whether `scheme` sees its ledger, so that a peer on it can be asked
+    /// to settle.
+    fn sees_ledger(&self, scheme: SchemeId) -> bool {
+        Name::new(scheme.as_str()).ok().is_some_and(|name| {
+            self.schemes
+                .get(&name)
+                .is_some_and(|active| active.scheme.status() == LedgerStatus::Synced)
+        })
     }
 
     /// Asks each peer that is close to the credit we extend to settle:
@@ -161,12 +195,7 @@ impl Core {
             .asked
             .retain(|node, _| peers.iter().any(|(peer, _)| peer == node));
         for (node, scheme) in peers {
-            let synced = Name::new(scheme.as_str()).ok().is_some_and(|name| {
-                self.schemes
-                    .get(&name)
-                    .is_some_and(|active| active.scheme.status() == LedgerStatus::Synced)
-            });
-            if !synced {
+            if !self.sees_ledger(scheme) {
                 continue;
             }
             let due = self

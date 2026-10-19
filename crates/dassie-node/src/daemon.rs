@@ -291,6 +291,7 @@ fn make_node(
         Policies {
             peer: Policies::DEV.peer,
             settlement_interval_ms: Policies::DEV.settlement_interval_ms,
+            settlement_request_every_ms: Policies::DEV.settlement_request_every_ms,
             ..parts.policies
         }
     } else {

@@ -215,6 +215,7 @@ impl PeerNode {
     /// flags, tells terminations, and ends those that are done.
     pub(super) fn review_peers(&mut self, hooks: &dyn PeeringHooks) {
         self.terminate_silent();
+        self.terminate_short();
         self.update_advertised();
         let telling: Vec<NodeId> = self.telling.keys().copied().collect();
         for peer in telling {
@@ -254,16 +255,28 @@ impl PeerNode {
                         .max(start)
                         .saturating_add(config.peer_dead_ms);
                     let advertise = &entry.advertise;
+                    // Short of room: withdrawn once the grace is over, and
+                    // ended once it stays short as long as a silent peer.
+                    let short = advertise.short_since_ms.map(|since| {
+                        (
+                            since.saturating_add(config.advertise_short_grace_ms),
+                            since.saturating_add(config.peer_dead_ms),
+                        )
+                    });
+                    let stuck = short.is_some_and(|(withdrawn, _)| withdrawn <= now);
+                    let ended = short.map_or(u64::MAX, |(_, ended)| ended);
                     let flag = if advertise.on {
                         // `heard_within` holds up to and including this.
-                        peering
+                        let confirmed = peering
                             .last_seen_ms
                             .saturating_add(config.peer_confirm_ms)
-                            .saturating_add(1)
+                            .saturating_add(1);
+                        short.map_or(confirmed, |(withdrawn, _)| confirmed.min(withdrawn))
                     } else if advertise.hold_until_ms > now {
                         advertise.hold_until_ms
                     } else if peering.heard_within(now, config.peer_confirm_ms)
                         && !self.bans.contains(id)
+                        && !stuck
                     {
                         // Healthy again, as `update_advertised` judges it: it
                         // is listed at once, so this is never due twice.
@@ -271,7 +284,7 @@ impl PeerNode {
                     } else {
                         u64::MAX
                     };
-                    Some(silent.min(flag))
+                    Some(silent.min(flag).min(ended))
                 }
                 PeerState::Terminating(_, termination) => {
                     Some(if termination.told(now, config.termination_timeout_ms) {
@@ -310,9 +323,31 @@ impl PeerNode {
         }
     }
 
-    /// A peer is advertised while it is confirmed and not held down; each
-    /// withdrawal holds it down longer, until it has been stable a while
-    /// (D12).
+    /// Terminates peers whose room in our books has been short of a packet,
+    /// without a settlement, for as long as a silent peer is kept: a link
+    /// that stuck, or drifted past what it survives, is not saved (D12).
+    fn terminate_short(&mut self) {
+        let (now, dead) = (self.now_ms, self.config.peer_dead_ms);
+        let short: Vec<NodeId> = self
+            .table
+            .iter()
+            .filter(|(_, entry)| {
+                entry.active_peering().is_some()
+                    && entry
+                        .advertise
+                        .short_since_ms
+                        .is_some_and(|since| since.saturating_add(dead) <= now)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for peer in short {
+            self.begin_termination(peer, TerminationReason::ShortOfRoom, true);
+        }
+    }
+
+    /// A peer is advertised while it is confirmed, has had room for a
+    /// packet within the grace, and is not held down; each withdrawal holds
+    /// it down longer, until it has been stable a while (D12).
     fn update_advertised(&mut self) {
         let config = self.config;
         let now = self.now_ms;
@@ -321,8 +356,13 @@ impl PeerNode {
             let Some(peering) = entry.active_peering() else {
                 continue;
             };
-            let healthy =
-                peering.heard_within(now, config.peer_confirm_ms) && !self.bans.contains(id);
+            let short = entry
+                .advertise
+                .short_since_ms
+                .is_some_and(|since| since.saturating_add(config.advertise_short_grace_ms) <= now);
+            let healthy = peering.heard_within(now, config.peer_confirm_ms)
+                && !self.bans.contains(id)
+                && !short;
             let advertise = &mut entry.advertise;
             if advertise.on
                 && advertise
@@ -341,18 +381,18 @@ impl PeerNode {
                 );
                 advertise.hold_until_ms = now.saturating_add(hold);
                 advertise.flaps = advertise.flaps.saturating_add(1);
-                changes.push((*id, false));
+                changes.push((*id, false, short));
             } else if !advertise.on && healthy && advertise.hold_until_ms <= now {
                 advertise.on = true;
                 advertise.on_since_ms = now;
-                changes.push((*id, true));
+                changes.push((*id, true, false));
             }
         }
         if !changes.is_empty() {
             self.gossip.own_changed = true;
         }
-        for (peer, on) in changes {
-            self.event(Event::Advertised { peer, on });
+        for (peer, on, short) in changes {
+            self.event(Event::Advertised { peer, on, short });
         }
     }
 

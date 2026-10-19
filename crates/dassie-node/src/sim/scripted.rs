@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use dassie_connector::SpendingCap;
 use dassie_node_core::testing::{Outcome, Run, SeededRng};
 
-use super::checks::{check, check_across, check_events, check_settled};
+use super::checks::{check, check_across, check_events, check_settled, check_withdrawn};
 use super::{START, Settling, Sim, key};
 use crate::store::OutgoingState;
 
@@ -101,7 +101,9 @@ pub fn run_xrpl(seed: u64) -> Run {
 pub fn run_on(seed: u64, settling: Settling) -> Run {
     let (mut rng, count, bootstraps) = size(seed);
     let mut sim = Sim::with(seed, count, bootstraps, BTreeMap::new(), settling);
-    let result = script(&mut sim, &mut rng).and_then(|()| check(&sim));
+    let result = script(&mut sim, &mut rng)
+        .and_then(|()| check(&sim))
+        .and_then(|()| check_withdrawn(&sim).map_err(Outcome::Liveness));
     ended(sim, result)
 }
 
@@ -114,7 +116,7 @@ pub fn run_across(seed: u64) -> Run {
     let (mut rng, count) = size_across(seed);
     let mut sim = Sim::with(seed, count, 2, BTreeMap::new(), Settling::Cross);
     script_across(&mut sim, &mut rng);
-    let result = check_across(&sim);
+    let result = check_across(&sim).and_then(|()| check_withdrawn(&sim).map_err(Outcome::Liveness));
     ended(sim, result)
 }
 

@@ -1,6 +1,6 @@
 # D12. Peering lifecycle and liveness
 
-**Status:** active, confirmed 2026-10-11, refined 2026-10-14 in two design reviews. Child peers are not built yet ([roadmap](../roadmap.md)).
+**Status:** active, confirmed 2026-10-11, refined 2026-10-14 in two design reviews, and on 2026-10-19 (a peer that stays short of room). Child peers are not built yet ([roadmap](../roadmap.md)).
 **Areas:** [Network](../areas/network.md), [Peer protocol](../areas/peer-protocol.md)
 
 ## Facts
@@ -18,9 +18,21 @@ The design reviews added:
 - **Inbound slots are capped** below the maximum, so requests alone cannot fill every slot.
 - **Repeated and crossed requests resolve deterministically:** a repeat is answered from the stored peering (it covers an acceptance that got lost), and the lower node ID's request wins.
 - **The responder probes the requester's URL,** as the original's design note intended.
-- **The advertise flag follows liveness only,** with a hold-down that doubles per flap. Liquidity and failed deliveries are left out: withdrawing an edge removes it both ways for the whole network, turning a temporary T04 into a final F02, while the traffic coming back is what restores liquidity.
+- **The advertise flag follows liveness,** with a hold-down that doubles per flap. Failed deliveries are left out. So was liquidity, until room counted from 2026-10-19 (below): withdrawing an edge removes it both ways for the whole network, turning a temporary T04 into a final F02, and the traffic coming back restored liquidity.
 - **Termination ends a peering, not a relationship.** The accounts stay, with what is owed, and the settlement sequence carries on, so a settlement that arrives after the peering ended is still credited once. Peering again reuses both, without posting trust twice.
 - **A ban is a list, not a peering state,** since a node can be banned while its peering is still terminating.
+
+## Refinement: a peer that stays short of room (2026-10-19)
+
+Owner's decision. A node stops advertising a peer once the room its books give that peer (its position, [Settlement](../areas/settlement.md)) has stayed below one of its largest packets for longer than a grace, without the peer settling: 2 min (10 s in dev), two requests to settle, so that one lost request withdraws nothing. A node does not start with a grace shorter than two of its request intervals.
+
+- **Why the 2026-10-14 trade-off changed.** Since [D23](D23-each-node-books-its-own-fulfills.md), a creditor asks its debtor to settle over the peer protocol, which needs no route: settlement, not traffic, restores the room. A peer that stays short past the grace is stuck, unable or unwilling to settle, and every packet routed through it would be refused (T04). A peer waiting for a routine settlement is short for seconds and stays listed.
+- **A node counts only the limit it imposes:** the room it gives the peer, never the room the peer gives it. If the peer is the one stuck, we withdraw it; if we are, it withdraws us.
+- **Counted at every settlement check, while the node can ask.** Each settlement booked from the peer starts the grace again: on a busy link, traffic takes up each settlement at once, and the room stays short at every check while the peer settles every few seconds. While the node's own scheme does not see its ledger, it cannot ask, and the peer is not counted short. A junior that has not paid its senior in advance within the grace of being asked is withdrawn.
+- **The same damping** as a peer that falls silent: a withdrawal for room is a flap, held down `30 s · 2^flaps`.
+- **While withdrawn,** the peer is still peered, and still asked to settle and settled with, which is how it comes back. No packet crosses the edge either way: both ends' routes drop it. It does not count toward the peer target, so the node looks for another peer meanwhile. When it has been short since is not kept: a restart starts the grace again.
+- **Ended:** a peer that stays short, settling nothing, for as long as a silent peer is kept (24 h, 2 min in dev) is terminated, with reason 4, "short of room".
+- **Accepted:** the edge goes both ways. Packets toward the stuck peer, which would raise its room, stop too, so the peer must settle to come back. That includes a link whose books drifted past what it survives ([D23](D23-each-node-books-its-own-fulfills.md#accepted)), whose honest debtor, by its own books, owes nothing: most of its liquidity is gone, and it is not saved. It is withdrawn, and ended.
 
 ## Deferred
 

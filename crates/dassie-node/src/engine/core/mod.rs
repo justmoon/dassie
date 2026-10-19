@@ -766,6 +766,13 @@ fn check_bounds(policies: &Policies) {
             && (policies.senior_credit == 0 || policies.senior_credit >= least),
         "the credit survives a crash"
     );
+    // A peer that does not answer is asked again only after a request
+    // interval: the grace before it is withdrawn covers two, so one lost
+    // request withdraws nothing (D12).
+    assert!(
+        policies.peer.advertise_short_grace_ms >= 2 * policies.settlement_request_every_ms,
+        "a peer short of room is asked twice before it is withdrawn"
+    );
     assert!(
         connector.max_routes >= policies.peer.max_nodes,
         "every node the peer node knows can be routed to"

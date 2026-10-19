@@ -88,7 +88,8 @@ message NetworkPeer {
   bool inbound = 8;
   // "peered", or "terminating" while it is being ended (D12).
   string state = 9;
-  // Why it is being ended, if it is: "owner", "unresponsive", "not-peered"
+  // Why it is being ended, if it is: "owner", "unresponsive", "not-peered",
+  // "short-of-room"
   // or "unspecified".
   string termination_reason = 10;
   // Whether this node lists the peer as a neighbor in its link state, so

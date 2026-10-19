@@ -86,8 +86,12 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         Event::PeeringEnded { peer, settle } => {
             emit!(severity, target: target::PEER, %peer, settle, "peering ended");
         }
-        Event::Advertised { peer, on } => {
-            emit!(severity, target: target::PEER, %peer, on, "advertised");
+        Event::Advertised { peer, on, short } => {
+            if *short {
+                emit!(severity, target: target::PEER, %peer, "withdrawn: its room stayed short of a packet");
+            } else {
+                emit!(severity, target: target::PEER, %peer, on, "advertised");
+            }
         }
         Event::SettlementDelivered { peer, sequence } => {
             emit!(severity, target: target::SETTLEMENT, %peer, sequence, "the peer has our settlement");

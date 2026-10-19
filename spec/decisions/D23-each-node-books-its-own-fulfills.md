@@ -23,7 +23,7 @@ Each node books the Fulfills it sends as final, and only its owner bans.
 
 ## Accepted
 
-After a crash, two honest peers' books can drift apart: a node that crashed with Prepares in flight never learns that its downstream paid them, and a Fulfill that arrives after the upstream's expiry counts only downstream. Asked, the peer settles within its own limits, which restores what drift took from either side's liquidity as far as both sides' credit allows; past that, one direction of the peering stays short until traffic flows back. What one crash drifts is at most what was in flight, which D24 caps.
+After a crash, two honest peers' books can drift apart: a node that crashed with Prepares in flight never learns that its downstream paid them, and a Fulfill that arrives after the upstream's expiry counts only downstream. Asked, the peer settles within its own limits, which restores what drift took from either side's liquidity as far as both sides' credit allows. Past that, the creditor's room for the debtor stays short of a packet with nothing settled, and the link is withdrawn and ended ([D12](D12-peering-lifecycle-and-liveness.md#refinement-a-peer-that-stays-short-of-room-2026-10-19), 2026-10-19): a link that lost most of its liquidity is not saved. What one crash drifts is at most what was in flight, which D24 caps.
 
 ## Rejected
 

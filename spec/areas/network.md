@@ -220,11 +220,14 @@ A peering is `requesting`, `peered` or `terminating` ([D12](../decisions/D12-pee
 - Each time it stops being advertised, it is held down for `30 s · 2^flaps`, at most 1 h. `flaps` resets after 1 h advertised without a break.
 - A peer heard from again after its hold-down is listed at once.
 - After a restart, the flag starts from the persisted time the peer was last heard from, without a hold-down: a restart does not drop our neighbors.
-- Liquidity does not withdraw a peer: withdrawing removes the edge both ways for the whole network and turns T04 into F02, while the traffic that comes back is what restores it.
+- **Withdrawn for room** ([D12](../decisions/D12-peering-lifecycle-and-liveness.md#refinement-a-peer-that-stays-short-of-room-2026-10-19)): a peer whose position, the room our books give it, has stayed below one of the largest packets for 2 min without settling is not advertised either.
+  - The node counts it at every settlement check while its scheme sees its ledger, so that it can ask. Each settlement booked from the peer starts the 2 min again. That is longer than a routine settlement takes, so only a peer that is stuck is withdrawn.
+  - Such a withdrawal is a flap like any other. The peer stays peered and is still asked to settle, but no packet crosses the edge either way, since both ends' routes drop it. Once its room is back, it is advertised again after its hold-down.
+  - A node does not start with a grace shorter than two settlement request intervals. When it has been short since is not persisted.
 
 ### Termination
 
-Termination starts when the owner asks, when the owner bans the node, or when the peer has not been heard from for 24 h, counted from the later of the last message and the node's start (so a node that was down ends nothing for it).
+Termination starts when the owner asks, when the owner bans the node, when the peer has not been heard from for 24 h, counted from the later of the last message and the node's start (so a node that was down ends nothing for it), or when its room has stayed short of a packet, without a settlement, for 24 h (reason 4, [D12](../decisions/D12-peering-lifecycle-and-liveness.md#refinement-a-peer-that-stays-short-of-room-2026-10-19)).
 
 1. The peer is no longer advertised, and takes no new Prepares to or from it: the connector skips it, and its Prepares get 409. Responses still flow.
 2. The side that started sends `peeringTermination`, again 10 s after each failed try, until a 200 or a 409 arrives or 2 min have passed. The other side answers at once and terminates too. If both started, each one's message tells the other.
@@ -308,6 +311,7 @@ All of these are configuration. The values in brackets are the dev settings (`DA
 | Unreachable before a bridge | 2 min (4 s) |
 | Peer confirmed by an authenticated message within ([confirmed](#advertised-peers)) | 60 s |
 | Advertise hold-down | 30 s doubling to 1 h; reset after 1 h stable (5 s to 1 min; 5 min) |
+| Withdrawn when short of room for | 2 min without a settlement (10 s); ended after 24 h (2 min) |
 | Peer unresponsive after | 24 h (2 min) |
 | Termination message retries | 10 s after each failed try, for 2 min (1 s, for 20 s) |
 | No new peering after an owner's termination | 24 h (5 min) |
