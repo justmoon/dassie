@@ -30,7 +30,7 @@ pub struct Config {
     /// The longest the next hop gets (`MAXIMUM_HOLD_TIME`).
     pub max_hold_ms: u64,
     /// The largest incoming amount, in the source ledger's units; more gets
-    /// F08. Per ledger in a later milestone (D6). It also sets how much
+    /// F08. Per ledger later (D6). It also sets how much
     /// money may be in flight with a peer: [`IN_FLIGHT_PACKETS`] of it, and
     /// half of it more.
     pub max_packet_amount: u64,
