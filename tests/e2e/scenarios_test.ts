@@ -301,13 +301,13 @@ test(
         assertEquals(balances.get(node.name), expected, node.name);
       }
       await assertSettled(scenario);
-      // The payer settled as it paid: it owes its peers no more than the
-      // credit a junior extends.
-      let owes = 0n;
+      // The payer settled as it paid: it owes no peer more than the credit
+      // a junior extends. As a senior it also owes each of its juniors what
+      // that junior paid in advance, so this holds per peer, not summed.
       for (const [pair, net] of await peerAccounts(scenario)) {
-        if (pair.startsWith(`${from.name}>`) && net > 0n) owes += net;
+        if (!pair.startsWith(`${from.name}>`)) continue;
+        assert(net <= CREDIT, `the payer still owes ${pair} ${net}`);
       }
-      assert(owes <= CREDIT, `the payer still owes ${owes}`);
       await restartAll(scenario);
     });
   },
