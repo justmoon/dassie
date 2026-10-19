@@ -274,8 +274,14 @@ pub struct Advertise {
 /// What a settlement check found of the room our books give a peer (D12).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Room {
-    /// Short of a packet: the time since the last check counts.
-    Short,
+    /// Short of a packet: the time since the last check counts, up to
+    /// `most_ms`. A few check intervals: a node that stalled (its host
+    /// suspended, or its clock jumped) did not ask, so its gap is not the
+    /// peer's.
+    Short {
+        /// The most this check adds.
+        most_ms: u64,
+    },
     /// Room for a packet, or a settlement from the peer just booked: the
     /// time short starts again from nothing.
     Enough,

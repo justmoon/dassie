@@ -287,8 +287,8 @@ impl PeerNode {
         let checked = &mut entry.advertise.short_checked_ms;
         let before = peering.short_for_ms;
         match room {
-            Room::Short => {
-                let since = checked.map_or(0, |at| now.saturating_sub(at));
+            Room::Short { most_ms } => {
+                let since = checked.map_or(0, |at| now.saturating_sub(at).min(most_ms));
                 peering.short_for_ms = before.saturating_add(since);
                 *checked = Some(now);
             }

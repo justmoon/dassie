@@ -163,7 +163,10 @@ impl Core {
                 // `minimum` is one of the largest packets (D25).
                 .is_some_and(|at| at.position < u128::from(self.settle.minimum))
             {
-                Room::Short
+                // Two checks' worth at most: more is a stall of ours.
+                Room::Short {
+                    most_ms: self.settle.interval_ms.saturating_mul(2),
+                }
             } else {
                 Room::Enough
             };

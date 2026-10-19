@@ -223,7 +223,7 @@ A peering is `requesting`, `peered` or `terminating` ([D12](../decisions/D12-pee
 - **Withdrawn for room** ([D12](../decisions/D12-peering-lifecycle-and-liveness.md#refinement-a-peer-that-stays-short-of-room-2026-10-19)): a peer whose position, the room our books give it, has stayed below one of the largest packets for 2 min without settling is not advertised either.
   - The node counts it at every settlement check while its scheme sees its ledger, so that it can ask. Each settlement booked from the peer starts the 2 min again. That is longer than a routine settlement takes, so only a peer that is stuck is withdrawn.
   - Such a withdrawal is a flap like any other. The peer stays peered and is still asked to settle, but no packet crosses the edge either way, since both ends' routes drop it. Once its room is back, it is advertised again after its hold-down.
-  - A node does not start with a grace shorter than two settlement request intervals. The time short is a total, grown at each settlement check by the time since the last one that found the peer short while we could ask, and persisted with the peering: a restart does not start the grace or the 24 h again, and neither our downtime nor an outage of our ledger counts against the peer.
+  - A node does not start with a grace shorter than two settlement request intervals. The time short is a total, grown at each settlement check by the time since the last one that found the peer short while we could ask, at most two check intervals, and persisted with the peering: a restart does not start the grace or the 24 h again, and neither our downtime nor an outage of our ledger counts against the peer.
 
 ### Termination
 
