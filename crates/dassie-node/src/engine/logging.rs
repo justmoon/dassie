@@ -76,6 +76,9 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         Event::PeeringFailed { node, reason } => {
             emit!(severity, target: target::PEER, %node, reason, "peering failed");
         }
+        Event::Depeering { peer, reason } => {
+            emit!(severity, target: target::PEER, %peer, ?reason, "ending a peering: collecting first, before the peer is told");
+        }
         Event::Terminating {
             peer,
             reason,
@@ -237,6 +240,7 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::UnknownCancelled { .. }
         | SettlementEvent::Failed { .. }
         | SettlementEvent::PeerSettled { .. }
+        | SettlementEvent::SettlementBooked { .. }
         | SettlementEvent::PeerSettlementRefused { .. }
         | SettlementEvent::MessageEffectsNotBooked { .. }
         | SettlementEvent::CreditRaised { .. }
@@ -267,6 +271,9 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         }
         SettlementEvent::PeerSettled { from, amount } => {
             emit!(severity, target: target::SETTLEMENT, %from, amount, "a peer settled");
+        }
+        SettlementEvent::SettlementBooked { from, amount } => {
+            emit!(severity, target: target::SETTLEMENT, %from, amount, "a peer's settlement is booked");
         }
         SettlementEvent::PeerSettlementRefused { from, error } => {
             emit!(severity, target: target::SETTLEMENT, %from, %error, "a settlement was refused");

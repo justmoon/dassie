@@ -84,19 +84,28 @@ impl Connector {
         }
         self.stats.prepares += 1;
         let trace = self.next_trace();
-        if self
-            .endpoints
-            .get(source)
-            .is_some_and(|endpoint| endpoint.draining)
-        {
+        // A peering that ends takes no new Prepares; one we end and have
+        // not told the peer of yet refuses them as for want of liquidity
+        // (D28).
+        let closed = self.endpoints.get(source).and_then(|endpoint| {
+            if endpoint.draining {
+                Some(refuse(
+                    ErrorCode::T01_PEER_UNREACHABLE,
+                    "the peering is ending",
+                ))
+            } else if endpoint.refusing {
+                Some(refuse(
+                    ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
+                    "insufficient liquidity",
+                ))
+            } else {
+                None
+            }
+        });
+        if let Some(refusal) = closed {
             self.trace
                 .push(PacketRecord::new(trace, source, "", 0, now_ms));
-            return self.answer(
-                now_ms,
-                trace,
-                &refuse(ErrorCode::T01_PEER_UNREACHABLE, "the peering is ending"),
-                out,
-            );
+            return self.answer(now_ms, trace, &refusal, out);
         }
         let Ok(prepare) = Prepare::decode_exact(packet) else {
             self.trace

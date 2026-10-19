@@ -350,10 +350,14 @@ impl Core {
         // moved, an honest peer would pay twice.
         // And a peer that settles is not stuck: the grace before it is
         // withdrawn for want of room starts again (D12).
+        // A peer whose peering we end collects what it said was on its way
+        // (D28).
         if let Ok(node) = dassie_identity::NodeId::parse(peer.as_str()) {
             self.settle.asked.remove(&node);
             self.peer
                 .room(self.now_ms, &node, dassie_peer::Room::Enough);
+            self.peer.settlement_booked(self.now_ms, &node, amount);
+            self.report(SettlementEvent::SettlementBooked { from: node, amount });
         }
         Ok(())
     }

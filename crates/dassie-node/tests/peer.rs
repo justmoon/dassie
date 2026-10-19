@@ -237,8 +237,9 @@ async fn two_daemons_peer_and_keep_their_peering() {
     assert!(peered(&b, &key_a).await);
     assert_eq!(owes(&b, &key_a).await, at_b);
     assert_eq!(stub_balance(&b).await, DEPOSIT + moved);
-    // A's owner ends the peering: it ends on both sides, and nothing is
-    // settled for its end (D28): what A owes stays on its books.
+    // A's owner ends the peering: A collects first, asking B to settle once
+    // more, then tells it, and it ends on both sides (D28). A pays nothing:
+    // what it owes B can only have grown, by what B settled.
     let owed = owes(&a, &key_b).await;
     let ended = a
         .ipc()
@@ -254,7 +255,7 @@ async fn two_daemons_peer_and_keep_their_peering() {
             && quiet(&a, &b, &key_a, &key_b).await
     })
     .await;
-    assert_eq!(owes(&a, &key_b).await, owed);
+    assert!(owes(&a, &key_b).await >= owed);
     assert_eq!(stub_balance(&a).await + stub_balance(&b).await, 2 * DEPOSIT);
     // And they do not peer again straight away.
     settle(&clock).await;

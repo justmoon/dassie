@@ -310,8 +310,17 @@ pub enum SettlementEvent {
         /// How much.
         amount: u64,
     },
-    /// A peer settled with us.
+    /// A peer's settlement message was taken.
     PeerSettled {
+        /// The peer.
+        from: NodeId,
+        /// How much.
+        amount: u64,
+    },
+    /// Our books took a peer's settlement: with its message on the stub,
+    /// once its ledger shows it on the XRP Ledger, before or after the
+    /// message.
+    SettlementBooked {
         /// The peer.
         from: NodeId,
         /// How much.
@@ -375,6 +384,7 @@ const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
     use dassie_peer::Event;
     match event {
         Event::Peered { .. }
+        | Event::Depeering { .. }
         | Event::Terminating { .. }
         | Event::PeeringEnded { .. }
         | Event::Advertised { short: true, .. } => Severity::Info,
@@ -411,9 +421,9 @@ const fn payment_severity(event: &PaymentEvent) -> Severity {
 const fn settlement_severity(event: &SettlementEvent) -> Severity {
     match event {
         // At every check, for every peer that earned us something.
-        SettlementEvent::MessageNotSent { .. } | SettlementEvent::CreditRaised { .. } => {
-            Severity::Debug
-        }
+        SettlementEvent::MessageNotSent { .. }
+        | SettlementEvent::CreditRaised { .. }
+        | SettlementEvent::SettlementBooked { .. } => Severity::Debug,
         SettlementEvent::BalanceBooked { .. }
         | SettlementEvent::Settling { .. }
         | SettlementEvent::Reconciling { .. }

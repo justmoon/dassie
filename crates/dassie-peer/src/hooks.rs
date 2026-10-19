@@ -87,4 +87,10 @@ pub trait PeeringHooks {
     /// for its response, in either direction. A terminating peering ends
     /// only then, so no response is lost with it.
     fn drained(&self, peer: NodeId) -> bool;
+
+    /// Whether a settlement of ours to `peer` is under way in the node:
+    /// prepared, executing, or pending in its ledger. A node ending a
+    /// peering waits for it before it asks the peer a last time (D28); the
+    /// message announcing one is the peer node's own to know.
+    fn settling_to(&self, peer: NodeId) -> bool;
 }

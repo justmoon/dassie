@@ -204,6 +204,51 @@ pub struct Peering {
     /// downtime nor an outage of its ledger counts. Kept across a restart,
     /// so a node that restarts often still ends a link that stays short.
     pub short_for_ms: u64,
+    /// Our decision to end it, while we collect first (D28).
+    pub depeering: Option<Depeering>,
+}
+
+/// Our decision to end a peering, kept to ourselves while we collect what
+/// the peer owes (D28, spec/areas/network.md#termination): for the peer,
+/// the peering goes on as before, but we take nothing new from it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Depeering {
+    /// When we decided.
+    pub since_ms: u64,
+    /// Why, which `peeringTermination` says in the end.
+    pub reason: TerminationReason,
+    /// When we asked the peer to settle, once our own settlements to it
+    /// were done or we stopped waiting for them. Not kept across a
+    /// restart, which takes the steps again.
+    pub asked_ms: Option<u64>,
+    /// What the peer said it has on its way to us, once it answered with
+    /// an amount.
+    pub promised: Option<u64>,
+    /// What our books took from the peer since we asked.
+    pub booked: u64,
+}
+
+impl Depeering {
+    /// A decision taken at `now_ms`, for `reason`.
+    #[must_use]
+    pub const fn new(now_ms: u64, reason: TerminationReason) -> Self {
+        Self {
+            since_ms: now_ms,
+            reason,
+            asked_ms: None,
+            promised: None,
+            booked: 0,
+        }
+    }
+
+    /// Whether what the peer said it has on its way is booked.
+    #[must_use]
+    pub const fn collected(&self) -> bool {
+        match self.promised {
+            Some(promised) => self.booked >= promised,
+            None => false,
+        }
+    }
 }
 
 impl Peering {

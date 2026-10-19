@@ -166,8 +166,16 @@ fn registrations_expire_and_nodes_leave() {
         let node = network.node(index);
         assert!(!node.majority().contains(&gone), "node {index}");
         let held = node.nodes().into_iter().find(|v| v.id == gone);
+        // A peer keeps it, or ended its peering with it for its silence,
+        // which takes as long as the window here, and holds it no more
+        // than the grace (D28).
+        let ended = network
+            .events
+            .iter()
+            .any(|(at, event)| *at == index && *event == Event::PeeringEnded { peer: gone });
         match held {
-            Some(view) => assert_eq!(view.sources, Sources::PEER, "node {index}"),
+            Some(view) if view.sources == Sources::PEER => {}
+            Some(view) => assert!(view.sources.is_empty() && ended, "node {index}"),
             None => removed += 1,
         }
     }

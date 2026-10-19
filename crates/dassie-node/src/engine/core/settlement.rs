@@ -315,11 +315,7 @@ impl Core {
 
     /// Whether `transfer` is a settlement of ours to `node`.
     fn settles_to(&self, transfer: &Transfer, node: &NodeId) -> bool {
-        matches!(transfer.reference, Reference::Settlement { .. })
-            && self.ledger.account(transfer.debit).is_some_and(|account| {
-                matches!(account.path().name,
-                    AccountName::AssetsInterledger(peer) if peer.as_str() == node.as_str())
-            })
+        settles_to(&self.ledger, transfer, node)
     }
 
     /// The credit we extend to `node` on `scheme`'s ledger now.
@@ -731,4 +727,17 @@ impl Core {
         let id = Name::new(&format!("in{}", self.ledger.next_transfer_id().0)).unwrap_or(scheme);
         Reference::Settlement { scheme, id }
     }
+}
+
+/// Whether `transfer`, in `ledger`, is a settlement of ours to `node`.
+pub(super) fn settles_to(
+    ledger: &dassie_ledger::Ledger,
+    transfer: &Transfer,
+    node: &NodeId,
+) -> bool {
+    matches!(transfer.reference, Reference::Settlement { .. })
+        && ledger.account(transfer.debit).is_some_and(|account| {
+            matches!(account.path().name,
+                AccountName::AssetsInterledger(peer) if peer.as_str() == node.as_str())
+        })
 }

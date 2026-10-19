@@ -37,6 +37,9 @@ const CALM_MS: u64 = CONFIG.owner_termination_cooldown_ms
     + CONFIG.max_backoff_ms
     + CONFIG.advertise_hold_max_ms
     + 10 * 60_000;
+// Long enough, too, for a node ending a peering to wait out both its
+// steps and tell the peer (D28).
+const _: () = assert!(CALM_MS > 2 * CONFIG.depeer_wait_ms + CONFIG.termination_timeout_ms);
 
 /// The seed's generator for the run, and what it draws first: how many
 /// nodes, and how many of them are bootstrap nodes.
@@ -272,6 +275,14 @@ fn finished(network: &Network) -> Result<(), String> {
             return Err(format!(
                 "node {index} is still ending its peering with {}",
                 view.id
+            ));
+        }
+        if let Some((peer, _)) = node
+            .peers()
+            .find(|(_, peering)| peering.depeering.is_some())
+        {
+            return Err(format!(
+                "node {index} still collects before ending its peering with {peer}"
             ));
         }
         if let Some((peer, _)) = node

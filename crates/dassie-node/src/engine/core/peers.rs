@@ -188,6 +188,12 @@ impl PeeringHooks for Hooks<'_> {
             .get(&peer)
             .is_none_or(|id| self.connector.pending_for(EndpointId::Peer(*id)) == 0)
     }
+
+    fn settling_to(&self, peer: NodeId) -> bool {
+        self.ledger
+            .pending_transfers()
+            .any(|transfer| super::settlement::settles_to(self.ledger, transfer, &peer))
+    }
 }
 
 /// A peering as the owner sees it.
@@ -574,6 +580,14 @@ impl Core {
     /// What a peering's lifecycle and its settlements bring about.
     fn lifecycle_event(&mut self, event: Event) {
         match event {
+            // Its new Prepares are refused while we collect, ours still go
+            // (D28).
+            Event::Depeering { peer, .. } => {
+                if let Some(&endpoint) = self.peer_endpoints.get(&peer) {
+                    self.connector
+                        .set_refusing(EndpointId::Peer(endpoint), true);
+                }
+            }
             Event::Terminating { peer, .. } => {
                 if let Some(&endpoint) = self.peer_endpoints.get(&peer) {
                     self.connector

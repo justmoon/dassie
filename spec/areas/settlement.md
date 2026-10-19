@@ -93,6 +93,7 @@ At every settlement check the node asks each peer whose position has fallen to i
 - **It asks again** at the next check once its books show a settlement from that peer, not on the `settlement` message alone: on the XRP Ledger the message books nothing, so asking on it would make the peer pay twice. It also asks again at the next check after a 409, since our acceptance may not have reached the peer yet. Otherwise it asks at most once a minute, so a peer that does not answer is not flooded.
 - **Only while its scheme is synced.** An honest peer settles only when asked, so no settlement reaches the ledger before the scheme first synced, which books what the account held by then as the owner's deposit. A settlement a peer makes unasked before then is that deposit.
 - With no credit extended, it asks at once, and asks again once what the peer paid in advance is down to the trigger.
+- **A peering the node is ending** is asked once more, by the peer node itself, before the peer is told, whatever its position; then no more ([Network](network.md#termination)).
 
 ## Settling on request
 
@@ -106,7 +107,7 @@ A request says that the debtor stands near the asker's trigger. The debtor settl
 
 ## Settling at a peering's end
 
-Nothing is settled for a peering's end ([D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)). From the moment a node knows a peering is ending, it settles nothing more with that peer: neither side has a reason to pay at the end. What each side's books show stays on the peer's accounts, and a later peering with the node settles it as usual. A settlement already under way still arrives, and is credited once ([below](#incoming-settlements)).
+Nothing is settled for a peering's end ([D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)). From the moment a node knows a peering is ending, by deciding it or by being told, it settles nothing more with that peer: neither side has a reason to pay at the end. The node that ends it collects first: it waits for what the peer had on its way when last asked, so no settlement crosses the end between honest nodes ([Network](network.md#termination)). What each side's books show stays on the peer's accounts, and a later peering with the node settles it as usual. A settlement already under way still arrives, and is credited once ([below](#incoming-settlements)).
 
 ## Outgoing settlements
 

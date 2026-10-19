@@ -234,10 +234,12 @@ function NodeDetail(props: { node: NetworkNode }): JSX.Element {
             )}
           >
             <p>
-              No new payments go through this peer. Once those in flight are
-              done, the peering ends. Nothing is settled for its end: what
-              either side owes stays on the books, to be settled if you peer
-              again. Your node does not peer with it again for a day.
+              Your node first asks this peer to settle once more, without
+              telling it why, and takes no new payments from it. Then it tells
+              the peer, and once the payments in flight are done, the peering
+              ends. Nothing else is settled: what either side still owes stays
+              on the books, to be settled if you peer again. Your node does not
+              peer with it again for a day.
             </p>
           </ConfirmButton>
         </Show>

@@ -256,9 +256,10 @@ test(
         new Map([["d1", DEPOSIT], ["d2", DEPOSIT]]),
       );
       await assertSettled(scenario);
-      // d1's owner ends the peering: it ends on both sides, nothing is
-      // settled for its end (D28), so what each owes stays on its books,
-      // and they do not peer again at once.
+      // d1's owner ends the peering: d1 collects first, asking d2 to settle
+      // once more, then tells it, and it ends on both sides. d1 pays
+      // nothing (D28): what d1 owes can only have grown, what d2 owes only
+      // shrunk, by what d2 settled. They do not peer again at once.
       const before = await peerAccounts(scenario);
       await d1.rpc.call("terminatePeering", { node: d2.id });
       await scenario.until("parted", async () => {
@@ -266,11 +267,9 @@ test(
         return peerings.get("d1")!.length === 0 &&
           peerings.get("d2")!.length === 0 && await quiet(scenario);
       });
-      assertEquals(
-        await peerAccounts(scenario),
-        before,
-        "nothing is settled for the end",
-      );
+      const after = await peerAccounts(scenario);
+      assert(after.get("d1>d2")! >= before.get("d1>d2")!, "d1 paid nothing");
+      assert(after.get("d2>d1")! <= before.get("d2>d1")!, "d2 owes no more");
       assertEquals(
         await owners(scenario),
         new Map([["d1", DEPOSIT], ["d2", DEPOSIT]]),

@@ -78,6 +78,9 @@ pub(crate) struct Endpoint {
     pub money_to: u64,
     /// It takes no new Prepares, either way: its peering is ending.
     pub draining: bool,
+    /// It takes no new Prepares from it, but still goes to it: we are
+    /// ending its peering, and have not told it yet (D28).
+    pub refusing: bool,
 }
 
 /// The endpoints, by ID. A child's address, below the node's own, is its

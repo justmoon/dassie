@@ -448,12 +448,19 @@ impl Core {
             if let Err(error) = self.add_peer_endpoint(node) {
                 self.report(PeerEvent::NoEndpoint { node, error });
             }
-            // One being ended stays drained.
-            if !active.contains(&node)
-                && let Some(&endpoint) = self.peer_endpoints.get(&node)
-            {
-                self.connector
-                    .set_draining(dassie_connector::EndpointId::Peer(endpoint), true);
+            // One being ended stays drained; one we end privately still
+            // refuses the peer's Prepares (D28).
+            let depeering = self
+                .peer
+                .peering_of(&node)
+                .is_some_and(|peering| peering.depeering.is_some());
+            if let Some(&endpoint) = self.peer_endpoints.get(&node) {
+                let endpoint = dassie_connector::EndpointId::Peer(endpoint);
+                if !active.contains(&node) {
+                    self.connector.set_draining(endpoint, true);
+                } else if depeering {
+                    self.connector.set_refusing(endpoint, true);
+                }
             }
         }
         self.reconcile_settlements(None);

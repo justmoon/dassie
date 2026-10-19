@@ -337,11 +337,12 @@ impl PeerNode {
         scheme: SchemeId,
     ) -> Result<(), SendError> {
         self.advance(now_ms);
+        // A peering we are ending asks once more, by itself (D28).
         if self
             .table
             .get(peer)
             .and_then(Entry::active_peering)
-            .is_none()
+            .is_none_or(|peering| peering.depeering.is_some())
         {
             return Err(SendError::NotPeered);
         }

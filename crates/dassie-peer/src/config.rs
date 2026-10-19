@@ -107,6 +107,14 @@ pub struct Config {
     pub advertise_short_grace_ms: u64,
     /// How long the side that terminates keeps telling the other.
     pub termination_timeout_ms: u64,
+    /// How long a node ending a peering waits for each of two things before
+    /// it tells the peer (D28): its own settlements to the peer under way,
+    /// and what the peer's answer to its last request says is on its way.
+    /// Long enough for a settlement to reach the ledger and be announced:
+    /// on the XRP Ledger, a transaction applies within its window of 20
+    /// ledgers, some 80 s, or never; with a request's timeout for its
+    /// announcement, 110 s.
+    pub depeer_wait_ms: u64,
     /// How long after an owner's termination the node does not ask the
     /// peer again.
     pub owner_termination_cooldown_ms: u64,
@@ -175,6 +183,7 @@ impl Config {
         advertise_stable_ms: 3_600_000,
         advertise_short_grace_ms: 120_000,
         termination_timeout_ms: 120_000,
+        depeer_wait_ms: 120_000,
         owner_termination_cooldown_ms: 86_400_000,
         max_bans: 1024,
         max_channels: 512,
@@ -202,6 +211,7 @@ impl Config {
         advertise_stable_ms: 300_000,
         advertise_short_grace_ms: 10_000,
         termination_timeout_ms: 20_000,
+        depeer_wait_ms: 20_000,
         owner_termination_cooldown_ms: 300_000,
         settlement_retry_max_ms: 10_000,
         ..Self::DEFAULT

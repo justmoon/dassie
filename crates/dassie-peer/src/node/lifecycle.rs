@@ -10,8 +10,8 @@ use super::{PeerNode, Problem, Purpose};
 use crate::auth::Accepted;
 use crate::hooks::PeeringHooks;
 use crate::io::{Event, Reply};
-use crate::table::{Advertise, PeerState, Sources, Termination, backoff};
-use crate::wire::{Content, SignedNodeInfo, TerminationReason};
+use crate::table::{Advertise, Depeering, PeerState, Sources, Termination, backoff};
+use crate::wire::{Content, SchemeId, SignedNodeInfo, TerminationReason};
 
 /// Why a node could not be banned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,13 +23,119 @@ pub enum BanError {
 }
 
 impl PeerNode {
-    /// Ends the peering with `peer`: no new packets from now on, and once
-    /// those in flight are done, the peering is over
-    /// (spec/areas/network.md#termination).
+    /// Ends the peering with `peer` (spec/areas/network.md#termination):
+    /// first privately, collecting what it owes, then by telling it; once
+    /// the packets in flight are done, the peering is over (D28).
     /// Returns whether a peering was there to end.
     pub fn terminate(&mut self, now_ms: u64, peer: &NodeId, reason: TerminationReason) -> bool {
         self.advance(now_ms);
-        self.begin_termination(*peer, reason, true)
+        self.begin_depeering(*peer, reason)
+    }
+
+    /// Decides to end an active peering, telling no one yet (D28): it
+    /// takes nothing new from the peer, which still sees it as before.
+    /// Returns whether a peering was there to end.
+    pub(crate) fn begin_depeering(&mut self, peer: NodeId, reason: TerminationReason) -> bool {
+        let now = self.now_ms;
+        let Some(entry) = self.table.get_mut(&peer) else {
+            return false;
+        };
+        let PeerState::Peered(peering) = &mut entry.peer else {
+            return false;
+        };
+        if peering.depeering.is_none() {
+            peering.depeering = Some(Depeering::new(now, reason));
+            self.dirty.insert(peer);
+            self.event(Event::Depeering { peer, reason });
+        }
+        true
+    }
+
+    /// Takes the next step of each peering we are ending privately (D28):
+    /// once our own settlements to the peer are done, or we waited long
+    /// enough, ask it to settle once; once what it said is on its way is
+    /// booked, or we waited long enough, tell it.
+    fn advance_depeerings(&mut self, hooks: &dyn PeeringHooks) {
+        let (now, wait) = (self.now_ms, self.config.depeer_wait_ms);
+        let depeering: Vec<(NodeId, SchemeId, Depeering)> = self
+            .table
+            .iter()
+            .filter_map(|(id, entry)| {
+                let peering = entry.active_peering()?;
+                Some((*id, peering.scheme, peering.depeering?))
+            })
+            .collect();
+        for (peer, scheme, depeering) in depeering {
+            match depeering.asked_ms {
+                None => {
+                    let ours = hooks.settling_to(peer) || self.settling(&peer);
+                    if !ours || depeering.since_ms.saturating_add(wait) <= now {
+                        self.ask_final(peer, scheme);
+                    }
+                }
+                Some(asked) => {
+                    if depeering.collected() || asked.saturating_add(wait) <= now {
+                        self.begin_termination(peer, depeering.reason, true);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Asks `peer` to settle a last time. A request that cannot be sent
+    /// counts as asked, and is waited out.
+    fn ask_final(&mut self, peer: NodeId, scheme: SchemeId) {
+        let now = self.now_ms;
+        if let Some(depeering) = self.depeering_mut(&peer) {
+            depeering.asked_ms = Some(now);
+        }
+        let content = Content::SettlementRequest { scheme };
+        let timeout = self.config.request_timeout_ms;
+        if self
+            .send(peer, &content, Purpose::FinalRequest, timeout)
+            .is_some()
+        {
+            self.stats.settlements_requested += 1;
+        }
+    }
+
+    /// The answer to our last request: what the peer has on its way. A
+    /// 409, from a peer that holds no peering, means nothing is; an answer
+    /// that does not say, or none, is waited out.
+    pub(super) fn on_final_request(&mut self, peer: NodeId, result: &Result<Vec<u8>, Problem>) {
+        let promised = match result {
+            Ok(body) => crate::wire::decode_settling(body).ok().flatten(),
+            Err(Problem::Status(409)) => Some(0),
+            Err(_) => None,
+        };
+        if result.is_ok() {
+            self.event(Event::SettlementRequestAnswered {
+                peer,
+                settling: promised,
+            });
+        }
+        if let Some(depeering) = self.depeering_mut(&peer) {
+            depeering.promised = promised;
+        }
+    }
+
+    /// Our books took `amount` from `peer` in a settlement: what it said
+    /// was on its way, if we are ending the peering, comes closer (D28).
+    pub fn settlement_booked(&mut self, now_ms: u64, peer: &NodeId, amount: u64) {
+        self.advance(now_ms);
+        if let Some(depeering) = self.depeering_mut(peer)
+            && depeering.asked_ms.is_some()
+        {
+            depeering.booked = depeering.booked.saturating_add(amount);
+        }
+    }
+
+    /// A peering we are ending privately, to change its steps.
+    fn depeering_mut(&mut self, peer: &NodeId) -> Option<&mut Depeering> {
+        match &mut self.table.get_mut(peer)?.peer {
+            PeerState::Peered(peering) => peering.depeering.as_mut(),
+            _ => None,
+        }
     }
 
     /// Moves an active peering to terminating. `by_us` says whether we
@@ -53,7 +159,10 @@ impl PeerNode {
             by_us,
             acknowledged: !by_us,
         };
-        entry.peer = PeerState::Terminating(peering.clone(), termination);
+        // Told, or telling: whatever we were collecting is over.
+        let mut peering = peering.clone();
+        peering.depeering = None;
+        entry.peer = PeerState::Terminating(peering, termination);
         entry.advertise.on = false;
         self.dirty.insert(peer);
         self.gossip.own_changed = true;
@@ -168,7 +277,7 @@ impl PeerNode {
             self.banned.push(node);
         }
         self.abandon_attempt(node);
-        self.begin_termination(node, TerminationReason::Owner, true);
+        self.begin_depeering(node, TerminationReason::Owner);
         Ok(())
     }
 
@@ -216,6 +325,7 @@ impl PeerNode {
     pub(super) fn review_peers(&mut self, hooks: &dyn PeeringHooks) {
         self.terminate_silent();
         self.terminate_short();
+        self.advance_depeerings(hooks);
         self.update_advertised();
         let telling: Vec<NodeId> = self.telling.keys().copied().collect();
         for peer in telling {
@@ -250,17 +360,24 @@ impl PeerNode {
             .iter()
             .filter_map(|(id, entry)| match &entry.peer {
                 PeerState::Peered(peering) => {
-                    let silent = peering
-                        .last_seen_ms
-                        .max(start)
-                        .saturating_add(config.peer_dead_ms);
+                    // Silent or short for good, it is ended: not again
+                    // once we decided to (D28).
+                    let ending = peering.depeering.is_some();
+                    let silent = if ending {
+                        u64::MAX
+                    } else {
+                        peering
+                            .last_seen_ms
+                            .max(start)
+                            .saturating_add(config.peer_dead_ms)
+                    };
                     let advertise = &entry.advertise;
                     // Short of room: withdrawn once the grace is over, and
                     // ended once it stays short as long as a silent peer.
                     // The time short grows only at checks, which come with
                     // an input: due at once when one passed a limit.
                     let stuck = peering.short_for_ms >= config.advertise_short_grace_ms;
-                    let ended = if peering.short_for_ms >= config.peer_dead_ms {
+                    let ended = if !ending && peering.short_for_ms >= config.peer_dead_ms {
                         now
                     } else {
                         u64::MAX
@@ -284,7 +401,22 @@ impl PeerNode {
                     } else {
                         u64::MAX
                     };
-                    Some(silent.min(flag).min(ended))
+                    // A peering we are ending privately takes its next step
+                    // when its wait ends, or when it was collected; whether
+                    // our own settlements are done, only the hooks tell, so
+                    // that is looked at with each peering check.
+                    let depeer = peering.depeering.map_or(u64::MAX, |depeering| {
+                        let wait = config.depeer_wait_ms;
+                        match depeering.asked_ms {
+                            None => depeering
+                                .since_ms
+                                .saturating_add(wait)
+                                .min(self.peering.check_at_ms()),
+                            Some(_) if depeering.collected() => now,
+                            Some(asked) => asked.saturating_add(wait),
+                        }
+                    });
+                    Some(silent.min(flag).min(ended).min(depeer))
                 }
                 PeerState::Terminating(_, termination) => {
                     Some(if termination.told(now, config.termination_timeout_ms) {
@@ -312,14 +444,14 @@ impl PeerNode {
             .table
             .iter()
             .filter(|(_, entry)| {
-                entry
-                    .active_peering()
-                    .is_some_and(|p| p.last_seen_ms.max(start).saturating_add(dead) <= now)
+                entry.active_peering().is_some_and(|p| {
+                    p.depeering.is_none() && p.last_seen_ms.max(start).saturating_add(dead) <= now
+                })
             })
             .map(|(id, _)| *id)
             .collect();
         for peer in silent {
-            self.begin_termination(peer, TerminationReason::Unresponsive, true);
+            self.begin_depeering(peer, TerminationReason::Unresponsive);
         }
     }
 
@@ -332,14 +464,14 @@ impl PeerNode {
             .table
             .iter()
             .filter(|(_, entry)| {
-                entry
-                    .active_peering()
-                    .is_some_and(|peering| peering.short_for_ms >= dead)
+                entry.active_peering().is_some_and(|peering| {
+                    peering.depeering.is_none() && peering.short_for_ms >= dead
+                })
             })
             .map(|(id, _)| *id)
             .collect();
         for peer in short {
-            self.begin_termination(peer, TerminationReason::ShortOfRoom, true);
+            self.begin_depeering(peer, TerminationReason::ShortOfRoom);
         }
     }
 
