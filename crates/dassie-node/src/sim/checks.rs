@@ -286,7 +286,7 @@ pub fn check_finished(sim: &Sim) -> Result<(), String> {
 /// its receiver still lacked when a hop lost a packet, and its receiver
 /// got what it asked for. A receiver that got less than was sent, or more
 /// than it asked for, is a safety failure; a payment that did not complete,
-/// liveness.
+/// liveness, unless its payer gave up while the network was faulty.
 pub fn check_outgoing(sim: &Sim) -> Result<(), Outcome> {
     for &(from, to, incoming, outgoing) in &sim.outgoing {
         let row = sim.nodes[from]
@@ -310,6 +310,11 @@ pub fn check_outgoing(sim: &Sim) -> Result<(), Outcome> {
                 "node {to} received {received}, more than the {} it asked for",
                 row.receive_amount.value
             )));
+        }
+        // One whose payer gave up while the network was faulty may have
+        // failed; what it sent still arrived.
+        if row.state == OutgoingState::Failed && sim.given_up.contains(&outgoing) {
+            continue;
         }
         if row.state != OutgoingState::Completed {
             let incoming_row = sim.nodes[to].store.incoming_payment(incoming).unwrap();

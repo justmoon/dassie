@@ -306,6 +306,9 @@ pub struct Sim {
     /// How many times the faucet funded each node: again after a crash cut
     /// its first request short.
     pub fundings: BTreeMap<usize, u64>,
+    /// Outgoing payments that may end failed: those whose payer gave up
+    /// while the network was faulty, as it does after its reconnects.
+    pub given_up: BTreeSet<PaymentId>,
 }
 
 // Every run, whatever it checks besides, ends without an error event: a
@@ -387,6 +390,7 @@ impl Sim {
             latency_ms: (1, 200),
             counts: BTreeMap::new(),
             fundings: BTreeMap::new(),
+            given_up: BTreeSet::new(),
         };
         for _ in 0..count {
             sim.nodes.push(SimNode {

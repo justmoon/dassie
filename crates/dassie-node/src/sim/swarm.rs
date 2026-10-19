@@ -17,15 +17,18 @@ use dassie_node_core::testing::{Outcome, Run, SeededRng};
 use dassie_settlement::LedgerStatus;
 
 use super::checks::{check, check_delivered, check_events, check_finished, check_settled};
-use super::scripted::ended;
+use super::scripted::{READY_WITHIN_MS, ended, ready};
 use super::{Delivery, START, Settling, Sim};
+use crate::engine::LedgerEvent;
+use crate::node::Policies;
 use crate::store::OutgoingState;
 
-/// How long a healed network has to settle down: ten minutes of engine
-/// time. Generous on purpose, so that a run that exceeds it is stuck, not
-/// slow. What runs take, counted as "heal seconds", is what to tighten it
-/// by; it is never loosened to let a seed pass.
-pub const HEAL_MS: u64 = 600_000;
+/// How long a healed network has to settle down, from the production rules
+/// it runs: as long as a network takes to be ready, plus the longest a
+/// settlement that failed during the chaos waits before it is sent again
+/// (its backoff grows to an hour). A run past it is stuck, not slow. It
+/// follows those rules, and is never loosened to let a seed pass.
+pub const HEAL_MS: u64 = READY_WITHIN_MS + Policies::DEFAULT.peer.settlement_retry_max_ms;
 
 /// How often a healing network is looked at.
 const LOOK_MS: u64 = 5_000;
@@ -183,6 +186,17 @@ pub fn run(seed: u64) -> Run {
         options.settling,
     );
     sim.latency_ms = options.latency_ms;
+    // The network forms first, calm, as the scripted runs' does: at
+    // production timings that takes minutes, longer than a payer keeps
+    // trying, and a payment before it has nowhere to go.
+    sim.loss_per_mille = 0;
+    if !sim.run_until_or(START + READY_WITHIN_MS, ready) {
+        let late = Err(Outcome::Liveness(
+            "the network was not ready in time".into(),
+        ));
+        return ended(sim, late);
+    }
+    sim.trace.push(format!("{} ready", sim.now));
     sim.loss_per_mille = options.loss_per_mille;
     let mut left = options.payments;
     chaos(&mut sim, &options, &mut rng, &mut left);
@@ -203,8 +217,8 @@ enum Act {
 }
 
 fn chaos(sim: &mut Sim, options: &Options, rng: &mut SeededRng, left: &mut (u64, u64)) {
-    let end = START + options.chaos_ms;
-    let mut at = START;
+    let end = sim.now + options.chaos_ms;
+    let mut at = sim.now;
     while at < end {
         at += 1 + rng.below(2 * options.step_ms);
         sim.run_until(at);
@@ -373,6 +387,20 @@ fn heal(
     sim.cut.clear();
     sim.loss_per_mille = 0;
     sim.trace.push(format!("{} heal", sim.now));
+    // A payer gives up after its reconnects (a few minutes), and the chaos
+    // may have cut it off that long, or the network not yet formed: what
+    // failed before the heal may stay failed. After it, nothing may fail.
+    for &(from, _, _, outgoing) in &sim.outgoing.clone() {
+        let failed = sim.nodes[from]
+            .store
+            .outgoing_payment(outgoing)
+            .unwrap()
+            .is_some_and(|row| row.state == OutgoingState::Failed);
+        if failed {
+            sim.given_up.insert(outgoing);
+            sim.count("outgoing given up in the chaos");
+        }
+    }
     // Every node runs, and there are at least two: each try that draws
     // two ends starts one.
     while *left != (0, 0) {
@@ -422,14 +450,18 @@ fn unsettled(sim: &Sim) -> Option<String> {
     if sim.ledger.queued() > 0 {
         return Some("transactions wait for the ledger to close".into());
     }
-    let ledger_traffic = sim.queue.values().any(|delivery| {
-        matches!(
-            delivery,
-            Delivery::LedgerRequest { .. } | Delivery::LedgerEvent { .. }
-        )
+    // The ledger closes every few seconds and the nodes talk to it all
+    // the time: what matters is a transaction on its way in or out.
+    let in_flight = sim.queue.values().any(|delivery| match delivery {
+        Delivery::LedgerRequest { message, .. } => names(message, "command", "submit"),
+        Delivery::LedgerEvent {
+            event: LedgerEvent::Message(message),
+            ..
+        } => names(message, "type", "transaction"),
+        _ => false,
     });
-    if ledger_traffic {
-        return Some("messages to or from the ledger are in flight".into());
+    if in_flight {
+        return Some("a transaction is on its way to or from the ledger".into());
     }
     if count > 1
         && let Some(index) = (0..count).find(|i| sim.peers(*i).is_empty())
@@ -442,7 +474,8 @@ fn unsettled(sim: &Sim) -> Option<String> {
             .outgoing_payment(outgoing)
             .unwrap()
             .map(|row| row.state);
-        if state != Some(OutgoingState::Completed) {
+        let given_up = state == Some(OutgoingState::Failed) && sim.given_up.contains(&outgoing);
+        if state != Some(OutgoingState::Completed) && !given_up {
             return Some(format!(
                 "the outgoing payment from node {from} to node {to} is {state:?}"
             ));
@@ -452,4 +485,12 @@ fn unsettled(sim: &Sim) -> Option<String> {
         .err()
         .or_else(|| check_settled(sim).err())
         .or_else(|| check_delivered(sim).err())
+}
+
+/// Whether a JSON message to or from the ledger has `key` set to `value`.
+fn names(message: &[u8], key: &str, value: &str) -> bool {
+    serde_json::from_slice::<serde_json::Value>(message)
+        .ok()
+        .and_then(|json| json.get(key)?.as_str().map(|found| found == value))
+        .unwrap_or(false)
 }

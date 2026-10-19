@@ -15,7 +15,7 @@ use crate::store::OutgoingState;
 /// How long a network may take to be ready, at production timings: nodes
 /// find each other through lists polled once a minute, and a peering that
 /// failed is tried again after a backoff.
-const READY_WITHIN_MS: u64 = 10 * 60_000;
+pub(super) const READY_WITHIN_MS: u64 = 10 * 60_000;
 
 /// How long the payments of a run may take after the crash in it, at
 /// production timings: a busy link waits for its settlements to reach the
@@ -25,7 +25,7 @@ const PAID_WITHIN_MS: u64 = 10 * 60_000;
 /// Whether the network is ready for payments: every node has a peer and a
 /// route to every other node, and none waits for a peer to settle, so a
 /// junior has paid its senior in advance.
-fn ready(sim: &Sim) -> bool {
+pub(super) fn ready(sim: &Sim) -> bool {
     let count = sim.nodes.len();
     let routed = (0..count).all(|index| {
         let network = sim.core(index).network();
