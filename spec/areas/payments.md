@@ -247,7 +247,7 @@ Amounts are decimal strings of the asset's smallest unit. `completed` means it r
 - `wallet-address` is required and must be one of the node's; `first=n` or `last=n` (1 to 100, not both; 20 forward by default); `cursor` a resource ID from an earlier page. A repeated parameter or an unknown cursor is 400.
 - Newest first, only what the grant's listing items reach (403 when none lists). `pagination` gives `startCursor`, `endCursor`, `hasNextPage` (older) and `hasPreviousPage` (newer).
 
-**Forgetting:** an incoming payment that received nothing is deleted 7 days after it closed or expired, at most 1000 at a time, whenever one is created; anyone may create them, so they must not pile up. What a closed payment's connections received is deleted then too.
+**Forgetting:** an incoming payment that received nothing is deleted 7 days after it closed or expired, at most 1000 at a time, whenever one is created; anyone may create them, so they must not pile up. What an expired payment's connections received is deleted when it is pruned, and what a completed one's received 10 minutes after it completed, once no payer still reconnects to learn it.
 
 ## Quotes
 
@@ -432,7 +432,7 @@ Times are RFC 3339 date-times, held as milliseconds since the Unix epoch, up to 
 
 What survives a restart, written with the journal rows that move the money where there are any ([node.md](node.md) has the database as a whole):
 
-- **Incoming payments:** ledger, wallet address, creating client (none for the owner), incoming and received amounts, expiry, completion, metadata, and the STREAM credentials kept with it; and what each of an open payment's connections received. At a start, the open ones are read back (at most 65,536), within the owner's and clients' bounds.
+- **Incoming payments:** ledger, wallet address, creating client (none for the owner), incoming and received amounts, expiry, completion, metadata, and the STREAM credentials kept with it; and what each connection of an open payment, or of one completed in the last 10 minutes, received. At a start, the open ones are read back (at most 65,536), within the owner's and clients' bounds, and what the connections of the last 4096 completed in those 10 minutes received.
 - **Quotes:** the client, the receiver and its credentials, debit and receive amounts, expiry; for the owner's, the wallet address paid and whether it fixes the amount sent.
 - **Outgoing payments:** everything a quote has, plus the grant and window it was reserved in, its sent amount (what was posted), state, failure, deadline and finish time. At a start, those still sending are read back (at most 4096) and continue.
 - **Grant spend:** for each grant and window, what was debited and delivered, written with the payment that spends it.
@@ -455,6 +455,7 @@ What survives a restart, written with the journal rows that move the money where
 | Connections per incoming payment | 32 |
 | Completed payments remembered for their senders | 4096 |
 | Unpaid incoming payments forgotten | 7 days after they close |
+| What a completed payment's connections received, kept | 10 minutes after it completed |
 | Metadata | 4 KiB |
 | Live quotes | 4096 clients', 256 the owner's |
 | Quote lifetime | 5 minutes |
