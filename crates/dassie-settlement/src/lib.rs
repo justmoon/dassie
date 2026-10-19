@@ -1,12 +1,12 @@
 //! Settlement schemes: how a node moves real (or test) money with its
 //! peers on an underlying ledger, and how the books learn about it.
 //!
-//! - [`SettlementScheme`] is the interface of spec 5 §4.3, sans-IO: methods
+//! - [`SettlementScheme`] is the scheme interface
+//!   (spec/areas/settlement.md#the-scheme-interface), sans-IO: methods
 //!   return [`Effect`]s for the node to book, rather than calling back into
-//!   the node. The changes of spec 7 §4.5 are built in: settlements have
-//!   explicit IDs, a failed one is cancelled, peer state returned by the
-//!   module is kept, versions are declared for negotiation, and config is
-//!   passed through.
+//!   the node. Unlike the original's, settlements have explicit IDs, a
+//!   failed one is cancelled, peer state returned by the module is kept,
+//!   versions are declared for negotiation, and config is passed through.
 //! - [`activation`] decides what to book when a scheme starts, from its
 //!   balance and the last checkpoint, so that restarts book nothing twice
 //!   (ACC-6).

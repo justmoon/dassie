@@ -4,10 +4,10 @@ package dassie.dev.v1;
 
 import "dassie/ui/v1/inspect.proto";
 
-// The dev environment's control channel (spec 7 §6): between the dev
-// server (apps/dev) and its dashboard, over one WebSocket at `/control` on
-// the dashboard's own origin. Each binary message is one ServerMessage or
-// ClientMessage, of at most 1 MiB.
+// The dev environment's control channel (spec/areas/dev.md#control-channel):
+// between the dev server (apps/dev) and its dashboard, over one WebSocket at
+// `/control` on the dashboard's own origin. Each binary message is one
+// ServerMessage or ClientMessage, of at most 1 MiB.
 //
 // The dev server sends State whenever it changes, and the logs, peerings
 // and traffic it gathers from the nodes' own RPC. The first messages on a

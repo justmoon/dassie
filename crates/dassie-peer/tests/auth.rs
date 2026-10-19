@@ -1,6 +1,6 @@
-//! v1 message authentication (D2, spec 7 §4.7). Each test is a way the
-//! original's scheme could be fooled (NET-8) or a property the amended
-//! scheme promises.
+//! v1 message authentication (D2, spec/areas/peer-protocol.md#keys-and-macs).
+//! Each test is a way the original's scheme could be fooled (NET-8) or a
+//! property the amended scheme promises.
 
 #![allow(
     clippy::unwrap_used,
@@ -245,8 +245,9 @@ fn the_mac_is_pinned() {
         &content,
     );
     let hex: String = mac.iter().map(|byte| format!("{byte:02x}")).collect();
-    // Computed independently from spec 7 §4.7 (X25519, HKDF and HMAC from
-    // first principles) before it was pinned here.
+    // Computed independently from spec/areas/peer-protocol.md#keys-and-macs
+    // (X25519, HKDF and HMAC from first principles) before it was pinned
+    // here.
     assert_eq!(
         hex,
         "7253c8ea5323692f8b6b7a15cefe82e79a7b6cb77cc49ef480bef76b44920e55"

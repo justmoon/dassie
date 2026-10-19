@@ -1,6 +1,6 @@
 //! The peer protocol in the core: what peering needs from the schemes and
 //! the ledger, peers as connector endpoints, routes, and packets over the
-//! peer protocol (spec 7 §4.7).
+//! peer protocol (spec/areas/network.md#peering).
 
 use std::collections::BTreeMap;
 

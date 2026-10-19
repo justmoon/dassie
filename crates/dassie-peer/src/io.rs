@@ -56,7 +56,7 @@ pub struct Response {
 /// A reply to an inbound request.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reply {
-    /// The HTTP status (spec 7 §4.7).
+    /// The HTTP status (spec/areas/peer-protocol.md#statuses).
     pub status: u16,
     /// For 200, the `PeerResponse`; otherwise a short text for people.
     pub body: Vec<u8>,

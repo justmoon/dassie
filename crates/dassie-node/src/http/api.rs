@@ -1,10 +1,11 @@
 //! `POST /api/setup`, `/api/login` and `/api/logout`.
 //!
 //! The bodies, the cookie and the routes' presence (setup only before, the
-//! others only after) are the original's (spec 2 §8, spec 8 §2). New: the
-//! request must come from the node's own pages (`Origin`, RT-6), carry
-//! JSON as JSON (`Content-Type`, spec 2 §16), stay under 16 KiB, and not
-//! arrive too often (RT-10).
+//! others only after) are the original's (spec/areas/http.md#setup,
+//! spec/areas/http.md#login-and-logout). New: the request must come from the
+//! node's own pages (`Origin`, RT-6), carry JSON as JSON (`Content-Type`,
+//! spec/areas/http.md#security-model), stay under 16 KiB, and not arrive too
+//! often (RT-10).
 
 use std::net::SocketAddr;
 use std::time::Duration;

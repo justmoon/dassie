@@ -1,4 +1,5 @@
-//! The ledger's behaviour, and the original's gaps it closes (spec 5 §10).
+//! The ledger's behaviour, and the original's gaps it closes
+//! (spec/original/05-accounting-and-settlement.md#10-open-questions--known-gaps-consolidated).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
@@ -151,7 +152,8 @@ fn the_owner_cannot_spend_more_than_the_pool() {
 }
 
 // Paying the node's own receiver moves money within the group: it needs no
-// free funds, and the journal still records it (spec 7 §4.5).
+// free funds, and the journal still records it
+// (spec/areas/ledger.md#the-owners-accounts).
 #[test]
 fn transfers_within_the_group_need_no_funds() {
     let (mut ledger, accounts) = funded(0);

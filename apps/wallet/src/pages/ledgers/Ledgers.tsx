@@ -1,5 +1,6 @@
-/** Ledgers (spec 6 §1.6.7): each active ledger, with its balances, and
- * the exchange rates the node converts at, with their age (D7). */
+/** Ledgers (spec/areas/wallet.md#ledgers): each active ledger, with its
+ * balances, and the exchange rates the node converts at, with their age
+ * (D7). */
 
 import type { JSX } from "@solidjs/web";
 import { For, Show } from "solid-js";

@@ -1,4 +1,4 @@
-//! The XRP Ledger for Dassie, without IO (spec 5 §6.3, spec 7 §4.5).
+//! The XRP Ledger for Dassie, without IO (spec/areas/xrpl.md).
 //!
 //! - [`keys`]: the original's wallet, derived from the node's settlement
 //!   entropy, so the same phrase finds the same funds; account IDs and
@@ -34,7 +34,8 @@ pub use scheme::{Config, XrplScheme};
 /// Drops per XRP. The ledger counts in drops, at scale 6.
 pub const DROPS_PER_XRP: u64 = 1_000_000;
 
-/// Internal units per drop: the books count XRP at scale 9 (spec 5 §6.2).
+/// Internal units per drop: the books count XRP at scale 9
+/// (spec/areas/xrpl.md#constants).
 pub const UNITS_PER_DROP: u64 = 1_000;
 
 /// The most XRP there is, in drops: 100 billion.

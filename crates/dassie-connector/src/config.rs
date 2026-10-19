@@ -1,7 +1,8 @@
 //! The connector's bounds and timing.
 
 /// The connector's bounds and timing rules. Every table has a limit
-/// (D16), and the timing constants are spec 4 §12's.
+/// (D16), and the timing constants are the original's
+/// (spec/original/04-interledger.md#12-constants-complete-list-for-this-area).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Config {
     /// The boot epoch: part of every trace ID, so that references never

@@ -1,5 +1,5 @@
-//! The database as the debug pages show it (spec 7 §5): every table and its
-//! rows, a page at a time, never a secret.
+//! The database as the debug pages show it (spec/areas/rpc.md#the-inspector):
+//! every table and its rows, a page at a time, never a secret.
 //!
 //! The SQL is built only from the schema's own table definitions, never
 //! from a name a caller passed. Secret columns are selected as `NULL`, so

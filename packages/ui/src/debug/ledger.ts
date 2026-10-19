@@ -14,7 +14,7 @@ export function splitPath(
   return { ledger: path.slice(0, colon), account: path.slice(colon + 1) };
 }
 
-/** The account page's link for a path (spec 6 §1.6.13). */
+/** The account page's link for a path (spec/areas/wallet.md#debug-pages). */
 export function accountHref(path: string): string {
   const split = splitPath(path);
   return split

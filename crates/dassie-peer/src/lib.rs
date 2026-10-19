@@ -1,9 +1,10 @@
-//! Dassie's peer protocol v1 (spec 7 §4.7), as sans-IO code.
+//! Dassie's peer protocol v1 (spec/areas/peer-protocol.md), as sans-IO code.
 //!
-//! The protocol is spec 3's, versioned: the v0 message set and layouts,
-//! with sender authentication, replay protection, authenticated responses
-//! and the membership and peering fixes of D2, D4 and D12. This crate holds
-//! its wire format; the state machines that use it are built on top.
+//! The protocol is the original's (spec/original/03-peer-network.md),
+//! versioned: the v0 message set and layouts, with sender authentication,
+//! replay protection, authenticated responses and the membership and
+//! peering fixes of D2, D4 and D12. This crate holds its wire format; the
+//! state machines that use it are built on top.
 //!
 //! Like the other protocol crates, it never reads a clock, an RNG or a
 //! socket of its own (D16).

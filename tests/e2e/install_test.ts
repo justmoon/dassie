@@ -1,6 +1,7 @@
 /**
- * The M8 done criterion (spec 7 §8): the installer and the updater work on
- * Debian, Ubuntu, Fedora and CentOS, and a tampered bundle is refused.
+ * The installer and the updater work on Debian, Ubuntu, Fedora and CentOS,
+ * and a tampered bundle is refused
+ * (spec/areas/testing.md#installer-and-updater).
  *
  * Each distribution runs in a container with systemd as PID 1
  * (`install/<distro>.Dockerfile`, privileged). A mirror, Caddy on a Docker

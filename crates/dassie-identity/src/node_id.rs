@@ -1,4 +1,5 @@
-//! Node IDs: the short, self-certifying name of a node (spec 3 §2.2).
+//! Node IDs: the short, self-certifying name of a node
+//! (spec/areas/identity.md#node-id).
 
 use core::cmp::Ordering;
 use core::fmt;
@@ -11,7 +12,7 @@ use crate::base64url;
 use crate::error::Error;
 
 /// The `dassieNodeFingerprintV1Id` object identifier, which versions the
-/// fingerprint (spec 3 §2.3).
+/// fingerprint (spec/areas/identity.md#object-identifiers).
 const FINGERPRINT_V1_OID: [u8; 14] = oid::encode(&[1, 3, 6, 1, 4, 1, 54392, 5, 1399, 2, 1]);
 
 /// Length of the fingerprint input for a 32-byte key: the OID, a one-byte
@@ -24,7 +25,7 @@ const DIGEST_CHARACTERS: usize = 32;
 /// Digest bytes that encode to exactly [`DIGEST_CHARACTERS`] characters.
 const DIGEST_BYTES: usize = DIGEST_CHARACTERS / 4 * 3;
 
-/// The peer wire schema of a node ID (spec 3 §2.2).
+/// The peer wire schema of a node ID (spec/areas/identity.md#node-id).
 const NODE_ID_SIZE: Size = Size::range(2, MAX_NODE_ID_LENGTH);
 const NODE_ID_ALPHABET: Alphabet = Alphabet::EMPTY
     .with_range(b'a', b'z')
@@ -50,7 +51,7 @@ impl NodeId {
     /// where `input` is [`hash_input`](Self::hash_input).
     ///
     /// Stripping the `A`s is a quirk of the original, kept because node IDs
-    /// must not change (spec 8 §2).
+    /// must not change (spec/areas/identity.md#node-id).
     #[must_use]
     pub fn from_public_key(public_key: &[u8; 32]) -> Self {
         let digest = Sha256::digest(Self::hash_input(public_key));

@@ -1,7 +1,7 @@
 /**
- * The log viewer (spec 6 §1.7): a filter, the lowest level shown, and the
- * lines, of which only those in view are rendered. It follows the newest
- * line unless the reader scrolled up.
+ * The log viewer (spec/areas/wallet.md#log-viewer): a filter, the lowest level
+ * shown, and the lines, of which only those in view are rendered. It follows
+ * the newest line unless the reader scrolled up.
  */
 
 import type { JSX } from "@solidjs/web";

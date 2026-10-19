@@ -1,5 +1,7 @@
-//! The peering lifecycle and settlement delivery (D12, spec 7 §4.7), one
-//! rule at a time, on two simulated nodes.
+//! The peering lifecycle and settlement delivery (D12,
+//! spec/areas/network.md#lifecycle,
+//! spec/areas/settlement.md#settlement-channels), one rule at a time, on
+//! two simulated nodes.
 
 #![allow(
     clippy::unwrap_used,

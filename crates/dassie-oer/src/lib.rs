@@ -4,7 +4,8 @@
 //! ILDCP, BTP, STREAM and the Dassie peer protocol use, and it implements it
 //! strictly: encoding always produces canonical OER, and decoding accepts
 //! nothing else. The original's lib-oer accepted several non-canonical forms
-//! (spec 4 §2, OER-q1 to OER-q3, ILP-12); see the tests named after them.
+//! (spec/areas/encoding.md#what-the-original-got-wrong, OER-q1 to OER-q3,
+//! ILP-12); see the tests named after them.
 //!
 //! The codec does not allocate. Decoding borrows from the input, and
 //! encoding writes into a buffer the caller sizes with

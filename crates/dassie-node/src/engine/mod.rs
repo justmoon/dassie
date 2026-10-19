@@ -6,12 +6,12 @@
 //! talks to it through an [`Engine`] handle: BTP connections send packets,
 //! RPC calls send closures that run on the core.
 //!
-//! The core itself does no IO. The task here drives it: it takes every
-//! queued command, lets the core persist what the batch changed in one
-//! transaction, and only then sends the batch's packets and replies. So a
-//! fulfill goes upstream only once its transfer is on disk. If the write
-//! fails, the core panics without handing anything over; the supervisor
-//! restarts the task, and it rebuilds from the database (spec 7 §4.4:
+//! The core itself does no IO. The task here drives it: it takes every queued
+//! command, lets the core persist what the batch changed in one transaction,
+//! and only then sends the batch's packets and replies. So a fulfill goes
+//! upstream only once its transfer is on disk. If the write fails, the core
+//! panics without handing anything over; the supervisor restarts the task,
+//! and it rebuilds from the database (spec/areas/node.md#persistence:
 //! in-flight packets do not survive, and their clients reconnect).
 //!
 //! The engine starts once the node has an identity: its ILP address comes

@@ -1,5 +1,6 @@
 //! One test per flaw of the original that the rewrite fixes. Each would
-//! have failed against the original's behaviour (spec 8 §1).
+//! have failed against the original's behaviour
+//! (spec/original/README.md#how-the-rewrite-treated-the-gaps).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
@@ -53,7 +54,7 @@ fn ui_5_unknown_word_is_rejected() {
 
 /// lib-x509's SPKI constant omitted the BIT STRING's unused-bits byte, so
 /// the 44-byte DER it parsed gave a 33-byte "key" starting with `00`
-/// (spec 3 §2.1).
+/// (spec/original/03-peer-network.md#21-node-private-key).
 #[test]
 fn spki_der_has_the_unused_bits_byte() {
     let key = NodeKey::from_bytes(&[1; 32]).public_key();
@@ -76,7 +77,8 @@ fn spki_der_has_the_unused_bits_byte() {
 }
 
 /// PKCS#8 decoding is strict, and the setup route can no longer store a key
-/// of the wrong length (spec 2 §8.3 step 3): a node key is 32 bytes by type.
+/// of the wrong length (spec/original/02-node-runtime.md#83-post-apisetup,
+/// step 3): a node key is 32 bytes by type.
 #[test]
 fn pkcs8_der_is_exact() {
     let key = NodeKey::from_bytes(&[1; 32]);
@@ -96,8 +98,10 @@ fn pkcs8_der_is_exact() {
 }
 
 /// The original compared the login proof as hex strings with `!==`, which
-/// returns at the first differing character (spec 2 §8.3, §8.4). The proof
-/// is now checked as bytes with `subtle`'s constant-time equality.
+/// returns at the first differing character
+/// (spec/original/02-node-runtime.md#83-post-apisetup,
+/// spec/original/02-node-runtime.md#84-post-apilogin). The proof is now
+/// checked as bytes with `subtle`'s constant-time equality.
 #[test]
 fn login_proof_is_checked_in_constant_time() {
     let key = NodeKey::from_bytes(&[9; 32]);

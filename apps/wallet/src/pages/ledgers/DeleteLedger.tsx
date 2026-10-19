@@ -1,6 +1,6 @@
 /**
- * Removing a ledger (spec 6 §1.6.9): what blocks it, as the node reports
- * it live, and a typed confirmation.
+ * Removing a ledger (spec/areas/wallet.md#remove-a-ledger): what blocks it, as
+ * the node reports it live, and a typed confirmation.
  */
 
 import type { JSX } from "@solidjs/web";

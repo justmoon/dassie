@@ -1,4 +1,4 @@
-// Milestone M2's done criterion (spec 7 §8): a fresh install reaches
+// End to end (spec/areas/testing.md#end-to-end): a fresh install reaches
 // "setup complete" in a browser with a certificate from an ACME CA.
 //
 // The CA is Pebble, Let's Encrypt's test server, which runs the same ACME

@@ -21,8 +21,8 @@ pub struct Asset {
 }
 
 /// An internal ledger. Named `<settlement family>+<currency>`, as in the
-/// original (spec 5 §1.1). The list is closed: a new ledger comes with the
-/// settlement module that serves it.
+/// original (spec/areas/ledger.md#ledgers-and-amounts). The list is closed:
+/// a new ledger comes with the settlement module that serves it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LedgerId {
     /// The stub settlement module's US dollars.
@@ -54,7 +54,7 @@ impl LedgerId {
     }
 
     /// The asset the ledger counts. Both currencies use scale 9 internally
-    /// (spec 5 §1.2), so 1 USD is 10^9 units.
+    /// (spec/areas/ledger.md#ledgers-and-amounts), so 1 USD is 10^9 units.
     #[must_use]
     pub const fn asset(self) -> Asset {
         match self {

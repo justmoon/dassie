@@ -1,9 +1,10 @@
-//! Settling with peers (D23, spec 7 §4.7): a node asks a peer to settle
-//! once the peer is close to the credit it extends, and settles half the
-//! way to its own trigger when a peer asks it. A settlement is
-//! prepared, booked as a durable pending transfer, executed once that is on
-//! disk, and announced to the peer once it executed. Incoming settlements
-//! are booked before the scheme sees them.
+//! Settling with peers (D23,
+//! spec/areas/settlement.md#asking-a-peer-to-settle): a node asks a peer to
+//! settle once the peer is close to the credit it extends, and settles half
+//! the way to its own trigger when a peer asks it. A settlement is prepared,
+//! booked as a durable pending transfer, executed once that is on disk, and
+//! announced to the peer once it executed. Incoming settlements are booked
+//! before the scheme sees them.
 
 use std::collections::BTreeMap;
 

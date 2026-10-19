@@ -1,4 +1,5 @@
-//! Starting and stopping the daemon (spec 7 §4.1).
+//! Starting and stopping the daemon (spec/areas/node.md#startup,
+//! spec/areas/node.md#shutdown).
 //!
 //! In order: the environment is checked, the database opened and migrated,
 //! the sockets taken from systemd or bound, the certificate loaded or made,

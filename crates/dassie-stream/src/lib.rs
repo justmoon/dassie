@@ -10,7 +10,8 @@
 //! Nothing here performs IO, reads a clock or draws OS randomness: callers
 //! pass the time and an RNG in, so the same inputs give the same outputs
 //! (D16). The wire format is compatible with `ilp-protocol-stream`; the
-//! behaviour keeps the original Dassie's deliberate extensions (spec 8 §2)
+//! behaviour keeps the original Dassie's deliberate extensions
+//! (spec/areas/stream.md#differences-from-rfc-29-and-ilp-protocol-stream)
 //! and closes the RFC gaps it left (ILP-11).
 
 #![no_std]

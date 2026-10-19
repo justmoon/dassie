@@ -1,8 +1,9 @@
 /**
- * The dev nodes' identities (spec 6 §6.4): node IDs brute-forced to start
- * with their short name, `d1_…` for the first. The table keeps each one's
- * BIP-39 entropy and ID; the phrase, the node key and the login proof are
- * derived from the entropy by `dassie-identity`, as the node derives them.
+ * The dev nodes' identities (spec/areas/dev.md#vanity-identities): node IDs
+ * brute-forced to start with their short name, `d1_…` for the first. The table
+ * keeps each one's BIP-39 entropy and ID; the phrase, the node key and the
+ * login proof are derived from the entropy by `dassie-identity`, as the node
+ * derives them.
  *
  * `scripts/vanity.ts` adds what a brute-forcer found, by the original's
  * rules ({@linkcode merge}).

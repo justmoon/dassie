@@ -28,11 +28,11 @@ message BtpToken {
   int64 cap_full_at_unix_ms = 10;
 }
 
-// At most `amount` per `window_ms`, refilling continuously (spec 7 §4.5):
-// what the token's clients send out of the owner's funds. Paying the
-// node's own receiver, or another token's client, does not count. A packet
-// larger than the amount is refused with F08, one the cap has no room for
-// now with T04.
+// At most `amount` per `window_ms`, refilling continuously
+// (spec/areas/connector.md#spending-caps): what the token's clients send out of
+// the owner's funds. Paying the node's own receiver, or another token's client,
+// does not count. A packet larger than the amount is refused with F08, one the
+// cap has no room for now with T04.
 message SpendingCap {
   // In the ledger's units; 1 to 2^63 - 1.
   uint64 amount = 1;

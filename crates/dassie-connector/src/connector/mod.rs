@@ -390,9 +390,10 @@ impl Connector {
     }
 
     /// Limits what `account` may spend out of its owner's funds, from
-    /// `now_ms` on (spec 7 §4.5), or lifts its cap. A new cap starts with
-    /// nothing used; a changed one keeps what was used, rounded up to the
-    /// new window. Packets in flight count against it either way.
+    /// `now_ms` on (spec/areas/connector.md#spending-caps), or lifts its
+    /// cap. A new cap starts with nothing used; a changed one keeps what was
+    /// used, rounded up to the new window. Packets in flight count against
+    /// it either way.
     ///
     /// # Errors
     ///

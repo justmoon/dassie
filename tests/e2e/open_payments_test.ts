@@ -1,8 +1,8 @@
 /**
- * The M6a done criterion (spec 7 §8): the reference Open Payments client,
- * `@interledger/open-payments`, gets a grant from a node, creates an
- * incoming payment there, `ilp-protocol-stream` pays it, and the payment's
- * state and the node's books are exact.
+ * End to end (spec/areas/testing.md#end-to-end): the reference Open
+ * Payments client, `@interledger/open-payments`, gets a grant from a node,
+ * creates an incoming payment there, `ilp-protocol-stream` pays it, and the
+ * payment's state and the node's books are exact.
  *
  * The client is a third party with a wallet address of its own, served
  * here, whose `jwks.json` the node fetches to check its signatures. The

@@ -5,7 +5,8 @@
 //! server secret, and the shared secret is an HMAC of the token, so the
 //! server needs no table of issued credentials: they survive restarts and
 //! never accumulate. The original kept credentials in memory, never expiring
-//! and without tags (spec 4 §11.4); this is the upstream scheme instead.
+//! and without tags (spec/original/04-interledger.md#114-server-serverts);
+//! this is the upstream scheme instead.
 
 use core::fmt;
 

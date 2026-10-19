@@ -157,9 +157,9 @@ fn a_node_removed_and_added_in_one_batch_stays() {
     assert_eq!(store.load_peer().unwrap().nodes, [node(1)]);
 }
 
-// A peering being ended, settlement channels with a message on its way,
-// and bans survive a restart (spec 7 §4.4). A channel stays when its node
-// leaves the table.
+// A peering being ended, settlement channels with a message on its way, and
+// bans survive a restart (spec/areas/network.md#persistence). A channel stays
+// when its node leaves the table.
 #[test]
 fn terminations_channels_and_bans_round_trip() {
     let store = Store::open_in_memory().unwrap();

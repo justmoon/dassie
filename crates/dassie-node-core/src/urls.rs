@@ -1,6 +1,8 @@
 //! The URLs the node prints and redirects to.
 //!
-//! The original got these wrong in three ways (spec 2 §4.3, §6.5):
+//! The original got these wrong in three ways
+//! (spec/original/02-node-runtime.md#43-computed-signals-appconfigcomputed,
+//! spec/original/02-node-runtime.md#65-redirect):
 //!
 //! - the HTTP→HTTPS redirect used the request URL's host, which its HTTP
 //!   adapter always set to `0.0.0.0`, and dropped the query (RT-1);

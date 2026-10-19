@@ -1,4 +1,5 @@
-//! `PeerMessageContent`: what a message says (spec 3 §5.2, spec 7 §4.7).
+//! `PeerMessageContent`: what a message says
+//! (spec/areas/peer-protocol.md#message-set).
 
 use alloc::vec::Vec;
 

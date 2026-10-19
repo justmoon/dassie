@@ -1,8 +1,8 @@
 /**
- * The dashboard's way to one node (spec 7 §5): a WebSocket from the
- * dashboard's page, relayed message for message to the node's IPC socket,
- * where the node takes every call as its owner's. The dev server checks
- * who may open it (`server.ts`); nothing in the node accepts a dev token.
+ * The dashboard's way to one node (spec/areas/dev.md#relay): a WebSocket from
+ * the dashboard's page, relayed message for message to the node's IPC socket,
+ * where the node takes every call as its owner's. The dev server checks who may
+ * open it (`server.ts`); nothing in the node accepts a dev token.
  *
  * @module
  */

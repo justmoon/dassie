@@ -2,9 +2,10 @@
 //!
 //! In the original an error stopped an actor for good, and the daemon ran on
 //! without it (RT-24). A service here runs until shutdown; if it returns or
-//! panics before that, it is restarted after a backoff that doubles from
-//! one second to a minute, and the failure is logged. A [`Registry`] keeps
-//! each service's state for the wallet's State page (spec 7 §5).
+//! panics before that, it is restarted after a backoff that doubles from one
+//! second to a minute, and the failure is logged. A [`Registry`] keeps each
+//! service's state for the wallet's State page
+//! (spec/areas/wallet.md#debug-pages).
 
 use std::collections::BTreeMap;
 use std::future::Future;

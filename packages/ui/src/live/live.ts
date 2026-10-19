@@ -1,7 +1,8 @@
 /**
- * Live views for components: a stream that stays open while its component
- * is shown, feeding a signal or a store (spec 7 §5). Leaving the page ends
- * the stream; a stream that fails is subscribed again (`subscribe`).
+ * Live views for components: a stream that stays open while its component is
+ * shown, feeding a signal or a store (spec/areas/wallet.md#live-data). Leaving
+ * the page ends the stream; a stream that fails is subscribed again
+ * (`subscribe`).
  */
 
 import type { ItemFor, RequestFor, RpcClient, StreamMethod } from "@dassie/rpc";

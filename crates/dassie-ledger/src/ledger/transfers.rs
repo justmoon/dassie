@@ -246,7 +246,7 @@ impl Ledger {
             return Err(TransferError::ExceedsCredits);
         }
         // Within one group, a transfer leaves the total unchanged: it needs
-        // no free funds (spec 7 §4.5).
+        // no free funds (spec/areas/ledger.md#limits-and-groups).
         if debit.group == credit.group {
             return Ok(());
         }

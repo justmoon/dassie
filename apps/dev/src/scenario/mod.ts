@@ -1,7 +1,7 @@
 /**
- * The scenarios of spec 6 §6.8 as real `dassie` binaries on this machine,
- * set up through their own API. The dev environment runs them, and so do
- * the end-to-end tests, in a directory of their own
+ * The scenarios (spec/areas/dev.md#scenarios) as real `dassie` binaries on this
+ * machine, set up through their own API. The dev environment runs them, and so
+ * do the end-to-end tests, in a directory of their own
  * ({@linkcode Scenario.temporary}).
  *
  * @module

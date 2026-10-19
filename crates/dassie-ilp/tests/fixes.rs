@@ -1,5 +1,6 @@
-//! Cases where the original was wrong or lenient (spec 4 §1, ILP-3, NET-33).
-//! Each test fails against the original's behaviour.
+//! Cases where the original was wrong or lenient
+//! (spec/original/04-interledger.md#1-ilp-packet-format-packageslib-protocol-ilpsrc,
+//! ILP-3, NET-33). Each test fails against the original's behaviour.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 

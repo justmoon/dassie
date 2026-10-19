@@ -1,8 +1,8 @@
 //! The original's XRPL wallet, from the node's settlement entropy
-//! (spec 5 §6.3.1), and account IDs.
+//! (spec/areas/xrpl.md#the-wallet), and account IDs.
 //!
 //! The derivation must match exactly: the same phrase must find the same
-//! account and its funds (spec 7 §2).
+//! account and its funds (spec/overview.md#compatibility-with-the-original).
 
 use alloc::string::String;
 use core::fmt;
@@ -75,8 +75,8 @@ pub struct Wallet {
 }
 
 impl Wallet {
-    /// The wallet of the node's settlement entropy for the scheme (spec 5
-    /// §4.5): its first 16 bytes are the seed.
+    /// The wallet of the node's settlement entropy for the scheme
+    /// (spec/areas/identity.md#seed-paths): its first 16 bytes are the seed.
     #[must_use]
     pub fn from_entropy(entropy: &[u8; 32]) -> Self {
         let mut seed = [0; 16];

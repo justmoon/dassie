@@ -1,8 +1,9 @@
 /**
- * The network as a graph (spec 6 §1.6.10): the nodes and links it is
- * given, which on the network page are the routing table (spec 7 §5).
- * Drawn in SVG with attributes and classes only, so the page's CSP holds;
- * the layout settles at once for readers who prefer less motion.
+ * The network as a graph (spec/areas/wallet.md#network): the nodes and links it
+ * is given, which on the network page are the routing table
+ * (spec/areas/wallet.md#network). Drawn in SVG with attributes and classes
+ * only, so the page's CSP holds; the layout settles at once for readers who
+ * prefer less motion.
  */
 
 import type { JSX } from "@solidjs/web";

@@ -69,7 +69,8 @@ const ADDRESS_SIZE: Size = Size::range(0, MAX_ADDRESS_LENGTH);
 ///
 /// Integer fields are `u64`. RFC 29 encodes them as unbounded integers and
 /// asks receivers to treat anything larger as the maximum, so decoding
-/// saturates (the original kept the exact big integer, spec 4 §11.2).
+/// saturates (the original kept the exact big integer,
+/// spec/original/04-interledger.md#112-packet-format-packetsschemats).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Frame<'a> {
     /// The sender closes the connection.

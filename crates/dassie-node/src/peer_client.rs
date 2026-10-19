@@ -1,7 +1,8 @@
-//! The node's outbound HTTPS client: peer requests (spec 7 §4.7), `POST
-//! {url}/peer`, and Open Payments' requests to other servers (D9), over
-//! HTTPS to public addresses only, with bounded concurrency and response
-//! sizes, and no redirects.
+//! The node's outbound HTTPS client: peer requests
+//! (spec/areas/peer-protocol.md#outbound-requests), `POST {url}/peer`, and
+//! Open Payments' requests to other servers (D9), over HTTPS to public
+//! addresses only, with bounded concurrency and response sizes, and no
+//! redirects.
 //!
 //! The node owns one client, so its connection pool outlives restarts of
 //! the engine. Whether a failure means the request surely did not arrive
@@ -628,10 +629,11 @@ mod tests {
         proptest! {
             #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
 
-            // URLs come from other wallets and peers. The guard reads any
-            // of them without a panic, and refuses every private literal
-            // the HTTP client would connect to without resolving a name,
-            // where the resolver's filter never sees it (spec 7 §4.7).
+            // URLs come from other wallets and peers. The guard reads any of
+            // them without a panic, and refuses every private literal the
+            // HTTP client would connect to without resolving a name, where
+            // the resolver's filter never sees it
+            // (spec/areas/peer-protocol.md#outbound-requests).
             #[test]
             fn any_url_is_read_or_refused(url in url()) {
                 let authority = authority(&url);

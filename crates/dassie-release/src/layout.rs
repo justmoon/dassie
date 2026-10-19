@@ -1,5 +1,6 @@
 //! Where the mirror keeps what: the original's paths
-//! ([spec 7 §2](../../spec/07-rewrite.md)), plus the signed sums.
+//! ([the compatibility contract](../../../spec/overview.md#compatibility-with-the-original)),
+//! plus the signed sums.
 //!
 //! ```text
 //! meta/latest                               the newest release's version

@@ -1,9 +1,9 @@
 /**
  * Setup, login and logout: the node's three HTTP routes outside the RPC
- * contract (spec 6 §1.3). The passphrase never leaves the browser; setup
- * sends the node key and the login proof derived from it, login only the
- * proof. A success sets or clears the session cookie, so callers reload the
- * page afterwards and let the gate pick the next screen.
+ * contract (spec/areas/wallet.md#talking-to-the-node). The passphrase never
+ * leaves the browser; setup sends the node key and the login proof derived from
+ * it, login only the proof. A success sets or clears the session cookie, so
+ * callers reload the page afterwards and let the gate pick the next screen.
  */
 
 import { type Identity, loadIdentity } from "@dassie/identity-wasm/web";

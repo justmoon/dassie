@@ -114,7 +114,8 @@ pub struct ObtainRequest {
 
 impl Node {
     /// Makes the stored certificate fit the current hostname: a new
-    /// self-signed one if it no longer covers it (spec 7 §4.3).
+    /// self-signed one if it no longer covers it
+    /// (spec/areas/http.md#certificates).
     pub(super) fn refresh_certificate(&self) -> Result<(), NodeError> {
         let config = self.config();
         let info = self.certificate.info();
@@ -323,8 +324,8 @@ impl Node {
         )
     }
 
-    /// Checks hourly whether to renew, and renews (spec 2 §7), until
-    /// `cancel` fires.
+    /// Checks hourly whether to renew, and renews (spec/areas/http.md#acme),
+    /// until `cancel` fires.
     pub async fn run_renewal(self: Arc<Self>, cancel: CancellationToken) {
         loop {
             let decision = self.poll_renewal();

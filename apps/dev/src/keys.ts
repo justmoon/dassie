@@ -1,5 +1,5 @@
 /**
- * The dev server's keys on a terminal (spec 6 §6.7): space opens the
+ * The dev server's keys on a terminal (spec/areas/dev.md#keys): space opens the
  * dashboard, `r` restarts the nodes, `q` quits. The terminal is in raw
  * mode, where ctrl+c is a byte like any other, so that byte sends this
  * process SIGINT, which the dev server handles.

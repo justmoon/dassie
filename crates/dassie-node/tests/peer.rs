@@ -1,7 +1,7 @@
-//! Two daemons in one process, peering over real HTTPS (spec 7 §4.7): they
-//! register, learn of each other, peer, pay several times the credit by
-//! settling, keep their peering and balances across a restart, and end
-//! the peering settled.
+//! Two daemons in one process, peering over real HTTPS
+//! (spec/areas/network.md#peering): they register, learn of each other, peer,
+//! pay several times the credit by settling, keep their peering and balances
+//! across a restart, and end the peering settled.
 
 #![allow(
     clippy::unwrap_used,

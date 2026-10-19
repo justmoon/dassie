@@ -242,7 +242,8 @@ impl Core {
         Ok(())
     }
 
-    /// Sets a token's spending cap, or lifts it (spec 7 §4.5).
+    /// Sets a token's spending cap, or lifts it
+    /// (spec/areas/connector.md#spending-caps).
     ///
     /// # Errors
     ///

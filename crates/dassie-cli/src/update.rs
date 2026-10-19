@@ -1,5 +1,5 @@
-//! `dassie update`: installs a newer release from the mirror (spec 2 §12.4,
-//! D11).
+//! `dassie update`: installs a newer release from the mirror
+//! (spec/areas/release.md#dassie-update, D11).
 //!
 //! The install is `/opt/dassie/<version>`, with `/opt/dassie/current`
 //! pointing at the one that runs. The updater finds it from its own path,

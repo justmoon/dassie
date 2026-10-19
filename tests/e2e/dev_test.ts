@@ -1,9 +1,10 @@
 /**
- * Milestone M5's other done criterion (spec 7 §8): `node --run dev` brings
- * up any scenario, and its dashboard shows it (spec 6 §2). The dev server
- * runs as a developer would run it, headless and moved to other ports, on
- * the release-like binary, with a CA of its own; Chrome drives the
- * dashboard through the SNI proxy, and the nodes are asked over IPC.
+ * End to end (spec/areas/testing.md#end-to-end): `node --run dev` brings up
+ * any scenario, and its dashboard shows it (spec/areas/dev.md#dashboard).
+ * The dev server runs as a developer would run it, headless and moved to
+ * other ports, on the release-like binary, with a CA of its own; Chrome
+ * drives the dashboard through the SNI proxy, and the nodes are asked over
+ * IPC.
  * `DASSIE_E2E_SCREENSHOTS` names a directory for a picture of each step.
  */
 

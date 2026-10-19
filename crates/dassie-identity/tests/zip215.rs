@@ -1,7 +1,7 @@
-//! Signature verification follows ZIP-215 (spec 8 §2), edge cases
-//! included. The cases are those of the ZIP-215 conformance tests: every
-//! small-order public key and `R`, in canonical and non-canonical
-//! encodings, with `s = 0`.
+//! Signature verification follows ZIP-215 (spec/areas/identity.md#node-key),
+//! edge cases included. The cases are those of the ZIP-215 conformance
+//! tests: every small-order public key and `R`, in canonical and
+//! non-canonical encodings, with `s = 0`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 

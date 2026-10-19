@@ -1,11 +1,12 @@
 //! The master seed and the HMAC-SHA256 seed-path tree hanging off it.
 //!
-//! Every secret a node has is a node of this tree (spec 3 §2.1, spec 5
-//! §4.5): the key of a path `a/b/c` is `HMAC(HMAC(HMAC(seed, "a"), "b"),
-//! "c")`, with the previous key as the HMAC key and the segment as the
-//! message. The derivation is the compatibility contract with the original
-//! (spec 8 §2): the same phrase must recover the same node and the same
-//! ledger accounts, so it must not change.
+//! Every secret a node has is a node of this tree
+//! (spec/areas/identity.md#seed-paths): the key of a path `a/b/c` is
+//! `HMAC(HMAC(HMAC(seed, "a"), "b"), "c")`, with the previous key as the
+//! HMAC key and the segment as the message. The derivation is the
+//! compatibility contract with the original
+//! (spec/areas/identity.md#derivation-chain): the same phrase must recover
+//! the same node and the same ledger accounts, so it must not change.
 
 use dassie_oer::{Alphabet, Size};
 use hmac::{Hmac, KeyInit, Mac};
@@ -42,7 +43,8 @@ const SETTLEMENT_MODULE_SEGMENT: &str = "settlement-module";
 /// never reaches a segment, since segments are split on it.
 const SEGMENT_ALPHABET: Alphabet = Alphabet::EMPTY.with_range(0x21, 0x7e);
 
-/// The peer wire schema of a settlement scheme ID (spec 5 §3).
+/// The peer wire schema of a settlement scheme ID
+/// (spec/areas/identity.md#seed-paths).
 const SCHEME_ID_SIZE: Size = Size::range(2, 128);
 const SCHEME_ID_ALPHABET: Alphabet = Alphabet::EMPTY
     .with_range(b'a', b'z')
@@ -99,8 +101,9 @@ impl LoginSecret {
     /// Whether `candidate` equals this secret, compared in constant time.
     ///
     /// The original compared hex strings with `!==`, which exits at the first
-    /// differing character (spec 2 §8.3). A candidate of the wrong length is
-    /// rejected straight away; the length is public.
+    /// differing character (spec/original/02-node-runtime.md#83-post-apisetup).
+    /// A candidate of the wrong length is rejected straight away; the length
+    /// is public.
     #[must_use]
     pub fn verify_proof(&self, candidate: &[u8]) -> bool {
         self.0.as_slice().ct_eq(candidate).into()
@@ -148,7 +151,7 @@ impl<'a> SeedPath<'a> {
 
 impl NodeKey {
     /// The secret at `path`, derived from the node key the way the node
-    /// derives it (spec 5 §4.5).
+    /// derives it (spec/areas/identity.md#seed-paths).
     ///
     /// The node key sits at `node`, so `node` returns the key itself and
     /// `node/a/b` folds `a` and `b` from it. Every other path hangs off the

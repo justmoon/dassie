@@ -1,6 +1,6 @@
-//! Outgoing payments: each ledger's payer, a local endpoint that pays out
-//! of the owner's funds, and the STREAM connections that send them (D9,
-//! spec 7 §4.5).
+//! Outgoing payments: each ledger's payer, a local endpoint that pays out of
+//! the owner's funds, and the STREAM connections that send them (D9,
+//! spec/areas/payments.md#outgoing-payments).
 //!
 //! An outgoing payment sends its debit amount to its receiver on one
 //! STREAM connection; at most [`MAX_SENDING`] send at once, and the rest

@@ -1,4 +1,5 @@
-//! `POST /peer`: the peer protocol's endpoint (spec 3 §6, spec 7 §4.7).
+//! `POST /peer`: the peer protocol's endpoint
+//! (spec/areas/peer-protocol.md#transport).
 //!
 //! This layer checks only what needs no state: the media types, the body's
 //! size and pace, the number of requests waiting, and the rate of

@@ -1,8 +1,8 @@
 /**
- * The server name a TLS client asks for (SNI), read from its ClientHello,
- * so that the dev proxy can pass the connection on without terminating
- * TLS (spec 6 §6.3). The ClientHello may arrive in pieces, so the parser
- * says when it needs more; it never reads past one TLS record.
+ * The server name a TLS client asks for (SNI), read from its ClientHello, so
+ * that the dev proxy can pass the connection on without terminating TLS
+ * (spec/areas/dev.md#sni-proxy). The ClientHello may arrive in pieces, so the
+ * parser says when it needs more; it never reads past one TLS record.
  *
  * @module
  */

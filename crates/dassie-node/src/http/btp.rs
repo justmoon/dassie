@@ -1,5 +1,6 @@
-//! The BTP server at `/btp` (RFC 23, spec 3 §14): ILP clients such as
-//! `ilp-plugin-btp` connect with `btp+wss://:<token>@<host>/btp`.
+//! The BTP server at `/btp` (RFC 23, spec/areas/connector.md#the-btp-server):
+//! ILP clients such as `ilp-plugin-btp` connect with
+//! `btp+wss://:<token>@<host>/btp`.
 //!
 //! The first message must authenticate within a few seconds: a BTP Message
 //! whose first entry is an empty `auth` and which carries the token as

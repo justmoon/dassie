@@ -32,7 +32,8 @@ impl Ledger {
     /// - no counter passes [`MAX_TOTAL`], and the bounds hold;
     /// - the path index matches the accounts.
     ///
-    /// Limits are not invariants: reports may break them (spec 7 §4.5).
+    /// Limits are not invariants: reports may break them
+    /// (spec/areas/ledger.md#what-the-ledger-refuses-and-what-it-records).
     ///
     /// # Panics
     ///

@@ -2,9 +2,11 @@
 //!
 //! The original stored whatever the RPC was given: an unvalidated hostname,
 //! ports only the database could change, and a `url` computed once at load
-//! that went stale when the hostname changed (spec 2 §4.2, RT-3, RT-4).
-//! Here each value is checked when it is made, and nothing derived is stored:
-//! URLs are computed from the current values every time ([`crate::urls`]).
+//! that went stale when the hostname changed
+//! (spec/original/02-node-runtime.md#42-database-config-appconfigdatabase-configts,
+//! RT-3, RT-4). Here each value is checked when it is made, and nothing
+//! derived is stored: URLs are computed from the current values every time
+//! ([`crate::urls`]).
 
 use alloc::string::{String, ToString};
 use core::fmt;
@@ -343,7 +345,8 @@ mod tests {
     }
 
     // The original accepted any string from `dassie init`, including an empty
-    // one after Ctrl+D handling, and stored it (spec 2 §4.5).
+    // one after Ctrl+D handling, and stored it
+    // (spec/original/02-node-runtime.md#45-configuration--setup-wizard-flow-end-to-end).
     #[test]
     fn hostname_of_253_bytes_but_not_254() {
         let label = "a".repeat(63);

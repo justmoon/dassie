@@ -1,7 +1,8 @@
 //! Properties: whatever a remote sends never panics a connection or a
-//! server, and their invariants hold afterwards (D16, spec 7 §7). The
-//! remote knows the shared secret, so arbitrary and damaged plaintext gets
-//! through decryption to the parsers and the state behind them.
+//! server, and their invariants hold afterwards
+//! (D16, spec/areas/testing.md#property-tests). The remote knows the shared
+//! secret, so arbitrary and damaged plaintext gets through decryption to
+//! the parsers and the state behind them.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 

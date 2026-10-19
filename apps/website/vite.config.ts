@@ -4,9 +4,10 @@ import { defineConfig, type Plugin } from "vite";
 import { workspaceResolve } from "@dassie/ui/vite";
 import { footer, header, PAGES } from "./src/layout.ts";
 
-// dassie.land (spec 6 §3): static pages in dist/, which Vercel serves under
-// the CSP in vercel.json, as strict as the wallet's: no inline script or
-// style, nothing from other origins. Only the STREAM toy runs a script.
+// dassie.land (spec/areas/website.md#build): static pages in dist/, which
+// Vercel serves under the CSP in vercel.json, as strict as the wallet's: no
+// inline script or style, nothing from other origins. Only the STREAM toy runs
+// a script.
 
 /** Puts the shared header and footer into every page. */
 function layout(): Plugin {

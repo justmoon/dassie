@@ -1,6 +1,7 @@
 /**
- * The gate (spec 6 §1.5): which screen the wallet shows follows from the
- * node's state, as `getBasicState` reports it to this connection.
+ * The gate (spec/areas/wallet.md#the-gate): which screen the wallet shows
+ * follows from the node's state, as `getBasicState` reports it to this
+ * connection.
  *
  * - uninitialized: the setup wizard at `/setup/<token>`, otherwise a note
  *   on where to find that URL;

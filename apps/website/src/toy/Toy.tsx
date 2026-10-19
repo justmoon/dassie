@@ -1,6 +1,7 @@
 /**
- * The STREAM toy (spec 6 §3): settings, then a run of the simulation, with
- * its packets and its log, played at the speed the settings ask for.
+ * The STREAM toy (spec/areas/website.md#stream-toy): settings, then a run of
+ * the simulation, with its packets and its log, played at the speed the
+ * settings ask for.
  */
 
 import type { JSX } from "@solidjs/web";

@@ -1,4 +1,4 @@
-//! Routes from link states (spec 3 §13, spec 7 §4.7): a breadth-first
+//! Routes from link states (spec/areas/network.md#routing): a breadth-first
 //! search from ourselves over the edges both ends advertise, giving each
 //! reachable node its first hops on shortest paths.
 //!

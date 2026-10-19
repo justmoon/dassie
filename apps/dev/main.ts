@@ -1,6 +1,6 @@
 /**
- * `node --run dev` (spec 6 §6, spec 7 §6): a network of dev nodes on this
- * machine, and the dashboard to watch it at https://localhost.
+ * `node --run dev` (spec/areas/dev.md#running-it): a network of dev nodes on
+ * this machine, and the dashboard to watch it at https://localhost.
  *
  * 1. Checks what it needs, and stops what a crashed run left behind.
  * 2. Builds the node (cargo), the wallet and the dashboard (Vite, in

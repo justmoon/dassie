@@ -145,8 +145,8 @@ fn removal_blockers_match_the_refusal() {
     assert_eq!(refusal.to_string(), blockers[0].message());
 }
 
-// Spec 7 §4.5: a token's cap is kept across a restart, and changing it
-// is persisted with the step.
+// A token's cap is kept across a restart, and changing it is persisted with
+// the step (spec/areas/connector.md#spending-caps).
 #[test]
 fn token_caps_survive_a_restart() {
     use dassie_connector::SpendingCap;
@@ -316,9 +316,10 @@ fn a_probe_to_nowhere_ends_at_once() {
     );
 }
 
-// Spec 7 §4.5: a scheme that stops by itself, here on a server off the XRP
-// Ledger testnet, has its connection closed, so the driver does not make
-// it again for ever. Removed and added again, it connects anew.
+// A scheme that stops by itself, here on a server off the XRP Ledger testnet,
+// has its connection closed, so the driver does not make it again for ever
+// (spec/areas/settlement.md#the-scheme-interface). Removed and added again,
+// it connects anew.
 #[test]
 fn a_stopped_scheme_closes_its_connection() {
     use super::LedgerEvent;

@@ -304,8 +304,8 @@ fn a_scheme_removed_and_added_in_one_batch_stays() {
     assert_eq!(store.settlement_schemes().unwrap(), [(stub, "{}".into())]);
 }
 
-// Spec 7 §4.5: a token's cap and what is used of it survive exactly, the
-// usage split into whole amounts and a remainder.
+// A token's cap and what is used of it survive exactly, the usage split into
+// whole amounts and a remainder (spec/areas/connector.md#spending-caps).
 #[test]
 fn token_caps_round_trip_exactly() {
     let store = Store::open_in_memory().unwrap();

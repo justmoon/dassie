@@ -1,8 +1,8 @@
 //! The owner's browser sessions.
 //!
-//! The original kept a session as its plaintext token, forever, with a
-//! cookie that lasted ten years and nothing to list or end sessions (spec 2
-//! §8.7, RT-11). Here:
+//! The original kept a session as its plaintext token, forever, with a cookie
+//! that lasted ten years and nothing to list or end sessions
+//! (spec/original/02-node-runtime.md#87-sessions-store, RT-11). Here:
 //!
 //! - the browser holds a random token, and the node stores only its SHA-256,
 //!   the [`SessionId`] (D10), so a copy of the database logs no one in;
@@ -12,7 +12,7 @@
 //! - at most [`SessionPolicy::max_sessions`] are kept, so a script that logs
 //!   in over and over cannot grow the table without bound (D16).
 //!
-//! The cookie's name and attributes are kept (spec 8 §2).
+//! The cookie's name and attributes are kept (spec/areas/http.md#sessions).
 
 use alloc::format;
 use alloc::string::String;

@@ -15,11 +15,11 @@ pub enum OwnerSub {
     Local(Name),
 }
 
-/// An account on a ledger. The chart of spec 5 §2.2, with the owner's
-/// sub-accounts added (spec 7 §4.5). The original documented
-/// `liabilities/…` accounts it never had (ACC-1); a peer's debt to us and
-/// ours to it share `assets/interledger/<peer>`, whose balance can have
-/// either sign.
+/// An account on a ledger (spec/areas/ledger.md#chart-of-accounts): the
+/// original's chart, with the owner's sub-accounts added. The original
+/// documented `liabilities/…` accounts it never had (ACC-1); a peer's debt
+/// to us and ours to it share `assets/interledger/<peer>`, whose balance
+/// can have either sign.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AccountName {
     /// Money on the underlying ledger.
@@ -90,8 +90,9 @@ impl AccountPath {
     /// ledger beyond what it owes peers: the owner's sub-accounts, and what
     /// reconciliations, fees, conversions and losses moved (M7). So
     /// whatever the node gains or loses is the owner's to spend, or not.
-    /// The owner's own endpoints never convert (spec 7 §4.5), so money
-    /// moves through the FX accounts only for peers.
+    /// The owner's own endpoints never convert
+    /// (spec/areas/ledger.md#the-owners-accounts), so money moves through
+    /// the FX accounts only for peers.
     #[must_use]
     pub const fn group_root(&self) -> Option<Self> {
         match self.name {

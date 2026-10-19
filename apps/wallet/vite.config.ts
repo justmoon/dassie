@@ -6,10 +6,10 @@ import { workspaceResolve } from "@dassie/ui/vite";
 // (`DASSIE_WALLET_DIST`) and serves under the strict page CSP: no inline
 // script or style, nothing from other origins.
 //
-// The dev environment builds it with `--mode development` into dist-dev/,
-// which the dev nodes serve instead (`DASSIE_DEV_WALLET_DIR`). Only that
-// build reads a login proof from the URL (spec 7 §6); in a production build
-// `__DASSIE_DEV_LOGIN__` is false and the code is left out.
+// The dev environment builds it with `--mode development` into dist-dev/, which
+// the dev nodes serve instead (`DASSIE_DEV_WALLET_DIR`). Only that build reads
+// a login proof from the URL (spec/areas/wallet.md#dev-auto-login); in a
+// production build `__DASSIE_DEV_LOGIN__` is false and the code is left out.
 export default defineConfig(({ mode }) => {
   const dev = mode === "development";
   return {

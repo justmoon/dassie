@@ -1,5 +1,6 @@
 /**
- * Keeps the vanity table (`apps/dev/vanity.json`, spec 6 §6.4).
+ * Keeps the vanity table (`apps/dev/vanity.json`,
+ * spec/areas/dev.md#vanity-identities).
  *
  * - `node --run vanity < found.txt` adds a brute-forcer's finds, one
  *   `[0x]<entropy hex>: <node ID>` a line (`#` starts a comment), by the

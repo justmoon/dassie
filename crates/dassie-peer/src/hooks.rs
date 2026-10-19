@@ -1,7 +1,7 @@
 //! What the peer node asks of the rest of the node when peering: the
-//! settlement scheme's say, and the accounts a peering needs (spec 3
-//! §12.5). The node implements it over its schemes and ledger; tests and
-//! simulations implement it as they like.
+//! settlement scheme's say, and the accounts a peering needs
+//! (spec/areas/network.md#the-schemes-say). The node implements it over its
+//! schemes and ledger; tests and simulations implement it as they like.
 
 use alloc::vec::Vec;
 

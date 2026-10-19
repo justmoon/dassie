@@ -1,8 +1,10 @@
 //! The same-origin rule for the owner's endpoints.
 //!
 //! The original checked no `Origin` on `/rpc` or the `/api/*` POSTs, and
-//! relied on `SameSite=Strict` cookies alone (spec 2 §6.6, §16, RT-6). Now a
-//! request to those endpoints must carry an `Origin` that is exactly
+//! relied on `SameSite=Strict` cookies alone
+//! (spec/original/02-node-runtime.md#66-websocket-rpc-upgrade-apprpc-serverrpc-serverts,
+//! spec/original/02-node-runtime.md#16-security-model-consolidated, RT-6).
+//! Now a request to those endpoints must carry an `Origin` that is exactly
 //! `https://` plus its `Host`, so only pages served by the node itself can
 //! use them.
 //!

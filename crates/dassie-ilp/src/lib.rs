@@ -3,10 +3,10 @@
 //! (RFC 31) and BTP 2.0 (RFC 23).
 //!
 //! Everything here is byte-for-byte compatible with the standards and with
-//! the original Dassie (spec 7 §2). Parsing returns a [`ParseError`] for any
-//! malformed input instead of throwing (ILP-3), decodes without allocating by
-//! borrowing from the input, and validates addresses and timestamps
-//! strictly.
+//! the original Dassie (spec/overview.md#compatibility-with-the-original).
+//! Parsing returns a [`ParseError`] for any malformed input instead of
+//! throwing (ILP-3), decodes without allocating by borrowing from the input,
+//! and validates addresses and timestamps strictly.
 
 #![no_std]
 

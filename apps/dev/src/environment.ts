@@ -1,8 +1,8 @@
 /**
- * The dev environment's state (spec 6 §6.7): the scenario running, its
- * nodes and those added, the build, and what is gathered from the nodes.
- * Commands run one at a time, in order; the dashboards hear of every
- * change.
+ * The dev environment's state (spec/areas/dev.md#restarts-and-resets): the
+ * scenario running, its nodes and those added, the build, and what is gathered
+ * from the nodes. Commands run one at a time, in order; the dashboards hear of
+ * every change.
  *
  * @module
  */

@@ -1,6 +1,7 @@
 /**
- * The scenarios (spec 6 §2): choosing one stops every node, wipes their
- * data and starts it; "Start over" does the same for the one running.
+ * The scenarios (spec/areas/dev.md#dashboard): choosing one stops every node,
+ * wipes their data and starts it; "Start over" does the same for the one
+ * running.
  */
 
 import type { JSX } from "@solidjs/web";

@@ -380,8 +380,8 @@ fn names(certificate: &rustls::pki_types::CertificateDer<'_>) -> Vec<String> {
         .collect()
 }
 
-// RT-3 and spec 7 §4.3: the certificate follows the hostname at once,
-// without restarting the listener.
+// RT-3 and spec/areas/http.md#certificates: the certificate follows the
+// hostname at once, without restarting the listener.
 #[tokio::test]
 async fn the_certificate_follows_the_hostname() {
     let node = TestNode::start().await;
@@ -463,7 +463,7 @@ async fn installed_certificates_are_checked() {
     node.stop().await;
 }
 
-// RT-14 and the persistence of spec 7 §4.4: a restart keeps the
+// RT-14 and spec/areas/node.md#persistence: a restart keeps the
 // certificate, the identity and the sessions.
 #[tokio::test]
 async fn a_restart_keeps_everything() {

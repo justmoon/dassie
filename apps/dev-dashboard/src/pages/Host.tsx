@@ -1,4 +1,4 @@
-/** The dev server's own log (spec 6 §2's "host"). */
+/** The dev server's own log ("host", spec/areas/dev.md#dashboard). */
 
 import type { JSX } from "@solidjs/web";
 import { createMemo } from "solid-js";

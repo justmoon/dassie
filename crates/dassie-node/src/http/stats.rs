@@ -1,4 +1,5 @@
-//! `GET /stats` (spec 2 §14): who the node is, and its peers, for anyone.
+//! `GET /stats` (spec/areas/http.md#get-stats): who the node is, and its
+//! peers, for anyone.
 //!
 //! As in the original it needs no authentication: it shows the version,
 //! the node and its peers. Only the peers the node advertises are listed,

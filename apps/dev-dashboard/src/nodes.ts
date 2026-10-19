@@ -16,7 +16,10 @@ export function stateName(state: NodeState): string {
   return STATES[state] ?? "unknown";
 }
 
-/** The link that opens a node's wallet, signed in (spec 7 §6). */
+/**
+ * The link that opens a node's wallet, signed in
+ * (spec/areas/dev.md#wallet-links).
+ */
 export function walletLink(node: Node): string {
   return `${node.url}/#dassie-dev-login=${node.loginProofHex}`;
 }

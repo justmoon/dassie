@@ -2,17 +2,19 @@
 //!
 //! - **Setup** happens once. The node prints a URL with a random token, and
 //!   whoever opens it in a browser sends the node key derived from their
-//!   phrase, with the login proof derived from that key (spec 2 §8.2–8.3).
+//!   phrase, with the login proof derived from that key
+//!   (spec/areas/http.md#setup).
 //! - **Login** proves knowledge of the phrase by sending the login proof
-//!   again (spec 2 §8.4).
+//!   again (spec/areas/http.md#login-and-logout).
 //!
-//! Kept from the original on purpose (spec 8 §2): the one-time token, the
-//! request bodies and the derivations. Fixed (RT-10): the key must be exactly
-//! 32 bytes of hex, where the original stored whatever it got and then failed
-//! to parse it at every start; and every comparison runs in constant time.
-//! Changed: the original kept the token in memory, so every restart voided
-//! the URL the owner had been given; the node now stores it until setup is
-//! done.
+//! Kept from the original on purpose
+//! (spec/overview.md#compatibility-with-the-original): the one-time token,
+//! the request bodies and the derivations. Fixed (RT-10): the key must be
+//! exactly 32 bytes of hex, where the original stored whatever it got and
+//! then failed to parse it at every start; and every comparison runs in
+//! constant time. Changed: the original kept the token in memory, so every
+//! restart voided the URL the owner had been given; the node now stores it
+//! until setup is done.
 
 use alloc::string::String;
 use core::fmt;

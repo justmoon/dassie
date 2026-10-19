@@ -1,6 +1,7 @@
 //! Logging: `tracing` events under the original's `das:node:*` targets.
 //!
-//! Which events reach standard output follows the original (spec 2 §13):
+//! Which events reach standard output follows the original
+//! (spec/areas/node.md#logging):
 //!
 //! - `DASSIE_LOG_LEVEL` (`debug`, `info`, `warn`, `error` or `none`) sets the
 //!   lowest level shown;
@@ -13,9 +14,10 @@
 //! Lines carry no timestamp: journald adds one.
 //!
 //! The node also keeps its last lines in a [`LogRing`] for the wallet's logs
-//! page (spec 7 §5): at most [`MAX_LINES`] of them and [`MAX_RING_BYTES`],
-//! info and above whatever `DASSIE_LOG_LEVEL` says, and debug for the
-//! targets `DEBUG` names. Fields named like secrets are redacted.
+//! page (spec/areas/node.md#logging): at most [`MAX_LINES`] of them and
+//! [`MAX_RING_BYTES`], info and above whatever `DASSIE_LOG_LEVEL` says, and
+//! debug for the targets `DEBUG` names. Fields named like secrets are
+//! redacted.
 
 use std::collections::VecDeque;
 use std::fmt::Write as _;

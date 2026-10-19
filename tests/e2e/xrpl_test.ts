@@ -1,8 +1,8 @@
 /**
- * The M7b done criterion (spec 7 §8): the `xrpl-settlement` scenario
- * settles and reconciles across restarts. The nodes are the real binary;
- * the XRP Ledger is the node's fake, over WebSocket, with its faucet over
- * HTTPS: CI does not depend on the public testnet. Set
+ * End to end (spec/areas/testing.md#end-to-end): the `xrpl-settlement`
+ * scenario settles and reconciles across restarts. The nodes are the real
+ * binary; the XRP Ledger is the node's fake, over WebSocket, with its
+ * faucet over HTTPS: CI does not depend on the public testnet. Set
  * `DASSIE_XRPL_TESTNET=1` to run it against the testnet instead, by hand.
  *
  * The faucet funds both nodes; a client of d1 pays d2's receiver several

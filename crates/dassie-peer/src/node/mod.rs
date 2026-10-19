@@ -1,7 +1,7 @@
-//! The peer node: the protocol's state machine (spec 3 §9–§13, spec 7
-//! §4.7). It takes inbound requests, the results of its own requests and
-//! the passing of time, and gives back replies, requests to send, events,
-//! routes and what to persist.
+//! The peer node: the protocol's state machine
+//! (spec/areas/network.md#the-peer-node). It takes inbound requests, the
+//! results of its own requests and the passing of time, and gives back
+//! replies, requests to send, events, routes and what to persist.
 
 mod gossip;
 mod inbound;
@@ -62,7 +62,7 @@ impl OwnInfo {
     }
 }
 
-/// A configured bootstrap node (spec 3 §11.1).
+/// A configured bootstrap node (spec/areas/network.md#bootstrap-nodes).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bootstrap {
     /// Its ID, checked against its key.

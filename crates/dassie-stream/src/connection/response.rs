@@ -130,7 +130,8 @@ impl Connection {
         let plaintext = self.keys.cipher.decrypt(data, buffer).ok()?;
         let packet = Packet::parse(plaintext).ok()?;
         // A reply for another request, or claiming another ILP type, is not
-        // trustworthy; the original did not check (spec 4 §11.10).
+        // trustworthy; the original did not check
+        // (spec/original/04-interledger.md#1110-sending-connectionsend-ts-streamsend-ts).
         if packet.sequence != slot.sequence || packet.packet_type != expected {
             return None;
         }

@@ -1,5 +1,5 @@
 //! The connector's behaviour, each D13 fix with a test that fails against
-//! the original (spec 4 §14).
+//! the original (spec/original/README.md#how-the-rewrite-treated-the-gaps).
 
 #![allow(clippy::panic)]
 
@@ -377,7 +377,8 @@ fn cross_ledger_packets_convert_through_the_fx_accounts() {
         h.net_at(LedgerId::XrplTestnetXrp, AccountName::ExpensesFx),
         -2_000
     );
-    // The owner's own endpoints never convert (spec 7 §4.5).
+    // The owner's own endpoints never convert
+    // (spec/areas/ledger.md#the-owners-accounts).
     let length = answered(h.prepare(NOW, ALICE, 3, &packet));
     assert_eq!(h.reject_written(length).0, ErrorCode::F02_UNREACHABLE);
     let stale = NOW + Config::DEFAULT.max_rate_age_ms + 1;

@@ -1,7 +1,8 @@
 /**
- * `node --run cli -- dN <args…>` (spec 6 §6.9): the `dassie` CLI against a dev
- * node, through its IPC socket. For example `node --run cli -- d1 init`. For a
- * dev environment started with `--state-dir`, set `DASSIE_DEV_STATE_DIR`.
+ * `node --run cli -- dN <args…>` (spec/areas/dev.md#dev-cli): the `dassie` CLI
+ * against a dev node, through its IPC socket. For example
+ * `node --run cli -- d1 init`. For a dev environment started with
+ * `--state-dir`, set `DASSIE_DEV_STATE_DIR`.
  *
  * @module
  */

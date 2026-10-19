@@ -1,8 +1,8 @@
 /**
- * Keeps a live stream (spec 7 §4.6) open: subscribes, and subscribes again
- * with a backoff when the stream ends or fails for a reason that may pass,
- * such as the node's engine restarting. Each attempt is a new generation,
- * whose first item is a fresh snapshot.
+ * Keeps a live stream (spec/areas/rpc.md#live-streams) open: subscribes, and
+ * subscribes again with a backoff when the stream ends or fails for a reason
+ * that may pass, such as the node's engine restarting. Each attempt is a new
+ * generation, whose first item is a fresh snapshot.
  *
  * Nothing here knows Solid: the wallet's live views build on it, and it is
  * tested on its own.

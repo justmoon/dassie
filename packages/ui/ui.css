@@ -27,7 +27,8 @@
   --radius: 8px;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  /* Adobe Spectrum's categorical palette, as the original's (spec 6 §1.2). */
+  /* Adobe Spectrum's categorical palette, as the original's
+     (spec/original/06-user-interfaces-and-tooling.md#12-styling-approach). */
   --palette-0: #0fb5ae;
   --palette-1: #4046ca;
   --palette-2: #f68511;
@@ -408,7 +409,8 @@ button:disabled {
   font-size: 0.875rem;
 }
 
-/* Amounts: the digits beyond cents are muted (spec 6 §1.6.4). */
+/* Amounts: the digits beyond cents are muted
+   (spec/areas/wallet.md#amounts-and-currencies). */
 .amount {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -687,7 +689,8 @@ meter {
   color: var(--palette-11);
 }
 
-/* The log viewer (spec 6 §1.7): fixed rows, so only those in view render. */
+/* The log viewer (spec/areas/wallet.md#log-viewer): fixed rows, so only
+   those in view render. */
 .log-controls {
   display: flex;
   flex-wrap: wrap;

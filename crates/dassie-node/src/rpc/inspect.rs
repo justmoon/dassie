@@ -1,6 +1,7 @@
-//! The node's own workings, for the debug pages (spec 7 §5): its log ring,
-//! its database without secrets, and its services and cells. None needs
-//! the engine, so they work before setup too.
+//! The node's own workings, for the debug pages
+//! (spec/areas/rpc.md#the-inspector): its log ring, its database without
+//! secrets, and its services and cells. None needs the engine, so they work
+//! before setup too.
 
 use std::sync::Arc;
 

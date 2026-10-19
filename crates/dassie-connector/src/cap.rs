@@ -1,5 +1,6 @@
-//! Spending caps (spec 7 §4.5): at most an amount per window, refilling
-//! continuously, for what an account sends out of its owner's funds.
+//! Spending caps (spec/areas/connector.md#spending-caps): at most an amount
+//! per window, refilling continuously, for what an account sends out of its
+//! owner's funds.
 //!
 //! The bucket is kept in exact integers. `used` is in amount·ms: a
 //! fulfilled packet of `a` adds `a · window`, and `used` drains by `amount`

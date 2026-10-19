@@ -164,14 +164,14 @@ export function Architecture(props: { map: ArchitectureMap }): JSX.Element {
 
       <p class="foot">
         The{" "}
-        <a href="https://github.com/justmoon/dassie/tree/main/spec">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/README.md">
           specification
         </a>{" "}
         describes the design in depth, and its{" "}
-        <a href="https://github.com/justmoon/dassie/blob/main/spec/08-decisions.md">
-          eighth chapter
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/README.md">
+          decisions
         </a>{" "}
-        the decisions behind it.
+        the reasons behind it.
       </p>
     </>
   );

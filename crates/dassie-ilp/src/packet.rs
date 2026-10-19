@@ -16,7 +16,8 @@ pub const TYPE_REJECT: u8 = 14;
 /// Largest `data` field of any ILP packet, in octets.
 pub const MAX_DATA_LENGTH: usize = 32_767;
 /// Largest reject `message`, in octets. RFC 27 specifies 8191 octets; the
-/// original counted UTF-16 code units instead (spec 4 §1.4).
+/// original counted UTF-16 code units instead
+/// (spec/original/04-interledger.md#14-reject-type-14).
 pub const MAX_MESSAGE_LENGTH: usize = 8_191;
 /// Largest encoding of any ILP packet, which callers can use to size
 /// buffers once: a Prepare with the longest destination and data.
@@ -70,7 +71,7 @@ pub struct Reject<'a> {
     /// Why the packet was rejected.
     pub code: ErrorCode,
     /// Who rejected it, if they said. ILPv4 allows an empty address here;
-    /// the original required one (ILP-3, spec 7 §2).
+    /// the original required one (ILP-3, spec/areas/ilp.md#packets).
     pub triggered_by: Option<Address<'a>>,
     /// A human-readable explanation, at most [`MAX_MESSAGE_LENGTH`] octets.
     pub message: &'a str,

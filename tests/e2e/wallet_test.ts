@@ -1,6 +1,6 @@
-// Milestone M5a's done criterion (spec 7 §8): every page of the wallet
-// (spec 6 §1.6) works against real nodes, and M6's: two nodes pay each
-// other through Open Payments, from the wallet's Send. A `two-nodes`
+// End to end (spec/areas/testing.md#end-to-end): every page of the wallet
+// (spec/areas/wallet.md#pages) works against real nodes, and two nodes pay
+// each other through Open Payments, from the wallet's Send. A `two-nodes`
 // scenario runs, and a headless browser signed in to `d1` goes through the
 // pages; live data must arrive without a reload. `DASSIE_E2E_WALLET_DIR` serves a wallet build other than the one
 // embedded in the binary, for working on the wallet, and

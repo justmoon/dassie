@@ -48,7 +48,7 @@ impl Alphabet {
     pub const IA5: Self = Self(u128::MAX);
 
     /// VisibleString: printable ASCII, `0x20` to `0x7E`. The original left out
-    /// `~` (spec 4 §2.5, NET-30).
+    /// `~` (spec/original/04-interledger.md#25-strings-stringts, NET-30).
     pub const VISIBLE: Self = Self::EMPTY.with_range(0x20, 0x7e);
 
     /// The empty alphabet, to build others from.

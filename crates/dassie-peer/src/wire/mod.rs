@@ -1,5 +1,6 @@
-//! The v1 wire format (spec 7 §4.7): OER, as v0's (spec 3 §5) except where
-//! that section says otherwise.
+//! The v1 wire format (spec/areas/peer-protocol.md#encoding): OER, as v0's
+//! (spec/original/03-peer-network.md#5-wire-schemas) except where the
+//! former says otherwise.
 //!
 //! Decoding borrows from the input and never panics; encoding writes what
 //! the types allow, so it cannot produce something the decoder refuses.
@@ -65,7 +66,8 @@ pub const MAX_LINK_STATE_REQUEST_IDS: usize = 16;
 /// Most node IDs in a node list.
 pub const MAX_NODE_LIST: usize = 4096;
 
-/// Node IDs: 2 to 45 characters of base64url (spec 3 §2.2).
+/// Node IDs: 2 to 45 characters of base64url
+/// (spec/areas/peer-protocol.md#building-blocks).
 const NODE_ID_SIZE: Size = Size::range(2, 45);
 
 /// The characters of a node ID.
@@ -144,7 +146,8 @@ impl Kind {
         }
     }
 
-    /// Whether a message of this kind must be authenticated (spec 7 §4.7).
+    /// Whether a message of this kind must be authenticated
+    /// (spec/areas/peer-protocol.md#which-messages-need-authentication).
     #[must_use]
     pub const fn requires_authentication(self) -> bool {
         matches!(

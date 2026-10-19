@@ -6,7 +6,8 @@ import "./app.css";
 /** True only in a build for the dev environment (`vite.config.ts`). */
 declare const __DASSIE_DEV_LOGIN__: boolean;
 
-// From the bundle, as the CSP allows no inline script (spec 7 §5).
+// From the bundle, as the CSP allows no inline script
+// (spec/areas/wallet.md#content-security-policy).
 try {
   applyTheme(loadTheme(localStorage));
 } catch {

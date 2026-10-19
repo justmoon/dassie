@@ -1,5 +1,5 @@
 //! Incoming Prepares: ILDCP, routing, expiry, amounts and the ledger, in
-//! the order of spec 4 §4.3.
+//! the order of spec/areas/connector.md#handling-a-prepare.
 
 use dassie_ilp::{
     Address, AmountTooLarge, ErrorCode, Fulfill, MAX_PACKET_LENGTH, Prepare, Reject, Timestamp,
@@ -290,8 +290,9 @@ impl Connector {
     /// Our fee on a packet from `source` to `to`, and what goes on: only
     /// transit from one peer to another is charged, and the owner's own
     /// endpoints never convert, so what the owner holds on one ledger is
-    /// never spent on another by a packet (spec 7 §4.5). The first hop
-    /// that charges for it converts.
+    /// never spent on another by a packet
+    /// (spec/areas/ledger.md#the-owners-accounts). The first hop that
+    /// charges for it converts.
     fn amounts(
         &self,
         now_ms: u64,

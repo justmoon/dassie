@@ -1,4 +1,4 @@
-//! The database: what must survive a restart (spec 7 §4.4).
+//! The database: what must survive a restart (spec/areas/node.md#persistence).
 //!
 //! One SQLite file, `dassie.sqlite3`, in a data directory that only the
 //! daemon's user may enter (0700), itself readable only by that user (0600),

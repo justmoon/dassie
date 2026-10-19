@@ -4,9 +4,9 @@
 
 Dassie is a payment node you run on your own server. It finds other Dassie nodes, peers with them on its own, and routes [Interledger](https://interledger.org) payments through them. Peers keep track of what they owe each other and settle it on a real ledger, today the XRP Ledger testnet. You run your node from a web wallet that it serves itself, and apps can pay through it with [Open Payments](https://openpayments.dev) or BTP.
 
-**Status:** Dassie is early and works with test money only. A new node joins the public testnet through its three bootstrap nodes, `boot1`–`boot3.dassie.xyz` ([D15](spec/08-decisions.md#d15-bootstrap-network-for-v1)).
+**Status:** Dassie is early and works with test money only. A new node joins the public testnet through its three bootstrap nodes, `boot1`–`boot3.dassie.xyz` ([D15](spec/decisions/D15-bootstrap-network-for-v1.md)).
 
-This is the second implementation of Dassie, written in Rust, Node and Solid 2. It replaced the original TypeScript implementation, which you can still find at the tag `original`. The [specification](spec/README.md) describes both: chapters 1–6 cover how the original works, [chapter 7](spec/07-rewrite.md) the plan for the rewrite, and [chapter 8](spec/08-decisions.md) the decisions taken along the way.
+This is the second implementation of Dassie, written in Rust, Node and Solid 2. It replaced the original TypeScript implementation, which you can still find at the tag `original`. The [specification](spec/README.md) describes Dassie as it is on `main`; start with its README, which says which docs to read for the code you touch. It has one doc per area, such as the [wallet](spec/areas/wallet.md) or the [connector](spec/areas/connector.md), which states that area's rules; one file per [decision](spec/decisions/README.md), which records why a rule is what it is; and [the original's chapters](spec/original/README.md), which describe how the original works, for reference.
 
 ## Installing a node
 
@@ -53,7 +53,7 @@ Environment='DASSIE_BOOTSTRAP_NODES=[{"id":"dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk","
 
 `listNodes`, `listPeers`, `listRoutes` and `getRegistrationStatus` show what your node knows, and the wallet's network page shows the same.
 
-The node that asks to peer extends the other 1.1 units of credit; the node that accepts extends nothing at first, so the newcomer pays in advance. Each side's credit then grows by a tenth of the fees the other earned it, up to 10 units. A node asks a peer to settle once its room for the peer is down to one and a half of the largest packets, checking every 4 seconds; asked, a node settles half the way to its own point of asking; `listSettlementChannels` shows the settlements on their way. Each node keeps its own books, Fulfills it sent included, whatever its peer counted ([D23](spec/08-decisions.md#d23-each-node-books-its-own-fulfills)): a peer can cost your node at most the credit it extends, since packets past it are refused. The wallet's settings, or `getPeerSettings` and `setPeerSettings`, change the fee and the exchange spread your node charges for passing payments on.
+The node that asks to peer extends the other 1.1 units of credit; the node that accepts extends nothing at first, so the newcomer pays in advance. Each side's credit then grows by a tenth of the fees the other earned it, up to 10 units. A node asks a peer to settle once its room for the peer is down to one and a half of the largest packets, checking every 4 seconds; asked, a node settles half the way to its own point of asking; `listSettlementChannels` shows the settlements on their way. Each node keeps its own books, Fulfills it sent included, whatever its peer counted ([D23](spec/decisions/D23-each-node-books-its-own-fulfills.md)): a peer can cost your node at most the credit it extends, since packets past it are refused. The wallet's settings, or `getPeerSettings` and `setPeerSettings`, change the fee and the exchange spread your node charges for passing payments on.
 
 `terminatePeering` ends a peering: it drains, ends on both sides, and each side settles what it owes. `banNode`, `unbanNode` and `listBans` keep nodes away. `GET /stats` tells anyone the node's version and the peers it advertises.
 
@@ -150,7 +150,7 @@ To make a few such nodes find each other locally, set `DASSIE_PEER_ALLOW_PRIVATE
 
 ## Releases
 
-Releases are built by Nix on x86_64 Linux ([spec 7 §4.8](spec/07-rewrite.md#48-releases)):
+Releases are built by Nix on x86_64 Linux ([the build](spec/areas/release.md#the-build)):
 
 - `nix build .#dassie-x64` or `.#dassie-arm64` makes a static binary with the wallet built in;
 - `nix build .#release` (or `.#canary`) makes the tree a release uploads to the mirror, without its signature.
@@ -171,11 +171,11 @@ The first time, run `mkcert -install` so your browser trusts the certificates. O
 
 To work on the wallet alone, run `node --run dev` in `apps/wallet` and start a node with `DASSIE_DEV_WALLET_DIR` set to the absolute path of `apps/wallet/dist-dev`. `DASSIE_E2E_WALLET_DIR` does the same for the wallet's browser test, and `DASSIE_E2E_SCREENSHOTS` keeps a picture of each step of the wallet's and the dev environment's browser tests.
 
-To work on the website, run `node --run dev` in `apps/website`, which rebuilds `dist/` on every change, and `node --run preview` next to it to serve it. Vercel deploys every branch from `apps/website` ([spec 7 §5](spec/07-rewrite.md#5-wallet-and-dashboard-solid-2)). The CSP and the cache headers are in its `vercel.json`, and `vercel-ignore.sh` skips deployments that change nothing the site is built from.
+To work on the website, run `node --run dev` in `apps/website`, which rebuilds `dist/` on every change, and `node --run preview` next to it to serve it. Vercel deploys every branch from `apps/website` ([deployment](spec/areas/website.md#deployment)). The CSP and the cache headers are in its `vercel.json`, and `vercel-ignore.sh` skips deployments that change nothing the site is built from.
 
 ## Engineering style
 
-The code follows a pragmatic TigerStyle and is built for deterministic simulation testing ([D16](spec/08-decisions.md#d16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation)): the core crates never read a clock or the OS RNG, bound every table and queue, and check their invariants after every step of their simulations.
+The code follows a pragmatic TigerStyle and is built for deterministic simulation testing ([D16](spec/decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md), [Engineering](spec/engineering.md#pragmatic-tigerstyle)): the core crates never read a clock or the OS RNG, bound every table and queue, and check their invariants after every step of their simulations.
 
 ## License
 

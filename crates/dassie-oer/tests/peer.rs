@@ -1,5 +1,6 @@
-//! The peer-protocol structures of spec 3 §5, built on the codec as a
-//! message crate would build them. They exercise the features no other
+//! The peer-protocol structures
+//! (spec/original/03-peer-network.md#5-wire-schemas), built on the codec as
+//! a message crate would build them. They exercise the features no other
 //! vector covers: OID constants, CHOICE tags, SEQUENCE OF, CONTAINING and
 //! capturing the raw bytes of a nested value for signature checks. The
 //! vectors were produced by the original's `peer-schema.ts`.
@@ -224,9 +225,10 @@ fn node_lists_match_the_original() {
 
 #[test]
 fn peer_message_envelopes_decode() {
-    // The v0 envelopes of spec 3 §5.5. The rewrite's v1 changes the
-    // authentication (D2), but the OER layout is the same, so these still
-    // test CHOICE and nested CONTAINING decoding.
+    // The v0 envelopes of the original's test vectors
+    // (spec/original/03-peer-network.md#55-test-vectors). The rewrite's v1
+    // changes the authentication (D2), but the OER layout is the same, so
+    // these still test CHOICE and nested CONTAINING decoding.
     let vectors = vectors("vectors.json");
     let peer = &vectors["peer"];
 

@@ -74,7 +74,8 @@ impl RemovalBlocker {
     }
 }
 
-/// The accounts every active ledger has (spec 5 §2.6).
+/// The accounts every active ledger has
+/// (spec/areas/ledger.md#chart-of-accounts).
 const COMMON_ACCOUNTS: [AccountName; 8] = [
     AccountName::AssetsSettlement,
     AccountName::EquityOwner,

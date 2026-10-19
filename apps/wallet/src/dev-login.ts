@@ -1,9 +1,9 @@
 /**
- * The dev environment's auto-login links (spec 7 §6): the dashboard links
- * to `https://dN.localhost/#dassie-dev-login=<proof>`, with the node's
- * login proof in the fragment, which never reaches a server. A wallet built
- * with `--mode development` sends it as an ordinary login and drops it from
- * the URL; the node checks it as any other. A production build has none of
+ * The dev environment's auto-login links (spec/areas/dev.md#wallet-links): the
+ * dashboard links to `https://dN.localhost/#dassie-dev-login=<proof>`, with the
+ * node's login proof in the fragment, which never reaches a server. A wallet
+ * built with `--mode development` sends it as an ordinary login and drops it
+ * from the URL; the node checks it as any other. A production build has none of
  * this: `main.tsx` imports it behind `__DASSIE_DEV_LOGIN__`.
  */
 

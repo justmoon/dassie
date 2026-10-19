@@ -1,4 +1,4 @@
-//! The `xrpl-testnet` settlement scheme (spec 5 §6.3, spec 7 §4.5), sans-IO.
+//! The `xrpl-testnet` settlement scheme (spec/areas/xrpl.md), sans-IO.
 //!
 //! It follows its account on the ledger through the node's connection: it
 //! says what to send ([`Effect::LedgerSend`]) and reads what comes back.
@@ -44,7 +44,8 @@ pub const SCHEME_ID: &str = "xrpl-testnet";
 pub const DEFAULT_SERVER: &str = "wss://s.altnet.rippletest.net:51233";
 /// The testnet's faucet.
 pub const DEFAULT_FAUCET: &str = "https://faucet.altnet.rippletest.net/accounts";
-/// The memo that marks a settlement, as the original wrote it (spec 7 §2).
+/// The memo that marks a settlement, as the original wrote it
+/// (spec/areas/xrpl.md#constants).
 pub const MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrp-testnet/v1";
 
 /// Most of our transactions on their way at once.
@@ -1472,7 +1473,8 @@ impl SettlementScheme for XrplScheme {
         _effects: &mut Vec<Effect>,
     ) -> Result<(), SchemeError> {
         // The claim books nothing: the ledger says what arrived, once
-        // (spec 5 §6.3.6). It must at least be a transaction hash.
+        // (spec/areas/xrpl.md#settlement-messages). It must at least be a
+        // transaction hash.
         if data.len() == 32 {
             Ok(())
         } else {

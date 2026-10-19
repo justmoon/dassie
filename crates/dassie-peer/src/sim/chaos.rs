@@ -1,8 +1,8 @@
-//! The peer network's random run (spec 7 §7, D27): random sizes and
-//! bootstrap lists, a rough network, crashes, restarts and partitions,
-//! owners ending peerings and banning nodes, settlements, then a calm in
-//! which the network must converge, every termination finish and every
-//! settlement arrive exactly once.
+//! The peer network's random run (spec/areas/testing.md#the-simulations,
+//! D27): random sizes and bootstrap lists, a rough network, crashes,
+//! restarts and partitions, owners ending peerings and banning nodes,
+//! settlements, then a calm in which the network must converge, every
+//! termination finish and every settlement arrive exactly once.
 
 use alloc::format;
 use alloc::string::String;

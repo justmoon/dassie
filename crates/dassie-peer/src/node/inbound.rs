@@ -1,7 +1,8 @@
-//! Inbound requests (spec 3 §8, spec 7 §4.7): decoding, authentication,
-//! and what each kind gets, with HTTP statuses that mean something
-//! (NET-11, NET-27, NET-28). Registrations and peering requests wait on a
-//! probe of the requester's URL.
+//! Inbound requests (spec/areas/peer-protocol.md#message-set,
+//! spec/areas/peer-protocol.md#statuses): decoding, authentication, and
+//! what each kind gets, with HTTP statuses that mean something (NET-11,
+//! NET-27, NET-28). Registrations and peering requests wait on a probe of
+//! the requester's URL.
 
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -21,7 +22,7 @@ use crate::wire::{
     encode_link_states, encode_octets, encode_response,
 };
 
-/// The ILP packet type of a Prepare (spec 4 §1).
+/// The ILP packet type of a Prepare (spec/areas/ilp.md#packets).
 const PREPARE_TYPE: u8 = 12;
 
 /// The ILP packet type of a Fulfill.
@@ -271,7 +272,7 @@ impl PeerNode {
             return refuse(400, "the link state is from the future");
         }
         // A renewal from the URL that was probed: anything else is probed
-        // again (spec 7 §4.7).
+        // again (spec/areas/network.md#registration).
         let renewal = self.table.get(&sender).is_some_and(|entry| {
             entry
                 .registration

@@ -1,8 +1,8 @@
 /**
- * The M7c done criterion (spec 7 §8): the `cross-currency` scenario
- * settles and reconciles across restarts. d1 has dollars (stub), d3 has
- * XRP (the fake ledger), and d2 has both, charging a fee and a spread on
- * what it passes between them. The rates are the scenario's own.
+ * End to end (spec/areas/testing.md#end-to-end): the `cross-currency`
+ * scenario settles and reconciles across restarts. d1 has dollars (stub),
+ * d3 has XRP (the fake ledger), and d2 has both, charging a fee and a
+ * spread on what it passes between them. The rates are the scenario's own.
  *
  * d1 pays d3's payment pointer, whose ledger is XRP: the quote measures
  * the path's rate, d1 pays from its dollars, d2 converts them, and d3

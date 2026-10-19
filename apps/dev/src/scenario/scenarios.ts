@@ -1,7 +1,7 @@
 /**
- * The scenarios (spec 6 §6.8): how many nodes, which are bootstrap nodes,
- * and which settlement schemes they use. Nodes added later join with the
- * scenario's default schemes.
+ * The scenarios (spec/areas/dev.md#scenarios): how many nodes, which are
+ * bootstrap nodes, and which settlement schemes they use. Nodes added later
+ * join with the scenario's default schemes.
  *
  * @module
  */

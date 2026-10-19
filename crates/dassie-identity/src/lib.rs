@@ -10,12 +10,12 @@
 //! ```
 //!
 //! The byte-level derivations are the compatibility contract with the
-//! original implementation (spec 8 §2): the same phrase must give the same
-//! node ID and the same ledger accounts. The API around them is new and
-//! fixes the original's flaws: phrases are validated (UI-5), seed paths are
-//! bounded and reject empty segments, the login proof is compared in
-//! constant time, the public-key DER has its unused-bits byte, and
-//! non-contributory X25519 results are rejected.
+//! original implementation (spec/areas/identity.md#derivation-chain): the
+//! same phrase must give the same node ID and the same ledger accounts. The
+//! API around them is new and fixes the original's flaws: phrases are
+//! validated (UI-5), seed paths are bounded and reject empty segments, the
+//! login proof is compared in constant time, the public-key DER has its
+//! unused-bits byte, and non-contributory X25519 results are rejected.
 //!
 //! The crate is deterministic (D16): it never reads a clock or the OS RNG,
 //! and randomness comes from an RNG the caller passes in. It does not

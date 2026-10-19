@@ -1,8 +1,9 @@
-//! The settlement schemes' connections to their ledgers (spec 7 §4.5):
-//! one WebSocket per scheme that follows a ledger, opened and closed when
-//! the core says, and fed back to it with the connection's epoch, so a
-//! message from a connection it has replaced is dropped. A connection that
-//! drops is made again, backing off from 1 s to 60 s.
+//! The settlement schemes' connections to their ledgers
+//! (spec/areas/settlement.md#schemes-that-follow-a-ledger): one WebSocket per
+//! scheme that follows a ledger, opened and closed when the core says, and
+//! fed back to it with the connection's epoch, so a message from a connection
+//! it has replaced is dropped. A connection that drops is made again, backing
+//! off from 1 s to 60 s.
 //!
 //! `wss://` connects with the node's TLS trust; `ws://` only where private
 //! addresses are allowed (dev and tests). Names resolve as for the node's

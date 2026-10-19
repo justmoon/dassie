@@ -1,8 +1,9 @@
 /**
- * What the dev environment needs before it starts (spec 6 §6.2): a Unix,
- * mkcert, and room for the nodes' socket paths. Node.js and OpenSSL are no
- * longer needed, and `dN.localhost` need not resolve: the node's peer
- * client maps it to loopback, and browsers do the same.
+ * What the dev environment needs before it starts
+ * (spec/areas/dev.md#prerequisites): a Unix, mkcert, and room for the nodes'
+ * socket paths. Node.js and OpenSSL are no longer needed, and `dN.localhost`
+ * need not resolve: the node's peer client maps it to loopback, and browsers do
+ * the same.
  *
  * @module
  */
