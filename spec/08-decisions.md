@@ -464,8 +464,8 @@ Decided on 2026-10-17.
   - *Paying out only after a committed shutdown:* a hub that lost more than f validators could never pay out.
   - *Chaining a payout set's transactions by `AccountTxnID`:* the hash of a multi-signed transaction depends on which signatures were put together, so no validator knows it in advance.
   - *AlephBFT, HotStuff-2 or Jolteon, Mysticeti:* slower, or built for many validators. *Depending on Commonware or Malachite:* async runtimes of their own, or alpha and unaudited; Commonware's Simplex is the reference instead.
-- **When:** M11 ([7 §8](07-rewrite.md#8-milestones)), after real money ([D8](#d8-real-money)).
-- **Affects:** [7 §4.5](07-rewrite.md#45-settlement-and-ledgers) (a `hub` scheme), [7 §4.7](07-rewrite.md#47-peer-protocol-v1) (commitments and claims, a node info extension), [7 §7](07-rewrite.md#7-testing-strategy), D13 (over a hub, a payer holds back its Reject, and the window is wider), D15, D23 (the reply to a Fulfill carries a claim; what a hub peering can cost beyond its holds is for M11 to bound), D20 (a hold is credit, so no slow start).
+- **When:** an open area of work ([7 §8.1](07-rewrite.md#81-open-areas-of-work)), built alongside the rest. Hubs hold real money only once [D8](#d8-real-money)'s conditions are met.
+- **Affects:** [7 §4.5](07-rewrite.md#45-settlement-and-ledgers) (a `hub` scheme), [7 §4.7](07-rewrite.md#47-peer-protocol-v1) (commitments and claims, a node info extension), [7 §7](07-rewrite.md#7-testing-strategy), D13 (over a hub, a payer holds back its Reject, and the window is wider), D15, D23 (the reply to a Fulfill carries a claim; what a hub peering can cost beyond its holds is for the work on hubs to bound), D20 (a hold is credit, so no slow start).
 
 ### D23. Each node books its own Fulfills
 

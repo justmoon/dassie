@@ -736,6 +736,8 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
 
 ## 8. Milestones
 
+M1–M10 are the order the rewrite was first built in. Work beyond them gets no milestone number: it is an open area of work (§8.1), and areas proceed in parallel, each with what done means.
+
 | # | Milestone | Done when |
 |---|---|---|
 | M1 | Core crates: `dassie-oer`, `dassie-identity`, `dassie-ilp`, `dassie-stream` | All golden vectors pass. STREAM interoperates with `ilp-protocol-stream`. WASM builds load in Node and the browser. |
@@ -748,4 +750,9 @@ Every crate is written so that a simulation can drive it ([D16](08-decisions.md#
 | M8 | Release: static binaries (x64, arm64), signed artifacts, installer, updater, systemd units. Delivered in two PRs: **M8a** (the static binaries with the wallet, the bundles and the mirror tree, SHA256SUMS signed with minisign, the release workflow) and **M8b** (the systemd units, the installer, `dassie update`, and their tests in containers) | Installer and updater tests pass on Debian, Ubuntu, Fedora and CentOS images. A tampered bundle is refused. M8a stops at signed releases built and published by CI, verified by `dassie-release`. |
 | M9 | Website and STREAM toy | `dassie.land` builds from `apps/website`. The toy runs on `dassie-stream` WASM. |
 | M10 | Trust from earnings ([D20](08-decisions.md#d20-trust-follows-what-a-peer-earned-us)): junior and senior, the senior's credit starting at 0, credit that grows with what a peering earned, and its announcement | In the simulation, a junior sends through its senior only after settling in advance; credit grows only with fees, by at most k of them; a junior that spends its credit and vanishes costs its senior no more than that; and settlement keeps working when announcements are lost, repeated or reordered. |
-| M11 | Settlement hubs ([D22](08-decisions.md#d22-settlement-hubs), [9](09-settlement-hubs.md)). Delivered in three PRs: **M11a** (`dassie-hub`: the ledger, its operations and Simplex, in the simulation without an escrow), **M11b** (the `hub` scheme: holds, commitments and claims, peering over a hub, joining by being paid) and **M11c** (the escrow on the XRPL testnet: founding, deposits, withdrawals, changing validators, shutdown and payout) | In the simulation, with up to f faulty validators, members peered over a hub pay each other across hops without trusting each other: a payer that sends no claims and a payee that claims twice or late cost the other no more than its hold. f + 1 colluding validators leave evidence. A hub that loses a validator shuts down, and the escrow pays out exactly the final balances, with signatures collected over time. |
+
+### 8.1 Open areas of work
+
+| Area | What it covers | Done when |
+|---|---|---|
+| Settlement hubs ([D22](08-decisions.md#d22-settlement-hubs), [9](09-settlement-hubs.md)) | Parts that can be built side by side: `dassie-hub` (the ledger, its operations and Simplex, in the simulation without an escrow); the `hub` scheme (holds, commitments and claims, peering over a hub, joining by being paid), against the ledger in the simulation; and the escrow on the XRPL testnet (founding, deposits, withdrawals, changing validators, shutdown and payout), against the fake ledger | In the simulation, with up to f faulty validators, members peered over a hub pay each other across hops without trusting each other: a payer that sends no claims and a payee that claims twice or late cost the other no more than its hold. f + 1 colluding validators leave evidence. A hub that loses a validator shuts down, and the escrow pays out exactly the final balances, with signatures collected over time. |
