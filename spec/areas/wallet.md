@@ -80,7 +80,7 @@ The wallet, the dev dashboard and the website share them: amounts, live data, th
 - [D5](../decisions/D05-ui-and-cli-rpc-contract.md): the typed RPC contract and its live streams.
 - [D6](../decisions/D06-owner-ledger-and-multi-currency-accounts.md): every amount carries its currency; the display currency and its total.
 - [D7](../decisions/D07-exchange-rates-fees-and-spread.md): rate sources, fees and spread, as the Settings page edits them.
-- [D9](../decisions/D09-open-payments-fully-and-no-spsp.md): wallet addresses, payment requests, the consent page, connected apps and the owner's Send.
+- [D9](../decisions/D09-open-payments-fully-and-no-spsp.md): Open Payments in full, which the wallet's payment, consent and connected-app pages front ([Payments](payments.md)).
 - [D10](../decisions/D10-secrets-at-rest.md): BTP tokens shown once, secret columns never shown.
 - [D12](../decisions/D12-peering-lifecycle-and-liveness.md): terminating peerings and bans.
 - [D21](../decisions/D21-tooling-on-node-and-pnpm-not-deno.md): built on Node and pnpm.

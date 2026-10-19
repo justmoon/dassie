@@ -29,7 +29,7 @@ What protects the owner's side of the node:
 - **The owner in a browser** holds a [session](#sessions) cookie, which the RPC WebSocket checks at the upgrade and again on every call ([rpc.md](rpc.md#authentication)).
 - **The owner on the machine** uses the IPC socket, whose file mode is the only access control ([node.md](node.md)).
 - **The passphrase never leaves the browser:** setup sends the node key seed and the login proof derived from it, login only the proof ([identity.md](identity.md)).
-- **Cross-site requests** meet the [same-origin rule](#same-origin-rule) on `/rpc` and `/api/*`. `/api/*` also requires `Content-Type: application/json`, which no cross-site form can send and no cross-origin script can send without a CORS preflight, which the node never grants.
+- **Cross-site requests** meet the [same-origin rule](#same-origin-rule) on `/rpc` and `/api/*`. `POST /api/setup` and `POST /api/login` also require `Content-Type: application/json`, which no cross-site form can send and no cross-origin script can send without a CORS preflight, which the node never grants.
 - **Setup and login attempts are rate-limited per client,** with no bucket shared by all clients, so a handful of addresses cannot lock the owner out. The login proof is 256 bits, so the limit is not against guessing but against making the node work as fast as a client can send.
 - **Secrets at rest:** sessions are stored as hashes, and so are BTP tokens ([D10](../decisions/D10-secrets-at-rest.md)).
 
@@ -45,7 +45,7 @@ Open Payments, `/peer`, `/btp`, `/stats` and the wallet's files do not apply the
 
 ## Response headers
 
-Every HTTPS response carries a strict Content Security Policy (`CONTENT_SECURITY_POLICY` in `http/response.rs`): nothing inline and nothing from other origins, with `wasm-unsafe-eval` only so the identity module the wallet runs can compile; framing is denied.
+Every HTTPS response but a WebSocket upgrade carries a strict Content Security Policy (`CONTENT_SECURITY_POLICY` in `http/response.rs`): nothing inline and nothing from other origins, with `wasm-unsafe-eval` only so the identity module the wallet runs can compile; framing is denied.
 
 **HSTS is sent only while a certificate from ACME or from the owner is installed,** never with the self-signed one: once a browser saw the header, the owner would have no way past its warning.
 

@@ -11,7 +11,7 @@ How Dassie is built, signed, published, installed and updated. A release is one 
 
 - **A release** is dassie-cli's `major.minor.patch`, on the channel `latest`. **A canary** is named by the commit time and hash it is built from, on the channel `canary`.
 - **Only these two shapes parse,** strictly and bounded, because a version names a directory on the mirror and in `/opt/dassie`.
-- **The updater and the installer move on their own only to a later version of the same channel** (`Version::supersedes`): a higher release, or a canary of a later commit time. `meta/<channel>` is not signed, so it never decides the direction: a mirror cannot take a node back, or to the other channel. Only the owner can, by naming a version or a channel.
+- **The updater and the installer move on their own only to a later version of the same channel** (`Version::supersedes` in the updater, the same rule with `sort -V` in the installer): a higher release, or a canary of a later commit time. `meta/<channel>` is not signed, so it never decides the direction: a mirror cannot take a node back, or to the other channel. Only the owner can, by naming a version or a channel.
 
 ## Trust
 

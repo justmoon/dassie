@@ -16,9 +16,10 @@ The code follows a pragmatic version of [TigerStyle](https://github.com/tigerbee
   - Assertions check preconditions, postconditions and invariants, and stay enabled in release builds: a broken invariant crashes rather than corrupting balances.
   - Each state machine has an invariant check that tests and simulations run after every transition.
   - The node checks its state before each commit, so a broken invariant never reaches the disk: a crash leaves the state that last held for the restart. The full sweep runs before every commit in tests and simulations; in release it runs at most once a second of engine time, since with full tables it costs about as much as a busy commit.
-  - Untrusted input never reaches an assertion: it gets an error value.
+  - Untrusted input never reaches an assertion: it gets an error value. Expected failures are values everywhere, in TypeScript too, never panics or exceptions.
   - Integer overflow checks are on in every profile.
 - **Instrumented.** State machines report everything observable as events and counters through their API, so a simulation can record, compare and replay a run. Core crates have no logging dependency.
+- **Simulated at production timings.** A simulation's deadlines derive from the production rules, never tuned so a run passes ([Testing](areas/testing.md#simulation-time-follows-production)).
 - **Efficient.** Simulations run many nodes for long simulated periods, so the hot paths stay cheap, and costly parts such as crypto sit behind narrow interfaces a simulation can substitute.
 - **Simple shape.** No recursion, short functions, no panicking indexing or `unwrap` outside tests, no lossy integer casts, explicit units in names (`_ms`, `_bytes`, `_ppm`).
 

@@ -41,7 +41,7 @@ Registration is free, and throttled instead ([Network](areas/network.md#registra
 - **What it covers:**
   - **The fee quote and payment,** as a v1.x peer-protocol addition: a quote message, and payment by ILP with a signed quote condition (the "naive" variant of the [token payment protocol](original/05-accounting-and-settlement.md)), to the cheapest 75% of bootstrap nodes.
   - **The fee schedule,** set when the quote and payment are built.
-  - **Child peers** ([D12](decisions/D12-peering-lifecycle-and-liveness.md)): non-majority nodes peer as children, routed beneath their uplink's address, which touches the connector, BTP and the STREAM receiver. They matter only once registration costs something: until then any node with a URL registers and becomes a member within minutes.
+  - **Child peers** ([D12](decisions/D12-peering-lifecycle-and-liveness.md)): non-majority nodes peer as children, routed beneath their uplink's address, which touches the connector, BTP and the STREAM receiver. They matter only once registration costs something: until then any node with a URL registers and becomes a member within minutes. A child's Network graph shows the child itself and its links to its uplinks, although no route reaches it.
 - **Done when:** a node registers by paying the quoted fee, and is refused without it. A non-majority node peers as a child, gets an address beneath its uplink, and pays and is paid through it.
 
 ## Not built yet

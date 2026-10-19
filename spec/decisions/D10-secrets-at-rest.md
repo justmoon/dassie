@@ -8,4 +8,4 @@
 - The data directory and database are readable by the node's user only.
 - The node key and the settlement entropy stay in plaintext. The node must sign and settle unattended, and encrypting them with a key stored next to them would only be theatre.
 
-Signing in the browser, so that the node never holds the owner's key, stays future work ([roadmap](../roadmap.md)).
+Signed or independent frontends, so that the wallet need not trust the node that serves it with the passphrase, stay future work ([roadmap](../roadmap.md)).

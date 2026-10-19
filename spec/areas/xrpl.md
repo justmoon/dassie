@@ -47,7 +47,7 @@ After each, the books must hold the balance less the reserve; any difference, su
 
 ## Settling
 
-`prepare_settlement` is `Unavailable` ([Settlement](settlement.md#the-scheme-interface)) unless the scheme is synced and knows the account's sequence, has room for another transaction in flight, the amount is at least a drop, the network fee is below the scheme's ceiling (while it is higher, the scheme waits), and the amount and the fee fit above the reserve after what is in flight. Then it signs the Payment with the next sequence and keeps it, not yet executed. It settles whole drops.
+`prepare_settlement` is `Unavailable` ([Settlement](settlement.md#the-scheme-interface)) unless the scheme is synced and knows the account's sequence, has room for another transaction in flight, the amount is at least a drop, the network fee is at most the scheme's ceiling (while it is higher, the scheme waits), and the amount and the fee fit above the reserve after what is in flight. Then it signs the Payment with the next sequence and keeps it, not yet executed. It settles whole drops.
 
 - **Nothing is sent before it is booked.** A transaction is submitted only once the node executed its settlement, its pending transfer on disk. One never executed is never sent: past its last ledger it is dropped, and the sequence read again.
 - **Cancelled only when it can never apply.** A malformed transaction (`tem…` on submit) is cancelled at once. Past its last ledger, a transaction is looked for over the ledgers it could have applied in; only when the server has searched all of them and it is not there is it cancelled. Anything less certain waits, since cancelling a transaction that applied would pay the peer twice.

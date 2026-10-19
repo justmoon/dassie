@@ -138,7 +138,7 @@ ILP-over-HTTP (RFC 35) is not built: the connector has no HTTP endpoint ([roadma
 
 ## Decisions
 
-- [D6](../decisions/D06-owner-ledger-and-multi-currency-accounts.md): each endpoint has a ledger; ILDCP answers its asset; the owner's own endpoints never convert; the display currency.
+- [D6](../decisions/D06-owner-ledger-and-multi-currency-accounts.md): each endpoint has a ledger, and ILDCP answers its asset; the owner's own endpoints never convert; the display currency.
 - [D7](../decisions/D07-exchange-rates-fees-and-spread.md): refreshed rates, staleness, exact math, the median of several sources; fees and spread, and why the fee rounds down.
 - [D10](../decisions/D10-secrets-at-rest.md): BTP tokens are kept hashed.
 - [D13](../decisions/D13-connector-timing-and-packet-limits.md): timing at the packet's expiry, F05 at once, F08 data, F01 and F02, segment-aware prefixes, unique request IDs.

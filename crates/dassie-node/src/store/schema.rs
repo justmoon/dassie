@@ -525,7 +525,7 @@ CREATE INDEX outgoing_payments_by_time ON outgoing_payments (created_at_ms, id);
 CREATE INDEX outgoing_payments_sending ON outgoing_payments (created_at_ms) WHERE state = 'sending';
 
 -- What a refusal took back is no longer counted: the payment's STREAM
--- connections are closed instead, so senders start anew (D17).
+-- connections are closed instead, so senders start anew.
 ALTER TABLE incoming_payments DROP COLUMN released_amount;
 
 CREATE TABLE grant_spend (

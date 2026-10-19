@@ -107,7 +107,7 @@ The owner reaches all of this over RPC ([rpc.md](rpc.md)), without a grant, thro
 
 ## Decisions
 
-- [D9](../decisions/D09-open-payments-fully-and-no-spsp.md): Open Payments in full, no SPSP; tokens needed to create incoming payments; the choices above in brief.
+- [D9](../decisions/D09-open-payments-fully-and-no-spsp.md): Open Payments in full as its specs define it, no SPSP, and GNAP tokens even to create incoming payments.
 - [D6](../decisions/D06-owner-ledger-and-multi-currency-accounts.md): the owner's group, which the receiver and payer book into, and why the owner's endpoints never convert.
 - [D7](../decisions/D07-exchange-rates-fees-and-spread.md): rates and fees, which make quotes probe.
 - [D10](../decisions/D10-secrets-at-rest.md): tokens stored as hashes.

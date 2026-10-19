@@ -29,7 +29,7 @@ A server routes every Prepare below its address to the connection its token name
 
 ## Connections
 
-A connection is the **client** (given the destination and shared secret) or the **server** (which issued them). Each side announces its address, asset and stream limit in every request until a response shows the remote heard it, and again whenever one changes. A changed remote address resets congestion control, since the new path's capacity is unknown.
+A connection is the **client** (given the destination and shared secret) or the **server** (which issued them). The client announces its address and asset, and each side its stream limits, in every request until a response shows the remote heard them, and again whenever one changes. A changed remote address resets congestion control, since the new path's capacity is unknown.
 
 ### Streams
 
@@ -119,7 +119,7 @@ The WASM build (`src/wasm.rs`, with `dassie-identity`, [Identity](identity.md#in
 
 ## Decisions
 
-- [D9](../decisions/D09-open-payments-fully-and-no-spsp.md): STREAM under Open Payments, a connection per payment, no receipts from the node.
+- [D9](../decisions/D09-open-payments-fully-and-no-spsp.md): STREAM under Open Payments, and no receipts from the node; why each payment has a connection of its own is in [Payments](payments.md).
 - [D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md): sans-IO, deterministic, bounded and asserted.
 - [D24](../decisions/D24-money-in-flight-with-a-peer-stays-within-a-few-packets.md): why the connector caps money in flight with a peer, though a STREAM connection may have many packets in flight.
 - [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md): the STREAM simulation runs from any seed.

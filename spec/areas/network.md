@@ -38,6 +38,8 @@ Cheap checks come first, so floods are cheap: an echo of our own state, a node n
 
 ### How link states spread
 
+The gossip defaults (copies before suppression, forward jitter, heartbeat interval, staleness, re-issue) are the original's, kept because they proved sound; the peering timings were set from the network simulation ([D12](../decisions/D12-peering-lifecycle-and-liveness.md)). All are in `crates/dassie-peer/src/config.rs`.
+
 - **Flooding.** A state taken from a `linkStateUpdate` is forwarded after a random delay to every peer except its subject and the peer it came from, unless enough copies arrived meanwhile. Our own new state goes at once. States learned from refreshes, sweeps, registrations and peering requests are not forwarded.
 - **Heartbeats.** A node sends its current state, authenticated, to every peer it is not terminating with, advertised or not, at random intervals and once when a peering forms, so both sides can confirm each other ([Advertised peers](#advertised-peers)).
 - **Refresh.** A node picks stale or missing states one at a time and asks the node itself, at the URL of its last state; sometimes, or when it has no state of the node, it asks another node instead, together with other stale ones. A node asked about that brings back nothing newer backs off exponentially.
@@ -49,7 +51,7 @@ The network's members are the nodes that a majority of the bootstrap nodes list.
 
 ### Bootstrap nodes
 
-- The bootstrap node list is `DASSIE_BOOTSTRAP_NODES` (format and validation in `crates/dassie-node/src/env.rs` and [Node](node.md)). A bad entry stops the node at startup, as does a node listed twice, which would vote twice. The default is the public testnet's three nodes ([D15](../decisions/D15-bootstrap-network-for-v1.md)); tests and the dev environment set their own, so they stay off the testnet. An empty list makes a node run alone.
+- The bootstrap node list is `DASSIE_BOOTSTRAP_NODES` (format and validation in `crates/dassie-node/src/env.rs`). A bad entry stops the node at startup, as does a node listed twice, which would vote twice. The default is the public testnet's three nodes ([D15](../decisions/D15-bootstrap-network-for-v1.md)); tests and the dev environment set their own, so they stay off the testnet. An empty list makes a node run alone.
 - Bootstrap nodes are always in the table, with their configured key, and always keep their replay state.
 - A node takes registrations only when it is one of its own bootstrap nodes, so each bootstrap node lists itself in its own configuration. Each testnet bootstrap node runs `xrpl-testnet`, so a new node has someone to peer with.
 
@@ -169,7 +171,7 @@ The `peer` simulation (`dassie_peer::sim::chaos`) runs this protocol on a rough 
 
 ## Decisions
 
-- [D2](../decisions/D02-peer-protocol-v0-or-v1.md): peering requests carry the full signed node info; termination messages exist; scheme versions are exchanged.
+- [D2](../decisions/D02-peer-protocol-v0-or-v1.md): v1 instead of v0: authenticated senders and responses, peering requests that carry the signed node info, termination, scheme versions.
 - [D4](../decisions/D04-network-membership-economics.md): removal and expiry, automatic registration, the served list, the membership freeze, authenticated lists, and the limits on free registration until fees.
 - [D12](../decisions/D12-peering-lifecycle-and-liveness.md): the peering lifecycle, confirmed peers, the bridge rule, slot caps, repeats and crossings, the advertise flag and withdrawal for room, termination, bans as a list, the channel limit, and why child peers wait.
 - [D15](../decisions/D15-bootstrap-network-for-v1.md): the testnet's bootstrap nodes as the default list.

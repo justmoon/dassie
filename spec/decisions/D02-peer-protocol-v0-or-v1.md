@@ -13,6 +13,7 @@ A new protocol version, v1, that keeps v0's message set and fixes its security:
 - **Sender authentication by a MAC,** keyed from a static-static X25519 between the two node keys, over the version, sender, recipient and content.
 - **Replay protection** that survives restarts.
 - **Authenticated responses,** so node lists, peering answers and registrations are authenticated end to end, not only by TLS.
+- **Peering requests carry the full signed node info,** which must name the sender; peerings can be terminated; scheme versions are exchanged when peering.
 
 The shape of the scheme, and why:
 

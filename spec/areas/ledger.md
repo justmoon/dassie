@@ -23,7 +23,7 @@ The account kinds, their path grammar and their limits are in `path.rs`. What th
 
 ## Limits and groups
 
-An account's limit counts its posted and pending debits against its posted credits only: money in flight out counts, money in flight in does not. A pending transfer holds its place, so posting it checks nothing again.
+A debits-≤-credits limit counts the account's posted and pending debits against its posted credits only: money in flight out counts, money in flight in does not (a credits-≤-debits limit, as on `contra/trust`, mirrors it). A pending transfer holds its place, so posting it checks nothing again.
 
 **The owner's group.** On each ledger, `equity/owner` is the root of a group of every owner account: its endpoints' sub-accounts, `equity/suspense`, the fee and FX accounts and `expenses/losses`. The limit (debits ≤ credits) is on the group's total; no member has one of its own. So:
 

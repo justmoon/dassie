@@ -32,6 +32,7 @@ Each file records one choice between real alternatives: the facts that forced it
 ## Adding or changing a decision
 
 - A new decision gets the next free number, `Dnn-<slug>.md`. Numbers are never reused, so `D23` is a valid citation in code; a missing number belongs to a decision that was replaced or is under review.
+- Add a row to the table above.
 - Use the shape of the files here: areas, facts, decision, accepted, rejected. No dates or history: git has those. Past experience belongs in only as an argument ("the simulation showed …").
 - Keep it to the reasons. A number belongs in a decision only when the argument is about it.
 - When a decision replaces another, fold what still argues for the current design (usually the rejected option and why) into the new one, and delete the old file.
