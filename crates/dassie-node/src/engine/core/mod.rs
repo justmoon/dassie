@@ -505,13 +505,13 @@ impl Core {
         let settlement = self.peer.peers().next().map(|_| self.settle.at_ms);
         // With no peer left, a settlement waiting to be announced keeps the
         // settlement check due.
-        let finals = (!self.settle.announce.is_empty()).then_some(self.settle.at_ms);
+        let announcing = (!self.settle.announce.is_empty()).then_some(self.settle.at_ms);
         [
             self.connector.poll_timeout(),
             receiver,
             self.peer.poll_timeout(),
             settlement,
-            finals,
+            announcing,
             self.outgoing_deadline(),
             self.probe_deadline(),
             self.schemes_deadline(),

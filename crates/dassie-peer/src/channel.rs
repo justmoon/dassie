@@ -1,9 +1,9 @@
 //! Settlement channels (spec/areas/settlement.md#settlement-channels): what
 //! makes a settlement message arrive exactly once. A channel belongs to a
 //! pair of nodes, not to one peering: it is made at the first peering, kept
-//! when the peering ends, and used again by the next. So a final settlement
-//! that arrives after the peering ended is still credited, and a copy from
-//! an old peering is never applied twice.
+//! when the peering ends, and used again by the next. So a settlement that
+//! arrives after the peering ended is still credited, and a copy from an
+//! old peering is never applied twice.
 
 use alloc::string::String;
 use alloc::vec::Vec;

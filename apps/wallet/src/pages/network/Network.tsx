@@ -235,8 +235,9 @@ function NodeDetail(props: { node: NetworkNode }): JSX.Element {
           >
             <p>
               No new payments go through this peer. Once those in flight are
-              done, the peering ends and what is owed is settled. Your node does
-              not peer with it again for a day.
+              done, the peering ends. Nothing is settled for its end: what
+              either side owes stays on the books, to be settled if you peer
+              again. Your node does not peer with it again for a day.
             </p>
           </ConfirmButton>
         </Show>

@@ -278,7 +278,7 @@ impl PeerNode {
     }
 
     /// A settlement message: from a node we hold a channel with, peered or
-    /// not, since a final settlement may arrive after the peering ended.
+    /// not, since a settlement may arrive after the peering ended.
     /// A copy already applied is acknowledged again, and nothing more.
     pub(super) fn settlement_request<'a>(
         &mut self,
