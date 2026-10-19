@@ -29,7 +29,7 @@ A server routes every Prepare below its address to the connection its token name
 
 ## Connections
 
-A connection is the **client** (given the destination and shared secret) or the **server** (which issued them). The client announces its address and asset, and each side its stream limits, in every request until a response shows the remote heard them, and again whenever one changes. A changed remote address resets congestion control, since the new path's capacity is unknown.
+A connection is the **client** (given the destination and shared secret) or the **server** (which issued them). The client announces its address, and each side its asset (if it has one) and stream limit, in every request until a response shows the remote heard them, and again whenever one changes. A changed remote address resets congestion control, since the new path's capacity is unknown.
 
 ### Streams
 
