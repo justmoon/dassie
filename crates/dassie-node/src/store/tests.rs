@@ -463,8 +463,14 @@ fn completed_payments_keep_what_their_connections_received_for_a_while() {
         store.finished_incoming(0, 10).unwrap(),
         [first.clone(), third]
     );
-    assert_eq!(store.finished_incoming(400, 10).unwrap(), std::slice::from_ref(&first));
-    assert_eq!(store.finished_incoming(0, 1).unwrap(), std::slice::from_ref(&first));
+    assert_eq!(
+        store.finished_incoming(400, 10).unwrap(),
+        std::slice::from_ref(&first)
+    );
+    assert_eq!(
+        store.finished_incoming(0, 1).unwrap(),
+        std::slice::from_ref(&first)
+    );
     store
         .prune_incoming(500 + FINISHED_RETENTION_MS - 1)
         .unwrap();
