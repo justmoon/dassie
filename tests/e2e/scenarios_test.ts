@@ -44,8 +44,13 @@ async function trusting(scenario: Scenario): Promise<typeof WebSocket> {
   };
 }
 
-/** A client of `from` pays `PAYMENT` to the receiver of `to`. */
+/**
+ * A client of `from` pays `PAYMENT` to the receiver of `to`, once settling
+ * is quiet: every junior on the way has paid its senior in advance, which
+ * extends it nothing until then (D20).
+ */
 async function pay(scenario: Scenario, from: ScenarioNode, to: ScenarioNode) {
+  await scenario.until("paid in advance", () => quiet(scenario));
   const token = await from.rpc.call("createBtpToken", {
     label: "e2e",
     ledger: "stub+usd",
