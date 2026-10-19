@@ -1,5 +1,5 @@
 /**
- * The network (spec/areas/wallet.md#network): the graph, the node listing by
+ * The network (spec/areas/wallet.md#pages): the graph, the node listing by
  * distance, and the selected node's details, with what the owner can do about
  * it (UI-4).
  */

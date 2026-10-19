@@ -1,5 +1,5 @@
 //! The connector's behaviour, each D13 fix with a test that fails against
-//! the original (spec/original/README.md#how-the-rewrite-treated-the-gaps).
+//! the original (spec/original/README.md#conventions).
 
 #![allow(clippy::panic)]
 

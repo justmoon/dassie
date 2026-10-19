@@ -1,5 +1,5 @@
-//! Incoming Prepares: ILDCP, routing, expiry, amounts and the ledger, in
-//! the order of spec/areas/connector.md#handling-a-prepare.
+//! Incoming Prepares: ILDCP, routing, expiry, amounts and the ledger
+//! (spec/areas/connector.md#handling-a-prepare).
 
 use dassie_ilp::{
     Address, AmountTooLarge, ErrorCode, Fulfill, MAX_PACKET_LENGTH, Prepare, Reject, Timestamp,

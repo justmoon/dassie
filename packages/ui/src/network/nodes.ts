@@ -1,8 +1,8 @@
 /**
- * The node table as the network page lists it (spec/areas/wallet.md#network):
+ * The node table as the network page lists it (spec/areas/wallet.md#pages):
  * sorted by distance, then by ID, and grouped, with our peers apart by whether
  * a route reaches them and whether they are online; and the routing table as a
- * graph (spec/areas/wallet.md#network).
+ * graph (spec/areas/wallet.md#pages).
  */
 
 import { type NetworkNode, PeerState } from "@dassie/rpc/proto";

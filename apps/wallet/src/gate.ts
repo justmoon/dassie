@@ -44,7 +44,7 @@ export function decideScreen(
 /**
  * What the signed-in owner sees: nothing until the ledgers are known, the
  * forced choice of a first ledger without one
- * (spec/areas/wallet.md#choose-a-ledger-type), the wallet otherwise. It follows
+ * (spec/areas/wallet.md#the-gate), the wallet otherwise. It follows
  * the live ledgers, so adding the first ledger, or removing the last, takes
  * effect at once (UI-7).
  */

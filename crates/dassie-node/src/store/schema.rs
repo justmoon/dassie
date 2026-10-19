@@ -375,7 +375,7 @@ CREATE TABLE payment_settings (
 INSERT INTO payment_settings VALUES (1, NULL);
 ";
 
-/// Verdicts on Fulfills between peers (D17,
+/// Verdicts on Fulfills between peers, as 0.1 kept them (D23,
 /// spec/areas/ledger.md#fulfills-booked-as-final): the Fulfills we sent peers
 /// and wait for a verdict on, written with the journal rows that post their
 /// packets; the Fulfills we took from peers, kept 30 days to answer a resend
@@ -547,8 +547,9 @@ ALTER TABLE outgoing_payments ADD COLUMN recipient TEXT
   CHECK (recipient IS NULL OR length(recipient) BETWEEN 1 AND 2048);
 ";
 
-/// One grace limit per peer (D18): the share of the credit we extend that
-/// a peer may cost us before it is banned, and why each node was banned.
+/// One grace limit per peer, as 0.1 kept it (D23 removed it): the share of
+/// the credit we extend that a peer may cost us before it is banned, and why
+/// each node was banned.
 /// A record outlives its ban, so a peer unbanned is held to account only
 /// for what it cost since.
 const MIGRATION_10: &str = "

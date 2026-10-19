@@ -22,7 +22,7 @@ use crate::wire::{
     encode_link_states, encode_octets, encode_response,
 };
 
-/// The ILP packet type of a Prepare (spec/areas/ilp.md#packets).
+/// The ILP packet type of a Prepare.
 const PREPARE_TYPE: u8 = 12;
 
 /// The ILP packet type of a Fulfill.
@@ -148,7 +148,7 @@ impl PeerNode {
     /// An ILP packet. A Prepare needs a peering that is not ending. A
     /// response also comes from a node we hold a settlement channel with,
     /// peered or not: a node of 0.1 asks for verdicts after the peering
-    /// ended (D17), and is told it was accepted (D23).
+    /// ended, and is told it was accepted (D23).
     fn packet_request<'a>(
         &self,
         accepted: &Accepted,

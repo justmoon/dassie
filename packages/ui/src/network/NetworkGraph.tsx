@@ -1,7 +1,7 @@
 /**
- * The network as a graph (spec/areas/wallet.md#network): the nodes and links it
+ * The network as a graph (spec/areas/wallet.md#pages): the nodes and links it
  * is given, which on the network page are the routing table
- * (spec/areas/wallet.md#network). Drawn in SVG with attributes and classes
+ * (spec/areas/wallet.md#pages). Drawn in SVG with attributes and classes
  * only, so the page's CSP holds; the layout settles at once for readers who
  * prefer less motion.
  */

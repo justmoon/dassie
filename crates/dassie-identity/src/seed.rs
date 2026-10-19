@@ -43,8 +43,7 @@ const SETTLEMENT_MODULE_SEGMENT: &str = "settlement-module";
 /// never reaches a segment, since segments are split on it.
 const SEGMENT_ALPHABET: Alphabet = Alphabet::EMPTY.with_range(0x21, 0x7e);
 
-/// The peer wire schema of a settlement scheme ID
-/// (spec/areas/identity.md#seed-paths).
+/// The peer wire schema of a settlement scheme ID.
 const SCHEME_ID_SIZE: Size = Size::range(2, 128);
 const SCHEME_ID_ALPHABET: Alphabet = Alphabet::EMPTY
     .with_range(b'a', b'z')

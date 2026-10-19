@@ -12,7 +12,7 @@ Dassie is a peer-to-peer payment network built on [Interledger](https://interled
 
 The project's tagline is "a multi-currency, zero-config, peer-to-peer, Interledger-enabled payment network". The website describes it as "a peer-to-peer network which can transfer tiny amounts of money quickly and cheaply", and stresses that it is "not a blockchain": nodes keep bilateral balances and settle them on whichever ledgers they share.
 
-The original is a TypeScript monorepo (Node.js, React, SQLite). It is a working prototype on a test network, not a production system: chapters 2–6 record 124 numbered gaps between what it does, what its design notes say, and what a real deployment needs, and [chapter 8](README.md#how-the-rewrite-treated-the-gaps) decides what to do about each.
+The original is a TypeScript monorepo (Node.js, React, SQLite). It is a working prototype on a test network, not a production system: chapters 2–6 record 124 numbered gaps between what it does, what its design notes say, and what a real deployment needs.
 
 ## 1.2 Concepts
 

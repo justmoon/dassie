@@ -1,5 +1,4 @@
-//! Responses: an authentication field, then the body for the request's kind
-//! (spec/areas/peer-protocol.md#responses).
+//! Responses: an authentication field, then the body for the request's kind.
 
 use alloc::vec::Vec;
 
@@ -56,8 +55,7 @@ pub fn encode_response(mac: Option<&[u8; 32]>, body: &[u8]) -> Vec<u8> {
     bytes
 }
 
-/// Why a peering request was refused
-/// (spec/areas/peer-protocol.md#peeringrequest-0). Unknown values read as
+/// Why a peering request was refused. Unknown values read as
 /// [`RefusalReason::Unspecified`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RefusalReason {

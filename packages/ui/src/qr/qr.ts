@@ -1,4 +1,4 @@
-/** QR codes as modules, for drawing (spec/areas/wallet.md#ledgers). */
+/** QR codes as modules, for drawing. */
 
 import { encode } from "uqr";
 

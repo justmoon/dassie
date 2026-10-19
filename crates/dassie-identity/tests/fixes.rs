@@ -1,6 +1,6 @@
 //! One test per flaw of the original that the rewrite fixes. Each would
 //! have failed against the original's behaviour
-//! (spec/original/README.md#how-the-rewrite-treated-the-gaps).
+//! (spec/original/README.md#conventions).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 

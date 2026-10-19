@@ -1,7 +1,7 @@
 //! systemd: socket activation and readiness.
 //!
 //! Under systemd the daemon gets its three sockets from the socket units, by
-//! name (spec/areas/node.md#socket-activation). The original did not check
+//! name (spec/areas/node.md#runtimes). The original did not check
 //! that `LISTEN_PID` names this process, and reported readiness by running
 //! `systemd-notify` (RT-20). Here both are done in the process: the PID is
 //! checked, and `READY=1` and `STOPPING=1` go straight to `NOTIFY_SOCKET`.

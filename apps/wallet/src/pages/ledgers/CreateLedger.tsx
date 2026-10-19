@@ -1,5 +1,5 @@
 /**
- * Choosing a ledger (spec/areas/wallet.md#choose-a-ledger-type): the schemes
+ * Choosing a ledger (spec/areas/wallet.md#the-gate): the schemes
  * the node can run, and the owner's first choice, which the wallet insists on
  * (UI-3: the list comes from the node, not a fixed stub).
  */

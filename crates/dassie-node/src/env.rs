@@ -1,9 +1,8 @@
 //! The daemon's environment, read once at start.
 //!
-//! The variable names and their precedence are the original's
-//! (spec/areas/node.md#environment-variables), minus those that no longer
-//! mean anything: `NODE_ENV`, `DEBUG_HIDE_DATE`, the cache and temporary
-//! directories, which nothing used (RT-4). The original evaluated them
+//! The variable names and their precedence are the original's, minus those
+//! that no longer mean anything: `NODE_ENV`, `DEBUG_HIDE_DATE`, the cache
+//! and temporary directories, which nothing used (RT-4). The original evaluated them
 //! lazily, so a bad value killed whichever actor first touched it and left
 //! the daemon half-started (RT-24). Here every variable is checked before
 //! anything starts, and a bad one stops the daemon with a message that names

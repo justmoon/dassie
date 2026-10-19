@@ -2,12 +2,12 @@
 
 ## Read the spec for what you touch
 
-[`spec/README.md`](spec/README.md) maps every crate, app, package and contract to the area docs that specify it. Before you change a part of Dassie, read [`spec/overview.md`](spec/overview.md), [`spec/engineering.md`](spec/engineering.md) and the area docs the index names for the paths you touch. They describe what is on `main`; you don't need the rest of the spec.
+[`spec/README.md`](spec/README.md) maps every crate, app, package and contract to the area docs for it. Before you change a part of Dassie, read [`spec/overview.md`](spec/overview.md), [`spec/engineering.md`](spec/engineering.md) and the area docs the index names for the paths you touch. They hold what the code cannot say: what a part is for, its invariants and contracts, what must never change, and why. The code is the only source for values, layouts and lists.
 
-Keep the spec current in the same PR as the change:
+Keep the spec current in the same PR as the change, and keep it from becoming a second source of truth (the rules are in [`spec/README.md`](spec/README.md#what-belongs-here)):
 
-- **Behaviour changes:** update the area doc that states it. Area docs are in the present tense, without milestones, dates or PR numbers.
-- **A choice between real alternatives:** add a decision in [`spec/decisions/`](spec/decisions/README.md), which keeps the reasons; the area doc states the rule.
+- **A change to what a part guarantees, or why:** update its area doc. A changed value or list does not touch the spec. No history: no dates, milestones or PR numbers.
+- **A choice between real alternatives:** add a decision in [`spec/decisions/`](spec/decisions/README.md), which keeps the reasons.
 - **Work not built yet:** an open area in [`spec/roadmap.md`](spec/roadmap.md), never a numbered milestone.
 - **A new crate, app, package or contract:** a row in the index.
 

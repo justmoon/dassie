@@ -1,6 +1,6 @@
 /**
  * How a ledger's scheme stands with its underlying ledger, for people
- * (spec/areas/wallet.md#ledgers): connecting, catching up, waiting for funds,
+ * (spec/areas/wallet.md#pages): connecting, catching up, waiting for funds,
  * or failed.
  */
 

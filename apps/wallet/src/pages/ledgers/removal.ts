@@ -1,5 +1,5 @@
 /**
- * Removing a ledger (spec/areas/wallet.md#remove-a-ledger): what must hold
+ * Removing a ledger (spec/areas/wallet.md#pages): what must hold
  * first, as the node reports it, and the confirmation the owner types.
  */
 

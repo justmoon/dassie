@@ -1,7 +1,6 @@
 # D22. Settlement hubs
 
-**Status:** active, decided 2026-10-17. A design, not built yet ([roadmap](../roadmap.md)).
-**Areas:** [Settlement hubs](../designs/settlement-hubs.md), [Settlement](../areas/settlement.md), [Peer protocol](../areas/peer-protocol.md)
+**Areas:** [Settlement hubs](../designs/settlement-hubs.md), [Settlement](../areas/settlement.md), [Peer protocol](../areas/peer-protocol.md). A design, not built yet ([roadmap](../roadmap.md)).
 
 ## Facts
 

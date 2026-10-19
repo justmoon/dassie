@@ -1,6 +1,5 @@
 //! The network's methods: the node table, peers, routes, registration,
-//! settlement channels, and ending peerings and banning nodes
-//! (spec/areas/rpc.md#procedure-groups).
+//! settlement channels, and ending peerings and banning nodes.
 
 use std::collections::BTreeMap;
 

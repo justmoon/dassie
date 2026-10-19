@@ -45,7 +45,7 @@ pub const DEFAULT_SERVER: &str = "wss://s.altnet.rippletest.net:51233";
 /// The testnet's faucet.
 pub const DEFAULT_FAUCET: &str = "https://faucet.altnet.rippletest.net/accounts";
 /// The memo that marks a settlement, as the original wrote it
-/// (spec/areas/xrpl.md#constants).
+/// (spec/areas/xrpl.md#the-payment-it-signs).
 pub const MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrp-testnet/v1";
 
 /// Most of our transactions on their way at once.

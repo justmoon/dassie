@@ -42,7 +42,7 @@ fn commit(store: &Store, ledger: &mut Ledger, mut batch: LedgerBatch) {
     store.commit_ledger(&batch).unwrap();
 }
 
-// A refusal booked before each node kept its own books (D17, D23) stays a
+// A refusal booked before each node kept its own books (D23) stays a
 // journal row with the packet's trace.
 #[test]
 fn refusals_booked_before_stay_in_the_journal() {

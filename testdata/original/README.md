@@ -10,7 +10,7 @@
 | `crates/dassie-ilp/tests/data/vectors.json` | ILP and ILDCP fixtures, F08 data, Interledger timestamps and BTP messages |
 | `crates/dassie-stream/tests/data/vectors.json` | All STREAM packet fixtures and the STREAM crypto vectors |
 
-Every file records `"source": "e962ab78"`. The vectors describe the original's behaviour. Where the rewrite deliberately differs (a fixed gap, see [how the rewrite treated the gaps](../../spec/original/README.md#how-the-rewrite-treated-the-gaps)), the Rust tests carry their own hand-written vector, named after the gap.
+Every file records `"source": "e962ab78"`. The vectors describe the original's behaviour. Where the rewrite deliberately differs (a fixed gap, by [its ID](../../spec/original/README.md#conventions)), the Rust tests carry their own hand-written vector, named after the gap.
 
 ## Regenerating
 

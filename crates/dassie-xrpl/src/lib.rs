@@ -35,7 +35,7 @@ pub use scheme::{Config, XrplScheme};
 pub const DROPS_PER_XRP: u64 = 1_000_000;
 
 /// Internal units per drop: the books count XRP at scale 9
-/// (spec/areas/xrpl.md#constants).
+/// (spec/areas/ledger.md#ledgers-and-amounts).
 pub const UNITS_PER_DROP: u64 = 1_000;
 
 /// The most XRP there is, in drops: 100 billion.

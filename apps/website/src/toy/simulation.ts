@@ -58,7 +58,7 @@ export interface Settings {
   seed: number;
 }
 
-/** The original's defaults (spec/areas/website.md#settings), with a seed. */
+/** The original's defaults, with a seed. */
 export const DEFAULT_SETTINGS: Settings = {
   amount: 3000n,
   maxPacketAmount: 1000n,

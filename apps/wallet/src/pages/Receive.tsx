@@ -1,5 +1,5 @@
 /**
- * Receive (spec/areas/wallet.md#receive): the wallet addresses other wallets
+ * Receive (spec/areas/wallet.md#pages): the wallet addresses other wallets
  * pay through Open Payments, a request for a payment, and a tab per ledger with
  * a deposit method: the stub's test money.
  */

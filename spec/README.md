@@ -1,10 +1,10 @@
 # Dassie specification
 
-This directory specifies Dassie as it is on `main`: what each part does, in enough detail to change it without reading all of its code. It is arranged by area, so that you read only what concerns the parts you touch.
+This directory holds what the code cannot say about Dassie: what each part is for, how the parts fit together, the invariants and contracts that span them, what must never change, and why the design is what it is. The code is the only source for everything else: values, layouts, lists. The spec is arranged by area, so that you read only what concerns the parts you touch.
 
 ## Where to start
 
-1. [Overview](overview.md): what Dassie is, its concepts, how the parts fit, and which surfaces stay compatible with the original.
+1. [Overview](overview.md): what Dassie is, its concepts, how the parts fit, and the surfaces that must never change.
 2. [Engineering](engineering.md): the rules every crate and package follows.
 3. The area docs for the paths you touch, from the index below. Each one names the other docs to read with it.
 
@@ -70,11 +70,17 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 
 Not built yet: the [roadmap](roadmap.md), and the designs in [`designs/`](designs/settlement-hubs.md).
 
+## What belongs here
+
+- **What the code cannot state:** purpose, how parts fit across modules, invariants, contracts between components and versions, frozen surfaces and what pins them, and the reasons for choices a competent engineer would not guess. A number belongs here only when the argument is about it, and then the spec names the constant that holds it.
+- **Never a copy of the code.** Values, limits, timeouts, layouts, field and route lists, error strings, flags and environment variables live only in the code, where they cannot drift. Point to the module instead.
+- **Nothing a competent engineer already knows,** or that a linked standard defines. State only Dassie's choices and deviations.
+- **No history.** No dates, milestones, PR numbers or "used to": version control has the timeline. Past experience belongs here only as an argument ("the simulation showed …").
+
 ## Keeping it current
 
-- **A change in behaviour updates its area doc in the same PR.** The area docs state what is on `main`, in the present tense, for someone new to Dassie, without milestones, dates or PR numbers.
-- **A choice between real alternatives gets a decision** ([how](decisions/README.md#adding-a-decision)). The decision keeps the reasons, and the area doc states the rule.
+- **A change to what a part guarantees, or why, updates its area doc in the same PR.** A changed value or list does not touch the spec.
+- **A choice between real alternatives gets a decision** ([how](decisions/README.md#adding-or-changing-a-decision)). The decision keeps the reasons.
 - **New work that is not built yet** is an open area of the [roadmap](roadmap.md), never a numbered milestone. A large design gets a file in `designs/`.
 - **A new crate, app, package, test suite or contract** gets a row in the index above, and an area doc, or a section in an existing one.
 - **Cite the spec by path and heading,** as `spec/areas/peer-protocol.md#replay-protection` in code and as relative links inside the spec. Decisions may be cited by number, as `D23`. `node --test scripts/spec_test.ts` checks every link and citation, and the index.
-- **Area docs stay short:** at most about 600 lines each. Split one by topic when it grows past that.

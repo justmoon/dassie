@@ -1,5 +1,5 @@
 /**
- * BTP tokens (spec/areas/wallet.md#btp-tokens): each with its ledger, what went
+ * BTP tokens (spec/areas/wallet.md#pages): each with its ledger, what went
  * through it, and its spending cap (spec/areas/connector.md#spending-caps). A
  * new token's secret is shown once, in a dialog, and never again: the node
  * keeps only its hash.
