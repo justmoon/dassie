@@ -36,8 +36,7 @@ pub struct AuthConfig {
 }
 
 impl AuthConfig {
-    /// The values of the spec (spec/areas/peer-protocol.md#sessions,
-    /// spec/areas/peer-protocol.md#replay-protection).
+    /// The production values.
     pub const DEFAULT: Self = Self {
         skew_ms: 60_000,
         max_senders: 1024,

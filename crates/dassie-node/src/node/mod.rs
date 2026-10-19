@@ -149,10 +149,9 @@ impl Policies {
         rates_every_ms: 60_000,
     };
 
-    /// The production values with the peer protocol's dev timers
-    /// (spec/areas/network.md#timers-and-limits), for what runs on a real
-    /// clock: dev environments and the end-to-end tests. The network
-    /// simulation runs [`Policies::DEFAULT`].
+    /// The production values with the peer protocol's dev timers, for what
+    /// runs on a real clock: dev environments and the end-to-end tests. The
+    /// network simulation runs [`Policies::DEFAULT`].
     pub const DEV: Self = Self {
         peer: dassie_peer::Config::DEV,
         settlement_interval_ms: 1_000,

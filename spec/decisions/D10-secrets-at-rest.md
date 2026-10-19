@@ -1,15 +1,11 @@
 # D10. Secrets at rest
 
-**Status:** active, confirmed 2026-10-11.
 **Areas:** [Node](../areas/node.md), [HTTP](../areas/http.md)
-
-## Facts
-
-The original stores the node key, the TLS key, the ACME key, sessions and BTP tokens in plaintext in SQLite, with the default umask (RT-25).
 
 ## Decision
 
-- The data directory is 0700 and the database file 0600.
-- Session tokens, BTP tokens and GNAP access tokens are stored only as hashes.
+- Bearer secrets (session, BTP and GNAP tokens) are stored only as hashes.
+- The data directory and database are readable by the node's user only.
 - The node key and the settlement entropy stay in plaintext. The node must sign and settle unattended, and encrypting them with a key stored next to them would only be theatre.
-- The original's design notes on signing in the frontend stay future work.
+
+Signed or independent frontends, so that the wallet need not trust the node that serves it with the passphrase, stay future work ([roadmap](../roadmap.md)).

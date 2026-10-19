@@ -4,7 +4,7 @@ Peering rests on trust today. Settling is up to the node that owes, so a peer ca
 
 A hub moves trust, it does not remove it. Instead of trusting each peer up to its credit, a node trusts one set of validators with the balance it keeps in the hub. That set is known in advance, its members are chosen for their reputation, and one relationship covers every peer in the hub.
 
-This is a design ([D22](../decisions/D22-settlement-hubs.md)); nothing in it is built yet. Durations and sizes in it are starting points, set from the deterministic simulation when the hub is built, as D12's were.
+This is a design ([D22](../decisions/D22-settlement-hubs.md)); nothing in it is built yet. Durations and sizes in it are starting points, to be set from the deterministic simulation when the hub is built.
 
 ## 1. Concepts
 
@@ -31,7 +31,7 @@ This is a design ([D22](../decisions/D22-settlement-hubs.md)); nothing in it is 
 ## 2. Founding a hub
 
 1. **The sponsor picks n validators** that are all on its list of acceptable validators (§11), and pays each its setup fee over Dassie, in ordinary packets.
-2. **Each validator makes two keys for the hub,** derived from its node seed under a path that names a random nonce the sponsor picked for this hub. The hub ID cannot name them: it is the hash of rules that contain these keys.
+2. **Each validator makes three keys for the hub,** derived from its node seed under a path that names a random nonce the sponsor picked for this hub. The hub ID cannot name them: it is the hash of rules that contain these keys.
    - a **consensus key** (Ed25519), with which it signs votes, certificates and receipts;
    - an **escrow key**, an XRPL key whose account address becomes one entry of the escrow's signer list;
    - a **payout key**, an extended secp256k1 public key (BIP 32), from which anyone can derive the keys this validator signs a payout set with (§9), while only the validator can sign with them. With non-hardened derivation, one leaked child key and the public parent give away every child key, so the validator guards these as it guards its escrow key.
@@ -162,7 +162,7 @@ Once q validators attested the same deposit, the hub credits the account. A depo
 
 The set of validators changes; a hub whose set cannot change dies with its first lost validator.
 
-- **Endpoints.** A validator changes its endpoint with `set-endpoint`, signed by itself, at once. A Fedimint federation lost a guardian for good in 2024 when its domain was taken and no guardian could change its address.
+- **Endpoints.** A validator changes its endpoint with `set-endpoint`, signed by itself, at once. A Fedimint federation lost a guardian for good when its domain was taken and no guardian could change its address.
 - **Members of the set, keys and rules.** `reconfigure` commits like any operation, then takes effect after the rules' notice period. During the notice, members that do not accept the new set leave, and pay no withdrawal fee.
 - **Taking effect.** The old set signs the escrow's new signer list (`SignerListSet`, with the next escrow sequence), new validators load the state from the last certified block, and the new set takes over at a height.
 
@@ -213,7 +213,7 @@ Two sets can therefore never be mixed, which would pay out more than the escrow 
 
 **One ordered log for every operation.** The validators run a Byzantine fault tolerant consensus protocol and execute the log in order.
 
-- **Simplex** (Chan and Pass, 2023): a leader per view proposes a block; validators vote and, with q votes, finalize it. A block is final three message delays after it is proposed, and a slow or faulty leader is replaced by a vote to skip its view.
+- **Simplex** (Chan and Pass, 2023): a block is final three message delays after it is proposed, and a slow or faulty leader's view is skipped after its timeout.
 - **Certificates** are q Ed25519 votes of a block with a bitmap of who signed, a few hundred bytes for n ≤ 7. Which q depends on the order votes arrived in, so who took part is read from the votes blocks record (§7), not from certificates.
 - **Members submit to every validator,** so a faulty leader cannot hold back an operation for more than one view.
 - **Evidence.** Two conflicting certificates for one height name at least f + 1 validators that signed both. They are published, and those validators are dropped from the default list (§11).
@@ -245,7 +245,7 @@ Two sets can therefore never be mixed, which would pay out more than the escrow 
 - **A new settlement scheme, `hub`,** in the node's registry of schemes ([settlement](../areas/settlement.md)): a member's side of a hub, which peers, opens and funds holds, signs commitments and claims, redeems and claims, deposits and withdraws.
 - **The peer protocol** gains the commitment on a Prepare and the claim in the reply to a Fulfill, for peerings over a hub.
 - **Credit.** A hold is the credit its payee extends, so a peer over a hub needs no slow start ([D20](../decisions/D20-trust-follows-what-a-peer-earned-us.md)).
-- **What a peering over a hub can still cost**, beyond its holds, is for the work on hubs to bound ([roadmap](../roadmap.md)), as no grace limit remains ([D23](../decisions/D23-each-node-books-its-own-fulfills.md)):
+- **What a peering over a hub can still cost**, beyond its holds, is for the work on hubs to bound ([roadmap](../roadmap.md#settlement-hubs)):
   - the hub fees of every `claim` that its missing or late claims made us submit: the 1024 missing at once bound the claims, not the fees over time, and a payer could route through us to itself to make us pay them for ever;
   - packets we paid on the hub but learned of too late to fulfill upstream (§4);
   - what it owed before its account existed (§5).

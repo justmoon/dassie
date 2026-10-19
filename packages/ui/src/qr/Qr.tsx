@@ -1,6 +1,6 @@
 /**
  * A QR code, drawn as SVG in the page: no image from elsewhere, so the
- * strict CSP holds. For deposit addresses (spec/areas/wallet.md#ledgers).
+ * strict CSP holds. For deposit addresses.
  */
 
 import type { JSX } from "@solidjs/web";

@@ -1,5 +1,5 @@
 //! Where the mirror keeps what: the original's paths
-//! ([the compatibility contract](../../../spec/overview.md#compatibility-with-the-original)),
+//! ([a frozen surface](../../../spec/overview.md#frozen-surfaces)),
 //! plus the signed sums.
 //!
 //! ```text

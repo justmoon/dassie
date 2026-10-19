@@ -1,4 +1,4 @@
-//! `dassie init`: the configuration wizard (spec/areas/node.md#dassie-init).
+//! `dassie init`: the configuration wizard (spec/areas/node.md#the-dassie-command).
 //!
 //! The same steps and prompts as the original: the realm (test only), the
 //! public hostname, the CA's terms and an email address, then the setup

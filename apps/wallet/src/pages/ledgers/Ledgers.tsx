@@ -1,4 +1,4 @@
-/** Ledgers (spec/areas/wallet.md#ledgers): each active ledger, with its
+/** Ledgers (spec/areas/wallet.md#pages): each active ledger, with its
  * balances, and the exchange rates the node converts at, with their age
  * (D7). */
 

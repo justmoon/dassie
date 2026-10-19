@@ -2,7 +2,7 @@
 //! (spec/areas/xrpl.md#the-wallet), and account IDs.
 //!
 //! The derivation must match exactly: the same phrase must find the same
-//! account and its funds (spec/overview.md#compatibility-with-the-original).
+//! account and its funds (spec/overview.md#frozen-surfaces).
 
 use alloc::string::String;
 use core::fmt;

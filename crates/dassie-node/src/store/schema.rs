@@ -375,7 +375,7 @@ CREATE TABLE payment_settings (
 INSERT INTO payment_settings VALUES (1, NULL);
 ";
 
-/// Verdicts on Fulfills between peers (D17,
+/// Verdicts on Fulfills between peers, as 0.1 kept them (D23,
 /// spec/areas/ledger.md#fulfills-booked-as-final): the Fulfills we sent peers
 /// and wait for a verdict on, written with the journal rows that post their
 /// packets; the Fulfills we took from peers, kept 30 days to answer a resend
@@ -525,7 +525,7 @@ CREATE INDEX outgoing_payments_by_time ON outgoing_payments (created_at_ms, id);
 CREATE INDEX outgoing_payments_sending ON outgoing_payments (created_at_ms) WHERE state = 'sending';
 
 -- What a refusal took back is no longer counted: the payment's STREAM
--- connections are closed instead, so senders start anew (D17).
+-- connections are closed instead, so senders start anew.
 ALTER TABLE incoming_payments DROP COLUMN released_amount;
 
 CREATE TABLE grant_spend (
@@ -547,8 +547,9 @@ ALTER TABLE outgoing_payments ADD COLUMN recipient TEXT
   CHECK (recipient IS NULL OR length(recipient) BETWEEN 1 AND 2048);
 ";
 
-/// One grace limit per peer (D18): the share of the credit we extend that
-/// a peer may cost us before it is banned, and why each node was banned.
+/// One grace limit per peer, as 0.1 kept it (D23 removed it): the share of
+/// the credit we extend that a peer may cost us before it is banned, and why
+/// each node was banned.
 /// A record outlives its ban, so a peer unbanned is held to account only
 /// for what it cost since.
 const MIGRATION_10: &str = "

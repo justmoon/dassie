@@ -1,7 +1,7 @@
 /**
- * The main navigation (spec/areas/wallet.md#navigation): the pages, the debug
- * pages in a menu, how many nodes the node knows and whether the wallet is
- * connected, the theme, and the settings.
+ * The main navigation: the pages, the debug pages in a menu, how many nodes
+ * the node knows and whether the wallet is connected, the theme, and the
+ * settings.
  */
 
 import type { JSX } from "@solidjs/web";

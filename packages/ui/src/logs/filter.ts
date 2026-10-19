@@ -1,8 +1,7 @@
 /**
- * The log viewer's filter (spec/areas/wallet.md#log-viewer): keywords separated
- * by spaces, each of which must match; a keyword starting with `-` must not. A
- * keyword matches a line whose target, message or a field contains it, ignoring
- * case.
+ * The log viewer's filter: keywords separated by spaces, each of which must
+ * match; a keyword starting with `-` must not. A keyword matches a line whose
+ * target, message or a field contains it, ignoring case.
  */
 
 import type { LogLine } from "@dassie/rpc/proto";
@@ -62,8 +61,7 @@ export type Piece = string | { readonly id: string; readonly name: string };
 
 /**
  * `text` with the dev nodes' vanity IDs (`d12_…`) picked out, so the dev
- * dashboard can show them as links named `d12`
- * (spec/areas/wallet.md#log-viewer).
+ * dashboard can show them as links named `d12`.
  */
 export function splitIds(text: string): Piece[] {
   const pieces: Piece[] = [];

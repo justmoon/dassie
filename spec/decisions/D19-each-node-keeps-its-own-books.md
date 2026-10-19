@@ -1,6 +1,5 @@
 # D19. Each node keeps its own books
 
-**Status:** active, decided 2026-10-16.
 **Areas:** [Engineering](../engineering.md), [Settlement](../areas/settlement.md), [Ledger](../areas/ledger.md), [Testing](../areas/testing.md)
 
 ## Facts
@@ -15,8 +14,6 @@ Each node keeps its own books and enforces its own limits from them. Agreement b
 - **Drift and malice are one case.** However a peer behaves, it costs us at most what our limits allow. That bound is the design's safety property, and the simulation holds every adversary it models to it.
 - **A node keeps its own books** and the protocol state it needs to deliver messages. It does not model the peer's books or decisions, and does not measure, store or show drift.
 - **The simulation judges each node by its own books** and by what really happened, never by comparing two nodes' books.
-
-[Engineering](../engineering.md) states the principle, and [Testing](../areas/testing.md) the checks.
 
 ## Rejected
 

@@ -1,5 +1,5 @@
 /**
- * Settings (spec/areas/wallet.md#settings): the wallet and logging out, the
+ * Settings (spec/areas/wallet.md#pages): the wallet and logging out, the
  * theme, the node's alias, what transit is charged, exchange rates and the
  * display currency, the owner's sessions, and the BTP tokens with their caps.
  */

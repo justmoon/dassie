@@ -1,5 +1,5 @@
 /**
- * The setup wizard (spec/areas/wallet.md#setup-wizard), shown at
+ * The setup wizard (spec/areas/wallet.md#key-derivation), shown at
  * `/setup/<token>` while the node has no key: create or recover the passphrase,
  * then hand the node its key. The steps are a local state machine; nothing
  * about them is kept in the URL, so a reload starts over, and the passphrase is

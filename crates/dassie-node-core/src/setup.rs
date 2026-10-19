@@ -7,9 +7,8 @@
 //! - **Login** proves knowledge of the phrase by sending the login proof
 //!   again (spec/areas/http.md#login-and-logout).
 //!
-//! Kept from the original on purpose
-//! (spec/overview.md#compatibility-with-the-original): the one-time token,
-//! the request bodies and the derivations. Fixed (RT-10): the key must be
+//! Kept from the original on purpose: the one-time token, the request
+//! bodies and the derivations. Fixed (RT-10): the key must be
 //! exactly 32 bytes of hex, where the original stored whatever it got and
 //! then failed to parse it at every start; and every comparison runs in
 //! constant time. Changed: the original kept the token in memory, so every

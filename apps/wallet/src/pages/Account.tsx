@@ -1,5 +1,5 @@
 /**
- * Home (spec/areas/wallet.md#dashboard): the payment pointer, and the owner's
+ * Home (spec/areas/wallet.md#pages): the payment pointer, and the owner's
  * balance on each ledger in its own currency (UI-2), as it changes, with the
  * total in the display currency (D6) while the rates allow.
  */

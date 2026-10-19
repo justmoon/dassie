@@ -66,8 +66,7 @@ pub const MAX_LINK_STATE_REQUEST_IDS: usize = 16;
 /// Most node IDs in a node list.
 pub const MAX_NODE_LIST: usize = 4096;
 
-/// Node IDs: 2 to 45 characters of base64url
-/// (spec/areas/peer-protocol.md#building-blocks).
+/// Node IDs: 2 to 45 characters of base64url.
 const NODE_ID_SIZE: Size = Size::range(2, 45);
 
 /// The characters of a node ID.

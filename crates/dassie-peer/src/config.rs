@@ -1,6 +1,5 @@
-//! The peer node's bounds and timers (spec/areas/network.md#timers-and-limits).
-//! All of them are configuration, so tests and simulations can shorten them
-//! (spec/overview.md#compatibility-with-the-original).
+//! The peer node's bounds and timers.
+//! All of them are configuration, so tests and simulations can shorten them.
 
 use crate::auth::AuthConfig;
 
@@ -122,8 +121,7 @@ pub struct Config {
 }
 
 impl Config {
-    /// The values of the spec (spec/areas/network.md#timers-and-limits,
-    /// spec/areas/settlement.md#timers-and-limits).
+    /// The production values.
     pub const DEFAULT: Self = Self {
         auth: AuthConfig::DEFAULT,
         max_nodes: 1024,
@@ -184,9 +182,8 @@ impl Config {
         settlement_retry_max_ms: 3_600_000,
     };
 
-    /// The dev settings (spec/areas/network.md#timers-and-limits): the same
-    /// rules, faster, for what runs on a real clock. The network simulations
-    /// run [`Config::DEFAULT`].
+    /// The dev settings: the same rules, faster, for what runs on a real
+    /// clock. The network simulations run [`Config::DEFAULT`].
     pub const DEV: Self = Self {
         list_poll_interval_ms: 1_000,
         list_fresh_ms: 10_000,

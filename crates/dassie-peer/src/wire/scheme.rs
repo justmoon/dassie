@@ -10,7 +10,7 @@ pub const MAX_SCHEME_ID: usize = 64;
 
 const SIZE: Size = Size::range(2, MAX_SCHEME_ID);
 
-/// The characters of a scheme ID (spec/areas/peer-protocol.md#building-blocks).
+/// The characters of a scheme ID.
 const ALPHABET: Alphabet = Alphabet::EMPTY
     .with_range(b'a', b'z')
     .with_range(b'0', b'9')

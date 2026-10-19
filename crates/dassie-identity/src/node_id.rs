@@ -25,7 +25,7 @@ const DIGEST_CHARACTERS: usize = 32;
 /// Digest bytes that encode to exactly [`DIGEST_CHARACTERS`] characters.
 const DIGEST_BYTES: usize = DIGEST_CHARACTERS / 4 * 3;
 
-/// The peer wire schema of a node ID (spec/areas/identity.md#node-id).
+/// The peer wire schema of a node ID.
 const NODE_ID_SIZE: Size = Size::range(2, MAX_NODE_ID_LENGTH);
 const NODE_ID_ALPHABET: Alphabet = Alphabet::EMPTY
     .with_range(b'a', b'z')

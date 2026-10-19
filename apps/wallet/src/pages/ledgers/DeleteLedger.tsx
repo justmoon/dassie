@@ -1,5 +1,5 @@
 /**
- * Removing a ledger (spec/areas/wallet.md#remove-a-ledger): what blocks it, as
+ * Removing a ledger (spec/areas/wallet.md#pages): what blocks it, as
  * the node reports it live, and a typed confirmation.
  */
 

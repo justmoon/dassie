@@ -1,5 +1,4 @@
-//! The envelope of a request: version, sender, authentication and content
-//! (spec/areas/peer-protocol.md#envelope).
+//! The envelope of a request: version, sender, authentication and content.
 
 use alloc::vec::Vec;
 

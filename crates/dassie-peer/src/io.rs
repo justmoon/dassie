@@ -141,8 +141,8 @@ pub enum Inbound<'a> {
     },
 }
 
-/// The body of the reply to a Fulfill. Nodes of 0.1 read it as a verdict
-/// (D17), which "accepted" tells them to keep their own books by (D23).
+/// The body of the reply to a Fulfill. Nodes of 0.1 read it as a verdict,
+/// which "accepted" tells them to keep their own books by (D23).
 pub const VERDICT_ACCEPTED: u8 = 1;
 
 /// What the node hands its driver.

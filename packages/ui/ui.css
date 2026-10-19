@@ -689,7 +689,7 @@ meter {
   color: var(--palette-11);
 }
 
-/* The log viewer (spec/areas/wallet.md#log-viewer): fixed rows, so only
+/* The log viewer: fixed rows, so only
    those in view render. */
 .log-controls {
   display: flex;

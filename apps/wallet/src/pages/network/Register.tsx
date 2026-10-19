@@ -1,5 +1,5 @@
 /**
- * Registration (spec/areas/wallet.md#register): this node's standing with each
+ * Registration (spec/areas/wallet.md#pages): this node's standing with each
  * bootstrap node, and registering again now, with feedback (UI-4).
  */
 
