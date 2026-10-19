@@ -474,9 +474,9 @@ fn a_peer_short_of_room_is_withdrawn_after_the_grace() {
             .unwrap()
     };
     let grace = Config::DEV.advertise_short_grace_ms;
-    report(&mut network, &b, Room::Short, grace / 2);
+    report(&mut network, &b, SHORT, grace / 2);
     assert!(view(&network).advertised, "withdrawn within the grace");
-    report(&mut network, &b, Room::Short, grace);
+    report(&mut network, &b, SHORT, grace);
     let withdrawn = view(&network);
     assert!(!withdrawn.advertised, "still advertised past the grace");
     assert!(withdrawn.online, "withdrawn for room, not for silence");
@@ -497,6 +497,10 @@ fn a_peer_short_of_room_is_withdrawn_after_the_grace() {
     );
     assert!(view(&network).advertised, "not advertised again");
 }
+
+/// What a check every second finds of a short peer, as the node's
+/// settlement checks in dev: up to two seconds count.
+const SHORT: Room = Room::Short { most_ms: 2_000 };
 
 /// Node 0 reports `room` for `peer` at a check every second, for `ms`, as
 /// its settlement checks do in dev.
@@ -535,7 +539,7 @@ fn a_silent_peer_short_of_room_is_withdrawn_for_its_silence() {
     let mut check = due - config.advertise_short_grace_ms;
     while check <= due {
         network.run_until(to_network(check));
-        network.act(0, |node, now| node.room(now, &b, Room::Short));
+        network.act(0, |node, now| node.room(now, &b, SHORT));
         check += 1_000;
     }
     network.run_until(to_network(due) + 1_000);
@@ -561,7 +565,7 @@ fn a_silent_peer_short_of_room_is_withdrawn_for_its_silence() {
 #[test]
 fn a_restart_keeps_the_time_short_and_counts_no_downtime() {
     let (mut network, _, b) = peered(48);
-    report(&mut network, &b, Room::Short, 5_000);
+    report(&mut network, &b, SHORT, 5_000);
     let short = |network: &Network| network.node(0).peering_of(&b).unwrap().short_for_ms;
     assert_eq!(short(&network), 5_000);
     // Down for far longer than the grace, and less than the peer takes
@@ -570,10 +574,26 @@ fn a_restart_keeps_the_time_short_and_counts_no_downtime() {
     settle(&mut network, 90_000);
     network.start(0);
     assert_eq!(short(&network), 5_000, "not kept");
-    network.act(0, |node, now| node.room(now, &b, Room::Short));
+    network.act(0, |node, now| node.room(now, &b, SHORT));
     assert_eq!(short(&network), 5_000, "the downtime counted");
-    report(&mut network, &b, Room::Short, 2_000);
+    report(&mut network, &b, SHORT, 2_000);
     assert_eq!(short(&network), 7_000);
+}
+
+// A node that stalled without restarting (its host suspended, or its
+// clock jumped) did not ask the peer to settle meanwhile: one check adds no
+// more than a few check intervals (review of #137).
+#[test]
+fn a_stall_counts_little_as_time_short() {
+    let (mut network, _, b) = peered(50);
+    let short = |network: &Network| network.node(0).peering_of(&b).unwrap().short_for_ms;
+    report(&mut network, &b, SHORT, 3_000);
+    assert_eq!(short(&network), 3_000);
+    // No check for a minute, then one.
+    settle(&mut network, 60_000);
+    network.act(0, |node, now| node.room(now, &b, SHORT));
+    assert_eq!(short(&network), 5_000, "the stall counted in full");
+    assert!(network.node(0).is_advertised(&b), "withdrawn for a stall");
 }
 
 // While the node cannot ask a peer to settle (its scheme does not see its
@@ -583,7 +603,7 @@ fn a_restart_keeps_the_time_short_and_counts_no_downtime() {
 fn an_outage_of_the_ledger_pauses_the_time_short() {
     let (mut network, _, b) = peered(49);
     let short = |network: &Network| network.node(0).peering_of(&b).unwrap().short_for_ms;
-    report(&mut network, &b, Room::Short, 3_000);
+    report(&mut network, &b, SHORT, 3_000);
     assert_eq!(short(&network), 3_000);
     report(&mut network, &b, Room::Unjudged, 60_000);
     assert_eq!(short(&network), 3_000, "the outage counted, or cleared it");
@@ -591,9 +611,9 @@ fn an_outage_of_the_ledger_pauses_the_time_short() {
         network.node(0).is_advertised(&b),
         "withdrawn during the outage"
     );
-    network.act(0, |node, now| node.room(now, &b, Room::Short));
+    network.act(0, |node, now| node.room(now, &b, SHORT));
     assert_eq!(short(&network), 3_000);
-    report(&mut network, &b, Room::Short, 2_000);
+    report(&mut network, &b, SHORT, 2_000);
     assert_eq!(short(&network), 5_000);
     report(&mut network, &b, Room::Enough, 0);
     assert_eq!(short(&network), 0);
