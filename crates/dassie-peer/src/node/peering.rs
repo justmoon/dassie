@@ -36,6 +36,11 @@ impl Peering {
         }
     }
 
+    /// When the next check for peers is due, whether or not one is wanted.
+    pub(crate) const fn check_at_ms(&self) -> u64 {
+        self.check_at_ms
+    }
+
     /// The next check, given when a candidate may first be asked, if the
     /// node wants a peer and can start a peering; and the next bridge check.
     pub(crate) fn next_due(&self, candidate_at_ms: Option<u64>) -> Option<u64> {

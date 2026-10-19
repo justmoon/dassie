@@ -472,7 +472,6 @@ impl PeerNode {
         self.send(oracle, &content, Purpose::Sweep(ids), timeout);
     }
 
-    /// Nodes whose link state is missing or stale, and not in backoff.
     /// When a node may next be refreshed: once one is stale and its own
     /// refresh is due. Nothing stale, nothing to wake for.
     pub(super) fn next_refresh(&self) -> Option<u64> {
@@ -493,6 +492,7 @@ impl PeerNode {
             .min()
     }
 
+    /// Nodes whose link state is missing or stale, and not in backoff.
     fn stale_nodes(&self) -> Vec<NodeId> {
         let (now, stale, future) = (self.now_ms, self.config.stale_ms, self.config.max_future_ms);
         self.table
