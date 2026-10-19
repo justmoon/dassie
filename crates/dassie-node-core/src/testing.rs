@@ -2,6 +2,7 @@
 //! share: how a run ended, and running a range of seeds (D27).
 
 use alloc::borrow::ToOwned;
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::convert::Infallible;
@@ -115,14 +116,30 @@ impl fmt::Display for Outcome {
     }
 }
 
-/// A simulated run: how it ended, and what happened in it, a line per
-/// event, for comparing and explaining runs.
+/// A simulated run: how it ended, what happened in it, a line per event,
+/// for comparing and explaining runs, and how often it reached what it
+/// counts (D27).
 #[derive(Clone, Debug)]
 pub struct Run {
     /// How it ended.
     pub outcome: Outcome,
     /// What happened.
     pub trace: Vec<String>,
+    /// How many times it reached each thing it counts, such as crashes or
+    /// settlements, so that a generator that stops reaching one shows.
+    pub counts: BTreeMap<&'static str, u64>,
+}
+
+impl Run {
+    /// A run that counts nothing.
+    #[must_use]
+    pub const fn new(outcome: Outcome, trace: Vec<String>) -> Self {
+        Self {
+            outcome,
+            trace,
+            counts: BTreeMap::new(),
+        }
+    }
 }
 
 /// Runs `run`, and turns a panic into a safety failure with the panic's
@@ -134,10 +151,7 @@ pub fn caught(run: impl FnOnce() -> Run) -> Run {
             .map(|message| (*message).to_owned())
             .or_else(|| payload.downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "a panic without a message".to_owned());
-        Run {
-            outcome: Outcome::Safety(message),
-            trace: Vec::new(),
-        }
+        Run::new(Outcome::Safety(message), Vec::new())
     })
 }
 
@@ -158,10 +172,7 @@ mod tests {
     use super::*;
 
     fn ended(outcome: Outcome) -> Run {
-        Run {
-            outcome,
-            trace: vec!["a line".to_string()],
-        }
+        Run::new(outcome, vec!["a line".to_string()])
     }
 
     #[test]

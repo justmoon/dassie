@@ -335,10 +335,7 @@ pub fn describe(_seed: u64) -> String {
 /// passed.
 #[must_use]
 pub fn run(seed: u64) -> Run {
-    Run {
-        outcome: Outcome::Pass,
-        trace: finished(seed).0,
-    }
+    Run::new(Outcome::Pass, finished(seed).0)
 }
 
 /// Runs the seed, and returns its trace and the connector and ledger it

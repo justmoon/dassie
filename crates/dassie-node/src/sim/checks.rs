@@ -45,8 +45,10 @@ pub fn check_cap(sim: &Sim, payment: &Payment) -> Result<(), String> {
     }
     spent.sort_unstable();
     let total: u64 = spent.iter().map(|(_, amount)| amount).sum();
-    // Less is a payment still under way, which liveness judges.
-    if total > payment.amount || (payment.done && total != payment.amount) {
+    // Less is a payment still under way, or one whose receiver had it all
+    // before its sender counted it (D23): what the token spent is held to
+    // what the client sent by the owner's books.
+    if total > payment.amount {
         return Err(format!(
             "the capped token spent {total} of {}",
             payment.amount
@@ -124,7 +126,7 @@ pub fn check_owner_books(sim: &Sim) -> Result<(), String> {
                 .filter(|flow| flow.to == index)
                 .map(|flow| i128::from(flow.received))
                 .sum::<i128>();
-        let deposit = Settling::deposit(sim.settling.ledger());
+        let deposit = sim.deposit(index);
         if pool - deposit != received {
             return Err(format!(
                 "node {index}'s owner gained {} for {received} received",
@@ -282,8 +284,9 @@ pub fn check_finished(sim: &Sim) -> Result<(), String> {
 
 /// Each outgoing payment completed, having sent its debit amount or what
 /// its receiver still lacked when a hop lost a packet, and its receiver
-/// got what it asked for. A receiver that got less than was sent is a
-/// safety failure; a payment that did not complete, liveness.
+/// got what it asked for. A receiver that got less than was sent, or more
+/// than it asked for, is a safety failure; a payment that did not complete,
+/// liveness, unless its payer gave up while the network was faulty.
 pub fn check_outgoing(sim: &Sim) -> Result<(), Outcome> {
     for &(from, to, incoming, outgoing) in &sim.outgoing {
         let row = sim.nodes[from]
@@ -301,6 +304,17 @@ pub fn check_outgoing(sim: &Sim) -> Result<(), Outcome> {
                 "node {to} received {received} of the {} node {from} sent",
                 row.sent_amount
             )));
+        }
+        if received > row.receive_amount.value {
+            return Err(Outcome::Safety(format!(
+                "node {to} received {received}, more than the {} it asked for",
+                row.receive_amount.value
+            )));
+        }
+        // One whose payer gave up while the network was faulty may have
+        // failed; what it sent still arrived.
+        if row.state == OutgoingState::Failed && sim.given_up.contains(&outgoing) {
+            continue;
         }
         if row.state != OutgoingState::Completed {
             let incoming_row = sim.nodes[to].store.incoming_payment(incoming).unwrap();
@@ -326,8 +340,21 @@ pub fn check_outgoing(sim: &Sim) -> Result<(), Outcome> {
 pub fn check_books(sim: &Sim) -> Result<(), Outcome> {
     check_owner_books(sim).map_err(Outcome::Safety)?;
     check_ledgers(sim).map_err(Outcome::Safety)?;
+    check_funded(sim).map_err(Outcome::Liveness)?;
     check_settled(sim).map_err(Outcome::Liveness)?;
     check_delivered(sim).map_err(Outcome::Liveness)
+}
+
+/// On the XRP Ledger, the faucet funded every node: an owner's books that
+/// match a deposit of nothing would pass the other checks.
+pub fn check_funded(sim: &Sim) -> Result<(), String> {
+    if sim.settling != Settling::Xrpl {
+        return Ok(());
+    }
+    match (0..sim.nodes.len()).find(|index| !sim.fundings.contains_key(index)) {
+        Some(index) => Err(format!("node {index} was never funded")),
+        None => Ok(()),
+    }
 }
 
 /// No settlement is still on its way.

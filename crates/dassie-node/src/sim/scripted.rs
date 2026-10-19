@@ -15,7 +15,7 @@ use crate::store::OutgoingState;
 /// How long a network may take to be ready, at production timings: nodes
 /// find each other through lists polled once a minute, and a peering that
 /// failed is tried again after a backoff.
-const READY_WITHIN_MS: u64 = 10 * 60_000;
+pub(super) const READY_WITHIN_MS: u64 = 10 * 60_000;
 
 /// How long the payments of a run may take after the crash in it, at
 /// production timings: a busy link waits for its settlements to reach the
@@ -25,7 +25,7 @@ const PAID_WITHIN_MS: u64 = 10 * 60_000;
 /// Whether the network is ready for payments: every node has a peer and a
 /// route to every other node, and none waits for a peer to settle, so a
 /// junior has paid its senior in advance.
-fn ready(sim: &Sim) -> bool {
+pub(super) fn ready(sim: &Sim) -> bool {
     let count = sim.nodes.len();
     let routed = (0..count).all(|index| {
         let network = sim.core(index).network();
@@ -122,17 +122,21 @@ pub fn run_across(seed: u64) -> Run {
 
 /// How a run ended: an error a node reported fails it before anything
 /// else, since the run went on past it.
-fn ended(mut sim: Sim, result: Result<(), Outcome>) -> Run {
+pub(super) fn ended(mut sim: Sim, result: Result<(), Outcome>) -> Run {
     let outcome = match check_events(&sim) {
         Err(problem) => Outcome::Safety(problem),
         Ok(()) => result.err().unwrap_or(Outcome::Pass),
     };
     // Judged: the harness's own check, when it drops, has nothing to add.
     sim.errors.clear();
-    Run {
-        outcome,
-        trace: std::mem::take(&mut sim.trace),
+    let mut run = Run::new(outcome, std::mem::take(&mut sim.trace));
+    if !sim.withdrawn.is_empty() {
+        let withdrawn = u64::try_from(sim.withdrawn.len()).unwrap_or(u64::MAX);
+        sim.counts
+            .insert("peers withdrawn short of room", withdrawn);
     }
+    run.counts = std::mem::take(&mut sim.counts);
+    run
 }
 
 fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
@@ -204,12 +208,15 @@ fn pay(sim: &mut Sim, rng: &mut SeededRng) {
     };
     sim.pay(from, (from + 1) % count, 400_000_000, Some(cap), None);
     let from = usize::try_from(rng.next_u64() % count as u64).unwrap();
+    // Two minutes in, every node's owner has funds to pay with.
     sim.pay_outgoing(
         from,
         (from + 1) % count,
         50_000_000 + rng.next_u64() % 2_000_000_000,
-    );
-    sim.pay_outgoing(from, from, 10_000_000 + rng.next_u64() % 100_000_000);
+    )
+    .unwrap();
+    sim.pay_outgoing(from, from, 10_000_000 + rng.next_u64() % 100_000_000)
+        .unwrap();
 }
 
 /// A node crashes mid-payment, with packets in flight: a sender, a hop or

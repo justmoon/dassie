@@ -39,7 +39,6 @@
 //!
 //! A node that never settles, or spends the credit it was given and
 //! vanishes, costs its peer no more than that credit (D23).
-
 //!
 //! Test code, behind the `testing` feature: a panic here is a failed run.
 
@@ -53,6 +52,7 @@
 
 pub mod checks;
 pub mod scripted;
+pub mod swarm;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -71,7 +71,7 @@ use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger};
 
 use crate::engine::{
     Core, CoreParts, EngineEvent, Event, LedgerEvent, NewIncoming, NewOutgoing, Outbound, Output,
-    Severity,
+    SettlementEvent, Severity,
 };
 use crate::node::Policies;
 use crate::store::{ForeignAmount, PaymentId, PeerSettings, Store};
@@ -82,6 +82,9 @@ pub const START: u64 = 1_800_000_000_000;
 pub const CREDIT: i128 = 1_100_000_000;
 /// Every node's trigger, one and a half of the largest packets (D25).
 pub const TRIGGER: u64 = policy::trigger(Policies::DEFAULT.connector.max_packet_amount);
+/// How long a payment's client waits to measure the exchange rate again,
+/// after a measurement failed.
+pub const RATE_RETRY_MS: u64 = 5_000;
 /// How often the fake ledger closes a ledger.
 pub const LEDGER_CLOSE_MS: u64 = 3_500;
 
@@ -234,6 +237,9 @@ pub struct Payment {
     next_request: u32,
     /// Whether it sent all it meant to.
     pub done: bool,
+    /// When its client measures the exchange rate again, after a
+    /// measurement failed.
+    rate_retry_at: Option<u64>,
 }
 
 /// A node: its database, and its core while it runs.
@@ -293,6 +299,16 @@ pub struct Sim {
     /// Each withdrawal of a peer short of room: when, by which node, of
     /// which peer.
     pub withdrawn: Vec<(u64, usize, NodeId)>,
+    /// The shortest and the longest a message takes, in milliseconds.
+    pub latency_ms: (u64, u64),
+    /// How many times the run reached each thing it counts (D27).
+    pub counts: BTreeMap<&'static str, u64>,
+    /// How many times the faucet funded each node: again after a crash cut
+    /// its first request short.
+    pub fundings: BTreeMap<usize, u64>,
+    /// Outgoing payments that may end failed: those whose payer gave up
+    /// while the network was faulty, as it does after its reconnects.
+    pub given_up: BTreeSet<PaymentId>,
 }
 
 // Every run, whatever it checks besides, ends without an error event: a
@@ -371,6 +387,10 @@ impl Sim {
             ledger_down: BTreeSet::new(),
             peer,
             withdrawn: Vec::new(),
+            latency_ms: (1, 200),
+            counts: BTreeMap::new(),
+            fundings: BTreeMap::new(),
+            given_up: BTreeSet::new(),
         };
         for _ in 0..count {
             sim.nodes.push(SimNode {
@@ -436,6 +456,7 @@ impl Sim {
 
     /// Crashes node `index`: its clients are gone, its database stays.
     pub fn crash(&mut self, index: usize) {
+        self.count("crashes");
         self.nodes[index].core = None;
         if let Some(link) = self.links.remove(&index) {
             self.ledger.disconnect(link.connection);
@@ -467,7 +488,13 @@ impl Sim {
     }
 
     fn latency(&mut self) -> u64 {
-        1 + self.rng.next_u64() % 200
+        let (shortest, longest) = self.latency_ms;
+        shortest + self.rng.next_u64() % (longest - shortest + 1)
+    }
+
+    /// Counts one more of `what`.
+    pub fn count(&mut self, what: &'static str) {
+        *self.counts.entry(what).or_default() += 1;
     }
 
     /// Runs `f` on a node's core as one step, then carries out its outputs.
@@ -488,6 +515,12 @@ impl Sim {
     /// Keeps what a node reported in the trace, which a replay compares,
     /// and an error or a lost event as a failure of the run (D16).
     pub fn record(&mut self, index: usize, event: &Event) {
+        if matches!(
+            event,
+            Event::Settlement(SettlementEvent::PeerSettled { .. })
+        ) {
+            self.count("settlements taken");
+        }
         self.trace.push(format!("{} {index} {event:?}", self.now));
         if let Event::PeerNode(dassie_peer::Event::Advertised {
             peer, short: true, ..
@@ -598,6 +631,7 @@ impl Sim {
                 let to = dassie_xrpl::AccountId::parse(request["destination"].as_str().unwrap())
                     .unwrap();
                 self.ledger.fund(to);
+                *self.fundings.entry(index).or_default() += 1;
                 let generation = self.nodes[index].generation;
                 let delay = self.latency();
                 self.schedule(
@@ -880,6 +914,7 @@ impl Sim {
             in_flight: BTreeMap::new(),
             next_request: 1,
             done: false,
+            rate_retry_at: None,
         });
         self.trace
             .push(format!("{} pay {from} -> {to} {amount}", self.now));
@@ -887,7 +922,12 @@ impl Sim {
 
     /// An outgoing payment of `amount` from node `from` to an incoming
     /// payment of node `to`, which may be the same node.
-    pub fn pay_outgoing(&mut self, from: usize, to: usize, amount: u64) {
+    ///
+    /// # Errors
+    ///
+    /// When node `from` refuses it, as it does while its owner has too
+    /// little to pay it: on the XRP Ledger, before the faucet funded it.
+    pub fn pay_outgoing(&mut self, from: usize, to: usize, amount: u64) -> Result<(), String> {
         let ledger = self.settling.ledger();
         let mut incoming = None;
         self.step(to, |core| {
@@ -906,33 +946,32 @@ impl Sim {
         let incoming = incoming.unwrap();
         let mut outgoing = None;
         self.step(from, |core| {
-            let created = core
-                .create_outgoing_payment(NewOutgoing {
-                    ledger,
-                    wallet_address: "https://sim.example/.well-known/pay".into(),
-                    client: None,
-                    grant: None,
-                    quote_id: None,
-                    receiver: format!("https://n{to}.test/incoming-payments/{}", incoming.id),
-                    destination: incoming.ilp_address.clone(),
-                    shared_secret: incoming.shared_secret,
-                    debit_amount: amount,
-                    receive_amount: ForeignAmount {
-                        value: amount,
-                        asset_code: ledger.asset().code.into(),
-                        asset_scale: 9,
-                    },
-                    metadata: None,
-                    recipient: Some(format!("https://n{to}.test/.well-known/pay")),
-                    fixed_debit: false,
-                })
-                .unwrap();
-            outgoing = Some(created.row.id);
+            let created = core.create_outgoing_payment(NewOutgoing {
+                ledger,
+                wallet_address: "https://sim.example/.well-known/pay".into(),
+                client: None,
+                grant: None,
+                quote_id: None,
+                receiver: format!("https://n{to}.test/incoming-payments/{}", incoming.id),
+                destination: incoming.ilp_address.clone(),
+                shared_secret: incoming.shared_secret,
+                debit_amount: amount,
+                receive_amount: ForeignAmount {
+                    value: amount,
+                    asset_code: ledger.asset().code.into(),
+                    asset_scale: 9,
+                },
+                metadata: None,
+                recipient: Some(format!("https://n{to}.test/.well-known/pay")),
+                fixed_debit: false,
+            });
+            outgoing = Some(created.map(|created| created.row.id));
         });
-        self.outgoing
-            .push((from, to, incoming.id, outgoing.unwrap()));
+        let outgoing = outgoing.unwrap().map_err(|error| format!("{error:?}"))?;
+        self.outgoing.push((from, to, incoming.id, outgoing));
         self.trace
             .push(format!("{} outgoing {from} -> {to} {amount}", self.now));
+        Ok(())
     }
 
     /// Lets every payment send what it can.
@@ -949,11 +988,15 @@ impl Sim {
             // Its receiver may have all of it before the sender counts it:
             // a hop that crashed counted a Fulfill the sender never got,
             // and the receiver says so (D23).
+            // The receiver reports what its connection key delivered, over
+            // every connection the client made with the same credentials:
+            // it always counts against a limit, the payment's or the most
+            // any payment takes.
             let expected = payment.amount.min(payment.limit.unwrap_or(u64::MAX));
             let remote = payment
                 .stream
                 .and_then(|id| payment.connection.stream(id))
-                .map_or(0, |stream| payment.sent_before + stream.remote_received());
+                .map_or(0, dassie_stream::Stream::remote_received);
             if sent(payment) == expected || remote >= expected {
                 payment.done = true;
                 continue;
@@ -964,6 +1007,18 @@ impl Sim {
                 payment.sent_before = sent(payment);
                 payment.connection = client(&payment.credentials, payment.ledger);
                 payment.stream = None;
+            }
+            // A measurement of the rate fails when no probe gets through,
+            // as across a cut link. The library reports it and leaves the
+            // rest to its user: a sender tries again a while later.
+            while let Some(event) = payment.connection.poll_event() {
+                if event == dassie_stream::Event::ExchangeRateMeasurementFailed {
+                    payment.rate_retry_at = Some(self.now + RATE_RETRY_MS);
+                }
+            }
+            if payment.rate_retry_at.is_some_and(|at| at <= self.now) {
+                payment.rate_retry_at = None;
+                payment.connection.measure_exchange_rate();
             }
             if payment.stream.is_none() && payment.connection.exchange_rate().is_some() {
                 let id = payment.connection.open_stream().unwrap();
@@ -1055,6 +1110,19 @@ impl Sim {
                 (name.to_string(), account.balance().net_credit())
             })
             .collect()
+    }
+
+    /// What node `index`'s owner deposited on the run's one ledger: the
+    /// stub's balance, or what the faucet gave above the reserve, each time
+    /// it funded the node.
+    pub fn deposit(&self, index: usize) -> i128 {
+        match self.settling.ledger() {
+            LedgerId::XrplTestnetXrp => {
+                let fundings = i128::from(self.fundings.get(&index).copied().unwrap_or(0));
+                (fundings * i128::from(FAUCET_DROPS) - 1_000_000).max(0) * 1_000
+            }
+            ledger => Settling::deposit(ledger),
+        }
     }
 
     /// What node `index` owes `peer` net, by its own books: its position

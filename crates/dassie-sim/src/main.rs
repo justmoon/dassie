@@ -15,12 +15,13 @@
 //! and none safety, 3 when the runner itself failed, 64 for a usage error,
 //! and 0 otherwise.
 
+use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::ops::RangeInclusive;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use dassie_sim::{Outcome, SIMS, Sim, caught, find, parse_seeds};
+use dassie_sim::{Outcome, Run, SIMS, Sim, caught, find, parse_seeds};
 
 const USAGE: &str = "\
 usage: dassie-sim list
@@ -153,9 +154,12 @@ fn run(out: &mut impl Write, sim: &Sim, seeds: RangeInclusive<u64>) -> io::Resul
         writeln!(out, "{} {seed}: {}", sim.name, (sim.describe)(seed))?;
         out.flush()?;
         let started = Instant::now();
-        let outcome = caught(|| (sim.run)(seed)).outcome;
-        writeln!(out, "  {outcome} in {:.2?}", started.elapsed())?;
-        tally.add(&outcome);
+        let run = caught(|| (sim.run)(seed));
+        writeln!(out, "  {} in {:.2?}", run.outcome, started.elapsed())?;
+        if !run.counts.is_empty() {
+            writeln!(out, "  reached {}", counted(&run.counts))?;
+        }
+        tally.add(&run);
     }
     if tally.runs > 1 {
         writeln!(
@@ -163,6 +167,9 @@ fn run(out: &mut impl Write, sim: &Sim, seeds: RangeInclusive<u64>) -> io::Resul
             "{} runs: {} passed, {} unsupported, {} broke safety, {} broke liveness",
             tally.runs, tally.passed, tally.unsupported, tally.safety, tally.liveness
         )?;
+        if !tally.counts.is_empty() {
+            writeln!(out, "together they reached {}", counted(&tally.counts))?;
+        }
     }
     Ok(tally.status())
 }
@@ -178,9 +185,21 @@ fn explain(out: &mut impl Write, sim: &Sim, seed: u64, grep: &str) -> io::Result
         writeln!(out, "(no trace: a run that panics loses it)")?;
     }
     writeln!(out, "{}", run.outcome)?;
+    if !run.counts.is_empty() {
+        writeln!(out, "reached {}", counted(&run.counts))?;
+    }
     let mut tally = Tally::default();
-    tally.add(&run.outcome);
+    tally.add(&run);
     Ok(tally.status())
+}
+
+/// What runs counted, as `crashes 3, settlements taken 12`.
+fn counted(counts: &BTreeMap<&'static str, u64>) -> String {
+    let counts: Vec<String> = counts
+        .iter()
+        .map(|(what, count)| format!("{what} {count}"))
+        .collect();
+    counts.join(", ")
 }
 
 /// How a set of runs ended.
@@ -191,12 +210,16 @@ struct Tally {
     unsupported: u64,
     safety: u64,
     liveness: u64,
+    counts: BTreeMap<&'static str, u64>,
 }
 
 impl Tally {
-    fn add(&mut self, outcome: &Outcome) {
+    fn add(&mut self, run: &Run) {
         self.runs += 1;
-        match outcome {
+        for (what, count) in &run.counts {
+            *self.counts.entry(what).or_default() += count;
+        }
+        match run.outcome {
             Outcome::Pass => self.passed += 1,
             Outcome::Unsupported(_) => self.unsupported += 1,
             Outcome::Safety(_) => self.safety += 1,

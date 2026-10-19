@@ -1,7 +1,8 @@
 //! Runs Dassie's simulations from seeds (D27).
 //!
-//! Each simulation lives in the crate it simulates, behind that crate's
-//! `sim` feature, and is a function from a seed to a [`Run`]: the same seed
+//! Each simulation lives in the crate it simulates, in its `sim` module,
+//! behind that crate's `sim` feature (`testing` for `dassie-node`), and is
+//! a function from a seed to a [`Run`]: the same seed
 //! gives the same run, byte for byte (D16). `cargo test` runs each on a few
 //! fixed seeds. This crate runs them on any seed: one to replay a failure,
 //! a range to search for one, or a commit's, as TigerBeetle's VOPR does.
@@ -24,7 +25,14 @@ pub struct Sim {
 }
 
 /// Every simulation the runner knows.
-pub static SIMS: [Sim; 6] = [
+pub static SIMS: [Sim; 7] = [
+    Sim {
+        name: "node",
+        about: "whole nodes' engine cores, with a network, faults and payments drawn per seed, \
+                through chaos, then healed",
+        describe: dassie_node::sim::swarm::describe,
+        run: dassie_node::sim::swarm::run,
+    },
     Sim {
         name: "node-stub",
         about: "whole nodes' engine cores paying, crashing and settling over the stub, as scripted",
