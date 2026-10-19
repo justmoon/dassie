@@ -232,7 +232,7 @@ impl Core {
         if self.settle.never_settles {
             return 0;
         }
-        let under_way = self.settling_to(&node);
+        let under_way = self.settling_to(&node, scheme);
         if under_way > 0 || !self.can_settle(&node) {
             return under_way;
         }
@@ -254,24 +254,35 @@ impl Core {
         if amount > 0 {
             self.prepare_settlement(node, &at, amount, &state);
         }
-        self.settling_to(&node)
+        self.settling_to(&node, scheme)
     }
 
-    /// What is on its way to `node`, in its scheme ledger's units: our
-    /// settlements still pending in the ledger (prepared, executing, or
-    /// waiting to be announced), and the one announced that it has not yet
-    /// acknowledged.
-    fn settling_to(&self, node: &NodeId) -> u64 {
+    /// What is on its way to `node` on `scheme`, in its ledger's units: our
+    /// settlements still pending in that ledger (prepared, executing, or
+    /// waiting to be announced), and the one announced on it that the node
+    /// has not yet acknowledged. Other schemes' are in other units, and are
+    /// not the answer.
+    fn settling_to(&self, node: &NodeId, scheme: SchemeId) -> u64 {
+        let ledger = Name::new(scheme.as_str())
+            .ok()
+            .and_then(|name| self.schemes.get(&name))
+            .map(|active| active.scheme.ledger());
         let pending: u64 = self
             .ledger
             .pending_transfers()
             .filter(|transfer| self.settles_to(transfer, node))
+            .filter(|transfer| {
+                self.ledger
+                    .account(transfer.debit)
+                    .is_some_and(|account| Some(account.path().ledger) == ledger)
+            })
             .map(|transfer| transfer.amount)
             .sum();
         let announced = self
             .peer
             .channel(node)
             .and_then(|channel| channel.outbox.as_ref())
+            .filter(|outbox| outbox.scheme == scheme)
             .map_or(0, |outbox| outbox.amount);
         pending.saturating_add(announced)
     }

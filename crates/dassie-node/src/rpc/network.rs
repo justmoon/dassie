@@ -206,8 +206,13 @@ fn node(view: &NodeView) -> proto::NetworkNode {
 
 fn peer(view: &PeerView) -> proto::NetworkPeer {
     let peering = &view.peering;
-    let (state, reason) = match view.termination {
-        Some(termination) => ("terminating", reason(termination.reason)),
+    // Ending it privately is ending it, to its owner (D28).
+    let ending = view
+        .termination
+        .map(|termination| termination.reason)
+        .or_else(|| peering.depeering.map(|depeering| depeering.reason));
+    let (state, reason) = match ending {
+        Some(ending) => ("terminating", reason(ending)),
         None => ("peered", ""),
     };
     proto::NetworkPeer {

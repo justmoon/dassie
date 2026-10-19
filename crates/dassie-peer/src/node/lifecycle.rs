@@ -43,10 +43,21 @@ impl PeerNode {
         let PeerState::Peered(peering) = &mut entry.peer else {
             return false;
         };
-        if peering.depeering.is_none() {
-            peering.depeering = Some(Depeering::new(now, reason));
-            self.dirty.insert(peer);
-            self.event(Event::Depeering { peer, reason });
+        match &mut peering.depeering {
+            None => {
+                peering.depeering = Some(Depeering::new(now, reason));
+                self.dirty.insert(peer);
+                self.event(Event::Depeering { peer, reason });
+            }
+            // Its owner's decision, or a ban, outranks one the node took
+            // for silence or room: it brings the owner's cooldown.
+            Some(depeering) if reason == TerminationReason::Owner => {
+                if depeering.reason != reason {
+                    depeering.reason = reason;
+                    self.dirty.insert(peer);
+                }
+            }
+            Some(_) => {}
         }
         true
     }
@@ -234,7 +245,17 @@ impl PeerNode {
         let sender = accepted.sender;
         let state = self.table.get(&sender).map(|entry| &entry.peer);
         match state {
-            Some(PeerState::Peered(_)) => {
+            Some(PeerState::Peered(peering)) => {
+                // Told while we collect for our owner, the end is still the
+                // owner's: its cooldown holds (D28).
+                let owner = peering
+                    .depeering
+                    .is_some_and(|depeering| depeering.reason == TerminationReason::Owner);
+                let reason = if owner {
+                    TerminationReason::Owner
+                } else {
+                    reason
+                };
                 self.begin_termination(sender, reason, false);
             }
             Some(PeerState::Terminating(..)) => {

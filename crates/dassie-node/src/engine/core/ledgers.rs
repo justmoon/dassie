@@ -356,7 +356,15 @@ impl Core {
             self.settle.asked.remove(&node);
             self.peer
                 .room(self.now_ms, &node, dassie_peer::Room::Enough);
-            self.peer.settlement_booked(self.now_ms, &node, amount);
+            // Counted toward what it said was on its way only on the
+            // peering's scheme, whose units the answer is in.
+            if self
+                .peer
+                .peering_of(&node)
+                .is_some_and(|peering| peering.scheme.as_str() == scheme.as_str())
+            {
+                self.peer.settlement_booked(self.now_ms, &node, amount);
+            }
             self.report(SettlementEvent::SettlementBooked { from: node, amount });
         }
         Ok(())

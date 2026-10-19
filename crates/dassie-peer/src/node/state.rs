@@ -13,7 +13,9 @@ use crate::channel::Retry;
 use crate::io::Event;
 use crate::persist::{PeerBatch, Stored, StoredChannel, StoredNode};
 use crate::routing;
-use crate::table::{Advertise, Entry, LinkState, PeerState, Peering, Room, Sources, Termination};
+use crate::table::{
+    Advertise, Depeering, Entry, LinkState, PeerState, Peering, Room, Sources, Termination,
+};
 use crate::wire::{SchemeId, SignedNodeInfo};
 
 /// How far our peering with a node has come.
@@ -185,6 +187,11 @@ impl PeerNode {
         termination: Option<Termination>,
     ) {
         let now = self.now_ms;
+        // A decision to end it is kept; its steps are taken again.
+        let mut peering = peering;
+        peering.depeering = peering
+            .depeering
+            .map(|depeering| Depeering::new(depeering.since_ms, depeering.reason));
         // Advertised at once if heard from recently: a restart does not
         // drop our neighbors (D12).
         let confirmed = peering.heard_within(now, self.config.peer_confirm_ms);

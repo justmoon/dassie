@@ -1009,3 +1009,37 @@ fn a_node_told_first_drops_its_own_steps() {
         .any(|(at, event)| *at == 0 && matches!(event, Event::Terminating { by_us: false, .. }));
     assert!(told, "node 0 was told, before its own steps were done");
 }
+
+// Found in review: told by the peer, for its own reason, while we collect
+// for our owner, the end is still the owner's, and so is its cooldown: we
+// refuse the peer's request to peer again (D28).
+#[test]
+fn an_owners_end_keeps_its_cooldown_when_the_peer_tells_first() {
+    let (mut network, a, b) = peered(59);
+    network.nodes[0].hooks.settling.insert(b);
+    network.act(0, |node, now| {
+        node.terminate(now, &b, TerminationReason::Owner);
+    });
+    network.act(1, |node, now| {
+        node.terminate(now, &a, TerminationReason::ShortOfRoom);
+    });
+    settle(&mut network, 5_000);
+    assert_eq!(ended(&network, 0, &b), 1);
+    let body = peering_request(&network, &key(1), 1, 0);
+    let reply = network.inbound(0, &body);
+    assert_eq!(refusal(&reply), RefusalReason::Terminating);
+}
+
+// An owner's decision outranks one the node took for silence or room, and
+// brings its cooldown.
+#[test]
+fn an_owners_decision_outranks_the_nodes_own() {
+    let (mut network, _, b) = peered(60);
+    network.nodes[0].hooks.settling.insert(b);
+    network.act(0, |node, now| {
+        node.terminate(now, &b, TerminationReason::ShortOfRoom);
+        node.terminate(now, &b, TerminationReason::Owner);
+    });
+    let depeering = network.node(0).peering_of(&b).unwrap().depeering.unwrap();
+    assert_eq!(depeering.reason, TerminationReason::Owner);
+}
