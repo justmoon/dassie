@@ -222,6 +222,14 @@ pub enum Event {
         /// Whether we began it.
         by_us: bool,
     },
+    /// We decided to end a peering, and tell no one until we collected
+    /// what the peer owes (D28).
+    Depeering {
+        /// The peer.
+        peer: NodeId,
+        /// Why.
+        reason: TerminationReason,
+    },
     /// A peering ended. Its accounts and settlement channel stay, and
     /// nothing is settled for its end (D28).
     PeeringEnded {

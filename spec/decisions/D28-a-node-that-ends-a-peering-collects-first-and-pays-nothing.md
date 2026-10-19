@@ -1,6 +1,6 @@
 # D28. A node that ends a peering collects first, and pays nothing
 
-**Areas:** [Network](../areas/network.md), [Settlement](../areas/settlement.md), [Peer protocol](../areas/peer-protocol.md), [Connector](../areas/connector.md). Partly built ([roadmap](../roadmap.md#ending-a-peering)).
+**Areas:** [Network](../areas/network.md), [Settlement](../areas/settlement.md), [Peer protocol](../areas/peer-protocol.md), [Connector](../areas/connector.md). 
 
 ## Facts
 

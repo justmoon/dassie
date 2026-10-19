@@ -40,6 +40,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_17,
     MIGRATION_18,
     MIGRATION_19,
+    MIGRATION_20,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -736,6 +737,15 @@ ALTER TABLE settlement_channels DROP COLUMN final_state;
 ALTER TABLE settlement_channels DROP COLUMN final_scheme;
 ";
 
+/// A peering we are ending, while we collect first and have not told the
+/// peer (D28): kept, so a restart takes the steps again rather than
+/// forgetting the decision.
+const MIGRATION_20: &str = "
+ALTER TABLE peers ADD COLUMN depeering_since_ms INTEGER;
+ALTER TABLE peers ADD COLUMN depeering_reason INTEGER
+  CHECK (depeering_reason IS NULL OR depeering_reason BETWEEN 0 AND 255);
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -923,6 +933,8 @@ pub const TABLES: &[Table] = &[
             ("last_seen_ms", "INTEGER", true, false),
             ("replay_floor_ms", "INTEGER", true, false),
             ("short_for_ms", "INTEGER", true, false),
+            ("depeering_since_ms", "INTEGER", false, false),
+            ("depeering_reason", "INTEGER", false, false),
         ],
     },
     Table {

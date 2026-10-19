@@ -7,8 +7,8 @@
 use dassie_identity::{NodeId, PublicKey};
 use dassie_peer::wire::{SchemeId, TerminationReason};
 use dassie_peer::{
-    Channel, Network, Outgoing, PeerBatch, Peering, Registration, Sources, Stored, StoredChannel,
-    StoredNode, Termination,
+    Channel, Depeering, Network, Outgoing, PeerBatch, Peering, Registration, Sources, Stored,
+    StoredChannel, StoredNode, Termination,
 };
 use rusqlite::{Connection, Row, Transaction, params};
 
@@ -40,7 +40,7 @@ impl Store {
                     p.scheme, p.version, p.state, p.credit_out, p.since_ms,
                     p.inbound, p.last_seen_ms, p.replay_floor_ms,
                     t.since_ms, t.reason, t.by_us, t.acknowledged,
-                    p.short_for_ms
+                    p.short_for_ms, p.depeering_since_ms, p.depeering_reason
              FROM peer_nodes n LEFT JOIN peers p ON p.node = n.id
                LEFT JOIN peer_terminations t ON t.node = n.id
              ORDER BY n.id",
@@ -180,6 +180,17 @@ fn read_peering(row: &Row<'_>, scheme: &str) -> Result<Peering, StoreError> {
         last_seen_ms: from_sql_time(row.get(15)?),
         short_for_ms: u64::try_from(row.get::<_, i64>(21)?)
             .map_err(|_| StoreError::Corrupt("time short of room"))?,
+        depeering: match row.get::<_, Option<i64>>(22)? {
+            Some(since) => {
+                let reason = u8::try_from(row.get::<_, i64>(23)?)
+                    .map_err(|_| StoreError::Corrupt("depeering reason"))?;
+                Some(Depeering::new(
+                    from_sql_time(since),
+                    TerminationReason::from_code(reason),
+                ))
+            }
+            None => None,
+        },
     })
 }
 
@@ -271,11 +282,13 @@ fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), St
     };
     transaction.execute(
         "INSERT INTO peers (node, scheme, version, state, credit_out, since_ms,
-           inbound, last_seen_ms, replay_floor_ms, short_for_ms)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+           inbound, last_seen_ms, replay_floor_ms, short_for_ms, depeering_since_ms,
+           depeering_reason)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
          ON CONFLICT (node) DO UPDATE SET scheme = ?2, version = ?3, state = ?4,
            credit_out = ?5, since_ms = ?6, inbound = ?7,
-           last_seen_ms = ?8, replay_floor_ms = ?9, short_for_ms = ?10",
+           last_seen_ms = ?8, replay_floor_ms = ?9, short_for_ms = ?10,
+           depeering_since_ms = ?11, depeering_reason = ?12",
         params![
             node.id.as_str(),
             peering.scheme.as_str(),
@@ -288,8 +301,14 @@ fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), St
             to_sql_time(node.replay_floor_ms),
             i64::try_from(peering.short_for_ms)
                 .map_err(|_| StoreError::Corrupt("time short of room"))?,
+            peering.depeering.map(|d| to_sql_time(d.since_ms)),
+            peering.depeering.map(|d| i64::from(d.reason.code())),
         ],
     )?;
+    write_termination(transaction, node)
+}
+
+fn write_termination(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), StoreError> {
     let Some(termination) = &node.termination else {
         transaction.execute(
             "DELETE FROM peer_terminations WHERE node = ?1",

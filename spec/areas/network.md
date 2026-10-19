@@ -128,13 +128,16 @@ A node lists a peer as a neighbor in its link state, and routing uses the edge, 
 
 Termination starts when the owner asks, when the owner bans the node, when the peer has not been heard from for a long time (counted from the later of its last message and the node's start, so our own downtime ends nothing), or when its room has stayed short, without a settlement, for as long.
 
-1. The peer is no longer advertised and takes no new Prepares to or from it ([Connector](connector.md)). Responses still flow.
-2. The side that started sends `peeringTermination` until it is acknowledged or times out. The other side terminates too; if both started, each one's message tells the other.
-3. Once the exchange is over, no packet is in flight with the peer and no response to it waits to be sent again, the peering ends.
-4. Neither side settles anything for the end ([Settlement](settlement.md#settling-at-a-peerings-end)): what the books show stays owed, for a later peering to settle.
-5. The node does not ask the peer again for a while after an owner's termination, and refuses its requests meanwhile. That cooldown does not survive a restart; a ban is the lasting way.
+The node that ends a peering collects first, and tells the peer only then ([D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)):
 
-**Termination ends a peering, not a relationship.** The peer's accounts stay, with their balances, as the record of what is owed, and so does the settlement channel with its sequence ([Settlement channels](#settlement-channels)). A settlement that arrives after the peering ended is still credited once, and a later peering with the node reuses both without posting trust twice. A termination under way survives a restart.
+1. **It decides privately.** Nothing the peer can see changes: a peer it advertised stays advertised (unless it is banned, which withdraws it at once, [below](#bans)), and our own Prepares still go to it. Its owner sees it terminating. Its new Prepares are refused, as for want of liquidity ([Connector](connector.md#responses-and-expiry)), and its requests to settle are answered as ones that settle nothing.
+2. **It waits for its own settlements to the peer under way,** so the peer counts them; then asks the peer to settle, once. The answer says what the peer has on its way ([Settlement](settlement.md#settling-on-request)), and the node waits until that is booked. Each wait lasts at most a time a settlement takes to reach the ledger and be announced (`depeer_wait_ms`). A peer that does not answer is waited out.
+3. **Then it tells the peer:** it stops advertising it, takes no new Prepares to or from it, and sends `peeringTermination` until it is acknowledged or times out. Responses still flow.
+4. **The other side ends at once** when the message arrives, as the node does that is told first when both decided: it stops advertising and routing to the peer, takes no new Prepares and settles nothing.
+5. Once the exchange is over, no packet is in flight with the peer and no response to it waits to be sent again, the peering ends. Neither side settles anything for the end ([Settlement](settlement.md#settling-at-a-peerings-end)): what the books show stays owed, for a later peering to settle.
+6. The node does not ask the peer again for a while after an owner's termination, and refuses its requests meanwhile. That cooldown does not survive a restart; a ban is the lasting way.
+
+**Termination ends a peering, not a relationship.** The peer's accounts stay, with their balances, as the record of what is owed, and so does the settlement channel with its sequence ([Settlement channels](#settlement-channels)). A settlement that arrives after the peering ended is still credited once, and a later peering with the node reuses both without posting trust twice. A termination under way survives a restart, and so does a decision to end a peering; its steps start again after it.
 
 ### One-sided peerings
 
@@ -161,7 +164,7 @@ Routing runs a breadth-first search from this node over edges that both ends adv
 
 ## Persistence
 
-The peer node's state is written in the same transaction as the ledger, on every change (`crates/dassie-peer/src/persist.rs`, `crates/dassie-node/src/store/peer.rs`). What survives a restart is chosen so that a restart neither drops a peer nor forgives one: peerings with when each was last heard from and how long its room has been short, terminations under way, replay floors, the own sequence, the majority, settlement channels and bans. Link states were verified when received and are not verified again.
+The peer node's state is written in the same transaction as the ledger, on every change (`crates/dassie-peer/src/persist.rs`, `crates/dassie-node/src/store/peer.rs`). What survives a restart is chosen so that a restart neither drops a peer nor forgives one: peerings with when each was last heard from and how long its room has been short, peerings being ended (decided or told), replay floors, the own sequence, the majority, settlement channels and bans. Link states were verified when received and are not verified again.
 
 What is lost is either fetched again (bootstrap lists) or only paces the node's own attempts: backoffs, flood counters, hold-downs and the owner-termination cooldown. A peering attempt cut short by a restart is dropped.
 

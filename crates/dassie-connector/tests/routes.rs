@@ -307,6 +307,25 @@ fn draining_peers_finish_what_is_in_flight() {
     assert!(!harness.connector.set_draining(EndpointId::Peer(9), true));
 }
 
+// A peer whose peering we end, and have not told yet (D28), has its new
+// Prepares refused as for want of liquidity, which tells it nothing more;
+// ours still go to it.
+#[test]
+fn a_refusing_peer_still_takes_ours() {
+    let mut harness = harness();
+    set(&mut harness, &[("test.das.dfar", &[ONE, TWO])]);
+    assert!(harness.connector.set_refusing(ONE, true));
+    let from_it = prepare(&format!("{OWN}.alice"), 10, NOW + 20_000, [3; 32]);
+    let outcome = harness.prepare(NOW, ONE, 1, &from_it);
+    assert_eq!(
+        rejected(&harness, outcome),
+        ErrorCode::T04_INSUFFICIENT_LIQUIDITY
+    );
+    let packet = prepare("test.das.dfar", 10, NOW + 20_000, [1; 32]);
+    assert_eq!(forwarded_to(harness.prepare(NOW, BTP, 1, &packet)), ONE);
+    assert!(!harness.connector.set_refusing(EndpointId::Peer(9), true));
+}
+
 fn fulfill_bytes(fulfillment: [u8; 32]) -> Vec<u8> {
     Fulfill {
         fulfillment,

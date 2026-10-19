@@ -135,6 +135,11 @@ impl PeerNode {
                 if peering.is_none_or(|peering| peering.scheme != scheme) {
                     return refuse(409, "not peered on that scheme");
                 }
+                // Nor for one we are ending, which the peer does not know
+                // yet: it is answered as a request that settles nothing.
+                if peering.is_some_and(|peering| peering.depeering.is_some()) {
+                    return Inbound::Reply(ok(&accepted, &encode_settling(0)));
+                }
                 Inbound::SettlementRequest {
                     from: accepted.sender,
                     scheme,

@@ -615,8 +615,9 @@ export const RegisterWithBootstrapResponseSchema: GenMessage<RegisterWithBootstr
   messageDesc(file_dassie_ui_v1_network, 18);
 
 /**
- * Ends a peering, as its owner (D12): no new packets, then once those in
- * flight are done it ends on both sides. Nothing is settled for its end
+ * Ends a peering, as its owner (D12): the node first collects, privately,
+ * asking the peer to settle once more, then tells it; once the packets in
+ * flight are done it ends on both sides. Nothing else is settled for its end
  * (D28): what is owed stays on the books. The pair does not peer again for
  * a day.
  *

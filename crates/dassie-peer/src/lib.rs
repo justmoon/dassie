@@ -40,4 +40,4 @@ pub use node::{
     RegistrationStatus, SendError,
 };
 pub use persist::{PeerBatch, Stored, StoredChannel, StoredNode};
-pub use table::{Advertise, Network, Peering, Registration, Room, Sources, Termination};
+pub use table::{Advertise, Depeering, Network, Peering, Registration, Room, Sources, Termination};

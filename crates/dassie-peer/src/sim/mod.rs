@@ -41,11 +41,14 @@ pub const START: u64 = 1_800_000_000_000;
 pub const CREDIT: u64 = 1_100_000_000;
 
 /// Hooks for the stub scheme: always agrees. Peers in `busy` still have
-/// packets in flight.
+/// packets in flight, and those in `settling` a settlement of ours under
+/// way in the node.
 #[derive(Default)]
 pub struct StubHooks {
     /// Peers with packets still in flight.
     pub busy: BTreeSet<NodeId>,
+    /// Peers with a settlement of ours under way, before its message.
+    pub settling: BTreeSet<NodeId>,
 }
 
 impl PeeringHooks for StubHooks {
@@ -103,6 +106,10 @@ impl PeeringHooks for StubHooks {
 
     fn drained(&self, peer: NodeId) -> bool {
         !self.busy.contains(&peer)
+    }
+
+    fn settling_to(&self, peer: NodeId) -> bool {
+        self.settling.contains(&peer)
     }
 }
 
@@ -237,6 +244,9 @@ pub struct Network {
     /// status, as a busy node would with 503, or not at all (`None`), as
     /// one would that drops the connection.
     pub refuse_settlements: BTreeMap<usize, Option<u16>>,
+    /// What a node answers a request to settle with as on its way: nothing,
+    /// unless set here. Nothing here settles on request.
+    pub promise: BTreeMap<usize, u64>,
     /// Settlement messages refused for being in `refuse_settlements`.
     pub settlements_refused: usize,
     /// Rewrites the body of every response with status 200 before it
@@ -278,6 +288,7 @@ impl Network {
             settlement_requests: Vec::new(),
             settled: Vec::new(),
             refuse_settlements: BTreeMap::new(),
+            promise: BTreeMap::new(),
             settlements_refused: 0,
             tamper: None,
             macs: BTreeMap::new(),
@@ -640,7 +651,7 @@ impl Network {
                 ..
             } => {
                 self.settlement_requests.push((to, sender));
-                Some(answer.reply(0))
+                Some(answer.reply(self.promise.get(&to).copied().unwrap_or(0)))
             }
         };
         self.drain(to);
@@ -770,7 +781,9 @@ impl Network {
             Inbound::Reply(reply)
             | Inbound::Packet { reply, .. }
             | Inbound::SchemeMessage { reply, .. } => reply,
-            Inbound::SettlementRequest { answer, .. } => answer.reply(0),
+            Inbound::SettlementRequest { answer, .. } => {
+                answer.reply(self.promise.get(&index).copied().unwrap_or(0))
+            }
             Inbound::Settlement {
                 from,
                 sequence,

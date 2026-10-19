@@ -125,6 +125,9 @@ pub(crate) enum Purpose {
     Settlement(u64),
     /// Asking a peer to settle.
     SettlementRequest,
+    /// Asking a peer to settle a last time, before we tell it we end the
+    /// peering (D28).
+    FinalRequest,
     /// Telling a peer we end the peering.
     Termination,
 }
@@ -476,6 +479,7 @@ impl PeerNode {
                 }
             }
             Purpose::Settlement(sequence) => self.on_settlement(to, sequence, &result),
+            Purpose::FinalRequest => self.on_final_request(to, &result),
             Purpose::Termination => self.on_termination(to, &result),
             Purpose::Response(answer) => {
                 // A refusal after reading it will not change; anything

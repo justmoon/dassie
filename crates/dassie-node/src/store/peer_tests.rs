@@ -32,6 +32,10 @@ fn node(seed: u8) -> StoredNode {
             inbound: true,
             last_seen_ms: 15,
             short_for_ms: 17,
+            // Every other node is one we are ending, and have not told (D28).
+            depeering: seed
+                .is_multiple_of(2)
+                .then(|| dassie_peer::Depeering::new(18, TerminationReason::ShortOfRoom)),
         }),
         termination: None,
         replay_floor_ms: 16,

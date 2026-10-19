@@ -10,6 +10,7 @@ use dassie_node_core::testing::{Outcome, Run, SeededRng};
 
 use super::checks::{check, check_across, check_events, check_settled, check_withdrawn};
 use super::{START, Settling, Sim, key};
+use crate::node::Policies;
 use crate::store::OutgoingState;
 
 /// How long a network may take to be ready, at production timings: nodes
@@ -234,9 +235,17 @@ fn crash_mid_payment(sim: &mut Sim, rng: &mut SeededRng, calm_ms: u64) {
     sim.run_until_or(sim.now + PAID_WITHIN_MS, paid);
 }
 
-/// An owner ends a peering: it drains and ends on both sides, and neither
-/// side settles anything once it knows (D28): what the books show stays
-/// owed, as the check of each node's books then sees.
+/// How long ending a peering may take (D28): waiting for our own
+/// settlements, then for what the peer has on its way, each at most the
+/// wait, then telling it, then the packets in flight.
+const ENDED_WITHIN_MS: u64 = 2 * Policies::DEFAULT.peer.depeer_wait_ms
+    + Policies::DEFAULT.peer.termination_timeout_ms
+    + Policies::DEFAULT.connector.max_hold_ms;
+
+/// An owner ends a peering: its node collects first, then tells the peer,
+/// and it ends on both sides. Neither side settles anything once it knows
+/// (D28): what the books show stays owed, as the check of each node's books
+/// then sees.
 fn terminate(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     let count = sim.nodes.len();
     let ender = usize::try_from(rng.next_u64() % count as u64).unwrap();
@@ -247,30 +256,90 @@ fn terminate(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
         .push(format!("{} {ender} terminates {peer}", sim.now));
     let mark = sim.trace.len();
     sim.step(ender, |core| core.terminate_peering(peer).unwrap());
-    sim.run_until(sim.now + 60_000);
-    if sim.peers(ender).contains(&peer) {
+    let other = (0..count).find(|i| key(*i).node_id() == peer).unwrap();
+    let ender_id = key(ender).node_id();
+    let ended =
+        |sim: &Sim| !sim.peers(ender).contains(&peer) && !sim.peers(other).contains(&ender_id);
+    if !sim.run_until_or(sim.now + ENDED_WITHIN_MS, ended) {
         return Err(Outcome::Liveness(format!(
-            "node {ender}'s peering with {peer} did not end"
+            "node {ender}'s peering with node {other} did not end within {} s",
+            ENDED_WITHIN_MS / 1_000
         )));
     }
-    let other = (0..count).find(|i| key(*i).node_id() == peer).unwrap();
-    for (node, with) in [(ender, other), (other, ender)] {
-        settled_nothing_once_ending(sim, mark, node, with)?;
-    }
-    Ok(())
+    // Then a minute's calm, so that the checks find the rest of the network
+    // settled.
+    sim.run_until(sim.now + 60_000);
+    // The node ending it settles nothing from its decision on, the other
+    // from when it is told.
+    settled_nothing_once_ending(sim, mark, ender, other, "Depeering")?;
+    settled_nothing_once_ending(sim, mark, other, ender, "Terminating")?;
+    collected_before_telling(sim, mark, ender, other)
 }
 
-/// Node `index` started no settlement to node `with` from when it learned
-/// that their peering ends (D28): an honest node paying then is money the
-/// rule says it keeps.
-fn settled_nothing_once_ending(
+/// What node `with` said it had on its way, when node `index`, ending their
+/// peering, asked it a last time, was booked before `index` told it (D28):
+/// no settlement crosses the end. Booked, not announced: on the XRP Ledger
+/// the ledger may show it before its message arrives, or after.
+fn collected_before_telling(
     sim: &Sim,
     mark: usize,
     index: usize,
     with: usize,
 ) -> Result<(), Outcome> {
     let peer = format!("{:?}", key(with).node_id());
-    let ending = format!(" {index} PeerNode(Terminating {{ peer: {peer}");
+    let lines = &sim.trace[mark..];
+    let answered =
+        format!(" {index} PeerNode(SettlementRequestAnswered {{ peer: {peer}, settling: Some(");
+    let telling = format!(" {index} PeerNode(Terminating {{ peer: {peer}");
+    let Some(told) = lines.iter().position(|line| line.contains(&telling)) else {
+        return Ok(());
+    };
+    let Some((at, promised)) = lines[..told]
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(at, line)| {
+            let rest = &line[line.find(&answered)? + answered.len()..];
+            Some((at, rest[..rest.find(')')?].parse::<u64>().ok()?))
+        })
+    else {
+        return Ok(());
+    };
+    let booking = format!(" {index} Settlement(SettlementBooked {{ from: {peer}, amount: ");
+    // Counted from the decision: the settlement may arrive before the
+    // answer that announced it.
+    let decided = format!(" {index} PeerNode(Depeering {{ peer: {peer}");
+    let from = lines[..at]
+        .iter()
+        .rposition(|line| line.contains(&decided))
+        .unwrap_or(at);
+    let booked: u64 = lines[from..told]
+        .iter()
+        .filter_map(|line| {
+            let rest = &line[line.find(&booking)? + booking.len()..];
+            rest[..rest.find(' ')?].parse::<u64>().ok()
+        })
+        .sum();
+    if booked >= promised {
+        return Ok(());
+    }
+    Err(Outcome::Liveness(format!(
+        "node {index} told node {with} the peering ends before booking the {promised} it had on its way"
+    )))
+}
+
+/// Node `index` started no settlement to node `with` from its `event` on:
+/// from when it decided, or learned, that their peering ends (D28). An
+/// honest node paying then is money the rule says it keeps.
+fn settled_nothing_once_ending(
+    sim: &Sim,
+    mark: usize,
+    index: usize,
+    with: usize,
+    event: &str,
+) -> Result<(), Outcome> {
+    let peer = format!("{:?}", key(with).node_id());
+    let ending = format!(" {index} PeerNode({event} {{ peer: {peer}");
     let settling = format!(" {index} Settlement(Settling {{ node: {peer}");
     let lines = &sim.trace[mark..];
     let Some(start) = lines.iter().position(|line| line.contains(&ending)) else {

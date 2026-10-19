@@ -34,8 +34,11 @@ fn stub() -> SchemeId {
 
 /// Two nodes, peered. Their clocks are apart by up to 20 s, and a node
 /// takes nothing dated before its start, so it may take a while.
+/// The settings the tests run, unless they say otherwise.
+const CONFIG: Config = Config::DEV;
+
 fn peered(seed: u64) -> (Network, NodeId, NodeId) {
-    peered_with(seed, Config::DEV)
+    peered_with(seed, CONFIG)
 }
 
 /// Two nodes, peered, with `config`.
@@ -252,15 +255,16 @@ fn refused_settlement(status: Option<u16>, tries: usize) {
     assert_eq!((network.applied[0].from, network.applied[0].amount), (a, 5));
 }
 
-// An owner's termination ends the peering on both sides, settled, and the
-// pair does not peer again during the cooldown.
+// An owner's termination ends the peering on both sides, and the pair does
+// not peer again during the cooldown. It begins privately (D28): the peer
+// is still advertised, until the node collected and tells it.
 #[test]
 fn an_owner_ends_a_peering() {
     let (mut network, a, b) = peered(34);
     network.act(0, |node, now| {
         assert!(node.terminate(now, &b, TerminationReason::Owner));
     });
-    assert!(!network.node(0).is_advertised(&b));
+    assert!(network.node(0).is_advertised(&b));
     settle(&mut network, 10_000);
     assert!(network.node(0).peering_of(&b).is_none());
     assert!(network.node(1).peering_of(&a).is_none());
@@ -300,7 +304,8 @@ fn crossed_terminations_end_both_sides() {
     assert_eq!(ended(&network, 1, &a), 1);
 }
 
-// A termination outlives a restart of the side that began it.
+// A termination outlives a restart of the side that began it: while it
+// still collects (D28), and while it tells the peer.
 #[test]
 fn a_termination_survives_a_restart() {
     let (mut network, a, b) = peered(36);
@@ -309,6 +314,12 @@ fn a_termination_survives_a_restart() {
         node.terminate(now, &b, TerminationReason::Owner);
     });
     settle(&mut network, 2_000);
+    network.crash(0);
+    network.start(0);
+    let depeering = network.node(0).peering_of(&b).unwrap().depeering;
+    assert_eq!(depeering.map(|d| d.reason), Some(TerminationReason::Owner));
+    // Its last request goes nowhere, and is waited out; then it tells.
+    settle(&mut network, CONFIG.depeer_wait_ms + 2_000);
     network.crash(0);
     network.start(0);
     assert!(
@@ -343,13 +354,16 @@ fn a_termination_waits_for_packets_in_flight() {
     assert!(network.node(0).peering_of(&b).is_none());
 }
 
-// A peer silent for too long is terminated; it is not told, so it is not
-// settled with. When it comes back, the two hold the same view again.
+// A peer silent for too long is terminated: each step that needs it times
+// out (D28). When it comes back, the two hold the same view again.
 #[test]
 fn an_unresponsive_peer_is_terminated() {
     let (mut network, a, b) = peered(38);
     network.crash(1);
-    settle(&mut network, 150_000);
+    settle(
+        &mut network,
+        CONFIG.peer_dead_ms + CONFIG.depeer_wait_ms + CONFIG.termination_timeout_ms + 10_000,
+    );
     assert_eq!(ended(&network, 0, &b), 1);
     network.start(1);
     assert!(
@@ -373,7 +387,11 @@ fn a_one_sided_peering_is_repaired() {
     network.act(0, |node, now| {
         node.terminate(now, &b, TerminationReason::Owner);
     });
-    settle(&mut network, 25_000);
+    // Its last request and its message go nowhere, and are waited out.
+    settle(
+        &mut network,
+        CONFIG.depeer_wait_ms + CONFIG.termination_timeout_ms + 5_000,
+    );
     assert_eq!(ended(&network, 0, &b), 1);
     assert!(network.node(1).peering_of(&a).is_some());
     network.cut.clear();
@@ -459,7 +477,10 @@ fn peerings_from_before_channels_get_one() {
 }
 
 // Found in review: a peer that kept sending Prepares while its peering
-// was ending kept it from ever ending. They are refused at the protocol.
+// was ending kept it from ever ending. They are refused at the protocol,
+// once the peer is told. Before, while the node collects (D28), the peer
+// node takes them as before, and the node's connector refuses them, as
+// for want of liquidity, which tells the peer nothing.
 #[test]
 fn a_peering_being_ended_takes_no_new_prepares() {
     let (mut network, _, b) = peered(47);
@@ -468,6 +489,20 @@ fn a_peering_being_ended_takes_no_new_prepares() {
         node.terminate(now, &b, TerminationReason::Owner);
     });
     let mut sender = Sender::new(&key(1));
+    let private = Content::InterledgerPacket {
+        request_id: 3,
+        packet: &[12, 1, 0],
+    };
+    let body = sender.request(&network, 0, &private);
+    assert_eq!(network.inbound(0, &body).status, 200);
+    settle(&mut network, 2_000);
+    assert!(
+        network
+            .node(0)
+            .nodes()
+            .iter()
+            .any(|view| view.termination.is_some())
+    );
     let prepare = Content::InterledgerPacket {
         request_id: 1,
         packet: &[12, 1, 0],
@@ -759,9 +794,18 @@ fn a_settlement_request_reaches_the_peer_only() {
 #[test]
 fn a_refused_settlement_request_is_reported() {
     let (mut network, a, b) = peered(51);
+    // Cut off, node 0 collects nothing, cannot tell, and ends the peering
+    // on its side alone; node 1 asks as soon as it is in reach again.
+    network.cut.insert((0, 1));
     network.act(0, |node, now| {
         assert!(node.terminate(now, &b, TerminationReason::Owner));
     });
+    settle(
+        &mut network,
+        CONFIG.depeer_wait_ms + CONFIG.termination_timeout_ms + 5_000,
+    );
+    assert_eq!(ended(&network, 0, &b), 1);
+    network.cut.clear();
     network.act(1, |node, now| {
         node.request_settlement(now, &a, stub()).unwrap();
     });
@@ -828,4 +872,174 @@ fn a_peer_heard_again_after_its_hold_down_is_listed_at_once() {
     }
     settle(&mut network, 1);
     assert!(view(&network).advertised, "heard from, and not listed");
+}
+
+/// What node `index` reported, in order, of ending its peering with `peer`.
+fn ending(network: &Network, index: usize, peer: &NodeId) -> Vec<&'static str> {
+    network
+        .events
+        .iter()
+        .filter(|(at, _)| *at == index)
+        .filter_map(|(_, event)| match event {
+            Event::Depeering { peer: p, .. } if p == peer => Some("depeering"),
+            Event::SettlementRequestAnswered { peer: p, .. } if p == peer => Some("answered"),
+            Event::Terminating { peer: p, .. } if p == peer => Some("terminating"),
+            Event::PeeringEnded { peer: p } if p == peer => Some("ended"),
+            _ => None,
+        })
+        .collect()
+}
+
+// A node ending a peering collects first, privately (D28): it asks the
+// peer to settle once, and tells it only once the answer is in. Until
+// then the peer sees nothing change.
+#[test]
+fn a_node_ending_a_peering_collects_before_it_tells() {
+    let (mut network, a, b) = peered(52);
+    network.act(0, |node, now| {
+        assert!(node.terminate(now, &b, TerminationReason::Owner));
+    });
+    assert!(network.node(0).is_advertised(&b));
+    assert!(network.node(1).peering_of(&a).unwrap().depeering.is_none());
+    // Its owner sees it ending; the peer, nothing.
+    let status = |network: &Network, index: usize, peer: &NodeId| {
+        let views = network.node(index).nodes();
+        views
+            .into_iter()
+            .find(|view| view.id == *peer)
+            .unwrap()
+            .peer_status
+    };
+    assert_eq!(status(&network, 0, &b), PeerStatus::Terminating);
+    assert_eq!(status(&network, 1, &a), PeerStatus::Peered);
+    settle(&mut network, 10_000);
+    assert_eq!(
+        ending(&network, 0, &b),
+        ["depeering", "answered", "terminating", "ended"]
+    );
+    assert_eq!(ended(&network, 1, &a), 1);
+}
+
+// It first waits for its own settlements to the peer under way, so the
+// peer counts them; for at most its wait.
+#[test]
+fn a_node_ending_a_peering_waits_for_its_own_settlements() {
+    let (mut network, _, b) = peered(53);
+    network.nodes[0].hooks.settling.insert(b);
+    network.act(0, |node, now| {
+        node.terminate(now, &b, TerminationReason::Owner);
+    });
+    settle(&mut network, 5_000);
+    assert_eq!(ending(&network, 0, &b), ["depeering"]);
+    network.nodes[0].hooks.settling.clear();
+    settle(&mut network, 5_000);
+    assert_eq!(ended(&network, 0, &b), 1);
+    // One that never finishes is waited for no longer than the wait.
+    let (mut network, _, b) = peered(54);
+    network.nodes[0].hooks.settling.insert(b);
+    network.act(0, |node, now| {
+        node.terminate(now, &b, TerminationReason::Owner);
+    });
+    settle(&mut network, CONFIG.depeer_wait_ms + 5_000);
+    assert_eq!(ended(&network, 0, &b), 1);
+}
+
+// It then waits until what the peer said is on its way is booked, so no
+// settlement crosses the end; or for at most its wait.
+#[test]
+fn a_node_ending_a_peering_waits_for_what_the_peer_has_on_its_way() {
+    let (mut network, _, b) = peered(55);
+    network.promise.insert(1, 5);
+    network.act(0, |node, now| {
+        node.terminate(now, &b, TerminationReason::Owner);
+    });
+    settle(&mut network, 5_000);
+    assert_eq!(ending(&network, 0, &b), ["depeering", "answered"]);
+    network.act(0, |node, now| node.settlement_booked(now, &b, 5));
+    settle(&mut network, 5_000);
+    assert_eq!(ended(&network, 0, &b), 1);
+    let (mut network, _, b) = peered(56);
+    network.promise.insert(1, 5);
+    network.act(0, |node, now| {
+        node.terminate(now, &b, TerminationReason::Owner);
+    });
+    settle(&mut network, CONFIG.depeer_wait_ms + 5_000);
+    assert_eq!(ended(&network, 0, &b), 1);
+}
+
+// While it collects, the peer's own request to settle is answered as one
+// that settles nothing, and goes no further (D28).
+#[test]
+fn a_node_ending_a_peering_settles_nothing_the_peer_asks() {
+    let (mut network, a, b) = peered(57);
+    network.nodes[0].hooks.settling.insert(b);
+    network.act(0, |node, now| {
+        node.terminate(now, &b, TerminationReason::Owner);
+    });
+    network.act(1, |node, now| {
+        node.request_settlement(now, &a, stub()).unwrap();
+    });
+    settle(&mut network, 1_000);
+    let nothing = Event::SettlementRequestAnswered {
+        peer: a,
+        settling: Some(0),
+    };
+    assert!(network.events.contains(&(1, nothing)));
+    assert!(!network.settlement_requests.contains(&(0, b)));
+}
+
+// If the peer tells it first, the node is the one being ended: it drops
+// its own steps and ends the peering at once.
+#[test]
+fn a_node_told_first_drops_its_own_steps() {
+    let (mut network, a, b) = peered(58);
+    network.nodes[0].hooks.settling.insert(b);
+    network.act(0, |node, now| {
+        node.terminate(now, &b, TerminationReason::Owner);
+    });
+    network.act(1, |node, now| {
+        node.terminate(now, &a, TerminationReason::Owner);
+    });
+    settle(&mut network, 5_000);
+    assert_eq!(ended(&network, 0, &b), 1);
+    assert_eq!(ended(&network, 1, &a), 1);
+    let told = network
+        .events
+        .iter()
+        .any(|(at, event)| *at == 0 && matches!(event, Event::Terminating { by_us: false, .. }));
+    assert!(told, "node 0 was told, before its own steps were done");
+}
+
+// Found in review: told by the peer, for its own reason, while we collect
+// for our owner, the end is still the owner's, and so is its cooldown: we
+// refuse the peer's request to peer again (D28).
+#[test]
+fn an_owners_end_keeps_its_cooldown_when_the_peer_tells_first() {
+    let (mut network, a, b) = peered(59);
+    network.nodes[0].hooks.settling.insert(b);
+    network.act(0, |node, now| {
+        node.terminate(now, &b, TerminationReason::Owner);
+    });
+    network.act(1, |node, now| {
+        node.terminate(now, &a, TerminationReason::ShortOfRoom);
+    });
+    settle(&mut network, 5_000);
+    assert_eq!(ended(&network, 0, &b), 1);
+    let body = peering_request(&network, &key(1), 1, 0);
+    let reply = network.inbound(0, &body);
+    assert_eq!(refusal(&reply), RefusalReason::Terminating);
+}
+
+// An owner's decision outranks one the node took for silence or room, and
+// brings its cooldown.
+#[test]
+fn an_owners_decision_outranks_the_nodes_own() {
+    let (mut network, _, b) = peered(60);
+    network.nodes[0].hooks.settling.insert(b);
+    network.act(0, |node, now| {
+        node.terminate(now, &b, TerminationReason::ShortOfRoom);
+        node.terminate(now, &b, TerminationReason::Owner);
+    });
+    let depeering = network.node(0).peering_of(&b).unwrap().depeering.unwrap();
+    assert_eq!(depeering.reason, TerminationReason::Owner);
 }

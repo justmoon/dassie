@@ -224,6 +224,7 @@ impl Connector {
             money_from: 0,
             money_to: 0,
             draining: false,
+            refusing: false,
         };
         self.endpoints.insert(id, endpoint, own)
     }
@@ -261,6 +262,7 @@ impl Connector {
             money_from: 0,
             money_to: 0,
             draining: false,
+            refusing: false,
         };
         self.endpoints.insert(id, endpoint, own)
     }
@@ -366,6 +368,17 @@ impl Connector {
         self.endpoints
             .get_mut(id)
             .map(|endpoint| endpoint.draining = draining)
+            .is_some()
+    }
+
+    /// Stops, or resumes, new Prepares from an endpoint, while Prepares to
+    /// it still go: a peering we are ending, and have not told the peer of
+    /// yet (D28). Its Prepares are refused as for want of liquidity, which
+    /// tells it nothing more. Returns whether the endpoint exists.
+    pub fn set_refusing(&mut self, id: EndpointId, refusing: bool) -> bool {
+        self.endpoints
+            .get_mut(id)
+            .map(|endpoint| endpoint.refusing = refusing)
             .is_some()
     }
 
