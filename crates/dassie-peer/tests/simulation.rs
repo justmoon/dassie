@@ -10,7 +10,9 @@ use dassie_peer::sim::chaos;
 
 #[test]
 fn networks_converge_after_chaos() {
-    assert_seeds_pass(0..12, chaos::run);
+    // Each seed simulates a day of calm at production timings, about 6 s of
+    // wall time: CI runs a few, and `dassie-sim` the others.
+    assert_seeds_pass(0..3, chaos::run);
 }
 
 #[test]

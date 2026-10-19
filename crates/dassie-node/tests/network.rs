@@ -22,6 +22,7 @@ use std::collections::BTreeMap;
 use dassie_identity::NodeId;
 use dassie_ledger::LedgerId;
 use dassie_node::engine::{EngineEvent, Lie, NewIncoming, NewOutgoing};
+use dassie_node::node::Policies;
 use dassie_node::sim::checks::{check, check_across, check_books, check_events};
 use dassie_node::sim::{CREDIT, START, Settling, Sim, USD, XRP, key, received, scripted};
 use dassie_node::store::ForeignAmount;
@@ -294,7 +295,9 @@ fn a_peer_that_never_settles_costs_at_most_its_credit() {
 // of the network loses nothing.
 #[test]
 fn a_peer_that_spends_its_credit_and_vanishes_costs_at_most_that_credit() {
-    for seed in 0..20 {
+    // Each seed simulates the day a silent peer is kept, about 2.5 s of
+    // wall time.
+    for seed in 0..5 {
         let mut sim = liar_network(seed, Lie::NeverSettle);
         sim.pay(1, 2, LIAR_PAYS, None, None);
         assert!(
@@ -302,7 +305,9 @@ fn a_peer_that_spends_its_credit_and_vanishes_costs_at_most_that_credit() {
             "seed {seed}: it never spent its credit"
         );
         sim.crash(1);
-        sim.run_until(sim.now + 10 * 60_000);
+        // A peer not heard from for a day is ended.
+        let dead = Policies::DEFAULT.peer.peer_dead_ms;
+        sim.run_until(sim.now + dead + 10 * 60_000);
         assert!(
             !sim.peers(0).contains(&key(1).node_id()),
             "seed {seed}: node 0 still peers with it"

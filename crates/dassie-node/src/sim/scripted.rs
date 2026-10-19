@@ -8,8 +8,50 @@ use std::collections::BTreeMap;
 use dassie_connector::SpendingCap;
 use dassie_node_core::testing::{Outcome, Run, SeededRng};
 
-use super::checks::{check, check_across, check_events};
+use super::checks::{check, check_across, check_events, check_settled};
 use super::{START, Settling, Sim, key};
+use crate::store::OutgoingState;
+
+/// How long a network may take to be ready, at production timings: nodes
+/// find each other through lists polled once a minute, and a peering that
+/// failed is tried again after a backoff.
+const READY_WITHIN_MS: u64 = 10 * 60_000;
+
+/// How long the payments of a run may take after the crash in it, at
+/// production timings: a busy link waits for its settlements to reach the
+/// ledger.
+const PAID_WITHIN_MS: u64 = 10 * 60_000;
+
+/// Whether the network is ready for payments: every node has a peer and a
+/// route to every other node, and none waits for a peer to settle, so a
+/// junior has paid its senior in advance.
+fn ready(sim: &Sim) -> bool {
+    let count = sim.nodes.len();
+    let routed = (0..count).all(|index| {
+        let network = sim.core(index).network();
+        !network.peers.is_empty()
+            && (0..count).filter(|other| *other != index).all(|other| {
+                let id = key(other).node_id();
+                network
+                    .nodes
+                    .iter()
+                    .any(|node| node.id == id && !node.first_hops.is_empty())
+            })
+    });
+    routed && check_settled(sim).is_ok()
+}
+
+/// Whether every payment of the run has finished, one way or the other.
+fn paid(sim: &Sim) -> bool {
+    sim.payments.iter().all(|payment| payment.done)
+        && sim.outgoing.iter().all(|&(from, _, _, outgoing)| {
+            sim.nodes[from]
+                .store
+                .outgoing_payment(outgoing)
+                .unwrap()
+                .is_some_and(|row| row.state != OutgoingState::Sending)
+        })
+}
 
 /// What a run over one ledger draws first: its generator, how many nodes,
 /// and how many of them are bootstrap nodes.
@@ -93,7 +135,11 @@ fn ended(mut sim: Sim, result: Result<(), Outcome>) -> Run {
 
 fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     let count = sim.nodes.len();
-    sim.run_until(START + 60_000);
+    if !sim.run_until_or(START + READY_WITHIN_MS, ready) {
+        return Err(Outcome::Liveness(
+            "the network was not ready in time".into(),
+        ));
+    }
     // A node crashes; what it persisted brings it back.
     let victim = usize::try_from(rng.next_u64() % count as u64).unwrap();
     let before = sim.peers(victim);
@@ -107,11 +153,19 @@ fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
         )));
     }
     sim.loss_per_mille = 0;
+    // A node takes nothing dated before its start, and the clocks are up
+    // to 20 s apart: its peers reach it again only after that.
     sim.run_until(sim.now + 60_000);
-    for index in 0..count {
-        if sim.peers(index).is_empty() {
-            return Err(Outcome::Liveness(format!("node {index} has no peer")));
+    let deadline = sim.now + READY_WITHIN_MS;
+    if !sim.run_until_or(deadline, ready) {
+        for index in 0..count {
+            if sim.peers(index).is_empty() {
+                return Err(Outcome::Liveness(format!("node {index} has no peer")));
+            }
         }
+        return Err(Outcome::Liveness(
+            "the network was not ready again in time".into(),
+        ));
     }
     pay(sim, rng);
     // A node's connection to its ledger drops while it settles.
@@ -157,7 +211,9 @@ fn pay(sim: &mut Sim, rng: &mut SeededRng) {
 }
 
 /// A node crashes mid-payment, with packets in flight: a sender, a hop or
-/// a receiver. It comes back, and the network has `calm_ms` to finish.
+/// a receiver. It comes back, and the network has `calm_ms`, and then up
+/// to [`PAID_WITHIN_MS`] while payments are still going, to finish.
+/// Whether they all did is checked at the end.
 fn crash_mid_payment(sim: &mut Sim, rng: &mut SeededRng, calm_ms: u64) {
     let count = sim.nodes.len();
     sim.run_until(sim.now + 500 + rng.next_u64() % 4_000);
@@ -166,6 +222,7 @@ fn crash_mid_payment(sim: &mut Sim, rng: &mut SeededRng, calm_ms: u64) {
     sim.run_until(sim.now + 1_000 + rng.next_u64() % 4_000);
     sim.start(victim);
     sim.run_until(sim.now + calm_ms);
+    sim.run_until_or(sim.now + PAID_WITHIN_MS, paid);
 }
 
 /// An owner ends a peering: it drains, ends on both sides, and what is

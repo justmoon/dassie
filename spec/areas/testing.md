@@ -94,6 +94,7 @@ A Node test harness (`node --test`) runs Dassie against the reference implementa
 N nodes, or a crate's state machines, are wired in-process through the sans-IO crates, with a virtual clock and a seeded RNG (`dassie_node_core::testing::SeededRng`, xoshiro256** seeded by SplitMix64: reproducible, not cryptographic). They cover discovery, majority computation, flooding suppression, peering, routing convergence, settlement thresholds and restart recovery.
 
 - Between them, the simulations inject latency, loss, reordering, duplication, partitions, clock skew, crashes and restarts ([table below](#the-simulations) for which does what). The node simulation does not yet inject duplication or clock skew ([roadmap](../roadmap.md#continuous-simulation)).
+- **They run the production timings,** not the dev ones: on the virtual clock a simulated day costs seconds, and the ledgers they settle on, like the fake XRP Ledger, run at their real speed. Dev timings, scaled down, are for what runs on a real clock: the dev environment and the end-to-end tests. The node simulation waits for the network to be ready, and for its payments to finish, within bounds, rather than for fixed times.
 - Every state machine's invariants are checked after each step.
 - A run is reproducible from its seed: two runs with the same seed produce identical event traces, and a test checks it for each simulation.
 

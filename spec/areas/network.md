@@ -280,7 +280,7 @@ Written in the same transaction as the ledger, on every change (NET-1, NET-2, AC
 
 ## Timers and limits
 
-All of these are configuration. The values in brackets are the dev settings (`DASSIE_DEV_TIMINGS`, [Node](node.md)); the rest are the same in dev.
+All of these are configuration. The values in brackets are the dev settings (`DASSIE_DEV_TIMINGS`, [Node](node.md)), for what runs on a real clock: the dev environment and the end-to-end tests. The rest are the same in dev, and the simulations run the production values ([Testing](testing.md#deterministic-simulation)).
 
 | What | Value |
 |---|---|

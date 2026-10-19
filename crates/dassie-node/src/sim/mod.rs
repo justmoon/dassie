@@ -81,7 +81,7 @@ pub const START: u64 = 1_800_000_000_000;
 /// The credit a node extends by default.
 pub const CREDIT: i128 = 1_100_000_000;
 /// Every node's trigger, one and a half of the largest packets (D25).
-pub const TRIGGER: u64 = policy::trigger(Policies::DEV.connector.max_packet_amount);
+pub const TRIGGER: u64 = policy::trigger(Policies::DEFAULT.connector.max_packet_amount);
 /// How often the fake ledger closes a ledger.
 pub const LEDGER_CLOSE_MS: u64 = 3_500;
 
@@ -385,8 +385,8 @@ impl Sim {
                     .credits
                     .get(&index)
                     .copied()
-                    .unwrap_or(Policies::DEV.peer_credit),
-                ..Policies::DEV
+                    .unwrap_or(Policies::DEFAULT.peer_credit),
+                ..Policies::DEFAULT
             },
             rng: Box::new(SeededRng::new(seed)),
             peer_rng: Box::new(SeededRng::new(seed ^ 1)),
