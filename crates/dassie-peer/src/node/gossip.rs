@@ -103,7 +103,8 @@ impl Gossip {
             retransmit,
             issue,
             heartbeat,
-            Some(self.refresh_at_ms.min(self.sweep_at_ms)),
+            node.next_refresh().map(|at| at.max(self.refresh_at_ms)),
+            Some(self.sweep_at_ms),
             Some(routes),
         ]
         .into_iter()
@@ -472,6 +473,26 @@ impl PeerNode {
     }
 
     /// Nodes whose link state is missing or stale, and not in backoff.
+    /// When a node may next be refreshed: once one is stale and its own
+    /// refresh is due. Nothing stale, nothing to wake for.
+    pub(super) fn next_refresh(&self) -> Option<u64> {
+        let (now, stale, future) = (self.now_ms, self.config.stale_ms, self.config.max_future_ms);
+        self.table
+            .iter()
+            .filter(|(id, _)| **id != self.own)
+            .map(|(_, entry)| {
+                let stale_at = entry.link.as_ref().map_or(0, |link| {
+                    if link.is_fresh(now, stale, future) {
+                        link.sequence.saturating_add(stale).saturating_add(1)
+                    } else {
+                        0
+                    }
+                });
+                stale_at.max(entry.refresh_at_ms)
+            })
+            .min()
+    }
+
     fn stale_nodes(&self) -> Vec<NodeId> {
         let (now, stale, future) = (self.now_ms, self.config.stale_ms, self.config.max_future_ms);
         self.table

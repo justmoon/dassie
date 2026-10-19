@@ -530,3 +530,22 @@ fn a_settlement_request_reaches_the_peer_only() {
     let body = sender.request(&network, 0, &request);
     assert_eq!(network.inbound(0, &body).status, 409);
 }
+
+// A node wakes when something is due, not every second: with nothing to
+// refresh and the peers it wants, it waits for its heartbeats, the
+// anti-entropy sweep (every 10 s), its list polls and its route and bridge
+// checks.
+#[test]
+fn an_idle_node_does_not_wake_every_second() {
+    let mut network = Network::new(44, 3, 1, Config::DEFAULT);
+    settle(&mut network, 3_600_000);
+    assert!(network.node(0).peers().next().is_some(), "node 0 never peered");
+    let end = network.now + 3_600_000;
+    let mut longest = 0;
+    while network.now < end {
+        let at = network.node(0).poll_timeout().unwrap();
+        longest = longest.max(at.saturating_sub(network.now));
+        network.run_until(at.max(network.now + 1).min(end));
+    }
+    assert!(longest >= 5_000, "node 0 slept {longest} ms at most");
+}
