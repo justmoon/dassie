@@ -32,5 +32,7 @@ pub mod engine;
 pub mod fake_ledger;
 pub mod http;
 pub mod ipc;
+#[cfg(feature = "testing")]
+pub mod sim;
 pub mod supervisor;
 pub mod systemd;

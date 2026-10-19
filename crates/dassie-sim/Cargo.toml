@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 dassie-connector = { path = "../dassie-connector", features = ["sim"] }
+dassie-node = { path = "../dassie-node", features = ["testing"] }
 dassie-node-core = { path = "../dassie-node-core", features = ["testing"] }
 dassie-peer = { path = "../dassie-peer", features = ["sim"] }
 dassie-stream = { path = "../dassie-stream", features = ["sim"] }

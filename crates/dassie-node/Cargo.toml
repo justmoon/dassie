@@ -14,7 +14,7 @@ workspace = true
 default = []
 # Lets a simulation make a node lie to its peers, and serves a fake
 # XRP Ledger for tests and dev environments: never in a release.
-testing = ["dassie-xrpl/fake"]
+testing = ["dassie-xrpl/fake", "dassie-node-core/testing"]
 
 [[example]]
 name = "fake_ledger"

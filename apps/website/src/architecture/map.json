@@ -305,7 +305,7 @@
         "Open Payments over HTTPS: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments",
         "Exchange rates, fetched from several sources, and the fee and spread on what passes between peers",
         "Credit to each peer that grows with the fees it earned the node, read from the journal",
-        "Simulated in tests as a network of real engine cores, crashes mid-payment included"
+        "Simulated as a network of real engine cores, crashes mid-payment included, in tests and by `dassie-sim`"
       ]
     },
     "release": {
@@ -914,6 +914,12 @@
       "t": "node-core",
       "k": "uses",
       "h": true
+    },
+    {
+      "f": "sim",
+      "t": "node",
+      "k": "uses",
+      "h": true
     }
   ],
   "flows": [
@@ -1175,7 +1181,7 @@
     {
       "t": "Deterministic simulation",
       "p": "Whole networks run in one process with a fake clock and a seeded random generator. Faults are injected: latency, loss, crashes, mid-payment too, restarts and partitions. Every state machine checks its invariants after each step, and a failure prints the seed that reproduces it. Tests run fixed seeds; `dassie-sim` runs any other.",
-      "ev": "dassie-stream, dassie-connector and dassie-peer: src/sim, run by tests/simulation.rs and dassie-sim · dassie-node: tests/network.rs"
+      "ev": "src/sim in dassie-stream, dassie-connector, dassie-peer and dassie-node, run by their tests and by dassie-sim"
     },
     {
       "t": "Golden vectors",

@@ -624,6 +624,7 @@ name = "dassie-sim"
 version = "0.1.3"
 dependencies = [
  "dassie-connector",
+ "dassie-node",
  "dassie-node-core",
  "dassie-peer",
  "dassie-stream",
