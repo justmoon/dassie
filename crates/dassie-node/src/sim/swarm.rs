@@ -414,6 +414,21 @@ fn heal(
     }
     let seconds = (sim.now - healed) / 1_000;
     *sim.counts.entry("heal seconds").or_default() += seconds;
+    let completed = sim
+        .outgoing
+        .iter()
+        .filter(|&&(from, _, _, outgoing)| {
+            sim.nodes[from]
+                .store
+                .outgoing_payment(outgoing)
+                .unwrap()
+                .is_some_and(|row| row.state == OutgoingState::Completed)
+        })
+        .count();
+    if completed > 0 {
+        let completed = u64::try_from(completed).unwrap_or(u64::MAX);
+        sim.counts.insert("outgoing payments completed", completed);
+    }
     // An error a node reported ranks first. A network that never settled
     // down is a liveness failure, and its books are not judged: with money
     // in flight they rightly differ.

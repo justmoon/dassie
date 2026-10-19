@@ -130,6 +130,11 @@ pub(super) fn ended(mut sim: Sim, result: Result<(), Outcome>) -> Run {
     // Judged: the harness's own check, when it drops, has nothing to add.
     sim.errors.clear();
     let mut run = Run::new(outcome, std::mem::take(&mut sim.trace));
+    if !sim.withdrawn.is_empty() {
+        let withdrawn = u64::try_from(sim.withdrawn.len()).unwrap_or(u64::MAX);
+        sim.counts
+            .insert("peers withdrawn short of room", withdrawn);
+    }
     run.counts = std::mem::take(&mut sim.counts);
     run
 }
