@@ -37,6 +37,7 @@ Ending a peering is run by the node that ends it, which collects first and pays 
 ## Accepted
 
 - **Whoever is owed when a peering ends stays owed.** For the node being ended, that is at most the credit it extended ([D23](D23-each-node-books-its-own-fulfills.md)). Credit already bounds what a peer can take, so the rule does not add exposure: a node that wanted more could take it by routing packets to itself.
+- **An answer can name a settlement already booked, and is then waited out.** The peer counts a settlement as on its way until we acknowledge its `settlement` message, but on the XRP Ledger our node can book it from the ledger first, and only what is booked after the ask counts toward the answer. The end then waits the whole time of step 5 before it tells the peer. No money is at stake: the settlement is booked once, and the wait is bounded as any is.
 - **The last request collects only half the way** to the peer's trigger, as any request does. Asking more than once would collect more; by default the node asks once, for simplicity.
 - **The end is no longer prompt.** It waits for the node's own settlements under way and for the peer's answer, so a slow ledger delays it, by at most two of those waits; a ban takes effect after them.
 - **The node being ended learns late.** Until `peeringTermination` arrives, it sees only refused Prepares and a settlement it was asked for.
