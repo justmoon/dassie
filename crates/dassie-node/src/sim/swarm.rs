@@ -546,13 +546,18 @@ fn owner_ends(sim: &mut Sim, rng: &mut SeededRng, ends: &mut Vec<End>, ban: bool
     sim.trace
         .push(format!("{} {by}'s owner {what} {peer}", sim.now));
     let mark = sim.trace.len();
-    if ban {
-        sim.step(by, |core| core.ban_node(id).unwrap());
-        sim.count("bans");
+    let done = if ban {
+        sim.step(by, |core| core.ban_node(id).unwrap())
     } else {
-        sim.step(by, |core| core.terminate_peering(id).unwrap());
-        sim.count("peerings ended");
+        sim.step(by, |core| core.terminate_peering(id).unwrap())
+    };
+    // A commit that failed lost the owner's word with the rest of the
+    // step: the node stopped, and starts again as if it was never given.
+    if !done {
+        sim.count("owners' acts lost to a failed commit");
+        return;
     }
+    sim.count(if ban { "bans" } else { "peerings ended" });
     ends.push(End {
         mark,
         by,
