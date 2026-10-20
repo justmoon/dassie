@@ -1,11 +1,14 @@
 # The Dassie node (spec/areas/release.md#systemd-units,
 # spec/areas/node.md#runtimes). It takes its sockets from the socket
-# units, by name, and reports readiness itself (--runtime=systemd).
+# units, by name, and reports readiness itself (--runtime=systemd). It can
+# go without its QUIC socket, so that socket is only wanted: an update that
+# adds it starts it with the node.
 [Unit]
 Description=Dassie node
 Documentation=https://dassie.land
 Requires=dassie-http.socket dassie-https.socket dassie-ipc.socket
-After=dassie-http.socket dassie-https.socket dassie-ipc.socket
+Wants=dassie-quic.socket
+After=dassie-http.socket dassie-https.socket dassie-ipc.socket dassie-quic.socket
 Wants=network-online.target
 After=network-online.target time-set.target
 

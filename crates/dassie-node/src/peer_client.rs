@@ -158,7 +158,7 @@ impl fmt::Debug for PeerClient {
 }
 
 /// A request's place in the bounds, given back when it ends.
-struct Slot {
+pub struct Slot {
     in_flight: Arc<Mutex<InFlight>>,
     host: String,
 }
@@ -279,7 +279,18 @@ impl PeerClient {
     /// node: refused here, or the connection failed. [`Failure::Unknown`]
     /// when it may have: a timeout or a broken response.
     pub async fn send(&self, request: Request) -> Result<Response, Failure> {
-        let url = format!("{}/peer", request.url);
+        let _slot = self.hold(&request)?;
+        self.send_held(request).await
+    }
+
+    /// Takes `request`'s place in the bounds on requests in flight, which
+    /// every transport shares; `None` for a packet, which takes none.
+    ///
+    /// # Errors
+    ///
+    /// [`Failure::NotDelivered`] when the URL names a private address, or
+    /// the bounds are full.
+    pub fn hold(&self, request: &Request) -> Result<Option<Slot>, Failure> {
         let host = request.url.strip_prefix("https://").unwrap_or_default();
         if !self.allow_private && literal_is_private(host) {
             return Err(Failure::NotDelivered);
@@ -287,14 +298,24 @@ impl PeerClient {
         // ILP packets are bounded by the connector's tables, and their
         // responses must get through: only the protocol's own requests
         // count against the limits here.
-        let _slot = if request.kind == dassie_peer::wire::Kind::InterledgerPacket {
-            None
-        } else {
-            match self.slot(host) {
-                Some(slot) => Some(slot),
-                None => return Err(Failure::NotDelivered),
-            }
-        };
+        if request.kind == dassie_peer::wire::Kind::InterledgerPacket {
+            return Ok(None);
+        }
+        self.slot(host).map(Some).ok_or(Failure::NotDelivered)
+    }
+
+    /// Sends `request` over HTTPS, its place in the bounds held
+    /// ([`hold`](Self::hold)).
+    ///
+    /// # Errors
+    ///
+    /// As for [`send`](Self::send).
+    pub async fn send_held(&self, request: Request) -> Result<Response, Failure> {
+        let url = format!("{}/peer", request.url);
+        let host = request.url.strip_prefix("https://").unwrap_or_default();
+        if !self.allow_private && literal_is_private(host) {
+            return Err(Failure::NotDelivered);
+        }
         let Ok(http_request) = http::Request::post(&url)
             .header(ACCEPT, MESSAGE_CONTENT_TYPE)
             .header(CONTENT_TYPE, MESSAGE_CONTENT_TYPE)

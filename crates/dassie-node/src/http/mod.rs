@@ -11,7 +11,7 @@ pub mod assets;
 mod btp;
 pub mod mime;
 pub mod open_payments;
-mod peer;
+pub mod peer;
 pub mod response;
 pub mod stats;
 mod ws;

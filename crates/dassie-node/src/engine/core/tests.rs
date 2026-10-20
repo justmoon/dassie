@@ -29,6 +29,7 @@ fn core_on(store: Arc<Store>, seed: u64) -> Core {
         own_info: dassie_peer::OwnInfo {
             url: None,
             alias: String::new(),
+            quic: false,
         },
         bootstrap: Vec::new(),
     };

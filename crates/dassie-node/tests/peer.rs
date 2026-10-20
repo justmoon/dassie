@@ -1,4 +1,4 @@
-//! Two daemons in one process, peering over real HTTPS
+//! Two daemons in one process, peering over real QUIC and HTTPS
 //! (spec/areas/network.md#peering): they register, learn of each other, peer,
 //! pay several times the credit by settling, keep their peering and balances
 //! across a restart, and end the peering settled.
@@ -12,6 +12,8 @@
 )]
 
 mod support;
+
+use std::sync::atomic::Ordering;
 
 use dassie_identity::NodeKey;
 use dassie_node::clock::{Clock, ManualClock};
@@ -183,6 +185,13 @@ async fn two_daemons_peer_and_keep_their_peering() {
     settle(&clock).await;
     check_network(&a, &key_a, &key_b).await;
     check_network(&b, &key_b, &key_a).await;
+    // Both take QUIC, so they peered over it: each asked the other and
+    // answered it there.
+    for node in [&a, &b] {
+        let quic = node.quic.as_ref().unwrap();
+        assert!(quic.stats().sent.load(Ordering::Relaxed) > 0);
+        assert!(quic.stats().answered.load(Ordering::Relaxed) > 0);
+    }
     // Found in review: removing a scheme that peers use left their
     // peerings without a ledger, and the engine could not start again.
     let removed = a

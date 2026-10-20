@@ -1,5 +1,5 @@
-//! `POST /peer`: the peer protocol's endpoint
-//! (spec/areas/peer-protocol.md#transport).
+//! `POST /peer`: the peer protocol's endpoint over HTTPS, and what it shares
+//! with the one over QUIC (spec/areas/peer-protocol.md#transport).
 //!
 //! This layer checks only what needs no state: the media types, the body's
 //! size and pace, the number of requests waiting, and the rate of
@@ -8,10 +8,15 @@
 //! addresses may hold, and answers once what the request changed is on
 //! disk.
 
-use std::net::SocketAddr;
+use std::future::Future;
+use std::net::{IpAddr, SocketAddr};
+use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 
-use bytes::Bytes;
+use dassie_node_core::connections::ConnectionLimits;
+use dassie_node_core::rate_limit::ClientKey;
+
 use dassie_peer::wire::{
     Authentication, Envelope, MAX_MESSAGE_BYTES, MESSAGE_CONTENT_TYPE, RESPONSE_CONTENT_TYPE,
 };
@@ -27,7 +32,114 @@ use crate::node::Node;
 // envelope's sender, authentication and tags.
 const _: () = assert!(dassie_ilp::MAX_PACKET_LENGTH + 1024 <= MAX_MESSAGE_BYTES);
 
-/// Handles a peer request.
+/// Why a request's body could not be read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BodyError {
+    /// It is longer than [`MAX_MESSAGE_BYTES`].
+    TooLarge,
+    /// The connection or stream broke while it was read.
+    Broken,
+}
+
+/// The answer to a peer request: for 200, a `PeerResponse`; otherwise a
+/// short text for people.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Answer {
+    /// The status (spec/areas/peer-protocol.md#statuses).
+    pub status: u16,
+    /// The body.
+    pub body: Vec<u8>,
+}
+
+impl Answer {
+    fn text(status: StatusCode, text: &str) -> Self {
+        Self {
+            status: status.as_u16(),
+            body: text.as_bytes().to_vec(),
+        }
+    }
+}
+
+/// Answers a peer request from `client` whose body `body` reads, whichever
+/// transport carried it. The body is read only once the request may be
+/// handled, and within the node's time for a body.
+pub async fn answer<F>(node: &Node, client: IpAddr, body: F) -> Answer
+where
+    F: Future<Output = Result<Vec<u8>, BodyError>>,
+{
+    if node.peer_limited(client) {
+        return Answer::text(StatusCode::TOO_MANY_REQUESTS, "Too Many Requests");
+    }
+    let (Some(engine), Some(_permit)) = (node.engine(), node.peer_permit(client)) else {
+        return Answer::text(StatusCode::SERVICE_UNAVAILABLE, "Service Unavailable");
+    };
+    let timeout = Duration::from_millis(node.policies().body_timeout_ms);
+    // A body that is too large, broken or slow held a place for nothing:
+    // charged, so that a client cannot hold places over and over.
+    let (status, text) = match tokio::time::timeout(timeout, body).await {
+        Ok(Ok(body)) => return answer_body(node, &engine, client, body).await,
+        Ok(Err(BodyError::TooLarge)) => (StatusCode::PAYLOAD_TOO_LARGE, "Payload Too Large"),
+        Ok(Err(BodyError::Broken)) => (StatusCode::BAD_REQUEST, "Bad Request"),
+        Err(_) => (StatusCode::REQUEST_TIMEOUT, "Request Timeout"),
+    };
+    node.peer_charge(client);
+    Answer::text(status, text)
+}
+
+/// Hands a request's body to the engine and returns its reply.
+async fn answer_body(
+    node: &Node,
+    engine: &crate::engine::Engine,
+    client: IpAddr,
+    body: Vec<u8>,
+) -> Answer {
+    let anonymous = Envelope::decode(&body)
+        .is_ok_and(|envelope| envelope.authentication == Authentication::None);
+    // Loopback is no network of its own where private peers are allowed, as
+    // for the limits per client: dev and the tests run many nodes there.
+    let source = node.counted_client(client).map(|_| client.to_canonical());
+    let Ok(reply) = engine.peer_inbound(body, source).await else {
+        return Answer::text(StatusCode::SERVICE_UNAVAILABLE, "Service Unavailable");
+    };
+    // Unauthenticated requests are for tools; refused ones may be someone
+    // making the node verify signatures, exchange keys or probe URLs for
+    // nothing. All are rationed.
+    if anonymous || matches!(reply.status, 400 | 401 | 409 | 429) {
+        node.peer_charge(client);
+    }
+    Answer {
+        status: reply.status,
+        body: reply.body,
+    }
+}
+
+/// Answers peer requests over QUIC with the node, as over HTTPS: the same
+/// checks, limits and statuses, and the same bound on connections.
+#[derive(Debug)]
+pub struct QuicHandler(pub Arc<Node>);
+
+impl crate::quic::Handler for QuicHandler {
+    fn client(&self, address: IpAddr) -> Option<ClientKey> {
+        self.0.counted_client(address)
+    }
+
+    fn limits(&self) -> ConnectionLimits {
+        ConnectionLimits {
+            max_total: super::MAX_CONNECTIONS,
+            max_per_client: self.0.policies().http_connections_per_client,
+        }
+    }
+
+    fn answer<'a>(
+        &'a self,
+        client: IpAddr,
+        body: crate::quic::Body<'a>,
+    ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
+        Box::pin(answer(&self.0, client, body))
+    }
+}
+
+/// Handles a peer request over HTTPS.
 pub async fn handle(node: &Node, peer: SocketAddr, request: Request<Incoming>) -> Response<Body> {
     let headers = request.headers();
     if header_str(headers, &header::ACCEPT) != Some(MESSAGE_CONTENT_TYPE) {
@@ -42,39 +154,18 @@ pub async fn handle(node: &Node, peer: SocketAddr, request: Request<Incoming>) -
             "Unsupported Media Type, expected application/dassie-message",
         );
     }
-    if node.peer_limited(peer.ip()) {
-        return response::text(StatusCode::TOO_MANY_REQUESTS, "Too Many Requests");
-    }
-    let (Some(engine), Some(_permit)) = (node.engine(), node.peer_permit()) else {
-        return response::text(StatusCode::SERVICE_UNAVAILABLE, "Service Unavailable");
+    let body = async {
+        Limited::new(request.into_body(), MAX_MESSAGE_BYTES)
+            .collect()
+            .await
+            .map(|collected| collected.to_bytes().to_vec())
+            .map_err(|_| BodyError::TooLarge)
     };
-    let timeout = Duration::from_millis(node.policies().body_timeout_ms);
-    let collect = Limited::new(request.into_body(), MAX_MESSAGE_BYTES).collect();
-    let body: Bytes = match tokio::time::timeout(timeout, collect).await {
-        Ok(Ok(collected)) => collected.to_bytes(),
-        Ok(Err(_)) => return response::text(StatusCode::PAYLOAD_TOO_LARGE, "Payload Too Large"),
-        Err(_) => return response::text(StatusCode::REQUEST_TIMEOUT, "Request Timeout"),
-    };
-    let anonymous = Envelope::decode(&body)
-        .is_ok_and(|envelope| envelope.authentication == Authentication::None);
-    // Loopback is no network of its own where private peers are allowed, as
-    // for the limits per client: dev and the tests run many nodes there.
-    let source = node
-        .counted_client(peer.ip())
-        .map(|_| peer.ip().to_canonical());
-    let Ok(reply) = engine.peer_inbound(body.to_vec(), source).await else {
-        return response::text(StatusCode::SERVICE_UNAVAILABLE, "Service Unavailable");
-    };
-    // Unauthenticated requests are for tools; refused ones may be someone
-    // making the node verify signatures, exchange keys or probe URLs for
-    // nothing. All are rationed.
-    if anonymous || matches!(reply.status, 400 | 401 | 409 | 429) {
-        node.peer_charge(peer.ip());
-    }
-    let status = StatusCode::from_u16(reply.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let answer = answer(node, peer.ip(), body).await;
+    let status = StatusCode::from_u16(answer.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     if status == StatusCode::OK {
-        response::with_body(status, RESPONSE_CONTENT_TYPE, reply.body)
+        response::with_body(status, RESPONSE_CONTENT_TYPE, answer.body)
     } else {
-        response::with_body(status, "text/plain; charset=utf-8", reply.body)
+        response::with_body(status, "text/plain; charset=utf-8", answer.body)
     }
 }

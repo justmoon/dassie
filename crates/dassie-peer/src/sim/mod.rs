@@ -358,6 +358,7 @@ impl Network {
             OwnInfo {
                 url: Some(url(index)),
                 alias: format!("n{index}"),
+                quic: false,
             },
             self.bootstrap.clone(),
             sim.stored.clone(),

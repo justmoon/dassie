@@ -825,18 +825,26 @@ impl Driver<'_> {
 
     /// Sends a peer request on a task of its own; its result comes back as
     /// a command. The peer node bounds the requests in flight.
+    ///
+    /// A node whose link state says it takes QUIC is asked over QUIC, unless
+    /// its QUIC could not be reached lately; one that cannot be reached is
+    /// asked over HTTPS, in the time left.
     fn send_peer_request(&self, request: dassie_peer::Request) {
         let client = self.node.peer_client().cloned();
+        let quic = self.node.quic().cloned();
         let commands = self.commands.clone();
         let id = request.id;
         tokio::spawn(async move {
             let (kind, to) = (request.kind, request.to);
-            let result = match client {
-                Some(client) => client.send(request).await,
-                None => Err(dassie_peer::Failure::NotDelivered),
+            let (result, over) = match client {
+                Some(client) => crate::quic::send_peer(quic, &client, request).await,
+                None => (
+                    Err(dassie_peer::Failure::NotDelivered),
+                    crate::quic::Transport::Https,
+                ),
             };
             let status = result.as_ref().map(|response| response.status);
-            tracing::debug!(target: target::PEER, ?kind, %to, ?status, "peer request");
+            tracing::debug!(target: target::PEER, ?kind, %to, %over, ?status, "peer request");
             let _ = commands.send(Command::PeerResponse { id, result }).await;
         });
     }

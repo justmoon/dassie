@@ -531,6 +531,7 @@ impl Sim {
             own_info: OwnInfo {
                 url: Some(url(index)),
                 alias: format!("n{index}"),
+                quic: false,
             },
             bootstrap: self.bootstrap.clone(),
         };

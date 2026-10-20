@@ -45,6 +45,9 @@ pub struct OwnInfo {
     pub url: Option<String>,
     /// Its alias.
     pub alias: String,
+    /// Whether it takes the peer protocol over QUIC, on UDP at its URL's
+    /// host and port.
+    pub quic: bool,
 }
 
 impl OwnInfo {
@@ -58,7 +61,11 @@ impl OwnInfo {
         } else {
             String::new()
         };
-        Self { url, alias }
+        Self {
+            url,
+            alias,
+            quic: self.quic,
+        }
     }
 }
 
@@ -413,10 +420,19 @@ impl PeerNode {
             },
         );
         self.deadlines.insert((deadline_ms, id));
+        // Only a link state says a node takes QUIC; a bootstrap node known
+        // only from the configuration is asked over HTTPS until its state
+        // arrives.
+        let quic = self
+            .table
+            .get(&to)
+            .and_then(|entry| entry.link.as_ref())
+            .is_some_and(|link| link.quic);
         self.outputs.push_back(Output::Request(Request {
             id,
             to,
             url,
+            quic,
             kind: content.kind(),
             body,
             timeout_ms,

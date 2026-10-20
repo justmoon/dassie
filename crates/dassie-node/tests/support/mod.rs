@@ -58,7 +58,21 @@ pub struct Bound {
     https: std::net::TcpListener,
     ipc_path: PathBuf,
     ipc: std::os::unix::net::UnixListener,
+    quic: std::net::UdpSocket,
     notify: Option<PathBuf>,
+}
+
+/// An HTTPS listener and a UDP socket for QUIC on the same port number, as
+/// a node has them. The OS picks the TCP port, which may be taken on UDP:
+/// then another is tried.
+fn https_and_quic() -> (std::net::TcpListener, std::net::UdpSocket) {
+    for _ in 0..16 {
+        let https = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        if let Ok(quic) = std::net::UdpSocket::bind(https.local_addr().unwrap()) {
+            return (https, quic);
+        }
+    }
+    panic!("no port free on both TCP and UDP");
 }
 
 impl Bound {
@@ -70,13 +84,14 @@ impl Bound {
     /// Listeners on fresh ports, for a daemon on `dir`.
     pub fn bind_in(dir: tempfile::TempDir) -> Self {
         let http = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let https = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let (https, quic) = https_and_quic();
         let ipc_path = dir.path().join("ipc.sock");
         let ipc = ipc::bind(&ipc_path).unwrap();
         Self {
             dir,
             http,
             https,
+            quic,
             ipc_path,
             ipc,
             notify: None,
@@ -107,6 +122,7 @@ impl Bound {
             dir,
             http,
             https,
+            quic,
             ipc_path,
             ipc,
             notify,
@@ -123,7 +139,10 @@ impl Bound {
         let store = Store::open(&state).unwrap();
         let (http_address, https_address) =
             (http.local_addr().unwrap(), https.local_addr().unwrap());
-        let mut prepared = Prepared::from_parts(settings, store, http, https, ipc);
+        let (hand_out, handed) = tokio::sync::oneshot::channel();
+        let mut prepared = Prepared::from_parts(settings, store, http, https, ipc)
+            .with_quic(quic)
+            .handing_out(hand_out);
         if let Some(path) = notify {
             prepared = prepared.notifying(Notifier::Path(path));
         }
@@ -135,16 +154,18 @@ impl Bound {
             policies,
             shutdown.clone(),
         ));
-        let node = TestNode {
+        let mut node = TestNode {
             dir,
             http: http_address,
             https: https_address,
             ipc: ipc_path,
             clock,
+            quic: None,
             shutdown,
             handle: Some(handle),
         };
         node.wait_until_up().await;
+        node.quic = handed.await.ok();
         node
     }
 }
@@ -156,6 +177,8 @@ pub struct TestNode {
     pub https: SocketAddr,
     pub ipc: PathBuf,
     pub clock: ManualClock,
+    /// The QUIC endpoint, once the daemon made it.
+    pub quic: Option<Arc<dassie_node::quic::Quic>>,
     shutdown: CancellationToken,
     handle: Option<JoinHandle<Result<(), DaemonError>>>,
 }
