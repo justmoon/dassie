@@ -374,6 +374,16 @@ async fn an_incoming_payment_made_through_the_front_door_reads_back() {
     let read = json_of(&reply);
     assert_eq!(read["id"], created["id"]);
     assert_eq!(read["walletAddress"], created["walletAddress"]);
+    // The node's GNAP challenge passes, and its answer verifies.
+    let reply = door.get(&name, "/incoming-payments").await;
+    assert_eq!(reply.status, StatusCode::UNAUTHORIZED, "{}", reply.text());
+    assert_eq!(
+        reply.header("www-authenticate"),
+        Some(format!("GNAP as_uri=https://{name}/gnap").as_str())
+    );
+    let target = format!("https://{name}/incoming-payments");
+    let now_s = node.clock.now_ms() / 1_000;
+    assert_eq!(signer(&target, &reply, now_s), Ok(key.node_id()));
     // A body over the node's bound never reaches it.
     let large = Request::post("/incoming-payments")
         .header("host", &name)
@@ -439,8 +449,9 @@ impl Handler for Misbehaving {
 }
 
 /// What a misbehaving node answers, by path: a page, a page behind a
-/// JSON type, a redirect, an answer over the front door's bound, a slow
-/// answer, or JSON with its own lax policy; and a cookie with each.
+/// JSON type, a redirect, an answer over the front door's bound, a sign-in
+/// dialog, a slow answer, or JSON with its own lax policy; and a cookie
+/// with each.
 async fn misbehave(
     request: Request<hyper::body::Incoming>,
 ) -> Result<Response<Full<Bytes>>, std::convert::Infallible> {
@@ -455,6 +466,15 @@ async fn misbehave(
         "/pay/redirect" => builder
             .status(StatusCode::FOUND)
             .header("location", "https://elsewhere.example/")
+            .body(Bytes::new()),
+        "/pay/basic" => builder
+            .status(StatusCode::UNAUTHORIZED)
+            .header("www-authenticate", "Basic realm=\"Sign in to Dassie\"")
+            .body(Bytes::new()),
+        "/pay/mixed" => builder
+            .status(StatusCode::UNAUTHORIZED)
+            .header("www-authenticate", "GNAP as_uri=https://a.example/gnap")
+            .header("www-authenticate", "Basic realm=\"Sign in to Dassie\"")
             .body(Bytes::new()),
         "/pay/huge" => builder
             .header("content-type", "application/json")
@@ -523,7 +543,17 @@ async fn the_front_door_passes_back_only_json_without_cookies() {
         ["default-src 'none'; sandbox"]
     );
     assert_eq!(all("x-content-type-options"), ["nosniff"]);
-    for path in ["/pay/page", "/pay/two-types", "/pay/redirect", "/pay/huge"] {
+    // A redirect goes nowhere: its `Location` stays behind.
+    let reply = door.get(&name, "/pay/redirect").await;
+    assert_eq!(reply.status, StatusCode::FOUND);
+    assert!(reply.header("location").is_none());
+    // No sign-in dialog of a node's, alone or beside GNAP's challenge.
+    for path in ["/pay/basic", "/pay/mixed"] {
+        let reply = door.get(&name, path).await;
+        assert_eq!(reply.status, StatusCode::UNAUTHORIZED, "{path}");
+        assert!(reply.header("www-authenticate").is_none(), "{path}");
+    }
+    for path in ["/pay/page", "/pay/two-types", "/pay/huge"] {
         let reply = door.get(&name, path).await;
         assert_eq!(reply.status, StatusCode::BAD_GATEWAY, "{path}");
         assert_eq!(json_of(&reply)["error"]["code"], "bad_gateway");

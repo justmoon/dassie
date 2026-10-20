@@ -253,17 +253,13 @@ fn too_many() -> Response<Body> {
     )
 }
 
-/// The answer as the node gave it, without the headers that concern the
-/// stream it came over, cookies and what would make a browser do more
-/// than read it; or 502, unless it is JSON with a single `Content-Type`, or
-/// has no body, and is no redirect. The front door's own `nosniff` and
+/// The answer as the node gave it, with only the headers a client needs
+/// ([`passed_back`]); or 502, unless it is JSON with a single
+/// `Content-Type`, or has no body. The front door's own `nosniff` and
 /// Content Security Policy replace the node's. The node's signature covers
 /// neither (spec/areas/payments.md#signed-responses), so it still verifies.
 fn returned((parts, body): Answer) -> Response<Body> {
     let bad = |description: &str| error(StatusCode::BAD_GATEWAY, "bad_gateway", description);
-    if parts.status.is_redirection() && parts.headers.contains_key(header::LOCATION) {
-        return bad("the node answered with a redirect");
-    }
     let types: Vec<&HeaderValue> = parts.headers.get_all(header::CONTENT_TYPE).iter().collect();
     let is_json = match types.as_slice() {
         [] => false,
@@ -360,12 +356,13 @@ fn passed_on(headers: &HeaderMap) -> HeaderMap {
 /// (`Content-Disposition`, cookies, `Refresh`, `Alt-Svc`, `Link`, the
 /// node's policies) reaches the front door's names, whatever a node
 /// sends. These are what the node's Open Payments answers set
-/// (`http/open_payments/`), and `Retry-After` and `Vary`; `Location` is
+/// (`http/open_payments/`), and `Retry-After` and `Vary`. `Location` is
 /// not among them, since only the consent route, which the front door
-/// answers itself, redirects.
+/// answers itself, redirects; nor is `Content-Length`, which hyper writes
+/// for the body the front door holds. `WWW-Authenticate` passes only as
+/// the GNAP challenge ([`gnap_only`]).
 const ANSWER_HEADERS: &[&str] = &[
     "content-type",
-    "content-length",
     "content-digest",
     "signature",
     "signature-input",
@@ -376,7 +373,8 @@ const ANSWER_HEADERS: &[&str] = &[
 ];
 
 /// The headers of a node's answer passed back: [`ANSWER_HEADERS`] and the
-/// CORS headers (`Access-Control-*`).
+/// CORS headers (`Access-Control-*`), with `WWW-Authenticate` only if it
+/// is the GNAP challenge alone.
 fn passed_back(headers: &HeaderMap) -> HeaderMap {
     let mut kept = HeaderMap::new();
     for (name, value) in headers {
@@ -385,7 +383,28 @@ fn passed_back(headers: &HeaderMap) -> HeaderMap {
             kept.append(name.clone(), value.clone());
         }
     }
+    if !gnap_only(&kept) {
+        kept.remove(header::WWW_AUTHENTICATE);
+    }
     kept
+}
+
+/// Whether every `WWW-Authenticate` value is a single challenge of the
+/// GNAP scheme, as the node's own are (`gnap::www_authenticate`). Any other
+/// scheme, such as `Basic`, would have a browser show its sign-in dialog on
+/// the front door's names and send what is typed there to the node; and a
+/// comma may start a second challenge, so none is taken.
+fn gnap_only(headers: &HeaderMap) -> bool {
+    headers
+        .get_all(header::WWW_AUTHENTICATE)
+        .iter()
+        .all(|value| {
+            let Ok(text) = value.to_str() else {
+                return false;
+            };
+            let scheme = text.split([' ', '\t']).next().unwrap_or_default();
+            scheme.eq_ignore_ascii_case("gnap") && !text.contains(',')
+        })
 }
 
 /// The front door's own answer, in the specs' error form, with the
@@ -593,7 +612,6 @@ mod tests {
             names(&passed_back(&answer)),
             [
                 "content-type",
-                "content-length",
                 "content-digest",
                 "signature",
                 "signature-input",
@@ -642,13 +660,39 @@ mod tests {
         ];
         assert_eq!(answer(200, &two, b"<p>").status(), StatusCode::BAD_GATEWAY);
         assert_eq!(answer(204, &two, b"").status(), StatusCode::BAD_GATEWAY);
-        // No Open Payments answer redirects.
-        let redirect = [("location", "https://elsewhere.example/")];
-        assert_eq!(
-            answer(302, &redirect, b"").status(),
-            StatusCode::BAD_GATEWAY
-        );
+        // A redirect goes nowhere: its `Location` stays behind.
+        let redirect = answer(302, &[("location", "https://elsewhere.example/")], b"");
+        assert_eq!(redirect.status(), StatusCode::FOUND);
+        assert!(redirect.headers().get(header::LOCATION).is_none());
         assert_eq!(answer(304, &[], b"").status(), StatusCode::NOT_MODIFIED);
+    }
+
+    #[test]
+    fn only_the_gnap_challenge_passes() {
+        let challenges = |fields: &[(&'static str, &'static str)]| -> Vec<String> {
+            passed_back(&headers(fields))
+                .get_all(header::WWW_AUTHENTICATE)
+                .iter()
+                .map(|value| value.to_str().unwrap().to_string())
+                .collect()
+        };
+        let gnap = "GNAP as_uri=https://a.dassiepay.net/gnap";
+        assert_eq!(challenges(&[("www-authenticate", gnap)]), [gnap]);
+        assert_eq!(
+            challenges(&[("www-authenticate", "gnap as_uri=https://a.example/gnap")]),
+            ["gnap as_uri=https://a.example/gnap"]
+        );
+        for fields in [
+            &[("www-authenticate", "Basic realm=\"Sign in to Dassie\"")][..],
+            &[
+                ("www-authenticate", gnap),
+                ("www-authenticate", "Basic realm=\"x\""),
+            ],
+            &[("www-authenticate", "GNAP as_uri=x, Basic realm=\"x\"")],
+            &[("www-authenticate", "GNAPish realm=\"x\"")],
+        ] {
+            assert!(challenges(fields).is_empty(), "{fields:?}");
+        }
     }
 
     #[test]
