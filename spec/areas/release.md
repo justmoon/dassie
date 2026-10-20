@@ -37,7 +37,8 @@ How Dassie is built, signed, published, installed and updated. A release is one 
 
 - **The wallet** is built in the Nix sandbox, offline, from npm packages fetched one by one with the integrity `pnpm-lock.yaml` records (`nix/pnpm.nix`, [D21](../decisions/D21-tooling-on-node-and-pnpm-not-deno.md)), so a change to the lockfile needs no hash updated by hand.
 - **The binaries** are statically linked against musl, for x86_64 and, cross-compiled, aarch64.
-- **The archives are reproducible:** the same input gives the same bytes.
+- **The archives are deterministic:** sorted, with fixed times and owners, so the same binaries give the same bytes.
+- **A release is built once,** on the Vorstand Nix cloud, and what that build made is what is signed. Nothing builds it a second time to compare, so whether the binaries come out byte for byte the same on another builder is untested, and the signature vouches for what the one builder and its cache produced. Checking that by building again is [not built](../roadmap.md#rebuilding-releases).
 - **`static-binaries`** checks that both binaries are static and pass `verify-install`, the arm64 one under qemu.
 
 ## The mirror
@@ -105,7 +106,7 @@ If the node does not come up after the switch, the update disables and removes t
 
 ## Decisions
 
-- [D11](../decisions/D11-release-integrity.md): signed sums with minisign rather than Sigstore, the trusted comment, unsigned channel files, verify before extract, atomic switch and rollback.
+- [D11](../decisions/D11-release-integrity.md): signed sums with minisign rather than Sigstore, the trusted comment, unsigned channel files, verify before extract, atomic switch and rollback; a release built once, until a second build can check it.
 - [D14](../decisions/D14-build-system.md): the Nix flake for release builds, cross-compiled with musl.
 - [D21](../decisions/D21-tooling-on-node-and-pnpm-not-deno.md): the wallet's packages fetched from the lockfile's hashes.
 - [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md): releases are to wait for the simulation campaign; that check is [not built](../roadmap.md#continuous-simulation).
