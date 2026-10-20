@@ -13,8 +13,8 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use dassie_payments::VerifyingKey;
 use dassie_payments::gnap::{
-    self, Access, AccessToken, Client, Continue, ContinueToken, ErrorCode, GrantRequest,
-    GrantResponse, Scope,
+    self, Access, AccessToken, AccessType, Action, Client, Continue, ContinueToken, ErrorCode,
+    GrantRequest, GrantResponse, Scope,
 };
 use dassie_payments::httpsig::{self, Signature};
 use dassie_payments::jwk::Jwk;
@@ -148,6 +148,10 @@ pub fn token_hash(token: &str) -> [u8; 32] {
 /// Rewrites each access item's wallet address to the canonical URL of the
 /// ledger it names, so that `$host` and `/pay/<slug>` mean the same; then
 /// refuses two items that create outgoing payments from one.
+///
+/// Refuses too an item that creates outgoing payments with a debit limit
+/// in another asset than its wallet address: no payment from it could
+/// fit the limit (D29).
 fn canonical(
     access: &mut [Access],
     addresses: &WalletAddresses,
@@ -163,6 +167,7 @@ fn canonical(
                 )
             })?;
             item.identifier = Some(urls.wallet_address(ledger, false));
+            debits_in_own_asset(item, ledger)?;
         }
     }
     // Only now are two spellings of one wallet address the same.
@@ -174,6 +179,30 @@ fn canonical(
         ));
     }
     Ok(())
+}
+
+/// Refuses an item that creates outgoing payments from `ledger` with a
+/// debit limit in another asset, naming the asset the limit must be in.
+fn debits_in_own_asset(item: &Access, ledger: dassie_ledger::LedgerId) -> Result<(), OpError> {
+    let creates =
+        item.kind == AccessType::OutgoingPayment && item.actions.contains(&Action::Create);
+    let asset = ledger.asset();
+    let Some(limit) = item
+        .limits
+        .as_ref()
+        .filter(|limits| creates && !limits.debits_in(asset.code, asset.scale))
+        .and_then(|limits| limits.debit_amount.as_ref())
+    else {
+        return Ok(());
+    };
+    Err(OpError::gnap(
+        400,
+        ErrorCode::InvalidRequest,
+        format!(
+            "the debit limit must be in the wallet address's asset, {} at scale {}; it is in {} at scale {}",
+            asset.code, asset.scale, limit.asset_code, limit.asset_scale
+        ),
+    ))
 }
 
 /// The components every signature must cover.

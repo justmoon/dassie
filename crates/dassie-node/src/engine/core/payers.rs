@@ -410,16 +410,11 @@ impl Core {
             return refused("the grant pays another receiver");
         }
         let asset = new.ledger.asset();
-        let debit_asset = limits
-            .debit_amount
-            .as_ref()
-            .is_none_or(|limit| limit.same_asset(asset.code, asset.scale));
-        let receive_asset = limits.receive_amount.as_ref().is_none_or(|limit| {
-            limit.same_asset(
-                &new.receive_amount.asset_code,
-                new.receive_amount.asset_scale,
-            )
-        });
+        let debit_asset = limits.debits_in(asset.code, asset.scale);
+        let receive_asset = limits.receives_in(
+            &new.receive_amount.asset_code,
+            new.receive_amount.asset_scale,
+        );
         if !debit_asset || !receive_asset {
             return refused("the grant's limits are in another asset");
         }

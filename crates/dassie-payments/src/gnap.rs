@@ -193,7 +193,8 @@ impl Limits {
 
     /// Whether a payment debiting `debit` and delivering `receive` fits,
     /// on top of what the window has spent: `spent` as `(debit, receive)`.
-    /// The asset of each limit is the caller's to check.
+    /// The asset of each limit is the caller's to check, with
+    /// [`Self::debits_in`] and [`Self::receives_in`].
     #[must_use]
     pub fn admit(&self, spent: (u64, u64), debit: u64, receive: u64) -> bool {
         let fits = |limit: &Option<Amount>, spent: u64, more: u64| {
@@ -202,6 +203,24 @@ impl Limits {
                 .is_none_or(|limit| u128::from(spent) + u128::from(more) <= u128::from(limit.value))
         };
         fits(&self.debit_amount, spent.0, debit) && fits(&self.receive_amount, spent.1, receive)
+    }
+
+    /// Whether a payment debiting the asset `code` at `scale` can fit the
+    /// debit limit: there is none, or it is in that asset.
+    #[must_use]
+    pub fn debits_in(&self, code: &str, scale: u8) -> bool {
+        self.debit_amount
+            .as_ref()
+            .is_none_or(|limit| limit.same_asset(code, scale))
+    }
+
+    /// Whether a payment delivering the asset `code` at `scale` can fit
+    /// the receive limit: there is none, or it is in that asset.
+    #[must_use]
+    pub fn receives_in(&self, code: &str, scale: u8) -> bool {
+        self.receive_amount
+            .as_ref()
+            .is_none_or(|limit| limit.same_asset(code, scale))
     }
 }
 
@@ -753,6 +772,34 @@ mod tests {
         assert_eq!(request(&json.replace(debit, &receive)).validate(), Ok(()));
         let both = json.replace(debit, &alloc::format!("{debit},{receive}"));
         assert_eq!(request(&both).validate(), Err(ErrorCode::InvalidRequest));
+    }
+
+    #[test]
+    fn a_limit_fits_only_payments_in_its_asset() {
+        let none = Limits {
+            receiver: None,
+            interval: None,
+            debit_amount: None,
+            receive_amount: None,
+        };
+        assert!(none.debits_in("USD", 9) && none.receives_in("EUR", 2));
+        let debit = Limits {
+            debit_amount: Some(Amount::new(500, "USD", 9)),
+            ..none.clone()
+        };
+        assert!(debit.debits_in("USD", 9));
+        assert!(!debit.debits_in("EUR", 9));
+        assert!(!debit.debits_in("USD", 2));
+        // A debit limit leaves what is received free, in any asset.
+        assert!(debit.receives_in("EUR", 2));
+        let receive = Limits {
+            receive_amount: Some(Amount::new(500, "EUR", 2)),
+            ..none
+        };
+        assert!(receive.receives_in("EUR", 2));
+        assert!(!receive.receives_in("USD", 2));
+        assert!(!receive.receives_in("EUR", 9));
+        assert!(receive.debits_in("USD", 9));
     }
 
     #[test]
