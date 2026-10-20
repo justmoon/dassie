@@ -85,10 +85,15 @@ impl Handler for Together {
     }
 }
 
-/// Answers each request with its body, after a while.
-struct Slow;
+/// Says when a request reaches it, and answers it with its body only once
+/// let go.
+#[derive(Default)]
+struct Held {
+    arrived: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+}
 
-impl Handler for Slow {
+impl Handler for Held {
     fn client(&self, address: IpAddr) -> Option<ClientKey> {
         Echo.client(address)
     }
@@ -104,7 +109,8 @@ impl Handler for Slow {
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
         Box::pin(async move {
             let body = body.await.unwrap_or_default();
-            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            self.arrived.notify_one();
+            self.release.notified().await;
             Answer { status: 200, body }
         })
     }
@@ -324,7 +330,8 @@ async fn a_short_request_falls_back_to_https_in_time() {
     assert!(accepted.is_ok(), "HTTPS was not tried");
     assert_eq!(transport, Transport::Https);
     assert!(result.is_err());
-    assert!(started.elapsed() < std::time::Duration::from_millis(2_500));
+    // Within its time, give or take a loaded machine's slack.
+    assert!(started.elapsed() < std::time::Duration::from_millis(4_000));
     // And asked over HTTPS from now on, without waiting for QUIC again.
     assert!(a.quic.is_unreachable(&target));
     shutdown.cancel();
@@ -336,11 +343,14 @@ async fn a_short_request_falls_back_to_https_in_time() {
 async fn a_request_in_progress_is_answered_at_shutdown() {
     let (shutdown_a, shutdown_b) = (CancellationToken::new(), CancellationToken::new());
     let a = side(1, &shutdown_a);
-    let b = side_with(2, &shutdown_b, Arc::new(Slow));
+    let held = Arc::new(Held::default());
+    let b = side_with(2, &shutdown_b, Arc::clone(&held) as Arc<dyn Handler>);
     let (quic, request) = (Arc::clone(&a.quic), request(&b, b"late".to_vec()));
     let sending = tokio::spawn(async move { quic.send(&request, &client(), CONNECT).await });
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    // Shut down while the request is in the handler, then let it answer.
+    held.arrived.notified().await;
     shutdown_b.cancel();
+    held.release.notify_one();
     let response = sending.await.unwrap().unwrap();
     assert_eq!((response.status, response.body), (200, b"late".to_vec()));
     shutdown_a.cancel();

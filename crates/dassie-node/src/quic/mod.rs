@@ -56,6 +56,10 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long a node whose QUIC could not be reached is asked over HTTPS.
 const UNREACHABLE_FOR: Duration = Duration::from_secs(10 * 60);
 
+/// Least time an attempt to connect must have had for its failure to say
+/// the node cannot be reached: a packet near its expiry may have too little.
+const MIN_TO_JUDGE: Duration = Duration::from_millis(500);
+
 /// Longest response read: a node list of 4096 IDs fits, as over HTTPS.
 const MAX_RESPONSE_BYTES: usize = 256 * 1024;
 
@@ -338,7 +342,6 @@ impl Quic {
                 .connection(&place, request, resolver, connect_within)
                 .await;
             let Some(connection) = connection else {
-                self.mark_unreachable(request.to);
                 return Err(SendError::Unreachable);
             };
             let result = exchange(&connection, &request.body).await;
@@ -360,9 +363,11 @@ impl Quic {
         Err(SendError::Failed(Failure::NotDelivered))
     }
 
-    /// The open connection in `place`, or a new one. Only making one holds
-    /// the place, so requests to a node wait for its connection, never for
-    /// each other.
+    /// The open connection in `place`, or a new one, within `within`. Only
+    /// making one holds the place, so requests to a node wait for its
+    /// connection, never for each other; one that waits past its time for
+    /// another's dial goes over HTTPS, nothing sent. A dial that had time
+    /// enough and failed marks the node as out of reach.
     async fn connection(
         self: &Arc<Self>,
         place: &tokio::sync::Mutex<Option<Link>>,
@@ -370,12 +375,19 @@ impl Quic {
         resolver: &PeerClient,
         within: Duration,
     ) -> Option<Connection> {
-        let mut held = place.lock().await;
+        let deadline = tokio::time::Instant::now() + within;
+        let mut held = tokio::time::timeout_at(deadline, place.lock()).await.ok()?;
         if let Some(kept) = held.as_ref().filter(|kept| kept.is_open()) {
             return Some(kept.connection.clone());
         }
         *held = None;
-        let connection = self.dial(request, resolver, within).await?;
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let Some(connection) = self.dial(request, resolver, left).await else {
+            if left >= MIN_TO_JUDGE {
+                self.mark_unreachable(request.to);
+            }
+            return None;
+        };
         self.answer_on(&connection);
         *held = Some(Link {
             connection: connection.clone(),
