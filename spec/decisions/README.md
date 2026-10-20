@@ -37,6 +37,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [D33](D33-a-peering-ended-for-room-stays-apart-and-earns-no-credit-back.md) | A peering ended for room stays apart, and earns no credit back | network, settlement |
 | [D34](D34-strangers-never-take-the-owners-share-of-a-pool.md) | Strangers never take the owner's share of a pool | payments, stream |
 | [D35](D35-dassie-land-is-a-bucket-behind-the-mirrors-load-balancer.md) | dassie.land is a bucket behind the mirror's load balancer | website, release |
+| [D36](D36-a-node-becomes-core-by-registering-and-being-promoted.md) | A node becomes core by registering and being promoted (not built) | network, peer-protocol, designs/periphery |
 
 ## Adding or changing a decision
 

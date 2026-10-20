@@ -20,8 +20,8 @@ This is a design ([D26](../decisions/D26-core-and-periphery.md)). Of it, QUIC be
 
 | Term | Meaning |
 |---|---|
-| **Core node** | A node with a public IP that registers and keeps the node list ([Network](../areas/network.md#membership)). |
-| **Periphery node** | A node that connects only to core nodes, never forwards, and does not register. |
+| **Core node** | A registered node that its peers have promoted, in the core the signed data defines ([D36](../decisions/D36-a-node-becomes-core-by-registering-and-being-promoted.md)). |
+| **Periphery node** | A node that connects only to core nodes and never forwards. Every node starts as one, and registers only to become core ([D36](../decisions/D36-a-node-becomes-core-by-registering-and-being-promoted.md)). |
 | **Uplink** | A core node a periphery node peers with. |
 | **Downlink** | A periphery node, as its uplink sees it. |
 | **Relay** | A server that carries streams to the periphery nodes connected to it. Every uplink is a relay for its downlinks; a periphery node may also connect to a relay it chooses (§5). |
@@ -91,7 +91,7 @@ SignedPeripheryRecord ::= SEQUENCE { record OCTET STRING CONTAINING PeripheryRec
 
 A record lasts 30 minutes and is renewed every 10, and whenever it changes.
 
-**Home nodes.** Every core node knows the same core nodes: the majority node list ([Network](../areas/network.md#node-lists-and-the-majority)). A periphery node's home nodes are the five nodes of that list that rank highest by `SHA-256("dassie home" ‖ periphery ID ‖ core ID)`. Anyone with the list computes the same five, so a lookup is a single request, with no routing through a distributed table.
+**Home nodes.** Every node computes the same core from the same signed data ([D36](../decisions/D36-a-node-becomes-core-by-registering-and-being-promoted.md)); the majority node list alone is not the core, since it also holds registered nodes not yet promoted. A periphery node's home nodes are the five core nodes that rank highest by `SHA-256("dassie home" ‖ periphery ID ‖ core ID)`. Anyone with the list computes the same five, so a lookup is a single request, with no routing through a distributed table.
 
 - **Storing.** An uplink stores its downlink's record with the downlink's home nodes, as an authenticated peer message, when the downlink connects and whenever the downlink renews it. A home node takes a record only from a core node the record names as an uplink, and a record is about 200 bytes.
 - **Sharing a home node.** A core node can name any number of keys it made itself as its downlinks, since keys cost nothing. So a home node bounds its records in all, and gives each submitting core node a fair share of them: when it is full, a new record displaces the oldest of the core node that holds the most, never one of a node within its share. A few registered core nodes can then crowd out only each other, not the records of every other uplink.

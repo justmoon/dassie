@@ -61,7 +61,17 @@ Nodes without a public IP join as periphery nodes: they connect only to core nod
   - owner apps paired on `localhost`;
   - front doors. A node's names and its signed responses are built ([Payments](areas/payments.md#the-nodes-names)), and so is the stream a front door passes requests over: a relayed stream with purpose `payments`, on which a node serves Open Payments alone, named and signed ([HTTP](areas/http.md#relayed-streams)); left are the front doors themselves, their consent page, the owner's names as a wallet setting rather than an environment variable, the TXT record check in Dassie's own client, and the proposal to Open Payments;
   - free receivers, with the XRPL scheme's rules for accounts that do not exist yet;
-  - browser nodes.
+  - browser nodes;
+  - **becoming core** ([D36](decisions/D36-a-node-becomes-core-by-registering-and-being-promoted.md)). On `main` a node with a hostname is core and one without is periphery; under D36 every node starts in the periphery and is core only when the signed data says so: registered, in the 2-core of the graph of edges both ends advertise, in its component with the most bootstrap nodes. The parts:
+    - computing the core from the majority list and fresh link states, the same in every node, and routing to a node's own address only once it is core;
+    - promotion: an uplink advertises its downlink as a neighbor once the downlink is registered, answers at its URL with a publicly issued certificate, has an hour of good standing and its heartbeats, twenty of the largest packets of room in the uplink's books and a completed settlement, a clock within bounds, and no ban; a link-state entry for a core node's free core relationships, so a node chooses uplinks that can promote it;
+    - a peering's kind following the peer's status in place, both ways, with its accounts and channel, and the uplink routing the child address for as long as they are peered;
+    - a node using its own address after a set wait, and its child addresses again at once when it stops being core;
+    - demotion: bootstrap nodes dropping a registered node whose URL or certificate fails for longer than becoming core takes, and uplinks no longer advertising a peer that fails the promotion criteria;
+    - the first core: bootstrap nodes peering as core peers and advertising each other without the checks, and fewer edges asked of networks with fewer than three bootstrap nodes;
+    - a peering's kind decided by the peer's status rather than its link state, with the periphery extension meaning only that a node has no URL.
+
+    **Done when** in the simulation a node with a URL stays periphery until registered and promoted by two uplinks, then is routed at its own address by every node after the wait, and drops back when it goes away; and two networks that share no bootstrap node majority never both count as the core.
 - **It needs** [the channel limit](#not-built-yet) lifted, so that a core node keeps few relationships with core nodes.
 - **Done when:** a periphery node behind a NAT peers with two core nodes, gets an address beneath each, pays and is paid through them, and keeps working when it loses one. Its owner's paired app reaches it through a relay, and a third-party Open Payments client pays it through a front door, whose response a Dassie client checks against the node ID. A free receiver is paid, spends through its uplink, and has its account created by the first settlement. In the simulation, home nodes that withhold, and ground core keys, hide no node from a relay it chose.
 

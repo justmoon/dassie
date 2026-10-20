@@ -13,8 +13,8 @@
 
 The network has a core and a periphery. [The design](../designs/periphery.md) describes them:
 
-- **The core** is the network as it is: nodes with a public IP that register, keep the node list and forward packets.
-- **A periphery node** connects only to core nodes (its uplinks), never to another periphery node, and never forwards. It does not register, and its link state does not flood. Each uplink gives it a child address beneath its own and routes that address to it. It always dials out, so it needs no public IP and no hole punching.
+- **The core** is the network as it is: nodes with a public IP that register, keep the node list and forward packets. What makes a node core, and how it becomes one, is [D36](D36-a-node-becomes-core-by-registering-and-being-promoted.md).
+- **A periphery node** connects only to core nodes (its uplinks), never to another periphery node, and never forwards. It registers only to become core, and its link state floods only once it is registered ([D36](D36-a-node-becomes-core-by-registering-and-being-promoted.md)). Each uplink gives it a child address beneath its own and routes that address to it. It always dials out, so it needs no public IP and no hole punching.
 - **QUIC on every peer link,** with each side's node key in a self-signed certificate checked against its node ID. Either side opens streams, so an uplink sends over the connection its downlink opened. A periphery node falls back to TCP or WebSocket where UDP is blocked.
 - **Separate limits on a core node.** Relationships with core nodes are few, with settled ones closed to make room. Downlinks have a table of their own, kept on disk and in memory only while connected, under a much larger limit.
 - **Reaching a periphery node** goes through relays: its uplinks, and optionally a relay it chooses, which is its fast path. Anyone finds its uplinks and relays in a signed record, kept by home nodes that everyone computes from the node list.
