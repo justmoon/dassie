@@ -17,7 +17,7 @@
 
 ## Content Security Policy and headers
 
-`headers.json` lists the headers every response gets, and is the only list of them: a CSP as strict as the wallet's (no inline script or style, no script, style or image from another origin, and WebAssembly may compile), `nosniff` and a referrer policy. `apps/website/build_test.ts` checks the built pages against the CSP, and `tests/e2e/website_test.ts` serves them with `headers.json`'s headers so that a refusal fails the test.
+`headers.json` lists the headers every response gets, and is the only list of them: a CSP as strict as the wallet's (no inline script or style, no script, style or image from another origin, and WebAssembly may compile), HSTS, so that the page with the install command is never reached over plain HTTP once a browser has seen it, `nosniff` and a referrer policy. The load balancer adds nothing of its own: a header the site needs is in this list. `apps/website/build_test.ts` checks the built pages against the CSP, and `tests/e2e/website_test.ts` serves them with `headers.json`'s headers so that a refusal fails the test.
 
 ## STREAM toy
 
@@ -39,7 +39,7 @@ Between them sits a connector, simulated one event at a time in `src/toy/simulat
 ## Deployment
 
 - **Where:** the bucket `dassie-website`, behind the load balancer that serves the mirror ([Release](release.md#the-mirror)). It answers `dassie.land`, and redirects `www.dassie.land` there. `scripts/website/provision.sh` makes the bucket, its backend with `headers.json`'s headers, the host rules, the certificates, the account that publishes and the `dassie.land` zone.
-- **Publishing:** `.github/workflows/website.yml` builds the site from `main` in the flake's shell, as CI does, whenever something the site is built from changes; `build_test.ts` checks that its `paths` name every crate and package the site is built from. Pull requests get no preview.
+- **Publishing:** `.github/workflows/website.yml` builds the site from `main` in the flake's shell, as CI does, in a job that holds no credential, and a second job publishes it, whenever something the site is built from changes; `build_test.ts` checks that its `paths` name every crate and package the site is built from. Pull requests get no preview.
 - **`scripts/website/deploy.sh`** never leaves a page naming an asset that is not there yet: assets first, cached for good (their names hold their hash), then the pages, revalidated on every load, and only then does it delete what the build no longer has.
 - **`scripts/website/check.sh`** runs after each publish and fails when the live site's headers differ from `headers.json` (a backend provisioned with other headers), a page's path without its slash does not redirect, assets are not cached for good, or the WebAssembly is not `application/wasm`.
 

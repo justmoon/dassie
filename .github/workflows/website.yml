@@ -5,8 +5,8 @@ name: Website
 # requests get no preview: CI builds the site and serves it with its
 # headers in the browser test.
 #
-# It runs in the `Website` environment, which admits only `main`. What it
-# needs there:
+# The publish job runs in the `Website` environment, which admits only
+# `main`. What it needs there:
 # - vars.GCP_WORKLOAD_IDENTITY_PROVIDER and vars.GCP_SERVICE_ACCOUNT: the
 #   service account scripts/website/provision.sh makes, which may write
 #   the bucket's objects and nothing else, through workload identity
@@ -58,14 +58,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  # The build runs third-party code (pnpm's packages, the crates' build
+  # scripts), so it holds no credential: the publish job takes what it
+  # built.
+  build:
     runs-on: ubuntu-latest
-    environment: Website
     timeout-minutes: 30
-    permissions:
-      contents: read
-      # Workload identity: GitHub's OIDC token is what GCP trusts.
-      id-token: write
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -91,7 +89,30 @@ jobs:
       # The flake's Node, pnpm and Rust, as in CI.
       - name: Build
         run: nix develop --command sh -c 'pnpm install --frozen-lockfile && node --run build:wasm && node --run build:website'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: site
+          path: apps/website/dist/
+          retention-days: 7
 
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: Website
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # Workload identity: GitHub's OIDC token is what GCP trusts.
+      id-token: write
+    steps:
+      # The repository's own scripts and headers.json; nothing is installed.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: site
+          path: site
       - id: gcp
         if: vars.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
@@ -104,7 +125,7 @@ jobs:
         if: steps.gcp.outcome == 'success'
         env:
           BUCKET: ${{ vars.WEBSITE_BUCKET }}
-        run: scripts/website/deploy.sh apps/website/dist "$BUCKET"
+        run: scripts/website/deploy.sh site "$BUCKET"
       - name: Check the live site
         if: steps.gcp.outcome == 'success'
         run: scripts/website/check.sh https://dassie.land/
