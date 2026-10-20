@@ -31,6 +31,8 @@ All changes go through pull requests. Commit, push, and let CI validate. Never p
 
 Open a PR as a draft (`gh pr create --draft`) while you are still working on it, and mark it ready for review (`gh pr ready`) as soon as it is complete. A PR is a draft only while an agent is still editing it. Waiting for CI is not a reason to keep it a draft, because everyone can see the checks. A PR that reviewers have approved is ready to merge.
 
+Each worktree builds into its own `target/`: don't set `CARGO_TARGET_DIR` to a directory that worktrees share. Cargo names a workspace crate's build after its path from the workspace root, which is the same in every worktree, so one worktree takes another's build as fresh and runs the wrong code. The e2e harness and `apps/dev` read the binaries from `target/` anyway, whatever `CARGO_TARGET_DIR` says.
+
 ### Review
 
 Edna reviews PRs. She is a Claude Code session on hecate named `edna-<project>`, that reviews as `vorstand-edna-bot`. Work tells her when a PR of an agent on hecate is ready, and tells you when her review is on GitHub; don't message her about a review:
