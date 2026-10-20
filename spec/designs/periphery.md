@@ -25,7 +25,7 @@ This is a design ([D26](../decisions/D26-core-and-periphery.md)); nothing in it 
 | **Uplink** | A core node a periphery node peers with. |
 | **Downlink** | A periphery node, as its uplink sees it. |
 | **Relay** | A server that carries streams to the periphery nodes connected to it. Every uplink is a relay for its downlinks; a periphery node may also connect to a relay it chooses (§5). |
-| **Front door** | An HTTPS server that takes requests from ordinary Open Payments clients and passes them to a periphery node through a relay, for example at `<id>.dassie.net` (§7). |
+| **Front door** | An HTTPS server that takes requests from ordinary Open Payments clients and passes them to a periphery node through a relay, for example at `<id>.dassiepay.net` (§7). |
 | **Record** | A periphery node's signed statement of where it can be reached: its uplinks and relays (§5). |
 | **Home nodes** | The core nodes that keep a periphery node's record, computed from its ID (§5). |
 | **Free receiver** | A periphery node that receives payments without having paid anything (§8). |
@@ -134,7 +134,8 @@ Open Payments clients reach a wallet address by DNS and HTTPS, so whoever answer
 - **What it serves.** It terminates TLS with a wildcard certificate and passes to the node, through a relay with purpose `payments`, only the [Open Payments routes](../areas/payments.md#http-routes). It returns only JSON, within the same size limits. It never serves the wallet, nor any page the node returns, so nobody can host pages on its domain.
 - **Inside the relayed stream,** it runs TLS with the node's key pinned, so the relay sees only ciphertext. The front door itself sees the requests in plain text.
 - **Consent.** `GET /gnap/interact/{id}/{key}` answers with a fixed page from the front door itself, "Approve this in your Dassie app", which asks for nothing. The page checks a JSON route for the grant's state, and sends the client on to its finish URI once the owner decided (§6).
-- **Anyone can run one,** and every front door reaches every node (§5). `dassie.net` is a default, not a requirement, and a node is not tied to it. The domain should be on the Public Suffix List, so that each node's name is its own site to browsers and reputation lists.
+- **Anyone can run one,** and every front door reaches every node (§5). `dassiepay.net` is a default, not a requirement, and a node is not tied to it.
+- **No Public Suffix List entry is needed.** The list makes each name its own site to browsers, which matters where names serve pages that run scripts or set cookies. A front door serves neither, so its names share only a reputation.
 
 **The owner's own domain.** An owner can name the wallet address with a domain of their own, which can be hosted anywhere:
 
@@ -142,6 +143,13 @@ Open Payments clients reach a wallet address by DNS and HTTPS, so whoever answer
 - a TXT record at `_dassie.pay.example.com` names the node ID.
 
 The payment pointer is then `$pay.example.com`.
+
+**The node's names.** A node writes absolute URLs into its Open Payments responses (wallet address `id`, `authServer`, `resourceServer`, payment and GNAP URLs), checks each request's signature against its own origin, and tells its own wallets from others' by origin ([Payments](../areas/payments.md#http-routes)). A core node has one hostname for all three. A periphery node has none, and is reached under its front door name and any domains of its owner, so it keeps a list of its names:
+
+- **The list** starts with its name at the default front door, which it computes from its ID, and the owner adds names: another front door's, or a domain of their own, beside the TXT record that names the node.
+- **Each request is answered under the name it came through,** which the front door passes on: the node writes that name into the URLs of its answer, and checks the request's signature against it. A client that fetched `$pay.example.com` then finds a wallet address whose `id` is at that origin, as it must ([Payments](../areas/payments.md#the-node-as-a-client)).
+- **A request for a name not on the list is refused,** so a front door cannot make the node sign for a name its owner never chose, or take a request signed for another server.
+- **Records keep one name,** the first on the list, and the others are its aliases: a grant made under one name holds under every other, and the node recognises its own wallet under any of them.
 
 **Checking the answer.** A node signs its Open Payments responses with its node key: RFC 9421, with `tag="dassie"`, covering `@status`, `content-digest`, and the request's `@method;req`, `@target-uri;req` and `dassie-nonce;req`, a nonce the client sends so that an old response cannot be replayed. A Dassie-aware client:
 
@@ -208,5 +216,4 @@ A browser node is a short-lived periphery node, for demos: it lets someone join 
 - **Choosing uplinks.** Which core nodes a periphery node picks by default, and whether the operator of a front door it uses counts.
 - **Front doors.** Whether anyone may run one, or only core nodes. Dassie-aware clients check signatures either way.
 - **A cold lookup** adds a round trip to a home node before the first stream. Caching and relays make it rare; whether that is enough is for measurement.
-- **Origins.** A node writes absolute URLs into its Open Payments responses (wallet address `id`, `authServer`, `resourceServer`, payment IDs, GNAP URIs), and checks signatures against its own origin, whatever `Host` says ([Payments](../areas/payments.md#http-routes)). A periphery node has no origin of its own and is reachable under many front doors' names and owners' domains. Which origins it accepts signatures for, and which it writes, is open: the one a request came through, if the node knows it as its own, is the likely answer.
 - **Withdrawal for room without debt.** §4 exempts downlinks that owe nothing. A core junior that has spent what it paid in advance is in the same position: withdrawing it also stops the payments that would raise its room.

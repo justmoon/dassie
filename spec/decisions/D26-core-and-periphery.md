@@ -19,7 +19,7 @@ The network has a core and a periphery. [The design](../designs/periphery.md) de
 - **Separate limits on a core node.** Relationships with core nodes are few, with settled ones closed to make room. Downlinks have a table of their own, kept on disk and in memory only while connected, under a much larger limit.
 - **Reaching a periphery node** goes through relays: its uplinks, and optionally a relay it chooses, which is its fast path. Anyone finds its uplinks and relays in a signed record, kept by home nodes that everyone computes from the node list.
 - **The wallet is never served through a relay.** Owners use `localhost`, or apps paired on `localhost` with device keys, which reach the node through a relay, end to end, with its key pinned.
-- **Front doors** take Open Payments requests for periphery nodes at names derived from the node ID, or at an owner's own domain, and pass them through a relay. The node signs its responses with its node key, and Dassie-aware clients check that key against the node ID in the name. Additions to Open Payments that let every client check are to be proposed to the Interledger Foundation.
+- **Front doors** take Open Payments requests for periphery nodes at names derived from the node ID, or at an owner's own domain, and pass them through a relay. The node signs its responses with its node key, and Dassie-aware clients check that key against the node ID in the name. A periphery node answers only to the names its owner lists, under the name each request came through. Additions to Open Payments that let every client check are to be proposed to the Interledger Foundation.
 - **Free receivers** receive without paying anything up front: a periphery node extends its uplink credit and pays nothing in advance, spends what it received through the same uplink, and the uplink's first settlement creates its account on the ledger.
 
 ## Accepted
@@ -27,6 +27,7 @@ The network has a core and a periphery. [The design](../designs/periphery.md) de
 - **Clients that do not check signatures trust the front door,** including with the STREAM secret of an incoming payment. The owner is told, and can turn off Open Payments through front doors.
 - **A free receiver trusts its uplink** with up to the credit it extends. An uplink that evicts it collects first and pays nothing ([D28](D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)), so the receiver stays owed until it peers again, and loses at most that credit.
 - **Anyone who grinds enough core node keys can hide a node's record,** within registration's limits and, later, its fee. A relay the node chose still reaches it.
+- **Front door names share a reputation.** They are not on the Public Suffix List, which matters only for names that serve pages with scripts or cookies; a front door serves neither.
 - **A periphery node is reachable only through others.** If its uplinks and relays are gone, nobody can pay it until it connects again.
 
 ## Rejected
@@ -36,6 +37,7 @@ The network has a core and a periphery. [The design](../designs/periphery.md) de
 - *Hole punching between periphery nodes:* periphery nodes connect only to the core.
 - *Serving the wallet through a relay:* the page could keep the owner's passphrase, which cannot be revoked.
 - *Periphery nodes in the node list,* or carried in their uplinks' link states: every core node would hold every periphery node, while child addresses already route them.
+- *Answering to any name a front door passes on:* the front door would decide which names the node signs for and counts as its own, and could hand it requests signed for another server.
 - *A periphery node reachable only through one relay of its choice:* only that relay could reach it.
 - *Uplinks that follow from the node ID,* so that no record is needed: a periphery node could no longer choose its uplinks by price and trust.
 - *Sending every record to every core node:* each would hold every periphery node, and every reconnection would flood.
