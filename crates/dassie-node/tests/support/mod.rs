@@ -58,7 +58,21 @@ pub struct Bound {
     https: std::net::TcpListener,
     ipc_path: PathBuf,
     ipc: std::os::unix::net::UnixListener,
+    quic: std::net::UdpSocket,
     notify: Option<PathBuf>,
+}
+
+/// An HTTPS listener and a UDP socket for QUIC on the same port number, as
+/// a node has them. The OS picks the TCP port, which may be taken on UDP:
+/// then another is tried.
+fn https_and_quic() -> (std::net::TcpListener, std::net::UdpSocket) {
+    for _ in 0..16 {
+        let https = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        if let Ok(quic) = std::net::UdpSocket::bind(https.local_addr().unwrap()) {
+            return (https, quic);
+        }
+    }
+    panic!("no port free on both TCP and UDP");
 }
 
 impl Bound {
@@ -70,13 +84,14 @@ impl Bound {
     /// Listeners on fresh ports, for a daemon on `dir`.
     pub fn bind_in(dir: tempfile::TempDir) -> Self {
         let http = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let https = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let (https, quic) = https_and_quic();
         let ipc_path = dir.path().join("ipc.sock");
         let ipc = ipc::bind(&ipc_path).unwrap();
         Self {
             dir,
             http,
             https,
+            quic,
             ipc_path,
             ipc,
             notify: None,
@@ -107,6 +122,7 @@ impl Bound {
             dir,
             http,
             https,
+            quic,
             ipc_path,
             ipc,
             notify,
@@ -123,8 +139,6 @@ impl Bound {
         let store = Store::open(&state).unwrap();
         let (http_address, https_address) =
             (http.local_addr().unwrap(), https.local_addr().unwrap());
-        // QUIC on the HTTPS port's number, as a node has it.
-        let quic = std::net::UdpSocket::bind(https_address).unwrap();
         let (hand_out, handed) = tokio::sync::oneshot::channel();
         let mut prepared = Prepared::from_parts(settings, store, http, https, ipc)
             .with_quic(quic)

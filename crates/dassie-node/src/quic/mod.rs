@@ -1,4 +1,4 @@
-//! The peer protocol over QUIC (spec/areas/peer-protocol.md#transport).
+//! The peer protocol over QUIC (spec/areas/peer-protocol.md#quic).
 //!
 //! One UDP socket, on the HTTPS listener's port number, both takes and makes
 //! connections. Each request is a bidirectional stream: the envelope one
@@ -9,27 +9,28 @@
 //! A pair of nodes keeps one connection, which both use: the one the lower
 //! node ID opened, when both dialled. A node whose QUIC cannot be reached
 //! (UDP filtered, say) is asked over HTTPS for a while instead, until every
-//! node takes QUIC and `POST /peer` goes.
+//! node takes QUIC and `POST /peer` goes ([`send_peer`]).
 
 pub mod keys;
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::future::Future;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use dassie_identity::{NodeId, NodeKey};
+use dassie_identity::{NodeId, NodeKey, SeedPath};
 use dassie_node_core::address::is_public;
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
 use dassie_peer::wire::MAX_MESSAGE_BYTES;
 use dassie_peer::{Failure, Request, Response};
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
-use quinn::{Connection, Endpoint, EndpointConfig, ReadToEndError, TransportConfig};
+use quinn::{Connection, Endpoint, EndpointConfig, ReadToEndError, TransportConfig, VarInt};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -44,7 +45,8 @@ use crate::tls;
 /// The protocol a connection speaks, by ALPN.
 pub const ALPN: &[u8] = b"dassie/1";
 
-/// Time to set up a connection. Past it, the node is asked over HTTPS.
+/// Most time to set up a connection. A request gets at most half its own
+/// time for it, so that HTTPS has the rest when QUIC cannot be reached.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// A connection nothing was sent on for this long closes. Peers send
@@ -57,18 +59,39 @@ const UNREACHABLE_FOR: Duration = Duration::from_secs(10 * 60);
 /// Longest response read: a node list of 4096 IDs fits, as over HTTPS.
 const MAX_RESPONSE_BYTES: usize = 256 * 1024;
 
-/// Most requests open at once on one connection, as many as the node takes
-/// at once from everyone.
-const MAX_STREAMS: u32 = 256;
+/// Most requests open at once on one connection: a client's share of the
+/// requests the node takes at once
+/// ([`MAX_PEER_REQUESTS_PER_CLIENT`](crate::node::MAX_PEER_REQUESTS_PER_CLIENT)).
+const MAX_STREAMS: u32 = crate::node::MAX_PEER_REQUESTS_PER_CLIENT;
+
+/// What one connection may have unread, in all: its streams' worth of the
+/// largest message, so memory per connection is bounded (D16).
+const CONNECTION_WINDOW: u32 = 4 * 1024 * 1024;
+
+/// Most addresses of a name tried, in turn, within the time to connect.
+const MAX_ADDRESSES: usize = 4;
 
 /// Most nodes with a connection, or one being made, at once.
 const MAX_LINKS: usize = 4096;
 
+/// Time to write an answer to a client that does not read it.
+const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Time for open connections to finish their requests at shutdown.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Time for the endpoint to tell its peers it closed.
+const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
+
 /// The status ahead of a response's body.
 const STATUS_BYTES: usize = 2;
+
+/// Where the key for stateless resets hangs in the node's key tree
+/// (spec/areas/identity.md#seed-paths).
+const RESET_KEY_PATH: &str = "node/quic/stateless-reset";
+
+const _: () = assert!(MAX_MESSAGE_BYTES <= MAX_RESPONSE_BYTES);
+const _: () = assert!(CONNECTION_WINDOW as usize >= 4 * MAX_RESPONSE_BYTES);
 
 /// Why a request over QUIC was not answered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,6 +100,24 @@ pub enum SendError {
     Unreachable,
     /// The request was sent, or lost on a connection that was up.
     Failed(Failure),
+}
+
+/// The transport that carried a request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Transport {
+    /// QUIC.
+    Quic,
+    /// HTTPS, `POST /peer`.
+    Https,
+}
+
+impl fmt::Display for Transport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Quic => "quic",
+            Self::Https => "https",
+        })
+    }
 }
 
 /// A request's body, being read.
@@ -97,6 +138,42 @@ pub trait Handler: Send + Sync + 'static {
         client: IpAddr,
         body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>>;
+}
+
+/// Sends a peer request as the engine does: over QUIC when the node's link
+/// state says it takes it, and its QUIC was not out of reach lately;
+/// otherwise, or when no connection could be made in time, over HTTPS in the
+/// time left. Both transports share the bounds on requests in flight.
+pub async fn send_peer(
+    quic: Option<Arc<Quic>>,
+    client: &PeerClient,
+    request: Request,
+) -> (Result<Response, Failure>, Transport) {
+    let started = tokio::time::Instant::now();
+    let deadline = started + Duration::from_millis(request.timeout_ms.max(1));
+    let _slot = match client.hold(&request) {
+        Ok(slot) => slot,
+        Err(failure) => return (Err(failure), Transport::Https),
+    };
+    if let Some(quic) = quic.filter(|_| request.quic) {
+        let within = CONNECT_TIMEOUT.min(Duration::from_millis(request.timeout_ms / 2));
+        match tokio::time::timeout_at(deadline, quic.send(&request, client, within)).await {
+            Ok(Err(SendError::Unreachable)) => {}
+            Ok(Ok(response)) => return (Ok(response), Transport::Quic),
+            Ok(Err(SendError::Failed(failure))) => return (Err(failure), Transport::Quic),
+            Err(_) => return (Err(Failure::Unknown), Transport::Quic),
+        }
+    }
+    let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+    let left_ms = u64::try_from(left.as_millis()).unwrap_or(u64::MAX);
+    if left_ms == 0 {
+        return (Err(Failure::NotDelivered), Transport::Https);
+    }
+    let request = Request {
+        timeout_ms: left_ms,
+        ..request
+    };
+    (client.send_held(request).await, Transport::Https)
 }
 
 /// A connection to a node, and who opened it.
@@ -130,19 +207,21 @@ struct Serving {
     tasks: TaskTracker,
 }
 
+type Place = Arc<tokio::sync::Mutex<Option<Link>>>;
+
 /// The node's QUIC endpoint.
 pub struct Quic {
     endpoint: Endpoint,
     keys: Arc<Keys>,
-    links: Mutex<BTreeMap<NodeId, Arc<tokio::sync::Mutex<Option<Link>>>>>,
+    links: Mutex<BTreeMap<NodeId, Place>>,
     unreachable: Mutex<BTreeMap<NodeId, Instant>>,
     serving: Mutex<Option<Serving>>,
     allow_private: bool,
     stats: Stats,
 }
 
-impl std::fmt::Debug for Quic {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for Quic {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Quic")
             .field("local_addr", &self.endpoint.local_addr().ok())
             .finish_non_exhaustive()
@@ -161,10 +240,11 @@ impl Quic {
         identity: watch::Receiver<Option<Arc<NodeKey>>>,
         allow_private: bool,
     ) -> io::Result<Self> {
+        let config = endpoint_config(identity.borrow().as_deref());
         let keys = Arc::new(Keys::new(identity));
         let server = server_config(&keys).map_err(io::Error::other)?;
         let runtime = quinn::default_runtime().ok_or_else(|| io::Error::other("no runtime"))?;
-        let endpoint = Endpoint::new(EndpointConfig::default(), Some(server), socket, runtime)?;
+        let endpoint = Endpoint::new(config, Some(server), socket, runtime)?;
         Ok(Self {
             endpoint,
             keys,
@@ -228,36 +308,42 @@ impl Quic {
         }
     }
 
-    /// Sends `request` and reads its response. The caller bounds the time
-    /// the whole exchange takes.
+    /// Sends `request` and reads its response, making a connection within
+    /// `connect_within` if there is none. The caller bounds the time the
+    /// whole exchange takes.
     ///
     /// # Errors
     ///
-    /// [`SendError::Unreachable`] when no connection could be made, and
-    /// nothing was sent; otherwise the failure, as over HTTPS.
+    /// [`SendError::Unreachable`] when no connection could be made in time,
+    /// and nothing was sent: the node is then asked over HTTPS for a while.
+    /// Otherwise the failure, as over HTTPS.
     pub async fn send(
         self: &Arc<Self>,
         request: &Request,
         resolver: &PeerClient,
+        connect_within: Duration,
     ) -> Result<Response, SendError> {
         // Without its key the node cannot prove who it is. TLS 1.3 would
         // only say so after the handshake, on the first stream.
         if self.is_unreachable(&request.to) || self.keys.current().is_none() {
             return Err(SendError::Unreachable);
         }
-        let Some(link) = self.link(request.to) else {
+        let Some(place) = self.place(request.to) else {
             return Err(SendError::Unreachable);
         };
         // A connection kept from before may have died since: then the request
         // was not sent, and a fresh one is made once.
         for attempt in 0..2 {
-            let Some(connection) = self.connection(&link, request, resolver).await else {
+            let connection = self
+                .connection(&place, request, resolver, connect_within)
+                .await;
+            let Some(connection) = connection else {
                 self.mark_unreachable(request.to);
                 return Err(SendError::Unreachable);
             };
             let result = exchange(&connection, &request.body).await;
             if result == Err(Failure::NotDelivered) && attempt == 0 {
-                let mut held = link.lock().await;
+                let mut held = place.lock().await;
                 if held
                     .as_ref()
                     .is_some_and(|kept| kept.connection.stable_id() == connection.stable_id())
@@ -274,21 +360,22 @@ impl Quic {
         Err(SendError::Failed(Failure::NotDelivered))
     }
 
-    /// The open connection in `link`, or a new one. Only making one holds
+    /// The open connection in `place`, or a new one. Only making one holds
     /// the place, so requests to a node wait for its connection, never for
     /// each other.
     async fn connection(
         self: &Arc<Self>,
-        link: &tokio::sync::Mutex<Option<Link>>,
+        place: &tokio::sync::Mutex<Option<Link>>,
         request: &Request,
         resolver: &PeerClient,
+        within: Duration,
     ) -> Option<Connection> {
-        let mut held = link.lock().await;
+        let mut held = place.lock().await;
         if let Some(kept) = held.as_ref().filter(|kept| kept.is_open()) {
             return Some(kept.connection.clone());
         }
         *held = None;
-        let connection = self.dial(request, resolver).await?;
+        let connection = self.dial(request, resolver, within).await?;
         self.answer_on(&connection);
         *held = Some(Link {
             connection: connection.clone(),
@@ -298,16 +385,16 @@ impl Quic {
     }
 
     /// The place for `node`'s connection, if the table has room.
-    fn link(&self, node: NodeId) -> Option<Arc<tokio::sync::Mutex<Option<Link>>>> {
+    fn place(&self, node: NodeId) -> Option<Place> {
         let mut links = self.links.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(link) = links.get(&node) {
-            return Some(Arc::clone(link));
+        if let Some(place) = links.get(&node) {
+            return Some(Arc::clone(place));
         }
         if links.len() >= MAX_LINKS {
             // Places nobody holds and whose connection is gone are free.
-            links.retain(|_, link| {
-                Arc::strong_count(link) > 1
-                    || link
+            links.retain(|_, place| {
+                Arc::strong_count(place) > 1
+                    || place
                         .try_lock()
                         .map_or(true, |held| held.as_ref().is_some_and(Link::is_open))
             });
@@ -315,14 +402,22 @@ impl Quic {
                 return None;
             }
         }
-        let link = Arc::new(tokio::sync::Mutex::new(None));
-        links.insert(node, Arc::clone(&link));
-        Some(link)
+        let place = Arc::new(tokio::sync::Mutex::new(None));
+        links.insert(node, Arc::clone(&place));
+        Some(place)
     }
 
     /// Makes a connection to the node `request` goes to, at its URL's host
-    /// and port, checking that the server holds that node's key.
-    async fn dial(&self, request: &Request, resolver: &PeerClient) -> Option<Connection> {
+    /// and port, within `within`, checking that the server holds that node's
+    /// key. The name's addresses are tried in turn, each with a share of the
+    /// time, so one that drops UDP does not take it all.
+    async fn dial(
+        &self,
+        request: &Request,
+        resolver: &PeerClient,
+        within: Duration,
+    ) -> Option<Connection> {
+        let deadline = tokio::time::Instant::now() + within;
         let (host, port) = authority(&request.url)?;
         if let Ok(ip) = host.parse::<IpAddr>()
             && !self.allow_private
@@ -330,49 +425,63 @@ impl Quic {
         {
             return None;
         }
-        let addresses = resolver.resolve(host, port).await.ok()?;
+        let resolving = resolver.resolve(host, port);
+        let addresses = tokio::time::timeout_at(deadline, resolving)
+            .await
+            .ok()?
+            .ok()?;
         // An endpoint on IPv4 alone cannot reach an IPv6 address.
         let ipv6 = self
             .endpoint
             .local_addr()
             .is_ok_and(|address| address.is_ipv6());
-        let address = addresses
+        let addresses: Vec<SocketAddr> = addresses
             .into_iter()
-            .find(|address| ipv6 || address.is_ipv4())?;
+            .filter(|address| ipv6 || address.is_ipv4())
+            .take(MAX_ADDRESSES)
+            .collect();
         let config = client_config(&self.keys, request.to).ok()?;
-        let connecting = self.endpoint.connect_with(config, address, host).ok()?;
-        match tokio::time::timeout(CONNECT_TIMEOUT, connecting).await {
-            Ok(Ok(connection)) => Some(connection),
-            Ok(Err(error)) => {
-                tracing::debug!(target: target::PEER, to = %request.to, %error, "QUIC connection failed");
-                None
+        for (index, address) in addresses.iter().enumerate() {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            let tries_left = u32::try_from(addresses.len() - index).unwrap_or(1).max(1);
+            let share = left / tries_left;
+            if share.is_zero() {
+                break;
             }
-            Err(_) => {
-                tracing::debug!(target: target::PEER, to = %request.to, "QUIC connection timed out");
-                None
+            let Ok(connecting) = self.endpoint.connect_with(config.clone(), *address, host) else {
+                continue;
+            };
+            match tokio::time::timeout(share, connecting).await {
+                Ok(Ok(connection)) => return Some(connection),
+                Ok(Err(error)) => {
+                    tracing::debug!(target: target::PEER, to = %request.to, %address, %error, "QUIC connection failed");
+                }
+                Err(_) => {
+                    tracing::debug!(target: target::PEER, to = %request.to, %address, "QUIC connection timed out");
+                }
             }
         }
+        None
     }
 
     /// Keeps a connection a node opened to us, for our requests to it too:
-    /// unless we hold one already that the lower node ID opened.
-    fn keep_inbound(&self, peer: NodeId, connection: &Connection) {
+    /// unless we hold one already that the lower node ID opened. It waits
+    /// for a dial of ours to the same node, so that crossed dials end with
+    /// both nodes using the same connection.
+    async fn keep_inbound(&self, peer: NodeId, connection: Connection) {
         let Some((own, _)) = self.keys.current() else {
             return;
         };
-        let Some(link) = self.link(peer) else {
+        let Some(place) = self.place(peer) else {
             return;
         };
-        // Held while a request dials or sends: that connection stays.
-        let Ok(mut held) = link.try_lock() else {
-            return;
-        };
+        let mut held = place.lock().await;
         let preferred = |link: &Link| link.ours == (own < peer);
         match held.as_ref() {
             Some(kept) if kept.is_open() && preferred(kept) => {}
             _ => {
                 *held = Some(Link {
-                    connection: connection.clone(),
+                    connection,
                     ours: false,
                 });
             }
@@ -398,9 +507,14 @@ impl Quic {
     }
 
     /// Takes connections and answers their requests with `handler`, until
-    /// `shutdown`; and answers on the connections the node makes.
+    /// `shutdown`; and answers on the connections the node makes. At
+    /// shutdown it stops taking connections, lets requests in progress
+    /// finish for a bounded time, and only then closes the endpoint, which
+    /// tells peers the connections are gone.
     pub async fn serve(self: Arc<Self>, handler: Arc<dyn Handler>, shutdown: CancellationToken) {
-        let slots = ClientSlots::new(handler.limits());
+        let limits = handler.limits();
+        let slots = ClientSlots::new(limits);
+        let open = Arc::new(AtomicUsize::new(0));
         let tasks = TaskTracker::new();
         *self.serving.lock().unwrap_or_else(PoisonError::into_inner) = Some(Serving {
             handler: Arc::clone(&handler),
@@ -415,6 +529,14 @@ impl Quic {
             let Some(incoming) = incoming else {
                 break;
             };
+            // Once places run short, a client must show it receives at its
+            // address before it holds one: spoofed handshakes cannot.
+            if !incoming.remote_address_validated()
+                && open.load(Ordering::Relaxed) >= limits.max_total / 2
+            {
+                let _ = incoming.retry();
+                continue;
+            }
             let client = incoming.remote_address().ip().to_canonical();
             let slot = match slots.take(handler.client(client)) {
                 Ok(slot) => slot,
@@ -424,11 +546,12 @@ impl Quic {
                     continue;
                 }
             };
+            let counted = Counted::new(&open);
             let quic = Arc::clone(&self);
             let handler = Arc::clone(&handler);
             let shutdown = shutdown.clone();
             tasks.spawn(async move {
-                let _slot = slot;
+                let (_slot, _counted) = (slot, counted);
                 let Ok(connecting) = incoming.accept() else {
                     return;
                 };
@@ -437,7 +560,8 @@ impl Quic {
                     return;
                 };
                 if let Some(peer) = keys::peer_node(&connection) {
-                    quic.keep_inbound(peer, &connection);
+                    let (quic, connection) = (Arc::clone(&quic), connection.clone());
+                    tokio::spawn(async move { quic.keep_inbound(peer, connection).await });
                 }
                 quic.requests(&connection, client, &handler, &shutdown)
                     .await;
@@ -445,20 +569,21 @@ impl Quic {
         }
         *self.serving.lock().unwrap_or_else(PoisonError::into_inner) = None;
         tasks.close();
-        if shutdown.is_cancelled() {
-            self.endpoint.close(0u32.into(), b"shutting down");
-        }
         if tokio::time::timeout(DRAIN_TIMEOUT, tasks.wait())
             .await
             .is_err()
         {
-            tracing::warn!(target: target::PEER, "QUIC connections still open after the drain timeout");
+            tracing::warn!(target: target::PEER, "QUIC requests still open after the drain timeout");
+        }
+        if shutdown.is_cancelled() {
+            self.endpoint.close(0u32.into(), b"shutting down");
+            let _ = tokio::time::timeout(CLOSE_TIMEOUT, self.endpoint.wait_idle()).await;
         }
     }
 
     /// Answers the requests on `connection`, each on a task of its own, until
-    /// it closes or `shutdown`. The connection's stream limit bounds how
-    /// many run at once.
+    /// it closes or `shutdown`, then lets those in progress finish. The
+    /// connection's stream limit bounds how many run at once.
     async fn requests(
         self: &Arc<Self>,
         connection: &Connection,
@@ -490,13 +615,37 @@ impl Quic {
                 let mut bytes = Vec::with_capacity(STATUS_BYTES + answer.body.len());
                 bytes.extend_from_slice(&answer.status.to_be_bytes());
                 bytes.extend_from_slice(&answer.body);
-                if send.write_all(&bytes).await.is_ok() && send.finish().is_ok() {
-                    quic.stats.answered.fetch_add(1, Ordering::Relaxed);
+                // A client that does not read its answer holds nothing for
+                // longer than this.
+                match tokio::time::timeout(ANSWER_TIMEOUT, send.write_all(&bytes)).await {
+                    Ok(Ok(())) if send.finish().is_ok() => {
+                        quic.stats.answered.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Ok(_) => {}
+                    Err(_) => {
+                        let _ = send.reset(0u32.into());
+                    }
                 }
             });
         }
         streams.close();
         streams.wait().await;
+    }
+}
+
+/// Counts an open connection while it lives.
+struct Counted(Arc<AtomicUsize>);
+
+impl Counted {
+    fn new(open: &Arc<AtomicUsize>) -> Self {
+        open.fetch_add(1, Ordering::Relaxed);
+        Self(Arc::clone(open))
+    }
+}
+
+impl Drop for Counted {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -543,11 +692,35 @@ pub fn authority(url: &str) -> Option<(&str, u16)> {
     }
 }
 
+/// The endpoint's configuration. Its key for stateless resets derives from
+/// the node key, so it survives a restart: a node that crashed, and so
+/// closed nothing, can still tell its peers their connections are gone, and
+/// they connect again at once instead of waiting out the idle timeout. A
+/// node not set up yet has no peers, and a random key.
+fn endpoint_config(key: Option<&NodeKey>) -> EndpointConfig {
+    let derived = SeedPath::parse(RESET_KEY_PATH)
+        .ok()
+        .and_then(|path| key?.derive(&path).ok());
+    match derived {
+        Some(secret) => {
+            let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, secret.as_bytes());
+            EndpointConfig::new(Arc::new(key))
+        }
+        None => EndpointConfig::default(),
+    }
+}
+
 fn transport() -> Arc<TransportConfig> {
     let mut transport = TransportConfig::default();
     transport.max_idle_timeout(IDLE_TIMEOUT.try_into().ok());
     transport.max_concurrent_bidi_streams(MAX_STREAMS.into());
     transport.max_concurrent_uni_streams(0u8.into());
+    // Bounded windows: a stream holds at most the largest message, and a
+    // connection a few of them (D16).
+    let stream_window = u32::try_from(MAX_RESPONSE_BYTES).unwrap_or(u32::MAX);
+    transport.stream_receive_window(VarInt::from_u32(stream_window));
+    transport.receive_window(VarInt::from_u32(CONNECTION_WINDOW));
+    transport.send_window(u64::from(CONNECTION_WINDOW));
     Arc::new(transport)
 }
 
@@ -601,5 +774,12 @@ mod tests {
         assert_eq!(authority("http://a.example"), None);
         assert_eq!(authority("https://a.example:x"), None);
         assert_eq!(authority("https://[2001:db8::1]x"), None);
+    }
+
+    #[test]
+    fn the_reset_key_path_is_under_the_node_key() {
+        let key = NodeKey::from_bytes(&[1; 32]);
+        let path = SeedPath::parse(RESET_KEY_PATH).unwrap();
+        assert!(key.derive(&path).is_ok());
     }
 }

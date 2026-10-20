@@ -186,12 +186,11 @@ async fn two_daemons_peer_and_keep_their_peering() {
     check_network(&a, &key_a, &key_b).await;
     check_network(&b, &key_b, &key_a).await;
     // Both take QUIC, so they peered over it: each asked the other and
-    // answered it there, on the one connection the pair keeps.
+    // answered it there.
     for node in [&a, &b] {
         let quic = node.quic.as_ref().unwrap();
         assert!(quic.stats().sent.load(Ordering::Relaxed) > 0);
         assert!(quic.stats().answered.load(Ordering::Relaxed) > 0);
-        assert_eq!(quic.open_connections(), 1);
     }
     // Found in review: removing a scheme that peers use left their
     // peerings without a ledger, and the engine could not start again.

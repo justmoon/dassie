@@ -14,7 +14,7 @@ use std::sync::atomic::Ordering;
 use dassie_identity::{NodeId, NodeKey};
 use dassie_node::http::peer::{Answer, BodyError};
 use dassie_node::peer_client::PeerClient;
-use dassie_node::quic::{Body, Handler, Quic, SendError};
+use dassie_node::quic::{Body, Handler, Quic, SendError, Transport, send_peer};
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
 use dassie_peer::wire::{Kind, MAX_MESSAGE_BYTES};
@@ -85,6 +85,31 @@ impl Handler for Together {
     }
 }
 
+/// Answers each request with its body, after a while.
+struct Slow;
+
+impl Handler for Slow {
+    fn client(&self, address: IpAddr) -> Option<ClientKey> {
+        Echo.client(address)
+    }
+
+    fn limits(&self) -> ConnectionLimits {
+        Echo.limits()
+    }
+
+    fn answer<'a>(
+        &'a self,
+        _client: IpAddr,
+        body: Body<'a>,
+    ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
+        Box::pin(async move {
+            let body = body.await.unwrap_or_default();
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            Answer { status: 200, body }
+        })
+    }
+}
+
 struct Side {
     quic: Arc<Quic>,
     id: NodeId,
@@ -112,6 +137,9 @@ fn side_with(seed: u8, shutdown: &CancellationToken, handler: Arc<dyn Handler>) 
         _identity: identity,
     }
 }
+
+/// Time to connect, in the tests.
+const CONNECT: std::time::Duration = std::time::Duration::from_secs(2);
 
 fn client() -> PeerClient {
     // Roots of its own: the build sandbox has none of the system's. QUIC
@@ -141,7 +169,7 @@ async fn a_request_gets_its_answer() {
     let (a, b) = (side(1, &shutdown), side(2, &shutdown));
     let response = a
         .quic
-        .send(&request(&b, b"hello".to_vec()), &client())
+        .send(&request(&b, b"hello".to_vec()), &client(), CONNECT)
         .await
         .unwrap();
     assert_eq!(response.status, 200);
@@ -158,7 +186,7 @@ async fn a_server_with_another_key_is_not_reached() {
     let impostor = NodeKey::from_bytes(&[3; 32]).node_id();
     let mut wrong = request(&b, b"hello".to_vec());
     wrong.to = impostor;
-    let result = a.quic.send(&wrong, &client()).await;
+    let result = a.quic.send(&wrong, &client(), CONNECT).await;
     assert_eq!(result, Err(SendError::Unreachable));
     assert_eq!(b.quic.stats().answered.load(Ordering::Relaxed), 0);
     // Asked over HTTPS for a while, without trying again.
@@ -172,12 +200,16 @@ async fn a_body_past_the_limit_is_refused() {
     let shutdown = CancellationToken::new();
     let (a, b) = (side(1, &shutdown), side(2, &shutdown));
     let large = vec![0; MAX_MESSAGE_BYTES + 1];
-    let response = a.quic.send(&request(&b, large), &client()).await.unwrap();
+    let response = a
+        .quic
+        .send(&request(&b, large), &client(), CONNECT)
+        .await
+        .unwrap();
     assert_eq!(response.status, 413);
     let fits = vec![7; MAX_MESSAGE_BYTES];
     let response = a
         .quic
-        .send(&request(&b, fits.clone()), &client())
+        .send(&request(&b, fits.clone()), &client(), CONNECT)
         .await
         .unwrap();
     assert_eq!((response.status, response.body), (200, fits));
@@ -190,18 +222,18 @@ async fn a_pair_of_nodes_shares_one_connection() {
     let (a, b) = (side(1, &shutdown), side(2, &shutdown));
     let client = client();
     a.quic
-        .send(&request(&b, b"one".to_vec()), &client)
+        .send(&request(&b, b"one".to_vec()), &client, CONNECT)
         .await
         .unwrap();
     // The answer comes back on the connection a opened, which b keeps.
     let response = b
         .quic
-        .send(&request(&a, b"two".to_vec()), &client)
+        .send(&request(&a, b"two".to_vec()), &client, CONNECT)
         .await
         .unwrap();
     assert_eq!(response.body, b"two");
     a.quic
-        .send(&request(&b, b"three".to_vec()), &client)
+        .send(&request(&b, b"three".to_vec()), &client, CONNECT)
         .await
         .unwrap();
     assert_eq!(a.quic.open_connections(), 1);
@@ -216,7 +248,9 @@ async fn a_node_without_its_key_reaches_nobody() {
     let (_identity, receiver) = watch::channel(None);
     let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
     let a = Arc::new(Quic::new(socket, receiver, true).unwrap());
-    let result = a.send(&request(&b, b"hello".to_vec()), &client()).await;
+    let result = a
+        .send(&request(&b, b"hello".to_vec()), &client(), CONNECT)
+        .await;
     assert_eq!(result, Err(SendError::Unreachable));
     shutdown.cancel();
 }
@@ -235,7 +269,7 @@ async fn requests_to_one_node_run_side_by_side() {
     let sends = (0..AT_ONCE).map(|index| {
         let (quic, request) = (Arc::clone(&a.quic), request(&b, vec![7; index + 1]));
         let client = client.clone();
-        async move { quic.send(&request, &client).await }
+        async move { quic.send(&request, &client, CONNECT).await }
     });
     let answers = tokio::time::timeout(
         std::time::Duration::from_secs(10),
@@ -248,4 +282,66 @@ async fn requests_to_one_node_run_side_by_side() {
     }
     assert_eq!(a.quic.open_connections(), 1);
     shutdown.cancel();
+}
+
+/// A node whose UDP drops everything, and whose HTTPS takes connections but
+/// answers nothing: a UDP socket that is never read, and a TCP listener on
+/// the same port number.
+async fn silent() -> (UdpSocket, tokio::net::TcpListener, u16) {
+    for _ in 0..16 {
+        let udp = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = udp.local_addr().unwrap().port();
+        if let Ok(tcp) = tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+            return (udp, tcp, port);
+        }
+    }
+    panic!("no port free on both UDP and TCP");
+}
+
+// A request as short as a probe still reaches HTTPS when QUIC cannot be
+// reached: the connection attempt takes only part of its time.
+#[tokio::test]
+async fn a_short_request_falls_back_to_https_in_time() {
+    let shutdown = CancellationToken::new();
+    let a = side(1, &shutdown);
+    let (_udp, tcp, port) = silent().await;
+    let target = NodeKey::from_bytes(&[9; 32]).node_id();
+    let request = Request {
+        id: RequestId(7),
+        to: target,
+        url: format!("https://127.0.0.1:{port}"),
+        quic: true,
+        kind: Kind::LinkStateRequest,
+        body: b"probe".to_vec(),
+        timeout_ms: 2_000,
+    };
+    let client = client();
+    let started = tokio::time::Instant::now();
+    let (accepted, (result, transport)) = tokio::join!(
+        tcp.accept(),
+        send_peer(Some(Arc::clone(&a.quic)), &client, request)
+    );
+    assert!(accepted.is_ok(), "HTTPS was not tried");
+    assert_eq!(transport, Transport::Https);
+    assert!(result.is_err());
+    assert!(started.elapsed() < std::time::Duration::from_millis(2_500));
+    // And asked over HTTPS from now on, without waiting for QUIC again.
+    assert!(a.quic.is_unreachable(&target));
+    shutdown.cancel();
+}
+
+// At shutdown the node stops taking connections, but answers the requests
+// it has, before it closes.
+#[tokio::test]
+async fn a_request_in_progress_is_answered_at_shutdown() {
+    let (shutdown_a, shutdown_b) = (CancellationToken::new(), CancellationToken::new());
+    let a = side(1, &shutdown_a);
+    let b = side_with(2, &shutdown_b, Arc::new(Slow));
+    let (quic, request) = (Arc::clone(&a.quic), request(&b, b"late".to_vec()));
+    let sending = tokio::spawn(async move { quic.send(&request, &client(), CONNECT).await });
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    shutdown_b.cancel();
+    let response = sending.await.unwrap().unwrap();
+    assert_eq!((response.status, response.body), (200, b"late".to_vec()));
+    shutdown_a.cancel();
 }

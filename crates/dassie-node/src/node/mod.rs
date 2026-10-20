@@ -11,6 +11,7 @@ mod certificates;
 mod rates;
 mod settings;
 
+use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -213,6 +214,37 @@ pub struct PeerOptions {
 /// Most inbound peer requests waiting on the engine at once.
 const MAX_PEER_REQUESTS: usize = 256;
 
+/// Most of those one client may hold: as many as HTTP/1.1 lets it, one per
+/// connection, so that over QUIC, where one connection carries many, a
+/// single address cannot take every place either.
+pub const MAX_PEER_REQUESTS_PER_CLIENT: u32 = 64;
+
+const _: () = assert!(MAX_PEER_REQUESTS_PER_CLIENT as usize * 4 <= MAX_PEER_REQUESTS);
+
+/// The places each client holds.
+type HeldByClient = Arc<Mutex<BTreeMap<ClientKey, u32>>>;
+
+/// One inbound peer request's place, given back when it drops.
+#[derive(Debug)]
+pub struct PeerPermit {
+    _permit: OwnedSemaphorePermit,
+    client: Option<(HeldByClient, ClientKey)>,
+}
+
+impl Drop for PeerPermit {
+    fn drop(&mut self) {
+        if let Some((by_client, key)) = &self.client {
+            let mut by_client = lock(by_client);
+            if let Some(count) = by_client.get_mut(key) {
+                *count = count.saturating_sub(1);
+                if *count == 0 {
+                    by_client.remove(key);
+                }
+            }
+        }
+    }
+}
+
 /// Requests without authentication, per client address: they are for tools
 /// and debugging, since nodes authenticate every request.
 const PEER_ANONYMOUS: RateLimitPolicy = RateLimitPolicy {
@@ -229,6 +261,8 @@ struct PeerSide {
     client: std::sync::OnceLock<Result<PeerClient, String>>,
     allow_private: bool,
     permits: Arc<Semaphore>,
+    /// Places held by each client, for its share.
+    by_client: HeldByClient,
     limiter: Mutex<RateLimiter>,
 }
 
@@ -247,6 +281,7 @@ impl PeerSide {
             client,
             allow_private: options.allow_private,
             permits: Arc::new(Semaphore::new(MAX_PEER_REQUESTS)),
+            by_client: Arc::new(Mutex::new(BTreeMap::new())),
             limiter: Mutex::new(RateLimiter::new(PEER_ANONYMOUS)),
         })
     }
@@ -478,10 +513,28 @@ impl Node {
         made.as_ref().ok()
     }
 
-    /// A place for one more inbound peer request, if any is left.
+    /// A place for one more inbound peer request from `client`, if any is
+    /// left and the client has not used up its share.
     #[must_use]
-    pub fn peer_permit(&self) -> Option<OwnedSemaphorePermit> {
-        Arc::clone(&self.peer.permits).try_acquire_owned().ok()
+    pub fn peer_permit(&self, client: IpAddr) -> Option<PeerPermit> {
+        let Some(key) = self.counted_client(client) else {
+            let permit = Arc::clone(&self.peer.permits).try_acquire_owned().ok()?;
+            return Some(PeerPermit {
+                _permit: permit,
+                client: None,
+            });
+        };
+        let mut by_client = lock(&self.peer.by_client);
+        let held = by_client.get(&key).copied().unwrap_or(0);
+        if held >= MAX_PEER_REQUESTS_PER_CLIENT {
+            return None;
+        }
+        let permit = Arc::clone(&self.peer.permits).try_acquire_owned().ok()?;
+        by_client.insert(key, held + 1);
+        Some(PeerPermit {
+            _permit: permit,
+            client: Some((Arc::clone(&self.peer.by_client), key)),
+        })
     }
 
     /// Whether `client` may send another unauthenticated or failing peer
@@ -514,7 +567,12 @@ impl Node {
         dassie_peer::OwnInfo {
             url: dassie_node_core::urls::node_url(config.hostname.as_ref(), self.ports().1),
             alias: config.alias.as_str().to_owned(),
-            quic: self.quic().is_some(),
+            // Peers reach QUIC at the URL's port: a drop-in that moved the
+            // HTTPS socket elsewhere leaves QUIC where peers do not look.
+            quic: self.quic().is_some_and(|quic| {
+                quic.local_addr()
+                    .is_ok_and(|address| address.port() == self.ports().1)
+            }),
         }
     }
 

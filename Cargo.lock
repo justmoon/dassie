@@ -530,6 +530,7 @@ dependencies = [
  "quinn",
  "rand_core",
  "rcgen",
+ "ring",
  "rusqlite",
  "rustls",
  "rustls-platform-verifier",

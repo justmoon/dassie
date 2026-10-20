@@ -24,16 +24,18 @@ The layouts are pinned by golden vectors ([Test vectors](#test-vectors)); a chan
 The same requests travel over QUIC or HTTPS. A node whose link state says it takes QUIC is asked over QUIC; any other, over HTTPS. Either way the transport checks only the client's rate and the body's size; the peer node decides everything else, and answers only once what the request changed is on disk ([D26](../decisions/D26-core-and-periphery.md) chose QUIC: peer traffic is heavy, and one HTTP request per packet costs).
 
 - Unauthenticated requests, and requests that fail, are rate-limited per client address. Nodes authenticate every request, so this rations tools and failures, not peers.
-- The number of requests waiting on the node is bounded; past it the node answers 503. The two transports share that bound and the rate limits (`crates/dassie-node/src/http/peer.rs`).
+- The number of requests waiting on the node is bounded, in all and per client address; past it the node answers 503. The share per client is what HTTP/1.1 allows anyway, one request per connection, so that over QUIC, where one connection carries many, one address still cannot take every place. A body that is too large, broken or too slow is charged like a failed request, so a client cannot hold places over and over. The two transports share these bounds and the rate limits (`crates/dassie-node/src/http/peer.rs`).
 
 ### QUIC
 
-- **One endpoint per node,** on UDP at its URL's host and port: 443 under systemd, the HTTPS listener's port number when standalone ([Node](node.md#runtimes)). It both takes and makes connections. A link state says the node takes QUIC with extension type 2 ([Link states](#link-states)), which a node issues only when it has its UDP socket.
+- **One endpoint per node,** on UDP at its URL's host and port: 443 under systemd, the HTTPS listener's port number when standalone ([Node](node.md#runtimes)). It both takes and makes connections. A link state says the node takes QUIC with extension type 2 ([Link states](#link-states)), which a node issues only when it has its UDP socket on its URL's port.
 - **Keys, not certificates.** Each side presents a self-signed certificate for its Ed25519 node key. A dialler refuses a server whose key is not that of the node it asked for; a server takes any client that proves a key, and learns its node ID from it. TLS 1.3 only, ALPN `dassie/1`. No certificate authority is involved, so a node needs no certificate for its hostname to be reached over QUIC. TLS signs with a context string of its own, so a handshake signature never passes for a link state's (`crates/dassie-node/src/quic/keys.rs`).
 - **A request is a bidirectional stream:** the envelope, then the stream's end; the answer is the status as two bytes, big-endian, then the body. The bytes, bounds and statuses are those of HTTPS; the media types are implied by the ALPN.
 - **One connection per pair of nodes, used both ways.** A node sends on a connection another opened to it; when both dialled, the one the lower node ID opened is kept. A connection unused for a while closes, which peers' heartbeats prevent.
-- **Falling back.** A node whose QUIC cannot be reached (no connection within a few seconds: UDP filtered, say) is asked over HTTPS in the request's remaining time, and for a while after. A bootstrap node known only from the configuration is asked over HTTPS until its link state arrives. A request that may have reached the node is never sent again over HTTPS, since it may have had its effect.
-- **Bounds** as over HTTPS: connections in all and per client address, and requests open on one connection no more than the node takes at once.
+- **A crash ends connections at once.** The key for stateless resets derives from the node key ([Identity](identity.md#seed-paths)), so it is the same after a restart: a node that crashed, closing nothing, still tells peers their old connections are gone, and they connect again at once, as over TCP, instead of waiting out the idle timeout.
+- **Falling back.** A node whose QUIC cannot be reached (UDP filtered, say) is asked over HTTPS, and for a while after. Making a connection takes at most half of a request's time, the name's addresses tried in turn, so even a request as short as a probe has HTTPS left. A bootstrap node known only from the configuration is asked over HTTPS until its link state arrives. A request that may have reached the node is never sent again over HTTPS, since it may have had its effect.
+- **Bounds** as over HTTPS: connections in all and per client address, a client's requests open on one connection no more than its share, bounded windows, and a bounded time to write an answer a client does not read. Once connection places run short, a client must show it receives at its address before it holds one.
+- **At shutdown** the endpoint stops taking connections, lets the requests in progress finish for a bounded time, and only then closes, as the HTTPS listener does ([Node](node.md#shutdown)).
 
 ### HTTPS
 
@@ -113,7 +115,7 @@ Peer requests, and the node's other outbound requests (Open Payments to other wa
 
 - Requests go only to `https` URLs, and redirects are never followed. A QUIC connection goes to the host and port of such a URL.
 - Private, loopback, link-local and similar addresses are refused, both as IP literals and after DNS resolution (`crates/dassie-node-core/src/address.rs`). An IPv6 literal is read as the HTTP client reads it, and one the guard cannot read counts as private, so the guard and the client cannot disagree. `DASSIE_PEER_ALLOW_PRIVATE` lifts this for dev and tests.
-- In-flight requests are bounded, in total and per host. ILP packets do not count, so their responses always get through.
+- In-flight requests are bounded, in total and per host, whichever transport carries them. ILP packets do not count, so their responses always get through.
 - **Failures** are of two kinds: *not delivered* (refused before sending, or the connection failed) and *unknown* (a timeout after sending, or a broken response). Only the first, or a status that means not acted upon ([Statuses](#statuses)), says a request surely had no effect.
 
 ## Test vectors

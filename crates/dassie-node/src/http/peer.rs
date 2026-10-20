@@ -70,20 +70,29 @@ where
     if node.peer_limited(client) {
         return Answer::text(StatusCode::TOO_MANY_REQUESTS, "Too Many Requests");
     }
-    let (Some(engine), Some(_permit)) = (node.engine(), node.peer_permit()) else {
+    let (Some(engine), Some(_permit)) = (node.engine(), node.peer_permit(client)) else {
         return Answer::text(StatusCode::SERVICE_UNAVAILABLE, "Service Unavailable");
     };
     let timeout = Duration::from_millis(node.policies().body_timeout_ms);
-    let body = match tokio::time::timeout(timeout, body).await {
-        Ok(Ok(body)) => body,
-        Ok(Err(BodyError::TooLarge)) => {
-            return Answer::text(StatusCode::PAYLOAD_TOO_LARGE, "Payload Too Large");
-        }
-        Ok(Err(BodyError::Broken)) => {
-            return Answer::text(StatusCode::BAD_REQUEST, "Bad Request");
-        }
-        Err(_) => return Answer::text(StatusCode::REQUEST_TIMEOUT, "Request Timeout"),
+    // A body that is too large, broken or slow held a place for nothing:
+    // charged, so that a client cannot hold places over and over.
+    let (status, text) = match tokio::time::timeout(timeout, body).await {
+        Ok(Ok(body)) => return answer_body(node, &engine, client, body).await,
+        Ok(Err(BodyError::TooLarge)) => (StatusCode::PAYLOAD_TOO_LARGE, "Payload Too Large"),
+        Ok(Err(BodyError::Broken)) => (StatusCode::BAD_REQUEST, "Bad Request"),
+        Err(_) => (StatusCode::REQUEST_TIMEOUT, "Request Timeout"),
     };
+    node.peer_charge(client);
+    Answer::text(status, text)
+}
+
+/// Hands a request's body to the engine and returns its reply.
+async fn answer_body(
+    node: &Node,
+    engine: &crate::engine::Engine,
+    client: IpAddr,
+    body: Vec<u8>,
+) -> Answer {
     let anonymous = Envelope::decode(&body)
         .is_ok_and(|envelope| envelope.authentication == Authentication::None);
     // Loopback is no network of its own where private peers are allowed, as

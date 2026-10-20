@@ -72,6 +72,8 @@ http = "1"
 # The peer protocol over QUIC (spec/areas/peer-protocol.md#transport), on
 # rustls with ring like everything above: its default would add aws-lc.
 quinn = { version = "0.11.12", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+# The HMAC key quinn's stateless resets take; already in the tree.
+ring = "0.17.14"
 
 # SQLite, compiled in: the release binary carries no shared libraries.
 rusqlite = { version = "0.40.2", features = ["bundled"] }
