@@ -43,6 +43,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_20,
     MIGRATION_21,
     MIGRATION_22,
+    MIGRATION_23,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -781,6 +782,15 @@ DROP TABLE rate_sources;
 ALTER TABLE rate_sources_new RENAME TO rate_sources;
 ";
 
+/// Strangers never take the owner's share of the grants (D34): each grant
+/// keeps the network it was asked for from, so no one network holds more
+/// than its share. Grants asked for before, and from loopback in
+/// development, count in the totals only.
+const MIGRATION_23: &str = "
+ALTER TABLE gnap_grants ADD COLUMN network BLOB
+  CHECK (network IS NULL OR length(network) = 16);
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1048,6 +1058,7 @@ pub const TABLES: &[Table] = &[
             ("decided_at_ms", "INTEGER", false, false),
             ("expires_at_ms", "INTEGER", true, false),
             ("revision", "INTEGER", true, false),
+            ("network", "BLOB", false, false),
         ],
     },
     Table {

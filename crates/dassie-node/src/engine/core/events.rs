@@ -141,6 +141,12 @@ pub enum PaymentEvent {
         /// Its ID.
         id: PaymentId,
     },
+    /// A connection that paid only dust and was idle gave its place in an
+    /// incoming payment to a new payer.
+    IncomingConnectionReplaced {
+        /// The payment.
+        id: PaymentId,
+    },
     /// An incoming payment received all it asked for.
     IncomingCompleted {
         /// Its ID.
@@ -394,6 +400,7 @@ const fn payment_severity(event: &PaymentEvent) -> Severity {
     match event {
         PaymentEvent::IncomingCreated { .. }
         | PaymentEvent::IncomingClosedForRoom { .. }
+        | PaymentEvent::IncomingConnectionReplaced { .. }
         | PaymentEvent::IncomingCompleted { .. }
         | PaymentEvent::StreamClosed { .. }
         | PaymentEvent::OutgoingSending { .. }

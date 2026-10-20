@@ -9,10 +9,13 @@
 //! and a reference, and the client continues the grant with that
 //! reference to get its token. A grant waits at most
 //! [`PENDING_GRANT_LIFETIME_MS`]; at most [`MAX_PENDING_GRANTS`] wait at
-//! once.
+//! once, of which strangers leave a share to clients the owner approved
+//! before, and no one client or network takes more than a small share
+//! ([`grant_fits`]).
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use dassie_node_core::rate_limit::ClientKey;
 use dassie_payments::gnap::{
     self, Access, AccessToken, Continue, ContinueRequest, ContinueToken, ErrorCode, Finish,
     GrantRequest, GrantResponse, InteractResponse, Subject, SubjectId,
@@ -22,12 +25,13 @@ use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq as _;
 
 use super::auth::{
-    ACCESS_TOKEN_LIFETIME_MS, OpError, PENDING_GRANT_LIFETIME_MS, new_token, random_bytes,
+    ACCESS_TOKEN_LIFETIME_MS, OpError, PENDING_GRANT_LIFETIME_MS, grant_fits, new_token,
+    random_bytes,
 };
 use super::{GRANT_PATH, Urls, WalletAddresses};
 use crate::log::target;
 use crate::node::Node;
-use crate::store::{GrantRow, GrantState, MAX_GRANTS, PaymentId, TokenRow};
+use crate::store::{GrantRow, GrantState, PaymentId, TokenRow};
 
 /// Most grants waiting for the owner at once.
 pub const MAX_PENDING_GRANTS: u32 = 256;
@@ -96,16 +100,18 @@ fn same(a: &str, b: &str) -> bool {
     a.len() == b.len() && bool::from(a.as_bytes().ct_eq(b.as_bytes()))
 }
 
-/// Stores a grant that waits for the owner, and tells the client where to
-/// send them.
+/// Stores a grant that waits for the owner, asked for from `network`, and
+/// tells the client where to send them.
 ///
 /// # Errors
 ///
-/// 503 while too many grants wait or are kept.
+/// As [`grant_fits`]: 503 while too many grants wait or are kept, 429
+/// while too many are the client's or its network's.
 pub async fn request(
     node: &Node,
     urls: &Urls,
     client: String,
+    network: Option<ClientKey>,
     jwk: &Jwk,
     access: Vec<Access>,
     request: &GrantRequest,
@@ -113,13 +119,9 @@ pub async fn request(
     let now = node.now_ms();
     let store = node.store();
     store.prune_grants(now)?;
-    if store.pending_grant_count()? >= MAX_PENDING_GRANTS || store.grant_count()? >= MAX_GRANTS {
-        return Err(OpError::new(
-            503,
-            ErrorCode::RequestDenied.as_str(),
-            "too many grants wait for the owner; try again later",
-        ));
-    }
+    // Before the client's wallet address is read: a request that will not
+    // fit costs no fetch. The insert checks again.
+    grant_fits(&store.grant_counts(&client, network)?, true)?;
     let public_name = public_name(node, &client).await;
     let interaction = Interaction {
         key: random_text::<24>(node),
@@ -149,7 +151,7 @@ pub async fn request(
         decided_at_ms: None,
         expires_at_ms: now + PENDING_GRANT_LIFETIME_MS,
     };
-    store.insert_grant(&row, None)?;
+    store.insert_grant(&row, None, network, |counts| grant_fits(counts, true))??;
     changed(node).await;
     tracing::info!(target: target::PAYMENT, grant = %id, client = %row.client, "a grant waits for the owner");
     Ok(GrantResponse {

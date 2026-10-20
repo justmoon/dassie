@@ -3,6 +3,7 @@
 //! the engine. Tokens and continuation tokens are stored as SHA-256
 //! hashes only (D10).
 
+use dassie_node_core::rate_limit::ClientKey;
 use rusqlite::{OptionalExtension, Row, params};
 
 use super::{PaymentId, Store, StoreError, from_sql_time, to_sql_time};
@@ -96,25 +97,65 @@ pub struct TokenRow {
     pub expires_at_ms: u64,
 }
 
+/// What a new grant would join: the grants kept and those waiting for the
+/// owner, in all, of its client and from its network, and whether the
+/// owner approved its client before.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GrantCounts {
+    /// Grants kept.
+    pub kept: u32,
+    /// Grants waiting for the owner.
+    pub pending: u32,
+    /// Grants of the client.
+    pub client_kept: u32,
+    /// Grants of the client waiting for the owner.
+    pub client_pending: u32,
+    /// Grants asked for from the network.
+    pub network_kept: u32,
+    /// Grants asked for from the network waiting for the owner.
+    pub network_pending: u32,
+    /// Whether the client has a grant the owner approved.
+    pub known: bool,
+}
+
 const GRANT_COLUMNS: &str = "id, state, client, client_key, access, needs_owner, \
      continue_token_hash, interaction, created_at_ms, decided_at_ms, expires_at_ms";
 
 const NEXT_REVISION: &str = "(SELECT coalesce(max(revision), 0) + 1 FROM gnap_grants)";
 
+fn count(value: i64) -> Result<u32, StoreError> {
+    u32::try_from(value).map_err(|_| StoreError::Corrupt("grant count"))
+}
+
 impl Store {
-    /// Stores a new grant, and its first token if it has one, in one
-    /// transaction.
-    pub fn insert_grant(
+    /// What a new grant of `client`, asked for from `network`, would join.
+    pub fn grant_counts(
+        &self,
+        client: &str,
+        network: Option<ClientKey>,
+    ) -> Result<GrantCounts, StoreError> {
+        grant_counts(&self.lock(), client, network)
+    }
+
+    /// Stores a new grant, asked for from `network`, and its first token if
+    /// it has one, in one transaction, if `fits` says it fits beside the
+    /// grants kept: `fits`'s refusal otherwise.
+    pub fn insert_grant<E>(
         &self,
         grant: &GrantRow,
         token: Option<&TokenRow>,
-    ) -> Result<(), StoreError> {
+        network: Option<ClientKey>,
+        fits: impl FnOnce(&GrantCounts) -> Result<(), E>,
+    ) -> Result<Result<(), E>, StoreError> {
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
+        if let Err(refusal) = fits(&grant_counts(&transaction, &grant.client, network)?) {
+            return Ok(Err(refusal));
+        }
         transaction.execute(
             &format!(
-                "INSERT INTO gnap_grants ({GRANT_COLUMNS}, revision) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, {NEXT_REVISION})"
+                "INSERT INTO gnap_grants ({GRANT_COLUMNS}, network, revision) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, {NEXT_REVISION})"
             ),
             params![
                 grant.id.0.as_slice(),
@@ -128,13 +169,14 @@ impl Store {
                 to_sql_time(grant.created_at_ms),
                 grant.decided_at_ms.map(to_sql_time),
                 to_sql_time(grant.expires_at_ms),
+                network.map(|network| network.to_bytes().to_vec()),
             ],
         )?;
         if let Some(token) = token {
             insert_token(&transaction, token)?;
         }
         transaction.commit()?;
-        Ok(())
+        Ok(Ok(()))
     }
 
     /// The token with this hash, unexpired at `now_ms`, with its grant.
@@ -273,16 +315,6 @@ impl Store {
             .transpose()
     }
 
-    /// How many grants wait for the owner.
-    pub fn pending_grant_count(&self) -> Result<u32, StoreError> {
-        let count: i64 = self.lock().query_row(
-            "SELECT count(*) FROM gnap_grants WHERE state = 'pending'",
-            [],
-            |row| row.get(0),
-        )?;
-        u32::try_from(count).map_err(|_| StoreError::Corrupt("grant count"))
-    }
-
     /// The owner's decision on a pending grant, with its interaction as it
     /// now is; false if it was no longer pending.
     pub fn decide_grant(
@@ -356,14 +388,6 @@ impl Store {
             .collect()
     }
 
-    /// How many grants are kept.
-    pub fn grant_count(&self) -> Result<u32, StoreError> {
-        let count: i64 = self
-            .lock()
-            .query_row("SELECT count(*) FROM gnap_grants", [], |row| row.get(0))?;
-        u32::try_from(count).map_err(|_| StoreError::Corrupt("grant count"))
-    }
-
     /// Forgets what no request can use any more: grants the owner did not
     /// decide in time, denied and revoked ones, and expired tokens, except
     /// those of grants the owner approved, which may be rotated for
@@ -398,6 +422,56 @@ impl Store {
         transaction.commit()?;
         u32::try_from(removed).map_err(|_| StoreError::Corrupt("grant count"))
     }
+}
+
+/// What a new grant of `client` from `network` would join: one pass over
+/// the table, which [`MAX_GRANTS`] bounds.
+fn grant_counts(
+    connection: &rusqlite::Connection,
+    client: &str,
+    network: Option<ClientKey>,
+) -> Result<GrantCounts, StoreError> {
+    let network = network.map(|network| network.to_bytes().to_vec());
+    let counts = connection.query_row(
+        "SELECT count(*), \
+           coalesce(sum(state = 'pending'), 0), \
+           coalesce(sum(client = ?1), 0), \
+           coalesce(sum(client = ?1 AND state = 'pending'), 0), \
+           coalesce(sum(network IS NOT NULL AND network = ?2), 0), \
+           coalesce(sum(network IS NOT NULL AND network = ?2 AND state = 'pending'), 0), \
+           coalesce(max(client = ?1 AND state = 'approved' AND needs_owner = 1), 0) \
+         FROM gnap_grants",
+        params![client, network],
+        |row| {
+            Ok([
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, i64>(6)?,
+            ])
+        },
+    )?;
+    let [
+        kept,
+        pending,
+        client_kept,
+        client_pending,
+        network_kept,
+        network_pending,
+        known,
+    ] = counts;
+    Ok(GrantCounts {
+        kept: count(kept)?,
+        pending: count(pending)?,
+        client_kept: count(client_kept)?,
+        client_pending: count(client_pending)?,
+        network_kept: count(network_kept)?,
+        network_pending: count(network_pending)?,
+        known: known == 1,
+    })
 }
 
 fn insert_token(

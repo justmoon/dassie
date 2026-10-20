@@ -33,7 +33,7 @@ use tokio_util::sync::CancellationToken;
 pub use self::core::{
     BtpEvent, BtpSession, Changes, Core, CoreParts, CreatedOutgoing, EngineError, EngineEvent,
     Event, IncomingPolicy, LedgerEvent, LedgerView, Lie, NetworkView, NewIncoming, NewOutgoing,
-    NewToken, Outbound, Output, PaymentEvent, PeerEvent, PeerView, RemovalBlocker, SCHEMES,
+    NewToken, Outbound, Output, PaymentEvent, PeerEvent, PeerView, Prober, RemovalBlocker, SCHEMES,
     SettlementEvent, Severity, TokenView, ledger_slug,
 };
 
@@ -92,6 +92,7 @@ enum Command {
         ledger: dassie_ledger::LedgerId,
         destination: String,
         shared_secret: [u8; 32],
+        by: Prober,
         reply: oneshot::Sender<ProbeResult>,
     },
     /// Run this on the core.
@@ -346,12 +347,14 @@ impl Engine {
 
     /// Measures what the path from `ledger`'s payer to the receiver at
     /// `destination` delivers per unit sent, with packets the receiver
-    /// cannot fulfill (D9). Nothing when it could not be measured in time.
+    /// cannot fulfill (D9), for `by`, whose share of the probes it takes.
+    /// Nothing when it could not be measured in time.
     pub async fn probe(
         &self,
         ledger: dassie_ledger::LedgerId,
         destination: String,
         shared_secret: [u8; 32],
+        by: Prober,
     ) -> Result<Option<dassie_stream::Rate>, EngineError> {
         let (reply, receiver) = oneshot::channel();
         self.commands
@@ -359,6 +362,7 @@ impl Engine {
                 ledger,
                 destination,
                 shared_secret,
+                by,
                 reply,
             })
             .await
@@ -669,13 +673,14 @@ impl Driver<'_> {
                 ledger,
                 destination,
                 shared_secret,
+                by,
                 reply,
             } => {
                 let id = self.next_probe;
                 self.next_probe += 1;
                 match self
                     .core
-                    .start_probe(id, ledger, &destination, &shared_secret)
+                    .start_probe(id, ledger, &destination, &shared_secret, by)
                 {
                     Ok(()) => {
                         self.probe_replies.insert(id, reply);

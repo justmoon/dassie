@@ -43,7 +43,7 @@ use dassie_node_core::config::{Alias, DirectoryUrl, Hostname, NodeConfig, Ports,
 use dassie_node_core::session::{SessionId, SessionPolicy, SessionTimes};
 use rusqlite::{Connection, OptionalExtension, params};
 
-pub use gnap::{GrantRow, GrantState, MAX_GRANTS, TokenRow};
+pub use gnap::{GrantCounts, GrantRow, GrantState, MAX_GRANTS, TokenRow};
 pub use inspect::{BLOB_CUT, Cell, ColumnInfo, MAX_ROWS, RowsPage, TEXT_CUT, TableInfo, Value};
 pub use ledger::{
     BtpTokenRow, Checkpoint, FeeRow, JournalRow, LedgerBatch, StoredLedger, TokenCap,

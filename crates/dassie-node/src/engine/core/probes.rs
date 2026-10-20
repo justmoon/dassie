@@ -3,9 +3,15 @@
 //! receiver cannot fulfill, as STREAM measures exchange rates. They move
 //! no money, but hold the owner's funds while in flight, as the payment
 //! would.
+//!
+//! Clients' quotes need no owner, so anyone can start probes. The owner's
+//! Send keeps [`OWNER_PROBES`] of the slots, which no client can take, and
+//! no one client or network holds more than [`MAX_PROBES_PER_CLIENT`]
+//! (D34).
 
 use dassie_ilp::{Address, Timestamp};
 use dassie_ledger::LedgerId;
+use dassie_node_core::rate_limit::ClientKey;
 use dassie_stream::{AssetDetails, Config, Connection, Event, Policy, Rate, Role};
 
 use super::payers::Sender;
@@ -13,12 +19,69 @@ use super::{Core, EngineError, MAX_SENDS_PER_POLL, Output};
 
 /// Most probes at once.
 pub const MAX_PROBES: usize = 8;
+/// Probe slots only the owner's Send may take.
+pub const OWNER_PROBES: usize = 2;
+/// Most probes of one client, and most from one network, at once.
+pub const MAX_PROBES_PER_CLIENT: usize = 2;
 /// How long a probe may take.
 pub const PROBE_TIMEOUT_MS: u64 = 10_000;
+
+const _: () =
+    assert!(OWNER_PROBES < MAX_PROBES && MAX_PROBES_PER_CLIENT <= MAX_PROBES - OWNER_PROBES);
+
+/// Who measures a rate: the owner's Send, or a client with a grant.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Prober {
+    /// The owner.
+    Owner,
+    /// A client.
+    Client {
+        /// The client, as its grant names it.
+        client: String,
+        /// The network its request came from; none where it counts in the
+        /// totals only.
+        network: Option<ClientKey>,
+    },
+}
+
+/// Whether one more probe by `prober` fits beside the probes in progress,
+/// by `probers`; why not otherwise.
+fn probe_room<'a>(
+    probers: impl Iterator<Item = &'a Prober> + Clone,
+    prober: &Prober,
+) -> Result<(), &'static str> {
+    if probers.clone().count() >= MAX_PROBES {
+        return Err("too many rates are being measured");
+    }
+    let Prober::Client { client, network } = prober else {
+        return Ok(());
+    };
+    let clients = probers.filter_map(|other| match other {
+        Prober::Owner => None,
+        Prober::Client { client, network } => Some((client, network)),
+    });
+    if clients.clone().count() >= MAX_PROBES - OWNER_PROBES {
+        return Err("too many rates are being measured");
+    }
+    let of_client = clients
+        .clone()
+        .filter(|(other, _)| *other == client)
+        .count();
+    let of_network = network.map_or(0, |network| {
+        clients
+            .filter(|(_, other)| **other == Some(network))
+            .count()
+    });
+    if of_client >= MAX_PROBES_PER_CLIENT || of_network >= MAX_PROBES_PER_CLIENT {
+        return Err("too many of your rates are being measured");
+    }
+    Ok(())
+}
 
 /// A probe in progress.
 pub(super) struct Probe {
     ledger: LedgerId,
+    by: Prober,
     pub connection: Box<Connection>,
     deadline_ms: u64,
     /// What it measured, once it is done: a rate, or nothing.
@@ -33,22 +96,20 @@ impl Core {
     /// # Errors
     ///
     /// The ledger is not active, the address is not one, or too many
-    /// probes run.
+    /// probes run: in all, or of the share of `by`.
     pub fn start_probe(
         &mut self,
         id: u64,
         ledger: LedgerId,
         destination: &str,
         shared_secret: &[u8; 32],
+        by: Prober,
     ) -> Result<(), EngineError> {
         if !self.spending.payers.contains_key(&ledger) {
             return Err(EngineError::Precondition("the ledger is not active".into()));
         }
-        if self.spending.probes.len() >= MAX_PROBES {
-            return Err(EngineError::Exhausted(
-                "too many rates are being measured".into(),
-            ));
-        }
+        probe_room(self.spending.probes.values().map(|probe| &probe.by), &by)
+            .map_err(|why| EngineError::Exhausted(why.into()))?;
         if self.spending.probes.contains_key(&id) {
             return Err(EngineError::Internal("a probe's ID is taken".into()));
         }
@@ -73,6 +134,7 @@ impl Core {
             id,
             Probe {
                 ledger,
+                by,
                 connection,
                 deadline_ms: now.saturating_add(PROBE_TIMEOUT_MS),
                 done: None,
@@ -189,10 +251,20 @@ impl Core {
 }
 
 impl Core {
-    /// The rate probes: within their bound, and each connection's
+    /// The rate probes: within their bounds, and each connection's
     /// invariants.
     pub(super) fn check_probes(&self) {
         assert!(self.spending.probes.len() <= MAX_PROBES);
+        let clients = self
+            .spending
+            .probes
+            .values()
+            .filter(|probe| probe.by != Prober::Owner)
+            .count();
+        assert!(
+            clients <= MAX_PROBES - OWNER_PROBES,
+            "clients' probes took the owner's slots"
+        );
         for probe in self.spending.probes.values() {
             probe.connection.check_invariants();
         }

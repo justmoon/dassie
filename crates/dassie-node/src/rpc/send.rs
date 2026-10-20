@@ -24,7 +24,7 @@ use super::live::{self, Follow, Source};
 use super::payments::outgoing;
 use super::proto::quote_send_request::Amount as Amount_;
 use super::proto::{self, request::Method, response, stream_item};
-use crate::engine::{Engine, NewIncoming};
+use crate::engine::{Engine, NewIncoming, Prober};
 use crate::node::Node;
 use crate::open_payments::client::{self, ClientError};
 use crate::open_payments::spending::{self, NewQuote, Receiver};
@@ -353,7 +353,7 @@ async fn price(
     receiver: Receiver,
 ) -> Result<proto::SendQuote, RpcError> {
     let ledger = ledger_for(engine, named, &receiver).await?;
-    let rate = spending::quote_rate(node, ledger, &receiver).await?;
+    let rate = spending::quote_rate(node, ledger, &receiver, Prober::Owner).await?;
     let wallet = &found.wallet;
     let asset = ledger.asset();
     let debit = debit_amount.map(|value| Amount::new(value, asset.code, asset.scale));

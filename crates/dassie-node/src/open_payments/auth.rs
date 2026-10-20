@@ -11,6 +11,7 @@
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use dassie_node_core::rate_limit::ClientKey;
 use dassie_payments::VerifyingKey;
 use dassie_payments::amount::asset_name;
 use dassie_payments::gnap::{
@@ -21,18 +22,104 @@ use dassie_payments::httpsig::{self, Signature};
 use dassie_payments::jwk::Jwk;
 use sha2::{Digest as _, Sha256};
 
+use super::consent::MAX_PENDING_GRANTS;
 use super::keys::{self, KeyError};
 use super::{GRANT_PATH, Urls, WalletAddresses};
 use crate::log::target;
 use crate::node::Node;
 use crate::store::{
-    GrantRow, GrantState, Listed, MAX_GRANTS, MAX_LISTED, PaymentId, StoreError, TokenRow,
+    GrantCounts, GrantRow, GrantState, Listed, MAX_GRANTS, MAX_LISTED, PaymentId, StoreError,
+    TokenRow,
 };
 
 /// How long an access token works.
 pub const ACCESS_TOKEN_LIFETIME_MS: u64 = 60 * 60 * 1_000;
 /// How long a grant may wait for the owner.
 pub const PENDING_GRANT_LIFETIME_MS: u64 = 10 * 60 * 1_000;
+
+/// Grants only clients the owner approved before may take: strangers'
+/// grants never fill the table (D34).
+pub const OWNER_RESERVED_GRANTS: u32 = MAX_GRANTS / 16;
+/// Places among the grants waiting for the owner that only clients the
+/// owner approved before may take.
+pub const OWNER_RESERVED_PENDING: u32 = MAX_PENDING_GRANTS / 4;
+/// Most grants one client keeps.
+pub const MAX_GRANTS_PER_CLIENT: u32 = MAX_GRANTS / 64;
+/// Most grants kept that a stranger asked for from one network.
+pub const MAX_GRANTS_PER_NETWORK: u32 = MAX_GRANTS / 16;
+/// Most grants of one client waiting for the owner.
+pub const MAX_PENDING_PER_CLIENT: u32 = 4;
+/// Most grants waiting for the owner that strangers asked for from one
+/// network.
+pub const MAX_PENDING_PER_NETWORK: u32 = MAX_PENDING_GRANTS / 16;
+
+/// Whether a new grant fits beside those kept (D34).
+///
+/// Clients the owner approved before, by their grant the owner approved,
+/// are the owner's side: strangers leave them a share of the grants and
+/// of the places waiting for the owner. Grants approved at once leave
+/// room for every grant that may wait, so the table never stops one from
+/// asking. No one client holds more than a small share; no one network
+/// either, of what strangers hold, since a network is shared by many and
+/// a client the owner approved is known by its key.
+///
+/// # Errors
+///
+/// 503 when the pool the grant goes into is full, 429 when its client or
+/// network has its share.
+pub fn grant_fits(counts: &GrantCounts, needs_owner: bool) -> Result<(), OpError> {
+    let mut most = MAX_GRANTS;
+    if !needs_owner {
+        most -= MAX_PENDING_GRANTS;
+    }
+    if !counts.known {
+        most -= OWNER_RESERVED_GRANTS;
+    }
+    let most_pending = if counts.known {
+        MAX_PENDING_GRANTS
+    } else {
+        MAX_PENDING_GRANTS - OWNER_RESERVED_PENDING
+    };
+    if needs_owner && counts.pending >= most_pending {
+        return Err(OpError::gnap(
+            503,
+            ErrorCode::RequestDenied,
+            "too many grants wait for the owner; try again later",
+        ));
+    }
+    if counts.kept >= most {
+        return Err(OpError::gnap(
+            503,
+            ErrorCode::RequestDenied,
+            "too many grants; try again later",
+        ));
+    }
+    let has_share = |of_client: u32, most_client: u32, of_network: u32, most_network: u32| {
+        of_client >= most_client || (!counts.known && of_network >= most_network)
+    };
+    let kept = (counts.client_kept, counts.network_kept);
+    let pending = (counts.client_pending, counts.network_pending);
+    if has_share(
+        kept.0,
+        MAX_GRANTS_PER_CLIENT,
+        kept.1,
+        MAX_GRANTS_PER_NETWORK,
+    ) || (needs_owner
+        && has_share(
+            pending.0,
+            MAX_PENDING_PER_CLIENT,
+            pending.1,
+            MAX_PENDING_PER_NETWORK,
+        ))
+    {
+        return Err(OpError::new(
+            429,
+            "too_many_requests",
+            "too many grants of yours; try again later",
+        ));
+    }
+    Ok(())
+}
 
 /// A request as signatures see it.
 #[derive(Clone, Copy, Debug)]
@@ -283,7 +370,8 @@ async fn client_identity(
     }
 }
 
-/// `POST /gnap`: asks for a grant.
+/// `POST /gnap`: asks for a grant, from `network` (none where it counts
+/// in the totals only).
 ///
 /// # Errors
 ///
@@ -292,6 +380,7 @@ pub async fn request_grant(
     node: &Node,
     urls: &Urls,
     request: &SignedRequest<'_>,
+    network: Option<ClientKey>,
 ) -> Result<GrantResponse, OpError> {
     let now = node.now_ms();
     let grant: GrantRequest = serde_json::from_slice(request.body).map_err(|_| {
@@ -314,9 +403,9 @@ pub async fn request_grant(
         OpError::gnap(401, ErrorCode::InvalidClient, description)
     })?;
     if grant.needs_owner() {
-        return super::consent::request(node, urls, client, &jwk, access, &grant).await;
+        return super::consent::request(node, urls, client, network, &jwk, access, &grant).await;
     }
-    approve(node, urls, client, &jwk, access)
+    approve(node, urls, client, network, &jwk, access)
 }
 
 /// Stores an approved grant with its first token, and answers with both.
@@ -324,19 +413,13 @@ fn approve(
     node: &Node,
     urls: &Urls,
     client: String,
+    network: Option<ClientKey>,
     jwk: &Jwk,
     access: Vec<Access>,
 ) -> Result<GrantResponse, OpError> {
     let now = node.now_ms();
     let store = node.store();
     store.prune_grants(now)?;
-    if store.grant_count()? >= MAX_GRANTS {
-        return Err(OpError::gnap(
-            503,
-            ErrorCode::RequestDenied,
-            "too many grants; try again later",
-        ));
-    }
     let id = PaymentId::from_random(random_bytes(node));
     let (continue_token, continue_hash) = new_token(node);
     let (access_token, access_hash) = new_token(node);
@@ -361,7 +444,9 @@ fn approve(
         created_at_ms: now,
         expires_at_ms: now + ACCESS_TOKEN_LIFETIME_MS,
     };
-    store.insert_grant(&row, Some(&token))?;
+    store.insert_grant(&row, Some(&token), network, |counts| {
+        grant_fits(counts, false)
+    })??;
     tracing::debug!(target: target::PAYMENT, grant = %id, client = %row.client, "grant approved");
     Ok(GrantResponse {
         interact: None,
@@ -656,4 +741,159 @@ pub fn authorize(node: &Node, request: &SignedRequest<'_>) -> Result<Authorized,
     check_signature(request, &jwk, &key, now, OpError::unauthorized)?;
     let access = serde_json::from_str(&grant.access).map_err(OpError::internal)?;
     Ok(Authorized { grant, access })
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use std::net::{IpAddr, Ipv4Addr};
+
+    use super::*;
+    use crate::store::Store;
+
+    /// A grant of `client`, the `n`th made.
+    fn grant(n: u32, client: &str, state: GrantState, needs_owner: bool) -> GrantRow {
+        let mut id = [0; 16];
+        id[..4].copy_from_slice(&n.to_be_bytes());
+        let mut hash = [0; 32];
+        hash[..4].copy_from_slice(&n.to_be_bytes());
+        GrantRow {
+            id: PaymentId(id),
+            state,
+            client: client.into(),
+            client_key: "{}".into(),
+            access: "[]".into(),
+            needs_owner,
+            continue_token_hash: hash,
+            interaction: None,
+            created_at_ms: 1,
+            decided_at_ms: (state != GrantState::Pending).then_some(1),
+            expires_at_ms: 2,
+        }
+    }
+
+    fn pending(n: u32, client: &str) -> GrantRow {
+        grant(n, client, GrantState::Pending, true)
+    }
+
+    /// The `n`th IPv4 /24.
+    fn network(n: u32) -> Option<ClientKey> {
+        let [_, a, b, c] = n.to_be_bytes();
+        Some(ClientKey::network_of(IpAddr::V4(Ipv4Addr::new(a, b, c, 1))))
+    }
+
+    /// Asks for a grant as the authorization server does.
+    fn ask(store: &Store, row: &GrantRow, network: Option<ClientKey>) -> Result<(), OpError> {
+        store
+            .insert_grant(row, None, network, |counts| {
+                grant_fits(counts, row.needs_owner)
+            })
+            .unwrap()
+    }
+
+    // Grants the owner decides need no owner to ask for, so strangers can
+    // fill the places where they wait. A client the owner approved before
+    // still gets one (D34).
+    #[test]
+    fn a_client_the_owner_approved_asks_while_strangers_fill_the_waiting_grants() {
+        let store = Store::open_in_memory().unwrap();
+        let known = "https://app.example/me";
+        let approved = grant(0, known, GrantState::Approved, true);
+        ask(&store, &approved, network(0)).unwrap();
+        let mut n = 1;
+        let refused = loop {
+            // As many networks as it takes.
+            let row = pending(n, &format!("https://x{n}.example/"));
+            match ask(&store, &row, network(n / MAX_PENDING_PER_NETWORK + 1)) {
+                Ok(()) => n += 1,
+                Err(refusal) => break refusal,
+            }
+        };
+        assert_eq!(refused.status, 503);
+        assert_eq!(n - 1, MAX_PENDING_GRANTS - OWNER_RESERVED_PENDING);
+        let stranger = pending(n, "https://new.example/");
+        assert_eq!(
+            ask(&store, &stranger, network(9_999)).unwrap_err().status,
+            503
+        );
+        // From a strangers' network too: it is known by its key.
+        assert_eq!(ask(&store, &pending(n + 1, known), network(1)), Ok(()));
+    }
+
+    // No one client or network holds more than a small share of what
+    // waits for the owner, or of what is kept.
+    #[test]
+    fn no_one_client_or_network_takes_more_than_its_share() {
+        let store = Store::open_in_memory().unwrap();
+        let mut n = 0;
+        let mut next = |client: &str, state, needs_owner| {
+            n += 1;
+            grant(n, client, state, needs_owner)
+        };
+        for _ in 0..MAX_PENDING_PER_CLIENT {
+            let row = next("https://one.example/", GrantState::Pending, true);
+            ask(&store, &row, network(1)).unwrap();
+        }
+        let row = next("https://one.example/", GrantState::Pending, true);
+        assert_eq!(ask(&store, &row, network(2)).unwrap_err().status, 429);
+        for client in MAX_PENDING_PER_CLIENT..MAX_PENDING_PER_NETWORK {
+            let row = next(
+                &format!("https://{client}.example/"),
+                GrantState::Pending,
+                true,
+            );
+            ask(&store, &row, network(1)).unwrap();
+        }
+        let row = next("https://other.example/", GrantState::Pending, true);
+        assert_eq!(ask(&store, &row, network(1)).unwrap_err().status, 429);
+        assert_eq!(ask(&store, &row, network(2)), Ok(()));
+        // Loopback in development counts in the totals only.
+        let row = next("https://local.example/", GrantState::Pending, true);
+        assert_eq!(ask(&store, &row, None), Ok(()));
+        // Grants approved at once, here of a client known by its key.
+        for _ in 0..MAX_GRANTS_PER_CLIENT {
+            let row = next("jwk:many", GrantState::Approved, false);
+            ask(&store, &row, network(3)).unwrap();
+        }
+        let row = next("jwk:many", GrantState::Approved, false);
+        assert_eq!(ask(&store, &row, network(4)).unwrap_err().status, 429);
+        let counts = store.grant_counts("jwk:many", network(3)).unwrap();
+        assert_eq!(counts.client_kept, MAX_GRANTS_PER_CLIENT);
+        assert_eq!(counts.network_kept, MAX_GRANTS_PER_CLIENT);
+        assert_eq!(counts.network_pending, 0);
+        assert!(!counts.known);
+    }
+
+    // Strangers' grants approved at once never take the room of grants
+    // that wait for the owner, nor that of the clients the owner approved.
+    #[test]
+    fn strangers_leave_room_for_waiting_grants_and_the_owners_clients() {
+        let stranger = GrantCounts {
+            kept: MAX_GRANTS - MAX_PENDING_GRANTS - OWNER_RESERVED_GRANTS,
+            ..GrantCounts::default()
+        };
+        assert_eq!(grant_fits(&stranger, false).unwrap_err().status, 503);
+        assert_eq!(grant_fits(&stranger, true), Ok(()));
+        let known = GrantCounts {
+            known: true,
+            ..stranger
+        };
+        assert_eq!(grant_fits(&known, false), Ok(()));
+        let full = GrantCounts {
+            kept: MAX_GRANTS - OWNER_RESERVED_GRANTS,
+            ..stranger
+        };
+        assert_eq!(grant_fits(&full, true).unwrap_err().status, 503);
+        let known = GrantCounts {
+            known: true,
+            ..full
+        };
+        assert_eq!(grant_fits(&known, true), Ok(()));
+        let all = GrantCounts {
+            kept: MAX_GRANTS,
+            ..known
+        };
+        assert_eq!(grant_fits(&all, true).unwrap_err().status, 503);
+    }
 }
