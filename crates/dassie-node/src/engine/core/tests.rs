@@ -167,6 +167,31 @@ fn a_refused_effect_books_none_of_its_batch() {
     assert_eq!(posted(&store), before);
 }
 
+// A stopped scheme is not peered on, as before its first sync (D31): a
+// peer's settlement on it would be refused until a restart. It leaves what
+// the node offers, asks for and accepts; a restart brings it back
+// (spec/areas/network.md#asking-and-answering).
+#[test]
+fn a_stopped_scheme_is_not_peered_on() {
+    use dassie_ledger::{LedgerId, MAX_TOTAL, Name};
+    use dassie_peer::wire::SchemeId;
+    use dassie_settlement::Effect;
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_on(Arc::clone(&store), 9);
+    core.add_scheme("stub", String::new()).unwrap();
+    let stub = SchemeId::parse("stub").unwrap();
+    assert_eq!(core.peer.schemes(), [stub]);
+    let effects = [Effect::Deposit { amount: MAX_TOTAL }];
+    let stopped = core.apply_effects(Name::new("stub").unwrap(), LedgerId::StubUsd, &effects);
+    assert!(stopped.is_err(), "the deposit overflows the account");
+    assert!(core.peer.schemes().is_empty());
+    core.flush();
+    drop(core);
+    let core = core_on(Arc::clone(&store), 10);
+    assert_eq!(core.peer.schemes(), [stub]);
+}
+
 /// Carries the XRP Ledger scheme's requests to `ledger` and the answers
 /// back, until it has nothing more to say.
 fn follow_xrpl(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger) {
