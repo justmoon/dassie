@@ -48,6 +48,17 @@ fn simulated_networks_pay_across_currencies() {
     assert_seeds_pass(0..6, scripted::run_across);
 }
 
+// On this seed, a node ends a peering just after its books took the peer's
+// settlement from the XRP Ledger, before the settlement's message arrived.
+// The peer's last answer names that settlement, which the node does not
+// count, so it waits the whole time before it tells the peer, as D28 lets
+// it.
+#[test]
+fn a_peering_ended_after_its_last_settlement_was_booked_ends_after_the_wait() {
+    let run = scripted::run_xrpl(7_000_002_237);
+    assert!(!run.outcome.is_failure(), "{}", run.outcome);
+}
+
 #[test]
 fn a_seed_replays_the_same_run() {
     assert_eq!(scripted::run(2).trace, scripted::run(2).trace);
