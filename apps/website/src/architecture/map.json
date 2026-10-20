@@ -303,7 +303,7 @@
         "The engine: ledger, connector, BTP server and STREAM receiver",
         "The peer protocol over QUIC, with each node's key pinned, and over HTTPS as `POST /peer` for nodes that do not take QUIC; the settlement loop",
         "Relayed streams: any QUIC node relays for the nodes connected to it, with TLS end to end, so a node without a public address that keeps a connection to a relay is still reached for Open Payments",
-        "Front doors: a server with a key of its own and a wildcard certificate that takes Open Payments requests for `<label>.<domain>` and passes them to the node the label names, over relayed streams it opens on the connection the node keeps to it; it returns the node's signed JSON unchanged, and never a page or a cookie",
+        "Front doors: a server with a key of its own and a wildcard certificate that takes Open Payments requests for `<label>.<domain>` and passes them to the node the label names, over relayed streams it opens on the connection the node keeps to it; it returns only the node's signed JSON, under a policy that lets nothing run, and never a page or a cookie",
         "RPC with live streams, the log ring, the database inspector and `GET /stats`",
         "Open Payments over HTTPS and relayed streams: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments, each answer signed with the node key and written under the name the request came through",
         "Exchange rates, fetched from several sources, and the fee and spread on what passes between peers",
