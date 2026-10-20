@@ -739,6 +739,10 @@ fn check_bounds(policies: &Policies) {
     let peers = policies.peer.max_peers;
     let downlinks = policies.peer.max_downlinks;
     let local = MAX_LOCAL_ENDPOINTS;
+    assert!(
+        peers <= dassie_connector::MAX_CHILD_ADDRESSES,
+        "a periphery node's connector takes an address beneath each of its uplinks"
+    );
     // A downlink sends only its own packets, and has a child's share.
     assert!(
         connector.max_pending

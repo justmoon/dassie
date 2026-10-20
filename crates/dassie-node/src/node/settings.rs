@@ -64,8 +64,15 @@ impl Node {
     /// Sets the public hostname. The certificate follows: a self-signed one
     /// is made for the new name, and the renewal orders a real one if an
     /// ACME account exists. Every URL uses the new name at once (RT-3).
+    ///
+    /// The node's URL must be one peers take, with whatever port it gets:
+    /// with a longer one, the node would run as a periphery node
+    /// (spec/areas/network.md#periphery-nodes).
     pub fn set_hostname(&self, hostname: &str) -> Result<NodeConfig, SettingsError> {
         let hostname = Hostname::parse(hostname)?;
+        if !dassie_peer::wire::is_valid_url(&format!("https://{hostname}:65535")) {
+            return Err(ConfigError::HostnameTooLong.into());
+        }
         let (config, changed) = self.change_config(|config| {
             let changed = config.hostname.as_ref() != Some(&hostname);
             config.hostname = Some(hostname);
