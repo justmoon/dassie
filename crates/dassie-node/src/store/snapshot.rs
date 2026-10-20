@@ -24,6 +24,9 @@ use crate::log::target;
 pub const PRE_MIGRATION_FILE: &str = "dassie.sqlite3.pre-migration";
 /// Where a rollback moves the database it replaces.
 pub const ROLLED_BACK_FILE: &str = "dassie.sqlite3.rolled-back";
+/// Where a rollback moves the database it replaces until the copy is in.
+/// Without a database beside it, a rollback stopped half way.
+pub const ROLLING_BACK_FILE: &str = "dassie.sqlite3.rolling-back";
 /// SQLite's files beside a database in WAL mode, by suffix.
 const COMPANIONS: [&str; 3] = ["", "-wal", "-shm"];
 /// How much older than the update the copy's time may look.
@@ -82,7 +85,8 @@ pub enum Restored {
 /// is too new for this version and the copy was made at `since` or later,
 /// by the start that failed. The node must not be running.
 ///
-/// The database it replaces goes to [`ROLLED_BACK_FILE`], with its WAL.
+/// The database it replaces goes to [`ROLLED_BACK_FILE`], with its WAL, by
+/// way of [`ROLLING_BACK_FILE`] while the copy is not in yet.
 ///
 /// # Errors
 ///
@@ -119,19 +123,33 @@ pub fn restore_pre_migration(data_dir: &Path, since: SystemTime) -> Result<Resto
             "the one there is not one this version can open",
         ));
     }
-    for suffix in COMPANIONS {
-        let aside = data_dir.join(format!("{ROLLED_BACK_FILE}{suffix}"));
-        match fs::remove_file(&aside) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
+    // What earlier rollbacks moved aside goes, finished or not: there is a
+    // database again.
+    for name in [ROLLED_BACK_FILE, ROLLING_BACK_FILE] {
+        for suffix in COMPANIONS {
+            match fs::remove_file(data_dir.join(format!("{name}{suffix}"))) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
         }
+    }
+    // The database first, so that its WAL is never left with the copy
+    // alone; until the copy is in, `ROLLING_BACK_FILE` without a database
+    // stops a node from starting afresh (`Store::open`).
+    for suffix in COMPANIONS {
         let file = data_dir.join(format!("{DATABASE_FILE}{suffix}"));
         if file.exists() {
-            fs::rename(&file, &aside)?;
+            fs::rename(&file, data_dir.join(format!("{ROLLING_BACK_FILE}{suffix}")))?;
         }
     }
     fs::rename(&copy, &database)?;
+    for suffix in COMPANIONS {
+        let aside = data_dir.join(format!("{ROLLING_BACK_FILE}{suffix}"));
+        if aside.exists() {
+            fs::rename(&aside, data_dir.join(format!("{ROLLED_BACK_FILE}{suffix}")))?;
+        }
+    }
     File::open(data_dir)?.sync_all()?;
     Ok(Restored::Copy { from: found, to })
 }

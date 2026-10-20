@@ -60,7 +60,9 @@ pub use payments::{
 pub use peer_settings::PeerSettings;
 pub use rates::StoredRate;
 pub use schema::{APPLICATION_ID, SCHEMA_VERSION, V0_APPLICATION_ID};
-pub use snapshot::{PRE_MIGRATION_FILE, ROLLED_BACK_FILE, Restored, restore_pre_migration};
+pub use snapshot::{
+    PRE_MIGRATION_FILE, ROLLED_BACK_FILE, ROLLING_BACK_FILE, Restored, restore_pre_migration,
+};
 
 use crate::log::target;
 
@@ -92,6 +94,10 @@ pub enum StoreError {
     /// The database is too new for this version, and the copy from before
     /// its migration cannot be put back, for this reason.
     NoUsableCopy(&'static str),
+    /// There is no database, but a rollback moved one aside
+    /// ([`ROLLING_BACK_FILE`]): it stopped before it put back the copy from
+    /// before the migration.
+    RollbackUnfinished,
 }
 
 impl fmt::Display for StoreError {
@@ -122,6 +128,16 @@ impl fmt::Display for StoreError {
                 f,
                 "the database is from a newer version of Dassie, and the copy from before \
                  its migration cannot be put back: {why}"
+            ),
+            Self::RollbackUnfinished => write!(
+                f,
+                "a rollback stopped half way: there is no {DATABASE_FILE}, and \
+                 {ROLLING_BACK_FILE} is the database the update left, with its SQLite side \
+                 files ({ROLLING_BACK_FILE}-wal, -shm; some may still be {DATABASE_FILE}-wal \
+                 and -shm, which belong with it). To go back to the database from before \
+                 the update, move those side files aside and put {PRE_MIGRATION_FILE} in place \
+                 as {DATABASE_FILE}. To start afresh instead, with a new identity and no \
+                 books, remove {ROLLING_BACK_FILE} and its side files"
             ),
         }
     }
@@ -174,6 +190,12 @@ impl Store {
     pub fn open(data_dir: &Path) -> Result<Self, StoreError> {
         secure_directory(data_dir)?;
         let path = data_dir.join(DATABASE_FILE);
+        // A rollback that stopped between moving the database aside and
+        // putting the copy in left none, and a new one would be a node
+        // with another identity and no books.
+        if !path.exists() && data_dir.join(ROLLING_BACK_FILE).exists() {
+            return Err(StoreError::RollbackUnfinished);
+        }
         secure_file(&path)?;
         let connection = Connection::open(&path)?;
         connection.pragma_update(None, "journal_mode", "WAL")?;
