@@ -82,18 +82,7 @@ impl PeerNode {
         let mut peered = false;
         let mut downlinks = 0;
         for node in stored.nodes {
-            let mut entry = Entry::new(
-                node.sources,
-                node.first_seen_ms,
-                self.config.link_state_rate,
-            );
-            if let Some(bytes) = &node.link_state
-                && let Ok(signed) = SignedNodeInfo::decode_exact(bytes)
-            {
-                entry.key = PublicKey::from_bytes(&signed.info.public_key).ok();
-                entry.link = Some(LinkState::from_signed(&signed));
-            }
-            entry.registration = node.registration;
+            let mut entry = stored_entry(&node, self.config.link_state_rate);
             if let Some(peering) = node.peering {
                 self.auth.pin(node.id);
                 peered = true;
@@ -251,7 +240,7 @@ impl PeerNode {
             batch.nodes.push(StoredNode {
                 id,
                 link_state: entry.link.as_ref().map(|link| link.bytes.clone()),
-                sources: entry.sources,
+                sources: stored_sources(entry.sources),
                 first_seen_ms: entry.first_seen_ms,
                 registration: entry.registration.clone(),
                 termination,
@@ -608,6 +597,23 @@ impl PeerNode {
         self.check_periphery();
         self.check_channels();
         self.check_pins();
+        self.check_entries();
+        assert!(
+            !self.routes.contains_key(&self.own),
+            "no route to ourselves"
+        );
+        for route in self.routes.values() {
+            assert!(
+                !route.first_hops.is_empty() && route.first_hops.len() <= routing::MAX_FIRST_HOPS,
+                "routes have first hops"
+            );
+            assert!(route.distance_hops >= 1, "routes lead away from us");
+        }
+    }
+
+    /// Each entry's invariants: peers have channels, sources and keys, and
+    /// only active peers are advertised.
+    fn check_entries(&self) {
         for (id, entry) in &self.table {
             assert!(
                 entry.peering().is_none() || entry.key.is_none() || self.channels.contains_key(id),
@@ -631,17 +637,6 @@ impl PeerNode {
                 *id == self.own || entry.peering().is_none() || entry.key.is_some(),
                 "a peer's key is known"
             );
-        }
-        assert!(
-            !self.routes.contains_key(&self.own),
-            "no route to ourselves"
-        );
-        for route in self.routes.values() {
-            assert!(
-                !route.first_hops.is_empty() && route.first_hops.len() <= routing::MAX_FIRST_HOPS,
-                "routes have first hops"
-            );
-            assert!(route.distance_hops >= 1, "routes lead away from us");
         }
     }
 
@@ -708,4 +703,35 @@ impl PeerNode {
             );
         }
     }
+}
+
+/// `sources` as stored: a downlink's as a peer's, which its periphery link
+/// state tells apart again on restore, so the stored bits stay those of a
+/// node in the node list's terms.
+fn stored_sources(sources: Sources) -> Sources {
+    let mut stored = sources;
+    if stored.contains(Sources::DOWNLINK) {
+        stored.remove(Sources::DOWNLINK);
+        stored.insert(Sources::PEER);
+    }
+    stored
+}
+
+/// A node's entry as stored, without its peering. Link states were verified
+/// when received, so they are only decoded. A downlink is stored as a peer;
+/// its link state, a periphery node's, tells it apart.
+fn stored_entry(node: &crate::persist::StoredNode, rate: crate::config::Rate) -> Entry {
+    let mut entry = Entry::new(node.sources, node.first_seen_ms, rate);
+    if let Some(bytes) = &node.link_state
+        && let Ok(signed) = SignedNodeInfo::decode_exact(bytes)
+    {
+        entry.key = PublicKey::from_bytes(&signed.info.public_key).ok();
+        entry.link = Some(LinkState::from_signed(&signed));
+    }
+    entry.registration.clone_from(&node.registration);
+    if entry.sources.contains(Sources::PEER) && entry.link.as_ref().is_some_and(|l| l.periphery) {
+        entry.sources.remove(Sources::PEER);
+        entry.sources.insert(Sources::DOWNLINK);
+    }
+    entry
 }

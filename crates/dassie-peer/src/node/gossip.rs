@@ -422,8 +422,19 @@ impl PeerNode {
         };
         let has_url = self.table.get(&target).is_some_and(|e| e.link.is_some());
         let indirect = !has_url || self.rng.next_u64() % 100 < self.config.indirect_refresh_percent;
-        let (oracle, ids) = if indirect {
-            let Some(oracle) = self.pick_oracle(&target) else {
+        // With nobody else to ask, a periphery node asks a bootstrap node at
+        // the URL the configuration gives it: no node asks it to peer, so it
+        // learns its first uplink's link state no other way. A core node
+        // learns it from the bootstrap node's peering request.
+        let oracle = if indirect {
+            self.pick_oracle(&target)
+        } else {
+            None
+        };
+        let direct = !indirect
+            || (self.is_periphery() && oracle.is_none() && self.contact(&target).is_some());
+        let (oracle, ids) = if !direct {
+            let Some(oracle) = oracle else {
                 return;
             };
             let others = stale
