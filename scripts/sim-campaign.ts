@@ -13,6 +13,8 @@
 // The loop then exits, and systemd starts the next one from a fresh
 // checkout of `main` (scripts/sim-campaign/dassie-sim-campaign.service), so
 // a change to this script, or to the runner, reaches every VM within a loop.
+// A loop that cannot build or start a trusted commit reports the campaign's
+// own trouble in an issue of its own, and exits with an error.
 //
 // Only this process holds the GitHub credentials, in memory. Every build
 // and run happens in a systemd sandbox as a user of its own, with no
@@ -30,7 +32,7 @@
 import { spawn } from "node:child_process";
 import { createSign } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
-import { availableParallelism } from "node:os";
+import { availableParallelism, hostname } from "node:os";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -69,6 +71,11 @@ export const LABELS = {
     name: "sim",
     color: "1d76db",
     description: "Run this pull request in the simulation campaign (D27)",
+  },
+  trouble: {
+    name: "sim-campaign",
+    color: "5319e7",
+    description: "The simulation campaign itself is in trouble (D27)",
   },
 };
 
@@ -295,6 +302,11 @@ export class Tally {
     } else {
       this.dropped += 1;
     }
+  }
+
+  /** The lines read, whether they parsed or not. */
+  lines(): number {
+    return this.runs + this.invalid + this.cut + (this.summary ? 1 : 0);
   }
 
   /** The failures that hold up a commit: all but the tripwire's. */
@@ -535,27 +547,36 @@ export function isFor(body: string, signature: string): boolean {
   return firstLine(body, signatureMarker(signature));
 }
 
-function encodeState(state: FailureState): string {
+function encodeState(state: FailureState | TroubleState): string {
   const data = Buffer.from(JSON.stringify(state)).toString("base64");
   return `<!-- sim-campaign state ${data} -->`;
 }
 
-/** The state in a body, if it has one that parses: people edit bodies. */
-export function decodeState(body: string): FailureState | undefined {
+/** The object in a body's state, if it has one that parses. */
+function stateData(body: string): Record<string, unknown> | undefined {
   const match = body.match(STATE);
   if (!match) return undefined;
   try {
-    const state = JSON.parse(Buffer.from(match[1], "base64").toString());
-    if (
-      typeof state?.signature !== "string" || count(state.seen) === undefined ||
-      !Array.isArray(state.commits) || typeof state.fastest?.seed !== "string"
-    ) {
-      return undefined;
-    }
-    return state as FailureState;
+    const data = JSON.parse(Buffer.from(match[1], "base64").toString());
+    return typeof data === "object" && data !== null && !Array.isArray(data)
+      ? data
+      : undefined;
   } catch {
     return undefined;
   }
+}
+
+/** The state in a body, if it has one that parses: people edit bodies. */
+export function decodeState(body: string): FailureState | undefined {
+  const state = stateData(body);
+  if (
+    typeof state?.signature !== "string" || count(state.seen) === undefined ||
+    !Array.isArray(state.commits) ||
+    typeof (state.fastest as { seed?: unknown } | undefined)?.seed !== "string"
+  ) {
+    return undefined;
+  }
+  return state as unknown as FailureState;
 }
 
 /** Adds a loop's failures of one signature on `commit` to what was known,
@@ -708,6 +729,94 @@ export function pullRequestSummary(
   return `${SUMMARY_MARKER}\n\n${text}`;
 }
 
+// The campaign's own trouble
+
+/** The signature of a trusted commit the campaign could not build or
+ * start. */
+export const TROUBLE = "campaign/build";
+
+/** Where a loop on a trusted commit stopped short of its runs. */
+export type TroubleStep = "prepare" | "fetch" | "build" | "run";
+
+const TROUBLE_STEPS: Record<TroubleStep, string> = {
+  prepare: "checking out",
+  fetch: "fetching the dependencies of",
+  build: "building",
+  run: "starting the runner of",
+};
+
+/** One loop's trouble with a trusted commit. */
+export interface Trouble {
+  target: "main" | "release";
+  sha: string;
+  step: TroubleStep;
+  log: string;
+  /** When, as an ISO time. */
+  time: string;
+  /** The VM it happened on. */
+  host: string;
+}
+
+/** What the trouble issue keeps, as a failure's issue does. */
+export interface TroubleState {
+  signature: string;
+  seen: number;
+  first: string;
+  /** The latest commits it was seen on, oldest first. */
+  commits: string[];
+  latest: Trouble;
+}
+
+/** The state in a trouble issue's body, if it has one that parses. */
+export function decodeTrouble(body: string): TroubleState | undefined {
+  const state = stateData(body);
+  const latest = state?.latest as Partial<Trouble> | undefined;
+  if (
+    state?.signature !== TROUBLE || count(state.seen) === undefined ||
+    typeof state.first !== "string" || !Array.isArray(state.commits) ||
+    typeof latest?.time !== "string" || typeof latest.log !== "string"
+  ) {
+    return undefined;
+  }
+  return state as unknown as TroubleState;
+}
+
+/** Adds one loop's trouble to what was known. */
+export function mergeTrouble(
+  known: TroubleState | undefined,
+  trouble: Trouble,
+): TroubleState {
+  const latest = { ...trouble, log: trouble.log.slice(-BUILD_LOG_BYTES_MAX) };
+  if (!known) {
+    return {
+      signature: TROUBLE,
+      seen: 1,
+      first: trouble.time,
+      commits: [trouble.sha],
+      latest,
+    };
+  }
+  const commits = known.commits.includes(trouble.sha)
+    ? known.commits
+    : [...known.commits, trouble.sha].slice(-COMMITS_MAX);
+  return { ...known, seen: known.seen + 1, commits, latest };
+}
+
+export function troubleBody(state: TroubleState): string {
+  const { latest } = state;
+  return [
+    signatureMarker(TROUBLE),
+    "The simulation campaign could not build or start a trusted commit. CI keeps `main` building, so this is most likely the campaign's own trouble rather than Dassie's: its sandbox, its toolchain, a VM's disk, or its network to crates.io. It is not a `sim-failure`, and the campaign posts no commit status for it, so it neither fails nor clears a commit.",
+    `Seen ${state.seen} times since ${state.first}; latest at ${latest.time} on ${latest.host}, while ${
+      TROUBLE_STEPS[latest.step]
+    } ${latest.target} ${latest.sha} (commits: ${state.commits.join(", ")}).`,
+    "The end of its log:",
+    fenced(latest.log),
+    "After each, the supervisor exits with an error, so `systemctl status dassie-sim-campaign` on the VM shows the unit failing, and systemd starts the next loop a minute later. Later loops update this issue in place. Close it once the campaign is fixed: it is never reopened, and trouble after that gets a new issue.",
+    encodeState(state),
+  ].join("\n\n");
+}
+
 // GitHub
 
 export interface Issue {
@@ -744,43 +853,29 @@ export interface GitHub {
   labelledPulls(label: string): Promise<{ number: number; sha: string }[]>;
 }
 
-/** Files a trusted commit's failures as issues, one per signature. */
-async function fileIssue(
+/** Files or updates the open issue of `signature` under `label`: `render`
+ * makes its body from the one it has, if any, and may add a comment. */
+async function upsertIssue(
   github: GitHub,
-  failure: Failure,
-  commit: string,
+  label: string,
+  signature: string,
+  title: string,
+  render: (body: string | undefined) => { body: string; comment?: string },
 ): Promise<Issue> {
-  const label = failure.tripwire ? LABELS.tripwire.name : LABELS.failure.name;
   const find = async () =>
     (await github.openIssues(label))
-      .filter((issue) => isFor(issue.body, failure.signature))
+      .filter((issue) => isFor(issue.body, signature))
       .sort((a, b) => a.number - b.number);
   const [issue] = await find();
   if (issue) {
-    const { state, newCommit } = mergeFailure(
-      decodeState(issue.body),
-      failure,
-      commit,
-    );
-    // A comment tells those watching that it still fails on a newer
-    // commit; the tripwire's issue only shows it by its body, and no issue
-    // gets more than a few.
-    const comment = newCommit && !failure.tripwire &&
-      state.comments < ISSUE_COMMENTS_MAX;
-    if (comment) state.comments += 1;
-    await github.updateIssue(issue.number, { body: issueBody(state) });
-    if (comment) {
-      await github.createComment(
-        issue.number,
-        `Seen again on ${commit}, ${failure.count} times in one loop.`,
-      );
-    }
+    const { body, comment } = render(issue.body);
+    await github.updateIssue(issue.number, { body });
+    if (comment) await github.createComment(issue.number, comment);
     return issue;
   }
-  const { state } = mergeFailure(undefined, failure, commit);
   const created = await github.createIssue(
-    issueTitle(failure.signature),
-    issueBody(state),
+    title,
+    render(undefined).body,
     label,
   );
   // Two VMs that find a new signature at once both file it; the later
@@ -795,6 +890,80 @@ async function fileIssue(
     return first;
   }
   return created;
+}
+
+/** Files a trusted commit's failures as issues, one per signature. */
+function fileIssue(
+  github: GitHub,
+  failure: Failure,
+  commit: string,
+): Promise<Issue> {
+  const label = failure.tripwire ? LABELS.tripwire.name : LABELS.failure.name;
+  return upsertIssue(
+    github,
+    label,
+    failure.signature,
+    issueTitle(failure.signature),
+    (body) => {
+      const { state, newCommit } = mergeFailure(
+        body === undefined ? undefined : decodeState(body),
+        failure,
+        commit,
+      );
+      // A comment tells those watching that it still fails on a newer
+      // commit; the tripwire's issue only shows it by its body, and no
+      // issue gets more than a few.
+      const comment = body !== undefined && newCommit && !failure.tripwire &&
+        state.comments < ISSUE_COMMENTS_MAX;
+      if (comment) state.comments += 1;
+      return {
+        body: issueBody(state),
+        comment: comment
+          ? `Seen again on ${commit}, ${failure.count} times in one loop.`
+          : undefined,
+      };
+    },
+  );
+}
+
+/** Reports a loop that could not build or start a trusted commit: one
+ * issue for all of them, under a label of its own, updated in place and
+ * never commented on, since the supervisor retries every minute. It posts
+ * no status: the commit is not at fault, and a status about the VM would
+ * fail a good commit or, on a commit that failed, hide its failure. */
+export function reportTrouble(
+  github: GitHub,
+  trouble: Trouble,
+): Promise<Issue> {
+  return upsertIssue(
+    github,
+    LABELS.trouble.name,
+    TROUBLE,
+    "sim-campaign: the campaign cannot build a trusted commit",
+    (body) => ({
+      body: troubleBody(
+        mergeTrouble(
+          body === undefined ? undefined : decodeTrouble(body),
+          trouble,
+        ),
+      ),
+    }),
+  );
+}
+
+/** Whether a trusted commit's loop stopped short of its runs through the
+ * campaign's own trouble: it did not build, or its runner failed before it
+ * printed a line, which a sandbox that could not start leaves. A runner
+ * that printed something and then failed is the commit's to answer for, as
+ * `reportTrusted` does. */
+export function troubleOf(
+  result: CampaignResult,
+): { step: TroubleStep; log: string } | undefined {
+  if ("buildLog" in result) return { step: result.step, log: result.buildLog };
+  if (result.code !== 0 && result.tally.lines() === 0) {
+    return { step: "run", log: result.log };
+  }
+  return undefined;
 }
 
 /** A trusted commit's report: issues, then its status. */
@@ -1449,9 +1618,11 @@ async function campaign(
   }
 }
 
-type CampaignResult = { tally: Tally; complete: boolean } | {
-  buildLog: string;
-};
+/** A loop's runs, with the runner's exit code and the end of its standard
+ * error, or the end of the log of the step that failed before them. */
+export type CampaignResult =
+  | { tally: Tally; complete: boolean; code: number | null; log: string }
+  | { buildLog: string; step: TroubleStep };
 
 async function buildAndRun(
   target: Target,
@@ -1541,7 +1712,7 @@ async function buildAndRun(
     "--manifest-path",
     `${src}/Cargo.toml`,
   ]);
-  if (fetched.code !== 0) return { buildLog: fetched.stderr };
+  if (fetched.code !== 0) return { buildLog: fetched.stderr, step: "fetch" };
   const built = await step("build", "none", src, 60 * 60, [
     "cargo",
     "build",
@@ -1552,7 +1723,7 @@ async function buildAndRun(
     "-p",
     "dassie-sim",
   ]);
-  if (built.code !== 0) return { buildLog: built.stderr };
+  if (built.code !== 0) return { buildLog: built.stderr, step: "build" };
   const tally = new Tally();
   const ran = await step(
     "run",
@@ -1576,10 +1747,17 @@ async function buildAndRun(
   if (ran.code !== 0) {
     console.log(`the runner exited ${ran.code}: ${ran.stderr.slice(-2000)}`);
   }
-  return { tally, complete: ran.code === 0 && tally.summary !== undefined };
+  return {
+    tally,
+    complete: ran.code === 0 && tally.summary !== undefined,
+    code: ran.code,
+    log: ran.stderr,
+  };
 }
 
-async function loop(config: Config): Promise<void> {
+/** One loop. It resolves `false` when the campaign could not build or start
+ * a trusted commit, which it has reported. */
+async function loop(config: Config): Promise<boolean> {
   if (!config.unsandboxed) {
     // A loop that died left its sandboxes running; nothing else should.
     await run("systemctl", ["stop", "sim-sandbox-*.service"]);
@@ -1589,18 +1767,50 @@ async function loop(config: Config): Promise<void> {
   for (const label of Object.values(LABELS)) await github.ensureLabel(label);
   const target = chooseTarget(await candidates(github, config), Math.random());
   console.log(`running ${target.kind} ${target.sha}`);
-  const result = await campaign(target, config);
-  // The token chosen with may have expired over the hour.
-  github = await connect(config);
   if (target.kind === "pr") {
+    const result = await campaign(target, config);
+    // The token chosen with may have expired over the hour.
+    github = await connect(config);
     await reportPullRequest(github, target.number, target.sha, result);
-  } else if ("buildLog" in result) {
-    // CI keeps main building; a trusted commit that fails to build here
-    // gets no status, rather than one about the VM.
-    console.log(`${target.sha} did not build: ${result.buildLog.slice(-2000)}`);
-  } else {
-    await reportTrusted(github, target.sha, result.tally, result.complete);
+    return true;
   }
+  let result: CampaignResult;
+  try {
+    result = await campaign(target, config);
+  } catch (error) {
+    // A trusted commit's checkout fails only when the VM's disk or Git
+    // does.
+    result = {
+      buildLog: String((error as Error).stack ?? error),
+      step: "prepare",
+    };
+  }
+  github = await connect(config);
+  const trouble = troubleOf(result);
+  if (trouble) {
+    // CI keeps main building, so a trusted commit that does not build or
+    // start here almost always means the campaign is broken: its sandbox,
+    // toolchain, disk or network. That goes to an issue of its own, and
+    // never to the commit's status, which it would fail or clear for no
+    // fault of the commit's.
+    console.log(
+      `${target.kind} ${target.sha}: ${trouble.step} failed: ${
+        trouble.log.slice(-2000)
+      }`,
+    );
+    const issue = await reportTrouble(github, {
+      target: target.kind,
+      sha: target.sha,
+      ...trouble,
+      time: new Date().toISOString(),
+      host: hostname(),
+    });
+    console.log(`reported in ${issue.url}`);
+    return false;
+  }
+  assert(!("buildLog" in result), "a build that failed is trouble");
+  await reportTrusted(github, target.sha, result.tally, result.complete);
+  return true;
 }
 
 const USAGE =
@@ -1637,7 +1847,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     console.error("SIM_CAMPAIGN_SECRET names no secret");
     process.exit(2);
   }
-  await loop({
+  const worked = await loop({
     dir: process.env.SIM_CAMPAIGN_DIR ?? "/var/lib/dassie-sim-campaign",
     repo: fileURLToPath(new URL("../", import.meta.url)),
     minutes,
@@ -1646,4 +1856,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     secret,
     appId: process.env.SIM_CAMPAIGN_APP_ID ?? "",
   });
+  // A loop in trouble fails its unit, so that `systemctl status` shows it;
+  // systemd starts the next one all the same (Restart=always).
+  if (!worked) process.exitCode = 1;
 }
