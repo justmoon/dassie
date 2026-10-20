@@ -191,9 +191,10 @@ jobs:
         uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
 
       # A version's files are uploaded once and cached for good, the
-      # signature last. A file already there must be the same bytes (the
-      # build is reproducible, and so is an Ed25519 signature), so a run
-      # again completes what an interrupted one left. Only once every file
+      # signature last. A file already there must be the same bytes (a run
+      # again signs the same build, fetched from the cache, and an Ed25519
+      # signature is deterministic), so a run again completes what an
+      # interrupted one left. Only once every file
       # is there does meta/latest name the version, uncached, and never
       # one older than what it names.
       - name: Publish

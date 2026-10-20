@@ -14,7 +14,11 @@ The original's bundles are unsigned, the updater trusts whatever the mirror serv
 - **Nothing is unpacked before it is verified.**
 - **Updates roll back.** The switch is one rename, and a version that does not come up is replaced by the one before. Since a version refuses a database newer than it knows, the daemon copies the database just before it migrates, and a rollback restores the copy; without it, a version that migrated and then failed would leave the node down.
 - **The installer needs no extra tool:** it verifies with minisign where there is one, and else with OpenSSL.
-- **CI builds releases reproducibly** ([D14](D14-build-system.md)).
+- **CI builds a release once, with Nix, and signs what it built** ([D14](D14-build-system.md)). The archives are deterministic, so the same binaries give the same sums.
+
+## Accepted
+
+- **The signature vouches for one build.** A builder or cache that was tampered with would have its output signed, and nothing shows whether the binaries reproduce on another builder. A second, independent build compared before signing would catch both. It waits ([roadmap](../roadmap.md#rebuilding-releases)): GitHub's runners are very slow, and the project is early and wants to move fast.
 
 ## Rejected
 

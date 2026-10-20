@@ -34,6 +34,14 @@ The simulations are to run continuously, outside CI, from random seeds; each see
 
 **Not yet decided:** coverage-guided fuzzing of the decoders that face untrusted input (outside CI, [Engineering](engineering.md#no-fuzzing-or-random-seeds-in-ci)), real binaries behind a proxy that injects faults, and shrinking failing runs.
 
+### Rebuilding releases
+
+A release is built once, on the Vorstand Nix cloud, and the release workflow signs what that build made ([Release](areas/release.md#the-build)). Its archives are deterministic, but nothing builds the release a second time to compare: whether the binaries reproduce on another builder is untested, and the release key vouches for whatever the one builder and its cache produced ([D11](decisions/D11-release-integrity.md)). Building again to verify would be welcome, but GitHub's runners are very slow, and the project is early and wants to move fast.
+
+- **The likely shape:** the project may move its builds off GitHub, onto a build system that is Nix throughout. A dedicated builder that builds nothing but releases then runs `nix build --rebuild` on the release before it is signed: it builds the store path again, from the source and the pinned inputs, and fails if the bytes differ from what the Nix cloud made. Signing waits for it.
+- **A bypass for urgent hotfixes:** a hotfix that cannot wait for the second build may be signed without it, by an explicit choice that the release run records.
+- **Done when:** every release, but a hotfix that took the bypass, is signed only once a second build on the release builder has produced the same bytes.
+
 ### Registration fees
 
 Registration is free, and throttled instead ([Network](areas/network.md#registration)). The design calls for a paid registration whose fee grows with the size of the list ([D4](decisions/D04-network-membership-economics.md)).
@@ -106,6 +114,7 @@ Designs that stay future work. The architecture must not preclude them.
 - [D6](decisions/D06-owner-ledger-and-multi-currency-accounts.md): per-ledger credit line and largest packet.
 - [D8](decisions/D08-real-money.md): the conditions for real money.
 - [D10](decisions/D10-secrets-at-rest.md): frontend signing stays future work.
+- [D11](decisions/D11-release-integrity.md): a release is built once until a second build can check it.
 - [D12](decisions/D12-peering-lifecycle-and-liveness.md): child peers deferred; the channel limit.
 - [D26](decisions/D26-core-and-periphery.md): the periphery.
 - [D20](decisions/D20-trust-follows-what-a-peer-earned-us.md), [D23](decisions/D23-each-node-books-its-own-fulfills.md): credit growth's constants; the fields a later protocol version drops.
