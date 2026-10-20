@@ -537,6 +537,7 @@ impl PeerNode {
         let peers = self.peers().count();
         assert!(peers <= self.config.max_peers, "peers within bounds");
         self.check_channels();
+        self.check_pins();
         for (id, entry) in &self.table {
             assert!(
                 entry.peering().is_none() || entry.key.is_none() || self.channels.contains_key(id),
@@ -558,10 +559,6 @@ impl PeerNode {
                 *id == self.own || entry.peering().is_none() || entry.key.is_some(),
                 "a peer's key is known"
             );
-            assert!(
-                entry.registration.is_none() || self.auth.is_pinned(id),
-                "a registered node keeps its replay state"
-            );
         }
         assert!(
             !self.routes.contains_key(&self.own),
@@ -573,6 +570,17 @@ impl PeerNode {
                 "routes have first hops"
             );
             assert!(route.distance_hops >= 1, "routes lead away from us");
+        }
+    }
+
+    /// Every node registered with us keeps its replay state
+    /// (spec/areas/peer-protocol.md#replay-protection).
+    fn check_pins(&self) {
+        for (id, entry) in &self.table {
+            assert!(
+                entry.registration.is_none() || self.auth.is_pinned(id),
+                "a registered node keeps its replay state"
+            );
         }
     }
 
