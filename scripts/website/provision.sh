@@ -94,6 +94,10 @@ run gcloud iam service-accounts create "$account" --project="$project" \
   --description="Writes the dassie.land bucket's objects; nothing else"
 run gcloud storage buckets add-iam-policy-binding "gs://$bucket" \
   --member="serviceAccount:$email" --role=roles/storage.objectUser
+# `gcloud storage rsync` into the bucket's root reads the bucket itself
+# (storage.buckets.get), which objectUser leaves out.
+run gcloud storage buckets add-iam-policy-binding "gs://$bucket" \
+  --member="serviceAccount:$email" --role=roles/storage.legacyBucketReader
 run gcloud iam workload-identity-pools providers create-oidc "$provider" \
   --project="$project" --location=global --workload-identity-pool="$pool" \
   --display-name="$repository website" \
