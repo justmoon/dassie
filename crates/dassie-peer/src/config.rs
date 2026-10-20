@@ -73,6 +73,12 @@ pub struct Config {
     pub max_registrations_per_network: usize,
     /// Probes of registrants' and peers' URLs a node makes.
     pub probe_rate: Rate,
+    /// Each /24 or /48's share of the probes: a probe of a URL given from
+    /// it holds a token while in flight and gives it back if it succeeds,
+    /// so failing probes from one network spend only this share.
+    pub probe_rate_per_network: Rate,
+    /// Most networks whose failing probes are remembered.
+    pub max_probe_networks: usize,
     /// Link states one subject may issue.
     pub link_state_rate: Rate,
     /// How long a node with no reason to be in the table stays.
@@ -169,6 +175,11 @@ impl Config {
             burst: 32,
             refill_ms: 1_000,
         },
+        probe_rate_per_network: Rate {
+            burst: 4,
+            refill_ms: 60_000,
+        },
+        max_probe_networks: 256,
         removal_grace_ms: 3_600_000,
         peer_target: 2,
         max_peers: 8,
@@ -252,6 +263,12 @@ impl Config {
         assert!(
             self.link_state_rate.burst >= 1 && self.registration_rate.burst >= 1,
             "buckets hold a token"
+        );
+        assert!(
+            self.probe_rate_per_network.burst >= 1
+                && self.probe_rate_per_network.burst < self.probe_rate.burst
+                && self.max_probe_networks >= 1,
+            "a network's probes are a share of all"
         );
         assert!(self.indirect_refresh_percent <= 100, "a percentage");
         assert!(

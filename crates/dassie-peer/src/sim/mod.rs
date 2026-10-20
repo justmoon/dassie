@@ -23,6 +23,7 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::net::IpAddr;
 
 use crate::auth::{PairKeys, response_mac};
 use crate::wire::{
@@ -227,6 +228,9 @@ pub struct Network {
     rng: SeededRng,
     /// Pairs that cannot reach each other.
     pub cut: BTreeSet<(usize, usize)>,
+    /// The address each node's requests come from, as the HTTP layer sees
+    /// it: none, unless set here.
+    pub sources: BTreeMap<usize, IpAddr>,
     /// What happened, for comparing runs.
     pub trace: Vec<String>,
     /// Every event, with the node that reported it.
@@ -281,6 +285,7 @@ impl Network {
             sequence: 0,
             rng: SeededRng::new(rng.next_u64()),
             cut: BTreeSet::new(),
+            sources: BTreeMap::new(),
             trace: Vec::new(),
             events: Vec::new(),
             packets: Vec::new(),
@@ -608,7 +613,8 @@ impl Network {
         };
         let inbound = InboundId(sim.next_inbound);
         sim.next_inbound += 1;
-        let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, body, None) {
+        let source = self.sources.get(&from).copied();
+        let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, body, source) {
             Inbound::Reply(reply) => Some(reply),
             Inbound::Deferred => {
                 sim.deferred.insert(inbound, (from, generation, request));
@@ -772,12 +778,22 @@ impl Network {
 
     /// Hands `body` to node `index` as an inbound request, at its clock.
     pub fn inbound(&mut self, index: usize, body: &[u8]) -> crate::Reply {
+        self.inbound_from(index, body, None)
+    }
+
+    /// The same, as a request from `source`.
+    pub fn inbound_from(
+        &mut self,
+        index: usize,
+        body: &[u8],
+        source: Option<IpAddr>,
+    ) -> crate::Reply {
         let now = self.local_now(index);
         let sim = &mut self.nodes[index];
         let inbound = InboundId(sim.next_inbound);
         sim.next_inbound += 1;
         let node = sim.node.as_mut().unwrap();
-        let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, body, None) {
+        let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, body, source) {
             Inbound::Reply(reply)
             | Inbound::Packet { reply, .. }
             | Inbound::SchemeMessage { reply, .. } => reply,

@@ -26,7 +26,7 @@ use crate::channel::{Channel, Retry};
 use crate::config::Config;
 use crate::io::{Event, Failure, Output, Request, RequestId, Response, Stats};
 use crate::routing::Routes;
-use crate::table::{Bucket, Entry, Sources};
+use crate::table::{Bucket, Entry, NetworkBuckets, Sources};
 use crate::wire::{Authentication, Content, ResponseEnvelope, SchemeId, encode_envelope};
 
 pub use lifecycle::BanError;
@@ -177,6 +177,8 @@ pub struct PeerNode {
     /// Probes in flight: the node and the host probed.
     pub(crate) probing: Vec<(NodeId, String)>,
     pub(crate) probes: Bucket,
+    /// Each network's share of the probes, spent by those that fail.
+    pub(crate) network_probes: NetworkBuckets,
     pub(crate) outputs: VecDeque<Output>,
     events: VecDeque<Event>,
     pub(crate) dirty: BTreeSet<NodeId>,
@@ -237,6 +239,7 @@ impl PeerNode {
             answers: Vec::new(),
             probing: Vec::new(),
             probes: Bucket::full(config.probe_rate, now_ms),
+            network_probes: NetworkBuckets::new(config.max_probe_networks),
             outputs: VecDeque::new(),
             events: VecDeque::new(),
             dirty: BTreeSet::new(),

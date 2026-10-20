@@ -31,9 +31,8 @@ const FULFILL_TYPE: u8 = 13;
 /// What an inbound request waits on a probe for.
 #[derive(Clone, Debug)]
 pub(crate) enum ProbeFor {
-    /// A registration, with the registrant's link state and the network it
-    /// came from.
-    Registration(Vec<u8>, Option<Network>),
+    /// A registration, with the registrant's link state.
+    Registration(Vec<u8>),
     /// A peering request, with its content.
     Peering(Vec<u8>),
 }
@@ -45,6 +44,9 @@ pub(crate) struct Probe {
     pub accepted: Accepted,
     /// The sequence the sender's link state must have at least.
     pub sequence: u64,
+    /// The network the request came from, which pays for the probe if it
+    /// fails.
+    pub network: Option<Network>,
     pub purpose: ProbeFor,
 }
 
@@ -95,15 +97,14 @@ impl PeerNode {
         if accepted.is_authenticated() {
             self.saw(&accepted.sender);
         }
+        let network = source.map(Network::of);
         match content {
             Content::InterledgerPacket { request_id, packet } => {
                 self.packet_request(&accepted, request_id, packet)
             }
-            Content::Registration(info) => {
-                self.registration_request(accepted, &info, id, source.map(Network::of))
-            }
+            Content::Registration(info) => self.registration_request(accepted, &info, id, network),
             Content::PeeringRequest(_) => {
-                self.peering_request(hooks, accepted, envelope.content, id)
+                self.peering_request(hooks, accepted, envelope.content, id, network)
             }
             Content::Settlement {
                 scheme,
@@ -294,7 +295,8 @@ impl PeerNode {
             inbound,
             accepted,
             sequence: info.info.sequence,
-            purpose: ProbeFor::Registration(info.bytes.to_vec(), network),
+            network,
+            purpose: ProbeFor::Registration(info.bytes.to_vec()),
         };
         self.start_probe(sender, key, info.info.url, Box::new(probe))
     }
@@ -351,7 +353,11 @@ impl PeerNode {
 
     /// Asks `node` at `url` for its link state, authenticated, before
     /// answering `probe.inbound`: it proves the URL is the node's, and
-    /// that the node can be reached (D4, D12).
+    /// that the node can be reached (D4, D12). Every probe spends a token
+    /// of all the node's probes. The network the request came from also
+    /// pays one of its own share while the probe is in flight, and gets it
+    /// back if the probe succeeds, so failing probes from one network
+    /// cannot spend them all (spec/areas/network.md#registration).
     pub(crate) fn start_probe(
         &mut self,
         node: NodeId,
@@ -370,8 +376,19 @@ impl PeerNode {
         {
             return refuse(429, "a probe of that node or host is in flight");
         }
+        let share = self.config.probe_rate_per_network;
+        let network = probe.network;
+        if let Some(network) = network
+            && !self.network_probes.has_token(network, share, self.now_ms)
+        {
+            return refuse(429, "too many probes from that network");
+        }
         if !self.probes.take(self.config.probe_rate, self.now_ms) {
             return refuse(429, "too many probes");
+        }
+        if let Some(network) = network {
+            let taken = self.network_probes.take(network, share, self.now_ms);
+            assert!(taken, "the network's token was there");
         }
         self.probing.push((node, host));
         let content = Content::LinkStateRequest(alloc::vec![node]);
@@ -385,6 +402,9 @@ impl PeerNode {
             timeout,
         );
         if sent.is_none() {
+            if let Some(network) = network {
+                self.network_probes.give_back(network, share, self.now_ms);
+            }
             return refuse(503, "busy");
         }
         self.deferred += 1;
@@ -416,8 +436,12 @@ impl PeerNode {
                     })
             })
         });
+        if reachable && let Some(network) = probe.network {
+            let share = self.config.probe_rate_per_network;
+            self.network_probes.give_back(network, share, self.now_ms);
+        }
         let reply = match probe.purpose {
-            ProbeFor::Registration(bytes, network) => match SignedNodeInfo::decode_exact(&bytes) {
+            ProbeFor::Registration(bytes) => match SignedNodeInfo::decode_exact(&bytes) {
                 Ok(_)
                     if reachable
                         && !self
@@ -427,7 +451,7 @@ impl PeerNode {
                     Reply::refuse(429, "too many new registrations")
                 }
                 Ok(info) if reachable => match info.verify() {
-                    Ok(key) => self.register(&probe.accepted, &info, network, key),
+                    Ok(key) => self.register(&probe.accepted, &info, probe.network, key),
                     Err(_) => Reply::refuse(400, "invalid link state"),
                 },
                 _ => Reply::refuse(409, "not reachable at its URL"),
