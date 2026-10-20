@@ -80,7 +80,8 @@ run gcloud services enable storage.googleapis.com compute.googleapis.com \
 
 # The bucket.
 run gcloud storage buckets create "gs://$bucket" --project="$project" \
-  --location="$location" --uniform-bucket-level-access \
+  --location="$location" --uniform-bucket-level-access
+run gcloud storage buckets update "gs://$bucket" \
   --web-main-page-suffix=index.html
 run gcloud storage buckets add-iam-policy-binding "gs://$bucket" \
   --member=allUsers --role=roles/storage.objectViewer
