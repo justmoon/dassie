@@ -771,13 +771,29 @@ fn switch(base: &Path, version: &Version) -> Result<(), Problem> {
     sync_dir(base)
 }
 
-/// Whether this system runs systemd (`sd_booted`).
+/// Whether this system runs systemd (`sd_booted`), or a test stands in for
+/// systemctl ([`systemctl_program`]).
 fn systemd_running() -> bool {
+    #[cfg(feature = "test-key")]
+    if std::env::var_os("DASSIE_SYSTEMCTL").is_some() {
+        return true;
+    }
     Path::new("/run/systemd/system").is_dir()
 }
 
+/// The systemctl to run. A test build (the `test-key` feature) runs the
+/// stand-in `DASSIE_SYSTEMCTL` names, if any, so that tests can restart and
+/// roll back; no release has one.
+fn systemctl_program() -> std::ffi::OsString {
+    #[cfg(feature = "test-key")]
+    if let Some(program) = std::env::var_os("DASSIE_SYSTEMCTL") {
+        return program;
+    }
+    "systemctl".into()
+}
+
 fn systemctl(args: &[&str]) -> Result<(), Problem> {
-    let status = Command::new("systemctl")
+    let status = Command::new(systemctl_program())
         .args(args)
         .status()
         .map_err(|e| format!("systemctl: {e}"))?;
