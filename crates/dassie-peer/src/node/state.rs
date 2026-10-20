@@ -352,9 +352,9 @@ impl PeerNode {
             .filter_map(|(id, entry)| entry.peering().map(|peering| (id, peering)))
     }
 
-    /// Notes an authenticated message from a peer (NET-12): it is alive.
-    /// (The newest timestamp accepted from it is persisted as its replay
-    /// floor, by the authenticator.) A banned
+    /// Notes an authenticated message from a peer (NET-12): it is alive,
+    /// and the newest timestamp accepted from it is persisted, even for a
+    /// read, so that no replay marks it as heard from again. A banned
     /// node's messages confirm nothing.
     pub(crate) fn saw(&mut self, node: &NodeId) {
         let now = self.now_ms;
@@ -366,6 +366,7 @@ impl PeerNode {
         {
             peering.last_seen_ms = now;
             self.dirty.insert(*node);
+            self.auth.keep_floor(node);
         }
     }
 

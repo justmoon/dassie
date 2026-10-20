@@ -162,8 +162,9 @@ struct Kept {
 #[derive(Clone, Copy, Debug)]
 enum Record {
     /// The request, in the sender's state: kept already, or new, taking
-    /// the place of the idle stranger named, if any.
-    Into(replay::Slot, Option<NodeId>),
+    /// the place of the idle stranger named, if any; and whether it only
+    /// reads.
+    Into(replay::Slot, Option<NodeId>, bool),
     /// Nothing: a request that only reads, from a sender whose state is
     /// not kept for good.
     Nothing,
@@ -191,10 +192,15 @@ pub struct Authenticator {
     sessions: BTreeMap<NodeId, Session>,
     /// The floor of senders without one of their own: the start time.
     default_floor_ms: u64,
-    /// Pinned senders whose newest timestamp moved, or that were pinned,
-    /// since the last [`take_floors`](Self::take_floors): their floors are
-    /// to be persisted. Each has replay state.
+    /// Pinned senders whose newest timestamp moved for a request that
+    /// does not only read, or that were pinned, since the last
+    /// [`take_floors`](Self::take_floors): their floors are to be
+    /// persisted. Each has replay state.
     floors_dirty: BTreeSet<NodeId>,
+    /// Strangers that were let go with a floor persisted, and took a place
+    /// in the pool before it was stale: their floors go with their places.
+    /// At most `max_senders`, since each holds a place.
+    placed_with_floor: BTreeSet<NodeId>,
     /// Senders forgotten since then, whose persisted floors protect
     /// nothing any more.
     forgotten: Vec<NodeId>,
@@ -217,6 +223,7 @@ impl Authenticator {
             sessions: BTreeMap::new(),
             default_floor_ms: started_ms,
             floors_dirty: BTreeSet::new(),
+            placed_with_floor: BTreeSet::new(),
             forgotten: Vec::new(),
         }
     }
@@ -255,6 +262,7 @@ impl Authenticator {
         if sender != self.own {
             self.pinned.insert(sender);
             self.releasing.remove(&sender);
+            self.placed_with_floor.remove(&sender);
             // A stranger pinned for what its request did, such as a
             // registration, has its floor persisted with that effect.
             if self.guards.contains_key(&sender) {
@@ -298,6 +306,15 @@ impl Authenticator {
         });
     }
 
+    /// Persists `sender`'s floor with the next batch, though its newest
+    /// request only read: a peer's, since a replayed read would mark it as
+    /// heard from.
+    pub fn keep_floor(&mut self, sender: &NodeId) {
+        if self.pinned.contains(sender) && self.guards.contains_key(sender) {
+            self.floors_dirty.insert(*sender);
+        }
+    }
+
     /// The floors to persist, with the effects of the messages accepted
     /// since the last call, and the senders whose persisted floors can go.
     ///
@@ -305,7 +322,9 @@ impl Authenticator {
     /// are committed comes from one, or makes its sender one (a
     /// registration, a peering), except link states, which anyone may
     /// relay. A stranger's floor is not persisted, so strangers cannot
-    /// make the node write.
+    /// make the node write. Nor is a floor moved by a request that only
+    /// reads, whose replay is harmless, unless [`keep_floor`](Self::keep_floor)
+    /// asks for it.
     pub fn take_floors(&mut self, floors: &mut Vec<(NodeId, u64)>, forgotten: &mut Vec<NodeId>) {
         for id in core::mem::take(&mut self.floors_dirty) {
             let kept = self.guards.get(&id);
@@ -385,9 +404,9 @@ impl Authenticator {
         let response = (keys.incoming_response.clone(), hmac.mac);
         // A request that leaves no replay state leaves no key either, so
         // that requests from new identities cannot evict the keys of peers.
-        if let Record::Into(slot, evict) = record {
+        if let Record::Into(slot, evict, reads) = record {
             self.remember_keys(now_ms, envelope.sender, keys);
-            self.commit_replay(envelope.sender, slot, evict, &hmac, network);
+            self.commit_replay(envelope.sender, slot, evict, &hmac, network, reads);
         }
         Ok(Accepted {
             sender: envelope.sender,
@@ -433,7 +452,7 @@ impl Authenticator {
         } else {
             self.place_for(now_ms, network)?
         };
-        Ok(Record::Into(slot, evict))
+        Ok(Record::Into(slot, evict, kind.is_read_only()))
     }
 
     /// Room for one more stranger from `network`: free, or the place of an
@@ -472,10 +491,15 @@ impl Authenticator {
         evict: Option<NodeId>,
         hmac: &HmacAuthentication,
         network: Option<Network>,
+        reads: bool,
     ) {
         if let Some(idle) = evict {
             self.guards.remove(&idle);
             self.floors_dirty.remove(&idle);
+            // Idle, it protects nothing: its persisted floor goes too.
+            if self.placed_with_floor.remove(&idle) {
+                self.forgotten.push(idle);
+            }
         }
         let default = self.default_floor_ms;
         let kept = self.guards.entry(sender).or_insert_with(|| Kept {
@@ -485,11 +509,12 @@ impl Authenticator {
         // A sender let go that was given a place joins the strangers.
         if self.releasing.remove(&sender) {
             self.pinned.remove(&sender);
+            self.placed_with_floor.insert(sender);
             kept.network = network;
         }
         kept.guard
             .commit(slot, &hmac.session_id, hmac.counter, hmac.timestamp_ms);
-        if self.pinned.contains(&sender) {
+        if self.pinned.contains(&sender) && !reads {
             self.floors_dirty.insert(sender);
         }
     }
@@ -636,6 +661,12 @@ impl Authenticator {
                 .iter()
                 .all(|id| self.guards.contains_key(id)),
             "a floor to persist has replay state"
+        );
+        assert!(
+            self.placed_with_floor
+                .iter()
+                .all(|id| self.guards.contains_key(id) && !self.pinned.contains(id)),
+            "a stranger with a floor holds a place"
         );
     }
 }
