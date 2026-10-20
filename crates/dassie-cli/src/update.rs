@@ -38,7 +38,9 @@ use std::process::{Command, ExitCode, Output, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
 use dassie_node::peer_client::{PeerClient, WebRequest};
-use dassie_node::store::{self, DATABASE_FILE, PRE_MIGRATION_FILE, ROLLED_BACK_FILE, Restored};
+use dassie_node::store::{
+    self, DATABASE_FILE, PRE_MIGRATION_FILE, ROLLED_BACK_FILE, ROLLING_BACK_FILE, Restored,
+};
 use dassie_release::bundle::{self, Kind, Unpacking};
 use dassie_release::layout::{self, Arch, Compression};
 use dassie_release::{Channel, PublicKey, Sums, Version, verify_sums};
@@ -255,11 +257,14 @@ fn restore_database(since: SystemTime) -> Result<(), Problem> {
             Ok(())
         }
         Err(error) => Err(format!(
-            "putting back the database failed ({error}), so {SERVICE} stays stopped. In {}, \
-             {DATABASE_FILE} is the database, if it is there, {ROLLED_BACK_FILE} the one the \
-             new version left, if it was moved aside, and {PRE_MIGRATION_FILE} the copy from \
-             before the update, if there is one. Put the one to keep in place as \
-             {DATABASE_FILE}, then run `systemctl start {SERVICE}`",
+            "putting back the database did not finish ({error}), so {SERVICE} stays stopped; \
+             the database from before the update may be back already. In {}, \
+             {DATABASE_FILE} is the database, if it is there, {ROLLING_BACK_FILE} or \
+             {ROLLED_BACK_FILE} the one the new version left, if it was moved aside, and \
+             {PRE_MIGRATION_FILE} the copy from before the update, if it is not back yet. \
+             Each database's SQLite side files (-wal, -shm, after its name) belong with it \
+             and move with it. Put the one to keep in place as {DATABASE_FILE}, then run \
+             `systemctl start {SERVICE}`",
             data_dir.display()
         )),
     }

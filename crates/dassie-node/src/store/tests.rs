@@ -185,10 +185,15 @@ fn a_rollback_puts_the_copy_back() {
         user_version(&temp.path().join(ROLLED_BACK_FILE)),
         SCHEMA_VERSION + 1
     );
+    assert!(!temp.path().join(ROLLING_BACK_FILE).exists());
+    // Nothing a finished rollback leaves stops the owner starting afresh.
+    drop(store);
+    fs::remove_file(temp.path().join(DATABASE_FILE)).unwrap();
+    drop(Store::open(temp.path()).unwrap());
 }
 
-// D11: a node never starts afresh where a rollback moved its database
-// aside, with another identity and no books.
+// D11: a node never starts afresh where a rollback stopped half way, with
+// another identity and no books.
 #[test]
 fn opens_no_new_database_where_a_rollback_did_not_finish() {
     let temp = tempfile::tempdir().unwrap();
@@ -197,12 +202,18 @@ fn opens_no_new_database_where_a_rollback_did_not_finish() {
     // What a rollback leaves if it stops between moving the database aside
     // and putting the copy in.
     let database = temp.path().join(DATABASE_FILE);
-    fs::rename(&database, temp.path().join(ROLLED_BACK_FILE)).unwrap();
+    fs::rename(&database, temp.path().join(ROLLING_BACK_FILE)).unwrap();
     assert!(matches!(
         Store::open(temp.path()),
         Err(StoreError::RollbackUnfinished)
     ));
     assert!(!database.exists());
+    // Nor does another rollback take what this one moved aside.
+    assert_eq!(
+        restore_pre_migration(temp.path(), std::time::SystemTime::UNIX_EPOCH).unwrap(),
+        Restored::Nothing
+    );
+    assert!(temp.path().join(ROLLING_BACK_FILE).exists());
     // Once the owner puts the copy back, the node opens it.
     fs::rename(temp.path().join(PRE_MIGRATION_FILE), &database).unwrap();
     drop(Store::open(temp.path()).unwrap());

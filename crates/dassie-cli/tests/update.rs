@@ -636,7 +636,9 @@ fn a_rollback_starts_no_node_without_a_database_it_can_run() {
     assert!(!output.status.success(), "{}", text(&output));
     for said in [
         "dassie.service stays stopped",
+        "dassie.sqlite3.rolling-back",
         "dassie.sqlite3.rolled-back",
+        "-wal, -shm",
         "dassie.sqlite3.pre-migration",
     ] {
         assert!(text(&output).contains(said), "{}", text(&output));
