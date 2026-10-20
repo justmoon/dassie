@@ -14,7 +14,7 @@ A periphery node always opens its connections itself, to nodes with a public IP,
 - a way to reach a periphery node by its ID, for its owner's apps and for Open Payments clients (§5–§7);
 - receiving payments without paying anything first (§8).
 
-This is a design ([D26](../decisions/D26-core-and-periphery.md)). Of it, QUIC between core nodes is built ([Peer protocol](../areas/peer-protocol.md#quic)), and so are relayed streams and a node's chosen relay of §5 ([Peer protocol](../areas/peer-protocol.md#relayed-streams)), a node's names, its signed responses and the `dassie` field of §7 ([Payments](../areas/payments.md#the-nodes-names)). So are periphery nodes, their peerings with their uplinks and their child addresses (§3), described in the area docs; the connection an uplink sends to its downlink on (§2), over which every uplink already relays to its downlinks (§5); and the downlinks' bound and exemption from withdrawal for room (§4). The rest is not built yet ([roadmap](../roadmap.md#periphery)). Durations and sizes in it are starting points, to be set from the deterministic simulation when the parts are built.
+This is a design ([D26](../decisions/D26-core-and-periphery.md)). Of it, QUIC between core nodes is built ([Peer protocol](../areas/peer-protocol.md#quic)), and so are relayed streams and a node's chosen relay of §5 ([Peer protocol](../areas/peer-protocol.md#relayed-streams)), a node's names, its signed responses and the `dassie` field of §7 ([Payments](../areas/payments.md#the-nodes-names)), and front doors that reach the nodes which chose them as their relay (§7, [HTTP](../areas/http.md#front-doors)). So are periphery nodes, their peerings with their uplinks and their child addresses (§3), described in the area docs; the connection an uplink sends to its downlink on (§2), over which every uplink already relays to its downlinks (§5); and the downlinks' bound and exemption from withdrawal for room (§4). The rest is not built yet ([roadmap](../roadmap.md#periphery)). Durations and sizes in it are starting points, to be set from the deterministic simulation when the parts are built.
 
 ## 1. Concepts
 
@@ -120,14 +120,10 @@ The wallet is never served through a relay or a front door. The owner enters the
 
 Open Payments clients reach a wallet address by DNS and HTTPS, so whoever answers for the domain is trusted. A periphery node has no domain of its own to answer for. Front doors answer instead, and Dassie-aware clients check, by the node's key, that the answer came from the node.
 
-**Front doors.**
+**Front doors** are built ([HTTP](../areas/http.md#front-doors)): a front door serves `<label>.<domain>` with a wildcard certificate, passes Open Payments alone to the node the label names, over a relayed stream it opens on the connection the node keeps to it, and returns only JSON, unchanged and signed by the node. It never serves the wallet, nor any page a node returns, and sets no cookies, so its names need no Public Suffix List entry: they share only a reputation. What is left:
 
-- **Names.** A front door serves `<label>.<domain>`, where `<label>` is the node's [label](../areas/identity.md#node-label).
-- **What it serves.** It terminates TLS with a wildcard certificate and passes to the node, over a relayed stream with purpose `payments` (built: `Quic::open_relayed`, [Peer protocol](../areas/peer-protocol.md#relayed-streams)), only the [Open Payments routes](../areas/payments.md#http-routes), which are all the node serves there ([HTTP](../areas/http.md#relayed-streams)). It returns only JSON, within the same size limits. It never serves the wallet, nor any page the node returns, so nobody can host pages on its domain.
-- **The front door itself sees the requests in plain text;** the relay sees only ciphertext, since the stream's TLS is between the front door and the node.
-- **Consent.** `GET /gnap/interact/{id}/{key}` answers with a fixed page from the front door itself, "Approve this in your Dassie app", which asks for nothing. The page checks a JSON route for the grant's state, and sends the client on to its finish URI once the owner decided (§6).
-- **Anyone can run one,** and every front door reaches every node (§5). `dassiepay.net` is a default, not a requirement, and a node is not tied to it.
-- **No Public Suffix List entry is needed.** The list makes each name its own site to browsers, which matters where names serve pages that run scripts or set cookies. A front door serves no page whose content a node controls (only nodes' JSON, and its own fixed consent page) and sets no cookies, so its names share only a reputation.
+- **Consent.** `GET /gnap/interact/{id}/{key}` is to answer with a fixed page from the front door itself, "Approve this in your Dassie app", which asks for nothing. The page checks a JSON route for the grant's state, and sends the client on to its finish URI once the owner decided (§6). Until owner apps exist, the front door answers it with a fixed error.
+- **Every front door reaches every node** (§5), through the relays a node's record names; a built front door reaches only the nodes that chose it as their relay. `dassiepay.net` is a default, not a requirement, and a node is not tied to it.
 
 **The owner's own domain.** An owner can name the wallet address with a domain of their own, which can be hosted anywhere:
 
@@ -183,7 +179,7 @@ A browser node is a short-lived periphery node, for demos: it lets someone join 
 
 ## 10. How it fits the node
 
-- **`dassie-node`** gains the TCP and WebSocket fallbacks and the front door's HTTP side; its QUIC endpoint, relayed streams and signed Open Payments answers are built.
+- **`dassie-node`** gains the TCP and WebSocket fallbacks; its QUIC endpoint, relayed streams, signed Open Payments answers and front doors are built.
 - **`dassie-peer`** gains the downlink table, the `periphery` extension, records, home nodes and lookups, and the transport's link-state extension.
 - **`dassie-connector`** routes beneath a downlink's child address, and a periphery node's STREAM receiver takes its child addresses.
 - **The XRPL scheme** gains its table of peers' addresses and the two rules of §8.

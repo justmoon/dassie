@@ -25,7 +25,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | `crates/dassie-peer` | [Peer protocol](areas/peer-protocol.md), [Network](areas/network.md), [Settlement](areas/settlement.md) |
 | `crates/dassie-payments` | [Payments](areas/payments.md) |
 | `crates/dassie-node-core` | [Node](areas/node.md), [HTTP](areas/http.md) |
-| `crates/dassie-node` | [Node](areas/node.md), and by module: `engine/` [Connector](areas/connector.md), [Settlement](areas/settlement.md), [Ledger](areas/ledger.md); `http/` [HTTP](areas/http.md), with `http/peer.rs` [Peer protocol](areas/peer-protocol.md), `http/btp.rs` [Connector](areas/connector.md) and `http/open_payments/` [Payments](areas/payments.md); `open_payments/` [Payments](areas/payments.md); `rpc/` [RPC](areas/rpc.md); `store/` [Node](areas/node.md#persistence) and the area of the table; `rates.rs`, `node/rates.rs` [Connector](areas/connector.md#exchange-rates); `peer_client.rs` [Peer protocol](areas/peer-protocol.md); `quic/` [Peer protocol](areas/peer-protocol.md#quic), with `quic/relay.rs` [relayed streams](areas/peer-protocol.md#relayed-streams); `acme.rs`, `tls.rs` [HTTP](areas/http.md); `fake_ledger.rs` [XRPL](areas/xrpl.md); `sim/` [Testing](areas/testing.md#deterministic-simulation) |
+| `crates/dassie-node` | [Node](areas/node.md), and by module: `engine/` [Connector](areas/connector.md), [Settlement](areas/settlement.md), [Ledger](areas/ledger.md); `http/` [HTTP](areas/http.md), with `http/peer.rs` [Peer protocol](areas/peer-protocol.md), `http/btp.rs` [Connector](areas/connector.md) and `http/open_payments/` [Payments](areas/payments.md); `open_payments/` [Payments](areas/payments.md); `rpc/` [RPC](areas/rpc.md); `store/` [Node](areas/node.md#persistence) and the area of the table; `rates.rs`, `node/rates.rs` [Connector](areas/connector.md#exchange-rates); `peer_client.rs` [Peer protocol](areas/peer-protocol.md); `quic/` [Peer protocol](areas/peer-protocol.md#quic), with `quic/relay.rs` [relayed streams](areas/peer-protocol.md#relayed-streams); `acme.rs`, `tls.rs` [HTTP](areas/http.md); `front_door/` [front doors](areas/http.md#front-doors), with [relayed streams](areas/peer-protocol.md#relayed-streams); `fake_ledger.rs` [XRPL](areas/xrpl.md); `sim/` [Testing](areas/testing.md#deterministic-simulation) |
 | `crates/dassie-cli` | [Node](areas/node.md), [Release](areas/release.md) (`dassie update`) |
 | `crates/dassie-release` | [Release](areas/release.md) |
 | `crates/dassie-sim` | [Testing](areas/testing.md) |
@@ -41,6 +41,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | `tests/e2e` | [Testing](areas/testing.md), and the area under test |
 | `tests/interop` | [Testing](areas/testing.md), [STREAM](areas/stream.md), [Payments](areas/payments.md) |
 | `resources/`, `nix/`, `scripts/release.ts`, `.github/workflows/release.yml` | [Release](areas/release.md) |
+| `resources/front-door/` | [Front doors](areas/http.md#front-doors), [Node](areas/node.md#a-chosen-relay) |
 | `flake.nix`, `.github/workflows/ci.yml`, `package.json`, `Cargo.toml` | [Engineering](engineering.md) |
 | `testdata/` | [Testing](areas/testing.md), and the area the vectors pin |
 | `scripts/sim-campaign.ts`, `scripts/sim-campaign/` | [Testing](areas/testing.md#the-campaign) |
@@ -61,7 +62,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [XRPL](areas/xrpl.md) | The XRP Ledger testnet scheme and its fake ledger |
 | [Payments](areas/payments.md) | Open Payments: wallet addresses, GNAP, incoming and outgoing payments, quotes, the owner's Send |
 | [Node](areas/node.md) | The daemon: runtime, startup, configuration, environment, CLI, persistence, secrets, logging |
-| [HTTP](areas/http.md) | Listeners, routes, security headers, ACME and TLS, setup, login and sessions |
+| [HTTP](areas/http.md) | Listeners, routes, security headers, ACME and TLS, setup, login and sessions, front doors |
 | [RPC](areas/rpc.md) | The owner's RPC contract, its transports and live streams |
 | [Release](areas/release.md) | Builds, versions and channels, the mirror, signing, the installer and the updater |
 | [Wallet](areas/wallet.md) | The owner's web app and the shared UI package |

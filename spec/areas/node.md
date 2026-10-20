@@ -73,6 +73,7 @@ A node can keep a QUIC connection open to a relay it chooses, so that clients re
 - A node never dials itself: one whose `DASSIE_RELAY` names its own node ID keeps no relay connection and says so in its log. The check waits for the node's key, which may come after startup.
 - A node without a QUIC endpoint cannot keep one.
 - A periphery node may keep one beside its uplinks ([Network](network.md#periphery-nodes)), and the relay is not one of them: its connection carries relayed streams, and only a peering makes an uplink. One whose relay is also an uplink holds two connections to it, both kept alive alike, one of them standing by.
+- A [front door](http.md#front-doors) is a relay a node chooses so that Open Payments clients reach it at its name under the front door's domain. The front door logs the entry that names it, its key and a URL for its QUIC endpoint (`resources/front-door/`).
 
 ## Database
 

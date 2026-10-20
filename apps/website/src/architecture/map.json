@@ -279,13 +279,14 @@
       "x": 20,
       "y": 426,
       "w": 184,
-      "desc": "The one binary that is the product, with the wallet built in. Everything a node owner runs is a subcommand of it.",
+      "desc": "The one binary that is the product, with the wallet built in. Everything a node owner runs is a subcommand of it, and so is a front door.",
       "does": [
         "`dassie daemon`: standalone, or socket-activated by systemd",
         "`dassie init`: the domain name and the certificate, then a URL to finish setup in the browser",
         "`dassie status`, and `dassie setup-url` to print that URL again",
         "`dassie update`: fetches, verifies and switches to a newer release, and goes back if it does not start",
-        "`dassie verify-install`, which also names the release key"
+        "`dassie verify-install`, which also names the release key",
+        "`dassie front-door`: runs a front door, which is no node, and `--make-key` makes its key and prints the entry a node names it by"
       ]
     },
     "node": {
@@ -302,6 +303,7 @@
         "The engine: ledger, connector, BTP server and STREAM receiver",
         "The peer protocol over QUIC, with each node's key pinned, and over HTTPS as `POST /peer` for nodes that do not take QUIC; the settlement loop",
         "Relayed streams: any QUIC node relays for the nodes connected to it, with TLS end to end, so a node without a public address that keeps a connection to a relay is still reached for Open Payments",
+        "Front doors: a server with a key of its own and a wildcard certificate that takes Open Payments requests for `<label>.<domain>` and passes them to the node the label names, over relayed streams it opens on the connection the node keeps to it; it returns the node's signed JSON unchanged, and never a page or a cookie",
         "RPC with live streams, the log ring, the database inspector and `GET /stats`",
         "Open Payments over HTTPS and relayed streams: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments, each answer signed with the node key and written under the name the request came through",
         "Exchange rates, fetched from several sources, and the fee and spread on what passes between peers",
@@ -1210,6 +1212,45 @@
             "ui"
           ],
           "text": "The logs, the network graph and each node's debug pages use the same components as the wallet."
+        }
+      ]
+    },
+    {
+      "id": "front-door",
+      "button": "A client reaches a node at home",
+      "title": "An Open Payments client reaches a node without a public address",
+      "steps": [
+        {
+          "ids": [
+            "cli",
+            "node"
+          ],
+          "text": "The node names a front door, such as `dassiepay.net`, as its relay, and keeps a QUIC connection open to it from behind its NAT."
+        },
+        {
+          "ids": [
+            "identity"
+          ],
+          "text": "A client asks for `https://<label>.dassiepay.net/.well-known/pay`. The front door turns the label back into the node ID."
+        },
+        {
+          "ids": [
+            "node"
+          ],
+          "text": "The front door opens a relayed stream on the node's connection, runs TLS inside it pinned to the node's key, and passes the request on with its name unchanged."
+        },
+        {
+          "ids": [
+            "payments"
+          ],
+          "text": "The node answers under that name and signs the answer with its node key."
+        },
+        {
+          "ids": [
+            "payments",
+            "identity"
+          ],
+          "text": "The front door passes the JSON back unchanged. A Dassie-aware client checks the signature against the node the label names; any other client trusts the front door."
         }
       ]
     }
