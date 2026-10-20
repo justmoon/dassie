@@ -14,6 +14,8 @@
 # template; a change to the unit, at their next boot; a change to the
 # supervisor, at their next loop.
 set -eu
+# GCE runs this without a home, which Nix's installer, Nix and Git need.
+export HOME=/root
 
 state=/var/lib/dassie-sim-campaign
 repository=https://github.com/justmoon/dassie.git
@@ -43,7 +45,7 @@ if [ ! -x /nix/var/nix/profiles/default/bin/nix ]; then
   curl -fsSL -o /tmp/nix-install \
     "https://releases.nixos.org/nix/nix-$nix_version/install"
   echo "$nix_installer_sha256  /tmp/nix-install" | sha256sum -c -
-  sh /tmp/nix-install --daemon < /dev/null
+  sh /tmp/nix-install --daemon --yes < /dev/null
   rm /tmp/nix-install
 fi
 # Flakes, and only root may talk to the daemon: a build the daemon runs

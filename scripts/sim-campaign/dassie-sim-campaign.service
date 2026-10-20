@@ -14,6 +14,9 @@ After=network-online.target nix-daemon.service
 [Service]
 Type=exec
 EnvironmentFile=/etc/dassie-sim-campaign.env
+# systemd sets no home for a unit without User=, and Nix wants one for its
+# caches.
+Environment=HOME=/root
 WorkingDirectory=/var/lib/dassie-sim-campaign/repo
 ExecStartPre=/usr/bin/git fetch --quiet origin main
 ExecStartPre=/usr/bin/git checkout --quiet --force --detach origin/main
