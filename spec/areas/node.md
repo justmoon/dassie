@@ -64,6 +64,14 @@ On SIGTERM or SIGINT the daemon stops accepting, gives requests in progress a bo
 - **QUIC is optional.** Without its UDP socket (units from before QUIC, or a port taken), the node runs as before and says so in its log: its link state does not say it takes QUIC, so peers ask it over HTTPS ([Peer protocol](peer-protocol.md#transport)).
 - **Either way,** URLs the node prints or redirects to use the ports it actually listens on, which under systemd need not be the configured ones.
 
+## A chosen relay
+
+A node can keep a QUIC connection open to a relay it chooses, so that clients reach it through that relay ([Peer protocol](peer-protocol.md#relayed-streams)), even without a public address or any peering ([the design](../designs/periphery.md#5-reaching-a-periphery-node)). The relay is configured as a bootstrap node is, by node ID, URL and key (`env.rs`), and the connection is pinned to that key; the two need not peer.
+
+- The node dials the relay once it has its key and its QUIC endpoint serves, keeps the connection alive well within the idle timeout, so that a NAT keeps its mapping, and dials again with a backoff when it is lost.
+- The relay keeps the connection as it keeps any it is given, and reaches the node over it. If it also dialled the node, it keeps one of the two as for any pair of nodes, and the other takes over if the kept one closes.
+- A node without a QUIC endpoint cannot keep one.
+
 ## Database
 
 One SQLite file, `dassie.sqlite3`, in the data directory (`env.rs` has where). `store/`.

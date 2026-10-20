@@ -55,7 +55,7 @@ Nodes without a public IP join as periphery nodes: they connect only to core nod
 - **Parts that can be built side by side:**
   - QUIC for periphery links: the uplink's connection held open by its downlink, and the fallbacks where UDP is blocked (TLS over TCP, WebSocket, WebTransport for browser nodes). QUIC between core nodes is built ([Peer protocol](areas/peer-protocol.md#quic));
   - periphery nodes: child addresses beneath their uplinks, which touches the connector, BTP and the STREAM receiver ([D12](decisions/D12-peering-lifecycle-and-liveness.md)); the downlink table; a child's Network graph, which shows the child itself and its links to its uplinks, although no route reaches it;
-  - relays, records and home nodes;
+  - records and home nodes, so that clients find the relays that reach a node. Relays are built: every QUIC endpoint relays streams to the nodes connected to it, and a node keeps a connection to a relay it chooses ([Peer protocol](areas/peer-protocol.md#relayed-streams)). Relayed streams carry Open Payments; the owner's purpose waits for owner apps;
   - owner apps paired on `localhost`;
   - front doors. A node's names and its signed responses are built ([Payments](areas/payments.md#the-nodes-names)); left are the front doors themselves, their consent page, the owner's names as a wallet setting rather than an environment variable, the TXT record check in Dassie's own client, and the proposal to Open Payments;
   - free receivers, with the XRPL scheme's rules for accounts that do not exist yet;

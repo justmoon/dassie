@@ -18,6 +18,13 @@ The decisions (whether an origin is allowed, a session valid, a setup attempt ri
 
 `http/mod.rs` holds it. Routes exist only in the state they belong to: `/api/setup` only while the node has no identity, `/api/login` and `/api/logout` only once it has one; otherwise they are 404. ILP-over-HTTP (`/ilp`) is not served yet ([roadmap](../roadmap.md)).
 
+### Relayed streams
+
+A node reached through a relay ([Peer protocol](peer-protocol.md#relayed-streams)) serves HTTP/1.1 on a relayed stream with purpose `payments`, once its TLS is done (`serve_relayed` in `http/mod.rs`):
+
+- **Open Payments only.** Every other path is 404, upgrades included: the wallet, `/api/*`, `/rpc`, `/peer`, BTP and `/stats` are served only on the node's own listeners ([D26](../decisions/D26-core-and-periphery.md)). A page served through a relay could keep the owner's passphrase, and nothing on a relayed stream shows that a browser's origin is the node's.
+- **The same rules as over HTTPS** ([Payments](payments.md#http-routes)): CORS, signatures, bounded bodies and the security headers, without HSTS. The rate limits per client address count the relay's address, the only one the node sees; the relay bounds streams per client.
+
 ### The wallet's files
 
 The wallet ([wallet.md](wallet.md)) is embedded in the binary and served for any other `GET` (`http/assets.rs`). A path that names no file gets `index.html`, for the wallet's own routes, except under `/assets/`, where a missing file stays 404. Vite's content-hashed files under `/assets/` are cached as immutable, and everything else, `index.html` included, is revalidated, so a new build shows at once. A dev node serves a watch build from a directory instead ([dev.md](dev.md)), under the same policy.
