@@ -30,16 +30,33 @@ pub type Routes = BTreeMap<NodeId, Route>;
 /// Computes the routes from `own`. `neighbors` gives a node's advertised
 /// neighbors, sorted, if its link state is fresh.
 pub fn compute<'a>(own: &NodeId, neighbors: impl Fn(&NodeId) -> Option<&'a [NodeId]>) -> Routes {
-    let mut routes = Routes::new();
     let Some(own_neighbors) = neighbors(own) else {
-        return routes;
+        return Routes::new();
     };
+    let first: Vec<NodeId> = own_neighbors
+        .iter()
+        .filter(|neighbor| *neighbor != own && is_edge(&neighbors, own, neighbor))
+        .copied()
+        .collect();
+    through(own, &first, neighbors)
+}
+
+/// Computes the routes from `own` through `first_hops`, whatever they
+/// list: a periphery node's, whose uplinks never list it, but carry its
+/// packets (spec/areas/network.md#routing). Beyond them, edges count only
+/// if both ends list each other, as always.
+pub fn through<'a>(
+    own: &NodeId,
+    first_hops: &[NodeId],
+    neighbors: impl Fn(&NodeId) -> Option<&'a [NodeId]>,
+) -> Routes {
+    let mut routes = Routes::new();
     // Level by level: each node's level, and the queue of the next.
     let mut level: BTreeMap<NodeId, u32> = BTreeMap::new();
     level.insert(*own, 0);
     let mut queue = VecDeque::new();
-    for neighbor in own_neighbors {
-        if neighbor != own && is_edge(&neighbors, own, neighbor) && !level.contains_key(neighbor) {
+    for neighbor in first_hops {
+        if neighbor != own && neighbors(neighbor).is_some() && !level.contains_key(neighbor) {
             level.insert(*neighbor, 1);
             routes.insert(
                 *neighbor,

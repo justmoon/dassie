@@ -114,9 +114,20 @@ impl NodeInfo<'_> {
     /// Whether it takes the peer protocol over QUIC.
     #[must_use]
     pub fn speaks_quic(&self) -> bool {
-        self.entries.iter().any(|entry| {
-            matches!(entry, Entry::Extension { kind, .. } if *kind == super::EXTENSION_QUIC)
-        })
+        self.has_extension(super::EXTENSION_QUIC)
+    }
+
+    /// Whether it is a periphery node's: one without a URL, reached only
+    /// over the connections it opened to its uplinks.
+    #[must_use]
+    pub fn is_periphery(&self) -> bool {
+        self.has_extension(super::EXTENSION_PERIPHERY)
+    }
+
+    fn has_extension(&self, wanted: u16) -> bool {
+        self.entries
+            .iter()
+            .any(|entry| matches!(entry, Entry::Extension { kind, .. } if *kind == wanted))
     }
 }
 
@@ -177,7 +188,8 @@ impl<'a> Decode<'a> for NodeInfo<'a> {
 /// Why a link state does not verify.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InvalidNodeInfo {
-    /// The URL is not an HTTPS origin (spec/areas/peer-protocol.md#verification).
+    /// The URL is not an HTTPS origin, nor empty in a periphery node's link
+    /// state (spec/areas/peer-protocol.md#verification).
     Url,
     /// The public key is not a point, or one of small order.
     PublicKey,
@@ -204,13 +216,15 @@ pub struct SignedNodeInfo<'a> {
 impl SignedNodeInfo<'_> {
     /// Checks the URL syntax, the key, that the ID is the key's, and the
     /// signature (ZIP-215, spec/areas/peer-protocol.md#verification).
+    /// The URL may be empty only in a periphery node's link state.
     /// Returns the key.
     ///
     /// # Errors
     ///
     /// The first check that fails.
     pub fn verify(&self) -> Result<PublicKey, InvalidNodeInfo> {
-        if !is_valid_url(self.info.url) {
+        let url = &self.info.url;
+        if !is_valid_url(url) && !(url.is_empty() && self.info.is_periphery()) {
             return Err(InvalidNodeInfo::Url);
         }
         let key =

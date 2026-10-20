@@ -1,6 +1,7 @@
 //! Link states: our own, those we receive, flooding, heartbeats and
 //! refreshing stale ones (spec/areas/network.md#link-states).
 
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
@@ -10,8 +11,8 @@ use super::{PeerNode, Problem, Purpose};
 use crate::config::Config;
 use crate::table::{LinkState, Sources, backoff};
 use crate::wire::{
-    Content, EXTENSION_QUIC, Entry, InvalidNodeInfo, LinkStateResponse, NodeInfo, SignedNodeInfo,
-    sign_node_info,
+    Content, EXTENSION_PERIPHERY, EXTENSION_QUIC, Entry, InvalidNodeInfo, LinkStateResponse,
+    NodeInfo, SignedNodeInfo, sign_node_info,
 };
 
 /// The routes are recomputed at least this often, as link states go stale.
@@ -89,11 +90,9 @@ impl Gossip {
             .values()
             .filter_map(|entry| entry.link.as_ref()?.retransmit_at_ms)
             .min();
-        let issue = node
-            .own_info
-            .url
-            .as_ref()
-            .and_then(|_| self.issue_due(&node.config));
+        let issue = (node.own_info.url.is_some() || node.is_periphery())
+            .then(|| self.issue_due(&node.config))
+            .flatten();
         let heartbeat = node.peers().next().map(|_| self.heartbeat_at_ms);
         let routes = if self.routes_dirty {
             self.routes_at_ms
@@ -148,6 +147,15 @@ impl PeerNode {
         mode: Retransmit,
     ) -> Processed {
         let id = signed.info.node_id;
+        // A periphery node's link state never floods, and a periphery node
+        // forwards nothing (spec/areas/network.md#periphery-nodes).
+        let mode = if mode == Retransmit::Scheduled
+            && (signed.info.is_periphery() || self.is_periphery())
+        {
+            Retransmit::Never
+        } else {
+            mode
+        };
         if id == self.own && mode != Retransmit::Immediately {
             // Only we issue our link state; copies of it coming back are
             // echoes.
@@ -217,7 +225,14 @@ impl PeerNode {
     /// hour regardless (NET-5), never faster than the debounce. The
     /// sequence is persisted with it (NET-7).
     pub(super) fn issue_own(&mut self) {
-        let Some(url) = self.own_info.url.clone() else {
+        // A periphery node's has no URL, and says so with its extension.
+        let periphery = self.is_periphery();
+        let Some(url) = self
+            .own_info
+            .url
+            .clone()
+            .or_else(|| periphery.then(String::new))
+        else {
             return;
         };
         if self
@@ -240,15 +255,17 @@ impl PeerNode {
         };
         // Only advertised peers: confirmed, and not held down (D12).
         let neighbors = self.advertised();
-        let quic = self.own_info.quic.then_some(Entry::Extension {
-            kind: EXTENSION_QUIC,
-            value: &[],
-        });
+        let extension = if periphery {
+            Some(EXTENSION_PERIPHERY)
+        } else {
+            self.own_info.quic.then_some(EXTENSION_QUIC)
+        };
+        let extension = extension.map(|kind| Entry::Extension { kind, value: &[] });
         let entries = neighbors
             .iter()
             .map(|id| Entry::Neighbor(*id))
             .chain(self.schemes.iter().map(|id| Entry::Scheme(*id)))
-            .chain(quic)
+            .chain(extension)
             .collect();
         let info = NodeInfo {
             node_id: self.own,
@@ -276,6 +293,10 @@ impl PeerNode {
     /// Bootstrap nodes get our new link state directly, so they can answer
     /// refreshes for it; others get it by flooding (NET-20).
     fn push_to_bootstrap(&mut self, bytes: &[u8]) {
+        // A periphery node's goes only to its uplinks.
+        if self.is_periphery() {
+            return;
+        }
         let Ok(signed) = SignedNodeInfo::decode_exact(bytes) else {
             return;
         };
@@ -307,7 +328,9 @@ impl PeerNode {
             })
             .map(|(id, _)| *id)
             .collect();
-        let peers: Vec<NodeId> = self.peers().map(|(id, _)| *id).collect();
+        // Not to downlinks: they learn what they need from their uplinks'
+        // sweeps and refreshes, as any node that is not a peer does.
+        let peers: Vec<NodeId> = self.core_peers().map(|(id, _)| *id).collect();
         let timeout = self.config.request_timeout_ms;
         for id in due {
             let Some(link) = self
@@ -436,11 +459,14 @@ impl PeerNode {
         self.gossip.sweep_at_ms = self.now_ms.saturating_add(self.config.sweep_interval_ms);
         let after = self.gossip.sweep_after;
         let own = self.own;
+        // Downlinks' link states come from them alone, and are served to
+        // nobody: no sweep asks for them.
+        let swept = |id: &&NodeId| **id != own && !self.is_downlink(id);
         let candidates = self
             .table
             .keys()
-            .filter(|id| **id != own && after.is_none_or(|after| **id > after))
-            .chain(self.table.keys().filter(|id| **id != own));
+            .filter(|id| swept(id) && after.is_none_or(|after| **id > after))
+            .chain(self.table.keys().filter(swept));
         let mut ids: Vec<NodeId> = Vec::new();
         for id in candidates {
             if ids.contains(id) || ids.len() >= crate::wire::MAX_LINK_STATE_REQUEST_IDS {
@@ -452,7 +478,7 @@ impl PeerNode {
             return;
         };
         self.gossip.sweep_after = Some(last);
-        let mut peers: Vec<NodeId> = self.peers().map(|(id, _)| *id).collect();
+        let mut peers: Vec<NodeId> = self.core_peers().map(|(id, _)| *id).collect();
         if peers.is_empty() {
             peers = self
                 .bootstrap
@@ -484,7 +510,7 @@ impl PeerNode {
         let (now, stale, future) = (self.now_ms, self.config.stale_ms, self.config.max_future_ms);
         self.table
             .iter()
-            .filter(|(id, _)| **id != self.own)
+            .filter(|(id, entry)| **id != self.own && !entry.is_downlink())
             .map(|(_, entry)| {
                 let stale_at = entry.link.as_ref().map_or(0, |link| {
                     if link.is_fresh(now, stale, future) {
@@ -505,6 +531,7 @@ impl PeerNode {
             .iter()
             .filter(|(id, entry)| {
                 **id != self.own
+                    && !entry.is_downlink()
                     && entry.refresh_at_ms <= now
                     && entry
                         .link
@@ -525,6 +552,7 @@ impl PeerNode {
             .filter(|(id, entry)| {
                 *id != target
                     && **id != self.own
+                    && !entry.is_downlink()
                     && (entry.sources.contains(Sources::BOOTSTRAP)
                         || entry
                             .link

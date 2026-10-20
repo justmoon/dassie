@@ -11,7 +11,7 @@ use super::{PeerNode, Problem, Purpose};
 use crate::auth::Accepted;
 use crate::hooks::PeeringHooks;
 use crate::io::{Event, Reply};
-use crate::table::{Advertise, Depeering, PeerState, Sources, Termination, backoff};
+use crate::table::{Advertise, Depeering, PeerState, Termination, backoff};
 use crate::wire::{Content, SchemeId, TerminationReason};
 
 /// Why a node could not be banned.
@@ -336,16 +336,20 @@ impl PeerNode {
     /// Whether `peer` is listed as our neighbor.
     #[must_use]
     pub fn is_advertised(&self, peer: &NodeId) -> bool {
-        self.table
-            .get(peer)
-            .is_some_and(|entry| entry.active_peering().is_some() && entry.advertise.on)
+        self.table.get(peer).is_some_and(|entry| {
+            !entry.is_downlink() && entry.active_peering().is_some() && entry.advertise.on
+        })
     }
 
-    /// The peers listed as our neighbors, in order.
+    /// The peers listed as our neighbors, in order. Downlinks never are:
+    /// their child addresses lie beneath ours, so the rest of the network
+    /// needs no route to them (D26).
     pub(crate) fn advertised(&self) -> Vec<NodeId> {
         self.table
             .iter()
-            .filter(|(_, entry)| entry.active_peering().is_some() && entry.advertise.on)
+            .filter(|(_, entry)| {
+                !entry.is_downlink() && entry.active_peering().is_some() && entry.advertise.on
+            })
             .map(|(id, _)| *id)
             .collect()
     }
@@ -593,7 +597,7 @@ impl PeerNode {
         entry.peering_at_ms = now.saturating_add(wait);
         self.dirty.insert(peer);
         self.telling.remove(&peer);
-        self.drop_source(&peer, Sources::PEER);
+        self.drop_peer_source(&peer);
         self.gossip.routes_dirty = true;
         self.stats.terminations += 1;
         // Nothing is settled at the end: what the accounts show carries

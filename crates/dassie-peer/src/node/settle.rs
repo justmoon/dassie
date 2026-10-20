@@ -28,7 +28,29 @@ impl PeerNode {
 
     /// Whether a channel with `node` exists or fits.
     pub(crate) fn channel_room(&self, node: &NodeId) -> bool {
-        self.channels.contains_key(node) || self.channels.len() < self.config.max_channels
+        self.channel_room_for(node, self.is_downlink(node))
+    }
+
+    /// Whether a channel with `node` exists or fits, among the channels
+    /// with downlinks if `downlink`, or among those with core nodes: each
+    /// kind has its bound (spec/areas/network.md#downlinks).
+    pub(crate) fn channel_room_for(&self, node: &NodeId, downlink: bool) -> bool {
+        if self.channels.contains_key(node) {
+            return true;
+        }
+        let (downlinks, core) = self.channel_counts();
+        if downlink {
+            downlinks < self.config.max_downlinks
+        } else {
+            core < self.config.max_channels
+        }
+    }
+
+    /// The channels with downlinks, which have no URL, and those with core
+    /// nodes.
+    pub(crate) fn channel_counts(&self) -> (usize, usize) {
+        let downlinks = self.downlink_channels;
+        (downlinks, self.channels.len().saturating_sub(downlinks))
     }
 
     /// Opens the channel with `node`, a new peer, or brings its contact up
@@ -39,14 +61,24 @@ impl PeerNode {
         };
         if let Some(channel) = self.channels.get_mut(&node) {
             if channel.key != key || channel.url != url {
+                // A node that went from core to periphery, or back, counts
+                // with its new kind.
+                match (channel.url.is_empty(), url.is_empty()) {
+                    (false, true) => self.downlink_channels += 1,
+                    (true, false) => self.downlink_channels -= 1,
+                    _ => {}
+                }
                 channel.key = key;
                 channel.url = url;
                 self.channels_dirty.insert(node);
             }
             return true;
         }
-        if self.channels.len() >= self.config.max_channels {
+        if !self.channel_room_for(&node, url.is_empty()) {
             return false;
+        }
+        if url.is_empty() {
+            self.downlink_channels += 1;
         }
         self.channels.insert(node, Channel::new(key, url));
         self.channels_dirty.insert(node);

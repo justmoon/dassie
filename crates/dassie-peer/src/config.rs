@@ -131,8 +131,15 @@ pub struct Config {
     pub owner_termination_cooldown_ms: u64,
     /// Most banned nodes.
     pub max_bans: usize,
-    /// Most settlement channels: one per node ever peered with.
+    /// Most settlement channels with core nodes: one per core node ever
+    /// peered with.
     pub max_channels: usize,
+    /// Most downlinks a core node keeps, apart from its peers with other
+    /// core nodes (spec/areas/network.md#downlinks): each with a
+    /// settlement channel, which is never closed, so this bounds the
+    /// periphery nodes ever peered with. A node without a URL, or with
+    /// none of these, takes no downlinks.
+    pub max_downlinks: usize,
     /// The first wait before a settlement message is sent again.
     pub settlement_retry_min_ms: u64,
     /// The longest wait.
@@ -204,6 +211,7 @@ impl Config {
         owner_termination_cooldown_ms: 86_400_000,
         max_bans: 1024,
         max_channels: 512,
+        max_downlinks: 1_000,
         settlement_retry_min_ms: 1_000,
         settlement_retry_max_ms: 3_600_000,
     };

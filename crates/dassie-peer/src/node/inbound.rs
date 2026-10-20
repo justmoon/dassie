@@ -230,11 +230,15 @@ impl PeerNode {
                 let mut ids = ids;
                 let mut seen = alloc::collections::BTreeSet::new();
                 ids.retain(|id| seen.insert(*id));
+                // A periphery node's link state is served by nobody but
+                // itself: only its uplinks are to see it
+                // (spec/areas/network.md#periphery-nodes).
+                let own = self.own;
                 let found: Vec<Option<&[u8]>> = ids
                     .iter()
                     .map(|id| {
                         let link = self.table.get(id)?.link.as_ref()?;
-                        Some(link.bytes.as_slice())
+                        (*id == own || !link.periphery).then_some(link.bytes.as_slice())
                     })
                     .collect();
                 let body = encode_link_states(&found);
@@ -292,6 +296,11 @@ impl PeerNode {
         };
         if info.info.sequence > self.now_ms.saturating_add(self.config.max_future_ms) {
             return refuse(400, "the link state is from the future");
+        }
+        // A periphery node is in no node list
+        // (spec/areas/network.md#periphery-nodes).
+        if info.info.is_periphery() {
+            return refuse(409, "a periphery node does not register");
         }
         // A renewal from the URL that was probed: anything else is probed
         // again (spec/areas/network.md#registration).
