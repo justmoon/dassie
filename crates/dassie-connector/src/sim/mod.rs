@@ -280,6 +280,27 @@ impl Harness {
         account
     }
 
+    /// A downlink `peer:{id}`, extending `trust`, at its child address
+    /// below ours, `{OWN}.{node}` (spec/areas/connector.md#addresses-and-endpoints).
+    pub fn add_downlink(&mut self, id: u64, node: &str, trust: u64, first: u32) -> AccountId {
+        let name = dassie_ledger::Name::new(node).unwrap();
+        let ledger = LedgerId::StubUsd;
+        let (account, _) = self.ledger.open_peer(0, ledger, name, trust).unwrap();
+        while let Some(entry) = self.ledger.poll_journal() {
+            self.journal.push(entry);
+        }
+        self.connector
+            .add_peer(
+                EndpointId::Peer(id),
+                &format!("{OWN}.{node}"),
+                account,
+                ledger,
+                first,
+            )
+            .unwrap();
+        account
+    }
+
     /// Opens the accounts a ledger's fees and conversions book to, as the
     /// node does when it activates the ledger.
     pub fn open_books(&mut self, ledger: LedgerId) {

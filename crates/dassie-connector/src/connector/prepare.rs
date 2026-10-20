@@ -226,7 +226,7 @@ impl Connector {
         if self.pending.len() >= config.max_pending {
             return Err(refuse(ErrorCode::T03_CONNECTOR_BUSY, "connector busy"));
         }
-        if from.pending_from >= config.max_pending_from(source) {
+        if from.pending_from >= self.max_pending_from(source) {
             return Err(refuse(
                 ErrorCode::T05_RATE_LIMITED,
                 "too many packets in flight",
@@ -515,12 +515,25 @@ impl Connector {
         {
             endpoint.money_to += route.amount_out;
         }
+        // A packet below a periphery node's address beneath an uplink
+        // reaches its endpoint written below the node's own, the address
+        // the endpoint knows (spec/areas/connector.md#a-periphery-node).
+        let mut rewritten = core::mem::take(&mut self.rewritten);
+        rewritten.clear();
+        if let Some(below) = self.below_child_address(prepare.destination) {
+            rewritten.push_str(&self.own_address);
+            rewritten.push('.');
+            rewritten.push_str(below);
+        }
+        let destination = Address::parse(&rewritten).unwrap_or(prepare.destination);
         let outgoing = Prepare {
             amount: route.amount_out,
             expires_at: route.expires_at,
+            destination,
             ..*prepare
         };
         let length = outgoing.encode(out);
+        self.rewritten = rewritten;
         let to = route.to;
         let amount_out = route.amount_out;
         self.trace.update(trace, |record| {

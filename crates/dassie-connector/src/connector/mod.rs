@@ -23,6 +23,10 @@ use crate::trace::{PacketRecord, Trace, TraceEvent};
 /// Most next hops a route lists.
 pub const MAX_ROUTE_OPTIONS: usize = 4;
 
+/// Most addresses a periphery node has beneath its uplinks: one per
+/// uplink, and it has no more peers than this.
+pub const MAX_CHILD_ADDRESSES: usize = 8;
+
 /// Why routes could not be set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RoutesError {
@@ -142,6 +146,14 @@ pub struct Connector {
     cap_changes: BTreeSet<AccountId>,
     /// What transit from one peer to another is charged.
     charges: Charges,
+    /// On a periphery node, its addresses beneath its uplinks: what lies
+    /// below one of them is routed as if below our own address, and
+    /// nothing else from a peer is forwarded
+    /// (spec/areas/connector.md#a-periphery-node). `None` on a core node.
+    periphery: Option<Vec<String>>,
+    /// Reused for a destination written below our own address, so the
+    /// packet path does not allocate.
+    rewritten: String,
 }
 
 impl Connector {
@@ -169,7 +181,59 @@ impl Connector {
             caps: BTreeMap::new(),
             cap_changes: BTreeSet::new(),
             charges: Charges::NONE,
+            periphery: None,
+            rewritten: String::new(),
         }
+    }
+
+    /// Makes the connector a periphery node's, with its addresses beneath
+    /// its uplinks (spec/areas/connector.md#a-periphery-node): packets below
+    /// one of them reach the node's own endpoints, written below its own
+    /// address, and a peer's packet for anywhere else gets F02, since a
+    /// periphery node forwards nothing. With `None`, it is a core node's
+    /// again.
+    ///
+    /// # Errors
+    ///
+    /// Too many addresses, or one that is not an address, lies below our
+    /// own, or overlaps another; nothing changes then.
+    pub fn set_periphery(&mut self, addresses: Option<&[String]>) -> Result<(), RoutesError> {
+        let Some(addresses) = addresses else {
+            self.periphery = None;
+            return Ok(());
+        };
+        if addresses.len() > MAX_CHILD_ADDRESSES {
+            return Err(RoutesError::TooMany);
+        }
+        let own = Address::parse(&self.own_address).map_err(|_| RoutesError::InvalidPrefix)?;
+        for (index, text) in addresses.iter().enumerate() {
+            let address = Address::parse(text).map_err(|_| RoutesError::InvalidPrefix)?;
+            let nested = addresses.iter().skip(index + 1).any(|other| {
+                Address::parse(other)
+                    .is_ok_and(|other| other.has_prefix(address) || address.has_prefix(other))
+            });
+            if address.has_prefix(own) || nested {
+                return Err(RoutesError::InvalidPrefix);
+            }
+        }
+        self.periphery = Some(addresses.to_vec());
+        Ok(())
+    }
+
+    /// The node's addresses beneath its uplinks, if it is a periphery node.
+    #[must_use]
+    pub fn child_addresses(&self) -> Option<&[String]> {
+        self.periphery.as_deref()
+    }
+
+    /// What follows a periphery node's address beneath an uplink in
+    /// `destination`, if it lies below one: the same as below our own.
+    pub(crate) fn below_child_address<'d>(&self, destination: Address<'d>) -> Option<&'d str> {
+        self.periphery
+            .iter()
+            .flatten()
+            .filter_map(|text| Address::parse(text).ok())
+            .find_map(|address| destination.strip_prefix(address))
     }
 
     /// Sets what transit from one peer to another is charged, from the
@@ -225,6 +289,7 @@ impl Connector {
             money_to: 0,
             draining: false,
             refusing: false,
+            child: false,
         };
         self.endpoints.insert(id, endpoint, own)
     }
@@ -263,6 +328,7 @@ impl Connector {
             money_to: 0,
             draining: false,
             refusing: false,
+            child: false,
         };
         self.endpoints.insert(id, endpoint, own)
     }
@@ -392,6 +458,18 @@ impl Connector {
             .map_or(0, |endpoint| endpoint.pending_from);
         let to = self.pending.range((id, 0)..=(id, u32::MAX)).count();
         from + to
+    }
+
+    /// The most packets in flight from `id`: a peer that may carry other
+    /// nodes' traffic gets a peer's share; a child, or a downlink, which
+    /// sends only its own, a child's.
+    pub(crate) fn max_pending_from(&self, id: EndpointId) -> usize {
+        let transit = id.is_peer() && self.endpoints.get(id).is_none_or(|e| !e.child);
+        if transit {
+            self.config.max_pending_per_peer
+        } else {
+            self.config.max_pending_per_endpoint
+        }
     }
 
     /// Packets in flight that came from an endpoint.
@@ -562,6 +640,13 @@ impl Connector {
             // A child may address itself; only routes between nodes could
             // loop.
             return self.endpoints.route_child(destination);
+        }
+        if let Some(below) = self.below_child_address(destination) {
+            return self.endpoints.route_child_below(&self.own_address, below);
+        }
+        // A periphery node forwards nothing for a peer.
+        if self.periphery.is_some() && source.is_some_and(EndpointId::is_peer) {
+            return None;
         }
         let text = destination.as_str();
         let mut end = text.len();
