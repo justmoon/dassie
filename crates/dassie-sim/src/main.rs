@@ -46,8 +46,7 @@
 //!     this run's numbers; `options`, what its seed drew, as `run` prints
 //!     it after the seed; and `trace_tail`, the last 40 lines of its trace
 //!     in one string, joined by newlines (empty after a panic, which loses
-//!     the trace). An
-//!     `unsupported` run adds `message` only.
+//!     the trace). An `unsupported` run adds `message` only.
 //! - **After the last run, one summary line:**
 //!   `{"summary": {"runs": 1520, "by_sim": {"node": {"runs": 900, "ms": 541000, "pass": 899, "safety": 1, "liveness": 0, "unsupported": 0}}, "failures": 1, "seconds": 600}}`.
 //!   `runs` is the number of run lines printed before it, `wall-time` ones
