@@ -49,8 +49,8 @@ impl PeerNode {
                 self.dirty.insert(peer);
                 self.event(Event::Depeering { peer, reason });
             }
-            // Its owner's decision, or a ban, outranks one the node took
-            // for silence or room: it brings the owner's cooldown.
+            // Its owner's decision outranks one the node took for silence
+            // or room: it brings the owner's cooldown.
             Some(depeering) if reason == TerminationReason::Owner => {
                 if depeering.reason != reason {
                     depeering.reason = reason;
@@ -279,7 +279,10 @@ impl PeerNode {
     }
 
     /// Bans `node`: it is never asked, is refused, and a peering with it is
-    /// ended.
+    /// ended at once. A ban is the owner's emphatic word, often about
+    /// misbehaviour, so the node collects nothing first (D28): the peer is
+    /// withdrawn from our link state and told now, and what it owes stays
+    /// on our books.
     ///
     /// # Errors
     ///
@@ -298,7 +301,7 @@ impl PeerNode {
             self.banned.push(node);
         }
         self.abandon_attempt(node);
-        self.begin_depeering(node, TerminationReason::Owner);
+        self.begin_termination(node, TerminationReason::Owner, true);
         Ok(())
     }
 

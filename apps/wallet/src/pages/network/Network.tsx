@@ -258,7 +258,9 @@ function NodeDetail(props: { node: NetworkNode }): JSX.Element {
               )}
             >
               <p>
-                Your node ends any peering with it, and never peers with it
+                Your node ends any peering with it at once: it stops routing
+                through it and tells it now, without asking it to settle first.
+                What it owes stays on the books. Your node never peers with it
                 again until you lift the ban.
               </p>
             </ConfirmButton>

@@ -129,6 +129,34 @@ fn a_peering_ends_while_its_fulfills_cannot_arrive() {
     check_books(&sim).unwrap();
 }
 
+// D28: a ban withdraws the peer from the node's link state in the step
+// that bans it, and ends the peering without asking the peer to settle a
+// last time. What the peer owes stays on the books.
+#[test]
+fn a_ban_withdraws_the_peer_at_once_and_asks_nothing() {
+    let mut sim = Sim::new(74, 2, 1);
+    sim.loss_per_mille = 0;
+    sim.run_until(START + 60_000);
+    let peer = key(1).node_id();
+    assert!(sim.advertises(0, &peer), "the nodes did not peer");
+    sim.pay(1, 0, 500_000_000, None, None);
+    let took = |sim: &Sim| received(sim, &sim.payments[0]) > 0;
+    assert!(sim.run_until_or(sim.now + 30_000, took), "nothing received");
+    let mark = sim.trace.len();
+    sim.step(0, |core| core.ban_node(peer).unwrap());
+    assert!(!sim.advertises(0, &peer), "still advertised");
+    sim.run_until(sim.now + 60_000);
+    assert!(sim.peers(0).is_empty() && sim.peers(1).is_empty());
+    let lines = &sim.trace[mark..];
+    let collecting = format!(" 0 PeerNode(Depeering {{ peer: {peer:?}");
+    let answered = format!(" 0 PeerNode(SettlementRequestAnswered {{ peer: {peer:?}");
+    let told = format!(" 0 PeerNode(Terminating {{ peer: {peer:?}, reason: Owner");
+    assert!(!lines.iter().any(|line| line.contains(&collecting)));
+    assert!(!lines.iter().any(|line| line.contains(&answered)));
+    assert!(lines.iter().any(|line| line.contains(&told)));
+    check_books(&sim).unwrap();
+}
+
 // Found in review: a receiver's details may come from another wallet, and
 // what the rows cannot hold must be refused before the engine takes it,
 // or its commit fails and the engine stops.

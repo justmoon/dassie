@@ -135,9 +135,9 @@ A node lists a peer as a neighbor in its link state, and routing uses the edge, 
 
 Termination starts when the owner asks, when the owner bans the node, when the peer has not been heard from for a long time (counted from the later of its last message and the node's start, so our own downtime ends nothing), or when its room has stayed short, without a settlement, for as long.
 
-The node that ends a peering collects first, and tells the peer only then ([D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)):
+The node that ends a peering collects first, and tells the peer only then, unless its owner banned the peer ([D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)):
 
-1. **It decides privately.** Nothing the peer can see changes: a peer it advertised stays advertised (unless it is banned, which withdraws it at once, [below](#bans)), and our own Prepares still go to it. Its owner sees it terminating. Its new Prepares are refused, as for want of liquidity ([Connector](connector.md#responses-and-expiry)), and its requests to settle are answered as ones that settle nothing.
+1. **It decides privately.** Nothing the peer can see changes: a peer it advertised stays advertised, and our own Prepares still go to it. Its owner sees it terminating. Its new Prepares are refused, as for want of liquidity ([Connector](connector.md#responses-and-expiry)), and its requests to settle are answered as ones that settle nothing.
 2. **It waits for its own settlements to the peer under way,** so the peer counts them; then asks the peer to settle, once. The answer says what the peer has on its way ([Settlement](settlement.md#settling-on-request)), and the node waits until that is booked. Each wait lasts at most a time a settlement takes to reach the ledger and be announced (`depeer_wait_ms`). A peer that does not answer is waited out.
 3. **Then it tells the peer:** it stops advertising it, takes no new Prepares to or from it, and sends `peeringTermination` until it is acknowledged or times out. Responses still flow.
 4. **The other side ends at once** when the message arrives, as the node does that is told first when both decided: it stops advertising and routing to the peer, takes no new Prepares and settles nothing.
@@ -153,7 +153,7 @@ A node that holds no peering with a sender, and is not asking for one, answers a
 ### Bans
 
 - Bans are a bounded list the owner keeps. Only the owner bans; a node never bans a peer for what it cost ([D23](../decisions/D23-each-node-books-its-own-fulfills.md)).
-- A banned node is never asked, is refused, and its messages do not confirm it as a peer. A ban ends a peering as the owner's termination does. Its link states still flood: a ban is one node's choice, and other nodes route by both ends' word.
+- A banned node is never asked, is refused, and its messages do not confirm it as a peer. A ban ends a peering as the owner's termination does, with its cooldown, but collects nothing: the node withdraws the peer from its link state and tells it at once (step 3 of [Termination](#termination)), without waiting for its own settlements or asking the peer to settle. What the peer owes stays on the books. A ban is the owner's emphatic word, often about misbehaviour, and a peer being banned has little reason to settle. Its link states still flood: a ban is one node's choice, and other nodes route by both ends' word.
 - A ban is a list, not a peering state, since a node can be banned while its peering is still terminating.
 
 ## Settlement channels

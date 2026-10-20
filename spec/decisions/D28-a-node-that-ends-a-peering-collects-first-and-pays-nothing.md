@@ -32,13 +32,16 @@ Ending a peering is run by the node that ends it, which collects first and pays 
 
 **A settlement that arrives after the peering ended** is treated as any unexpected payment on the underlying ledger is today. A payment from a node we hold accounts with is credited to its account, once, as [D12](D12-peering-lifecycle-and-liveness.md) has it. On the XRP Ledger that is the ledger payment, which books the settlement. Its `settlement` message is acknowledged, so the sender's channel moves on.
 
-**Every way a peering ends follows this,** whether the owner ends it, bans the node, or the node ends it for silence or for staying short of room. A step that needs an answer from an unresponsive peer times out.
+**Every way a peering ends follows this but a ban,** whether the owner ends it or the node ends it for silence or for staying short of room. A step that needs an answer from an unresponsive peer times out.
+
+**A ban collects nothing.** The node goes straight to step 6: it withdraws the peer from its link state and sends `peeringTermination` at once, without waiting for its own settlements under way or asking the peer to settle. A ban is the owner's emphatic word, often about misbehaviour; the owner wants the peer out of its routes now, and a peer it bans has little reason to settle. What the peer owes stays on the books, as for a peer that does not answer the last request. The node's own settlements to the peer that are under way still land, and the peer credits them once, as any settlement after the end.
 
 ## Accepted
 
 - **Whoever is owed when a peering ends stays owed.** For the node being ended, that is at most the credit it extended ([D23](D23-each-node-books-its-own-fulfills.md)). Credit already bounds what a peer can take, so the rule does not add exposure: a node that wanted more could take it by routing packets to itself.
 - **The last request collects only half the way** to the peer's trigger, as any request does. Asking more than once would collect more; by default the node asks once, for simplicity.
-- **The end is no longer prompt.** It waits for the node's own settlements under way and for the peer's answer, so a slow ledger delays it, by at most two of those waits; a ban takes effect after them.
+- **The end is no longer prompt.** It waits for the node's own settlements under way and for the peer's answer, so a slow ledger delays it, by at most two of those waits. A ban does not wait.
+- **A ban gives up the last request.** What the banned peer would have settled on it stays owed on our books, to be collected only if the owner lifts the ban and the pair peers again.
 - **The node being ended learns late.** Until `peeringTermination` arrives, it sees only refused Prepares and a settlement it was asked for.
 
 ## Rejected
