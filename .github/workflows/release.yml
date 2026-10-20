@@ -2,8 +2,9 @@ name: Release
 
 # Builds, checks, signs and publishes Dassie to the mirror,
 # get.dassie.land (spec D11, D14): every tag v<version> as a release
-# (meta/latest). The checks only a release needs run here, not in CI: the
-# install tests on each distribution, and the static release binaries.
+# (meta/latest), once the simulation campaign has cleared the tagged commit
+# (D27). The checks only a release needs run here, not in CI: the install
+# tests on each distribution, and the static release binaries.
 # The original's releases were uploaded by hand, and nothing in its
 # repository published the installer (UI-12).
 #
@@ -20,8 +21,8 @@ name: Release
 #   identity federation.
 # Keep the key and the GCP variables in the environment, not the
 # repository: with deployment rules that admit only v* tags, no branch's
-# workflow can read them. Limit who may push v* tags with a ruleset, and
-# the workload identity provider to this repository.
+# workflow can read them. Limit who may push and delete v* tags with a
+# ruleset, and the workload identity provider to this repository.
 #
 # Without the key it builds and stops; without the bucket it signs, and the
 # signed tree stays an artifact of the run.
@@ -43,11 +44,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Nothing is built, signed or published from a commit the simulation
+  # campaign has not cleared (spec D27): one it has run long enough, with no
+  # failure seen on it. scripts/campaign-status.ts reads the campaign's
+  # `sim-campaign` status of the tagged commit, and says what to do with a
+  # tag it refuses. This workflow cannot delete the tag: whoever pushed it
+  # does. Every job below needs this one directly, so that no change to the
+  # others' order can start one before it.
+  campaign:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Reading a commit's statuses, and checking out the script: nothing
+    # more. No environment, so no secret reaches this job.
+    permissions:
+      contents: read
+      statuses: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      # Node as the flake pins it, from nixpkgs' cache: the script imports
+      # node: modules only, so nothing is installed.
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31
+      - name: Cleared by the simulation campaign
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          COMMIT: ${{ github.sha }}
+          TAG: ${{ github.ref_name }}
+          PUSHER: ${{ github.actor }}
+        run: |
+          nix shell --inputs-from . nixpkgs#nodejs_26 --command \
+            node scripts/campaign-status.ts "$COMMIT" --tag "$TAG" --actor "$PUSHER"
+
   # Everything the jobs below need, built once on the Vorstand Nix cloud:
   # the install tests' mirror; the tree of nix/release.nix; static-binaries,
   # which checks that the binaries are static and run, the arm64 one under
   # qemu; and dassie-release.
   build:
+    needs: campaign
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -74,7 +108,7 @@ jobs:
   # (tests/e2e/install_test.ts): privileged containers with systemd, and a
   # mirror of releases built with the test key.
   install:
-    needs: build
+    needs: [campaign, build]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -111,12 +145,14 @@ jobs:
             sh -c 'pnpm install --frozen-lockfile --filter @dassie/tests-e2e... && node --test tests/e2e/install_test.ts'
 
   release:
-    needs: install
+    needs: [campaign, install]
     runs-on: ubuntu-latest
     environment: Release
     timeout-minutes: 90
     permissions:
       contents: read
+      # The campaign's status, read again before signing.
+      statuses: read
       # Workload identity: GitHub's OIDC token is what GCP trusts.
       id-token: write
     env:
@@ -144,6 +180,20 @@ jobs:
         run: |
           nix build .#release --out-link built --max-jobs 0
           nix build .#release-tool --out-link tool --max-jobs 0
+
+      # The campaign may go on running a commit after clearing it, and a
+      # failure it sees then is final, so the commit is checked again here,
+      # after the hour or more of building and install tests, and before
+      # the key is touched.
+      - name: Still cleared by the simulation campaign
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          COMMIT: ${{ github.sha }}
+          TAG: ${{ github.ref_name }}
+          PUSHER: ${{ github.actor }}
+        run: |
+          nix shell --inputs-from . nixpkgs#nodejs_26 --command \
+            node scripts/campaign-status.ts "$COMMIT" --tag "$TAG" --actor "$PUSHER"
 
       # scripts/release.ts checks every bundle against SHA256SUMS, signs it,
       # and verifies the signed tree with resources/minisign.pub. The tag

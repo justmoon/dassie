@@ -18,12 +18,13 @@ The simulations run continuously, outside CI, from random seeds; each seed draws
 - **A campaign on spot VMs** runs `main`, and pull requests that ask for it. It runs unreviewed code in the project that holds the bootstrap nodes' phrases, so its VMs run as a service account that can read only its GitHub credentials, and the code they build runs in a sandbox that cannot reach those ([Testing](../areas/testing.md#isolating-pull-requests)).
 - **Failures become issues,** one per signature; a failure on a pull request is a comment there instead. A tripwire simulation fails on purpose now and then, so a silent campaign shows. A fix comes with a targeted test, because a seed reproduces a failure only at the commit it ran on.
 - **CI runs fixed seeds only,** plus the coverage minimums.
-- **Releases wait for the campaign** to have run on the tagged commit without an open failure.
+- **Releases wait for the campaign** to have run on the tagged commit long enough, with no failure seen on it; a failure is final for that commit, even once its issue is closed. The release workflow only reads what the campaign reports, so whoever pushed a refused tag deletes it.
 
 ## Accepted
 
 - A failure surfaces after the merge that caused it, sometimes hours later.
 - Spot VMs cost money, and each holds credentials that write this repository's issues, comments and commit statuses.
+- A commit the campaign once saw fail is never released, even when the failure was the harness's own; a later commit is.
 
 ## Rejected
 

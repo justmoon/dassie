@@ -320,7 +320,7 @@
       "does": [
         "Static musl binaries, deterministic bundles and the mirror tree, built by Nix",
         "`SHA256SUMS`, signed with minisign; the signature names the version",
-        "A release for each version tag, checked by dassie-release before it is published",
+        "A release for each version tag on a commit the simulation campaign has cleared, checked by dassie-release before it is published",
         "`install.sh`, and systemd units for the node, its sockets and the daily update",
         "Installs, updates and uninstalls, tested on four Linux distributions"
       ]

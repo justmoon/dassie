@@ -2,7 +2,7 @@
 
 How Dassie is built, signed, published, installed and updated. A release is one static binary per platform with the wallet built in, packed in bundles whose sums are signed with the release key; the installer and the updater trust nothing they cannot verify with that key.
 
-**Paths:** `crates/dassie-release/`, `crates/dassie-cli/src/update.rs`, `crates/dassie-cli/build.rs`, `resources/` (`minisign.pub`, `systemd/`, `installer/install.sh`), `nix/release.nix`, `nix/pnpm.nix`, `scripts/release.ts`, `.github/workflows/release.yml`
+**Paths:** `crates/dassie-release/`, `crates/dassie-cli/src/update.rs`, `crates/dassie-cli/build.rs`, `resources/` (`minisign.pub`, `systemd/`, `installer/install.sh`), `nix/release.nix`, `nix/pnpm.nix`, `scripts/release.ts`, `scripts/campaign-status.ts`, `.github/workflows/release.yml`
 **Read with:** [Node](node.md), [Testing](testing.md)
 
 ## Versions and channels
@@ -49,11 +49,13 @@ How Dassie is built, signed, published, installed and updated. A release is one 
 
 `.github/workflows/release.yml`, for every tag `v<version>`, whose version must be the tag's. Canaries are built and signed by hand.
 
+- **Nothing is built from a commit the simulation campaign has not cleared** ([D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md)): one it has run long enough, with no failure seen on it. The campaign marks each commit it runs with a commit status of the context `sim-campaign`, pending, then success, or failure for good. The workflow's first job reads it with `scripts/campaign-status.ts`, and every other job waits on that job. The release job reads it again just before signing, since the campaign may see a failure on the commit while it is built and tested.
+- **Only the campaign's own account counts.** Anyone who can push, and any workflow allowed to write statuses, can post a status with that context; the script trusts only statuses from the one account the campaign posts as, which it names. A failure from that account is final, whatever it posts after.
 - **Nothing is signed until the install tests pass** on every distribution ([Tests](#tests)); signing is the last job, the only one in the `Release` environment.
 - **What is signed is verified before it is uploaded,** with `dassie-release verify`, the code the updater trusts, against `resources/minisign.pub`. So a release signed with another key, or in a way the updater refuses, never reaches the mirror.
 - **A version's files are immutable once published.** Each upload is read back and must be the signed tree's bytes, so a rerun completes an interrupted publish and refuses to overwrite a file published with other bytes. The signature goes last.
 - **`meta/latest` moves last and never backwards:** it names the new version only once the version's files are all up, and only if `dassie-release supersedes` says it supersedes the published one.
-- The workflow does not consult the simulation campaign; that check is [not built](../roadmap.md#continuous-simulation).
+- **The workflow cannot delete a tag it refuses;** it only reads. Whoever pushed the tag deletes it: the ruleset on `v*` tags lets only the owner push or delete them, and the workflow gets no right that could take a tag away. A tag on a commit the campaign has not yet finished can stay: once the commit is cleared, running the workflow run again releases it. The owner runs `scripts/campaign-status.ts` on a commit before tagging it, so in the usual case a tag is refused only when the campaign sees a failure between that check and signing.
 
 ## Install layout
 
@@ -110,5 +112,5 @@ If the node does not come up after the switch, the update disables and removes t
 - [D11](../decisions/D11-release-integrity.md): signed sums with minisign rather than Sigstore, the trusted comment, unsigned channel files, verify before extract, atomic switch and rollback; a release built once, until a second build can check it.
 - [D14](../decisions/D14-build-system.md): the Nix flake for release builds, cross-compiled with musl.
 - [D21](../decisions/D21-tooling-on-node-and-pnpm-not-deno.md): the wallet's packages fetched from the lockfile's hashes.
-- [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md): releases are to wait for the simulation campaign; that check is [not built](../roadmap.md#continuous-simulation).
+- [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md): a release is made only from a commit the simulation campaign has cleared.
 - [D30](../decisions/D30-a-node-is-up-once-its-engine-has-committed-a-step.md): a release whose engine cannot start fails its start, and is rolled back.
