@@ -20,6 +20,7 @@ A scheme is sans-IO: its methods return effects (`Effect` in `scheme.rs`) for th
 - **Prepare submits nothing.** `prepare_settlement` returns an ID unique within the scheme, an amount of at most what was asked in whole units of its ledger, and the message for the peer. The node books it before anything leaves ([below](#outgoing-settlements)).
 - **Execute only once the pending transfer is on disk,** and report `Finalize` or `Cancel`, now or later. After a restart, `reconcile` gets the settlements still pending and reports the same for each.
 - **The message can be made again** from the settlement's ID, so a restart that lost it can still announce the settlement.
+- **Peering keeps nothing until it is made.** Creating, accepting and finalizing a peering request only check the other side's data; the scheme keeps what it needs of a peer when the node tells it the peering is made (`on_peered`), after the peer's accounts are open. So attempts that fail cost the scheme no room.
 - **Reports** (deposits, withdrawals, ledger fees, reconciliations) are recorded even past the owner's limit ([Ledger](ledger.md#what-the-ledger-refuses-and-what-it-records)). An incoming settlement is booked Dr `assets/settlement`, Cr `assets/interledger/<peer>`.
 - **`Unavailable`** means not now (its ledger not seen, no funds to spare, too much in flight). It is asked again at the next check as if nothing happened.
 - **The scheme's reserve** is what its ledger holds back from the balance: never booked, so never spendable.

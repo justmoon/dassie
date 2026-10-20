@@ -252,7 +252,8 @@ pub trait SettlementScheme: Send {
     /// What a node that wants to peer with us needs to know.
     fn peering_info(&self, out: &mut Vec<u8>);
 
-    /// Builds our peering request to `peer`, given its peering info.
+    /// Builds our peering request to `peer`, given its peering info. Keeps
+    /// nothing of `peer`: the attempt may still fail.
     ///
     /// # Errors
     ///
@@ -265,7 +266,8 @@ pub trait SettlementScheme: Send {
     ) -> Result<(), SchemeError>;
 
     /// Accepts or refuses `peer`'s request, writing the response data.
-    /// Returns the peer's scheme state.
+    /// Returns the peer's scheme state, and keeps nothing of `peer` until
+    /// [`on_peered`](Self::on_peered).
     ///
     /// # Errors
     ///
@@ -278,7 +280,8 @@ pub trait SettlementScheme: Send {
     ) -> Result<Vec<u8>, SchemeError>;
 
     /// Completes our request after `peer` accepted it. Returns the peer's
-    /// scheme state.
+    /// scheme state, and keeps nothing of `peer` until
+    /// [`on_peered`](Self::on_peered).
     ///
     /// # Errors
     ///
@@ -289,6 +292,15 @@ pub trait SettlementScheme: Send {
         peering_info: &[u8],
         data: &[u8],
     ) -> Result<Vec<u8>, SchemeError>;
+
+    /// The peering with `peer` is made: its accounts are open, and `state`
+    /// is what [`accept_peering_request`](Self::accept_peering_request) or
+    /// [`finalize_peering_request`](Self::finalize_peering_request)
+    /// returned. What the scheme keeps per peer, it keeps from here, so an
+    /// attempt that fails takes none of its room.
+    fn on_peered(&mut self, peer: Name, state: &[u8]) {
+        let _ = (peer, state);
+    }
 
     /// Prepares a settlement of `amount` to `peer`. Submits nothing.
     ///
