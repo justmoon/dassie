@@ -15,7 +15,7 @@ The simulations run continuously, outside CI, from random seeds; each seed draws
 - **Two phases:** chaos with every invariant checked, then healing, after which the network must converge within a time derived from the production rules. A run that cannot converge whatever the code does is unsupported, neither passed nor failed.
 - **Faults stay within what the node relies on:** the store commits durably, so the only store fault is a commit that fails.
 - **Coverage counts,** with minimums asserted in CI, so a generator cannot quietly stop reaching a case.
-- **A campaign on spot VMs** runs `main`, and pull requests that ask for it. It runs unreviewed code in the project that holds the bootstrap nodes' phrases, so its VMs run as a service account that can read only the GitHub token.
+- **A campaign on spot VMs** runs `main`, and pull requests that ask for it. It runs unreviewed code in the project that holds the bootstrap nodes' phrases, so its VMs run as a service account that can read only its GitHub credentials, and the code they build runs in a sandbox that cannot reach those ([Testing](../areas/testing.md#isolating-pull-requests)).
 - **Failures become issues,** one per signature; a failure on a pull request is a comment there instead. A tripwire simulation fails on purpose now and then, so a silent campaign shows. A fix comes with a targeted test, because a seed reproduces a failure only at the commit it ran on.
 - **CI runs fixed seeds only,** plus the coverage minimums.
 - **Releases wait for the campaign** to have run on the tagged commit without an open failure.
@@ -23,7 +23,7 @@ The simulations run continuously, outside CI, from random seeds; each seed draws
 ## Accepted
 
 - A failure surfaces after the merge that caused it, sometimes hours later.
-- Spot VMs cost money, and each holds a token scoped to this repository's issues.
+- Spot VMs cost money, and each holds credentials that write this repository's issues, comments and commit statuses.
 
 ## Rejected
 

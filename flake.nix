@@ -234,6 +234,16 @@
           }
           // (release.checks or { });
 
+          # The simulation campaign's VMs (scripts/sim-campaign.ts): CI's
+          # toolchain, and Node for the supervisor, without the rest of the
+          # default shell for every VM to download.
+          devShells.campaign = pkgs.mkShell {
+            packages = [
+              toolchain
+              pkgs.nodejs_26
+            ];
+          };
+
           devShells.default = pkgs.mkShell {
             packages = [
               toolchain

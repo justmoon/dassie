@@ -1209,6 +1209,11 @@
       "ev": "src/sim in dassie-stream, dassie-connector, dassie-peer and dassie-node, run by their tests and by dassie-sim"
     },
     {
+      "t": "The campaign",
+      "p": "Outside CI, spot VMs run the simulations from random seeds, loop after loop: mostly `main`, sometimes the commit about to be released, and pull requests labelled `sim`. Each kind of failure becomes one GitHub issue with the seed that reproduces it, a pull request's become comments on it, and each commit gets a `sim-campaign` status that a release waits for. A pull request's code builds and runs in a sandbox with no network and nothing secret to read.",
+      "ev": "scripts/sim-campaign.ts · scripts/sim-campaign/"
+    },
+    {
       "t": "Golden vectors",
       "p": "Byte-exact fixtures from other implementations: Dassie's first, TypeScript one, and `xrpl.js`. They pin the wire formats and key derivations.",
       "ev": "testdata/original · testdata/xrpl · tests/vectors.rs"
