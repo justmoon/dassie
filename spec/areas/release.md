@@ -74,12 +74,13 @@ The original's layout, kept for operators' habits and docs. Each version is unpa
 - **The mirror chooses neither the channel nor the direction,** as for the updater ([Versions and channels](#versions-and-channels)). The installed version is what the installed binary names, which it named before it was installed, so the mirror cannot fake it. A run without `--channel` keeps the installed channel; `--target` installs any version.
 - **It verifies with minisign where there is minisign, and else with OpenSSL,** reading minisign's format by hand, so there is no tool to install first ([D11](../decisions/D11-release-integrity.md)).
 - **It sets `umask 022`,** so that on a hardened host what it installs stays readable by the node's own user.
+- **It never runs beside `dassie update`:** it takes the updater's lock with `flock` before it reads an existing install, or before it makes the first one, and holds it to the end, uninstalling included. An update prunes every version it does not keep and what an install left half done, so beside an install it could delete the version `current` is about to name. Where an update holds the lock, it stops and changes nothing.
 
 ## `dassie update`
 
 `crates/dassie-cli/src/update.rs`, run by the timer or the owner.
 
-1. **One at a time,** under a lock in `/opt/dassie`.
+1. **One at a time,** under a lock in `/opt/dassie` (`flock(2)` on `.update.lock`), which `install.sh` takes too.
 2. **Choose the version** from `meta/<channel>` by the rule in [Versions and channels](#versions-and-channels). The owner may name a version (`--target-version`, older too) or a channel, or another mirror, which may be on a private network since the owner names it.
 3. **Verify, unpack into staging and check the new binary** ([Trust](#trust)). Modes are set explicitly, whatever the umask, since the node runs as a user of its own, and every file and directory is synced, so `current` never names a version a power cut left half written.
 4. **Switch:** install the version's units where they changed, move `current`, restart `dassie.service` and wait for its readiness.

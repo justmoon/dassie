@@ -129,7 +129,7 @@ check_system() {
     running | degraded | starting | initializing) ;;
     *) fail E_SYSTEMD_NOT_RUNNING "systemd is not running (it says: ${state:-nothing})" ;;
   esac
-  for tool in tar sha256sum base64 awk mktemp; do
+  for tool in tar sha256sum base64 awk mktemp flock; do
     command -v "$tool" > /dev/null 2>&1 || fail E_TOOL_REQUIRED "$tool is required"
   done
   if command -v curl > /dev/null 2>&1; then
@@ -285,6 +285,27 @@ check_not_older() {
     fail E_VERSION_OLDER "the mirror offers $VERSION, older than the installed $INSTALLED; use --target to install it anyway"
 }
 
+# --- Lock -----------------------------------------------------------------------
+
+# One at a time with `dassie update`, which holds the same lock, with
+# flock(2), while it installs, switches and prunes: an update removes every
+# version it does not keep, and what an install leaves half done. Held on
+# file descriptor 9 until the script exits. Taken as soon as there is an
+# install, which an update may be changing; a first install makes nothing
+# before the release is verified.
+lock() {
+  if [ -n "${LOCKED:-}" ]; then return 0; fi
+  command -v flock > /dev/null 2>&1 || fail E_TOOL_REQUIRED "flock is required"
+  if [ ! -e "$BASE/.update.lock" ]; then
+    as_root mkdir -p "$BASE"
+    as_root touch "$BASE/.update.lock" || fail E_LOCK_FAILED "cannot make $BASE/.update.lock"
+  fi
+  [ -r "$BASE/.update.lock" ] || fail E_LOCK_FAILED "cannot read $BASE/.update.lock; run this as root"
+  exec 9< "$BASE/.update.lock"
+  flock -n 9 || fail E_UPDATE_RUNNING "an update is running; run this again once it is done"
+  LOCKED=1
+}
+
 # --- Install --------------------------------------------------------------------
 
 install() {
@@ -292,6 +313,7 @@ install() {
   TEMP=$(mktemp -d -t dassie-installer-XXXXXXXXXX) || fail E_TEMP_DIRECTORY_FAILED "cannot make a temporary directory"
   trap 'rm -rf "$TEMP"' EXIT
 
+  if [ -d "$BASE" ]; then lock; fi
   read_installed
   choose_channel
   if [ -z "$VERSION" ]; then
@@ -327,6 +349,7 @@ install() {
   "$unpacked/bin/dassie" verify-install > /dev/null || fail E_SELF_TEST_FAILED "dassie $VERSION fails verify-install here"
 
   step "Installing into $BASE/$VERSION"
+  lock
   install_files "$unpacked"
   install_units "$unpacked"
 
@@ -379,6 +402,7 @@ install_units() {
 # --- Uninstall ------------------------------------------------------------------
 
 uninstall() {
+  if [ -d "$BASE" ]; then lock; fi
   step "Stopping Dassie"
   # shellcheck disable=SC2086 # the unit names are words
   as_root systemctl disable --now $UNITS 2> /dev/null || true
