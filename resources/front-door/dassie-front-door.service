@@ -1,0 +1,59 @@
+# A Dassie front door (spec/areas/http.md#front-doors): Open Payments at
+# <label>.<domain> for the nodes that name it as their relay. It is no
+# node, and the installer never installs it: README.md beside this file
+# says what an operator sets up first.
+[Unit]
+Description=Dassie front door
+Documentation=https://dassie.land
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+# Makes the front door's key on first start, and logs the DASSIE_RELAY
+# entry that names it, at every start.
+ExecStartPre=/usr/local/bin/dassie front-door --make-key
+ExecStart=/usr/local/bin/dassie front-door
+# A user of its own, which the certificate's deploy hook gives the
+# certificate to; its key lives in /var/lib/dassie-front-door.
+User=dassie-front-door
+Group=dassie-front-door
+StateDirectory=dassie-front-door
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/dassie-front-door
+Environment=DASSIE_FRONT_DOOR_DOMAIN=dassiepay.net
+Environment=DASSIE_FRONT_DOOR_CERTIFICATE=/etc/dassie-front-door/tls/fullchain.pem
+Environment=DASSIE_FRONT_DOOR_CERTIFICATE_KEY=/etc/dassie-front-door/tls/privkey.pem
+Environment=DASSIE_LOG_LEVEL=info
+Restart=always
+RestartSec=1
+
+# Port 443, TCP and UDP, and nothing else it does needs more than this.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+ProtectProc=invisible
+ProcSubset=pid
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
