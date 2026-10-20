@@ -185,6 +185,93 @@ fn token_caps_survive_a_restart() {
     assert_eq!(views[1].cap, None);
 }
 
+/// The messages a step's outputs carry to a BTP link, in order.
+fn messages_to(outputs: &[Output], link: u64) -> Vec<&Outbound> {
+    outputs
+        .iter()
+        .filter_map(|output| match output {
+            Output::Btp { link: to, message } if *to == link => Some(message),
+            _ => None,
+        })
+        .collect()
+}
+
+// Revoking a token lifts its cap at once, while its links close only at the
+// end of the step: a Prepare on one in between is refused, not booked
+// without the cap (spec/areas/connector.md#spending-caps). The link still
+// closes cleanly.
+#[test]
+fn a_revoked_tokens_link_takes_no_prepare_before_it_closes() {
+    use dassie_connector::{EndpointId, SpendingCap};
+    use dassie_ilp::{Address, ErrorCode, Prepare, Response};
+    use dassie_ledger::{LedgerId, Name};
+    use dassie_oer::Decode;
+
+    let mut core = core(81);
+    core.add_scheme("stub", String::new()).unwrap();
+    let cap = SpendingCap {
+        amount: 5_000,
+        window_ms: 60_000,
+    };
+    let token = core
+        .create_token("capped".into(), "stub+usd", Some(cap))
+        .unwrap();
+    let link = core.btp_connect(&token.secret).unwrap().link;
+    // A peer to pay, reached directly: this checks booking, not transport.
+    let (account, _) = core
+        .ledger
+        .open_peer(NOW, LedgerId::StubUsd, Name::new("other").unwrap(), 0)
+        .unwrap();
+    let peer = EndpointId::Peer(999);
+    core.connector
+        .add_peer(peer, "test.das.other", account, LedgerId::StubUsd, 0)
+        .unwrap();
+    core.connector
+        .set_routes([("test.das.other", &[peer][..])])
+        .unwrap();
+    let packet = Prepare {
+        amount: 6_000,
+        expires_at: Timestamp::from_unix_ms(NOW + 20_000),
+        execution_condition: [7; 32],
+        destination: Address::parse("test.das.other").unwrap(),
+        data: &[],
+    }
+    .to_vec();
+    core.btp_packet(link, 1, &packet, false);
+    assert_eq!(core.connector.pending_count(), 0, "the cap refuses it");
+
+    core.revoke_token(token.view.id).unwrap();
+    core.btp_packet(link, 2, &packet, false);
+    assert_eq!(core.connector.pending_count(), 0, "nothing is booked");
+    core.check_invariants();
+
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    let to_link = messages_to(&outputs, link);
+    let Some(Outbound::Response {
+        request_id: 2,
+        packet: answer,
+    }) = to_link.iter().rev().nth(1)
+    else {
+        panic!("no answer to the second Prepare: {to_link:?}");
+    };
+    let Response::Reject(reject) = Response::decode_exact(answer).unwrap() else {
+        panic!("not a Reject");
+    };
+    assert_eq!(reject.code, ErrorCode::F00_BAD_REQUEST);
+    assert_eq!(to_link.last(), Some(&&Outbound::Close));
+
+    // The link is gone: what still arrives on it is dropped, and the next
+    // sweep holds.
+    core.begin_step(NOW + 1);
+    core.btp_packet(link, 3, &packet, false);
+    let mut later = Vec::new();
+    core.finish_step(&mut later);
+    assert!(messages_to(&later, link).is_empty(), "{later:?}");
+    assert_eq!(core.connector.pending_count(), 0);
+    core.check_invariants();
+}
+
 // Live views fetch again when the state they show changed, once it is on
 // disk.
 #[test]

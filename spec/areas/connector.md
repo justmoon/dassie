@@ -117,7 +117,7 @@ ILP clients such as `ilp-plugin-btp` connect with `btp+wss://:<token>@<host>/btp
 
 - **The token is the authentication.** Clients are not browsers, so there is no Origin check. Failed logins are rate-limited per client address; only failed ones count, so honest clients may reconnect as often as they need.
 - **Money moves only in ILP packets:** a BTP Transfer is refused.
-- **A client that goes away** has the packets in flight to it failed upstream; packets it sent keep running, and their responses are dropped. Revoking a token closes its connections.
+- **A client that goes away** has the packets in flight to it failed upstream; packets it sent keep running, and their responses are dropped. Revoking a token closes its connections, and from that moment they take no new Prepares, so none passes without the token's cap while they close.
 
 ### BTP tokens
 
