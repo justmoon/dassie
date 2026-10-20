@@ -92,7 +92,8 @@ pub const CREDIT: i128 = 1_100_000_000;
 /// Every node's trigger, one and a half of the largest packets (D25).
 pub const TRIGGER: u64 = policy::trigger(Policies::DEFAULT.connector.max_packet_amount);
 /// How long a payment's client waits to measure the exchange rate again,
-/// after a measurement failed.
+/// after a measurement failed, or to connect again, after its connection
+/// closed.
 pub const RATE_RETRY_MS: u64 = 5_000;
 /// How often the fake ledger closes a ledger.
 pub const LEDGER_CLOSE_MS: u64 = 3_500;
@@ -271,8 +272,11 @@ pub struct Payment {
     next_request: u32,
     /// Whether it sent all it meant to.
     pub done: bool,
+    /// Whether its incoming payment expired before it got all it asked
+    /// for, so that its client stopped there.
+    pub expired: bool,
     /// When its client measures the exchange rate again, after a
-    /// measurement failed.
+    /// measurement failed, or connects again, after its connection closed.
     rate_retry_at: Option<u64>,
 }
 
@@ -326,6 +330,9 @@ pub struct Sim {
     /// Pairs whose requests do not get through, from the first to the
     /// second.
     pub cut: BTreeSet<(usize, usize)>,
+    /// While the network is partitioned, the nodes on one side of it: no
+    /// request gets from a node on one side to a node on the other.
+    pub apart: BTreeSet<usize>,
     /// The credit each node extends to its peers, where not the default.
     credits: BTreeMap<usize, u64>,
     /// What the run settles over.
@@ -448,6 +455,7 @@ impl Sim {
             abandoned: Vec::new(),
             outgoing: Vec::new(),
             cut: BTreeSet::new(),
+            apart: BTreeSet::new(),
             credits,
             settling,
             ledger: FakeLedger::new(),
@@ -797,6 +805,17 @@ impl Sim {
         ) {
             self.count("settlements taken");
         }
+        if let Event::PeerNode(dassie_peer::Event::Depeering { reason, .. }) = event {
+            match reason {
+                dassie_peer::wire::TerminationReason::Unresponsive => {
+                    self.count("peerings ended for silence")
+                }
+                dassie_peer::wire::TerminationReason::ShortOfRoom => {
+                    self.count("peerings ended for room")
+                }
+                _ => {}
+            }
+        }
         self.trace.push(format!("{} {index} {event:?}", self.now));
         if let Event::PeerNode(dassie_peer::Event::Advertised {
             peer, short: true, ..
@@ -827,6 +846,7 @@ impl Sim {
                 }
                 if self.rng.next_u64() % 1000 < self.loss_per_mille
                     || self.cut.contains(&(index, to))
+                    || self.apart.contains(&index) != self.apart.contains(&to)
                 {
                     let delay = self.latency();
                     let result = Err(Failure::NotDelivered);
@@ -1251,6 +1271,7 @@ impl Sim {
             in_flight: BTreeMap::new(),
             next_request: 1,
             done: false,
+            expired: false,
             rate_retry_at: None,
         });
         self.trace
@@ -1348,12 +1369,13 @@ impl Sim {
                 payment.done = true;
                 continue;
             }
-            // The connection closed, its receiver gone: a sender starts
-            // anew for the rest.
-            if payment.connection.is_closed() && payment.in_flight.is_empty() {
-                payment.sent_before = sent(payment);
-                payment.connection = client(&payment.credentials, payment.ledger);
-                payment.stream = None;
+            // The connection closed, its receiver gone or out of reach: a
+            // sender starts anew for the rest, a while later.
+            let closed = payment.connection.is_closed() && payment.in_flight.is_empty();
+            if closed {
+                payment
+                    .rate_retry_at
+                    .get_or_insert(self.now + RATE_RETRY_MS);
             }
             // A measurement of the rate fails when no probe gets through,
             // as across a cut link. The library reports it and leaves the
@@ -1365,7 +1387,33 @@ impl Sim {
             }
             if payment.rate_retry_at.is_some_and(|at| at <= self.now) {
                 payment.rate_retry_at = None;
-                payment.connection.measure_exchange_rate();
+                // Its receiver takes nothing more once its incoming payment
+                // expired, as one does a day after it was made unless it
+                // says otherwise: a sender that tries again stops there,
+                // with what got there. The trace names it, since the checks
+                // then no longer ask for all of its limit.
+                if lapsed(&self.nodes, self.now, payment) {
+                    payment.done = true;
+                    payment.expired = true;
+                    *self.counts.entry("payments expired").or_default() += 1;
+                    self.trace.push(format!(
+                        "{} pay {} -> {} stops, its incoming payment expired, having sent {}",
+                        self.now,
+                        payment.from,
+                        payment.to,
+                        sent(payment)
+                    ));
+                    continue;
+                }
+                if closed {
+                    payment.sent_before = sent(payment);
+                    payment.connection = client(&payment.credentials, payment.ledger);
+                    payment.stream = None;
+                } else {
+                    payment.connection.measure_exchange_rate();
+                }
+            } else if closed {
+                continue;
             }
             if payment.stream.is_none() && payment.connection.exchange_rate().is_some() {
                 let id = payment.connection.open_stream().unwrap();
@@ -1528,6 +1576,19 @@ fn catching(step: impl FnOnce()) -> std::thread::Result<()> {
     let result = catch_unwind(AssertUnwindSafe(step));
     FAILING.set(false);
     result
+}
+
+/// Whether `payment`'s incoming payment expired before it received all
+/// it asked for, on its receiver's clock.
+fn lapsed(nodes: &[SimNode], now: u64, payment: &Payment) -> bool {
+    let to = &nodes[payment.to];
+    to.store
+        .incoming_payment(payment.incoming)
+        .unwrap()
+        .is_some_and(|row| {
+            row.completed_at_ms.is_none()
+                && row.expires_at_ms <= now.saturating_add_signed(to.skew_ms)
+        })
 }
 
 /// What an incoming payment received.

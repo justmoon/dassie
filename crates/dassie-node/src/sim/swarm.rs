@@ -7,10 +7,12 @@
 //! or fail a commit and restart, links are cut and healed, messages are
 //! lost, requests are replayed, ledger connections drop, and owners end
 //! peerings and ban peers; each node's clock is off the network's by up
-//! to 10 s, throughout. Then the network heals: every node runs, no link
-//! is cut, nothing is lost or replayed, and within [`HEAL_MS`] the network
-//! must settle down. Then each node is checked by its own books (D19), as
-//! the scripted runs are.
+//! to 10 s, throughout. The network may also split in two, for minutes
+//! or for days: a partition that outlasts the chaos keeps the network as
+//! the chaos left it, its cuts too, until it ends. Then the network heals:
+//! every node runs, no link is cut, nothing is lost or replayed, and within
+//! [`HEAL_MS`] the network must settle down. Then each node is checked by
+//! its own books (D19), as the scripted runs are.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -33,14 +35,34 @@ use crate::node::Policies;
 use crate::store::{Aim, OutgoingState};
 
 /// How long a healed network has to settle down, from the production rules
-/// it runs: as long as a network takes to be ready, plus the longest a
-/// settlement that failed during the chaos waits before it is sent again
-/// (its backoff grows to an hour). A run past it is stuck, not slow. It
-/// follows those rules, and is never loosened to let a seed pass.
-pub const HEAL_MS: u64 = READY_WITHIN_MS + Policies::DEFAULT.peer.settlement_retry_max_ms;
+/// it runs: the longest a wait begun before the heal may still run after
+/// it, then as long as a network takes to be ready. What failed while the
+/// network was faulty, and above all while a partition kept it split,
+/// waits out its backoff before it is tried again: a registration, a
+/// refresh of a link state, a peering attempt, a peer's hold-down, or a
+/// settlement to be sent again. Once each has been tried again, the network
+/// forms as a new one does. A run past it is stuck, not slow. It follows
+/// those rules, and is never loosened to let a seed pass.
+pub const HEAL_MS: u64 = LONGEST_WAIT_MS + READY_WITHIN_MS;
+
+/// The longest of the backoffs and hold-downs that a fault leaves behind.
+const LONGEST_WAIT_MS: u64 = {
+    let mut longest = PEER.max_backoff_ms;
+    if PEER.advertise_hold_max_ms > longest {
+        longest = PEER.advertise_hold_max_ms;
+    }
+    if PEER.settlement_retry_max_ms > longest {
+        longest = PEER.settlement_retry_max_ms;
+    }
+    longest
+};
 
 /// How often a healing network is looked at.
 const LOOK_MS: u64 = 5_000;
+
+/// The peer protocol's production timings, which a partition's length is
+/// drawn from.
+const PEER: dassie_peer::Config = Policies::DEFAULT.peer;
 
 /// The least a payment sends: 0.1 units.
 const LEAST_PAYMENT: u64 = 100_000_000;
@@ -104,7 +126,83 @@ pub struct Options {
     pub replay_per_mille: u64,
     /// The most a node's clock is off the network's, either way.
     pub skew_ms: u64,
+    /// How the network splits in two for a while, if it does.
+    pub partition: Option<Partition>,
 }
+
+/// A partition: for a while, no request gets from one side of the network
+/// to the other. It starts in the chaos and may outlast it, the network
+/// staying split until it ends, and then heals with the rest.
+#[derive(Clone, Copy, Debug)]
+pub struct Partition {
+    /// The nodes on one side, a bit each: the rest are on the other.
+    pub apart: u64,
+    /// When it starts, after the chaos did.
+    pub after_ms: u64,
+    /// How long it lasts.
+    pub length_ms: u64,
+}
+
+impl Partition {
+    /// The partition `seed` draws for `nodes` nodes and a chaos of
+    /// `chaos_ms`: none in a third of the seeds, one node cut off from the
+    /// rest in another, the network split in halves in the last. Its own
+    /// generator, so that it draws nothing else's.
+    ///
+    /// Its length follows the production timings that act on silence.
+    /// Three in four are shorter than the silence that ends a peering: from
+    /// the time a peer stays confirmed without a word, doubling, so that
+    /// the lengths spread over the timings between, which withdraw a peer,
+    /// hold it down, let link states go stale and registrations wait to be
+    /// renewed. The rest outlast that silence by up to as long again, so
+    /// that peerings end, registrations and lists lapse and incoming
+    /// payments expire before the network heals. None is longer: the
+    /// longest of those timings is that day, so a longer split only repeats
+    /// them, and each simulated day costs up to a minute of wall time.
+    #[must_use]
+    pub fn draw(seed: u64, nodes: usize, chaos_ms: u64) -> Option<Self> {
+        let mut rng = SeededRng::new(seed ^ 0x9a27_0000);
+        let count = u64::try_from(nodes).unwrap();
+        assert!((2..64).contains(&count));
+        let apart = match rng.below(3) {
+            0 => return None,
+            1 => 1 << rng.below(count),
+            _ => {
+                let mut apart = 0u64;
+                while apart.count_ones() < u32::try_from(count / 2).unwrap() {
+                    apart |= 1 << rng.below(count);
+                }
+                apart
+            }
+        };
+        let length_ms = if rng.below(4) != 0 {
+            let least = PEER.peer_confirm_ms << rng.below(LONGEST_DOUBLING);
+            least + rng.below(least)
+        } else {
+            PEER.peer_dead_ms + rng.below(PEER.peer_dead_ms + 1)
+        };
+        let partition = Self {
+            apart,
+            // After the chaos started, so that every partition drawn
+            // splits the network.
+            after_ms: 1 + rng.below(chaos_ms - 1),
+            length_ms,
+        };
+        assert!(partition.apart != 0 && partition.apart < 1 << count);
+        Some(partition)
+    }
+
+    /// The nodes on one side.
+    fn side(self) -> impl Iterator<Item = usize> {
+        (0..64).filter(move |index| self.apart & (1 << index) != 0)
+    }
+}
+
+/// How many times, less one, a partition shorter than the silence that
+/// ends a peering may double the time a peer stays confirmed: doubled
+/// once more, which the draw stays below, it is still within the silence.
+const LONGEST_DOUBLING: u64 = 10;
+const _: () = assert!(PEER.peer_confirm_ms << LONGEST_DOUBLING <= PEER.peer_dead_ms);
 
 impl Options {
     /// The options `seed` draws.
@@ -143,6 +241,7 @@ impl Options {
         let largest_payment = LEAST_PAYMENT + rng.below(3_300_000_001);
         let replay_per_mille = switched(&mut rng, 51);
         let skew_ms = switched(&mut rng, MOST_SKEW_MS + 1);
+        let partition = Partition::draw(seed, nodes, chaos_ms);
         Self {
             nodes,
             bootstraps,
@@ -156,6 +255,7 @@ impl Options {
             largest_payment,
             replay_per_mille,
             skew_ms,
+            partition,
         }
     }
 
@@ -213,7 +313,17 @@ impl fmt::Display for Options {
             self.payments.0,
             self.payments.1,
             self.largest_payment,
-        )
+        )?;
+        match self.partition {
+            None => write!(f, "; no partition"),
+            Some(partition) => write!(
+                f,
+                "; nodes {:?} cut off at {} s for {} s",
+                partition.side().collect::<Vec<_>>(),
+                partition.after_ms / 1_000,
+                partition.length_ms / 1_000,
+            ),
+        }
     }
 }
 
@@ -257,8 +367,8 @@ pub fn run(seed: u64) -> Run {
     sim.replay_per_mille = options.replay_per_mille;
     let mut left = options.payments;
     let mut ends = Vec::new();
-    chaos(&mut sim, &options, &mut rng, &mut left, &mut ends);
-    let result = heal(&mut sim, &options, &mut rng, &mut left, &ends);
+    let result = chaos(&mut sim, &options, &mut rng, &mut left, &mut ends)
+        .and_then(|()| heal(&mut sim, &options, &mut rng, &mut left, &ends));
     ended(sim, result)
 }
 
@@ -277,18 +387,22 @@ enum Act {
     Idle,
 }
 
+/// The chaos: its acts, and its partition, which may outlast them. The
+/// network then stays split, as the acts left it, until the partition
+/// ends; only a node that is down starts again.
 fn chaos(
     sim: &mut Sim,
     options: &Options,
     rng: &mut SeededRng,
     left: &mut (u64, u64),
     ends: &mut Vec<End>,
-) {
-    let end = sim.now + options.chaos_ms;
+) -> Result<(), Outcome> {
+    let start = sim.now;
+    let end = start + options.chaos_ms;
     let mut at = sim.now;
     while at < end {
         at += 1 + rng.below(2 * options.step_ms);
-        sim.run_until(at);
+        advance(sim, options.partition, start, at)?;
         match pick(&options.weights, rng) {
             Act::Pay => pay(sim, options, rng, left),
             Act::Crash => crash(sim, rng),
@@ -318,6 +432,87 @@ fn chaos(
             Act::Idle => {}
         }
     }
+    let Some(partition) = options.partition else {
+        return Ok(());
+    };
+    let joined = start + partition.after_ms + partition.length_ms;
+    if joined > sim.now {
+        // A node that crashed, or failed a commit, is started again, as
+        // its supervisor starts it within seconds: the chaos paces restarts
+        // only while it lasts. Held down for the days a split may last, it
+        // would be another fault, a long outage, and would leave the split
+        // no peering to part.
+        sim.let_commits_through();
+        for index in 0..sim.nodes.len() {
+            if !up(sim, index) {
+                sim.start(index);
+            }
+        }
+    }
+    advance(sim, Some(partition), start, joined.max(sim.now))
+}
+
+/// Runs the chaos that started at `start` to `until`, splitting the
+/// network when its partition starts and joining it when it ends.
+fn advance(
+    sim: &mut Sim,
+    partition: Option<Partition>,
+    start: u64,
+    until: u64,
+) -> Result<(), Outcome> {
+    if let Some(partition) = partition {
+        let split = start + partition.after_ms;
+        let joined = split + partition.length_ms;
+        if sim.now < split && split <= until {
+            sim.run_until(split);
+            sim.apart = partition.side().collect();
+            sim.trace.push(format!("{} split {:?}", sim.now, sim.apart));
+        }
+        if sim.now < joined && joined <= until {
+            // An hour at a time: the run's own bound on its steps is for a
+            // stretch of chaos, not for days of it.
+            while sim.now < joined {
+                sim.run_until(joined.min(sim.now + 3_600_000));
+            }
+            sim.apart.clear();
+            sim.trace.push(format!("{} joined", sim.now));
+            sim.count("partitions");
+            if partition.length_ms >= PEER.peer_dead_ms {
+                sim.count("partitions longer than the silence that ends a peering");
+            }
+            check_mid_flight(sim)?;
+            check_expired(sim)
+                .map_err(|problem| Outcome::liveness("outgoing-deadline", problem))?;
+        }
+    }
+    sim.run_until(until);
+    Ok(())
+}
+
+/// Every outgoing payment past its deadline ended, completed or failed,
+/// once its last packets were held as long as a node holds one: whatever
+/// the network does, a payment across a partition does not wait for it to
+/// heal. A node that is down holds its payments until it starts.
+fn check_expired(sim: &Sim) -> Result<(), String> {
+    let hold = Policies::DEFAULT.connector.max_hold_ms;
+    for &(from, to, _, outgoing) in &sim.outgoing {
+        if !up(sim, from) {
+            continue;
+        }
+        let row = sim.nodes[from]
+            .store
+            .outgoing_payment(outgoing)
+            .unwrap()
+            .unwrap();
+        let local = sim.now.saturating_add_signed(sim.nodes[from].skew_ms);
+        if row.state == OutgoingState::Sending && row.deadline_ms + hold < local {
+            return Err(format!(
+                "the outgoing payment from node {from} to node {to} still sends {} s past its deadline",
+                (local - row.deadline_ms) / 1_000
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn pick(weights: &Weights, rng: &mut SeededRng) -> Act {
@@ -516,9 +711,9 @@ struct End {
 /// through the owner's API, as the scripted run's owner does: an end only
 /// of a peering still active, a ban also of one being ended. Never one
 /// that would split the network: after an owner's end the pair stays
-/// apart for the owner's cooldown of a day (D33), longer than any run, and
-/// after a ban for good, while the heal needs every node to reach every
-/// other.
+/// apart for the owner's cooldown of a day (D33), which outlasts the heal
+/// unless a partition held the network split for most of it, and after a
+/// ban for good, while the heal needs every node to reach every other.
 fn owner_ends(sim: &mut Sim, rng: &mut SeededRng, ends: &mut Vec<End>, ban: bool) {
     let running: Vec<usize> = (0..sim.nodes.len()).filter(|i| up(sim, *i)).collect();
     let Some(&by) = choose(&running, rng) else {
@@ -575,7 +770,8 @@ fn index_of(sim: &Sim, id: &NodeId) -> usize {
 
 /// Whether the nodes still reach each other with `pair` kept apart too:
 /// over every pair but those an owner's end or a ban keeps apart. Kept
-/// apart for the whole run, as the cooldown is unless both restart.
+/// apart for the whole run, as the cooldown is unless both restart or a
+/// long partition outlasts it.
 fn connected(count: usize, ends: &[End], pair: (usize, usize)) -> bool {
     let apart = |a: usize, b: usize| {
         ends.iter()
@@ -611,6 +807,7 @@ fn heal(
         }
     }
     sim.cut.clear();
+    assert!(sim.apart.is_empty(), "the partition ends in the chaos");
     sim.loss_per_mille = 0;
     sim.replay_per_mille = 0;
     sim.trace.push(format!("{} heal", sim.now));
@@ -641,12 +838,16 @@ fn heal(
             reconnecting.push((from, outgoing));
         }
     }
-    // Every node runs, and there are at least two: each try that draws
-    // two ends starts one.
+    // What payments are left start once the network is ready again, as the
+    // run's first ones do: after a long partition it forms anew, which
+    // takes longer than a payer keeps trying, and a payment started before
+    // has nowhere to go. Every node runs, and there are at least two: each
+    // try that draws two ends starts one.
+    let healed = sim.now;
+    sim.run_until_or(healed + HEAL_MS, ready);
     while *left != (0, 0) {
         pay(sim, options, rng, left);
     }
-    let healed = sim.now;
     let mut stuck = unsettled(sim);
     while stuck.is_some() && sim.now < healed + HEAL_MS {
         sim.run_until(sim.now + LOOK_MS);
