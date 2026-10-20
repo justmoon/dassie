@@ -12,8 +12,11 @@
 use std::fmt;
 use std::io;
 use std::net::TcpListener;
+#[cfg(target_os = "linux")]
 use std::os::linux::net::SocketAddrExt;
-use std::os::unix::net::{SocketAddr, UnixDatagram, UnixListener};
+#[cfg(target_os = "linux")]
+use std::os::unix::net::SocketAddr;
+use std::os::unix::net::{UnixDatagram, UnixListener};
 use std::path::PathBuf;
 
 use listenfd::ListenFd;
@@ -134,7 +137,7 @@ pub fn take_sockets(env: &Env) -> Result<ActivatedSockets, ActivationError> {
 pub enum Notifier {
     /// A socket file.
     Path(PathBuf),
-    /// An abstract socket (`@name`).
+    /// An abstract socket (`@name`), which only Linux has.
     Abstract(Vec<u8>),
 }
 
@@ -161,9 +164,7 @@ impl Notifier {
         let socket = UnixDatagram::unbound()?;
         let sent = match self {
             Self::Path(path) => socket.send_to(state.as_bytes(), path)?,
-            Self::Abstract(name) => {
-                socket.send_to_addr(state.as_bytes(), &SocketAddr::from_abstract_name(name)?)?
-            }
+            Self::Abstract(name) => send_to_abstract(&socket, state, name)?,
         };
         if sent == state.len() {
             Ok(())
@@ -174,6 +175,23 @@ impl Notifier {
             ))
         }
     }
+}
+
+/// Sends `state` to the abstract socket `name`.
+#[cfg(target_os = "linux")]
+fn send_to_abstract(socket: &UnixDatagram, state: &str, name: &[u8]) -> io::Result<usize> {
+    socket.send_to_addr(state.as_bytes(), &SocketAddr::from_abstract_name(name)?)
+}
+
+/// Off Linux there are no abstract sockets, so nothing can listen on one.
+/// The error is reported like any other failed notification, and the daemon
+/// runs on.
+#[cfg(not(target_os = "linux"))]
+fn send_to_abstract(_: &UnixDatagram, _: &str, _: &[u8]) -> io::Result<usize> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "abstract sockets exist only on Linux",
+    ))
 }
 
 #[cfg(test)]
@@ -226,6 +244,7 @@ mod tests {
         assert!(Notifier::from_env(&Env::from_pairs([("NOTIFY_SOCKET", "x")])).is_err());
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn notifies_an_abstract_socket() {
         let name = format!("dassie-test-{}", std::process::id());
@@ -242,5 +261,17 @@ mod tests {
         let mut buffer = [0; 16];
         let length = receiver.recv(&mut buffer).unwrap();
         assert_eq!(&buffer[..length], b"STOPPING=1");
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn an_abstract_socket_is_unsupported() {
+        let env = Env::from_pairs([("NOTIFY_SOCKET", "@dassie-test")]);
+        let error = Notifier::from_env(&env)
+            .unwrap()
+            .unwrap()
+            .notify("READY=1")
+            .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
     }
 }
