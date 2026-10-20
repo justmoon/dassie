@@ -878,6 +878,100 @@ fn a_refused_settlement_request_is_reported() {
     assert!(network.settlement_requests.is_empty());
 }
 
+/// Three nodes, all peered, the first the bootstrap node. Node 1 ended
+/// its peering with node 2 alone, its message cut off for the whole
+/// termination timeout, and cut off for so long after that node 2 no
+/// longer lists node 1 as a neighbor. The link is back.
+fn ended_on_one_side(seed: u64) -> (Network, NodeId, NodeId) {
+    let mut network = Network::new(seed, 3, 1, CONFIG);
+    let (b, c) = (*network.node(1).own(), *network.node(2).own());
+    for _ in 0..30 {
+        if network.node(1).is_advertised(&c) && network.node(2).is_advertised(&b) {
+            break;
+        }
+        settle(&mut network, 3_000);
+    }
+    assert!(network.node(1).is_advertised(&c) && network.node(2).is_advertised(&b));
+    network.cut.insert((1, 2));
+    network.act(1, |node, now| {
+        assert!(node.terminate(now, &c, TerminationReason::Owner));
+    });
+    settle(
+        &mut network,
+        CONFIG.depeer_wait_ms + CONFIG.termination_timeout_ms + CONFIG.peer_confirm_ms,
+    );
+    assert_eq!(ended(&network, 1, &c), 1);
+    assert!(network.node(2).peering_of(&b).is_some());
+    assert!(
+        !network.node(2).is_advertised(&b),
+        "node 2 still lists node 1, whose heartbeat rule would do"
+    );
+    network.cut.clear();
+    network.events.clear();
+    (network, b, c)
+}
+
+/// Whether node 2 ended its peering with `b` before it listed `b` as a
+/// neighbor again. A 200 from `b` to any request of its own confirms `b`
+/// again, as one to a refresh soon does here, and a heartbeat that lists
+/// `b` is answered with a termination: that rule must not be what ends it.
+fn ended_unlisted(network: &Network, b: &NodeId) -> bool {
+    let relisted = network.events.iter().position(|(at, event)| {
+        *at == 2 && matches!(event, Event::Advertised { peer, on: true, .. } if peer == b)
+    });
+    let ended = network.events.iter().position(|(at, event)| {
+        *at == 2 && matches!(event, Event::PeeringEnded { peer } if peer == b)
+    });
+    ended.is_some_and(|ended| relisted.is_none_or(|relisted| ended < relisted))
+}
+
+// A peering only one side still holds is ended there even once it no
+// longer lists the other as a neighbor: a request to settle, which a
+// creditor short of room sends at every check after a 409, is answered
+// with a termination too. Node 2 ends within a termination timeout, not
+// when its peer has been silent for a day, and stops asking.
+#[test]
+fn a_one_sided_peering_asking_to_settle_is_repaired() {
+    let (mut network, b, _) = ended_on_one_side(52);
+    let until = network.now + CONFIG.termination_timeout_ms;
+    let mut asked = 0;
+    while network.now < until {
+        let mut sent = false;
+        network.act(2, |node, now| {
+            sent = node.request_settlement(now, &b, stub()).is_ok();
+        });
+        if !sent {
+            break;
+        }
+        asked += 1;
+        settle(&mut network, 250);
+    }
+    assert!(
+        ended_unlisted(&network, &b),
+        "node 2 still holds the peering"
+    );
+    assert!(asked <= 2, "asked {asked} times");
+    assert!(network.settlement_requests.iter().all(|(at, _)| *at != 1));
+}
+
+// The same for a Prepare: refused as before, and answered with a
+// termination.
+#[test]
+fn a_one_sided_peering_sending_a_prepare_is_repaired() {
+    let (mut network, b, _) = ended_on_one_side(53);
+    let prepare = Content::InterledgerPacket {
+        request_id: 7,
+        packet: &[12, 1, 0],
+    };
+    let body = Sender::new(&key(2)).request(&network, 1, &prepare);
+    assert_eq!(network.inbound(1, &body).status, 409);
+    settle(&mut network, 1_000);
+    assert!(
+        ended_unlisted(&network, &b),
+        "node 2 still holds the peering"
+    );
+}
+
 // A request to settle that surely never reached the peer is reported, so
 // the node asks again at the next check rather than a minute later: lost
 // deliveries do not use up the grace before a peer short of room is

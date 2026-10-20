@@ -12,7 +12,7 @@ use crate::auth::Accepted;
 use crate::hooks::PeeringHooks;
 use crate::io::{Event, Reply};
 use crate::table::{Advertise, Depeering, PeerState, Sources, Termination, backoff};
-use crate::wire::{Content, SchemeId, SignedNodeInfo, TerminationReason};
+use crate::wire::{Content, SchemeId, TerminationReason};
 
 /// Why a node could not be banned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -597,17 +597,20 @@ impl PeerNode {
         self.event(Event::PeeringEnded { peer });
     }
 
-    /// An authenticated link state from its own subject that lists us as a
-    /// neighbor, though we hold no peering with it and are not asking: its
-    /// side is left over. It is told so, at most once per period.
-    pub(crate) fn notice_one_sided(&mut self, sender: NodeId, info: &SignedNodeInfo<'_>) {
+    /// An authenticated request from `sender` that presumes a peering,
+    /// though we hold none with it and are not asking: its side is left
+    /// over, as when our termination never reached it. It is told so, at
+    /// most once per termination timeout, and its request still gets its
+    /// refusal for not being peered (spec/areas/network.md#one-sided-peerings).
+    /// A node that is asking holds back: the sender may have accepted our
+    /// request, and only not told us yet.
+    pub(crate) fn notice_one_sided(&mut self, sender: NodeId) {
         let now = self.now_ms;
         let period = self.config.termination_timeout_ms;
         let Some(entry) = self.table.get_mut(&sender) else {
             return;
         };
         if entry.peer != PeerState::None
-            || !info.info.neighbors().any(|neighbor| neighbor == self.own)
             || entry
                 .one_sided_at_ms
                 .is_some_and(|at| at.saturating_add(period) > now)
