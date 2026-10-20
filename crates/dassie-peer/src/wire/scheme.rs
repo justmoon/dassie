@@ -17,7 +17,9 @@ const ALPHABET: Alphabet = Alphabet::EMPTY
     .with_chars(b"-");
 
 /// A settlement scheme's ID, such as `stub`: 2 to 64 characters of
-/// `[a-z0-9-]`, held inline.
+/// `[a-z0-9-]`, held inline. A ledger's ID, such as `stub+usd`, joins its
+/// scheme's ID and asset with `+`, which a scheme's ID never holds: the
+/// original's docs used `+` in names this alphabet refused (NET-31).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SchemeId {
     bytes: [u8; MAX_SCHEME_ID],
@@ -81,6 +83,7 @@ impl fmt::Debug for SchemeId {
 mod tests {
     use super::*;
 
+    // NET-31: a ledger's ID, with its `+`, is not a scheme's.
     #[test]
     fn scheme_ids_follow_the_alphabet() {
         assert_eq!(SchemeId::parse("stub").unwrap().as_str(), "stub");

@@ -5,7 +5,9 @@
 //! A scheme with a ledger to follow does no IO: it hands the core what to
 //! send, and the driver carries it over a WebSocket of its own, bound to the
 //! scheme's *epoch*, so that a message from a connection the core has since
-//! replaced is dropped.
+//! replaced is dropped. So the node starts without waiting for a ledger,
+//! and a scheme that fails fails alone, where the original's start waited
+//! for every ledger and a module's failure reached them all (ACC-26).
 
 use dassie_identity::NodeKey;
 use dassie_ledger::{LedgerId, Name};
@@ -33,7 +35,8 @@ pub const SCHEMES: &[SchemeInfo] = &[
 ];
 
 /// Makes the scheme `id` with its config, and what the books last kept
-/// for it. The original stored config and never passed it on (ACC-12).
+/// for it. The original's RPC dropped every key of the config (RT-21), and
+/// it never passed on what it stored (ACC-12).
 ///
 /// # Errors
 ///

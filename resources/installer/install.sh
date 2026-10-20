@@ -401,6 +401,10 @@ install_units() {
 
 # --- Uninstall ------------------------------------------------------------------
 
+# The original's uninstall left the updater's units and the link behind
+# (RT-19, UI-13). The node's data, which holds its key and its books, and
+# the group dassie-users stay on purpose
+# (spec/areas/release.md#installsh).
 uninstall() {
   if [ -d "$BASE" ]; then lock; fi
   step "Stopping Dassie"

@@ -505,6 +505,7 @@ fn refuses_a_version_of_another_channel() {
     );
 }
 
+// RT-18 and UI-11: the original installed whatever the mirror served.
 #[test]
 fn refuses_a_tampered_bundle() {
     let (mirror, install) = (MirrorServer::start(), Install::new());

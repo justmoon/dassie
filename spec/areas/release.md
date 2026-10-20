@@ -75,6 +75,7 @@ The original's layout, kept for operators' habits and docs. Each version is unpa
 - **It verifies with minisign where there is minisign, and else with OpenSSL,** reading minisign's format by hand, so there is no tool to install first ([D11](../decisions/D11-release-integrity.md)).
 - **It sets `umask 022`,** so that on a hardened host what it installs stays readable by the node's own user.
 - **It never runs beside `dassie update`:** it takes the updater's lock with `flock` before it reads an existing install, or before it makes the first one, and holds it to the end, uninstalling included. An update prunes every version it does not keep and what an install left half done, so beside an install it could delete the version `current` is about to name. Where an update holds the lock, it stops and changes nothing.
+- **Uninstalling keeps the node's data and the group `dassie-users`.** It removes the units, every version and the link in `/usr/local/bin`, but the data holds the node key and the books, which installing again picks up.
 
 ## `dassie update`
 

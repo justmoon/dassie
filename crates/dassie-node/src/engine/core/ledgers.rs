@@ -96,7 +96,8 @@ impl Core {
         Ok(())
     }
 
-    /// Activates a settlement scheme.
+    /// Activates a settlement scheme. Its ID must be one the node knows,
+    /// where the original's RPC took any text (RT-23).
     ///
     /// # Errors
     ///
@@ -190,7 +191,8 @@ impl Core {
         Ok(ledger)
     }
 
-    /// Deactivates a settlement scheme.
+    /// Deactivates a settlement scheme, and only it: the original's removal
+    /// cut its list after the first scheme (ACC-10).
     ///
     /// # Errors
     ///

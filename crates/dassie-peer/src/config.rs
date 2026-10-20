@@ -27,7 +27,9 @@ pub struct Config {
     pub max_registrations: usize,
     /// How long a request may take, unless it says otherwise.
     pub request_timeout_ms: u64,
-    /// How long a node-list hash poll may take.
+    /// How long a node-list hash poll may take. The original defined such
+    /// a timeout but polled with the 30 s default, and its start waited
+    /// for the first round (NET-14); here nothing waits for a poll.
     pub poll_timeout_ms: u64,
     /// How often the bootstrap nodes' lists are polled.
     pub list_poll_interval_ms: u64,

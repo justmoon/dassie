@@ -22,7 +22,7 @@ Test vectors come from the original's fixtures unless marked otherwise. [3 §5.5
 ## Conventions
 
 - **Behaviour vs. intent.** The chapters describe what the original code *does*, including its bugs. Where that differs from its design notes, from a standard, or from obvious intent, the text says so: **Deviation** (differs from an RFC or reference implementation), **Open question / known gap**, or "Observed behaviour".
-- **Gap IDs.** Each chapter numbers its gaps with its own prefix: `RT-n` (2), `NET-n` and `OER-q` (3), `ILP-n` (4), `ACC-n` (5), `UI-n` (6). Tests of the current implementation that fix one of these gaps are named after it.
+- **Gap IDs.** Each chapter numbers its gaps with its own prefix: `RT-n` (2), `NET-n` and `OER-q` (3), `ILP-n` (4), `ACC-n` (5), `UI-n` (6). Where the current implementation fixes a gap, a comment cites its ID at the fix, and at a test that checks it if there is one, so a search for the ID finds them; `scripts/spec_test.ts` checks that every cited ID exists. Test names describe what they check, not the gap. A gap fixed only in part, or left on purpose, is cited only by a comment that says what remains.
 - **Normative language.** **MUST** marks behaviour that appears on the wire or changes balances, so an implementation that wants compatibility has to match it. Which surfaces the current implementation keeps compatible is stated in the [overview](../overview.md).
 - **Section references** have the form `[3 §10.2](03-peer-network.md)`: chapter 3, section 10.2.
 - **Byte notation.** `||` or `‖` is concatenation, hex is lowercase unless quoted from a protocol that uses uppercase, and `LEN(x)` is an OER length determinant.

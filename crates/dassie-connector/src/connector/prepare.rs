@@ -399,7 +399,8 @@ impl Connector {
     /// The pending transfers of a packet that moves money, linked: the
     /// first debits the source's account; the second, across ledgers,
     /// credits the destination's from the FX accounts; the third is our
-    /// fee, which debits the source's account too.
+    /// fee, which debits the source's account too. The original booked no
+    /// fee, and its fee accounts stayed empty (ACC-3).
     fn book_transfers(
         &mut self,
         now_ms: u64,

@@ -11,6 +11,9 @@
 //!   `SHA256SUMS`, whose trusted comment names the version, so that the sums
 //!   of one release cannot pass for another's.
 //!
+//! The original signed nothing and published no sums, and its canary
+//! builds updated no `meta/<channel>` file (UI-11).
+//!
 //! Everything read here comes from the network, so every parser is bounded
 //! and refuses what it does not expect.
 

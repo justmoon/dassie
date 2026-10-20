@@ -1,6 +1,7 @@
 //! The peering lifecycle (D12, spec/areas/network.md#lifecycle): the
 //! advertise flag and its damping, termination, bans, peers that went
-//! silent, and peerings only one side still holds.
+//! silent, and peerings only one side still holds. The original had none
+//! of it: a peering lasted as long as the process (NET-13).
 
 use alloc::vec::Vec;
 

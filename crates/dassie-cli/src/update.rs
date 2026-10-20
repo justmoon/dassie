@@ -31,6 +31,10 @@
 //! One update runs at a time: each holds a lock on `<base>/.update.lock`,
 //! which `install.sh` takes too.
 //! Each records how it went in `<base>/last-update`, for `dassie status`.
+//!
+//! The original's updater verified nothing it downloaded, took any HTTP
+//! status as the file, did not trim `meta/latest`, swapped `current` in two
+//! steps, and refused every canary install (RT-18).
 
 use std::fs::{self, File};
 use std::io::{self, Read as _};
