@@ -249,6 +249,9 @@ pub struct Network {
     pub promise: BTreeMap<usize, u64>,
     /// Settlement messages refused for being in `refuse_settlements`.
     pub settlements_refused: usize,
+    /// Nodes that refuse requests to settle with this status, as one would
+    /// that is overloaded (503) or finds the request malformed (400).
+    pub refuse_settlement_requests: BTreeMap<usize, u16>,
     /// Rewrites the body of every response with status 200 before it
     /// arrives, as a node would that answers anything it likes: the MAC is
     /// made again, so the body gets past it to what reads it.
@@ -288,6 +291,7 @@ impl Network {
             settlement_requests: Vec::new(),
             settled: Vec::new(),
             refuse_settlements: BTreeMap::new(),
+            refuse_settlement_requests: BTreeMap::new(),
             promise: BTreeMap::new(),
             settlements_refused: 0,
             tamper: None,
@@ -644,6 +648,12 @@ impl Network {
                 Some(reply)
             }
             Inbound::SchemeMessage { reply, .. } => Some(reply),
+            Inbound::SettlementRequest { .. }
+                if self.refuse_settlement_requests.contains_key(&to) =>
+            {
+                let status = self.refuse_settlement_requests[&to];
+                Some(crate::Reply::refuse(status, "refused"))
+            }
             // Nothing settles here: nothing is on its way.
             Inbound::SettlementRequest {
                 from: sender,

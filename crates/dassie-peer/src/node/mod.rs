@@ -459,6 +459,16 @@ impl PeerNode {
                 Err(Problem::Status(409)) => {
                     self.event(Event::SettlementRequestRefused { peer: to });
                 }
+                // It never reached the peer, so it says nothing of the peer
+                // and costs it nothing: asked again at once, so that a
+                // failed delivery does not use up the grace before a peer
+                // short of room is withdrawn
+                // (spec/areas/network.md#advertised-peers). A refusal or an
+                // overloaded peer (400, 401, 503) is asked again only after
+                // the interval.
+                Err(Problem::Failed(Failure::NotDelivered)) => {
+                    self.event(Event::SettlementRequestNotDelivered { peer: to });
+                }
                 Err(_) => {}
             },
             Purpose::HashPoll => self.on_hash(to, result),

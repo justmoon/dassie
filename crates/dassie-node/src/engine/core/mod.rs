@@ -768,12 +768,14 @@ fn check_bounds(policies: &Policies) {
             && (policies.senior_credit == 0 || policies.senior_credit >= least),
         "the credit survives a crash"
     );
-    // A peer that does not answer is asked again only after a request
-    // interval: the grace before it is withdrawn covers two, so one lost
-    // request withdraws nothing (D12).
+    // A request that never arrived is asked again at the next check; one
+    // whose fate is unknown, or that the peer refused, only after a request
+    // interval. Two of those withdraw nothing: the third request is answered,
+    // or times out, before the grace is over (D12).
     assert!(
-        policies.peer.advertise_short_grace_ms >= 2 * policies.settlement_request_every_ms,
-        "a peer short of room is asked twice before it is withdrawn"
+        policies.peer.advertise_short_grace_ms
+            > 2 * policies.settlement_request_every_ms + policies.peer.request_timeout_ms,
+        "a peer short of room is asked three times before it is withdrawn"
     );
     assert!(
         connector.max_routes >= policies.peer.max_nodes,

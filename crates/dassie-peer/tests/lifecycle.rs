@@ -608,7 +608,14 @@ fn report(network: &mut Network, peer: &NodeId, room: Room, ms: u64) {
 // reason (review of #126).
 #[test]
 fn a_silent_peer_short_of_room_is_withdrawn_for_its_silence() {
-    let (mut network, _, b) = peered(47);
+    // A grace shorter than the confirmation window, so that both can come
+    // due at once after the cut.
+    let config = Config {
+        advertise_short_grace_ms: 10_000,
+        ..CONFIG
+    };
+    assert!(config.advertise_short_grace_ms < config.peer_confirm_ms);
+    let (mut network, _, b) = peered_with(47, config);
     network.cut.insert((0, 1));
     // What was already on its way still arrives.
     settle(&mut network, 5_000);
@@ -623,7 +630,6 @@ fn a_silent_peer_short_of_room_is_withdrawn_for_its_silence() {
     let to_network = |local_ms: u64| local_ms - now + at;
     // Both come due at once: silence just past the confirmation window,
     // and room a grace after it was reported short.
-    let config = Config::DEV;
     let due = last_seen + config.peer_confirm_ms + 1;
     // Short at a check every second from a grace before.
     let mut check = due - config.advertise_short_grace_ms;
@@ -819,6 +825,55 @@ fn a_refused_settlement_request_is_reported() {
         "the refusal was not reported"
     );
     assert!(network.settlement_requests.is_empty());
+}
+
+// A request to settle that surely never reached the peer is reported, so
+// the node asks again at the next check rather than a minute later: lost
+// deliveries do not use up the grace before a peer short of room is
+// withdrawn (spec/areas/network.md#advertised-peers). One the peer refused,
+// as malformed (400) or while overloaded (503), is not: asked again at
+// once, an overloaded peer would be asked at every check.
+#[test]
+fn only_a_settlement_request_that_never_arrived_is_asked_again_at_once() {
+    let (mut network, a, _) = peered(52);
+    let again = |network: &Network| {
+        network
+            .events
+            .iter()
+            .filter(|(at, event)| {
+                *at == 1
+                    && matches!(
+                        event,
+                        Event::SettlementRequestNotDelivered { peer }
+                            | Event::SettlementRequestRefused { peer } if *peer == a
+                    )
+            })
+            .map(|(_, event)| event.clone())
+            .collect::<Vec<_>>()
+    };
+    for status in [400, 503] {
+        network.refuse_settlement_requests.insert(0, status);
+        network.act(1, |node, now| {
+            node.request_settlement(now, &a, stub()).unwrap();
+        });
+        settle(&mut network, 1_000);
+        assert_eq!(again(&network), [], "asked again at once after {status}");
+    }
+    assert!(
+        network.settlement_requests.is_empty(),
+        "taken while refused"
+    );
+    network.refuse_settlement_requests.clear();
+    network.cut.insert((0, 1));
+    network.act(1, |node, now| {
+        node.request_settlement(now, &a, stub()).unwrap();
+    });
+    settle(&mut network, 1_000);
+    assert_eq!(
+        again(&network),
+        [Event::SettlementRequestNotDelivered { peer: a }],
+        "a request that never arrived was not reported"
+    );
 }
 
 // A node wakes when something is due, not every second: with nothing to

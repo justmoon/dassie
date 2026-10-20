@@ -269,6 +269,12 @@ pub enum Event {
         /// The node.
         peer: NodeId,
     },
+    /// A request to settle surely never reached the peer: it may be asked
+    /// again at once.
+    SettlementRequestNotDelivered {
+        /// The node.
+        peer: NodeId,
+    },
     /// A settlement message was refused for being malformed or out of
     /// place, which is a bug: it is kept, and sent again later.
     SettlementRefused {
