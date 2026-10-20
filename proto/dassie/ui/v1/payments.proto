@@ -330,6 +330,28 @@ message GrantLimits {
   // What it spent in that window: debited, and delivered.
   uint64 spent_debit = 7;
   uint64 spent_receive = 8;
+  // When the interval's first window starts and its last one ends; each
+  // absent for a side that is open, and both without an interval.
+  optional uint64 starts_at_ms = 9;
+  optional uint64 ends_at_ms = 10;
+  // The receiver as read while the owner is asked: only on a pending
+  // grant's limits that name one.
+  optional GrantReceiver receiver_payment = 11;
+}
+
+// The incoming payment a grant may only pay, as it was read.
+message GrantReceiver {
+  // Its asset: what it receives is in it.
+  string asset_code = 1;
+  uint32 asset_scale = 2;
+  // What it still accepts; absent for no set amount.
+  optional uint64 remaining = 3;
+  // When it stops accepting money.
+  optional uint64 expires_at_ms = 4;
+  // Whether it accepts no more money: completed, or expired.
+  bool closed = 5;
+  // Why it could not be read; empty if it was, and then the rest is unset.
+  string error = 6;
 }
 
 // A grant the owner decides, or decided.

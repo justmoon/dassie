@@ -254,6 +254,17 @@ test("a third-party client pays from one node to another with consent", {
       () => text(page, "consent-client"),
       (name) => name === "Budget App",
     );
+    // What the owner sends is firm; what arrives depends on the receiver,
+    // whom the grant does not name; and a daily limit has no end.
+    assertEquals(
+      await text(page, "consent-send"),
+      "Up to $ 1.00 a day from your USD wallet, fees and currency exchange included",
+    );
+    assert((await text(page, "consent-receive")).startsWith("Depends on"));
+    assertEquals(
+      await text(page, "consent-span"),
+      "No end date. The limit renews every day until you revoke access.",
+    );
     await click(page, "consent-approve");
     for (let tries = 0; app.finished.length === 0 && tries < 100; tries++) {
       await new Promise((resolve) => setTimeout(resolve, 100));

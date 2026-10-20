@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use dassie_payments::amount::Amount;
 use dassie_payments::gnap::{Access, AccessType, Action};
+use dassie_payments::time;
 
 use super::RpcError;
 use super::handlers::{Items, Reply};
@@ -13,7 +14,7 @@ use super::proto::{self, request::Method, response, stream_item};
 use crate::engine::Engine;
 use crate::node::Node;
 use crate::open_payments::auth::OpError;
-use crate::open_payments::{Urls, WalletAddresses, consent};
+use crate::open_payments::{Urls, WalletAddresses, consent, spending};
 use crate::store::{GrantRow, GrantState, PaymentId};
 
 /// Most approved grants listed.
@@ -34,6 +35,7 @@ pub async fn dispatch(
             let mut grant = grant(node, &urls, &view.grant, &view.access).await?;
             grant.subject = view.subject.unwrap_or_default();
             grant.client_name = view.public_name.unwrap_or_default();
+            read_receivers(node, &urls, &mut grant).await;
             response::Method::GetGrantRequest(proto::GetGrantRequestResponse { grant: Some(grant) })
         }
         Method::DecideGrant(request) => {
@@ -183,6 +185,7 @@ fn spent(
     };
     // Without an interval, the window is all time: no ends to show.
     let bounded = window.filter(|_| limits.interval.is_some());
+    let span = limits.span();
     Ok(proto::GrantLimits {
         receiver: limits.receiver.clone().unwrap_or_default(),
         interval: limits.interval.clone().unwrap_or_default(),
@@ -192,7 +195,59 @@ fn spent(
         window_end_ms: bounded.map(|(_, end)| end),
         spent_debit: debit,
         spent_receive: receive,
+        starts_at_ms: span.and_then(|(start, _)| start),
+        ends_at_ms: span.and_then(|(_, end)| end),
+        receiver_payment: None,
     })
+}
+
+/// Reads the receiver each item that creates payments may only pay, so
+/// the owner sees what it is paid in and still asks for. Only while the
+/// owner is asked: the list of approved grants reads no other node.
+async fn read_receivers(node: &Node, urls: &Urls, grant: &mut proto::Grant) {
+    for item in &mut grant.access {
+        let creates = item.actions.iter().any(|action| action == "create");
+        let Some(limits) = item.limits.as_mut() else {
+            continue;
+        };
+        if creates && !limits.receiver.is_empty() {
+            limits.receiver_payment = Some(receiver_payment(node, urls, &limits.receiver).await);
+        }
+    }
+}
+
+/// The receiver at `url`, as it reads now. One that cannot be read is
+/// shown as such rather than refusing the request: the owner may still
+/// deny it, and the client learns why its payments fail when it pays.
+async fn receiver_payment(node: &Node, urls: &Urls, url: &str) -> proto::GrantReceiver {
+    let payment = match spending::incoming_payment(node, urls, url).await {
+        Ok(payment) => payment,
+        Err(failure) => {
+            return proto::GrantReceiver {
+                error: failure.description,
+                ..proto::GrantReceiver::default()
+            };
+        }
+    };
+    let received = &payment.received_amount;
+    // An expiry that is not a date-time reads as none: paying it refuses
+    // it then, as it does any receiver that cannot be paid.
+    let expires_at_ms = payment
+        .expires_at
+        .as_deref()
+        .and_then(|expires| time::parse_rfc3339(expires).ok());
+    let expired = expires_at_ms.is_some_and(|expires| expires <= node.now_ms());
+    proto::GrantReceiver {
+        asset_code: received.asset_code.clone(),
+        asset_scale: received.asset_scale.into(),
+        remaining: payment
+            .incoming_amount
+            .as_ref()
+            .map(|incoming| incoming.value.saturating_sub(received.value)),
+        expires_at_ms,
+        closed: payment.completed || expired,
+        error: String::new(),
+    }
 }
 
 fn amount(amount: &Amount) -> proto::OpenPaymentsAmount {

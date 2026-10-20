@@ -1109,3 +1109,105 @@ async fn an_interaction_too_long_to_keep_is_refused() {
     assert!(finish.contains("interact_ref="), "{finish}");
     node.stop().await;
 }
+
+/// The request the consent page reads for `grant`.
+async fn asked(node: &TestNode, grant: &Value) -> proto::Grant {
+    let (id, key) = consent_page(node, grant).await;
+    let Ok(response::Method::GetGrantRequest(asked)) = node
+        .ipc()
+        .await
+        .call(Method::GetGrantRequest(proto::GetGrantRequestRequest {
+            id,
+            key,
+        }))
+        .await
+    else {
+        panic!("no request")
+    };
+    asked.grant.unwrap()
+}
+
+/// Asks to pay only `receiver`, over `interval` if given; returns the
+/// limits as the owner reads them.
+async fn asked_limits(
+    node: &TestNode,
+    client: &Client,
+    receiver: &str,
+    interval: Option<&str>,
+) -> proto::GrantLimits {
+    let mut limits = json!({ "receiver": receiver, "debitAmount": usd(1_000) });
+    if let Some(interval) = interval {
+        limits["interval"] = json!(interval);
+    }
+    let access = json!([{
+        "type": "outgoing-payment",
+        "actions": ["create", "read"],
+        "identifier": host(node),
+        "limits": limits,
+    }]);
+    let grant = ask_for(node, client, &access).await;
+    asked(node, &grant).await.access[0].limits.clone().unwrap()
+}
+
+// The consent page shows when a grant starts and ends, and the receiver it
+// may only pay as it reads while the owner is asked: here or on another
+// node. One that cannot be read is shown as such, not refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_owner_sees_the_span_and_receiver_of_a_request() {
+    let (node, key) = start().await;
+    let (payee, _) = start_keyed(Policies::DEV, 32).await;
+    let client = own_client(&node, &key);
+    let start_ms = node.clock.now_ms() + DAY_MS;
+    let start = dassie_payments::time::format_rfc3339(start_ms);
+
+    // Here: the first window and six more, from tomorrow.
+    let local = receiver(&node, 700).await;
+    let limits = asked_limits(&node, &client, &local, Some(&format!("R6/{start}/P1D"))).await;
+    assert_eq!(limits.starts_at_ms, Some(start_ms));
+    assert_eq!(limits.ends_at_ms, Some(start_ms + 7 * DAY_MS));
+    let read = limits.receiver_payment.unwrap();
+    assert_eq!(read.error, "");
+    assert_eq!((read.asset_code.as_str(), read.asset_scale), ("USD", 9));
+    assert_eq!(read.remaining, Some(700));
+    assert!(!read.closed);
+
+    // On another node, for ever.
+    let remote = receiver(&payee, 300).await;
+    let limits = asked_limits(&node, &client, &remote, Some(&format!("R/{start}/P1D"))).await;
+    assert_eq!(limits.starts_at_ms, Some(start_ms));
+    assert_eq!(limits.ends_at_ms, None);
+    let read = limits.receiver_payment.unwrap();
+    assert_eq!(read.error, "");
+    assert_eq!(read.remaining, Some(300));
+
+    // No such payment, and no interval: all time, no span.
+    let (prefix, _) = local.rsplit_once('/').unwrap();
+    let missing = format!("{prefix}/{}", "0".repeat(26));
+    let limits = asked_limits(&node, &client, &missing, None).await;
+    assert_eq!((limits.starts_at_ms, limits.ends_at_ms), (None, None));
+    let read = limits.receiver_payment.unwrap();
+    assert_ne!(read.error, "");
+    assert_eq!(read.asset_code, "");
+
+    // The approved grants read no receiver.
+    let access = json!([{
+        "type": "outgoing-payment",
+        "actions": ["create"],
+        "identifier": host(&node),
+        "limits": { "receiver": local, "debitAmount": usd(1_000) },
+    }]);
+    approve(&node, &client, &ask_for(&node, &client, &access).await).await;
+    let Ok(response::Method::ListGrants(list)) = node
+        .ipc()
+        .await
+        .call(Method::ListGrants(proto::ListGrantsRequest {}))
+        .await
+    else {
+        panic!("no list")
+    };
+    let limits = list.grants[0].access[0].limits.as_ref().unwrap();
+    assert_eq!(limits.receiver, local);
+    assert_eq!(limits.receiver_payment, None);
+    node.stop().await;
+    payee.stop().await;
+}

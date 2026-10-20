@@ -198,6 +198,39 @@ impl Interval {
         }
     }
 
+    /// When the first window starts and the last one ends, as
+    /// `(start, end)`: `None` for a side that is open, as `R` and `R-1`
+    /// leave one. The bound on calendar steps is not an end, but an `Rn`
+    /// with more repetitions than it ends where [`Self::window`] stops.
+    #[must_use]
+    pub fn span(&self) -> (Option<u64>, Option<u64>) {
+        match self.anchor {
+            Anchor::Start(start) => (Some(start), self.far_edge(start, true)),
+            Anchor::End(end) => (self.far_edge(end, false), Some(end)),
+        }
+    }
+
+    /// The edge of the windows away from `anchor`, forward or back:
+    /// `None` for ever, or beyond the timestamps there are.
+    fn far_edge(&self, anchor: u64, forward: bool) -> Option<u64> {
+        let windows = self.repetitions?.checked_add(1)?;
+        if self.duration.months == 0 {
+            let length = self.duration.fixed_ms.checked_mul(windows)?;
+            let edge = if forward {
+                anchor.checked_add(length)?
+            } else {
+                anchor.checked_sub(length)?
+            };
+            return (edge <= time::MAX_TIMESTAMP_MS).then_some(edge);
+        }
+        // As many as `forward` and `backward` step through.
+        let mut edge = anchor;
+        for _ in 0..windows.min(MAX_CALENDAR_STEPS + 1) {
+            edge = self.duration.shift(edge, forward)?;
+        }
+        Some(edge)
+    }
+
     /// Windows after the first, from `[start, end)`.
     fn forward(&self, start: u64, end: u64, now_ms: u64) -> Option<(u64, u64)> {
         if now_ms < start {
@@ -413,6 +446,83 @@ mod tests {
         let interval = "R/1970-01-01T00:00:00Z/P1M";
         assert!(window(interval, "2069-12-15T00:00:00Z").is_some());
         assert_eq!(window(interval, "2100-01-15T00:00:00Z"), None);
+    }
+
+    fn span(interval: &str) -> (Option<u64>, Option<u64>) {
+        Interval::parse(interval).unwrap().span()
+    }
+
+    #[test]
+    fn spans_end_after_the_last_repetition() {
+        // The first interval and eleven repetitions: a year of months.
+        let monthly = "R11/2022-08-24T14:15:22Z/P1M";
+        let end = at("2023-08-24T14:15:22Z");
+        assert_eq!(span(monthly), (Some(at("2022-08-24T14:15:22Z")), Some(end)));
+        // Clamped as the windows are: Jan 31, Feb 28, Mar 28, Apr 28.
+        assert_eq!(
+            span("R2/2023-01-31T00:00:00Z/P1M").1,
+            Some(at("2023-04-28T00:00:00Z"))
+        );
+        assert_eq!(
+            span("R5/2023-01-01T00:00:00Z/PT1H").1,
+            Some(at("2023-01-01T06:00:00Z"))
+        );
+        assert_eq!(
+            span("R0/2023-01-01T00:00:00Z/2023-01-03T00:00:00Z").1,
+            Some(at("2023-01-03T00:00:00Z"))
+        );
+    }
+
+    #[test]
+    fn spans_anchored_at_the_end_start_before_the_first_repetition() {
+        assert_eq!(
+            span("R3/P1D/2023-01-10T00:00:00Z"),
+            (
+                Some(at("2023-01-06T00:00:00Z")),
+                Some(at("2023-01-10T00:00:00Z"))
+            )
+        );
+        assert_eq!(
+            span("R1/P1M/2023-03-31T00:00:00Z").0,
+            Some(at("2023-01-28T00:00:00Z"))
+        );
+    }
+
+    #[test]
+    fn spans_without_a_count_are_open() {
+        assert_eq!(
+            span("R/2023-01-01T00:00:00Z/P1D"),
+            (Some(at("2023-01-01T00:00:00Z")), None)
+        );
+        assert_eq!(
+            span("R-1/P1Y/2023-01-01T00:00:00Z"),
+            (None, Some(at("2023-01-01T00:00:00Z")))
+        );
+        // More windows than there are timestamps: no end either.
+        assert_eq!(span("R999999999999999999/2023-01-01T00:00:00Z/P1D").1, None);
+    }
+
+    // The span is where the windows are: one before its end, none at it.
+    #[test]
+    fn spans_agree_with_the_windows() {
+        for interval in [
+            "R11/2022-08-24T14:15:22Z/P1M",
+            "R2/2023-01-31T00:00:00Z/P1M",
+            "R5/2023-01-01T00:00:00Z/PT1H",
+            "R3/P1D/2023-01-10T00:00:00Z",
+            "R1/P1M/2023-03-31T00:00:00Z",
+            // Beyond the steps: it ends where the windows stop.
+            "R5000/1971-01-01T00:00:00Z/P1M",
+        ] {
+            let parsed = Interval::parse(interval).unwrap();
+            let (Some(start), Some(end)) = parsed.span() else {
+                panic!("{interval} has an open side");
+            };
+            assert!(parsed.window(start).is_some(), "{interval}");
+            assert_eq!(parsed.window(start - 1), None, "{interval}");
+            assert!(parsed.window(end - 1).is_some(), "{interval}");
+            assert_eq!(parsed.window(end), None, "{interval}");
+        }
     }
 
     #[test]
