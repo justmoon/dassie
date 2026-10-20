@@ -130,6 +130,9 @@ struct Extras {
     quic: Option<UdpSocket>,
     /// For tests: where the QUIC endpoint goes once it is made.
     hand_out: Option<tokio::sync::oneshot::Sender<Arc<crate::quic::Quic>>>,
+    /// For tests: where the node goes once it is made, held weakly so the
+    /// daemon still ends with its node.
+    node_out: Option<tokio::sync::oneshot::Sender<std::sync::Weak<Node>>>,
 }
 
 impl Prepared {
@@ -172,6 +175,7 @@ impl Prepared {
             extras: Extras {
                 quic,
                 hand_out: None,
+                node_out: None,
             },
             ipc_socket,
             notifier,
@@ -204,6 +208,16 @@ impl Prepared {
     #[must_use]
     pub fn handing_out(mut self, to: tokio::sync::oneshot::Sender<Arc<crate::quic::Quic>>) -> Self {
         self.extras.hand_out = Some(to);
+        self
+    }
+
+    /// For tests: the node, once it is made, goes to `to`.
+    #[must_use]
+    pub fn handing_out_node(
+        mut self,
+        to: tokio::sync::oneshot::Sender<std::sync::Weak<Node>>,
+    ) -> Self {
+        self.extras.node_out = Some(to);
         self
     }
 
@@ -402,6 +416,9 @@ fn make_node(
         public_names: settings.public_names.clone(),
     })
     .map_err(DaemonError::Node)?;
+    if let Some(to) = extras.node_out {
+        let _ = to.send(Arc::downgrade(&node));
+    }
     if let Some(socket) = extras.quic {
         attach_quic(&node, socket, extras.hand_out, settings.relay.as_ref());
     }
