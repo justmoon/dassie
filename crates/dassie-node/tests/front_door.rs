@@ -41,7 +41,7 @@ use rcgen::{BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair};
 use rustls::pki_types::{CertificateDer, ServerName};
 use serde_json::{Value, json};
 use support::op::{CA, Client, add_stub, signed_under};
-use support::{Bound, Reply, START_MS, TestNode, set_up};
+use support::{Bound, Reply, START_MS, TestNode, pair, set_up};
 use tokio::sync::watch;
 use tokio_rustls::TlsConnector;
 use tokio_util::sync::CancellationToken;
@@ -257,6 +257,49 @@ async fn a_node_is_reached_at_its_name_through_the_front_door() {
     let target = format!("https://{name}/pay/xrpl");
     assert_eq!(signer(&target, &missing, now_s), Ok(key.node_id()));
     node.stop().await;
+    shutdown.cancel();
+}
+
+// A periphery node keeps its uplink and its front door apart: it peers
+// with the one as its downlink, and is reached through the other, which
+// is no uplink (spec/areas/node.md#a-chosen-relay).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_periphery_node_with_an_uplink_is_reached_through_its_front_door() {
+    let shutdown = CancellationToken::new();
+    let door = Door::start(&shutdown).await;
+    let (key_a, key_p) = (pair::key(66), pair::key(67));
+    let (bound_a, bound_p) = (Bound::new(), Bound::new());
+    let nodes = pair::bootstrap(&key_a, bound_a.https_port());
+    let core = [
+        ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
+        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+    ];
+    let mut periphery = core.to_vec();
+    periphery.push(("DASSIE_RELAY", door.entry.as_str()));
+    let clock = ManualClock::new(START_MS);
+    let a = bound_a.start(clock.clone(), 1, Policies::DEV, &core).await;
+    let p = bound_p
+        .start(clock.clone(), 2, Policies::DEV, &periphery)
+        .await;
+    pair::prepare(&a, &key_a).await;
+    set_up(&p, &key_p).await;
+    add_stub(&p).await;
+    pair::until(&clock, async || {
+        pair::peered(&a, &key_p).await && pair::peered(&p, &key_a).await
+    })
+    .await;
+    let name = name_of(&key_p.node_id());
+    door.until_reached(&name).await;
+    let reply = door.get(&name, "/.well-known/pay").await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    let target = format!("https://{name}/.well-known/pay");
+    let now_s = p.clock.now_ms() / 1_000;
+    assert_eq!(signer(&target, &reply, now_s), Ok(key_p.node_id()));
+    // Still its uplink's downlink, beside the front door.
+    assert!(pair::peered(&p, &key_a).await);
+    a.stop().await;
+    p.stop().await;
     shutdown.cancel();
 }
 
