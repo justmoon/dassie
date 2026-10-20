@@ -21,7 +21,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::net::IpAddr;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -35,7 +35,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use super::keys::{self, AnyNodeKey, Keys, PinnedServer, Present};
-use super::{CONNECT_TIMEOUT, Counted, Handler, Link, MAX_STREAMS, On, Quic, StreamKind};
+use super::{CONNECT_TIMEOUT, Handler, Link, MAX_STREAMS, On, Quic, StreamKind};
 use crate::log::target;
 use crate::node::lock;
 use crate::peer_client::PeerClient;
@@ -76,6 +76,11 @@ pub const MAX_RELAYED: usize = 1024;
 /// Most relayed streams a node takes at once, from all relays.
 pub const MAX_SERVED: usize = 256;
 
+/// Most relayed streams a node takes at once from one relay address: a
+/// share, so that a few nodes that open relayed streams to it cannot take
+/// every place.
+pub const MAX_SERVED_PER_RELAY: u32 = 16;
+
 /// Least time between attempts to reach the chosen relay.
 const RELAY_BACKOFF_MIN: Duration = Duration::from_secs(1);
 
@@ -92,6 +97,8 @@ const _: () = assert!(MAX_RELAYED_PER_DESTINATION * 2 <= MAX_STREAMS as usize);
 // A node ID's length fits OER's one-byte length determinant.
 const _: () = assert!(MAX_NODE_ID_LENGTH < 128);
 const _: () = assert!(MAX_RELAYED_PER_CLIENT as usize <= MAX_RELAYED);
+const _: () = assert!(MAX_SERVED_PER_RELAY as usize * 2 <= MAX_STREAMS as usize);
+const _: () = assert!(MAX_SERVED_PER_RELAY as usize <= MAX_SERVED);
 
 /// What a client wants from the node it reaches through a relay.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -212,8 +219,8 @@ pub(super) struct Relaying {
     clients: ClientSlots,
     /// As relay: streams per destination.
     destinations: Mutex<BTreeMap<NodeId, usize>>,
-    /// As destination: streams taken, from all relays.
-    served: Arc<AtomicUsize>,
+    /// As destination: streams taken, in all and per relay address.
+    served: ClientSlots,
     tap: Mutex<Option<Tap>>,
 }
 
@@ -225,7 +232,10 @@ impl Relaying {
                 max_per_client: MAX_RELAYED_PER_CLIENT,
             }),
             destinations: Mutex::new(BTreeMap::new()),
-            served: Arc::new(AtomicUsize::new(0)),
+            served: ClientSlots::new(ConnectionLimits {
+                max_total: MAX_SERVED,
+                max_per_client: MAX_SERVED_PER_RELAY,
+            }),
             tap: Mutex::new(None),
         }
     }
@@ -510,10 +520,8 @@ impl On {
             return;
         };
         let purpose = Purpose::from_byte(purpose).filter(|purpose| self.handler.serves(*purpose));
-        let counted =
-            Counted::within(&self.relayed, MAX_RELAYED_PER_DESTINATION).and_then(|here| {
-                Counted::within(&self.quic.relaying.served, MAX_SERVED).map(|all| (here, all))
-            });
+        let served = &self.quic.relaying.served;
+        let counted = served.take(self.handler.client(self.client)).ok();
         let (outcome, purpose) = match (purpose, &counted) {
             (None, _) => (Outcome::Refused, None),
             (Some(_), None) => (Outcome::Busy, None),

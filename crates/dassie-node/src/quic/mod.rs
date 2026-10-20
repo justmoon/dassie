@@ -703,8 +703,6 @@ impl Quic {
         shutdown: &CancellationToken,
     ) {
         let streams = TaskTracker::new();
-        // Relayed streams this connection carries to us, at once.
-        let relayed = Arc::new(AtomicUsize::new(0));
         loop {
             let stream = tokio::select! {
                 stream = connection.accept_bi() => stream,
@@ -719,7 +717,6 @@ impl Quic {
                 client,
                 handler: Arc::clone(handler),
                 shutdown: shutdown.clone(),
-                relayed: Arc::clone(&relayed),
             };
             streams.spawn(on.stream(send, recv));
         }
@@ -735,7 +732,6 @@ struct On {
     client: IpAddr,
     handler: Arc<dyn Handler>,
     shutdown: CancellationToken,
-    relayed: Arc<AtomicUsize>,
 }
 
 impl On {
@@ -788,22 +784,13 @@ impl On {
     }
 }
 
-/// Counts an open connection, or stream, while it lives.
+/// Counts an open connection while it lives.
 struct Counted(Arc<AtomicUsize>);
 
 impl Counted {
     fn new(open: &Arc<AtomicUsize>) -> Self {
         open.fetch_add(1, Ordering::Relaxed);
         Self(Arc::clone(open))
-    }
-
-    /// Counts one more, unless `open` holds `max` already.
-    fn within(open: &Arc<AtomicUsize>, max: usize) -> Option<Self> {
-        open.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
-            (count < max).then_some(count + 1)
-        })
-        .ok()?;
-        Some(Self(Arc::clone(open)))
     }
 }
 
