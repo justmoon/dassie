@@ -318,6 +318,8 @@ impl Store {
         )?;
         super::outgoing::write_outgoing(&transaction, &batch.outgoing)?;
         super::peer_settings::write_peer_settings(&transaction, batch.peer_settings)?;
+        #[cfg(feature = "testing")]
+        self.fail_if_aimed(&transaction, batch);
         transaction.commit()?;
         Ok(())
     }

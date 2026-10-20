@@ -167,6 +167,74 @@ fn a_batch_is_all_or_nothing() {
     assert_eq!(store.load_ledger().unwrap().accounts.len(), 3);
 }
 
+// D27: the fault a simulation injects at the store. The commit it fails
+// leaves the database at the commit before, and the next one goes through.
+#[cfg(feature = "testing")]
+#[test]
+fn a_failed_commit_leaves_the_commit_before() {
+    let store = Store::open_in_memory().unwrap();
+    let mut ledger = scenario(&store);
+    let owner = ledger.find(&path(AccountName::EquityOwner)).unwrap();
+    let suspense = ledger.open(path(AccountName::EquitySuspense)).unwrap();
+    let mut deposit = |at_ms| {
+        let spec = TransferSpec {
+            debit: suspense,
+            credit: owner,
+            amount: 3,
+            pending: false,
+            reference: Reference::Reconciliation,
+        };
+        ledger.create(at_ms, &spec).unwrap();
+        drain(&mut ledger, at_ms)
+    };
+    let rows = |store: &Store| store.transfers_after(None, 100, None).unwrap().len();
+    let failed = store.fail_commit(Aim::Any, 1);
+    store.commit_ledger(&deposit(6)).unwrap();
+    assert_eq!(failed.held(), None);
+    let before = store.transfers_after(None, 100, None).unwrap();
+    let lost = deposit(7);
+    assert!(store.commit_ledger(&lost).is_err());
+    assert_eq!(failed.held(), Some(Holds::default()));
+    assert_eq!(store.transfers_after(None, 100, None).unwrap(), before);
+    assert_eq!(store.load_ledger().unwrap().accounts.len(), 4);
+    // The connection is out of the transaction, and takes the next.
+    store.commit_ledger(&lost).unwrap();
+    assert_eq!(rows(&store), before.len() + 1);
+}
+
+// D27: a failure aimed at settlements lets every other commit through.
+#[cfg(feature = "testing")]
+#[test]
+fn a_failure_aimed_at_settlements_waits_for_one() {
+    let store = Store::open_in_memory().unwrap();
+    let failed = store.fail_commit(Aim::Settlement, 0);
+    let mut ledger = Ledger::new(Config::DEFAULT);
+    let settlement = ledger.open(path(AccountName::AssetsSettlement)).unwrap();
+    let owner = ledger.open(path(AccountName::EquityOwner)).unwrap();
+    let mut book = |at_ms, reference| {
+        let spec = TransferSpec {
+            debit: settlement,
+            credit: owner,
+            amount: 1,
+            pending: false,
+            reference,
+        };
+        ledger.create(at_ms, &spec).unwrap();
+        drain(&mut ledger, at_ms)
+    };
+    store.commit_ledger(&book(1, Reference::Deposit)).unwrap();
+    let paid = Reference::Settlement {
+        scheme: Name::new("stub").unwrap(),
+        id: Name::new("in7").unwrap(),
+    };
+    assert!(store.commit_ledger(&book(2, paid)).is_err());
+    let held = failed.held().unwrap();
+    assert!(held.settlement && !held.packet);
+    assert_eq!(store.transfers_after(None, 100, None).unwrap().len(), 1);
+    store.let_commits_through();
+    store.commit_ledger(&book(3, paid)).unwrap();
+}
+
 #[test]
 fn totals_that_disagree_with_the_journal_are_refused() {
     let store = Store::open_in_memory().unwrap();

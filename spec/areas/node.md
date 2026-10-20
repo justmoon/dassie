@@ -19,7 +19,7 @@ The `dassie` binary: the daemon that composes every protocol crate into a runnin
 One task owns the money path: the ledger, the connector, the STREAM receivers and payers, and the settlement schemes. None of them needs a lock, and their steps happen in one order, as in a simulation.
 
 - Everything else sends it commands through a bounded queue. It takes a batch, steps the core with each command, and persists what the batch changed in **one or more transactions, each before what it covers goes out**: settlements run only once their pending transfers are committed, and are committed in turn, and closing a BTP link that failed while the batch's messages went out is committed in another. The replies go out last. So a Fulfill goes upstream only once its transfer is on disk ([Connector](connector.md), [Ledger](ledger.md)).
-- If the write fails, the core panics without handing anything over. The supervisor restarts the task, which rebuilds the core from the database: packets in flight do not survive, and clients reconnect. The simulations do not inject failed commits yet; once they do, a failed commit is to be the only fault injected at the store ([roadmap](../roadmap.md#continuous-simulation), [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md)).
+- If the write fails, the core panics without handing anything over: nothing of the step goes out, so nothing the node sends, settles or acknowledges rests on state that never reached the disk. The supervisor restarts the task, which rebuilds the core from the database, at its last good commit: packets in flight do not survive, clients reconnect, and a peer request the engine was answering gets a 503. A failed commit is the only fault the simulations inject at the store ([Testing](testing.md#failed-commits), [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md)).
 - The engine starts once the node has an identity, since its ILP address comes from the node ID.
 
 ### Checking state before each commit
@@ -125,5 +125,5 @@ The CLI talks to the daemon over the IPC socket with the same RPC contract as th
 - [D15](../decisions/D15-bootstrap-network-for-v1.md): the default bootstrap nodes, and `DASSIE_BOOTSTRAP_NODES`.
 - [D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md): injected time and randomness, decisions in `dassie-node-core`, and checking state before each commit.
 - [D23](../decisions/D23-each-node-books-its-own-fulfills.md): why an upgrade lifts the bans made for a grace limit and makes owed Fulfills final.
-- [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md): why a failed commit is to be the only fault injected at the store.
+- [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md): why a failed commit is the only fault injected at the store.
 - [D30](../decisions/D30-a-node-is-up-once-its-engine-has-committed-a-step.md): readiness once the engine has committed a step, and a daemon that exits when its engine cannot start.

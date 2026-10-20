@@ -121,6 +121,24 @@ impl Core {
         }
     }
 
+    /// Whether a settlement of ours is prepared and not yet final, for a
+    /// simulation to aim a fault at.
+    #[cfg(feature = "testing")]
+    #[must_use]
+    pub fn settling(&self) -> bool {
+        !self.settle.settling.is_empty()
+    }
+
+    /// Whether the books hold a packet's money in flight, for a simulation
+    /// to aim a fault at.
+    #[cfg(feature = "testing")]
+    #[must_use]
+    pub fn packets_in_flight(&self) -> bool {
+        self.ledger
+            .pending_transfers()
+            .any(|transfer| matches!(transfer.reference, Reference::Packet(_)))
+    }
+
     /// Checks every peer, asking those near the credit we extend to settle,
     /// and announces settlements that waited for an earlier one.
     pub(super) fn settlement_timers(&mut self) {

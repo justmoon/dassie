@@ -12,6 +12,8 @@
 //! loss included; the ledger's engine commits a whole batch of packets at
 //! once to keep that affordable.
 
+#[cfg(feature = "testing")]
+mod faults;
 mod gnap;
 mod inspect;
 mod ledger;
@@ -43,6 +45,8 @@ use dassie_node_core::config::{Alias, DirectoryUrl, Hostname, NodeConfig, Ports,
 use dassie_node_core::session::{SessionId, SessionPolicy, SessionTimes};
 use rusqlite::{Connection, OptionalExtension, params};
 
+#[cfg(feature = "testing")]
+pub use faults::{Aim, FailedCommit, Holds};
 pub use gnap::{GrantCounts, GrantRow, GrantState, MAX_GRANTS, TokenRow};
 pub use inspect::{BLOB_CUT, Cell, ColumnInfo, MAX_ROWS, RowsPage, TEXT_CUT, TableInfo, Value};
 pub use ledger::{
@@ -183,6 +187,9 @@ pub struct SessionRecord {
 #[derive(Debug)]
 pub struct Store {
     connection: Mutex<Connection>,
+    /// The commit a simulation makes fail, while it has one to.
+    #[cfg(feature = "testing")]
+    failing: Mutex<Option<faults::Failing>>,
 }
 
 impl Store {
@@ -220,6 +227,8 @@ impl Store {
         schema::check(&mut connection)?;
         Ok(Self {
             connection: Mutex::new(connection),
+            #[cfg(feature = "testing")]
+            failing: Mutex::new(None),
         })
     }
 

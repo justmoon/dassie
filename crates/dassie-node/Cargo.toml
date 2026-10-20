@@ -12,9 +12,10 @@ workspace = true
 
 [features]
 default = []
-# Lets a simulation make a node lie to its peers, and serves a fake
-# XRP Ledger for tests and dev environments: never in a release.
-testing = ["dassie-xrpl/fake", "dassie-node-core/testing"]
+# Lets a simulation make a node lie to its peers or fail a commit, and
+# serves a fake XRP Ledger for tests and dev environments: never in a
+# release. SQLite's commit hook is what fails a commit.
+testing = ["dassie-xrpl/fake", "dassie-node-core/testing", "rusqlite/hooks"]
 
 [[example]]
 name = "fake_ledger"

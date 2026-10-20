@@ -4,8 +4,9 @@
 //! entirely, so that rare combinations get their turn.
 //!
 //! A run has two phases. In the chaos, payments start while nodes crash
-//! and restart, links are cut and healed, messages are lost, requests are
-//! replayed and ledger connections drop; each node's clock is off the
+//! or fail a commit and restart, links are cut and healed, messages are
+//! lost, requests are replayed and ledger connections drop; each node's
+//! clock is off the
 //! network's by up to 10 s, throughout. Then the network heals: every node
 //! runs, no link is cut, nothing is lost or replayed, and within
 //! [`HEAL_MS`] the network must settle down. Then each node is checked by
@@ -24,7 +25,7 @@ use super::scripted::{READY_WITHIN_MS, ended, ready};
 use super::{Delivery, START, Settling, Sim};
 use crate::engine::LedgerEvent;
 use crate::node::Policies;
-use crate::store::OutgoingState;
+use crate::store::{Aim, OutgoingState};
 
 /// How long a healed network has to settle down, from the production rules
 /// it runs: as long as a network takes to be ready, plus the longest a
@@ -60,6 +61,8 @@ pub struct Weights {
     pub heal: u64,
     /// Dropping a node's connection to the XRP Ledger.
     pub ledger_drop: u64,
+    /// Making one of a node's next commits fail (D27).
+    pub fail_commit: u64,
     /// Doing nothing for a while.
     pub idle: u64,
 }
@@ -122,6 +125,7 @@ impl Options {
             } else {
                 0
             },
+            fail_commit: switched(&mut rng, 11),
             idle: rng.below(11),
         };
         let payments = (1 + rng.below(8), rng.below(3));
@@ -172,7 +176,8 @@ impl fmt::Display for Options {
             f,
             "{} nodes, {} bootstrap, {:?}; latency {}–{} ms, loss {}‰, replays {}‰, \
              clocks off by up to {} ms; chaos {} s, \
-             every ~{} ms: pay {} crash {} restart {} cut {} heal {} ledger drop {} idle {}; \
+             every ~{} ms: pay {} crash {} restart {} cut {} heal {} ledger drop {} \
+             fail commit {} idle {}; \
              {} payments and {} outgoing, up to {}",
             self.nodes,
             self.bootstraps,
@@ -190,6 +195,7 @@ impl fmt::Display for Options {
             w.cut,
             w.heal,
             w.ledger_drop,
+            w.fail_commit,
             w.idle,
             self.payments.0,
             self.payments.1,
@@ -251,6 +257,7 @@ enum Act {
     Cut,
     Heal,
     LedgerDrop,
+    FailCommit,
     Idle,
 }
 
@@ -283,6 +290,7 @@ fn chaos(sim: &mut Sim, options: &Options, rng: &mut SeededRng, left: &mut (u64,
                     sim.count("ledger drops");
                 }
             }
+            Act::FailCommit => fail_commit(sim, rng),
             Act::Idle => {}
         }
     }
@@ -296,6 +304,7 @@ fn pick(weights: &Weights, rng: &mut SeededRng) -> Act {
         (weights.cut, Act::Cut),
         (weights.heal, Act::Heal),
         (weights.ledger_drop, Act::LedgerDrop),
+        (weights.fail_commit, Act::FailCommit),
         (weights.idle, Act::Idle),
     ];
     let total: u64 = kinds.iter().map(|(weight, _)| weight).sum();
@@ -320,7 +329,9 @@ fn up(sim: &Sim, index: usize) -> bool {
 
 /// Starts a payment, if any is left: by a BTP client to another node's
 /// receiver, sometimes with a limit or a capped token, or an outgoing
-/// payment, sometimes to the node's own receiver. Both ends must run.
+/// payment, sometimes to the node's own receiver. Both ends must run. A
+/// payment that a failed commit stopped before it started is left for
+/// later, as its owner or client, told of the failure, would try again.
 fn pay(sim: &mut Sim, options: &Options, rng: &mut SeededRng, left: &mut (u64, u64)) {
     let running: Vec<usize> = (0..sim.nodes.len()).filter(|i| up(sim, *i)).collect();
     let (Some(&from), Some(&to)) = (choose(&running, rng), choose(&running, rng)) else {
@@ -331,26 +342,35 @@ fn pay(sim: &mut Sim, options: &Options, rng: &mut SeededRng, left: &mut (u64, u
         if from == to {
             return;
         }
-        left.0 -= 1;
-        sim.count("payments");
-        if rng.below(8) == 0 {
+        let capped = rng.below(8) == 0;
+        let started = if capped {
             // A token capped at 0.1 units per 10 s pays 0.4: it must wait
             // for its cap to refill.
             let cap = SpendingCap {
                 amount: LEAST_PAYMENT,
                 window_ms: 10_000,
             };
-            sim.pay(from, to, 4 * LEAST_PAYMENT, Some(cap), None);
-            sim.count("capped payments");
+            sim.pay(from, to, 4 * LEAST_PAYMENT, Some(cap), None)
         } else {
             let limit = (rng.below(4) == 0).then_some(amount / 2);
-            sim.pay(from, to, amount, None, limit);
+            sim.pay(from, to, amount, None, limit)
+        };
+        if started {
+            left.0 -= 1;
+            sim.count("payments");
+            if capped {
+                sim.count("capped payments");
+            }
         }
     } else if left.1 > 0 {
-        left.1 -= 1;
         match sim.pay_outgoing(from, to, amount) {
-            Ok(()) => sim.count("outgoing payments"),
+            Ok(()) => {
+                left.1 -= 1;
+                sim.count("outgoing payments");
+            }
+            Err(_) if !up(sim, from) || !up(sim, to) => {}
             Err(refusal) => {
+                left.1 -= 1;
                 // Refused rightly only while the owner's pool holds less
                 // than the payment: on the XRP Ledger, before the faucet's
                 // funding is booked. Any other refusal fails the run.
@@ -393,6 +413,49 @@ fn crash(sim: &mut Sim, rng: &mut SeededRng) {
     }
 }
 
+/// Makes a running node fail one of its commits, aimed at a moment that
+/// matters: half the time a commit that books a packet's transfer, at a
+/// node that has packets in flight or is at either end of a payment under
+/// way; a quarter of the time one that holds a settlement, at whichever
+/// node first commits one, since few settle at any one time; else any
+/// commit. Which of the commits aimed at fails varies, so that it may be a
+/// later one, such as the commit of a settlement once it was executed.
+fn fail_commit(sim: &mut Sim, rng: &mut SeededRng) {
+    let skip = u32::try_from(rng.below(3)).unwrap();
+    let aim = match rng.below(4) {
+        0 | 1 => Aim::Packet,
+        2 => {
+            sim.fail_commit_anywhere(Aim::Settlement, skip);
+            return;
+        }
+        _ => Aim::Any,
+    };
+    let running: Vec<usize> = (0..sim.nodes.len())
+        .filter(|i| up(sim, *i) && !sim.failing(*i))
+        .collect();
+    let paying: Vec<usize> = sim
+        .payments
+        .iter()
+        .filter(|payment| !payment.done)
+        .flat_map(|payment| [payment.from, payment.to])
+        .chain(
+            running
+                .iter()
+                .copied()
+                .filter(|index| sim.core(*index).packets_in_flight()),
+        )
+        .filter(|index| running.contains(index))
+        .collect();
+    let victim = if aim == Aim::Packet && !paying.is_empty() {
+        choose(&paying, rng)
+    } else {
+        choose(&running, rng)
+    };
+    if let Some(&victim) = victim {
+        sim.fail_commit(victim, aim, skip);
+    }
+}
+
 /// Cuts a link one way, or both.
 fn cut(sim: &mut Sim, rng: &mut SeededRng) {
     let all: Vec<usize> = (0..sim.nodes.len()).collect();
@@ -417,6 +480,7 @@ fn heal(
     rng: &mut SeededRng,
     left: &mut (u64, u64),
 ) -> Result<(), Outcome> {
+    sim.let_commits_through();
     for index in 0..sim.nodes.len() {
         if !up(sim, index) {
             sim.start(index);

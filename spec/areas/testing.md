@@ -40,7 +40,7 @@ Dassie runs against the reference implementations, which are the oracle for the 
 
 N nodes, or a crate's state machines, are wired in-process through the sans-IO crates, with a virtual clock and a seeded RNG (`dassie_node_core::testing::SeededRng`, reproducible, not cryptographic). Every simulation is library code in its crate's `src/sim/`, so `cargo test` (on fixed seeds) and the runner (on any seed) run the same code.
 
-- Between them, the simulations inject latency, loss, reordering, duplication, partitions, clock skew, crashes and restarts, and lying peers. What the `node` simulation does not inject yet is in the [roadmap](../roadmap.md#continuous-simulation).
+- Between them, the simulations inject latency, loss, reordering, duplication, partitions, clock skew, crashes and restarts, failed commits, and lying peers. What the `node` simulation does not inject yet is in the [roadmap](../roadmap.md#continuous-simulation).
 - Every state machine's invariants are checked after each step.
 - A run is reproducible from its seed: two runs with the same seed produce identical event traces, and a test checks it for each simulation.
 
@@ -49,6 +49,15 @@ N nodes, or a crate's state machines, are wired in-process through the sans-IO c
 The simulations run the production timings, not the dev ones: on the virtual clock a simulated day costs seconds, and the ledgers they settle on, like the fake XRP Ledger, run at their real speed. Dev timings, scaled down, are only for what runs on a real clock: the dev environment and the end-to-end tests.
 
 Once a run heals, payments must complete, settlements arrive, routes converge and no node owe an honest peer past that peer's trigger, within a time derived from the production rules: for the `node` simulation, as long as a network takes to be ready plus the longest a pending settlement's backoff may wait. A deadline is derived from the rules the node runs by, never chosen so that a run passes ([D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md)).
+
+### Failed commits
+
+Faults stay within what the node relies on. The store commits with `synchronous = FULL`, so a commit that returned is on disk, and a torn write is SQLite's to handle; the only fault injected at the store is a commit that fails, as on a full disk ([D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md)).
+
+- **It fails in SQLite,** through its commit hook, behind the `testing` feature, so SQLite rolls the transaction back as it would, and the engine meets the error its real commit returns.
+- **The node stops as the daemon's engine does** ([Node](node.md#the-engine)): the core panics without handing over anything of the step, a peer request it was answering gets the daemon's 503, and the simulation treats the node as crashed until it restarts it from its last good commit.
+- **It is aimed at the commits that matter:** one that books a packet's Fulfill, at a node with a payment under way; one that holds a settlement, ours prepared or executed or a peer's booked; or any. A later such commit may be the one that fails, so that a settlement can fail once it was executed.
+- **What it checks** is that nothing the node sent rested on the lost commit: each node's books still hold against what its clients, receivers and peers saw, and a request answered 503 that is sent again is taken once.
 
 ### Each node judged by its own books
 
