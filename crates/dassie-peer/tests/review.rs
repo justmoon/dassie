@@ -214,6 +214,29 @@ fn a_repeated_peering_request_keeps_the_peering() {
     );
 }
 
+// A scheme the node no longer peers on anew, such as one that stopped,
+// keeps the peerings made on it: a repeat request, after an acceptance
+// that got lost, is still answered with the stored peering
+// (spec/areas/network.md#asking-and-answering).
+#[test]
+fn a_repeat_is_answered_on_a_scheme_no_longer_peered_on() {
+    let mut network = Network::new(16, 2, 1, Config::DEV);
+    settle(&mut network, 30_000);
+    let now = network.clock(0);
+    network.node_mut(0).set_schemes(now, Vec::new());
+    let body = peering_request(&network, &key(1), 0, network.clock(0));
+    let reply = network.inbound(0, &body);
+    assert_eq!(reply.status, 200);
+    let envelope = ResponseEnvelope::decode(&reply.body).unwrap();
+    let answer = PeeringResponse::decode_exact(envelope.body).unwrap();
+    assert!(
+        matches!(answer, PeeringResponse::Accepted { version: 1, .. }),
+        "{answer:?}"
+    );
+    let node1 = *network.node(1).own();
+    assert!(network.node(0).peering_of(&node1).is_some());
+}
+
 // A peering request whose state was far ahead stored a peer without a
 // key, which broke an invariant.
 #[test]

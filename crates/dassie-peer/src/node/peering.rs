@@ -461,7 +461,18 @@ impl PeerNode {
         if self.bans.contains(sender) {
             return Err(RefusalReason::Banned);
         }
-        if !self.schemes.contains(&request.scheme) || hooks.versions(request.scheme).is_empty() {
+        // A repeat from a node peered with us on the scheme is answered with
+        // the stored peering, also on a scheme no longer peered on anew,
+        // such as one that stopped: the peerings made on it stay.
+        let repeat = self
+            .table
+            .get(sender)
+            .and_then(Entry::peering)
+            .is_some_and(|peering| peering.scheme == request.scheme);
+        if !repeat
+            && (!self.schemes.contains(&request.scheme)
+                || hooks.versions(request.scheme).is_empty())
+        {
             return Err(RefusalReason::UnsupportedScheme);
         }
         let Some(entry) = self.table.get(sender) else {
