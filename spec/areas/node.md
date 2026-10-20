@@ -8,7 +8,7 @@ The `dassie` binary: the daemon that composes every protocol crate into a runnin
 ## Runtime model
 
 - **One static binary** holds the daemon, the CLI, every protocol and the wallet, embedded at build time from `DASSIE_WALLET_DIST`. Without it the binary embeds a placeholder, so `cargo build` and `cargo test` need no Node.js; `verify-install` then fails, so no such binary is released.
-- **Services are supervised tokio tasks** (`supervisor.rs`). A service that returns or panics before shutdown is restarted after a growing backoff; its state is what the wallet's service inspector shows.
+- **Services are supervised tokio tasks** (`supervisor.rs`). A service that returns or panics before shutdown is restarted after a growing backoff; its state is what the wallet's service inspector shows. The one exception is an engine that keeps failing before the node is up, which ends the daemon instead ([Readiness](#readiness)).
 - **The engine owns the money path's state and is its only writer** ([below](#the-engine)): the ledger, peers and settlement schemes, BTP tokens, and payments as they are created, paid and sent, with what grants have spent. Everything else changes that state only through the engine's commands, and live views follow change counters it publishes in `watch` cells ([RPC](rpc.md)). State that moves no money, such as the configuration, sessions, certificates, exchange rates, and Open Payments grants and quotes, is written to the store directly by the service it belongs to, which also forgets payments that are over. The config is a `watch` cell too, and the engine reconfigures itself when it changes.
 - **The node's decisions are pure, in `dassie-node-core`:** setup and login checks, session lifetimes, rate limits, the same-origin rule, configuration values and certificate renewal are functions of their inputs, `now` and an injected RNG ([engineering](../engineering.md)). `dassie-node` only carries them out.
 - **Time and randomness are injected.** Everything the node decides takes its time and randomness from `clock.rs`, so tests and simulations substitute their own. Two things decide nothing and are exempt: pacing I/O on the monotonic clock (timeouts, keepalives, the supervisor's backoff), and the TLS and ACME keys, which `rcgen` generates from the OS RNG.
@@ -41,6 +41,15 @@ In tests and simulations a commit never holds a broken invariant, so what stops 
 - **Nothing blocks on the network.** Exchange rates, the settlement schemes' ledger connections and the bootstrap polls are readiness conditions with retries, not steps startup waits for. Services that need an identity wait for one, which may be long after startup.
 - **The IPC socket appears only once the daemon answers.** The standalone daemon binds it in a private directory and renames it into place, so it is never reachable with looser permissions, before the daemon answers, or after one that failed ([RPC](rpc.md#ipc-socket)).
 - **The setup URL is never logged:** whoever opens it first claims the node, and the journal is readable by groups that do not administer it. The daemon logs that `sudo dassie setup-url` prints it.
+
+### Readiness
+
+The daemon reports readiness (`READY=1` under systemd) once the node works, not once it listens, since an update rolls back only a node that does not come up ([Release](release.md#rolling-back), [D30](../decisions/D30-a-node-is-up-once-its-engine-has-committed-a-step.md)).
+
+- **Ready once the engine has committed its first step,** with the listeners bound and the services started. The engine takes that step as soon as it has rebuilt itself from the database, without waiting for a command, a timer or the network, so a node with nothing to do is ready at once.
+- **A node without an identity is ready at once.** It has no engine to wait for: the engine starts once the owner sets the node up, and its failures from then on are restarted like any other service's.
+- **An engine that fails a few times before its first step ends the daemon** with an error (`START_ATTEMPTS` in `supervisor.rs`), instead of being restarted for ever: the process exits 1 without having reported readiness, so systemd fails the start and `dassie update` rolls back. Once the node is up, the engine is restarted as any service is.
+- Readiness proves the engine starts on this database, not that it keeps running: a failure after its first step, such as a panic on some packet, is restarted and not rolled back.
 
 ## Shutdown
 
@@ -117,3 +126,4 @@ The CLI talks to the daemon over the IPC socket with the same RPC contract as th
 - [D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md): injected time and randomness, decisions in `dassie-node-core`, and checking state before each commit.
 - [D23](../decisions/D23-each-node-books-its-own-fulfills.md): why an upgrade lifts the bans made for a grace limit and makes owed Fulfills final.
 - [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md): why a failed commit is to be the only fault injected at the store.
+- [D30](../decisions/D30-a-node-is-up-once-its-engine-has-committed-a-step.md): readiness once the engine has committed a step, and a daemon that exits when its engine cannot start.

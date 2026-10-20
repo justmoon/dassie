@@ -26,6 +26,7 @@ use dassie_node::env::{Env, Settings};
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, client_message, request, response, server_message};
 use dassie_node::store::Store;
+use dassie_node::systemd::Notifier;
 use dassie_node::{ipc, tls};
 use dassie_node_core::testing::SeededRng;
 use futures_util::{SinkExt, StreamExt};
@@ -57,6 +58,7 @@ pub struct Bound {
     https: std::net::TcpListener,
     ipc_path: PathBuf,
     ipc: std::os::unix::net::UnixListener,
+    notify: Option<PathBuf>,
 }
 
 impl Bound {
@@ -77,7 +79,15 @@ impl Bound {
             https,
             ipc_path,
             ipc,
+            notify: None,
         }
+    }
+
+    /// The daemon reports readiness to the datagram socket at `path`, as to
+    /// systemd's.
+    pub fn notifying(mut self, path: &std::path::Path) -> Self {
+        self.notify = Some(path.to_owned());
+        self
     }
 
     /// The HTTPS port the daemon will have.
@@ -99,6 +109,7 @@ impl Bound {
             https,
             ipc_path,
             ipc,
+            notify,
         } = self;
         let state = dir.path().join("state");
         let state_text = state.to_str().unwrap().to_owned();
@@ -112,7 +123,10 @@ impl Bound {
         let store = Store::open(&state).unwrap();
         let (http_address, https_address) =
             (http.local_addr().unwrap(), https.local_addr().unwrap());
-        let prepared = Prepared::from_parts(settings, store, http, https, ipc);
+        let mut prepared = Prepared::from_parts(settings, store, http, https, ipc);
+        if let Some(path) = notify {
+            prepared = prepared.notifying(Notifier::Path(path));
+        }
         let shutdown = CancellationToken::new();
         let handle = tokio::spawn(daemon::run(
             prepared,
@@ -182,6 +196,18 @@ impl TestNode {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
         panic!("the daemon did not come up");
+    }
+
+    /// Waits for the daemon to end by itself, and returns how it ended and
+    /// its directory.
+    pub async fn ended(mut self) -> (Result<(), DaemonError>, tempfile::TempDir) {
+        let handle = self.handle.take().unwrap();
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(30), handle)
+            .await
+            .expect("the daemon did not end")
+            .unwrap();
+        let _ = std::fs::remove_file(&self.ipc);
+        (outcome, self.dir)
     }
 
     /// Stops the daemon and returns its directory and clock, to start again.

@@ -482,8 +482,15 @@ impl Engine {
 /// The engine as a supervised service: waits for the node's identity, then
 /// runs until shutdown. A panic or error ends the generation; the
 /// supervisor starts the next.
+///
+/// The node is up once the engine's first step is on disk, or, on a node
+/// without an identity, at once, since nothing starts until the owner sets
+/// it up (spec/areas/node.md#readiness).
 pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
     let mut identity = node.identity();
+    if identity.borrow().is_none() {
+        node.services().up();
+    }
     let key = tokio::select! {
         () = shutdown.cancelled() => return,
         key = identity.wait_for(Option::is_some) => match key {
@@ -577,8 +584,10 @@ impl Driver<'_> {
     ) {
         let mut wake = self.node.clock().subscribe();
         // What starting the core asked for, such as the schemes'
-        // connections, goes out now.
+        // connections, goes out now. With this first step on disk, the
+        // engine works.
         self.finish();
+        self.node.services().up();
         loop {
             let delay = self
                 .core
