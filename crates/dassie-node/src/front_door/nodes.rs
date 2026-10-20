@@ -1,0 +1,275 @@
+//! The front door's connections to the nodes it serves: a few relayed
+//! streams per node, each a keep-alive HTTP/1.1 connection, opened on the
+//! QUIC connection the node keeps to the front door
+//! ([`Quic::open_held`]).
+//!
+//! A node gets at most [`STREAMS_PER_NODE`] at once, the share any one
+//! client of a relay has of a destination, and the front door holds at
+//! most [`MAX_STREAMS`] in all. A stream left idle is closed before the
+//! node would close it, so a request rarely meets a connection that is
+//! going away; one that did is found before anything is sent.
+
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use bytes::Bytes;
+use dassie_identity::NodeId;
+use http_body_util::{BodyExt, Limited};
+use hyper::client::conn::http1::{self, SendRequest};
+use hyper::{Request, Response};
+use hyper_util::rt::TokioIo;
+use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
+
+use crate::http::response::Body;
+use crate::log::target;
+use crate::node::lock;
+use crate::quic::Quic;
+use crate::quic::relay::{MAX_RELAYED, MAX_RELAYED_PER_CLIENT_TO_DESTINATION, Purpose, RelayError};
+
+/// Most streams to one node at once: what a relay lets one client address
+/// hold to one destination.
+pub const STREAMS_PER_NODE: usize = MAX_RELAYED_PER_CLIENT_TO_DESTINATION;
+
+/// Most streams to all nodes at once: what a relay carries in all.
+pub const MAX_STREAMS: usize = MAX_RELAYED;
+
+/// A stream unused this long is closed: well before a node's HTTP server
+/// closes an idle connection, after its time to send a request's head.
+const IDLE_FOR: Duration = Duration::from_secs(5);
+
+/// Time to open a stream and run its TLS.
+const OPEN_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Time for a node to answer a request in full.
+const ANSWER_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The largest answer passed back, in bytes: lists of payments are paged.
+pub const MAX_ANSWER_BYTES: usize = 256 * 1024;
+
+const _: () = assert!(IDLE_FOR.as_secs() < crate::http::HEADER_TIMEOUT.as_secs());
+
+/// Why a node gave no answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Missed {
+    /// The node holds no connection to the front door.
+    NotConnected,
+    /// The node, or the front door, has no stream to spare.
+    Busy,
+    /// The stream, its TLS or the node's answer broke, or the answer was
+    /// too long.
+    Broken,
+    /// The node did not answer in time.
+    TimedOut,
+}
+
+/// An answer read in full.
+pub type Answer = (hyper::http::response::Parts, Bytes);
+
+/// The streams to every node.
+pub struct Nodes {
+    quic: Arc<Quic>,
+    table: Mutex<Table>,
+    shutdown: CancellationToken,
+}
+
+#[derive(Default)]
+struct Table {
+    pools: BTreeMap<NodeId, Pool>,
+    /// Streams in all pools, idle and leased.
+    streams: usize,
+}
+
+/// One node's streams: those waiting for a request, and how many are
+/// leased.
+#[derive(Default)]
+struct Pool {
+    idle: Vec<(SendRequest<Body>, Instant)>,
+    leased: usize,
+}
+
+impl Table {
+    /// Drops the idle streams that closed, or waited too long, and the
+    /// pools left empty.
+    fn prune(&mut self, now: Instant) {
+        let mut dropped = 0;
+        for pool in self.pools.values_mut() {
+            let before = pool.idle.len();
+            pool.idle
+                .retain(|(sender, since)| !sender.is_closed() && now - *since < IDLE_FOR);
+            dropped += before - pool.idle.len();
+        }
+        self.pools
+            .retain(|_, pool| pool.leased > 0 || !pool.idle.is_empty());
+        self.streams -= dropped;
+        self.check();
+    }
+
+    fn check(&self) {
+        let counted: usize = self
+            .pools
+            .values()
+            .map(|pool| pool.idle.len() + pool.leased)
+            .sum();
+        assert_eq!(counted, self.streams);
+        assert!(self.streams <= MAX_STREAMS);
+        assert!(
+            self.pools
+                .values()
+                .all(|pool| pool.idle.len() + pool.leased <= STREAMS_PER_NODE)
+        );
+    }
+}
+
+impl Nodes {
+    /// Streams over `quic`'s connections, closed at `shutdown`.
+    #[must_use]
+    pub fn new(quic: Arc<Quic>, shutdown: CancellationToken) -> Self {
+        Self {
+            quic,
+            table: Mutex::new(Table::default()),
+            shutdown,
+        }
+    }
+
+    /// Sends `request` to `node` and reads its answer, within the bounds.
+    ///
+    /// # Errors
+    ///
+    /// See [`Missed`].
+    pub async fn send(
+        self: &Arc<Self>,
+        node: NodeId,
+        request: Request<Body>,
+    ) -> Result<Answer, Missed> {
+        let mut lease = self.lease(node)?;
+        let reused = match lease.sender.take() {
+            Some(mut sender) => match tokio::time::timeout(OPEN_TIMEOUT, sender.ready()).await {
+                Ok(Ok(())) => Some(sender),
+                _ => None,
+            },
+            None => None,
+        };
+        let mut sender = match reused {
+            Some(sender) => sender,
+            None => self.open(node).await?,
+        };
+        let answered = async {
+            // hyper's HTTP/1 client cancels a request sent before the
+            // connection is ready, so even a new one is awaited.
+            sender.ready().await.map_err(|_| Missed::Broken)?;
+            let response = sender
+                .send_request(request)
+                .await
+                .map_err(|_| Missed::Broken)?;
+            read(response).await
+        };
+        let answer = tokio::time::timeout(ANSWER_TIMEOUT, answered)
+            .await
+            .map_err(|_| Missed::TimedOut)??;
+        lease.sender = Some(sender);
+        Ok(answer)
+    }
+
+    /// A place for one more request to `node`, with an idle stream if one
+    /// is left.
+    fn lease(self: &Arc<Self>, node: NodeId) -> Result<Lease, Missed> {
+        let mut table = lock(&self.table);
+        table.prune(Instant::now());
+        let in_pool = table
+            .pools
+            .get(&node)
+            .map_or(0, |pool| pool.idle.len() + pool.leased);
+        let has_idle = table
+            .pools
+            .get(&node)
+            .is_some_and(|pool| !pool.idle.is_empty());
+        if !has_idle && (in_pool >= STREAMS_PER_NODE || table.streams >= MAX_STREAMS) {
+            return Err(Missed::Busy);
+        }
+        if !has_idle {
+            table.streams += 1;
+        }
+        let pool = table.pools.entry(node).or_default();
+        pool.leased += 1;
+        let sender = pool.idle.pop().map(|(sender, _)| sender);
+        table.check();
+        Ok(Lease {
+            nodes: Arc::clone(self),
+            node,
+            sender,
+        })
+    }
+
+    /// Opens a stream to `node` and runs HTTP/1.1 on it until it closes or
+    /// the front door shuts down.
+    async fn open(&self, node: NodeId) -> Result<SendRequest<Body>, Missed> {
+        let opening = self.quic.open_held(node, Purpose::Payments);
+        let stream = match tokio::time::timeout(OPEN_TIMEOUT, opening).await {
+            Ok(Ok(stream)) => stream,
+            Ok(Err(RelayError::UnknownDestination | RelayError::Unreachable)) => {
+                return Err(Missed::NotConnected);
+            }
+            Ok(Err(RelayError::Busy)) => return Err(Missed::Busy),
+            Ok(Err(error)) => {
+                tracing::debug!(target: target::FRONT_DOOR, %node, %error, "no stream to the node");
+                return Err(Missed::Broken);
+            }
+            Err(_) => return Err(Missed::TimedOut),
+        };
+        let (sender, connection) = http1::handshake(TokioIo::new(stream))
+            .await
+            .map_err(|_| Missed::Broken)?;
+        let shutdown = self.shutdown.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = connection => {}
+                () = shutdown.cancelled() => {}
+            }
+        });
+        Ok(sender)
+    }
+
+    /// Streams open now, idle and in use.
+    #[must_use]
+    pub fn streams(&self) -> usize {
+        lock(&self.table).streams
+    }
+}
+
+/// Reads an answer whole, up to [`MAX_ANSWER_BYTES`].
+async fn read(response: Response<hyper::body::Incoming>) -> Result<Answer, Missed> {
+    let (parts, body) = response.into_parts();
+    let body = Limited::new(body, MAX_ANSWER_BYTES)
+        .collect()
+        .await
+        .map_err(|_| Missed::Broken)?
+        .to_bytes();
+    Ok((parts, body))
+}
+
+/// A request's place among a node's streams. Its stream goes back to the
+/// pool if the request was answered, and is closed otherwise, however the
+/// request ended.
+struct Lease {
+    nodes: Arc<Nodes>,
+    node: NodeId,
+    sender: Option<SendRequest<Body>>,
+}
+
+impl Drop for Lease {
+    fn drop(&mut self) {
+        let mut table = lock(&self.nodes.table);
+        let kept = self.sender.take().filter(|sender| !sender.is_closed());
+        let Some(pool) = table.pools.get_mut(&self.node) else {
+            return;
+        };
+        pool.leased -= 1;
+        match kept {
+            Some(sender) => pool.idle.push((sender, Instant::now())),
+            None => table.streams -= 1,
+        }
+        table.prune(Instant::now());
+    }
+}

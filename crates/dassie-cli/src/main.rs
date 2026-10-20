@@ -6,8 +6,10 @@
 //!   link that completes setup, over the IPC socket too.
 //! - `dassie update` installs a newer release from the mirror.
 //! - `dassie verify-install` checks that this binary works here.
+//! - `dassie front-door` runs a front door, which is no node.
 
 mod client;
+mod front_door;
 mod init;
 mod status;
 mod update;
@@ -60,6 +62,20 @@ Commands:
                                                    https://get.dassie.land)
                       --no-restart                 leave systemd alone
   verify-install    Verify that Dassie and its dependencies work here.
+  front-door        Run a front door: Open Payments at <label>.<domain> for
+                    nodes that name it as their relay. Each flag overrides
+                    its DASSIE_FRONT_DOOR_* variable.
+                      --domain <name>           the domain (dassiepay.net)
+                      --https-listen <addr:port> HTTPS ([::]:443)
+                      --quic-listen <addr:port>  QUIC, on UDP ([::]:443)
+                      --certificate <file>      PEM chain for *.<domain>
+                      --certificate-key <file>  its PEM key
+                      --key-file <file>         the front door's own key
+                      --relay-url <url>         where nodes dial it
+                                                (https://relay.<domain>)
+                      --make-key                make the key file if there
+                                                is none, print the entry for
+                                                DASSIE_RELAY, and exit
 
 Options:
   -h, --help        Show this help.
@@ -110,6 +126,7 @@ fn run() -> Result<ExitCode, lexopt::Error> {
                 no_more(&mut parser)?;
                 Ok(verify_install())
             }
+            "front-door" => Ok(front_door::run(front_door::args(&mut parser)?)),
             other => Err(format!("unknown command {other:?}").into()),
         },
         other => Err(other.unexpected()),

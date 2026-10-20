@@ -75,6 +75,8 @@ pub mod target {
     pub const PAYMENT: &str = "das:node:payment";
     /// Settlement schemes.
     pub const SETTLEMENT: &str = "das:node:settlement";
+    /// A front door: its listeners, certificate and the nodes it reaches.
+    pub const FRONT_DOOR: &str = "das:front-door";
 }
 
 /// The lowest level shown.

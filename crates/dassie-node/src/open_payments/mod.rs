@@ -50,8 +50,9 @@ pub const INCOMING_PREFIX: &str = "/incoming-payments";
 /// `<label>.dassiepay.net` first.
 pub const DEFAULT_FRONT_DOOR_DOMAIN: &str = "dassiepay.net";
 
-/// Every Open Payments request, per client address.
-const REQUESTS: RateLimitPolicy = RateLimitPolicy {
+/// Every Open Payments request, per client address. A front door charges
+/// its clients the same.
+pub const REQUESTS: RateLimitPolicy = RateLimitPolicy {
     client_burst: 120,
     client_refill_ms: 250,
     client_slots: 1024,
