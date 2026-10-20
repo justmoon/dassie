@@ -20,7 +20,7 @@
 ## Accepted
 
 - While its server is behind, the scheme stays syncing and settles nothing, until the server catches up or goes silent and the connection is made anew.
-- A server that lies can still claim a reset on the testnet, by reporting a lower ledger with a later close time, and make the node write off its balance and cancel what is in flight. It could already make the scheme book anything it says. Checking validators' signatures is a separate choice, not made here.
+- A server that lies can still claim a reset on the testnet, by reporting a lower ledger with a later close time, and make the node write off its balance and cancel what is in flight. It could already make the scheme book anything it says. Checking validators' signatures would stop both; it is an [open area](../roadmap.md#checking-xrp-ledger-validators), not part of this decision.
 - On the testnet, an account absent as of a ledger the scheme has not seen past is still written off, as when its owner deletes it.
 
 ## Rejected

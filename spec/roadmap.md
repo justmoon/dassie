@@ -66,6 +66,18 @@ Nodes without a public IP join as periphery nodes: they connect only to core nod
 - **It needs** [the channel limit](#not-built-yet) lifted, so that a core node keeps few relationships with core nodes.
 - **Done when:** a periphery node behind a NAT peers with two core nodes, gets an address beneath each, pays and is paid through them, and keeps working when it loses one. Its owner's paired app reaches it through a relay, and a third-party Open Payments client pays it through a front door, whose response a Dassie client checks against the node ID. A free receiver is paid, spends through its uplink, and has its account created by the first settlement. In the simulation, home nodes that withhold, and ground core keys, hide no node from a relay it chose.
 
+### Checking XRP Ledger validators
+
+The XRPL scheme takes its server's word on which ledgers are validated and what they hold ([XRPL](areas/xrpl.md#following-the-account)). Acting only on ledgers past the newest seen ([D32](decisions/D32-a-ledger-below-the-newest-seen-is-a-reset-only-on-the-testnet.md)) protects against a server that lags, not one that lies. A dishonest server can make the scheme book a settlement that never arrived, cancel one that applied by calling the account absent, or, on the testnet, claim a reset by reporting a lower ledger that closed later, so that the node writes off its balance. The node is to check the validators' signatures itself, so that no server can fake validated state or a reset.
+
+- **What it covers:**
+  - **A UNL of the node's own:** the validator list it trusts, signed by a list publisher whose key the node is configured with, and the validators' manifests, which bind each validator's signing key to its master key and can revoke it.
+  - **Validations checked on every ledger the scheme acts on:** a ledger counts as validated only once a quorum of the UNL has signed its hash. What the scheme reads from it, its transactions and the account's state, counts only once it is tied to that hash; how each answer is tied to it is part of the work.
+  - **A reset** is a new chain that the UNL validates, so a server alone can no longer claim one.
+  - **The fake ledger** gets validators that sign its ledgers, and a server that lies, so the simulation can show the scheme ignoring it.
+- **It matters before real money.** A mainnet scheme that took one server's word would let that server's operator have the node book XRP that never arrived. [D8](decisions/D08-real-money.md)'s conditions do not name this check; whether they should is decided with the mainnet scheme ([Real money](#real-money)).
+- **Done when:** a server that reports a transaction, a balance or an absent account that no validated ledger holds, or a reset no quorum signed, gets nothing booked, written off or cancelled, and the scheme waits until an honest server answers; with an honest server, the scheme settles as before.
+
 ## Not built yet
 
 Gaps between what the spec's contract or decisions ask for and what `main` does. Each can be picked up on its own.
@@ -89,7 +101,7 @@ The `live` realm is refused, and the XRP Ledger mainnet has no scheme ([D8](deci
 - releases are signed ([Release](areas/release.md));
 - there has been an external review.
 
-The first four are on `main`; the external review has not happened. Mainnet also needs a scheme of its own, with its own memo type, versioned with the peer protocol, and a mainnet bootstrap node list must exist before `live` makes sense. Until then, the testnet scheme stops unless its server reports the testnet's network ID, so a mainnet server never gets XRP booked or signed for with a testnet wallet. Settlement hubs hold real money only under the same conditions.
+The first four are on `main`; the external review has not happened. Mainnet also needs a scheme of its own, with its own memo type, versioned with the peer protocol, and a mainnet bootstrap node list must exist before `live` makes sense. Until then, the testnet scheme stops unless its server reports the testnet's network ID, so a mainnet server never gets XRP booked or signed for with a testnet wallet. The scheme still takes its server's word on what is validated; checking the validators itself is an [open area](#checking-xrp-ledger-validators). Settlement hubs hold real money only under the same conditions.
 
 ## Smaller open points
 
@@ -120,3 +132,4 @@ Designs that stay future work. The architecture must not preclude them.
 - [D20](decisions/D20-trust-follows-what-a-peer-earned-us.md), [D23](decisions/D23-each-node-books-its-own-fulfills.md): credit growth's constants; the fields a later protocol version drops.
 - [D22](decisions/D22-settlement-hubs.md): settlement hubs.
 - [D27](decisions/D27-simulations-run-continuously-from-random-seeds.md): the simulation campaign.
+- [D32](decisions/D32-a-ledger-below-the-newest-seen-is-a-reset-only-on-the-testnet.md): a lagging server is handled; one that lies needs the validators checked.
