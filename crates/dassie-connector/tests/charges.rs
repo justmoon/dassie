@@ -1,5 +1,7 @@
 //! What transit costs (D7): a fee on what passes from one peer to another,
 //! a spread on what it converts, and nothing on the owner's own packets.
+//! The original charged neither (ACC-3); registration fees, the gap's other
+//! part, are not built (spec/roadmap.md#registration-fees).
 
 #![allow(
     clippy::unwrap_used,

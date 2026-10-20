@@ -6,6 +6,13 @@
 //! ledger: the one the owner chose, or else the lowest active one. Every
 //! URL is built from the configured hostname, so the node serves Open
 //! Payments only once it has one.
+//!
+//! The original's Open Payments had no GNAP, served no incoming payment by
+//! its ID, fixed the asset at USD/2, linked no money it received to a
+//! payment, quoted 1:1, and counted outgoing payments twice (ILP-10). Here
+//! it is served as its specs define it. SPSP stays out on purpose (D9), and
+//! each read still hands out fresh credentials, now for a STREAM
+//! connection per payment (spec/areas/payments.md#receiving).
 
 pub mod auth;
 pub mod client;

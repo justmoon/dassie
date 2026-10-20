@@ -20,7 +20,10 @@
 //!
 //! It settles only on the testnet: a server that reports another network,
 //! or none, stops the scheme before the account is read, so mainnet XRP is
-//! never booked, written off or signed for.
+//! never booked, written off or signed for. The original's mainnet module,
+//! never registered, would have taken every settlement for a deposit
+//! (ACC-13); a mainnet scheme waits for real money (D8), with a memo type
+//! of its own.
 //!
 //! It acts only on what a server says as of a validated ledger at or past
 //! the newest it has seen: a server behind the others says nothing new,

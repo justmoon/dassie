@@ -36,7 +36,9 @@ pub struct FinishedIncoming {
     pub received: Vec<(ConnectionKey, u64)>,
 }
 
-/// A resource's ID: 16 random bytes, written as a UUID.
+/// A resource's ID: 16 random bytes, written as a UUID. The node makes
+/// every one, where the original took a payment's from the client and
+/// checked neither its length nor that it was new (RT-22).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PaymentId(pub [u8; 16]);
 

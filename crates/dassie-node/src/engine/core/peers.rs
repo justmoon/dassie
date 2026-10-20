@@ -524,7 +524,9 @@ impl Core {
     /// the active ones that have seen their ledger (D31). Before a scheme
     /// first synced, a peer's settlement would be booked as the owner's
     /// deposit, so the node neither offers, asks for nor accepts a peering
-    /// on it; peerings already made stay.
+    /// on it; peerings already made stay. The list is made from the schemes
+    /// active now, each time: the original's started from those active at
+    /// its start, so of two changes the second undid the first (ACC-11).
     pub(super) fn update_peer_schemes(&mut self) {
         let schemes: Vec<SchemeId> = self
             .schemes
@@ -633,7 +635,12 @@ impl Core {
     }
 
     /// Makes a peer a connector endpoint, on its scheme's ledger, at the
-    /// address ILDCP will tell it.
+    /// address ILDCP will tell it: its own `<scheme>.das.<id>`, which
+    /// routes reach as they reach any node's. The original gave a peer that
+    /// was not a member an address beneath its own that nothing routed to
+    /// (NET-21), and stored the addresses its peers gave it without reading
+    /// them (NET-23). Child peers, beneath an uplink's address, wait for the
+    /// periphery (spec/roadmap.md#periphery).
     pub(super) fn add_peer_endpoint(&mut self, node: NodeId) -> Result<(), String> {
         if self.peer_endpoints.contains_key(&node) {
             return Ok(());

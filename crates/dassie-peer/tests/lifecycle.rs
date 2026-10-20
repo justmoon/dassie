@@ -255,9 +255,10 @@ fn refused_settlement(status: Option<u16>, tries: usize) {
     assert_eq!((network.applied[0].from, network.applied[0].amount), (a, 5));
 }
 
-// An owner's termination ends the peering on both sides, and the pair does
-// not peer again during the cooldown. It begins privately (D28): the peer
-// is still advertised, until the node collected and tells it.
+// NET-13: the original could not end a peering. Here an owner's
+// termination ends it on both sides, and the pair does not peer again
+// during the cooldown. It begins privately (D28): the peer is still
+// advertised, until the node collected and tells it.
 #[test]
 fn an_owner_ends_a_peering() {
     let (mut network, a, b) = peered(34);
@@ -425,7 +426,8 @@ fn downtime_is_not_silence() {
     assert!(network.node(1).is_advertised(&a));
 }
 
-// A ban ends the peering, and the node is refused from then on.
+// NET-13: the original had no bans. A ban ends the peering, and the node
+// is refused from then on.
 #[test]
 fn a_banned_node_is_refused() {
     let (mut network, a, b) = peered(40);

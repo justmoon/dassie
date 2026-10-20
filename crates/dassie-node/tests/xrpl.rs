@@ -139,6 +139,8 @@ async fn in_step(node: &TestNode, key: &NodeKey, server: &Server) -> bool {
         && ledger.on_ledger_balance == drops * 1_000 - ledger.reserve
 }
 
+// The scheme's config, which names its server and faucet, reaches it
+// through the RPC and again after a restart (RT-21, ACC-12).
 #[tokio::test(flavor = "multi_thread")]
 async fn two_daemons_settle_on_the_xrp_ledger_across_restarts() {
     let server = fake_ledger().await;
