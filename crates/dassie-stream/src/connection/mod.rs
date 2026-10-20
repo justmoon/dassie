@@ -193,11 +193,14 @@ struct Probing {
     outstanding: usize,
     /// Significant digits and rate of the best result so far.
     best: Option<(u32, u64, Rate)>,
-    /// Packet maxima learned from F08 rejects, for the next volley.
-    maxima: [u64; MAX_PROBES],
-    maxima_count: usize,
-    /// The smallest amount that hit a temporary error.
-    smallest_temporary: Option<u64>,
+    /// Amounts for the next volley: the packet maxima F08 rejects
+    /// revealed, and probes lost or refused for the moment, smaller. A
+    /// volley has at most `MAX_PROBES` probes and each leaves at most one.
+    retries: [u64; MAX_PROBES],
+    retry_count: usize,
+    /// Whether a probe of this volley was lost or refused for the moment,
+    /// so the next one waits.
+    temporary: bool,
     volleys: u32,
 }
 
@@ -576,9 +579,9 @@ impl Connection {
             queued: 0,
             outstanding: 0,
             best: None,
-            maxima: [0; MAX_PROBES],
-            maxima_count: 0,
-            smallest_temporary: None,
+            retries: [0; MAX_PROBES],
+            retry_count: 0,
+            temporary: false,
             volleys: 1,
         };
         for amount in [1, 1_000, 1_000_000, 1_000_000_000, 1_000_000_000_000] {
@@ -808,6 +811,17 @@ impl Connection {
 }
 
 impl Probing {
+    fn retry(&mut self, amount: u64) {
+        assert!(
+            self.retry_count < MAX_PROBES,
+            "more retries than a volley has probes"
+        );
+        if let Some(slot) = self.retries.get_mut(self.retry_count) {
+            *slot = amount;
+            self.retry_count += 1;
+        }
+    }
+
     fn enqueue(&mut self, amount: u64) {
         if amount == 0 {
             return;

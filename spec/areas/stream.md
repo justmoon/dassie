@@ -76,7 +76,7 @@ AIMD on the number of packets in flight: an extension RFC 29 does not have (`ilp
 
 ## Exchange rates
 
-A connection sends money only at a rate the application sets, the least the receiver must get per source unit, enforced through each packet's `prepareAmount`. The rate is measured only when the application asks (`measure_exchange_rate`): volleys of unfulfillable probes of growing size, retried at the packet maxima F08s reveal, until a result has enough significant digits; the connection then sends at that rate less slippage. A measurement that finds none fails as an event, not an error. The node's quotes measure routes this way ([Payments](payments.md)).
+A connection sends money only at a rate the application sets, the least the receiver must get per source unit, enforced through each packet's `prepareAmount`. The rate is measured only when the application asks (`measure_exchange_rate`): volleys of unfulfillable probes of growing size, until a result has enough significant digits; the connection then sends at that rate less slippage. Each further volley tries the packet maxima F08s revealed and, smaller, every probe that was lost or refused for the moment, unless a reply already showed a larger amount, which it could not improve on. A lossy path therefore fails a measurement only by losing every useful probe of every volley, not by losing the wrong two. A measurement that finds none within its volleys fails as an event, not an error, and the application decides whether to measure again. The node's quotes measure routes this way ([Payments](payments.md)).
 
 Conversions round so a sender never overpays.
 
