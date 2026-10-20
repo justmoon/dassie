@@ -296,7 +296,9 @@ impl PeerNode {
         }
     }
 
-    /// Changes the active settlement schemes, in order of preference.
+    /// Changes the settlement schemes the node peers on, in order of
+    /// preference: those it advertises, asks for and accepts peerings on.
+    /// Peerings already made on a scheme left out stay.
     pub fn set_schemes(&mut self, now_ms: u64, schemes: Vec<SchemeId>) {
         self.advance(now_ms);
         if schemes != self.schemes {

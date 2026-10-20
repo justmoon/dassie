@@ -108,6 +108,9 @@ impl Core {
     /// nothing more, so the books do not drift further from it, and the
     /// owner is told. Its state is not written, so a restart reads what
     /// the ledger said again.
+    ///
+    /// A scheme that has just synced for the first time can be peered on
+    /// from now (D31).
     fn scheme_effects(&mut self, scheme: Name, ledger: LedgerId, effects: &[Effect]) {
         if let Err(error) = self.apply_effects(scheme, ledger, effects) {
             self.report(SettlementEvent::SchemeStopped {
@@ -119,6 +122,7 @@ impl Core {
             }
         }
         self.close_if_stopped(scheme);
+        self.update_peer_schemes();
     }
 
     /// Closes the connection of a scheme that stopped, by the books or by

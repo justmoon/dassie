@@ -194,6 +194,17 @@ pub trait SettlementScheme: Send {
         LedgerStatus::Synced
     }
 
+    /// Whether the scheme has seen its ledger since it last started from
+    /// nothing: what its account held then is booked as the owner's, and
+    /// what arrives from now on is told apart, a peer's settlement from a
+    /// deposit. It is kept with the scheme's state, so it holds across
+    /// restarts whether or not the ledger can be reached. The node peers on
+    /// the scheme only once it has (D31). A scheme without a ledger to
+    /// follow has seen it from the start.
+    fn has_synced(&self) -> bool {
+        true
+    }
+
     /// Where the node connects for the scheme's underlying ledger, if it
     /// has one: a WebSocket URL. Messages go both ways as
     /// [`Effect::LedgerSend`] and [`LedgerInput::Message`].

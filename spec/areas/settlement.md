@@ -21,6 +21,7 @@ A scheme is sans-IO: its methods return effects (`Effect` in `scheme.rs`) for th
 - **Execute only once the pending transfer is on disk,** and report `Finalize` or `Cancel`, now or later. After a restart, `reconcile` gets the settlements still pending and reports the same for each.
 - **The message can be made again** from the settlement's ID, so a restart that lost it can still announce the settlement.
 - **Peering keeps nothing until it is made.** Creating, accepting and finalizing a peering request only check the other side's data; the scheme keeps what it needs of a peer when the node tells it the peering is made (`on_peered`), after the peer's accounts are open. So attempts that fail cost the scheme no room.
+- **Peering waits for the first sync.** A scheme's first sync books what its account holds as the owner's deposit; only after it can the scheme tell a peer's settlement from a deposit (`has_synced`). Until then the node neither offers, asks for nor accepts a peering on the scheme: it leaves the scheme out of its link state, picks no candidate on it, and refuses requests on it as for a scheme not active here ([Network](network.md#asking-and-answering), [D31](../decisions/D31-a-node-peers-on-a-scheme-only-once-it-has-seen-its-ledger.md)). The first sync is kept with the scheme's state, so a restart with the ledger out of reach peers as before, and peerings already made stay. A scheme without a ledger to follow has synced from the start.
 - **Reports** (deposits, withdrawals, ledger fees, reconciliations) are recorded even past the owner's limit ([Ledger](ledger.md#what-the-ledger-refuses-and-what-it-records)). An incoming settlement is booked Dr `assets/settlement`, Cr `assets/interledger/<peer>`.
 - **`Unavailable`** means not now (its ledger not seen, no funds to spare, too much in flight). It is asked again at the next check as if nothing happened.
 - **The scheme's reserve** is what its ledger holds back from the balance: never booked, so never spendable.
@@ -92,7 +93,7 @@ Amounts are rounded down to whole units of the scheme's ledger; what is less tha
 At every settlement check the node asks each peer whose position has fallen to its trigger, naming only the scheme ([Peer protocol](peer-protocol.md)). Nothing about a request is kept: a restart looks again.
 
 - **It asks again** at the next check once its books show a settlement from that peer, not on the `settlement` message alone: on the XRP Ledger the message books nothing, so asking on it would make the peer pay twice. It also asks again at the next check after a 409, since our acceptance may not have reached the peer yet, and after a request that surely never reached the peer (not delivered, [Peer protocol](peer-protocol.md#outbound-requests)), which costs the peer nothing and must not use up its grace before it is withdrawn ([Network](network.md#advertised-peers)). Otherwise it asks at most once a minute, so a peer that does not answer, refuses (400, 401) or is overloaded (503) is not flooded.
-- **Only while its scheme is synced.** An honest peer settles only when asked, so no settlement reaches the ledger before the scheme first synced, which books what the account held by then as the owner's deposit. A settlement a peer makes unasked before then is that deposit.
+- **Only while its scheme is synced.** Until then, what the peer pays is not booked, and the node cannot tell whether it paid. An honest peer settles only when asked, and no peering is made before the scheme's first sync ([above](#the-scheme-interface)), so what a peer settles, asked routinely or by a node ending the peering, reaches the ledger after that sync booked what the account held as the owner's deposit, and is booked as the peer's settlement.
 - With no credit extended, it asks at once, and asks again once what the peer paid in advance is down to the trigger.
 - **A peering the node is ending** is asked once more, by the peer node itself, before the peer is told, whatever its position; then no more ([Network](network.md#termination)).
 
@@ -150,6 +151,7 @@ A peer's settlement is believed as stated. Anyone peered over the stub can mint 
 - [D8](../decisions/D08-real-money.md): only test-realm ledgers activate.
 - [D12](../decisions/D12-peering-lifecycle-and-liveness.md): channels kept after a peering, and their limit.
 - [D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md): nothing settled for a peering's end.
+- [D31](../decisions/D31-a-node-peers-on-a-scheme-only-once-it-has-seen-its-ledger.md): no peering on a scheme before its first sync.
 - [D19](../decisions/D19-each-node-keeps-its-own-books.md): each node decides from its own books, and the bound that holds whatever a peer does.
 - [D20](../decisions/D20-trust-follows-what-a-peer-earned-us.md): junior and senior, starting credit, growth from fees.
 - [D23](../decisions/D23-each-node-books-its-own-fulfills.md): the creditor asks, the debtor decides how much.

@@ -1261,6 +1261,13 @@ impl SettlementScheme for XrplScheme {
         }
     }
 
+    /// The cursor is set by the first sync, after what the account held
+    /// was booked as the owner's, and kept with the state; it is dropped
+    /// only with the account, when a testnet reset starts it from nothing.
+    fn has_synced(&self) -> bool {
+        self.cursor.is_some()
+    }
+
     fn connection(&self) -> Option<&str> {
         Some(&self.config.server)
     }

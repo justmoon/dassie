@@ -43,9 +43,9 @@ The scheme books **every validated transaction that touches its account once, in
 
 After each, the books must hold the balance less the reserve; any difference, such as a reserve change or a balance below the reserve, is reconciled through `equity/suspense`. **The reserve is never booked, so never spent.** A transaction of ours is settled whenever the ledger shows it, even behind the cursor: what the balance booked through suspense meanwhile comes back out.
 
-**The first activation** books what the account holds above the reserve as the owner's deposit.
+**The first sync** books what the account holds above the reserve as the owner's deposit. Only then does the node peer on the scheme, so no peer's settlement is taken for that deposit ([Settlement](settlement.md#the-scheme-interface), [D31](../decisions/D31-a-node-peers-on-a-scheme-only-once-it-has-seen-its-ledger.md)). The cursor it sets is the record of that sync, kept with the state.
 
-**The account gone** (a testnet reset): what the books hold is a loss through suspense, everything in flight is cancelled (an account made again starts its sequence anew), the cursor is dropped, and the faucet is asked until the account exists again.
+**The account gone** (a testnet reset): what the books hold is a loss through suspense, everything in flight is cancelled (an account made again starts its sequence anew), the cursor is dropped, and the faucet is asked until the account exists again. The node takes no new peering on the scheme until it has synced again.
 
 ## Settling
 
@@ -76,3 +76,4 @@ The feature `fake` models the ledger for simulations and tests (`fake.rs`): acco
 
 - [D8](../decisions/D08-real-money.md): the gates before real money, and the testnet-only network check.
 - [D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md): sans-IO, so the fake ledger can stand in for the network.
+- [D31](../decisions/D31-a-node-peers-on-a-scheme-only-once-it-has-seen-its-ledger.md): no peering on the scheme before its first sync.

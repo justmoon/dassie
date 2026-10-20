@@ -63,7 +63,8 @@ pub enum RefusalReason {
     Unspecified,
     /// The requester is not in the table: not yet registered or listed.
     UnknownNode,
-    /// The scheme is not active here.
+    /// The scheme is not active here, or not yet peered on: it has not
+    /// seen its ledger.
     UnsupportedScheme,
     /// No version of the scheme is spoken by both.
     NoCommonVersion,
