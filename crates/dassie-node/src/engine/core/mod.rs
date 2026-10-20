@@ -783,6 +783,12 @@ fn check_bounds(policies: &Policies) {
         policies.ledger.max_journal >= 64,
         "a command's journal entries fit the journal"
     );
+    // Channels are never closed, so the XRPL scheme keeps the address of
+    // every node the node ever peered with, and never drops one for room.
+    assert!(
+        dassie_xrpl::scheme::MAX_PEERS >= policies.peer.max_channels,
+        "the XRPL scheme keeps an address for every settlement channel"
+    );
 }
 
 /// Most local endpoints at once: a receiver and a payer for each ledger

@@ -280,6 +280,8 @@ impl World {
             .scheme
             .finalize_peering_request(name_b, &info, &response)
             .unwrap();
+        self.nodes[b].scheme.on_peered(name_a, &state_at_b);
+        self.nodes[a].scheme.on_peered(name_b, &state_at_a);
         (state_at_a, state_at_b)
     }
 
@@ -370,6 +372,34 @@ fn a_settlement_from_the_wrong_address_is_a_deposit() {
     let books = &world.nodes[0].books;
     assert!(books.credited.is_empty());
     assert_eq!(books.owner, i128::from(FUNDED) + 1_000_000_000);
+}
+
+// Peering attempts that never became peerings, ours and others', as many
+// as the scheme keeps addresses, take no peer's place: the peer's next
+// settlement is still its own, not the owner's deposit.
+#[test]
+fn peering_attempts_never_displace_a_peers_address() {
+    let (mut world, _, state_b) = funded_pair();
+    let peer = world.nodes[1].name;
+    let mut info = Vec::new();
+    world.nodes[1].scheme.peering_info(&mut info);
+    for i in 0..dassie_xrpl::scheme::MAX_PEERS {
+        let stranger = name(&format!("stranger{i}"));
+        let (mut request, mut response) = (Vec::new(), Vec::new());
+        let scheme = &mut world.nodes[0].scheme;
+        scheme
+            .create_peering_request(stranger, &info, &mut request)
+            .unwrap();
+        scheme
+            .accept_peering_request(stranger, &info, &mut response)
+            .unwrap();
+        scheme.check_invariants();
+    }
+    world.settle(1, 0, 3_000_000_000, &state_b);
+    world.close();
+    let books = &world.nodes[0].books;
+    assert_eq!(books.owner, i128::from(FUNDED));
+    assert_eq!(books.peers.get(&peer), Some(&3_000_000_000));
 }
 
 // A Payment the ledger refuses after taking its fee (here: to an account

@@ -39,6 +39,8 @@ The scheme books **every validated transaction that touches its account once, in
 - **A settlement from a peer:** a successful Payment of XRP to us, whose memo has our memo type and names a peer, from the address that peer gave when peering. It is booked by `delivered_amount`, with its hash as the journal reference.
 - **Anything else** that adds XRP, the account's creation included, is a deposit; anything that takes XRP, a withdrawal.
 
+**Peers' addresses** are learnt only once a peering is made, never from an attempt that may still be refused, and kept after it ends, like the [settlement channel](settlement.md#settlement-channels) the peer's settlements come over. The scheme keeps at least as many as the node has channels (asserted at start), so no stranger's attempt displaces a peer's address and turns its settlement into the owner's deposit.
+
 After each, the books must hold the balance less the reserve; any difference, such as a reserve change or a balance below the reserve, is reconciled through `equity/suspense`. **The reserve is never booked, so never spent.** A transaction of ours is settled whenever the ledger shows it, even behind the cursor: what the balance booked through suspense meanwhile comes back out.
 
 **The first activation** books what the account holds above the reserve as the owner's deposit.

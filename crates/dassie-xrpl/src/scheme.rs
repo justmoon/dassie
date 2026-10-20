@@ -50,7 +50,8 @@ pub const MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrp-testnet/v1";
 
 /// Most of our transactions on their way at once.
 pub const MAX_IN_FLIGHT: usize = 8;
-/// Most peers whose addresses are kept.
+/// Most peers whose addresses are kept: at least the node's settlement
+/// channels, so every node it peered with keeps its own.
 pub const MAX_PEERS: usize = 512;
 /// The most fee the scheme pays, in drops: above it, it waits.
 pub const MAX_FEE_DROPS: u64 = 1_000;
@@ -946,7 +947,9 @@ impl XrplScheme {
     }
 
     /// Keeps a peer's address; past [`MAX_PEERS`], the one learnt longest
-    /// ago goes.
+    /// ago goes. Only peerings made are learnt, each with a settlement
+    /// channel the node never closes, and a node has at most [`MAX_PEERS`]
+    /// of those: no peer's address goes for another's.
     fn learn(&mut self, peer: Name, address: AccountId) {
         if !self.peers.contains_key(&peer)
             && self.peers.len() >= MAX_PEERS
@@ -1299,38 +1302,46 @@ impl SettlementScheme for XrplScheme {
 
     fn create_peering_request(
         &mut self,
-        peer: Name,
+        _peer: Name,
         peering_info: &[u8],
         out: &mut Vec<u8>,
     ) -> Result<(), SchemeError> {
-        // The responder's address, learnt now; the original ignored it.
-        let address = parse_address(peering_info)?;
-        self.learn(peer, address);
+        // The responder's address, checked now and learnt once the peering
+        // is made (`on_peered`); the original ignored it.
+        parse_address(peering_info)?;
         address_bytes(self.account(), out);
         Ok(())
     }
 
     fn accept_peering_request(
         &mut self,
-        peer: Name,
+        _peer: Name,
         data: &[u8],
         response: &mut Vec<u8>,
     ) -> Result<Vec<u8>, SchemeError> {
-        let address = parse_address(data)?;
-        self.learn(peer, address);
+        parse_address(data)?;
         response.clear();
         Ok(data.to_vec())
     }
 
     fn finalize_peering_request(
         &mut self,
-        peer: Name,
+        _peer: Name,
         peering_info: &[u8],
         _data: &[u8],
     ) -> Result<Vec<u8>, SchemeError> {
-        let address = parse_address(peering_info)?;
-        self.learn(peer, address);
+        parse_address(peering_info)?;
         Ok(peering_info.to_vec())
+    }
+
+    fn on_peered(&mut self, peer: Name, state: &[u8]) {
+        // The state is the peer's address, as accept or finalize returned
+        // it: learnt only now, so attempts never take a peer's place.
+        let address = parse_address(state);
+        assert!(address.is_ok(), "a peer state the scheme did not return");
+        if let Ok(address) = address {
+            self.learn(peer, address);
+        }
     }
 
     fn prepare_settlement(

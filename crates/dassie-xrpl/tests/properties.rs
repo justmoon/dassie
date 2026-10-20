@@ -1326,7 +1326,7 @@ proptest! {
             .unwrap();
         let mut run = Run::new(scheme);
         // The peer, as peering told it.
-        run.scheme.create_peering_request(peer(), &address_bytes(theirs()), &mut Vec::new()).unwrap();
+        run.scheme.on_peered(peer(), &address_bytes(theirs()));
         // Settlements a restart left pending, to look for.
         let pending: Vec<(Name, u64)> =
             recovering.iter().map(|hash| (Name::hex(hash, true), 1)).collect();

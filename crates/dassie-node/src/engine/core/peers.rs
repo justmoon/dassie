@@ -145,6 +145,12 @@ impl PeeringHooks for Hooks<'_> {
             .map_err(|_| RefusalReason::SchemeRefused)?;
         self.open(now_ms, peer, ledger, start)
             .map_err(|()| RefusalReason::Capacity)?;
+        // Only now is the peering made: a request refused takes none of
+        // the scheme's room.
+        let active = self
+            .scheme(scheme)
+            .ok_or(RefusalReason::UnsupportedScheme)?;
+        active.scheme.on_peered(peer_name, &state);
         Ok(Agreed { state, credit_out })
     }
 
@@ -180,6 +186,8 @@ impl PeeringHooks for Hooks<'_> {
         } else {
             credit_out
         };
+        let active = self.scheme(scheme).ok_or(Declined)?;
+        active.scheme.on_peered(peer_name, &state);
         Ok(Agreed { state, credit_out })
     }
 
