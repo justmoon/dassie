@@ -793,7 +793,11 @@ export async function reportTrusted(
   tally: Tally,
   complete: boolean,
 ): Promise<void> {
-  const unreadable = tally.unreadable();
+  // Only a finished loop fails the commit for what it could not read. A
+  // runner stopped by its time or memory limit leaves its last line cut
+  // short, which is no bug of the commit's, and an unfinished loop earns
+  // no runs, so nothing it lost can clear the commit.
+  const unreadable = complete ? tally.unreadable() : undefined;
   const failures = [...tally.failures.values()];
   if (unreadable) failures.push(unreadableFailure(unreadable));
   const issues = new Map<string, Issue>();

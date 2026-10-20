@@ -291,6 +291,29 @@ test("status: a trusted loop not all read fails closed, and adds no runs", async
   assert(issue.body.includes("-- campaign --minutes"));
 });
 
+test("status: an unfinished loop cut off mid-line fails nothing, and adds no runs", async () => {
+  const github = new FakeGitHub();
+  // The runner was stopped at its time limit while it wrote a line, and
+  // printed no summary.
+  const cut = failing("node", "4", 10).slice(0, 40);
+  await reportTrusted(github, MAIN, tally([line({}), cut]), false);
+  assertEquals(github.issues.length, 0);
+  assertEquals(github.statusesBySha.get(MAIN), undefined);
+  // Its real failures still count.
+  await reportTrusted(
+    github,
+    MAIN,
+    tally([failing("node", "5", 10), cut]),
+    false,
+  );
+  assertEquals(github.issues.map((each) => each.title), [
+    "sim: node/liveness/books",
+  ]);
+  const [status] = github.statusesBySha.get(MAIN)!;
+  assertEquals(status.state, "failure");
+  assertEquals(foldStatuses([status], BOT).runs, 0);
+});
+
 function entry(
   state: StatusEntry["state"],
   description: string,
