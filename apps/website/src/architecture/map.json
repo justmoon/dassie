@@ -300,7 +300,7 @@
       "does": [
         "The database and its migrations, HTTPS and IPC listeners, TLS and ACME, the owner's login",
         "The engine: ledger, connector, BTP server and STREAM receiver",
-        "The peer protocol, served as `POST /peer`, with its HTTPS client and the settlement loop",
+        "The peer protocol over QUIC, with each node's key pinned, and over HTTPS as `POST /peer` for nodes that do not take QUIC; the settlement loop",
         "RPC with live streams, the log ring, the database inspector and `GET /stats`",
         "Open Payments over HTTPS: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments",
         "Exchange rates, fetched from several sources, and the fee and spread on what passes between peers",
@@ -1103,7 +1103,7 @@
           "ids": [
             "node"
           ],
-          "text": "Those messages travel over HTTPS, as `POST /peer`, through the node's peer client."
+          "text": "Those messages travel over QUIC, one connection per pair of nodes, or over HTTPS as `POST /peer` to a node that does not take QUIC."
         },
         {
           "ids": [

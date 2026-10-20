@@ -1,0 +1,12 @@
+# UDP port 443 for the node, IPv4 and IPv6: the peer protocol over QUIC
+# (spec/areas/peer-protocol.md#transport). The node runs without it, over
+# HTTPS only, where it is missing or its port is taken.
+[Unit]
+Description=Dassie node, QUIC
+
+[Socket]
+ListenDatagram=443
+Service=dassie.service
+
+[Install]
+WantedBy=sockets.target

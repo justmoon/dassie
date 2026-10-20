@@ -219,6 +219,7 @@ fn our_sequence_survives_restarts_and_clock_rollback() {
             OwnInfo {
                 url: Some(url(0)),
                 alias: String::new(),
+                quic: false,
             },
             Vec::new(),
             Stored {
@@ -502,4 +503,121 @@ fn one_network_holds_only_its_share_of_strangers() {
     let reply = network.inbound_from(0, &body, address([192, 0, 2, 1]));
     assert_eq!(reply.status, 0, "the registration waits on a probe");
     network.node(0).check_invariants();
+}
+
+/// A node that takes QUIC, with `boot` as its bootstrap node.
+fn taking_quic(own: &Arc<NodeKey>, boot: &NodeKey) -> PeerNode {
+    PeerNode::new(
+        Config::DEV,
+        Arc::clone(own),
+        OwnInfo {
+            url: Some(url(0)),
+            alias: String::new(),
+            quic: true,
+        },
+        vec![dassie_peer::Bootstrap {
+            id: boot.node_id(),
+            url: url(1),
+            key: boot.public_key(),
+        }],
+        Stored::default(),
+        Box::new(SeededRng::new(1)),
+        START,
+    )
+}
+
+/// A link state of `key` at `url` that says the node takes QUIC.
+fn quic_link_state(key: &NodeKey, url: &str) -> Vec<u8> {
+    let info = NodeInfo {
+        node_id: key.node_id(),
+        sequence: START,
+        url,
+        alias: "",
+        public_key: *key.public_key().as_bytes(),
+        entries: vec![
+            Entry::Scheme(SchemeId::parse("stub").unwrap()),
+            Entry::Extension {
+                kind: dassie_peer::wire::EXTENSION_QUIC,
+                value: &[],
+            },
+        ],
+    };
+    sign_node_info(key, &info)
+}
+
+/// The requests the node wants sent now.
+fn sent(node: &mut PeerNode) -> Vec<dassie_peer::Request> {
+    let mut requests = Vec::new();
+    while let Some(output) = node.poll_output() {
+        if let dassie_peer::Output::Request(request) = output {
+            requests.push(request);
+        }
+    }
+    requests
+}
+
+// A node that takes QUIC says so in its link state. A request goes over QUIC
+// to a node whose link state says so, and over HTTPS to a bootstrap node
+// known only from the configuration, until its link state arrives.
+#[test]
+fn link_states_say_who_takes_quic_and_requests_follow_them() {
+    let (own, boot) = (key(0), key(1));
+    let mut hooks = dassie_peer::sim::StubHooks::default();
+    let mut node = taking_quic(&own, &boot);
+    node.handle_timeout(START, &mut hooks);
+    let before = sent(&mut node);
+    // Our link state goes to the bootstrap node at once.
+    let ours = before
+        .iter()
+        .find_map(|request| {
+            let envelope = dassie_peer::wire::Envelope::decode(&request.body).ok()?;
+            match Content::decode_exact(envelope.content).ok()? {
+                Content::LinkStateUpdate(state) => Some(state.info.speaks_quic()),
+                _ => None,
+            }
+        })
+        .unwrap();
+    assert!(ours);
+    let to_boot: Vec<_> = before.iter().filter(|r| r.to == boot.node_id()).collect();
+    assert!(!to_boot.is_empty());
+    assert!(to_boot.iter().all(|request| !request.quic));
+    for request in before {
+        node.handle_response(
+            START,
+            &mut hooks,
+            request.id,
+            Err(dassie_peer::Failure::NotDelivered),
+        );
+    }
+
+    let state = quic_link_state(&boot, &url(1));
+    let content = Content::LinkStateUpdate(SignedNodeInfo::decode_exact(&state).unwrap());
+    // Past the floor a sender we have not heard from starts at: our start.
+    let body = request_at(START + 1, &boot, 0, &content);
+    let reply = node.handle_inbound(
+        START + 1,
+        &mut hooks,
+        dassie_peer::InboundId(1),
+        &body,
+        None,
+    );
+    assert!(
+        matches!(&reply, dassie_peer::Inbound::Reply(reply) if reply.status == 200),
+        "{reply:?}"
+    );
+
+    let mut after = Vec::new();
+    for second in 1..=120 {
+        node.handle_timeout(START + second * 1_000, &mut hooks);
+        after.extend(
+            sent(&mut node)
+                .into_iter()
+                .filter(|r| r.to == boot.node_id()),
+        );
+        if !after.is_empty() {
+            break;
+        }
+    }
+    assert!(!after.is_empty());
+    assert!(after.iter().all(|request| request.quic));
 }

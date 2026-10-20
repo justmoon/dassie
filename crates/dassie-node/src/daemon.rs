@@ -18,7 +18,7 @@
 
 use std::fmt;
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, UdpSocket};
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -117,9 +117,19 @@ pub struct Prepared {
     http: TcpListener,
     https: TcpListener,
     ipc: UnixListener,
+    extras: Extras,
     /// The IPC socket the daemon made, published once it is ready.
     ipc_socket: Option<ipc::Unpublished>,
     notifier: Option<Notifier>,
+}
+
+/// What the daemon may have beside the three sockets it needs.
+#[derive(Debug, Default)]
+struct Extras {
+    /// The UDP socket for QUIC, where there is one.
+    quic: Option<UdpSocket>,
+    /// For tests: where the QUIC endpoint goes once it is made.
+    hand_out: Option<tokio::sync::oneshot::Sender<Arc<crate::quic::Quic>>>,
 }
 
 impl Prepared {
@@ -134,10 +144,10 @@ impl Prepared {
             Runtime::Standalone
         });
         let store = Store::open(&settings.data_dir).map_err(DaemonError::Store)?;
-        let (http, https, ipc, ipc_socket) = match runtime {
+        let (http, https, ipc, quic, ipc_socket) = match runtime {
             Runtime::Systemd => {
                 let sockets = systemd::take_sockets(env).map_err(DaemonError::Activation)?;
-                (sockets.http, sockets.https, sockets.ipc, None)
+                (sockets.http, sockets.https, sockets.ipc, sockets.quic, None)
             }
             Runtime::Standalone => {
                 let ports = match options.ports {
@@ -145,10 +155,11 @@ impl Prepared {
                     None => store.config().map_err(DaemonError::Store)?.ports,
                 };
                 let (http, https) = bind_ports(ports, options.listen)?;
+                let quic = bind_quic(&https);
                 let path = standalone_ipc_path(&settings, env);
                 let (ipc, unpublished) = ipc::bind_unpublished(&path)
                     .map_err(|e| DaemonError::Bind(path.display().to_string(), e))?;
-                (http, https, ipc, Some(unpublished))
+                (http, https, ipc, quic, Some(unpublished))
             }
         };
         Ok(Self {
@@ -158,6 +169,10 @@ impl Prepared {
             http,
             https,
             ipc,
+            extras: Extras {
+                quic,
+                hand_out: None,
+            },
             ipc_socket,
             notifier,
         })
@@ -179,9 +194,24 @@ impl Prepared {
             http,
             https,
             ipc,
+            extras: Extras::default(),
             ipc_socket: None,
             notifier: None,
         }
+    }
+
+    /// For tests: the QUIC endpoint, once it is made, goes to `to`.
+    #[must_use]
+    pub fn handing_out(mut self, to: tokio::sync::oneshot::Sender<Arc<crate::quic::Quic>>) -> Self {
+        self.extras.hand_out = Some(to);
+        self
+    }
+
+    /// For tests: QUIC on `socket`, as if systemd had passed it.
+    #[must_use]
+    pub fn with_quic(mut self, socket: UdpSocket) -> Self {
+        self.extras.quic = Some(socket);
+        self
     }
 
     /// For tests: readiness goes to `notifier`, as to systemd's.
@@ -220,6 +250,19 @@ fn bind_ports(
     Ok((bind(ports.http())?, bind(ports.https())?))
 }
 
+/// The UDP socket for QUIC, on the HTTPS listener's address and port. A node
+/// that cannot have one takes the peer protocol over HTTPS only.
+fn bind_quic(https: &TcpListener) -> Option<UdpSocket> {
+    let address = https.local_addr().ok()?;
+    match UdpSocket::bind(address) {
+        Ok(socket) => Some(socket),
+        Err(error) => {
+            tracing::warn!(target: target::DAEMON, %address, %error, "no UDP socket for QUIC: peers reach this node over HTTPS only");
+            None
+        }
+    }
+}
+
 /// Runs the daemon until `shutdown`.
 pub async fn run(
     prepared: Prepared,
@@ -235,6 +278,7 @@ pub async fn run(
         http,
         https,
         ipc,
+        extras,
         ipc_socket,
         notifier,
     } = prepared;
@@ -246,7 +290,7 @@ pub async fn run(
         rng,
         policies,
     };
-    let (node, listeners, tls) = match make_node(parts, (http, https, ipc)) {
+    let (node, listeners, tls) = match make_node(parts, (http, https, ipc), extras) {
         Ok(made) => made,
         Err(error) => {
             // A daemon that did not start leaves no socket behind.
@@ -327,6 +371,7 @@ struct NodeParts {
 fn make_node(
     parts: NodeParts,
     sockets: (TcpListener, TcpListener, UnixListener),
+    extras: Extras,
 ) -> Result<(Arc<Node>, Listeners, Arc<rustls::ServerConfig>), DaemonError> {
     let (http, https, ipc) = sockets;
     let listeners = adopt(http, https, ipc).map_err(|e| DaemonError::Bind("sockets".into(), e))?;
@@ -356,6 +401,21 @@ fn make_node(
         dev_wallet_dir: settings.dev_wallet_dir.clone(),
     })
     .map_err(DaemonError::Node)?;
+    if let Some(socket) = extras.quic {
+        let address = socket.local_addr().ok();
+        match crate::quic::Quic::new(socket, node.identity(), node.allows_private_peers()) {
+            Ok(quic) => {
+                let quic = Arc::new(quic);
+                node.attach_quic(Arc::clone(&quic));
+                if let Some(to) = extras.hand_out {
+                    let _ = to.send(quic);
+                }
+            }
+            Err(error) => {
+                tracing::warn!(target: target::DAEMON, ?address, %error, "no QUIC endpoint: peers reach this node over HTTPS only");
+            }
+        }
+    }
     if let Some(dir) = &settings.dev_wallet_dir {
         tracing::warn!(target: target::HTTP, dir = %dir.display(), "serving a development build of the wallet");
     }
@@ -484,6 +544,19 @@ fn start_services(
         "ipc",
         Box::new(move |node, shutdown| Box::pin(ipc::serve(node, Arc::clone(&ipc), shutdown))),
     );
+    if node.quic().is_some() {
+        spawn(
+            "quic",
+            Box::new(|node, shutdown| {
+                Box::pin(async move {
+                    if let Some(quic) = node.quic().cloned() {
+                        let handler = Arc::new(http::peer::QuicHandler(node));
+                        quic.serve(handler, shutdown).await;
+                    }
+                })
+            }),
+        );
+    }
     spawn(
         "acme",
         Box::new(|node, shutdown| Box::pin(node.run_renewal(shutdown))),

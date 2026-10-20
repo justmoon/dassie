@@ -123,7 +123,12 @@ impl Bound {
         let store = Store::open(&state).unwrap();
         let (http_address, https_address) =
             (http.local_addr().unwrap(), https.local_addr().unwrap());
-        let mut prepared = Prepared::from_parts(settings, store, http, https, ipc);
+        // QUIC on the HTTPS port's number, as a node has it.
+        let quic = std::net::UdpSocket::bind(https_address).unwrap();
+        let (hand_out, handed) = tokio::sync::oneshot::channel();
+        let mut prepared = Prepared::from_parts(settings, store, http, https, ipc)
+            .with_quic(quic)
+            .handing_out(hand_out);
         if let Some(path) = notify {
             prepared = prepared.notifying(Notifier::Path(path));
         }
@@ -135,16 +140,18 @@ impl Bound {
             policies,
             shutdown.clone(),
         ));
-        let node = TestNode {
+        let mut node = TestNode {
             dir,
             http: http_address,
             https: https_address,
             ipc: ipc_path,
             clock,
+            quic: None,
             shutdown,
             handle: Some(handle),
         };
         node.wait_until_up().await;
+        node.quic = handed.await.ok();
         node
     }
 }
@@ -156,6 +163,8 @@ pub struct TestNode {
     pub https: SocketAddr,
     pub ipc: PathBuf,
     pub clock: ManualClock,
+    /// The QUIC endpoint, once the daemon made it.
+    pub quic: Option<Arc<dassie_node::quic::Quic>>,
     shutdown: CancellationToken,
     handle: Option<JoinHandle<Result<(), DaemonError>>>,
 }

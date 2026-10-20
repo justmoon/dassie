@@ -1,7 +1,8 @@
 //! systemd: socket activation and readiness.
 //!
-//! Under systemd the daemon gets its three sockets from the socket units, by
-//! name (spec/areas/node.md#runtimes). The original did not check
+//! Under systemd the daemon gets its sockets from the socket units, by name
+//! (spec/areas/node.md#runtimes): three it needs, and the UDP socket for
+//! QUIC, which it can go without. The original did not check
 //! that `LISTEN_PID` names this process, and reported readiness by running
 //! `systemd-notify` (RT-20). Here both are done in the process: the PID is
 //! checked, and `READY=1` and `STOPPING=1` go straight to `NOTIFY_SOCKET`.
@@ -11,7 +12,7 @@
 
 use std::fmt;
 use std::io;
-use std::net::TcpListener;
+use std::net::{TcpListener, UdpSocket};
 #[cfg(target_os = "linux")]
 use std::os::linux::net::SocketAddrExt;
 #[cfg(target_os = "linux")]
@@ -30,6 +31,8 @@ pub const HTTP_SOCKET: &str = "dassie-http.socket";
 pub const HTTPS_SOCKET: &str = "dassie-https.socket";
 /// The IPC socket's name.
 pub const IPC_SOCKET: &str = "dassie-ipc.socket";
+/// The QUIC socket's name.
+pub const QUIC_SOCKET: &str = "dassie-quic.socket";
 
 /// The sockets systemd passed in.
 #[derive(Debug)]
@@ -40,6 +43,9 @@ pub struct ActivatedSockets {
     pub https: TcpListener,
     /// For the CLI.
     pub ipc: UnixListener,
+    /// For the peer protocol over QUIC, if its unit is installed: units
+    /// from before QUIC have none.
+    pub quic: Option<UdpSocket>,
 }
 
 /// Socket activation failed.
@@ -83,8 +89,8 @@ pub fn is_activated(env: &Env) -> bool {
         && matches!(env.get("LISTEN_FDS"), Ok(Some(_)))
 }
 
-/// Takes the three sockets. Call it on the main thread before starting any
-/// other (see the module documentation).
+/// Takes the sockets. Call it on the main thread before starting any other
+/// (see the module documentation).
 pub fn take_sockets(env: &Env) -> Result<ActivatedSockets, ActivationError> {
     let required = |name: &'static str| {
         env.get(name)
@@ -114,12 +120,13 @@ pub fn take_sockets(env: &Env) -> Result<ActivatedSockets, ActivationError> {
         }));
     }
     let mut fds = ListenFd::from_env();
-    let (mut http, mut https, mut ipc) = (None, None, None);
+    let (mut http, mut https, mut ipc, mut quic) = (None, None, None, None);
     for (index, name) in names.iter().enumerate() {
         match *name {
             HTTP_SOCKET => http = fds.take_tcp_listener(index).map_err(ActivationError::Io)?,
             HTTPS_SOCKET => https = fds.take_tcp_listener(index).map_err(ActivationError::Io)?,
             IPC_SOCKET => ipc = fds.take_unix_listener(index).map_err(ActivationError::Io)?,
+            QUIC_SOCKET => quic = fds.take_udp_socket(index).map_err(ActivationError::Io)?,
             other => {
                 tracing::warn!(target: target::SYSTEMD, name = other, "ignoring an unknown socket")
             }
@@ -129,6 +136,7 @@ pub fn take_sockets(env: &Env) -> Result<ActivatedSockets, ActivationError> {
         http: http.ok_or(ActivationError::Missing(HTTP_SOCKET))?,
         https: https.ok_or(ActivationError::Missing(HTTPS_SOCKET))?,
         ipc: ipc.ok_or(ActivationError::Missing(IPC_SOCKET))?,
+        quic,
     })
 }
 

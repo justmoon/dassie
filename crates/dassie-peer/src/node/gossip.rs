@@ -10,7 +10,8 @@ use super::{PeerNode, Problem, Purpose};
 use crate::config::Config;
 use crate::table::{LinkState, Sources, backoff};
 use crate::wire::{
-    Content, Entry, InvalidNodeInfo, LinkStateResponse, NodeInfo, SignedNodeInfo, sign_node_info,
+    Content, EXTENSION_QUIC, Entry, InvalidNodeInfo, LinkStateResponse, NodeInfo, SignedNodeInfo,
+    sign_node_info,
 };
 
 /// The routes are recomputed at least this often, as link states go stale.
@@ -239,10 +240,15 @@ impl PeerNode {
         };
         // Only advertised peers: confirmed, and not held down (D12).
         let neighbors = self.advertised();
+        let quic = self.own_info.quic.then_some(Entry::Extension {
+            kind: EXTENSION_QUIC,
+            value: &[],
+        });
         let entries = neighbors
             .iter()
             .map(|id| Entry::Neighbor(*id))
             .chain(self.schemes.iter().map(|id| Entry::Scheme(*id)))
+            .chain(quic)
             .collect();
         let info = NodeInfo {
             node_id: self.own,

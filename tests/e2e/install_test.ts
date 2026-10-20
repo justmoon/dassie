@@ -720,6 +720,7 @@ async function steps(t: TestContext, machine: Machine, mirror: Mirror) {
         "dassie-http.socket",
         "dassie-https.socket",
         "dassie-ipc.socket",
+        "dassie-quic.socket",
         "dassie-update.service",
         "dassie-update.timer",
       ]

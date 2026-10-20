@@ -110,6 +110,14 @@ impl NodeInfo<'_> {
             _ => None,
         })
     }
+
+    /// Whether it takes the peer protocol over QUIC.
+    #[must_use]
+    pub fn speaks_quic(&self) -> bool {
+        self.entries.iter().any(|entry| {
+            matches!(entry, Entry::Extension { kind, .. } if *kind == super::EXTENSION_QUIC)
+        })
+    }
 }
 
 impl Encode for NodeInfo<'_> {

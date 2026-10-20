@@ -57,6 +57,11 @@ pub const MAX_NODE_INFO_BYTES: usize = 4096;
 /// Most bytes in a link-state extension's value.
 pub const MAX_EXTENSION_BYTES: usize = 2048;
 
+/// The link-state extension that says a node takes the peer protocol over
+/// QUIC, on UDP at its URL's host and port (spec/areas/peer-protocol.md#transport).
+/// Its value is empty. Type 1 is kept for a post-quantum key.
+pub const EXTENSION_QUIC: u16 = 2;
+
 /// Most scheme versions in a peering request.
 pub const MAX_VERSIONS: usize = 16;
 

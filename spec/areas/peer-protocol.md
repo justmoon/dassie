@@ -1,8 +1,8 @@
 # Peer protocol
 
-Dassie nodes talk to each other with the peer protocol v1: OER messages sent as HTTPS `POST /peer` requests, authenticated by a MAC from the two nodes' static keys. This document covers what the protocol guarantees, what a node trusts from whom, and what must stay compatible. What the messages are used for (the node table, membership, peering, routing) is in [Network](network.md).
+Dassie nodes talk to each other with the peer protocol v1: OER messages sent over QUIC, or as HTTPS `POST /peer` requests to a node that does not take QUIC, authenticated by a MAC from the two nodes' static keys. This document covers what the protocol guarantees, what a node trusts from whom, and what must stay compatible. What the messages are used for (the node table, membership, peering, routing) is in [Network](network.md).
 
-**Paths:** `crates/dassie-peer/src/wire/` (layouts), `crates/dassie-peer/src/auth/` (MACs, replay), `crates/dassie-peer/src/node/inbound.rs` (handlers and statuses), `crates/dassie-node/src/http/peer.rs`, `crates/dassie-node/src/peer_client.rs`, `crates/dassie-node-core/src/address.rs`
+**Paths:** `crates/dassie-peer/src/wire/` (layouts), `crates/dassie-peer/src/auth/` (MACs, replay), `crates/dassie-peer/src/node/inbound.rs` (handlers and statuses), `crates/dassie-node/src/quic/`, `crates/dassie-node/src/http/peer.rs`, `crates/dassie-node/src/peer_client.rs`, `crates/dassie-node-core/src/address.rs`
 **Read with:** [Network](network.md), [Identity](identity.md), [Encoding](encoding.md), [Settlement](settlement.md), [Connector](connector.md)
 
 ## Versions
@@ -14,16 +14,30 @@ Dassie nodes talk to each other with the peer protocol v1: OER messages sent as 
   - The reply to a Fulfill is always `01` ("accepted"). Nodes of 0.1 read it as a verdict on whether the Fulfill counted; "accepted" tells them to keep their own books, as every node does.
   - A Fulfill or Reject is taken from any node we hold a settlement channel with, peered or not, since nodes of 0.1 ask for verdicts after a peering ended.
 - The answer to `settlementRequest` was empty before it carried the amount on its way ([D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)). An empty answer is still read, as saying nothing of the amount, so older nodes need no new version.
+- **QUIC** came after v1 and needs no new version: a node that takes it says so in its link state ([Transport](#transport)), and the messages, MACs and statuses are the same over both transports. `POST /peer` stays for nodes that do not say so, until every node takes QUIC ([roadmap](../roadmap.md#not-built-yet)).
 - **Post-quantum.** Authentication tag `[2]` is parsed only to be refused: it is reserved for a scheme on the X-Wing hybrid KEM, whose key would travel as link-state extension type 1. Neither is built ([roadmap](../roadmap.md#smaller-open-points)).
 
 The layouts are pinned by golden vectors ([Test vectors](#test-vectors)); a change to any of them is a new protocol version.
 
 ## Transport
 
-Requests and responses use fixed media types, compared as exact strings, with no negotiation. The HTTP layer checks the headers, the client's rate and the body's size; the peer node decides everything else, and answers only once what the request changed is on disk.
+The same requests travel over QUIC or HTTPS. A node whose link state says it takes QUIC is asked over QUIC; any other, over HTTPS. Either way the transport checks only the client's rate and the body's size; the peer node decides everything else, and answers only once what the request changed is on disk ([D26](../decisions/D26-core-and-periphery.md) chose QUIC: peer traffic is heavy, and one HTTP request per packet costs).
 
 - Unauthenticated requests, and requests that fail, are rate-limited per client address. Nodes authenticate every request, so this rations tools and failures, not peers.
-- The number of requests waiting on the node is bounded; past it the node answers 503.
+- The number of requests waiting on the node is bounded; past it the node answers 503. The two transports share that bound and the rate limits (`crates/dassie-node/src/http/peer.rs`).
+
+### QUIC
+
+- **One endpoint per node,** on UDP at its URL's host and port: 443 under systemd, the HTTPS listener's port number when standalone ([Node](node.md#runtimes)). It both takes and makes connections. A link state says the node takes QUIC with extension type 2 ([Link states](#link-states)), which a node issues only when it has its UDP socket.
+- **Keys, not certificates.** Each side presents a self-signed certificate for its Ed25519 node key. A dialler refuses a server whose key is not that of the node it asked for; a server takes any client that proves a key, and learns its node ID from it. TLS 1.3 only, ALPN `dassie/1`. No certificate authority is involved, so a node needs no certificate for its hostname to be reached over QUIC. TLS signs with a context string of its own, so a handshake signature never passes for a link state's (`crates/dassie-node/src/quic/keys.rs`).
+- **A request is a bidirectional stream:** the envelope, then the stream's end; the answer is the status as two bytes, big-endian, then the body. The bytes, bounds and statuses are those of HTTPS; the media types are implied by the ALPN.
+- **One connection per pair of nodes, used both ways.** A node sends on a connection another opened to it; when both dialled, the one the lower node ID opened is kept. A connection unused for a while closes, which peers' heartbeats prevent.
+- **Falling back.** A node whose QUIC cannot be reached (no connection within a few seconds: UDP filtered, say) is asked over HTTPS in the request's remaining time, and for a while after. A bootstrap node known only from the configuration is asked over HTTPS until its link state arrives. A request that may have reached the node is never sent again over HTTPS, since it may have had its effect.
+- **Bounds** as over HTTPS: connections in all and per client address, and requests open on one connection no more than the node takes at once.
+
+### HTTPS
+
+Requests and responses use fixed media types, compared as exact strings, with no negotiation. The HTTP layer checks the headers before the shared checks above.
 
 ### Statuses
 
@@ -69,7 +83,7 @@ A sender keeps one session per destination, with a random ID and a counter, and 
 
 A node's link state ("node info") is its signed description of itself: its URL, alias, key, the peers it advertises and the schemes it settles with. How it is issued, spread and refreshed is in [Network](network.md#link-states). The signature is pure Ed25519 over the signed bytes as received.
 
-- **Extensions** of unknown type are kept, since the signature covers them, and otherwise ignored. That is how later versions add fields.
+- **Extensions** of unknown type are kept, since the signature covers them, and otherwise ignored. That is how later versions add fields. Type 2, with an empty value, says the node takes QUIC ([Transport](#quic)); type 1 is kept for a post-quantum key ([Versions](#versions)).
 - The alias is an unverified display name.
 
 ### Verification
@@ -95,9 +109,9 @@ What a node trusts, and the rules a sender and a recipient rely on, by message. 
 
 ## Outbound requests
 
-Peer requests, and the node's other outbound requests (Open Payments to other wallets, exchange-rate sources: [Payments](payments.md), [Connector](connector.md#sources)), go through one client in `crates/dassie-node/src/peer_client.rs`, with one set of rules. A peer or a registrant chooses the URL we connect to, so:
+Peer requests, and the node's other outbound requests (Open Payments to other wallets, exchange-rate sources: [Payments](payments.md), [Connector](connector.md#sources)), go through one client in `crates/dassie-node/src/peer_client.rs`, with one set of rules; QUIC connections resolve their addresses through the same client, so the same guard applies to them. A peer or a registrant chooses the URL we connect to, so:
 
-- Requests go only to `https` URLs, and redirects are never followed.
+- Requests go only to `https` URLs, and redirects are never followed. A QUIC connection goes to the host and port of such a URL.
 - Private, loopback, link-local and similar addresses are refused, both as IP literals and after DNS resolution (`crates/dassie-node-core/src/address.rs`). An IPv6 literal is read as the HTTP client reads it, and one the guard cannot read counts as private, so the guard and the client cannot disagree. `DASSIE_PEER_ALLOW_PRIVATE` lifts this for dev and tests.
 - In-flight requests are bounded, in total and per host. ILP packets do not count, so their responses always get through.
 - **Failures** are of two kinds: *not delivered* (refused before sending, or the connection failed) and *unknown* (a timeout after sending, or a broken response). Only the first, or a status that means not acted upon ([Statuses](#statuses)), says a request surely had no effect.

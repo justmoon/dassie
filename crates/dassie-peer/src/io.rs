@@ -17,7 +17,8 @@ pub struct RequestId(pub u64);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InboundId(pub u64);
 
-/// A request for the driver to send: `POST {url}/peer` with `body`.
+/// A request for the driver to send: over QUIC when the node takes it,
+/// otherwise `POST {url}/peer`, with `body`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Request {
     /// Its number, for the result.
@@ -26,6 +27,8 @@ pub struct Request {
     pub to: NodeId,
     /// The node's URL.
     pub url: String,
+    /// Whether the node's link state says it takes QUIC.
+    pub quic: bool,
     /// What it is.
     pub kind: Kind,
     /// The envelope.

@@ -10,7 +10,7 @@ The decisions (whether an origin is allowed, a session valid, a setup attempt ri
 ## Listeners
 
 - **HTTP** serves ACME challenges and redirects everything else to HTTPS, keeping path and query.
-- **HTTPS** serves everything else: the BTP server, the RPC WebSocket, setup and login, the peer protocol, Open Payments, `/stats` and the wallet.
+- **HTTPS** serves everything else: the BTP server, the RPC WebSocket, setup and login, the peer protocol for nodes that do not take QUIC ([Peer protocol](peer-protocol.md#transport)), Open Payments, `/stats` and the wallet.
 - Connections are bounded per listener and per client, where a client is an IPv4 address or an IPv6 /56, so one host cannot take every place by rotating addresses. Loopback is counted only in the total where private peers are allowed (dev environments and tests). Handshakes, headers and bodies are bounded in size and time too (`http/mod.rs`, `dassie-node-core/src/connections.rs`).
 - At shutdown a listener stops accepting, lets requests in progress finish for a bounded time, and closes WebSockets with 1001.
 

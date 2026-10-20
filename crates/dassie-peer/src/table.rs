@@ -156,6 +156,8 @@ pub struct LinkState {
     pub neighbors: Vec<NodeId>,
     /// Its schemes, in its order.
     pub schemes: Vec<SchemeId>,
+    /// Whether it takes the peer protocol over QUIC.
+    pub quic: bool,
     /// Copies of this sequence received, for suppressing the flood.
     pub copies: u8,
     /// When to forward it, if it is to be.
@@ -178,6 +180,7 @@ impl LinkState {
             alias: signed.info.alias.into(),
             neighbors,
             schemes: signed.info.schemes().collect(),
+            quic: signed.info.speaks_quic(),
             copies: 1,
             retransmit_at_ms: None,
             from: None,

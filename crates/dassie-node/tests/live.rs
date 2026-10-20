@@ -238,7 +238,7 @@ async fn the_inspectors_show_the_node_without_its_secrets() {
     assert_eq!(
         names,
         [
-            "acme", "engine", "http", "https", "ipc", "rates", "sessions"
+            "acme", "engine", "http", "https", "ipc", "quic", "rates", "sessions"
         ]
     );
     assert!(

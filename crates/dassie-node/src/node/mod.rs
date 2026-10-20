@@ -351,6 +351,8 @@ pub struct Node {
     open_payments: crate::open_payments::State,
     /// Wakes the rate fetcher.
     rates_wake: Notify,
+    /// The QUIC endpoint, where the node has a UDP socket.
+    quic: std::sync::OnceLock<Arc<crate::quic::Quic>>,
 }
 
 impl std::fmt::Debug for Node {
@@ -445,6 +447,7 @@ impl Node {
             stats_cache: crate::http::stats::StatsCache::default(),
             open_payments: crate::open_payments::State::default(),
             rates_wake: Notify::new(),
+            quic: std::sync::OnceLock::new(),
         }))
     }
 
@@ -511,7 +514,26 @@ impl Node {
         dassie_peer::OwnInfo {
             url: dassie_node_core::urls::node_url(config.hostname.as_ref(), self.ports().1),
             alias: config.alias.as_str().to_owned(),
+            quic: self.quic().is_some(),
         }
+    }
+
+    /// The QUIC endpoint, where the node has one.
+    #[must_use]
+    pub fn quic(&self) -> Option<&Arc<crate::quic::Quic>> {
+        self.quic.get()
+    }
+
+    /// Gives the node its QUIC endpoint, before its engine starts: the link
+    /// state it issues then says that it takes QUIC.
+    pub fn attach_quic(&self, quic: Arc<crate::quic::Quic>) {
+        let _ = self.quic.set(quic);
+    }
+
+    /// Whether private peers are allowed (dev and tests).
+    #[must_use]
+    pub const fn allows_private_peers(&self) -> bool {
+        self.peer.allow_private
     }
 
     /// Now, by the node's clock.
