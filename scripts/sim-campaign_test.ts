@@ -291,6 +291,63 @@ test("status: a trusted loop not all read fails closed, and adds no runs", async
   assert(issue.body.includes("-- campaign --minutes"));
 });
 
+/** A loop's tally of `lines`, ended by `cut`, a line the runner was
+ * stopped while it wrote, with no newline and no summary. */
+function cutShort(lines: string[], cut: string) {
+  const result = tally(lines);
+  result.add(parseLine(cut), true);
+  return result;
+}
+
+const CUT = failing("node", "4", 10).slice(0, 40);
+
+test("status: an unfinished loop's last line, cut short, fails nothing, and adds no runs", async () => {
+  const github = new FakeGitHub();
+  await reportTrusted(github, MAIN, cutShort([line({})], CUT), false);
+  assertEquals(github.issues.length, 0);
+  assertEquals(github.statusesBySha.get(MAIN), undefined);
+  // Its real failures still count.
+  await reportTrusted(
+    github,
+    MAIN,
+    cutShort([failing("node", "5", 10)], CUT),
+    false,
+  );
+  assertEquals(github.issues.map((each) => each.title), [
+    "sim: node/liveness/books",
+  ]);
+  const [status] = github.statusesBySha.get(MAIN)!;
+  assertEquals(status.state, "failure");
+  assertEquals(foldStatuses([status], BOT).runs, 0);
+});
+
+test("status: an unfinished loop with a line it could not read before its cut last line fails closed", async () => {
+  const github = new FakeGitHub();
+  // A fully written line that did not parse may be a failure: the kill
+  // that cut the last line does not explain it.
+  await reportTrusted(
+    github,
+    MAIN,
+    cutShort([line({}), "{not json"], CUT),
+    false,
+  );
+  const [status] = github.statusesBySha.get(MAIN)!;
+  assertEquals(status.state, "failure");
+  assert(status.description.startsWith("failed: campaign/unreadable"));
+  assertEquals(foldStatuses([status], BOT).runs, 0);
+  const issue = github.issues.find((each) =>
+    each.title === "sim: campaign/unreadable"
+  )!;
+  assert(issue.body.includes("1 lines of output did not parse"));
+  assert(!issue.body.includes("the last line"));
+});
+
+test("a finished loop is not excused its cut last line", () => {
+  const loop = cutShort([line({})], CUT);
+  assertEquals(loop.unreadable(false), undefined);
+  assertEquals(loop.unreadable(true), "the last line of output did not parse");
+});
+
 function entry(
   state: StatusEntry["state"],
   description: string,

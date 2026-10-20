@@ -255,6 +255,9 @@ export class Tally {
   runs = 0;
   trips = 0;
   invalid = 0;
+  /** A last line with no newline that did not parse: what a runner
+   * stopped while it wrote leaves. */
+  cut = 0;
   /** Runs that failed, the tripwire's included. */
   failed = 0;
   /** Failures past SIGNATURES_MAX distinct signatures. */
@@ -262,9 +265,11 @@ export class Tally {
   failures = new Map<string, Failure>();
   summary: Summary | undefined;
 
-  add(line: Line): void {
+  /** Adds a line; `unterminated` for a last one that had no newline. */
+  add(line: Line, unterminated = false): void {
     if (line.kind === "invalid") {
-      this.invalid += 1;
+      if (unterminated) this.cut += 1;
+      else this.invalid += 1;
       return;
     }
     if (line.kind === "summary") {
@@ -300,11 +305,17 @@ export class Tally {
   /** Why some of the loop went unread, if it did. A line that did not
    * parse, a failure past what a loop keeps, or counts that disagree with
    * the runner's summary could each hide a failure, so a trusted commit
-   * fails closed on them (`unreadableFailure`). */
-  unreadable(): string | undefined {
+   * fails closed on them (`unreadableFailure`). The one thing excused is
+   * the last line of a loop that did not finish, cut short: a runner
+   * stopped at its sandbox's limits leaves one, through no fault of the
+   * commit's, and the loop earns no runs. */
+  unreadable(finished = true): string | undefined {
     const reasons = [];
     if (this.invalid > 0) {
       reasons.push(`${this.invalid} lines of output did not parse`);
+    }
+    if (finished && this.cut > 0) {
+      reasons.push("the last line of output did not parse");
     }
     if (this.dropped > 0) {
       reasons.push(
@@ -793,7 +804,7 @@ export async function reportTrusted(
   tally: Tally,
   complete: boolean,
 ): Promise<void> {
-  const unreadable = tally.unreadable();
+  const unreadable = tally.unreadable(complete);
   const failures = [...tally.failures.values()];
   if (unreadable) failures.push(unreadableFailure(unreadable));
   const issues = new Map<string, Issue>();
@@ -1044,7 +1055,7 @@ function run(
   options: {
     cwd?: string;
     env?: Record<string, string>;
-    onLine?: (line: string) => void;
+    onLine?: (line: string, unterminated: boolean) => void;
   } = {},
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   const child = spawn(command, args, {
@@ -1070,13 +1081,15 @@ function run(
           skipping = true;
         }
         if (index === parts.length - 1) break;
-        onLine(skipping ? "" : line);
+        onLine(skipping ? "" : line, false);
         line = "";
         skipping = false;
       }
     });
+    // The only line passed on without its newline: the last, if the
+    // command stopped while it wrote it.
     child.stdout.on("end", () => {
-      if (line || skipping) onLine(skipping ? "" : line);
+      if (line || skipping) onLine(skipping ? "" : line, true);
     });
   } else {
     child.stdout.setEncoding("utf8").on(
@@ -1498,7 +1511,7 @@ async function buildAndRun(
     cwd: string,
     maxSeconds: number,
     command: string[],
-    onLine?: (line: string) => void,
+    onLine?: (line: string, unterminated: boolean) => void,
   ) => {
     if (config.unsandboxed) {
       return run(command[0], command.slice(1), { cwd, env, onLine });
@@ -1554,9 +1567,11 @@ async function buildAndRun(
       "--jobs",
       String(availableParallelism()),
     ],
-    (line) => tally.add(parseLine(line)),
+    (line, unterminated) => tally.add(parseLine(line), unterminated),
   );
-  const unreadable = tally.unreadable();
+  const unreadable = tally.unreadable(
+    ran.code === 0 && tally.summary !== undefined,
+  );
   if (unreadable) console.log(`not all output was read: ${unreadable}`);
   if (ran.code !== 0) {
     console.log(`the runner exited ${ran.code}: ${ran.stderr.slice(-2000)}`);
