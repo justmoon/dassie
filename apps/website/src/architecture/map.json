@@ -1290,6 +1290,18 @@
   ],
   "releases": [
     {
+      "version": "0.2.0",
+      "date": "2026-10-20",
+      "changes": [
+        "Peers talk over QUIC on UDP port 443, each checking the other's node key instead of a certificate authority; a peer that cannot be reached over UDP is asked over HTTPS. Installs gain a `dassie-quic.socket` unit, which the updater turns on.",
+        "A node without a hostname joins as a periphery node: it peers with core nodes as their downlink, keeps its connections to them open, and is paid at an address beneath each of them.",
+        "Any node relays encrypted streams to the nodes connected to it, and a node can keep a connection to a relay of its choice with `DASSIE_RELAY`.",
+        "Open Payments answers are signed with the node's key. A node without a hostname answers under `<label>.dassiepay.net` and the names in `DASSIE_PUBLIC_NAMES`, and `dassie front-door` runs a front door that passes Open Payments requests on to such nodes.",
+        "Ending a peering collects what the peer owes first and settles nothing for the end, a peer that stays short of room is set apart, and a ban takes effect at once.",
+        "Hardening and fixes: XRP Ledger settlement copes with servers that lag or forget history, the updater keeps a failed node stopped and skips a version it rolled back, the installer never runs beside an update, and limits hold for strangers' replays, probes and Open Payments clients."
+      ]
+    },
+    {
       "version": "0.1.3",
       "date": "2026-10-17",
       "changes": [
