@@ -707,7 +707,9 @@ test("sandbox: a build has no network, no daemon and one writable directory", ()
 test("sandbox: fetching reaches public addresses only, never the metadata server", () => {
   const args = sandboxArgs({ ...spec, network: "public" });
   assert(!args.includes("--property=PrivateNetwork=yes"));
-  const deny = args.filter((arg) => arg.startsWith("--property=IPAddressDeny="));
+  const deny = args.filter((arg) =>
+    arg.startsWith("--property=IPAddressDeny=")
+  );
   for (const keyword of ["localhost", "link-local", "multicast"]) {
     // systemd-run takes a keyword only as the whole value; in a list it
     // refuses it as an address prefix.
