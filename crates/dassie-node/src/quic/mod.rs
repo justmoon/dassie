@@ -281,6 +281,16 @@ impl Quic {
         self.endpoint.open_connections()
     }
 
+    /// Whether the endpoint takes connections: from [`serve`](Self::serve)'s
+    /// start until its shutdown, while it drains.
+    #[must_use]
+    pub fn is_serving(&self) -> bool {
+        self.serving
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_some()
+    }
+
     /// Whether `node`'s QUIC failed lately, so that it is asked over HTTPS.
     #[must_use]
     pub fn is_unreachable(&self, node: &NodeId) -> bool {
@@ -319,8 +329,10 @@ impl Quic {
     /// # Errors
     ///
     /// [`SendError::Unreachable`] when no connection could be made in time,
-    /// and nothing was sent: the node is then asked over HTTPS for a while.
-    /// Otherwise the failure, as over HTTPS.
+    /// and nothing was sent. The node is then asked over HTTPS for a while,
+    /// if a dial of its own had at least half a second and failed; not
+    /// when the time ran out waiting for another request's dial, or was too
+    /// short to judge. Otherwise the failure, as over HTTPS.
     pub async fn send(
         self: &Arc<Self>,
         request: &Request,

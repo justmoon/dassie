@@ -347,9 +347,13 @@ async fn a_request_in_progress_is_answered_at_shutdown() {
     let b = side_with(2, &shutdown_b, Arc::clone(&held) as Arc<dyn Handler>);
     let (quic, request) = (Arc::clone(&a.quic), request(&b, b"late".to_vec()));
     let sending = tokio::spawn(async move { quic.send(&request, &client(), CONNECT).await });
-    // Shut down while the request is in the handler, then let it answer.
+    // Shut down while the request is in the handler, and let it answer only
+    // once b takes no more connections: it is draining.
     held.arrived.notified().await;
     shutdown_b.cancel();
+    while b.quic.is_serving() {
+        tokio::task::yield_now().await;
+    }
     held.release.notify_one();
     let response = sending.await.unwrap().unwrap();
     assert_eq!((response.status, response.body), (200, b"late".to_vec()));
