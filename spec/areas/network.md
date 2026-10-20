@@ -18,12 +18,13 @@ The table holds what a node knows about other nodes: per node, its key, its newe
 - **A node enters only for a reason:** it is this node, a configured bootstrap node, a peer (or being asked to peer), on the majority of bootstrap lists, or registered with us. A link state of a node not in the table is dropped, so gossip alone cannot fill the table.
 - **When the table is full,** a newcomer takes the place of the node whose strongest reason ranks lowest, if that ranks below the newcomer's (self, bootstrap, peer, majority, registered, in that order). Registrations cannot push out the nodes a node depends on.
 - A node is removed a grace period after its last reason is gone, with its link state.
+- **Downlinks** ([below](#downlinks)) are in the table under a bound of their own: they take no other node's place, and none takes theirs.
 
 ## Link states
 
 ### The own link state
 
-- A node without a valid URL issues no link state ([Peer protocol](peer-protocol.md#verification)).
+- A node without a valid URL issues no link state ([Peer protocol](peer-protocol.md#verification)), unless it is a periphery node, whose link state has none ([Periphery nodes](#periphery-nodes)).
 - It is issued at start, when its neighbors, schemes, URL or alias change (debounced), and periodically regardless.
 - **Sequence:** `max(now, last + 1)`, with the last value persisted, so it only rises across restarts. If the persisted value is further ahead of the clock than any node accepts, it was issued under a wrong clock and no node holds it; the sequence starts again from `now`.
 - Its neighbors are the advertised peers ([Advertised peers](#advertised-peers)), and its schemes those the node peers on: active, and synced with their ledger at least once ([below](#asking-and-answering)).
@@ -40,7 +41,7 @@ Cheap checks come first, so floods are cheap: an echo of our own state, a node n
 
 The gossip defaults (copies before suppression, forward jitter, heartbeat interval, staleness, re-issue) are the original's, kept because they proved sound; the peering timings were set from the network simulation ([D12](../decisions/D12-peering-lifecycle-and-liveness.md)). All are in `crates/dassie-peer/src/config.rs`.
 
-- **Flooding.** A state taken from a `linkStateUpdate` is forwarded after a random delay to every peer except its subject and the peer it came from, unless enough copies arrived meanwhile. Our own new state goes at once. States learned from refreshes, sweeps, registrations and peering requests are not forwarded.
+- **Flooding.** A state taken from a `linkStateUpdate` is forwarded after a random delay to every peer except its subject and the peer it came from, unless enough copies arrived meanwhile. Our own new state goes at once. States learned from refreshes, sweeps, registrations and peering requests are not forwarded, nor is a periphery node's, and a periphery node forwards none. Nothing is forwarded to a downlink.
 - **Heartbeats.** A node sends its current state, authenticated, to every peer it is not terminating with, advertised or not, at random intervals and once when a peering forms, so both sides can confirm each other ([Advertised peers](#advertised-peers)).
 - **Refresh.** A node picks stale or missing states one at a time and asks the node itself, at the URL of its last state; sometimes, or when it has no state of the node, it asks another node instead, together with other stale ones. A node asked about that brings back nothing newer backs off exponentially.
 - **Anti-entropy sweep.** Periodically, whether or not anything is stale, a node asks a random peer (or a bootstrap node) for the states of the next few nodes in its table, round and round. Flooding alone loses an update until the next re-issue when a message is lost, a node is down or the network splits; the sweep repairs it within one pass of the table.
@@ -64,7 +65,7 @@ The network's members are the nodes that a majority of the bootstrap nodes list.
 
 ### Registration
 
-**Client side.** A node with a link state registers with every bootstrap node other than itself at start, renews before its registration lapses, registers again if a bootstrap node's list still lacks it a while after, and backs off exponentially after failures. The owner can also register at once ([RPC](rpc.md)).
+**Client side.** A periphery node registers nowhere, and a bootstrap node refuses its registration. Any other node with a link state registers with every bootstrap node other than itself at start, renews before its registration lapses, registers again if a bootstrap node's list still lacks it a while after, and backs off exponentially after failures. The owner can also register at once ([RPC](rpc.md)).
 
 **Bootstrap side.** Registration is free, so it is throttled instead ([roadmap](../roadmap.md#registration-fees)):
 
@@ -91,10 +92,10 @@ Each node looks for a few peers on its own (auto-peering). A peering is between 
 
 ### Looking for peers
 
-- **Target.** Only advertised peers count toward it ([Advertised peers](#advertised-peers)), so a node whose peers went silent, flap or are stuck looks for others.
+- **Target.** Only advertised peers count toward it ([Advertised peers](#advertised-peers)), so a node whose peers went silent, flap or are stuck looks for others. Downlinks do not count.
 - **Candidates** are table nodes with a fresh link state listing a scheme we peer on, not peered or being asked, not banned, not in backoff, and with room for a settlement channel. Nodes our routes do not reach come first, then majority nodes. One attempt runs at a time.
 - After a restart with peers, a node waits a heartbeat's time before looking, so the peers it has can confirm themselves first.
-- **Slot caps.** A node starts a bounded number of outbound peerings and holds a bounded total; inbound requests are accepted only below a cap under that total, so requests alone cannot fill every slot.
+- **Slot caps.** A node starts a bounded number of outbound peerings and holds a bounded total; inbound requests are accepted only below a cap under that total, so requests alone cannot fill every slot. Downlinks take none of these slots ([Downlinks](#downlinks)).
 - **Bridge rule.** If a majority node with a fresh link state has stayed unreachable by our routes for a while, the node starts one more outbound peering, with such a node, if it can. This joins separate islands of peers that each met their target.
 - **Backoff.** A failed attempt backs off from that node exponentially. A refusal for "unknown node" is retried after one list poll instead, since the responder has not seen the majority list us yet; one for "concurrent request" after a short wait.
 
@@ -102,7 +103,7 @@ Each node looks for a few peers on its own (auto-peering). A peering is between 
 
 1. The asking node sends `peeringInfoRequest` for the scheme, and its scheme builds the request data from the answer.
 2. It sends `peeringRequest` with its signed link state, the scheme's data and the scheme versions it speaks.
-3. The responder checks the request (`crates/dassie-peer/src/node/peering.rs` has the order and the refusal reasons), takes in the requester's link state, and probes its URL as for registration. Its scheme then accepts, opening the peer's accounts. The peering is persisted before the acceptance is sent, and so before the requester uses it.
+3. The responder checks the request (`crates/dassie-peer/src/node/peering.rs` has the order and the refusal reasons), takes in the requester's link state, and probes its URL as for registration; a periphery requester has none, and is not probed ([Downlinks](#downlinks)). Its scheme then accepts, opening the peer's accounts. The peering is persisted before the acceptance is sent, and so before the requester uses it.
 4. On acceptance, the requester's scheme finalizes the peering and opens the peer's accounts.
 
 The settlement schemes have their say through `PeeringHooks` (`crates/dassie-peer/src/hooks.rs`, [Settlement](settlement.md)).
@@ -130,6 +131,7 @@ A node lists a peer as a neighbor in its link state, and routing uses the edge, 
 - **Hold-down.** Each time a peer stops being advertised it is held down, for a time that doubles with each flap and resets after a long stable stretch, so a flapping peer does not churn routes across the network.
 - **Restarts** do not drop neighbors: confirmation starts from the persisted time the peer was last heard from, without a hold-down.
 - **Withdrawal for room.** Withdrawing an edge removes it both ways for the whole network, turning a temporary T04 into a final F02, so neither a failed delivery nor a peer waiting seconds for a routine settlement withdraws it. A peer whose room in our books has stayed below one of the largest packets for the grace, without settling, is stuck: settling, not traffic, restores room, and a creditor asks over the peer protocol, which needs no route ([D12](../decisions/D12-peering-lifecycle-and-liveness.md)). It is withdrawn like a flap: still peered and asked to settle, but no packet crosses the edge either way until its room is back and its hold-down is over. The grace lets two requests to settle go unanswered and still gives the third a request's timeout to be answered, and its settlement time to be booked. A request that surely never reached the peer costs none of it: it is asked again at the next check ([Settlement](settlement.md#asking-a-peer-to-settle)). A node counts only the room it gives a peer, never the room the peer gives it.
+- **Downlinks owing nothing are not withdrawn.** A downlink is in no link state, so withdrawing it would only stop the payments to it, which are what raise its room when it owes nothing. One whose debt in our books is zero is never withdrawn or ended for room, however short its room; one that owes and does not settle is, as any peer.
 - **Counting the time short.** Each settlement booked from the peer starts the grace again. The time short is a total, grown only while the node can ask (its scheme sees its ledger), by at most two check intervals per check, so neither the node's downtime, a stall of its host, nor an outage of its own ledger counts against the peer. Only the part of it during which the peer could be reached ends the peering: time during which the node's last request to settle surely never reached the peer still withdraws it, since the link carries nothing, but does not count toward ending it for room, as the peer had no chance to settle ([D12](../decisions/D12-peering-lifecycle-and-liveness.md)). Both are persisted with the peering, so a restart neither forgives them nor starts them again.
 
 ### Termination
@@ -166,6 +168,25 @@ This repairs a peering whose `peeringTermination` never arrived while it was sen
 
 Every peer gets a settlement channel, which belongs to the pair of nodes and outlives the peering ([Settlement](settlement.md#settlement-channels)). A node we hold one with keeps its replay state ([Peer protocol](peer-protocol.md#replay-protection)), and its Fulfills, Rejects and settlements are taken even with no peering. Channels are never removed and are bounded in number; once all are taken, a node without one is no candidate and its peering requests are refused for capacity ([roadmap](../roadmap.md#not-built-yet)).
 
+## Periphery nodes
+
+A node without a public address joins as a periphery node ([D26](../decisions/D26-core-and-periphery.md)): it connects only to core nodes, its uplinks, is reached only over the connections it opened to them, and forwards nothing. What else the [design](../designs/periphery.md) holds is not built yet ([roadmap](../roadmap.md#periphery)).
+
+- **Who is one.** A node with a QUIC endpoint and no hostname, so no URL. A node with a URL is a core node, and a core node that takes QUIC takes downlinks.
+- **Its link state** has no URL and the periphery extension ([Peer protocol](peer-protocol.md#link-states)), and lists its uplinks as its neighbors. Only its uplinks see it, in its peering requests and heartbeats: it is never forwarded or served, nor registered, so it is in no node list, and in no table but its uplinks'.
+- **Peering.** It asks core nodes from the node list whose link states say they take QUIC, as junior ([Roles](#roles)), until it has the usual target of confirmed peers. It accepts no peering request, and is never asked: no core node asks a periphery node. It seeks no bridge.
+- **Routes** go through its uplinks, which never list it: it reaches whatever they reach.
+- **Its addresses** lie beneath its uplinks', and it forwards nothing ([Connector](connector.md#a-periphery-node)).
+
+### Downlinks
+
+A core node keeps its downlinks, the periphery nodes peered with it, apart from its peerings with core nodes.
+
+- **Taken without a probe.** A periphery node's peering request is checked as any other's, but its URL is not probed: it has none, and the connection its request came on shows it is there. It is in no node list, so it enters the table by asking.
+- **A bound of their own** (`max_downlinks` in `crates/dassie-peer/src/config.rs`) on their places in the table, their peerings and their settlement channels, apart from the core peering slots, the table's other nodes and the channels with core nodes. Channels are never closed ([Settlement channels](#settlement-channels)), so it bounds the downlinks ever peered with. Past it, a new downlink is refused for capacity.
+- **In nobody's routes.** A downlink is never listed in our link state, so no route leads to it: its child address lies beneath ours, which the rest of the network routes to us, and the connector passes it on ([Connector](connector.md#addresses-and-endpoints)).
+- **Reached only over its connection** ([Peer protocol](peer-protocol.md#quic)), and never withdrawn for room while it owes nothing ([Advertised peers](#advertised-peers)).
+
 ## Routing
 
 Routing runs a breadth-first search from this node over edges that both ends advertise and whose link states are fresh.
@@ -173,7 +194,7 @@ Routing runs a breadth-first search from this node over edges that both ends adv
 - An edge counts only if both ends list each other, so no node can claim a link the other end does not confirm, and a node whose state went stale drops out.
 - Each reachable node's address gets a few first hops on shortest paths. There is no route for the node's own address: destinations under it go only to its own endpoints. Prefix matching, first-hop choice and never sending a packet back where it came from are the connector's ([Connector](connector.md#routing)).
 - Routes are recomputed when the graph may have changed, debounced, and periodically as states go stale.
-- Child peers routed beneath their uplink's address, the periphery's downlinks, are not built ([roadmap](../roadmap.md#periphery)).
+- A periphery node routes through its uplinks, whatever they list, and no route leads to a periphery node ([Periphery nodes](#periphery-nodes)).
 
 ## Persistence
 
@@ -185,6 +206,8 @@ What is lost is either fetched again (bootstrap lists) or only paces the node's 
 
 The `peer` simulation (`dassie_peer::sim::chaos`) runs this protocol on a rough network with crashes, partitions, terminations and bans, and checks that link states and routes converge, peerings are two-sided, every termination finishes, and each settlement is applied exactly once ([Testing](testing.md#the-simulations)).
 
+Periphery nodes peer with their uplinks on the same simulated network in `crates/dassie-peer/tests/periphery.rs`; `crates/dassie-node/tests/periphery.rs` has a periphery daemon peer with a core daemon over QUIC and get paid beneath it.
+
 ## Decisions
 
 - [D2](../decisions/D02-peer-protocol-v0-or-v1.md): v1 instead of v0: authenticated senders and responses, peering requests that carry the signed node info, termination, scheme versions.
@@ -195,3 +218,4 @@ The `peer` simulation (`dassie_peer::sim::chaos`) runs this protocol on a rough 
 - [D23](../decisions/D23-each-node-books-its-own-fulfills.md): only the owner bans.
 - [D31](../decisions/D31-a-node-peers-on-a-scheme-only-once-it-has-seen-its-ledger.md): no peering on a scheme before its first sync.
 - [D33](../decisions/D33-a-peering-ended-for-room-stays-apart-and-earns-no-credit-back.md): a pair parted for room stays apart for the cooldown, and earns no credit back.
+- [D26](../decisions/D26-core-and-periphery.md): core and periphery; why periphery nodes are in no node list and no link state.

@@ -371,6 +371,7 @@
         "The wire format and message authentication",
         "The node table, link-state flooding, membership by majority and registration",
         "Peering on its own, and routing",
+        "Periphery nodes without a URL, which peer only with core nodes as their downlinks",
         "Advertising only peers that are alive and not stuck short of room",
         "Delivering settlements and requests to settle, ending peerings, bans"
       ]
@@ -387,6 +388,7 @@
       "does": [
         "Endpoints: BTP clients, the local STREAM receiver, ILDCP",
         "Peers and the route table",
+        "Downlinks at child addresses below the node's own; a periphery node's addresses beneath its uplinks, forwarding nothing",
         "A cap on money in flight with each peer, which bounds what a crash loses",
         "Exchange between currencies, with fees and a spread",
         "A spending cap per BTP token",

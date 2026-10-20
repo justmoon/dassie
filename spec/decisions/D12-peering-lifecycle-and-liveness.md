@@ -1,6 +1,6 @@
 # D12. Peering lifecycle and liveness
 
-**Areas:** [Network](../areas/network.md). Child peers are not built yet ([roadmap](../roadmap.md#periphery)).
+**Areas:** [Network](../areas/network.md). Child peers are the periphery's downlinks ([Network](../areas/network.md#downlinks)).
 
 ## Facts
 
@@ -34,4 +34,4 @@ A peering is requested, peered or terminating; a peer is advertised in our link 
 
 ## Deferred
 
-**Child peers,** routed beneath their uplink's address, touch the connector, BTP and the STREAM receiver. They are the periphery's downlinks, nodes without a public IP ([D26](D26-core-and-periphery.md)), and wait for that work.
+**Child peers,** routed beneath their uplink's address, touch the connector, BTP and the STREAM receiver. They are the periphery's downlinks, nodes without a public IP ([D26](D26-core-and-periphery.md)).

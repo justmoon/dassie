@@ -14,7 +14,7 @@ A periphery node always opens its connections itself, to nodes with a public IP,
 - a way to reach a periphery node by its ID, for its owner's apps and for Open Payments clients (§5–§7);
 - receiving payments without paying anything first (§8).
 
-This is a design ([D26](../decisions/D26-core-and-periphery.md)). Of it, QUIC between core nodes is built ([Peer protocol](../areas/peer-protocol.md#quic)), and so are relayed streams and a node's chosen relay of §5 ([Peer protocol](../areas/peer-protocol.md#relayed-streams)), a node's names, its signed responses and the `dassie` field of §7 ([Payments](../areas/payments.md#the-nodes-names)); the rest is not built yet. Durations and sizes in it are starting points, to be set from the deterministic simulation when the parts are built.
+This is a design ([D26](../decisions/D26-core-and-periphery.md)). Of it, QUIC between core nodes is built ([Peer protocol](../areas/peer-protocol.md#quic)), and so are relayed streams and a node's chosen relay of §5 ([Peer protocol](../areas/peer-protocol.md#relayed-streams)), a node's names, its signed responses and the `dassie` field of §7 ([Payments](../areas/payments.md#the-nodes-names)). So are periphery nodes, their peerings with their uplinks and their child addresses (§3), described in the area docs; the connection an uplink sends to its downlink on (§2), over which every uplink already relays to its downlinks (§5); and the downlinks' bound and exemption from withdrawal for room (§4). The rest is not built yet ([roadmap](../roadmap.md#periphery)). Durations and sizes in it are starting points, to be set from the deterministic simulation when the parts are built.
 
 ## 1. Concepts
 
@@ -37,7 +37,7 @@ This is a design ([D26](../decisions/D26-core-and-periphery.md)). Of it, QUIC be
 Every peer link, core or periphery, runs over QUIC. Peer traffic is heavy: a busy core node forwards a great many packets. One `POST /peer` per message carries an HTTP request for each packet, while QUIC streams carry the same messages over one connection that either side can send on.
 
 - **Messages.** Each request is a bidirectional QUIC stream: the request is a v1 `PeerMessage`, the response a v1 `PeerResponse`. Both have the same bytes, MACs and replay rules as over HTTPS ([Peer protocol](../areas/peer-protocol.md)). The [statuses](../areas/peer-protocol.md#statuses) travel ahead of the body, with the same meaning. Messages keep their own authentication, so the transport does not need to be trusted for that.
-- **Either side opens streams.** The core node sends to its downlink over the connection the downlink opened. That is all a periphery node needs to receive: it never accepts a connection.
+- **Either side opens streams**, as built ([Peer protocol](../areas/peer-protocol.md#quic)): the core node sends to its downlink over the connection the downlink opened. That is all a periphery node needs to receive: it never needs to accept a connection.
 - **Keys, not certificates.** The TLS 1.3 handshake inside QUIC uses a self-signed certificate for each side's Ed25519 node key, and each side checks that key against the node ID it expects. No certificate authority is involved, and no hostname has to match. The ALPN is `dassie/1`. A client that is not a node (an owner's app, a front door) presents a key of its own (§6, §7).
 - **One connection per pair of nodes.** When two core nodes dial each other at once, the connection the lower node ID opened stays, as crossed peering requests resolve ([Network](../areas/network.md#asking-and-answering)).
 - **Liveness.** Heartbeats ([Network](../areas/network.md#advertised-peers)) also keep the NAT's mapping open. A periphery node that loses its connection dials again, backing off from 1 s to 60 s.
@@ -46,13 +46,7 @@ Every peer link, core or periphery, runs over QUIC. Peer traffic is heavy: a bus
 
 ## 3. Periphery nodes
 
-- **No URL.** A periphery node's link state has an empty `url` and a `periphery` extension entry ([Peer protocol](../areas/peer-protocol.md#link-states)). An empty URL is valid only with that entry. Every node must agree on what verifies ([Verification](../areas/peer-protocol.md#verification)), and this rule is safe only because a periphery node's link state never floods: only its uplinks see it, in its peering request, so only nodes that take downlinks need the rule.
-- **No registration.** A periphery node registers with no bootstrap node, is in no node list, and takes no place in any node table. Its link state does not flood. Core nodes keep their downlinks apart from the node table (§4).
-- **Peering.** A periphery node asks core nodes to peer, as junior ([Settlement](../areas/settlement.md#credit)), choosing them from the node list among those that say in their link state that they take downlinks. A core node accepts a downlink without probing a URL: the open connection shows the downlink is there. It never asks a downlink to peer.
-- **Addresses.** Each uplink gives its downlink a child address over ILDCP, `<uplink address>.<downlink ID>`. A downlink with several uplinks has an address under each, and its STREAM receiver accepts packets for all of them. An incoming payment names one: that of an uplink the node is connected to when it creates the payment.
-- **Routing.** An uplink routes everything beneath a downlink's child address to that downlink ([Connector](../areas/connector.md#addresses-and-endpoints)). Since the address lies beneath the uplink's own, the rest of the network needs no route of its own.
-- **No forwarding.** A periphery node sends its own packets through its uplinks and takes packets addressed to it. It forwards nothing: a Prepare from an uplink that is not addressed beneath one of its own addresses gets F02.
-- **Losing an uplink.** A periphery node keeps two uplinks where it can. If one goes, payments through it stop, and payments through the other continue. The node's balances with the one that went stay on the books ([D12](../decisions/D12-peering-lifecycle-and-liveness.md)).
+Built: who is a periphery node, its link state without a URL, its peerings with its uplinks without a probe, its routes, its child addresses and that it forwards nothing are in [Network](../areas/network.md#periphery-nodes) and [Connector](../areas/connector.md#a-periphery-node).
 
 ## 4. Downlinks on a core node
 
@@ -68,8 +62,8 @@ A core node keeps its peerings with other core nodes, and its downlinks, under s
 
   With the downlink's two ledger accounts, that is about 0.5 KB per downlink on disk. A peer today costs about 1 KB on disk and 1.5–2 KB in memory, most of it the link state, kept both as bytes and parsed, which a downlink does not need.
 - **In memory only while connected.** A downlink's replay guard, MAC keys and peering state are loaded when it connects, and dropped once it has been gone for a while. Its replay floor is on disk, as for any peer.
-- **Limits:** at most 10 000 downlinks peered at once, and at most 100 000 rows, about 50 MB. A row with nothing owed either way and no peering is closed. When the rows are full, the node refuses new downlinks.
-- **No withdrawal for room.** A downlink is not in any link state, so withdrawing it would only stop packets to it, and payments to it are what raise its room when it owes nothing. A downlink that owes nothing is never withdrawn or ended for room ([Network](../areas/network.md#advertised-peers)); one that owes and does not settle is ended, as a core peer is.
+- **Limits:** at most 10 000 downlinks peered at once, and at most 100 000 rows, about 50 MB. A row with nothing owed either way and no peering is closed. When the rows are full, the node refuses new downlinks. What is built is one bound on downlinks, which live in the node table, and whose channels are never closed ([Network](../areas/network.md#downlinks)).
+- **No withdrawal for room** for a downlink that owes nothing is built ([Network](../areas/network.md#advertised-peers)).
 - **The XRPL scheme** keeps its peers' addresses in a table keyed by account, not in its state ([XRP Ledger](../areas/xrpl.md#state-and-restarts)). With many downlinks, its state would grow with every one and be written whole at every checkpoint, and a scheme that kept only the newest addresses could not recognise a settlement from a downlink it forgot.
 
 ## 5. Reaching a periphery node

@@ -1,6 +1,6 @@
 # D26. Core and periphery
 
-**Areas:** [Periphery](../designs/periphery.md), [Network](../areas/network.md), [Peer protocol](../areas/peer-protocol.md), [Settlement](../areas/settlement.md), [Payments](../areas/payments.md). A design, partly built ([roadmap](../roadmap.md#periphery)).
+**Areas:** [Periphery](../designs/periphery.md), [Network](../areas/network.md), [Peer protocol](../areas/peer-protocol.md), [Settlement](../areas/settlement.md), [Payments](../areas/payments.md). A design, partly built: periphery nodes and their downlink peerings ([Network](../areas/network.md#periphery-nodes)), and a node's names and signed responses ([Payments](../areas/payments.md#the-nodes-names)); the rest is on the [roadmap](../roadmap.md#periphery).
 
 ## Facts
 

@@ -42,7 +42,7 @@ Activation books only the difference between the scheme's balance and the last c
 
 ## Credit
 
-**Roles.** The **junior** is the node whose peering request was accepted, the **senior** the node that accepted it; when requests cross, the lower node ID's request wins, so the lower ID is the junior ([Network](network.md)). The node that asked to peer takes the risk at first ([D20](../decisions/D20-trust-follows-what-a-peer-earned-us.md)).
+**Roles.** The **junior** is the node whose peering request was accepted, the **senior** the node that accepted it; when requests cross, the lower node ID's request wins, so the lower ID is the junior ([Network](network.md)). The node that asked to peer takes the risk at first ([D20](../decisions/D20-trust-follows-what-a-peer-earned-us.md)). A periphery node always asks, so it is always its uplinks' junior ([Network](network.md#periphery-nodes)).
 
 **Starting credit.** The junior extends the senior the default credit line; the senior extends the junior nothing. Asked to settle at once, the junior then pays in advance, and payments to the junior flow at once, within the credit it extends. Both are policies of the node (`Policies` in `crates/dassie-node/src/node/mod.rs`), not owner settings, and one value for every ledger ([roadmap](../roadmap.md#not-built-yet)).
 
@@ -139,7 +139,7 @@ The node keeps a settlement channel with every node it has ever peered with (`cr
 
 **Delivery is exactly once.** Each `settlement` message carries a sequence per sender and recipient that never resets. The sender sends one at a time, in order, again until it is acknowledged, across restarts, never dropping it; one that got no answer goes again as soon as the node answers us at all ([Peer protocol](peer-protocol.md#message-set)). The receiver applies only the next sequence, recording it in the batch that books it, acknowledges anything at or below the last one without applying it again, and refuses anything else. So a copy from an old peering is never applied twice, and none is lost.
 
-**Channels are never closed,** so a node keeps a bounded number of them, one per node it has ever peered with. Once all are taken, peering with a new node is refused for capacity; nodes it holds a channel with can still peer. Closing a settled channel safely is not built ([roadmap](../roadmap.md#not-built-yet), [D12](../decisions/D12-peering-lifecycle-and-liveness.md)).
+**Channels are never closed,** so a node keeps a bounded number of them, one per node it has ever peered with: with core nodes under one bound, and with downlinks under their own ([Network](network.md#downlinks)). Once all of a kind are taken, peering with a new node of that kind is refused for capacity; nodes it holds a channel with can still peer. Closing a settled channel safely is not built ([roadmap](../roadmap.md#not-built-yet), [D12](../decisions/D12-peering-lifecycle-and-liveness.md)).
 
 ## The stub scheme
 

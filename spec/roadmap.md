@@ -50,12 +50,14 @@ Registration is free, and throttled instead ([Network](areas/network.md#registra
 
 ### Periphery
 
-Nodes without a public IP join as periphery nodes: they connect only to core nodes, get child addresses beneath them, and never forward. The design is [designs/periphery.md](designs/periphery.md); the reasons are [D26](decisions/D26-core-and-periphery.md).
+Nodes without a public IP join as periphery nodes: they connect only to core nodes, get child addresses beneath them, and never forward. The design is [designs/periphery.md](designs/periphery.md); the reasons are [D26](decisions/D26-core-and-periphery.md). Periphery nodes with their uplinks, over the QUIC connections they open, with child addresses and downlinks under a bound of their own, are built ([Network](areas/network.md#periphery-nodes), [Connector](areas/connector.md#a-periphery-node)).
 
 - **Parts that can be built side by side:**
-  - QUIC for periphery links: the uplink's connection held open by its downlink, and the fallbacks where UDP is blocked (TLS over TCP, WebSocket, WebTransport for browser nodes). QUIC between core nodes is built ([Peer protocol](areas/peer-protocol.md#quic));
-  - periphery nodes: child addresses beneath their uplinks, which touches the connector, BTP and the STREAM receiver ([D12](decisions/D12-peering-lifecycle-and-liveness.md)); the downlink table; a child's Network graph, which shows the child itself and its links to its uplinks, although no route reaches it;
-  - records and home nodes, so that clients find the relays that reach a node. Relays are built: every QUIC endpoint relays streams to the nodes connected to it, and a node keeps a connection to a relay it chooses ([Peer protocol](areas/peer-protocol.md#relayed-streams)). Relayed streams carry Open Payments; the owner's purpose waits for owner apps;
+  - QUIC for periphery links: dialling an uplink again with a backoff when its connection is lost, and the fallbacks where UDP is blocked (TLS over TCP, WebSocket, WebTransport for browser nodes);
+  - the downlink table: downlinks on disk in a table of their own rather than in the node table, in memory only while connected, with rows closed once nothing is owed either way, and the XRPL scheme's peers' addresses in a table keyed by account rather than in its state ([§4](designs/periphery.md#4-downlinks-on-a-core-node));
+  - a child's Network graph, which shows the child itself and its links to its uplinks, although no route reaches it; and BTP clients of a periphery node, whose ILDCP address is still beneath the node's own address rather than an uplink's;
+  - periphery nodes in the `peer` and `node` simulations' chaos runs, losing and regaining uplinks;
+  - records and home nodes, so that clients find the relays that reach a node. Relays are built: every QUIC endpoint relays streams to the nodes connected to it, so every uplink is already a relay for its downlinks, and a node keeps a connection to a relay it chooses ([Peer protocol](areas/peer-protocol.md#relayed-streams)). Relayed streams carry Open Payments; the owner's purpose waits for owner apps;
   - owner apps paired on `localhost`;
   - front doors. A node's names and its signed responses are built ([Payments](areas/payments.md#the-nodes-names)), and so is the stream a front door passes requests over: a relayed stream with purpose `payments`, on which a node serves Open Payments alone, named and signed ([HTTP](areas/http.md#relayed-streams)); left are the front doors themselves, their consent page, the owner's names as a wallet setting rather than an environment variable, the TXT record check in Dassie's own client, and the proposal to Open Payments;
   - free receivers, with the XRPL scheme's rules for accounts that do not exist yet;
@@ -86,7 +88,6 @@ Gaps between what the spec's contract or decisions ask for and what `main` does.
 - **`POST /peer` going.** A node that does not take QUIC is asked over HTTPS, and every node still serves `POST /peer` ([Peer protocol](areas/peer-protocol.md#transport)). **Done when** every node of the network takes QUIC, and a release drops `POST /peer` and the fallback.
 - **The channel limit.** A node never closes a peer's accounts or settlement channel, and keeps a bounded number of channels, one per node it has ever peered with; once they are taken, peering with a new node is refused for capacity ([Settlement](areas/settlement.md), [D12](decisions/D12-peering-lifecycle-and-liveness.md)). **Done when** a relationship whose peering has ended and whose balance is settled can be closed, freeing its channel, without a late settlement being lost or credited twice.
 - **Registration fees:** see [Registration fees](#registration-fees).
-- **Child peers:** see [Periphery](#periphery).
 - **The rest of D27:** see [Continuous simulation](#continuous-simulation), including the release check.
 
 ## Real money
@@ -125,7 +126,7 @@ Designs that stay future work. The architecture must not preclude them.
 - [D8](decisions/D08-real-money.md): the conditions for real money.
 - [D10](decisions/D10-secrets-at-rest.md): frontend signing stays future work.
 - [D11](decisions/D11-release-integrity.md): a release is built once until a second build can check it.
-- [D12](decisions/D12-peering-lifecycle-and-liveness.md): child peers deferred; the channel limit.
+- [D12](decisions/D12-peering-lifecycle-and-liveness.md): the channel limit.
 - [D26](decisions/D26-core-and-periphery.md): the periphery.
 - [D20](decisions/D20-trust-follows-what-a-peer-earned-us.md), [D23](decisions/D23-each-node-books-its-own-fulfills.md): credit growth's constants; the fields a later protocol version drops.
 - [D22](decisions/D22-settlement-hubs.md): settlement hubs.
