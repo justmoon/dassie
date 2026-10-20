@@ -328,6 +328,7 @@ impl PeerNode {
         if info != self.own_info {
             self.own_info = info;
             self.gossip.own_changed = true;
+            self.end_downlinks();
         }
     }
 

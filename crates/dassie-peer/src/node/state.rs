@@ -141,6 +141,8 @@ impl PeerNode {
             self.open_channel(id);
         }
         self.restore_floors(&stored.floors);
+        // A node that lost its URL while down ends its downlinks.
+        self.end_downlinks();
         self.gossip.routes_dirty = true;
         if peered {
             // The peers we have get a heartbeat's time to confirm
@@ -658,7 +660,12 @@ impl PeerNode {
         if !self.is_periphery() {
             return;
         }
-        assert_eq!(self.downlinks(), 0, "a periphery node has no downlinks");
+        // Downlinks from when it was a core node are being ended.
+        for entry in self.table.values().filter(|entry| entry.is_downlink()) {
+            let ending = entry.termination().is_some()
+                || entry.peering().is_some_and(|p| p.depeering.is_some());
+            assert!(ending, "a periphery node's downlinks are ending");
+        }
         if let Some(own) = self.table.get(&self.own).and_then(|e| e.link.as_ref()) {
             assert!(
                 own.periphery || !own.url.is_empty(),

@@ -50,6 +50,8 @@ pub struct StubHooks {
     pub busy: BTreeSet<NodeId>,
     /// Peers with a settlement of ours under way, before its message.
     pub settling: BTreeSet<NodeId>,
+    /// Why the scheme refuses peering requests, if it does.
+    pub refuse: Option<RefusalReason>,
 }
 
 impl PeeringHooks for StubHooks {
@@ -84,6 +86,9 @@ impl PeeringHooks for StubHooks {
         _: &[u8],
         _: &mut Vec<u8>,
     ) -> Result<Agreed, RefusalReason> {
+        if let Some(reason) = self.refuse {
+            return Err(reason);
+        }
         Ok(Agreed {
             state: Vec::new(),
             credit_out: CREDIT,

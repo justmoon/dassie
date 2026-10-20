@@ -109,6 +109,133 @@ fn an_empty_url_verifies_only_in_a_periphery_link_state() {
     let core = link_state(&key, START, "https://a.example", &[EXTENSION_QUIC]);
     let signed = SignedNodeInfo::decode_exact(&core).unwrap();
     assert!(signed.verify().is_ok() && !signed.info.is_periphery());
+    // Found in review: one with a URL too would be taken for a downlink's,
+    // accepted without a probe, and dialled at a URL nobody checked.
+    let both = link_state(&key, START, "https://a.example", &[EXTENSION_PERIPHERY]);
+    assert_eq!(
+        SignedNodeInfo::decode_exact(&both).unwrap().verify(),
+        Err(InvalidNodeInfo::Url)
+    );
+}
+
+// Found in review: a peering request whose link state has a URL and the
+// periphery extension took a core channel without a probe, outside the
+// peering caps; channels are never closed, so a few hundred fresh keys
+// would have kept the node from ever peering with a new core node. It is
+// refused, and nothing is opened for it.
+#[test]
+fn a_downlink_with_a_url_is_refused_without_a_channel() {
+    let mut network = Network::with_periphery(17, 2, 1, 0, Config::DEV);
+    settle(&mut network, 30_000);
+    let channels = network.node(0).channels().count();
+    let stranger = Arc::new(NodeKey::from_bytes(&[97; 32]));
+    let state = link_state(
+        &stranger,
+        network.clock(0),
+        "https://stranger.test",
+        &[EXTENSION_PERIPHERY, EXTENSION_QUIC],
+    );
+    let reply = ask(&mut network, &stranger, 0, &state);
+    assert_eq!(reply.status, 400);
+    let node = network.node(0);
+    assert_eq!(node.channels().count(), channels);
+    assert!(node.peering_of(&stranger.node_id()).is_none());
+    assert!(!node.nodes().iter().any(|v| v.id == stranger.node_id()));
+}
+
+// Found in review: a downlink the scheme refused kept its place in the
+// table, under the downlinks' bound, until a restart. It leaves at once.
+#[test]
+fn a_refused_downlink_takes_no_place() {
+    let config = Config {
+        max_downlinks: 1,
+        ..Config::DEV
+    };
+    let mut network = Network::with_periphery(18, 2, 1, 0, config);
+    settle(&mut network, 30_000);
+    let at = network.clock(0);
+    let first = Arc::new(NodeKey::from_bytes(&[98; 32]));
+    network.nodes[0].hooks.refuse = Some(RefusalReason::Capacity);
+    let state = link_state(&first, at, "", &[EXTENSION_PERIPHERY]);
+    let reply = ask(&mut network, &first, 0, &state);
+    assert_eq!(
+        answer(&reply),
+        PeeringResponse::Refused(RefusalReason::Capacity)
+    );
+    assert!(!network.node(0).is_downlink(&first.node_id()));
+    network.nodes[0].hooks.refuse = None;
+    let second = Arc::new(NodeKey::from_bytes(&[99; 32]));
+    let state = link_state(&second, at, "", &[EXTENSION_PERIPHERY]);
+    let reply = ask(&mut network, &second, 0, &state);
+    assert!(matches!(answer(&reply), PeeringResponse::Accepted { .. }));
+}
+
+/// Whether node `at` is ending its peering with `node`, or has none.
+fn ended_or_ending(network: &Network, at: usize, node: &NodeId) -> bool {
+    let views = network.node(at).nodes();
+    views
+        .iter()
+        .find(|view| view.id == *node)
+        .is_none_or(|view| {
+            view.termination.is_some()
+                || view.peering.as_ref().is_none_or(|p| p.depeering.is_some())
+        })
+}
+
+// Found in review: a core node with downlinks that lost its URL, as one
+// whose hostname became too long for it, asserted it had none, at every
+// sweep and after every restart. It ends them instead; its core peers end
+// their peerings with it, made with a core node, and it asks for uplinks
+// as a periphery node, across a restart too.
+#[test]
+fn a_core_node_that_becomes_periphery_ends_its_downlinks() {
+    let (core, periphery) = (4, 2);
+    let mut network = Network::with_periphery(19, core, 1, periphery, Config::DEV);
+    settle(&mut network, 90_000);
+    let turning = (1..core)
+        .find(|index| (core..core + periphery).any(|p| network.node(*index).is_downlink(&id(p))))
+        .expect("a core node with a downlink");
+    let downlinks: Vec<NodeId> = (core..core + periphery)
+        .map(id)
+        .filter(|node| network.node(turning).is_downlink(node))
+        .collect();
+    let core_peers: Vec<usize> = (0..core)
+        .filter(|index| network.node(turning).peering_of(&id(*index)).is_some())
+        .collect();
+    network.periphery.insert(turning);
+    network.act(turning, |node, now| {
+        node.set_own_info(
+            now,
+            dassie_peer::OwnInfo {
+                url: None,
+                alias: String::new(),
+                quic: true,
+            },
+        );
+    });
+    assert!(network.node(turning).is_periphery());
+    for downlink in &downlinks {
+        assert!(ended_or_ending(&network, turning, downlink));
+    }
+    // Restarted as a periphery node, with its downlinks still ending.
+    network.crash(turning);
+    network.start(turning);
+    settle(&mut network, 10 * 60_000);
+    let node = network.node(turning);
+    for downlink in &downlinks {
+        assert!(node.peering_of(downlink).is_none(), "the downlink ended");
+    }
+    for index in &core_peers {
+        let at = network.node(*index);
+        assert!(
+            at.peering_of(&id(turning)).is_none() || at.is_downlink(&id(turning)),
+            "node {index} keeps no core peering with it"
+        );
+    }
+    assert!(
+        (0..core).any(|index| network.node(index).is_downlink(&id(turning))),
+        "it peers again, as a downlink"
+    );
 }
 
 // spec/areas/network.md#periphery-nodes: periphery nodes find two uplinks

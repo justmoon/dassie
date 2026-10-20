@@ -12,7 +12,7 @@ use crate::config::Config;
 use crate::table::{LinkState, Sources, backoff};
 use crate::wire::{
     Content, EXTENSION_PERIPHERY, EXTENSION_QUIC, Entry, InvalidNodeInfo, LinkStateResponse,
-    NodeInfo, SignedNodeInfo, sign_node_info,
+    NodeInfo, SignedNodeInfo, TerminationReason, sign_node_info,
 };
 
 /// The routes are recomputed at least this often, as link states go stale.
@@ -210,6 +210,11 @@ impl PeerNode {
             .link
             .as_ref()
             .is_none_or(|old| old.neighbors != link.neighbors);
+        // A peer that turned from core to periphery, or back, is a peer of
+        // the other kind now, with another address and other bounds: the
+        // peering made as the old kind ends, and it may ask anew
+        // (spec/areas/network.md#downlinks).
+        let switched = entry.peering().is_some() && entry.is_downlink() != link.periphery;
         entry.key = Some(key);
         entry.link = Some(link);
         entry.refresh_failures = 0;
@@ -217,6 +222,9 @@ impl PeerNode {
         self.stats.link_states_accepted += 1;
         if changed {
             self.gossip.routes_dirty = true;
+        }
+        if switched {
+            self.begin_depeering(id, TerminationReason::Unspecified);
         }
         Processed::Accepted
     }

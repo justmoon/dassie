@@ -216,7 +216,9 @@ pub struct SignedNodeInfo<'a> {
 impl SignedNodeInfo<'_> {
     /// Checks the URL syntax, the key, that the ID is the key's, and the
     /// signature (ZIP-215, spec/areas/peer-protocol.md#verification).
-    /// The URL may be empty only in a periphery node's link state.
+    /// A periphery node's link state has no URL, and every other one a
+    /// valid one: a URL with the periphery extension would be taken for a
+    /// downlink's and dialled, never probed.
     /// Returns the key.
     ///
     /// # Errors
@@ -224,7 +226,12 @@ impl SignedNodeInfo<'_> {
     /// The first check that fails.
     pub fn verify(&self) -> Result<PublicKey, InvalidNodeInfo> {
         let url = &self.info.url;
-        if !is_valid_url(url) && !(url.is_empty() && self.info.is_periphery()) {
+        let valid = if self.info.is_periphery() {
+            url.is_empty()
+        } else {
+            is_valid_url(url)
+        };
+        if !valid {
             return Err(InvalidNodeInfo::Url);
         }
         let key =
