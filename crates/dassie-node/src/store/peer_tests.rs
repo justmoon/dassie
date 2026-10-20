@@ -32,6 +32,7 @@ fn node(seed: u8) -> StoredNode {
             inbound: true,
             last_seen_ms: 15,
             short_for_ms: 17,
+            short_reached_ms: 12,
             // Every other node is one we are ending, and have not told (D28).
             depeering: seed
                 .is_multiple_of(2)
@@ -78,6 +79,41 @@ fn the_node_table_round_trips() {
     ];
     expected.sort_by_key(|n| n.id);
     assert_eq!(stored.nodes, expected);
+}
+
+// Migration 24 keeps how long a peer has been short of room: all of it
+// counted toward ending the peering before, so all of it was reached, and
+// an upgrade forgives nothing (D12).
+#[test]
+fn the_time_short_is_all_reached_after_the_upgrade() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+    connection
+        .pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap();
+    schema::migrate_until(&mut connection, 23).unwrap();
+    let id = node(1).id;
+    connection
+        .execute(
+            "INSERT INTO peer_nodes (id, sources, first_seen_ms) VALUES (?1, 1, 10)",
+            [id.as_str()],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO peers (node, scheme, version, state, credit_out, since_ms, inbound,
+               last_seen_ms, replay_floor_ms, short_for_ms)
+             VALUES (?1, 'stub', 1, x'', 900, 14, 0, 15, 16, 5000)",
+            [id.as_str()],
+        )
+        .unwrap();
+    drop(connection);
+    let store = Store::open(temp.path()).unwrap();
+    let peering = store.load_peer().unwrap().nodes[0].peering.clone().unwrap();
+    assert_eq!(
+        (peering.short_for_ms, peering.short_reached_ms),
+        (5000, 5000)
+    );
 }
 
 // A peering ended, or a node removed, takes its peering row with it.

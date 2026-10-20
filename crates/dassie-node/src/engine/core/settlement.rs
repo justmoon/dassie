@@ -144,7 +144,9 @@ impl Core {
     /// waiting for a routine settlement (D12). Each settlement booked from
     /// it starts the grace again. While our scheme does not see its ledger,
     /// we cannot ask: nothing is judged, and the time short neither grows
-    /// nor starts again.
+    /// nor starts again. While our requests to settle surely never reach
+    /// the peer, the peer protocol counts the time toward withdrawing it,
+    /// not toward ending the peering for room.
     fn report_room(&mut self) {
         let now = self.now_ms;
         let peers: Vec<(NodeId, SchemeId)> = self

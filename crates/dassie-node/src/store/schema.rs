@@ -44,6 +44,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_21,
     MIGRATION_22,
     MIGRATION_23,
+    MIGRATION_24,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -791,6 +792,15 @@ ALTER TABLE gnap_grants ADD COLUMN network BLOB
   CHECK (network IS NULL OR length(network) = 16);
 ";
 
+/// How much of a peer's time short of room passed while it could be
+/// reached (D12): only that ends the peering for room, so a peer our
+/// requests to settle never reached is not ended for room it had no chance
+/// to restore. Until now, all of it counted, so all of it was reached.
+const MIGRATION_24: &str = "
+ALTER TABLE peers ADD COLUMN short_reached_ms INTEGER NOT NULL DEFAULT 0;
+UPDATE peers SET short_reached_ms = short_for_ms;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -980,6 +990,7 @@ pub const TABLES: &[Table] = &[
             ("short_for_ms", "INTEGER", true, false),
             ("depeering_since_ms", "INTEGER", false, false),
             ("depeering_reason", "INTEGER", false, false),
+            ("short_reached_ms", "INTEGER", true, false),
         ],
     },
     Table {

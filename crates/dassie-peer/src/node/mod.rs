@@ -471,29 +471,38 @@ impl PeerNode {
     ) {
         match purpose {
             Purpose::Gossip => {}
-            Purpose::SettlementRequest => match result {
-                Ok(body) => {
-                    // An answer it cannot read says nothing of the amount.
-                    let settling = crate::wire::decode_settling(&body).ok().flatten();
-                    self.event(Event::SettlementRequestAnswered { peer: to, settling });
+            Purpose::SettlementRequest => {
+                // Until another request comes back, the time the peer
+                // stays short counts toward ending the peering only if this
+                // one may have reached it (D12).
+                let unreached = matches!(result, Err(Problem::Failed(Failure::NotDelivered)));
+                if let Some(entry) = self.table.get_mut(&to) {
+                    entry.advertise.settle_unreached = unreached;
                 }
-                // Refused for not being peered: asked before the peer took
-                // in our acceptance. It may be asked again at once.
-                Err(Problem::Status(409)) => {
-                    self.event(Event::SettlementRequestRefused { peer: to });
+                match result {
+                    Ok(body) => {
+                        // An answer it cannot read says nothing of the amount.
+                        let settling = crate::wire::decode_settling(&body).ok().flatten();
+                        self.event(Event::SettlementRequestAnswered { peer: to, settling });
+                    }
+                    // Refused for not being peered: asked before the peer took
+                    // in our acceptance. It may be asked again at once.
+                    Err(Problem::Status(409)) => {
+                        self.event(Event::SettlementRequestRefused { peer: to });
+                    }
+                    // It never reached the peer, so it says nothing of the peer
+                    // and costs it nothing: asked again at once, so that a
+                    // failed delivery does not use up the grace before a peer
+                    // short of room is withdrawn
+                    // (spec/areas/network.md#advertised-peers). A refusal or an
+                    // overloaded peer (400, 401, 503) is asked again only after
+                    // the interval.
+                    Err(Problem::Failed(Failure::NotDelivered)) => {
+                        self.event(Event::SettlementRequestNotDelivered { peer: to });
+                    }
+                    Err(_) => {}
                 }
-                // It never reached the peer, so it says nothing of the peer
-                // and costs it nothing: asked again at once, so that a
-                // failed delivery does not use up the grace before a peer
-                // short of room is withdrawn
-                // (spec/areas/network.md#advertised-peers). A refusal or an
-                // overloaded peer (400, 401, 503) is asked again only after
-                // the interval.
-                Err(Problem::Failed(Failure::NotDelivered)) => {
-                    self.event(Event::SettlementRequestNotDelivered { peer: to });
-                }
-                Err(_) => {}
-            },
+            }
             Purpose::HashPoll => self.on_hash(to, result),
             Purpose::ListDownload => self.on_list(to, result),
             Purpose::Registration => self.on_registered(to, result),

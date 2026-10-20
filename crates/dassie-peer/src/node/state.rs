@@ -283,7 +283,11 @@ impl PeerNode {
     /// `peer`. A peer short, settling nothing, for longer than
     /// [`Config::advertise_short_grace_ms`](crate::Config) of checks at
     /// which the node could ask is no longer advertised: it is stuck, not
-    /// waiting for a routine settlement (D12).
+    /// waiting for a routine settlement (D12). Of that time, only what
+    /// passed while the last request to settle may have reached the peer
+    /// counts toward ending the peering: one that cannot be reached is
+    /// asked at every check, and each attempt fails before it reaches the
+    /// peer, so it costs the peer nothing.
     pub fn room(&mut self, now_ms: u64, peer: &NodeId, room: Room) {
         self.advance(now_ms);
         let now = self.now_ms;
@@ -293,22 +297,32 @@ impl PeerNode {
         let PeerState::Peered(peering) = &mut entry.peer else {
             return;
         };
-        let checked = &mut entry.advertise.short_checked_ms;
-        let before = peering.short_for_ms;
+        let advertise = &mut entry.advertise;
+        let before = (peering.short_for_ms, peering.short_reached_ms);
         match room {
             Room::Short { most_ms } => {
-                let since = checked.map_or(0, |at| now.saturating_sub(at).min(most_ms));
-                peering.short_for_ms = before.saturating_add(since);
-                *checked = Some(now);
+                let since = advertise
+                    .short_checked_ms
+                    .map_or(0, |at| now.saturating_sub(at).min(most_ms));
+                peering.short_for_ms = peering.short_for_ms.saturating_add(since);
+                if !advertise.settle_unreached {
+                    peering.short_reached_ms = peering.short_reached_ms.saturating_add(since);
+                }
+                advertise.short_checked_ms = Some(now);
             }
             Room::Enough => {
                 peering.short_for_ms = 0;
-                *checked = None;
+                peering.short_reached_ms = 0;
+                advertise.short_checked_ms = None;
             }
             // The time until the next check that can judge does not count.
-            Room::Unjudged => *checked = None,
+            Room::Unjudged => advertise.short_checked_ms = None,
         }
-        if peering.short_for_ms != before {
+        assert!(
+            peering.short_reached_ms <= peering.short_for_ms,
+            "more time short while reached than short"
+        );
+        if (peering.short_for_ms, peering.short_reached_ms) != before {
             self.dirty.insert(*peer);
         }
     }
