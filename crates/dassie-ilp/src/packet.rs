@@ -20,15 +20,38 @@ pub const MAX_DATA_LENGTH: usize = 32_767;
 /// (spec/original/04-interledger.md#14-reject-type-14).
 pub const MAX_MESSAGE_LENGTH: usize = 8_191;
 /// Largest encoding of any ILP packet, which callers can use to size
-/// buffers once: a Prepare with the longest destination and data.
-pub const MAX_PACKET_LENGTH: usize =
-    1 + size::length_determinant(MAX_PREPARE_BODY_LENGTH) + MAX_PREPARE_BODY_LENGTH;
+/// buffers once. It is a Reject's, with the longest `triggeredBy`, message
+/// and data: a connector passes on whatever Reject decodes, and it is
+/// larger than the largest Prepare.
+pub const MAX_PACKET_LENGTH: usize = max(
+    max(MAX_PREPARE_LENGTH, MAX_FULFILL_LENGTH),
+    MAX_REJECT_LENGTH,
+);
 
-const MAX_PREPARE_BODY_LENGTH: usize = 8
-    + TIMESTAMP_LENGTH
-    + 32
-    + size::prefixed(MAX_ADDRESS_LENGTH)
-    + size::prefixed(MAX_DATA_LENGTH);
+const MAX_PREPARE_LENGTH: usize = packet_length(
+    8 + TIMESTAMP_LENGTH
+        + 32
+        + size::prefixed(MAX_ADDRESS_LENGTH)
+        + size::prefixed(MAX_DATA_LENGTH),
+);
+
+const MAX_FULFILL_LENGTH: usize = packet_length(32 + size::prefixed(MAX_DATA_LENGTH));
+
+const MAX_REJECT_LENGTH: usize = packet_length(
+    3 + size::prefixed(MAX_ADDRESS_LENGTH)
+        + size::prefixed(MAX_MESSAGE_LENGTH)
+        + size::prefixed(MAX_DATA_LENGTH),
+);
+
+/// The encoding of a packet with a body of `body_length` octets: its type
+/// octet, the body's length, and the body.
+const fn packet_length(body_length: usize) -> usize {
+    1 + size::length_determinant(body_length) + body_length
+}
+
+const fn max(a: usize, b: usize) -> usize {
+    if a > b { a } else { b }
+}
 
 const ADDRESS_SIZE: Size = Size::range(1, MAX_ADDRESS_LENGTH);
 const OPTIONAL_ADDRESS_SIZE: Size = Size::range(0, MAX_ADDRESS_LENGTH);

@@ -217,5 +217,37 @@ fn max_packet_length_fits_the_largest_prepare() {
         data: &data,
         ..prepare(&destination)
     };
-    assert_eq!(packet.encoded_len(), dassie_ilp::MAX_PACKET_LENGTH);
+    assert!(packet.encoded_len() <= dassie_ilp::MAX_PACKET_LENGTH);
+    assert!(Packet::decode_exact(&packet.to_vec()).is_ok());
+}
+
+#[test]
+fn max_packet_length_is_the_largest_reject() {
+    // A Reject that decodes can be larger than any Prepare, and a
+    // connector passes it on as it is.
+    let triggered_by = format!("test.{}", "a".repeat(1018));
+    let message = "x".repeat(dassie_ilp::MAX_MESSAGE_LENGTH);
+    let data = vec![0; dassie_ilp::MAX_DATA_LENGTH];
+    let reject = Reject {
+        code: ErrorCode::F99_APPLICATION_ERROR,
+        triggered_by: Some(Address::parse(&triggered_by).unwrap()),
+        message: &message,
+        data: &data,
+    };
+    let encoded = reject.to_vec();
+    assert_eq!(encoded.len(), dassie_ilp::MAX_PACKET_LENGTH);
+    assert_eq!(
+        Response::decode_exact(&encoded),
+        Ok(Response::Reject(reject))
+    );
+}
+
+#[test]
+fn max_packet_length_fits_the_largest_fulfill() {
+    let data = vec![0; dassie_ilp::MAX_DATA_LENGTH];
+    let fulfill = dassie_ilp::Fulfill {
+        fulfillment: [0; 32],
+        data: &data,
+    };
+    assert!(fulfill.encoded_len() <= dassie_ilp::MAX_PACKET_LENGTH);
 }

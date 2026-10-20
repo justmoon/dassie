@@ -38,6 +38,10 @@ use crate::node::Node;
 /// The largest BTP message: an ILP packet and its envelope.
 const MAX_MESSAGE_BYTES: usize = 64 * 1024;
 
+// The largest ILP packet of any type fits, with room for BTP's few octets
+// of framing.
+const _: () = assert!(dassie_ilp::MAX_PACKET_LENGTH + 1024 <= MAX_MESSAGE_BYTES);
+
 /// Messages queued for a client before it counts as not reading.
 const OUTBOUND_QUEUE: usize = 256;
 

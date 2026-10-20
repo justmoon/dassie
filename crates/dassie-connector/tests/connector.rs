@@ -5,7 +5,7 @@
 
 use dassie_connector::sim::*;
 use dassie_connector::{Config, EndpointId, Forwarded, Outcome, PacketState, RATE_PRECISION};
-use dassie_ilp::{AmountTooLarge, ErrorCode, Response, ildcp};
+use dassie_ilp::{Address, AmountTooLarge, ErrorCode, MAX_PACKET_LENGTH, Reject, Response, ildcp};
 use dassie_ledger::{
     AccountName, AccountPath, JournalEntry, LedgerId, Name, Reference, TransferState,
 };
@@ -253,6 +253,31 @@ fn rejects_pass_through_unchanged() {
     let upstream = h
         .respond(NOW + 5, RECEIVER, sent.request_id, &rejection)
         .unwrap();
+    assert_eq!(h.written(upstream.length), rejection);
+    assert_eq!(h.net(h.owner), 0);
+}
+
+// A Reject that decodes can be larger than any Prepare; it reached upstream
+// as an empty response, which left the Prepare there waiting for its expiry.
+#[test]
+fn the_largest_reject_passes_through_unchanged() {
+    let mut h = Harness::new(Config::DEFAULT, 0);
+    let sent = pay(&mut h, 1, 10, [3; 32]);
+    let triggered_by = format!("test.{}", "a".repeat(1018));
+    let message = "x".repeat(dassie_ilp::MAX_MESSAGE_LENGTH);
+    let data = vec![7; dassie_ilp::MAX_DATA_LENGTH];
+    let rejection = Reject {
+        code: ErrorCode::F99_APPLICATION_ERROR,
+        triggered_by: Some(Address::parse(&triggered_by).unwrap()),
+        message: &message,
+        data: &data,
+    }
+    .to_vec();
+    assert_eq!(rejection.len(), MAX_PACKET_LENGTH);
+    let upstream = h
+        .respond(NOW + 5, RECEIVER, sent.request_id, &rejection)
+        .unwrap();
+    assert_eq!(upstream.to, ALICE);
     assert_eq!(h.written(upstream.length), rejection);
     assert_eq!(h.net(h.owner), 0);
 }
