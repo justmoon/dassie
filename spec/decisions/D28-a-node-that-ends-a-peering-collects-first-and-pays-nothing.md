@@ -40,6 +40,7 @@ Ending a peering is run by the node that ends it, which collects first and pays 
 - **The last request collects only half the way** to the peer's trigger, as any request does. Asking more than once would collect more; by default the node asks once, for simplicity.
 - **The end is no longer prompt.** It waits for the node's own settlements under way and for the peer's answer, so a slow ledger delays it, by at most two of those waits; a ban takes effect after them.
 - **The node being ended learns late.** Until `peeringTermination` arrives, it sees only refused Prepares and a settlement it was asked for.
+- **A peer that probes can tell it is being ended.** The refusal comes before the connector's other checks, so a Prepare that could never lack liquidity (oversized, unroutable, expiring too soon, or of no amount) gets T04 where any other peer gets another answer or is forwarded. Such a peer can then answer the last request with nothing. It keeps at most that one settlement, half the way to its trigger, which stays owed on our books as when a peer does not answer at all, within the credit we extend ([D23](D23-each-node-books-its-own-fulfills.md)).
 
 ## Rejected
 
