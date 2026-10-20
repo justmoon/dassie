@@ -42,6 +42,10 @@ const IDLE_FOR: Duration = Duration::from_secs(5);
 /// Time to open a stream and run its TLS.
 const OPEN_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// Most time a request waits for one of its node's streams to come free,
+/// when all are in use, before it is answered 503.
+const WAIT_FOR_STREAM: Duration = Duration::from_secs(2);
+
 /// Time for a node to answer a request in full.
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -71,6 +75,8 @@ pub type Answer = (hyper::http::response::Parts, Bytes);
 pub struct Nodes {
     quic: Arc<Quic>,
     table: Mutex<Table>,
+    /// Woken whenever a lease ends, for requests that wait for a stream.
+    freed: tokio::sync::Notify,
     shutdown: CancellationToken,
 }
 
@@ -106,6 +112,57 @@ impl Table {
         self.check();
     }
 
+    /// Closes the idle stream that waited longest, of any node, to make
+    /// room for another node's: true if there was one.
+    fn evict_oldest_idle(&mut self) -> bool {
+        let oldest = self
+            .pools
+            .iter()
+            .flat_map(|(node, pool)| {
+                pool.idle
+                    .iter()
+                    .enumerate()
+                    .map(move |(index, (_, since))| (*since, *node, index))
+            })
+            .min();
+        let Some((_, node, index)) = oldest else {
+            return false;
+        };
+        if let Some(pool) = self.pools.get_mut(&node)
+            && index < pool.idle.len()
+        {
+            drop(pool.idle.remove(index));
+            self.streams -= 1;
+        }
+        self.pools
+            .retain(|_, pool| pool.leased > 0 || !pool.idle.is_empty());
+        self.check();
+        true
+    }
+
+    /// A place for one more request to `node`, with an idle stream of its
+    /// own if one is left; none while the node has all its streams in use.
+    fn take(&mut self, node: NodeId) -> Option<Option<SendRequest<Body>>> {
+        self.prune(Instant::now());
+        let (in_pool, has_idle) = self.pools.get(&node).map_or((0, false), |pool| {
+            (pool.idle.len() + pool.leased, !pool.idle.is_empty())
+        });
+        if !has_idle {
+            if in_pool >= STREAMS_PER_NODE {
+                return None;
+            }
+            if self.streams >= MAX_STREAMS && !self.evict_oldest_idle() {
+                return None;
+            }
+            self.streams += 1;
+        }
+        let pool = self.pools.entry(node).or_default();
+        pool.leased += 1;
+        let sender = pool.idle.pop().map(|(sender, _)| sender);
+        self.check();
+        Some(sender)
+    }
+
     fn check(&self) {
         let counted: usize = self
             .pools
@@ -129,6 +186,7 @@ impl Nodes {
         Self {
             quic,
             table: Mutex::new(Table::default()),
+            freed: tokio::sync::Notify::new(),
             shutdown,
         }
     }
@@ -143,7 +201,7 @@ impl Nodes {
         node: NodeId,
         request: Request<Body>,
     ) -> Result<Answer, Missed> {
-        let mut lease = self.lease(node)?;
+        let mut lease = self.lease(node).await?;
         let reused = match lease.sender.take() {
             Some(mut sender) => match tokio::time::timeout(OPEN_TIMEOUT, sender.ready()).await {
                 Ok(Ok(())) => Some(sender),
@@ -173,33 +231,26 @@ impl Nodes {
     }
 
     /// A place for one more request to `node`, with an idle stream if one
-    /// is left.
-    fn lease(self: &Arc<Self>, node: NodeId) -> Result<Lease, Missed> {
-        let mut table = lock(&self.table);
-        table.prune(Instant::now());
-        let in_pool = table
-            .pools
-            .get(&node)
-            .map_or(0, |pool| pool.idle.len() + pool.leased);
-        let has_idle = table
-            .pools
-            .get(&node)
-            .is_some_and(|pool| !pool.idle.is_empty());
-        if !has_idle && (in_pool >= STREAMS_PER_NODE || table.streams >= MAX_STREAMS) {
-            return Err(Missed::Busy);
+    /// is left, waiting at most [`WAIT_FOR_STREAM`] for one to come free.
+    async fn lease(self: &Arc<Self>, node: NodeId) -> Result<Lease, Missed> {
+        let deadline = tokio::time::Instant::now() + WAIT_FOR_STREAM;
+        loop {
+            // Registered before the table is looked at, so that a lease
+            // ending in between still wakes this request.
+            let freed = self.freed.notified();
+            let mut freed = std::pin::pin!(freed);
+            freed.as_mut().enable();
+            if let Some(sender) = lock(&self.table).take(node) {
+                return Ok(Lease {
+                    nodes: Arc::clone(self),
+                    node,
+                    sender,
+                });
+            }
+            if tokio::time::timeout_at(deadline, freed).await.is_err() {
+                return Err(Missed::Busy);
+            }
         }
-        if !has_idle {
-            table.streams += 1;
-        }
-        let pool = table.pools.entry(node).or_default();
-        pool.leased += 1;
-        let sender = pool.idle.pop().map(|(sender, _)| sender);
-        table.check();
-        Ok(Lease {
-            nodes: Arc::clone(self),
-            node,
-            sender,
-        })
     }
 
     /// Opens a stream to `node` and runs HTTP/1.1 on it until it closes or
@@ -271,5 +322,68 @@ impl Drop for Lease {
             None => table.streams -= 1,
         }
         table.prune(Instant::now());
+        drop(table);
+        self.nodes.freed.notify_waiters();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+    use dassie_identity::NodeKey;
+
+    fn node(index: usize) -> NodeId {
+        let mut seed = [7u8; 32];
+        seed[..8].copy_from_slice(&u64::try_from(index).unwrap().to_le_bytes());
+        NodeKey::from_bytes(&seed).node_id()
+    }
+
+    /// An open HTTP/1.1 connection's sender, and the other end, which
+    /// keeps it open.
+    async fn sender() -> (SendRequest<Body>, tokio::io::DuplexStream) {
+        let (ours, theirs) = tokio::io::duplex(1024);
+        let (sender, connection) = http1::handshake(TokioIo::new(ours)).await.unwrap();
+        tokio::spawn(connection);
+        (sender, theirs)
+    }
+
+    #[test]
+    fn a_node_has_its_share_of_streams() {
+        let mut table = Table::default();
+        for _ in 0..STREAMS_PER_NODE {
+            assert!(matches!(table.take(node(1)), Some(None)));
+        }
+        assert!(table.take(node(1)).is_none());
+        assert!(matches!(table.take(node(2)), Some(None)));
+        assert_eq!(table.streams, STREAMS_PER_NODE + 1);
+    }
+
+    #[tokio::test]
+    async fn a_full_table_closes_the_oldest_idle_stream_for_another_node() {
+        let mut table = Table::default();
+        let nodes = MAX_STREAMS / STREAMS_PER_NODE;
+        for index in 0..nodes {
+            for _ in 0..STREAMS_PER_NODE {
+                assert!(table.take(node(index)).is_some());
+            }
+        }
+        assert_eq!(table.streams, MAX_STREAMS);
+        // Every stream in use: another node waits.
+        assert!(table.take(node(nodes)).is_none());
+        // The last node's requests end, and its streams wait idle.
+        let mut ends = Vec::new();
+        let pool = table.pools.get_mut(&node(nodes - 1)).unwrap();
+        for _ in 0..STREAMS_PER_NODE {
+            let (sender, end) = sender().await;
+            pool.leased -= 1;
+            pool.idle.push((sender, Instant::now()));
+            ends.push(end);
+        }
+        assert!(matches!(table.take(node(nodes)), Some(None)));
+        assert_eq!(table.streams, MAX_STREAMS);
+        let left = &table.pools.get(&node(nodes - 1)).unwrap().idle;
+        assert_eq!(left.len(), STREAMS_PER_NODE - 1);
     }
 }
