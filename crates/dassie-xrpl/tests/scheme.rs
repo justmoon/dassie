@@ -43,6 +43,11 @@ struct Node {
     /// Requests of this command go unanswered, and are counted.
     hold: Option<&'static str>,
     held: usize,
+    /// The last request held.
+    held_request: Option<serde_json::Value>,
+    /// A server behind the others, stopped where the ledger once was: the
+    /// node's requests go to it while it is set.
+    behind: Option<FakeLedger>,
     reconnects: usize,
     /// The commands it sent the ledger, in order.
     asked: Vec<String>,
@@ -88,6 +93,8 @@ impl World {
                 drop_submits: false,
                 hold: None,
                 held: 0,
+                held_request: None,
+                behind: None,
                 reconnects: 0,
                 asked: Vec::new(),
             });
@@ -141,10 +148,14 @@ impl World {
         }
         if node.hold == Some(command) {
             node.held += 1;
+            node.held_request = Some(request);
             return;
         }
         let connection = node.connection;
-        let reply = self.ledger.request(connection, message);
+        let reply = match &mut node.behind {
+            Some(behind) => behind.request(connection, message),
+            None => self.ledger.request(connection, message),
+        };
         self.input(index, LedgerInput::Message(&reply));
     }
 
@@ -525,6 +536,160 @@ fn the_first_sync_is_kept_across_restarts() {
     let restarted = XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
     assert_eq!(restarted.status(), LedgerStatus::Connecting);
     assert!(restarted.has_synced(), "a restart forgot the first sync");
+}
+
+// D32: a reset starts the chain again from a ledger below the newest seen,
+// which closed later. It is recognised as one even when the account exists
+// again on the new chain: the old funds are a loss, the new a deposit.
+#[test]
+fn a_reset_is_recognised_when_the_account_exists_again() {
+    let (mut world, _, _) = funded_pair();
+    world.disconnect(0);
+    world.ledger.reset();
+    world.ledger.fund(world.account(0));
+    world.close();
+    world.connect(0);
+    world.closes(2);
+    let books = &world.nodes[0].books;
+    assert_eq!(books.suspense, -i128::from(FUNDED));
+    assert_eq!(books.owner, 2 * i128::from(FUNDED));
+    assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
+}
+
+// Found in review: after a reconnect, a server behind the newest ledger
+// seen answers that the account does not exist, as of a ledger before it
+// was made, while a settlement of ours applied since. Nothing is cancelled
+// or written off.
+#[test]
+fn an_absence_from_a_ledger_already_passed_cancels_nothing() {
+    let (mut world, state_a, _) = funded_pair();
+    let id = world.settle(0, 1, 5_000_000_000, &state_a);
+    world.disconnect(0);
+    world.close();
+    assert!(world.nodes[1].books.credited.contains(&id));
+    world.nodes[0].hold = Some("account_info");
+    world.connect(0);
+    let request = world.nodes[0].held_request.as_ref().unwrap();
+    let reply = serde_json::to_vec(&serde_json::json!({
+        "type": "response", "status": "error", "id": request["id"],
+        "error": "actNotFound", "ledger_index": 1, "validated": true
+    }))
+    .unwrap();
+    let mut effects = Vec::new();
+    world.nodes[0]
+        .scheme
+        .on_ledger(world.now, LedgerInput::Message(&reply), &mut effects);
+    assert!(
+        !effects
+            .iter()
+            .any(|e| matches!(e, Effect::Cancel { settlement } if *settlement == id)),
+        "payment already credited by receiver was cancelled: {effects:?}"
+    );
+}
+
+// As above, against a server that stopped at the first ledger, before the
+// account was made: it is never believed, and the scheme waits. Once a
+// server has caught up, the settlement is posted.
+#[test]
+fn a_server_that_never_saw_the_account_writes_nothing_off() {
+    let (mut world, state_a, _) = funded_pair();
+    let id = world.settle(0, 1, 5_000_000_000, &state_a);
+    world.disconnect(0);
+    world.close();
+    world.nodes[0].behind = Some(FakeLedger::new());
+    world.connect(0);
+    // Long enough to reconnect when the stopped server goes silent.
+    world.closes(10);
+    assert!(world.nodes[0].reconnects > 0);
+    let books = &world.nodes[0].books;
+    assert!(books.cancelled.is_empty());
+    assert_eq!(books.suspense, 0);
+    assert!(books.pending.contains_key(&id));
+    assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Syncing);
+    world.nodes[0].behind = None;
+    world.disconnect(0);
+    world.connect(0);
+    world.closes(2);
+    let books = &world.nodes[0].books;
+    assert_eq!(books.finalized, [id]);
+    assert_eq!(books.suspense, 0);
+    assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
+}
+
+// Found in review: the account's state, asked for while synced (here its
+// sequence, read again once a settlement never executed is dropped), whose
+// answer is older than what the scheme has seen, is asked again as the
+// next ledger closes, not dropped for good.
+#[test]
+fn an_old_answer_while_synced_is_asked_again() {
+    let (mut world, state_a, _) = funded_pair();
+    let peer = world.nodes[1].name;
+    let mut rng = SeededRng::new(1);
+    world.nodes[0]
+        .scheme
+        .prepare_settlement(&mut rng, peer, 1_000_000_000, &state_a)
+        .unwrap();
+    world.closes(20);
+    world.nodes[0].hold = Some("account_info");
+    world.close();
+    let request = world.nodes[0].held_request.take().unwrap();
+    let reply = serde_json::to_vec(&serde_json::json!({
+        "type": "response", "status": "success", "id": request["id"],
+        "result": {
+            "account_data": { "Balance": "1000000000", "Sequence": 1, "OwnerCount": 0 },
+            "ledger_index": 1, "validated": true,
+        }
+    }))
+    .unwrap();
+    world.input(0, LedgerInput::Message(&reply));
+    world.nodes[0].hold = None;
+    let asked = |world: &World| {
+        let asked = &world.nodes[0].asked;
+        asked.iter().filter(|c| *c == "account_info").count()
+    };
+    let before = asked(&world);
+    world.close();
+    assert_eq!(asked(&world), before + 1);
+    assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
+    world.close();
+    assert_eq!(asked(&world), before + 1, "asked once");
+}
+
+// D32: a server behind what the scheme booked (here a peer's settlement),
+// or only behind the newest ledger it saw, says nothing new: nothing is
+// booked from it, and the scheme waits for one that caught up.
+#[test]
+fn a_server_behind_is_never_booked_from() {
+    for settled in [true, false] {
+        let (mut world, _, state_b) = funded_pair();
+        let behind = world.ledger.clone();
+        if settled {
+            world.settle(1, 0, 4_000_000_000, &state_b);
+        }
+        world.closes(3);
+        let books = |world: &World| {
+            let books = &world.nodes[0].books;
+            (
+                books.settlement,
+                books.owner,
+                books.suspense,
+                books.credited.len(),
+            )
+        };
+        let before = books(&world);
+        world.disconnect(0);
+        world.nodes[0].behind = Some(behind);
+        world.connect(0);
+        world.closes(3);
+        assert_eq!(books(&world), before, "{settled}");
+        assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Syncing);
+        world.nodes[0].behind = None;
+        world.disconnect(0);
+        world.connect(0);
+        world.closes(2);
+        assert_eq!(books(&world), before, "{settled}");
+        assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
+    }
 }
 
 // The settlement message carries the transaction's hash, and books

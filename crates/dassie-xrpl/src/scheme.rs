@@ -21,6 +21,12 @@
 //! It settles only on the testnet: a server that reports another network,
 //! or none, stops the scheme before the account is read, so mainnet XRP is
 //! never booked, written off or signed for.
+//!
+//! It acts only on what a server says as of a validated ledger at or past
+//! the newest it has seen: a server behind the others says nothing new,
+//! and its answers wait for it to catch up. A ledger below the newest that
+//! closed later is a new chain, which only a testnet reset makes, and only
+//! on a network [`resets`] allows (D32).
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::{String, ToString};
@@ -92,6 +98,67 @@ const TOO_MUCH_XRP: &str = "the server reported more XRP for the account than th
 const TESTNET_NETWORK_ID: u32 = 1;
 /// Why the scheme stops when its server reports another network, or none.
 const WRONG_NETWORK: &str = "the server is not on the XRP Ledger testnet; remove the scheme and add it with a testnet server";
+/// Why the scheme stops when a network that is never reset starts again
+/// below a ledger it has seen.
+const CHAIN_WENT_BACK: &str =
+    "the server's ledger went back on a network that is never reset; nothing was written off";
+/// Why the scheme stops when its account is gone from a network that is
+/// never reset.
+const ACCOUNT_GONE: &str =
+    "the account is gone from a network that is never reset; nothing was written off";
+
+/// Whether the chain of network `network_id` may start again from a new
+/// genesis, so that a ledger below one the scheme has seen, closed later,
+/// is a reset, and an account gone with it is written off. Only the
+/// testnet: on any other network, mainnet included, a ledger below one
+/// seen is never taken, and an absent account never written off, whatever
+/// else lets the scheme run there (D8, D32).
+#[must_use]
+pub const fn resets(network_id: u32) -> bool {
+    network_id == TESTNET_NETWORK_ID
+}
+
+/// A validated ledger: its index, and when it closed, in seconds since the
+/// XRP Ledger's epoch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Validated {
+    index: u32,
+    close_time: u64,
+}
+
+/// Where a server's validated ledger stands against the newest the scheme
+/// has seen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Chain {
+    /// At or past it: the chain the scheme follows.
+    Current,
+    /// Below it, closed before it: a server behind the others, whose
+    /// answers are old.
+    Behind,
+    /// Below it, closed after it: a new chain, which a lagging server
+    /// cannot make. A reset, on a network that [`resets`].
+    Restarted,
+    /// The same, on a network that never resets: refused.
+    WentBack,
+}
+
+/// Where `ledger`, of a server on network `network_id`, stands against
+/// `newest`, the newest the scheme has seen. Close times only grow along a
+/// chain, so a lower ledger that closed later is on another.
+fn chain(newest: Option<Validated>, network_id: u32, ledger: Validated) -> Chain {
+    match newest {
+        Some(newest) if ledger.index < newest.index => {
+            if ledger.close_time <= newest.close_time {
+                Chain::Behind
+            } else if resets(network_id) {
+                Chain::Restarted
+            } else {
+                Chain::WentBack
+            }
+        }
+        _ => Chain::Current,
+    }
+}
 
 /// Where the scheme connects, and where it asks for test XRP.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -237,8 +304,14 @@ pub struct XrplScheme {
     peers: BTreeMap<Name, (AccountId, u64)>,
     next_learnt: u64,
     recovering: Vec<Recovering>,
+    /// The newest validated ledger seen, by its server's state or the
+    /// ledger stream. Kept with the books whenever the rest is: any ledger
+    /// of the chain tells a server behind from a chain started again.
+    newest: Option<Validated>,
     // Learnt from the ledger.
     phase: Phase,
+    /// The network the connection's server is on, once checked.
+    network_id: Option<u32>,
     next_id: u64,
     pending: BTreeMap<u64, (Request, u64)>,
     validated: u32,
@@ -251,6 +324,10 @@ pub struct XrplScheme {
     buffer: Vec<TxRecord>,
     fund_at_ms: u64,
     funding: bool,
+    /// The account's state was asked for and the answer dropped as older
+    /// than what the scheme had seen: asked again as the next ledger
+    /// closes.
+    ask_account: bool,
     failed: Option<&'static str>,
     now_ms: u64,
     /// When the connection last said anything.
@@ -283,7 +360,9 @@ impl XrplScheme {
             peers: BTreeMap::new(),
             next_learnt: 0,
             recovering: Vec::new(),
+            newest: None,
             phase: Phase::Disconnected,
+            network_id: None,
             next_id: 1,
             pending: BTreeMap::new(),
             validated: 0,
@@ -296,6 +375,7 @@ impl XrplScheme {
             buffer: Vec::new(),
             fund_at_ms: 0,
             funding: false,
+            ask_account: false,
             failed: None,
             now_ms: 0,
             heard_ms: 0,
@@ -390,11 +470,13 @@ impl XrplScheme {
 
     fn disconnected(&mut self) {
         self.phase = Phase::Disconnected;
+        self.network_id = None;
         self.pending.clear();
         self.buffer.clear();
         // A faucet's answer may come for an older connection, and be
         // dropped: it is asked again in time.
         self.funding = false;
+        self.ask_account = false;
         for transaction in &mut self.in_flight {
             transaction.needs_submit = transaction.executed;
             transaction.looked_up = false;
@@ -465,16 +547,35 @@ impl XrplScheme {
 
     /// The server's state, the first answer on a connection: a server off
     /// the testnet, or that does not say, stops the scheme before anything
-    /// is read from it. On the testnet, the account is subscribed.
+    /// is read from it. On the testnet, its ledger says whether it is
+    /// behind, or on a chain started again; then the account is
+    /// subscribed.
     fn server_state(&mut self, outcome: Result<Value, ApiError>, effects: &mut Vec<Effect>) {
         let Some(state) = outcome.ok().as_ref().and_then(api::server_state_result) else {
             self.reconnect(effects);
             return;
         };
-        if state.network_id != Some(TESTNET_NETWORK_ID) {
+        let Some(network_id) = state.network_id.filter(|&id| id == TESTNET_NETWORK_ID) else {
             self.failed = Some(WRONG_NETWORK);
             self.disconnected();
             return;
+        };
+        self.network_id = Some(network_id);
+        let ledger = Validated {
+            index: state.validated_ledger,
+            close_time: state.close_time,
+        };
+        match chain(self.newest, network_id, ledger) {
+            Chain::Current => self.newest = Some(ledger),
+            // What it says of the account is older than what the scheme
+            // saw: its answers wait for it to catch up.
+            Chain::Behind => {}
+            Chain::Restarted => self.restarted(ledger, effects),
+            Chain::WentBack => {
+                self.failed = Some(CHAIN_WENT_BACK);
+                self.disconnected();
+                return;
+            }
         }
         self.validated = self.validated.max(state.validated_ledger);
         self.fee_base = state.base_fee;
@@ -498,12 +599,10 @@ impl XrplScheme {
                     self.failed = Some(TOO_MUCH_XRP);
                     return;
                 }
-                // A server behind what was booked already says nothing
+                // A server behind what the scheme has seen says nothing
                 // new: asked again when the next ledger closes.
-                if self
-                    .cursor
-                    .is_some_and(|(ledger, _)| ledger > info.ledger_index)
-                {
+                if info.ledger_index < self.seen() {
+                    self.ask_account = true;
                     return;
                 }
                 let next = self
@@ -526,14 +625,82 @@ impl XrplScheme {
                 }
                 self.start(effects);
             }
-            Err(error) if error.error == "actNotFound" => self.unfunded(effects),
+            // Absent only as of a validated ledger the scheme has not seen
+            // past: a server behind says so of a ledger before the account
+            // was made, while a settlement of ours may have applied since.
+            // Otherwise it is asked again when the next ledger closes.
+            Err(error) if error.error == "actNotFound" => {
+                if error.validated
+                    && error
+                        .ledger_index
+                        .is_some_and(|ledger| ledger >= self.seen())
+                {
+                    self.absent(effects);
+                } else {
+                    self.ask_account = true;
+                }
+            }
             Err(_) => self.reconnect(effects),
         }
     }
 
-    /// The account does not exist: what the books hold is gone (a testnet
-    /// reset), and the faucet is asked.
+    /// The newest validated ledger the scheme has seen or booked from:
+    /// what a server says as of one before it is old.
+    fn seen(&self) -> u32 {
+        let newest = self.newest.map_or(0, |newest| newest.index);
+        newest.max(self.cursor.map_or(0, |(ledger, _)| ledger))
+    }
+
+    /// Whether the books hold anything of the account: an absent account
+    /// writes it off.
+    fn holds_anything(&self) -> bool {
+        self.cursor.is_some() || self.booked > 0 || !self.in_flight.is_empty()
+    }
+
+    /// The account does not exist, as of a validated ledger the scheme has
+    /// not seen past. On a network that [`resets`], what the books held is
+    /// gone with it, and the faucet is asked; on any other, an account
+    /// that held anything does not just go, and the scheme stops.
+    fn absent(&mut self, effects: &mut Vec<Effect>) {
+        if self.holds_anything() && !self.network_id.is_some_and(resets) {
+            self.failed = Some(ACCOUNT_GONE);
+            self.disconnected();
+            return;
+        }
+        self.unfunded(effects);
+    }
+
+    /// The chain started again below the newest ledger seen (a testnet
+    /// reset): it follows the new one, and what the books held is gone.
+    fn restarted(&mut self, ledger: Validated, effects: &mut Vec<Effect>) {
+        assert!(
+            self.network_id.is_some_and(resets),
+            "only a network that resets starts again"
+        );
+        self.newest = Some(ledger);
+        self.validated = ledger.index;
+        // What is looked for is asked again on the new chain.
+        for recovering in &mut self.recovering {
+            recovering.ask_at = 0;
+        }
+        self.write_off(effects);
+    }
+
+    /// The account does not exist: what the books hold is written off, and
+    /// the faucet is asked.
     fn unfunded(&mut self, effects: &mut Vec<Effect>) {
+        self.write_off(effects);
+        self.phase = Phase::Unfunded;
+        self.fund(effects);
+    }
+
+    /// What the books hold of the account is gone (a testnet reset): a
+    /// loss through suspense, and what was in flight cancelled.
+    fn write_off(&mut self, effects: &mut Vec<Effect>) {
+        assert!(
+            !self.holds_anything() || self.network_id.is_some_and(resets),
+            "only a network that resets writes the account off"
+        );
         // What was in flight can never apply now: an account made again
         // starts its sequence anew.
         for transaction in core::mem::take(&mut self.in_flight) {
@@ -552,8 +719,6 @@ impl XrplScheme {
         }
         self.cursor = None;
         self.balance = None;
-        self.phase = Phase::Unfunded;
-        self.fund(effects);
     }
 
     fn fund(&mut self, effects: &mut Vec<Effect>) {
@@ -678,6 +843,20 @@ impl XrplScheme {
     }
 
     fn ledger_closed(&mut self, closed: LedgerClosed, effects: &mut Vec<Effect>) {
+        let ledger = Validated {
+            index: closed.ledger_index,
+            close_time: closed.close_time,
+        };
+        match self.network_id.map(|id| chain(self.newest, id, ledger)) {
+            Some(Chain::Current) => self.newest = Some(ledger),
+            // The chain started again under the connection: made anew, so
+            // that the server's state says so before anything is read.
+            Some(Chain::Restarted | Chain::WentBack) => {
+                self.reconnect(effects);
+                return;
+            }
+            Some(Chain::Behind) | None => {}
+        }
         self.validated = self.validated.max(closed.ledger_index);
         self.fee_base = closed.fee_base;
         let reserve_changed =
@@ -692,6 +871,12 @@ impl XrplScheme {
             Phase::Synced => {
                 if reserve_changed {
                     self.reconcile(effects);
+                }
+                // An answer older than what the scheme had seen was
+                // dropped, such as the sequence read again after a
+                // settlement was given up: asked again.
+                if core::mem::take(&mut self.ask_account) && !asking {
+                    self.send(Request::AccountInfo, effects);
                 }
                 self.expire(effects);
                 self.ask_recover(effects);
@@ -1007,7 +1192,10 @@ impl XrplScheme {
     }
 
     /// A number that changes whenever what [`state`](SettlementScheme::state)
-    /// keeps does, cheaply: the node writes the state only then.
+    /// keeps does, cheaply: the node writes the state only then. Except
+    /// the newest ledger seen, which changes as each ledger closes, and
+    /// is written with the rest: an older ledger of the same chain tells
+    /// a reset as well.
     fn fingerprint(&self) -> u64 {
         let mut mix: u64 = 0xcbf2_9ce4_8422_2325;
         let mut add = |value: u64| {
@@ -1063,6 +1251,7 @@ impl XrplScheme {
             "in_flight": in_flight,
             "peers": peers,
             "recovering": recovering,
+            "newest": self.newest.map(|newest| json!([newest.index, newest.close_time])),
         })
     }
 
@@ -1074,6 +1263,13 @@ impl XrplScheme {
             cursor => Some((number(cursor.get(0)?)?, number(cursor.get(1)?)?)),
         };
         self.sequence = number(value.get("sequence")?)?;
+        self.newest = match value.get("newest") {
+            None | Some(Value::Null) => None,
+            Some(newest) => Some(Validated {
+                index: number(newest.get(0)?)?,
+                close_time: newest.get(1)?.as_u64()?,
+            }),
+        };
         // More than the scheme keeps is a state it did not write: refused,
         // rather than orphaning a settlement by dropping it.
         let in_flight = value.get("in_flight")?.as_array()?;
@@ -1205,6 +1401,8 @@ impl XrplScheme {
         match self.phase {
             Phase::Disconnected => {
                 assert!(self.pending.is_empty(), "nothing asked while disconnected");
+                assert!(self.network_id.is_none(), "a network is a connection's");
+                assert!(!self.ask_account, "asked again on a connection");
                 assert!(self.buffer.is_empty());
                 assert!(!self.funding);
             }
@@ -1570,5 +1768,75 @@ impl SettlementScheme for XrplScheme {
         assert!(self.next_id >= 1, "request IDs start at 1");
         self.check_in_flight();
         self.check_phase();
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    const NEWEST: Validated = Validated {
+        index: 5_000_000,
+        close_time: 800_000_000,
+    };
+
+    // D32: a ledger below the newest seen that closed later is a reset only
+    // on the testnet. On mainnet, devnet or any other network it is never
+    // taken, whatever lets the scheme run there; one that closed earlier is
+    // a server behind, anywhere.
+    #[test]
+    fn only_the_testnet_starts_again() {
+        let lower_later = Validated {
+            index: 2_000,
+            close_time: 800_000_004,
+        };
+        let lower_earlier = Validated {
+            index: 4_999_990,
+            close_time: 799_999_960,
+        };
+        let higher = Validated {
+            index: 5_000_001,
+            close_time: 800_000_004,
+        };
+        assert_eq!(chain(Some(NEWEST), 1, lower_later), Chain::Restarted);
+        for network in [0, 2, 21_338, u32::MAX] {
+            assert!(!resets(network));
+            assert_eq!(chain(Some(NEWEST), network, lower_later), Chain::WentBack);
+        }
+        for network in [0, 1, 2, 21_338] {
+            assert_eq!(chain(Some(NEWEST), network, lower_earlier), Chain::Behind);
+            assert_eq!(chain(Some(NEWEST), network, NEWEST), Chain::Current);
+            assert_eq!(chain(Some(NEWEST), network, higher), Chain::Current);
+            assert_eq!(chain(None, network, lower_later), Chain::Current);
+        }
+    }
+
+    // D32: on a network that is never reset, an account that held anything
+    // and is gone stops the scheme: nothing is cancelled or written off,
+    // and the faucet is not asked.
+    #[test]
+    fn an_account_gone_from_a_network_never_reset_stops_the_scheme() {
+        for (network, stops) in [(0, true), (2, true), (1, false)] {
+            let node = dassie_ledger::name!("node");
+            let mut scheme = XrplScheme::new("", &[1; 32], node, Some(5_000), &[]).unwrap();
+            scheme.phase = Phase::Synced;
+            scheme.cursor = Some((NEWEST.index, u32::MAX));
+            scheme.network_id = Some(network);
+            let mut effects = Vec::new();
+            scheme.absent(&mut effects);
+            if stops {
+                assert_eq!(scheme.status(), LedgerStatus::Failed(ACCOUNT_GONE));
+                assert!(effects.is_empty(), "{effects:?}");
+                assert_eq!(scheme.balance(), 5_000);
+            } else {
+                assert_eq!(scheme.status(), LedgerStatus::Unfunded);
+                assert!(effects.contains(&Effect::Reconcile {
+                    amount: 5_000,
+                    gain: false
+                }));
+            }
+            scheme.check_invariants();
+        }
     }
 }

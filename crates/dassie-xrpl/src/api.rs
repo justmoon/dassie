@@ -122,6 +122,11 @@ pub struct ApiError {
     pub error: String,
     /// For `txnNotFound`: whether every ledger asked for was searched.
     pub searched_all: Option<bool>,
+    /// The ledger the answer is as of, if it names one: rippled names it
+    /// with `actNotFound`, so an old absence can be told from a new one.
+    pub ledger_index: Option<u32>,
+    /// Whether that ledger is validated.
+    pub validated: bool,
 }
 
 /// A validated ledger's numbers, in drops.
@@ -129,6 +134,8 @@ pub struct ApiError {
 pub struct LedgerClosed {
     /// Its index.
     pub ledger_index: u32,
+    /// When it closed, in seconds since the XRP Ledger's epoch.
+    pub close_time: u64,
     /// The reference fee.
     pub fee_base: u64,
     /// What every account holds back.
@@ -237,13 +244,17 @@ fn response(value: &Value) -> Message {
             .chars()
             .take(64)
             .collect();
-        let searched_all = value
-            .get("searched_all")
-            .or_else(|| value.get("result").and_then(|r| r.get("searched_all")))
-            .and_then(Value::as_bool);
+        // A WebSocket error carries its result's fields next to it.
+        let field = |key: &str| {
+            value
+                .get(key)
+                .or_else(|| value.get("result").and_then(|r| r.get(key)))
+        };
         Err(ApiError {
             error,
-            searched_all,
+            searched_all: field("searched_all").and_then(Value::as_bool),
+            ledger_index: number(field("ledger_index")),
+            validated: field("validated").and_then(Value::as_bool) == Some(true),
         })
     };
     Message::Response { id, outcome }
@@ -252,6 +263,7 @@ fn response(value: &Value) -> Message {
 fn ledger_closed(value: &Value) -> Option<LedgerClosed> {
     Some(LedgerClosed {
         ledger_index: number(value.get("ledger_index"))?,
+        close_time: value.get("ledger_time")?.as_u64()?,
         fee_base: value.get("fee_base")?.as_u64()?,
         reserve_base: value.get("reserve_base")?.as_u64()?,
         reserve_inc: value.get("reserve_inc")?.as_u64()?,
@@ -374,6 +386,8 @@ fn balance_changes(meta: &Value) -> Vec<BalanceChange> {
 pub struct ServerState {
     /// The last validated ledger.
     pub validated_ledger: u32,
+    /// When it closed, in seconds since the XRP Ledger's epoch.
+    pub close_time: u64,
     /// The reference fee, in drops.
     pub base_fee: u64,
     /// The base reserve, in drops.
@@ -395,6 +409,7 @@ pub fn server_state_result(result: &Value) -> Option<ServerState> {
     let ledger = state.get("validated_ledger")?;
     Some(ServerState {
         validated_ledger: number(ledger.get("seq"))?,
+        close_time: ledger.get("close_time")?.as_u64()?,
         base_fee: ledger.get("base_fee")?.as_u64()?,
         reserve_base: ledger.get("reserve_base")?.as_u64()?,
         reserve_inc: ledger.get("reserve_inc")?.as_u64()?,
