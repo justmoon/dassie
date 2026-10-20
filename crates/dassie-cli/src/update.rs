@@ -22,7 +22,8 @@
 //! 5. If the node does not come up, it points `current` back, puts back the
 //!    database from before the new version migrated it, if it did
 //!    (`dassie_node::store::restore_pre_migration`), and starts the old
-//!    version again.
+//!    version again; if the database cannot be put back, the node stays
+//!    stopped, for the owner to choose which to keep.
 //! 6. It keeps the version it came from, and removes older ones.
 //!
 //! One update runs at a time: each holds a lock on `<base>/.update.lock`,
@@ -37,7 +38,7 @@ use std::process::{Command, ExitCode, Output, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
 use dassie_node::peer_client::{PeerClient, WebRequest};
-use dassie_node::store::{self, ROLLED_BACK_FILE, Restored};
+use dassie_node::store::{self, DATABASE_FILE, PRE_MIGRATION_FILE, ROLLED_BACK_FILE, Restored};
 use dassie_release::bundle::{self, Kind, Unpacking};
 use dassie_release::layout::{self, Arch, Compression};
 use dassie_release::{Channel, PublicKey, Sums, Version, verify_sums};
@@ -232,9 +233,10 @@ fn roll_back(install: &Install, units: &Units, since: SystemTime) -> Result<(), 
     // systemd may be restarting the failed node; the database must be left
     // alone while it is put back.
     systemctl(&["stop", SERVICE])?;
-    let restored = restore_database(since);
-    let started = systemctl(&["start", SERVICE]);
-    restored.and(started)
+    // Started on a database that could not be put back, the old version
+    // would refuse it, or find none; the owner chooses which to keep.
+    restore_database(since)?;
+    systemctl(&["start", SERVICE])
 }
 
 /// Puts back the database from before the update, if the version that
@@ -252,7 +254,14 @@ fn restore_database(since: SystemTime) -> Result<(), Problem> {
             );
             Ok(())
         }
-        Err(error) => Err(format!("{}: {error}", data_dir.display())),
+        Err(error) => Err(format!(
+            "putting back the database failed ({error}), so {SERVICE} stays stopped. In {}, \
+             {DATABASE_FILE} is the database, if it is there, {ROLLED_BACK_FILE} the one the \
+             new version left, if it was moved aside, and {PRE_MIGRATION_FILE} the copy from \
+             before the update, if there is one. Put the one to keep in place as \
+             {DATABASE_FILE}, then run `systemctl start {SERVICE}`",
+            data_dir.display()
+        )),
     }
 }
 

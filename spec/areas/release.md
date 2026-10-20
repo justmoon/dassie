@@ -93,6 +93,7 @@ If the node does not come up after the switch, the update disables and removes t
 - **Why the database:** a version refuses a database whose schema is newer than it knows ([Node](node.md#database)), so after a migration the old version could not start. The daemon keeps a copy from just before it migrated, taken before it served anything, so nothing the copy lacks has reached a peer.
 - **Only when it must, and only a copy it can trust:** the updater puts the copy back only if the old version could not open the database as it is, only if the copy was made by this update (by its time), and only if the old version can open the copy (`store::restore_pre_migration`).
 - The database it replaces is kept beside it (`dassie.sqlite3.rolled-back`) for the owner to look at.
+- **If the database cannot be put back, the old version is not started:** it would refuse a database too new for it, or, finding none, start afresh with another identity and no books. The node stays stopped, and the update says where the database, the one the new version left and the copy are, for the owner to choose. Nor does a node start afresh where a rollback stopped half way, whatever starts it ([Node](node.md#database)).
 
 ## Tests
 

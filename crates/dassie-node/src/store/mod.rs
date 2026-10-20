@@ -92,6 +92,9 @@ pub enum StoreError {
     /// The database is too new for this version, and the copy from before
     /// its migration cannot be put back, for this reason.
     NoUsableCopy(&'static str),
+    /// There is no database, but a rollback moved one aside: it stopped
+    /// before it put back the copy from before the migration.
+    RollbackUnfinished,
 }
 
 impl fmt::Display for StoreError {
@@ -122,6 +125,12 @@ impl fmt::Display for StoreError {
                 f,
                 "the database is from a newer version of Dassie, and the copy from before \
                  its migration cannot be put back: {why}"
+            ),
+            Self::RollbackUnfinished => write!(
+                f,
+                "there is no {DATABASE_FILE}, but a rollback moved one aside and did not \
+                 finish: put back {PRE_MIGRATION_FILE}, the copy from before the update, or \
+                 {ROLLED_BACK_FILE}, the database the update left, as {DATABASE_FILE}"
             ),
         }
     }
@@ -174,6 +183,12 @@ impl Store {
     pub fn open(data_dir: &Path) -> Result<Self, StoreError> {
         secure_directory(data_dir)?;
         let path = data_dir.join(DATABASE_FILE);
+        // A rollback that stopped between moving the database aside and
+        // putting the copy in left none, and a new one would be a node
+        // with another identity and no books.
+        if !path.exists() && data_dir.join(ROLLED_BACK_FILE).exists() {
+            return Err(StoreError::RollbackUnfinished);
+        }
         secure_file(&path)?;
         let connection = Connection::open(&path)?;
         connection.pragma_update(None, "journal_mode", "WAL")?;

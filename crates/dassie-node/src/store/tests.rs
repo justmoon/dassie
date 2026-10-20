@@ -187,6 +187,27 @@ fn a_rollback_puts_the_copy_back() {
     );
 }
 
+// D11: a node never starts afresh where a rollback moved its database
+// aside, with another identity and no books.
+#[test]
+fn opens_no_new_database_where_a_rollback_did_not_finish() {
+    let temp = tempfile::tempdir().unwrap();
+    drop(Store::open(temp.path()).unwrap());
+    newer_version_migrates(temp.path());
+    // What a rollback leaves if it stops between moving the database aside
+    // and putting the copy in.
+    let database = temp.path().join(DATABASE_FILE);
+    fs::rename(&database, temp.path().join(ROLLED_BACK_FILE)).unwrap();
+    assert!(matches!(
+        Store::open(temp.path()),
+        Err(StoreError::RollbackUnfinished)
+    ));
+    assert!(!database.exists());
+    // Once the owner puts the copy back, the node opens it.
+    fs::rename(temp.path().join(PRE_MIGRATION_FILE), &database).unwrap();
+    drop(Store::open(temp.path()).unwrap());
+}
+
 #[test]
 fn a_rollback_refuses_a_copy_it_cannot_trust() {
     let temp = tempfile::tempdir().unwrap();

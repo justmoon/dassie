@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write as _};
-use std::os::unix::fs::{PermissionsExt as _, symlink};
+use std::os::unix::fs::{FileExt as _, PermissionsExt as _, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::{Arc, Mutex};
@@ -611,6 +611,45 @@ fn runs_one_update_at_a_time() {
         output = install.update(&mirror, &[]);
     }
     assert!(output.status.success(), "{}", text(&output));
+}
+
+/// If the database cannot be put back, a rollback does not start the old
+/// version, which would refuse it, or find none and start afresh; it says
+/// where the database and its copies are.
+#[test]
+fn a_rollback_starts_no_node_without_a_database_it_can_run() {
+    let (mirror, install) = (MirrorServer::start(), Install::new());
+    install.with_unit(OLD_UNIT);
+    // A database the new version migrated past this one, as the user
+    // version at offset 60 of its header says, with no copy from before.
+    let state = install.dir.path().join("state");
+    drop(dassie_node::store::Store::open(&state).unwrap());
+    fs::OpenOptions::new()
+        .write(true)
+        .open(state.join("dassie.sqlite3"))
+        .unwrap()
+        .write_all_at(&999_u32.to_be_bytes(), 60)
+        .unwrap();
+    publish(&mirror, "9.9.9", &release("9.9.9"), None);
+    let systemctl = systemctl_failing_restart(install.dir.path());
+    let output = install.update_with_systemctl(&mirror, &systemctl);
+    assert!(!output.status.success(), "{}", text(&output));
+    for said in [
+        "dassie.service stays stopped",
+        "dassie.sqlite3.rolled-back",
+        "dassie.sqlite3.pre-migration",
+    ] {
+        assert!(text(&output).contains(said), "{}", text(&output));
+    }
+    assert_eq!(install.current(), install.version);
+    let record = install.last_update();
+    assert!(record.contains("\noutcome=failed\n"), "{record}");
+    assert!(record.contains("stays stopped"), "{record}");
+    let calls = systemctl_calls(&systemctl);
+    assert_eq!(
+        calls.last().map(String::as_str),
+        Some("stop dassie.service")
+    );
 }
 
 /// When the new node does not come up, the version before runs again, with
