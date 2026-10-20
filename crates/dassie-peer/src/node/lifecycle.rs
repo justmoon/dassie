@@ -11,7 +11,7 @@ use super::{PeerNode, Problem, Purpose};
 use crate::auth::Accepted;
 use crate::hooks::PeeringHooks;
 use crate::io::{Event, Reply};
-use crate::table::{Advertise, Depeering, Entry, PeerState, Sources, Termination, backoff};
+use crate::table::{Advertise, Depeering, Entry, PeerState, Termination, backoff};
 use crate::wire::{Content, SchemeId, TerminationReason};
 
 /// Why a node could not be banned.
@@ -493,7 +493,7 @@ impl PeerNode {
             if peered {
                 self.begin_depeering(node, TerminationReason::Unspecified);
             } else {
-                self.drop_source(&node, Sources::DOWNLINK);
+                self.drop_downlink(&node);
             }
         }
     }

@@ -483,7 +483,7 @@ impl PeerNode {
             let reply = self.complete_peering(hooks, &accepted, content, true);
             // A refused downlink takes no place in the table.
             if self.peering_of(&sender).is_none() {
-                self.drop_source(&sender, Sources::DOWNLINK);
+                self.drop_downlink(&sender);
             }
             return Inbound::Reply(reply);
         }

@@ -417,3 +417,96 @@ fn a_periphery_node_takes_no_peers() {
     };
     assert_eq!(reply.status, 409);
 }
+
+/// A network whose core nodes' tables are full: four core nodes, with room
+/// for three, and `periphery` periphery nodes after them.
+fn full_tables(seed: u64, periphery: usize) -> Network {
+    let config = Config {
+        max_nodes: 3,
+        ..Config::DEV
+    };
+    let mut network = Network::with_periphery(seed, 4, 1, periphery, config);
+    settle(&mut network, 90_000);
+    network
+}
+
+/// The entries of node `at` that take a core place: all but downlinks.
+fn core_entries(network: &Network, at: usize) -> usize {
+    let nodes = network.node(at).nodes();
+    nodes
+        .iter()
+        .filter(|view| !view.sources.contains(Sources::DOWNLINK))
+        .count()
+}
+
+// Found in review: a downlink takes no core place, but once its downlink
+// source was dropped it stayed as an orphan, taking one. With the core
+// table full, that broke the table's bound, and the node panicked. A
+// downlink refused after it entered the table leaves it at once.
+#[test]
+fn a_refused_downlink_leaves_a_full_table() {
+    let mut network = full_tables(20, 0);
+    assert_eq!(core_entries(&network, 0), 3, "the core table is full");
+    network.nodes[0].hooks.refuse = Some(RefusalReason::Capacity);
+    let stranger = Arc::new(NodeKey::from_bytes(&[100; 32]));
+    let state = link_state(&stranger, network.clock(0), "", &[EXTENSION_PERIPHERY]);
+    let reply = ask(&mut network, &stranger, 0, &state);
+    assert_eq!(
+        answer(&reply),
+        PeeringResponse::Refused(RefusalReason::Capacity)
+    );
+    assert_eq!(core_entries(&network, 0), 3);
+    let nodes = network.node(0).nodes();
+    assert!(!nodes.iter().any(|view| view.id == stranger.node_id()));
+    settle(&mut network, 60_000);
+}
+
+/// The core node among the first four that is `periphery`'s uplink.
+fn uplink_of(network: &Network, periphery: usize) -> usize {
+    (0..4)
+        .find(|index| network.node(*index).is_downlink(&id(periphery)))
+        .expect("an uplink")
+}
+
+/// Whether node `at` ended its peering with `node`.
+fn ended(network: &Network, at: usize, node: &NodeId) -> bool {
+    network.events.iter().any(|(index, event)| {
+        *index == at && matches!(event, Event::PeeringEnded { peer } if peer == node)
+    })
+}
+
+// The same for a downlink whose peering ends: its owner ended it here.
+#[test]
+fn an_ended_downlink_leaves_a_full_table() {
+    let mut network = full_tables(21, 1);
+    let uplink = uplink_of(&network, 4);
+    assert_eq!(core_entries(&network, uplink), 3, "the core table is full");
+    network.act(uplink, |node, now| {
+        node.terminate(now, &id(4), dassie_peer::wire::TerminationReason::Owner);
+    });
+    settle(&mut network, 10 * 60_000);
+    assert!(ended(&network, uplink, &id(4)), "the peering ended");
+    assert!(core_entries(&network, uplink) <= 3);
+}
+
+// The same for the downlinks a core node ends when it becomes periphery.
+#[test]
+fn downlinks_ended_by_a_node_turning_periphery_leave_a_full_table() {
+    let mut network = full_tables(22, 1);
+    let turning = uplink_of(&network, 4);
+    assert_eq!(core_entries(&network, turning), 3, "the core table is full");
+    network.periphery.insert(turning);
+    network.act(turning, |node, now| {
+        node.set_own_info(
+            now,
+            dassie_peer::OwnInfo {
+                url: None,
+                alias: String::new(),
+                quic: true,
+            },
+        );
+    });
+    settle(&mut network, 10 * 60_000);
+    assert!(ended(&network, turning, &id(4)), "the downlink ended");
+    assert!(core_entries(&network, turning) <= 3);
+}

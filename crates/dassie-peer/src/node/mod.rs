@@ -765,7 +765,31 @@ impl PeerNode {
     /// Takes away the reason a peer is in the table, a downlink's too.
     pub(crate) fn drop_peer_source(&mut self, node: &NodeId) {
         self.drop_source(node, Sources::PEER);
+        self.drop_downlink(node);
+    }
+
+    /// Takes away `node`'s place among the downlinks: every path that ends
+    /// one, refused, ended or dropped, comes here. A downlink took no core
+    /// place, so the entry stays only if it gets one now: within the
+    /// bound, or, kept for another reason, in place of a weaker entry.
+    /// Otherwise it goes at once, its replay state kept while a channel
+    /// needs it (spec/areas/network.md#downlinks).
+    pub(crate) fn drop_downlink(&mut self, node: &NodeId) {
+        if !self.is_downlink(node) {
+            return;
+        }
+        assert!(
+            self.peering_of(node).is_none(),
+            "a downlink leaves once its peering is over"
+        );
         self.drop_source(node, Sources::DOWNLINK);
+        let sources = self.table.get(node).map(|entry| entry.sources);
+        let core = self.table.len() - self.downlinks();
+        let fits = core <= self.config.max_nodes
+            || sources.is_some_and(|sources| !sources.is_empty() && self.evict_for(sources));
+        if !fits {
+            self.remove(node);
+        }
     }
 
     /// The reason a peering with `node` keeps it in the table.
