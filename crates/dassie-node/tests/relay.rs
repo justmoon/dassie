@@ -504,6 +504,11 @@ async fn get(
         .header(httpsig::NONCE_FIELD, NONCE)
         .body(Full::new(Bytes::new()))
         .unwrap();
+    // HTTP/1.1 carries one request at a time: the connection takes the next
+    // once it has finished with the last answer.
+    if let Err(error) = sender.ready().await {
+        panic!("{method} {path}: the relayed stream is not ready: {error:?}");
+    }
     let response = match sender.send_request(request).await {
         Ok(response) => response,
         Err(error) => panic!("{method} {path} over the relayed stream: {error:?}"),
