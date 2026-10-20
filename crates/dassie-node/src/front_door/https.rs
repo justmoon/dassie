@@ -219,7 +219,7 @@ impl Door {
             Ok(uri) => *forwarded.uri_mut() = uri,
             Err(_) => return error(StatusCode::BAD_REQUEST, "invalid_request", "Bad Request"),
         }
-        *forwarded.headers_mut() = end_to_end(&parts.headers, true);
+        *forwarded.headers_mut() = passed_on(&parts.headers);
         match self.nodes.send(node, forwarded).await {
             Ok(answer) => returned(answer),
             Err(missed) => {
@@ -231,7 +231,10 @@ impl Door {
 }
 
 /// The key a client's requests to `node` count under: the client's and
-/// the node's, hashed into one, as the rate limiter keys clients.
+/// the node's, hashed into one, as the rate limiter keys clients. The hash
+/// goes in as an IPv6 address, of which `ClientKey::from_ip` keeps the /56:
+/// the key is 56 bits of the hash, plenty to keep a table of at most
+/// `client_slots` keys apart.
 fn per_node(client: ClientKey, node: &NodeId) -> ClientKey {
     let mut hash = Sha256::new();
     hash.update(client.to_bytes());
@@ -276,7 +279,7 @@ fn returned((parts, body): Answer) -> Response<Body> {
     }
     let mut response = Response::new(Full::new(body));
     *response.status_mut() = parts.status;
-    let mut headers = end_to_end(&parts.headers, false);
+    let mut headers = passed_back(&parts.headers);
     if is_json {
         headers.insert(
             header::CONTENT_TYPE,
@@ -327,38 +330,58 @@ fn unanswered(missed: Missed) -> Response<Body> {
     }
 }
 
-/// The end-to-end headers of `headers`: without hop-by-hop headers and
-/// those `Connection` names; for a request also without `Expect`,
+/// The headers of a request passed on to a node: the end-to-end ones,
+/// without hop-by-hop headers and those `Connection` names, `Expect`,
 /// `Content-Length` (the body is read, and its length sent anew) and what
-/// proxies add (`Forwarded`, `X-Forwarded-*`); for a response, without
-/// cookies, `Alt-Svc` (which would send clients elsewhere), `Refresh`, and
-/// the node's Content Security Policies, which the front door's replace.
-fn end_to_end(headers: &HeaderMap, request: bool) -> HeaderMap {
+/// proxies add (`Forwarded`, `X-Forwarded-*`).
+fn passed_on(headers: &HeaderMap) -> HeaderMap {
     let named: Vec<String> = response::header_values(headers, &header::CONNECTION)
         .flat_map(|value| value.split(','))
         .map(|token| token.trim().to_ascii_lowercase())
         .collect();
     let dropped = |name: &HeaderName| {
         let name = name.as_str();
-        let own = if request {
-            matches!(name, "expect" | "content-length" | "forwarded")
-                || name.starts_with("x-forwarded-")
-        } else {
-            matches!(
-                name,
-                "set-cookie"
-                    | "set-cookie2"
-                    | "alt-svc"
-                    | "refresh"
-                    | "content-security-policy"
-                    | "content-security-policy-report-only"
-            )
-        };
-        own || HOP_BY_HOP.contains(&name) || named.iter().any(|token| token == name)
+        matches!(name, "expect" | "content-length" | "forwarded")
+            || name.starts_with("x-forwarded-")
+            || HOP_BY_HOP.contains(&name)
+            || named.iter().any(|token| token == name)
     };
     let mut kept = HeaderMap::new();
     for (name, value) in headers {
         if !dropped(name) {
+            kept.append(name.clone(), value.clone());
+        }
+    }
+    kept
+}
+
+/// The headers of a node's answer that an Open Payments client needs, and
+/// nothing else: by an allowlist, so that no header a browser acts on
+/// (`Content-Disposition`, cookies, `Refresh`, `Alt-Svc`, `Link`, the
+/// node's policies) reaches the front door's names, whatever a node
+/// sends. These are what the node's Open Payments answers set
+/// (`http/open_payments/`), and `Retry-After` and `Vary`; `Location` is
+/// not among them, since only the consent route, which the front door
+/// answers itself, redirects.
+const ANSWER_HEADERS: &[&str] = &[
+    "content-type",
+    "content-length",
+    "content-digest",
+    "signature",
+    "signature-input",
+    "www-authenticate",
+    "retry-after",
+    "cache-control",
+    "vary",
+];
+
+/// The headers of a node's answer passed back: [`ANSWER_HEADERS`] and the
+/// CORS headers (`Access-Control-*`).
+fn passed_back(headers: &HeaderMap) -> HeaderMap {
+    let mut kept = HeaderMap::new();
+    for (name, value) in headers {
+        let name_text = name.as_str();
+        if ANSWER_HEADERS.contains(&name_text) || name_text.starts_with("access-control-") {
             kept.append(name.clone(), value.clone());
         }
     }
@@ -499,10 +522,24 @@ mod tests {
     use super::*;
     use bytes::Bytes;
 
-    #[test]
-    fn only_end_to_end_headers_pass() {
+    fn names(kept: &HeaderMap) -> Vec<String> {
+        kept.keys().map(|name| name.as_str().to_string()).collect()
+    }
+
+    fn headers(fields: &[(&'static str, &'static str)]) -> HeaderMap {
         let mut headers = HeaderMap::new();
-        for (name, value) in [
+        for (name, value) in fields {
+            headers.append(
+                HeaderName::from_static(name),
+                HeaderValue::from_static(value),
+            );
+        }
+        headers
+    }
+
+    #[test]
+    fn only_end_to_end_headers_are_passed_on() {
+        let request = headers(&[
             ("host", "a.example"),
             ("connection", "keep-alive, x-private"),
             ("x-private", "1"),
@@ -515,42 +552,56 @@ mod tests {
             ("forwarded", "for=192.0.2.1"),
             ("x-forwarded-for", "192.0.2.1"),
             ("signature", "sig=:AA==:"),
+            ("authorization", "GNAP token"),
+            ("content-type", "application/json"),
+        ]);
+        assert_eq!(
+            names(&passed_on(&request)),
+            ["host", "signature", "authorization", "content-type"]
+        );
+    }
+
+    #[test]
+    fn only_what_a_client_needs_is_passed_back() {
+        let answer = headers(&[
+            ("content-type", "application/json"),
+            ("content-length", "2"),
+            ("content-digest", "sha-256=:AA==:"),
+            ("signature", "dassie=:AA==:"),
+            ("signature-input", "dassie=()"),
+            ("www-authenticate", "GNAP as_uri=\"https://a.example/gnap\""),
+            ("cache-control", "max-age=60"),
+            ("access-control-allow-origin", "*"),
+            ("access-control-expose-headers", "Signature"),
+            ("vary", "Origin"),
+            (
+                "content-disposition",
+                "attachment; filename=\"invoice.pdf.exe\"",
+            ),
             ("set-cookie", "a=b"),
             ("alt-svc", "h3=\":443\""),
             ("refresh", "0; url=https://elsewhere.example"),
+            ("link", "<https://elsewhere.example>; rel=preload"),
+            ("location", "https://elsewhere.example"),
             ("content-security-policy", "default-src *"),
-            ("content-type", "application/json"),
-        ] {
-            headers.append(
-                HeaderName::from_static(name),
-                HeaderValue::from_static(value),
-            );
-        }
-        let names = |kept: HeaderMap| -> Vec<String> {
-            kept.keys().map(|name| name.as_str().to_string()).collect()
-        };
+            ("x-unknown", "1"),
+            ("connection", "keep-alive"),
+            ("transfer-encoding", "chunked"),
+            ("date", "Thu, 01 Jan 2026 00:00:00 GMT"),
+        ]);
         assert_eq!(
-            names(end_to_end(&headers, true)),
+            names(&passed_back(&answer)),
             [
-                "host",
-                "signature",
-                "set-cookie",
-                "alt-svc",
-                "refresh",
-                "content-security-policy",
-                "content-type"
-            ]
-        );
-        assert_eq!(
-            names(end_to_end(&headers, false)),
-            [
-                "host",
-                "expect",
+                "content-type",
                 "content-length",
-                "forwarded",
-                "x-forwarded-for",
+                "content-digest",
                 "signature",
-                "content-type"
+                "signature-input",
+                "www-authenticate",
+                "cache-control",
+                "access-control-allow-origin",
+                "access-control-expose-headers",
+                "vary"
             ]
         );
     }

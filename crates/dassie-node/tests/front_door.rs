@@ -468,6 +468,11 @@ async fn misbehave(
                 .header("content-security-policy", "default-src *")
                 .header("x-content-type-options", "none")
                 .header("alt-svc", "h3=\":443\"")
+                .header(
+                    "content-disposition",
+                    "attachment; filename=\"invoice.pdf.exe\"",
+                )
+                .header("x-node-says", "hello")
                 .body(Bytes::from_static(b"{}"))
         }
     };
@@ -500,7 +505,9 @@ async fn the_front_door_passes_back_only_json_without_cookies() {
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
     assert_eq!(reply.body.as_ref(), b"{}");
     assert!(reply.header("set-cookie").is_none());
-    assert!(reply.header("alt-svc").is_none());
+    for dropped in ["alt-svc", "content-disposition", "x-node-says"] {
+        assert!(reply.header(dropped).is_none(), "{dropped}");
+    }
     // The front door's own type and policy replace the node's.
     let all = |name: &str| -> Vec<&str> {
         reply
