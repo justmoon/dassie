@@ -66,12 +66,15 @@ function failing(
   }).replace('"seed":7', `"seed":${seed}`);
 }
 
+/** A loop's tally of `lines`, then passing runs up to the summary's count,
+ * then a summary that agrees with them all. */
 function tally(lines: string[], summary?: { runs: number; seconds: number }) {
   const result = new Tally();
   for (const each of lines) result.add(parseLine(each));
   if (summary) {
+    while (result.runs < summary.runs) result.add(parseLine(line({})));
     result.add(parseLine(JSON.stringify({
-      summary: { ...summary, by_sim: {}, failures: 0 },
+      summary: { ...summary, by_sim: {}, failures: result.failed },
     })));
   }
   return result;
@@ -172,7 +175,7 @@ test("records: a run, a summary, and a u64 seed kept exact", () => {
     parseLine(
       '{"summary":{"runs":12,"by_sim":{},"failures":1,"seconds":3600.5}}',
     ),
-    { kind: "summary", summary: { runs: 12, seconds: 3600.5 } },
+    { kind: "summary", summary: { runs: 12, seconds: 3600.5, failures: 1 } },
   );
   const quoted = parseLine(line({ seed: "42" }));
   assert(quoted.kind === "run");
@@ -193,7 +196,8 @@ test("records: anything unexpected is an invalid line, never an exception", () =
       line({ sim: "Node With Spaces" }),
       line({ ms: -3 }),
       line({ signature: 3 }),
-      '{"summary":{"runs":"many","seconds":1}}',
+      '{"summary":{"runs":"many","seconds":1,"failures":0}}',
+      '{"summary":{"runs":1,"seconds":1}}',
       " ".repeat(2 << 20),
     ]
   ) {
@@ -228,6 +232,63 @@ test("a loop's tally: runs, failures by signature, the fastest seed, trips", () 
   assertEquals(result.real().map((each) => each.signature), [
     "node/liveness/books",
   ]);
+  assertEquals(result.unreadable(), "1 lines of output did not parse");
+});
+
+test("a loop is unread when a line fails to parse, a failure is dropped, or the summary disagrees", () => {
+  const clean = tally([failing("node", "1", 5)], { runs: 10, seconds: 60 });
+  assertEquals(clean.unreadable(), undefined);
+
+  const tooLong = tally([
+    failing("node", "1", 5).replace(
+      '"message":',
+      `"pad":"${"x".repeat(1 << 20)}","message":`,
+    ),
+  ]);
+  assertEquals(tooLong.unreadable(), "1 lines of output did not parse");
+
+  const many = tally(
+    Array.from(
+      { length: 65 },
+      (_, i) => failing("node", String(i), 5, `check${i}`),
+    ),
+  );
+  assertEquals(many.failures.size, 64);
+  assertEquals(
+    many.unreadable(),
+    "1 failures came past the 64 signatures a loop keeps",
+  );
+
+  const mismatch = tally([failing("node", "1", 5), line({})]);
+  mismatch.add(
+    parseLine('{"summary":{"runs":3,"by_sim":{},"failures":2,"seconds":1}}'),
+  );
+  assertEquals(
+    mismatch.unreadable(),
+    "the summary counts 3 runs, the lines 2; the summary counts 2 failures, the lines 1",
+  );
+});
+
+test("status: a trusted loop not all read fails closed, and adds no runs", async () => {
+  const github = new FakeGitHub();
+  // Only the tripwire's failures parsed; a real one was lost in a line too
+  // long to read.
+  const loop = tally([failing("tripwire", "3", 10, "tripwire"), "{not json"]);
+  loop.add(
+    parseLine('{"summary":{"runs":2,"by_sim":{},"failures":2,"seconds":3600}}'),
+  );
+  await reportTrusted(github, MAIN, loop, true);
+  const [status] = github.statusesBySha.get(MAIN)!;
+  assertEquals(status.state, "failure");
+  assert(status.description.startsWith("failed: campaign/unreadable"));
+  assertEquals(foldStatuses([status], BOT).runs, 0);
+  const issue = github.issues.find((each) =>
+    each.label === LABELS.failure.name
+  )!;
+  assertEquals(issue.title, "sim: campaign/unreadable");
+  assertEquals(status.targetUrl, issue.url);
+  assert(issue.body.includes("did not parse"));
+  assert(issue.body.includes("-- campaign --minutes"));
 });
 
 function entry(
@@ -484,6 +545,17 @@ test("a pull request gets comments on itself, and no status or issue", async () 
   assert(comments[0].body.includes(NEXT));
 });
 
+test("a pull request's loop not all read says so in its summary", async () => {
+  const github = new FakeGitHub();
+  await reportPullRequest(github, 9, MAIN, {
+    tally: tally([line({}), "garbage"], { runs: 1, seconds: 60 }),
+  });
+  const [summary] = github.commentsByIssue.get(9)!;
+  assert(summary.body.includes("1 lines of output did not parse"));
+  assertEquals(github.issues.length, 0);
+  assertEquals(github.statusesBySha.size, 0);
+});
+
 test("a pull request that does not build gets the end of its log", async () => {
   const github = new FakeGitHub();
   await reportPullRequest(github, 5, MAIN, { buildLog: "error[E0425]" });
@@ -565,6 +637,9 @@ test("sandbox: a build has no network, no daemon and one writable directory", ()
       "ProtectProc=invisible",
       "InaccessiblePaths=-/nix/var/nix/daemon-socket",
       "ReadWritePaths=/var/lib/dassie-sim-campaign/work/pr/target",
+      "SystemCallFilter=@system-service",
+      "MemoryMax=80%",
+      "TasksMax=4096",
     ]
   ) {
     assert(args.includes(`--property=${property}`), property);

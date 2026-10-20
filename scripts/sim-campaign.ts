@@ -92,6 +92,13 @@ const TEXT_BYTES_MAX = { message: 2_000, options: 2_000, trace: 6_000 };
 /** The end of a failed build's output a comment shows. */
 const BUILD_LOG_BYTES_MAX = 6_000;
 const SIGNATURE_BYTES_MAX = 200;
+/** A sandbox's share of the VM's memory: what is left keeps the system and
+ * the supervisor alive when a step runs out, so the loop still reports. */
+const SANDBOX_MEMORY_MAX = "80%";
+/** A sandbox's processes and threads: far more than a build on every core
+ * or a campaign with a job per core needs, and few enough that a fork bomb
+ * cannot starve the supervisor. */
+const SANDBOX_TASKS_MAX = 4096;
 
 // Records
 
@@ -114,6 +121,8 @@ export interface RunRecord {
 export interface Summary {
   runs: number;
   seconds: number;
+  /** Runs that broke safety or liveness, the tripwire's included. */
+  failures: number;
 }
 
 export type Line =
@@ -179,14 +188,17 @@ export function parseLine(line: string): Line {
   if ("summary" in record) {
     const summary = record.summary as Record<string, unknown> | null;
     const runs = count(summary?.runs);
+    const failures = count(summary?.failures);
     const seconds = typeof summary?.seconds === "number" &&
         Number.isFinite(summary.seconds) && summary.seconds >= 0
       ? summary.seconds
       : undefined;
-    if (runs === undefined || seconds === undefined) {
+    if (
+      runs === undefined || failures === undefined || seconds === undefined
+    ) {
       return { kind: "invalid", reason: "malformed summary" };
     }
-    return { kind: "summary", summary: { runs, seconds } };
+    return { kind: "summary", summary: { runs, seconds, failures } };
   }
   const { sim, seed, outcome, signature, ms } = record;
   if (typeof sim !== "string" || !/^[a-z][a-z0-9_-]{0,31}$/.test(sim)) {
@@ -243,6 +255,8 @@ export class Tally {
   runs = 0;
   trips = 0;
   invalid = 0;
+  /** Runs that failed, the tripwire's included. */
+  failed = 0;
   /** Failures past SIGNATURES_MAX distinct signatures. */
   dropped = 0;
   failures = new Map<string, Failure>();
@@ -260,6 +274,7 @@ export class Tally {
     const { run } = line;
     this.runs += 1;
     if (!isFailure(run)) return;
+    this.failed += 1;
     if (isTripwire(run)) this.trips += 1;
     const known = this.failures.get(run.signature);
     if (known) {
@@ -281,6 +296,55 @@ export class Tally {
   real(): Failure[] {
     return [...this.failures.values()].filter((failure) => !failure.tripwire);
   }
+
+  /** Why some of the loop went unread, if it did. A line that did not
+   * parse, a failure past what a loop keeps, or counts that disagree with
+   * the runner's summary could each hide a failure, so a trusted commit
+   * fails closed on them (`unreadableFailure`). */
+  unreadable(): string | undefined {
+    const reasons = [];
+    if (this.invalid > 0) {
+      reasons.push(`${this.invalid} lines of output did not parse`);
+    }
+    if (this.dropped > 0) {
+      reasons.push(
+        `${this.dropped} failures came past the ${SIGNATURES_MAX} signatures a loop keeps`,
+      );
+    }
+    if (this.summary && this.summary.runs !== this.runs) {
+      reasons.push(
+        `the summary counts ${this.summary.runs} runs, the lines ${this.runs}`,
+      );
+    }
+    if (this.summary && this.summary.failures !== this.failed) {
+      reasons.push(
+        `the summary counts ${this.summary.failures} failures, the lines ${this.failed}`,
+      );
+    }
+    return reasons.length > 0 ? reasons.join("; ") : undefined;
+  }
+}
+
+/** The signature a trusted commit fails under when its loop went unread. */
+export const UNREADABLE = "campaign/unreadable";
+
+/** The failure that stands for what a loop could not read. */
+export function unreadableFailure(reason: string): Failure {
+  return {
+    signature: UNREADABLE,
+    tripwire: false,
+    count: 1,
+    fastest: {
+      sim: "campaign",
+      seed: "0",
+      outcome: "safety",
+      signature: UNREADABLE,
+      ms: 0,
+      message: reason,
+      options: "",
+      traceTail: "",
+    },
+  };
 }
 
 // The commit status
@@ -548,6 +612,15 @@ export function reproduce(sim: string, seed: string, commit: string): string {
 
 function details(state: FailureState): string {
   const { fastest } = state;
+  if (state.signature === UNREADABLE) {
+    return [
+      `The runner's output on ${fastest.commit} could not all be read, and a failure may hide in what was lost: ${fastest.message}. To see it, run the campaign at that commit:`,
+      fenced(
+        `git checkout ${fastest.commit}\ncargo run -p dassie-sim --profile sim -- campaign --minutes 10`,
+        "sh",
+      ),
+    ].join("\n\n");
+  }
   const parts = [
     `The seed that failed fastest, ${fastest.seed} (in ${fastest.ms} ms), on ${fastest.commit}:`,
     fenced(reproduce(state.sim, fastest.seed, fastest.commit), "sh"),
@@ -597,7 +670,12 @@ const SUMMARY_MARKER = "<!-- sim-campaign summary -->";
 
 export function pullRequestSummary(
   sha: string,
-  outcome: { runs: number; seconds: number; failures: number } | {
+  outcome: {
+    runs: number;
+    seconds: number;
+    failures: number;
+    unreadable?: string;
+  } | {
     buildLog: string;
   },
 ): string {
@@ -611,6 +689,10 @@ export function pullRequestSummary(
       outcome.failures === 0
         ? "no failure."
         : `${outcome.failures} failed, in the comments below.`
+    }${
+      outcome.unreadable
+        ? ` Not all of its output could be read, and a failure may hide in what was lost: ${outcome.unreadable}.`
+        : ""
     }`;
   return `${SUMMARY_MARKER}\n\n${text}`;
 }
@@ -711,15 +793,18 @@ export async function reportTrusted(
   tally: Tally,
   complete: boolean,
 ): Promise<void> {
+  const unreadable = tally.unreadable();
+  const failures = [...tally.failures.values()];
+  if (unreadable) failures.push(unreadableFailure(unreadable));
   const issues = new Map<string, Issue>();
-  for (const failure of tally.failures.values()) {
+  for (const failure of failures) {
     issues.set(failure.signature, await fileIssue(github, failure, sha));
   }
-  const [failure] = tally.real();
+  const [failure] = failures.filter((each) => !each.tripwire);
   const before = foldStatuses(await github.statuses(sha), github.login);
-  // A loop the runner did not finish adds no runs toward clearing; its
-  // failures still count.
-  const loop = complete && tally.summary
+  // A loop the runner did not finish, or that was not all read, adds no
+  // runs toward clearing; its failures still count.
+  const loop = complete && !unreadable && tally.summary
     ? {
       runs: tally.summary.runs,
       seconds: tally.summary.seconds,
@@ -781,6 +866,7 @@ export async function reportPullRequest(
       runs: tally.summary?.runs ?? tally.runs,
       seconds: tally.summary?.seconds ?? 0,
       failures: tally.real().length,
+      unreadable: tally.unreadable(),
     }),
   );
   for (const failure of tally.real()) {
@@ -889,6 +975,14 @@ export function sandboxArgs(spec: SandboxSpec): string[] {
     "ProtectHostname=yes",
     "CapabilityBoundingSet=",
     "InaccessiblePaths=-/nix/var/nix/daemon-socket",
+    // The system calls a service needs, and nothing that changes the
+    // system: less of the kernel between a pull request and root. A call
+    // outside the set fails, rather than killing the step unexplained.
+    "SystemCallFilter=@system-service",
+    "SystemCallErrorNumber=EPERM",
+    "SystemCallArchitectures=native",
+    `MemoryMax=${SANDBOX_MEMORY_MAX}`,
+    `TasksMax=${SANDBOX_TASKS_MAX}`,
     `RuntimeMaxSec=${spec.maxSeconds}`,
     "PartOf=dassie-sim-campaign.service",
     ...spec.writable.map((path) => `ReadWritePaths=${path}`),
@@ -1240,9 +1334,12 @@ async function appToken(
     `/app/installations/${installation.id}/access_tokens`,
     {
       repositories: [REPO.split("/")[1]],
+      // Comments on a pull request are issue comments: reading pull
+      // requests is enough, and a token that cannot edit, close or review
+      // them is worth less to whoever steals it.
       permissions: {
         issues: "write",
-        pull_requests: "write",
+        pull_requests: "read",
         statuses: "write",
       },
     },
@@ -1324,15 +1421,34 @@ const SANDBOX_USER = { main: "sim-main", release: "sim-main", pr: "sim-pr" };
 async function campaign(
   target: Target,
   config: Config,
-): Promise<{ tally: Tally; complete: boolean } | { buildLog: string }> {
+): Promise<CampaignResult> {
   const slot = `${config.dir}/work/${target.kind}`;
+  if (target.kind !== "pr") return await buildAndRun(target, config, slot);
+  // A pull request starts from nothing and leaves nothing, however its
+  // loop ends: no build of one can reach a later run, nor leave the disk
+  // full for it. A supervisor that died mid-loop leaves it to the next
+  // loop, which clears it first (`loop`).
+  await rm(slot, { recursive: true, force: true });
+  try {
+    return await buildAndRun(target, config, slot);
+  } finally {
+    await rm(slot, { recursive: true, force: true });
+  }
+}
+
+type CampaignResult = { tally: Tally; complete: boolean } | {
+  buildLog: string;
+};
+
+async function buildAndRun(
+  target: Target,
+  config: Config,
+  slot: string,
+): Promise<CampaignResult> {
   const src = `${slot}/src`;
   const writable = [`${slot}/target`, `${slot}/cargo`, `${slot}/home`];
   const user = SANDBOX_USER[target.kind];
   if (target.kind === "pr") {
-    // A pull request starts from nothing and leaves nothing: no build of
-    // one can reach a later run.
-    await rm(slot, { recursive: true, force: true });
     await git(
       config.repo,
       "fetch",
@@ -1440,13 +1556,11 @@ async function campaign(
     ],
     (line) => tally.add(parseLine(line)),
   );
-  if (tally.invalid > 0) {
-    console.log(`${tally.invalid} lines of output were invalid`);
-  }
+  const unreadable = tally.unreadable();
+  if (unreadable) console.log(`not all output was read: ${unreadable}`);
   if (ran.code !== 0) {
     console.log(`the runner exited ${ran.code}: ${ran.stderr.slice(-2000)}`);
   }
-  if (target.kind === "pr") await rm(slot, { recursive: true, force: true });
   return { tally, complete: ran.code === 0 && tally.summary !== undefined };
 }
 
@@ -1455,6 +1569,7 @@ async function loop(config: Config): Promise<void> {
     // A loop that died left its sandboxes running; nothing else should.
     await run("systemctl", ["stop", "sim-sandbox-*.service"]);
   }
+  await rm(`${config.dir}/work/pr`, { recursive: true, force: true });
   let github = await connect(config);
   for (const label of Object.values(LABELS)) await github.ensureLabel(label);
   const target = chooseTarget(await candidates(github, config), Math.random());

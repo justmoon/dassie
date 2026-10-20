@@ -19,8 +19,9 @@
 # - a spot instance template whose startup script is startup.sh, and a
 #   regional managed instance group, which recreates a VM that spot took.
 #
-# The GitHub App needs read and write access to issues, pull requests and
-# commit statuses on justmoon/dassie, and nothing else; its ID goes in
+# The GitHub App needs read and write access to issues and commit
+# statuses, and read access to pull requests (it comments on them as
+# issues), on justmoon/dassie, and nothing else; its ID goes in
 # app_id below. Without an App, a dedicated account's fine-grained token
 # with the same access can be the secret instead, with app_id empty.
 set -eu
