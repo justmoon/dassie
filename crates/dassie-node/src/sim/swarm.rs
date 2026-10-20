@@ -5,24 +5,29 @@
 //!
 //! A run has two phases. In the chaos, payments start while nodes crash
 //! or fail a commit and restart, links are cut and healed, messages are
-//! lost, requests are replayed and ledger connections drop; each node's
-//! clock is off the
-//! network's by up to 10 s, throughout. Then the network heals: every node
-//! runs, no link is cut, nothing is lost or replayed, and within
-//! [`HEAL_MS`] the network must settle down. Then each node is checked by
-//! its own books (D19), as the scripted runs are.
+//! lost, requests are replayed, ledger connections drop, and owners end
+//! peerings and ban peers; each node's clock is off the network's by up
+//! to 10 s, throughout. Then the network heals: every node runs, no link
+//! is cut, nothing is lost or replayed, and within [`HEAL_MS`] the network
+//! must settle down. Then each node is checked by its own books (D19), as
+//! the scripted runs are.
 
+use std::collections::BTreeSet;
 use std::fmt;
 
 use dassie_connector::SpendingCap;
+use dassie_identity::NodeId;
 use dassie_node_core::testing::{Outcome, Run, SeededRng};
 use dassie_settlement::LedgerStatus;
 
 use super::checks::{
     check, check_delivered, check_events, check_finished, check_mid_flight, check_settled,
 };
-use super::scripted::{READY_WITHIN_MS, ended, ready};
-use super::{Delivery, START, Settling, Sim};
+use super::scripted::{
+    READY_WITHIN_MS, collected_before_telling, ended, ready, settled_nothing_once_ending, trace_ms,
+    until_peered,
+};
+use super::{Delivery, START, Settling, Sim, key};
 use crate::engine::LedgerEvent;
 use crate::node::Policies;
 use crate::store::{Aim, OutgoingState};
@@ -63,6 +68,10 @@ pub struct Weights {
     pub ledger_drop: u64,
     /// Making one of a node's next commits fail (D27).
     pub fail_commit: u64,
+    /// An owner ending one of its node's peerings.
+    pub end: u64,
+    /// An owner banning one of its node's peers.
+    pub ban: u64,
     /// Doing nothing for a while.
     pub idle: u64,
 }
@@ -126,6 +135,8 @@ impl Options {
                 0
             },
             fail_commit: switched(&mut rng, 11),
+            end: switched(&mut rng, 4),
+            ban: switched(&mut rng, 4),
             idle: rng.below(11),
         };
         let payments = (1 + rng.below(8), rng.below(3));
@@ -177,7 +188,7 @@ impl fmt::Display for Options {
             "{} nodes, {} bootstrap, {:?}; latency {}–{} ms, loss {}‰, replays {}‰, \
              clocks off by up to {} ms; chaos {} s, \
              every ~{} ms: pay {} crash {} restart {} cut {} heal {} ledger drop {} \
-             fail commit {} idle {}; \
+             fail commit {} end {} ban {} idle {}; \
              {} payments and {} outgoing, up to {}",
             self.nodes,
             self.bootstraps,
@@ -196,6 +207,8 @@ impl fmt::Display for Options {
             w.heal,
             w.ledger_drop,
             w.fail_commit,
+            w.end,
+            w.ban,
             w.idle,
             self.payments.0,
             self.payments.1,
@@ -243,8 +256,9 @@ pub fn run(seed: u64) -> Run {
     sim.loss_per_mille = options.loss_per_mille;
     sim.replay_per_mille = options.replay_per_mille;
     let mut left = options.payments;
-    chaos(&mut sim, &options, &mut rng, &mut left);
-    let result = heal(&mut sim, &options, &mut rng, &mut left);
+    let mut ends = Vec::new();
+    chaos(&mut sim, &options, &mut rng, &mut left, &mut ends);
+    let result = heal(&mut sim, &options, &mut rng, &mut left, &ends);
     ended(sim, result)
 }
 
@@ -258,10 +272,18 @@ enum Act {
     Heal,
     LedgerDrop,
     FailCommit,
+    End,
+    Ban,
     Idle,
 }
 
-fn chaos(sim: &mut Sim, options: &Options, rng: &mut SeededRng, left: &mut (u64, u64)) {
+fn chaos(
+    sim: &mut Sim,
+    options: &Options,
+    rng: &mut SeededRng,
+    left: &mut (u64, u64),
+    ends: &mut Vec<End>,
+) {
     let end = sim.now + options.chaos_ms;
     let mut at = sim.now;
     while at < end {
@@ -291,6 +313,8 @@ fn chaos(sim: &mut Sim, options: &Options, rng: &mut SeededRng, left: &mut (u64,
                 }
             }
             Act::FailCommit => fail_commit(sim, rng),
+            Act::End => owner_ends(sim, rng, ends, false),
+            Act::Ban => owner_ends(sim, rng, ends, true),
             Act::Idle => {}
         }
     }
@@ -305,6 +329,8 @@ fn pick(weights: &Weights, rng: &mut SeededRng) -> Act {
         (weights.heal, Act::Heal),
         (weights.ledger_drop, Act::LedgerDrop),
         (weights.fail_commit, Act::FailCommit),
+        (weights.end, Act::End),
+        (weights.ban, Act::Ban),
         (weights.idle, Act::Idle),
     ];
     let total: u64 = kinds.iter().map(|(weight, _)| weight).sum();
@@ -472,6 +498,103 @@ fn cut(sim: &mut Sim, rng: &mut SeededRng) {
     sim.count("cuts");
 }
 
+/// An owner's end of a peering, or a ban, drawn in the chaos.
+struct End {
+    /// Where the trace stood when the owner acted: what the nodes did
+    /// about it follows.
+    mark: usize,
+    /// The node whose owner acted.
+    by: usize,
+    /// Its peer.
+    peer: usize,
+    /// Whether the owner banned the peer, rather than only ending the
+    /// peering.
+    ban: bool,
+}
+
+/// An owner ends one of its running node's peerings, or bans the peer,
+/// through the owner's API, as the scripted run's owner does: an end only
+/// of a peering still active, a ban also of one being ended. Never one
+/// that would split the network: after an owner's end the pair stays
+/// apart for the owner's cooldown of a day (D33), longer than any run, and
+/// after a ban for good, while the heal needs every node to reach every
+/// other.
+fn owner_ends(sim: &mut Sim, rng: &mut SeededRng, ends: &mut Vec<End>, ban: bool) {
+    let running: Vec<usize> = (0..sim.nodes.len()).filter(|i| up(sim, *i)).collect();
+    let Some(&by) = choose(&running, rng) else {
+        return;
+    };
+    let network = sim.core(by).network();
+    let peers: Vec<usize> = network
+        .peers
+        .iter()
+        .filter(|peer| {
+            if ban {
+                !network.bans.contains(&peer.id)
+            } else {
+                peer.termination.is_none() && peer.peering.depeering.is_none()
+            }
+        })
+        .map(|peer| index_of(sim, &peer.id))
+        .filter(|peer| connected(sim.nodes.len(), ends, (by, *peer)))
+        .collect();
+    let Some(&peer) = choose(&peers, rng) else {
+        return;
+    };
+    let id = key(peer).node_id();
+    let what = if ban { "bans" } else { "ends its peering with" };
+    sim.trace
+        .push(format!("{} {by}'s owner {what} {peer}", sim.now));
+    let mark = sim.trace.len();
+    let done = if ban {
+        sim.step(by, |core| core.ban_node(id).unwrap())
+    } else {
+        sim.step(by, |core| core.terminate_peering(id).unwrap())
+    };
+    // A commit that failed lost the owner's word with the rest of the
+    // step: the node stopped, and starts again as if it was never given.
+    if !done {
+        sim.count("owners' acts lost to a failed commit");
+        return;
+    }
+    sim.count(if ban { "bans" } else { "peerings ended" });
+    ends.push(End {
+        mark,
+        by,
+        peer,
+        ban,
+    });
+}
+
+/// The index of the node `id`.
+fn index_of(sim: &Sim, id: &NodeId) -> usize {
+    (0..sim.nodes.len())
+        .find(|index| key(*index).node_id() == *id)
+        .unwrap()
+}
+
+/// Whether the nodes still reach each other with `pair` kept apart too:
+/// over every pair but those an owner's end or a ban keeps apart. Kept
+/// apart for the whole run, as the cooldown is unless both restart.
+fn connected(count: usize, ends: &[End], pair: (usize, usize)) -> bool {
+    let apart = |a: usize, b: usize| {
+        ends.iter()
+            .map(|end| (end.by, end.peer))
+            .chain([pair])
+            .any(|(x, y)| (x, y) == (a, b) || (y, x) == (a, b))
+    };
+    let mut reached = BTreeSet::from([0]);
+    let mut next = vec![0];
+    while let Some(a) = next.pop() {
+        for b in 0..count {
+            if !apart(a, b) && reached.insert(b) {
+                next.push(b);
+            }
+        }
+    }
+    reached.len() == count
+}
+
 /// Heals the network, starts what payments are left, waits for it to
 /// settle down, and checks it.
 fn heal(
@@ -479,6 +602,7 @@ fn heal(
     options: &Options,
     rng: &mut SeededRng,
     left: &mut (u64, u64),
+    ends: &[End],
 ) -> Result<(), Outcome> {
     sim.let_commits_through();
     for index in 0..sim.nodes.len() {
@@ -492,16 +616,29 @@ fn heal(
     sim.trace.push(format!("{} heal", sim.now));
     // A payer gives up after its reconnects (a few minutes), and the chaos
     // may have cut it off that long, or the network not yet formed: what
-    // failed before the heal may stay failed. After it, nothing may fail.
+    // failed before the heal may stay failed. So may one whose payer was
+    // reconnecting at the heal: what is left of its reconnects may run out
+    // before the healed network routes it, as when an owner's end left a
+    // pair that must peer anew, waiting out a backoff from attempts that
+    // failed in the chaos. Only reconnects since its node last started
+    // count: a start gives the payer all its reconnects again, so one on a
+    // node that restarted since, the heal's own restarts included, must
+    // complete, as must anything else.
+    let mut reconnecting = Vec::new();
     for &(from, _, _, outgoing) in &sim.outgoing.clone() {
-        let failed = sim.nodes[from]
+        let state = sim.nodes[from]
             .store
             .outgoing_payment(outgoing)
             .unwrap()
-            .is_some_and(|row| row.state == OutgoingState::Failed);
-        if failed {
+            .map(|row| row.state);
+        if state == Some(OutgoingState::Failed) {
             sim.given_up.insert(outgoing);
             sim.count("outgoing given up in the chaos");
+        } else if state == Some(OutgoingState::Sending)
+            && reconnected_since_start(&sim.trace, from, &format!("{outgoing:?}"))
+        {
+            sim.given_up.insert(outgoing);
+            reconnecting.push((from, outgoing));
         }
     }
     // Every node runs, and there are at least two: each try that draws
@@ -517,6 +654,16 @@ fn heal(
     }
     let seconds = (sim.now - healed) / 1_000;
     *sim.counts.entry("heal seconds").or_default() += seconds;
+    for (from, outgoing) in reconnecting {
+        let failed = sim.nodes[from]
+            .store
+            .outgoing_payment(outgoing)
+            .unwrap()
+            .is_some_and(|row| row.state == OutgoingState::Failed);
+        if failed {
+            sim.count("outgoing given up after the heal");
+        }
+    }
     let completed = sim
         .outgoing
         .iter()
@@ -532,6 +679,7 @@ fn heal(
         let completed = u64::try_from(completed).unwrap_or(u64::MAX);
         sim.counts.insert("outgoing payments completed", completed);
     }
+    count_ends(sim, ends);
     // An error a node reported ranks first, then what must not happen even
     // with money in flight. A network that never settled down is a liveness
     // failure, and its books are not judged: with money in flight they
@@ -539,6 +687,9 @@ fn heal(
     // nothing was lost, but something did not happen.
     check_events(sim).map_err(|problem| Outcome::safety("events", problem))?;
     check_mid_flight(sim)?;
+    for end in ends {
+        check_end(sim, end)?;
+    }
     if let Some(what) = stuck {
         return Err(Outcome::liveness(
             "settle-down",
@@ -549,6 +700,14 @@ fn heal(
         ));
     }
     check(sim)?;
+    for end in ends.iter().filter(|end| !end.ban) {
+        // A ban of the peer while the node collects tells it at once.
+        let banned = ends
+            .iter()
+            .find(|ban| ban.ban && ban.mark > end.mark && (ban.by, ban.peer) == (end.by, end.peer))
+            .map_or(sim.trace.len(), |ban| ban.mark);
+        collected_before_telling(sim, end.mark, banned, end.by, end.peer)?;
+    }
     match sim.refused.first() {
         Some(refused) => Err(Outcome::liveness("refused", refused.clone())),
         None => Ok(()),
@@ -556,7 +715,8 @@ fn heal(
 }
 
 /// What is left to happen, if anything: a node whose scheme does not see
-/// its ledger, or has not heard of all it applied; a node without a peer;
+/// its ledger, or has not heard of all it applied; a peering being ended;
+/// a node without a peer;
 /// a payment that did not finish; a node that waits for a settlement or
 /// still has one to send. The checks may judge the books only once nothing
 /// is, when no packet or transaction is in flight and every scheme knows
@@ -591,6 +751,20 @@ fn unsettled(sim: &Sim) -> Option<String> {
     if in_flight {
         return Some("a transaction is on its way to or from the ledger".into());
     }
+    // An end, the owner's or the node's own, takes a bounded time (D28).
+    for index in 0..count {
+        let network = sim.core(index).network();
+        let ending = network
+            .peers
+            .iter()
+            .find(|peer| peer.termination.is_some() || peer.peering.depeering.is_some());
+        if let Some(peer) = ending {
+            return Some(format!(
+                "node {index} is still ending its peering with {}",
+                peer.id
+            ));
+        }
+    }
     if count > 1
         && let Some(index) = (0..count).find(|i| sim.peers(*i).is_empty())
     {
@@ -615,10 +789,188 @@ fn unsettled(sim: &Sim) -> Option<String> {
         .or_else(|| check_delivered(sim).err())
 }
 
+/// What each node did about an owner's end or ban, by its own books and
+/// what it did (D28), whether or not the network settled down: neither
+/// node settles with the other once it knows the peering ends, until they
+/// peer again; a node that bans a peer tells it at once, asks it for
+/// nothing, and never peers with it again; and neither node is owed by the
+/// other past the credit it extends (D23). What the node ended collects,
+/// and a settlement that lands after the end, credited once to the peer's
+/// account, the books against the scheme and the owner's funds show
+/// ([`check`]).
+fn check_end(sim: &Sim, end: &End) -> Result<(), Outcome> {
+    let &End {
+        mark,
+        by,
+        peer,
+        ban,
+    } = end;
+    let decided = if ban { "Terminating" } else { "Depeering" };
+    settled_nothing_once_ending(sim, mark, by, peer, decided)?;
+    settled_nothing_once_ending(sim, mark, peer, by, "Terminating")?;
+    if ban {
+        banned(sim, mark, by, peer)?;
+    }
+    for (index, other) in [(by, peer), (peer, by)] {
+        let id = key(other).node_id();
+        let balances = sim.balances(index);
+        let (Some(position), Some(trust)) = (
+            balances.get(&format!("assets/interledger/{id}")),
+            balances.get(&format!("contra/trust/{id}")),
+        ) else {
+            // A peering only the other side recorded, as when its
+            // requester crashed before the acceptance arrived: this node
+            // never opened the accounts, and extended nothing.
+            continue;
+        };
+        let (credit, owed) = (-trust, -(position + trust));
+        if owed > credit {
+            return Err(Outcome::safety(
+                "owed-past-credit",
+                format!(
+                    "node {other} owes node {index} {owed}, past the {credit} credit it extends"
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// A ban collects nothing (D28): node `by`, banning node `peer`, tells it
+/// the peering ends at once, unless it was ending already, and asks it to
+/// settle no more. And it never peers with the peer again: it neither
+/// asks it nor accepts it (spec/areas/network.md#bans). The peer may still
+/// record a peering it asked for before the ban, once the acceptance
+/// arrives, and is then told it ends.
+fn banned(sim: &Sim, mark: usize, by: usize, peer: usize) -> Result<(), Outcome> {
+    let lines = &sim.trace[mark..];
+    if until_peered(lines, 0, by, peer) < lines.len() {
+        return Err(Outcome::safety(
+            "banned-peered-again",
+            format!("node {by} peered with node {peer} again after banning it"),
+        ));
+    }
+    let banned = trace_ms(&sim.trace[mark - 1]);
+    let telling = format!(
+        " {by} PeerNode(Terminating {{ peer: {:?}",
+        key(peer).node_id()
+    );
+    if let Some(told) = lines.iter().find(|line| line.contains(&telling))
+        && trace_ms(told) != banned
+    {
+        return Err(Outcome::safety(
+            "banned-told-later",
+            format!("node {by} banned node {peer}, and told it only later: {told}"),
+        ));
+    }
+    let asking = format!(" {by} asks {peer} to settle");
+    match lines.iter().find(|line| line.contains(&asking)) {
+        Some(asked) => Err(Outcome::safety(
+            "banned-asked-to-settle",
+            format!("node {by} banned node {peer}, and asked it to settle: {asked}"),
+        )),
+        None => Ok(()),
+    }
+}
+
+/// Counts what the owners' ends reached: an end whose last request found
+/// a settlement on its way, and a settlement booked after the end, which
+/// the books then credit to the peer's account, once (D28).
+fn count_ends(sim: &mut Sim, ends: &[End]) {
+    let mut collected = 0;
+    let mut late = 0;
+    for &End {
+        mark,
+        by,
+        peer,
+        ban,
+    } in ends
+    {
+        let lines = &sim.trace[mark..];
+        let answered = format!(
+            " {by} PeerNode(SettlementRequestAnswered {{ peer: {:?}, settling: Some(",
+            key(peer).node_id()
+        );
+        let ending = &lines[..until_peered(lines, 0, by, peer)];
+        let on_its_way = !ban
+            && ending.iter().any(|line| {
+                line.find(&answered)
+                    .map(|at| &line[at + answered.len()..])
+                    .and_then(|rest| rest[..rest.find(')')?].parse::<u64>().ok())
+                    .is_some_and(|amount| amount > 0)
+            });
+        if on_its_way {
+            collected += 1;
+        }
+        for (index, other) in [(by, peer), (peer, by)] {
+            let id = format!("{:?}", key(other).node_id());
+            let ended = format!(" {index} PeerNode(PeeringEnded {{ peer: {id}");
+            let booked = format!(" {index} Settlement(SettlementBooked {{ from: {id}");
+            let Some(start) = lines.iter().position(|line| line.contains(&ended)) else {
+                continue;
+            };
+            let after = &lines[start..until_peered(lines, start, index, other)];
+            if after.iter().any(|line| line.contains(&booked)) {
+                late += 1;
+            }
+        }
+    }
+    for (what, count) in [
+        ("ends that collected a settlement on its way", collected),
+        ("settlements booked after the end", late),
+    ] {
+        if count > 0 {
+            *sim.counts.entry(what).or_default() += count;
+        }
+    }
+}
+
+/// Whether the payer of node `from` reconnected the outgoing payment
+/// `outgoing` (as the trace prints it) since the node last started: each
+/// start loads the payment with all its reconnects again.
+fn reconnected_since_start(trace: &[String], from: usize, outgoing: &str) -> bool {
+    let started = format!("start {from}");
+    let since = trace
+        .iter()
+        .rposition(|line| {
+            line.split_once(' ')
+                .is_some_and(|(_, what)| what == started)
+        })
+        .unwrap_or(0);
+    let reconnects = format!(" {from} Payment(OutgoingReconnects {{ id: {outgoing}");
+    trace[since..].iter().any(|line| line.contains(&reconnects))
+}
+
 /// Whether a JSON message to or from the ledger has `key` set to `value`.
 fn names(message: &[u8], key: &str, value: &str) -> bool {
     serde_json::from_slice::<serde_json::Value>(message)
         .ok()
         .and_then(|json| json.get(key)?.as_str().map(|found| found == value))
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_reconnects_since_the_payers_last_start_count() {
+        let reconnect = |at: u64, node: usize, id: &str| {
+            format!("{at} {node} Payment(OutgoingReconnects {{ id: {id}, reason: \"closed\" }})")
+        };
+        let mut trace = vec![
+            "1 start 1".to_owned(),
+            "2 start 11".to_owned(),
+            reconnect(3, 1, "PaymentId([7])"),
+        ];
+        assert!(reconnected_since_start(&trace, 1, "PaymentId([7])"));
+        assert!(!reconnected_since_start(&trace, 1, "PaymentId([8])"));
+        assert!(!reconnected_since_start(&trace, 11, "PaymentId([7])"));
+        // A restart, by the chaos or by the heal, gives the payer all its
+        // reconnects again.
+        trace.push("4 start 1".to_owned());
+        assert!(!reconnected_since_start(&trace, 1, "PaymentId([7])"));
+        trace.push(reconnect(5, 1, "PaymentId([7])"));
+        assert!(reconnected_since_start(&trace, 1, "PaymentId([7])"));
+    }
 }

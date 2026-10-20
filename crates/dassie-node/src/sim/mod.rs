@@ -357,8 +357,9 @@ pub struct Sim {
     /// How many times the faucet funded each node: again after a crash cut
     /// its first request short.
     pub fundings: BTreeMap<usize, u64>,
-    /// Outgoing payments that may end failed: those whose payer gave up
-    /// while the network was faulty, as it does after its reconnects.
+    /// Outgoing payments that may end failed: those whose payer gave up,
+    /// as it does after its reconnects, or was reconnecting, while the
+    /// network was faulty.
     pub given_up: BTreeSet<PaymentId>,
     /// The nodes that are to fail a commit for [`Sim::fail_commit_anywhere`]:
     /// once one of them has, the others let their commits through.

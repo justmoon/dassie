@@ -286,7 +286,7 @@ fn terminate(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     // from when it is told.
     settled_nothing_once_ending(sim, mark, ender, other, "Depeering")?;
     settled_nothing_once_ending(sim, mark, other, ender, "Terminating")?;
-    collected_before_telling(sim, mark, ender, other)
+    collected_before_telling(sim, mark, sim.trace.len(), ender, other)
 }
 
 /// What node `with` said it had on its way, when node `index`, ending their
@@ -294,10 +294,16 @@ fn terminate(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
 /// `index` waited the whole time for it first (D28): between honest nodes,
 /// no settlement crosses the end. Booked, not announced: on the XRP Ledger
 /// the ledger may show it before its message arrives, or after, and even
-/// before `index` decided to end the peering.
-fn collected_before_telling(
+/// before `index` decided to end the peering. Only if `index` told it
+/// before `until`, and `with` was not ending the peering too: both ending
+/// it at once, each answers the other as one ending does, and either may
+/// tell the other without waiting for what was on its way, which is then
+/// credited once after the end. One whose owner bans the peer from `until`
+/// on also tells it at once.
+pub(super) fn collected_before_telling(
     sim: &Sim,
     mark: usize,
+    until: usize,
     index: usize,
     with: usize,
 ) -> Result<(), Outcome> {
@@ -306,13 +312,30 @@ fn collected_before_telling(
     let answered =
         format!(" {index} PeerNode(SettlementRequestAnswered {{ peer: {peer}, settling: Some(");
     let telling = format!(" {index} PeerNode(Terminating {{ peer: {peer}");
-    let Some(told) = trace[mark..]
+    let Some(told) = trace[mark..until_peered(&trace[..until], mark, index, with)]
         .iter()
-        .position(|line| line.contains(&telling))
+        .position(|line| line.contains(&telling) && line.contains("by_us: true"))
         .map(|told| mark + told)
     else {
         return Ok(());
     };
+    let own = format!("{:?}", key(index).node_id());
+    let peered = |node: usize, other: &str| format!(" {node} PeerNode(Peered {{ node: {other}");
+    let since = [peered(index, &peer), peered(with, &own)]
+        .iter()
+        .filter_map(|peered| trace[..mark].iter().rposition(|line| line.contains(peered)))
+        .max()
+        .unwrap_or(0);
+    let crossing = [
+        format!(" {with} PeerNode(Depeering {{ peer: {own}"),
+        format!(" {with} PeerNode(Terminating {{ peer: {own}"),
+    ];
+    if trace[since..told]
+        .iter()
+        .any(|line| crossing.iter().any(|ending| line.contains(ending)))
+    {
+        return Ok(());
+    }
     let Some((at, promised)) = trace[mark..told]
         .iter()
         .enumerate()
@@ -373,15 +396,30 @@ fn collected_before_telling(
     ))
 }
 
+/// Where, in `lines` from `start` on, node `index` peers with node `with`
+/// again, or the end of `lines`: a later peering settles what the books
+/// show as usual (D28).
+pub(super) fn until_peered(lines: &[String], start: usize, index: usize, with: usize) -> usize {
+    let peered = format!(
+        " {index} PeerNode(Peered {{ node: {:?}",
+        key(with).node_id()
+    );
+    lines[start..]
+        .iter()
+        .position(|line| line.contains(&peered))
+        .map_or(lines.len(), |at| start + at)
+}
+
 /// When a line of the trace happened.
-fn trace_ms(line: &str) -> Option<u64> {
+pub(super) fn trace_ms(line: &str) -> Option<u64> {
     line.split(' ').next()?.parse().ok()
 }
 
 /// Node `index` started no settlement to node `with` from its `event` on:
-/// from when it decided, or learned, that their peering ends (D28). An
-/// honest node paying then is money the rule says it keeps.
-fn settled_nothing_once_ending(
+/// from when it decided, or learned, that their peering ends (D28), until
+/// they peer again, if they do. An honest node paying then is money the
+/// rule says it keeps.
+pub(super) fn settled_nothing_once_ending(
     sim: &Sim,
     mark: usize,
     index: usize,
@@ -395,7 +433,8 @@ fn settled_nothing_once_ending(
     let Some(start) = lines.iter().position(|line| line.contains(&ending)) else {
         return Ok(());
     };
-    match lines[start..].iter().find(|line| line.contains(&settling)) {
+    let ending = &lines[start..until_peered(lines, start, index, with)];
+    match ending.iter().find(|line| line.contains(&settling)) {
         Some(line) => Err(Outcome::safety(
             "settled-once-ending",
             format!("node {index} settled with node {with} while their peering ended: {line}"),
