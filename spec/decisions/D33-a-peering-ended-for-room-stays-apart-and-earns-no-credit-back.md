@@ -18,6 +18,7 @@ Other ends keep the short backoff.
 ## Accepted
 
 - **A restart forgets the cooldown,** of either node, so the pair may form again early. The credit stays where the end left it, so what that costs is churn, not exposure.
+- **A former downlink may forget it at once.** A downlink takes no place among the node table's other nodes, so once its peering ends it stays in the table only if it gets one; with the table full it is removed at once, and the cooldown with its entry ([Network](../areas/network.md#downlinks)). It may then ask again straight away. As the junior it gets no credit from us, so a downlink that never settled costs churn, not exposure, as after a restart; the owner bans one to keep it away.
 - **The memory is for good.** A peer once ended for room never gets the default line by being asked again; it earns credit by fees, as a junior does with its senior.
 - **A pair kept apart may leave a node short of its peer target** for the cooldown, in a small network. The end needed a day of a link that could not carry a packet, which counted for nothing toward the target.
 - **A peer that tells us its end is for room keeps us away** for the cooldown. It could already do so by naming its owner, and only from itself.

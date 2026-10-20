@@ -70,7 +70,7 @@ A core node keeps its peerings with other core nodes, and its downlinks, under s
 
 A periphery node cannot be dialled. Everything that needs to reach it (its owner's app, a front door with an Open Payments request) goes through a relay: a server it keeps a connection to.
 
-**Relays and relayed streams** are built ([Peer protocol](../areas/peer-protocol.md#relayed-streams)): every QUIC endpoint relays streams to the nodes connected to it, never dialling them, with TLS end to end between client and node and bounds per destination and per client; and a node keeps a connection to a relay it chooses, without peering with it ([Node](../areas/node.md#a-chosen-relay)). That relay is the node's fast path, and it keeps the node reachable before it has any peering, or while lookups fail. What is left: every uplink is a relay for its downlinks, since they are connected anyway, once there are downlinks (§4); and clients find the relays that reach a node, below.
+**Relays and relayed streams** are built ([Peer protocol](../areas/peer-protocol.md#relayed-streams)): every QUIC endpoint relays streams to the nodes connected to it, never dialling them, with TLS end to end between client and node and bounds per destination and per client; and a node keeps a connection to a relay it chooses, without peering with it ([Node](../areas/node.md#a-chosen-relay)). That relay is the node's fast path, and it keeps the node reachable before it has any peering, or while lookups fail. Every uplink is a relay for its downlinks too, since they are connected anyway (§4): that is built with downlinks. What is left is how clients find the relays that reach a node, below.
 
 **The record.** A periphery node signs a record of where it can be reached:
 
