@@ -356,7 +356,66 @@ impl Quic {
             .connection(&place, relay, resolver, CONNECT_TIMEOUT)
             .await
             .map_err(|_| RelayError::Unreachable)?;
-        let (send, recv) = ask_relay(&connection, destination, purpose).await?;
+        let stream = ask_relay(&connection, destination, purpose).await?;
+        self.secure(destination, purpose, stream).await
+    }
+
+    /// Opens a relayed stream for `purpose` to `destination` on the
+    /// connection it keeps to this endpoint, as relay and client in one:
+    /// how a front door reaches the nodes that chose it as their relay
+    /// (spec/areas/http.md#front-doors). The stream names this endpoint's
+    /// own node ID as the client, and the TLS inside it is pinned to the
+    /// destination's key, as through any relay. It never dials.
+    ///
+    /// # Errors
+    ///
+    /// [`RelayError::UnknownDestination`] when no connection to the
+    /// destination is open; otherwise as [`open_relayed`](Self::open_relayed).
+    pub async fn open_held(
+        self: &Arc<Self>,
+        destination: NodeId,
+        purpose: Purpose,
+    ) -> Result<RelayedStream, RelayError> {
+        let Some((own, _)) = self.keys.current() else {
+            return Err(RelayError::Unreachable);
+        };
+        let connection = self
+            .held(destination)
+            .await
+            .ok_or(RelayError::UnknownDestination)?;
+        let (mut send, mut recv) =
+            match tokio::time::timeout(HEADER_TIMEOUT, connection.open_bi()).await {
+                Ok(Ok(stream)) => stream,
+                Ok(Err(_)) => return Err(RelayError::UnknownDestination),
+                Err(_) => return Err(RelayError::Busy),
+            };
+        let header = relayed_header(purpose.byte(), &own);
+        let answer = tokio::time::timeout(HEADER_TIMEOUT, async {
+            send.write_all(&header).await.ok()?;
+            read_byte(&mut recv).await
+        })
+        .await;
+        let failed = match answer.map(|byte| byte.map(Outcome::from_destination)) {
+            Ok(Some(Outcome::Joined)) => None,
+            Ok(Some(Outcome::Busy)) | Err(_) => Some(RelayError::Busy),
+            Ok(Some(_)) => Some(RelayError::Refused),
+            Ok(None) => Some(RelayError::Broken),
+        };
+        if let Some(failed) = failed {
+            let _ = send.reset(0u32.into());
+            return Err(failed);
+        }
+        self.secure(destination, purpose, (send, recv)).await
+    }
+
+    /// Runs TLS for `purpose` inside a joined stream, pinned to
+    /// `destination`'s key and presenting our own.
+    async fn secure(
+        &self,
+        destination: NodeId,
+        purpose: Purpose,
+        (send, recv): (SendStream, RecvStream),
+    ) -> Result<RelayedStream, RelayError> {
         let config =
             client_tls(&self.keys, destination, purpose).map_err(|_| RelayError::Handshake)?;
         let name = ServerName::try_from(SERVER_NAME).map_err(|_| RelayError::Handshake)?;
@@ -543,6 +602,12 @@ impl On {
             let _ = send.reset(0u32.into());
             return;
         };
+        if !self.handler.relays() {
+            let refused = [Outcome::Refused.byte()];
+            let _ = tokio::time::timeout(HEADER_TIMEOUT, send.write_all(&refused)).await;
+            let _ = send.finish();
+            return;
+        }
         let joined = self
             .quic
             .join(&*self.handler, self.client, (client, destination), purpose)

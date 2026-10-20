@@ -190,7 +190,13 @@ fn data_dir(env: &Env) -> Result<PathBuf, EnvError> {
     }
 }
 
-fn log_filter(env: &Env) -> Result<LogFilter, EnvError> {
+/// What reaches standard output: `DASSIE_LOG_LEVEL`, and `DEBUG` for the
+/// debug events shown.
+///
+/// # Errors
+///
+/// `DASSIE_LOG_LEVEL` names no level.
+pub fn log_filter(env: &Env) -> Result<LogFilter, EnvError> {
     let level = match env.get("DASSIE_LOG_LEVEL")? {
         None => LogLevel::Info,
         Some(text) => LogLevel::parse(text).ok_or(EnvError {

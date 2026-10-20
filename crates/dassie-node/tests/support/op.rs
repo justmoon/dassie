@@ -113,7 +113,7 @@ pub fn default_name(key: &NodeKey) -> String {
 }
 
 /// Adds the stub ledger, with money in it.
-async fn add_stub(node: &TestNode) {
+pub async fn add_stub(node: &TestNode) {
     let mut owner = node.ipc().await;
     for _ in 0..200 {
         let added = owner
