@@ -82,12 +82,12 @@ The original's layout, kept for operators' habits and docs. Each version is unpa
 1. **One at a time,** under a lock in `/opt/dassie`.
 2. **Choose the version** from `meta/<channel>` by the rule in [Versions and channels](#versions-and-channels). The owner may name a version (`--target-version`, older too) or a channel, or another mirror, which may be on a private network since the owner names it.
 3. **Verify, unpack into staging and check the new binary** ([Trust](#trust)). Modes are set explicitly, whatever the umask, since the node runs as a user of its own, and every file and directory is synced, so `current` never names a version a power cut left half written.
-4. **Switch:** install the version's units where they changed, move `current`, restart `dassie.service` and wait for its readiness.
+4. **Switch:** install the version's units where they changed, move `current`, restart `dassie.service` and wait for its readiness. If the units or `current` cannot be put in place, the old version's units and `current` go back, and the units the new version added go, before systemd has read any of them.
 5. **Record** how it went in `/opt/dassie/last-update`, which `dassie status` reads, and **prune** every version but the new one and the one it came from.
 
 ### Rolling back
 
-If the node does not come up after the switch, the update puts back the old version's units and `current`, stops the node, puts back the database if it must, and starts the old version again.
+If the node does not come up after the switch, the update disables and removes the units the new version added, puts back the old version's units and `current`, stops the node, puts back the database if it must, and starts the old version again. No unit of the new version stays behind for systemd to start, at the next boot or otherwise.
 
 - **Why the database:** a version refuses a database whose schema is newer than it knows ([Node](node.md#database)), so after a migration the old version could not start. The daemon keeps a copy from just before it migrated, taken before it served anything, so nothing the copy lacks has reached a peer.
 - **Only when it must, and only a copy it can trust:** the updater puts the copy back only if the old version could not open the database as it is, only if the copy was made by this update (by its time), and only if the old version can open the copy (`store::restore_pre_migration`).

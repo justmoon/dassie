@@ -16,7 +16,9 @@
 //!    versions, and asks the new binary for its version and to verify its
 //!    install.
 //! 4. It moves it into place, installs its systemd units, points `current`
-//!    at it with one `rename`, and restarts the node.
+//!    at it with one `rename`, and restarts the node. Should any of that
+//!    fail, the old version's units go back, and those the new one added
+//!    are disabled and removed.
 //! 5. If the node does not come up, it points `current` back, puts back the
 //!    database from before the new version migrated it, if it did
 //!    (`dassie_node::store::restore_pre_migration`), and starts the old
@@ -157,8 +159,20 @@ async fn attempt(
     // The staging directory goes either way; what it held is in place.
     let _ = fs::remove_dir_all(&staging);
     let dir = installed?;
-    let units = install_units(&dir.join("share/systemd"))?;
-    switch(&install.base, &target)?;
+    let mut units = Units::default();
+    let switched = install_units(&dir.join("share/systemd"), &mut units)
+        .and_then(|()| switch(&install.base, &target));
+    if let Err(problem) = switched {
+        // systemd has not read the new units yet: with the old ones and
+        // `current` back on disk, nothing changed.
+        return Err(match put_back(install, &units) {
+            Ok(()) => problem,
+            Err(failed) => format!(
+                "{problem}, and going back to {} failed: {failed}",
+                install.version
+            ),
+        });
+    }
     println!("Installed dassie {target}.");
     // Whatever the new version writes from here on, a copy of the database
     // from before its migration included, is this update's.
@@ -173,7 +187,7 @@ async fn attempt(
             "dassie {target} did not start ({problem}); going back to {}.",
             install.version
         );
-        if let Err(failed) = roll_back(install, since) {
+        if let Err(failed) = roll_back(install, &units, since) {
             return Err(format!(
                 "dassie {target} did not start ({problem}), and going back to {} failed: {failed}",
                 install.version
@@ -200,11 +214,12 @@ fn restart(units: &Units) -> Result<(), Problem> {
 
 /// Points `current` back at the version that ran, with its units, puts back
 /// the database from before the update if the new version migrated it, and
-/// starts the old version.
-fn roll_back(install: &Install, since: SystemTime) -> Result<(), Problem> {
-    let dir = install.base.join(install.version.to_string());
-    install_units(&dir.join("share/systemd"))?;
-    switch(&install.base, &install.version)?;
+/// starts the old version. The units the update added are disabled and go.
+fn roll_back(install: &Install, units: &Units, since: SystemTime) -> Result<(), Problem> {
+    for unit in &units.added {
+        systemctl(&["disable", "--now", unit])?;
+    }
+    put_back(install, units)?;
     systemctl(&["daemon-reload"])?;
     // systemd may be restarting the failed node; the database must be left
     // alone while it is put back.
@@ -724,15 +739,20 @@ struct Units {
     added: Vec<String>,
 }
 
-/// Installs the systemd units a version brings, each only if it changed.
-/// An owner's changes belong in drop-ins, which this leaves alone.
-fn install_units(units: &Path) -> Result<Units, Problem> {
+/// Where systemd units go.
+fn unit_dir() -> PathBuf {
+    std::env::var_os("DASSIE_SYSTEMD_UNIT_DIR")
+        .map_or_else(|| PathBuf::from(UNIT_DIR), PathBuf::from)
+}
+
+/// Installs the systemd units a version brings, each only if it changed,
+/// noting each in `installed` as it goes, so that a failure part way can be
+/// undone. An owner's changes belong in drop-ins, which this leaves alone.
+fn install_units(units: &Path, installed: &mut Units) -> Result<(), Problem> {
     let Ok(entries) = fs::read_dir(units) else {
-        return Ok(Units::default());
+        return Ok(());
     };
-    let dir = std::env::var_os("DASSIE_SYSTEMD_UNIT_DIR")
-        .map_or_else(|| PathBuf::from(UNIT_DIR), PathBuf::from);
-    let mut installed = Units::default();
+    let dir = unit_dir();
     for entry in entries {
         let entry = entry.map_err(|e| permission(units, &e))?;
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -757,8 +777,26 @@ fn install_units(units: &Path) -> Result<Units, Problem> {
             installed.added.push(name);
         }
     }
+    sync_dir(&dir)
+}
+
+/// Puts back the units and `current` of the version that ran, on disk:
+/// the units the update added go, and the old version's come back where
+/// they changed.
+fn put_back(install: &Install, units: &Units) -> Result<(), Problem> {
+    let dir = unit_dir();
+    for name in &units.added {
+        let path = dir.join(name);
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(permission(&path, &error)),
+        }
+    }
     sync_dir(&dir)?;
-    Ok(installed)
+    let old = install.base.join(install.version.to_string());
+    install_units(&old.join("share/systemd"), &mut Units::default())?;
+    switch(&install.base, &install.version)
 }
 
 /// Points `<base>/current` at `version`, in one `rename`, on disk.

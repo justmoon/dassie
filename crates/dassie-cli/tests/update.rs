@@ -650,6 +650,75 @@ fn goes_back_when_the_new_node_does_not_start() {
     );
 }
 
+/// A release that brings a unit the running version does not have.
+fn release_adding_a_unit(version: &str) -> Vec<u8> {
+    let script = stand_in(version);
+    tarball(&[
+        ("dassie/", None, 0o755),
+        ("dassie/bin/", None, 0o755),
+        ("dassie/bin/dassie", Some(script.as_bytes()), 0o755),
+        ("dassie/share/", None, 0o755),
+        ("dassie/share/systemd/", None, 0o755),
+        ("dassie/share/systemd/dassie.service", Some(UNIT), 0o644),
+        (
+            "dassie/share/systemd/dassie-new.timer",
+            Some(b"[Timer]\n"),
+            0o644,
+        ),
+    ])
+}
+
+/// If `current` cannot be switched, the version that runs keeps its units,
+/// and has none the new version brought.
+#[test]
+fn puts_back_the_units_when_the_switch_fails() {
+    let (mirror, install) = (MirrorServer::start(), Install::new());
+    install.with_unit(OLD_UNIT);
+    publish(&mirror, "9.9.9", &release_adding_a_unit("9.9.9"), None);
+    // A directory where `current` is: no rename replaces it.
+    fs::remove_file(install.base().join("current")).unwrap();
+    fs::create_dir_all(install.base().join("current/in-the-way")).unwrap();
+    let binary = install.base().join(&install.version).join("bin/dassie");
+    let output = install
+        .updater(&binary, &mirror)
+        .arg("--no-restart")
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "{}", text(&output));
+    assert!(text(&output).contains("current"), "{}", text(&output));
+    assert_eq!(install.unit("dassie.service").as_deref(), Some(OLD_UNIT));
+    assert_eq!(install.unit("dassie-new.timer"), None);
+    assert!(install.last_update().contains("\noutcome=failed\n"));
+}
+
+/// A rollback takes out the units the new version added, disabled, as well
+/// as putting back the old version's.
+#[test]
+fn a_rollback_takes_out_the_units_the_new_version_added() {
+    let (mirror, install) = (MirrorServer::start(), Install::new());
+    install.with_unit(OLD_UNIT);
+    publish(&mirror, "9.9.9", &release_adding_a_unit("9.9.9"), None);
+    let systemctl = systemctl_failing_restart(install.dir.path());
+    let output = install.update_with_systemctl(&mirror, &systemctl);
+    assert!(!output.status.success(), "{}", text(&output));
+    assert!(text(&output).contains("runs again"), "{}", text(&output));
+    assert_eq!(install.current(), install.version);
+    assert_eq!(install.unit("dassie.service").as_deref(), Some(OLD_UNIT));
+    assert_eq!(install.unit("dassie-new.timer"), None);
+    assert_eq!(
+        systemctl_calls(&systemctl)[1..],
+        [
+            "daemon-reload",
+            "enable dassie-new.timer",
+            "restart dassie.service",
+            "disable --now dassie-new.timer",
+            "daemon-reload",
+            "stop dassie.service",
+            "start dassie.service",
+        ]
+    );
+}
+
 /// The script the tests stand in for the binary runs, which needs a shell.
 #[test]
 fn stand_in_runs() {
