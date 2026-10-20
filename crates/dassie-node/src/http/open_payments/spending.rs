@@ -62,7 +62,7 @@ pub async fn route(
 
 fn authorize(node: &Node, read: &ReadRequest) -> Result<Authorized, OpError> {
     let fields = read.field_refs();
-    auth::authorize(node, &read.signed(&fields))
+    auth::authorize(node, &read.urls, &read.signed(&fields))
 }
 
 /// Whom a request's rate probe counts against (D34): an app the owner
@@ -143,7 +143,7 @@ fn quote(urls: &Urls, row: &QuoteRow) -> Quote {
     let asset = row.ledger.asset();
     Quote {
         id: format!("{}/quotes/{}", urls.origin(), row.id),
-        wallet_address: row.wallet_address.clone(),
+        wallet_address: urls.rebase(&row.wallet_address),
         receiver: row.receiver.clone(),
         receive_amount: foreign(&row.receive_amount),
         debit_amount: Amount::new(row.debit_amount, asset.code, asset.scale),
@@ -215,8 +215,11 @@ async fn create_outgoing(
     };
     let mut new = match (&body.quote_id, &body.incoming_payment, &body.debit_amount) {
         (Some(quote_id), None, None) => {
-            let id = quote_id
-                .strip_prefix(&format!("{}/quotes/", urls.origin()))
+            // A quote made under another of the node's names is its own.
+            let id = urls
+                .own_path(quote_id)
+                .as_deref()
+                .and_then(|path| path.strip_prefix("/quotes/"))
                 .and_then(PaymentId::parse)
                 .ok_or_else(|| OpError::invalid("the quote does not exist"))?;
             spending::from_quote(node, id, Some(&authorized.grant.client), Some(ledger))?
@@ -259,7 +262,7 @@ fn outgoing(urls: &Urls, row: &OutgoingRow) -> OutgoingPayment {
     let amount = |value| Amount::new(value, asset.code, asset.scale);
     OutgoingPayment {
         id: format!("{}/outgoing-payments/{}", urls.origin(), row.id),
-        wallet_address: row.wallet_address.clone(),
+        wallet_address: urls.rebase(&row.wallet_address),
         quote_id: row
             .quote_id
             .map(|quote| format!("{}/quotes/{quote}", urls.origin())),

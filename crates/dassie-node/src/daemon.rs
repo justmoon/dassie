@@ -399,6 +399,7 @@ fn make_node(
         policies,
         peer: peer_options(settings),
         dev_wallet_dir: settings.dev_wallet_dir.clone(),
+        public_names: settings.public_names.clone(),
     })
     .map_err(DaemonError::Node)?;
     if let Some(socket) = extras.quic {

@@ -198,6 +198,9 @@ pub struct NodeOptions {
     /// A development build of the wallet to serve instead of the embedded
     /// one.
     pub dev_wallet_dir: Option<PathBuf>,
+    /// The names the owner added, which a node without a hostname answers
+    /// Open Payments to.
+    pub public_names: Vec<dassie_node_core::config::Hostname>,
 }
 
 /// The peer protocol's settings, from the environment.
@@ -407,6 +410,24 @@ pub(crate) fn lock<T: ?Sized>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 /// Most live streams the node serves at once, over all connections.
 pub const MAX_LIVE_STREAMS: usize = 64;
 
+/// The token setup asks for: the stored one, or a new one stored. A node
+/// set up already gets one that is never shown, and refused.
+fn setup_token(
+    store: &Store,
+    set_up: bool,
+    rng: &mut dyn SharedRng,
+) -> Result<SetupToken, NodeError> {
+    if set_up {
+        return Ok(SetupToken::generate(rng));
+    }
+    if let Some(bytes) = store.setup_token()? {
+        return Ok(SetupToken::from_bytes(bytes));
+    }
+    let token = SetupToken::generate(rng);
+    store.set_setup_token(token.as_bytes())?;
+    Ok(token)
+}
+
 impl Node {
     /// Loads the node from its database, making a self-signed certificate if
     /// the stored one won't do.
@@ -422,6 +443,7 @@ impl Node {
             policies,
             peer,
             dev_wallet_dir,
+            public_names,
         } = options;
         let peer = PeerSide::new(peer)?;
         let now_ms = clock.now_ms();
@@ -436,16 +458,7 @@ impl Node {
                 .map_err(|e| NodeError::Acme(e.to_string()))?;
             let _ = acme.set(Ok(client));
         }
-        let setup_token = if node_key.is_some() {
-            // Never shown, and refused: the node is set up.
-            SetupToken::generate(rng.as_mut())
-        } else if let Some(bytes) = store.setup_token()? {
-            SetupToken::from_bytes(bytes)
-        } else {
-            let token = SetupToken::generate(rng.as_mut());
-            store.set_setup_token(token.as_bytes())?;
-            token
-        };
+        let setup_token = setup_token(&store, node_key.is_some(), rng.as_mut())?;
         Ok(Arc::new(Self {
             store: Arc::new(store),
             rng: Arc::new(Mutex::new(rng)),
@@ -480,7 +493,7 @@ impl Node {
             live_streams: Arc::new(Semaphore::new(MAX_LIVE_STREAMS)),
             dev_wallet_dir,
             stats_cache: crate::http::stats::StatsCache::default(),
-            open_payments: crate::open_payments::State::default(),
+            open_payments: crate::open_payments::State::new(public_names),
             rates_wake: Notify::new(),
             quic: std::sync::OnceLock::new(),
         }))

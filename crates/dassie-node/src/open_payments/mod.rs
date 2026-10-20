@@ -3,9 +3,13 @@
 //!
 //! Each active ledger has a wallet address at `https://host/pay/<slug>`.
 //! `$host`, that is `https://host/.well-known/pay`, names the default
-//! ledger: the one the owner chose, or else the lowest active one. Every
-//! URL is built from the configured hostname, so the node serves Open
-//! Payments only once it has one.
+//! ledger: the one the owner chose, or else the lowest active one.
+//!
+//! Every URL is built from one of the node's names ([`Names`]): a node
+//! with a hostname has only that; a node without one answers to its
+//! default front door name and the names its owner added, each request
+//! under the name it came through
+//! (spec/areas/payments.md#the-nodes-names).
 //!
 //! The original's Open Payments had no GNAP, served no incoming payment by
 //! its ID, fixed the asset at USD/2, linked no money it received to a
@@ -23,10 +27,12 @@ pub mod spending;
 use std::net::IpAddr;
 use std::sync::{Mutex, OnceLock};
 
-use dassie_identity::NodeKey;
+use dassie_identity::{NodeId, NodeKey};
 use dassie_ledger::LedgerId;
+use dassie_node_core::config::Hostname;
+use dassie_node_core::origin::{self, Host};
 use dassie_node_core::rate_limit::{ClientKey as RateKey, RateLimitPolicy, RateLimiter};
-use dassie_node_core::urls;
+use dassie_node_core::urls::{self, DEFAULT_HTTPS_PORT};
 
 use crate::engine::ledger_slug;
 use crate::node::Node;
@@ -40,6 +46,9 @@ pub const PAY_PREFIX: &str = "/pay/";
 pub const GRANT_PATH: &str = "/gnap";
 /// The prefix of incoming payments' paths.
 pub const INCOMING_PREFIX: &str = "/incoming-payments";
+/// The default front door's domain: a node without a hostname answers to
+/// `<label>.dassiepay.net` first.
+pub const DEFAULT_FRONT_DOOR_DOMAIN: &str = "dassiepay.net";
 
 /// Every Open Payments request, per client address.
 const REQUESTS: RateLimitPolicy = RateLimitPolicy {
@@ -60,9 +69,12 @@ const CREATIONS: RateLimitPolicy = RateLimitPolicy {
 /// other wallets as the node.
 const MAX_LOOKUPS: usize = 4;
 
-/// What Open Payments keeps beside the database: clients' key sets, the
-/// node's own key, its tokens at other wallets, and the rate limits.
+/// What Open Payments keeps beside the database: the names the owner
+/// added, clients' key sets, the node's own key, its tokens at other
+/// wallets, and the rate limits.
 pub struct State {
+    /// The names the owner added, in their order.
+    public_names: Vec<Hostname>,
     /// Clients' key sets.
     pub keys: Mutex<keys::KeyCache>,
     /// The node's own tokens at other wallets' authorization servers.
@@ -76,7 +88,17 @@ pub struct State {
 
 impl Default for State {
     fn default() -> Self {
+        Self::new(Vec::new())
+    }
+}
+
+impl State {
+    /// With the names the owner added, which a node without a hostname
+    /// answers to beside its default one.
+    #[must_use]
+    pub fn new(public_names: Vec<Hostname>) -> Self {
         Self {
+            public_names,
             keys: Mutex::new(keys::KeyCache::default()),
             tokens: Mutex::new(client::TokenCache::default()),
             lookups: tokio::sync::Semaphore::new(MAX_LOOKUPS),
@@ -85,9 +107,13 @@ impl Default for State {
             creations: Mutex::new(RateLimiter::new(CREATIONS)),
         }
     }
-}
 
-impl State {
+    /// The names the owner added, in their order.
+    #[must_use]
+    pub fn public_names(&self) -> &[Hostname] {
+        &self.public_names
+    }
+
     /// The node's Open Payments key, derived on first use.
     pub fn client_key(&self, node_key: &NodeKey) -> Option<&keys::ClientKey> {
         self.client_key
@@ -112,26 +138,126 @@ impl State {
     }
 }
 
-/// The node's public URLs.
+/// The names the node answers Open Payments to
+/// (spec/areas/payments.md#the-nodes-names).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Urls {
-    origin: String,
+pub enum Names {
+    /// A node with a hostname answers under it alone, whatever `Host`
+    /// says: its origin, `https://host[:port]`.
+    Hostname(String),
+    /// A node without one answers under each of these, the main one first:
+    /// its default front door name, then the names its owner added.
+    List(Vec<Hostname>),
 }
 
-impl Urls {
-    /// The URLs, once the node has a hostname.
+impl Names {
+    /// The node's names, once it has a hostname or a key.
     #[must_use]
     pub fn of(node: &Node) -> Option<Self> {
         let config = node.config();
-        let origin = urls::node_url(config.hostname.as_ref(), node.ports().1)?;
-        Some(Self { origin })
+        let id = node.node_key().map(|key| key.node_id());
+        Self::new(
+            config.hostname.as_ref(),
+            node.ports().1,
+            id.as_ref(),
+            node.open_payments().public_names(),
+        )
     }
 
-    /// From an origin, `https://host[:port]`.
+    /// The names of a node with `hostname`, or else with `id` and the
+    /// names its owner `added`.
+    #[must_use]
+    pub fn new(
+        hostname: Option<&Hostname>,
+        https_port: u16,
+        id: Option<&NodeId>,
+        added: &[Hostname],
+    ) -> Option<Self> {
+        if let Some(origin) = urls::node_url(hostname, https_port) {
+            return Some(Self::Hostname(origin));
+        }
+        // Before setup, a node without a hostname is no one yet.
+        let default = default_name(id?);
+        let mut names: Vec<Hostname> = default.into_iter().collect();
+        for name in added {
+            if !names.contains(name) {
+                names.push(name.clone());
+            }
+        }
+        (!names.is_empty()).then_some(Self::List(names))
+    }
+
+    /// Every origin of the node's.
+    fn origins(&self) -> Vec<String> {
+        match self {
+            Self::Hostname(origin) => vec![origin.clone()],
+            Self::List(names) => names.iter().map(|name| format!("https://{name}")).collect(),
+        }
+    }
+
+    /// The URLs under the main name: how the node names itself outside any
+    /// request, to its owner and as a client of other wallets.
+    #[must_use]
+    pub fn main(&self) -> Urls {
+        let own = self.origins();
+        let origin = own.first().cloned().unwrap_or_default();
+        Urls { origin, own }
+    }
+
+    /// The URLs to answer a request for `host` (its `Host` or authority)
+    /// under: the node's hostname whatever `host` says, or else the name
+    /// `host` names, on the default port. None for a name not on the list.
+    #[must_use]
+    pub fn answering(&self, host: Option<&str>) -> Option<Urls> {
+        let Self::List(names) = self else {
+            return Some(self.main());
+        };
+        let authority = origin::parse_authority(host?)?;
+        if authority
+            .port
+            .is_some_and(|port| port != DEFAULT_HTTPS_PORT)
+        {
+            return None;
+        }
+        let Host::Name(asked) = authority.host else {
+            return None;
+        };
+        let name = names.iter().find(|name| name.as_str() == asked)?;
+        Some(Urls {
+            origin: format!("https://{name}"),
+            own: self.origins(),
+        })
+    }
+}
+
+/// `<label>.dassiepay.net`, for a node ID a key gives.
+fn default_name(id: &NodeId) -> Option<Hostname> {
+    let label = id.label().ok()?;
+    Hostname::parse(&format!("{label}.{DEFAULT_FRONT_DOOR_DOMAIN}")).ok()
+}
+
+/// The node's public URLs, under one of its names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Urls {
+    origin: String,
+    /// Every origin of the node's, `origin` among them.
+    own: Vec<String>,
+}
+
+impl Urls {
+    /// The URLs under the node's main name, once it has one.
+    #[must_use]
+    pub fn of(node: &Node) -> Option<Self> {
+        Names::of(node).map(|names| names.main())
+    }
+
+    /// From an origin, `https://host[:port]`, the node's only one.
     #[must_use]
     pub fn from_origin(origin: &str) -> Self {
+        let origin = origin.trim_end_matches('/').to_string();
         Self {
-            origin: origin.trim_end_matches('/').to_string(),
+            own: vec![origin.clone()],
+            origin,
         }
     }
 
@@ -184,15 +310,30 @@ impl Urls {
         format!("{}{INCOMING_PREFIX}/{id}", self.origin)
     }
 
-    /// The path of `url` if it is at this node's origin, compared as
-    /// origins are: whatever the case, and with or without the scheme's
+    /// The path of `url` if it is at one of the node's origins, compared
+    /// as origins are: whatever the case, and with or without the scheme's
     /// own port.
     #[must_use]
     pub fn own_path(&self, url: &str) -> Option<String> {
         use dassie_payments::uri::Uri;
         let uri = Uri::parse(url).ok()?;
-        let ours = Uri::parse(&self.origin).ok()?;
-        (uri.origin() == ours.origin()).then(|| uri.path.to_string())
+        let origin = uri.origin();
+        self.own
+            .iter()
+            .filter_map(|own| Uri::parse(own).ok())
+            .any(|own| own.origin() == origin)
+            .then(|| uri.path.to_string())
+    }
+
+    /// A URL the node wrote under any of its names, such as a wallet
+    /// address a grant or a resource keeps, under this one: its path at
+    /// this origin. Text that is no URL stays as it is.
+    #[must_use]
+    pub fn rebase(&self, url: &str) -> String {
+        match dassie_payments::uri::Uri::parse(url) {
+            Ok(uri) => format!("{}{}", self.origin, uri.path),
+            Err(_) => url.to_string(),
+        }
     }
 }
 
@@ -254,11 +395,14 @@ impl WalletAddresses {
             .find(|&ledger| ledger_slug(ledger) == slug)
     }
 
-    /// The ledger a wallet address URL of this node names.
+    /// The ledger a wallet address URL of this node names, under any of
+    /// its names.
     #[must_use]
     pub fn ledger_of_url(&self, urls: &Urls, url: &str) -> Option<LedgerId> {
-        let path = url.strip_prefix(urls.origin())?;
-        self.ledger_of_path(path)
+        urls.own
+            .iter()
+            .find_map(|origin| url.strip_prefix(origin.as_str()))
+            .and_then(|path| self.ledger_of_path(path))
     }
 }
 
@@ -343,6 +487,123 @@ mod tests {
             addresses.ledger_of_url(&urls, "https://d2.localhost:5002/pay/stub"),
             None
         );
+    }
+
+    fn hostname(text: &str) -> Hostname {
+        Hostname::parse(text).unwrap()
+    }
+
+    /// The node of the label vector in `dassie-identity`, with two names
+    /// its owner added, one of them twice.
+    fn listed() -> (Names, String) {
+        let id = NodeId::parse("dNKbwOMCw0DTToPM4tyyVASWxM4NP3MKW").unwrap();
+        let default = "gstpaogawdidju5a6m4lolevaes3cm4dj7omffq.dassiepay.net".to_string();
+        let added = [
+            hostname("pay.example.com"),
+            hostname(&default),
+            hostname("other.example"),
+        ];
+        (Names::new(None, 443, Some(&id), &added).unwrap(), default)
+    }
+
+    #[test]
+    fn a_node_with_a_hostname_answers_under_it_alone() {
+        let id = NodeId::parse("dNKbwOMCw0DTToPM4tyyVASWxM4NP3MKW").unwrap();
+        let names = Names::new(
+            Some(&hostname("node.example")),
+            8443,
+            Some(&id),
+            &[hostname("pay.example.com")],
+        )
+        .unwrap();
+        let origin = |urls: Option<Urls>| urls.map(|urls| urls.origin().to_string());
+        let main = Some("https://node.example:8443".to_string());
+        assert_eq!(origin(Some(names.main())), main);
+        for host in [None, Some("pay.example.com"), Some("elsewhere.example")] {
+            assert_eq!(origin(names.answering(host)), main, "{host:?}");
+        }
+    }
+
+    #[test]
+    fn a_node_without_one_answers_under_each_of_its_names() {
+        let (names, default) = listed();
+        let Names::List(list) = &names else {
+            panic!("{names:?}")
+        };
+        let list: Vec<&str> = list.iter().map(Hostname::as_str).collect();
+        assert_eq!(list, [default.as_str(), "pay.example.com", "other.example"]);
+        assert_eq!(names.main().origin(), format!("https://{default}"));
+        let origin = |host: &str| {
+            names
+                .answering(Some(host))
+                .map(|urls| urls.origin().to_string())
+        };
+        assert_eq!(
+            origin("pay.example.com").as_deref(),
+            Some("https://pay.example.com")
+        );
+        assert_eq!(
+            origin("PAY.Example.com:443").as_deref(),
+            Some("https://pay.example.com")
+        );
+        assert_eq!(
+            origin(&default.to_ascii_uppercase()),
+            Some(format!("https://{default}"))
+        );
+        for refused in [
+            "elsewhere.example",
+            "pay.example.com:8443",
+            "pay.example.com.",
+            "sub.pay.example.com",
+            "192.0.2.1",
+            "[::1]",
+            "",
+        ] {
+            assert_eq!(origin(refused), None, "{refused}");
+        }
+        assert_eq!(names.answering(None), None);
+        // Without a key or a hostname, a node has no names yet.
+        assert_eq!(
+            Names::new(None, 443, None, &[hostname("pay.example.com")]),
+            None
+        );
+    }
+
+    #[test]
+    fn a_node_knows_its_own_under_every_name() {
+        let (names, default) = listed();
+        let urls = names.answering(Some("pay.example.com")).unwrap();
+        let addresses = WalletAddresses::new(vec![LedgerId::StubUsd], None);
+        for url in [
+            "https://pay.example.com/pay/stub",
+            "https://other.example/pay/stub",
+            &format!("https://{default}/.well-known/pay"),
+        ] {
+            assert_eq!(
+                addresses.ledger_of_url(&urls, url),
+                Some(LedgerId::StubUsd),
+                "{url}"
+            );
+        }
+        assert_eq!(
+            addresses.ledger_of_url(&urls, "https://elsewhere.example/pay/stub"),
+            None
+        );
+        assert_eq!(
+            urls.own_path("https://OTHER.example:443/incoming-payments/x")
+                .as_deref(),
+            Some("/incoming-payments/x")
+        );
+        assert_eq!(
+            urls.own_path("https://elsewhere.example/incoming-payments/x"),
+            None
+        );
+        // What the node wrote under one name, it writes under this one.
+        assert_eq!(
+            urls.rebase(&format!("https://{default}/pay/stub")),
+            "https://pay.example.com/pay/stub"
+        );
+        assert_eq!(urls.rebase("not a url"), "not a url");
     }
 
     mod properties {

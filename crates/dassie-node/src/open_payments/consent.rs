@@ -63,6 +63,11 @@ pub struct Interaction {
     pub continued_at_ms: u64,
     /// Whether the continuation issued the grant's token.
     pub finalized: bool,
+    /// The origin the grant was asked for under, `https://<name>`, whose
+    /// grant endpoint the interaction hash covers. None in a grant asked
+    /// for before the node kept it: the node's main name then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
 }
 
 impl Interaction {
@@ -135,6 +140,7 @@ pub async fn request(
         public_name,
         continued_at_ms: now,
         finalized: false,
+        origin: Some(urls.origin().to_string()),
     };
     let id = PaymentId::from_random(random_bytes(node));
     let (continue_token, continue_hash) = new_token(node);
@@ -243,7 +249,10 @@ pub fn describe(node: &Node, id: PaymentId, key: &str) -> Result<GrantView, OpEr
 
 /// The owner approves or denies a waiting grant. Returns where to send
 /// them: the client's finish URI with the interaction hash and reference,
-/// or with `result=grant_rejected`; none if the client named none.
+/// or with `result=grant_rejected`; none if the client named none. The
+/// hash covers the grant endpoint under the name the client asked at,
+/// which `urls`, the node's main name, stands in for only in a grant that
+/// kept none.
 ///
 /// # Errors
 ///
@@ -276,11 +285,12 @@ pub async fn decide(
     };
     let separator = if finish.uri.contains('?') { '&' } else { '?' };
     let query = if approve {
+        let origin = interaction.origin.as_deref().unwrap_or(urls.origin());
         let hash = gnap::interaction_hash(
             &finish.nonce,
             &interaction.server_nonce,
             &interact_ref,
-            &format!("{}{GRANT_PATH}", urls.origin()),
+            &format!("{origin}{GRANT_PATH}"),
         );
         format!("hash={hash}&interact_ref={interact_ref}")
     } else {
@@ -384,7 +394,8 @@ async fn finalize(
         return Err(invalid("the interaction reference is wrong"));
     }
     let now = node.now_ms();
-    let access: Vec<Access> = serde_json::from_str(&grant.access).map_err(OpError::internal)?;
+    let mut access: Vec<Access> = serde_json::from_str(&grant.access).map_err(OpError::internal)?;
+    super::auth::rebase_access(urls, &mut access);
     let token = (!access.is_empty()).then(|| {
         let (value, hash) = new_token(node);
         let manage_id = PaymentId::from_random(random_bytes(node));

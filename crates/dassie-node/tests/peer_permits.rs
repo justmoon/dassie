@@ -27,6 +27,7 @@ fn node() -> Arc<Node> {
         policies: Policies::DEFAULT,
         peer: PeerOptions::default(),
         dev_wallet_dir: None,
+        public_names: Vec::new(),
     })
     .unwrap()
 }
