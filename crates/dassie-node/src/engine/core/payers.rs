@@ -20,6 +20,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use dassie_connector::{EndpointId, Forwarded, Outcome};
 use dassie_ilp::{Address, Timestamp};
 use dassie_ledger::{AccountName, LedgerId, OwnerSub};
+use dassie_payments::amount::asset_name;
 use dassie_payments::gnap::Limits;
 use dassie_stream::{AssetDetails, Config, Connection, ErrorCode, Event, Policy, Rate, Role};
 
@@ -409,14 +410,31 @@ impl Core {
         {
             return refused("the grant pays another receiver");
         }
+        // Each refusal names the limit and both assets, so the client
+        // learns why a grant it holds cannot pay.
         let asset = new.ledger.asset();
-        let debit_asset = limits.debits_in(asset.code, asset.scale);
-        let receive_asset = limits.receives_in(
-            &new.receive_amount.asset_code,
-            new.receive_amount.asset_scale,
-        );
-        if !debit_asset || !receive_asset {
-            return refused("the grant's limits are in another asset");
+        if let Some(limit) = limits
+            .debit_amount
+            .as_ref()
+            .filter(|_| !limits.debits_in(asset.code, asset.scale))
+        {
+            return refused(&format!(
+                "the grant's debit limit is in {}, and this payment debits {}",
+                asset_name(&limit.asset_code, limit.asset_scale),
+                asset_name(asset.code, asset.scale),
+            ));
+        }
+        let received = &new.receive_amount;
+        if let Some(limit) = limits
+            .receive_amount
+            .as_ref()
+            .filter(|_| !limits.receives_in(&received.asset_code, received.asset_scale))
+        {
+            return refused(&format!(
+                "the grant's receive limit is in {}, and this receiver is paid in {}",
+                asset_name(&limit.asset_code, limit.asset_scale),
+                asset_name(&received.asset_code, received.asset_scale),
+            ));
         }
         let Some((window, _)) = limits.window(now) else {
             return refused("the grant's interval allows no payment now");

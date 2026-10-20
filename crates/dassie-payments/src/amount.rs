@@ -41,6 +41,13 @@ impl Amount {
     }
 }
 
+/// An asset as errors name it: `USD at scale 9`. Both code and scale,
+/// since two assets may differ only in scale.
+#[must_use]
+pub fn asset_name(asset_code: &str, asset_scale: u8) -> String {
+    alloc::format!("{asset_code} at scale {asset_scale}")
+}
+
 fn asset_code<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
     let code = String::deserialize(deserializer)?;
     let printable = code.bytes().all(|byte| byte.is_ascii_graphic());
