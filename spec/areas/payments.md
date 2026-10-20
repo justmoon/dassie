@@ -39,6 +39,7 @@ The flow is GNAP's redirect interaction. The interaction URL carries a random ke
 
 - **A grant is bound to its client's key:** every later request of the grant must be signed with it, so a stolen token is of no use without the key.
 - **A limit caps the amount debited or the amount received, never both,** as in the specs and Rafiki.
+- **On an item that creates outgoing payments, a debit limit is in its wallet address's asset,** code and scale, or the request is refused with the asset it must be in, since no payment from that wallet could fit it ([D29](../decisions/D29-a-grants-debit-limit-is-in-its-wallets-asset.md)).
 - **Each access item keeps to its own limits,** and only one item per wallet address may allow `create`, since otherwise which limits apply would be unclear. On an item that only reads or lists, a `receiver` limit narrows what it reaches.
 - An item without an identifier reaches every wallet address of the node.
 - **Limits are reserved when a payment is created,** in the interval's current window, and what the payment did not send is released when it ends. Windows are at least a minute, since each window spent in is stored.
@@ -113,3 +114,4 @@ The owner reaches all of this over RPC ([rpc.md](rpc.md)), without a grant, thro
 - [D10](../decisions/D10-secrets-at-rest.md): tokens stored as hashes.
 - [D19](../decisions/D19-each-node-keeps-its-own-books.md): a payment's sent amount is what the node's own books posted.
 - [D23](../decisions/D23-each-node-books-its-own-fulfills.md): why a receiver's word can complete a payment that heard of less.
+- [D29](../decisions/D29-a-grants-debit-limit-is-in-its-wallets-asset.md): why a debit limit in another asset is refused when the grant is asked for, rather than when it pays.

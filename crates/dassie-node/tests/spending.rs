@@ -65,6 +65,13 @@ async fn ask(node: &TestNode, client: &Client, limit: u64, start: &str) -> Value
 
 /// Asks for `access`, which needs the owner; returns the answer.
 async fn ask_for(node: &TestNode, client: &Client, access: &Value) -> Value {
+    let reply = request_grant(node, client, access).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    body(&reply)
+}
+
+/// Asks for `access`, which needs the owner; returns the reply as it is.
+async fn request_grant(node: &TestNode, client: &Client, access: &Value) -> support::Reply {
     let request = json!({
         "access_token": { "access": access },
         "client": client.identity,
@@ -73,14 +80,12 @@ async fn ask_for(node: &TestNode, client: &Client, access: &Value) -> Value {
             "finish": { "method": "redirect", "uri": "https://client.example/finish", "nonce": "client-nonce" },
         },
     });
-    let reply = send(
+    send(
         node.https,
         true,
         signed(node, client, "POST", "/gnap", None, Some(&request)),
     )
-    .await;
-    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
-    body(&reply)
+    .await
 }
 
 /// Continues a grant, with `interact_ref` if given.
@@ -908,6 +913,42 @@ async fn two_items_may_not_both_create_from_one_wallet_address() {
     .await;
     assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{}", reply.text());
     assert_eq!(body(&reply)["error"]["code"], "invalid_request");
+    node.stop().await;
+}
+
+// A debit limit in another asset than its wallet address, even one that
+// differs only in scale, would make a grant no payment can use: the
+// request is refused, naming the asset the limit must be in (D29).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_debit_limit_in_another_asset_is_refused() {
+    let (node, key) = start().await;
+    let client = own_client(&node, &key);
+    let item = |actions: Value, limit: Value| {
+        json!([{
+            "type": "outgoing-payment",
+            "actions": actions,
+            "identifier": host(&node),
+            "limits": { "debitAmount": limit },
+        }])
+    };
+    for limit in [
+        json!({ "value": "500", "assetCode": "EUR", "assetScale": 9 }),
+        json!({ "value": "500", "assetCode": "USD", "assetScale": 2 }),
+    ] {
+        let reply = request_grant(&node, &client, &item(json!(["create", "read"]), limit)).await;
+        assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{}", reply.text());
+        let error = &body(&reply)["error"];
+        assert_eq!(error["code"], "invalid_request");
+        let description = error["description"].as_str().unwrap();
+        assert!(description.contains("USD at scale 9"), "{description}");
+    }
+    // An item that only reads creates no payment for its limits to cap.
+    let reading = item(
+        json!(["read"]),
+        json!({ "value": "500", "assetCode": "EUR", "assetScale": 2 }),
+    );
+    ask_for(&node, &client, &reading).await;
+    ask_for(&node, &client, &item(json!(["create", "read"]), usd(500))).await;
     node.stop().await;
 }
 
