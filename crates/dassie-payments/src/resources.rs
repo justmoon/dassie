@@ -38,6 +38,19 @@ pub struct WalletAddress {
     pub auth_server: String,
     /// The resource server's base URL, without a trailing slash.
     pub resource_server: String,
+    /// What a Dassie node says of itself, for Dassie-aware clients; the
+    /// schema allows more properties, so other clients ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dassie: Option<DassieWallet>,
+}
+
+/// The `dassie` object of a wallet address served by a Dassie node
+/// (spec/areas/payments.md#the-dassie-field).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DassieWallet {
+    /// The node's ID, whose key signs its responses.
+    pub node_id: String,
 }
 
 /// The ILP payment method: STREAM credentials (`ilp-payment-method`).

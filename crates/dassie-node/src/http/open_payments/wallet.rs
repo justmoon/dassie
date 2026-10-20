@@ -1,6 +1,6 @@
 //! Wallet addresses and their key sets.
 
-use dassie_payments::resources::WalletAddress;
+use dassie_payments::resources::{DassieWallet, WalletAddress};
 use hyper::header::{self, HeaderValue};
 use hyper::{Response, StatusCode};
 
@@ -11,7 +11,8 @@ use crate::open_payments::auth::OpError;
 use crate::open_payments::{Urls, WalletAddresses};
 
 /// `GET /.well-known/pay`, `GET /pay/<slug>`: the wallet address, with
-/// the URL it was asked for as its ID.
+/// the URL it was asked for as its ID, and the node's ID for Dassie-aware
+/// clients.
 pub async fn wallet_address(node: &Node, urls: &Urls, path: &str) -> Response<Body> {
     let Ok(addresses) = WalletAddresses::of(node).await else {
         return error(&OpError::unavailable(), None);
@@ -28,6 +29,9 @@ pub async fn wallet_address(node: &Node, urls: &Urls, path: &str) -> Response<Bo
         asset_scale: asset.scale,
         auth_server: urls.auth_server(),
         resource_server: urls.origin().to_string(),
+        dassie: node.node_key().map(|key| DassieWallet {
+            node_id: key.node_id().to_string(),
+        }),
     };
     let mut response = json(StatusCode::OK, &address);
     response.headers_mut().insert(
