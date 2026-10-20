@@ -124,9 +124,9 @@ message DisplayTotal {
 }
 
 // Where the node fetches exchange rates (D7). A currency's rate is the
-// median of the sources that give one, once more than half of them did.
+// median of the sources that cover it, once more than half of them gave one.
 message RateSource {
-  // "coinbase", "kraken" or "bitstamp".
+  // "coinbase", "kraken", "bitstamp" or "ecb".
   string kind = 1;
   // A server of Coinbase's format other than Coinbase's own, for
   // "coinbase" only; empty for the kind's own server.

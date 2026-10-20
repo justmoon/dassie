@@ -20,6 +20,7 @@ export const SOURCE_KINDS = [
   ["coinbase", "Coinbase (or a server of its format)"],
   ["kraken", "Kraken"],
   ["bitstamp", "Bitstamp"],
+  ["ecb", "European Central Bank"],
 ] as const;
 
 /** A rate source's name for people. */

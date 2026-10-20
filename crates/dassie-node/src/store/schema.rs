@@ -42,6 +42,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_19,
     MIGRATION_20,
     MIGRATION_21,
+    MIGRATION_22,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -753,6 +754,31 @@ ALTER TABLE peers ADD COLUMN depeering_reason INTEGER
 const MIGRATION_21: &str = "
 ALTER TABLE settlement_channels ADD COLUMN ended_for_room INTEGER NOT NULL DEFAULT 0
   CHECK (ended_for_room IN (0, 1));
+";
+
+/// The European Central Bank's reference rates are a source (D7), so that
+/// three sources cover every currency. A node that still has the sources
+/// it started with gets it too; an owner who chose others keeps them.
+const MIGRATION_22: &str = "
+CREATE TABLE rate_sources_new (
+  position INTEGER PRIMARY KEY CHECK (position BETWEEN 0 AND 7),
+  kind TEXT NOT NULL CHECK (kind IN ('coinbase', 'kraken', 'bitstamp', 'ecb')),
+  -- Only the Coinbase format is served by others too.
+  url TEXT CHECK (url IS NULL OR (kind = 'coinbase' AND length(url) BETWEEN 9 AND 2048))
+) STRICT;
+
+INSERT INTO rate_sources_new SELECT position, kind, url FROM rate_sources;
+
+INSERT INTO rate_sources_new
+  SELECT 3, 'ecb', NULL
+  WHERE (SELECT count(*) FROM rate_sources) = 3
+    AND (SELECT count(*) FROM rate_sources WHERE url IS NULL AND (
+      (position = 0 AND kind = 'coinbase') OR
+      (position = 1 AND kind = 'kraken') OR
+      (position = 2 AND kind = 'bitstamp'))) = 3;
+
+DROP TABLE rate_sources;
+ALTER TABLE rate_sources_new RENAME TO rate_sources;
 ";
 
 /// Columns that hold secrets: the database inspector never reads them.

@@ -39,13 +39,17 @@ Conversion (`fx.rs`) is exact integer arithmetic on rates relative to the dollar
 `rates.rs` holds the decisions without IO, parsing and combining sources' answers; `node/rates.rs` is the fetcher that runs them a minute after the last cycle, and whenever the sources or the currencies wanted change.
 
 - **A rate per currency, relative to the dollar,** kept for the node's ledgers' assets and the currencies an owner may see totals in. Each rate ages on its own.
-- **The median of several sources.** A currency's rate is the median of the sources that cover it and answered in this cycle, once more than half of them did; with an even number, the middle two must agree closely. So one wrong or silent source does not move a rate. A currency without a rate this cycle keeps its last one until it is stale, and the node warns.
+- **The median of several sources.** A currency's rate is the median of the sources that cover it and answered in this cycle, once more than half of them did; with an even number, the middle two must agree closely, and the rate is their midpoint. A new node's sources cover every currency three times (below). So one wrong source can move a rate only within what the other two say, never beyond, and with one silent, the other two must agree. A currency the owner's sources cover twice gets a rate only while both answer and agree; one they cover once takes what that source says, as the owner chose (the dev environment does). A currency without a rate this cycle keeps its last one until it is stale, and the node warns.
 - **Exact decimals.** Answers are read in exact decimal arithmetic; an answer that does not read leaves the source out of the cycle, and it is simply asked again at the next.
 - **Across restarts,** each currency's last rate is persisted with when it was learned, so a restarted node converts at once while its rates are fresh.
 
 ### Sources
 
-The owner keeps an ordered list of sources of three kinds: Coinbase's format, which covers every currency and which any server may serve (as the dev environment does), and Kraken's and Bitstamp's tickers, which cover XRP. A new node starts with one of each, so that one wrong or silent source does not move a rate. Sources are asked through the node's outbound client, under its rules for outbound requests ([Peer protocol](peer-protocol.md)).
+The owner keeps an ordered list of sources of four kinds: Coinbase's format, which covers every currency and which any server may serve (as the dev environment does); Kraken's ticker, the last trade of every currency against the dollar on its market; Bitstamp's ticker, which covers XRP; and the European Central Bank's daily reference rates, which cover the fiat currencies. A new node starts with one of each, so three sources cover every currency, and their data comes from three upstreams: for the fiat currencies Coinbase's data provider, Kraken's market and the ECB, for XRP three exchanges' markets. All four are free and need no key. A node upgraded with the sources it started with gets the ECB; an owner's own list is left alone.
+
+The ECB publishes once a business day, so its rates are up to a day behind the markets; as one of three, a rate of its outside the two live ones leaves the rate at the nearer of them. Its answer is taken only while its newest day is no older than its calendar allows (`MAX_ECB_AGE_DAYS` in `rates.rs`, the gap at Easter), and never one of a day to come: a daily source that stopped reads as silent rather than as a wrong rate.
+
+Sources are asked through the node's outbound client, under its rules for outbound requests ([Peer protocol](peer-protocol.md)).
 
 ### The owner's total
 
@@ -139,7 +143,7 @@ ILP-over-HTTP (RFC 35) is not built: the connector has no HTTP endpoint ([roadma
 ## Decisions
 
 - [D6](../decisions/D06-owner-ledger-and-multi-currency-accounts.md): each endpoint has a ledger, and ILDCP answers its asset; the owner's own endpoints never convert; the display currency.
-- [D7](../decisions/D07-exchange-rates-fees-and-spread.md): refreshed rates, staleness, exact math, the median of several sources; fees and spread, and why the fee rounds down.
+- [D7](../decisions/D07-exchange-rates-fees-and-spread.md): refreshed rates, staleness, exact math, the median of three sources per currency from three upstreams; fees and spread, and why the fee rounds down.
 - [D10](../decisions/D10-secrets-at-rest.md): BTP tokens are kept hashed.
 - [D13](../decisions/D13-connector-timing-and-packet-limits.md): timing at the packet's expiry, F05 at once, F08 data, F01 and F02, segment-aware prefixes, unique request IDs.
 - [D23](../decisions/D23-each-node-books-its-own-fulfills.md): Fulfills booked as final; a stale resend from a peer is dropped.

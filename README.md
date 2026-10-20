@@ -39,7 +39,7 @@ From there, the wallet sends and receives payments, shows their status and your 
 
 **BTP.** A BTP token, made in the wallet's settings, lets an ILP client such as `ilp-plugin-btp` spend through the node, at most its spending cap per window if you give it one. Over RPC, `createBtpToken` answers with the `btp+wss://` URL to connect with.
 
-**Exchange rates.** When your ledgers hold different currencies, the node converts between them at rates it fetches from Coinbase, Kraken and Bitstamp, taking the median. You can change the sources and the currency the wallet shows totals in, in the wallet's settings or with `setRateSources` and `setDisplayCurrency`.
+**Exchange rates.** When your ledgers hold different currencies, the node converts between them at rates it fetches from Coinbase, Kraken, Bitstamp and the European Central Bank, taking the median of the three that cover each currency. You can change the sources and the currency the wallet shows totals in, in the wallet's settings or with `setRateSources` and `setDisplayCurrency`.
 
 **Peers.** Nodes find each other through bootstrap nodes: by default the testnet's, `boot1`–`boot3.dassie.xyz`. A node needs a hostname to take part; it then registers with them by itself, and peers with nodes that share one of its settlement schemes. The bootstrap nodes run `xrpl-testnet`.
 

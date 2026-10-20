@@ -156,7 +156,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sources_start_with_all_three_and_change() {
+    fn sources_start_with_one_of_each_kind_and_change() {
         let store = Store::open_in_memory().unwrap();
         assert_eq!(store.rate_sources().unwrap(), RateSource::defaults());
         let dev = vec![RateSource {
@@ -203,7 +203,8 @@ mod tests {
     }
 
     // Migration 12 takes a Fulfill owed without a third transfer, which
-    // migration 15 lets go, and starts with no fee and the three sources.
+    // migration 15 lets go, and starts with no fee and the sources, to
+    // which migration 22 adds the ECB.
     #[test]
     fn migration_12_starts_with_no_fee_and_the_sources() {
         let temp = tempfile::tempdir().unwrap();
@@ -228,5 +229,54 @@ mod tests {
         let settings = store.peer_settings().unwrap();
         assert_eq!((settings.connector_fee_ppm, settings.fx_spread_ppm), (0, 0));
         assert_eq!(store.rate_sources().unwrap(), RateSource::defaults());
+    }
+
+    /// A store at migration 21 whose rate sources `sql` sets, migrated.
+    fn migrated_from_21(sql: &str) -> Vec<RateSource> {
+        let temp = tempfile::tempdir().unwrap();
+        let mut connection =
+            Connection::open(temp.path().join(super::super::DATABASE_FILE)).unwrap();
+        connection
+            .pragma_update(None, "application_id", APPLICATION_ID)
+            .unwrap();
+        schema::migrate_until(&mut connection, 21).unwrap();
+        connection.execute_batch(sql).unwrap();
+        drop(connection);
+        Store::open(temp.path()).unwrap().rate_sources().unwrap()
+    }
+
+    // Migration 22 adds the ECB to the sources a node started with, so
+    // that three cover every currency, and leaves an owner's own alone.
+    #[test]
+    fn migration_22_adds_the_ecb_only_to_the_sources_a_node_started_with() {
+        assert_eq!(migrated_from_21(""), RateSource::defaults());
+        let reordered = migrated_from_21(
+            "DELETE FROM rate_sources; INSERT INTO rate_sources VALUES \
+             (0, 'kraken', NULL), (1, 'coinbase', NULL), (2, 'bitstamp', NULL);",
+        );
+        assert_eq!(
+            reordered,
+            [
+                SourceKind::Kraken,
+                SourceKind::Coinbase,
+                SourceKind::Bitstamp
+            ]
+            .map(RateSource::of)
+        );
+        let dev = migrated_from_21(
+            "DELETE FROM rate_sources; INSERT INTO rate_sources VALUES \
+             (0, 'coinbase', 'https://localhost:10100/rates.json');",
+        );
+        assert_eq!(
+            dev,
+            [RateSource {
+                kind: SourceKind::Coinbase,
+                url: Some("https://localhost:10100/rates.json".into()),
+            }]
+        );
+        assert_eq!(
+            migrated_from_21("DELETE FROM rate_sources;"),
+            [] as [RateSource; 0]
+        );
     }
 }
