@@ -559,8 +559,10 @@ impl Core {
             Event::RoutesChanged => self.update_routes(),
             // Asked again at the next check, not a minute later: a junior
             // that had not yet taken in our acceptance pays in advance at
-            // once (D23).
-            Event::SettlementRequestRefused { peer } => {
+            // once (D23), and a request that never arrived does not use up
+            // the grace before a peer short of room is withdrawn (D12).
+            Event::SettlementRequestRefused { peer }
+            | Event::SettlementRequestNotDelivered { peer } => {
                 self.settle.asked.remove(&peer);
             }
             Event::PacketFailed {

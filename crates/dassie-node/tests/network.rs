@@ -415,7 +415,7 @@ fn a_peer_short_of_room_is_withdrawn_until_it_settles() {
     let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::Xrpl);
     sim.loss_per_mille = 0;
     sim.ledger_down.insert(0);
-    // Past the grace, 2 min, counted from when node 1 could first ask.
+    // Past the grace, 3 min, counted from when node 1 could first ask.
     sim.run_until(START + 4 * 60_000);
     assert!(!sim.peers(0).is_empty(), "the nodes did not peer");
     let (senior, junior) = (1, 0);
@@ -452,6 +452,52 @@ fn a_peer_short_of_room_is_withdrawn_until_it_settles() {
     sim.run_until(sim.now + 60_000);
     assert!(sim.payments[0].done, "the payment did not finish");
     check(&sim).unwrap();
+}
+
+// D12: requests to settle that never arrived withdraw no one. For over two
+// request intervals, nothing the senior sends reaches its junior, which
+// is still heard from and pays in advance as soon as it is asked: each
+// request that fails to arrive is asked again at the next check, not an
+// interval later, so the junior is asked as soon as the link is back,
+// well within the grace.
+#[test]
+fn requests_to_settle_that_never_arrived_withdraw_no_honest_junior() {
+    let mut sim = Sim::new(3, 2, 1);
+    sim.loss_per_mille = 0;
+    let peered = |sim: &Sim| !sim.peers(0).is_empty() && !sim.peers(1).is_empty();
+    assert!(
+        sim.run_until_or(START + 120_000, peered),
+        "the nodes did not peer"
+    );
+    // The senior is the node that accepted the request: its peering is
+    // inbound.
+    let senior = usize::from(!sim.core(0).network().peers[0].peering.inbound);
+    let junior = 1 - senior;
+    assert!(sim.core(senior).network().peers[0].peering.inbound);
+    let junior_id = key(junior).node_id();
+    let policies = Policies::DEFAULT;
+    let cut_for = 2 * policies.settlement_request_every_ms + 6_000;
+    sim.cut.insert((senior, junior));
+    let cut_at = sim.now;
+    sim.run_until(cut_at + cut_for);
+    assert!(
+        sim.owes(senior, &junior_id) <= 0,
+        "the junior paid in advance while its senior could not reach it"
+    );
+    sim.cut.clear();
+    sim.run_until(cut_at + policies.peer.advertise_short_grace_ms + 60_000);
+    let for_room: Vec<u64> = sim
+        .withdrawn
+        .iter()
+        .filter(|(_, by, peer)| *by == senior && *peer == junior_id)
+        .map(|(at, _, _)| at - cut_at)
+        .collect();
+    assert!(
+        for_room.is_empty(),
+        "the senior withdrew its junior for room, {for_room:?} ms after the cut"
+    );
+    assert!(sim.owes(senior, &junior_id) > 0, "not paid in advance");
+    assert!(sim.advertises(senior, &junior_id));
 }
 
 // D20: the node whose peering request was accepted, the junior, extends

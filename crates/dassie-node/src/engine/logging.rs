@@ -105,6 +105,9 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         Event::SettlementRequestRefused { peer } => {
             emit!(severity, target: target::SETTLEMENT, %peer, "the peer is not peered with us yet; it is asked to settle again at the next check");
         }
+        Event::SettlementRequestNotDelivered { peer } => {
+            emit!(severity, target: target::SETTLEMENT, %peer, "our request to settle did not reach the peer; it is asked again at the next check");
+        }
         Event::SettlementRefused {
             peer,
             sequence,
