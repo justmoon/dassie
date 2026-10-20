@@ -34,9 +34,9 @@ pub const TRACE_TAIL_LINES: usize = 40;
 pub const TEXT_BYTES: usize = 16 * 1024;
 
 /// How long a run may take in wall time before the campaign reports it and
-/// leaves it behind. Far longer than any run takes (the longest take
-/// seconds), so that only a run that is stuck reaches it, and a slow
-/// machine never does.
+/// leaves it behind. Far longer than any run takes (the longest, `node`
+/// runs whose network stays split for days, take about a minute), so that
+/// only a run that is stuck reaches it, and a slow machine never does.
 pub const RUN_LIMIT: Duration = Duration::from_secs(10 * 60);
 
 /// The most threads a campaign runs seeds on at once.

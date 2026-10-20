@@ -97,8 +97,10 @@ pub fn check_incoming(sim: &Sim, payment: &Payment) -> Result<(), Outcome> {
             ),
         ));
     }
+    // One that expired first got what it got, never more than its limit.
     if let Some(limit) = payment.limit
-        && (row.received_amount != limit || row.completed_at_ms.is_none())
+        && (row.received_amount > limit
+            || !payment.expired && (row.received_amount != limit || row.completed_at_ms.is_none()))
     {
         let problem = format!(
             "an incoming payment of {limit} received {} (completed {:?})",

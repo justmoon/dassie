@@ -38,8 +38,8 @@ pub static SIMS: [Sim; 8] = [
                 through chaos, then healed",
         describe: dassie_node::sim::swarm::describe,
         run: dassie_node::sim::swarm::run,
-        // The most, and about three quarters of the time: it runs the node
-        // whole, and each seed draws a situation of its own.
+        // The most, and most of the time: it runs the node whole, and each
+        // seed draws a situation of its own.
         weight: 50,
     },
     Sim {
@@ -71,8 +71,9 @@ pub static SIMS: [Sim; 8] = [
         about: "peer networks through chaos and calm: membership, peering, routes and settlements",
         describe: dassie_peer::sim::chaos::describe,
         run: dassie_peer::sim::chaos::run,
-        // Its runs take the longest: a few of them take about a sixth of
-        // the time, more than the scripts together.
+        // Its runs take the longest on average, some eight seconds each,
+        // though a `node` run split for days takes longer: a few of them
+        // take about an eighth of the time, more than the scripts together.
         weight: 4,
     },
     Sim {
