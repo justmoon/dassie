@@ -26,12 +26,15 @@ use dassie_node::http::peer::Answer;
 use dassie_node::node::Policies;
 use dassie_node::peer_client::PeerClient;
 use dassie_node::quic::relay::{
-    MAX_RELAYED_PER_DESTINATION, Purpose, RelayError, RelayedStream, ServedStream,
+    MAX_RELAYED_PER_CLIENT_TO_DESTINATION, MAX_RELAYED_PER_DESTINATION, Purpose, RelayError,
+    RelayedStream, ServedStream,
 };
 use dassie_node::quic::{Body, Handler, Quic};
 use dassie_node::rpc::proto::{self, request::Method};
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
+use dassie_peer::wire::Kind;
+use dassie_peer::{Request as PeerRequest, RequestId};
 use http_body_util::{BodyExt, Full};
 use hyper::{Request, StatusCode};
 use hyper_util::rt::TokioIo;
@@ -41,12 +44,13 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 /// Answers peer requests with 200 and nothing, and echoes what a relayed
-/// stream for payments carries; refuses the owner's purpose.
+/// stream for payments carries; refuses the owner's purpose. Counts each
+/// address as a client, loopback too, so that the shares per client apply.
 struct Echo;
 
 impl Handler for Echo {
-    fn client(&self, _address: IpAddr) -> Option<ClientKey> {
-        None
+    fn client(&self, address: IpAddr) -> Option<ClientKey> {
+        Some(ClientKey::from_ip(address))
     }
 
     fn limits(&self) -> ConnectionLimits {
@@ -107,18 +111,57 @@ fn side(seed: u8, shutdown: &CancellationToken) -> Side {
 }
 
 fn side_on(seed: u8, socket: UdpSocket, shutdown: &CancellationToken) -> Side {
+    side_with(seed, socket, None, shutdown)
+}
+
+/// A side on a loopback address of its own, `127.0.0.<last>`, so that the
+/// relay counts it as another client.
+fn side_at(seed: u8, last: u8, shutdown: &CancellationToken) -> Side {
+    let socket = UdpSocket::bind((IpAddr::from([127, 0, 0, last]), 0)).unwrap();
+    side_on(seed, socket, shutdown)
+}
+
+/// A side whose connections close after `idle` without traffic, if given.
+fn side_with(
+    seed: u8,
+    socket: UdpSocket,
+    idle: Option<Duration>,
+    shutdown: &CancellationToken,
+) -> Side {
     let key = Arc::new(NodeKey::from_bytes(&[seed; 32]));
     let id = key.node_id();
     let (identity, receiver) = watch::channel(Some(key));
-    let quic = Arc::new(Quic::new(socket, receiver, true).unwrap());
-    let port = quic.local_addr().unwrap().port();
+    let mut quic = Quic::new(socket, receiver, true).unwrap();
+    if let Some(idle) = idle {
+        quic = quic.with_idle_timeout(idle).unwrap();
+    }
+    let quic = Arc::new(quic);
+    let address = quic.local_addr().unwrap();
     tokio::spawn(Arc::clone(&quic).serve(Arc::new(Echo), shutdown.clone()));
     Side {
         quic,
         id,
-        url: format!("https://127.0.0.1:{port}"),
+        url: format!("https://{address}"),
         identity,
     }
+}
+
+/// Sends `from`'s node a peer request to `to`, over QUIC.
+async fn send(from: &Side, to: &Side) {
+    let request = PeerRequest {
+        id: RequestId(1),
+        to: to.id,
+        url: to.url.clone(),
+        quic: true,
+        kind: Kind::LinkStateRequest,
+        body: b"hello".to_vec(),
+        timeout_ms: 5_000,
+    };
+    let response = from
+        .quic
+        .send(&request, &client(), Duration::from_secs(5))
+        .await;
+    assert!(response.is_ok(), "{response:?}");
 }
 
 fn client() -> PeerClient {
@@ -229,13 +272,34 @@ async fn a_purpose_the_node_does_not_serve_is_refused() {
 #[tokio::test]
 async fn a_relay_carries_a_bounded_number_of_streams_to_one_node() {
     let shutdown = CancellationToken::new();
-    let (relay, destination, from) = (side(1, &shutdown), side(2, &shutdown), side(3, &shutdown));
+    let (relay, destination) = (side(1, &shutdown), side(2, &shutdown));
     keep(&destination, &relay, &shutdown);
+    let shares = MAX_RELAYED_PER_DESTINATION / MAX_RELAYED_PER_CLIENT_TO_DESTINATION;
+    let clients: Vec<Side> = (0..=shares)
+        .map(|index| {
+            let index = u8::try_from(index).unwrap();
+            side_at(10 + index, 10 + index, &shutdown)
+        })
+        .collect();
+    let (late, clients) = clients.split_last().unwrap();
     let mut open = Vec::new();
-    for _ in 0..MAX_RELAYED_PER_DESTINATION {
-        open.push(reach(&from, &relay, destination.id, Purpose::Payments).await);
+    for (index, from) in clients.iter().enumerate() {
+        for _ in 0..MAX_RELAYED_PER_CLIENT_TO_DESTINATION {
+            open.push(reach(from, &relay, destination.id, Purpose::Payments).await);
+        }
+        if index == 0 {
+            // One address has only its share of the node, so it cannot
+            // shut other clients out.
+            let result = from
+                .quic
+                .open_relayed(relay.relay(), destination.id, Purpose::Payments, &client())
+                .await;
+            assert_eq!(result.err(), Some(RelayError::Busy));
+        }
     }
-    let result = from
+    assert_eq!(open.len(), MAX_RELAYED_PER_DESTINATION);
+    // The node has its share: another client waits too.
+    let result = late
         .quic
         .open_relayed(relay.relay(), destination.id, Purpose::Payments, &client())
         .await;
@@ -250,7 +314,7 @@ async fn a_relay_carries_a_bounded_number_of_streams_to_one_node() {
     drop(ended);
     let mut freed = None;
     for _ in 0..200 {
-        match from
+        match late
             .quic
             .open_relayed(relay.relay(), destination.id, Purpose::Payments, &client())
             .await
@@ -264,6 +328,95 @@ async fn a_relay_carries_a_bounded_number_of_streams_to_one_node() {
         }
     }
     assert_eq!(echo(&mut freed.unwrap(), b"pong").await, b"pong");
+    shutdown.cancel();
+}
+
+/// Connections to the relay come and go beside the one the node keeps
+/// open, both ways and whichever node ID is lower: the relay reaches the
+/// node all along, over the kept one once the others are gone.
+async fn a_relay_reaches_its_node_beside_other_connections(relay_is_lower: bool) {
+    let shutdown = CancellationToken::new();
+    let idle = Duration::from_secs(1);
+    let make = |seed: u8| {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        (seed, side_with(seed, socket, Some(idle), &shutdown))
+    };
+    let (seeds, from) = if relay_is_lower {
+        ((40, 41), 42)
+    } else {
+        ((50, 51), 52)
+    };
+    let (a, b) = (make(seeds.0), make(seeds.1));
+    let ((relay_seed, relay), (node_seed, node)) = if (a.1.id < b.1.id) == relay_is_lower {
+        (a, b)
+    } else {
+        (b, a)
+    };
+    let (_, from) = make(from);
+    // The node reached its relay before it kept a connection to it: it
+    // sends over that first one, which then goes idle.
+    send(&node, &relay).await;
+    keep(&node, &relay, &shutdown);
+    let mut stream = reach(&from, &relay, node.id, Purpose::Payments).await;
+    assert_eq!(echo(&mut stream, b"one").await, b"one");
+    drop(stream);
+    tokio::time::sleep(idle * 2).await;
+    send(&node, &relay).await;
+    // Each also takes another connection from the other's key, as when one
+    // dials the other while it holds no open connection; they go idle too.
+    let (_, node_twin) = make(node_seed);
+    let (_, relay_twin) = make(relay_seed);
+    send(&node_twin, &relay).await;
+    send(&relay_twin, &node).await;
+    tokio::time::sleep(idle * 2).await;
+    // Only the kept connection is left, and the relay holds it.
+    let reached = from
+        .quic
+        .open_relayed(relay.relay(), node.id, Purpose::Payments, &client())
+        .await;
+    let mut stream = reached.expect("the relay lost the node's kept connection");
+    assert_eq!(echo(&mut stream, b"two").await, b"two");
+    // The node holds it too, and sends over it rather than dialling again.
+    send(&node, &relay).await;
+    assert_eq!(node.quic.open_connections(), 1);
+    shutdown.cancel();
+}
+
+#[tokio::test]
+async fn a_relay_reaches_its_node_beside_other_connections_either_way() {
+    tokio::join!(
+        a_relay_reaches_its_node_beside_other_connections(true),
+        a_relay_reaches_its_node_beside_other_connections(false),
+    );
+}
+
+#[tokio::test]
+async fn a_node_does_not_choose_itself_as_its_relay() {
+    let shutdown = CancellationToken::new();
+    let node = side(1, &shutdown);
+    keep(&node, &node, &shutdown);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(node.quic.open_connections(), 0);
+    shutdown.cancel();
+}
+
+#[tokio::test]
+async fn a_relay_out_of_reach_is_still_asked_for_peer_requests() {
+    let shutdown = CancellationToken::new();
+    let from = side(1, &shutdown);
+    let relay = NodeKey::from_bytes(&[2; 32]).node_id();
+    // A URL with no port to dial: the dial fails at once.
+    let result = from
+        .quic
+        .open_relayed(
+            (relay, "https://127.0.0.1:none"),
+            NodeKey::from_bytes(&[3; 32]).node_id(),
+            Purpose::Payments,
+            &client(),
+        )
+        .await;
+    assert_eq!(result.err(), Some(RelayError::Unreachable));
+    assert!(!from.quic.is_unreachable(&relay));
     shutdown.cancel();
 }
 

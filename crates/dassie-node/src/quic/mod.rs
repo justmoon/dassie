@@ -57,12 +57,11 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// heartbeats more often.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// How often a connection kept open for its own sake, such as a node's to
-/// the relay it chose, shows it is alive: well within the idle timeout, so
-/// that a lost packet or two do not close it.
-const KEEP_ALIVE: Duration = Duration::from_secs(10);
-
-const _: () = assert!(KEEP_ALIVE.as_secs() * 3 <= IDLE_TIMEOUT.as_secs());
+/// How often, in each idle timeout, a connection kept open for its own sake,
+/// such as a node's to the relay it chose, shows it is alive: well within
+/// the idle timeout, so that a lost packet or two do not close it (every
+/// 10 s, with the idle timeout of 30 s).
+const KEEP_ALIVES_PER_IDLE_TIMEOUT: u32 = 3;
 
 /// How long a node whose QUIC could not be reached is asked over HTTPS.
 const UNREACHABLE_FOR: Duration = Duration::from_secs(10 * 60);
@@ -255,6 +254,47 @@ impl Link {
     }
 }
 
+/// Holds `link`, which did not get `place` or lost it to another, ready to
+/// take it: whenever the link there closes while this one is open, this
+/// one takes its place. Returns once it does, or once `link` closes. Each
+/// connection stands by at most once at a time, since one in the place does
+/// not, so the waits are bounded as the connections are.
+async fn stand_by(place: &tokio::sync::Mutex<Option<Link>>, link: Link) {
+    loop {
+        let kept = {
+            let mut held = place.lock().await;
+            match held.as_ref() {
+                Some(kept) if kept.is_open() => {
+                    if kept.connection.stable_id() == link.connection.stable_id() {
+                        return;
+                    }
+                    kept.connection.clone()
+                }
+                _ => {
+                    if link.is_open() {
+                        *held = Some(link);
+                    }
+                    return;
+                }
+            }
+        };
+        tokio::select! {
+            _ = kept.closed() => {}
+            _ = link.connection.closed() => return,
+        }
+    }
+}
+
+/// Why [`Quic::connection`] has no connection to give.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NoConnection {
+    /// The time ran out waiting for another's dial, or was too short to
+    /// judge the node by.
+    NoTime,
+    /// A dial of its own had time enough and failed.
+    DialFailed,
+}
+
 /// Requests over QUIC, both ways, since start.
 #[derive(Debug, Default)]
 pub struct Stats {
@@ -285,6 +325,9 @@ pub struct Quic {
     /// The relay the node keeps a connection to while it serves.
     chosen_relay: Mutex<Option<(NodeId, String, PeerClient)>>,
     allow_private: bool,
+    /// How long a connection lasts without traffic: [`IDLE_TIMEOUT`],
+    /// except in tests.
+    idle: Duration,
     stats: Stats,
 }
 
@@ -310,7 +353,7 @@ impl Quic {
     ) -> io::Result<Self> {
         let config = endpoint_config(identity.borrow().as_deref());
         let keys = Arc::new(Keys::new(identity));
-        let server = server_config(&keys).map_err(io::Error::other)?;
+        let server = server_config(&keys, IDLE_TIMEOUT).map_err(io::Error::other)?;
         let runtime = quinn::default_runtime().ok_or_else(|| io::Error::other("no runtime"))?;
         let endpoint = Endpoint::new(config, Some(server), socket, runtime)?;
         Ok(Self {
@@ -322,8 +365,23 @@ impl Quic {
             relaying: Relaying::new(),
             chosen_relay: Mutex::new(None),
             allow_private,
+            idle: IDLE_TIMEOUT,
             stats: Stats::default(),
         })
+    }
+
+    /// For tests: connections close after `idle` without traffic, rather
+    /// than [`IDLE_TIMEOUT`], and those kept alive are kept so within it.
+    ///
+    /// # Errors
+    ///
+    /// The server's configuration cannot be made.
+    #[doc(hidden)]
+    pub fn with_idle_timeout(mut self, idle: Duration) -> io::Result<Self> {
+        let server = server_config(&self.keys, idle).map_err(io::Error::other)?;
+        self.endpoint.set_server_config(Some(server));
+        self.idle = idle;
+        Ok(self)
     }
 
     /// The address the endpoint is bound to.
@@ -419,8 +477,14 @@ impl Quic {
             let connection = self
                 .connection(&place, (request.to, &request.url), resolver, connect_within)
                 .await;
-            let Some(connection) = connection else {
-                return Err(SendError::Unreachable);
+            let connection = match connection {
+                Ok(connection) => connection,
+                Err(missed) => {
+                    if missed == NoConnection::DialFailed {
+                        self.mark_unreachable(request.to);
+                    }
+                    return Err(SendError::Unreachable);
+                }
             };
             let result = exchange(&connection, &request.body).await;
             if result == Err(Failure::NotDelivered) && attempt == 0 {
@@ -444,34 +508,37 @@ impl Quic {
     /// The open connection in `place`, or a new one, within `within`. Only
     /// making one holds the place, so requests to a node wait for its
     /// connection, never for each other; one that waits past its time for
-    /// another's dial goes over HTTPS, nothing sent. A dial that had time
-    /// enough and failed marks the node as out of reach.
+    /// another's dial goes over HTTPS, nothing sent. The caller decides
+    /// whether a dial that failed marks the node as out of reach.
     async fn connection(
         self: &Arc<Self>,
         place: &tokio::sync::Mutex<Option<Link>>,
         (to, url): (NodeId, &str),
         resolver: &PeerClient,
         within: Duration,
-    ) -> Option<Connection> {
+    ) -> Result<Connection, NoConnection> {
         let deadline = tokio::time::Instant::now() + within;
-        let mut held = tokio::time::timeout_at(deadline, place.lock()).await.ok()?;
+        let mut held = tokio::time::timeout_at(deadline, place.lock())
+            .await
+            .map_err(|_| NoConnection::NoTime)?;
         if let Some(kept) = held.as_ref().filter(|kept| kept.is_open()) {
-            return Some(kept.connection.clone());
+            return Ok(kept.connection.clone());
         }
         *held = None;
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
         let Some(connection) = self.dial((to, url), resolver, left, false).await else {
-            if left >= MIN_TO_JUDGE {
-                self.mark_unreachable(to);
-            }
-            return None;
+            return Err(if left >= MIN_TO_JUDGE {
+                NoConnection::DialFailed
+            } else {
+                NoConnection::NoTime
+            });
         };
         self.answer_on(&connection);
         *held = Some(Link {
             connection: connection.clone(),
             ours: true,
         });
-        Some(connection)
+        Ok(connection)
     }
 
     /// The place for `node`'s connection, if the table has room.
@@ -532,7 +599,7 @@ impl Quic {
             .filter(|address| ipv6 || address.is_ipv4())
             .take(MAX_ADDRESSES)
             .collect();
-        let config = client_config(&self.keys, to, keep_alive).ok()?;
+        let config = client_config(&self.keys, to, self.idle, keep_alive).ok()?;
         for (index, address) in addresses.iter().enumerate() {
             let left = deadline.saturating_duration_since(tokio::time::Instant::now());
             let tries_left = u32::try_from(addresses.len() - index).unwrap_or(1).max(1);
@@ -559,10 +626,11 @@ impl Quic {
     /// Keeps a connection a node opened to us, for our requests to it too:
     /// unless we hold one already that the lower node ID opened. It waits
     /// for a dial of ours to the same node, so that crossed dials end with
-    /// both nodes using the same connection. One not kept stands by: if the
-    /// kept one closes first, it takes its place, so that a node that keeps
-    /// its connection to us open (one that chose us as its relay, say) stays
-    /// reachable.
+    /// both nodes using the same connection. Whichever of the two is not
+    /// kept, the new one or the one it replaced, stands by ([`stand_by`]),
+    /// so that a node that keeps its connection to us open (one that chose
+    /// us as its relay, say) stays reachable whatever other connections
+    /// come and go.
     async fn keep_inbound(&self, peer: NodeId, connection: Connection) {
         let Some((own, _)) = self.keys.current() else {
             return;
@@ -571,30 +639,21 @@ impl Quic {
             return;
         };
         let preferred = |link: &Link| link.ours == (own < peer);
-        let kept = {
+        let link = Link {
+            connection,
+            ours: false,
+        };
+        let waiting = {
             let mut held = place.lock().await;
             match held.as_ref() {
-                Some(kept) if kept.is_open() && preferred(kept) => kept.connection.clone(),
-                _ => {
-                    *held = Some(Link {
-                        connection,
-                        ours: false,
-                    });
-                    return;
-                }
+                Some(kept) if kept.is_open() && preferred(kept) => link,
+                _ => match held.replace(link) {
+                    Some(replaced) if replaced.is_open() => replaced,
+                    _ => return,
+                },
             }
         };
-        tokio::select! {
-            _ = kept.closed() => {}
-            _ = connection.closed() => return,
-        }
-        let mut held = place.lock().await;
-        if held.as_ref().is_none_or(|link| !link.is_open()) && connection.close_reason().is_none() {
-            *held = Some(Link {
-                connection,
-                ours: false,
-            });
-        }
+        stand_by(&place, waiting).await;
     }
 
     /// Answers the requests the other node sends on a connection we made,
@@ -864,13 +923,11 @@ fn endpoint_config(key: Option<&NodeKey>) -> EndpointConfig {
     }
 }
 
-fn transport() -> Arc<TransportConfig> {
-    Arc::new(transport_config())
-}
-
-fn transport_config() -> TransportConfig {
+/// The transport's settings, with connections that close after `idle`
+/// without traffic.
+fn transport_config(idle: Duration) -> TransportConfig {
     let mut transport = TransportConfig::default();
-    transport.max_idle_timeout(IDLE_TIMEOUT.try_into().ok());
+    transport.max_idle_timeout(idle.try_into().ok());
     transport.max_concurrent_bidi_streams(MAX_STREAMS.into());
     transport.max_concurrent_uni_streams(0u8.into());
     // Bounded windows: a stream holds at most the largest message, and a
@@ -882,7 +939,7 @@ fn transport_config() -> TransportConfig {
     transport
 }
 
-fn server_config(keys: &Arc<Keys>) -> Result<quinn::ServerConfig, String> {
+fn server_config(keys: &Arc<Keys>, idle: Duration) -> Result<quinn::ServerConfig, String> {
     let mut config = rustls::ServerConfig::builder_with_provider(tls::provider())
         .with_protocol_versions(&[&rustls::version::TLS13])
         .map_err(|e| e.to_string())?
@@ -891,15 +948,17 @@ fn server_config(keys: &Arc<Keys>) -> Result<quinn::ServerConfig, String> {
     config.alpn_protocols = vec![ALPN.to_vec()];
     let crypto = QuicServerConfig::try_from(config).map_err(|e| e.to_string())?;
     let mut config = quinn::ServerConfig::with_crypto(Arc::new(crypto));
-    config.transport_config(transport());
+    config.transport_config(Arc::new(transport_config(idle)));
     Ok(config)
 }
 
-/// The configuration for dialling `expected`. With `keep_alive`, our side
-/// sends something often enough that the connection never goes idle.
+/// The configuration for dialling `expected`, with connections that close
+/// after `idle` without traffic. With `keep_alive`, our side sends
+/// something often enough that the connection never goes idle.
 fn client_config(
     keys: &Arc<Keys>,
     expected: NodeId,
+    idle: Duration,
     keep_alive: bool,
 ) -> Result<quinn::ClientConfig, String> {
     let mut config = rustls::ClientConfig::builder_with_provider(tls::provider())
@@ -911,9 +970,9 @@ fn client_config(
     config.alpn_protocols = vec![ALPN.to_vec()];
     let crypto = QuicClientConfig::try_from(config).map_err(|e| e.to_string())?;
     let mut config = quinn::ClientConfig::new(Arc::new(crypto));
-    let mut transport = transport_config();
+    let mut transport = transport_config(idle);
     if keep_alive {
-        transport.keep_alive_interval(Some(KEEP_ALIVE));
+        transport.keep_alive_interval(Some(idle / KEEP_ALIVES_PER_IDLE_TIMEOUT));
     }
     config.transport_config(Arc::new(transport));
     Ok(config)

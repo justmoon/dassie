@@ -27,6 +27,7 @@ use std::time::Duration;
 
 use dassie_identity::{MAX_NODE_ID_LENGTH, NodeId};
 use dassie_node_core::connections::ConnectionLimits;
+use dassie_node_core::rate_limit::ClientKey;
 use quinn::{Connection, RecvStream, SendStream};
 use rustls::pki_types::ServerName;
 use tokio::io::Join;
@@ -35,7 +36,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use super::keys::{self, AnyNodeKey, Keys, PinnedServer, Present};
-use super::{CONNECT_TIMEOUT, Handler, Link, MAX_STREAMS, On, Quic, StreamKind};
+use super::{CONNECT_TIMEOUT, Handler, Link, MAX_STREAMS, On, Quic, StreamKind, stand_by};
 use crate::log::target;
 use crate::node::lock;
 use crate::peer_client::PeerClient;
@@ -67,8 +68,15 @@ const COPY_BUFFER_BYTES: usize = 16 * 1024;
 /// Most relayed streams a relay carries to one destination at once.
 pub const MAX_RELAYED_PER_DESTINATION: usize = 16;
 
-/// Most relayed streams a relay carries for one client address at once.
-pub const MAX_RELAYED_PER_CLIENT: u32 = 16;
+/// Most relayed streams a relay carries for one client address to one
+/// destination at once: less than the destination's share, so that one
+/// address cannot shut every other client out of a node.
+pub const MAX_RELAYED_PER_CLIENT_TO_DESTINATION: usize = 4;
+
+/// Most relayed streams a relay carries for one client address at once, to
+/// all destinations: a front door reaches every node it serves from one
+/// address.
+pub const MAX_RELAYED_PER_CLIENT: u32 = 256;
 
 /// Most relayed streams a relay carries at once, in all.
 pub const MAX_RELAYED: usize = 1024;
@@ -87,6 +95,10 @@ const RELAY_BACKOFF_MIN: Duration = Duration::from_secs(1);
 /// Most time between attempts to reach the chosen relay.
 const RELAY_BACKOFF_MAX: Duration = Duration::from_secs(60);
 
+/// A connection to the chosen relay that lasted this long was not refused:
+/// once it is lost, the node dials again after the least backoff.
+const RELAY_HELD_FOR: Duration = RELAY_BACKOFF_MAX;
+
 /// The name the TLS inside a relayed stream asks for. Nobody checks it: the
 /// key is what counts.
 const SERVER_NAME: &str = "dassie";
@@ -96,9 +108,11 @@ const SERVER_NAME: &str = "dassie";
 const _: () = assert!(MAX_RELAYED_PER_DESTINATION * 2 <= MAX_STREAMS as usize);
 // A node ID's length fits OER's one-byte length determinant.
 const _: () = assert!(MAX_NODE_ID_LENGTH < 128);
-const _: () = assert!(MAX_RELAYED_PER_CLIENT as usize <= MAX_RELAYED);
+// No one client address, nor one relay address, takes every place.
+const _: () = assert!(MAX_RELAYED_PER_CLIENT_TO_DESTINATION < MAX_RELAYED_PER_DESTINATION);
+const _: () = assert!((MAX_RELAYED_PER_CLIENT as usize) < MAX_RELAYED);
 const _: () = assert!(MAX_SERVED_PER_RELAY as usize * 2 <= MAX_STREAMS as usize);
-const _: () = assert!(MAX_SERVED_PER_RELAY as usize <= MAX_SERVED);
+const _: () = assert!((MAX_SERVED_PER_RELAY as usize) < MAX_SERVED);
 
 /// What a client wants from the node it reaches through a relay.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -217,8 +231,8 @@ type Tap = Arc<dyn Fn(&[u8]) + Send + Sync>;
 pub(super) struct Relaying {
     /// As relay: streams in all and per client address.
     clients: ClientSlots,
-    /// As relay: streams per destination.
-    destinations: Mutex<BTreeMap<NodeId, usize>>,
+    /// As relay: streams per destination, and per client address to it.
+    destinations: Mutex<BTreeMap<NodeId, Share>>,
     /// As destination: streams taken, in all and per relay address.
     served: ClientSlots,
     tap: Mutex<Option<Tap>>,
@@ -240,37 +254,69 @@ impl Relaying {
         }
     }
 
-    /// A place for one more stream to `node`, unless it has its share.
-    fn to_destination(&self, node: NodeId) -> Option<ToDestination<'_>> {
+    /// A place for one more stream to `node` from `client`, unless the
+    /// destination has its share, or the client its share of it. A client
+    /// without a key (on loopback, where private peers are allowed) is
+    /// bounded by the destination's share alone.
+    fn to_destination(&self, node: NodeId, client: Option<ClientKey>) -> Option<ToDestination<'_>> {
         let mut destinations = lock(&self.destinations);
         // Each entry holds a stream, and a client slot is taken first.
         assert!(destinations.len() <= MAX_RELAYED);
-        let count = destinations.entry(node).or_insert(0);
-        if *count >= MAX_RELAYED_PER_DESTINATION {
+        let share = destinations.entry(node).or_default();
+        let from_client = client.map_or(0, |key| share.clients.get(&key).copied().unwrap_or(0));
+        if share.streams >= MAX_RELAYED_PER_DESTINATION
+            || from_client >= MAX_RELAYED_PER_CLIENT_TO_DESTINATION
+        {
+            if share.streams == 0 {
+                destinations.remove(&node);
+            }
             return None;
         }
-        *count += 1;
+        share.streams += 1;
+        if let Some(key) = client {
+            *share.clients.entry(key).or_insert(0) += 1;
+        }
+        assert!(share.clients.len() <= share.streams);
         Some(ToDestination {
             relaying: self,
             node,
+            client,
         })
     }
+}
+
+/// The relayed streams a relay carries to one destination: in all, and per
+/// client address.
+#[derive(Debug, Default)]
+struct Share {
+    streams: usize,
+    clients: BTreeMap<ClientKey, usize>,
 }
 
 /// One relayed stream's place in its destination's share.
 struct ToDestination<'a> {
     relaying: &'a Relaying,
     node: NodeId,
+    client: Option<ClientKey>,
 }
 
 impl Drop for ToDestination<'_> {
     fn drop(&mut self) {
         let mut destinations = lock(&self.relaying.destinations);
-        if let Some(count) = destinations.get_mut(&self.node) {
+        let Some(share) = destinations.get_mut(&self.node) else {
+            return;
+        };
+        share.streams = share.streams.saturating_sub(1);
+        if let Some(key) = self.client
+            && let Some(count) = share.clients.get_mut(&key)
+        {
             *count = count.saturating_sub(1);
             if *count == 0 {
-                destinations.remove(&self.node);
+                share.clients.remove(&key);
             }
+        }
+        if share.streams == 0 {
+            destinations.remove(&self.node);
         }
     }
 }
@@ -304,10 +350,12 @@ impl Quic {
             return Err(RelayError::Unreachable);
         }
         let place = self.place(relay.0).ok_or(RelayError::Unreachable)?;
+        // A relay out of reach is not marked so for peer requests: those
+        // may reach it over HTTPS, but a relayed stream has no other way.
         let connection = self
             .connection(&place, relay, resolver, CONNECT_TIMEOUT)
             .await
-            .ok_or(RelayError::Unreachable)?;
+            .map_err(|_| RelayError::Unreachable)?;
         let (send, recv) = ask_relay(&connection, destination, purpose).await?;
         let config =
             client_tls(&self.keys, destination, purpose).map_err(|_| RelayError::Handshake)?;
@@ -345,7 +393,10 @@ impl Quic {
     /// Keeps a connection to the relay `relay` at `url`, which the node
     /// chose, so that the relay can reach it: dials it once the node has
     /// its key and serves, keeps it from going idle, answers on it, and
-    /// dials again with a backoff when it is lost, until `shutdown`.
+    /// dials again when it is lost, until `shutdown`. The wait before a
+    /// dial doubles after each that fails or whose connection did not last
+    /// [`RELAY_HELD_FOR`], so a relay that takes the connection and closes
+    /// it at once is not dialled every second. A node never dials itself.
     pub async fn keep_relay(
         self: Arc<Self>,
         relay: NodeId,
@@ -354,26 +405,39 @@ impl Quic {
         shutdown: CancellationToken,
     ) {
         let mut backoff = RELAY_BACKOFF_MIN;
+        let mut warned = false;
         while !shutdown.is_cancelled() {
             let mut wait = RELAY_BACKOFF_MIN;
-            if self.keys.current().is_some() && self.is_serving() {
-                let dialled = self
-                    .dial((relay, &url), &resolver, CONNECT_TIMEOUT, true)
-                    .await;
-                if let Some(connection) = dialled {
-                    tracing::info!(target: target::PEER, %relay, "connected to the chosen relay");
-                    backoff = RELAY_BACKOFF_MIN;
-                    self.hold_relay(relay, &connection).await;
-                    tokio::select! {
-                        _ = connection.closed() => {}
-                        () = shutdown.cancelled() => return,
+            match self.keys.current() {
+                Some((own, _)) if own == relay => {
+                    if !warned {
+                        tracing::warn!(target: target::PEER, %relay, "DASSIE_RELAY names this node itself; it keeps no connection to a relay");
+                        warned = true;
                     }
-                    tracing::info!(target: target::PEER, %relay, "lost the chosen relay; connecting again");
-                } else {
-                    tracing::debug!(target: target::PEER, %relay, ?backoff, "the chosen relay cannot be reached");
+                    wait = RELAY_BACKOFF_MAX;
+                }
+                Some(_) if self.is_serving() => {
+                    let dialled = self
+                        .dial((relay, &url), &resolver, CONNECT_TIMEOUT, true)
+                        .await;
+                    if let Some(connection) = dialled {
+                        tracing::info!(target: target::PEER, %relay, "connected to the chosen relay");
+                        let since = tokio::time::Instant::now();
+                        tokio::select! {
+                            () = self.hold_relay(relay, &connection) => {}
+                            () = shutdown.cancelled() => return,
+                        }
+                        if since.elapsed() >= RELAY_HELD_FOR {
+                            backoff = RELAY_BACKOFF_MIN;
+                        }
+                        tracing::info!(target: target::PEER, %relay, ?backoff, "lost the chosen relay; connecting again");
+                    } else {
+                        tracing::debug!(target: target::PEER, %relay, ?backoff, "the chosen relay cannot be reached");
+                    }
                     wait = backoff;
                     backoff = backoff.saturating_mul(2).min(RELAY_BACKOFF_MAX);
                 }
+                _ => {}
             }
             tokio::select! {
                 () = tokio::time::sleep(wait) => {}
@@ -383,19 +447,19 @@ impl Quic {
     }
 
     /// Answers on the connection to the chosen relay, and uses it for
-    /// requests to the relay too, unless another is open.
+    /// requests to the relay too: at once, unless another is open, and
+    /// otherwise once that one closes ([`stand_by`]). Returns once the
+    /// connection closes.
     async fn hold_relay(self: &Arc<Self>, relay: NodeId, connection: &Connection) {
         self.answer_on(connection);
-        let Some(place) = self.place(relay) else {
-            return;
-        };
-        let mut held = place.lock().await;
-        if held.as_ref().is_none_or(|link| !link.is_open()) {
-            *held = Some(Link {
+        if let Some(place) = self.place(relay) {
+            let link = Link {
                 connection: connection.clone(),
                 ours: true,
-            });
+            };
+            stand_by(&place, link).await;
         }
+        let _ = connection.closed().await;
     }
 
     /// For tests: `tap` sees every chunk of bytes this endpoint relays, as
@@ -427,14 +491,11 @@ impl Quic {
         (client, destination): (NodeId, NodeId),
         purpose: u8,
     ) -> Result<Joined<'_>, Outcome> {
-        let client_slot = self
-            .relaying
-            .clients
-            .take(handler.client(address))
-            .map_err(|_| Outcome::Busy)?;
+        let key = handler.client(address);
+        let client_slot = self.relaying.clients.take(key).map_err(|_| Outcome::Busy)?;
         let to_destination = self
             .relaying
-            .to_destination(destination)
+            .to_destination(destination, key)
             .ok_or(Outcome::Busy)?;
         let connection = self
             .held(destination)
@@ -810,11 +871,34 @@ mod tests {
         let relaying = Relaying::new();
         let node = NodeKey::from_bytes(&[2; 32]).node_id();
         let held: Vec<_> = (0..MAX_RELAYED_PER_DESTINATION)
-            .map(|_| relaying.to_destination(node).unwrap())
+            .map(|_| relaying.to_destination(node, None).unwrap())
             .collect();
-        assert!(relaying.to_destination(node).is_none());
+        assert!(relaying.to_destination(node, None).is_none());
         drop(held);
         assert!(lock(&relaying.destinations).is_empty());
-        assert!(relaying.to_destination(node).is_some());
+        assert!(relaying.to_destination(node, None).is_some());
+    }
+
+    #[test]
+    fn one_client_address_takes_only_its_share_of_a_destination() {
+        let relaying = Relaying::new();
+        let (node, other) = (
+            NodeKey::from_bytes(&[2; 32]).node_id(),
+            NodeKey::from_bytes(&[3; 32]).node_id(),
+        );
+        let client = |last: u8| Some(ClientKey::from_ip(IpAddr::from([192, 0, 2, last])));
+        let mut held: Vec<_> = (0..MAX_RELAYED_PER_CLIENT_TO_DESTINATION)
+            .map(|_| relaying.to_destination(node, client(1)).unwrap())
+            .collect();
+        assert!(relaying.to_destination(node, client(1)).is_none());
+        // Another destination, and another client, still have room.
+        held.push(relaying.to_destination(other, client(1)).unwrap());
+        held.push(relaying.to_destination(node, client(2)).unwrap());
+        held.pop();
+        held.pop();
+        held.pop();
+        assert!(relaying.to_destination(node, client(1)).is_some());
+        drop(held);
+        assert!(lock(&relaying.destinations).is_empty());
     }
 }
