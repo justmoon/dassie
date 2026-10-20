@@ -26,6 +26,7 @@ Open Payments clients reach a wallet by DNS and HTTPS, and the node writes absol
 - **A name not on the list is refused** with 421, in the specs' error form, so that whoever passes requests on cannot make the node sign for a name its owner never chose, or hand it a request signed for another server.
 - **What outlives a request holds under every name.** Grants and resources keep the wallet address URL they were made under, which is the node's by construction, and are read and written under the name of the request at hand. The node takes a URL at any of its names as its own: a wallet address, a quote, or a payment request in the owner's Send.
 - **A pending grant keeps the name it was asked for under.** The interaction hash covers the grant endpoint the client called (RFC 9635 §4.2.3), and the node computes it when the owner decides, outside any request.
+- **The wallet says when its name reaches no one yet.** A node without a hostname is named at the default front door, which does not pass payments on yet, so the wallet tells its owner not to hand that address out until it does.
 - **The first name is the main one:** the node's name to its owner, and as a client of other wallets ([below](#the-node-as-a-client)). Changing it changes how other wallets know the node, as changing a core node's hostname does.
 
 ## Signed responses
@@ -34,12 +35,12 @@ The node signs every Open Payments answer it gives under a name with its node ke
 
 - **What it covers:** `@status`, the `content-digest` of the body (added to every answer that has one), and the request's `@method`, `@target-uri` and `dassie-nonce`. The nonce is the client's, so an old answer cannot be replayed as a new one. The signature is tagged `dassie`, names `alg` Ed25519, and its `keyid` is the node's public key.
 - **Errors are signed too,** a refusal as much as an answer. Only what is answered under no name goes unsigned: CORS preflights, and the refusals of an unknown name or of a node not set up.
-- **A client checks** (`check_node_response`) that the key hashes to the node it meant to reach, and that the signature verifies. The node is the one whose label is the first label of the name it fetched from, or one the client knows by other means, such as a TXT record on an owner's domain, whose lookup is a [design](../designs/periphery.md#7-open-payments-without-a-public-address). A client that sent a nonce refuses an answer whose signature leaves it out, and a body whose digest the signature does not cover.
+- **A client checks** (`check_node_response`) that the key hashes to the node it meant to reach, and that the signature verifies. The node is the one whose label is the first label of the host in the URL it fetched, which is the URL the signature covers, so one name's label never vouches for another URL; or it is one the client knows by other means, such as a TXT record on an owner's domain, whose lookup is a [design](../designs/periphery.md#7-open-payments-without-a-public-address). A client that sent a nonce refuses an answer whose signature leaves it out, and a body whose digest the signature does not cover.
 - **Responses are verified strictly,** as clients' request signatures are, rather than by ZIP-215: an answer is checked by one client, not agreed on by a network.
 
 ## The `dassie` field
 
-Wallet address documents carry an optional `dassie` object with the node's ID, which the specs' schema lets other clients ignore (it allows more properties). It tells a Dassie-aware client which node should sign the answers. The relays a node chooses are to join it ([periphery](../designs/periphery.md#5-reaching-a-periphery-node)).
+Wallet address documents carry an optional `dassie` object with the node's ID, which the specs' schema lets other clients ignore (it allows more properties). It tells a Dassie-aware client which node should sign the answers. The node reads other wallets' documents leniently: a `dassie` property in any other shape, which another server may use for something of its own, counts as absent, so it never makes a wallet unpayable. The relays a node chooses are to join it ([periphery](../designs/periphery.md#5-reaching-a-periphery-node)).
 
 ## HTTP routes
 
@@ -135,7 +136,7 @@ The owner reaches all of this over RPC ([rpc.md](rpc.md)), without a grant, thro
 
 - **What moves money is written with the journal rows that move it:** an incoming payment's received amount and what each of its connections received, an outgoing payment's sent amount, and a grant's spend per window. So the resources never disagree with the books.
 - Open incoming payments and outgoing payments still sending are read back at start; the payments continue.
-- Shared secrets, token hashes and the GNAP interaction state are secret columns, which the database inspector never reads ([rpc.md](rpc.md#the-inspector)). A pending grant's name is part of its interaction state.
+- Shared secrets, token hashes and the GNAP interaction state are secret columns, which the database inspector never reads ([rpc.md](rpc.md#the-inspector)). A pending grant's name is part of its interaction state, which its row keeps up to 4096 characters: the finish URI and the subject are the client's, each up to a URI's bound, so a request whose interaction could not be kept, with the reference the owner's decision adds, is refused with 400 before it is stored. The client's public name is left out when it alone would not fit.
 - In memory only: clients' key sets, the node's tokens at other wallets, the rate limiters, probes, and the payers' packets in flight.
 
 ## Decisions

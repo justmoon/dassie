@@ -9,7 +9,10 @@ import { For, Show } from "solid-js";
 import { Amount, ledgerCurrency } from "@dassie/ui/amount";
 import { useNodeData } from "@dassie/ui/node-data";
 import { Link } from "@dassie/ui/router";
-import { useWalletAddresses } from "./payments/WalletAddresses.tsx";
+import {
+  FrontDoorNote,
+  useWalletAddresses,
+} from "./payments/WalletAddresses.tsx";
 import { Card, LiveNote, PageTitle } from "@dassie/ui/ui";
 import { schemeName } from "./schemes.ts";
 
@@ -87,6 +90,7 @@ export function PaymentPointer(props: { testid?: string }): JSX.Element {
       <p class="muted" data-testid="pointer-note">
         Other wallets pay this address through Open Payments.
       </p>
+      <FrontDoorNote pointer={pointer()} />
     </Card>
   );
 }
