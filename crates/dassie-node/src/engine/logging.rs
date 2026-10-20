@@ -215,7 +215,7 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
             emit!(severity, target: target::SETTLEMENT, %peer, amount, "a settlement from a node without accounts: booked as a deposit");
         }
         SettlementEvent::SchemeStopped { scheme, error } => {
-            emit!(severity, target: target::SETTLEMENT, %scheme, %error, "a scheme's effects could not be booked: it stops");
+            emit!(severity, target: target::SETTLEMENT, %scheme, %error, "the books refused a scheme's effects, all of them: it stops");
         }
         SettlementEvent::BooksCannotSettle { node, error } => {
             emit!(severity, target: target::SETTLEMENT, %node, %error, "the books cannot take a settlement now");
@@ -236,16 +236,13 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         SettlementEvent::Reconciling { scheme, pending } => {
             emit!(severity, target: target::SETTLEMENT, %scheme, pending, "reconciling settlements from before the restart");
         }
-        SettlementEvent::OutcomeNotBooked { .. }
-        | SettlementEvent::ReconciliationNotBooked { .. }
-        | SettlementEvent::UnknownExecuted { .. }
+        SettlementEvent::UnknownExecuted { .. }
         | SettlementEvent::AnnounceFailed { .. }
         | SettlementEvent::UnknownCancelled { .. }
         | SettlementEvent::Failed { .. }
         | SettlementEvent::PeerSettled { .. }
         | SettlementEvent::SettlementBooked { .. }
         | SettlementEvent::PeerSettlementRefused { .. }
-        | SettlementEvent::MessageEffectsNotBooked { .. }
         | SettlementEvent::CreditRaised { .. }
         | SettlementEvent::EarningsNotRead { .. } => settlement_outcome(severity, event),
     }
@@ -254,12 +251,6 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
 /// What became of settlements, ours and peers'.
 fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
     match event {
-        SettlementEvent::OutcomeNotBooked { error } => {
-            emit!(severity, target: target::SETTLEMENT, %error, "a settlement's outcome was not booked");
-        }
-        SettlementEvent::ReconciliationNotBooked { error } => {
-            emit!(severity, target: target::SETTLEMENT, %error, "a reconciliation was not booked");
-        }
         SettlementEvent::UnknownExecuted { scheme, id } => {
             emit!(severity, target: target::SETTLEMENT, %scheme, %id, "an unknown settlement executed");
         }
@@ -280,9 +271,6 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         }
         SettlementEvent::PeerSettlementRefused { from, error } => {
             emit!(severity, target: target::SETTLEMENT, %from, %error, "a settlement was refused");
-        }
-        SettlementEvent::MessageEffectsNotBooked { error } => {
-            emit!(severity, target: target::SETTLEMENT, %error, "a scheme message's effects were not booked");
         }
         SettlementEvent::CreditRaised { peer, credit } => {
             emit!(severity, target: target::SETTLEMENT, %peer, credit, "a peer earned more credit");

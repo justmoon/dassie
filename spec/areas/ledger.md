@@ -45,7 +45,7 @@ Each ledger has one pool of owner funds, `equity/owner`. Every endpoint that spe
 
 ## Transfers
 
-A transfer is pending, then posted or voided; or it is posted at once. Linked transfers are created all or none. Every refusal is a value, never a panic, since the input may come from a peer; the [connector](connector.md#booking-a-packet) maps them to ILP errors.
+A transfer is pending, then posted or voided; or it is posted at once. Linked transfers are created all or none. A sequence of posted transfers can be checked whole before any is created, each as it would find the accounts with the ones before it booked, so a caller books all of it or none: a scheme's effects ([Settlement](settlement.md#the-scheme-interface)). Every refusal is a value, never a panic, since the input may come from a peer; the [connector](connector.md#booking-a-packet) maps them to ILP errors.
 
 Each transfer carries a reference saying what it is for (`reference.rs`). A packet's reference is its **trace ID**, the boot epoch (persisted, incremented at every start) and a counter within the boot: it stays unique across restarts, and lines the journal up with the connector's [packet trace](connector.md#the-packet-trace).
 

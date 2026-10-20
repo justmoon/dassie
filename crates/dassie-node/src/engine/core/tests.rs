@@ -128,6 +128,151 @@ fn a_settlement_cut_short_by_a_crash_is_reconciled() {
     assert_eq!(core.ledger_views()[0].on_ledger_balance, 100_000_000_000);
 }
 
+// A scheme's effects are booked all or none
+// (spec/areas/settlement.md#the-scheme-interface): when the books refuse
+// one, the ones before it are not booked either, and the scheme stops, so
+// its checkpoint stays with what the books hold. Stopped, it is fed
+// nothing more.
+#[test]
+fn a_refused_effect_books_none_of_its_batch() {
+    use dassie_ledger::{AccountName, LedgerId, MAX_TOTAL, Name};
+    use dassie_settlement::{Effect, LedgerStatus};
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_on(Arc::clone(&store), 9);
+    core.add_scheme("stub", String::new()).unwrap();
+    core.flush();
+    let stub = Name::new("stub").unwrap();
+    let settlement = core
+        .account(LedgerId::StubUsd, AccountName::AssetsSettlement)
+        .unwrap();
+    let posted =
+        |store: &Store| store.load_ledger().unwrap().accounts[settlement.0 as usize].debits_posted;
+    let before = posted(&store);
+    let checkpoints = store.checkpoints().unwrap();
+    let effects = [
+        Effect::Deposit { amount: 5 },
+        Effect::Deposit { amount: MAX_TOTAL },
+    ];
+    let result = core.apply_effects(stub, LedgerId::StubUsd, &effects);
+    assert!(result.is_err(), "the second deposit overflows the account");
+    core.flush();
+    assert_eq!(posted(&store), before, "the first deposit is not booked");
+    assert_eq!(store.checkpoints().unwrap(), checkpoints);
+    assert!(matches!(
+        core.ledger_views()[0].status,
+        LedgerStatus::Failed(_)
+    ));
+    assert!(core.stub_deposit(1).is_err());
+    assert_eq!(posted(&store), before);
+}
+
+/// Carries the XRP Ledger scheme's requests to `ledger` and the answers
+/// back, until it has nothing more to say.
+fn follow_xrpl(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger) {
+    use super::LedgerEvent;
+
+    for _ in 0..50 {
+        let mut outputs = Vec::new();
+        core.finish_step(&mut outputs);
+        let events: Vec<(u64, LedgerEvent)> = outputs
+            .iter()
+            .filter_map(|output| match output {
+                Output::LedgerConnect { epoch, .. } => Some((*epoch, LedgerEvent::Connected)),
+                Output::LedgerSend { epoch, message, .. } => {
+                    Some((*epoch, LedgerEvent::Message(ledger.request(1, message))))
+                }
+                _ => None,
+            })
+            .collect();
+        if events.is_empty() {
+            return;
+        }
+        for (epoch, event) in &events {
+            core.ledger_event("xrpl-testnet", *epoch, event);
+        }
+    }
+    panic!("the scheme kept talking");
+}
+
+// What the books refused, a scheme that follows a ledger reads again after
+// a restart, from its checkpoint: none of it was booked, so none of it is
+// booked twice. Here the XRP Ledger scheme catches up on two deposits made
+// while the node was down, in one batch, and the settlement account has
+// room left for the first only.
+#[test]
+fn a_refused_batch_read_again_is_never_booked_twice() {
+    use dassie_ledger::{AccountName, LedgerId, MAX_TOTAL, Reference, TransferSpec};
+    use dassie_settlement::LedgerStatus;
+    use dassie_xrpl::fake::FakeLedger;
+    use dassie_xrpl::{UNITS_PER_DROP, Wallet};
+
+    const SCHEME: &str = "xrpl-testnet";
+    const XRP: u64 = 1_000_000;
+    let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
+    let entropy = NodeKey::from_bytes(&[7; 32])
+        .settlement_entropy(SCHEME, "seed-testnet")
+        .unwrap();
+    let account = Wallet::from_entropy(entropy.as_bytes()).account();
+    let mut ledger = FakeLedger::new();
+    ledger.fund(account);
+    ledger.close();
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let settlement = {
+        let mut core = core_on(Arc::clone(&store), 9);
+        core.add_scheme(SCHEME, config.into()).unwrap();
+        follow_xrpl(&mut core, &mut ledger);
+        assert_eq!(core.ledger_views()[0].status, LedgerStatus::Synced);
+        let ledger_id = LedgerId::XrplTestnetXrp;
+        let settlement = core
+            .account(ledger_id, AccountName::AssetsSettlement)
+            .unwrap();
+        let suspense = core
+            .account(ledger_id, AccountName::EquitySuspense)
+            .unwrap();
+        // Through the settlement account and back, leaving it room for
+        // 10 XRP more of deposits over its life.
+        let debits = core
+            .ledger
+            .account(settlement)
+            .unwrap()
+            .balance()
+            .debits_posted;
+        let filler = MAX_TOTAL - u64::try_from(debits).unwrap() - 10 * XRP * UNITS_PER_DROP;
+        for (debit, credit) in [(settlement, suspense), (suspense, settlement)] {
+            let spec = TransferSpec {
+                debit,
+                credit,
+                amount: filler,
+                pending: false,
+                reference: Reference::Reconciliation,
+            };
+            core.ledger.create(NOW, &spec).unwrap();
+        }
+        core.flush();
+        settlement
+    };
+    ledger.disconnect(1);
+    ledger.deposit(account, 5 * XRP);
+    ledger.close();
+    ledger.deposit(account, 20 * XRP);
+    ledger.close();
+    let posted =
+        |store: &Store| store.load_ledger().unwrap().accounts[settlement.0 as usize].debits_posted;
+    let balance = |store: &Store| store.checkpoints().unwrap()[0].1.balance;
+    let before = (posted(&store), balance(&store));
+    for seed in [10, 11] {
+        let mut core = core_on(Arc::clone(&store), seed);
+        follow_xrpl(&mut core, &mut ledger);
+        ledger.disconnect(1);
+        assert!(matches!(
+            core.ledger_views()[0].status,
+            LedgerStatus::Failed(_)
+        ));
+        assert_eq!((posted(&store), balance(&store)), before);
+    }
+}
+
 // What keeps a ledger from being removed is what the wallet shows, and
 // what removing it refuses with.
 #[test]

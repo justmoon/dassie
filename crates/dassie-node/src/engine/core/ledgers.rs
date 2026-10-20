@@ -228,7 +228,7 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// The stub is not active, or the books cannot take it.
+    /// The stub is not active, or stopped, or the books cannot take it.
     pub fn stub_deposit(&mut self, amount: u64) -> Result<LedgerView, EngineError> {
         let stub = dassie_ledger::name!("stub");
         let inactive = || EngineError::Precondition("the stub scheme is not active".into());
@@ -237,6 +237,11 @@ impl Core {
             .get(&stub)
             .map(|active| active.scheme.ledger())
             .ok_or_else(inactive)?;
+        if self.schemes.get(&stub).is_some_and(|a| a.failed.is_some()) {
+            return Err(EngineError::Precondition(
+                "the stub scheme has stopped; restart the node".into(),
+            ));
+        }
         // The books must take it before the stub's balance moves: they
         // could not follow it otherwise.
         let deposit = TransferSpec {
@@ -261,44 +266,43 @@ impl Core {
     }
 
     /// Books what a scheme reports, and checkpoints its balance in the
-    /// same batch (ACC-6).
+    /// same batch (ACC-6). All or none: the books check every transfer the
+    /// effects make, in order, before they book any, and if they refuse
+    /// one, none of the effects is carried out. A refusal is a bug, which
+    /// stops the scheme, so its checkpoint stays with what the books hold
+    /// (spec/areas/settlement.md#the-scheme-interface).
     pub(super) fn apply_effects(
         &mut self,
         scheme: Name,
         ledger: LedgerId,
         effects: &[Effect],
     ) -> Result<(), EngineError> {
-        let settlement = self.account(ledger, AccountName::AssetsSettlement)?;
-        let owner = self.account(ledger, AccountName::EquityOwner)?;
-        let suspense = self.account(ledger, AccountName::EquitySuspense)?;
-        for effect in effects {
+        let bookings = match self.check_effects(scheme, ledger, effects) {
+            Ok(bookings) => bookings,
+            Err(error) => {
+                self.stop_scheme(scheme, error.clone());
+                return Err(error);
+            }
+        };
+        assert_eq!(bookings.len(), effects.len(), "one booking per effect");
+        for (effect, booking) in effects.iter().zip(bookings) {
             match effect {
-                Effect::Deposit { amount } => {
-                    self.post(settlement, owner, *amount, Reference::Deposit)?;
-                }
-                Effect::Withdrawal { amount } => {
-                    self.post(owner, settlement, *amount, Reference::Withdrawal)?;
+                Effect::Deposit { .. } | Effect::Withdrawal { .. } | Effect::Fee { .. } => {
+                    self.book(booking);
                 }
                 Effect::Reconcile { amount, gain } => {
-                    let (debit, credit) = if *gain {
-                        (settlement, suspense)
-                    } else {
-                        (suspense, settlement)
-                    };
                     self.report(SettlementEvent::Reconciled {
                         scheme,
                         amount: *amount,
                         gain: *gain,
                     });
-                    self.post(debit, credit, *amount, Reference::Reconciliation)?;
-                }
-                Effect::Fee { amount, id } => {
-                    let fees = self.account(ledger, AccountName::ExpensesFees)?;
-                    let reference = Reference::Fee { scheme, id: *id };
-                    self.post(fees, settlement, *amount, reference)?;
+                    self.book(booking);
                 }
                 Effect::IncomingSettlement { peer, amount, id } => {
-                    self.settlement_in(scheme, ledger, *peer, *amount, *id)?;
+                    assert!(booking.is_some(), "a settlement books a transfer");
+                    if let Some(spec) = booking {
+                        self.settlement_in(scheme, *peer, *amount, *id, spec);
+                    }
                 }
                 Effect::LedgerSend { message } => self.ledger_send(scheme, message.clone()),
                 Effect::Reconnect => self.connect_scheme(scheme),
@@ -323,29 +327,131 @@ impl Core {
         Ok(())
     }
 
+    /// The transfer each of a scheme's effects books, if any, once the
+    /// books have checked them all: each as they would find the accounts
+    /// with the ones before it booked. Posting or voiding one of our
+    /// settlements (`Finalize`, `Cancel`) is not checked: it raises no
+    /// account's total and tightens no limit, so it cannot make a later
+    /// transfer fail, and it is never refused itself.
+    fn check_effects(
+        &self,
+        scheme: Name,
+        ledger: LedgerId,
+        effects: &[Effect],
+    ) -> Result<Vec<Option<TransferSpec>>, EngineError> {
+        let settlement = self.account(ledger, AccountName::AssetsSettlement)?;
+        let owner = self.account(ledger, AccountName::EquityOwner)?;
+        let suspense = self.account(ledger, AccountName::EquitySuspense)?;
+        let mut bookings = Vec::with_capacity(effects.len());
+        for effect in effects {
+            let (debit, credit, amount, reference) = match effect {
+                Effect::Deposit { amount } => (settlement, owner, *amount, Reference::Deposit),
+                Effect::Withdrawal { amount } => {
+                    (owner, settlement, *amount, Reference::Withdrawal)
+                }
+                Effect::Reconcile { amount, gain: true } => {
+                    (settlement, suspense, *amount, Reference::Reconciliation)
+                }
+                Effect::Reconcile {
+                    amount,
+                    gain: false,
+                } => (suspense, settlement, *amount, Reference::Reconciliation),
+                Effect::Fee { amount, id } => {
+                    let fees = self.account(ledger, AccountName::ExpensesFees)?;
+                    (
+                        fees,
+                        settlement,
+                        *amount,
+                        Reference::Fee { scheme, id: *id },
+                    )
+                }
+                // A peer with no accounts on the ledger cannot have settled
+                // with us: what it sent is a deposit. One without an ID
+                // gets the next transfer's as it is booked, which the check
+                // does not look at: a settlement is not a report either way.
+                Effect::IncomingSettlement { peer, amount, id } => {
+                    let path = AccountPath::new(ledger, AccountName::AssetsInterledger(*peer));
+                    match self.ledger.find(&path) {
+                        Some(interledger) => (
+                            settlement,
+                            interledger,
+                            *amount,
+                            Reference::Settlement {
+                                scheme,
+                                id: id.unwrap_or(scheme),
+                            },
+                        ),
+                        None => (settlement, owner, *amount, Reference::Deposit),
+                    }
+                }
+                Effect::LedgerSend { .. }
+                | Effect::Reconnect
+                | Effect::Fund { .. }
+                | Effect::Finalize { .. }
+                | Effect::Cancel { .. }
+                | Effect::SendMessage { .. } => {
+                    bookings.push(None);
+                    continue;
+                }
+            };
+            bookings.push(Some(TransferSpec {
+                debit,
+                credit,
+                amount,
+                pending: false,
+                reference,
+            }));
+        }
+        // Nothing to book for nothing: the journal holds no empty transfers.
+        let specs: Vec<TransferSpec> = bookings
+            .iter()
+            .flatten()
+            .filter(|spec| spec.amount > 0)
+            .copied()
+            .collect();
+        self.ledger
+            .validate_posted(&specs)
+            .map_err(|(_, error)| EngineError::Invalid(error.to_string()))?;
+        Ok(bookings)
+    }
+
+    /// Books a transfer of a batch the books checked whole.
+    // Panics only on a broken invariant: what the check took, the books
+    // take, with the journal drained before each.
+    #[allow(clippy::panic)]
+    fn book(&mut self, spec: Option<TransferSpec>) {
+        let Some(spec) = spec.filter(|spec| spec.amount > 0) else {
+            return;
+        };
+        self.take_journal();
+        if let Err(error) = self.ledger.create(self.now_ms(), &spec) {
+            panic!("the books refused a transfer they had checked: {error}");
+        }
+        self.take_journal();
+    }
+
     /// A peer's settlement, as the scheme saw it arrive: credits the peer's
-    /// account, keyed by the scheme's ID for it where it has one. A peer
-    /// with no accounts on the ledger cannot have settled with us: what it
-    /// sent is a deposit.
+    /// account, keyed by the scheme's ID for it where it has one, or, from
+    /// a node with no accounts on the ledger, the owner's
+    /// ([`check_effects`](Self::check_effects)).
     fn settlement_in(
         &mut self,
         scheme: Name,
-        ledger: LedgerId,
         peer: Name,
         amount: u64,
         id: Option<Name>,
-    ) -> Result<(), EngineError> {
-        let settlement = self.account(ledger, AccountName::AssetsSettlement)?;
-        let Ok(interledger) = self.account(ledger, AccountName::AssetsInterledger(peer)) else {
+        spec: TransferSpec,
+    ) {
+        if spec.reference == Reference::Deposit {
             self.report(SettlementEvent::DepositFromStranger { peer, amount });
-            let owner = self.account(ledger, AccountName::EquityOwner)?;
-            return self.post(settlement, owner, amount, Reference::Deposit);
-        };
+            self.book(Some(spec));
+            return;
+        }
         let reference = match id {
             Some(id) => Reference::Settlement { scheme, id },
             None => self.incoming_reference(scheme),
         };
-        self.post(settlement, interledger, amount, reference)?;
+        self.book(Some(TransferSpec { reference, ..spec }));
         // It answered, and our books show it: it may be asked again at the
         // next check (D23). Not on its message alone, which on a ledger
         // like the XRP Ledger books nothing: asked again before our books
@@ -369,7 +475,6 @@ impl Core {
             }
             self.report(SettlementEvent::SettlementBooked { from: node, amount });
         }
-        Ok(())
     }
 
     fn post(

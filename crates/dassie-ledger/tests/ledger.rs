@@ -319,6 +319,60 @@ fn totals_stay_within_what_sqlite_stores() {
     ledger.check_invariants();
 }
 
+// A scheme's effects are booked all or none: the books check the batch
+// first, each transfer as it would find the accounts with the ones before
+// it booked (spec/areas/settlement.md#the-scheme-interface).
+#[test]
+fn a_sequence_is_checked_as_it_would_be_booked() {
+    let (mut ledger, accounts) = funded(100);
+    let (peer, _) = ledger.open_peer(0, LedgerId::StubUsd, peer(), 0).unwrap();
+    let deposit = |amount| {
+        spec(
+            accounts.settlement,
+            accounts.owner,
+            amount,
+            false,
+            Reference::Deposit,
+        )
+    };
+    let max = dassie_ledger::MAX_TOTAL;
+    // Each fits alone; together the third passes what SQLite stores.
+    let overflowing = [deposit(5), deposit(max - 200), deposit(100)];
+    for spec in &overflowing {
+        assert_eq!(ledger.validate(spec), Ok(()));
+    }
+    assert_eq!(
+        ledger.validate_posted(&overflowing),
+        Err((2, TransferError::Overflow))
+    );
+    // A limit on the owner's group: 60 spent of 100 leaves 40, whether it
+    // is spent from the pool or from a sub-account.
+    let spending = [
+        spec(accounts.token, peer, 60, false, packet(0)),
+        spec(accounts.owner, peer, 41, false, packet(1)),
+    ];
+    assert_eq!(
+        ledger.validate_posted(&spending),
+        Err((1, TransferError::ExceedsDebits))
+    );
+    // Checking changes nothing, and counts no refusal.
+    let journal = ledger.journal_len();
+    assert_eq!(ledger.stats().refused, 0);
+    assert_eq!(net(&ledger, accounts.owner), 100);
+    // What it takes, booking takes, one after the other.
+    let taken = [
+        spec(accounts.token, peer, 60, false, packet(0)),
+        deposit(1),
+        spec(accounts.owner, peer, 41, false, packet(1)),
+    ];
+    assert_eq!(ledger.validate_posted(&taken), Ok(()));
+    assert_eq!(ledger.journal_len(), journal);
+    for spec in &taken {
+        ledger.create(1, spec).unwrap();
+    }
+    ledger.check_invariants();
+}
+
 // Reports record reality even past a limit; spending then stops until the
 // group recovers.
 #[test]

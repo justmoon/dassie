@@ -1,5 +1,6 @@
 //! Creating, posting and voiding transfers.
 
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 use super::{
@@ -7,7 +8,7 @@ use super::{
     TransferState, usize_of,
 };
 use crate::MAX_TOTAL;
-use crate::account::{AccountId, Balance};
+use crate::account::{Account, AccountId, Balance};
 
 /// A change to an account's counters.
 #[derive(Clone, Copy)]
@@ -15,6 +16,19 @@ enum Change {
     AddPending { debit: bool },
     RemovePending { debit: bool },
     AddPosted { debit: bool },
+}
+
+impl Change {
+    fn apply(self, balance: &mut Balance, amount: u128) {
+        match self {
+            Self::AddPending { debit: true } => balance.debits_pending += amount,
+            Self::AddPending { debit: false } => balance.credits_pending += amount,
+            Self::RemovePending { debit: true } => balance.debits_pending -= amount,
+            Self::RemovePending { debit: false } => balance.credits_pending -= amount,
+            Self::AddPosted { debit: true } => balance.debits_posted += amount,
+            Self::AddPosted { debit: false } => balance.credits_posted += amount,
+        }
+    }
 }
 
 impl Ledger {
@@ -198,6 +212,60 @@ impl Ledger {
         self.check_room(spec)
     }
 
+    /// Whether [`create`](Self::create) would take each of `specs`, posted
+    /// one after the other, every one with the ones before it booked,
+    /// without creating any: the accounts, their limits and bounds. So a
+    /// batch can be taken whole or not at all. Room in the journal is the
+    /// caller's to keep, by draining it between them.
+    ///
+    /// # Errors
+    ///
+    /// The index of the first transfer it would refuse, and why.
+    ///
+    /// # Panics
+    ///
+    /// If a transfer is pending.
+    pub fn validate_posted(&self, specs: &[TransferSpec]) -> Result<(), (usize, TransferError)> {
+        assert!(
+            specs.iter().all(|spec| !spec.pending),
+            "a sequence is checked for posted transfers"
+        );
+        // The accounts the transfers checked so far changed, as booking
+        // them would leave them: at most four per transfer.
+        let mut changed: BTreeMap<AccountId, Account> = BTreeMap::new();
+        for (index, spec) in specs.iter().enumerate() {
+            check(spec, |id| changed.get(&id).or_else(|| self.account(id)))
+                .map_err(|error| (index, error))?;
+            for (id, debit) in [(spec.debit, true), (spec.credit, false)] {
+                let change = Change::AddPosted { debit };
+                let amount = u128::from(spec.amount);
+                // The check found both accounts, and a group's root exists.
+                let account = changed.get(&id).or_else(|| self.account(id)).copied();
+                assert!(account.is_some(), "a checked account is missing");
+                let Some(mut account) = account else {
+                    continue;
+                };
+                change.apply(&mut account.balance, amount);
+                let group = account.group;
+                changed.insert(id, account);
+                let Some(root) = group else {
+                    continue;
+                };
+                let root_account = changed.get(&root).or_else(|| self.account(root)).copied();
+                assert!(root_account.is_some(), "a group without its root");
+                if let Some(mut root_account) = root_account {
+                    change.apply(&mut root_account.group_balance, amount);
+                    changed.insert(root, root_account);
+                }
+            }
+            assert!(
+                changed.len() <= 4 * (index + 1),
+                "at most four accounts a transfer"
+            );
+        }
+        Ok(())
+    }
+
     /// Whether the pending table and the journal have room for `spec`.
     fn check_room(&self, spec: &TransferSpec) -> Result<(), TransferError> {
         let durable = spec.pending && spec.reference.is_durable_while_pending();
@@ -212,55 +280,7 @@ impl Ledger {
 
     /// Validates a transfer against the accounts, their limits and bounds.
     fn check(&self, spec: &TransferSpec) -> Result<(), TransferError> {
-        if spec.amount == 0 {
-            return Err(TransferError::ZeroAmount);
-        }
-        if spec.debit == spec.credit {
-            return Err(TransferError::SameAccount);
-        }
-        let debit = self
-            .account(spec.debit)
-            .ok_or(TransferError::UnknownAccount)?;
-        let credit = self
-            .account(spec.credit)
-            .ok_or(TransferError::UnknownAccount)?;
-        if debit.path.ledger != credit.path.ledger {
-            return Err(TransferError::DifferentLedgers);
-        }
-        let amount = spec.amount;
-        let debit_total = debit.balance.debits_posted + debit.balance.debits_pending;
-        let credit_total = credit.balance.credits_posted + credit.balance.credits_pending;
-        if debit_total + u128::from(amount) > u128::from(MAX_TOTAL)
-            || credit_total + u128::from(amount) > u128::from(MAX_TOTAL)
-        {
-            return Err(TransferError::Overflow);
-        }
-        if spec.reference.is_report() {
-            return Ok(());
-        }
-        let amount = u128::from(amount);
-        if !debit.balance.allows(debit.path.limit(), amount, 0) {
-            return Err(TransferError::ExceedsDebits);
-        }
-        if !credit.balance.allows(credit.path.limit(), 0, amount) {
-            return Err(TransferError::ExceedsCredits);
-        }
-        // Within one group, a transfer leaves the total unchanged: it needs
-        // no free funds (spec/areas/ledger.md#limits-and-groups).
-        if debit.group == credit.group {
-            return Ok(());
-        }
-        if let Some(root) = debit.group.and_then(|root| self.account(root))
-            && !root.group_view().allows(root.path.group_limit(), amount, 0)
-        {
-            return Err(TransferError::ExceedsDebits);
-        }
-        if let Some(root) = credit.group.and_then(|root| self.account(root))
-            && !root.group_view().allows(root.path.group_limit(), 0, amount)
-        {
-            return Err(TransferError::ExceedsCredits);
-        }
-        Ok(())
+        check(spec, |id| self.account(id))
     }
 
     /// Takes a transfer that left the pending table out of the pending
@@ -282,14 +302,7 @@ impl Ledger {
     /// Applies a change to an account and to its group's total.
     fn change(&mut self, id: AccountId, amount: u64, change: Change) {
         let amount = u128::from(amount);
-        let apply = |balance: &mut Balance| match change {
-            Change::AddPending { debit: true } => balance.debits_pending += amount,
-            Change::AddPending { debit: false } => balance.credits_pending += amount,
-            Change::RemovePending { debit: true } => balance.debits_pending -= amount,
-            Change::RemovePending { debit: false } => balance.credits_pending -= amount,
-            Change::AddPosted { debit: true } => balance.debits_posted += amount,
-            Change::AddPosted { debit: false } => balance.credits_posted += amount,
-        };
+        let apply = |balance: &mut Balance| change.apply(balance, amount);
         // Callers pass accounts they looked up: skipping a change would
         // leave the books unbalanced.
         let account = self.accounts.get_mut(usize_of(id.0));
@@ -314,4 +327,57 @@ impl Ledger {
             at_ms,
         });
     }
+}
+
+/// Validates a transfer against the accounts, their limits and bounds,
+/// as `account` shows them.
+fn check<'a>(
+    spec: &TransferSpec,
+    account: impl Fn(AccountId) -> Option<&'a Account>,
+) -> Result<(), TransferError> {
+    if spec.amount == 0 {
+        return Err(TransferError::ZeroAmount);
+    }
+    if spec.debit == spec.credit {
+        return Err(TransferError::SameAccount);
+    }
+    let debit = account(spec.debit).ok_or(TransferError::UnknownAccount)?;
+    let credit = account(spec.credit).ok_or(TransferError::UnknownAccount)?;
+    if debit.path.ledger != credit.path.ledger {
+        return Err(TransferError::DifferentLedgers);
+    }
+    let amount = spec.amount;
+    let debit_total = debit.balance.debits_posted + debit.balance.debits_pending;
+    let credit_total = credit.balance.credits_posted + credit.balance.credits_pending;
+    if debit_total + u128::from(amount) > u128::from(MAX_TOTAL)
+        || credit_total + u128::from(amount) > u128::from(MAX_TOTAL)
+    {
+        return Err(TransferError::Overflow);
+    }
+    if spec.reference.is_report() {
+        return Ok(());
+    }
+    let amount = u128::from(amount);
+    if !debit.balance.allows(debit.path.limit(), amount, 0) {
+        return Err(TransferError::ExceedsDebits);
+    }
+    if !credit.balance.allows(credit.path.limit(), 0, amount) {
+        return Err(TransferError::ExceedsCredits);
+    }
+    // Within one group, a transfer leaves the total unchanged: it needs
+    // no free funds (spec/areas/ledger.md#limits-and-groups).
+    if debit.group == credit.group {
+        return Ok(());
+    }
+    if let Some(root) = debit.group.and_then(&account)
+        && !root.group_view().allows(root.path.group_limit(), amount, 0)
+    {
+        return Err(TransferError::ExceedsDebits);
+    }
+    if let Some(root) = credit.group.and_then(&account)
+        && !root.group_view().allows(root.path.group_limit(), 0, amount)
+    {
+        return Err(TransferError::ExceedsCredits);
+    }
+    Ok(())
 }
