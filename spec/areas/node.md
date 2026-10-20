@@ -68,8 +68,9 @@ On SIGTERM or SIGINT the daemon stops accepting, gives requests in progress a bo
 
 A node can keep a QUIC connection open to a relay it chooses, so that clients reach it through that relay ([Peer protocol](peer-protocol.md#relayed-streams)), even without a public address or any peering ([the design](../designs/periphery.md#5-reaching-a-periphery-node)). The relay is configured as a bootstrap node is, by node ID, URL and key (`env.rs`), and the connection is pinned to that key; the two need not peer.
 
-- The node dials the relay once it has its key and its QUIC endpoint serves, keeps the connection alive well within the idle timeout, so that a NAT keeps its mapping, and dials again with a backoff when it is lost.
-- The relay keeps the connection as it keeps any it is given, and reaches the node over it. If it also dialled the node, it keeps one of the two as for any pair of nodes, and the other takes over if the kept one closes.
+- The node dials the relay once it has its key and its QUIC endpoint serves, keeps the connection alive well within the idle timeout, so that a NAT keeps its mapping, and dials again when it is lost. The wait before a dial doubles, up to a minute, after each dial that fails and each connection that did not last a minute, so a relay that takes the connection and closes it at once is not dialled every second.
+- The relay keeps the connection as it keeps any it is given, and reaches the node over it. Either node may hold other connections to the other beside it, when it is a peer or a bootstrap node, say: whichever is used, the kept connection stands by and takes over once the others close ([Peer protocol](peer-protocol.md#quic)), so the relay never loses the node while it stays connected.
+- A node never dials itself: one whose `DASSIE_RELAY` names its own node ID keeps no relay connection and says so in its log. The check waits for the node's key, which may come after startup.
 - A node without a QUIC endpoint cannot keep one.
 
 ## Database
