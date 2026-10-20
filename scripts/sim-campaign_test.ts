@@ -855,8 +855,15 @@ test("sandbox: a build has no network, no daemon and one writable directory", ()
 test("sandbox: fetching reaches public addresses only, never the metadata server", () => {
   const args = sandboxArgs({ ...spec, network: "public" });
   assert(!args.includes("--property=PrivateNetwork=yes"));
-  const deny = args.find((arg) => arg.startsWith("--property=IPAddressDeny="))!;
-  assert(deny.includes("link-local") && deny.includes("fc00::/7"), deny);
+  const deny = args.filter((arg) =>
+    arg.startsWith("--property=IPAddressDeny=")
+  );
+  for (const keyword of ["localhost", "link-local", "multicast"]) {
+    // systemd-run takes a keyword only as the whole value; in a list it
+    // refuses it as an address prefix.
+    assert(deny.includes(`--property=IPAddressDeny=${keyword}`), keyword);
+  }
+  assert(deny.some((arg) => arg.includes("fc00::/7")), deny.join(" "));
   assert(
     args.includes(
       "--property=BindReadOnlyPaths=/var/lib/dassie-sim-campaign/resolv.conf:/etc/resolv.conf",
