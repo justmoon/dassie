@@ -615,7 +615,10 @@ fn heal(
     // reconnecting at the heal: what is left of its reconnects may run out
     // before the healed network routes it, as when an owner's end left a
     // pair that must peer anew, waiting out a backoff from attempts that
-    // failed in the chaos. Anything else must not fail after the heal.
+    // failed in the chaos. Only reconnects since its node last started
+    // count: a start gives the payer all its reconnects again, so one on a
+    // node that restarted since, the heal's own restarts included, must
+    // complete, as must anything else.
     let mut reconnecting = Vec::new();
     for &(from, _, _, outgoing) in &sim.outgoing.clone() {
         let state = sim.nodes[from]
@@ -623,12 +626,11 @@ fn heal(
             .outgoing_payment(outgoing)
             .unwrap()
             .map(|row| row.state);
-        let reconnects = format!(" {from} Payment(OutgoingReconnects {{ id: {outgoing:?}");
         if state == Some(OutgoingState::Failed) {
             sim.given_up.insert(outgoing);
             sim.count("outgoing given up in the chaos");
         } else if state == Some(OutgoingState::Sending)
-            && sim.trace.iter().any(|line| line.contains(&reconnects))
+            && reconnected_since_start(&sim.trace, from, &format!("{outgoing:?}"))
         {
             sim.given_up.insert(outgoing);
             reconnecting.push((from, outgoing));
@@ -818,9 +820,12 @@ fn check_end(sim: &Sim, end: &End) -> Result<(), Outcome> {
         };
         let (credit, owed) = (-trust, -(position + trust));
         if owed > credit {
-            return Err(Outcome::Safety(format!(
-                "node {other} owes node {index} {owed}, past the {credit} credit it extends"
-            )));
+            return Err(Outcome::safety(
+                "owed-past-credit",
+                format!(
+                    "node {other} owes node {index} {owed}, past the {credit} credit it extends"
+                ),
+            ));
         }
     }
     Ok(())
@@ -835,9 +840,10 @@ fn check_end(sim: &Sim, end: &End) -> Result<(), Outcome> {
 fn banned(sim: &Sim, mark: usize, by: usize, peer: usize) -> Result<(), Outcome> {
     let lines = &sim.trace[mark..];
     if until_peered(lines, 0, by, peer) < lines.len() {
-        return Err(Outcome::Safety(format!(
-            "node {by} peered with node {peer} again after banning it"
-        )));
+        return Err(Outcome::safety(
+            "banned-peered-again",
+            format!("node {by} peered with node {peer} again after banning it"),
+        ));
     }
     let banned = trace_ms(&sim.trace[mark - 1]);
     let telling = format!(
@@ -847,15 +853,17 @@ fn banned(sim: &Sim, mark: usize, by: usize, peer: usize) -> Result<(), Outcome>
     if let Some(told) = lines.iter().find(|line| line.contains(&telling))
         && trace_ms(told) != banned
     {
-        return Err(Outcome::Safety(format!(
-            "node {by} banned node {peer}, and told it only later: {told}"
-        )));
+        return Err(Outcome::safety(
+            "banned-told-later",
+            format!("node {by} banned node {peer}, and told it only later: {told}"),
+        ));
     }
     let asking = format!(" {by} asks {peer} to settle");
     match lines.iter().find(|line| line.contains(&asking)) {
-        Some(asked) => Err(Outcome::Safety(format!(
-            "node {by} banned node {peer}, and asked it to settle: {asked}"
-        ))),
+        Some(asked) => Err(Outcome::safety(
+            "banned-asked-to-settle",
+            format!("node {by} banned node {peer}, and asked it to settle: {asked}"),
+        )),
         None => Ok(()),
     }
 }
@@ -912,10 +920,52 @@ fn count_ends(sim: &mut Sim, ends: &[End]) {
     }
 }
 
+/// Whether the payer of node `from` reconnected the outgoing payment
+/// `outgoing` (as the trace prints it) since the node last started: each
+/// start loads the payment with all its reconnects again.
+fn reconnected_since_start(trace: &[String], from: usize, outgoing: &str) -> bool {
+    let started = format!("start {from}");
+    let since = trace
+        .iter()
+        .rposition(|line| {
+            line.split_once(' ')
+                .is_some_and(|(_, what)| what == started)
+        })
+        .unwrap_or(0);
+    let reconnects = format!(" {from} Payment(OutgoingReconnects {{ id: {outgoing}");
+    trace[since..].iter().any(|line| line.contains(&reconnects))
+}
+
 /// Whether a JSON message to or from the ledger has `key` set to `value`.
 fn names(message: &[u8], key: &str, value: &str) -> bool {
     serde_json::from_slice::<serde_json::Value>(message)
         .ok()
         .and_then(|json| json.get(key)?.as_str().map(|found| found == value))
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_reconnects_since_the_payers_last_start_count() {
+        let reconnect = |at: u64, node: usize, id: &str| {
+            format!("{at} {node} Payment(OutgoingReconnects {{ id: {id}, reason: \"closed\" }})")
+        };
+        let mut trace = vec![
+            "1 start 1".to_owned(),
+            "2 start 11".to_owned(),
+            reconnect(3, 1, "PaymentId([7])"),
+        ];
+        assert!(reconnected_since_start(&trace, 1, "PaymentId([7])"));
+        assert!(!reconnected_since_start(&trace, 1, "PaymentId([8])"));
+        assert!(!reconnected_since_start(&trace, 11, "PaymentId([7])"));
+        // A restart, by the chaos or by the heal, gives the payer all its
+        // reconnects again.
+        trace.push("4 start 1".to_owned());
+        assert!(!reconnected_since_start(&trace, 1, "PaymentId([7])"));
+        trace.push(reconnect(5, 1, "PaymentId([7])"));
+        assert!(reconnected_since_start(&trace, 1, "PaymentId([7])"));
+    }
 }
