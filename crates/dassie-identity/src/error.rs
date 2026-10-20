@@ -48,6 +48,8 @@ pub enum Error {
     NonContributory,
     /// Text is not canonical unpadded base64url.
     InvalidBase64,
+    /// A node label is not 39 base32 characters naming a node ID.
+    InvalidLabel,
 }
 
 impl fmt::Display for Error {
@@ -71,6 +73,7 @@ impl fmt::Display for Error {
             Self::InvalidDer => "invalid DER key encoding",
             Self::NonContributory => "non-contributory Diffie-Hellman result",
             Self::InvalidBase64 => "invalid base64url",
+            Self::InvalidLabel => "invalid node label",
         };
         f.write_str(text)
     }

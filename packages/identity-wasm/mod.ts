@@ -30,6 +30,8 @@ export {
   loginSecret,
   mnemonicFromEntropy,
   nodeId,
+  nodeIdFromLabel,
+  nodeLabel,
   normalizeMnemonic,
   publicKey,
   sign,

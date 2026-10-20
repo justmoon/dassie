@@ -6,8 +6,9 @@
 use curve25519_dalek::Scalar;
 use curve25519_dalek::constants::EIGHT_TORSION;
 use dassie_identity::{
-    Error, LoginSecret, Mnemonic, NodeId, NodeKey, PKCS8_DER_LENGTH, PublicKey, SPKI_DER_LENGTH,
-    SeedPath, Signature, WordCount, X25519Public, X25519Secret, base64url,
+    Error, LoginSecret, Mnemonic, NODE_LABEL_LENGTH, NodeId, NodeKey, NodeLabel, PKCS8_DER_LENGTH,
+    PublicKey, SPKI_DER_LENGTH, SeedPath, Signature, WordCount, X25519Public, X25519Secret,
+    base64url,
 };
 use proptest::prelude::*;
 
@@ -259,6 +260,27 @@ proptest! {
         prop_assert!(id.len() <= 33);
         prop_assert!(!id.as_str().ends_with('A'));
         prop_assert_eq!(NodeId::parse(id.as_str()), Ok(id));
+    }
+
+    // Every ID a key gives has a label, which names it and no other.
+    #[test]
+    fn computed_node_ids_round_trip_through_their_labels(key: [u8; 32]) {
+        let id = NodeId::from_public_key(&key);
+        let label = id.label().unwrap();
+        prop_assert_eq!(label.as_str().len(), NODE_LABEL_LENGTH);
+        prop_assert!(label.as_str().bytes().all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b)));
+        prop_assert_eq!(NodeId::from_label(label.as_str()), Ok(id));
+        prop_assert_eq!(NodeLabel::parse(&label.as_str().to_ascii_uppercase()), Ok(label));
+    }
+
+    #[test]
+    fn node_label_parse_never_panics(text in "[a-zA-Z2-9=]{37,41}|\\PC{0,48}") {
+        if let Ok(label) = NodeLabel::parse(&text) {
+            prop_assert_eq!(label.as_str(), text.to_ascii_lowercase());
+            if let Ok(id) = label.node_id() {
+                prop_assert_eq!(id.label(), Ok(label));
+            }
+        }
     }
 
     #[test]
