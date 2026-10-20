@@ -24,9 +24,12 @@ use dassie_ledger::LedgerId;
 use dassie_node::engine::{EngineEvent, Lie, NewIncoming, NewOutgoing};
 use dassie_node::node::Policies;
 use dassie_node::sim::checks::{check, check_across, check_books, check_events};
-use dassie_node::sim::{CREDIT, START, Settling, Sim, USD, XRP, key, received, scripted};
+use dassie_node::sim::{
+    CREDIT, START, Settling, Sim, USD, XRP, key, received, scripted, xrpl_account,
+};
 use dassie_node::store::ForeignAmount;
 use dassie_node_core::testing::assert_seeds_pass;
+use dassie_settlement::LedgerStatus;
 
 #[test]
 fn simulated_networks_pay_across_restarts() {
@@ -358,13 +361,30 @@ fn a_peer_that_spends_its_credit_and_vanishes_costs_at_most_that_credit() {
     }
 }
 
+/// Runs until node `index`'s scheme first saw its ledger, before it
+/// peered, then restarts the node with its ledger out of reach. Having seen
+/// it once, the node peers (D31), but sees nothing its ledger does until
+/// it is back.
+fn restart_without_ledger(sim: &mut Sim, index: usize) {
+    let synced = |sim: &Sim| {
+        sim.core(index)
+            .ledger_views()
+            .iter()
+            .all(|ledger| ledger.status == LedgerStatus::Synced)
+    };
+    assert!(sim.run_until_or(sim.now + 30_000, synced), "never synced");
+    assert!(sim.peers(index).is_empty(), "peered before the restart");
+    sim.crash(index);
+    sim.ledger_down.insert(index);
+    sim.start(index);
+}
+
 // Review of #118: a node asks no peer to settle while its scheme cannot see
-// its ledger. An honest peer settles only when asked, so its settlement
-// never reaches the ledger before the scheme first synced, which would
-// book it as the owner's deposit. Once the ledger is back, the node asks,
-// and books what the peer pays as its settlement.
+// its ledger: it could not book what the peer pays, and would ask again.
+// Once the ledger is back, the node asks, and books what the peer pays as
+// its settlement.
 #[test]
-fn a_node_asks_no_one_to_settle_before_it_sees_its_ledger() {
+fn a_node_asks_no_one_to_settle_while_it_cannot_see_its_ledger() {
     // Node 0 cannot pay its senior in advance while its ledger is down, so
     // node 1 would withdraw it, and end the peering after a day (the next
     // test): here the grace outlasts the outage.
@@ -375,7 +395,7 @@ fn a_node_asks_no_one_to_settle_before_it_sees_its_ledger() {
     };
     let mut sim = Sim::with_peer(7, 2, 1, BTreeMap::new(), Settling::Xrpl, peer);
     sim.loss_per_mille = 0;
-    sim.ledger_down.insert(0);
+    restart_without_ledger(&mut sim, 0);
     sim.run_until(START + 60_000);
     let (zero, one) = (key(0).node_id(), key(1).node_id());
     assert!(sim.peers(0).contains(&one), "the nodes did not peer");
@@ -414,7 +434,7 @@ fn a_node_asks_no_one_to_settle_before_it_sees_its_ledger() {
 fn a_peer_short_of_room_is_withdrawn_until_it_settles() {
     let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::Xrpl);
     sim.loss_per_mille = 0;
-    sim.ledger_down.insert(0);
+    restart_without_ledger(&mut sim, 0);
     // Past the grace, 3 min, counted from when node 1 could first ask.
     sim.run_until(START + 4 * 60_000);
     assert!(!sim.peers(0).is_empty(), "the nodes did not peer");
@@ -651,4 +671,67 @@ fn a_peer_asked_to_settle_tells_what_it_has_on_its_way() {
         }
     }
     assert!(told > 0, "no peer answered with an amount on its way");
+}
+
+// D31: a node peers on a scheme only once the scheme has seen its ledger.
+// Its first sync books what the account holds as the owner's deposit, so a
+// peer's settlement that reached the ledger before it, such as one a node
+// ending the peering asks for (D28), would be taken for that deposit while
+// the peer still owed it on our books. Node 0's ledger is down from its
+// first start, its account funded: it does not peer, and node 1 does not
+// peer with it. Once the ledger is back, they peer; node 1 pays node 0 past
+// the credit node 0 extends, and node 0's owner ends the peering. What node
+// 1 settles is booked as its settlement.
+#[test]
+fn a_node_peers_only_once_it_has_seen_its_ledger() {
+    let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::Xrpl);
+    sim.loss_per_mille = 0;
+    sim.ledger_down.insert(0);
+    sim.ledger.fund(xrpl_account(0));
+    *sim.fundings.entry(0).or_default() += 1;
+    sim.run_until(START + 5 * 60_000);
+    let (zero, one) = (key(0).node_id(), key(1).node_id());
+    assert!(
+        sim.peers(0).is_empty(),
+        "node 0 peered before it saw its ledger"
+    );
+    assert!(!sim.peers(1).contains(&zero), "node 1 peered with it");
+    sim.ledger_down.clear();
+    let peered = |sim: &Sim| sim.peers(0).contains(&one) && sim.peers(1).contains(&zero);
+    assert!(
+        sim.run_until_or(sim.now + 5 * 60_000, peered),
+        "the nodes did not peer once node 0 saw its ledger"
+    );
+    sim.pay(1, 0, 3_000_000_000, None, None);
+    sim.run_until(sim.now + 60_000);
+    let owes = -sim.owes(0, &one);
+    assert!(owes > 0, "node 1 owes node 0 nothing");
+    sim.step(0, |core| core.terminate_peering(one).unwrap());
+    sim.run_until(sim.now + 180_000);
+    assert!(!sim.peers(0).contains(&one), "the peering did not end");
+    check_books(&sim).unwrap();
+}
+
+// D31: having seen its ledger once, a node peers on the scheme after a
+// restart while its ledger is out of reach, and keeps the peerings it has:
+// the first sync is kept with the scheme's state, and what reaches the
+// ledger meanwhile is read from where the scheme left off once it is back.
+#[test]
+fn a_node_that_saw_its_ledger_once_peers_while_it_is_down() {
+    let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::Xrpl);
+    sim.loss_per_mille = 0;
+    restart_without_ledger(&mut sim, 0);
+    let one = key(1).node_id();
+    let peered = |sim: &Sim| sim.peers(0).contains(&one);
+    assert!(
+        sim.run_until_or(sim.now + 5 * 60_000, peered),
+        "the nodes did not peer"
+    );
+    sim.crash(0);
+    sim.start(0);
+    sim.run_until(sim.now + 60_000);
+    assert!(sim.peers(0).contains(&one), "the peering did not survive");
+    sim.ledger_down.clear();
+    sim.run_until(sim.now + 120_000);
+    check_books(&sim).unwrap();
 }

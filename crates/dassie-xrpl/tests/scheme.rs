@@ -508,6 +508,25 @@ fn a_testnet_reset_is_a_loss_and_a_new_deposit() {
     assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
 }
 
+// D31: the scheme has synced once its first sync booked what the account
+// held as the owner's, and the node peers on it only from then. That is
+// kept with its state, so a restart that cannot reach the ledger keeps it.
+#[test]
+fn the_first_sync_is_kept_across_restarts() {
+    let node = name("node0");
+    let fresh = XrplScheme::new("", &entropy(1), node, None, &[]).unwrap();
+    assert!(!fresh.has_synced(), "synced before it saw its ledger");
+    let mut world = World::new(1);
+    world.closes(2);
+    assert!(world.nodes[0].scheme.has_synced(), "never synced");
+    let state = world.nodes[0].scheme.state();
+    let checkpoint = world.nodes[0].scheme.balance();
+    world.disconnect(0);
+    let restarted = XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
+    assert_eq!(restarted.status(), LedgerStatus::Connecting);
+    assert!(restarted.has_synced(), "a restart forgot the first sync");
+}
+
 // The settlement message carries the transaction's hash, and books
 // nothing: the ledger does.
 #[test]

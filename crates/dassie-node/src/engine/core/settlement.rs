@@ -187,10 +187,12 @@ impl Core {
     /// for a peer that does not answer. Only our own books decide; the peer
     /// decides how much (D23).
     ///
-    /// A peer is asked only while our scheme sees its ledger. An honest
-    /// peer settles only when asked, so none of its settlements reaches the
-    /// ledger before our scheme first synced, which books what the account
-    /// held by then as the owner's deposit.
+    /// A peer is asked only while our scheme sees its ledger: until then,
+    /// what the peer pays is not booked, and it would be asked again. A
+    /// peering is made on a scheme only once it first synced (D31), which
+    /// booked what the account held as the owner's deposit, so what a peer
+    /// settles when asked, here or by a node ending the peering (D28), is
+    /// booked as its settlement.
     fn ask_peers(&mut self) {
         let now = self.now_ms;
         let every = self.settle.request_every_ms;

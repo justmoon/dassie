@@ -26,7 +26,7 @@ The table holds what a node knows about other nodes: per node, its key, its newe
 - A node without a valid URL issues no link state ([Peer protocol](peer-protocol.md#verification)).
 - It is issued at start, when its neighbors, schemes, URL or alias change (debounced), and periodically regardless.
 - **Sequence:** `max(now, last + 1)`, with the last value persisted, so it only rises across restarts. If the persisted value is further ahead of the clock than any node accepts, it was issued under a wrong clock and no node holds it; the sequence starts again from `now`.
-- Its neighbors are the advertised peers ([Advertised peers](#advertised-peers)).
+- Its neighbors are the advertised peers ([Advertised peers](#advertised-peers)), and its schemes those the node peers on: active, and synced with their ledger at least once ([below](#asking-and-answering)).
 - A new own link state is flooded to peers at once, and sent directly to the bootstrap nodes we are not peered with, so they can answer refreshes for it.
 
 ### Receiving a link state
@@ -91,7 +91,7 @@ Each node looks for a few peers on its own (auto-peering). A peering is between 
 ### Looking for peers
 
 - **Target.** Only advertised peers count toward it ([Advertised peers](#advertised-peers)), so a node whose peers went silent, flap or are stuck looks for others.
-- **Candidates** are table nodes with a fresh link state listing a scheme we have active, not peered or being asked, not banned, not in backoff, and with room for a settlement channel. Nodes our routes do not reach come first, then majority nodes. One attempt runs at a time.
+- **Candidates** are table nodes with a fresh link state listing a scheme we peer on, not peered or being asked, not banned, not in backoff, and with room for a settlement channel. Nodes our routes do not reach come first, then majority nodes. One attempt runs at a time.
 - After a restart with peers, a node waits a heartbeat's time before looking, so the peers it has can confirm themselves first.
 - **Slot caps.** A node starts a bounded number of outbound peerings and holds a bounded total; inbound requests are accepted only below a cap under that total, so requests alone cannot fill every slot.
 - **Bridge rule.** If a majority node with a fresh link state has stayed unreachable by our routes for a while, the node starts one more outbound peering, with such a node, if it can. This joins separate islands of peers that each met their target.
@@ -105,6 +105,8 @@ Each node looks for a few peers on its own (auto-peering). A peering is between 
 4. On acceptance, the requester's scheme finalizes the peering and opens the peer's accounts.
 
 The settlement schemes have their say through `PeeringHooks` (`crates/dassie-peer/src/hooks.rs`, [Settlement](settlement.md)).
+
+- **Only on a scheme that has seen its ledger.** A node offers, asks for and accepts peerings on a scheme only once the scheme has synced with its ledger at least once: before that, a peer's settlement would be booked as the owner's deposit ([Settlement](settlement.md#the-scheme-interface), [D31](../decisions/D31-a-node-peers-on-a-scheme-only-once-it-has-seen-its-ledger.md)). A request on another scheme is refused as unsupported, and the requester backs off as from any refusal; once the scheme has synced, the node's link state lists it. Having synced once, a scheme stays peered on across restarts, its ledger reachable or not.
 
 - **Repeats.** A request from a node already peered on the same scheme is answered at once, without a probe, with the stored peering's version. This covers an acceptance that got lost.
 - **Crossings.** When both ask at once, the lower node ID's request wins.
@@ -184,3 +186,4 @@ The `peer` simulation (`dassie_peer::sim::chaos`) runs this protocol on a rough 
 - [D15](../decisions/D15-bootstrap-network-for-v1.md): the testnet's bootstrap nodes as the default list.
 - [D20](../decisions/D20-trust-follows-what-a-peer-earned-us.md): junior and senior.
 - [D23](../decisions/D23-each-node-books-its-own-fulfills.md): only the owner bans.
+- [D31](../decisions/D31-a-node-peers-on-a-scheme-only-once-it-has-seen-its-ledger.md): no peering on a scheme before its first sync.
