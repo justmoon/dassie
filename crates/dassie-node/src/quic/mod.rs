@@ -189,6 +189,13 @@ pub trait Handler: Send + Sync + 'static {
         false
     }
 
+    /// Whether the endpoint carries relay requests to the nodes connected
+    /// to it. Every node does; a front door, which opens relayed streams
+    /// itself ([`Quic::open_held`]), refuses them.
+    fn relays(&self) -> bool {
+        true
+    }
+
     /// Serves a relayed stream for `purpose` until it ends or `shutdown`:
     /// `client` is the node the TLS inside the stream proved, `relay` the
     /// address of the node that carried it.
