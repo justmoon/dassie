@@ -24,6 +24,7 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
 
+use crate::clock::{Clock, SystemClock};
 use crate::store::StoredCertificate;
 
 /// How the fake ledger is served.
@@ -60,8 +61,13 @@ impl Server {
     ///
     /// A listener cannot bind, or the certificate is invalid.
     pub async fn start(options: Options) -> Result<Self, String> {
+        // Its ledgers close on the wall clock, the first a second after
+        // any ledger of a server before it: a new server is a new chain,
+        // and nodes that knew an earlier one see a testnet reset.
+        let mut ledger = FakeLedger::new();
+        ledger.set_close_time(close_time_now().saturating_add(1));
         let shared = Arc::new(Shared {
-            ledger: Mutex::new(FakeLedger::new()),
+            ledger: Mutex::new(ledger),
             connections: Mutex::new(BTreeMap::new()),
             next: AtomicU64::new(1),
         });
@@ -122,6 +128,16 @@ impl Drop for Server {
     }
 }
 
+/// The XRP Ledger's epoch, 2000-01-01, in seconds since the Unix epoch.
+const RIPPLE_EPOCH_UNIX_S: u64 = 946_684_800;
+
+/// Now, as the XRP Ledger counts close times: seconds since its epoch. The
+/// fake ledger's servers close their ledgers then.
+#[must_use]
+pub fn close_time_now() -> u64 {
+    (SystemClock.now_ms() / 1_000).saturating_sub(RIPPLE_EPOCH_UNIX_S)
+}
+
 async fn close_ledgers(every: Duration, shared: Arc<Shared>, cancel: CancellationToken) {
     let mut interval = tokio::time::interval(every);
     loop {
@@ -133,7 +149,7 @@ async fn close_ledgers(every: Duration, shared: Arc<Shared>, cancel: Cancellatio
             .ledger
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .close();
+            .close_at(close_time_now());
         let connections = shared
             .connections
             .lock()
@@ -220,7 +236,7 @@ async fn serve_faucet(
         };
         let Ok((stream, _)) = accepted else { continue };
         let (acceptor, shared) = (acceptor.clone(), Arc::clone(&shared));
-        tokio::spawn(async move {
+        let serve = async move {
             let Ok(tls) = acceptor.accept(stream).await else {
                 return;
             };
@@ -231,6 +247,15 @@ async fn serve_faucet(
             let _ = http1::Builder::new()
                 .serve_connection(TokioIo::new(tls), service)
                 .await;
+        };
+        // A connection kept alive goes with the server, so a client's next
+        // request reaches the faucet of a server started in its place.
+        let cancel = cancel.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                () = cancel.cancelled() => {}
+                () = serve => {}
+            }
         });
     }
 }

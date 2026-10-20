@@ -73,7 +73,7 @@ After a restart, executed transactions in flight are submitted again once synced
 
 ## The fake ledger
 
-The feature `fake` models the ledger for simulations and tests (`fake.rs`): accounts, reserves, fees, the checks the ledger makes on a Payment with their result codes, close times, streams, history that can be cut short, network IDs, testnet resets that start the chain again from a lower ledger, and a faucet. A copy of it is a server behind the others, stopped where the ledger was. It answers the subset of the rippled WebSocket API the scheme speaks, and checks what it is sent with the node's own codec. The node simulation settles on it in-process; `fake_ledger` serves it over WebSocket to the node's tests, the end-to-end tests and `node --run dev -- --xrpl fake`.
+The feature `fake` models the ledger for simulations and tests (`fake.rs`): accounts, reserves, fees, the checks the ledger makes on a Payment with their result codes, close times, streams, history that can be cut short, network IDs, testnet resets that start the chain again from a lower ledger, and a faucet. A copy of it is a server behind the others, stopped where the ledger was. In-process its close times are fixed steps, so a simulation stays deterministic; served by `fake_ledger`, its ledgers close on the wall clock, so a new server is a new chain that closes later, and nodes that knew an earlier one see a testnet reset. It answers the subset of the rippled WebSocket API the scheme speaks, and checks what it is sent with the node's own codec. The node simulation settles on it in-process; `fake_ledger` serves it over WebSocket to the node's tests, the end-to-end tests and `node --run dev -- --xrpl fake`.
 
 ## Decisions
 

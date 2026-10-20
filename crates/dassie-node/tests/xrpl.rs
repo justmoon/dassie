@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use dassie_identity::NodeKey;
 use dassie_node::clock::ManualClock;
-use dassie_node::fake_ledger::{Options, Server};
+use dassie_node::fake_ledger::{Options, Server, close_time_now};
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, request::Method, response};
 use dassie_node::store::StoredCertificate;
@@ -36,10 +36,15 @@ const FUNDED: i64 = 999_000_000_000;
 const PAYMENT: u64 = 5_000_000_000;
 
 async fn fake_ledger() -> Server {
+    fake_ledger_on(0, 0).await.unwrap()
+}
+
+/// A fake ledger with its WebSocket API and faucet on these ports, or any.
+async fn fake_ledger_on(port: u16, faucet_port: u16) -> Result<Server, String> {
     Server::start(Options {
-        listen: "127.0.0.1:0".parse().unwrap(),
+        listen: ([127, 0, 0, 1], port).into(),
         faucet: Some((
-            "127.0.0.1:0".parse().unwrap(),
+            ([127, 0, 0, 1], faucet_port).into(),
             StoredCertificate {
                 source: CertificateSource::Manual,
                 chain_pem: std::fs::read_to_string(CERT).unwrap(),
@@ -49,7 +54,12 @@ async fn fake_ledger() -> Server {
         close_every: Duration::from_millis(100),
     })
     .await
-    .unwrap()
+}
+
+/// The port at the end of a URL's authority.
+fn port_of(url: &str) -> u16 {
+    let authority = url.split("://").nth(1).unwrap().split('/').next().unwrap();
+    authority.rsplit(':').next().unwrap().parse().unwrap()
 }
 
 fn account_of(key: &NodeKey) -> AccountId {
@@ -230,5 +240,72 @@ async fn two_daemons_settle_on_the_xrp_ledger_across_restarts() {
     assert_eq!(ledger_of(&b).await.unwrap().owner_balance, owner_b - fees_b);
     a.stop().await;
     b.stop().await;
+    server.stop();
+}
+
+/// A fake ledger started anew where the last one was, as the dev
+/// environment does whenever it restarts, is a new chain that closes later
+/// (D32): the node sees a testnet reset, writes off its old funds, and the
+/// faucet funds it again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_fake_ledger_is_a_testnet_reset() {
+    let server = fake_ledger().await;
+    let (port, faucet_port) = (
+        port_of(&server.url),
+        port_of(server.faucet_url.as_deref().unwrap()),
+    );
+    let config = serde_json::json!({
+        "server": server.url,
+        "faucet": server.faucet_url,
+    })
+    .to_string();
+    let key_a = key(33);
+    let bound = Bound::new();
+    let nodes = bootstrap(&key_a, bound.https_port());
+    let env = [
+        ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
+        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+    ];
+    let clock = ManualClock::new(START_MS);
+    let a = bound.start(clock.clone(), 1, Policies::DEV, &env).await;
+    prepare_with(&a, &key_a, "xrpl-testnet", &config).await;
+    until(&clock, async || in_step(&a, &key_a, &server).await).await;
+    assert_eq!(deposits(&a).await, [FUNDED as u64]);
+
+    // The old ledger had gone far on the wall clock, as in a dev session of
+    // hours, and the node booked a deposit there: a new ledger would take
+    // minutes to reach where the node had read to.
+    let now_s = close_time_now();
+    for _ in 0..2_000 {
+        server.ledger().close_at(now_s);
+    }
+    server.ledger().deposit(account_of(&key_a), 3_000_000);
+    until(&clock, async || {
+        in_step(&a, &key_a, &server).await && deposits(&a).await.len() == 2
+    })
+    .await;
+    // It goes, and a new one takes its ports.
+    server.stop();
+    drop(server);
+    let mut server = None;
+    for _ in 0..100 {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        if let Ok(started) = fake_ledger_on(port, faucet_port).await {
+            server = Some(started);
+            break;
+        }
+    }
+    let server = server.expect("the ports came free");
+    until(&clock, async || {
+        in_step(&a, &key_a, &server).await && deposits(&a).await.len() == 3
+    })
+    .await;
+    assert_eq!(
+        deposits(&a).await,
+        [FUNDED as u64, 3_000_000_000, FUNDED as u64]
+    );
+    assert_eq!(ledger_of(&a).await.unwrap().owner_balance, FUNDED);
+    a.stop().await;
     server.stop();
 }

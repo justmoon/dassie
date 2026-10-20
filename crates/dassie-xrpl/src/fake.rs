@@ -191,6 +191,13 @@ impl FakeLedger {
         self.network_id = id;
     }
 
+    /// Sets when the last ledger closed, in seconds since the XRP Ledger's
+    /// epoch, as for a chain that started then: one started later closes
+    /// later than every ledger of one before it, as after a reset.
+    pub fn set_close_time(&mut self, close_time: u64) {
+        self.close_time = close_time;
+    }
+
     /// Starts the chain again, as a testnet reset does: every account but
     /// genesis and all history wiped, from a ledger below the last, which
     /// closes later.
@@ -287,11 +294,18 @@ impl FakeLedger {
         serde_json::to_vec(&response).unwrap_or_default()
     }
 
-    /// Closes a ledger: applies what was submitted, and returns what the
-    /// streams carry, by connection.
+    /// Closes a ledger [`CLOSE_INTERVAL_S`] after the last: applies what
+    /// was submitted, and returns what the streams carry, by connection.
     pub fn close(&mut self) -> Vec<(ConnectionId, Vec<u8>)> {
+        self.close_at(self.close_time.saturating_add(CLOSE_INTERVAL_S))
+    }
+
+    /// Closes a ledger at `close_time`, in seconds since the XRP Ledger's
+    /// epoch, or with the last if that is later: close times never go
+    /// back along a chain.
+    pub fn close_at(&mut self, close_time: u64) -> Vec<(ConnectionId, Vec<u8>)> {
         self.ledger = self.ledger.saturating_add(1);
-        self.close_time = self.close_time.saturating_add(CLOSE_INTERVAL_S);
+        self.close_time = self.close_time.max(close_time);
         let mut out = Vec::new();
         let queued = core::mem::take(&mut self.queued);
         self.queued_hashes.clear();

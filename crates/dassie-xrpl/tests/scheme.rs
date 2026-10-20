@@ -616,6 +616,45 @@ fn a_server_that_never_saw_the_account_writes_nothing_off() {
     assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
 }
 
+// Found in review: the account's state, asked for while synced (here its
+// sequence, read again once a settlement never executed is dropped), whose
+// answer is older than what the scheme has seen, is asked again as the
+// next ledger closes, not dropped for good.
+#[test]
+fn an_old_answer_while_synced_is_asked_again() {
+    let (mut world, state_a, _) = funded_pair();
+    let peer = world.nodes[1].name;
+    let mut rng = SeededRng::new(1);
+    world.nodes[0]
+        .scheme
+        .prepare_settlement(&mut rng, peer, 1_000_000_000, &state_a)
+        .unwrap();
+    world.closes(20);
+    world.nodes[0].hold = Some("account_info");
+    world.close();
+    let request = world.nodes[0].held_request.take().unwrap();
+    let reply = serde_json::to_vec(&serde_json::json!({
+        "type": "response", "status": "success", "id": request["id"],
+        "result": {
+            "account_data": { "Balance": "1000000000", "Sequence": 1, "OwnerCount": 0 },
+            "ledger_index": 1, "validated": true,
+        }
+    }))
+    .unwrap();
+    world.input(0, LedgerInput::Message(&reply));
+    world.nodes[0].hold = None;
+    let asked = |world: &World| {
+        let asked = &world.nodes[0].asked;
+        asked.iter().filter(|c| *c == "account_info").count()
+    };
+    let before = asked(&world);
+    world.close();
+    assert_eq!(asked(&world), before + 1);
+    assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
+    world.close();
+    assert_eq!(asked(&world), before + 1, "asked once");
+}
+
 // D32: a server behind what the scheme booked (here a peer's settlement),
 // or only behind the newest ledger it saw, says nothing new: nothing is
 // booked from it, and the scheme waits for one that caught up.

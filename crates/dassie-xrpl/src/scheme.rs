@@ -324,6 +324,10 @@ pub struct XrplScheme {
     buffer: Vec<TxRecord>,
     fund_at_ms: u64,
     funding: bool,
+    /// The account's state was asked for and the answer dropped as older
+    /// than what the scheme had seen: asked again as the next ledger
+    /// closes.
+    ask_account: bool,
     failed: Option<&'static str>,
     now_ms: u64,
     /// When the connection last said anything.
@@ -371,6 +375,7 @@ impl XrplScheme {
             buffer: Vec::new(),
             fund_at_ms: 0,
             funding: false,
+            ask_account: false,
             failed: None,
             now_ms: 0,
             heard_ms: 0,
@@ -471,6 +476,7 @@ impl XrplScheme {
         // A faucet's answer may come for an older connection, and be
         // dropped: it is asked again in time.
         self.funding = false;
+        self.ask_account = false;
         for transaction in &mut self.in_flight {
             transaction.needs_submit = transaction.executed;
             transaction.looked_up = false;
@@ -596,6 +602,7 @@ impl XrplScheme {
                 // A server behind what the scheme has seen says nothing
                 // new: asked again when the next ledger closes.
                 if info.ledger_index < self.seen() {
+                    self.ask_account = true;
                     return;
                 }
                 let next = self
@@ -629,6 +636,8 @@ impl XrplScheme {
                         .is_some_and(|ledger| ledger >= self.seen())
                 {
                     self.absent(effects);
+                } else {
+                    self.ask_account = true;
                 }
             }
             Err(_) => self.reconnect(effects),
@@ -862,6 +871,12 @@ impl XrplScheme {
             Phase::Synced => {
                 if reserve_changed {
                     self.reconcile(effects);
+                }
+                // An answer older than what the scheme had seen was
+                // dropped, such as the sequence read again after a
+                // settlement was given up: asked again.
+                if core::mem::take(&mut self.ask_account) && !asking {
+                    self.send(Request::AccountInfo, effects);
                 }
                 self.expire(effects);
                 self.ask_recover(effects);
@@ -1387,6 +1402,7 @@ impl XrplScheme {
             Phase::Disconnected => {
                 assert!(self.pending.is_empty(), "nothing asked while disconnected");
                 assert!(self.network_id.is_none(), "a network is a connection's");
+                assert!(!self.ask_account, "asked again on a connection");
                 assert!(self.buffer.is_empty());
                 assert!(!self.funding);
             }
