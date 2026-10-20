@@ -605,14 +605,12 @@ impl Sim {
                 self.let_through(other);
             }
         }
-        // What the commit held, and what the core held when it stopped:
-        // neither reached the disk.
-        let core = self.nodes[index].core.as_ref().unwrap();
-        let (paying, settling) = (core.packets_in_flight(), core.settling());
-        if held.packet || paying {
+        // What the lost commit held: the floors on these counts prove that
+        // a packet's commit and a settlement's commit failed.
+        if held.packet {
             self.count("failed commits mid-payment");
         }
-        if held.settlement || settling {
+        if held.settlement {
             self.count("failed commits mid-settlement");
         }
         self.trace

@@ -88,6 +88,7 @@ impl Store {
     /// Makes the commit after the next `skip` that `aim` aims at fail.
     #[must_use]
     pub fn fail_commit(&self, aim: Aim, skip: u32) -> FailedCommit {
+        self.let_commits_through();
         let failed = FailedCommit::default();
         *self.failing() = Some(Failing {
             aim,
@@ -97,9 +98,12 @@ impl Store {
         failed
     }
 
-    /// Lets every commit through again.
+    /// Lets every commit through again, and leaves the connection without
+    /// the commit hook a failed commit left on it.
     pub fn let_commits_through(&self) {
         *self.failing() = None;
+        let cleared = self.lock().commit_hook(None::<fn() -> bool>).is_ok();
+        assert!(cleared, "the store's own connection takes a commit hook");
     }
 
     fn failing(&self) -> std::sync::MutexGuard<'_, Option<Failing>> {

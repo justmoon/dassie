@@ -121,14 +121,6 @@ impl Core {
         }
     }
 
-    /// Whether a settlement of ours is prepared and not yet final, for a
-    /// simulation to aim a fault at.
-    #[cfg(feature = "testing")]
-    #[must_use]
-    pub fn settling(&self) -> bool {
-        !self.settle.settling.is_empty()
-    }
-
     /// Whether the books hold a packet's money in flight, for a simulation
     /// to aim a fault at.
     #[cfg(feature = "testing")]
