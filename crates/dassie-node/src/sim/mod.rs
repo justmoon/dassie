@@ -285,8 +285,8 @@ pub struct SimNode {
     /// [`Sim::originals`].
     copied: BTreeMap<InboundId, usize>,
     /// Copies waiting for the core's reply, which goes nowhere: their
-    /// original's place in [`Sim::originals`].
-    replays: BTreeMap<InboundId, usize>,
+    /// original's place in [`Sim::originals`], and whether it only reads.
+    replays: BTreeMap<InboundId, (usize, bool)>,
 }
 
 /// The simulated network: its nodes, its clock, its messages, the fake
@@ -524,8 +524,8 @@ impl Sim {
         self.nodes[index].core = None;
         // A copy it was still working on passed the replay check.
         let replays = std::mem::take(&mut self.nodes[index].replays);
-        for original in replays.into_values() {
-            self.replay_answered(index, original, None);
+        for (original, reads) in replays.into_values() {
+            self.replay_answered(index, original, reads, None);
         }
         if let Some(link) = self.links.remove(&index) {
             self.ledger.disconnect(link.connection);
@@ -562,16 +562,23 @@ impl Sim {
     /// it must be a copy of a request that had no effect, one refused, or
     /// lost when the node crashed before answering it. A copy of one
     /// answered 200, or of one still under way, is taken twice, and fails
-    /// the run for safety. A 503 for want of a place for the sender's
-    /// replay state also comes before the check, but every sender here is
-    /// one of a few nodes, which always have one.
-    fn replay_answered(&mut self, index: usize, original: usize, status: Option<u16>) {
+    /// the run for safety, unless it only reads (`reads`): from a sender
+    /// whose replay state is not kept for good, such a request is not
+    /// recorded, and taking it twice changes nothing
+    /// (spec/areas/peer-protocol.md#replay-protection). A 503 for want of
+    /// a place for the sender's replay state also comes before the check,
+    /// but every sender here is one of a few nodes, which always have one.
+    fn replay_answered(&mut self, index: usize, original: usize, reads: bool, status: Option<u16>) {
         self.trace.push(format!(
             "{} {index} answers the replay {status:?}",
             self.now
         ));
         if status == Some(401) {
             self.count("replays refused");
+            return;
+        }
+        if reads {
+            self.count("replays of requests that only read");
             return;
         }
         let twice = match self.originals[original] {
@@ -685,8 +692,8 @@ impl Sim {
                 );
             }
             Output::PeerReply { inbound, reply } => {
-                if let Some(original) = self.nodes[index].replays.remove(&inbound) {
-                    self.replay_answered(index, original, Some(reply.status));
+                if let Some((original, reads)) = self.nodes[index].replays.remove(&inbound) {
+                    self.replay_answered(index, original, reads, Some(reply.status));
                     return;
                 }
                 if let Some(original) = self.nodes[index].copied.remove(&inbound) {
@@ -909,10 +916,12 @@ impl Sim {
                     "{} replay to {to} of {from}'s request that arrived at {arrived}",
                     self.now
                 ));
+                let reads = dassie_peer::wire::peek_kind(&body)
+                    .is_some_and(dassie_peer::wire::Kind::is_read_only);
                 let node = &mut self.nodes[to];
                 let inbound = InboundId(node.next_inbound);
                 node.next_inbound += 1;
-                node.replays.insert(inbound, original);
+                node.replays.insert(inbound, (original, reads));
                 self.step(to, |core| core.peer_inbound(inbound, &body, None));
             }
             Delivery::LedgerRequest {

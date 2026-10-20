@@ -155,7 +155,16 @@ fn mapped_ipv4_requesters_are_told_apart_by_their_network() {
 // refused, and a registration from another network still gets its probe.
 #[test]
 fn failing_registrations_from_one_network_spend_only_its_share() {
-    let config = Config::DEV;
+    // The network's share of the replay pool for strangers would turn the
+    // later registrations away first (503), before their probes: room for
+    // every one here, so this sees only the probes' share.
+    let config = Config {
+        auth: AuthConfig {
+            max_senders_per_network: AuthConfig::DEFAULT.max_senders,
+            ..AuthConfig::DEFAULT
+        },
+        ..Config::DEV
+    };
     let share = config.probe_rate_per_network;
     let mut network = Network::new(5, 2, 1, config);
     settle(&mut network, 30_000);

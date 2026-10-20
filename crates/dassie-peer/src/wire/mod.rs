@@ -160,6 +160,22 @@ impl Kind {
                 | Self::SettlementRequest
         )
     }
+
+    /// Whether a message of this kind only reads: it changes nothing at the
+    /// recipient, and its answer is public, signed data or the recipient's
+    /// own. A replay of one gets nothing that asking does not, so a sender
+    /// the recipient keeps no replay state for gets none from it
+    /// (spec/areas/peer-protocol.md#replay-protection).
+    #[must_use]
+    pub const fn is_read_only(self) -> bool {
+        matches!(
+            self,
+            Self::LinkStateRequest
+                | Self::NodeListHashRequest
+                | Self::NodeListRequest
+                | Self::PeeringInfoRequest
+        )
+    }
 }
 
 /// The kind of the message in `body`, without checking more of it than the

@@ -6,6 +6,11 @@
 //! content. Responses are MACed under their own key and bound to the
 //! request. Every table here is bounded, and a key is cached only once a
 //! MAC made with it has verified (NET-9).
+//!
+//! Replay state is kept for good for the senders that matter, and in a
+//! bounded pool, with a bounded share per network, for everyone else; a
+//! request that only reads leaves none in the pool
+//! (spec/areas/peer-protocol.md#replay-protection).
 
 mod keys;
 mod replay;
@@ -19,7 +24,8 @@ use rand_core::CryptoRng;
 pub use keys::{MacKey, PairKeys, macs_match, request_mac, response_mac};
 pub use replay::{Guard, ReplayError, WINDOW};
 
-use crate::wire::{Authentication, Envelope, HmacAuthentication, ResponseEnvelope};
+use crate::table::Network;
+use crate::wire::{Authentication, Envelope, HmacAuthentication, Kind, ResponseEnvelope};
 
 /// The bounds and windows of authentication.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,6 +35,9 @@ pub struct AuthConfig {
     /// Most senders whose replay state is kept, and most destinations with
     /// a session of ours.
     pub max_senders: usize,
+    /// Most of those senders whose state came from one network (a /24 or
+    /// a /48), so that one network cannot hold every place.
+    pub max_senders_per_network: usize,
     /// Most pairs of keys cached.
     pub max_keys: usize,
     /// How long one of our sessions lasts before a new one starts.
@@ -40,6 +49,7 @@ impl AuthConfig {
     pub const DEFAULT: Self = Self {
         skew_ms: 60_000,
         max_senders: 1024,
+        max_senders_per_network: 16,
         max_keys: 1024,
         session_lifetime_ms: 3_600_000,
     };
@@ -140,6 +150,23 @@ struct CachedKeys {
     used_ms: u64,
 }
 
+/// A sender's replay state, and the network it was first kept for.
+struct Kept {
+    guard: Guard,
+    network: Option<Network>,
+}
+
+/// What accepting a request records.
+#[derive(Clone, Copy, Debug)]
+enum Record {
+    /// The request, in the sender's state: kept already, or new, taking
+    /// the place of the idle stranger named, if any.
+    Into(replay::Slot, Option<NodeId>),
+    /// Nothing: a request that only reads, from a sender whose state is
+    /// not kept for good.
+    Nothing,
+}
+
 /// The authentication state of a node: its key, the keys it shares with
 /// others, their replay state, and its own sessions.
 pub struct Authenticator {
@@ -147,11 +174,18 @@ pub struct Authenticator {
     own: NodeId,
     config: AuthConfig,
     keys: BTreeMap<NodeId, CachedKeys>,
-    guards: BTreeMap<NodeId, Guard>,
-    /// Senders whose replay state is never given up: peers and bootstrap
-    /// nodes. Everyone else shares `max_senders` places, so a flood of new
-    /// identities cannot crowd out the nodes that matter.
+    guards: BTreeMap<NodeId, Kept>,
+    /// Senders whose replay state is kept for good: peers, bootstrap nodes,
+    /// nodes we hold a settlement channel with, and nodes registered with
+    /// us. Everyone else, a stranger, shares `max_senders` places, at most
+    /// `max_senders_per_network` of them from one network, so a flood of
+    /// new identities cannot crowd out the nodes that matter.
     pinned: BTreeSet<NodeId>,
+    /// Pinned senders let go: their state is kept outside the pool until
+    /// every message accepted from them is stale, and then forgotten. One
+    /// that sends more meanwhile is recorded only by taking a stranger's
+    /// place, so letting go never grows what is kept.
+    releasing: BTreeSet<NodeId>,
     sessions: BTreeMap<NodeId, Session>,
     /// The floor of senders without one of their own: the start time.
     default_floor_ms: u64,
@@ -170,6 +204,7 @@ impl Authenticator {
             keys: BTreeMap::new(),
             guards: BTreeMap::new(),
             pinned: BTreeSet::new(),
+            releasing: BTreeSet::new(),
             sessions: BTreeMap::new(),
             default_floor_ms: started_ms,
         }
@@ -191,34 +226,74 @@ impl Authenticator {
     /// before a restart, and pins it.
     pub fn restore_floor(&mut self, sender: NodeId, floor_ms: u64) {
         let floor = floor_ms.max(self.default_floor_ms);
-        self.pinned.insert(sender);
-        self.guards.insert(sender, Guard::new(floor));
+        self.pin(sender);
+        self.guards.insert(
+            sender,
+            Kept {
+                guard: Guard::new(floor),
+                network: None,
+            },
+        );
     }
 
-    /// Keeps `sender`'s replay state for good: a peer or a bootstrap node.
+    /// Keeps `sender`'s replay state for good: a peer, a bootstrap node, a
+    /// node we hold a settlement channel with, or one registered with us.
     pub fn pin(&mut self, sender: NodeId) {
         if sender != self.own {
             self.pinned.insert(sender);
+            self.releasing.remove(&sender);
         }
     }
 
-    /// Replay states of senders that are not pinned.
-    fn strangers(&self) -> usize {
+    /// Lets `sender`'s replay state go, as it no longer matters: it is
+    /// forgotten once every message accepted from it is stale, so that
+    /// forgetting it opens nothing.
+    pub fn unpin(&mut self, now_ms: u64, sender: &NodeId) {
+        if self.pinned.contains(sender) {
+            self.releasing.insert(*sender);
+        }
+        self.release(now_ms);
+    }
+
+    /// Whether `sender`'s replay state is kept for good.
+    #[must_use]
+    pub fn is_pinned(&self, sender: &NodeId) -> bool {
+        self.pinned.contains(sender) && !self.releasing.contains(sender)
+    }
+
+    /// Forgets the senders let go whose messages are all stale.
+    fn release(&mut self, now_ms: u64) {
+        let skew = self.config.skew_ms;
+        let (guards, pinned) = (&mut self.guards, &mut self.pinned);
+        self.releasing.retain(|id| {
+            let idle = guards
+                .get(id)
+                .is_none_or(|kept| kept.guard.is_idle(now_ms, skew));
+            if idle {
+                guards.remove(id);
+                pinned.remove(id);
+            }
+            !idle
+        });
+    }
+
+    /// The replay states of senders that are not pinned.
+    fn strangers(&self) -> impl Iterator<Item = (&NodeId, &Kept)> {
         self.guards
-            .keys()
-            .filter(|id| !self.pinned.contains(id))
-            .count()
+            .iter()
+            .filter(|(id, _)| !self.pinned.contains(id))
     }
 
     /// The newest timestamp accepted from `sender`, which is what to
     /// persist for it.
     #[must_use]
     pub fn newest(&self, sender: &NodeId) -> Option<u64> {
-        self.guards.get(sender).map(Guard::newest_ms)
+        self.guards.get(sender).map(|kept| kept.guard.newest_ms())
     }
 
-    /// Checks a request's authentication. `required` says whether its kind
-    /// needs it.
+    /// Checks the authentication of a request of `kind` from `network`,
+    /// where a network is counted: whether its kind needs it, and what of
+    /// it to record.
     ///
     /// # Errors
     ///
@@ -227,13 +302,17 @@ impl Authenticator {
         &mut self,
         now_ms: u64,
         envelope: &Envelope<'_>,
-        required: bool,
+        kind: Kind,
+        network: Option<Network>,
     ) -> Result<Accepted, AuthError> {
         if envelope.sender == self.own {
             return Err(AuthError::WrongSender);
         }
+        self.release(now_ms);
         let hmac = match envelope.authentication {
-            Authentication::None if required => return Err(AuthError::Missing),
+            Authentication::None if kind.requires_authentication() => {
+                return Err(AuthError::Missing);
+            }
             Authentication::None => {
                 return Ok(Accepted {
                     sender: envelope.sender,
@@ -251,7 +330,7 @@ impl Authenticator {
         if key.node_id() != envelope.sender {
             return Err(AuthError::WrongSender);
         }
-        let slot = self.check_replay(now_ms, &envelope.sender, &hmac)?;
+        let record = self.check_replay(now_ms, &envelope.sender, &hmac, kind, network)?;
         let keys = self.keys_for(now_ms, &envelope.sender, &key)?;
         let expected = request_mac(
             &keys.incoming_request,
@@ -264,8 +343,12 @@ impl Authenticator {
             return Err(AuthError::BadMac);
         }
         let response = (keys.incoming_response.clone(), hmac.mac);
-        self.remember_keys(now_ms, envelope.sender, keys);
-        self.commit_replay(now_ms, envelope.sender, slot, &hmac);
+        // A request that leaves no replay state leaves no key either, so
+        // that requests from new identities cannot evict the keys of peers.
+        if let Record::Into(slot, evict) = record {
+            self.remember_keys(now_ms, envelope.sender, keys);
+            self.commit_replay(envelope.sender, slot, evict, &hmac, network);
+        }
         Ok(Accepted {
             sender: envelope.sender,
             key: Some(key),
@@ -278,60 +361,93 @@ impl Authenticator {
         now_ms: u64,
         sender: &NodeId,
         hmac: &HmacAuthentication,
-    ) -> Result<replay::Slot, AuthError> {
-        let fresh;
-        let guard = match self.guards.get(sender) {
-            Some(guard) => guard,
-            None => {
-                if !self.pinned.contains(sender)
-                    && self.strangers() >= self.config.max_senders
-                    && self.idle_guard(now_ms).is_none()
-                {
-                    return Err(AuthError::Busy);
-                }
-                fresh = Guard::new(self.default_floor_ms);
-                &fresh
-            }
+        kind: Kind,
+        network: Option<Network>,
+    ) -> Result<Record, AuthError> {
+        let check = |guard: &Guard| {
+            guard.check(
+                now_ms,
+                self.config.skew_ms,
+                &hmac.session_id,
+                hmac.counter,
+                hmac.timestamp_ms,
+            )
         };
-        Ok(guard.check(
-            now_ms,
-            self.config.skew_ms,
-            &hmac.session_id,
-            hmac.counter,
-            hmac.timestamp_ms,
-        )?)
+        let pinned = self.is_pinned(sender);
+        // A request that only reads changes nothing, and gets nothing a
+        // replay of it could abuse. From a stranger it is checked and not
+        // recorded: it neither takes a place nor keeps one fresh.
+        let only_reads = kind.is_read_only() && !pinned;
+        let slot = match self.guards.get(sender) {
+            Some(kept) => check(&kept.guard)?,
+            None => check(&Guard::new(self.default_floor_ms))?,
+        };
+        if only_reads {
+            return Ok(Record::Nothing);
+        }
+        // A stranger with a place keeps it; a new one, or one let go, needs
+        // one.
+        let placed = self.guards.contains_key(sender) && !self.releasing.contains(sender);
+        let evict = if pinned || placed {
+            None
+        } else {
+            self.place_for(now_ms, network)?
+        };
+        Ok(Record::Into(slot, evict))
+    }
+
+    /// Room for one more stranger from `network`: free, or the place of an
+    /// idle stranger, whose messages are all stale so that forgetting it
+    /// opens nothing. Once the network has its share, only one of its own
+    /// gives up a place.
+    fn place_for(
+        &self,
+        now_ms: u64,
+        network: Option<Network>,
+    ) -> Result<Option<NodeId>, AuthError> {
+        let (mut total, mut from_network) = (0, 0);
+        for (_, kept) in self.strangers() {
+            total += 1;
+            if network.is_some() && kept.network == network {
+                from_network += 1;
+            }
+        }
+        let network_full = from_network >= self.config.max_senders_per_network;
+        if !network_full && total < self.config.max_senders {
+            return Ok(None);
+        }
+        self.strangers()
+            .find(|(_, kept)| {
+                (!network_full || kept.network == network)
+                    && kept.guard.is_idle(now_ms, self.config.skew_ms)
+            })
+            .map(|(id, _)| Some(*id))
+            .ok_or(AuthError::Busy)
     }
 
     fn commit_replay(
         &mut self,
-        now_ms: u64,
         sender: NodeId,
         slot: replay::Slot,
+        evict: Option<NodeId>,
         hmac: &HmacAuthentication,
+        network: Option<Network>,
     ) {
-        if !self.guards.contains_key(&sender)
-            && !self.pinned.contains(&sender)
-            && self.strangers() >= self.config.max_senders
-        {
-            // Its messages are all stale: forgetting it opens nothing.
-            if let Some(idle) = self.idle_guard(now_ms) {
-                self.guards.remove(&idle);
-            }
+        if let Some(idle) = evict {
+            self.guards.remove(&idle);
         }
         let default = self.default_floor_ms;
-        self.guards
-            .entry(sender)
-            .or_insert_with(|| Guard::new(default))
+        let kept = self.guards.entry(sender).or_insert_with(|| Kept {
+            guard: Guard::new(default),
+            network,
+        });
+        // A sender let go that was given a place joins the strangers.
+        if self.releasing.remove(&sender) {
+            self.pinned.remove(&sender);
+            kept.network = network;
+        }
+        kept.guard
             .commit(slot, &hmac.session_id, hmac.counter, hmac.timestamp_ms);
-    }
-
-    fn idle_guard(&self, now_ms: u64) -> Option<NodeId> {
-        self.guards
-            .iter()
-            .find(|(id, guard)| {
-                !self.pinned.contains(id) && guard.is_idle(now_ms, self.config.skew_ms)
-            })
-            .map(|(id, _)| *id)
     }
 
     /// The keys shared with `peer`, from the cache or derived.
@@ -446,8 +562,21 @@ impl Authenticator {
             "key cache within bounds"
         );
         assert!(
-            self.strangers() <= self.config.max_senders,
+            self.strangers().count() <= self.config.max_senders,
             "replay state within bounds"
+        );
+        let mut networks = BTreeMap::new();
+        for network in self.strangers().filter_map(|(_, kept)| kept.network) {
+            let count = networks.entry(network).or_insert(0_usize);
+            *count += 1;
+            assert!(
+                *count <= self.config.max_senders_per_network,
+                "replay state per network within bounds"
+            );
+        }
+        assert!(
+            self.releasing.is_subset(&self.pinned),
+            "only pinned senders are let go"
         );
         assert!(!self.pinned.contains(&self.own), "we are not pinned");
         assert!(

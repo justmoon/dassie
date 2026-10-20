@@ -409,6 +409,9 @@ impl PeerNode {
             if let Some(entry) = self.table.get_mut(&id) {
                 entry.registration = None;
             }
+            if !self.keeps_replay_state(&id) {
+                self.auth.unpin(now, &id);
+            }
             self.drop_source(&id, Sources::REGISTERED);
             self.lists.served_changed = true;
         }
@@ -427,6 +430,18 @@ impl PeerNode {
         for id in gone {
             self.remove(&id);
         }
+    }
+
+    /// Whether `node`'s replay state is kept for good: it is a bootstrap
+    /// node, a peer, a node we hold a settlement channel with, or one
+    /// registered with us (spec/areas/peer-protocol.md#replay-protection).
+    pub(super) fn keeps_replay_state(&self, node: &NodeId) -> bool {
+        self.bootstrap.iter().any(|bootstrap| bootstrap.id == *node)
+            || self.channels.contains_key(node)
+            || self
+                .table
+                .get(node)
+                .is_some_and(|entry| entry.peering().is_some() || entry.registration.is_some())
     }
 
     /// When [`maintain`](Self::maintain) next has something to do.
@@ -522,6 +537,7 @@ impl PeerNode {
         let peers = self.peers().count();
         assert!(peers <= self.config.max_peers, "peers within bounds");
         self.check_channels();
+        self.check_pins();
         for (id, entry) in &self.table {
             assert!(
                 entry.peering().is_none() || entry.key.is_none() || self.channels.contains_key(id),
@@ -554,6 +570,17 @@ impl PeerNode {
                 "routes have first hops"
             );
             assert!(route.distance_hops >= 1, "routes lead away from us");
+        }
+    }
+
+    /// Every node registered with us keeps its replay state
+    /// (spec/areas/peer-protocol.md#replay-protection).
+    fn check_pins(&self) {
+        for (id, entry) in &self.table {
+            assert!(
+                entry.registration.is_none() || self.auth.is_pinned(id),
+                "a registered node keeps its replay state"
+            );
         }
     }
 
