@@ -162,6 +162,7 @@ impl PeeringHooks for Hooks<'_> {
         _version: u16,
         info: &[u8],
         data: &[u8],
+        ended_for_room: bool,
     ) -> Result<Agreed, Declined> {
         let peer_name = name(peer).ok_or(Declined)?;
         let active = self.scheme(scheme).ok_or(Declined)?;
@@ -178,8 +179,10 @@ impl PeeringHooks for Hooks<'_> {
         self.open(now_ms, peer, ledger, start)
             .map_err(|()| Declined)?;
         // A trust account from an earlier peering may hold less, from a
-        // time we were the senior: a junior extends at least the default.
-        let credit_out = if credit_out < start {
+        // time we were the senior: a junior extends at least the default,
+        // unless we ended a peering with it for room, which keeps what it
+        // had (D33).
+        let credit_out = if credit_out < start && !ended_for_room {
             self.raise(now_ms, peer, ledger, start - credit_out)
                 .map_err(|()| Declined)?;
             start

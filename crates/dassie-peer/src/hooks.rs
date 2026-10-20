@@ -67,7 +67,9 @@ pub trait PeeringHooks {
     ) -> Result<Agreed, RefusalReason>;
 
     /// Completes our request to `peer`, which accepted with `version`:
-    /// opens its accounts.
+    /// opens its accounts. `ended_for_room` says we once ended a peering
+    /// with it for want of room, so it earns no more credit for asking
+    /// (spec/areas/settlement.md#credit).
     ///
     /// # Errors
     ///
@@ -81,6 +83,7 @@ pub trait PeeringHooks {
         version: u16,
         info: &[u8],
         data: &[u8],
+        ended_for_room: bool,
     ) -> Result<Agreed, Declined>;
 
     /// Whether nothing is in flight with `peer` any more: no packet waits

@@ -98,6 +98,7 @@ impl PeeringHooks for StubHooks {
         _: u16,
         _: &[u8],
         _: &[u8],
+        _: bool,
     ) -> Result<Agreed, Declined> {
         Ok(Agreed {
             state: Vec::new(),

@@ -44,7 +44,7 @@ Activation books only the difference between the scheme's balance and the last c
 
 **Starting credit.** The junior extends the senior the default credit line; the senior extends the junior nothing. Asked to settle at once, the junior then pays in advance, and payments to the junior flow at once, within the credit it extends. Both are policies of the node (`Policies` in `crates/dassie-node/src/node/mod.rs`), not owner settings, and one value for every ledger ([roadmap](../roadmap.md#not-built-yet)).
 
-- **Peering again** keeps the trust account and its credit. A junior still extends at least the default line: a node that was the senior before, or that accepted a request only one side recorded, raises the account to it.
+- **Peering again** keeps the trust account and its credit. A junior still extends at least the default line: a node that was the senior before, or that accepted a request only one side recorded, raises the account to it. Not when it once ended a peering with that node for want of room: then it keeps the lower credit, so a peer that never settled gets no new line by being asked again ([D33](../decisions/D33-a-peering-ended-for-room-stays-apart-and-earns-no-credit-back.md)).
 - **Nothing is announced.** The credit a node extends is its own business: the peer protocol's `credit` fields are sent as 0 and ignored ([Peer protocol](peer-protocol.md)). More credit only means the creditor asks later.
 
 **The least credit.** Asked at the asker's trigger, a debtor settles only if its own books leave it its trigger plus twice the least settlement ([below](#settling-on-request)). So a link survives drift of up to its credit less two triggers and twice the least settlement, and the node refuses to start with a default credit (or a senior credit other than 0) below that plus one crash's drift at the cap on money in flight (`policy::least_credit`):
@@ -154,5 +154,6 @@ A peer's settlement is believed as stated. Anyone peered over the stub can mint 
 - [D31](../decisions/D31-a-node-peers-on-a-scheme-only-once-it-has-seen-its-ledger.md): no peering on a scheme before its first sync.
 - [D19](../decisions/D19-each-node-keeps-its-own-books.md): each node decides from its own books, and the bound that holds whatever a peer does.
 - [D20](../decisions/D20-trust-follows-what-a-peer-earned-us.md): junior and senior, starting credit, growth from fees.
+- [D33](../decisions/D33-a-peering-ended-for-room-stays-apart-and-earns-no-credit-back.md): no credit back for a peer once ended for room.
 - [D23](../decisions/D23-each-node-books-its-own-fulfills.md): the creditor asks, the debtor decides how much.
 - [D24](../decisions/D24-money-in-flight-with-a-peer-stays-within-a-few-packets.md), [D25](../decisions/D25-a-links-thresholds-are-counted-in-its-largest-packet.md): thresholds in the largest packet, and the least credit.

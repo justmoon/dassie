@@ -48,6 +48,15 @@ impl PeerNode {
             None => {
                 peering.depeering = Some(Depeering::new(now, reason));
                 self.dirty.insert(peer);
+                // Remembered past this peering: a later one with it as our
+                // senior raises no credit for it (spec/areas/settlement.md#credit).
+                if reason == TerminationReason::ShortOfRoom
+                    && let Some(channel) = self.channels.get_mut(&peer)
+                    && !channel.ended_for_room
+                {
+                    channel.ended_for_room = true;
+                    self.channels_dirty.insert(peer);
+                }
                 self.event(Event::Depeering { peer, reason });
             }
             // Its owner's decision outranks one the node took for silence
@@ -247,15 +256,11 @@ impl PeerNode {
         let state = self.table.get(&sender).map(|entry| &entry.peer);
         match state {
             Some(PeerState::Peered(peering)) => {
-                // Told while we collect for our owner, the end is still the
-                // owner's: its cooldown holds (D28).
-                let owner = peering
-                    .depeering
-                    .is_some_and(|depeering| depeering.reason == TerminationReason::Owner);
-                let reason = if owner {
-                    TerminationReason::Owner
-                } else {
-                    reason
+                // Told while we collect for our owner, or for room, the end
+                // is still ours: its cooldown holds (D28, D33).
+                let reason = match peering.depeering {
+                    Some(depeering) if keeps_away(depeering.reason) => depeering.reason,
+                    _ => reason,
                 };
                 self.begin_termination(sender, reason, false);
             }
@@ -558,7 +563,8 @@ impl PeerNode {
     }
 
     /// Ends a terminating peering. Its accounts and channel stay; asking
-    /// the node again waits a while, a long while if an owner ended it.
+    /// the node again waits a while, a long while if an owner ended it or
+    /// it was for room.
     fn end_peering(&mut self, peer: NodeId) {
         let now = self.now_ms;
         let (min, max) = (self.config.min_backoff_ms, self.config.max_backoff_ms);
@@ -572,8 +578,9 @@ impl PeerNode {
             return;
         };
         entry.advertise = Advertise::default();
-        let wait = if termination.reason == TerminationReason::Owner {
-            // Nor does it take the peer's requests: the owner meant it.
+        let wait = if keeps_away(termination.reason) {
+            // Nor does it take the peer's requests: the owner meant it, and
+            // a link that stayed short is not formed again at once (D33).
             entry.refuse_until_ms = now.saturating_add(cooldown);
             cooldown
         } else {
@@ -612,4 +619,14 @@ impl PeerNode {
         let timeout = self.config.request_timeout_ms;
         self.send(sender, &content, Purpose::Gossip, timeout);
     }
+}
+
+/// Whether an end for `reason` keeps the two nodes apart for the owner's
+/// cooldown, both ways: one the owner chose, and one for want of room,
+/// which formed again at once would only stick again (D33).
+const fn keeps_away(reason: TerminationReason) -> bool {
+    matches!(
+        reason,
+        TerminationReason::Owner | TerminationReason::ShortOfRoom
+    )
 }

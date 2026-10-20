@@ -142,9 +142,9 @@ The node that ends a peering collects first, and tells the peer only then, unles
 3. **Then it tells the peer:** it stops advertising it, takes no new Prepares to or from it, and sends `peeringTermination` until it is acknowledged or times out. Responses still flow.
 4. **The other side ends at once** when the message arrives, as the node does that is told first when both decided: it stops advertising and routing to the peer, takes no new Prepares and settles nothing.
 5. Once the exchange is over, no packet is in flight with the peer and no response to it waits to be sent again, the peering ends. Neither side settles anything for the end ([Settlement](settlement.md#settling-at-a-peerings-end)): what the books show stays owed, for a later peering to settle.
-6. The node does not ask the peer again for a while after an owner's termination, and refuses its requests meanwhile. That cooldown does not survive a restart; a ban is the lasting way.
+6. After an owner's termination, or one for room, the two do not peer again for a while: neither asks the other, and each refuses the other's requests meanwhile ([D33](../decisions/D33-a-peering-ended-for-room-stays-apart-and-earns-no-credit-back.md)). A node collecting for its owner, or for room, keeps its reason when the peer tells it first. That cooldown does not survive a restart; a ban is the lasting way. After any other end, asking again waits only a backoff.
 
-**Termination ends a peering, not a relationship.** The peer's accounts stay, with their balances, as the record of what is owed, and so does the settlement channel with its sequence ([Settlement channels](#settlement-channels)). A settlement that arrives after the peering ended is still credited once, and a later peering with the node reuses both without posting trust twice. A termination under way survives a restart, and so does a decision to end a peering; its steps start again after it.
+**Termination ends a peering, not a relationship.** The peer's accounts stay, with their balances, as the record of what is owed, and so does the settlement channel with its sequence ([Settlement channels](#settlement-channels)). A settlement that arrives after the peering ended is still credited once, and a later peering with the node reuses both without posting trust twice. The channel also remembers that the node ended a peering for room, so a later one raises the peer no credit ([Settlement](settlement.md#credit)). A termination under way survives a restart, and so does a decision to end a peering; its steps start again after it.
 
 ### One-sided peerings
 
@@ -171,9 +171,9 @@ Routing runs a breadth-first search from this node over edges that both ends adv
 
 ## Persistence
 
-The peer node's state is written in the same transaction as the ledger, on every change (`crates/dassie-peer/src/persist.rs`, `crates/dassie-node/src/store/peer.rs`). What survives a restart is chosen so that a restart neither drops a peer nor forgives one: peerings with when each was last heard from and how long its room has been short, peerings being ended (decided or told), replay floors, the own sequence, the majority, settlement channels and bans. Link states were verified when received and are not verified again.
+The peer node's state is written in the same transaction as the ledger, on every change (`crates/dassie-peer/src/persist.rs`, `crates/dassie-node/src/store/peer.rs`). What survives a restart is chosen so that a restart neither drops a peer nor forgives one: peerings with when each was last heard from and how long its room has been short, peerings being ended (decided or told), replay floors, the own sequence, the majority, settlement channels (with whether a peering with the node was ended for room) and bans. Link states were verified when received and are not verified again.
 
-What is lost is either fetched again (bootstrap lists) or only paces the node's own attempts: backoffs, flood counters, hold-downs and the owner-termination cooldown. A peering attempt cut short by a restart is dropped.
+What is lost is either fetched again (bootstrap lists) or only paces the node's own attempts: backoffs, flood counters, hold-downs and the cooldown after a termination. A peering attempt cut short by a restart is dropped.
 
 ## Tests
 
@@ -188,3 +188,4 @@ The `peer` simulation (`dassie_peer::sim::chaos`) runs this protocol on a rough 
 - [D20](../decisions/D20-trust-follows-what-a-peer-earned-us.md): junior and senior.
 - [D23](../decisions/D23-each-node-books-its-own-fulfills.md): only the owner bans.
 - [D31](../decisions/D31-a-node-peers-on-a-scheme-only-once-it-has-seen-its-ledger.md): no peering on a scheme before its first sync.
+- [D33](../decisions/D33-a-peering-ended-for-room-stays-apart-and-earns-no-credit-back.md): a pair parted for room stays apart for the cooldown, and earns no credit back.
