@@ -403,11 +403,12 @@ impl PeerNode {
                     };
                     let advertise = &entry.advertise;
                     // Short of room: withdrawn once the grace is over, and
-                    // ended once it stays short as long as a silent peer.
-                    // The time short grows only at checks, which come with
-                    // an input: due at once when one passed a limit.
+                    // ended once it stays short, while it could be reached,
+                    // as long as a silent peer. The time short grows only
+                    // at checks, which come with an input: due at once when
+                    // one passed a limit.
                     let stuck = peering.short_for_ms >= config.advertise_short_grace_ms;
-                    let ended = if !ending && peering.short_for_ms >= config.peer_dead_ms {
+                    let ended = if !ending && peering.short_reached_ms >= config.peer_dead_ms {
                         now
                     } else {
                         u64::MAX
@@ -488,6 +489,9 @@ impl PeerNode {
     /// Terminates peers whose room in our books has been short of a packet,
     /// without a settlement, for as long as a silent peer is kept: a link
     /// that stuck, or drifted past what it survives, is not saved (D12).
+    /// Only the time it could be reached counts: a peer our requests to
+    /// settle surely never reached had no chance to settle, and is ended
+    /// for its silence if it is also silent, never for room.
     fn terminate_short(&mut self) {
         let dead = self.config.peer_dead_ms;
         let short: Vec<NodeId> = self
@@ -495,7 +499,7 @@ impl PeerNode {
             .iter()
             .filter(|(_, entry)| {
                 entry.active_peering().is_some_and(|peering| {
-                    peering.depeering.is_none() && peering.short_for_ms >= dead
+                    peering.depeering.is_none() && peering.short_reached_ms >= dead
                 })
             })
             .map(|(id, _)| *id)

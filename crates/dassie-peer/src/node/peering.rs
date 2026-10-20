@@ -371,6 +371,7 @@ impl PeerNode {
             inbound,
             last_seen_ms: now,
             short_for_ms: 0,
+            short_reached_ms: 0,
             depeering: None,
         });
         entry.peering_failures = 0;

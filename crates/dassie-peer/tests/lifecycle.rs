@@ -705,6 +705,115 @@ fn a_peer_ended_for_room_is_not_peered_again_within_the_cooldown() {
     assert!(network.node(0).channel(&b).unwrap().ended_for_room);
 }
 
+/// Node 0 checks `peer` every second for `ms`, as its settlement checks do
+/// in dev, finds it short, and asks it to settle at each check: a peer
+/// short of room is always close enough to be asked, and one that cannot
+/// be reached is asked at every check (D12).
+fn report_asking(network: &mut Network, peer: &NodeId, ms: u64) {
+    let end = network.now + ms;
+    while network.now < end {
+        network.act(0, |node, now| {
+            node.room(now, peer, SHORT);
+            // Too much in flight, or a peering being ended, asks nothing.
+            let _ = node.request_settlement(now, peer, stub());
+        });
+        settle(network, 1_000);
+    }
+}
+
+/// Whether node 0 decided to end its peering with `peer` for `reason`.
+fn depeered(network: &Network, peer: &NodeId, reason: TerminationReason) -> bool {
+    network.events.iter().any(|(at, event)| {
+        *at == 0
+            && *event
+                == Event::Depeering {
+                    peer: *peer,
+                    reason,
+                }
+    })
+}
+
+// Cut off one way, node 0's requests never reach node 1, while node 1's
+// reach node 0 and are answered, so each still hears the other. Short of
+// room for twice as long as a silent peer is kept, node 1 is withdrawn,
+// since the link carries nothing, but not ended for room: every request to
+// settle failed before it reached node 1, so it had no chance to settle,
+// and an end for room would keep the pair apart and raise node 1 no credit
+// again (D12, D33). Once it is reached again, only the time it is reached
+// counts toward the end.
+#[test]
+fn a_peer_out_of_reach_is_not_ended_for_room() {
+    let (mut network, a, b) = peered(53);
+    network.cut_one_way.insert((0, 1));
+    report_asking(&mut network, &b, CONFIG.peer_dead_ms * 2);
+    assert!(
+        network
+            .events
+            .iter()
+            .any(|(at, event)| *at == 0
+                && *event == Event::SettlementRequestNotDelivered { peer: b }),
+        "a request to settle reached the peer"
+    );
+    assert!(
+        !depeered(&network, &b, TerminationReason::ShortOfRoom),
+        "ended for room"
+    );
+    assert!(
+        network.node(1).peering_of(&a).is_some(),
+        "ended by the peer"
+    );
+    let peering = network.node(0).peering_of(&b).unwrap();
+    assert!(peering.depeering.is_none(), "ended");
+    assert!(peering.short_for_ms >= CONFIG.peer_dead_ms);
+    // Up to one check before the first failed request came back.
+    assert!(
+        peering.short_reached_ms <= 1_000,
+        "{}",
+        peering.short_reached_ms
+    );
+    assert!(!network.node(0).is_advertised(&b), "still advertised");
+    assert!(
+        network.events.iter().any(|(at, event)| *at == 0
+            && *event
+                == Event::Advertised {
+                    peer: b,
+                    on: false,
+                    short: true
+                }),
+        "not withdrawn for room"
+    );
+    network.cut_one_way.clear();
+    report_asking(&mut network, &b, CONFIG.peer_dead_ms - 10_000);
+    assert!(
+        !depeered(&network, &b, TerminationReason::ShortOfRoom),
+        "the cut counted"
+    );
+    report_asking(&mut network, &b, 12_000);
+    assert!(
+        depeered(&network, &b, TerminationReason::ShortOfRoom),
+        "not ended for room"
+    );
+}
+
+// A peer that is reached and stays short is ended for room, though it
+// refuses every request to settle, as an overloaded node would (503):
+// only a request that surely never arrived spares it.
+#[test]
+fn a_peer_that_refuses_to_settle_is_ended_for_room() {
+    let (mut network, _, b) = peered(54);
+    network.refuse_settlement_requests.insert(1, 503);
+    report_asking(&mut network, &b, CONFIG.peer_dead_ms - 2_000);
+    assert!(
+        !depeered(&network, &b, TerminationReason::ShortOfRoom),
+        "ended early"
+    );
+    report_asking(&mut network, &b, 4_000);
+    assert!(
+        depeered(&network, &b, TerminationReason::ShortOfRoom),
+        "not ended for room"
+    );
+}
+
 // How long a peer has been short of room is kept across a restart, so a
 // node that restarts more often than a day still ends a link that stays
 // short; and the time the node was down does not count, since it could not

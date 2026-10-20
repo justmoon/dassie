@@ -215,7 +215,14 @@ pub struct Peering {
     /// which the node could ask it to settle, so neither the node's
     /// downtime nor an outage of its ledger counts. Kept across a restart,
     /// so a node that restarts often still ends a link that stays short.
+    /// It withdraws the peer.
     pub short_for_ms: u64,
+    /// How much of [`short_for_ms`](Self::short_for_ms) passed while the
+    /// peer could be reached: the last request to settle was not one that
+    /// surely never arrived. Only this ends the peering for room, so a peer
+    /// cut off from us is ended for its silence, if at all, never for room
+    /// it had no chance to restore (D12). Kept across a restart too.
+    pub short_reached_ms: u64,
     /// Our decision to end it, while we collect first (D28).
     pub depeering: Option<Depeering>,
 }
@@ -326,6 +333,10 @@ pub struct Advertise {
     /// The last check that found the peer short while the node could ask:
     /// the next one adds the time since. Not kept across a restart.
     pub short_checked_ms: Option<u64>,
+    /// Whether the last request to settle that came back surely never
+    /// reached the peer (D12). Not kept across a restart, whose first
+    /// check adds nothing anyway.
+    pub settle_unreached: bool,
 }
 
 /// What a settlement check found of the room our books give a peer (D12).
@@ -334,7 +345,9 @@ pub enum Room {
     /// Short of a packet: the time since the last check counts, up to
     /// `most_ms`. A few check intervals: a node that stalled (its host
     /// suspended, or its clock jumped) did not ask, so its gap is not the
-    /// peer's.
+    /// peer's. It counts toward ending the peering only while the peer
+    /// could be reached: the last request to settle was not one that surely
+    /// never arrived.
     Short {
         /// The most this check adds.
         most_ms: u64,
@@ -450,6 +463,7 @@ impl Entry {
                 hold_until_ms: 0,
                 flaps: 0,
                 short_checked_ms: None,
+                settle_unreached: false,
             },
             one_sided_at_ms: None,
             refuse_until_ms: 0,

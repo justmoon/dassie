@@ -229,6 +229,10 @@ pub struct Network {
     rng: SeededRng,
     /// Pairs that cannot reach each other.
     pub cut: BTreeSet<(usize, usize)>,
+    /// Pairs cut one way: the first's requests never reach the second,
+    /// while the second's reach the first and are answered, so each still
+    /// hears the other.
+    pub cut_one_way: BTreeSet<(usize, usize)>,
     /// The address each node's requests come from, as the HTTP layer sees
     /// it: none, unless set here.
     pub sources: BTreeMap<usize, IpAddr>,
@@ -289,6 +293,7 @@ impl Network {
             sequence: 0,
             rng: SeededRng::new(rng.next_u64()),
             cut: BTreeSet::new(),
+            cut_one_way: BTreeSet::new(),
             sources: BTreeMap::new(),
             trace: Vec::new(),
             events: Vec::new(),
@@ -508,6 +513,7 @@ impl Network {
         }
         if self.cut.contains(&(from, to))
             || self.cut.contains(&(to, from))
+            || self.cut_one_way.contains(&(from, to))
             || self.chance(self.faults.loss)
         {
             let delay = self.latency();
