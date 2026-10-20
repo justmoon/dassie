@@ -3,11 +3,15 @@
 //!
 //! In order: the environment is checked, the database opened and migrated,
 //! the sockets taken from systemd or bound, the certificate loaded or made,
-//! and the services started. Readiness is reported then, without waiting on
-//! the network; the original waited for its first ACME check, and in its
-//! standalone runtime ran that check before anything listened on port 80
-//! (RT-8). On SIGTERM it stops accepting, lets requests finish, closes the
-//! database and removes the socket it made (RT-7).
+//! and the services started. Readiness is reported once the engine has
+//! committed its first step, or at once on a node not set up yet, without
+//! waiting on the network; the original waited for its first ACME check,
+//! and in its standalone runtime ran that check before anything listened on
+//! port 80 (RT-8). An engine that fails [`supervisor::START_ATTEMPTS`] times
+//! before that ends the daemon with an error, so a release that cannot run
+//! its engine fails its start (spec/areas/node.md#readiness). On SIGTERM it
+//! stops accepting, lets requests finish, closes the database and removes
+//! the socket it made (RT-7).
 //!
 //! The steps that adopt sockets run before the tokio runtime exists
 //! ([`Prepared::new`]); the rest runs inside it ([`run`]).
@@ -29,6 +33,7 @@ use crate::env::{Env, EnvError, Settings};
 use crate::log::target;
 use crate::node::{Node, NodeError, NodeOptions, PeerOptions, Policies, Runtime};
 use crate::store::{Store, StoreError};
+use crate::supervisor::{BeforeUp, Start};
 use crate::systemd::{self, ActivationError, Notifier};
 use crate::{http, ipc, supervisor, tls};
 
@@ -54,6 +59,13 @@ pub enum DaemonError {
     Signals,
     /// TLS could not be set up.
     Tls(rustls::Error),
+    /// A service the node needs failed every attempt before the node was up.
+    StartFailed {
+        /// The service.
+        service: &'static str,
+        /// Why it last stopped.
+        error: String,
+    },
 }
 
 impl fmt::Display for DaemonError {
@@ -66,6 +78,11 @@ impl fmt::Display for DaemonError {
             Self::Node(error) => error.fmt(f),
             Self::Signals => f.write_str("could not listen for SIGTERM and SIGINT"),
             Self::Tls(error) => write!(f, "TLS: {error}"),
+            Self::StartFailed { service, error } => write!(
+                f,
+                "the {service} service failed {} times while starting; last: {error}",
+                supervisor::START_ATTEMPTS
+            ),
         }
     }
 }
@@ -166,6 +183,13 @@ impl Prepared {
             notifier: None,
         }
     }
+
+    /// For tests: readiness goes to `notifier`, as to systemd's.
+    #[must_use]
+    pub fn notifying(mut self, notifier: Notifier) -> Self {
+        self.notifier = Some(notifier);
+        self
+    }
 }
 
 /// `DASSIE_IPC_SOCKET_PATH`, or `$XDG_RUNTIME_DIR/dassie.sock`, or
@@ -245,8 +269,18 @@ pub async fn run(
             return Err(DaemonError::Bind("the IPC socket".into(), error));
         }
     };
-    report_ready(&node, notifier.as_ref());
-    shutdown.cancelled().await;
+    let outcome = match until_up(&node, &shutdown).await {
+        Some(Start::Up) => {
+            report_ready(&node, notifier.as_ref());
+            shutdown.cancelled().await;
+            Ok(())
+        }
+        Some(Start::Failed { service, error }) => {
+            shutdown.cancel();
+            Err(DaemonError::StartFailed { service, error })
+        }
+        Some(Start::Starting) | None => Ok(()),
+    };
     tracing::info!(target: target::DAEMON, "shutting down");
     if let Some(notifier) = &notifier {
         let _ = notifier.notify("STOPPING=1");
@@ -263,7 +297,19 @@ pub async fn run(
         let _ = std::fs::remove_file(path);
     }
     tracing::info!(target: target::DAEMON, "stopped");
-    Ok(())
+    outcome
+}
+
+/// Waits until the node is up or its start failed; `None` if shutdown came
+/// first.
+async fn until_up(node: &Node, shutdown: &CancellationToken) -> Option<Start> {
+    let mut start = node.services().start();
+    tokio::select! {
+        () = shutdown.cancelled() => None,
+        start = start.wait_for(|start| *start != Start::Starting) => {
+            start.ok().map(|start| start.clone())
+        }
+    }
 }
 
 /// What the node is made from, besides its sockets.
@@ -415,7 +461,8 @@ fn start_services(
         Arc::new(listeners.1),
         Arc::new(listeners.2),
     );
-    let spawn = |name, service| supervise(node, services, shutdown, name, service);
+    let spawn =
+        |name, service| supervise(node, services, shutdown, name, BeforeUp::Restart, service);
     spawn(
         "http",
         Box::new(move |node, shutdown| {
@@ -445,8 +492,13 @@ fn start_services(
         "sessions",
         Box::new(|node, shutdown| Box::pin(prune_sessions(node, shutdown))),
     );
-    spawn(
+    // The node is up once the engine works.
+    supervise(
+        node,
+        services,
+        shutdown,
         "engine",
+        BeforeUp::FailStart,
         Box::new(|node, shutdown| Box::pin(crate::engine::run(node, shutdown))),
     );
     spawn(
@@ -472,6 +524,7 @@ fn supervise(
     services: &TaskTracker,
     shutdown: &CancellationToken,
     name: &'static str,
+    before_up: BeforeUp,
     service: Service,
 ) {
     let (node_, shutdown_) = (Arc::clone(node), shutdown.clone());
@@ -479,6 +532,7 @@ fn supervise(
         services,
         node.services(),
         name,
+        before_up,
         shutdown.clone(),
         move || service(Arc::clone(&node_), shutdown_.clone()),
     );

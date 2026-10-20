@@ -62,7 +62,7 @@ The original's layout, kept for operators' habits and docs. Each version is unpa
 
 `resources/systemd`, carried in each bundle, so a version installs its own units. The unit files explain their options.
 
-- `dassie.service` is socket-activated ([Node](node.md#runtimes)) and sandboxed. Its readiness timeout bounds how long an update waits for the new node before rolling back.
+- `dassie.service` is socket-activated ([Node](node.md#runtimes)) and sandboxed. The node reports readiness once its engine works ([Node](node.md#readiness)), and exits if it cannot start the engine. Its readiness timeout bounds how long an update waits for the new node before rolling back.
 - `dassie-update.timer` runs `dassie update` daily. An owner who went back to an older version and wants to stay there stops it, since it would move the node forward again.
 - The owner's changes belong in drop-ins, which updates leave alone.
 
@@ -88,7 +88,7 @@ The original's layout, kept for operators' habits and docs. Each version is unpa
 
 ### Rolling back
 
-If the node does not come up after the switch, the update disables and removes the units the new version added, puts back the old version's units and `current`, stops the node, puts back the database if it must, and starts the old version again. No unit of the new version stays behind for systemd to start, at the next boot or otherwise.
+If the node does not come up after the switch, the update disables and removes the units the new version added, puts back the old version's units and `current`, stops the node, puts back the database if it must, and starts the old version again. No unit of the new version stays behind for systemd to start, at the next boot or otherwise. Coming up means reporting readiness, which a node whose engine cannot start on the database never does ([Node](node.md#readiness)).
 
 - **Why the database:** a version refuses a database whose schema is newer than it knows ([Node](node.md#database)), so after a migration the old version could not start. The daemon keeps a copy from just before it migrated, taken before it served anything, so nothing the copy lacks has reached a peer.
 - **Only when it must, and only a copy it can trust:** the updater puts the copy back only if the old version could not open the database as it is, only if the copy was made by this update (by its time), and only if the old version can open the copy (`store::restore_pre_migration`).
@@ -109,3 +109,4 @@ If the node does not come up after the switch, the update disables and removes t
 - [D14](../decisions/D14-build-system.md): the Nix flake for release builds, cross-compiled with musl.
 - [D21](../decisions/D21-tooling-on-node-and-pnpm-not-deno.md): the wallet's packages fetched from the lockfile's hashes.
 - [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md): releases are to wait for the simulation campaign; that check is [not built](../roadmap.md#continuous-simulation).
+- [D30](../decisions/D30-a-node-is-up-once-its-engine-has-committed-a-step.md): a release whose engine cannot start fails its start, and is rolled back.

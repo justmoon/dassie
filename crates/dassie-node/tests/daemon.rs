@@ -11,8 +11,14 @@
 
 mod support;
 
+use std::os::unix::net::UnixDatagram;
+use std::time::Duration;
+
 use bytes::Bytes;
 use dassie_identity::NodeKey;
+use dassie_node::clock::ManualClock;
+use dassie_node::daemon::DaemonError;
+use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, request::Method, response};
 use dassie_node_core::DAY_MS;
 use futures_util::StreamExt;
@@ -584,4 +590,98 @@ async fn shutdown_closes_sockets_with_going_away() {
     node.stop().await;
     assert_eq!(waiter.await.unwrap(), Some(1001));
     assert!(!ipc_path.exists());
+}
+
+/// What reached the notification socket so far.
+fn notifications(socket: &UnixDatagram) -> Vec<String> {
+    socket.set_nonblocking(true).unwrap();
+    let mut buffer = [0; 64];
+    let mut received = Vec::new();
+    while let Ok(length) = socket.recv(&mut buffer) {
+        received.push(String::from_utf8_lossy(&buffer[..length]).into_owned());
+    }
+    received
+}
+
+/// Waits for `expected` on the notification socket, skipping the others.
+async fn until_notified(socket: &UnixDatagram, expected: &str) {
+    for _ in 0..500 {
+        if notifications(socket)
+            .iter()
+            .any(|message| message == expected)
+        {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("no {expected}");
+}
+
+// spec/areas/node.md#readiness: a node waiting for its owner is ready at
+// once, and a set-up one once its engine has committed its first step.
+#[tokio::test]
+async fn readiness_is_reported_before_and_after_setup() {
+    let sockets = tempfile::tempdir().unwrap();
+    let path = sockets.path().join("notify");
+    let notify = UnixDatagram::bind(&path).unwrap();
+    let node = Bound::new()
+        .notifying(&path)
+        .start(ManualClock::new(START_MS), 1, Policies::DEFAULT, &[])
+        .await;
+    until_notified(&notify, "READY=1").await;
+    set_up(&node, &key()).await;
+    let (dir, clock) = node.stop().await;
+    let node = Bound::bind_in(dir)
+        .notifying(&path)
+        .start(clock, 2, Policies::DEFAULT, &[])
+        .await;
+    until_notified(&notify, "READY=1").await;
+    // The engine answers.
+    let ledgers = node
+        .ipc()
+        .await
+        .call(Method::ListLedgers(proto::ListLedgersRequest {}))
+        .await;
+    assert!(ledgers.is_ok(), "{ledgers:?}");
+    node.stop().await;
+}
+
+// A release whose engine fails at every start fails its start, so that
+// `dassie update` rolls back. Before, the daemon reported ready at once and
+// ran on without an engine until the next release.
+#[tokio::test]
+async fn an_engine_that_fails_at_every_start_ends_the_daemon_unready() {
+    let node = TestNode::start().await;
+    set_up(&node, &key()).await;
+    let (dir, clock) = node.stop().await;
+    // A scheme this version does not know: its engine cannot start on this
+    // database.
+    let database = dir
+        .path()
+        .join("state")
+        .join(dassie_node::store::DATABASE_FILE);
+    rusqlite::Connection::open(database)
+        .unwrap()
+        .execute(
+            "INSERT INTO settlement_schemes (id, config, activated_at_ms) \
+             VALUES ('nonesuch', '{}', 0)",
+            [],
+        )
+        .unwrap();
+    let sockets = tempfile::tempdir().unwrap();
+    let path = sockets.path().join("notify");
+    let notify = UnixDatagram::bind(&path).unwrap();
+    let node = Bound::bind_in(dir)
+        .notifying(&path)
+        .start(clock, 2, Policies::DEFAULT, &[])
+        .await;
+    let (outcome, _dir) = node.ended().await;
+    match outcome {
+        Err(DaemonError::StartFailed { service, error }) => {
+            assert_eq!(service, "engine");
+            assert_eq!(error, "returned");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(notifications(&notify), ["STOPPING=1"]);
 }

@@ -31,6 +31,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [D27](D27-simulations-run-continuously-from-random-seeds.md) | Simulations run continuously, from random seeds (partly built) | testing |
 | [D28](D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md) | A node that ends a peering collects first, and pays nothing | network, settlement, peer-protocol, connector |
 | [D29](D29-a-grants-debit-limit-is-in-its-wallets-asset.md) | A grant's debit limit is in its wallet's asset | payments |
+| [D30](D30-a-node-is-up-once-its-engine-has-committed-a-step.md) | A node is up once its engine has committed a step | node, release |
 
 ## Adding or changing a decision
 
