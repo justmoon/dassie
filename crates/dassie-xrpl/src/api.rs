@@ -83,6 +83,14 @@ pub fn tx(id: u64, hash: &[u8; 32], min: u32, max: u32) -> Vec<u8> {
     )
 }
 
+/// The transaction `hash`, wherever the server's history has it. Without
+/// a range the answer can say that it applied, never that it did not; a
+/// server searches a range of at most 1000 ledgers.
+#[must_use]
+pub fn tx_anywhere(id: u64, hash: &[u8; 32]) -> Vec<u8> {
+    request(id, "tx", json!({ "transaction": hex_upper(hash) }))
+}
+
 /// Submits a signed transaction.
 #[must_use]
 pub fn submit(id: u64, blob: &[u8]) -> Vec<u8> {
