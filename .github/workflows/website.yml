@@ -109,4 +109,4 @@ jobs:
         if: steps.gcp.outcome == 'success'
         run: scripts/website/check.sh https://dassie.land/
       - if: steps.gcp.outcome != 'success'
-        run: echo "::notice::No GCP_WORKLOAD_IDENTITY_PROVIDER in the Website environment: built, not published"
+        run: echo "::notice::Built, not published (no GCP_WORKLOAD_IDENTITY_PROVIDER in the Website environment)"
