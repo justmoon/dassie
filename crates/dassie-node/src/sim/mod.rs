@@ -662,6 +662,14 @@ impl Sim {
                 let to = self.nodes.len();
                 let to = (0..to).find(|i| url(*i) == request.url).unwrap();
                 let generation = self.nodes[index].generation;
+                // When a node asks a peer to settle, so that the checks can
+                // tell how long it waited for the answer (D28).
+                if dassie_peer::wire::peek_kind(&request.body)
+                    == Some(dassie_peer::wire::Kind::SettlementRequest)
+                {
+                    self.trace
+                        .push(format!("{} {index} asks {to} to settle", self.now));
+                }
                 if self.rng.next_u64() % 1000 < self.loss_per_mille
                     || self.cut.contains(&(index, to))
                 {

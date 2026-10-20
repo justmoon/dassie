@@ -277,9 +277,11 @@ fn terminate(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
 }
 
 /// What node `with` said it had on its way, when node `index`, ending their
-/// peering, asked it a last time, was booked before `index` told it (D28):
+/// peering, asked it a last time, was booked before `index` told it, unless
+/// `index` waited the whole time for it first (D28): between honest nodes,
 /// no settlement crosses the end. Booked, not announced: on the XRP Ledger
-/// the ledger may show it before its message arrives, or after.
+/// the ledger may show it before its message arrives, or after, and even
+/// before `index` decided to end the peering.
 fn collected_before_telling(
     sim: &Sim,
     mark: usize,
@@ -287,33 +289,60 @@ fn collected_before_telling(
     with: usize,
 ) -> Result<(), Outcome> {
     let peer = format!("{:?}", key(with).node_id());
-    let lines = &sim.trace[mark..];
+    let trace = &sim.trace;
     let answered =
         format!(" {index} PeerNode(SettlementRequestAnswered {{ peer: {peer}, settling: Some(");
     let telling = format!(" {index} PeerNode(Terminating {{ peer: {peer}");
-    let Some(told) = lines.iter().position(|line| line.contains(&telling)) else {
+    let Some(told) = trace[mark..]
+        .iter()
+        .position(|line| line.contains(&telling))
+        .map(|told| mark + told)
+    else {
         return Ok(());
     };
-    let Some((at, promised)) = lines[..told]
+    let Some((at, promised)) = trace[mark..told]
         .iter()
         .enumerate()
         .rev()
         .find_map(|(at, line)| {
             let rest = &line[line.find(&answered)? + answered.len()..];
-            Some((at, rest[..rest.find(')')?].parse::<u64>().ok()?))
+            Some((mark + at, rest[..rest.find(')')?].parse::<u64>().ok()?))
         })
     else {
         return Ok(());
     };
+    // Telling once the wait from the ask has passed is the rule too: the
+    // settlement may still be on its way, or booked before the ask, which
+    // the node does not count.
+    let asking = format!(" {index} asks {with} to settle");
+    let asked = trace[mark..at]
+        .iter()
+        .rev()
+        .find(|line| line.contains(&asking))
+        .and_then(|line| trace_ms(line));
+    if let (Some(asked), Some(told_ms)) = (asked, trace_ms(&trace[told]))
+        && told_ms >= asked.saturating_add(sim.peer.depeer_wait_ms)
+    {
+        return Ok(());
+    }
     let booking = format!(" {index} Settlement(SettlementBooked {{ from: {peer}, amount: ");
-    // Counted from the decision: the settlement may arrive before the
-    // answer that announced it.
+    // Counted from the decision, or from when `with` started the settlement
+    // it named, if earlier: the settlement may be booked before the answer
+    // that names it, and even before the decision.
     let decided = format!(" {index} PeerNode(Depeering {{ peer: {peer}");
-    let from = lines[..at]
+    let decision = trace[mark..at]
         .iter()
         .rposition(|line| line.contains(&decided))
-        .unwrap_or(at);
-    let booked: u64 = lines[from..told]
+        .map_or(at, |decision| mark + decision);
+    let started = format!(
+        " {with} Settlement(Settling {{ node: {:?}, amount: {promised}, ",
+        key(index).node_id()
+    );
+    let from = trace[..at]
+        .iter()
+        .rposition(|line| line.contains(&started))
+        .map_or(decision, |started| started.min(decision));
+    let booked: u64 = trace[from..told]
         .iter()
         .filter_map(|line| {
             let rest = &line[line.find(&booking)? + booking.len()..];
@@ -326,6 +355,11 @@ fn collected_before_telling(
     Err(Outcome::Liveness(format!(
         "node {index} told node {with} the peering ends before booking the {promised} it had on its way"
     )))
+}
+
+/// When a line of the trace happened.
+fn trace_ms(line: &str) -> Option<u64> {
+    line.split(' ').next()?.parse().ok()
 }
 
 /// Node `index` started no settlement to node `with` from its `event` on:
