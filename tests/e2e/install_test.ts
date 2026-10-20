@@ -14,7 +14,8 @@
  * 1. install.sh refuses a tampered bundle, sums signed for another
  *    version, and a canary that meta/latest names, and installs nothing;
  * 2. it installs 1.0.0: the node runs under systemd, socket-activated,
- *    and answers on port 443;
+ *    and answers on port 443; run again while an update holds the lock,
+ *    it changes nothing;
  * 3. the updater, as its timer starts it, refuses 1.0.1 tampered, or with
  *    the sums of 1.0.0, and the node runs on as it was;
  * 4. it installs 1.0.1, restarts the node, and keeps its data;
@@ -472,6 +473,22 @@ async function steps(t: TestContext, machine: Machine, mirror: Mirror) {
       "enabled",
     );
   });
+
+  await t.test(
+    "the installer changes nothing while an update runs",
+    async () => {
+      const running = await node(machine);
+      // An update holds the lock while it installs, switches and prunes.
+      const result = await machine.sh(
+        `${machine.fetch(`${mirror.url}/install.sh`, "/root/install.sh")} && ` +
+          "flock /opt/dassie/.update.lock sh -c " +
+          `'umask 077 && sh /root/install.sh --mirror ${mirror.url}'`,
+      );
+      assert(result.code !== 0, result.stdout);
+      assertStringIncludes(result.stderr, "E_UPDATE_RUNNING");
+      assertEquals(await node(machine), running);
+    },
+  );
 
   const before = await node(machine);
   await mirror.offer("1.0.1");

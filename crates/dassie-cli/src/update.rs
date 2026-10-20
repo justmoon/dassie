@@ -23,7 +23,8 @@
 //!    version again.
 //! 6. It keeps the version it came from, and removes older ones.
 //!
-//! One update runs at a time: each holds a lock on `<base>/.update.lock`.
+//! One update runs at a time: each holds a lock on `<base>/.update.lock`,
+//! which `install.sh` takes too.
 //! Each records how it went in `<base>/last-update`, for `dassie status`.
 
 use std::fs::{self, File};
@@ -366,7 +367,9 @@ pub fn release_key() -> Result<PublicKey, Problem> {
     PublicKey::parse(text).map_err(|e| format!("the built-in release key: {e}"))
 }
 
-/// Holds `<base>/.update.lock` for as long as it lives.
+/// Holds `<base>/.update.lock` for as long as it lives. `install.sh` takes
+/// the same lock with flock(1), so it must stay a flock(2) lock, which
+/// `File::try_lock` is on Linux.
 fn lock(base: &Path) -> Result<File, Problem> {
     let path = base.join(".update.lock");
     let file = File::options()
