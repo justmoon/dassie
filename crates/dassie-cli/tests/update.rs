@@ -691,6 +691,109 @@ fn goes_back_when_the_new_node_does_not_start() {
     );
 }
 
+/// Rolls back `9.9.9`, which the mirror offers, as the new node does not
+/// start; returns the stand-in systemctl, which logged it.
+fn rolled_back_9_9_9(mirror: &MirrorServer, install: &Install) -> PathBuf {
+    install.with_unit(OLD_UNIT);
+    publish(mirror, "9.9.9", &release("9.9.9"), None);
+    let systemctl = systemctl_failing_restart(install.dir.path());
+    let output = install.update_with_systemctl(mirror, &systemctl);
+    assert!(!output.status.success(), "{}", text(&output));
+    assert_eq!(install.current(), install.version);
+    systemctl
+}
+
+/// The timer does not try again, every night, a version that did not start
+/// here, which would take the node down each time: it waits for another,
+/// even across runs that fail.
+#[test]
+fn passes_over_a_rolled_back_version_until_another_is_offered() {
+    let (mirror, install) = (MirrorServer::start(), Install::new());
+    let systemctl = rolled_back_9_9_9(&mirror, &install);
+    let calls = systemctl_calls(&systemctl).len();
+    for _ in 0..2 {
+        let output = install.update_with_systemctl(&mirror, &systemctl);
+        assert!(output.status.success(), "{}", text(&output));
+        assert!(
+            text(&output).contains("The mirror offers 9.9.9, which did not start here"),
+            "{}",
+            text(&output)
+        );
+        assert!(text(&output).contains("--force"), "{}", text(&output));
+        assert_eq!(install.current(), install.version);
+        assert_eq!(systemctl_calls(&systemctl).len(), calls);
+        let record = install.last_update();
+        assert!(
+            record.contains("\noutcome=skipped\ntarget=9.9.9\nrolled-back=9.9.9\n"),
+            "{record}"
+        );
+    }
+    // A run that fails does not forget it.
+    mirror.put("meta/latest", "not a version");
+    let output = install.update_with_systemctl(&mirror, &systemctl);
+    assert!(!output.status.success(), "{}", text(&output));
+    let record = install.last_update();
+    assert!(record.contains("\noutcome=failed\n"), "{record}");
+    assert!(record.contains("\nrolled-back=9.9.9\n"), "{record}");
+    mirror.put("meta/latest", "9.9.9");
+    let output = install.update_with_systemctl(&mirror, &systemctl);
+    assert!(
+        text(&output).contains("did not start here"),
+        "{}",
+        text(&output)
+    );
+    // A newer version is installed, and the record forgets 9.9.9.
+    publish(&mirror, "9.9.10", &release("9.9.10"), None);
+    let output = install.update(&mirror, &[]);
+    assert!(output.status.success(), "{}", text(&output));
+    assert_eq!(install.current(), "9.9.10");
+    let record = install.last_update();
+    assert!(
+        record.contains("\noutcome=updated\ntarget=9.9.10\n"),
+        "{record}"
+    );
+    assert!(!record.contains("rolled-back="), "{record}");
+}
+
+/// The owner can try a rolled-back version again, by forcing it or by
+/// naming it.
+#[test]
+fn the_owner_can_install_a_rolled_back_version() {
+    for args in [&["--force"][..], &["--target-version", "9.9.9"]] {
+        let (mirror, install) = (MirrorServer::start(), Install::new());
+        rolled_back_9_9_9(&mirror, &install);
+        let output = install.update(&mirror, args);
+        assert!(output.status.success(), "{args:?}: {}", text(&output));
+        assert_eq!(install.current(), "9.9.9", "{args:?}");
+    }
+}
+
+/// Without a record that reads, the updater tries what the mirror offers,
+/// as it did before it kept one.
+#[test]
+fn tries_a_rolled_back_version_again_without_a_record_that_reads() {
+    for record in [
+        "garbage",
+        "at=1\noutcome=rolled-back\nrolled-back=not a version\n",
+    ] {
+        let (mirror, install) = (MirrorServer::start(), Install::new());
+        let systemctl = rolled_back_9_9_9(&mirror, &install);
+        fs::write(install.base().join("last-update"), record).unwrap();
+        let output = install.update_with_systemctl(&mirror, &systemctl);
+        assert!(
+            text(&output).contains("dassie 9.9.9 did not start, and"),
+            "{record}: {}",
+            text(&output)
+        );
+    }
+    let (mirror, install) = (MirrorServer::start(), Install::new());
+    rolled_back_9_9_9(&mirror, &install);
+    fs::remove_file(install.base().join("last-update")).unwrap();
+    let output = install.update(&mirror, &[]);
+    assert!(output.status.success(), "{}", text(&output));
+    assert_eq!(install.current(), "9.9.9");
+}
+
 /// A release that brings a unit the running version does not have.
 fn release_adding_a_unit(version: &str) -> Vec<u8> {
     let script = stand_in(version);

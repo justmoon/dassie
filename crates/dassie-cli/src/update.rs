@@ -8,7 +8,9 @@
 //! 1. It asks `meta/<channel>` for the newest version, and stops unless
 //!    that supersedes this one (`Version::supersedes`): a mirror cannot take
 //!    a node back or to another channel. The owner can, with
-//!    `--target-version` or `--channel`.
+//!    `--target-version` or `--channel`. Nor does it try again a version
+//!    that did not start here, as `last-update` remembers, until the mirror
+//!    offers another; the owner can, with `--force` or `--target-version`.
 //! 2. It verifies `SHA256SUMS` with the release key built into the binary,
 //!    then the bundle against its sum, before it opens the bundle.
 //! 3. It unpacks only plain files and directories under `dassie/`
@@ -119,6 +121,8 @@ enum Outcome {
     Updated(Version),
     /// This version did not come up, and the one before runs again.
     RolledBack(Version, Problem),
+    /// The mirror offers this version again, which was rolled back.
+    Skipped(Version),
     /// The update stopped, or could not go back: the problem says which.
     Failed(Problem),
 }
@@ -127,15 +131,19 @@ async fn update(options: Options) -> Result<(), Problem> {
     let install = locate()?;
     let key = release_key()?;
     let _lock = lock(&install.base)?;
-    let outcome = match attempt(&options, &install, &key).await {
+    // Without a record that reads, every version is tried, as before one.
+    let rolled_back = last_update(&install)
+        .and_then(|last| last.rolled_back)
+        .and_then(|version| Version::parse(&version).ok());
+    let outcome = match attempt(&options, &install, &key, rolled_back.as_ref()).await {
         Ok(outcome) => outcome,
         Err(problem) => Outcome::Failed(problem),
     };
-    if let Err(problem) = record(&install, &outcome) {
+    if let Err(problem) = record(&install, &outcome, rolled_back.as_ref()) {
         eprintln!("Note: could not record how the update went: {problem}");
     }
     match outcome {
-        Outcome::UpToDate | Outcome::Updated(_) => Ok(()),
+        Outcome::UpToDate | Outcome::Updated(_) | Outcome::Skipped(_) => Ok(()),
         Outcome::RolledBack(target, _) => Err(format!(
             "dassie {target} did not start, and {} runs again",
             install.version
@@ -148,11 +156,22 @@ async fn attempt(
     options: &Options,
     install: &Install,
     key: &PublicKey,
+    rolled_back: Option<&Version>,
 ) -> Result<Outcome, Problem> {
     let mirror = Mirror::new(options.mirror.as_deref())?;
     let Some(target) = choose(options, install, &mirror).await? else {
         return Ok(Outcome::UpToDate);
     };
+    // Tried again, a version that did not start would take the node down
+    // at every run of the timer, until a fix is out.
+    if rolled_back == Some(&target) && options.target.is_none() && !options.force {
+        println!(
+            "The mirror offers {target}, which did not start here, so {} runs on; \
+             waiting for a newer version. `dassie update --force` tries {target} again.",
+            install.version
+        );
+        return Ok(Outcome::Skipped(target));
+    }
     println!("Downloading dassie {target} from {}...", mirror.url);
     let bundle = mirror.bundle(key, &target).await?;
     let staging = install
@@ -281,6 +300,10 @@ pub struct LastUpdate {
     pub target: Option<String>,
     /// What went wrong, if anything.
     pub problem: Option<String>,
+    /// The version the last rollback was for, which updates pass over until
+    /// the mirror offers another; kept by every record until an update
+    /// installs a version.
+    pub rolled_back: Option<String>,
 }
 
 impl LastUpdate {
@@ -295,52 +318,74 @@ impl LastUpdate {
             let line = problem.split_whitespace().collect::<Vec<_>>().join(" ");
             text.push_str(&format!("problem={line}\n"));
         }
+        if let Some(rolled_back) = &self.rolled_back {
+            text.push_str(&format!("rolled-back={rolled_back}\n"));
+        }
         text
     }
 
     /// Reads a record; `None` if it is not one.
     fn parse(text: &str) -> Option<Self> {
         let (mut at, mut outcome, mut target, mut problem) = (None, None, None, None);
+        let mut rolled_back = None;
         for line in text.lines() {
             match line.split_once('=')? {
                 ("at", value) => at = value.parse().ok(),
                 ("outcome", value) => outcome = Some(value.to_owned()),
                 ("target", value) => target = Some(value.to_owned()),
                 ("problem", value) => problem = Some(value.to_owned()),
+                ("rolled-back", value) => rolled_back = Some(value.to_owned()),
                 _ => {}
             }
         }
+        let outcome = outcome?;
+        // A rollback an updater recorded before it kept the version apart.
+        if outcome == "rolled-back" && rolled_back.is_none() {
+            rolled_back.clone_from(&target);
+        }
         Some(Self {
             at_unix_ms: at?,
-            outcome: outcome?,
+            outcome,
             target,
             problem,
+            rolled_back,
         })
     }
 }
 
-/// Writes how the update went to `<base>/last-update`, readable by all.
-fn record(install: &Install, outcome: &Outcome) -> Result<(), Problem> {
+/// Writes how the update went to `<base>/last-update`, readable by all,
+/// with the version the last rollback was for, `rolled_back` unless this
+/// update rolled back or installed one.
+fn record(
+    install: &Install,
+    outcome: &Outcome,
+    rolled_back: Option<&Version>,
+) -> Result<(), Problem> {
     let at_unix_ms = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_or(0, |since| {
             u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
         });
+    let rolled_back = match outcome {
+        Outcome::Updated(_) => None,
+        Outcome::RolledBack(target, _) => Some(target),
+        Outcome::UpToDate | Outcome::Skipped(_) | Outcome::Failed(_) => rolled_back,
+    };
     let (outcome, target, problem) = match outcome {
         Outcome::UpToDate => ("up-to-date", None, None),
-        Outcome::Updated(target) => ("updated", Some(target.to_string()), None),
-        Outcome::RolledBack(target, problem) => (
-            "rolled-back",
-            Some(target.to_string()),
-            Some(problem.clone()),
-        ),
+        Outcome::Updated(target) => ("updated", Some(target), None),
+        Outcome::RolledBack(target, problem) => {
+            ("rolled-back", Some(target), Some(problem.clone()))
+        }
+        Outcome::Skipped(target) => ("skipped", Some(target), None),
         Outcome::Failed(problem) => ("failed", None, Some(problem.clone())),
     };
     let text = LastUpdate {
         at_unix_ms,
         outcome: outcome.into(),
-        target,
+        target: target.map(ToString::to_string),
         problem,
+        rolled_back: rolled_back.map(ToString::to_string),
     }
     .to_text();
     let path = install.base.join(LAST_UPDATE_FILE);
@@ -928,17 +973,30 @@ mod tests {
             outcome: "rolled-back".into(),
             target: Some("9.9.9".into()),
             problem: Some("systemctl restart dassie.service failed\n  (exit status: 1)".into()),
+            rolled_back: Some("9.9.9".into()),
         };
         let text = record.to_text();
-        assert_eq!(text.lines().count(), 4);
-        let read = LastUpdate::parse(&text);
+        assert_eq!(text.lines().count(), 5);
+        let read = LastUpdate::parse(&text).unwrap();
         assert_eq!(
-            read.map(|read| read.problem),
-            Some(Some(
-                "systemctl restart dassie.service failed (exit status: 1)".into()
-            ))
+            read.problem.as_deref(),
+            Some("systemctl restart dassie.service failed (exit status: 1)")
         );
+        assert_eq!(read.rolled_back.as_deref(), Some("9.9.9"));
         assert_eq!(LastUpdate::parse("outcome=updated\n"), None);
         assert_eq!(LastUpdate::parse("garbage"), None);
+    }
+
+    // A rollback recorded before records kept the version apart names it
+    // as its target.
+    #[test]
+    fn an_earlier_rollback_record_names_the_version_rolled_back() {
+        let read = LastUpdate::parse("at=1\noutcome=rolled-back\ntarget=9.9.9\nproblem=x\n");
+        assert_eq!(
+            read.and_then(|read| read.rolled_back).as_deref(),
+            Some("9.9.9")
+        );
+        let read = LastUpdate::parse("at=1\noutcome=updated\ntarget=9.9.9\n");
+        assert_eq!(read.map(|read| read.rolled_back), Some(None));
     }
 }

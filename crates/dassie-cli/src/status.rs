@@ -236,6 +236,10 @@ fn updates() -> String {
         "rolled-back" => {
             format!("{when}: {target} did not start ({problem}), so the version before runs again")
         }
+        "skipped" => format!(
+            "checked {when}: {target} did not start here before, so the node waits for a newer \
+             version (`dassie update --force` tries it again)"
+        ),
         _ => format!("{when}: the update failed: {problem}"),
     }
 }

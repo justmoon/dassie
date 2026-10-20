@@ -81,7 +81,7 @@ The original's layout, kept for operators' habits and docs. Each version is unpa
 `crates/dassie-cli/src/update.rs`, run by the timer or the owner.
 
 1. **One at a time,** under a lock in `/opt/dassie` (`flock(2)` on `.update.lock`), which `install.sh` takes too.
-2. **Choose the version** from `meta/<channel>` by the rule in [Versions and channels](#versions-and-channels). The owner may name a version (`--target-version`, older too) or a channel, or another mirror, which may be on a private network since the owner names it.
+2. **Choose the version** from `meta/<channel>` by the rule in [Versions and channels](#versions-and-channels), passing over the version the last rollback was for ([Rolling back](#rolling-back)). The owner may name a version (`--target-version`, older too) or a channel, or another mirror, which may be on a private network since the owner names it.
 3. **Verify, unpack into staging and check the new binary** ([Trust](#trust)). Modes are set explicitly, whatever the umask, since the node runs as a user of its own, and every file and directory is synced, so `current` never names a version a power cut left half written.
 4. **Switch:** install the version's units where they changed, move `current`, restart `dassie.service` and wait for its readiness. If the units or `current` cannot be put in place, `current` goes back to the version it named, which need not be the one running the update, with that version's units, and the units the new version added go, before systemd has read any of them.
 5. **Record** how it went in `/opt/dassie/last-update`, which `dassie status` reads, and **prune** every version but the new one and the one it came from.
@@ -93,13 +93,14 @@ If the node does not come up after the switch, the update disables and removes t
 - **Why the database:** a version refuses a database whose schema is newer than it knows ([Node](node.md#database)), so after a migration the old version could not start. The daemon keeps a copy from just before it migrated, taken before it served anything, so nothing the copy lacks has reached a peer.
 - **Only when it must, and only a copy it can trust:** the updater puts the copy back only if the old version could not open the database as it is, only if the copy was made by this update (by its time), and only if the old version can open the copy (`store::restore_pre_migration`).
 - The database it replaces is kept beside it (`dassie.sqlite3.rolled-back`) for the owner to look at.
+- **A version that did not start is not tried again until the mirror offers another.** Tried again, it would take the node down at every run of the timer until a fix is out. `last-update` names it, and every record keeps it, failed runs included, until an update installs a version; the updater says why it passes over it. The owner can still install it, with `--force` or `--target-version`. Without a record that reads, every version is tried, as before the first update.
 - **If the database cannot be put back, the old version is not started:** it would refuse a database too new for it, or, finding none, start afresh with another identity and no books. The node stays stopped, and the update says where the database, the one the new version left and the copy are, for the owner to choose. Nor does a node start afresh where a rollback stopped half way, whatever starts it ([Node](node.md#database)).
 
 ## Tests
 
 - `crates/dassie-cli/tests/update.rs` runs the updater against a TLS mirror signed with the test key, including tampered and mis-signed releases.
 - The store's tests check the copy before a migration, and when a rollback puts it back.
-- `tests/e2e/install_test.ts` installs, updates, rolls back and uninstalls on several distributions against `nix build .#install-test-mirror`, whose newest release's node fails to start on purpose, so the rollback runs for real ([Testing](testing.md#installer-and-updater)). It runs in the release workflow before signing, not in CI.
+- `tests/e2e/install_test.ts` installs, updates, rolls back, passes over the version it rolled back, and uninstalls on several distributions against `nix build .#install-test-mirror`, whose newest release's node fails to start on purpose, so the rollback runs for real ([Testing](testing.md#installer-and-updater)). It runs in the release workflow before signing, not in CI.
 - `scripts/release_test.ts` tests the signing script; the installer's ShellCheck runs with `nix flake check`.
 
 ## Decisions

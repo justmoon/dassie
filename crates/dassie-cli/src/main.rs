@@ -51,7 +51,8 @@ Commands:
   setup-url         Print the link that completes setup in a browser.
   update           Update Dassie to the newest version of its channel, once
                     its signature and sums check out.
-                      -f, --force                  install even if not newer
+                      -f, --force                  install even if not newer, or
+                                                   if it was rolled back
                       -t, --target-version <v>     this version instead
                       --channel latest|canary      this channel instead
                       --mirror <url>               another mirror (default:

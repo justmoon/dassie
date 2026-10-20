@@ -20,7 +20,7 @@
  *    the sums of 1.0.0, and the node runs on as it was;
  * 4. it installs 1.0.1, restarts the node, and keeps its data;
  * 5. it goes back from 1.0.2 to 1.0.1, and to the database from before
- *    1.0.2 migrated it;
+ *    1.0.2 migrated it, and its next run passes over 1.0.2;
  * 6. install.sh run again goes neither back nor to the other channel on
  *    the mirror's word, but to the other channel when asked, and stays
  *    there;
@@ -616,6 +616,19 @@ async function steps(t: TestContext, machine: Machine, mirror: Mirror) {
       assertStringIncludes(
         await machine.must("cat /opt/dassie/last-update"),
         "outcome=rolled-back\ntarget=1.0.2",
+      );
+      // The timer's next run passes over 1.0.2 rather than take the node
+      // down again.
+      const again = await update(machine);
+      assertEquals(again.code, 0, again.stdout);
+      assertStringIncludes(
+        again.stdout,
+        "The mirror offers 1.0.2, which did not start here",
+      );
+      assertEquals((await node(machine)).since, after.since);
+      assertStringIncludes(
+        await machine.must("cat /opt/dassie/last-update"),
+        "outcome=skipped\ntarget=1.0.2\nrolled-back=1.0.2",
       );
       // 1.0.2's node failed to start, and the steps after this one restart
       // the node within seconds: together that would pass systemd's limit
