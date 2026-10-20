@@ -14,8 +14,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use dassie_identity::NodeId;
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
+use tokio_util::sync::CancellationToken;
 
 use dassie_peer::wire::{
     Authentication, Envelope, MAX_MESSAGE_BYTES, MESSAGE_CONTENT_TYPE, RESPONSE_CONTENT_TYPE,
@@ -27,6 +29,7 @@ use hyper::{Request, Response, StatusCode};
 
 use super::response::{self, Body, header_str};
 use crate::node::Node;
+use crate::quic::relay::{Purpose, ServedStream};
 
 // The largest ILP packet of any type fits in a request, with room for the
 // envelope's sender, authentication and tags.
@@ -136,6 +139,28 @@ impl crate::quic::Handler for QuicHandler {
         body: crate::quic::Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
         Box::pin(answer(&self.0, client, body))
+    }
+
+    /// Open Payments only. Owner apps are not built, so the owner's purpose
+    /// is refused (D26: the wallet, `/api/*` and `/rpc` are never relayed).
+    fn serves(&self, purpose: Purpose) -> bool {
+        purpose == Purpose::Payments
+    }
+
+    fn serve_relayed<'a>(
+        &'a self,
+        purpose: Purpose,
+        client: NodeId,
+        relay: SocketAddr,
+        stream: ServedStream,
+        shutdown: CancellationToken,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        let node = Arc::clone(&self.0);
+        Box::pin(async move {
+            if purpose == Purpose::Payments {
+                super::serve_relayed(node, stream, client, relay, shutdown).await;
+            }
+        })
     }
 }
 
