@@ -673,8 +673,10 @@ async fn quotes_paid_at_once_stay_within_the_limit() {
 // takes 300, at once. Both may be made, as each saw 300 still to pay, each
 // over a connection of its own. The receiver takes 300 in all, and each
 // payment is told only what it delivered: it sends all it is to, or fails,
-// and never completes on what the other delivered. The grant is charged
-// only what was sent.
+// and never completes on what the other delivered. The one that finds the
+// incoming payment full fails at once, as the receiver closes its
+// connection, rather than offering its money until its deadline. The grant
+// is charged only what was sent.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_incoming_payment_is_not_paid_twice() {
     let (node, key) = start().await;
@@ -684,6 +686,7 @@ async fn an_incoming_payment_is_not_paid_twice() {
     let pay = json!({
         "walletAddress": host(&node), "incomingPayment": target, "debitAmount": usd(300),
     });
+    let started = node.clock.now_ms();
     let (first, second) = tokio::join!(
         post(&node, &client, "/outgoing-payments", &token, &pay),
         post(&node, &client, "/outgoing-payments", &token, &pay),
@@ -698,6 +701,9 @@ async fn an_incoming_payment_is_not_paid_twice() {
         total += value(&paid["sentAmount"]);
     }
     assert_eq!(total, 300);
+    // Well within a connection's idle timeout, and its reconnects.
+    let took = node.clock.now_ms() - started;
+    assert!(took < 30_000, "the payments took {took} ms");
     assert_eq!(
         spent(&node, &client, &token).await["spentDebitAmount"],
         usd(300)

@@ -126,6 +126,22 @@ impl Connection {
                 decision.close = Some((code, true));
             }
         }
+        let offers_money = prepare.amount > 0
+            && packet
+                .frames
+                .iter()
+                .any(|frame| matches!(frame, Frame::StreamMoney { .. }));
+        if self.money_limit == 0 && offers_money && decision.close.is_none() {
+            // What the connection pays into is full, possibly by another
+            // connection: its streams' maxima fell, which senders ignore,
+            // so they would offer money until their deadline. A close they
+            // all understand ends it; the response still reports the
+            // streams' totals, so the sender learns what it delivered.
+            // Rate probes and packets without money are answered as
+            // before, so a sender can still measure and open a stream.
+            decision.close = Some((ErrorCode::NO_ERROR, false));
+            return decision;
+        }
         let fulfillable = dassie_ilp::condition_for(&fulfillment) == prepare.execution_condition;
         let enough = prepare.amount >= packet.prepare_amount;
         let within_limit = prepare.amount <= self.money_limit;

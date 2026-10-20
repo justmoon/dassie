@@ -46,9 +46,10 @@ pub enum Admission {
     Refuse(IlpErrorCode),
     /// Let it in. The connection may receive at most `money_limit` more in
     /// total, over all its streams; `u64::MAX` means no limit beyond the
-    /// streams' own. `received` is what the application already counts as
-    /// received for this tag, over earlier connections too (see
-    /// [`Connection::set_money_limit`]).
+    /// streams' own, and 0 that it takes nothing more: a packet that
+    /// offers money then closes it. `received` is what the application
+    /// already counts as received for this tag, over earlier connections
+    /// too (see [`Connection::set_money_limit`]).
     Accept {
         /// What the connection may still receive.
         money_limit: u64,

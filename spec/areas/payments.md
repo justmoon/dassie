@@ -74,7 +74,7 @@ Each active ledger has a **payer**, a local endpoint at `<own>.pay-<slug>` that 
 - **Each packet must deliver at least the payment's rate,** its receive amount over its debit amount: a worse path fails it.
 - **It never debits more than its debit amount, across crashes too.** Its sent amount is what was posted, written with the journal row. A packet in flight at a crash was never posted, so a restart sends only the rest, on a new connection with the same credentials.
 - **It completes** once it has sent its debit amount, or, when the amount to deliver is fixed, once the receiver says it has all it asked for, or all but less than one unit sent is worth (which no packet can be sized to deliver, since hops round down). A receiver may say so although the payment heard of less, when a hop lost a Fulfill it paid for ([D23](../decisions/D23-each-node-books-its-own-fulfills.md)).
-- **It ends only with none of its packets in flight,** so what it says it sent is final. A connection that closes early is reopened for the rest, a bounded number of times, and a payment fails at its deadline (`payers.rs`).
+- **It ends only with none of its packets in flight,** so what it says it sent is final. A connection that closes early is reopened for the rest, a bounded number of times, and a payment fails at its deadline (`payers.rs`). A connection the receiver closes without an error is not reopened: the receiver takes no more, as when another payment filled the incoming payment, so the payment ends at once.
 - **To the node's own receiver** a payment goes through the connector like any other, through a bounded queue drained at the end of the engine's step, so nothing recurses.
 
 ## The node as a client

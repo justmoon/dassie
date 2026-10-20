@@ -9,9 +9,9 @@
 //! so a restart sends only the rest, on a new connection with the same
 //! credentials. A payment completes once it sent its debit amount, or once
 //! the receiver says it has what it was to get, which a hop that lost a
-//! Fulfill may have paid for (D23); it fails when the receiver keeps
-//! closing it or its deadline passes. It ends
-//! only once none of its packets is in flight, so what it says it sent is
+//! Fulfill may have paid for (D23); it fails when the receiver says it
+//! takes no more, keeps closing it, or its deadline passes. It ends only
+//! once none of its packets is in flight, so what it says it sent is
 //! final. A packet to the node's own receiver waits in a bounded queue the
 //! step drains, so nothing recurses.
 
@@ -21,7 +21,7 @@ use dassie_connector::{EndpointId, Forwarded, Outcome};
 use dassie_ilp::{Address, Timestamp};
 use dassie_ledger::{AccountName, LedgerId, OwnerSub};
 use dassie_payments::gnap::Limits;
-use dassie_stream::{AssetDetails, Config, Connection, Event, Policy, Rate, Role};
+use dassie_stream::{AssetDetails, Config, Connection, ErrorCode, Event, Policy, Rate, Role};
 
 use super::events::{EngineEvent, PaymentEvent};
 use super::{Core, EngineError, MAX_SENDS_PER_POLL};
@@ -718,10 +718,7 @@ impl Core {
         if (done || payment.stopping.is_some())
             && let Some(connection) = payment.connection.as_mut()
         {
-            connection.close(
-                Timestamp::from_unix_ms(now),
-                dassie_stream::ErrorCode::NO_ERROR,
-            );
+            connection.close(Timestamp::from_unix_ms(now), ErrorCode::NO_ERROR);
         }
         if payment.in_flight > 0 {
             return;
@@ -928,7 +925,8 @@ impl Core {
     }
 }
 
-/// Notes a connection that closed while its payment still had to send.
+/// Notes a connection that closed while its payment still had to send:
+/// to reopen, or, if the receiver ended it, to stop.
 fn closed_early(payment: &mut Unfinished) {
     let Some(connection) = payment.connection.as_mut() else {
         return;
@@ -937,6 +935,12 @@ fn closed_early(payment: &mut Unfinished) {
         if let Event::ConnectionClosed { code, by_remote } = event
             && payment.stopping.is_none()
         {
+            if by_remote && code == ErrorCode::NO_ERROR {
+                // The receiver ended it: what it pays into is full, maybe
+                // by another payment. A new connection would be closed too.
+                payment.stopping = Some("the receiver takes no more".into());
+                continue;
+            }
             payment.closed = Some(if by_remote {
                 format!("the receiver closed the payment ({code:?})")
             } else {
