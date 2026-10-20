@@ -17,7 +17,9 @@
 # - a network of its own with no firewall rule, so nothing reaches the VMs
 #   and they reach nothing of the bootstrap nodes';
 # - a spot instance template whose startup script is startup.sh, and a
-#   regional managed instance group, which recreates a VM that spot took.
+#   regional managed instance group, which starts a VM that spot stopped
+#   again once there is room (a group takes only spot VMs that stop, not
+#   ones deleted on preemption; the startup script runs at every boot).
 #
 # The GitHub App needs read and write access to issues and commit
 # statuses, and read access to pull requests (it comments on them as
@@ -69,7 +71,7 @@ run gcloud compute networks create "$network" --project="$project" \
 run gcloud compute instance-templates create "$template" --project="$project" \
   --machine-type="$machine_type" \
   --provisioning-model=SPOT \
-  --instance-termination-action=DELETE \
+  --instance-termination-action=STOP \
   --network="$network" \
   --service-account="$email" \
   --scopes=cloud-platform \
