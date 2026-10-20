@@ -13,7 +13,9 @@ use super::{PeerNode, Problem, Purpose};
 use crate::auth::Accepted;
 use crate::hooks::PeeringHooks;
 use crate::io::{Event, Inbound, InboundId, Reply};
-use crate::table::{Advertise, Entry, PeerState, Peering as PeeringState, Sources, backoff};
+use crate::table::{
+    Advertise, Entry, Network, PeerState, Peering as PeeringState, Sources, backoff,
+};
 use crate::wire::{
     Content, PeeringRequest, PeeringResponse, RefusalReason, SchemeId, SignedNodeInfo,
     decode_octets,
@@ -393,6 +395,7 @@ impl PeerNode {
         accepted: Accepted,
         content: &[u8],
         inbound: InboundId,
+        network: Option<Network>,
     ) -> Inbound<'static> {
         let Ok(Content::PeeringRequest(request)) = Content::decode_exact(content) else {
             return Inbound::Reply(Reply::refuse(400, "malformed message"));
@@ -433,6 +436,7 @@ impl PeerNode {
             inbound,
             accepted,
             sequence: request.node_info.info.sequence,
+            network,
             purpose: ProbeFor::Peering(content.to_vec()),
         };
         self.start_probe(

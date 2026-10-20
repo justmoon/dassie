@@ -1,6 +1,7 @@
 //! The node table (spec/areas/network.md#node-table): what a node knows
 //! about the others.
 
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -114,6 +115,17 @@ impl Bucket {
         }
         self.tokens -= 1;
         true
+    }
+
+    /// Puts back a token taken for something that turned out not to count.
+    pub fn give_back(&mut self, rate: Rate) {
+        self.tokens = self.tokens.saturating_add(1).min(rate.burst);
+    }
+
+    /// The tokens there now.
+    pub fn tokens(&mut self, rate: Rate, now_ms: u64) -> u32 {
+        self.refill(rate, now_ms);
+        self.tokens
     }
 
     fn refill(&mut self, rate: Rate, now_ms: u64) {
@@ -358,10 +370,11 @@ pub struct Registration {
 pub struct Network(pub [u8; 7]);
 
 impl Network {
-    /// The network of `address`.
+    /// The network of `address`. An IPv4 address mapped into IPv6, as a
+    /// dual-stack socket reports IPv4 clients, is the IPv4 address.
     #[must_use]
     pub const fn of(address: core::net::IpAddr) -> Self {
-        match address {
+        match address.to_canonical() {
             core::net::IpAddr::V4(v4) => {
                 let [a, b, c, _] = v4.octets();
                 Self([4, a, b, c, 0, 0, 0])
@@ -470,6 +483,77 @@ impl Entry {
     }
 }
 
+/// A token bucket for each network, of at most `capacity` networks. A full
+/// bucket is the same as none, so only networks that have spent something
+/// are kept; when a new one finds no room, the network that has spent
+/// least loses its bucket, which hands it at worst a fresh one.
+#[derive(Clone, Debug)]
+pub struct NetworkBuckets {
+    buckets: BTreeMap<Network, Bucket>,
+    capacity: usize,
+}
+
+impl NetworkBuckets {
+    /// No network has spent anything.
+    #[must_use]
+    pub const fn new(capacity: usize) -> Self {
+        Self {
+            buckets: BTreeMap::new(),
+            capacity,
+        }
+    }
+
+    /// Whether `network` has a token, without taking it.
+    pub fn has_token(&mut self, network: Network, rate: Rate, now_ms: u64) -> bool {
+        self.buckets
+            .get_mut(&network)
+            .is_none_or(|bucket| bucket.has_token(rate, now_ms))
+    }
+
+    /// Takes one of `network`'s tokens, if it has one.
+    pub fn take(&mut self, network: Network, rate: Rate, now_ms: u64) -> bool {
+        if !self.buckets.contains_key(&network) && self.buckets.len() >= self.capacity {
+            self.evict(rate, now_ms);
+        }
+        let bucket = self
+            .buckets
+            .entry(network)
+            .or_insert_with(|| Bucket::full(rate, now_ms));
+        bucket.take(rate, now_ms)
+    }
+
+    /// Puts back a token `network` took.
+    pub fn give_back(&mut self, network: Network, rate: Rate, now_ms: u64) {
+        let Some(bucket) = self.buckets.get_mut(&network) else {
+            return;
+        };
+        bucket.give_back(rate);
+        if bucket.tokens(rate, now_ms) >= rate.burst {
+            self.buckets.remove(&network);
+        }
+    }
+
+    /// Networks with a bucket.
+    #[must_use]
+    pub(crate) fn len(&self) -> usize {
+        self.buckets.len()
+    }
+
+    /// Frees the bucket with the most tokens, the first such by network.
+    fn evict(&mut self, rate: Rate, now_ms: u64) {
+        let mut fullest: Option<(Network, u32)> = None;
+        for (network, bucket) in &mut self.buckets {
+            let tokens = bucket.tokens(rate, now_ms);
+            if fullest.is_none_or(|(_, most)| tokens > most) {
+                fullest = Some((*network, tokens));
+            }
+        }
+        if let Some((network, _)) = fullest {
+            self.buckets.remove(&network);
+        }
+    }
+}
+
 /// Exponential backoff: `min · 2^failures`, at most `max`.
 #[must_use]
 pub fn backoff(min_ms: u64, max_ms: u64, failures: u32) -> u64 {
@@ -497,6 +581,58 @@ mod tests {
         assert!(bucket.take(rate, 10_000));
         assert!(bucket.take(rate, 10_000));
         assert!(!bucket.take(rate, 10_000));
+    }
+
+    #[test]
+    fn a_mapped_ipv4_address_is_in_its_ipv4_network() {
+        let ip = |text: &str| text.parse::<core::net::IpAddr>().unwrap();
+        assert_eq!(
+            Network::of(ip("::ffff:198.51.1.1")),
+            Network::of(ip("198.51.1.1"))
+        );
+        assert_ne!(
+            Network::of(ip("::ffff:198.51.1.1")),
+            Network::of(ip("::ffff:198.51.2.1"))
+        );
+        assert_eq!(
+            Network::of(ip("2001:db8:1::1")),
+            Network::of(ip("2001:db8:1:ffff::2"))
+        );
+        assert_ne!(
+            Network::of(ip("2001:db8:1::1")),
+            Network::of(ip("2001:db8:2::1"))
+        );
+    }
+
+    #[test]
+    fn each_network_spends_only_its_own_bucket() {
+        let rate = Rate {
+            burst: 2,
+            refill_ms: 100,
+        };
+        let net = |last: u8| Network::of(core::net::IpAddr::from([198, 51, last, 1]));
+        let mut buckets = NetworkBuckets::new(2);
+        assert!(buckets.take(net(1), rate, 0));
+        assert!(buckets.take(net(1), rate, 0));
+        assert!(!buckets.has_token(net(1), rate, 0));
+        assert!(!buckets.take(net(1), rate, 0));
+        assert!(buckets.has_token(net(2), rate, 0));
+        // A token put back is there again; a bucket full again is dropped.
+        buckets.give_back(net(1), rate, 0);
+        assert!(buckets.take(net(1), rate, 0));
+        assert!(buckets.take(net(2), rate, 0));
+        buckets.give_back(net(2), rate, 0);
+        assert_eq!(buckets.len(), 1);
+        // With no room, the network that has spent least makes way, never
+        // one that has spent everything.
+        assert!(buckets.take(net(2), rate, 0));
+        assert!(buckets.take(net(3), rate, 0));
+        assert_eq!(buckets.len(), 2);
+        assert!(
+            !buckets.take(net(1), rate, 0),
+            "net 1 kept its empty bucket"
+        );
+        assert!(buckets.take(net(1), rate, 100), "and it refills");
     }
 
     #[test]

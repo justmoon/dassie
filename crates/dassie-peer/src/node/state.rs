@@ -507,6 +507,10 @@ impl PeerNode {
             "deferred within bounds"
         );
         assert!(
+            self.network_probes.len() <= self.config.max_probe_networks,
+            "probe networks within bounds"
+        );
+        assert!(
             self.answers.len() <= self.config.max_requests,
             "retries within bounds"
         );

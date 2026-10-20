@@ -68,12 +68,14 @@ The network's members are the nodes that a majority of the bootstrap nodes list.
 
 **Bootstrap side.** Registration is free, so it is throttled instead ([roadmap](../roadmap.md#registration-fees)):
 
-- new registrations draw from a global bucket, spent only when a registration succeeds, so failing probes cannot starve real nodes;
+- new registrations draw from a global bucket, spent only when a registration succeeds;
 - one registration per URL host and port, and a cap per /24 (IPv4) or /48 (IPv6) of the address it came from;
 - before accepting a new registration, or one whose URL changed, the bootstrap node probes that URL; a renewal from the probed URL is answered at once;
 - a registration expires unless renewed, and the node leaves the served list.
 
 **Probes.** Registration and peering probe the requester's URL the same way: an authenticated `linkStateRequest` for the requester itself, which must return a verified state of that node at the registered sequence or later. That proves the URL serves the node's key. Since a requester picks the URL, probes are rate-limited, never made twice at once to the same node or host, and the requests waiting on them are bounded; a node cannot be used to hammer a third party.
+
+Every probe spends a token of the node's probe bucket, whatever its outcome: failing probes are what it is there to stop. In front of it, each /24 (IPv4) or /48 (IPv6) the requests come from has a small share of its own. A probe holds a token of its network's share while it is in flight and gives it back if it succeeds, so only failing probes spend the share. One network's failing probes therefore cannot starve requesters from other networks: keeping the bucket empty takes failing probes from many networks at once. Nodes that share a network, as dev nodes on loopback do, spend nothing on probes that succeed, and wait only while a share's worth of them is in flight. The shares are bounded in number; when they are full, the network that has spent least loses its share first.
 
 ### How a node joins
 
