@@ -236,10 +236,17 @@ fn updates() -> String {
         "rolled-back" => {
             format!("{when}: {target} did not start ({problem}), so the version before runs again")
         }
-        "skipped" => format!(
-            "checked {when}: {target} did not start here before, so the node waits for a newer \
-             version (`dassie update --force` tries it again)"
-        ),
+        "skipped" => {
+            let why = last
+                .rolled_back
+                .as_ref()
+                .and_then(|rolled_back| rolled_back.problem.as_deref())
+                .unwrap_or("no reason given");
+            format!(
+                "checked {when}: {target} did not start here before ({why}), so the node waits \
+                 for a newer version (`dassie update --force` tries it again)"
+            )
+        }
         _ => format!("{when}: the update failed: {problem}"),
     }
 }

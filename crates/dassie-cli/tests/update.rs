@@ -727,6 +727,11 @@ fn passes_over_a_rolled_back_version_until_another_is_offered() {
             record.contains("\noutcome=skipped\ntarget=9.9.9\nrolled-back=9.9.9\n"),
             "{record}"
         );
+        // Why 9.9.9 did not start stays, for `dassie status`.
+        assert!(
+            record.contains("\nrolled-back-problem=systemctl restart dassie.service failed"),
+            "{record}"
+        );
     }
     // A run that fails does not forget it.
     mirror.put("meta/latest", "not a version");
@@ -735,6 +740,10 @@ fn passes_over_a_rolled_back_version_until_another_is_offered() {
     let record = install.last_update();
     assert!(record.contains("\noutcome=failed\n"), "{record}");
     assert!(record.contains("\nrolled-back=9.9.9\n"), "{record}");
+    assert!(
+        record.contains("\nrolled-back-problem=systemctl restart dassie.service failed"),
+        "{record}"
+    );
     mirror.put("meta/latest", "9.9.9");
     let output = install.update_with_systemctl(&mirror, &systemctl);
     assert!(
@@ -752,7 +761,7 @@ fn passes_over_a_rolled_back_version_until_another_is_offered() {
         record.contains("\noutcome=updated\ntarget=9.9.10\n"),
         "{record}"
     );
-    assert!(!record.contains("rolled-back="), "{record}");
+    assert!(!record.contains("rolled-back"), "{record}");
 }
 
 /// The owner can try a rolled-back version again, by forcing it or by
