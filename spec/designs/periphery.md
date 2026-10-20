@@ -135,7 +135,7 @@ Open Payments clients reach a wallet address by DNS and HTTPS, so whoever answer
 - **Inside the relayed stream,** it runs TLS with the node's key pinned, so the relay sees only ciphertext. The front door itself sees the requests in plain text.
 - **Consent.** `GET /gnap/interact/{id}/{key}` answers with a fixed page from the front door itself, "Approve this in your Dassie app", which asks for nothing. The page checks a JSON route for the grant's state, and sends the client on to its finish URI once the owner decided (§6).
 - **Anyone can run one,** and every front door reaches every node (§5). `dassiepay.net` is a default, not a requirement, and a node is not tied to it.
-- **No Public Suffix List entry is needed.** The list makes each name its own site to browsers, which matters where names serve pages that run scripts or set cookies. A front door serves neither, so its names share only a reputation.
+- **No Public Suffix List entry is needed.** The list makes each name its own site to browsers, which matters where names serve pages that run scripts or set cookies. A front door serves no page whose content a node controls (only nodes' JSON, and its own fixed consent page) and sets no cookies, so its names share only a reputation.
 
 **The owner's own domain.** An owner can name the wallet address with a domain of their own, which can be hosted anywhere:
 
@@ -149,7 +149,7 @@ The payment pointer is then `$pay.example.com`.
 - **The list** starts with its name at the default front door, which it computes from its ID, and the owner adds names: another front door's, or a domain of their own, beside the TXT record that names the node.
 - **Each request is answered under the name it came through,** which the front door passes on: the node writes that name into the URLs of its answer, and checks the request's signature against it. A client that fetched `$pay.example.com` then finds a wallet address whose `id` is at that origin, as it must ([Payments](../areas/payments.md#the-node-as-a-client)).
 - **A request for a name not on the list is refused,** so a front door cannot make the node sign for a name its owner never chose, or take a request signed for another server.
-- **Records keep one name,** the first on the list, and the others are its aliases: a grant made under one name holds under every other, and the node recognises its own wallet under any of them.
+- **What outlives a request keeps the name it needs.** Wallet addresses are kept in their `/pay/<slug>` form ([Payments](../areas/payments.md#wallet-addresses)), so a grant made under one name holds under every other, and the node recognises its own wallet under any listed name. A pending grant keeps the name its request came through: the interaction hash covers the grant URL the client called (RFC 9635 §4.2.3), and the node computes it when the owner decides, outside any request. As a client at other wallets, the node is known by the first name on the list; changing that name changes how other wallets know it, as changing a core node's hostname does.
 
 **Checking the answer.** A node signs its Open Payments responses with its node key: RFC 9421, with `tag="dassie"`, covering `@status`, `content-digest`, and the request's `@method;req`, `@target-uri;req` and `dassie-nonce;req`, a nonce the client sends so that an old response cannot be replayed. A Dassie-aware client:
 
