@@ -388,6 +388,36 @@ fn a_sender_let_go_is_forgotten_only_once_stale() {
     at_b.check_invariants();
 }
 
+// The floors of the senders kept for good are persisted, those of
+// strangers are not, so strangers cannot make the node write; a sender let
+// go has its floor dropped only once every message from it is stale.
+#[test]
+fn only_the_floors_of_senders_kept_are_persisted() {
+    let (a, b, c) = (node(1), node(3), node(7));
+    let mut at_b = Authenticator::new(Arc::clone(&b), AuthConfig::DEFAULT, NOW - 1);
+    at_b.pin(a.node_id());
+    let (from_a, _) = request(&mut authenticator(&a), &b, NOW + 5);
+    let (from_c, _) = request(&mut authenticator(&c), &b, NOW);
+    assert_eq!(accept(&mut at_b, &from_a, NOW), Ok(()));
+    assert_eq!(accept(&mut at_b, &from_c, NOW), Ok(()));
+    let (mut floors, mut forgotten) = (Vec::new(), Vec::new());
+    at_b.take_floors(&mut floors, &mut forgotten);
+    assert_eq!(floors, vec![(a.node_id(), NOW + 5)]);
+    // A stranger pinned for what its request did has its floor persisted
+    // with that.
+    at_b.pin(c.node_id());
+    floors.clear();
+    at_b.take_floors(&mut floors, &mut forgotten);
+    assert_eq!(floors, vec![(c.node_id(), NOW)]);
+    at_b.unpin(NOW + 1, &a.node_id());
+    at_b.take_floors(&mut floors, &mut forgotten);
+    assert!(forgotten.is_empty(), "not stale yet");
+    at_b.unpin(NOW + 61_000, &a.node_id());
+    at_b.take_floors(&mut floors, &mut forgotten);
+    assert_eq!(forgotten, vec![a.node_id()]);
+    at_b.check_invariants();
+}
+
 // The MAC of a fixed request, pinned: a second implementation of v1 has to
 // produce exactly this.
 #[test]

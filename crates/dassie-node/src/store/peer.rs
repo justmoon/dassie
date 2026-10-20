@@ -1,14 +1,14 @@
 //! The peer protocol's tables (spec/areas/network.md#persistence): the node
 //! table with each node's link state, registration and peering, our own
-//! link-state sequence, settlement channels and bans (NET-1, NET-2, NET-7,
-//! ACC-18). They are written in the same transaction as the ledger, so a
+//! link-state sequence, settlement channels, bans and replay floors (NET-1,
+//! NET-2, NET-7, ACC-18). They are written in the same transaction as the ledger, so a
 //! peering and its accounts, or a settlement and its message, land together.
 
 use dassie_identity::{NodeId, PublicKey};
 use dassie_peer::wire::{SchemeId, TerminationReason};
 use dassie_peer::{
     Channel, Depeering, Network, Outgoing, PeerBatch, Peering, Registration, Sources, Stored,
-    StoredChannel, StoredNode, Termination,
+    StoredChannel, StoredFloor, StoredNode, Termination,
 };
 use rusqlite::{Connection, Row, Transaction, params};
 
@@ -38,7 +38,7 @@ impl Store {
                     n.registered_at_ms, n.renewed_at_ms, n.registration_expires_ms,
                     n.registered_url, n.registered_network,
                     p.scheme, p.version, p.state, p.credit_out, p.since_ms,
-                    p.inbound, p.last_seen_ms, p.replay_floor_ms,
+                    p.inbound, p.last_seen_ms,
                     t.since_ms, t.reason, t.by_us, t.acknowledged,
                     p.short_for_ms, p.depeering_since_ms, p.depeering_reason,
                     p.short_reached_ms
@@ -56,6 +56,7 @@ impl Store {
             own_sequence: from_sql_time(own_sequence),
             channels: load_channels(&connection)?,
             bans: load_bans(&connection)?,
+            floors: load_floors(&connection)?,
         })
     }
 }
@@ -115,6 +116,23 @@ fn load_bans(connection: &Connection) -> Result<Vec<NodeId>, StoreError> {
     Ok(bans)
 }
 
+fn load_floors(connection: &Connection) -> Result<Vec<StoredFloor>, StoreError> {
+    let mut statement =
+        connection.prepare("SELECT node, floor_ms FROM replay_floors ORDER BY node")?;
+    let rows = statement.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+    })?;
+    let mut floors = Vec::new();
+    for row in rows {
+        let (node, floor_ms) = row?;
+        floors.push(StoredFloor {
+            node: NodeId::parse(&node).map_err(|_| StoreError::Corrupt("node ID"))?,
+            floor_ms: from_sql_time(floor_ms),
+        });
+    }
+    Ok(floors)
+}
+
 /// A row of the node table, joined with its peering.
 fn read_node(row: &Row<'_>) -> rusqlite::Result<Result<StoredNode, StoreError>> {
     let id: String = row.get(0)?;
@@ -147,13 +165,12 @@ fn read_node(row: &Row<'_>) -> rusqlite::Result<Result<StoredNode, StoreError>> 
         },
         None => None,
     };
-    let replay_floor: Option<i64> = row.get(16)?;
-    let termination = match row.get::<_, Option<i64>>(17)? {
+    let termination = match row.get::<_, Option<i64>>(16)? {
         Some(since) if peering.is_some() => Some(Termination {
             since_ms: from_sql_time(since),
-            reason: TerminationReason::from_code(u8::try_from(row.get::<_, i64>(18)?).unwrap_or(0)),
-            by_us: row.get::<_, i64>(19)? != 0,
-            acknowledged: row.get::<_, i64>(20)? != 0,
+            reason: TerminationReason::from_code(u8::try_from(row.get::<_, i64>(17)?).unwrap_or(0)),
+            by_us: row.get::<_, i64>(18)? != 0,
+            acknowledged: row.get::<_, i64>(19)? != 0,
         }),
         _ => None,
     };
@@ -165,16 +182,15 @@ fn read_node(row: &Row<'_>) -> rusqlite::Result<Result<StoredNode, StoreError>> 
         registration,
         peering,
         termination,
-        replay_floor_ms: replay_floor.map_or(0, from_sql_time),
     }))
 }
 
 fn read_peering(row: &Row<'_>, scheme: &str) -> Result<Peering, StoreError> {
     let scheme = SchemeId::parse(scheme).ok_or(StoreError::Corrupt("scheme ID"))?;
     let version: i64 = row.get(10)?;
-    let short_for_ms = u64::try_from(row.get::<_, i64>(21)?)
+    let short_for_ms = u64::try_from(row.get::<_, i64>(20)?)
         .map_err(|_| StoreError::Corrupt("time short of room"))?;
-    let short_reached_ms = u64::try_from(row.get::<_, i64>(24)?)
+    let short_reached_ms = u64::try_from(row.get::<_, i64>(23)?)
         .ok()
         .filter(|reached| *reached <= short_for_ms)
         .ok_or(StoreError::Corrupt("time short of room while reached"))?;
@@ -188,9 +204,9 @@ fn read_peering(row: &Row<'_>, scheme: &str) -> Result<Peering, StoreError> {
         last_seen_ms: from_sql_time(row.get(15)?),
         short_for_ms,
         short_reached_ms,
-        depeering: match row.get::<_, Option<i64>>(22)? {
+        depeering: match row.get::<_, Option<i64>>(21)? {
             Some(since) => {
-                let reason = u8::try_from(row.get::<_, i64>(23)?)
+                let reason = u8::try_from(row.get::<_, i64>(22)?)
                     .map_err(|_| StoreError::Corrupt("depeering reason"))?;
                 Some(Depeering::new(
                     from_sql_time(since),
@@ -232,6 +248,21 @@ pub(super) fn write_peer(
     }
     for unbanned in &batch.unbanned {
         transaction.execute("DELETE FROM peer_bans WHERE node = ?1", [unbanned.as_str()])?;
+    }
+    // Removals first, as for nodes: a sender forgotten and kept again in
+    // one batch keeps its floor.
+    for removed in &batch.floors_removed {
+        transaction.execute(
+            "DELETE FROM replay_floors WHERE node = ?1",
+            [removed.as_str()],
+        )?;
+    }
+    for floor in &batch.floors {
+        transaction.execute(
+            "INSERT INTO replay_floors (node, floor_ms) VALUES (?1, ?2)
+             ON CONFLICT (node) DO UPDATE SET floor_ms = ?2",
+            params![floor.node.as_str(), to_sql_time(floor.floor_ms)],
+        )?;
     }
     Ok(())
 }
@@ -292,13 +323,13 @@ fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), St
     };
     transaction.execute(
         "INSERT INTO peers (node, scheme, version, state, credit_out, since_ms,
-           inbound, last_seen_ms, replay_floor_ms, short_for_ms, depeering_since_ms,
-           depeering_reason, short_reached_ms)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+           inbound, last_seen_ms, short_for_ms, depeering_since_ms, depeering_reason,
+           short_reached_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
          ON CONFLICT (node) DO UPDATE SET scheme = ?2, version = ?3, state = ?4,
            credit_out = ?5, since_ms = ?6, inbound = ?7,
-           last_seen_ms = ?8, replay_floor_ms = ?9, short_for_ms = ?10,
-           depeering_since_ms = ?11, depeering_reason = ?12, short_reached_ms = ?13",
+           last_seen_ms = ?8, short_for_ms = ?9,
+           depeering_since_ms = ?10, depeering_reason = ?11, short_reached_ms = ?12",
         params![
             node.id.as_str(),
             peering.scheme.as_str(),
@@ -308,7 +339,6 @@ fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), St
             to_sql_time(peering.since_ms),
             i64::from(peering.inbound),
             to_sql_time(peering.last_seen_ms),
-            to_sql_time(node.replay_floor_ms),
             i64::try_from(peering.short_for_ms)
                 .map_err(|_| StoreError::Corrupt("time short of room"))?,
             peering.depeering.map(|d| to_sql_time(d.since_ms)),

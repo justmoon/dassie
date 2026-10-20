@@ -11,7 +11,7 @@ use dassie_oer::Decode;
 use super::PeerNode;
 use crate::channel::Retry;
 use crate::io::Event;
-use crate::persist::{PeerBatch, Stored, StoredChannel, StoredNode};
+use crate::persist::{PeerBatch, Stored, StoredChannel, StoredFloor, StoredNode};
 use crate::routing;
 use crate::table::{
     Advertise, Depeering, Entry, LinkState, PeerState, Peering, Room, Sources, Termination,
@@ -94,7 +94,7 @@ impl PeerNode {
             }
             entry.registration = node.registration;
             if let Some(peering) = node.peering {
-                self.auth.restore_floor(node.id, node.replay_floor_ms);
+                self.auth.pin(node.id);
                 peered = true;
                 self.restore_peering(&mut entry, node.id, peering, node.termination);
             } else {
@@ -143,12 +143,27 @@ impl PeerNode {
         for id in unchanneled {
             self.open_channel(id);
         }
+        self.restore_floors(&stored.floors);
         self.gossip.routes_dirty = true;
         if peered {
             // The peers we have get a heartbeat's time to confirm
             // themselves before others are sought.
             let wait = self.config.heartbeat_min_ms + self.config.heartbeat_jitter_ms;
             self.peering.hold_until(now.saturating_add(wait));
+        }
+    }
+
+    /// Restores every replay floor persisted, so that no message accepted
+    /// before the restart is accepted again, whatever its sender's role now
+    /// (spec/areas/peer-protocol.md#replay-protection). A sender whose
+    /// floor was persisted while it mattered, and that no longer does, is
+    /// kept until the floor is stale, and then forgotten with it.
+    fn restore_floors(&mut self, floors: &[StoredFloor]) {
+        for floor in floors.iter().filter(|floor| floor.node != self.own) {
+            self.auth.restore_floor(floor.node, floor.floor_ms);
+            if !self.keeps_replay_state(&floor.node) {
+                self.auth.unpin(self.now_ms, &floor.node);
+            }
         }
     }
 
@@ -230,14 +245,17 @@ impl PeerNode {
                 first_seen_ms: entry.first_seen_ms,
                 registration: entry.registration.clone(),
                 termination,
-                replay_floor_ms: if peering.is_some() {
-                    self.auth.newest(&id).unwrap_or(0)
-                } else {
-                    0
-                },
                 peering,
             });
         }
+        let mut floors = Vec::new();
+        self.auth
+            .take_floors(&mut floors, &mut batch.floors_removed);
+        batch.floors.extend(
+            floors
+                .into_iter()
+                .map(|(node, floor_ms)| StoredFloor { node, floor_ms }),
+        );
         batch.removed.append(&mut self.removed);
         for node in core::mem::take(&mut self.channels_dirty) {
             if let Some(channel) = self.channels.get(&node) {
@@ -334,8 +352,9 @@ impl PeerNode {
             .filter_map(|(id, entry)| entry.peering().map(|peering| (id, peering)))
     }
 
-    /// Notes an authenticated message from a peer (NET-12): it is alive,
-    /// and the newest timestamp accepted from it is persisted. A banned
+    /// Notes an authenticated message from a peer (NET-12): it is alive.
+    /// (The newest timestamp accepted from it is persisted as its replay
+    /// floor, by the authenticator.) A banned
     /// node's messages confirm nothing.
     pub(crate) fn saw(&mut self, node: &NodeId) {
         let now = self.now_ms;

@@ -45,6 +45,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_22,
     MIGRATION_23,
     MIGRATION_24,
+    MIGRATION_25,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -801,6 +802,23 @@ ALTER TABLE peers ADD COLUMN short_reached_ms INTEGER NOT NULL DEFAULT 0;
 UPDATE peers SET short_reached_ms = short_for_ms;
 ";
 
+/// Replay floors move out of the peerings: every sender whose replay state
+/// is kept for good has one, since a request from a node registered with
+/// us, or from one we hold a channel with, has effects too, and a restart
+/// must not take it again (spec/areas/peer-protocol.md#replay-protection).
+/// Not tied to `peer_nodes`: a node we hold a channel with may leave the
+/// table.
+const MIGRATION_25: &str = "
+CREATE TABLE replay_floors (
+  node TEXT PRIMARY KEY CHECK (length(node) BETWEEN 2 AND 45),
+  floor_ms INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+
+INSERT INTO replay_floors (node, floor_ms) SELECT node, replay_floor_ms FROM peers;
+
+ALTER TABLE peers DROP COLUMN replay_floor_ms;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -986,7 +1004,6 @@ pub const TABLES: &[Table] = &[
             ("since_ms", "INTEGER", true, false),
             ("inbound", "INTEGER", true, false),
             ("last_seen_ms", "INTEGER", true, false),
-            ("replay_floor_ms", "INTEGER", true, false),
             ("short_for_ms", "INTEGER", true, false),
             ("depeering_since_ms", "INTEGER", false, false),
             ("depeering_reason", "INTEGER", false, false),
@@ -1033,6 +1050,14 @@ pub const TABLES: &[Table] = &[
         name: "peer_bans",
         without_rowid: true,
         columns: &[("node", "TEXT", true, true)],
+    },
+    Table {
+        name: "replay_floors",
+        without_rowid: true,
+        columns: &[
+            ("node", "TEXT", true, true),
+            ("floor_ms", "INTEGER", true, false),
+        ],
     },
     Table {
         name: "incoming_payments",
