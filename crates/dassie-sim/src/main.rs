@@ -6,6 +6,8 @@
 //! dassie-sim explain <sim> <seed> [--grep <text>]  runs a seed and prints its trace
 //! dassie-sim campaign [--minutes <n>] [--jobs <n>] [--sims <sim>,...]
 //!                                                  runs random seeds, a line of JSON each
+//! dassie-sim record <sim> <seed>                   runs a seed as a campaign does, and
+//!                                                  prints its line
 //! ```
 //!
 //! Seeds are a number in decimal, as the runner prints them, a range
@@ -15,15 +17,18 @@
 //!
 //! The exit status of `run` and `explain` is 1 when a run broke safety, 2
 //! when one broke liveness and none safety, 3 when the runner itself
-//! failed, 64 for a usage error, and 0 otherwise.
+//! failed, 64 for a usage error, and 0 otherwise. That of `record` is 0
+//! once it printed its line, whatever the run found, as a campaign's is.
 //!
 //! # The campaign
 //!
-//! `campaign` runs random seeds, drawn from the OS, on `--jobs` threads (by
+//! `campaign` runs random seeds, drawn from the OS, `--jobs` at once (by
 //! default one per core) for `--minutes` (by default 10), each run's
 //! simulation picked by its weight among `--sims` (by default all of them,
-//! the tripwire included). Its output is the contract with the supervisor
-//! that runs it on the campaign's machines and files what it finds (D27):
+//! the tripwire included). Each run is a process of its own, `record`, so
+//! that runs share nothing and take as long as each alone. Its output is
+//! the contract with the supervisor that runs it on the campaign's machines
+//! and files what it finds (D27):
 //!
 //! - **One JSON object per line on stdout, per finished run,** written as
 //!   the run ends:
@@ -41,8 +46,10 @@
 //!     hyphens (`settle-down`), which changes only with the check's name
 //!     (`spec/areas/testing.md#outcomes`). A file holds slashes, so
 //!     `<where>` is everything after the second slash. A run still going
-//!     after the campaign's wall-time limit is a liveness failure at
-//!     `wall-time`, reported then, without a trace.
+//!     after the campaign's wall-time limit is stopped, and is a liveness
+//!     failure at `wall-time`; a run whose process ends without its
+//!     record, as one that overflows its stack does, is a safety failure
+//!     at `abort`. Neither has a trace.
 //!   - A failure (`safety` or `liveness`) adds `message`, its message with
 //!     this run's numbers; `options`, what its seed drew, as `run` prints
 //!     it after the seed; and `trace_tail`, the last 40 lines of its trace
@@ -64,7 +71,8 @@
 //!   failed, and 64 for a usage error. Panic messages go to stderr.
 //!
 //! The campaign stops starting runs once its minutes are up, and ends when
-//! the runs under way have ended, or have passed the wall-time limit.
+//! the runs under way have ended, or have been stopped at the wall-time
+//! limit.
 
 use std::collections::BTreeMap;
 use std::io::{self, Write};
@@ -83,6 +91,7 @@ usage: dassie-sim list
        dassie-sim run <sim> [<seeds>]
        dassie-sim explain <sim> <seed> [--grep <text>]
        dassie-sim campaign [--minutes <n>] [--jobs <n>] [--sims <sim>,...]
+       dassie-sim record <sim> <seed>
 
 <seeds> is a number, a range such as 0..1000, or a git commit's full SHA.
 A campaign runs random seeds, 10 minutes on every core by default, and
@@ -105,6 +114,10 @@ enum Command {
         grep: String,
     },
     Campaign(Plan),
+    Record {
+        sim: &'static Sim,
+        seed: u64,
+    },
 }
 
 /// The options given, each only for the command it belongs to.
@@ -164,6 +177,10 @@ fn parse(mut parser: lexopt::Parser) -> Result<Command, String> {
             sim: named(sim)?,
             seed: one_seed(seed)?,
             grep: flags.grep.take().unwrap_or_default(),
+        },
+        ["record", sim, seed] => Command::Record {
+            sim: named(sim)?,
+            seed: one_seed(seed)?,
         },
         _ => return Err("expected a command".into()),
     };
@@ -248,6 +265,9 @@ fn execute(command: Command) -> ExitCode {
             }
         },
         Command::Explain { sim, seed, grep } => explain(&mut out, &mut tally, sim, seed, &grep),
+        // A campaign's run: its record says how it ended, as the
+        // campaign's own status does not.
+        Command::Record { sim, seed } => writeln!(out, "{}", campaign::here(sim, seed)),
         // A campaign's records say how its runs ended, and its status only
         // whether it ran to its end: a reader that stops reading leaves it
         // nobody to report to, which fails the runner.
