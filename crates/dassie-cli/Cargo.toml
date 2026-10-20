@@ -16,7 +16,8 @@ path = "src/main.rs"
 
 [features]
 # Trusts the test key of testdata/release instead of the release key, so
-# tests can sign releases: never in a release.
+# tests can sign releases, and lets `DASSIE_SYSTEMCTL` name a stand-in for
+# systemctl, so they can restart and roll back: never in a release.
 test-key = []
 
 [dependencies]
