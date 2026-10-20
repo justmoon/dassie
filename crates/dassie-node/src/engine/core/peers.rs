@@ -511,6 +511,9 @@ impl Core {
     pub fn set_own_info(&mut self, info: dassie_peer::OwnInfo) {
         let now = self.now_ms;
         self.peer.set_own_info(now, info);
+        // Becoming a periphery node, or a core node again, changes how
+        // packets from peers are routed.
+        self.update_routes();
         self.after_peer();
     }
 
@@ -640,11 +643,12 @@ impl Core {
 
     /// Makes a peer a connector endpoint, on its scheme's ledger, at the
     /// address ILDCP will tell it: its own `<scheme>.das.<id>`, which
-    /// routes reach as they reach any node's. The original gave a peer that
-    /// was not a member an address beneath its own that nothing routed to
-    /// (NET-21), and stored the addresses its peers gave it without reading
-    /// them (NET-23). Child peers, beneath an uplink's address, wait for the
-    /// periphery (spec/roadmap.md#periphery).
+    /// routes reach as they reach any node's; or, for a downlink, its child
+    /// address beneath ours, `<our address>.<id>`, which reaches it through
+    /// us (spec/areas/connector.md#addresses-and-endpoints). The original
+    /// gave a peer that was not a member an address beneath its own that
+    /// nothing routed to (NET-21), and stored the addresses its peers gave
+    /// it without reading them (NET-23).
     pub(super) fn add_peer_endpoint(&mut self, node: NodeId) -> Result<(), String> {
         if self.peer_endpoints.contains_key(&node) {
             return Ok(());
@@ -666,7 +670,11 @@ impl Core {
             .ok_or("the peer's account is missing")?;
         let id = self.next_peer_endpoint;
         self.next_peer_endpoint += 1;
-        let address = format!("{}.das.{node}", self.allocation_scheme);
+        let address = if self.peer.is_downlink(&node) {
+            format!("{}.{node}", self.connector.own_address())
+        } else {
+            format!("{}.das.{node}", self.allocation_scheme)
+        };
         let first = self.rng.next_u32();
         self.connector
             .add_peer(EndpointId::Peer(id), &address, account, ledger, first)
@@ -702,5 +710,36 @@ impl Core {
         // (`check_bounds`), none of them below our own address.
         let taken = self.connector.set_routes(routes);
         assert!(taken.is_ok(), "routes not taken: {taken:?}");
+        let children = self
+            .peer
+            .is_periphery()
+            .then(|| self.child_addresses(false));
+        // One per uplink, each beneath another node's address.
+        let taken = self.connector.set_periphery(children.as_deref());
+        assert!(taken.is_ok(), "child addresses not taken: {taken:?}");
+    }
+
+    /// A periphery node's addresses beneath its uplinks, each
+    /// `<uplink's address>.<our ID>`, which ILDCP tells it there
+    /// (spec/areas/connector.md#a-periphery-node): of every peering, or,
+    /// if `connected`, of those whose uplink is confirmed now, best first.
+    pub(super) fn child_addresses(&self, connected: bool) -> Vec<String> {
+        let own = self.peer.own();
+        self.peer
+            .core_peers()
+            .filter(|(id, _)| !connected || self.peer.is_advertised(id))
+            .map(|(id, _)| format!("{}.das.{id}.{own}", self.allocation_scheme))
+            .collect()
+    }
+
+    /// Where a periphery node is paid now: beneath an uplink it is
+    /// connected to, if any. `None` on a core node, which is paid at its
+    /// own address.
+    pub(super) fn receiving_address(&self) -> Option<String> {
+        if !self.peer.is_periphery() {
+            return None;
+        }
+        let connected = self.child_addresses(true).into_iter().next();
+        connected.or_else(|| self.child_addresses(false).into_iter().next())
     }
 }

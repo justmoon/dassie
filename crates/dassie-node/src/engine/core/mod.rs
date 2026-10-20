@@ -737,16 +737,19 @@ fn check_bounds(policies: &Policies) {
         "the ledger needs room for every packet's transfers, and settlements"
     );
     let peers = policies.peer.max_peers;
+    let downlinks = policies.peer.max_downlinks;
     let local = MAX_LOCAL_ENDPOINTS;
+    // A downlink sends only its own packets, and has a child's share.
     assert!(
         connector.max_pending
-            >= connector.max_pending_per_endpoint * (policies.max_btp_connections + local)
+            >= connector.max_pending_per_endpoint
+                * (policies.max_btp_connections + local + downlinks)
                 + connector.max_pending_per_peer * peers,
-        "every BTP client, local endpoint and peer can fill their share of the table at once"
+        "every BTP client, local endpoint, peer and downlink can fill their share of the table at once"
     );
     assert!(
-        connector.max_endpoints > policies.max_btp_connections + local + peers,
-        "every BTP connection, local endpoint and peer is an endpoint"
+        connector.max_endpoints > policies.max_btp_connections + local + peers + downlinks,
+        "every BTP connection, local endpoint, peer and downlink is an endpoint"
     );
     assert!(
         policies.incoming.max_open_owner > 0 && policies.incoming.max_open_clients > 0,
@@ -789,7 +792,7 @@ fn check_bounds(policies: &Policies) {
     // Channels are never closed, so the XRPL scheme keeps the address of
     // every node the node ever peered with, and never drops one for room.
     assert!(
-        dassie_xrpl::scheme::MAX_PEERS >= policies.peer.max_channels,
+        dassie_xrpl::scheme::MAX_PEERS >= policies.peer.max_channels + downlinks,
         "the XRPL scheme keeps an address for every settlement channel"
     );
 }

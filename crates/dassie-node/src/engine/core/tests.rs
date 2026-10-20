@@ -1034,3 +1034,95 @@ fn a_replaced_connection_is_forgotten_across_a_restart() {
         Admission::Refuse(ErrorCode::F99_APPLICATION_ERROR)
     );
 }
+
+/// A periphery node's peering request to a core node at `https://core.test`
+/// that takes QUIC, from `downlink`, at `now`.
+fn downlink_request(core: &Core, downlink: &Arc<NodeKey>, now: u64) -> Vec<u8> {
+    use dassie_oer::Decode;
+    use dassie_peer::auth::{AuthConfig, Authenticator};
+    use dassie_peer::wire::{
+        Authentication, Content, EXTENSION_PERIPHERY, Entry, NodeInfo, PeeringRequest, SchemeId,
+        SignedNodeInfo, encode_envelope, sign_node_info,
+    };
+    let stub = SchemeId::parse("stub").unwrap();
+    let info = NodeInfo {
+        node_id: downlink.node_id(),
+        sequence: now,
+        url: "",
+        alias: "",
+        public_key: *downlink.public_key().as_bytes(),
+        entries: vec![
+            Entry::Scheme(stub),
+            Entry::Extension {
+                kind: EXTENSION_PERIPHERY,
+                value: &[],
+            },
+        ],
+    };
+    let state = sign_node_info(downlink, &info);
+    let content = Content::PeeringRequest(PeeringRequest {
+        scheme: stub,
+        node_info: SignedNodeInfo::decode_exact(&state).unwrap(),
+        data: &[],
+        versions: vec![1],
+        credit: 0,
+    });
+    let bytes = content.to_vec();
+    let mut auth = Authenticator::new(Arc::clone(downlink), AuthConfig::DEFAULT, now - 1);
+    let own = NodeKey::from_bytes(&[7; 32]);
+    let (hmac, _) = auth
+        .authenticate(
+            now,
+            &mut SeededRng::new(3),
+            core.peer.own(),
+            &own.public_key(),
+            &bytes,
+        )
+        .unwrap();
+    encode_envelope(&downlink.node_id(), &Authentication::Hmac(hmac), &bytes)
+}
+
+// spec/areas/network.md#advertised-peers: a downlink that owes nothing is
+// never short of room in our books, though we extend it nothing as its
+// senior: withdrawing it would only stop the payments to it that raise its
+// room.
+#[test]
+fn a_downlink_that_owes_nothing_is_never_short_of_room() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = Core::start(
+        CoreParts {
+            store,
+            key: Arc::new(NodeKey::from_bytes(&[7; 32])),
+            realm: Realm::Test,
+            policies: Policies::DEFAULT,
+            rng: Box::new(SeededRng::new(5)),
+            peer_rng: Box::new(SeededRng::new(6)),
+            own_info: dassie_peer::OwnInfo {
+                url: Some("https://core.test".into()),
+                alias: String::new(),
+                quic: true,
+            },
+            bootstrap: Vec::new(),
+        },
+        NOW,
+    )
+    .unwrap();
+    core.add_scheme("stub", String::new()).unwrap();
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
+    let at = NOW + 1_000;
+    core.begin_step(at);
+    let body = downlink_request(&core, &downlink, at);
+    core.peer_inbound(dassie_peer::InboundId(1), &body, None);
+    core.finish_step(&mut outputs);
+    let id = downlink.node_id();
+    assert!(core.peer.is_downlink(&id) && core.peer.peering_of(&id).is_some());
+    assert_eq!(core.peer.peering_of(&id).unwrap().credit_out, 0);
+    let grace = Policies::DEFAULT.peer.advertise_short_grace_ms;
+    for second in 2..=grace / 1_000 * 2 {
+        core.begin_step(NOW + second * 1_000);
+        core.finish_step(&mut outputs);
+    }
+    assert_eq!(core.peer.peering_of(&id).unwrap().short_for_ms, 0);
+}

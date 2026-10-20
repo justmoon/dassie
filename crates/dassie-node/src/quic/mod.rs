@@ -22,7 +22,7 @@ use std::future::Future;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -219,6 +219,17 @@ pub async fn send_peer(
         Ok(slot) => slot,
         Err(failure) => return (Err(failure), Transport::Https),
     };
+    // A periphery node has no URL: it is reached only over the connection
+    // it opened to us, never dialled, never over HTTPS.
+    if request.url.is_empty() {
+        let Some(quic) = quic else {
+            return (Err(Failure::NotDelivered), Transport::Quic);
+        };
+        return match tokio::time::timeout_at(deadline, quic.send_held(&request)).await {
+            Ok(result) => (result, Transport::Quic),
+            Err(_) => (Err(Failure::Unknown), Transport::Quic),
+        };
+    }
     if let Some(quic) = quic.filter(|_| request.quic) {
         let within = CONNECT_TIMEOUT.min(Duration::from_millis(request.timeout_ms / 2));
         match tokio::time::timeout_at(deadline, quic.send(&request, client, within)).await {
@@ -328,6 +339,9 @@ pub struct Quic {
     /// How long a connection lasts without traffic: [`IDLE_TIMEOUT`],
     /// except in tests.
     idle: Duration,
+    /// Whether the connections it dials for requests keep themselves alive,
+    /// as the one to a chosen relay always does: on a periphery node.
+    keep_alive: AtomicBool,
     stats: Stats,
 }
 
@@ -366,6 +380,7 @@ impl Quic {
             chosen_relay: Mutex::new(None),
             allow_private,
             idle: IDLE_TIMEOUT,
+            keep_alive: AtomicBool::new(false),
             stats: Stats::default(),
         })
     }
@@ -382,6 +397,41 @@ impl Quic {
         self.endpoint.set_server_config(Some(server));
         self.idle = idle;
         Ok(self)
+    }
+
+    /// Whether the connections dialled from now on keep themselves alive,
+    /// as a periphery node's to its uplinks must.
+    pub fn set_keep_alive(&self, on: bool) {
+        self.keep_alive.store(on, Ordering::Relaxed);
+    }
+
+    /// Sends `request` on the open connection its node made to us, and reads
+    /// the response: how a periphery node, which has no URL, is reached.
+    ///
+    /// # Errors
+    ///
+    /// [`Failure::NotDelivered`] when no such connection is open, and
+    /// nothing was sent; otherwise the failure, as over HTTPS.
+    pub async fn send_held(&self, request: &Request) -> Result<Response, Failure> {
+        let place = self
+            .links
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&request.to)
+            .cloned()
+            .ok_or(Failure::NotDelivered)?;
+        let connection = place
+            .lock()
+            .await
+            .as_ref()
+            .filter(|link| link.is_open())
+            .map(|link| link.connection.clone())
+            .ok_or(Failure::NotDelivered)?;
+        let result = exchange(&connection, &request.body).await;
+        if result.is_ok() {
+            self.stats.sent.fetch_add(1, Ordering::Relaxed);
+        }
+        result
     }
 
     /// The address the endpoint is bound to.
@@ -526,7 +576,10 @@ impl Quic {
         }
         *held = None;
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-        let Some(connection) = self.dial((to, url), resolver, left, false).await else {
+        // A periphery node keeps its connections to its uplinks alive: they
+        // are the only way its uplinks reach it.
+        let keep_alive = self.keep_alive.load(Ordering::Relaxed);
+        let Some(connection) = self.dial((to, url), resolver, left, keep_alive).await else {
             return Err(if left >= MIN_TO_JUDGE {
                 NoConnection::DialFailed
             } else {
