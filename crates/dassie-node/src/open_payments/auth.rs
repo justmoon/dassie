@@ -12,6 +12,7 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use dassie_payments::VerifyingKey;
+use dassie_payments::amount::asset_name;
 use dassie_payments::gnap::{
     self, Access, AccessToken, AccessType, Action, Client, Continue, ContinueToken, ErrorCode,
     GrantRequest, GrantResponse, Scope,
@@ -199,8 +200,9 @@ fn debits_in_own_asset(item: &Access, ledger: dassie_ledger::LedgerId) -> Result
         400,
         ErrorCode::InvalidRequest,
         format!(
-            "the debit limit must be in the wallet address's asset, {} at scale {}; it is in {} at scale {}",
-            asset.code, asset.scale, limit.asset_code, limit.asset_scale
+            "the debit limit must be in the wallet address's asset, {}; it is in {}",
+            asset_name(asset.code, asset.scale),
+            asset_name(&limit.asset_code, limit.asset_scale),
         ),
     ))
 }

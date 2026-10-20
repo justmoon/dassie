@@ -952,6 +952,33 @@ async fn a_debit_limit_in_another_asset_is_refused() {
     node.stop().await;
 }
 
+// A receive limit in another asset than the receiver is paid in fits no
+// payment to it: the refusal names the limit and both assets, so the
+// client learns why its grant cannot pay.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_payment_refused_for_its_limits_asset_names_both() {
+    let (node, key) = start().await;
+    let client = own_client(&node, &key);
+    let access = json!([{
+        "type": "outgoing-payment",
+        "actions": ["create", "read"],
+        "identifier": host(&node),
+        "limits": { "receiveAmount": { "value": "500", "assetCode": "USD", "assetScale": 2 } },
+    }]);
+    let grant = ask_for(&node, &client, &access).await;
+    let token = approve(&node, &client, &grant).await;
+    let target = receiver(&node, 300).await;
+    let pay =
+        json!({ "walletAddress": host(&node), "incomingPayment": target, "debitAmount": usd(300) });
+    let refused = post(&node, &client, "/outgoing-payments", &token, &pay).await;
+    assert_eq!(refused.status, StatusCode::FORBIDDEN, "{}", refused.text());
+    assert_eq!(
+        body(&refused)["error"]["description"],
+        "the grant's receive limit is in USD at scale 2, and this receiver is paid in USD at scale 9"
+    );
+    node.stop().await;
+}
+
 // Found in testing: an item that only reads, without limits, came first,
 // and its limits, none, were taken for the payments of the item that
 // creates. A client asking for 10 a day could send any amount.
