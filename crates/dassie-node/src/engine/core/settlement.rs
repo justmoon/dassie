@@ -500,17 +500,15 @@ impl Core {
             return false;
         }
         for (scheme, id) in std::mem::take(&mut self.settle.to_execute) {
-            // A scheme removed since stays pending: its next activation
-            // reconciles it.
-            let Some(active) = self.schemes.get_mut(&scheme) else {
+            // A scheme removed or stopped since stays pending: its next
+            // activation reconciles it.
+            let Some(active) = self.schemes.get_mut(&scheme).filter(|a| a.failed.is_none()) else {
                 continue;
             };
             let mut effects = Vec::new();
             active.scheme.execute_settlement(id, &mut effects);
             let ledger = active.scheme.ledger();
-            if let Err(error) = self.apply_effects(scheme, ledger, &effects) {
-                self.report(SettlementEvent::OutcomeNotBooked { error });
-            }
+            self.scheme_effects(scheme, ledger, &effects);
         }
         true
     }
@@ -522,9 +520,11 @@ impl Core {
     pub(super) fn reconcile_settlements(&mut self, only: Option<Name>) {
         let schemes: Vec<Name> = self
             .schemes
-            .keys()
-            .copied()
-            .filter(|scheme| only.is_none_or(|only| only == *scheme))
+            .iter()
+            .filter(|(scheme, active)| {
+                active.failed.is_none() && only.is_none_or(|only| only == **scheme)
+            })
+            .map(|(scheme, _)| *scheme)
             .collect();
         for scheme in schemes {
             let pending: Vec<(Name, u64)> = self
@@ -552,9 +552,7 @@ impl Core {
                 scheme,
                 pending: pending.len(),
             });
-            if let Err(error) = self.apply_effects(scheme, ledger, &effects) {
-                self.report(SettlementEvent::ReconciliationNotBooked { error });
-            }
+            self.scheme_effects(scheme, ledger, &effects);
         }
     }
 
@@ -679,11 +677,14 @@ impl Core {
     ) -> Result<(), EngineError> {
         let refused = |why: &str| EngineError::Invalid(why.into());
         let scheme = Name::new(scheme.as_str()).map_err(|_| refused("unknown scheme"))?;
-        let ledger = self
+        let active = self
             .schemes
             .get(&scheme)
-            .map(|active| active.scheme.ledger())
             .ok_or_else(|| refused("the scheme is not active"))?;
+        if active.failed.is_some() {
+            return Err(refused("the scheme has stopped"));
+        }
+        let ledger = active.scheme.ledger();
         let name = Name::new(from.as_str()).map_err(|_| refused("not a node"))?;
         let interledger = self
             .ledger
@@ -723,15 +724,13 @@ impl Core {
         let (Ok(scheme), Ok(name)) = (Name::new(scheme.as_str()), Name::new(from.as_str())) else {
             return;
         };
-        let Some(active) = self.schemes.get_mut(&scheme) else {
+        let Some(active) = self.schemes.get_mut(&scheme).filter(|a| a.failed.is_none()) else {
             return;
         };
         let mut effects = Vec::new();
         active.scheme.handle_message(name, message, &mut effects);
         let ledger = active.scheme.ledger();
-        if let Err(error) = self.apply_effects(scheme, ledger, &effects) {
-            self.report(SettlementEvent::MessageEffectsNotBooked { error });
-        }
+        self.scheme_effects(scheme, ledger, &effects);
     }
 
     /// A reference for an incoming settlement: unique, as the next

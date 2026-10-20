@@ -524,17 +524,18 @@ impl Core {
     }
 
     /// Tells the peer node which schemes it may peer on, in a fixed order:
-    /// the active ones that have seen their ledger (D31). Before a scheme
-    /// first synced, a peer's settlement would be booked as the owner's
-    /// deposit, so the node neither offers, asks for nor accepts a peering
-    /// on it; peerings already made stay. The list is made from the schemes
+    /// the active ones that have seen their ledger (D31) and have not
+    /// stopped. Before a scheme first synced, a peer's settlement would be
+    /// booked as the owner's deposit; once it stopped, it would be refused.
+    /// So the node neither offers, asks for nor accepts a peering on it;
+    /// peerings already made stay. The list is made from the schemes
     /// active now, each time: the original's started from those active at
     /// its start, so of two changes the second undid the first (ACC-11).
     pub(super) fn update_peer_schemes(&mut self) {
         let schemes: Vec<SchemeId> = self
             .schemes
             .iter()
-            .filter(|(_, active)| active.scheme.has_synced())
+            .filter(|(_, active)| active.failed.is_none() && active.scheme.has_synced())
             .filter_map(|(name, _)| SchemeId::parse(name.as_str()))
             .collect();
         let now = self.now_ms;

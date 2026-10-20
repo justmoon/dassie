@@ -226,7 +226,8 @@ pub enum SettlementEvent {
         /// How much.
         amount: u64,
     },
-    /// A scheme's effects could not be booked: it is fed nothing more.
+    /// The books refused a scheme's effects, all of them: it is fed nothing
+    /// more.
     SchemeStopped {
         /// The scheme.
         scheme: Name,
@@ -265,22 +266,12 @@ pub enum SettlementEvent {
         /// Why.
         error: SchemeError,
     },
-    /// A settlement's outcome could not be booked.
-    OutcomeNotBooked {
-        /// Why.
-        error: EngineError,
-    },
     /// Settlements pending from before a restart are reconciled.
     Reconciling {
         /// The scheme.
         scheme: Name,
         /// How many.
         pending: usize,
-    },
-    /// A reconciliation could not be booked.
-    ReconciliationNotBooked {
-        /// Why.
-        error: EngineError,
     },
     /// A scheme executed a settlement the core does not know.
     UnknownExecuted {
@@ -330,11 +321,6 @@ pub enum SettlementEvent {
     PeerSettlementRefused {
         /// The peer.
         from: NodeId,
-        /// Why.
-        error: EngineError,
-    },
-    /// What a peer's scheme message did could not be booked.
-    MessageEffectsNotBooked {
         /// Why.
         error: EngineError,
     },
@@ -439,10 +425,7 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
         | SettlementEvent::Failed { .. }
         | SettlementEvent::PeerSettlementRefused { .. } => Severity::Warn,
         SettlementEvent::SchemeStopped { .. }
-        | SettlementEvent::OutcomeNotBooked { .. }
-        | SettlementEvent::ReconciliationNotBooked { .. }
         | SettlementEvent::AnnounceFailed { .. }
-        | SettlementEvent::MessageEffectsNotBooked { .. }
         | SettlementEvent::EarningsNotRead { .. } => Severity::Error,
     }
 }

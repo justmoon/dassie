@@ -322,6 +322,12 @@ impl PeerNode {
         }
     }
 
+    /// The settlement schemes the node peers on, in order of preference.
+    #[must_use]
+    pub fn schemes(&self) -> &[SchemeId] {
+        &self.schemes
+    }
+
     /// Moves time on; it never goes back.
     pub(crate) fn advance(&mut self, now_ms: u64) {
         self.now_ms = self.now_ms.max(now_ms);

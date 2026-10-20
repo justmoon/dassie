@@ -17,7 +17,7 @@ use dassie_settlement::{
 use dassie_xrpl::XrplScheme;
 
 use super::events::SettlementEvent;
-use super::{Core, Output};
+use super::{Core, EngineError, Output};
 use crate::store::Checkpoint;
 
 /// Every scheme the node can run, in a fixed order.
@@ -107,22 +107,32 @@ impl Core {
         self.scheme_effects(scheme, ledger, &effects);
     }
 
-    /// Books a scheme's effects. A failure is a bug: the scheme is fed
-    /// nothing more, so the books do not drift further from it, and the
-    /// owner is told. Its state is not written, so a restart reads what
-    /// the ledger said again.
+    /// Books a scheme's effects, where no one waits for the outcome: a
+    /// refusal has stopped the scheme, and told the owner
+    /// ([`apply_effects`](Self::apply_effects)).
     ///
     /// A scheme that has just synced for the first time can be peered on
     /// from now (D31).
-    fn scheme_effects(&mut self, scheme: Name, ledger: LedgerId, effects: &[Effect]) {
-        if let Err(error) = self.apply_effects(scheme, ledger, effects) {
-            self.report(SettlementEvent::SchemeStopped {
-                scheme,
-                error: error.clone(),
-            });
-            if let Some(active) = self.schemes.get_mut(&scheme) {
-                active.failed = Some(error.to_string());
-            }
+    pub(super) fn scheme_effects(&mut self, scheme: Name, ledger: LedgerId, effects: &[Effect]) {
+        if self.apply_effects(scheme, ledger, effects).is_err() {
+            return;
+        }
+        self.close_if_stopped(scheme);
+        self.update_peer_schemes();
+    }
+
+    /// Stops a scheme whose effects the books refused, which is a bug: it
+    /// is fed nothing more, from its ledger, its timers, peers or the
+    /// owner, so the books do not drift further from it, and the owner is
+    /// told. Its checkpoint is not written again, so a restart reads what
+    /// the ledger said from where the books are.
+    pub(super) fn stop_scheme(&mut self, scheme: Name, error: EngineError) {
+        self.report(SettlementEvent::SchemeStopped {
+            scheme,
+            error: error.clone(),
+        });
+        if let Some(active) = self.schemes.get_mut(&scheme) {
+            active.failed = Some(error.to_string());
         }
         self.close_if_stopped(scheme);
         self.update_peer_schemes();
