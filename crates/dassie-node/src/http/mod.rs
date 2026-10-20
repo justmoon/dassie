@@ -183,6 +183,58 @@ where
     }
 }
 
+/// Serves HTTP/1.1 on a relayed stream with purpose payments
+/// (spec/areas/http.md#relayed-streams), once its TLS is done: Open Payments
+/// and nothing else. The wallet, `/api/*`, `/rpc`, `/peer` and BTP are
+/// never served this way (D26), since the page could keep the owner's
+/// passphrase, and nothing on a relayed stream proves a browser's origin.
+/// `client` is the node the TLS proved; `relay` the address of the node
+/// that carried the stream, which the rate limits count requests against.
+pub async fn serve_relayed<S>(
+    node: Arc<Node>,
+    io: S,
+    client: dassie_identity::NodeId,
+    relay: SocketAddr,
+    shutdown: CancellationToken,
+) where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    tracing::debug!(target: target::HTTP, %client, %relay, "serving a relayed stream");
+    let service = service_fn(move |request| {
+        let node = Arc::clone(&node);
+        async move { Ok::<_, Infallible>(route_relayed(&node, relay, request).await) }
+    });
+    let connection = http1::Builder::new()
+        .timer(TokioTimer::new())
+        .header_read_timeout(HEADER_TIMEOUT)
+        .max_buf_size(MAX_HEAD_BYTES)
+        .serve_connection(TokioIo::new(io), service);
+    let mut connection = pin!(connection);
+    tokio::select! {
+        _ = connection.as_mut() => {}
+        () = shutdown.cancelled() => {
+            connection.as_mut().graceful_shutdown();
+            let _ = connection.await;
+        }
+    }
+}
+
+/// Open Payments' routes, and 404 for everything else, upgrades included.
+async fn route_relayed(
+    node: &Node,
+    relay: SocketAddr,
+    request: Request<Incoming>,
+) -> Response<Body> {
+    let path = request.uri().path();
+    let mut response = if ws::is_upgrade(&request) || !open_payments::is_open_payments_path(path) {
+        response::not_found()
+    } else {
+        open_payments::handle(node, relay, request).await
+    };
+    response::secure(response.headers_mut(), false);
+    response
+}
+
 async fn route(context: &Context, peer: SocketAddr, request: Request<Incoming>) -> Response<Body> {
     match context.kind {
         Kind::Http => route_http(&context.node, &request),

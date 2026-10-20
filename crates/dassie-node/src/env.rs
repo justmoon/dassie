@@ -128,6 +128,9 @@ pub struct Settings {
     pub dev_wallet_dir: Option<PathBuf>,
     /// The network's bootstrap nodes.
     pub bootstrap_nodes: Vec<BootstrapNode>,
+    /// The relay the node keeps a connection to, so that it can be reached
+    /// through it (`DASSIE_RELAY`, an entry as in the bootstrap list).
+    pub relay: Option<BootstrapNode>,
     /// An extra root the ACME client trusts, for test CAs such as Pebble.
     pub acme_ca_file: Option<PathBuf>,
     /// Extra roots the peer client trusts, beside the platform's: a dev or
@@ -154,6 +157,7 @@ impl Settings {
             log_filter: log_filter(env)?,
             dev_wallet_dir: dev_wallet_dir(env)?,
             bootstrap_nodes: bootstrap_nodes(env)?,
+            relay: relay(env)?,
             acme_ca_file: env.path("DASSIE_ACME_CA_FILE"),
             peer_ca_file: env.path("DASSIE_PEER_CA_FILE"),
             peer_allow_private: flag(env, "DASSIE_PEER_ALLOW_PRIVATE")?,
@@ -296,6 +300,23 @@ fn bootstrap_nodes(env: &Env) -> Result<Vec<BootstrapNode>, EnvError> {
         }
     }
     Ok(nodes)
+}
+
+/// `DASSIE_RELAY`: one entry in the bootstrap list's format, or none when
+/// unset or empty.
+fn relay(env: &Env) -> Result<Option<BootstrapNode>, EnvError> {
+    let Some(text) = env.get("DASSIE_RELAY")?.filter(|text| !text.is_empty()) else {
+        return Ok(None);
+    };
+    let error = |problem: String| EnvError {
+        variable: "DASSIE_RELAY",
+        problem,
+    };
+    let node: BootstrapNodeJson =
+        serde_json::from_str(text).map_err(|e| error(format!("is not valid: {e}")))?;
+    check_bootstrap_node(&node)
+        .map(Some)
+        .ok_or_else(|| error(format!("is an invalid entry for {:?}", node.id)))
 }
 
 /// A bootstrap node's entry, if its URL is HTTPS, its key decodes and its
@@ -447,5 +468,23 @@ mod tests {
                 "{key}"
             );
         }
+    }
+
+    // The chosen relay is one entry in the bootstrap list's format, checked
+    // the same way.
+    #[test]
+    fn a_relay_is_one_checked_entry() {
+        let relay = |value: &str| settings(&[("HOME", "/h"), ("DASSIE_RELAY", value)]);
+        assert_eq!(relay("").map(|s| s.relay), Ok(None));
+        assert_eq!(settings(&[("HOME", "/h")]).map(|s| s.relay), Ok(None));
+        let boot1 = r#"{"id":"dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"}"#;
+        let chosen = relay(boot1).unwrap().relay.unwrap();
+        assert_eq!(chosen.url, "https://boot1.dassie.xyz");
+        assert_eq!(chosen.public_key.node_id(), chosen.id);
+        let swapped = r#"{"id":"dyrjUANXiJ5S6JXxwo7jdKKJjdLtK129U","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"}"#;
+        assert!(relay(swapped).is_err());
+        assert!(relay(&format!("[{boot1}]")).is_err());
+        let http = boot1.replace("https://", "http://");
+        assert!(relay(&http).is_err());
     }
 }
