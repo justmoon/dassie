@@ -365,7 +365,8 @@ pub struct Registration {
     pub network: Option<Network>,
 }
 
-/// A /24 of IPv4 or a /48 of IPv6, from which registrations are capped.
+/// A /24 of IPv4 or a /48 of IPv6, from which registrations and the replay
+/// state of strangers are capped.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Network(pub [u8; 7]);
 

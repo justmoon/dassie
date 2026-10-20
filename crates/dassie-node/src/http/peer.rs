@@ -4,8 +4,9 @@
 //! This layer checks only what needs no state: the media types, the body's
 //! size and pace, the number of requests waiting, and the rate of
 //! unauthenticated or failing requests per address. The engine's peer node
-//! decides the rest, including the status (NET-11), and answers once what
-//! the request changed is on disk.
+//! decides the rest, including the status (NET-11) and what a network of
+//! addresses may hold, and answers once what the request changed is on
+//! disk.
 
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -56,7 +57,12 @@ pub async fn handle(node: &Node, peer: SocketAddr, request: Request<Incoming>) -
     };
     let anonymous = Envelope::decode(&body)
         .is_ok_and(|envelope| envelope.authentication == Authentication::None);
-    let Ok(reply) = engine.peer_inbound(body.to_vec(), Some(peer.ip())).await else {
+    // Loopback is no network of its own where private peers are allowed, as
+    // for the limits per client: dev and the tests run many nodes there.
+    let source = node
+        .counted_client(peer.ip())
+        .map(|_| peer.ip().to_canonical());
+    let Ok(reply) = engine.peer_inbound(body.to_vec(), source).await else {
         return response::text(StatusCode::SERVICE_UNAVAILABLE, "Service Unavailable");
     };
     // Unauthenticated requests are for tools; refused ones may be someone

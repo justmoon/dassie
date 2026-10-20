@@ -88,8 +88,11 @@ impl PeerNode {
         if envelope.sender == self.own {
             return refuse(400, "the sender is the recipient");
         }
-        let required = content.kind().requires_authentication();
-        let accepted = match self.auth.accept(self.now_ms, &envelope, required) {
+        let network = source.map(Network::of);
+        let accepted = match self
+            .auth
+            .accept(self.now_ms, &envelope, content.kind(), network)
+        {
             Ok(accepted) => accepted,
             Err(AuthError::Busy) => return refuse(503, "busy"),
             Err(error) => return refuse(401, auth_reason(error)),
@@ -97,7 +100,6 @@ impl PeerNode {
         if accepted.is_authenticated() {
             self.saw(&accepted.sender);
         }
-        let network = source.map(Network::of);
         match content {
             Content::InterledgerPacket { request_id, packet } => {
                 self.packet_request(&accepted, request_id, packet)
@@ -501,6 +503,9 @@ impl PeerNode {
                 network,
             });
         }
+        // Its renewals must get through however many strangers write to us
+        // (spec/areas/peer-protocol.md#replay-protection).
+        self.auth.pin(sender);
         self.dirty.insert(sender);
         self.lists.served_changed = true;
         self.event(Event::Registered(sender));

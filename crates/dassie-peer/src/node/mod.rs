@@ -257,8 +257,20 @@ impl PeerNode {
             config,
         };
         node.restore(stored);
-        let bootstrap: Vec<NodeId> = node.bootstrap.iter().map(|b| b.id).collect();
-        for id in bootstrap {
+        // Bootstrap nodes, and nodes registered with us, keep their replay
+        // state (spec/areas/peer-protocol.md#replay-protection).
+        let registered = node
+            .table
+            .iter()
+            .filter(|(_, entry)| entry.registration.is_some())
+            .map(|(id, _)| *id);
+        let pinned: Vec<NodeId> = node
+            .bootstrap
+            .iter()
+            .map(|b| b.id)
+            .chain(registered)
+            .collect();
+        for id in pinned {
             node.auth.pin(id);
         }
         node
@@ -696,6 +708,11 @@ impl PeerNode {
         // still has a majority.
         self.lists.majority.remove(node);
         if self.table.remove(node).is_some() {
+            // A registered node evicted for a stronger reason keeps no
+            // replay state for good.
+            if !self.keeps_replay_state(node) {
+                self.auth.unpin(self.now_ms, node);
+            }
             self.dirty.remove(node);
             self.removed.push(*node);
             self.gossip.routes_dirty = true;

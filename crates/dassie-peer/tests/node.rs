@@ -341,3 +341,129 @@ fn the_owner_registers_now() {
         "registered again: {before} → {after}"
     );
 }
+
+/// An identity of a sender's own making.
+fn made_up(index: usize) -> Arc<NodeKey> {
+    let mut seed = [0xa5_u8; 32];
+    seed[..8].copy_from_slice(&(index as u64).to_be_bytes());
+    Arc::new(NodeKey::from_bytes(&seed))
+}
+
+/// A registration of `from` at `url` with bootstrap node 0.
+fn registration(network: &Network, from: &Arc<NodeKey>, url: &str) -> Vec<u8> {
+    let state = link_state(from, network.clock(0), url);
+    let info = SignedNodeInfo::decode_exact(&state).unwrap();
+    request(network, from, 0, &Content::Registration(info))
+}
+
+/// A request that changes state, from a node that is not a peer: refused
+/// with 409, after its replay state is recorded.
+fn settlement_request(network: &Network, from: &Arc<NodeKey>) -> Vec<u8> {
+    let content = Content::SettlementRequest {
+        scheme: SchemeId::parse("stub").unwrap(),
+    };
+    request(network, from, 0, &content)
+}
+
+// Anyone may make identities, and requests that only read are answered 200,
+// which the HTTP layer never charges. Each such request held a place in the
+// replay pool for strangers for two minutes, so one address could fill it
+// at a few requests a second, and every newcomer then got 503. A request
+// that only reads now leaves no replay state.
+#[test]
+fn new_identities_reading_leave_room_for_newcomers() {
+    let mut network = Network::new(4, 2, 1, Config::DEV);
+    settle(&mut network, 30_000);
+    let pool = AuthConfig::DEFAULT.max_senders;
+    for index in 0..pool + 8 {
+        let body = request(
+            &network,
+            &made_up(index),
+            0,
+            &Content::LinkStateRequest(vec![]),
+        );
+        assert_eq!(network.inbound(0, &body).status, 200, "request {index}");
+    }
+    let newcomer = Arc::new(NodeKey::from_bytes(&[201; 32]));
+    let body = registration(&network, &newcomer, "https://newcomer.example");
+    assert_eq!(
+        network.inbound(0, &body).status,
+        0,
+        "the registration waits on a probe of its URL"
+    );
+}
+
+// A registered node renews every few hours, so between renewals its replay
+// state went idle, and strangers could take its place: its renewal got 503.
+// A node registered with us keeps its replay state for good now.
+#[test]
+fn a_registered_node_renews_while_strangers_fill_the_pool() {
+    let config = Config {
+        auth: AuthConfig {
+            max_senders: 8,
+            ..AuthConfig::DEFAULT
+        },
+        ..Config::DEFAULT
+    };
+    let count = 6;
+    let mut network = Network::new(5, count, 1, config);
+    settle(&mut network, 600_000);
+    // A node registered with the bootstrap node, and neither its peer nor
+    // a node it holds a channel with, which keep their state anyway.
+    let views = network.node(0).nodes();
+    let registered = (1..count)
+        .find(|index| {
+            let id = key(*index).node_id();
+            views
+                .iter()
+                .any(|view| view.id == id && view.registered_until_ms.is_some())
+                && network.node(0).peering_of(&id).is_none()
+                && !network.holds_channel(&key(0).node_id(), *index)
+        })
+        .expect("a registered node that is not a peer");
+    let mut busy = false;
+    for index in 0..2 * config.auth.max_senders {
+        match network
+            .inbound(0, &settlement_request(&network, &made_up(index)))
+            .status
+        {
+            409 => {}
+            503 => {
+                busy = true;
+                break;
+            }
+            other => panic!("unexpected status {other}"),
+        }
+    }
+    assert!(busy, "strangers hold every place");
+    let body = registration(&network, &key(registered), &url(registered));
+    assert_eq!(network.inbound(0, &body).status, 200, "renewed");
+    network.node(0).check_invariants();
+}
+
+// One network (a /24 or /48) holds only its share of the replay pool for
+// strangers, so one address, or its neighbours, cannot take every place.
+#[test]
+fn one_network_holds_only_its_share_of_strangers() {
+    let mut network = Network::new(6, 2, 1, Config::DEV);
+    settle(&mut network, 30_000);
+    let share = AuthConfig::DEFAULT.max_senders_per_network;
+    let address = |octets: [u8; 4]| Some(std::net::IpAddr::from(octets));
+    for index in 0..share {
+        let body = settlement_request(&network, &made_up(index));
+        let last = u8::try_from(index).unwrap();
+        let reply = network.inbound_from(0, &body, address([198, 51, 100, last]));
+        assert_eq!(reply.status, 409, "sender {index}");
+    }
+    let body = settlement_request(&network, &made_up(share));
+    let reply = network.inbound_from(0, &body, address([198, 51, 100, 250]));
+    assert_eq!(reply.status, 503, "the network has its share");
+    let body = settlement_request(&network, &made_up(share + 1));
+    let reply = network.inbound_from(0, &body, address([203, 0, 113, 1]));
+    assert_eq!(reply.status, 409, "another network has room");
+    let newcomer = Arc::new(NodeKey::from_bytes(&[202; 32]));
+    let body = registration(&network, &newcomer, "https://newcomer.example");
+    let reply = network.inbound_from(0, &body, address([192, 0, 2, 1]));
+    assert_eq!(reply.status, 0, "the registration waits on a probe");
+    network.node(0).check_invariants();
+}

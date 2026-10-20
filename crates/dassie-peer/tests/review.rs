@@ -10,7 +10,7 @@ use dassie_oer::{Decode, Encode};
 use dassie_peer::auth::{AuthConfig, AuthError, Authenticator};
 use dassie_peer::sim::{Network, START, key, url};
 use dassie_peer::wire::{
-    Authentication, Content, Entry, Envelope, NodeInfo, PeeringRequest, PeeringResponse,
+    Authentication, Content, Entry, Envelope, Kind, NodeInfo, PeeringRequest, PeeringResponse,
     ResponseEnvelope, SchemeId, SignedNodeInfo, encode_envelope, sign_node_info,
 };
 use dassie_peer::{Config, OwnInfo, PeerBatch, PeerNode, Stored};
@@ -292,7 +292,7 @@ fn strangers_cannot_crowd_out_peers() {
     at_b.pin(peer.node_id());
     let send = |from: &Arc<NodeKey>, at: u64| {
         let mut auth = Authenticator::new(Arc::clone(from), AuthConfig::DEFAULT, START - 1);
-        let content = Content::NodeListRequest.to_vec();
+        let content = Content::SettlementRequest { scheme: stub() }.to_vec();
         let (hmac, _) = auth
             .authenticate(
                 at,
@@ -305,8 +305,13 @@ fn strangers_cannot_crowd_out_peers() {
         encode_envelope(&from.node_id(), &Authentication::Hmac(hmac), &content)
     };
     let accept = |at_b: &mut Authenticator, body: &[u8]| {
-        at_b.accept(START, &Envelope::decode(body).unwrap(), true)
-            .map(|_| ())
+        at_b.accept(
+            START,
+            &Envelope::decode(body).unwrap(),
+            Kind::SettlementRequest,
+            None,
+        )
+        .map(|_| ())
     };
     assert_eq!(accept(&mut at_b, &send(&stranger, START)), Ok(()));
     let other = Arc::new(NodeKey::from_bytes(&[8; 32]));

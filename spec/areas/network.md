@@ -57,7 +57,7 @@ The network's members are the nodes that a majority of the bootstrap nodes list.
 
 ### Node lists and the majority
 
-- A node polls each bootstrap node for its list's hash, and downloads the list when the hash changed. A list is accepted only in a response authenticated under the bootstrap node's configured key ([Peer protocol](peer-protocol.md#message-set)).
+- A node polls each bootstrap node for its list's hash, and downloads the list when the hash changed. A list is accepted only in a response authenticated under the bootstrap node's configured key ([Peer protocol](peer-protocol.md#message-set)). Polls and downloads only read, so they get through however full the bootstrap node's pool of replay state for strangers is ([Peer protocol](peer-protocol.md#replay-protection)).
 - A bootstrap node serves its unexpired registrations and itself. It lists itself and registers with the other bootstrap nodes like any node. It does not serve the majority back, which would keep a node listed forever once it had made it.
 - A node is in the majority when strictly more than half of the *configured* bootstrap nodes list it, not of those that answer, so silencing bootstrap nodes cannot shrink the quorum. A list not fetched for a long time no longer votes.
 - **Membership freeze.** Majority nodes are added to the table, and lose their place only while more than half of the configured lists are fresh. Otherwise membership freezes, so bootstrap nodes going offline, or a node cut off from them, do not empty every table in the network. The majority set is persisted.
@@ -71,7 +71,8 @@ The network's members are the nodes that a majority of the bootstrap nodes list.
 - new registrations draw from a global bucket, spent only when a registration succeeds;
 - one registration per URL host and port, and a cap per /24 (IPv4) or /48 (IPv6) of the address it came from;
 - before accepting a new registration, or one whose URL changed, the bootstrap node probes that URL; a renewal from the probed URL is answered at once;
-- a registration expires unless renewed, and the node leaves the served list.
+- a registration expires unless renewed, and the node leaves the served list;
+- a registered node keeps its replay state while registered, so strangers filling the replay pool cannot turn its renewals away ([Peer protocol](peer-protocol.md#replay-protection)).
 
 **Probes.** Registration and peering probe the requester's URL the same way: an authenticated `linkStateRequest` for the requester itself, which must return a verified state of that node at the registered sequence or later. That proves the URL serves the node's key. Since a requester picks the URL, probes are rate-limited, never made twice at once to the same node or host, and the requests waiting on them are bounded; a node cannot be used to hammer a third party.
 
