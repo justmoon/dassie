@@ -49,8 +49,13 @@
 //!     the trace). An
 //!     `unsupported` run adds `message` only.
 //! - **After the last run, one summary line:**
-//!   `{"summary": {"runs": 1520, "by_sim": {"node": {"runs": 900, "ms": 541000, "pass": 899, "safety": 1, "liveness": 0, "unsupported": 0}}, "failures": 1, "seconds": 600}}`,
-//!   where `by_sim` holds a simulation once it has a run.
+//!   `{"summary": {"runs": 1520, "by_sim": {"node": {"runs": 900, "ms": 541000, "pass": 899, "safety": 1, "liveness": 0, "unsupported": 0}}, "failures": 1, "seconds": 600}}`.
+//!   `runs` is the number of run lines printed before it, `wall-time` ones
+//!   included; `failures` the number of those whose outcome is `safety` or
+//!   `liveness`, the tripwire's included and `unsupported` ones not; and
+//!   `seconds` the campaign's wall time, in whole seconds. `by_sim` holds a
+//!   simulation once it has a run: its runs, how many ended each way, and
+//!   `ms`, the sum of their wall times.
 //! - **The exit status** is 0 when the campaign ran to its end, whatever
 //!   its runs found, since the records say that; 3 when the runner itself
 //!   failed, and 64 for a usage error. Panic messages go to stderr.

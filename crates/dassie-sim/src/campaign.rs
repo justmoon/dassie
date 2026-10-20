@@ -555,6 +555,8 @@ mod tests {
             .collect();
         assert!(!lines.is_empty());
         assert_eq!(u64::try_from(lines.len()).unwrap(), tally.runs);
+        let failed = lines.iter().filter(|line| line["outcome"] == "safety");
+        assert_eq!(u64::try_from(failed.count()).unwrap(), tally.failures);
         for line in &lines {
             assert_eq!(line["sim"], "tripwire");
             assert!(line["seed"].as_u64().unwrap() < 1 << SEED_BITS);

@@ -71,8 +71,8 @@ pub static SIMS: [Sim; 8] = [
         about: "peer networks through chaos and calm: membership, peering, routes and settlements",
         describe: dassie_peer::sim::chaos::describe,
         run: dassie_peer::sim::chaos::run,
-        // Its runs take the longest: a few of them take a tenth of the
-        // time, as much as the scripts together.
+        // Its runs take the longest: a few of them take about a sixth of
+        // the time, more than the scripts together.
         weight: 4,
     },
     Sim {
