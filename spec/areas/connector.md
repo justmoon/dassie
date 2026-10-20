@@ -77,7 +77,7 @@ A limit refusal becomes T04, a full table T03. So a peer can push packets to us 
 
 **Fulfills are final.** A packet is posted when it is fulfilled, and stays posted whatever its upstream does with the Fulfill ([Ledger](ledger.md#fulfills-booked-as-final)). The peer protocol sends a response to a peer again until it arrives or a bounded time has passed; a Reject that never arrives has the effect of expiry upstream.
 
-**Draining.** While a peering ends, its endpoint is draining: no new Prepare goes to it or is taken from it, but packets in flight finish. The peering ends once nothing is in flight to or from it ([Network](network.md#termination)). Before that, while the node collects from a peer it decided to end and has not told, the peer's endpoint is refusing: its new Prepares get T04 "insufficient liquidity", which tells it nothing more, and ours still go to it ([D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)).
+**Draining.** While a peering ends, its endpoint is draining: no new Prepare goes to it or is taken from it, but packets in flight finish. The peering ends once nothing is in flight to or from it ([Network](network.md#termination)). Before that, while the node collects from a peer it decided to end and has not told, the peer's endpoint is refusing: its new Prepares get T04 "insufficient liquidity" before any other check, so a peer that probes with a packet another check would answer can tell, and ours still go to it ([D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)).
 
 ## Money in flight with a peer
 
