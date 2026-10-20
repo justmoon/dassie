@@ -45,6 +45,10 @@ pub struct LedgerBatch {
     /// What each connection of an incoming payment received now.
     pub incoming_connections:
         std::collections::BTreeMap<(super::PaymentId, super::ConnectionKey), u64>,
+    /// Connections of incoming payments that gave their place to a new
+    /// payer: forgotten.
+    pub incoming_connections_gone:
+        std::collections::BTreeSet<(super::PaymentId, super::ConnectionKey)>,
     /// Outgoing payments made, what they sent, and grant spend.
     pub outgoing: super::OutgoingBatch,
     /// The owner's peer settings, if they changed.
@@ -66,6 +70,7 @@ impl LedgerBatch {
             && self.incoming_created.is_empty()
             && self.incoming_progress.is_empty()
             && self.incoming_connections.is_empty()
+            && self.incoming_connections_gone.is_empty()
             && self.outgoing.is_empty()
             && self.peer_settings.is_none()
     }
@@ -309,6 +314,7 @@ impl Store {
             &batch.incoming_created,
             &batch.incoming_progress,
             &batch.incoming_connections,
+            &batch.incoming_connections_gone,
         )?;
         super::outgoing::write_outgoing(&transaction, &batch.outgoing)?;
         super::peer_settings::write_peer_settings(&transaction, batch.peer_settings)?;

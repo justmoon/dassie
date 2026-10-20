@@ -21,6 +21,7 @@ use hyper::{Method, Request, Response, StatusCode};
 
 use super::incoming::engine_error;
 use super::{ReadRequest, error, json};
+use crate::engine::Prober;
 use crate::http::response::Body;
 use crate::node::Node;
 use crate::open_payments::auth::{self, Authorized, OpError};
@@ -64,6 +65,21 @@ fn authorize(node: &Node, read: &ReadRequest) -> Result<Authorized, OpError> {
     auth::authorize(node, &read.signed(&fields))
 }
 
+/// Whom a request's rate probe counts against (D34): an app the owner
+/// approved, under this grant or another, shares the clients' slots
+/// without a share of its own or its network's; a stranger is held to
+/// its own share and its network's.
+fn prober(node: &Node, peer: SocketAddr, authorized: &Authorized) -> Result<Prober, OpError> {
+    let grant = &authorized.grant;
+    if grant.needs_owner || node.store().client_approved(&grant.client)? {
+        return Ok(Prober::Approved);
+    }
+    Ok(Prober::Stranger {
+        client: grant.client.clone(),
+        network: node.counted_network(peer.ip()),
+    })
+}
+
 /// The ledger of one of the node's wallet addresses.
 async fn ledger_of(node: &Node, urls: &Urls, wallet_address: &str) -> Result<LedgerId, OpError> {
     WalletAddresses::of(node)
@@ -97,7 +113,8 @@ async fn create_quote(
         return Err(OpError::new(429, "too_many_requests", "slow down"));
     }
     let receiver = spending::receiver(node, urls, &body.receiver).await?;
-    let rate = spending::quote_rate(node, ledger, &receiver).await?;
+    let rate =
+        spending::quote_rate(node, ledger, &receiver, prober(node, peer, &authorized)?).await?;
     let (debit, receive) = spending::amounts(
         ledger,
         &receiver,
@@ -205,7 +222,8 @@ async fn create_outgoing(
             spending::from_quote(node, id, Some(&authorized.grant.client), Some(ledger))?
         }
         (None, Some(incoming), Some(debit)) => {
-            spending::from_incoming(node, urls, ledger, incoming, debit).await?
+            let by = prober(node, peer, &authorized)?;
+            spending::from_incoming(node, urls, ledger, incoming, debit, by).await?
         }
         _ => {
             return Err(OpError::invalid(

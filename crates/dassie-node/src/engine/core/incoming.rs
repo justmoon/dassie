@@ -19,6 +19,11 @@
 //! clients' share is full, the oldest of their payments that received
 //! nothing is closed to make room: a flood of requests pushes out only
 //! other unpaid requests.
+//!
+//! In the same way, a payment's connections cannot lock out a new payer:
+//! once all [`MAX_CONNECTIONS_PER_PAYMENT`] have paid it, a new one takes
+//! the place of the one idle longest of those that paid only dust and
+//! nothing for [`IDLE_CONNECTION_MS`] (D34).
 
 use std::collections::BTreeMap;
 
@@ -32,9 +37,38 @@ use crate::store::{
     ConnectionKey, FINISHED_RETENTION_MS, IncomingPaid, IncomingProgress, IncomingRow, PaymentId,
 };
 
-/// Most connections that pay one incoming payment: a new one past them is
-/// refused.
+/// Most connections that pay one incoming payment: a new one past them
+/// takes the place of an idle one that paid only dust, or is refused.
 pub const MAX_CONNECTIONS_PER_PAYMENT: usize = 32;
+
+/// How long a connection must have paid nothing before a new payer may
+/// take its place: STREAM's idle timeout, after which a connection nobody
+/// hears from is closed anyway.
+pub const IDLE_CONNECTION_MS: u64 = dassie_stream::Policy::DEFAULT.idle_timeout_ms;
+
+/// The least a connection must have paid to keep its place however long
+/// it is idle: a millionth of its asset, a drop of XRP, the least the XRP
+/// Ledger moves. Below it, what a sender can be told wrongly if its place
+/// was taken and it comes back is dust.
+#[must_use]
+pub const fn dust(ledger: LedgerId) -> u64 {
+    let scale = ledger.asset().scale;
+    let mut dust = 1;
+    let mut place = 6;
+    while place < scale {
+        dust *= 10;
+        place += 1;
+    }
+    dust
+}
+
+/// What one connection paid into an incoming payment, and when it last
+/// paid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Paid {
+    received: u64,
+    at_ms: u64,
+}
 
 /// The bounds on incoming payments.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,9 +102,9 @@ pub(super) struct OpenIncoming {
     ledger: LedgerId,
     incoming_amount: Option<u64>,
     received: u64,
-    /// What each connection received: at most
+    /// What each connection received, and when it last did: at most
     /// [`MAX_CONNECTIONS_PER_PAYMENT`] of them.
-    connections: BTreeMap<ConnectionKey, u64>,
+    connections: BTreeMap<ConnectionKey, Paid>,
     created_at_ms: u64,
     expires_at_ms: u64,
     client: Option<String>,
@@ -81,6 +115,30 @@ impl OpenIncoming {
     fn remaining(&self) -> u64 {
         let ceiling = self.incoming_amount.unwrap_or(dassie_ledger::MAX_TOTAL);
         ceiling.saturating_sub(self.received)
+    }
+
+    /// The connection a new payer may take the place of, when all places
+    /// are taken: of those that paid less than [`dust`] and nothing for
+    /// [`IDLE_CONNECTION_MS`], the one idle longest. A connection is
+    /// counted only once its money is posted, in the step that admitted
+    /// its packet, so none has money on its way here.
+    fn idle_place(&self, now_ms: u64) -> Option<ConnectionKey> {
+        let dust = dust(self.ledger);
+        self.connections
+            .iter()
+            .filter(|(_, paid)| {
+                paid.received < dust && now_ms.saturating_sub(paid.at_ms) >= IDLE_CONNECTION_MS
+            })
+            .min_by_key(|(key, paid)| (paid.at_ms, **key))
+            .map(|(key, _)| *key)
+    }
+
+    /// What each connection received.
+    fn received_by_connection(&self) -> BTreeMap<ConnectionKey, u64> {
+        self.connections
+            .iter()
+            .map(|(key, paid)| (*key, paid.received))
+            .collect()
     }
 }
 
@@ -168,7 +226,9 @@ impl Finished {
 /// Whether a packet for the connection tagged `tag` may into its receiver
 /// on `ledger`, and the payment and connection it pays. A connection is
 /// told what it received, not what the payment did. A new one past
-/// [`MAX_CONNECTIONS_PER_PAYMENT`] is refused.
+/// [`MAX_CONNECTIONS_PER_PAYMENT`] is refused, unless an idle one paid
+/// only dust, whose place it takes once it pays
+/// ([`OpenIncoming::idle_place`]).
 pub(super) fn admission(
     incoming: &BTreeMap<PaymentId, OpenIncoming>,
     finished: &Finished,
@@ -183,13 +243,16 @@ pub(super) fn admission(
     match incoming.get(&id) {
         Some(payment) if payment.ledger == ledger && now_ms < payment.expires_at_ms => {
             let counted = payment.connections.get(&key);
-            if counted.is_none() && payment.connections.len() >= MAX_CONNECTIONS_PER_PAYMENT {
+            if counted.is_none()
+                && payment.connections.len() >= MAX_CONNECTIONS_PER_PAYMENT
+                && payment.idle_place(now_ms).is_none()
+            {
                 return refused;
             }
             (
                 Admission::Accept {
                     money_limit: payment.remaining(),
-                    received: counted.copied().unwrap_or(0),
+                    received: counted.map_or(0, |paid| paid.received),
                 },
                 Some((id, key)),
             )
@@ -249,7 +312,9 @@ impl Core {
             if let Some(payment) = self.incoming.get_mut(&id)
                 && payment.connections.len() < MAX_CONNECTIONS_PER_PAYMENT
             {
-                payment.connections.insert(key, received);
+                // Paid just now, as far as anyone can tell: idle only from here.
+                let at_ms = self.now_ms;
+                payment.connections.insert(key, Paid { received, at_ms });
             }
         }
         self.load_finished_incoming()
@@ -412,7 +477,7 @@ impl Core {
             return;
         };
         self.finished_incoming
-            .remember(id, payment.ledger, payment.connections.clone());
+            .remember(id, payment.ledger, payment.received_by_connection());
         self.batch.incoming_progress.insert(
             id,
             IncomingProgress {
@@ -464,7 +529,7 @@ impl Core {
         }
         if let Some(payment) = self.incoming.remove(&id) {
             self.finished_incoming
-                .remember(id, payment.ledger, payment.connections.clone());
+                .remember(id, payment.ledger, payment.received_by_connection());
         }
         // A clock that went back since it was made must not date its end
         // before its start.
@@ -480,8 +545,12 @@ impl Core {
     }
 
     /// Adds what a fulfilled packet brought to its payment and its
-    /// connection, completing the payment when it has all it asked for.
-    // Panics only on a broken invariant: money is admitted for open payments.
+    /// connection, completing the payment when it has all it asked for. A
+    /// new connection past [`MAX_CONNECTIONS_PER_PAYMENT`] takes the place
+    /// [`admission`] found for it: the one it replaces is forgotten, and
+    /// what it received stays in the payment's total.
+    // Panics only on a broken invariant: money is admitted for open
+    // payments, and for a new connection only where it has a place.
     #[allow(clippy::panic)]
     pub(super) fn incoming_received(&mut self, paid: IncomingPaid) {
         let IncomingPaid {
@@ -497,20 +566,41 @@ impl Core {
             amount <= payment.remaining(),
             "a payment took more than it may"
         );
+        let mut replaced = false;
+        if !payment.connections.contains_key(&connection)
+            && payment.connections.len() >= MAX_CONNECTIONS_PER_PAYMENT
+        {
+            let Some(idle) = payment.idle_place(now) else {
+                panic!("money admitted for a connection without a place");
+            };
+            payment.connections.remove(&idle);
+            self.batch.incoming_connections.remove(&(id, idle));
+            self.batch.incoming_connections_gone.insert((id, idle));
+            replaced = true;
+        }
         payment.received += amount;
-        let counted = payment.connections.entry(connection).or_default();
-        *counted += amount;
+        let counted = payment.connections.entry(connection).or_insert(Paid {
+            received: 0,
+            at_ms: now,
+        });
+        counted.received += amount;
+        counted.at_ms = now;
         self.batch
             .incoming_connections
-            .insert((id, connection), *counted);
+            .insert((id, connection), counted.received);
+        self.batch
+            .incoming_connections_gone
+            .remove(&(id, connection));
         let complete = payment.incoming_amount == Some(payment.received);
         let progress = IncomingProgress {
             received_amount: payment.received,
             completed_at_ms: complete.then_some(now.max(payment.created_at_ms)),
         };
-        if complete {
-            let ledger = payment.ledger;
-            let received = payment.connections.clone();
+        let finished = complete.then(|| (payment.ledger, payment.received_by_connection()));
+        if replaced {
+            self.report(PaymentEvent::IncomingConnectionReplaced { id });
+        }
+        if let Some((ledger, received)) = finished {
             self.incoming.remove(&id);
             self.finished_incoming.remember(id, ledger, received);
             self.report(PaymentEvent::IncomingCompleted { id });
@@ -541,7 +631,7 @@ impl Core {
                 payment.connections.len() <= MAX_CONNECTIONS_PER_PAYMENT,
                 "a payment has too many connections"
             );
-            let received: u64 = payment.connections.values().sum();
+            let received: u64 = payment.connections.values().map(|paid| paid.received).sum();
             // What connections received before a restart may be counted by
             // the payment alone, if their rows were not all read back.
             assert!(
@@ -569,6 +659,101 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
+
+    /// An open payment whose every place is taken by a connection that
+    /// paid `each` at `at_ms`.
+    fn full_payment(each: u64, at_ms: u64) -> OpenIncoming {
+        let connections: BTreeMap<ConnectionKey, Paid> = (1..=MAX_CONNECTIONS_PER_PAYMENT)
+            .map(|index| {
+                let key = ConnectionKey([u8::try_from(index).unwrap(); 16]);
+                (
+                    key,
+                    Paid {
+                        received: each,
+                        at_ms,
+                    },
+                )
+            })
+            .collect();
+        let received = connections.values().map(|paid| paid.received).sum();
+        OpenIncoming {
+            ledger: LedgerId::StubUsd,
+            incoming_amount: Some(1_000_000_000_000),
+            received,
+            connections,
+            created_at_ms: 0,
+            expires_at_ms: 10 * IDLE_CONNECTION_MS,
+            client: None,
+        }
+    }
+
+    // Anyone who can read a payment request gets credentials of their own,
+    // so connections that each pay one unit could take every place and
+    // lock out a new payer. Once they have been idle for a while, a new
+    // payer takes the place of the one idle longest (D34).
+    #[test]
+    fn a_new_payer_takes_the_place_of_idle_connections_that_paid_dust() {
+        let id = PaymentId([1; 16]);
+        let mut payment = full_payment(1, 1);
+        let oldest = ConnectionKey([20; 16]);
+        payment.connections.get_mut(&oldest).unwrap().at_ms = 0;
+        let incoming = BTreeMap::from([(id, payment)]);
+        let key = ConnectionKey([0xee; 16]);
+        let payer = connection_tag(id, key);
+        let at = |now_ms| {
+            admission(
+                &incoming,
+                &Finished::default(),
+                LedgerId::StubUsd,
+                now_ms,
+                &payer,
+            )
+        };
+        // Not idle long enough yet: refused.
+        assert_eq!(
+            at(IDLE_CONNECTION_MS - 1),
+            (Admission::Refuse(ErrorCode::F99_APPLICATION_ERROR), None)
+        );
+        let (admitted, paid) = at(IDLE_CONNECTION_MS);
+        assert_eq!(
+            admitted,
+            Admission::Accept {
+                money_limit: 1_000_000_000_000 - 32,
+                received: 0
+            }
+        );
+        assert_eq!(paid, Some((id, key)));
+        assert_eq!(incoming[&id].idle_place(IDLE_CONNECTION_MS), Some(oldest));
+    }
+
+    // A connection that paid at least dust keeps its place, however long it
+    // is idle: what its sender is told it delivered stays right.
+    #[test]
+    fn connections_that_paid_more_than_dust_keep_their_place() {
+        let id = PaymentId([1; 16]);
+        let payment = full_payment(dust(LedgerId::StubUsd), 0);
+        let incoming = BTreeMap::from([(id, payment)]);
+        let payer = connection_tag(id, ConnectionKey([0xee; 16]));
+        let (admitted, paid) = admission(
+            &incoming,
+            &Finished::default(),
+            LedgerId::StubUsd,
+            9 * IDLE_CONNECTION_MS,
+            &payer,
+        );
+        assert_eq!(
+            admitted,
+            Admission::Refuse(ErrorCode::F99_APPLICATION_ERROR)
+        );
+        assert_eq!(paid, None);
+    }
+
+    #[test]
+    fn dust_is_a_millionth_of_the_asset() {
+        // Both ledgers count in billionths.
+        assert_eq!(dust(LedgerId::StubUsd), 1_000);
+        assert_eq!(dust(LedgerId::XrplTestnetXrp), 1_000);
+    }
 
     proptest! {
         #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]

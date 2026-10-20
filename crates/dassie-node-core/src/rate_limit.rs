@@ -40,6 +40,32 @@ impl ClientKey {
             },
         }
     }
+
+    /// The key of `address`'s network: its IPv4 /24, or its IPv6 /56. An
+    /// IPv4 address mapped into IPv6, as a dual-stack socket reports IPv4
+    /// clients, is the IPv4 address. For shares of a pool rather than
+    /// rates: a /24 is the least IPv4 block routed on its own, so one
+    /// party rarely has addresses in many.
+    #[must_use]
+    pub fn network_of(address: IpAddr) -> Self {
+        match address.to_canonical() {
+            IpAddr::V4(v4) => {
+                let [a, b, c, _] = v4.octets();
+                Self(
+                    core::net::Ipv4Addr::new(a, b, c, 0)
+                        .to_ipv6_mapped()
+                        .octets(),
+                )
+            }
+            v6 @ IpAddr::V6(_) => Self::from_ip(v6),
+        }
+    }
+
+    /// The key as bytes, as a database keeps it.
+    #[must_use]
+    pub const fn to_bytes(self) -> [u8; 16] {
+        self.0
+    }
 }
 
 /// Bucket sizes and refill rates.
@@ -327,6 +353,22 @@ mod tests {
         );
         let mapped = Ipv4Addr::new(10, 0, 0, 1).to_ipv6_mapped();
         assert_eq!(ClientKey::from_ip(IpAddr::V6(mapped)), v4(1));
+    }
+
+    #[test]
+    fn networks_are_an_ipv4_slash_24_or_an_ipv6_slash_56() {
+        let network = |address: IpAddr| ClientKey::network_of(address);
+        let a = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1));
+        let b = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 254));
+        let other = IpAddr::V4(Ipv4Addr::new(192, 0, 3, 1));
+        assert_eq!(network(a), network(b));
+        assert_ne!(network(a), network(other));
+        let mapped = IpAddr::V6(Ipv4Addr::new(192, 0, 2, 9).to_ipv6_mapped());
+        assert_eq!(network(mapped), network(a));
+        let v6 = Ipv6Addr::new(0x2001, 0xdb8, 0x12, 0x3401, 0, 0, 0, 1);
+        let same = Ipv6Addr::new(0x2001, 0xdb8, 0x12, 0x34ff, 0xffff, 0, 0, 2);
+        assert_eq!(network(IpAddr::V6(v6)), network(IpAddr::V6(same)));
+        assert_eq!(network(IpAddr::V6(v6)), ClientKey::from_ip(IpAddr::V6(v6)));
     }
 
     #[test]

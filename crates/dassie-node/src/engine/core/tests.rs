@@ -562,8 +562,14 @@ fn a_probe_to_nowhere_ends_at_once() {
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
     let ledger = dassie_ledger::LedgerId::StubUsd;
-    core.start_probe(1, ledger, "test.nowhere.receiver", &[3; 32])
-        .unwrap();
+    core.start_probe(
+        1,
+        ledger,
+        "test.nowhere.receiver",
+        &[3; 32],
+        super::Prober::Owner,
+    )
+    .unwrap();
     core.finish_step(&mut outputs);
     assert!(
         outputs
@@ -571,6 +577,115 @@ fn a_probe_to_nowhere_ends_at_once() {
             .any(|output| matches!(output, Output::ProbeDone { id: 1, rate: None })),
         "{outputs:?}"
     );
+}
+
+/// A core whose probes stay in progress until its step ends, as they go
+/// to its own receiver, whose answers come after the step's sending; and
+/// that receiver's address.
+fn probing_core(seed: u64) -> (Core, String) {
+    let mut core = core(seed);
+    core.add_scheme("stub", String::new()).unwrap();
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    core.begin_step(NOW + 1);
+    let receiver = core
+        .incoming_credentials(
+            crate::store::PaymentId([1; 16]),
+            dassie_ledger::LedgerId::StubUsd,
+        )
+        .unwrap()
+        .destination;
+    (core, receiver)
+}
+
+/// A stranger, the `n`th, from the `on`th IPv4 /24.
+fn stranger(n: u8, on: u8) -> super::Prober {
+    use std::net::{IpAddr, Ipv4Addr};
+    let network = IpAddr::V4(Ipv4Addr::new(192, 0, on, 1));
+    super::Prober::Stranger {
+        client: format!("jwk:stranger-{n}"),
+        network: Some(dassie_node_core::rate_limit::ClientKey::network_of(network)),
+    }
+}
+
+fn exhausted(result: Result<(), super::EngineError>) {
+    assert!(
+        matches!(result, Err(super::EngineError::Exhausted(_))),
+        "{result:?}"
+    );
+}
+
+// Clients' quotes need no owner, so strangers can start probes: they never
+// take the owner's slots, and no one client or network holds more than its
+// share (D34).
+#[test]
+fn strangers_probes_leave_the_owner_a_slot() {
+    use super::Prober;
+    use super::probes::{MAX_PROBES, MAX_PROBES_PER_CLIENT, OWNER_PROBES};
+
+    let (mut core, receiver) = probing_core(9);
+    let mut id = 0;
+    let mut start = |core: &mut Core, by: Prober| {
+        id += 1;
+        core.start_probe(
+            id,
+            dassie_ledger::LedgerId::StubUsd,
+            &receiver,
+            &[3; 32],
+            by,
+        )
+    };
+    // One client, or one network, takes only its share.
+    for _ in 0..MAX_PROBES_PER_CLIENT {
+        start(&mut core, stranger(0, 0)).unwrap();
+    }
+    exhausted(start(&mut core, stranger(0, 1)));
+    exhausted(start(&mut core, stranger(1, 0)));
+    // Strangers fill all but the owner's slots.
+    let mut n = 1;
+    while core.spending.probes.len() < MAX_PROBES - OWNER_PROBES {
+        start(&mut core, stranger(n, n)).unwrap();
+        n += 1;
+    }
+    exhausted(start(&mut core, stranger(n, n)));
+    // The owner's Send still measures, until every slot is taken.
+    for _ in 0..OWNER_PROBES {
+        start(&mut core, Prober::Owner).unwrap();
+    }
+    exhausted(start(&mut core, Prober::Owner));
+    core.check_invariants();
+}
+
+// An app the owner approved shares a cloud's network with strangers: their
+// probes there never hold it to the network's share, nor to a share of
+// its own; only the clients' slots bound it, as before (D34).
+#[test]
+fn strangers_on_its_network_never_stop_an_approved_apps_probes() {
+    use super::Prober;
+    use super::probes::{MAX_PROBES, MAX_PROBES_PER_CLIENT, OWNER_PROBES};
+
+    let (mut core, receiver) = probing_core(10);
+    let mut id = 0;
+    let mut start = |core: &mut Core, by: Prober| {
+        id += 1;
+        core.start_probe(
+            id,
+            dassie_ledger::LedgerId::StubUsd,
+            &receiver,
+            &[3; 32],
+            by,
+        )
+    };
+    for n in 0..MAX_PROBES_PER_CLIENT {
+        start(&mut core, stranger(u8::try_from(n).unwrap(), 0)).unwrap();
+    }
+    exhausted(start(&mut core, stranger(9, 0)));
+    while core.spending.probes.len() < MAX_PROBES - OWNER_PROBES {
+        start(&mut core, Prober::Approved).unwrap();
+    }
+    exhausted(start(&mut core, Prober::Approved));
+    start(&mut core, Prober::Owner).unwrap();
+    core.check_invariants();
 }
 
 // A scheme that stops by itself, here on a server off the XRP Ledger testnet,
@@ -772,5 +887,108 @@ fn a_restarted_receiver_tells_a_reconnecting_sender_what_got_there() {
             money_limit: 0,
             received: 100,
         }
+    );
+}
+
+/// The `n`th connection key.
+fn connection_key(n: usize) -> crate::store::ConnectionKey {
+    crate::store::ConnectionKey([u8::try_from(n).unwrap(); 16])
+}
+
+/// An incoming payment of 1 000 000 whose every place is taken by a
+/// connection that paid one unit, the first a moment before the others.
+fn payment_paid_by_every_connection(core: &mut Core) -> crate::store::PaymentId {
+    use super::incoming::{MAX_CONNECTIONS_PER_PAYMENT, NewIncoming};
+    use crate::store::IncomingPaid;
+
+    core.add_scheme("stub", String::new()).unwrap();
+    let payment = core
+        .create_incoming_payment(NewIncoming {
+            ledger: dassie_ledger::LedgerId::StubUsd,
+            wallet_address: "https://a.example/pay".into(),
+            client: None,
+            incoming_amount: Some(1_000_000),
+            expires_at_ms: None,
+            metadata: None,
+        })
+        .unwrap();
+    for n in 1..=MAX_CONNECTIONS_PER_PAYMENT {
+        core.begin_step(NOW + u64::from(n > 1));
+        core.incoming_received(IncomingPaid {
+            payment: payment.id,
+            connection: connection_key(n),
+            amount: 1,
+        });
+    }
+    core.flush();
+    payment.id
+}
+
+// A new payer that takes the place of an idle connection that paid only
+// dust is counted, and the connection it replaced is forgotten on disk
+// too, so a restart reads back the payment's places as they were (D34).
+#[test]
+fn a_replaced_connection_is_forgotten_across_a_restart() {
+    use dassie_ilp::ErrorCode;
+    use dassie_ledger::LedgerId;
+    use dassie_stream::Admission;
+
+    use super::incoming::{IDLE_CONNECTION_MS, admission, connection_tag};
+    use crate::store::{ConnectionKey, IncomingPaid};
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let newcomer = ConnectionKey([0xee; 16]);
+    let id = {
+        let mut core = core_on(Arc::clone(&store), 5);
+        let id = payment_paid_by_every_connection(&mut core);
+        core.begin_step(NOW + 1 + IDLE_CONNECTION_MS);
+        let tag = connection_tag(id, newcomer);
+        let (admitted, paid) = admission(
+            &core.incoming,
+            &core.finished_incoming,
+            LedgerId::StubUsd,
+            core.now_ms(),
+            &tag,
+        );
+        assert!(matches!(admitted, Admission::Accept { .. }), "{admitted:?}");
+        assert_eq!(paid, Some((id, newcomer)));
+        core.incoming_received(IncomingPaid {
+            payment: id,
+            connection: newcomer,
+            amount: 5,
+        });
+        core.check_invariants();
+        core.flush();
+        id
+    };
+    let core = core_on(store, 6);
+    let at = |connection| {
+        admission(
+            &core.incoming,
+            &core.finished_incoming,
+            LedgerId::StubUsd,
+            NOW,
+            &connection_tag(id, connection),
+        )
+        .0
+    };
+    assert_eq!(
+        at(newcomer),
+        Admission::Accept {
+            money_limit: 1_000_000 - 37,
+            received: 5,
+        }
+    );
+    assert_eq!(
+        at(connection_key(2)),
+        Admission::Accept {
+            money_limit: 1_000_000 - 37,
+            received: 1,
+        }
+    );
+    // The one replaced is a stranger now, and every place is taken again.
+    assert_eq!(
+        at(connection_key(1)),
+        Admission::Refuse(ErrorCode::F99_APPLICATION_ERROR)
     );
 }

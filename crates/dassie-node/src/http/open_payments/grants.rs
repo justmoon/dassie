@@ -104,7 +104,8 @@ pub async fn request(
         Err(failure) => return error(&failure, None),
     };
     let fields = read.field_refs();
-    match auth::request_grant(node, urls, &read.signed(&fields)).await {
+    let network = node.counted_network(peer.ip());
+    match auth::request_grant(node, urls, &read.signed(&fields), network).await {
         Ok(grant) => json(StatusCode::OK, &grant),
         Err(failure) => error(&failure, None),
     }

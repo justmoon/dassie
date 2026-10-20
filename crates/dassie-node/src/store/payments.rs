@@ -547,12 +547,13 @@ fn sql_amount(value: u64) -> Result<i64, StoreError> {
 const NEXT_REVISION: &str = "(SELECT coalesce(max(revision), 0) + 1 FROM incoming_payments)";
 
 /// Writes the incoming payments a batch created and what it paid into
-/// them.
+/// them, and forgets the connections that gave their place to new payers.
 pub(super) fn write_incoming(
     transaction: &Transaction<'_>,
     created: &[IncomingRow],
     progress: &std::collections::BTreeMap<PaymentId, IncomingProgress>,
     connections: &std::collections::BTreeMap<(PaymentId, ConnectionKey), u64>,
+    gone: &std::collections::BTreeSet<(PaymentId, ConnectionKey)>,
 ) -> Result<(), StoreError> {
     for row in created {
         transaction.execute(
@@ -591,6 +592,12 @@ pub(super) fn write_incoming(
         if updated != 1 {
             return Err(StoreError::Corrupt("incoming payment"));
         }
+    }
+    for (id, connection) in gone {
+        transaction.execute(
+            "DELETE FROM incoming_connections WHERE incoming_payment = ?1 AND connection = ?2",
+            params![id.0.as_slice(), connection.0.as_slice()],
+        )?;
     }
     for ((id, connection), received) in connections {
         transaction.execute(

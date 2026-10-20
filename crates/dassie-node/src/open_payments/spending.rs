@@ -20,7 +20,7 @@ use dassie_stream::Credentials;
 use super::auth::OpError;
 use super::client::{self, ClientError};
 use super::{INCOMING_PREFIX, Urls};
-use crate::engine::NewOutgoing;
+use crate::engine::{NewOutgoing, Prober};
 use crate::node::Node;
 use crate::store::{ForeignAmount, IncomingRow, PaymentId, QuoteRow};
 
@@ -212,7 +212,7 @@ pub fn ilp_method(credentials: Credentials) -> resources::IlpMethod {
 /// The rate a payment from `ledger` to `receiver` is quoted at: what the
 /// path delivers per unit sent, as a probe measures it, less STREAM's
 /// slippage. One for one to the node's own receivers, which convert and
-/// charge nothing.
+/// charge nothing. The probe takes a slot of `by`'s share (D34).
 ///
 /// # Errors
 ///
@@ -222,6 +222,7 @@ pub async fn quote_rate(
     node: &Node,
     ledger: LedgerId,
     receiver: &Receiver,
+    by: Prober,
 ) -> Result<Rate, OpError> {
     let engine = node.engine().ok_or_else(OpError::unavailable)?;
     let route = engine
@@ -244,7 +245,12 @@ pub async fn quote_rate(
         return Ok(Rate::ONE);
     }
     let measured = engine
-        .probe(ledger, receiver.destination.clone(), receiver.shared_secret)
+        .probe(
+            ledger,
+            receiver.destination.clone(),
+            receiver.shared_secret,
+            by,
+        )
         .await
         .map_err(|error| match error {
             crate::engine::EngineError::Exhausted(message) => {
@@ -432,7 +438,7 @@ pub fn from_quote(
 }
 
 /// An outgoing payment that pays an incoming payment, debiting `debit`,
-/// at the rate measured now.
+/// at the rate measured now for `by`.
 ///
 /// # Errors
 ///
@@ -443,9 +449,10 @@ pub async fn from_incoming(
     ledger: LedgerId,
     incoming: &str,
     debit: &Amount,
+    by: Prober,
 ) -> Result<NewOutgoing, OpError> {
     let receiver = receiver(node, urls, incoming).await?;
-    let rate = quote_rate(node, ledger, &receiver).await?;
+    let rate = quote_rate(node, ledger, &receiver, by).await?;
     let (debit, receive) = amounts(ledger, &receiver, rate, Some(debit), None)?;
     Ok(NewOutgoing {
         ledger,

@@ -160,6 +160,9 @@ fn payment(severity: Severity, event: &PaymentEvent) {
         PaymentEvent::IncomingClosedForRoom { id } => {
             emit!(severity, target: target::PAYMENT, %id, "an unpaid incoming payment closed to make room");
         }
+        PaymentEvent::IncomingConnectionReplaced { id } => {
+            emit!(severity, target: target::PAYMENT, %id, "an idle connection gave its place in an incoming payment to a new payer");
+        }
         PaymentEvent::IncomingCompleted { id } => {
             emit!(severity, target: target::PAYMENT, %id, "incoming payment completed");
         }

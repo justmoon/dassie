@@ -703,6 +703,19 @@ impl Node {
         Some(ClientKey::from_ip(address))
     }
 
+    /// The network a request from `address` counts against, for the
+    /// shares of a pool one network may hold (an IPv4 /24, an IPv6 /56);
+    /// `None` counts in the totals only, as loopback does for
+    /// [`counted_client`](Self::counted_client).
+    #[must_use]
+    pub fn counted_network(&self, address: IpAddr) -> Option<ClientKey> {
+        let address = address.to_canonical();
+        if self.peer.allow_private && address.is_loopback() {
+            return None;
+        }
+        Some(ClientKey::network_of(address))
+    }
+
     /// The limits and lifetimes in force.
     #[must_use]
     pub const fn policies(&self) -> &Policies {
