@@ -16,7 +16,7 @@ use std::time::Duration;
 use dassie_identity::NodeId;
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::origin::{Host, parse_authority};
-use dassie_node_core::rate_limit::{ClientKey, RateLimiter};
+use dassie_node_core::rate_limit::{ClientKey, RateLimitPolicy, RateLimiter};
 use dassie_node_core::urls::DEFAULT_HTTPS_PORT;
 use http_body_util::{BodyExt, Full, Limited};
 use hyper::body::Incoming;
@@ -26,6 +26,7 @@ use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode, Version};
 use hyper_util::rt::{TokioIo, TokioTimer};
 use rustls::ServerConfig;
+use sha2::{Digest, Sha256};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
@@ -55,6 +56,23 @@ const BODY_TIMEOUT: Duration = Duration::from_millis(Policies::DEFAULT.body_time
 /// itself.
 const INTERACT_PREFIX: &str = "/gnap/interact/";
 
+/// The Content Security Policy on every answer the front door gives or
+/// passes on, replacing a node's: nothing runs, nothing loads, so even a
+/// body a browser misreads as a page can do nothing on the front door's
+/// names (spec/areas/http.md#front-doors).
+const CONTENT_SECURITY_POLICY: &str = "default-src 'none'; sandbox";
+
+/// A client's requests to one node, per client address: a quarter of what
+/// the node lets one address send (`REQUESTS`), since the node counts the
+/// front door as a single client of every request it passes on. Four
+/// clients at their allowance still use up a node's whole budget for the
+/// front door (spec/roadmap.md#periphery).
+const REQUESTS_PER_NODE: RateLimitPolicy = RateLimitPolicy {
+    client_burst: REQUESTS.client_burst / 4,
+    client_refill_ms: REQUESTS.client_refill_ms * 4,
+    client_slots: REQUESTS.client_slots,
+};
+
 /// Headers that concern one connection, never passed on either way
 /// (RFC 9110 §7.6.1), beside those `Connection` names.
 const HOP_BY_HOP: &[&str] = &[
@@ -76,6 +94,8 @@ pub struct Door {
     domain: String,
     nodes: Arc<Nodes>,
     requests: Mutex<RateLimiter>,
+    /// Per client address and node: [`REQUESTS_PER_NODE`].
+    requests_per_node: Mutex<RateLimiter>,
     clock: Arc<dyn Clock>,
 }
 
@@ -95,6 +115,7 @@ impl Door {
             domain: domain.to_ascii_lowercase(),
             nodes,
             requests: Mutex::new(RateLimiter::new(REQUESTS)),
+            requests_per_node: Mutex::new(RateLimiter::new(REQUESTS_PER_NODE)),
             clock,
         }
     }
@@ -102,13 +123,9 @@ impl Door {
     /// Answers one request from `peer`.
     async fn route(&self, peer: SocketAddr, request: Request<Incoming>) -> Response<Body> {
         let client = ClientKey::from_ip(peer.ip().to_canonical());
-        let allowed = lock(&self.requests).check(client, self.clock.now_ms());
-        if allowed.is_err() {
-            return error(
-                StatusCode::TOO_MANY_REQUESTS,
-                "too_many_requests",
-                "slow down",
-            );
+        let now_ms = self.clock.now_ms();
+        if lock(&self.requests).check(client, now_ms).is_err() {
+            return too_many();
         }
         match self.target(&request) {
             Err(refused) => refused.response(),
@@ -117,7 +134,13 @@ impl Door {
                 "interaction_unavailable",
                 "interactive grants need the owner's Dassie app, which is not available yet",
             ),
-            Ok(Target::Node(node)) => self.pass(node, request).await,
+            Ok(Target::Node(node)) => {
+                let key = per_node(client, &node);
+                if lock(&self.requests_per_node).check(key, now_ms).is_err() {
+                    return too_many();
+                }
+                self.pass(node, request).await
+            }
         }
     }
 
@@ -207,24 +230,75 @@ impl Door {
     }
 }
 
+/// The key a client's requests to `node` count under: the client's and
+/// the node's, hashed into one, as the rate limiter keys clients.
+fn per_node(client: ClientKey, node: &NodeId) -> ClientKey {
+    let mut hash = Sha256::new();
+    hash.update(client.to_bytes());
+    hash.update(node.as_str().as_bytes());
+    let digest: [u8; 32] = hash.finalize().into();
+    let mut key = [0u8; 16];
+    key.copy_from_slice(digest.get(..16).unwrap_or(&[0; 16]));
+    ClientKey::from_ip(std::net::Ipv6Addr::from(key).into())
+}
+
+fn too_many() -> Response<Body> {
+    error(
+        StatusCode::TOO_MANY_REQUESTS,
+        "too_many_requests",
+        "slow down",
+    )
+}
+
 /// The answer as the node gave it, without the headers that concern the
-/// stream it came over and without cookies; or 502, unless it is JSON or
-/// has no body.
+/// stream it came over, cookies and what would make a browser do more
+/// than read it; or 502, unless it is JSON with a single `Content-Type`, or
+/// has no body, and is no redirect. The front door's own `nosniff` and
+/// Content Security Policy replace the node's. The node's signature covers
+/// neither (spec/areas/payments.md#signed-responses), so it still verifies.
 fn returned((parts, body): Answer) -> Response<Body> {
-    let is_json = header_str(&parts.headers, &header::CONTENT_TYPE)
-        .and_then(|value| value.split(';').next())
-        .is_some_and(|media| media.trim().eq_ignore_ascii_case("application/json"));
+    let bad = |description: &str| error(StatusCode::BAD_GATEWAY, "bad_gateway", description);
+    if parts.status.is_redirection() && parts.headers.contains_key(header::LOCATION) {
+        return bad("the node answered with a redirect");
+    }
+    let types: Vec<&HeaderValue> = parts.headers.get_all(header::CONTENT_TYPE).iter().collect();
+    let is_json = match types.as_slice() {
+        [] => false,
+        [one] => one
+            .to_str()
+            .ok()
+            .and_then(|value| value.split(';').next())
+            .is_some_and(|media| media.trim().eq_ignore_ascii_case("application/json")),
+        _ => return bad("the node named more than one media type"),
+    };
     if !body.is_empty() && !is_json {
-        return error(
-            StatusCode::BAD_GATEWAY,
-            "bad_gateway",
-            "the node did not answer with JSON",
-        );
+        return bad("the node did not answer with JSON");
     }
     let mut response = Response::new(Full::new(body));
     *response.status_mut() = parts.status;
-    *response.headers_mut() = end_to_end(&parts.headers, false);
+    let mut headers = end_to_end(&parts.headers, false);
+    if is_json {
+        headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+    }
+    harden(&mut headers);
+    *response.headers_mut() = headers;
     response
+}
+
+/// Sets the front door's own `nosniff` and Content Security Policy,
+/// replacing any a node sent.
+fn harden(headers: &mut HeaderMap) {
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(CONTENT_SECURITY_POLICY),
+    );
 }
 
 /// Why a node gave no answer, in the specs' error form.
@@ -257,7 +331,8 @@ fn unanswered(missed: Missed) -> Response<Body> {
 /// those `Connection` names; for a request also without `Expect`,
 /// `Content-Length` (the body is read, and its length sent anew) and what
 /// proxies add (`Forwarded`, `X-Forwarded-*`); for a response, without
-/// cookies.
+/// cookies, `Alt-Svc` (which would send clients elsewhere), `Refresh`, and
+/// the node's Content Security Policies, which the front door's replace.
 fn end_to_end(headers: &HeaderMap, request: bool) -> HeaderMap {
     let named: Vec<String> = response::header_values(headers, &header::CONNECTION)
         .flat_map(|value| value.split(','))
@@ -269,7 +344,15 @@ fn end_to_end(headers: &HeaderMap, request: bool) -> HeaderMap {
             matches!(name, "expect" | "content-length" | "forwarded")
                 || name.starts_with("x-forwarded-")
         } else {
-            matches!(name, "set-cookie" | "set-cookie2")
+            matches!(
+                name,
+                "set-cookie"
+                    | "set-cookie2"
+                    | "alt-svc"
+                    | "refresh"
+                    | "content-security-policy"
+                    | "content-security-policy-report-only"
+            )
         };
         own || HOP_BY_HOP.contains(&name) || named.iter().any(|token| token == name)
     };
@@ -294,6 +377,7 @@ fn error(status: StatusCode, code: &str, description: &str) -> Response<Body> {
         HeaderValue::from_static("*"),
     );
     response::secure(headers, true);
+    harden(headers);
     response
 }
 
@@ -432,6 +516,9 @@ mod tests {
             ("x-forwarded-for", "192.0.2.1"),
             ("signature", "sig=:AA==:"),
             ("set-cookie", "a=b"),
+            ("alt-svc", "h3=\":443\""),
+            ("refresh", "0; url=https://elsewhere.example"),
+            ("content-security-policy", "default-src *"),
             ("content-type", "application/json"),
         ] {
             headers.append(
@@ -444,7 +531,15 @@ mod tests {
         };
         assert_eq!(
             names(end_to_end(&headers, true)),
-            ["host", "signature", "set-cookie", "content-type"]
+            [
+                "host",
+                "signature",
+                "set-cookie",
+                "alt-svc",
+                "refresh",
+                "content-security-policy",
+                "content-type"
+            ]
         );
         assert_eq!(
             names(end_to_end(&headers, false)),
@@ -460,24 +555,100 @@ mod tests {
         );
     }
 
+    /// What the front door makes of a node's answer with `status`,
+    /// `fields` and `body`.
+    fn answer(status: u16, fields: &[(&str, &str)], body: &'static [u8]) -> Response<Body> {
+        let mut response = Response::new(());
+        *response.status_mut() = StatusCode::from_u16(status).unwrap();
+        for (name, value) in fields {
+            response.headers_mut().append(
+                HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                HeaderValue::from_str(value).unwrap(),
+            );
+        }
+        let (parts, ()) = response.into_parts();
+        returned((parts, Bytes::from_static(body)))
+    }
+
     #[test]
     fn only_json_or_nothing_comes_back() {
-        let answer = |content_type: &str, body: &'static [u8]| {
-            let mut response = Response::new(());
-            response.headers_mut().insert(
-                header::CONTENT_TYPE,
-                HeaderValue::from_str(content_type).unwrap(),
-            );
-            let (parts, ()) = response.into_parts();
-            returned((parts, Bytes::from_static(body))).status()
+        let typed = |content_type: &str, body: &'static [u8]| {
+            answer(200, &[("content-type", content_type)], body).status()
         };
-        assert_eq!(answer("application/json", b"{}"), StatusCode::OK);
+        assert_eq!(typed("application/json", b"{}"), StatusCode::OK);
         assert_eq!(
-            answer("Application/JSON; charset=utf-8", b"{}"),
+            typed("Application/JSON; charset=utf-8", b"{}"),
             StatusCode::OK
         );
-        assert_eq!(answer("text/plain", b""), StatusCode::OK);
-        assert_eq!(answer("text/html", b"<p>"), StatusCode::BAD_GATEWAY);
-        assert_eq!(answer("application/jsonx", b"{}"), StatusCode::BAD_GATEWAY);
+        assert_eq!(typed("text/plain", b""), StatusCode::OK);
+        assert_eq!(typed("text/html", b"<p>"), StatusCode::BAD_GATEWAY);
+        assert_eq!(typed("application/jsonx", b"{}"), StatusCode::BAD_GATEWAY);
+        assert_eq!(answer(200, &[], b"{}").status(), StatusCode::BAD_GATEWAY);
+        // A browser takes the last of two types: two are refused.
+        let two = [
+            ("content-type", "application/json"),
+            ("content-type", "text/html"),
+        ];
+        assert_eq!(answer(200, &two, b"<p>").status(), StatusCode::BAD_GATEWAY);
+        assert_eq!(answer(204, &two, b"").status(), StatusCode::BAD_GATEWAY);
+        // No Open Payments answer redirects.
+        let redirect = [("location", "https://elsewhere.example/")];
+        assert_eq!(
+            answer(302, &redirect, b"").status(),
+            StatusCode::BAD_GATEWAY
+        );
+        assert_eq!(answer(304, &[], b"").status(), StatusCode::NOT_MODIFIED);
+    }
+
+    #[test]
+    fn the_front_doors_own_policy_replaces_the_nodes() {
+        let fields = [
+            ("content-type", "application/json; charset=utf-8"),
+            ("content-security-policy", "default-src *"),
+            ("x-content-type-options", "sniff-away"),
+            ("signature", "dassie=:AA==:"),
+        ];
+        let response = answer(200, &fields, b"{}");
+        let headers = response.headers();
+        let all = |name: &HeaderName| -> Vec<&str> {
+            headers
+                .get_all(name)
+                .iter()
+                .map(|value| value.to_str().unwrap())
+                .collect()
+        };
+        assert_eq!(all(&header::CONTENT_TYPE), ["application/json"]);
+        assert_eq!(
+            all(&header::CONTENT_SECURITY_POLICY),
+            [CONTENT_SECURITY_POLICY]
+        );
+        assert_eq!(all(&header::X_CONTENT_TYPE_OPTIONS), ["nosniff"]);
+        assert_eq!(
+            all(&HeaderName::from_static("signature")),
+            ["dassie=:AA==:"]
+        );
+        // The front door's own answers carry them too.
+        let own = error(StatusCode::NOT_FOUND, "not_found", "Not Found");
+        let csp = own.headers().get(header::CONTENT_SECURITY_POLICY).unwrap();
+        assert_eq!(csp, CONTENT_SECURITY_POLICY);
+    }
+
+    #[test]
+    fn a_client_counts_per_node_apart() {
+        let client = ClientKey::from_ip([192, 0, 2, 1].into());
+        let other = ClientKey::from_ip([192, 0, 2, 2].into());
+        let (a, b) = (
+            dassie_identity::NodeKey::from_bytes(&[1; 32]).node_id(),
+            dassie_identity::NodeKey::from_bytes(&[2; 32]).node_id(),
+        );
+        assert_eq!(per_node(client, &a), per_node(client, &a));
+        assert_ne!(per_node(client, &a), per_node(client, &b));
+        assert_ne!(per_node(client, &a), per_node(other, &a));
+        let mut limiter = RateLimiter::new(REQUESTS_PER_NODE);
+        for _ in 0..REQUESTS_PER_NODE.client_burst {
+            assert!(limiter.check(per_node(client, &a), 0).is_ok());
+        }
+        assert!(limiter.check(per_node(client, &a), 0).is_err());
+        assert!(limiter.check(per_node(client, &b), 0).is_ok());
     }
 }

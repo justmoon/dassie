@@ -23,6 +23,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use dassie_identity::{NodeId, NodeKey};
 use dassie_node::clock::{Clock, ManualClock};
+use dassie_node::front_door::nodes::STREAMS_PER_NODE;
 use dassie_node::front_door::{self, CertificateFiles, Parts, Sockets, key};
 use dassie_node::http::open_payments::MAX_BODY_BYTES;
 use dassie_node::http::peer::Answer;
@@ -56,6 +57,9 @@ struct Door {
     entry: String,
     url: String,
     roots: Arc<rustls::RootCertStore>,
+    /// The front door's clock, for its rate limits: polls move it on, so
+    /// that they do not use up a client's allowance.
+    clock: ManualClock,
     _dir: tempfile::TempDir,
 }
 
@@ -76,12 +80,8 @@ impl Door {
             certificate,
         };
         let sockets = Sockets { https, quic };
-        let serving = front_door::serve(
-            parts,
-            sockets,
-            Arc::new(ManualClock::new(START_MS)),
-            shutdown.clone(),
-        );
+        let clock = ManualClock::new(START_MS);
+        let serving = front_door::serve(parts, sockets, Arc::new(clock.clone()), shutdown.clone());
         tokio::spawn(async move { serving.await.unwrap() });
         Self {
             https: address,
@@ -89,6 +89,7 @@ impl Door {
             entry,
             url,
             roots: Arc::new(roots),
+            clock,
             _dir: dir,
         }
     }
@@ -136,6 +137,7 @@ impl Door {
             if self.get(name, "/.well-known/pay").await.status != StatusCode::SERVICE_UNAVAILABLE {
                 return;
             }
+            self.clock.advance(1_000);
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
         panic!("the node never connected to the front door");
@@ -234,6 +236,13 @@ async fn a_node_is_reached_at_its_name_through_the_front_door() {
         json!({ "nodeId": key.node_id().as_str() })
     );
     assert_eq!(reply.header("access-control-allow-origin"), Some("*"));
+    // The front door's policy replaced the node's, which the node's
+    // signature does not cover: it still verifies below.
+    assert_eq!(
+        reply.header("content-security-policy"),
+        Some("default-src 'none'; sandbox")
+    );
+    assert_eq!(reply.header("x-content-type-options"), Some("nosniff"));
     // The answer is the node's, signed with its key: the label checks it.
     let now_s = node.clock.now_ms() / 1_000;
     assert_eq!(signer(&target, &reply, now_s), Ok(key.node_id()));
@@ -316,6 +325,7 @@ async fn the_front_door_serves_only_its_names_and_open_payments() {
             gone = true;
             break;
         }
+        door.clock.advance(1_000);
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert!(gone, "the front door still reaches a node that stopped");
@@ -420,25 +430,48 @@ impl Handler for Misbehaving {
         _shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
         Box::pin(async move {
-            let service =
-                hyper::service::service_fn(|request: Request<hyper::body::Incoming>| async move {
-                    let (content_type, body): (&str, Vec<u8>) = match request.uri().path() {
-                        "/pay/page" => ("text/html", b"<script>steal()</script>".to_vec()),
-                        "/pay/huge" => ("application/json", vec![b' '; 1024 * 1024]),
-                        _ => ("application/json", b"{}".to_vec()),
-                    };
-                    let response = Response::builder()
-                        .header("content-type", content_type)
-                        .header("set-cookie", "session=stolen")
-                        .body(Full::new(Bytes::from(body)))
-                        .unwrap();
-                    Ok::<_, std::convert::Infallible>(response)
-                });
+            let service = hyper::service::service_fn(misbehave);
             let _ = hyper::server::conn::http1::Builder::new()
                 .serve_connection(TokioIo::new(stream), service)
                 .await;
         })
     }
+}
+
+/// What a misbehaving node answers, by path: a page, a page behind a
+/// JSON type, a redirect, an answer over the front door's bound, a slow
+/// answer, or JSON with its own lax policy; and a cookie with each.
+async fn misbehave(
+    request: Request<hyper::body::Incoming>,
+) -> Result<Response<Full<Bytes>>, std::convert::Infallible> {
+    let page = || Bytes::from_static(b"<script>steal()</script>");
+    let builder = Response::builder().header("set-cookie", "session=stolen");
+    let response = match request.uri().path() {
+        "/pay/page" => builder.header("content-type", "text/html").body(page()),
+        "/pay/two-types" => builder
+            .header("content-type", "application/json")
+            .header("content-type", "text/html")
+            .body(page()),
+        "/pay/redirect" => builder
+            .status(StatusCode::FOUND)
+            .header("location", "https://elsewhere.example/")
+            .body(Bytes::new()),
+        "/pay/huge" => builder
+            .header("content-type", "application/json")
+            .body(Bytes::from(vec![b' '; 1024 * 1024])),
+        path => {
+            if path == "/pay/slow" {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+            }
+            builder
+                .header("content-type", "application/json; charset=utf-8")
+                .header("content-security-policy", "default-src *")
+                .header("x-content-type-options", "none")
+                .header("alt-svc", "h3=\":443\"")
+                .body(Bytes::from_static(b"{}"))
+        }
+    };
+    Ok(response.unwrap().map(Full::new))
 }
 
 #[tokio::test]
@@ -467,10 +500,31 @@ async fn the_front_door_passes_back_only_json_without_cookies() {
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
     assert_eq!(reply.body.as_ref(), b"{}");
     assert!(reply.header("set-cookie").is_none());
-    for path in ["/pay/page", "/pay/huge"] {
+    assert!(reply.header("alt-svc").is_none());
+    // The front door's own type and policy replace the node's.
+    let all = |name: &str| -> Vec<&str> {
+        reply
+            .headers
+            .get_all(name)
+            .iter()
+            .map(|value| value.to_str().unwrap())
+            .collect()
+    };
+    assert_eq!(all("content-type"), ["application/json"]);
+    assert_eq!(
+        all("content-security-policy"),
+        ["default-src 'none'; sandbox"]
+    );
+    assert_eq!(all("x-content-type-options"), ["nosniff"]);
+    for path in ["/pay/page", "/pay/two-types", "/pay/redirect", "/pay/huge"] {
         let reply = door.get(&name, path).await;
         assert_eq!(reply.status, StatusCode::BAD_GATEWAY, "{path}");
         assert_eq!(json_of(&reply)["error"]["code"], "bad_gateway");
+    }
+    // More requests at once than the node has streams wait for one.
+    let parallel = (0..STREAMS_PER_NODE + 2).map(|_| door.get(&name, "/pay/slow"));
+    for reply in futures_util::future::join_all(parallel).await {
+        assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
     }
     // The front door carries no relay requests: it is no node's relay but
     // its own.
