@@ -23,6 +23,10 @@ ExecStartPre=/usr/bin/git checkout --quiet --force --detach origin/main
 ExecStart=/nix/var/nix/profiles/default/bin/nix develop .#campaign --command node scripts/sim-campaign.ts
 # The sandboxes are units of their own, stopped with this one (PartOf).
 KillMode=control-group
+# A loop that could not build or start a trusted commit has filed it in the
+# campaign's trouble issue and exits with an error, which shows here as a
+# failed unit; the next loop starts all the same, a minute later, so that a
+# fix on `main` or a network that comes back takes effect at once.
 Restart=always
 RestartSec=60
 

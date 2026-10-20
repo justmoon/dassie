@@ -4,11 +4,13 @@
 import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
 import {
+  type CampaignResult,
   chooseTarget,
   cleanSignature,
   CLEAR_RUNS,
   type Comment,
   decodeState,
+  decodeTrouble,
   fenced,
   foldStatuses,
   type GitHub,
@@ -16,10 +18,12 @@ import {
   issueBody,
   LABELS,
   mergeFailure,
+  mergeTrouble,
   type NewStatus,
   nextStatus,
   parseLine,
   reportPullRequest,
+  reportTrouble,
   reportTrusted,
   type RunRecord,
   sandboxArgs,
@@ -29,6 +33,10 @@ import {
   type StatusEntry,
   Tally,
   type Target,
+  TROUBLE,
+  type Trouble,
+  troubleBody,
+  troubleOf,
 } from "./sim-campaign.ts";
 
 const BOT = "dassie-sim-campaign[bot]";
@@ -623,6 +631,134 @@ test("a pull request that does not build gets the end of its log", async () => {
   assertEquals(github.statusesBySha.size, 0);
 });
 
+function trouble(fields: Partial<Trouble> = {}): Trouble {
+  return {
+    target: "main",
+    sha: MAIN,
+    step: "build",
+    log: "error: linker `cc` not found",
+    time: "2026-10-20T10:00:00.000Z",
+    host: "sim-campaign-1",
+    ...fields,
+  };
+}
+
+test("trouble: a trusted commit that does not build files one issue of its own, and no status", async () => {
+  const github = new FakeGitHub();
+  // The commit already has a status of its own, which trouble leaves as
+  // it is.
+  github.statusesBySha.set(MAIN, [entry("pending", "x [+10 +10s +0t]")]);
+  await reportTrouble(github, trouble());
+  await reportTrouble(
+    github,
+    trouble({ time: "2026-10-20T10:01:00.000Z", log: "error: disk full" }),
+  );
+  await reportTrouble(
+    github,
+    trouble({
+      target: "release",
+      sha: NEXT,
+      step: "fetch",
+      time: "2026-10-20T10:02:00.000Z",
+    }),
+  );
+  assertEquals(github.issues.length, 1);
+  const [issue] = github.issues;
+  assertEquals(issue.label, LABELS.trouble.name);
+  assert(issue.label !== LABELS.failure.name);
+  assert(issue.body.startsWith(`<!-- sim-campaign signature ${TROUBLE} -->`));
+  // Updated in place, never commented on: the supervisor retries every
+  // minute.
+  assertEquals(github.commentsByIssue.size, 0);
+  assert(
+    github.writes.every((write) =>
+      /^(issue \d+ sim-campaign|update \d+)$/.test(write)
+    ),
+    github.writes.join(),
+  );
+  assertEquals(github.statusesBySha.get(MAIN)!.length, 1);
+  assertEquals(github.statusesBySha.get(NEXT), undefined);
+  const state = decodeTrouble(issue.body)!;
+  assertEquals(state.seen, 3);
+  assertEquals(state.first, "2026-10-20T10:00:00.000Z");
+  assertEquals(state.latest.time, "2026-10-20T10:02:00.000Z");
+  assertEquals(state.commits, [MAIN, NEXT]);
+  assert(issue.body.includes("Seen 3 times since 2026-10-20T10:00:00.000Z"));
+  assert(issue.body.includes(`fetching the dependencies of release ${NEXT}`));
+  assert(issue.body.includes("sim-campaign-1"));
+  assert(issue.body.includes("linker `cc` not found"));
+});
+
+test("trouble: the issue's log and commits stay bounded", async () => {
+  const github = new FakeGitHub();
+  for (let i = 0; i < 30; i++) {
+    await reportTrouble(
+      github,
+      trouble({
+        sha: i.toString(16).padStart(40, "0"),
+        log: `start ${"x".repeat(100_000)} end ${i}`,
+      }),
+    );
+  }
+  const [issue] = github.issues;
+  const state = decodeTrouble(issue.body)!;
+  assertEquals(state.seen, 30);
+  assertEquals(state.commits.length, 10);
+  assertEquals(state.latest.log.length, 6_000);
+  assert(state.latest.log.endsWith("end 29"));
+  assert(issue.body.length < 20_000, String(issue.body.length));
+});
+
+test("trouble: a closed issue is not added to, and an edited body starts again", async () => {
+  const github = new FakeGitHub();
+  await reportTrouble(github, trouble());
+  await reportTrouble(github, trouble());
+  github.issues[0].state = "closed";
+  await reportTrouble(github, trouble());
+  assertEquals(github.issues.map((issue) => issue.state), ["closed", "open"]);
+  assertEquals(decodeTrouble(github.issues[1].body)!.seen, 1);
+  // Someone rewrote the body but kept its first line.
+  github.issues[1].body = `<!-- sim-campaign signature ${TROUBLE} -->\nfixed?`;
+  await reportTrouble(github, trouble());
+  assertEquals(github.issues.length, 2);
+  assertEquals(decodeTrouble(github.issues[1].body)!.seen, 1);
+});
+
+test("trouble: a build that failed, or a runner that failed before it printed a line", () => {
+  assertEquals(troubleOf({ buildLog: "no space left", step: "fetch" }), {
+    step: "fetch",
+    log: "no space left",
+  });
+  const silent: CampaignResult = {
+    tally: new Tally(),
+    complete: false,
+    code: 1,
+    log: "Failed to start transient service unit",
+  };
+  assertEquals(troubleOf(silent), {
+    step: "run",
+    log: "Failed to start transient service unit",
+  });
+  // A runner that printed and then failed is the commit's to answer for.
+  assertEquals(
+    troubleOf({ ...silent, tally: tally([line({})]) }),
+    undefined,
+  );
+  assertEquals(
+    troubleOf({ ...silent, tally: tally(["garbage"]) }),
+    undefined,
+  );
+  assertEquals(
+    troubleOf({
+      tally: tally([line({})], { runs: 1, seconds: 1 }),
+      complete: true,
+      code: 0,
+      log: "",
+    }),
+    undefined,
+  );
+});
+
 test("state: an edited body without it starts the counts again", () => {
   assertEquals(decodeState("someone rewrote this"), undefined);
   assertEquals(
@@ -639,6 +775,18 @@ test("state: an edited body without it starts the counts again", () => {
   }, MAIN);
   assertEquals(decodeState(issueBody(state)), state);
   assertEquals(decodeState(issueBody(state).replaceAll("\n", "\r\n")), state);
+  // A failure's state is not the campaign's trouble, nor the other way.
+  assertEquals(decodeTrouble(issueBody(state)), undefined);
+  const trouble = mergeTrouble(undefined, {
+    target: "main",
+    sha: MAIN,
+    step: "build",
+    log: "",
+    time: "t",
+    host: "h",
+  });
+  assertEquals(decodeTrouble(troubleBody(trouble)), trouble);
+  assertEquals(decodeState(troubleBody(trouble)), undefined);
 });
 
 test("fences: no text closes its block", () => {
