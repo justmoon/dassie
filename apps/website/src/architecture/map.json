@@ -1298,7 +1298,7 @@
         "Any node relays encrypted streams to the nodes connected to it, and a node can keep a connection to a relay of its choice with `DASSIE_RELAY`.",
         "Open Payments answers are signed with the node's key. A node without a hostname answers under `<label>.dassiepay.net` and the names in `DASSIE_PUBLIC_NAMES`, and `dassie front-door` runs a front door that passes Open Payments requests on to such nodes.",
         "Ending a peering collects what the peer owes first and settles nothing for the end, a peer that stays short of room is set apart, and a ban takes effect at once.",
-        "Hardening and fixes: XRP Ledger settlement copes with servers that lag or forget history, the updater keeps a failed node stopped and skips a version it rolled back, the installer never runs beside an update, and limits hold for strangers' replays, probes and Open Payments clients."
+        "Hardening and fixes: XRP Ledger settlement copes with servers that lag or forget history, the updater keeps a node stopped when its database cannot be put back, and skips a version it rolled back, the installer never runs beside an update, and limits hold for strangers' replays, probes and Open Payments clients."
       ]
     },
     {
