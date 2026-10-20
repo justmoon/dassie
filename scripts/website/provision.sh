@@ -119,28 +119,44 @@ done < "$work/headers"
 run "$@"
 
 # The URL map: dassie.land to the backend, www.dassie.land redirected to
-# it. The map is changed as a whole, from what it is now.
+# it, and each page's path without its slash redirected to the path with
+# it (the bucket would send it to <page>/index.html instead). The pages
+# are those of apps/website/src/layout.ts; check.sh fails a page without
+# its rule. The map is changed as a whole, from what it is now, and the
+# script's own entries replaced: run it again, or this part alone, after
+# adding a page.
 backend="https://www.googleapis.com/compute/v1/projects/$project/global/backendBuckets/$bucket"
+grep -oE 'path: "/[^"]+/"' "$here/../../apps/website/src/layout.ts" \
+  | sed -E 's/^path: "(.*)\/"$/\1/' | jq -R . | jq -s . > "$work/pages.json"
 if [ "$apply" = 1 ]; then
   gcloud compute url-maps describe "$url_map" --project="$project" \
     --format=json > "$work/url-map.json"
 else
   echo '{"hostRules": [], "pathMatchers": []}' > "$work/url-map.json"
 fi
-jq --arg domain "$domain" --arg backend "$backend" '
-  del(.id, .kind, .selfLink, .creationTimestamp)
+jq --arg domain "$domain" --arg backend "$backend" \
+  --slurpfile pages "$work/pages.json" '
+  ["dassie-land", "www-dassie-land"] as $ours
+  | del(.id, .kind, .selfLink, .creationTimestamp)
+  | .hostRules = [.hostRules[] | select(.pathMatcher | IN($ours[]) | not)]
+  | .pathMatchers = [.pathMatchers[] | select(.name | IN($ours[]) | not)]
   | .hostRules += [
       {hosts: [$domain], pathMatcher: "dassie-land"},
       {hosts: ["www." + $domain], pathMatcher: "www-dassie-land"}
     ]
   | .pathMatchers += [
-      {name: "dassie-land", defaultService: $backend},
+      {name: "dassie-land", defaultService: $backend,
+        routeRules: [$pages[0] | to_entries[] | {
+          priority: (.key + 1),
+          matchRules: [{fullPathMatch: .value}],
+          urlRedirect: {pathRedirect: (.value + "/"),
+            redirectResponseCode: "PERMANENT_REDIRECT", stripQuery: false}}]},
       {name: "www-dassie-land", defaultUrlRedirect: {
         hostRedirect: $domain, httpsRedirect: true,
         redirectResponseCode: "PERMANENT_REDIRECT", stripQuery: false}}
     ]' "$work/url-map.json" > "$work/url-map-new.json"
 if [ "$apply" = 0 ]; then
-  echo "# the URL map gains:"
+  echo "# the URL map's entries for dassie.land:"
   jq '{hostRules, pathMatchers}' "$work/url-map-new.json"
 fi
 run gcloud compute url-maps import "$url_map" --project="$project" \

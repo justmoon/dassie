@@ -21,7 +21,7 @@
 - No previews. Only `main` is published, so no pull request's workflow holds credentials that can write the site. The browser test in CI is what a pull request gets instead.
 - A change to `headers.json` reaches the site only once someone with the project's rights runs `provision.sh` again. Until then the deploy's check fails, so the difference is seen at the next publish.
 - A publish is not atomic. A page never names an asset that is not there yet, but a page loaded just before the old assets are deleted can miss a script it loads later.
-- A path without its trailing slash gets the bucket's 301, not a 308. Browsers follow both with a GET, and the site has no forms that post.
+- The bucket alone would send a page's path without its trailing slash to `<page>/index.html`. The load balancer has a 308 for each page to the path with its slash instead, from the list of pages in `layout.ts`, so a new page needs `provision.sh`'s URL map step run again; `check.sh` fails a page without its rule.
 
 ## Rejected
 
