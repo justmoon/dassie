@@ -17,6 +17,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use dassie_identity::{NodeId, PublicKey, base64url};
+use dassie_node_core::config::Hostname;
 use serde::Deserialize;
 
 use crate::log::{LogFilter, LogLevel};
@@ -33,6 +34,9 @@ pub const DEFAULT_BOOTSTRAP_NODES: &str = r#"[
 
 /// Most bootstrap nodes accepted.
 pub const MAX_BOOTSTRAP_NODES: usize = 64;
+
+/// Most names the owner adds for Open Payments.
+pub const MAX_PUBLIC_NAMES: usize = 16;
 
 /// A snapshot of environment variables.
 #[derive(Clone, Debug, Default)]
@@ -135,6 +139,10 @@ pub struct Settings {
     /// Whether the peer protocol runs on dev timers, polling every second
     /// (`DASSIE_DEV_TIMINGS=1`).
     pub dev_timings: bool,
+    /// The names a node without a hostname answers Open Payments to, beside
+    /// its default front door name (`DASSIE_PUBLIC_NAMES`, comma-separated;
+    /// spec/areas/payments.md#the-nodes-names).
+    pub public_names: Vec<Hostname>,
 }
 
 impl Settings {
@@ -150,6 +158,7 @@ impl Settings {
             peer_ca_file: env.path("DASSIE_PEER_CA_FILE"),
             peer_allow_private: flag(env, "DASSIE_PEER_ALLOW_PRIVATE")?,
             dev_timings: flag(env, "DASSIE_DEV_TIMINGS")?,
+            public_names: public_names(env)?,
         })
     }
 }
@@ -216,6 +225,34 @@ fn dev_wallet_dir(env: &Env) -> Result<Option<PathBuf>, EnvError> {
         Ok(path) if path.is_dir() => Ok(Some(path)),
         _ => Err(error("must be a directory that exists")),
     }
+}
+
+/// Hostnames, comma-separated, each once.
+fn public_names(env: &Env) -> Result<Vec<Hostname>, EnvError> {
+    let error = |problem: String| EnvError {
+        variable: "DASSIE_PUBLIC_NAMES",
+        problem,
+    };
+    let Some(text) = env.get("DASSIE_PUBLIC_NAMES")? else {
+        return Ok(Vec::new());
+    };
+    let mut names: Vec<Hostname> = Vec::new();
+    for entry in text
+        .split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+    {
+        if names.len() == MAX_PUBLIC_NAMES {
+            return Err(error(format!("lists more than {MAX_PUBLIC_NAMES} names")));
+        }
+        let name =
+            Hostname::parse(entry).map_err(|_| error(format!("has an invalid name {entry:?}")))?;
+        if names.contains(&name) {
+            return Err(error(format!("lists {name} more than once")));
+        }
+        names.push(name);
+    }
+    Ok(names)
 }
 
 #[derive(Deserialize)]
@@ -351,6 +388,9 @@ mod tests {
             ("DASSIE_DEV_WALLET_DIR", "relative/dist"),
             ("DASSIE_DEV_WALLET_DIR", "/no/such/directory"),
             ("DASSIE_PEER_ALLOW_PRIVATE", "yes"),
+            ("DASSIE_PUBLIC_NAMES", "pay.example.com,not a name"),
+            ("DASSIE_PUBLIC_NAMES", "pay.example.com,PAY.example.com"),
+            ("DASSIE_PUBLIC_NAMES", "192.0.2.1"),
             ("DASSIE_BOOTSTRAP_NODES", "{"),
             (
                 "DASSIE_BOOTSTRAP_NODES",
@@ -361,6 +401,30 @@ mod tests {
             let result = settings(&[("HOME", "/h"), (variable, value)]);
             assert_eq!(result.err().map(|e| e.variable), Some(variable), "{value}");
         }
+    }
+
+    #[test]
+    fn public_names_are_hostnames_in_their_order() {
+        let names = |value: &str| {
+            settings(&[("HOME", "/h"), ("DASSIE_PUBLIC_NAMES", value)]).map(|s| {
+                s.public_names
+                    .iter()
+                    .map(|name| name.as_str().to_string())
+                    .collect::<Vec<_>>()
+            })
+        };
+        assert_eq!(names(""), Ok(vec![]));
+        assert_eq!(
+            names(" Pay.Example.com , other.example ,"),
+            Ok(vec!["pay.example.com".into(), "other.example".into()])
+        );
+        let many = (0..=MAX_PUBLIC_NAMES)
+            .map(|n| format!("n{n}.example"))
+            .collect::<Vec<_>>()
+            .join(",");
+        assert!(names(&many).is_err());
+        let unset = settings(&[("HOME", "/h")]).map(|s| s.public_names.len());
+        assert_eq!(unset, Ok(0));
     }
 
     // NET-19: a bootstrap entry whose ID does not match its key is refused.

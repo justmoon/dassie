@@ -57,7 +57,7 @@ Nodes without a public IP join as periphery nodes: they connect only to core nod
   - periphery nodes: child addresses beneath their uplinks, which touches the connector, BTP and the STREAM receiver ([D12](decisions/D12-peering-lifecycle-and-liveness.md)); the downlink table; a child's Network graph, which shows the child itself and its links to its uplinks, although no route reaches it;
   - relays, records and home nodes;
   - owner apps paired on `localhost`;
-  - front doors, with responses signed by the node key;
+  - front doors. A node's names and its signed responses are built ([Payments](areas/payments.md#the-nodes-names)); left are the front doors themselves, their consent page, the owner's names as a wallet setting rather than an environment variable, the TXT record check in Dassie's own client, and the proposal to Open Payments;
   - free receivers, with the XRPL scheme's rules for accounts that do not exist yet;
   - browser nodes.
 - **It needs** [the channel limit](#not-built-yet) lifted, so that a core node keeps few relationships with core nodes.

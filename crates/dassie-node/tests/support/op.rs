@@ -84,6 +84,37 @@ pub async fn start_keyed(policies: Policies, seed: u8) -> (TestNode, NodeKey) {
     ] {
         owner.call(method).await.unwrap();
     }
+    add_stub(&node).await;
+    (node, key)
+}
+
+/// A node without a hostname, with the node key made from `seed`, the
+/// stub ledger, and `names` added to its default one: an Open Payments
+/// server that clients reach through front doors.
+pub async fn start_unnamed(seed: u8, names: &str) -> (TestNode, NodeKey) {
+    let key = NodeKey::from_bytes(&[seed; 32]);
+    let env = [
+        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+        ("DASSIE_PUBLIC_NAMES", names),
+    ];
+    let node = Bound::new()
+        .start(ManualClock::new(START_MS), 3, Policies::DEV, &env)
+        .await;
+    set_up(&node, &key).await;
+    add_stub(&node).await;
+    (node, key)
+}
+
+/// `<label>.dassiepay.net`: the name of the node with `key` at the default
+/// front door.
+pub fn default_name(key: &NodeKey) -> String {
+    format!("{}.dassiepay.net", key.node_id().label().unwrap())
+}
+
+/// Adds the stub ledger, with money in it.
+async fn add_stub(node: &TestNode) {
+    let mut owner = node.ipc().await;
     for _ in 0..200 {
         let added = owner
             .call(Method::AddSettlementScheme(
@@ -100,7 +131,7 @@ pub async fn start_keyed(policies: Policies, seed: u8) -> (TestNode, NodeKey) {
                 }))
                 .await
                 .unwrap();
-            return (node, key);
+            return;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
@@ -116,7 +147,36 @@ pub fn signed(
     token: Option<&str>,
     body: Option<&Value>,
 ) -> Request<Full<Bytes>> {
-    let url = format!("{}{path}", node.origin());
+    let at = (node.origin(), node.host());
+    signed_at(node, &at, client, method, path, token, body)
+}
+
+/// A request to the node under `name`, as a front door passes it on,
+/// signed by `client` for `https://<name>`.
+pub fn signed_under(
+    node: &TestNode,
+    name: &str,
+    client: &Client,
+    method: &str,
+    path: &str,
+    token: Option<&str>,
+    body: Option<&Value>,
+) -> Request<Full<Bytes>> {
+    let at = (format!("https://{name}"), name.to_string());
+    signed_at(node, &at, client, method, path, token, body)
+}
+
+/// A request signed for `origin` with `Host: host`.
+fn signed_at(
+    node: &TestNode,
+    (origin, host): &(String, String),
+    client: &Client,
+    method: &str,
+    path: &str,
+    token: Option<&str>,
+    body: Option<&Value>,
+) -> Request<Full<Bytes>> {
+    let url = format!("{origin}{path}");
     let body = body.map(|body| serde_json::to_vec(body).unwrap());
     let mut fields: Vec<(String, String)> = Vec::new();
     if let Some(token) = token {
@@ -143,7 +203,7 @@ pub fn signed(
     let mut builder = Request::builder()
         .method(method)
         .uri(path)
-        .header("host", node.host())
+        .header("host", host.as_str())
         .header("signature-input", signature.signature_input)
         .header("signature", signature.signature);
     for (name, value) in &fields {
@@ -155,8 +215,13 @@ pub fn signed(
 }
 
 pub fn get(node: &TestNode, path: &str) -> Request<Full<Bytes>> {
+    get_under(&node.host(), path)
+}
+
+/// A GET for `path` with `Host: host`.
+pub fn get_under(host: &str, path: &str) -> Request<Full<Bytes>> {
     Request::get(path)
-        .header("host", node.host())
+        .header("host", host)
         .body(Full::new(Bytes::new()))
         .unwrap()
 }

@@ -1061,3 +1061,51 @@ async fn a_receive_limit_caps_what_is_delivered() {
     );
     node.stop().await;
 }
+
+// The finish URI and the subject are each up to a URI's bound, but the
+// grant's row keeps its interaction only up to its own: a request whose
+// interaction could not be kept is refused before it is stored, and one
+// that fits is kept through the owner's decision.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_interaction_too_long_to_keep_is_refused() {
+    let (node, key) = start().await;
+    let client = own_client(&node, &key);
+    let access = json!([{
+        "type": "outgoing-payment",
+        "actions": ["create", "read"],
+        "identifier": host(&node),
+    }]);
+    let ask = |finish: usize, subject: usize| {
+        let request = json!({
+            "access_token": { "access": access },
+            "client": client.identity,
+            "subject": { "sub_ids": [{
+                "id": format!("https://wallet.example/{}", "s".repeat(subject)),
+                "format": "uri",
+            }] },
+            "interact": {
+                "start": ["redirect"],
+                "finish": {
+                    "method": "redirect",
+                    "uri": format!("https://client.example/{}", "f".repeat(finish)),
+                    "nonce": "c".repeat(256),
+                },
+            },
+        });
+        send(
+            node.https,
+            true,
+            signed(&node, &client, "POST", "/gnap", None, Some(&request)),
+        )
+    };
+    let reply = ask(2_000, 2_000).await;
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{}", reply.text());
+    assert_eq!(body(&reply)["error"]["code"], "invalid_request");
+    let reply = ask(1_500, 1_500).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    let grant = body(&reply);
+    let (id, key) = consent_page(&node, &grant).await;
+    let finish = decide(&node, &id, &key, true).await;
+    assert!(finish.contains("interact_ref="), "{finish}");
+    node.stop().await;
+}

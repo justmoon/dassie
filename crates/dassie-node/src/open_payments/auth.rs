@@ -541,11 +541,13 @@ pub fn rotate_token(
             "no such token",
         ));
     }
+    let mut access: Vec<Access> = serde_json::from_str(&grant.access).map_err(OpError::internal)?;
+    rebase_access(urls, &mut access);
     Ok(AccessToken {
         value,
         manage: format!("{}{GRANT_PATH}/token/{new_manage}", urls.origin()),
         expires_in: Some(ACCESS_TOKEN_LIFETIME_MS / 1_000),
-        access: serde_json::from_str(&grant.access).map_err(OpError::internal)?,
+        access,
     })
 }
 
@@ -720,12 +722,28 @@ impl Authorized {
     }
 }
 
-/// Checks a resource server request's token and signature.
+/// Writes each access item's wallet address under the name `urls` answer
+/// under. A grant keeps the URL it was made under, which is the node's by
+/// [`canonical`], so it holds under every name the node answers to.
+pub fn rebase_access(urls: &Urls, access: &mut [Access]) {
+    for item in access {
+        if let Some(identifier) = item.identifier.as_mut() {
+            *identifier = urls.rebase(identifier);
+        }
+    }
+}
+
+/// Checks a resource server request's token and signature, and reads the
+/// grant's access under the name the request came through.
 ///
 /// # Errors
 ///
 /// 401 without a valid token and signature.
-pub fn authorize(node: &Node, request: &SignedRequest<'_>) -> Result<Authorized, OpError> {
+pub fn authorize(
+    node: &Node,
+    urls: &Urls,
+    request: &SignedRequest<'_>,
+) -> Result<Authorized, OpError> {
     let now = node.now_ms();
     let token = request
         .header("authorization")
@@ -743,7 +761,8 @@ pub fn authorize(node: &Node, request: &SignedRequest<'_>) -> Result<Authorized,
         .verifying_key()
         .map_err(|_| OpError::internal("a stored client key is invalid"))?;
     check_signature(request, &jwk, &key, now, OpError::unauthorized)?;
-    let access = serde_json::from_str(&grant.access).map_err(OpError::internal)?;
+    let mut access: Vec<Access> = serde_json::from_str(&grant.access).map_err(OpError::internal)?;
+    rebase_access(urls, &mut access);
     Ok(Authorized { grant, access })
 }
 

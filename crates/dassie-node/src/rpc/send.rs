@@ -47,7 +47,7 @@ pub async fn dispatch(
     method: Method,
     items: &Items,
 ) -> Result<Reply, RpcError> {
-    let urls = Urls::of(node).ok_or_else(|| RpcError::precondition("the node has no hostname"))?;
+    let urls = Urls::of(node).ok_or_else(|| RpcError::precondition("the node has no name yet"))?;
     let reply = match method {
         Method::ResolveRecipient(request) => {
             let _permit = lookup_permit(node).await?;

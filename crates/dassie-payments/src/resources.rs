@@ -38,6 +38,35 @@ pub struct WalletAddress {
     pub auth_server: String,
     /// The resource server's base URL, without a trailing slash.
     pub resource_server: String,
+    /// What a Dassie node says of itself, for Dassie-aware clients; the
+    /// schema allows more properties, so other clients ignore it. Read
+    /// leniently: anything but what a Dassie node writes is absent.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient"
+    )]
+    pub dassie: Option<DassieWallet>,
+}
+
+/// Reads `dassie` as a Dassie node writes it, and anything else as absent.
+/// The schema lets other servers use the name for something of their own,
+/// and a wallet address that is payable without the field must stay so.
+fn lenient<'de, D>(deserializer: D) -> Result<Option<DassieWallet>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).ok())
+}
+
+/// The `dassie` object of a wallet address served by a Dassie node
+/// (spec/areas/payments.md#the-dassie-field).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DassieWallet {
+    /// The node's ID, whose key signs its responses.
+    pub node_id: String,
 }
 
 /// The ILP payment method: STREAM credentials (`ilp-payment-method`).
@@ -352,6 +381,39 @@ impl ErrorBody {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_a_foreign_wallet_address_whatever_its_dassie_field() {
+        let document = |dassie: &str| {
+            alloc::format!(
+                r#"{{"id":"https://a.example/pay","assetCode":"USD","assetScale":2,"authServer":"https://auth.a.example","resourceServer":"https://a.example","dassie":{dassie}}}"#
+            )
+        };
+        for malformed in [
+            r#""a string""#,
+            "{}",
+            r#"{"nodeId":7}"#,
+            r#"{"nodeId":null}"#,
+            "null",
+            "[1,2]",
+            "true",
+        ] {
+            let address: WalletAddress = serde_json::from_str(&document(malformed)).unwrap();
+            assert_eq!(address.dassie, None, "{malformed}");
+            assert_eq!(address.asset_code, "USD");
+        }
+        let address: WalletAddress =
+            serde_json::from_str(&document(r#"{"nodeId":"dabc","relays":[]}"#)).unwrap();
+        assert_eq!(
+            address.dassie,
+            Some(DassieWallet {
+                node_id: "dabc".into()
+            })
+        );
+        let without = r#"{"id":"https://a.example/pay","assetCode":"USD","assetScale":2,"authServer":"https://auth.a.example","resourceServer":"https://a.example"}"#;
+        let address: WalletAddress = serde_json::from_str(without).unwrap();
+        assert_eq!(address.dassie, None);
+    }
 
     #[test]
     fn reads_a_create_request() {

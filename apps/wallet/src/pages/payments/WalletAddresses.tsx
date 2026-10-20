@@ -9,6 +9,7 @@ import { createSignal, For, Show } from "solid-js";
 import { describe, useClient } from "@dassie/ui/rpc";
 import { Badge, CopyButton, ErrorText } from "@dassie/ui/ui";
 import { schemeName } from "../schemes.ts";
+import { atFrontDoor } from "./front_door.ts";
 
 /** Loads the wallet addresses once; `reload` asks again. */
 export function useWalletAddresses(): {
@@ -31,6 +32,19 @@ export function useWalletAddresses(): {
   };
   void reload();
   return { addresses, error, reload, set: setAddresses };
+}
+
+/** Says not to hand out a pointer at the front door, while none runs. */
+export function FrontDoorNote(props: { pointer?: string }): JSX.Element {
+  return (
+    <Show when={props.pointer !== undefined && atFrontDoor(props.pointer)}>
+      <p class="muted" data-testid="front-door-note">
+        Your node has no hostname, so it is named at the dassiepay.net front
+        door. Front doors do not pass payments on to nodes yet: don't hand this
+        address out until they do, or set a hostname.
+      </p>
+    </Show>
+  );
 }
 
 /** The ledger's name in the wallet: its scheme's, from the ledger ID. */
@@ -58,6 +72,7 @@ export function WalletAddresses(): JSX.Element {
         payment pointer is the same address, shorter.
       </p>
       <ErrorText message={state.error() ?? error()} />
+      <FrontDoorNote pointer={state.addresses()?.[0]?.paymentPointer} />
       <ul class="addresses">
         <For each={state.addresses() ?? []} keyed={(entry) => entry.ledger}>
           {(address) => (

@@ -575,6 +575,7 @@ name = "dassie-payments"
 version = "0.1.3"
 dependencies = [
  "base64 0.22.1",
+ "dassie-identity",
  "ed25519-dalek",
  "proptest",
  "serde",

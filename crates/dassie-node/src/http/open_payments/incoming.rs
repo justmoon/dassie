@@ -55,7 +55,7 @@ pub async fn route(
 
 fn authorize(node: &Node, read: &ReadRequest) -> Result<Authorized, OpError> {
     let fields = read.field_refs();
-    auth::authorize(node, &read.signed(&fields))
+    auth::authorize(node, &read.urls, &read.signed(&fields))
 }
 
 async fn addresses(node: &Node) -> Result<WalletAddresses, OpError> {
@@ -170,7 +170,7 @@ fn resource(urls: &Urls, row: &IncomingRow) -> IncomingPayment {
     let amount = |value| Amount::new(value, asset.code, asset.scale);
     IncomingPayment {
         id: urls.incoming_payment(row.id),
-        wallet_address: row.wallet_address.clone(),
+        wallet_address: urls.rebase(&row.wallet_address),
         completed: row.completed_at_ms.is_some(),
         incoming_amount: row.incoming_amount.map(amount),
         received_amount: amount(row.received_amount),
