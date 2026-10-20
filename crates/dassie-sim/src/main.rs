@@ -109,35 +109,38 @@ fn one_seed(text: &str) -> Result<u64, String> {
 
 fn execute(command: Command) -> ExitCode {
     let mut out = io::stdout().lock();
+    let mut tally = Tally::default();
     let printed = match command {
-        Command::Help => writeln!(out, "{USAGE}").map(|()| ExitCode::SUCCESS),
+        Command::Help => writeln!(out, "{USAGE}"),
         Command::List => list(&mut out),
         Command::Run { sim, seeds } => match seeds.map_or_else(random_seed, Ok) {
-            Ok(seeds) => run(&mut out, sim, seeds),
+            Ok(seeds) => run(&mut out, &mut tally, sim, seeds),
             Err(problem) => {
                 eprintln!("dassie-sim: {problem}");
                 return ExitCode::from(3);
             }
         },
-        Command::Explain { sim, seed, grep } => explain(&mut out, sim, seed, &grep),
+        Command::Explain { sim, seed, grep } => explain(&mut out, &mut tally, sim, seed, &grep),
     };
-    printed.unwrap_or_else(|error| {
+    match printed {
+        Ok(()) => tally.status(),
         // A reader that stops reading, such as `head`, ends the output
-        // without the runner having failed.
-        if error.kind() == io::ErrorKind::BrokenPipe {
-            ExitCode::SUCCESS
-        } else {
+        // without the runner having failed, and stops the runs; the status
+        // still says how the runs so far ended, so a run that broke safety
+        // is never reported as passed.
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => tally.status(),
+        Err(error) => {
             eprintln!("dassie-sim: {error}");
             ExitCode::from(3)
         }
-    })
+    }
 }
 
-fn list(out: &mut impl Write) -> io::Result<ExitCode> {
+fn list(out: &mut impl Write) -> io::Result<()> {
     for sim in &SIMS {
         writeln!(out, "{:<16} {}", sim.name, sim.about)?;
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(())
 }
 
 /// A seed from the OS: the one place the runner draws randomness, and
@@ -147,19 +150,24 @@ fn random_seed() -> Result<RangeInclusive<u64>, String> {
     Ok(seed..=seed)
 }
 
-/// Runs every seed, and prints how each ended.
-fn run(out: &mut impl Write, sim: &Sim, seeds: RangeInclusive<u64>) -> io::Result<ExitCode> {
-    let mut tally = Tally::default();
+/// Runs every seed, and prints how each ended. Each run is in `tally`
+/// before anything is printed about it.
+fn run(
+    out: &mut impl Write,
+    tally: &mut Tally,
+    sim: &Sim,
+    seeds: RangeInclusive<u64>,
+) -> io::Result<()> {
     for seed in seeds {
         writeln!(out, "{} {seed}: {}", sim.name, (sim.describe)(seed))?;
         out.flush()?;
         let started = Instant::now();
         let run = caught(|| (sim.run)(seed));
+        tally.add(&run);
         writeln!(out, "  {} in {:.2?}", run.outcome, started.elapsed())?;
         if !run.counts.is_empty() {
             writeln!(out, "  reached {}", counted(&run.counts))?;
         }
-        tally.add(&run);
     }
     if tally.runs > 1 {
         writeln!(
@@ -171,13 +179,20 @@ fn run(out: &mut impl Write, sim: &Sim, seeds: RangeInclusive<u64>) -> io::Resul
             writeln!(out, "together they reached {}", counted(&tally.counts))?;
         }
     }
-    Ok(tally.status())
+    Ok(())
 }
 
 /// Runs a seed, and prints its trace, or the lines of it holding `grep`.
-fn explain(out: &mut impl Write, sim: &Sim, seed: u64, grep: &str) -> io::Result<ExitCode> {
+fn explain(
+    out: &mut impl Write,
+    tally: &mut Tally,
+    sim: &Sim,
+    seed: u64,
+    grep: &str,
+) -> io::Result<()> {
     writeln!(out, "{} {seed}: {}", sim.name, (sim.describe)(seed))?;
     let run = caught(|| (sim.run)(seed));
+    tally.add(&run);
     for line in run.trace.iter().filter(|line| line.contains(grep)) {
         writeln!(out, "{line}")?;
     }
@@ -188,9 +203,7 @@ fn explain(out: &mut impl Write, sim: &Sim, seed: u64, grep: &str) -> io::Result
     if !run.counts.is_empty() {
         writeln!(out, "reached {}", counted(&run.counts))?;
     }
-    let mut tally = Tally::default();
-    tally.add(&run);
-    Ok(tally.status())
+    Ok(())
 }
 
 /// What runs counted, as `crashes 3, settlements taken 12`.
@@ -235,5 +248,47 @@ impl Tally {
         } else {
             ExitCode::SUCCESS
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A simulation whose every seed breaks safety.
+    static BROKEN: Sim = Sim {
+        name: "broken",
+        about: "breaks safety",
+        describe: |_| "nothing drawn".to_owned(),
+        run: |_| Run::new(Outcome::Safety("broken".to_owned()), Vec::new()),
+    };
+
+    /// A reader that stops reading after `left` bytes, as `head` does.
+    struct Closing {
+        left: usize,
+    }
+
+    impl Write for Closing {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if buf.len() > self.left {
+                return Err(io::ErrorKind::BrokenPipe.into());
+            }
+            self.left -= buf.len();
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_run_counts_before_its_outcome_is_printed() {
+        let first = "broken 0: nothing drawn\n".len();
+        let mut tally = Tally::default();
+        let printed = run(&mut Closing { left: first }, &mut tally, &BROKEN, 0..=9);
+        assert_eq!(printed.unwrap_err().kind(), io::ErrorKind::BrokenPipe);
+        assert_eq!((tally.runs, tally.safety), (1, 1));
+        assert_eq!(tally.status(), ExitCode::from(1));
     }
 }
