@@ -72,7 +72,9 @@ The `node` simulation counts what it reached (crashes mid-payment, cuts, settlem
 
 A run ends as `pass`, `safety` (something that must never happen did: an assertion, an invariant or a check of what the run did), `liveness` (something that must happen did not, once the network was calm), or `unsupported` (the run drew a situation no code could recover from, such as a majority of bootstrap nodes cut off; it neither passes nor fails) (`dassie_node_core::testing::Outcome`). Each of the node simulation's checks says which of the two failures it found. A run that broke both says safety: one that did not settle down is first checked for what must not happen even with money in flight, and one that did runs every check and reports a safety failure before any liveness failure.
 
-Every outcome but `pass` also says where the run ended (`Finding`): the name of the check that failed or ruled the run out, or the file and line of a panic. It holds nothing a seed draws, so every seed that ends at the same place shares it, and only a commit that touches that place changes it; a check's name is words in lower case, so it cannot carry a number. With the simulation and the outcome, it is the run's **signature**, `<sim>/<outcome>/<where>`, which tells two failures apart whatever their seeds.
+Every outcome but `pass` also says where the run ended (`Finding`): the name of the check that failed or ruled the run out, or the file and line of a panic. It holds nothing a seed draws, so every seed that ends at the same place shares it; a check's name is words in lower case, so it cannot carry a number. With the simulation and the outcome, it is the run's **signature**, `<sim>/<outcome>/<where>`, which tells two failures apart whatever their seeds.
+
+A check's name changes only when the check is renamed. A panic's file and line are what a panic offers, and cost two things: an edit above it in the same file moves its line, so one bug seen before and after such a commit gets two signatures; and a panic inside a dependency that does not pass on its caller's location puts every caller under one. The first splits an issue, the second may merge two, and the message, the trace and the replay tell them apart.
 
 ### The runner: `dassie-sim`
 
@@ -85,7 +87,7 @@ Every outcome but `pass` also says where the run ended (`Finding`): the name of 
 - A panic is caught as a safety failure, so one run cannot end the campaign. Every simulation bounds its steps, so every run ends; a run that still takes far longer in wall time than any run should, stuck within a step, is reported as a liveness failure at `wall-time` and left behind on its thread. Only a run that aborts the process, such as one that overflows its stack, ends the campaign with it.
 - The campaign exits 0 when it ran to its end, whatever its runs found, since its records say that.
 
-**The tripwire.** The `tripwire` simulation fails on purpose, for safety at one fixed place, on a small share of seeds, and passes the others at once. A campaign runs it among the others, so that a campaign whose tripwire stops failing shows that it has stopped. No test runs it on a seed where it fails.
+**The tripwire.** The `tripwire` simulation fails on purpose, for safety at one fixed place, on a small share of seeds, and passes the others at once. A campaign runs it among the others, so that a campaign whose tripwire stops failing shows that it has stopped. No test expects it to pass on such a seed.
 
 **Reproducing a failure.** A test or run that fails names its simulation and seed.
 

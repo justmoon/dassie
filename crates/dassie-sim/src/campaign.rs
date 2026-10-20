@@ -28,6 +28,11 @@ use serde_json::{Map, Value, json};
 /// see what led to the failure, little enough for an issue.
 pub const TRACE_TAIL_LINES: usize = 40;
 
+/// The most bytes a record keeps of a message, of what a seed drew, and of
+/// a trace's tail. JSON escapes a byte into six at worst, so a record stays
+/// well under the megabyte the supervisor reads of a line (D27).
+pub const TEXT_BYTES: usize = 16 * 1024;
+
 /// How long a run may take in wall time before the campaign reports it and
 /// leaves it behind. Far longer than any run takes (the longest take
 /// seconds), so that only a run that is stuck reaches it, and a slow
@@ -104,7 +109,7 @@ pub fn campaign(out: &mut impl Write, plan: &Plan) -> io::Result<ExitCode> {
     assert!((1..=MOST_MINUTES).contains(&plan.minutes));
     let started = Instant::now();
     let (sender, receiver) = mpsc::sync_channel(plan.jobs * MESSAGES_PER_JOB);
-    let mut crew = Crew::new(plan, started, sender);
+    let mut crew = Crew::new(plan, started, sender, Arc::new(from_the_os));
     for _ in 0..plan.jobs {
         crew.spawn()?;
     }
@@ -127,11 +132,24 @@ pub fn campaign(out: &mut impl Write, plan: &Plan) -> io::Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// Where a crew's threads get each run's seed, and the number that picks
+/// its simulation: the OS in a campaign, a fixed list in a test, which
+/// never runs random seeds. `None` ends a thread's work.
+type Draw = Arc<dyn Fn() -> Option<Result<(u64, u64), String>> + Send + Sync>;
+
+/// A seed and a pick from the OS: the one place a campaign draws
+/// randomness.
+fn from_the_os() -> Option<Result<(u64, u64), String>> {
+    let drawn = getrandom::u64().and_then(|seed| Ok((seed >> (64 - SEED_BITS), getrandom::u64()?)));
+    Some(drawn.map_err(|error| error.to_string()))
+}
+
 /// The threads that run seeds, each in its slot.
 struct Crew {
     sims: Arc<[&'static Sim]>,
     end: Instant,
     sender: SyncSender<Message>,
+    draw: Draw,
     /// The next slot's number.
     next: usize,
     /// The most slots there may be: each slot can leave a thread behind
@@ -146,13 +164,14 @@ struct Crew {
 }
 
 impl Crew {
-    fn new(plan: &Plan, started: Instant, sender: SyncSender<Message>) -> Self {
+    fn new(plan: &Plan, started: Instant, sender: SyncSender<Message>, draw: Draw) -> Self {
         let seconds = plan.minutes * 60;
         let renewals = usize::try_from(seconds / RUN_LIMIT.as_secs() + 1).unwrap_or(usize::MAX);
         Self {
             sims: plan.sims.clone().into(),
             end: started + Duration::from_secs(seconds),
             sender,
+            draw,
             next: 0,
             most: plan.jobs.saturating_mul(renewals.saturating_add(1)),
             live: BTreeSet::new(),
@@ -170,12 +189,13 @@ impl Crew {
         );
         self.next += 1;
         let (sims, end, sender) = (Arc::clone(&self.sims), self.end, self.sender.clone());
+        let draw = Arc::clone(&self.draw);
         let left = Arc::new(AtomicBool::new(false));
         let stop = Arc::clone(&left);
         thread::Builder::new()
             .name(format!("run {slot}"))
             .stack_size(STACK_BYTES)
-            .spawn(move || work(slot, &sims, end, &stop, &sender))?;
+            .spawn(move || work(slot, &sims, end, &*draw, &stop, &sender))?;
         self.live.insert(slot);
         self.flights.insert(slot, None);
         self.left.insert(slot, left);
@@ -262,24 +282,26 @@ impl Crew {
     }
 }
 
-/// A thread's work: runs random seeds until the campaign's end, or until
-/// it is left behind.
+/// A thread's work: runs the seeds `draw` gives until the campaign's end,
+/// until it is left behind, or until `draw` has no more.
 fn work(
     slot: usize,
     sims: &[&'static Sim],
     end: Instant,
+    draw: &(dyn Fn() -> Option<Result<(u64, u64), String>> + Send + Sync),
     left: &AtomicBool,
     sender: &SyncSender<Message>,
 ) {
     while Instant::now() < end && !left.load(Ordering::Relaxed) {
-        let (seed, draw) = match (getrandom::u64(), getrandom::u64()) {
-            (Ok(seed), Ok(draw)) => (seed >> (64 - SEED_BITS), draw),
-            (Err(error), _) | (_, Err(error)) => {
-                let _ = sender.send(Message::NoRandomness(error.to_string()));
+        let (seed, picked) = match draw() {
+            Some(Ok(drawn)) => drawn,
+            Some(Err(problem)) => {
+                let _ = sender.send(Message::NoRandomness(problem));
                 return;
             }
+            None => break,
         };
-        let Some(sim) = pick(sims, draw) else { break };
+        let Some(sim) = pick(sims, picked) else { break };
         let options = catch_unwind(AssertUnwindSafe(|| (sim.describe)(seed)))
             .unwrap_or_else(|_| "(describing it panicked)".to_owned());
         let started = Message::Started {
@@ -355,15 +377,27 @@ pub fn record(sim: &str, seed: u64, options: &str, run: &Run, ms: u64) -> Value 
         "counts": run.counts,
     });
     if let (Some(finding), Some(fields)) = (run.outcome.finding(), record.as_object_mut()) {
-        fields.insert("message".into(), finding.message.clone().into());
+        fields.insert("message".into(), start_of(&finding.message).into());
         if run.outcome.is_failure() {
             let tail = run.trace.len().saturating_sub(TRACE_TAIL_LINES);
-            let tail = run.trace.get(tail..).unwrap_or_default();
-            fields.insert("options".into(), options.into());
-            fields.insert("trace_tail".into(), tail.join("\n").into());
+            let tail = run.trace.get(tail..).unwrap_or_default().join("\n");
+            fields.insert("options".into(), start_of(options).into());
+            fields.insert("trace_tail".into(), end_of(&tail).into());
         }
     }
     record
+}
+
+/// At most [`TEXT_BYTES`] from the start of `text`.
+fn start_of(text: &str) -> &str {
+    let cut = text.floor_char_boundary(TEXT_BYTES);
+    text.get(..cut).unwrap_or_default()
+}
+
+/// At most [`TEXT_BYTES`] from the end of `text`.
+fn end_of(text: &str) -> &str {
+    let cut = text.ceil_char_boundary(text.len().saturating_sub(TEXT_BYTES));
+    text.get(cut..).unwrap_or_default()
 }
 
 /// How the campaign's runs ended, in all and by simulation.
@@ -530,22 +564,28 @@ mod tests {
         }
     }
 
+    /// Seeds 0, 500, 1000, … for `runs` runs, then no more: half of them
+    /// trip the tripwire.
+    fn fixed(runs: u64) -> Draw {
+        let next = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        Arc::new(move || {
+            let index = next.fetch_add(1, Ordering::Relaxed);
+            (index < runs).then_some(Ok((index * 500, index)))
+        })
+    }
+
     #[test]
-    fn a_crew_reports_every_run_it_makes_until_its_end() {
+    fn a_crew_reports_every_run_it_makes() {
         let plan = tripwire_plan();
-        // A campaign runs a minute at least, too long for a test: this
-        // drives the crew by hand, with all but the last moments over.
+        // The crew draws a fixed list of seeds and stops once it is spent,
+        // well before the campaign's minute is up.
         let (sender, receiver) = mpsc::sync_channel(MESSAGES_PER_JOB);
-        let mut crew = Crew::new(
-            &plan,
-            Instant::now() - Duration::from_millis(59_950),
-            sender,
-        );
+        let mut crew = Crew::new(&plan, Instant::now(), sender, fixed(100));
         crew.spawn().unwrap();
         let mut out = Vec::new();
         let mut tally = Tally::default();
         while !crew.live.is_empty() {
-            let message = receiver.recv_timeout(Duration::from_secs(10)).unwrap();
+            let message = receiver.recv_timeout(Duration::from_secs(60)).unwrap();
             crew.take(message, &mut out, &mut tally).unwrap();
         }
         let lines: Vec<Value> = String::from_utf8(out)
@@ -553,14 +593,27 @@ mod tests {
             .lines()
             .map(|line| serde_json::from_str(line).unwrap())
             .collect();
-        assert!(!lines.is_empty());
-        assert_eq!(u64::try_from(lines.len()).unwrap(), tally.runs);
-        let failed = lines.iter().filter(|line| line["outcome"] == "safety");
-        assert_eq!(u64::try_from(failed.count()).unwrap(), tally.failures);
-        for line in &lines {
+        assert_eq!(lines.len(), 100);
+        assert_eq!((tally.runs, tally.failures), (100, 50));
+        for (index, line) in (0..).zip(&lines) {
             assert_eq!(line["sim"], "tripwire");
-            assert!(line["seed"].as_u64().unwrap() < 1 << SEED_BITS);
+            assert_eq!(line["seed"], index * 500);
+            let outcome = if index % 2 == 0 { "safety" } else { "pass" };
+            assert_eq!(line["outcome"], outcome);
         }
+    }
+
+    #[test]
+    fn a_record_stays_well_under_a_megabyte() {
+        let long = "\u{1}é".repeat(100_000);
+        let trace = vec![long.clone(); 100];
+        let run = Run::new(Outcome::safety("events", long.clone()), trace);
+        let line = record("node", 1, &long, &run, 1).to_string();
+        assert!(line.len() < 512 * 1024, "{}", line.len());
+        let parsed: Value = serde_json::from_str(&line).unwrap();
+        let tail = parsed["trace_tail"].as_str().unwrap();
+        assert!(long.ends_with(tail.rsplit('\n').next().unwrap()));
+        assert!(parsed["message"].as_str().unwrap().len() <= TEXT_BYTES);
     }
 
     #[test]
@@ -569,7 +622,12 @@ mod tests {
         let (sender, _receiver) = mpsc::sync_channel(MESSAGES_PER_JOB);
         // A campaign whose time is up: no thread takes the place of the
         // one left behind.
-        let mut crew = Crew::new(&plan, Instant::now() - Duration::from_secs(60), sender);
+        let mut crew = Crew::new(
+            &plan,
+            Instant::now() - Duration::from_secs(60),
+            sender,
+            fixed(0),
+        );
         let (slot, left) = (7, Arc::new(AtomicBool::new(false)));
         let since = Instant::now() - RUN_LIMIT - Duration::from_secs(1);
         let flight = Flight {

@@ -107,7 +107,7 @@ pub static SIMS: [Sim; 8] = [
 /// one seed in [`tripwire::ONE_IN`], and passes on the others, at once. A
 /// campaign runs it now and then, and files its failures apart, so that a
 /// campaign whose tripwire stops failing shows that it has stopped. No
-/// fixed-seed test runs it on a seed where it fails.
+/// test expects it to pass on a seed where it fails.
 pub mod tripwire {
     use super::{Outcome, Run};
 

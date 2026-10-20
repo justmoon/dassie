@@ -34,11 +34,12 @@
 //!     <seed>`. Campaign seeds are below 2^53, so that any JSON parser
 //!     reads them exactly.
 //!   - `signature` is `<sim>/<outcome>/<where>`, or `<sim>/pass`. `<where>`
-//!     is the same for every seed that ends at the same place, and changes
-//!     only with a commit that touches that place: for a panic, its file
-//!     and line (`crates/dassie-node/src/sim/mod.rs:993`); otherwise the
-//!     name of the check that failed or ruled the run out, words in lower
-//!     case joined by hyphens (`settle-down`). A file holds slashes, so
+//!     is the same for every seed that ends at the same place: for a panic,
+//!     its file and line (`crates/dassie-node/src/sim/mod.rs:993`), which
+//!     an edit above it in the file moves; otherwise the name of the check
+//!     that failed or ruled the run out, words in lower case joined by
+//!     hyphens (`settle-down`), which changes only with the check's name
+//!     (`spec/areas/testing.md#outcomes`). A file holds slashes, so
 //!     `<where>` is everything after the second slash. A run still going
 //!     after the campaign's wall-time limit is a liveness failure at
 //!     `wall-time`, reported then, without a trace.
@@ -47,6 +48,9 @@
 //!     it after the seed; and `trace_tail`, the last 40 lines of its trace
 //!     in one string, joined by newlines (empty after a panic, which loses
 //!     the trace). An `unsupported` run adds `message` only.
+//!   - `message` and `options` keep at most their first 16 KiB, and
+//!     `trace_tail` its last (`TEXT_BYTES`), so that a line stays well
+//!     under a megabyte.
 //! - **After the last run, one summary line:**
 //!   `{"summary": {"runs": 1520, "by_sim": {"node": {"runs": 900, "ms": 541000, "pass": 899, "safety": 1, "liveness": 0, "unsupported": 0}}, "failures": 1, "seconds": 600}}`.
 //!   `runs` is the number of run lines printed before it, `wall-time` ones
