@@ -21,7 +21,7 @@ pub(super) const READY_WITHIN_MS: u64 = 10 * 60_000;
 /// How long the payments of a run may take after the crash in it, at
 /// production timings: a busy link waits for its settlements to reach the
 /// ledger.
-const PAID_WITHIN_MS: u64 = 10 * 60_000;
+pub(super) const PAID_WITHIN_MS: u64 = 10 * 60_000;
 
 /// Whether the network is ready for payments: every node has a peer and a
 /// route to every other node, and none waits for a peer to settle, so a

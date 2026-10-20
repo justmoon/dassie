@@ -26,8 +26,8 @@ use super::checks::{
     check, check_delivered, check_events, check_finished, check_mid_flight, check_settled,
 };
 use super::scripted::{
-    READY_WITHIN_MS, collected_before_telling, ended, ready, settled_nothing_once_ending, trace_ms,
-    until_peered,
+    PAID_WITHIN_MS, READY_WITHIN_MS, collected_before_telling, ended, ready,
+    settled_nothing_once_ending, trace_ms, until_peered,
 };
 use super::{Delivery, START, Settling, Sim, key};
 use crate::engine::LedgerEvent;
@@ -41,9 +41,11 @@ use crate::store::{Aim, OutgoingState};
 /// waits out its backoff before it is tried again: a registration, a
 /// refresh of a link state, a peering attempt, a peer's hold-down, or a
 /// settlement to be sent again. Once each has been tried again, the network
-/// forms as a new one does. A run past it is stuck, not slow. It follows
-/// those rules, and is never loosened to let a seed pass.
-pub const HEAL_MS: u64 = LONGEST_WAIT_MS + READY_WITHIN_MS;
+/// forms as a new one does, and then the payments left, started once it is
+/// ready, take as long as a run's payments may, with the settlements they
+/// call for. A run past it is stuck, not slow. It follows those rules, and
+/// is never loosened to let a seed pass.
+pub const HEAL_MS: u64 = LONGEST_WAIT_MS + READY_WITHIN_MS + PAID_WITHIN_MS;
 
 /// The longest of the backoffs and hold-downs that a fault leaves behind.
 const LONGEST_WAIT_MS: u64 = {
@@ -368,7 +370,7 @@ pub fn run(seed: u64) -> Run {
     let mut left = options.payments;
     let mut ends = Vec::new();
     let result = chaos(&mut sim, &options, &mut rng, &mut left, &mut ends)
-        .and_then(|()| heal(&mut sim, &options, &mut rng, &mut left, &ends));
+        .and_then(|split| heal(&mut sim, &options, &mut rng, &mut left, &ends, split));
     ended(sim, result)
 }
 
@@ -389,14 +391,14 @@ enum Act {
 
 /// The chaos: its acts, and its partition, which may outlast them. The
 /// network then stays split, as the acts left it, until the partition
-/// ends; only a node that is down starts again.
+/// ends; only a node that is down starts again. Returns whether it did.
 fn chaos(
     sim: &mut Sim,
     options: &Options,
     rng: &mut SeededRng,
     left: &mut (u64, u64),
     ends: &mut Vec<End>,
-) -> Result<(), Outcome> {
+) -> Result<bool, Outcome> {
     let start = sim.now;
     let end = start + options.chaos_ms;
     let mut at = sim.now;
@@ -433,10 +435,11 @@ fn chaos(
         }
     }
     let Some(partition) = options.partition else {
-        return Ok(());
+        return Ok(false);
     };
     let joined = start + partition.after_ms + partition.length_ms;
-    if joined > sim.now {
+    let outlasted = joined > sim.now;
+    if outlasted {
         // A node that crashed, or failed a commit, is started again, as
         // its supervisor starts it within seconds: the chaos paces restarts
         // only while it lasts. Held down for the days a split may last, it
@@ -449,7 +452,8 @@ fn chaos(
             }
         }
     }
-    advance(sim, Some(partition), start, joined.max(sim.now))
+    advance(sim, Some(partition), start, joined.max(sim.now))?;
+    Ok(outlasted)
 }
 
 /// Runs the chaos that started at `start` to `until`, splitting the
@@ -792,15 +796,19 @@ fn connected(count: usize, ends: &[End], pair: (usize, usize)) -> bool {
 }
 
 /// Heals the network, starts what payments are left, waits for it to
-/// settle down, and checks it.
+/// settle down, and checks it. After a `split` that outlasted the chaos,
+/// commits already go through.
 fn heal(
     sim: &mut Sim,
     options: &Options,
     rng: &mut SeededRng,
     left: &mut (u64, u64),
     ends: &[End],
+    split: bool,
 ) -> Result<(), Outcome> {
-    sim.let_commits_through();
+    if !split {
+        sim.let_commits_through();
+    }
     for index in 0..sim.nodes.len() {
         if !up(sim, index) {
             sim.start(index);
@@ -838,13 +846,17 @@ fn heal(
             reconnecting.push((from, outgoing));
         }
     }
-    // What payments are left start once the network is ready again, as the
-    // run's first ones do: after a long partition it forms anew, which
-    // takes longer than a payer keeps trying, and a payment started before
-    // has nowhere to go. Every node runs, and there are at least two: each
-    // try that draws two ends starts one.
+    // After a split that outlasted the chaos, what payments are left start
+    // once the network is ready again, as the run's first ones do: it forms
+    // anew, which takes longer than a payer keeps trying, and a payment
+    // started before has nowhere to go. Otherwise they start at once, while
+    // the network re-forms after the chaos, and must complete all the same.
+    // Every node runs, and there are at least two: each try that draws two
+    // ends starts one.
     let healed = sim.now;
-    sim.run_until_or(healed + HEAL_MS, ready);
+    if split {
+        sim.run_until_or(healed + HEAL_MS, ready);
+    }
     while *left != (0, 0) {
         pay(sim, options, rng, left);
     }
