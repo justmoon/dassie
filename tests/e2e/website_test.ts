@@ -65,7 +65,7 @@ async function serveSite(): Promise<Server> {
       const path = decodeURIComponent(new URL(request.url).pathname);
       if (path.includes("..")) return new Response("bad path", { status: 400 });
       if (!path.endsWith("/") && extname(path) === "") {
-        return Response.redirect(new URL(`${path}/`, request.url), 301);
+        return Response.redirect(new URL(`${path}/`, request.url), 308);
       }
       const file = join(dist, path.endsWith("/") ? `${path}index.html` : path);
       let body: Uint8Array<ArrayBuffer>;

@@ -11,7 +11,9 @@
 #   apps/website/headers.json, which the backend bucket adds: a bucket
 #   provisioned with other headers fails here, after the deploy;
 # - pages are revalidated, and assets cached for good;
-# - a page's path without its slash redirects to the path with it;
+# - every page the header links to is there, and its path without its
+#   slash redirects to the path with it, with a 308 from the load
+#   balancer's rule for it, not the bucket's own redirect to index.html;
 # - the STREAM toy's WebAssembly is served as application/wasm.
 set -eu
 
@@ -67,15 +69,21 @@ case $(header cache-control) in
   *) fail "/: Cache-Control '$(header cache-control)' does not revalidate" ;;
 esac
 
-fetch /tools/stream-toy "$@"
-case $(status) in
-  301 | 308) ;;
-  *) fail "/tools/stream-toy: status $(status), not a redirect" ;;
-esac
-case $(header location) in
-  /tools/stream-toy/ | */dassie.land/tools/stream-toy/) ;;
-  *) fail "/tools/stream-toy: redirects to '$(header location)'" ;;
-esac
+# Every page the header links to: its path without the slash redirects to
+# the path with it, and the page is there.
+pages=$(grep -oE 'href="/[a-z0-9/-]+/"' "$work/body" | sed -E 's/^href="(.*)"$/\1/' | sort -u)
+[ -n "$pages" ] || fail "/: links to no page"
+for page in $pages; do
+  bare=${page%/}
+  fetch "$bare" "$@"
+  [ "$(status)" = 308 ] || fail "$bare: status $(status), not a 308"
+  case $(header location) in
+    "$page" | https://dassie.land"$page" | https://dassie.land:443"$page") ;;
+    *) fail "$bare: redirects to '$(header location)'" ;;
+  esac
+  fetch "$page" "$@"
+  [ "$(status)" = 200 ] || fail "$page: status $(status)"
+done
 
 fetch /tools/stream-toy/ "$@"
 [ "$(status)" = 200 ] || fail "/tools/stream-toy/: status $(status)"

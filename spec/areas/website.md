@@ -41,7 +41,7 @@ Between them sits a connector, simulated one event at a time in `src/toy/simulat
 - **Where:** the bucket `dassie-website`, behind the load balancer that serves the mirror ([Release](release.md#the-mirror)). It answers `dassie.land`, and redirects `www.dassie.land` there. `scripts/website/provision.sh` makes the bucket, its backend with `headers.json`'s headers, the host rules, the certificates, the account that publishes and the `dassie.land` zone.
 - **Publishing:** `.github/workflows/website.yml` builds the site from `main` in the flake's shell, as CI does, in a job that holds no credential, and a second job publishes it, whenever something the site is built from changes; `build_test.ts` checks that its `paths` name every crate and package the site is built from. Pull requests get no preview.
 - **`scripts/website/deploy.sh`** never leaves a page naming an asset that is not there yet: assets first, cached for good (their names hold their hash), then the pages, revalidated on every load, and only then does it delete what the build no longer has.
-- **`scripts/website/check.sh`** runs after each publish and fails when the live site's headers differ from `headers.json` (a backend provisioned with other headers), a page's path without its slash does not redirect, assets are not cached for good, or the WebAssembly is not `application/wasm`.
+- **`scripts/website/check.sh`** runs after each publish and fails when the live site's headers differ from `headers.json` (a backend provisioned with other headers), a page the header links to does not redirect from its path without its slash with the load balancer's 308, assets are not cached for good, or the WebAssembly is not `application/wasm`.
 
 ## Decisions
 
