@@ -41,6 +41,11 @@ pub const CONTINUE_WAIT_S: u64 = 5;
 pub const CONSENT_PATH: &str = "/consent/";
 /// The longest public name of a client that is kept.
 const MAX_PUBLIC_NAME_CHARS: usize = 128;
+/// The longest interaction a grant's row keeps, in characters: the bound
+/// on `gnap_grants.interaction` in `store/schema.rs`.
+pub const MAX_INTERACTION_CHARS: usize = 4_096;
+/// Random bytes in the interaction key, our nonce and the reference.
+const INTERACTION_TEXT_BYTES: usize = 24;
 
 /// What a pending grant keeps of its interaction, as JSON in the grant's
 /// row. The key and the reference are secrets of the owner's and the
@@ -81,6 +86,18 @@ impl Interaction {
 
     fn json(&self) -> Result<String, OpError> {
         serde_json::to_string(self).map_err(OpError::internal)
+    }
+
+    /// Whether the row can keep this interaction at its longest: once the
+    /// owner has decided, with the reference `decide` adds, continued at
+    /// the latest time there is. Nothing else in it grows.
+    fn fits(&self) -> Result<bool, OpError> {
+        let mut longest = self.clone();
+        let reference_chars = (INTERACTION_TEXT_BYTES * 4).div_ceil(3);
+        longest.interact_ref = Some("x".repeat(reference_chars));
+        longest.continued_at_ms = u64::MAX;
+        longest.finalized = false;
+        Ok(longest.json()?.chars().count() <= MAX_INTERACTION_CHARS)
     }
 }
 
@@ -127,21 +144,32 @@ pub async fn request(
     // Before the client's wallet address is read: a request that will not
     // fit costs no fetch. The insert checks again.
     grant_fits(&store.grant_counts(&client, network)?, true)?;
-    let public_name = public_name(node, &client).await;
-    let interaction = Interaction {
-        key: random_text::<24>(node),
-        server_nonce: random_text::<24>(node),
+    let mut interaction = Interaction {
+        key: random_text::<INTERACTION_TEXT_BYTES>(node),
+        server_nonce: random_text::<INTERACTION_TEXT_BYTES>(node),
         finish: request
             .interact
             .as_ref()
             .and_then(|interact| interact.finish.clone()),
         interact_ref: None,
         subject: request.subject.clone(),
-        public_name,
+        public_name: None,
         continued_at_ms: now,
         finalized: false,
         origin: Some(urls.origin().to_string()),
     };
+    // The finish URI and the subject are the client's, each up to a
+    // URI's bound: together they may not fit the row.
+    if !interaction.fits()? {
+        return Err(OpError::invalid(
+            "the finish URI and subject are too long together",
+        ));
+    }
+    // The client's public name is only shown: left out if it does not fit.
+    interaction.public_name = public_name(node, &client).await;
+    if !interaction.fits()? {
+        interaction.public_name = None;
+    }
     let id = PaymentId::from_random(random_bytes(node));
     let (continue_token, continue_hash) = new_token(node);
     let row = GrantRow {
@@ -265,7 +293,7 @@ pub async fn decide(
     approve: bool,
 ) -> Result<Option<String>, OpError> {
     let (_, mut interaction) = pending(node, id, key)?;
-    let interact_ref = random_text::<24>(node);
+    let interact_ref = random_text::<INTERACTION_TEXT_BYTES>(node);
     interaction.interact_ref = Some(interact_ref.clone());
     let state = if approve {
         GrantState::Approved
@@ -455,4 +483,56 @@ async fn proven(node: &Node, urls: &Urls, asked: &Subject) -> Result<Subject, Op
         })
         .collect();
     Ok(Subject { sub_ids })
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+
+    fn chars(interaction: &Interaction) -> usize {
+        interaction.json().unwrap().chars().count()
+    }
+
+    /// The finish URI and the subject are each up to a URI's bound; the
+    /// row keeps the interaction up to its own, with the reference added.
+    #[test]
+    fn an_interaction_fits_its_row_up_to_the_bound() {
+        let reference = URL_SAFE_NO_PAD.encode([0xff; INTERACTION_TEXT_BYTES]);
+        let mut full = Interaction {
+            key: reference.clone(),
+            server_nonce: reference.clone(),
+            finish: Some(Finish {
+                method: "redirect".into(),
+                uri: "https://client.example/".into(),
+                nonce: "c".repeat(256),
+            }),
+            interact_ref: None,
+            subject: Some(Subject {
+                sub_ids: vec![SubjectId {
+                    id: format!("https://wallet.example/{}", "s".repeat(1_500)),
+                    format: "uri".into(),
+                }],
+            }),
+            public_name: None,
+            continued_at_ms: 0,
+            finalized: false,
+            origin: Some("https://pay.example.com".into()),
+        };
+        let mut decided = full.clone();
+        decided.interact_ref = Some(reference.clone());
+        decided.continued_at_ms = u64::MAX;
+        let room = MAX_INTERACTION_CHARS - chars(&decided);
+        let pad = "f".repeat(room);
+        for interaction in [&mut full, &mut decided] {
+            interaction.finish.as_mut().unwrap().uri.push_str(&pad);
+        }
+        assert!(full.fits().unwrap());
+        // As the owner's decision leaves it, at the latest time there is,
+        // the row keeps it at exactly its bound.
+        assert_eq!(chars(&decided), MAX_INTERACTION_CHARS);
+        full.finish.as_mut().unwrap().uri.push('f');
+        assert!(!full.fits().unwrap());
+    }
 }
