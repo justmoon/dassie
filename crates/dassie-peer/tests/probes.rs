@@ -67,10 +67,15 @@ fn registration(network: &Network, from: &Arc<NodeKey>, url: &str, to: usize) ->
 /// Registrations from one address, each from a new identity at a URL
 /// nothing serves, so each probe fails.
 struct Attacker {
+    from: IpAddr,
     next: u32,
 }
 
 impl Attacker {
+    const fn at(from: IpAddr) -> Self {
+        Self { from, next: 0 }
+    }
+
     /// Sends `count` registrations to node 0, and their statuses (0 while
     /// one waits on its probe).
     fn send(&mut self, network: &mut Network, count: u32) -> Vec<(u16, String)> {
@@ -79,7 +84,7 @@ impl Attacker {
                 self.next += 1;
                 let url = format!("https://nowhere.test:{}", 1000 + self.next);
                 let body = registration(network, &made_up(self.next), &url, 0);
-                let reply = network.inbound_from(0, &body, Some(ATTACKER));
+                let reply = network.inbound_from(0, &body, Some(self.from));
                 (
                     reply.status,
                     String::from_utf8_lossy(&reply.body).into_owned(),
@@ -99,7 +104,7 @@ fn failing_probes_from_one_network_starve_no_real_registration() {
     let config = Config::DEFAULT;
     let mut network = Network::new(9, 1, 1, config);
     settle(&mut network, 1_000);
-    let mut attacker = Attacker { next: 0 };
+    let mut attacker = Attacker::at(ATTACKER);
     attacker.send(&mut network, config.probe_rate.burst);
     // Then one failing registration each time a token comes back.
     let mut real = Vec::new();
@@ -122,6 +127,29 @@ fn failing_probes_from_one_network_starve_no_real_registration() {
     );
 }
 
+// A dual-stack socket reports IPv4 clients as IPv4-mapped IPv6 addresses.
+// They are told apart by their IPv4 networks, not taken for one IPv6
+// network that every IPv4 client shares.
+#[test]
+fn mapped_ipv4_requesters_are_told_apart_by_their_network() {
+    let mapped = |address: IpAddr| match address {
+        IpAddr::V4(v4) => IpAddr::V6(v4.to_ipv6_mapped()),
+        IpAddr::V6(_) => address,
+    };
+    let config = Config::DEFAULT;
+    let mut network = Network::new(23, 1, 1, config);
+    settle(&mut network, 1_000);
+    let mut attacker = Attacker::at(mapped(ATTACKER));
+    attacker.send(&mut network, config.probe_rate.burst);
+    for round in 0..4_u8 {
+        let node = Arc::new(NodeKey::from_bytes(&[210 + round; 32]));
+        let url = format!("https://mapped-{round}.test");
+        let body = registration(&network, &node, &url, 0);
+        let reply = network.inbound_from(0, &body, Some(mapped(elsewhere(round))));
+        assert_eq!(reply.status, 0, "{}", String::from_utf8_lossy(&reply.body));
+    }
+}
+
 // One network's failing registrations take its own share of the probes
 // while they are in flight, and keep it once they fail: the rest are
 // refused, and a registration from another network still gets its probe.
@@ -131,7 +159,7 @@ fn failing_registrations_from_one_network_spend_only_its_share() {
     let share = config.probe_rate_per_network;
     let mut network = Network::new(5, 2, 1, config);
     settle(&mut network, 30_000);
-    let mut attacker = Attacker { next: 0 };
+    let mut attacker = Attacker::at(ATTACKER);
     let statuses = attacker.send(&mut network, config.probe_rate.burst);
     let (deferred, refused) = statuses.split_at(share.burst as usize);
     assert!(
@@ -164,7 +192,7 @@ fn a_node_registers_while_another_network_probes_in_vain() {
     network.sources.insert(2, elsewhere(7));
     network.crash(2);
     settle(&mut network, 1_000);
-    let mut attacker = Attacker { next: 0 };
+    let mut attacker = Attacker::at(ATTACKER);
     attacker.send(&mut network, config.probe_rate.burst);
     network.start(2);
     let node = key(2).node_id();

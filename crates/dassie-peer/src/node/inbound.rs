@@ -402,6 +402,13 @@ impl PeerNode {
             timeout,
         );
         if sent.is_none() {
+            // Nothing went out: the probe is not in flight, and spent nothing.
+            let popped = self.probing.pop();
+            assert!(
+                popped.is_some_and(|(id, _)| id == node),
+                "the entry just pushed"
+            );
+            self.probes.give_back(self.config.probe_rate);
             if let Some(network) = network {
                 self.network_probes.give_back(network, share, self.now_ms);
             }

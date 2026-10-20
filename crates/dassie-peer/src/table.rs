@@ -370,10 +370,11 @@ pub struct Registration {
 pub struct Network(pub [u8; 7]);
 
 impl Network {
-    /// The network of `address`.
+    /// The network of `address`. An IPv4 address mapped into IPv6, as a
+    /// dual-stack socket reports IPv4 clients, is the IPv4 address.
     #[must_use]
     pub const fn of(address: core::net::IpAddr) -> Self {
-        match address {
+        match address.to_canonical() {
             core::net::IpAddr::V4(v4) => {
                 let [a, b, c, _] = v4.octets();
                 Self([4, a, b, c, 0, 0, 0])
@@ -580,6 +581,27 @@ mod tests {
         assert!(bucket.take(rate, 10_000));
         assert!(bucket.take(rate, 10_000));
         assert!(!bucket.take(rate, 10_000));
+    }
+
+    #[test]
+    fn a_mapped_ipv4_address_is_in_its_ipv4_network() {
+        let ip = |text: &str| text.parse::<core::net::IpAddr>().unwrap();
+        assert_eq!(
+            Network::of(ip("::ffff:198.51.1.1")),
+            Network::of(ip("198.51.1.1"))
+        );
+        assert_ne!(
+            Network::of(ip("::ffff:198.51.1.1")),
+            Network::of(ip("::ffff:198.51.2.1"))
+        );
+        assert_eq!(
+            Network::of(ip("2001:db8:1::1")),
+            Network::of(ip("2001:db8:1:ffff::2"))
+        );
+        assert_ne!(
+            Network::of(ip("2001:db8:1::1")),
+            Network::of(ip("2001:db8:2::1"))
+        );
     }
 
     #[test]
