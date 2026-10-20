@@ -76,7 +76,8 @@
               installPhase = "install -Dm755 wasm-bindgen $out/bin/wasm-bindgen";
             };
 
-          # The Rust workspace, with the golden vectors the tests read, the
+          # The Rust workspace, with Cargo's configuration (the property
+          # tests' fixed seed), the golden vectors the tests read, the
           # RPC contract dassie-node generates its messages from, the test
           # certificates two in-process daemons peer with, minisign's
           # signatures with the release test key, and the release's
@@ -84,6 +85,7 @@
           src = lib.fileset.toSource {
             root = ./.;
             fileset = lib.fileset.unions [
+              ./.cargo/config.toml
               ./Cargo.toml
               ./Cargo.lock
               ./clippy.toml

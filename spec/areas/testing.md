@@ -30,7 +30,7 @@ Other vectors come from their own reference: XRPL Payments signed as xrpl.js sig
 
 ## Property tests
 
-Properties pin what no example can: every decoder never panics, only canonical encodings parse, no transfer breaks a ledger limit, balances equal the journal. Their regression files (`*.proptest-regressions`) are committed beside the tests.
+Properties pin what no example can: every decoder never panics, only canonical encodings parse, no transfer breaks a ledger limit, balances equal the journal. Their regression files (`*.proptest-regressions`) are committed beside the tests. They run from one fixed seed, set in `.cargo/config.toml`, so a local `cargo test` runs what CI runs; a seed in `PROPTEST_RNG_SEED` explores others, outside CI ([D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md)).
 
 ## Interop
 
