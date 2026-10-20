@@ -106,11 +106,11 @@ A node's link state ("node info") is its signed description of itself: its URL, 
 
 ### Verification
 
-A link state verifies when its URL has the node-URL syntax, or is empty in a periphery node's link state, its key is a valid Ed25519 point not of small order, its node ID is that key's, and its signature verifies. All nodes must agree on which states verify, or the network splits on them:
+A link state verifies when its URL has the node-URL syntax, or, in a periphery node's link state, is empty, its key is a valid Ed25519 point not of small order, its node ID is that key's, and its signature verifies. All nodes must agree on which states verify, or the network splits on them:
 
 - **Signatures follow ZIP-215** (`ed25519-zebra`), as the original's verifier did. Being stricter could split the network on edge-case signatures. Small-order keys are refused because under ZIP-215 one signature verifies every message under such a key.
 - **URL syntax is part of verification** for the same reason: an HTTPS origin with a lowercase hostname or IP literal and an optional port, nothing else (`crates/dassie-peer/src/wire/url.rs`). A node whose own URL does not fit publishes no link state.
-- **An empty URL** verifies only with the periphery extension. A node that does not know the rule refuses such a state, which is harmless only because a periphery node's link state never floods: only its uplinks see it, in its peering requests and heartbeats, and only nodes that take downlinks need the rule.
+- **An empty URL** verifies only with the periphery extension, and the extension only with an empty URL: a periphery link state with a URL would be taken for a downlink's, accepted without a probe and dialled at a URL nobody checked. A node that does not know the rule refuses such a state, which is harmless only because a periphery node's link state never floods: only its uplinks see it, in its peering requests and heartbeats, and only nodes that take downlinks need the rule.
 
 ## Message set
 

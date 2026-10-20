@@ -107,7 +107,7 @@ Deliberately not kept: ILP packets in flight (their pending transfers were never
 
 ## Configuration
 
-The owner's configuration is one row, read into a validated `NodeConfig` (`dassie-node-core/src/config.rs`), with one RPC setter per value. Nothing derived is stored: URLs are computed from the current values, so a new hostname takes effect at once. The realm `live` is refused until the conditions for [real money](../roadmap.md#real-money) hold ([D8](../decisions/D08-real-money.md)). Settings that belong to an area are in that area's tables.
+The owner's configuration is one row, read into a validated `NodeConfig` (`dassie-node-core/src/config.rs`), with one RPC setter per value. Nothing derived is stored: URLs are computed from the current values, so a new hostname takes effect at once. A hostname is refused unless `https://<hostname>:65535` is a URL peers take, at most 256 bytes: with a longer one, the node would run as a periphery node ([Network](network.md#periphery-nodes)). The realm `live` is refused until the conditions for [real money](../roadmap.md#real-money) hold ([D8](../decisions/D08-real-money.md)). Settings that belong to an area are in that area's tables.
 
 ## Dev switches warn on a public node
 

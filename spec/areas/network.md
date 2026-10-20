@@ -172,7 +172,8 @@ Every peer gets a settlement channel, which belongs to the pair of nodes and out
 
 A node without a public address joins as a periphery node ([D26](../decisions/D26-core-and-periphery.md)): it connects only to core nodes, its uplinks, is reached only over the connections it opened to them, and forwards nothing. What else the [design](../designs/periphery.md) holds is not built yet ([roadmap](../roadmap.md#periphery)).
 
-- **Who is one.** A node with a QUIC endpoint and no hostname, so no URL. A node with a URL is a core node, and a core node that takes QUIC takes downlinks.
+- **Who is one.** A node with a QUIC endpoint and no hostname, so no URL. A node with a URL is a core node, and a core node that takes QUIC takes downlinks. The owner's hostname must make a URL peers take, with any port, so a node never turns periphery by a hostname too long ([Node](node.md#configuration)).
+- **Changing kind.** A core node that loses its URL ends the peerings with its downlinks, since a periphery node takes none, and asks for uplinks. A peer whose link state turns from core to periphery, or back, is a peer of the other kind, with another address and other bounds: the peering made as the old kind ends, and it may ask anew.
 - **Its link state** has no URL and the periphery extension ([Peer protocol](peer-protocol.md#link-states)), and lists its uplinks as its neighbors. Only its uplinks see it, in its peering requests and heartbeats: it is never forwarded or served, nor registered, so it is in no node list, and in no table but its uplinks'.
 - **Peering.** It asks core nodes from the node list whose link states say they take QUIC, as junior ([Roles](#roles)), until it has the usual target of confirmed peers. It accepts no peering request, and is never asked: no core node asks a periphery node. It seeks no bridge.
 - **Routes** go through its uplinks, which never list it: it reaches whatever they reach.
@@ -183,9 +184,9 @@ A node without a public address joins as a periphery node ([D26](../decisions/D2
 A core node keeps its downlinks, the periphery nodes peered with it, apart from its peerings with core nodes.
 
 - **Taken without a probe.** A periphery node's peering request is checked as any other's, but its URL is not probed: it has none, and the connection its request came on shows it is there. It is in no node list, so it enters the table by asking.
-- **A bound of their own** (`max_downlinks` in `crates/dassie-peer/src/config.rs`) on their places in the table, their peerings and their settlement channels, apart from the core peering slots, the table's other nodes and the channels with core nodes. Channels are never closed ([Settlement channels](#settlement-channels)), so it bounds the downlinks ever peered with. Past it, a new downlink is refused for capacity.
+- **A bound of their own** (`max_downlinks` in `crates/dassie-peer/src/config.rs`) on their places in the table, their peerings and their settlement channels, apart from the core peering slots, the table's other nodes and the channels with core nodes. Channels are never closed ([Settlement channels](#settlement-channels)), so it bounds the downlinks ever peered with. Past it, a new downlink is refused for capacity. A downlink refused for any reason leaves the table at once.
 - **In nobody's routes.** A downlink is never listed in our link state, so no route leads to it: its child address lies beneath ours, which the rest of the network routes to us, and the connector passes it on ([Connector](connector.md#addresses-and-endpoints)).
-- **Reached only over its connection** ([Peer protocol](peer-protocol.md#quic)), and never withdrawn for room while it owes nothing ([Advertised peers](#advertised-peers)).
+- **Reached only over its connection** ([Peer protocol](peer-protocol.md#quic)), each with its own bound on requests in flight rather than one for all nodes without a URL, and never withdrawn for room while it owes nothing ([Advertised peers](#advertised-peers)).
 
 ## Routing
 
