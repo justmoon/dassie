@@ -493,7 +493,9 @@ fn a_junior_extends_at_least_the_default_credit() {
         connector: &core.connector,
         endpoints: &core.peer_endpoints,
     };
-    let agreed = hooks.finalize(NOW, peer, scheme, 1, &[], &[]).unwrap();
+    let agreed = hooks
+        .finalize(NOW, peer, scheme, 1, &[], &[], false)
+        .unwrap();
     assert_eq!(agreed.credit_out, Policies::DEFAULT.peer_credit);
     let contra = core
         .ledger
@@ -504,6 +506,47 @@ fn a_junior_extends_at_least_the_default_credit() {
         .unwrap();
     let trust = dassie_settlement::policy::trust(core.ledger.account(contra).unwrap().balance());
     assert_eq!(trust, Policies::DEFAULT.peer_credit);
+}
+
+// D33: a peering we ended because the peer's room stayed short is formed
+// again later on our own request. We are the junior now, but the peer
+// gets no more credit than it had as our junior: the default would be a
+// new line for a peer that never settled.
+#[test]
+fn a_junior_keeps_the_lower_credit_of_a_peer_it_ended_for_room() {
+    use dassie_ledger::{AccountName, AccountPath, LedgerId, Name};
+    use dassie_peer::PeeringHooks;
+
+    let mut core = core(7);
+    core.add_scheme("stub", String::new()).unwrap();
+    let peer = NodeKey::from_bytes(&[9; 32]).node_id();
+    let name = Name::new(peer.as_str()).unwrap();
+    core.ledger
+        .open_peer(NOW, LedgerId::StubUsd, name, core.senior_credit)
+        .unwrap();
+    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
+    let mut hooks = super::peers::Hooks {
+        schemes: &mut core.schemes,
+        ledger: &mut core.ledger,
+        credit: core.peer_credit,
+        senior_credit: core.senior_credit,
+        connector: &core.connector,
+        endpoints: &core.peer_endpoints,
+    };
+    let agreed = hooks
+        .finalize(NOW, peer, scheme, 1, &[], &[], true)
+        .unwrap();
+    assert_eq!(agreed.credit_out, core.senior_credit);
+    assert!(core.senior_credit < Policies::DEFAULT.peer_credit);
+    let contra = core
+        .ledger
+        .find(&AccountPath::new(
+            LedgerId::StubUsd,
+            AccountName::ContraTrust(name),
+        ))
+        .unwrap();
+    let trust = dassie_settlement::policy::trust(core.ledger.account(contra).unwrap().balance());
+    assert_eq!(trust, core.senior_credit);
 }
 
 // Found by the simulation (D27): a sender crashed before the last Fulfill

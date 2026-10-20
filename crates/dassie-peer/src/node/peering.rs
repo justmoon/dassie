@@ -276,7 +276,11 @@ impl PeerNode {
                     _ => Vec::new(),
                 };
                 let now = self.now_ms;
-                match hooks.finalize(now, node, scheme, version, &info, data) {
+                let ended_for_room = self
+                    .channels
+                    .get(&node)
+                    .is_some_and(|channel| channel.ended_for_room);
+                match hooks.finalize(now, node, scheme, version, &info, data, ended_for_room) {
                     Ok(agreed) => self.become_peered(node, scheme, version, agreed, false),
                     Err(_) => self.fail_attempt(node, "the scheme would not finalize"),
                 }

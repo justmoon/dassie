@@ -654,6 +654,55 @@ fn a_silent_peer_short_of_room_is_withdrawn_for_its_silence() {
     assert_eq!(withdrawn, [false], "withdrawn for room, though silent");
 }
 
+// D33: a link that stayed short of room, settling nothing, is ended, and
+// the pair stays apart for the owner's cooldown, by node 0's own clock:
+// neither asks the other, and node 0 refuses node 1's request. The next
+// peering with it as node 0's senior raises it no credit, which the
+// channel remembers. Only past the cooldown do they peer again.
+#[test]
+fn a_peer_ended_for_room_is_not_peered_again_within_the_cooldown() {
+    let (mut network, a, b) = peered(44);
+    report(&mut network, &b, SHORT, CONFIG.peer_dead_ms + 2_000);
+    let deadline = network.now + CONFIG.depeer_wait_ms * 2 + CONFIG.termination_timeout_ms + 5_000;
+    while ended(&network, 0, &b) == 0 && network.now < deadline {
+        settle(&mut network, 100);
+    }
+    assert_eq!(ended(&network, 0, &b), 1, "ended for room");
+    assert!(
+        network.events.iter().any(|(at, event)| *at == 0
+            && *event
+                == Event::Depeering {
+                    peer: b,
+                    reason: TerminationReason::ShortOfRoom
+                }),
+        "ended for room, not for another reason"
+    );
+    assert!(network.node(0).channel(&b).unwrap().ended_for_room);
+    assert!(!network.node(1).channel(&a).unwrap().ended_for_room);
+    let ended_at = network.clock(0);
+    let cooldown = CONFIG.owner_termination_cooldown_ms;
+    let body = peering_request(&network, &key(1), 1, 0);
+    let reply = network.inbound(0, &body);
+    assert_eq!(refusal(&reply), RefusalReason::Terminating);
+    while network.clock(0) + 1_000 < ended_at + cooldown {
+        settle(&mut network, 1_000);
+        assert!(
+            network.node(0).peering_of(&b).is_none() && network.node(1).peering_of(&a).is_none(),
+            "peered again {} ms after ending it for room",
+            network.clock(0) - ended_at
+        );
+    }
+    // Past it, the two peer again, on the channel that remembers.
+    for _ in 0..60 {
+        if network.node(0).peering_of(&b).is_some() {
+            break;
+        }
+        settle(&mut network, 1_000);
+    }
+    assert!(network.node(0).peering_of(&b).is_some(), "peered again");
+    assert!(network.node(0).channel(&b).unwrap().ended_for_room);
+}
+
 // How long a peer has been short of room is kept across a restart, so a
 // node that restarts more often than a day still ends a link that stays
 // short; and the time the node was down does not count, since it could not

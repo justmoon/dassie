@@ -41,6 +41,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_18,
     MIGRATION_19,
     MIGRATION_20,
+    MIGRATION_21,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -746,6 +747,14 @@ ALTER TABLE peers ADD COLUMN depeering_reason INTEGER
   CHECK (depeering_reason IS NULL OR depeering_reason BETWEEN 0 AND 255);
 ";
 
+/// Whether we once ended a peering with the node for want of room: kept
+/// with the relationship, so that a later peering with us as the junior
+/// raises it no credit (D33).
+const MIGRATION_21: &str = "
+ALTER TABLE settlement_channels ADD COLUMN ended_for_room INTEGER NOT NULL DEFAULT 0
+  CHECK (ended_for_room IN (0, 1));
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -970,6 +979,7 @@ pub const TABLES: &[Table] = &[
             ("outbox_amount", "INTEGER", false, false),
             ("outbox_data", "BLOB", false, false),
             ("outbox_attempts", "INTEGER", false, false),
+            ("ended_for_room", "INTEGER", true, false),
         ],
     },
     Table {

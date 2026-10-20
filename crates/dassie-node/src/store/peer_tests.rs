@@ -190,6 +190,7 @@ fn terminations_channels_and_bans_round_trip() {
                 data: vec![9],
                 attempts: 2,
             }),
+            ended_for_room: true,
         },
     };
     commit(

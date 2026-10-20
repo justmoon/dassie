@@ -41,6 +41,10 @@ pub struct Channel {
     pub settled_out: u64,
     /// Our settlement message on its way, if any: one at a time (ACC-17).
     pub outbox: Option<Outgoing>,
+    /// Whether we once ended a peering with the node for want of room: a
+    /// later peering with it as our senior raises no credit to the default
+    /// (spec/areas/settlement.md#credit).
+    pub ended_for_room: bool,
 }
 
 impl Channel {
@@ -53,6 +57,7 @@ impl Channel {
             settled_in: 0,
             settled_out: 0,
             outbox: None,
+            ended_for_room: false,
         }
     }
 }
