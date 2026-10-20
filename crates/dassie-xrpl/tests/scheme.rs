@@ -717,6 +717,41 @@ fn a_pending_settlement_unknown_to_the_scheme_is_recovered() {
     assert!(world.nodes[0].books.pending.is_empty());
 }
 
+// A settlement left pending across a restart that no history holds cannot
+// be known to have applied: it stays pending, for the owner
+// (spec/areas/xrpl.md#state-and-restarts). It is asked again less and less
+// often, not at every ledger.
+#[test]
+fn a_settlement_no_history_holds_stays_pending_and_is_asked_less_often() {
+    let (mut world, _, _) = funded_pair();
+    let id = Name::hex(&[7; 32], true);
+    let peer = world.nodes[1].name;
+    world.nodes[0]
+        .books
+        .pending
+        .insert(id, (peer, 1_000_000_000));
+    let state = world.nodes[0].scheme.state();
+    let checkpoint = world.nodes[0].scheme.balance();
+    world.disconnect(0);
+    let node = world.nodes[0].name;
+    world.nodes[0].scheme =
+        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
+    let mut effects = Vec::new();
+    world.nodes[0]
+        .scheme
+        .reconcile(&[(id, 1_000_000_000)], &mut effects);
+    world.connect(0);
+    let lookups = |world: &World| world.nodes[0].asked.iter().filter(|c| *c == "tx").count();
+    world.closes(600);
+    // Asked at once, then after 1, 2, 4 … 256 ledgers: 10 times in 600.
+    assert_eq!(lookups(&world), 10);
+    world.closes(512);
+    assert_eq!(lookups(&world), 12, "asked every 256 ledgers at most");
+    let books = &world.nodes[0].books;
+    assert!(books.finalized.is_empty() && books.cancelled.is_empty());
+    assert!(books.pending.contains_key(&id));
+}
+
 // D16: a server that reports more XRP for the account than the books can
 // hold stops the scheme, rather than booking an amount clamped to fit.
 #[test]

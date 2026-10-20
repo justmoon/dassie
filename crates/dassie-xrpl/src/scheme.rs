@@ -78,6 +78,10 @@ const MAX_CONFIG: usize = 1024;
 const LEDGER_SILENCE_MS: u64 = 30_000;
 /// Most settlements of ours whose outcome is looked for after a restart.
 const MAX_RECOVERING: usize = 64;
+/// The longest a settlement's outcome goes unasked after a restart, in
+/// ledgers: about a quarter of an hour on the testnet. One that no history
+/// holds is never found, and is asked less often the longer it is not.
+const MAX_RECOVER_WAIT_LEDGERS: u32 = 256;
 /// The most drops the books can hold for the account: [`MAX_TOTAL`] in
 /// units. A server that reports more for it is no ledger to follow.
 const MAX_ACCOUNT_DROPS: u64 = MAX_TOTAL / UNITS_PER_DROP;
@@ -158,6 +162,29 @@ struct InFlight {
     looked_up: bool,
 }
 
+/// A settlement of ours a restart left pending, though this state no
+/// longer has it in flight: its outcome is looked up by its hash. Only the
+/// hash is kept with the books; a restart asks at once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Recovering {
+    hash: [u8; 32],
+    /// The validated ledger from which it may be asked again.
+    ask_at: u32,
+    /// How many ledgers the next lookup waits for the one after it: it
+    /// doubles with each, up to [`MAX_RECOVER_WAIT_LEDGERS`].
+    wait: u32,
+}
+
+impl Recovering {
+    const fn new(hash: [u8; 32]) -> Self {
+        Self {
+            hash,
+            ask_at: 0,
+            wait: 1,
+        }
+    }
+}
+
 /// A request waiting for its answer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Request {
@@ -209,7 +236,7 @@ pub struct XrplScheme {
     /// longest known goes.
     peers: BTreeMap<Name, (AccountId, u64)>,
     next_learnt: u64,
-    recovering: Vec<[u8; 32]>,
+    recovering: Vec<Recovering>,
     // Learnt from the ledger.
     phase: Phase,
     next_id: u64,
@@ -347,7 +374,10 @@ impl XrplScheme {
                 };
                 api::submit(id, &transaction.blob)
             }
-            Request::Recover(hash) => api::tx(id, &hash, 1, self.validated.max(1)),
+            // When it was submitted is not kept, and a server searches a
+            // range of at most 1000 ledgers: it is looked for in all the
+            // server's history.
+            Request::Recover(hash) => api::tx_anywhere(id, &hash),
         };
         self.pending.insert(id, (request, self.now_ms));
         effects.push(Effect::LedgerSend { message });
@@ -869,7 +899,8 @@ impl XrplScheme {
 
     /// The outcome of a settlement of ours that a restart left pending in
     /// the books, its fee and the balance booked already: posted or
-    /// voided now.
+    /// voided now. Not found, or not validated yet, it waits, to be asked
+    /// again (spec/areas/xrpl.md#state-and-restarts).
     fn recovered(
         &mut self,
         hash: [u8; 32],
@@ -882,7 +913,7 @@ impl XrplScheme {
         let Some(record) = api::tx_result(&result).filter(|r| r.validated) else {
             return;
         };
-        self.recovering.retain(|h| *h != hash);
+        self.recovering.retain(|r| r.hash != hash);
         let settlement = hash_name(&hash);
         effects.push(if record.succeeded() {
             Effect::Finalize { settlement }
@@ -892,7 +923,9 @@ impl XrplScheme {
     }
 
     /// Asks for the outcome of a restart's settlements not asked for yet,
-    /// up to [`MAX_RECOVER_ASKING`] at a time.
+    /// up to [`MAX_RECOVER_ASKING`] at a time. Each is asked again only
+    /// once its wait is over, and waits twice as long after each lookup,
+    /// so one never found is not asked at every ledger.
     fn ask_recover(&mut self, effects: &mut Vec<Effect>) {
         let asked = |pending: &BTreeMap<u64, (Request, u64)>, hash: &[u8; 32]| {
             pending
@@ -908,9 +941,17 @@ impl XrplScheme {
             if asking >= MAX_RECOVER_ASKING || self.phase != Phase::Synced {
                 return;
             }
-            if let Some(&hash) = self.recovering.get(index)
-                && !asked(&self.pending, &hash)
+            let validated = self.validated;
+            if let Some(recovering) = self.recovering.get_mut(index)
+                && validated >= recovering.ask_at
+                && !asked(&self.pending, &recovering.hash)
             {
+                let hash = recovering.hash;
+                recovering.ask_at = validated.saturating_add(recovering.wait);
+                recovering.wait = recovering
+                    .wait
+                    .saturating_mul(2)
+                    .min(MAX_RECOVER_WAIT_LEDGERS);
                 self.send(Request::Recover(hash), effects);
             }
         }
@@ -983,7 +1024,7 @@ impl XrplScheme {
             add(u64::from_be_bytes(head) ^ u64::from(transaction.executed));
         }
         add(self.in_flight.len() as u64);
-        for hash in &self.recovering {
+        for Recovering { hash, .. } in &self.recovering {
             add(u64::from(hash[0]) << 8 | u64::from(hash[1]));
         }
         add(self.recovering.len() as u64);
@@ -1014,7 +1055,7 @@ impl XrplScheme {
         let recovering: Vec<Value> = self
             .recovering
             .iter()
-            .map(|hash| hex_upper(hash).into())
+            .map(|r| hex_upper(&r.hash).into())
             .collect();
         json!({
             "cursor": self.cursor.map(|(ledger, index)| json!([ledger, index])),
@@ -1077,13 +1118,13 @@ impl XrplScheme {
         }
         for hash in recovering {
             self.recovering
-                .push(from_hex(hash.as_str()?)?.try_into().ok()?);
+                .push(Recovering::new(from_hex(hash.as_str()?)?.try_into().ok()?));
         }
         // Each settlement once, in flight or looked for, and every one in
         // flight below the next sequence: what the scheme writes.
         let mut seen = BTreeSet::new();
         let distinct = (self.in_flight.iter().map(|t| t.hash))
-            .chain(self.recovering.iter().copied())
+            .chain(self.recovering.iter().map(|r| r.hash))
             .all(|hash| seen.insert(hash));
         let ordered = self.in_flight.iter().all(|t| t.sequence < self.sequence);
         (distinct && ordered).then_some(())
@@ -1133,9 +1174,16 @@ impl XrplScheme {
     fn check_in_flight(&self) {
         let mut seen = BTreeSet::new();
         let distinct = (self.in_flight.iter().map(|t| t.hash))
-            .chain(self.recovering.iter().copied())
+            .chain(self.recovering.iter().map(|r| r.hash))
             .all(|hash| seen.insert(hash));
         assert!(distinct, "each settlement once, in flight or looked up");
+        for recovering in &self.recovering {
+            assert!((1..=MAX_RECOVER_WAIT_LEDGERS).contains(&recovering.wait));
+            assert!(
+                recovering.ask_at <= self.validated.saturating_add(MAX_RECOVER_WAIT_LEDGERS),
+                "a lookup waits at most its longest wait"
+            );
+        }
         for transaction in &self.in_flight {
             assert!(
                 transaction.sequence < self.sequence,
@@ -1474,10 +1522,10 @@ impl SettlementScheme for XrplScheme {
                 t.executed = true;
                 t.needs_submit = true;
             } else if let Some(hash) = from_hex(id.as_str()).and_then(|h| h.try_into().ok())
-                && !self.recovering.contains(&hash)
+                && !self.recovering.iter().any(|r| r.hash == hash)
                 && self.recovering.len() < MAX_RECOVERING
             {
-                self.recovering.push(hash);
+                self.recovering.push(Recovering::new(hash));
             }
         }
     }

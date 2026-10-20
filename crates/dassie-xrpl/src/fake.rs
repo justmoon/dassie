@@ -27,8 +27,11 @@ pub const RESERVE_BASE: u64 = 1_000_000;
 pub const RESERVE_INC: u64 = 200_000;
 /// What the faucet gives, in drops: 1000 XRP.
 pub const FAUCET_DROPS: u64 = 1_000_000_000;
-/// The first ledger.
-pub const FIRST_LEDGER: u32 = 1_000;
+/// The first ledger: in the millions, as the testnet's are, so a lookup
+/// from ledger 1 spans more than a server searches.
+pub const FIRST_LEDGER: u32 = 5_000_000;
+/// The most ledgers a `tx` lookup may span, as rippled's `kMaxRange`.
+const MAX_TX_RANGE_LEDGERS: u64 = 1_000;
 
 /// A connection to the fake ledger.
 pub type ConnectionId = u64;
@@ -447,6 +450,19 @@ impl FakeLedger {
             .and_then(from_hex)
             .and_then(|bytes| bytes.try_into().ok())
             .ok_or_else(|| json!({ "error": "notImpl" }))?;
+        // As rippled, a range is checked before anything is looked up: not
+        // backwards, and at most `MAX_TX_RANGE_LEDGERS`.
+        if let (Some(min), Some(max)) = (
+            request.get("min_ledger").and_then(Value::as_u64),
+            request.get("max_ledger").and_then(Value::as_u64),
+        ) {
+            if max < min {
+                return Err(json!({ "error": "invalidLgrRange" }));
+            }
+            if max - min > MAX_TX_RANGE_LEDGERS {
+                return Err(json!({ "error": "excessiveLgrRange" }));
+            }
+        }
         if let Some(applied) = self.history.iter().find(|a| a.hash == hash) {
             let mut result = applied
                 .message

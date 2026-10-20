@@ -66,7 +66,7 @@ The owner funds the scheme by sending XRP to its account. The node cannot deposi
 
 The scheme's state (cursor, next sequence, transactions in flight, peers' addresses, settlements being looked up) is kept with its checkpoint in the batch it explains ([Settlement](settlement.md#checkpoints-and-activation)), and a state the scheme could not have written is refused.
 
-After a restart, executed transactions in flight are submitted again once synced. Each settlement the node still holds pending is handed to the scheme: one in flight is submitted again; one the scheme no longer holds is looked up by its hash and posted or voided by what the ledger says. A transaction of ours that no history holds any more cannot be known to have applied, and its settlement stays pending, for the owner.
+After a restart, executed transactions in flight are submitted again once synced. Each settlement the node still holds pending is handed to the scheme: one in flight is submitted again; one the scheme no longer holds is looked up by its hash and posted or voided by what the ledger says. It is looked for in all the server's history, without a range of ledgers: when it was submitted is not kept, and a server refuses to search more than a short range at once. A transaction of ours that no history holds any more cannot be known to have applied, and its settlement stays pending, for the owner; it is asked for again less often the longer it is not found, so a lookup that never succeeds costs little.
 
 ## The fake ledger
 
