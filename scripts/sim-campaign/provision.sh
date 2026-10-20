@@ -35,7 +35,7 @@ machine_type=c2d-highcpu-56
 size=1
 account=sim-campaign
 secret=sim-campaign-github
-app_id=
+app_id=5401685
 template=sim-campaign-1
 network=sim-campaign
 
