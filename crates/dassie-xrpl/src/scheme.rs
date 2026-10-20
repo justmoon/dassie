@@ -789,7 +789,7 @@ impl XrplScheme {
             // comes back out of it.
             if self.in_flight.iter().any(|t| t.hash == record.hash) {
                 let booked = self.resolve(record, effects);
-                self.booked = narrow(booked.max(0));
+                self.hold(booked, effects);
                 self.reconcile(effects);
             }
             return;
@@ -826,6 +826,14 @@ impl XrplScheme {
             effects.push(Effect::Withdrawal { amount });
             booked -= i128::from(amount);
         }
+        self.hold(booked, effects);
+        self.reconcile(effects);
+    }
+
+    /// Makes the books hold `booked`. Below zero, they hold nothing, and
+    /// what they are short comes from suspense, so that a reconcile after
+    /// starts from what the books hold.
+    fn hold(&mut self, booked: i128, effects: &mut Vec<Effect>) {
         self.booked = narrow(booked.max(0));
         if booked < 0 {
             effects.push(Effect::Reconcile {
@@ -833,7 +841,6 @@ impl XrplScheme {
                 gain: true,
             });
         }
-        self.reconcile(effects);
     }
 
     /// Settles one of our transactions the ledger validated: posted or

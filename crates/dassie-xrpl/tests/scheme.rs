@@ -569,6 +569,29 @@ fn a_settlement_validated_while_away_is_still_posted() {
     assert_eq!(books.suspense, 0, "the suspense entry came back out");
 }
 
+// As above, with a settlement and fee larger than what the account holds
+// after it: posting them takes the books below zero, and what they are
+// short comes from suspense, so the books still match the balance.
+#[test]
+fn a_large_settlement_validated_while_away_keeps_the_books() {
+    let (mut world, state_a, _) = funded_pair();
+    let id = world.settle(0, 1, 700_000_000_000, &state_a);
+    let state = world.nodes[0].scheme.state();
+    let checkpoint = world.nodes[0].scheme.balance();
+    world.disconnect(0);
+    world.closes(2);
+    world.ledger.shorten_account_history();
+    let node = world.nodes[0].name;
+    world.nodes[0].scheme =
+        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
+    world.connect(0);
+    world.closes(40);
+    let books = &world.nodes[0].books;
+    assert_eq!(books.finalized, [id]);
+    assert!(books.pending.is_empty());
+    assert_eq!(books.suspense, 0, "the suspense entry came back out");
+}
+
 // Found in review: a settlement the node prepared but could not book, so
 // never executed, is never sent, even across a reconnect.
 #[test]
