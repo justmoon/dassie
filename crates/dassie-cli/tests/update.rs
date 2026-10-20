@@ -691,6 +691,62 @@ fn puts_back_the_units_when_the_switch_fails() {
     assert!(install.last_update().contains("\noutcome=failed\n"));
 }
 
+/// If a unit cannot be installed, `current` goes back to what it named,
+/// with that version's units, even where the updater that ran is another
+/// version the owner kept.
+#[test]
+fn puts_back_what_current_named_when_a_unit_cannot_be_installed() {
+    let (mirror, install) = (MirrorServer::start(), Install::new());
+    // The binary that runs is a kept version; `current` names a later one.
+    install.with_unit(b"[Service]\n# the kept version's\n");
+    let later = install.base().join("9.0.0");
+    fs::create_dir_all(later.join("bin")).unwrap();
+    fs::create_dir_all(later.join("share/systemd")).unwrap();
+    fs::write(later.join("share/systemd/dassie.service"), OLD_UNIT).unwrap();
+    fs::write(install.dir.path().join("units/dassie.service"), OLD_UNIT).unwrap();
+    fs::remove_file(install.base().join("current")).unwrap();
+    symlink("9.0.0", install.base().join("current")).unwrap();
+    // A directory where one of the new units goes: no rename replaces it.
+    fs::create_dir_all(install.dir.path().join("units/dassie-blocked.socket/x")).unwrap();
+    let script = stand_in("9.9.9");
+    let bundle = tarball(&[
+        ("dassie/", None, 0o755),
+        ("dassie/bin/", None, 0o755),
+        ("dassie/bin/dassie", Some(script.as_bytes()), 0o755),
+        ("dassie/share/", None, 0o755),
+        ("dassie/share/systemd/", None, 0o755),
+        ("dassie/share/systemd/dassie.service", Some(UNIT), 0o644),
+        (
+            "dassie/share/systemd/dassie-new.timer",
+            Some(b"[Timer]\n"),
+            0o644,
+        ),
+        (
+            "dassie/share/systemd/dassie-blocked.socket",
+            Some(b"[Socket]\n"),
+            0o644,
+        ),
+    ]);
+    publish(&mirror, "9.9.9", &bundle, None);
+    let binary = install.base().join(&install.version).join("bin/dassie");
+    let output = install
+        .updater(&binary, &mirror)
+        .arg("--no-restart")
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "{}", text(&output));
+    assert!(
+        text(&output).contains("dassie-blocked.socket"),
+        "{}",
+        text(&output)
+    );
+    assert!(!text(&output).contains("putting back"), "{}", text(&output));
+    assert_eq!(install.current(), "9.0.0");
+    assert_eq!(install.unit("dassie.service").as_deref(), Some(OLD_UNIT));
+    assert_eq!(install.unit("dassie-new.timer"), None);
+    assert!(install.last_update().contains("\noutcome=failed\n"));
+}
+
 /// A rollback takes out the units the new version added, disabled, as well
 /// as putting back the old version's.
 #[test]

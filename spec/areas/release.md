@@ -82,7 +82,7 @@ The original's layout, kept for operators' habits and docs. Each version is unpa
 1. **One at a time,** under a lock in `/opt/dassie`.
 2. **Choose the version** from `meta/<channel>` by the rule in [Versions and channels](#versions-and-channels). The owner may name a version (`--target-version`, older too) or a channel, or another mirror, which may be on a private network since the owner names it.
 3. **Verify, unpack into staging and check the new binary** ([Trust](#trust)). Modes are set explicitly, whatever the umask, since the node runs as a user of its own, and every file and directory is synced, so `current` never names a version a power cut left half written.
-4. **Switch:** install the version's units where they changed, move `current`, restart `dassie.service` and wait for its readiness. If the units or `current` cannot be put in place, the old version's units and `current` go back, and the units the new version added go, before systemd has read any of them.
+4. **Switch:** install the version's units where they changed, move `current`, restart `dassie.service` and wait for its readiness. If the units or `current` cannot be put in place, `current` goes back to the version it named, which need not be the one running the update, with that version's units, and the units the new version added go, before systemd has read any of them.
 5. **Record** how it went in `/opt/dassie/last-update`, which `dassie status` reads, and **prune** every version but the new one and the one it came from.
 
 ### Rolling back

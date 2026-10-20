@@ -159,18 +159,20 @@ async fn attempt(
     // The staging directory goes either way; what it held is in place.
     let _ = fs::remove_dir_all(&staging);
     let dir = installed?;
+    // What `current` names, to put back should the switch not go through:
+    // not always the version running this, which may be an older one kept.
+    // Where it names nothing, this one is what the owner runs.
+    let before = fs::read_link(install.base.join("current"))
+        .unwrap_or_else(|_| PathBuf::from(install.version.to_string()));
     let mut units = Units::default();
     let switched = install_units(&dir.join("share/systemd"), &mut units)
         .and_then(|()| switch(&install.base, &target));
     if let Err(problem) = switched {
         // systemd has not read the new units yet: with the old ones and
         // `current` back on disk, nothing changed.
-        return Err(match put_back(install, &units) {
+        return Err(match put_back(&install.base, &units, &before) {
             Ok(()) => problem,
-            Err(failed) => format!(
-                "{problem}, and going back to {} failed: {failed}",
-                install.version
-            ),
+            Err(failed) => format!("{problem}, and putting back what was there failed: {failed}"),
         });
     }
     println!("Installed dassie {target}.");
@@ -216,10 +218,15 @@ fn restart(units: &Units) -> Result<(), Problem> {
 /// the database from before the update if the new version migrated it, and
 /// starts the old version. The units the update added are disabled and go.
 fn roll_back(install: &Install, units: &Units, since: SystemTime) -> Result<(), Problem> {
+    // A unit that will not be disabled must not keep the old version down:
+    // its file goes all the same.
     for unit in &units.added {
-        systemctl(&["disable", "--now", unit])?;
+        if let Err(problem) = systemctl(&["disable", "--now", unit]) {
+            eprintln!("Note: {problem}; removing {unit} all the same.");
+        }
     }
-    put_back(install, units)?;
+    let version = PathBuf::from(install.version.to_string());
+    put_back(&install.base, units, &version)?;
     systemctl(&["daemon-reload"])?;
     // systemd may be restarting the failed node; the database must be left
     // alone while it is put back.
@@ -780,10 +787,10 @@ fn install_units(units: &Path, installed: &mut Units) -> Result<(), Problem> {
     sync_dir(&dir)
 }
 
-/// Puts back the units and `current` of the version that ran, on disk:
-/// the units the update added go, and the old version's come back where
-/// they changed.
-fn put_back(install: &Install, units: &Units) -> Result<(), Problem> {
+/// Puts back, on disk, `current` naming `before`, as it did, with that
+/// version's units: the units the update added go, and that version's come
+/// back where they changed.
+fn put_back(base: &Path, units: &Units, before: &Path) -> Result<(), Problem> {
     let dir = unit_dir();
     for name in &units.added {
         let path = dir.join(name);
@@ -794,16 +801,23 @@ fn put_back(install: &Install, units: &Units) -> Result<(), Problem> {
         }
     }
     sync_dir(&dir)?;
-    let old = install.base.join(install.version.to_string());
-    install_units(&old.join("share/systemd"), &mut Units::default())?;
-    switch(&install.base, &install.version)
+    install_units(
+        &base.join(before).join("share/systemd"),
+        &mut Units::default(),
+    )?;
+    point_current(base, before)
 }
 
 /// Points `<base>/current` at `version`, in one `rename`, on disk.
 fn switch(base: &Path, version: &Version) -> Result<(), Problem> {
+    point_current(base, Path::new(&version.to_string()))
+}
+
+/// Points `<base>/current` at `target`, in one `rename`, on disk.
+fn point_current(base: &Path, target: &Path) -> Result<(), Problem> {
     let staged = base.join(format!(".current-{}", std::process::id()));
     let _ = fs::remove_file(&staged);
-    symlink(version.to_string(), &staged).map_err(|e| permission(&staged, &e))?;
+    symlink(target, &staged).map_err(|e| permission(&staged, &e))?;
     let current = base.join("current");
     fs::rename(&staged, &current).map_err(|e| permission(&current, &e))?;
     sync_dir(base)
