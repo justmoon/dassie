@@ -149,7 +149,12 @@ The node that ends a peering collects first, and tells the peer only then, unles
 
 ### One-sided peerings
 
-A node that holds no peering with a sender, and is not asking for one, answers an authenticated heartbeat that lists it as a neighbor with a `peeringTermination` of reason "not peered", at most once per termination timeout per node. The other side then ends its peering.
+A node that holds no peering with an authenticated sender, and is not asking for one, answers any request from it that presumes a peering with a `peeringTermination` of reason "not peered", at most once per termination timeout per node. The request itself gets the answer it would get anyway, a refusal for not being peered, so no status changes meaning. The other side then ends its peering at once, as the node being ended does ([Termination](#termination)).
+
+This repairs a peering whose `peeringTermination` never arrived while it was sent, as when the two were cut off for the whole termination timeout. The side left over would otherwise keep it until the peer had been silent for as long as a silent peer is kept, and, if the peer is short of room in its books, ask it to settle at every check, since a refusal for not being peered is also what a peer that has not taken in our acceptance yet answers ([D12](../decisions/D12-peering-lifecycle-and-liveness.md)).
+
+- **What presumes a peering:** a Prepare, a request to settle, a scheme's message, another node's link state forwarded to us, since floods go only to peers, and a node's own link state that lists us as a neighbor. Its own link state that does not list us presumes nothing: a node also sends it to the bootstrap nodes it is not peered with ([How link states spread](#how-link-states-spread)), even to one it is asking for a peering.
+- **Not while asking.** A node whose own peering request is under way answers nothing: the peer may have accepted it, and hold the peering before the acceptance arrives.
 
 ### Bans
 

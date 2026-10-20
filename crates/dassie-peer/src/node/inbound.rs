@@ -18,7 +18,7 @@ use crate::hooks::PeeringHooks;
 use crate::io::{Event, Inbound, InboundId, Output, Reply, SettlementAnswer, VERDICT_ACCEPTED};
 use crate::table::{Entry, Network, Registration, Sources};
 use crate::wire::{
-    Content, Envelope, EnvelopeError, LinkStateResponse, SignedNodeInfo, encode_expiry,
+    Content, Envelope, EnvelopeError, LinkStateResponse, SchemeId, SignedNodeInfo, encode_expiry,
     encode_link_states, encode_octets, encode_response, encode_settling,
 };
 
@@ -116,6 +116,7 @@ impl PeerNode {
             } => self.settlement_request(&accepted, scheme, amount, data, sequence),
             Content::SettlementMessage { scheme, message } => {
                 if self.peering_of(&accepted.sender).is_none() {
+                    self.notice_one_sided(accepted.sender);
                     return refuse(409, "not peered");
                 }
                 Inbound::SchemeMessage {
@@ -128,28 +129,32 @@ impl PeerNode {
             Content::PeeringTermination(reason) => {
                 Inbound::Reply(self.termination_request(&accepted, reason))
             }
-            Content::SettlementRequest { scheme } => {
-                // Only an active peering on that scheme is settled on
-                // request; nothing is settled for one being ended (D28).
-                let peering = self
-                    .table
-                    .get(&accepted.sender)
-                    .and_then(Entry::active_peering);
-                if peering.is_none_or(|peering| peering.scheme != scheme) {
-                    return refuse(409, "not peered on that scheme");
-                }
-                // Nor for one we are ending, which the peer does not know
-                // yet: it is answered as a request that settles nothing.
-                if peering.is_some_and(|peering| peering.depeering.is_some()) {
-                    return Inbound::Reply(ok(&accepted, &encode_settling(0)));
-                }
-                Inbound::SettlementRequest {
-                    from: accepted.sender,
-                    scheme,
-                    answer: SettlementAnswer(Box::new(accepted)),
-                }
-            }
+            Content::SettlementRequest { scheme } => self.settle_on_request(accepted, scheme),
             other => Inbound::Reply(self.answer(hooks, &accepted, other)),
+        }
+    }
+
+    /// A peer's request that we settle on `scheme` (D23).
+    fn settle_on_request(&mut self, accepted: Accepted, scheme: SchemeId) -> Inbound<'static> {
+        // Only an active peering on that scheme is settled on request;
+        // nothing is settled for one being ended (D28).
+        let peering = self
+            .table
+            .get(&accepted.sender)
+            .and_then(Entry::active_peering);
+        if peering.is_none_or(|peering| peering.scheme != scheme) {
+            self.notice_one_sided(accepted.sender);
+            return refuse(409, "not peered on that scheme");
+        }
+        // Nor for one we are ending, which the peer does not know yet: it
+        // is answered as a request that settles nothing.
+        if peering.is_some_and(|peering| peering.depeering.is_some()) {
+            return Inbound::Reply(ok(&accepted, &encode_settling(0)));
+        }
+        Inbound::SettlementRequest {
+            from: accepted.sender,
+            scheme,
+            answer: SettlementAnswer(Box::new(accepted)),
         }
     }
 
@@ -158,7 +163,7 @@ impl PeerNode {
     /// peered or not: a node of 0.1 asks for verdicts after the peering
     /// ended, and is told it was accepted (D23).
     fn packet_request<'a>(
-        &self,
+        &mut self,
         accepted: &Accepted,
         request_id: u32,
         packet: &'a [u8],
@@ -167,6 +172,7 @@ impl PeerNode {
         let peered = entry.is_some_and(|entry| entry.peering().is_some());
         if packet.first() == Some(&PREPARE_TYPE) {
             if !peered {
+                self.notice_one_sided(accepted.sender);
                 return refuse(409, "not peered");
             }
             // A peering being ended takes no new Prepares: refused here,
@@ -204,8 +210,16 @@ impl PeerNode {
                     Processed::Invalid(_) => return Reply::refuse(400, "invalid link state"),
                     _ if accepted.is_authenticated() && info.info.node_id == sender => {
                         self.heard_from(&sender);
-                        self.notice_one_sided(sender, &info);
+                        // A node also sends its own link state to the
+                        // bootstrap nodes it is not peered with, even one
+                        // it is asking for a peering: only one that lists
+                        // us presumes a peering.
+                        if info.info.neighbors().any(|neighbor| neighbor == self.own) {
+                            self.notice_one_sided(sender);
+                        }
                     }
+                    // Another node's link state is forwarded only to peers.
+                    _ if accepted.is_authenticated() => self.notice_one_sided(sender),
                     _ => {}
                 }
                 ok(accepted, &[])
