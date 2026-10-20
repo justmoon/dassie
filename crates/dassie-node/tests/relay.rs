@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use dassie_identity::{NodeId, NodeKey};
-use dassie_node::clock::ManualClock;
+use dassie_node::clock::{Clock, ManualClock};
 use dassie_node::http::peer::Answer;
 use dassie_node::node::Policies;
 use dassie_node::peer_client::PeerClient;
@@ -33,6 +33,7 @@ use dassie_node::quic::{Body, Handler, Quic};
 use dassie_node::rpc::proto::{self, request::Method};
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
+use dassie_payments::httpsig;
 use dassie_peer::wire::Kind;
 use dassie_peer::{Request as PeerRequest, RequestId};
 use http_body_util::{BodyExt, Full};
@@ -484,25 +485,65 @@ async fn a_node_waits_for_its_key_and_reconnects_to_its_relay() {
     shutdown.cancel();
 }
 
-/// A response over a relayed stream, read in full.
+/// The nonce each request over a relayed stream sends, for the node's
+/// signature on its answer.
+const NONCE: &str = "relayed-nonce";
+
+/// A response over a relayed stream, read in full: its status, its fields
+/// and its body.
 async fn get(
     sender: &mut hyper::client::conn::http1::SendRequest<Full<Bytes>>,
     method: &str,
     path: &str,
     host: &str,
-) -> (StatusCode, Bytes) {
+) -> (StatusCode, Vec<(String, String)>, Bytes) {
     let request = Request::builder()
         .method(method)
         .uri(path)
         .header("host", host)
+        .header(httpsig::NONCE_FIELD, NONCE)
         .body(Full::new(Bytes::new()))
         .unwrap();
-    let response = sender.send_request(request).await.unwrap();
+    let response = match sender.send_request(request).await {
+        Ok(response) => response,
+        Err(error) => panic!("{method} {path} over the relayed stream: {error:?}"),
+    };
     let status = response.status();
+    let fields = response
+        .headers()
+        .iter()
+        .map(|(name, value)| (name.to_string(), value.to_str().unwrap().to_owned()))
+        .collect();
     (
         status,
+        fields,
         response.into_body().collect().await.unwrap().to_bytes(),
     )
+}
+
+/// Checks the node `id`'s signature on an answer to a GET of `target` sent
+/// with [`NONCE`], as a Dassie-aware client does.
+fn signed_by(
+    target: &str,
+    (status, fields, body): (StatusCode, &[(String, String)], &[u8]),
+    id: NodeId,
+    now_s: u64,
+) -> Result<NodeId, httpsig::NodeResponseError> {
+    let nonce = [(httpsig::NONCE_FIELD, NONCE)];
+    let request = httpsig::Request {
+        method: "GET",
+        target_uri: target,
+        fields: &nonce,
+    };
+    let fields: Vec<(&str, &str)> = fields
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect();
+    let answer = httpsig::Response {
+        status: status.as_u16(),
+        fields: &fields,
+    };
+    httpsig::check_node_response(&request, &answer, body, Some(id), now_s)
 }
 
 // D26: through a relay a node serves Open Payments and nothing else; never
@@ -554,10 +595,16 @@ async fn a_relayed_payments_stream_serves_only_open_payments() {
         .unwrap();
     tokio::spawn(connection);
     let host = node.host();
-    let (status, body) = get(&mut sender, "GET", "/.well-known/pay", &host).await;
+    let (status, fields, body) = get(&mut sender, "GET", "/.well-known/pay", &host).await;
     assert_eq!(status, StatusCode::OK, "{body:?}");
+    let target = format!("{}/.well-known/pay", node.origin());
     let address: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(address["id"], format!("{}/.well-known/pay", node.origin()));
+    assert_eq!(address["id"], target);
+    // The answer is signed with the node key, as over HTTPS, so a client
+    // can check it whoever passed it on.
+    let now_s = node.clock.now_ms() / 1_000;
+    let signer = signed_by(&target, (status, &fields, &body), key.node_id(), now_s);
+    assert_eq!(signer, Ok(key.node_id()));
     for (method, path) in [
         ("GET", "/"),
         ("GET", "/index.html"),
@@ -567,7 +614,7 @@ async fn a_relayed_payments_stream_serves_only_open_payments() {
         ("POST", "/peer"),
         ("GET", "/btp"),
     ] {
-        let (status, _) = get(&mut sender, method, path, &host).await;
+        let (status, _, _) = get(&mut sender, method, path, &host).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "{method} {path}");
     }
     node.stop().await;
