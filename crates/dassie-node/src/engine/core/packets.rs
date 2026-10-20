@@ -115,10 +115,37 @@ pub(super) fn receiver_address(own_address: &str, ledger: LedgerId) -> String {
 }
 
 impl Core {
+    /// A Prepare from a BTP client. A revoked token's links stay until the
+    /// step ends, so that what is queued for them goes out first; its cap
+    /// is gone at once, so they take no new Prepares meanwhile.
     pub(super) fn btp_prepare(&mut self, link: u64, request_id: u32, packet: &[u8]) {
-        if self.links.contains_key(&link) {
+        let Some(token) = self.links.get(&link).map(|link| link.token) else {
+            return;
+        };
+        let revoked = self
+            .tokens
+            .get(&token)
+            .is_none_or(|token| token.row.revoked_at_ms.is_some());
+        if revoked {
+            self.refuse_revoked(link, request_id);
+        } else {
             self.prepare_from(EndpointId::Btp(link), request_id, packet);
         }
+    }
+
+    /// Answers a Prepare on a revoked token's link with a final Reject: it
+    /// would not pass again on that token.
+    fn refuse_revoked(&mut self, link: u64, request_id: u32) {
+        let reject = dassie_ilp::Reject {
+            code: ErrorCode::F00_BAD_REQUEST,
+            triggered_by: Address::parse(self.connector.own_address()).ok(),
+            message: "the token is revoked",
+            data: &[],
+        };
+        let length = dassie_oer::Encode::encode(&reject, &mut self.scratch);
+        let packet = self.scratch.get(..length).unwrap_or_default().to_vec();
+        self.outputs
+            .push((link, Outbound::Response { request_id, packet }));
     }
 
     pub(super) fn btp_response(&mut self, link: u64, request_id: u32, packet: &[u8]) {
