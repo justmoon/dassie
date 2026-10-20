@@ -689,3 +689,37 @@ fn a_final_settlement_due_is_dropped_over_the_upgrade() {
         (4, 7)
     );
 }
+
+// Migration 25: a peer's replay floor moves out of its peering into the
+// table of floors, which every sender kept for good has
+// (spec/areas/peer-protocol.md#replay-protection).
+#[test]
+fn a_peers_replay_floor_survives_the_upgrade() {
+    let temp = tempfile::tempdir().unwrap();
+    database_at(temp.path(), 24);
+    let key = dassie_identity::NodeKey::from_bytes(&[3; 32]);
+    let connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+    connection
+        .execute(
+            "INSERT INTO peer_nodes (id, sources, first_seen_ms) VALUES (?1, 0, 1)",
+            [key.node_id().as_str()],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO peers (node, scheme, version, state, credit_out,
+               since_ms, inbound, last_seen_ms, replay_floor_ms)
+             VALUES (?1, 'stub', 1, x'', 0, 2, 0, 3, 1800000000123)",
+            [key.node_id().as_str()],
+        )
+        .unwrap();
+    drop(connection);
+    let store = Store::open(temp.path()).unwrap();
+    assert_eq!(
+        store.load_peer().unwrap().floors,
+        vec![dassie_peer::StoredFloor {
+            node: key.node_id(),
+            floor_ms: 1_800_000_000_123,
+        }]
+    );
+}

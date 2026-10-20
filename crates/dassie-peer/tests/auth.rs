@@ -15,12 +15,12 @@ use std::sync::Arc;
 use dassie_identity::NodeKey;
 use dassie_node_core::testing::SeededRng;
 use dassie_oer::Encode;
-use dassie_peer::Network;
 use dassie_peer::auth::{AuthConfig, AuthError, Authenticator, Pending};
 use dassie_peer::wire::{
     Authentication, Content, Envelope, Kind, ResponseEnvelope, SchemeId, encode_envelope,
     encode_response,
 };
+use dassie_peer::{Network, PeerBatch};
 
 const NOW: u64 = 1_800_000_000_000;
 
@@ -385,6 +385,90 @@ fn a_sender_let_go_is_forgotten_only_once_stale() {
     let (later, _) = request(&mut authenticator(&node(8)), &b, NOW + 61_000);
     assert_eq!(accept(&mut at_b, &later, NOW + 61_000), Ok(()));
     assert_eq!(at_b.newest(&a.node_id()), None);
+    at_b.check_invariants();
+}
+
+// The floors of the senders kept for good are persisted, those of
+// strangers are not, so strangers cannot make the node write; a sender let
+// go has its floor dropped only once every message from it is stale.
+#[test]
+fn only_the_floors_of_senders_kept_are_persisted() {
+    let (a, b, c) = (node(1), node(3), node(7));
+    let mut at_b = Authenticator::new(Arc::clone(&b), AuthConfig::DEFAULT, NOW - 1);
+    at_b.pin(a.node_id());
+    let (from_a, _) = request(&mut authenticator(&a), &b, NOW + 5);
+    let (from_c, _) = request(&mut authenticator(&c), &b, NOW);
+    assert_eq!(accept(&mut at_b, &from_a, NOW), Ok(()));
+    assert_eq!(accept(&mut at_b, &from_c, NOW), Ok(()));
+    let (mut floors, mut forgotten) = (Vec::new(), Vec::new());
+    at_b.take_floors(&mut floors, &mut forgotten);
+    assert_eq!(floors, vec![(a.node_id(), NOW + 5)]);
+    // A stranger pinned for what its request did has its floor persisted
+    // with that.
+    at_b.pin(c.node_id());
+    floors.clear();
+    at_b.take_floors(&mut floors, &mut forgotten);
+    assert_eq!(floors, vec![(c.node_id(), NOW)]);
+    at_b.unpin(NOW + 1, &a.node_id());
+    at_b.take_floors(&mut floors, &mut forgotten);
+    assert!(forgotten.is_empty(), "not stale yet");
+    at_b.unpin(NOW + 61_000, &a.node_id());
+    at_b.take_floors(&mut floors, &mut forgotten);
+    assert_eq!(forgotten, vec![a.node_id()]);
+    at_b.check_invariants();
+}
+
+// A replayed read is harmless, so a read moves no floor to persist, and
+// costs no write; unless the node asks, as it does for a peer, which a
+// replayed read would mark as heard from.
+#[test]
+fn reads_move_no_floor_to_persist() {
+    let (a, b) = (node(1), node(3));
+    let mut at_b = authenticator(&b);
+    at_b.pin(a.node_id());
+    let (read, _) = request_with(&mut authenticator(&a), &b, NOW, &Content::NodeListRequest);
+    let envelope = Envelope::decode(&read).unwrap();
+    at_b.accept(NOW, &envelope, Kind::NodeListRequest, None)
+        .unwrap();
+    let (mut floors, mut forgotten) = (Vec::new(), Vec::new());
+    at_b.take_floors(&mut floors, &mut forgotten);
+    assert!(floors.is_empty());
+    at_b.keep_floor(&a.node_id());
+    at_b.take_floors(&mut floors, &mut forgotten);
+    assert_eq!(floors, vec![(a.node_id(), NOW)]);
+}
+
+// A sender let go that sends again before its floor is stale takes a
+// stranger's place. Its persisted floor goes when that place does, or it
+// would stay for as long as the node runs.
+#[test]
+fn a_sender_let_go_that_takes_a_place_loses_its_floor_with_it() {
+    let (a, b) = (node(1), node(3));
+    let config = AuthConfig {
+        max_senders: 1,
+        ..AuthConfig::DEFAULT
+    };
+    let mut at_b = Authenticator::new(Arc::clone(&b), config, NOW - 1);
+    at_b.pin(a.node_id());
+    let mut at_a = authenticator(&a);
+    let (first, _) = request(&mut at_a, &b, NOW);
+    assert_eq!(accept(&mut at_b, &first, NOW), Ok(()));
+    let (mut floors, mut forgotten) = (Vec::new(), Vec::new());
+    at_b.take_floors(&mut floors, &mut forgotten);
+    assert_eq!(floors, vec![(a.node_id(), NOW)]);
+    at_b.unpin(NOW + 1, &a.node_id());
+    let (again, _) = request(&mut at_a, &b, NOW + 2);
+    assert_eq!(accept(&mut at_b, &again, NOW + 2), Ok(()));
+    at_b.check_invariants();
+    // A stranger takes its place once it is idle.
+    let later = NOW + 2 + 61_000;
+    let (other, _) = request(&mut authenticator(&node(7)), &b, later);
+    assert_eq!(accept(&mut at_b, &other, later), Ok(()));
+    assert_eq!(at_b.newest(&a.node_id()), None, "evicted");
+    let mut batch = PeerBatch::default();
+    let mut floors = Vec::new();
+    at_b.take_floors(&mut floors, &mut batch.floors_removed);
+    assert_eq!(batch.floors_removed, vec![a.node_id()]);
     at_b.check_invariants();
 }
 

@@ -31,12 +31,17 @@ fn settle(network: &mut Network, ms: u64) {
 
 /// A request from `from` (by key) to node `to` of `network`.
 fn request(network: &Network, from: &Arc<NodeKey>, to: usize, content: &Content<'_>) -> Vec<u8> {
+    request_at(network.clock(to), from, to, content)
+}
+
+/// The same, stamped `timestamp_ms` by the sender's clock.
+fn request_at(timestamp_ms: u64, from: &Arc<NodeKey>, to: usize, content: &Content<'_>) -> Vec<u8> {
     let mut auth = Authenticator::new(Arc::clone(from), AuthConfig::DEFAULT, START - 1);
     let bytes = content.to_vec();
     let target = key(to);
     let (hmac, _) = auth
         .authenticate(
-            network.clock(to),
+            timestamp_ms,
             &mut SeededRng::new(9),
             &target.node_id(),
             &target.public_key(),
@@ -410,17 +415,7 @@ fn a_registered_node_renews_while_strangers_fill_the_pool() {
     settle(&mut network, 600_000);
     // A node registered with the bootstrap node, and neither its peer nor
     // a node it holds a channel with, which keep their state anyway.
-    let views = network.node(0).nodes();
-    let registered = (1..count)
-        .find(|index| {
-            let id = key(*index).node_id();
-            views
-                .iter()
-                .any(|view| view.id == id && view.registered_until_ms.is_some())
-                && network.node(0).peering_of(&id).is_none()
-                && !network.holds_channel(&key(0).node_id(), *index)
-        })
-        .expect("a registered node that is not a peer");
+    let registered = registered_stranger(&network, count);
     let mut busy = false;
     for index in 0..2 * config.auth.max_senders {
         match network
@@ -438,6 +433,47 @@ fn a_registered_node_renews_while_strangers_fill_the_pool() {
     assert!(busy, "strangers hold every place");
     let body = registration(&network, &key(registered), &url(registered));
     assert_eq!(network.inbound(0, &body).status, 200, "renewed");
+    network.node(0).check_invariants();
+}
+
+/// A node registered with bootstrap node 0 that is neither its peer nor a
+/// node it holds a channel with, whose replay state was kept apart from
+/// theirs.
+fn registered_stranger(network: &Network, count: usize) -> usize {
+    let views = network.node(0).nodes();
+    (1..count)
+        .find(|index| {
+            let id = key(*index).node_id();
+            views
+                .iter()
+                .any(|view| view.id == id && view.registered_until_ms.is_some())
+                && network.node(0).peering_of(&id).is_none()
+                && !network.holds_channel(&key(0).node_id(), *index)
+        })
+        .expect("a registered node that is not a peer")
+}
+
+// Only a peer's replay floor was persisted. After a restart, every other
+// sender's floor was the start time, so a registration renewed just before
+// it, by a node whose clock runs ahead, was taken again when replayed: the
+// timestamp was within the window and above the start. The floor of every
+// sender whose replay state is kept for good is persisted now.
+#[test]
+fn a_restart_does_not_reopen_a_registered_nodes_replays() {
+    let count = 6;
+    let mut network = Network::new(5, count, 1, Config::DEFAULT);
+    settle(&mut network, 600_000);
+    let registered = registered_stranger(&network, count);
+    // Its clock runs ahead of node 0's by less than the window.
+    let ahead = network.clock(0) + AuthConfig::DEFAULT.skew_ms / 2;
+    let state = link_state(&key(registered), network.clock(0), &url(registered));
+    let info = SignedNodeInfo::decode_exact(&state).unwrap();
+    let renewal = request_at(ahead, &key(registered), 0, &Content::Registration(info));
+    assert_eq!(network.inbound(0, &renewal).status, 200, "renewed");
+    network.crash(0);
+    network.start(0);
+    let replayed = network.inbound(0, &renewal);
+    assert_eq!(replayed.status, 401, "refused as a replay");
     network.node(0).check_invariants();
 }
 

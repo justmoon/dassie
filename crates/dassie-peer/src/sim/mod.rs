@@ -186,6 +186,7 @@ pub struct SimNode {
     /// The channels it persisted.
     pub stored_channels: BTreeMap<NodeId, crate::StoredChannel>,
     stored_bans: BTreeSet<NodeId>,
+    stored_floors: BTreeMap<NodeId, u64>,
     /// How far its clock is off the network's.
     pub skew_ms: i64,
     generation: u64,
@@ -317,6 +318,7 @@ impl Network {
                 stored_nodes: BTreeMap::new(),
                 stored_channels: BTreeMap::new(),
                 stored_bans: BTreeSet::new(),
+                stored_floors: BTreeMap::new(),
                 skew_ms: skew,
                 generation: 0,
                 next_inbound: 0,
@@ -342,6 +344,14 @@ impl Network {
         sim.stored.nodes = sim.stored_nodes.values().cloned().collect();
         sim.stored.channels = sim.stored_channels.values().cloned().collect();
         sim.stored.bans = sim.stored_bans.iter().copied().collect();
+        sim.stored.floors = sim
+            .stored_floors
+            .iter()
+            .map(|(node, floor_ms)| crate::StoredFloor {
+                node: *node,
+                floor_ms: *floor_ms,
+            })
+            .collect();
         let mut node = PeerNode::new(
             self.config,
             key(index),
@@ -425,6 +435,12 @@ impl Network {
         }
         for unbanned in batch.unbanned {
             sim.stored_bans.remove(&unbanned);
+        }
+        for removed in batch.floors_removed {
+            sim.stored_floors.remove(&removed);
+        }
+        for floor in batch.floors {
+            sim.stored_floors.insert(floor.node, floor.floor_ms);
         }
         for output in outputs {
             self.carry(index, output);
