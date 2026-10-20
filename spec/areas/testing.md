@@ -1,8 +1,8 @@
 # Testing
 
-How Dassie is tested: what each level of tests is for, what the deterministic simulations judge and why, and how to reproduce a failure.
+How Dassie is tested: what each level of tests is for, what the deterministic simulations judge and why, how to reproduce a failure, and the campaign that runs the simulations continuously.
 
-**Paths:** `crates/*/tests/`, `crates/*/src/sim/`, `crates/dassie-sim/`, `crates/dassie-node-core/src/testing.rs`, `tests/e2e/`, `tests/interop/`, `testdata/`, `**/*_test.ts`
+**Paths:** `crates/*/tests/`, `crates/*/src/sim/`, `crates/dassie-sim/`, `scripts/sim-campaign.ts`, `scripts/sim-campaign/`, `crates/dassie-node-core/src/testing.rs`, `tests/e2e/`, `tests/interop/`, `testdata/`, `**/*_test.ts`
 **Read with:** [Engineering](../engineering.md), [Release](release.md), [Website](website.md), [Dev environment](dev.md)
 
 ## Levels
@@ -84,6 +84,38 @@ A run ends as `pass`, `safety` (something that must never happen did: an asserti
 - A panic is a safety failure that loses its trace; replay the seed to see what led to it.
 - A git commit's full SHA is also a seed, so that a commit names its own run.
 
+## The campaign
+
+The campaign runs the simulations from random seeds on spot VMs, outside CI ([D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md)). Its supervisor, `scripts/sim-campaign.ts`, runs one loop at a time on each VM: it builds a commit's `dassie-sim` in the `sim` profile, runs the runner's campaign command on every core for a while, reports, and exits. That command and the tripwire are not built yet ([roadmap](../roadmap.md#continuous-simulation)). systemd starts the next loop from a fresh checkout of `main`, so a change to the supervisor or the runner on `main` reaches every VM within a loop. The VMs' setup is in `scripts/sim-campaign/`.
+
+- **What runs.** Most loops run `main`. Open pull requests labelled `sim` share some of the time; the label is the gate, since only people with triage access to the repository can set it. A release candidate has a share too: the owner points the `release` branch at the commit to tag, and the campaign runs that commit, once `main` holds it, until its status settles. `main` alone would not do, since it moves faster than a commit clears.
+- **A failure's signature** is its simulation, its outcome, and the assertion or check that failed: what tells two failures apart, whatever their seeds.
+- **The tripwire,** a simulation to fail on purpose on a small share of seeds, shows that the campaign runs: while its issue keeps getting seeds, the campaign has not stopped. Its failures never hold up a commit.
+- **A trusted commit** (`main` or the release candidate) gets one issue per failure signature, labelled `sim-failure`, or `sim-tripwire` for the tripwire, and found again by a marker in its body. The issue holds the commit, the configuration, the end of the trace and the commands that reproduce the seed that failed fastest. Later seeds update its counts and its fastest seed in place, and a comment says when it fails on a newer commit, a bounded number of times, so that no issue grows without end. A closed issue is never reopened: a signature seen again after its fix gets a new one.
+- **A pull request** gets comments on itself, and nothing else: a summary of its latest loop, and one comment per failure signature, each edited in place.
+
+### The commit status
+
+Each loop on a trusted commit posts the `sim-campaign` commit status, which the release check reads. It is `pending` until the commit has run long enough (`CLEAR_RUNS` in the supervisor, with its reason) with no failure but the tripwire's, and the tripwire has tripped on it; then `success`. It is `failure` once any failure was seen on the commit, and stays so. Requiring a trip means that a runner which stopped reporting failures clears nothing.
+
+- **A loop counts only if all of it was read.** A line the supervisor could not parse, a failure past what one loop keeps, or a count that disagrees with the runner's summary could each hide a failure. Such a loop adds no runs, and fails the commit under a signature of its own, `campaign/unreadable`, rather than let it clear with a failure nobody saw.
+
+- **The state lives only in the statuses,** since a spot VM loses its disk. Each status records what its own loop added, and a VM adds up the commit's history, so two VMs reporting at once both count. A failure anywhere in the history is final, and a VM that finds one under a later status posts it again on top.
+- **Only the campaign's own statuses count,** by their creator: anyone with write access, and any workflow allowed to, can post a status in that context. The campaign posts as a GitHub App, or a dedicated account, whose credentials nothing else holds, and the release check checks the creator too.
+
+### Isolating pull requests
+
+A pull request's code is unreviewed, and the VMs run in the project that holds the bootstrap nodes' phrases. It must not be able to read the GitHub credentials, post a status on a trusted commit, touch the issues, or change what a later loop on a trusted commit builds or reports.
+
+- **The credentials live in the supervisor alone.** The VMs' service account has no role in the project and can read one secret, the GitHub App's key. The supervisor reads it into memory through the metadata server and mints short-lived tokens from it; it never writes it to disk or hands it to a child.
+- **Every build and run is sandboxed** (`sandboxArgs` in the supervisor): as a user of its own, one for trusted commits and one for pull requests, with the file system read-only but for the step's own directories, no view of `/root`, `/home` or other users' processes, private `/tmp`, `/dev` and IPC, no privilege to gain, only a service's system calls, a share of memory and tasks that leaves the supervisor room to report, and no network, so no way to the metadata server, whose token reads the key. Build scripts and proc macros are the pull request's code too, and run inside.
+- **Fetching dependencies needs the network,** and runs none of the commit's code: `cargo fetch --locked`, in a sandbox that reaches only public addresses through public resolvers, outside the commit's tree, so that no Cargo configuration of the pull request applies.
+- **The Nix daemon is out of reach.** Its builds run outside the sandbox, with the network, so only root may use it and no sandbox can see its socket. The toolchain is `main`'s, from the flake's `campaign` shell: a pull request's flake is never evaluated, since its dev shell would run as root.
+- **Nothing of a pull request outlives its loop.** It builds from nothing, in a directory removed before every loop and after its own, however it ends, so that no build of one can leave the disk full for `main`; its sandboxes stop with the loop; and trusted builds live in directories only the trusted user can write.
+- **What it prints is untrusted data.** The supervisor parses it within bounds, uses it only for that pull request's comments, and puts its texts in fenced blocks they cannot close.
+
+A pull request can still waste its own loop, fill the disk for the rest of it, and say what it likes in its own comments.
+
 ## End to end
 
 The dev environment's scenarios run headless in CI on real binaries with the wallet built in: start several nodes, set them up through the HTTP API, add ledgers, peer, pay, settle, restart, and check that the balances are unchanged. They also cover what only real IO shows: a fresh install, socket-activated, getting its certificate from an ACME test server; reference clients paying through BTP and Open Payments; the wallet in a headless browser; settling on the fake XRP Ledger, which a test can switch to the public testnet by hand.
@@ -100,4 +132,4 @@ The install tests run the installer and the updater in containers with systemd a
 - [D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md): why simulation is the main tool, and why the code is built for it from the start.
 - [D19](../decisions/D19-each-node-keeps-its-own-books.md): why a simulation judges each node by its own books.
 - [D23](../decisions/D23-each-node-books-its-own-fulfills.md): the bound an adversary is held to.
-- [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md): one runner, simulations from random seeds, and why CI keeps fixed seeds.
+- [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md): one runner, simulations from random seeds, the campaign, and why CI keeps fixed seeds.

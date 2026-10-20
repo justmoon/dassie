@@ -1,0 +1,27 @@
+# The simulation campaign's supervisor (spec D27), on a campaign VM, which
+# startup.sh installs. Each start checks out the newest `main` and runs one
+# loop of scripts/sim-campaign.ts in the flake's `campaign` shell; the loop
+# exits after its report, and systemd starts the next, so a change on
+# `main` reaches every VM within a loop.
+#
+# It runs as root, which systemd-run needs to start the sandboxes as their
+# own users, and it alone holds the GitHub credentials, in memory.
+[Unit]
+Description=Dassie simulation campaign
+Wants=network-online.target
+After=network-online.target nix-daemon.service
+
+[Service]
+Type=exec
+EnvironmentFile=/etc/dassie-sim-campaign.env
+WorkingDirectory=/var/lib/dassie-sim-campaign/repo
+ExecStartPre=/usr/bin/git fetch --quiet origin main
+ExecStartPre=/usr/bin/git checkout --quiet --force --detach origin/main
+ExecStart=/nix/var/nix/profiles/default/bin/nix develop .#campaign --command node scripts/sim-campaign.ts
+# The sandboxes are units of their own, stopped with this one (PartOf).
+KillMode=control-group
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

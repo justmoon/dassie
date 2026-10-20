@@ -43,6 +43,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | `resources/`, `nix/`, `scripts/release.ts`, `.github/workflows/release.yml` | [Release](areas/release.md) |
 | `flake.nix`, `.github/workflows/ci.yml`, `package.json`, `Cargo.toml` | [Engineering](engineering.md) |
 | `testdata/` | [Testing](areas/testing.md), and the area the vectors pin |
+| `scripts/sim-campaign.ts`, `scripts/sim-campaign/` | [Testing](areas/testing.md#the-campaign) |
 
 ## Areas
 
