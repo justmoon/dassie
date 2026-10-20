@@ -126,8 +126,8 @@ async fn packets(owner: &mut Owner) -> Vec<proto::Packet> {
     list.packets
 }
 
-// ILP-7 and NET-25: a BTP client was told an address nothing routed to,
-// and XRP/9 whatever its ledger.
+// ILP-7, NET-24 and NET-25: a BTP client was told an address nothing routed
+// to, and XRP/9 whatever its ledger.
 #[tokio::test]
 async fn ildcp_hands_out_the_routed_address() {
     let node = TestNode::start().await;

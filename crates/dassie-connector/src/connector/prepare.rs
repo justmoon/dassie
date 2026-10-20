@@ -164,8 +164,8 @@ impl Connector {
     }
 
     /// Answers an ILDCP request with the source's routed address and its
-    /// ledger's asset (ILP-7, NET-25). It must carry no money and the ILDCP
-    /// condition, or it is not one.
+    /// ledger's asset (ILP-7, NET-24, NET-25). It must carry no money and the
+    /// ILDCP condition, or it is not one.
     fn ildcp(
         &mut self,
         now_ms: u64,
