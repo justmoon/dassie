@@ -629,3 +629,55 @@ async fn a_relayed_payments_stream_serves_only_open_payments() {
 fn relay_key(seed: u8) -> NodeKey {
     NodeKey::from_bytes(&[seed; 32])
 }
+
+/// A request to `to` as to a periphery node: without a URL.
+fn to_periphery(to: &Side) -> PeerRequest {
+    PeerRequest {
+        id: RequestId(2),
+        to: to.id,
+        url: String::new(),
+        quic: true,
+        kind: Kind::LinkStateRequest,
+        body: b"hello".to_vec(),
+        timeout_ms: 5_000,
+    }
+}
+
+// spec/areas/peer-protocol.md#quic: a periphery node's connection to its
+// uplink is the only way the uplink reaches it, so the node keeps it alive
+// past the idle timeout; the uplink sends on it with no URL, and relays to
+// the node over it. A chosen relay that is the same node holds a second
+// connection beside it, kept alive alike, one of them standing by.
+#[tokio::test]
+async fn an_uplink_reaches_its_downlink_and_relays_to_it() {
+    let shutdown = CancellationToken::new();
+    let idle = Duration::from_millis(600);
+    let short = |seed| {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        side_with(seed, socket, Some(idle), &shutdown)
+    };
+    let (uplink, downlink, from) = (short(1), short(2), side(3, &shutdown));
+    downlink.quic.set_keep_alive(true);
+    send(&downlink, &uplink).await;
+    tokio::time::sleep(idle * 3).await;
+    let response = uplink.quic.send_held(&to_periphery(&downlink)).await;
+    assert!(response.is_ok(), "kept alive: {response:?}");
+    let mut stream = reach(&from, &uplink, downlink.id, Purpose::Payments).await;
+    assert_eq!(
+        echo(&mut stream, b"through the uplink").await,
+        b"through the uplink"
+    );
+    drop(stream);
+    keep(&downlink, &uplink, &shutdown);
+    tokio::time::sleep(idle * 3).await;
+    let response = uplink.quic.send_held(&to_periphery(&downlink)).await;
+    assert!(response.is_ok(), "beside the chosen relay: {response:?}");
+    // Without keep-alives, the connection closes once idle, and the node
+    // without a URL is out of reach.
+    let (core, other) = (short(4), short(5));
+    send(&other, &core).await;
+    tokio::time::sleep(idle * 3).await;
+    let response = core.quic.send_held(&to_periphery(&other)).await;
+    assert_eq!(response.err(), Some(dassie_peer::Failure::NotDelivered));
+    shutdown.cancel();
+}
