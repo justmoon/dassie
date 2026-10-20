@@ -109,7 +109,7 @@ A request says that the debtor stands near the asker's trigger. The debtor settl
 
 ## Settling at a peering's end
 
-Nothing is settled for a peering's end ([D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)). From the moment a node knows a peering is ending, by deciding it or by being told, it settles nothing more with that peer: neither side has a reason to pay at the end. The node that ends it collects first: it waits for what the peer had on its way when last asked, so no settlement crosses the end between honest nodes ([Network](network.md#termination)). What each side's books show stays on the peer's accounts, and a later peering with the node settles it as usual. A settlement already under way still arrives, and is credited once ([below](#incoming-settlements)).
+Nothing is settled for a peering's end ([D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)). From the moment a node knows a peering is ending, by deciding it or by being told, it settles nothing more with that peer: neither side has a reason to pay at the end. The node that ends it collects first: it waits for what the peer had on its way when last asked, so no settlement crosses the end between honest nodes ([Network](network.md#termination)). A ban collects nothing: the node tells the peer at once. What each side's books show stays on the peer's accounts, and a later peering with the node settles it as usual. A settlement already under way still arrives, and is credited once ([below](#incoming-settlements)).
 
 ## Outgoing settlements
 

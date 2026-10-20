@@ -1100,3 +1100,54 @@ fn an_owners_decision_outranks_the_nodes_own() {
     let depeering = network.node(0).peering_of(&b).unwrap().depeering.unwrap();
     assert_eq!(depeering.reason, TerminationReason::Owner);
 }
+
+// A ban is the owner's emphatic word: the node withdraws the peer from its
+// link state at once and tells it, without waiting for its own settlements
+// or asking the peer to settle; what the peer owes stays on the books
+// (D28).
+#[test]
+fn a_ban_withdraws_the_peer_at_once_and_collects_nothing() {
+    let (mut network, a, b) = peered(61);
+    network.nodes[0].hooks.settling.insert(b);
+    let asked = network.settlement_requests.len();
+    network.act(0, |node, now| node.ban(now, b).unwrap());
+    assert!(!network.node(0).is_advertised(&b), "withdrawn at once");
+    assert_eq!(ending(&network, 0, &b), ["terminating"]);
+    settle(&mut network, 5_000);
+    assert_eq!(ending(&network, 0, &b), ["terminating", "ended"]);
+    assert_eq!(network.settlement_requests.len(), asked, "nothing asked");
+    let told = network.events.iter().any(|(at, event)| {
+        *at == 1
+            && matches!(
+                event,
+                Event::Terminating {
+                    by_us: false,
+                    reason: TerminationReason::Owner,
+                    ..
+                }
+            )
+    });
+    assert!(told, "the peer is told the owner ended it");
+    assert_eq!(ended(&network, 1, &a), 1);
+}
+
+// A ban while the node collects for its owner's own end stops collecting:
+// the peer is withdrawn and told at once.
+#[test]
+fn a_ban_while_collecting_ends_the_peering_at_once() {
+    let (mut network, a, b) = peered(62);
+    network.nodes[0].hooks.settling.insert(b);
+    network.act(0, |node, now| {
+        node.terminate(now, &b, TerminationReason::Owner);
+    });
+    assert!(network.node(0).is_advertised(&b), "still private");
+    network.act(0, |node, now| node.ban(now, b).unwrap());
+    assert!(!network.node(0).is_advertised(&b));
+    assert_eq!(ending(&network, 0, &b), ["depeering", "terminating"]);
+    settle(&mut network, 5_000);
+    assert_eq!(ended(&network, 0, &b), 1);
+    assert!(
+        !network.settlement_requests.contains(&(1, a)),
+        "nothing asked"
+    );
+}
