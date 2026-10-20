@@ -227,8 +227,9 @@ pub fn run(seed: u64) -> Run {
     // trying, and a payment before it has nowhere to go.
     sim.loss_per_mille = 0;
     if !sim.run_until_or(START + READY_WITHIN_MS, ready) {
-        let late = Err(Outcome::Liveness(
-            "the network was not ready in time".into(),
+        let late = Err(Outcome::liveness(
+            "ready",
+            "the network was not ready in time",
         ));
         return ended(sim, late);
     }
@@ -472,17 +473,20 @@ fn heal(
     // failure, and its books are not judged: with money in flight they
     // rightly differ. Nor is a payment refused that should have been made:
     // nothing was lost, but something did not happen.
-    check_events(sim).map_err(Outcome::Safety)?;
+    check_events(sim).map_err(|problem| Outcome::safety("events", problem))?;
     check_mid_flight(sim)?;
     if let Some(what) = stuck {
-        return Err(Outcome::Liveness(format!(
-            "healed, the network did not settle down in {} s: {what}",
-            HEAL_MS / 1_000
-        )));
+        return Err(Outcome::liveness(
+            "settle-down",
+            format!(
+                "healed, the network did not settle down in {} s: {what}",
+                HEAL_MS / 1_000
+            ),
+        ));
     }
     check(sim)?;
     match sim.refused.first() {
-        Some(refused) => Err(Outcome::Liveness(refused.clone())),
+        Some(refused) => Err(Outcome::liveness("refused", refused.clone())),
         None => Ok(()),
     }
 }

@@ -4,6 +4,8 @@
 //! dassie-sim list                                  the simulations
 //! dassie-sim run <sim> [<seeds>]                   runs seeds, a random one by default
 //! dassie-sim explain <sim> <seed> [--grep <text>]  runs a seed and prints its trace
+//! dassie-sim campaign [--minutes <n>] [--jobs <n>] [--sims <sim>,...]
+//!                                                  runs random seeds, a line of JSON each
 //! ```
 //!
 //! Seeds are a number in decimal, as the runner prints them, a range
@@ -11,9 +13,50 @@
 //! `--profile sim`, which keeps assertions on, so that every invariant is
 //! checked before every commit, as in tests.
 //!
-//! The exit status is 1 when a run broke safety, 2 when one broke liveness
-//! and none safety, 3 when the runner itself failed, 64 for a usage error,
-//! and 0 otherwise.
+//! The exit status of `run` and `explain` is 1 when a run broke safety, 2
+//! when one broke liveness and none safety, 3 when the runner itself
+//! failed, 64 for a usage error, and 0 otherwise.
+//!
+//! # The campaign
+//!
+//! `campaign` runs random seeds, drawn from the OS, on `--jobs` threads (by
+//! default one per core) for `--minutes` (by default 10), each run's
+//! simulation picked by its weight among `--sims` (by default all of them,
+//! the tripwire included). Its output is the contract with the supervisor
+//! that runs it on the campaign's machines and files what it finds (D27):
+//!
+//! - **One JSON object per line on stdout, per finished run,** written as
+//!   the run ends:
+//!   `{"sim": "node", "seed": 123, "outcome": "pass", "signature": "node/pass", "ms": 812, "counts": {"crashes": 2}}`.
+//!   - `outcome` is `pass`, `safety`, `liveness` or `unsupported`; `ms`
+//!     the run's wall time; `counts` what it counted, by name.
+//!   - `seed` replays the run, at the same commit: `dassie-sim run <sim>
+//!     <seed>`. Campaign seeds are below 2^53, so that any JSON parser
+//!     reads them exactly.
+//!   - `signature` is `<sim>/<outcome>/<where>`, or `<sim>/pass`. `<where>`
+//!     is the same for every seed that ends at the same place, and changes
+//!     only with a commit that touches that place: for a panic, its file
+//!     and line (`crates/dassie-node/src/sim/mod.rs:993`); otherwise the
+//!     name of the check that failed or ruled the run out, words in lower
+//!     case joined by hyphens (`settle-down`). A file holds slashes, so
+//!     `<where>` is everything after the second slash. A run still going
+//!     after the campaign's wall-time limit is a liveness failure at
+//!     `wall-time`, reported then, without a trace.
+//!   - A failure (`safety` or `liveness`) adds `message`, its message with
+//!     this run's numbers; `options`, what its seed drew, as `run` prints
+//!     it after the seed; and `trace_tail`, the last 40 lines of its trace
+//!     in one string, joined by newlines (empty after a panic, which loses
+//!     the trace). An
+//!     `unsupported` run adds `message` only.
+//! - **After the last run, one summary line:**
+//!   `{"summary": {"runs": 1520, "by_sim": {"node": {"runs": 900, "ms": 541000, "pass": 899, "safety": 1, "liveness": 0, "unsupported": 0}}, "failures": 1, "seconds": 600}}`,
+//!   where `by_sim` holds a simulation once it has a run.
+//! - **The exit status** is 0 when the campaign ran to its end, whatever
+//!   its runs found, since the records say that; 3 when the runner itself
+//!   failed, and 64 for a usage error. Panic messages go to stderr.
+//!
+//! The campaign stops starting runs once its minutes are up, and ends when
+//! the runs under way have ended, or have passed the wall-time limit.
 
 use std::collections::BTreeMap;
 use std::io::{self, Write};
@@ -23,12 +66,22 @@ use std::time::Instant;
 
 use dassie_sim::{Outcome, Run, SIMS, Sim, caught, find, parse_seeds};
 
+mod campaign;
+
+use campaign::{MOST_JOBS, MOST_MINUTES, Plan};
+
 const USAGE: &str = "\
 usage: dassie-sim list
        dassie-sim run <sim> [<seeds>]
        dassie-sim explain <sim> <seed> [--grep <text>]
+       dassie-sim campaign [--minutes <n>] [--jobs <n>] [--sims <sim>,...]
 
-<seeds> is a number, a range such as 0..1000, or a git commit's full SHA.";
+<seeds> is a number, a range such as 0..1000, or a git commit's full SHA.
+A campaign runs random seeds, 10 minutes on every core by default, and
+prints a line of JSON per run.";
+
+/// How long a campaign runs when not told.
+const DEFAULT_MINUTES: u64 = 10;
 
 /// What to do.
 enum Command {
@@ -43,6 +96,16 @@ enum Command {
         seed: u64,
         grep: String,
     },
+    Campaign(Plan),
+}
+
+/// The options given, each only for the command it belongs to.
+#[derive(Default)]
+struct Flags {
+    grep: Option<String>,
+    minutes: Option<u64>,
+    jobs: Option<usize>,
+    sims: Option<Vec<&'static Sim>>,
 }
 
 fn main() -> ExitCode {
@@ -58,33 +121,89 @@ fn main() -> ExitCode {
 fn parse(mut parser: lexopt::Parser) -> Result<Command, String> {
     use lexopt::prelude::*;
     let mut words = Vec::new();
-    let mut grep = String::new();
+    let mut flags = Flags::default();
     while let Some(arg) = parser.next().map_err(|error| error.to_string())? {
         match arg {
             Short('h') | Long("help") => return Ok(Command::Help),
-            Long("grep") => grep = text(parser.value())?,
+            Long("grep") => flags.grep = Some(text(parser.value())?),
+            Long("minutes") => {
+                let minutes = bounded(&text(parser.value())?, 1, MOST_MINUTES, "--minutes")?;
+                flags.minutes = Some(minutes);
+            }
+            Long("jobs") => {
+                let most = u64::try_from(MOST_JOBS).unwrap_or(u64::MAX);
+                let jobs = bounded(&text(parser.value())?, 1, most, "--jobs")?;
+                flags.jobs = Some(usize::try_from(jobs).unwrap_or(MOST_JOBS));
+            }
+            Long("sims") => flags.sims = Some(listed(&text(parser.value())?)?),
             Value(value) => words.push(text(Ok(value))?),
             _ => return Err(arg.unexpected().to_string()),
         }
     }
     let words: Vec<&str> = words.iter().map(String::as_str).collect();
-    match words.as_slice() {
-        ["list"] => Ok(Command::List),
-        ["run", sim] => Ok(Command::Run {
+    let command = match words.as_slice() {
+        ["campaign"] => return campaign_plan(flags),
+        ["list"] => Command::List,
+        ["run", sim] => Command::Run {
             sim: named(sim)?,
             seeds: None,
-        }),
-        ["run", sim, seeds] => Ok(Command::Run {
+        },
+        ["run", sim, seeds] => Command::Run {
             sim: named(sim)?,
             seeds: Some(parse_seeds(seeds)?),
-        }),
-        ["explain", sim, seed] => Ok(Command::Explain {
+        },
+        ["explain", sim, seed] => Command::Explain {
             sim: named(sim)?,
             seed: one_seed(seed)?,
-            grep,
-        }),
-        _ => Err("expected a command".into()),
+            grep: flags.grep.take().unwrap_or_default(),
+        },
+        _ => return Err("expected a command".into()),
+    };
+    if flags.grep.is_some()
+        || flags.minutes.is_some()
+        || flags.jobs.is_some()
+        || flags.sims.is_some()
+    {
+        return Err(
+            "--grep is only for explain, and --minutes, --jobs and --sims for campaign".into(),
+        );
     }
+    Ok(command)
+}
+
+/// A campaign's plan: the flags given, or by default 10 minutes on every
+/// core, of every simulation.
+fn campaign_plan(flags: Flags) -> Result<Command, String> {
+    if flags.grep.is_some() {
+        return Err("--grep is only for explain".into());
+    }
+    let cores = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+    Ok(Command::Campaign(Plan {
+        sims: flags.sims.unwrap_or_else(|| SIMS.iter().collect()),
+        minutes: flags.minutes.unwrap_or(DEFAULT_MINUTES),
+        jobs: flags.jobs.unwrap_or(cores).min(MOST_JOBS),
+    }))
+}
+
+/// A number from `least` to `most`, for `flag`.
+fn bounded(text: &str, least: u64, most: u64, flag: &str) -> Result<u64, String> {
+    text.parse()
+        .ok()
+        .filter(|number| (least..=most).contains(number))
+        .ok_or_else(|| format!("{flag} takes a number from {least} to {most}, not {text:?}"))
+}
+
+/// Simulations named in a list such as `node,peer`, each once.
+fn listed(text: &str) -> Result<Vec<&'static Sim>, String> {
+    let mut sims: Vec<&'static Sim> = Vec::new();
+    for name in text.split(',') {
+        let sim = named(name)?;
+        if sims.iter().any(|known| known.name == sim.name) {
+            return Err(format!("--sims names {name} twice"));
+        }
+        sims.push(sim);
+    }
+    Ok(sims)
 }
 
 fn text(value: Result<std::ffi::OsString, lexopt::Error>) -> Result<String, String> {
@@ -121,6 +240,15 @@ fn execute(command: Command) -> ExitCode {
             }
         },
         Command::Explain { sim, seed, grep } => explain(&mut out, &mut tally, sim, seed, &grep),
+        // A campaign's records say how its runs ended, and its status only
+        // whether it ran to its end: a reader that stops reading leaves it
+        // nobody to report to, which fails the runner.
+        Command::Campaign(plan) => {
+            return campaign::campaign(&mut out, &plan).unwrap_or_else(|error| {
+                eprintln!("dassie-sim: {error}");
+                ExitCode::from(3)
+            });
+        }
     };
     match printed {
         Ok(()) => tally.status(),
@@ -260,7 +388,8 @@ mod tests {
         name: "broken",
         about: "breaks safety",
         describe: |_| "nothing drawn".to_owned(),
-        run: |_| Run::new(Outcome::Safety("broken".to_owned()), Vec::new()),
+        run: |_| Run::new(Outcome::safety("broken", "broken"), Vec::new()),
+        weight: 1,
     };
 
     /// A reader that stops reading after `left` bytes, as `head` does.

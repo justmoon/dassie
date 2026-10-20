@@ -5,7 +5,8 @@
 //! a function from a seed to a [`Run`]: the same seed
 //! gives the same run, byte for byte (D16). `cargo test` runs each on a few
 //! fixed seeds. This crate runs them on any seed: one to replay a failure,
-//! a range to search for one, or a commit's, as TigerBeetle's VOPR does.
+//! a range to search for one, a commit's, or random ones for as long as a
+//! campaign lasts, as TigerBeetle's VOPR does.
 
 use std::ops::RangeInclusive;
 
@@ -22,54 +23,117 @@ pub struct Sim {
     pub describe: fn(u64) -> String,
     /// Runs a seed. A panic is a safety failure; see [`caught`].
     pub run: fn(u64) -> Run,
+    /// How many of a campaign's runs it gets, relative to the others.
+    pub weight: u64,
 }
 
-/// Every simulation the runner knows.
-pub static SIMS: [Sim; 7] = [
+/// Every simulation the runner knows. A weight counts runs, not time: a
+/// run that takes a millisecond costs a campaign almost nothing, so the
+/// time goes to the simulations whose runs take seconds, and most of it to
+/// the `node` simulation.
+pub static SIMS: [Sim; 8] = [
     Sim {
         name: "node",
         about: "whole nodes' engine cores, with a network, faults and payments drawn per seed, \
                 through chaos, then healed",
         describe: dassie_node::sim::swarm::describe,
         run: dassie_node::sim::swarm::run,
+        // The most, and about three quarters of the time: it runs the node
+        // whole, and each seed draws a situation of its own.
+        weight: 50,
     },
     Sim {
         name: "node-stub",
         about: "whole nodes' engine cores paying, crashing and settling over the stub, as scripted",
         describe: dassie_node::sim::scripted::describe,
         run: dassie_node::sim::scripted::run,
+        // A script: its seeds vary the detail, not the situation.
+        weight: 5,
     },
     Sim {
         name: "node-xrpl",
         about: "the same, settling on a fake XRP Ledger whose connections lag and drop",
         describe: dassie_node::sim::scripted::describe,
         run: dassie_node::sim::scripted::run_xrpl,
+        weight: 5,
     },
     Sim {
         name: "node-currencies",
         about: "the same across dollars and XRP, through a node that converts and charges",
         describe: dassie_node::sim::scripted::describe_across,
         run: dassie_node::sim::scripted::run_across,
+        // A script too, but the only runs across currencies until the
+        // `node` simulation draws them.
+        weight: 5,
     },
     Sim {
         name: "peer",
         about: "peer networks through chaos and calm: membership, peering, routes and settlements",
         describe: dassie_peer::sim::chaos::describe,
         run: dassie_peer::sim::chaos::run,
+        // Its runs take the longest: a few of them take a tenth of the
+        // time, as much as the scripts together.
+        weight: 4,
     },
     Sim {
         name: "connector",
         about: "the connector under random packets, answers and disconnections",
         describe: dassie_connector::sim::traffic::describe,
         run: dassie_connector::sim::traffic::run,
+        // Its runs take milliseconds, and the stream's less: many of them
+        // cost almost no time.
+        weight: 10,
     },
     Sim {
         name: "stream",
         about: "a STREAM payment over a lossy path with an exchange rate",
         describe: dassie_stream::sim::payment::describe,
         run: dassie_stream::sim::payment::run,
+        weight: 10,
+    },
+    Sim {
+        name: "tripwire",
+        about: "fails on purpose, on one seed in a thousand, so that a silent campaign shows",
+        describe: tripwire::describe,
+        run: tripwire::run,
+        // Its runs cost no time, and a tenth of the runs make it trip
+        // about once an hour on eight cores: often enough to see a
+        // campaign stop, rarely enough not to bury the real failures.
+        weight: 10,
     },
 ];
+
+/// The tripwire (D27): a simulation that fails on purpose, for safety, on
+/// one seed in [`tripwire::ONE_IN`], and passes on the others, at once. A
+/// campaign runs it now and then, and files its failures apart, so that a
+/// campaign whose tripwire stops failing shows that it has stopped. No
+/// fixed-seed test runs it on a seed where it fails.
+pub mod tripwire {
+    use super::{Outcome, Run};
+
+    /// One seed in this many fails: every multiple of it, so that
+    /// `dassie-sim run tripwire 0` shows a failure whenever one is wanted.
+    pub const ONE_IN: u64 = 1_000;
+
+    /// What every seed draws: nothing.
+    #[must_use]
+    pub fn describe(_seed: u64) -> String {
+        format!("fails every seed that is a multiple of {ONE_IN}")
+    }
+
+    /// Fails on a multiple of [`ONE_IN`], and passes on the other seeds.
+    #[must_use]
+    pub fn run(seed: u64) -> Run {
+        let trips = seed.is_multiple_of(ONE_IN);
+        let trace = vec![format!("seed {seed} trips: {trips}")];
+        let outcome = if trips {
+            Outcome::safety("on-purpose", "the tripwire tripped, on purpose")
+        } else {
+            Outcome::Pass
+        };
+        Run::new(outcome, trace)
+    }
+}
 
 /// The simulation called `name`.
 #[must_use]
@@ -141,10 +205,26 @@ mod tests {
     }
 
     #[test]
-    fn every_simulation_has_its_own_name() {
+    fn every_simulation_has_its_own_name_and_a_share_of_a_campaign() {
         let mut names: Vec<_> = SIMS.iter().map(|sim| sim.name).collect();
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), SIMS.len());
+        assert!(SIMS.iter().all(|sim| sim.weight > 0));
+        let most = SIMS.iter().max_by_key(|sim| sim.weight).unwrap();
+        assert_eq!(most.name, "node");
+    }
+
+    #[test]
+    fn the_tripwire_fails_one_seed_in_a_thousand_at_one_place() {
+        let tripped: Vec<u64> = (0..10_000)
+            .filter(|seed| tripwire::run(*seed).outcome.is_failure())
+            .collect();
+        assert_eq!(tripped.len(), 10);
+        let wire = find("tripwire").unwrap();
+        let run = caught(|| (wire.run)(7_000));
+        assert_eq!(run.outcome.name(), "safety");
+        assert_eq!(run.outcome.finding().unwrap().at, "on-purpose");
+        assert_eq!(caught(|| (wire.run)(7_001)).outcome, Outcome::Pass);
     }
 }

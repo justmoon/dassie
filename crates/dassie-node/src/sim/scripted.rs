@@ -104,7 +104,9 @@ pub fn run_on(seed: u64, settling: Settling) -> Run {
     let mut sim = Sim::with(seed, count, bootstraps, BTreeMap::new(), settling);
     let result = script(&mut sim, &mut rng)
         .and_then(|()| check(&sim))
-        .and_then(|()| check_withdrawn(&sim).map_err(Outcome::Liveness));
+        .and_then(|()| {
+            check_withdrawn(&sim).map_err(|problem| Outcome::liveness("withdrawn", problem))
+        });
     ended(sim, result)
 }
 
@@ -117,7 +119,9 @@ pub fn run_across(seed: u64) -> Run {
     let (mut rng, count) = size_across(seed);
     let mut sim = Sim::with(seed, count, 2, BTreeMap::new(), Settling::Cross);
     script_across(&mut sim, &mut rng);
-    let result = check_across(&sim).and_then(|()| check_withdrawn(&sim).map_err(Outcome::Liveness));
+    let result = check_across(&sim).and_then(|()| {
+        check_withdrawn(&sim).map_err(|problem| Outcome::liveness("withdrawn", problem))
+    });
     ended(sim, result)
 }
 
@@ -125,7 +129,7 @@ pub fn run_across(seed: u64) -> Run {
 /// else, since the run went on past it.
 pub(super) fn ended(mut sim: Sim, result: Result<(), Outcome>) -> Run {
     let outcome = match check_events(&sim) {
-        Err(problem) => Outcome::Safety(problem),
+        Err(problem) => Outcome::safety("events", problem),
         Ok(()) => result.err().unwrap_or(Outcome::Pass),
     };
     // Judged: the harness's own check, when it drops, has nothing to add.
@@ -143,8 +147,9 @@ pub(super) fn ended(mut sim: Sim, result: Result<(), Outcome>) -> Run {
 fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     let count = sim.nodes.len();
     if !sim.run_until_or(START + READY_WITHIN_MS, ready) {
-        return Err(Outcome::Liveness(
-            "the network was not ready in time".into(),
+        return Err(Outcome::liveness(
+            "ready",
+            "the network was not ready in time",
         ));
     }
     // A node crashes; what it persisted brings it back.
@@ -155,9 +160,10 @@ fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     sim.run_until(sim.now + 5_000);
     sim.start(victim);
     if !before.is_subset(&sim.peers(victim)) || sim.balances(victim) != balances {
-        return Err(Outcome::Safety(format!(
-            "node {victim} lost its peerings or balances in a restart"
-        )));
+        return Err(Outcome::safety(
+            "restart",
+            format!("node {victim} lost its peerings or balances in a restart"),
+        ));
     }
     sim.loss_per_mille = 0;
     // A node takes nothing dated before its start, and the clocks are up
@@ -167,11 +173,15 @@ fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     if !sim.run_until_or(deadline, ready) {
         for index in 0..count {
             if sim.peers(index).is_empty() {
-                return Err(Outcome::Liveness(format!("node {index} has no peer")));
+                return Err(Outcome::liveness(
+                    "ready-again",
+                    format!("node {index} has no peer"),
+                ));
             }
         }
-        return Err(Outcome::Liveness(
-            "the network was not ready again in time".into(),
+        return Err(Outcome::liveness(
+            "ready-again",
+            "the network was not ready again in time",
         ));
     }
     pay(sim, rng);
@@ -261,10 +271,13 @@ fn terminate(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     let ended =
         |sim: &Sim| !sim.peers(ender).contains(&peer) && !sim.peers(other).contains(&ender_id);
     if !sim.run_until_or(sim.now + ENDED_WITHIN_MS, ended) {
-        return Err(Outcome::Liveness(format!(
-            "node {ender}'s peering with node {other} did not end within {} s",
-            ENDED_WITHIN_MS / 1_000
-        )));
+        return Err(Outcome::liveness(
+            "peering-ended",
+            format!(
+                "node {ender}'s peering with node {other} did not end within {} s",
+                ENDED_WITHIN_MS / 1_000
+            ),
+        ));
     }
     // Then a minute's calm, so that the checks find the rest of the network
     // settled.
@@ -352,9 +365,12 @@ fn collected_before_telling(
     if booked >= promised {
         return Ok(());
     }
-    Err(Outcome::Liveness(format!(
-        "node {index} told node {with} the peering ends before booking the {promised} it had on its way"
-    )))
+    Err(Outcome::liveness(
+        "collected-before-telling",
+        format!(
+            "node {index} told node {with} the peering ends before booking the {promised} it had on its way"
+        ),
+    ))
 }
 
 /// When a line of the trace happened.
@@ -380,9 +396,10 @@ fn settled_nothing_once_ending(
         return Ok(());
     };
     match lines[start..].iter().find(|line| line.contains(&settling)) {
-        Some(line) => Err(Outcome::Safety(format!(
-            "node {index} settled with node {with} while their peering ended: {line}"
-        ))),
+        Some(line) => Err(Outcome::safety(
+            "settled-once-ending",
+            format!("node {index} settled with node {with} while their peering ended: {line}"),
+        )),
         None => Ok(()),
     }
 }

@@ -174,8 +174,10 @@ fn lifecycle(network: &mut Network, rng: &mut SeededRng, index: usize) {
 /// calm, a liveness failure.
 fn check(network: &Network) -> Outcome {
     let result = settlements(network)
-        .and_then(|()| converged(network).map_err(Outcome::Liveness))
-        .and_then(|()| finished(network).map_err(Outcome::Liveness));
+        .and_then(|()| {
+            converged(network).map_err(|problem| Outcome::liveness("converged", problem))
+        })
+        .and_then(|()| finished(network).map_err(|problem| Outcome::liveness("finished", problem)));
     result.err().unwrap_or(Outcome::Pass)
 }
 
@@ -193,20 +195,27 @@ fn settlements(network: &Network) -> Result<(), Outcome> {
         match applied.as_slice() {
             [once] if once.amount == *amount => {}
             [] => {
-                return Err(Outcome::Liveness(format!(
-                    "node {from}'s settlement #{sequence} to node {to_index} never arrived"
-                )));
+                return Err(Outcome::liveness(
+                    "settlements",
+                    format!(
+                        "node {from}'s settlement #{sequence} to node {to_index} never arrived"
+                    ),
+                ));
             }
             _ => {
-                return Err(Outcome::Safety(format!(
-                    "node {from}'s settlement #{sequence} to node {to_index} was applied {applied:?}"
-                )));
+                return Err(Outcome::safety(
+                    "settlements",
+                    format!(
+                        "node {from}'s settlement #{sequence} to node {to_index} was applied {applied:?}"
+                    ),
+                ));
             }
         }
     }
     if network.applied.len() != network.settled.len() {
-        return Err(Outcome::Safety(
-            "a settlement was applied that was not sent".into(),
+        return Err(Outcome::safety(
+            "settlements",
+            "a settlement was applied that was not sent",
         ));
     }
     Ok(())
