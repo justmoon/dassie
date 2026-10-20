@@ -135,9 +135,6 @@ const ACTIONS: Record<string, string> = {
 
 /** What an access item lets the client do, in a sentence. */
 export function accessText(access: AccessFields): string {
-  const reads = access.actions.some((action) =>
-    action === "read-all" || action === "list-all"
-  );
   const creates = access.actions.includes("create");
   const base = ACTIONS[access.type] ?? access.type;
   const what = creates ? base : `See ${access.type.replace("-", " ")}s`;
@@ -147,8 +144,24 @@ export function accessText(access: AccessFields): string {
     : creates
     ? limitText(access.limits)
     : receiverText(access.limits);
-  const scope = reads ? ", and see all of them, not only its own" : "";
-  return `${what}${limits}${walletText(access)}${scope}`;
+  return `${what}${limits}${walletText(access)}${scopeText(access)}`;
+}
+
+/**
+ * Whether the item reaches others' resources too: one that reads or lists
+ * all of a kind sees the owner's own and other apps', and the owner must
+ * be told.
+ */
+function scopeText(access: AccessFields): string {
+  const all = access.actions.some((action) =>
+    action === "read-all" || action === "list-all"
+  );
+  return all ? ", and see all of them, not only its own" : "";
+}
+
+/** The heading of an item that sends payments, with what else it sees. */
+export function paymentsTitle(access: AccessFields): string {
+  return `Send payments${scopeText(access)}`;
 }
 
 /** Which of the owner's wallets it reaches: by the ledger's currency. */
@@ -322,16 +335,16 @@ export function spanText(
     return `${from}No end date. ${renews} until you revoke access.`;
   }
   const total = totalText(limits.interval);
+  // `R0` is the first window only: nothing renews.
+  const after = /^R0\//.test(limits.interval) ? "" : ` ${renews}.`;
   if (later) {
     const length = total === undefined ? "" : ` (${total})`;
-    return `From ${date(start)} until ${
-      date(end)
-    }${length}${before}. ${renews}.`;
+    return `From ${date(start)} until ${date(end)}${length}${before}.${after}`;
   }
   const since = start === undefined
     ? ""
     : ` (${total === undefined ? "" : `${total} `}from ${date(start)})`;
-  return `Until ${date(end)}${since}. ${renews}.`;
+  return `Until ${date(end)}${since}.${after}`;
 }
 
 /**

@@ -7,6 +7,7 @@ import {
   intervalText,
   type LimitFields,
   limitText,
+  paymentsTitle,
   receiveText,
   sendText,
   spanText,
@@ -309,6 +310,48 @@ test("I: no limits at all", () => {
     to: "Anyone the app chooses",
     lasts: "No end date, until you revoke access.",
   });
+});
+
+// Found in review: the payments block must still say when the app also
+// sees every outgoing payment of the wallet, not only its own.
+test("sending payments says when the app sees all of them", () => {
+  const item = { type: "outgoing-payment", ledger: "stub+usd", limits: none };
+  assertEquals(
+    paymentsTitle({ ...item, actions: ["create", "read"] }),
+    "Send payments",
+  );
+  assertEquals(
+    paymentsTitle({ ...item, actions: ["create", "read-all"] }),
+    "Send payments, and see all of them, not only its own",
+  );
+  assertEquals(
+    paymentsTitle({ ...item, actions: ["create", "list-all"] }),
+    "Send payments, and see all of them, not only its own",
+  );
+});
+
+// Found in review: `R0` is one window, which does not renew.
+test("a single window does not renew", () => {
+  const once = {
+    ...none,
+    interval: "R0/2026-10-01T00:00:00Z/P1M",
+    debitAmount: usd(1_000_000_000n),
+    startsAtMs: at("2026-10-01T00:00:00Z"),
+    endsAtMs: at("2026-11-01T00:00:00Z"),
+  };
+  assertEquals(
+    facts(once).lasts,
+    "Until Nov 1, 2026 (1 month from Oct 1, 2026).",
+  );
+  assertEquals(
+    facts({
+      ...once,
+      interval: "R0/2026-11-01T00:00:00Z/P1M",
+      startsAtMs: at("2026-11-01T00:00:00Z"),
+      endsAtMs: at("2026-12-01T00:00:00Z"),
+    }).lasts,
+    "From Nov 1, 2026 until Dec 1, 2026 (1 month); nothing can be sent before then.",
+  );
 });
 
 test("an interval that has ended says nothing can be sent", () => {

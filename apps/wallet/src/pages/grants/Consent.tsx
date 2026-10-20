@@ -15,6 +15,7 @@ import { Alert, Card, ErrorText, PageTitle, Spinner } from "@dassie/ui/ui";
 import {
   accessText,
   clientName,
+  paymentsTitle,
   receiveText,
   sendText,
   spanText,
@@ -128,7 +129,7 @@ function Payments(props: { access: GrantAccess }): JSX.Element {
   const limits = () => props.access.limits;
   return (
     <>
-      Send payments
+      <span data-testid="consent-payments">{paymentsTitle(props.access)}</span>
       <dl class="facts consent-facts">
         <dt>You send</dt>
         <dd data-testid="consent-send">{sendText(props.access)}</dd>
