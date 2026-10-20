@@ -505,7 +505,7 @@ impl ResponseSignature {
 /// Why a node's response was not accepted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NodeResponseError {
-    /// The name has no node label, and no node ID was given for it.
+    /// The request's host has no node label, and no node ID was given.
     UnknownNode,
     /// The signature's `keyid` is not an Ed25519 public key.
     Key,
@@ -521,8 +521,9 @@ pub enum NodeResponseError {
 ///
 /// The node is `node_id` when the caller knows it, as from an owner's
 /// domain's TXT record; otherwise the one whose label is the first label
-/// of `name`, the host the response was fetched from, as a front door's
-/// name carries it. Returns the node's ID.
+/// of the host in the request's `target_uri`, as a front door's name
+/// carries it. The host is never passed apart from the URL, so that one
+/// name's label cannot vouch for another URL. Returns the node's ID.
 ///
 /// # Errors
 ///
@@ -531,14 +532,14 @@ pub fn check_node_response(
     request: &Request<'_>,
     response: &Response<'_>,
     body: &[u8],
-    name: &str,
     node_id: Option<NodeId>,
     now_s: u64,
 ) -> Result<NodeId, NodeResponseError> {
     let expected = match node_id {
         Some(id) => id,
         None => {
-            let label = name.split(['.', ':']).next().unwrap_or_default();
+            let uri = Uri::parse(request.target_uri).map_err(|_| NodeResponseError::UnknownNode)?;
+            let label = uri.authority.split(['.', ':']).next().unwrap_or_default();
             NodeId::from_label(label).map_err(|_| NodeResponseError::UnknownNode)?
         }
     };
@@ -910,14 +911,13 @@ mod tests {
         status: u16,
         fields: &[(String, String)],
         body: &[u8],
-        name: &str,
     ) -> Result<NodeId, NodeResponseError> {
         let fields = refs(fields);
         let response = Response {
             status,
             fields: &fields,
         };
-        check_node_response(request, &response, body, name, None, NOW_S)
+        check_node_response(request, &response, body, None, NOW_S)
     }
 
     // The signature base of a response, as RFC 9421 §2.5 writes it, with
@@ -983,27 +983,45 @@ mod tests {
             fields: &with_nonce,
         };
         let fields = signed_response(&request, 200, BODY);
-        let id = check(&request, 200, &fields, BODY, &name).unwrap();
+        let id = check(&request, 200, &fields, BODY).unwrap();
         assert_eq!(id.label().map(|l| l.as_str() == label), Ok(true));
-        // In either case, and with a port, as a Host header may name it.
-        let upper = format!("{}:443", name.to_ascii_uppercase());
-        assert_eq!(check(&request, 200, &fields, BODY, &upper), Ok(id));
+        // In either case, and with a port.
+        let upper = format!("https://{}:443/pay", name.to_ascii_uppercase());
+        let request = Request {
+            target_uri: &upper,
+            ..request
+        };
+        let fields = signed_response(&request, 200, BODY);
+        assert_eq!(check(&request, 200, &fields, BODY), Ok(id));
         // Without a body, there is no digest to cover.
         let empty = signed_response(&request, 204, b"");
-        assert_eq!(check(&request, 204, &empty, b"", &name), Ok(id));
+        assert_eq!(check(&request, 204, &empty, b""), Ok(id));
         // A node ID the caller knows, for a name without a label.
+        let request = Request {
+            target_uri: "https://pay.example.com/pay",
+            ..request
+        };
+        let fields = signed_response(&request, 200, BODY);
         let response_fields = refs(&fields);
         let response = Response {
             status: 200,
             fields: &response_fields,
         };
-        let owners = "pay.example.com";
         assert_eq!(
-            check_node_response(&request, &response, BODY, owners, Some(id), NOW_S),
+            check_node_response(&request, &response, BODY, Some(id), NOW_S),
             Ok(id)
         );
         assert_eq!(
-            check_node_response(&request, &response, BODY, owners, None, NOW_S),
+            check_node_response(&request, &response, BODY, None, NOW_S),
+            Err(NodeResponseError::UnknownNode)
+        );
+        // Nor does a URL that is not one name a node.
+        let request = Request {
+            target_uri: "/pay",
+            ..request
+        };
+        assert_eq!(
+            check_node_response(&request, &response, BODY, None, NOW_S),
             Err(NodeResponseError::UnknownNode)
         );
     }
@@ -1023,31 +1041,31 @@ mod tests {
         let invalid = Err(NodeResponseError::Signature(SignatureError::Invalid));
         // Another body, status, nonce, method or URL.
         assert_eq!(
-            check(&request, 200, &fields, br#"{"id":"https://y/pay"}"#, &name),
+            check(&request, 200, &fields, br#"{"id":"https://y/pay"}"#),
             Err(NodeResponseError::Signature(SignatureError::Digest))
         );
-        assert_eq!(check(&request, 404, &fields, BODY, &name), invalid);
+        assert_eq!(check(&request, 404, &fields, BODY), invalid);
         let replayed = [("Dassie-Nonce", "n2")];
         let other = Request {
             fields: &replayed,
             ..request
         };
-        assert_eq!(check(&other, 200, &fields, BODY, &name), invalid);
+        assert_eq!(check(&other, 200, &fields, BODY), invalid);
         let other = Request {
             method: "HEAD",
             ..request
         };
-        assert_eq!(check(&other, 200, &fields, BODY, &name), invalid);
+        assert_eq!(check(&other, 200, &fields, BODY), invalid);
         let moved = format!("https://{name}/pay/other");
         let other = Request {
             target_uri: &moved,
             ..request
         };
-        assert_eq!(check(&other, 200, &fields, BODY, &name), invalid);
+        assert_eq!(check(&other, 200, &fields, BODY), invalid);
         // A body where the node signed none: the digest must be covered.
         let empty = signed_response(&request, 200, b"");
         assert_eq!(
-            check(&request, 200, &empty, BODY, &name),
+            check(&request, 200, &empty, BODY),
             Err(NodeResponseError::Signature(SignatureError::Components))
         );
         // A response signed without the nonce the client sent.
@@ -1057,7 +1075,7 @@ mod tests {
         };
         let unbound = signed_response(&without_nonce, 200, BODY);
         assert_eq!(
-            check(&request, 200, &unbound, BODY, &name),
+            check(&request, 200, &unbound, BODY),
             Err(NodeResponseError::Signature(SignatureError::Components))
         );
         // Too old.
@@ -1067,7 +1085,7 @@ mod tests {
             fields: &response_fields,
         };
         assert_eq!(
-            check_node_response(&request, &response, BODY, &name, None, NOW_S + 600),
+            check_node_response(&request, &response, BODY, None, NOW_S + 600),
             Err(NodeResponseError::Signature(SignatureError::Time))
         );
     }
@@ -1086,11 +1104,15 @@ mod tests {
         };
         let fields = signed_response(&request, 200, BODY);
         assert_eq!(
-            check(&request, 200, &fields, BODY, &name),
+            check(&request, 200, &fields, BODY),
             Err(NodeResponseError::OtherNode)
         );
         // The node's key named, another key signing.
-        let honest = format!("{label}.dassiepay.net");
+        let honest = format!("https://{label}.dassiepay.net/pay");
+        let request = Request {
+            target_uri: &honest,
+            ..request
+        };
         let impostor = SigningKey::from_bytes(&[10; 32]);
         let response = Response {
             status: 200,
@@ -1110,7 +1132,7 @@ mod tests {
             ("Signature".to_string(), forged.signature.clone()),
         ];
         assert_eq!(
-            check(&request, 200, &fields, b"", &honest),
+            check(&request, 200, &fields, b""),
             Err(NodeResponseError::Signature(SignatureError::Invalid))
         );
         // A keyid that is not a key.
@@ -1122,10 +1144,7 @@ mod tests {
             ("Signature-Input".to_string(), input.to_string()),
             ("Signature".to_string(), forged.signature),
         ];
-        assert_eq!(
-            check(&request, 200, &bad, b"", &honest),
-            Err(NodeResponseError::Key)
-        );
+        assert_eq!(check(&request, 200, &bad, b""), Err(NodeResponseError::Key));
     }
 
     #[test]
@@ -1158,7 +1177,7 @@ mod tests {
             ("Signature".to_string(), signed.signature),
         ];
         assert_eq!(
-            check(&request, 204, &fields, b"", &name),
+            check(&request, 204, &fields, b""),
             Err(NodeResponseError::Signature(SignatureError::Components))
         );
     }

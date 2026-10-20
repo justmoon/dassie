@@ -56,7 +56,7 @@ fn check(
         fields: &fields,
     };
     let now_s = node.clock.now_ms() / 1_000;
-    httpsig::check_node_response(&request, &answer, &reply.body, name, id, now_s)
+    httpsig::check_node_response(&request, &answer, &reply.body, id, now_s)
 }
 
 /// A GET of `path` under `name`, with a nonce for the signature.
@@ -126,7 +126,6 @@ async fn a_node_with_a_hostname_keeps_to_it() {
         body(&reply)["id"],
         format!("{}/.well-known/pay", node.origin())
     );
-    let host = node.host();
     let id = key.node_id();
     let target = format!("{}/.well-known/pay", node.origin());
     let nonce = [(httpsig::NONCE_FIELD, "n1")];
@@ -145,8 +144,7 @@ async fn a_node_with_a_hostname_keeps_to_it() {
         fields: &fields,
     };
     let now_s = node.clock.now_ms() / 1_000;
-    let checked =
-        httpsig::check_node_response(&request, &answer, &reply.body, &host, Some(id), now_s);
+    let checked = httpsig::check_node_response(&request, &answer, &reply.body, Some(id), now_s);
     assert_eq!(checked, Ok(id));
     node.stop().await;
 }
