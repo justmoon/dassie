@@ -25,9 +25,9 @@ use dassie_node::engine::{EngineEvent, Lie, NewIncoming, NewOutgoing};
 use dassie_node::node::Policies;
 use dassie_node::sim::checks::{check, check_across, check_books, check_events};
 use dassie_node::sim::{
-    CREDIT, START, Settling, Sim, USD, XRP, key, received, scripted, xrpl_account,
+    CREDIT, START, Settling, Sim, USD, XRP, key, received, scripted, sent, xrpl_account,
 };
-use dassie_node::store::ForeignAmount;
+use dassie_node::store::{Aim, ForeignAmount};
 use dassie_node_core::testing::assert_seeds_pass;
 use dassie_settlement::LedgerStatus;
 
@@ -138,6 +138,103 @@ fn a_peering_ends_while_its_fulfills_cannot_arrive() {
     sim.cut.clear();
     sim.run_until(sim.now + 60_000);
     check_books(&sim).unwrap();
+}
+
+/// Whether node `index` stopped.
+fn stopped(index: usize) -> impl Fn(&Sim) -> bool {
+    move |sim: &Sim| sim.nodes[index].core.is_none()
+}
+
+// D27: a node whose commit fails stops before anything of the step goes
+// out. The receiver's node fails the commit that books its first Fulfill:
+// the client hears of no Fulfill and its receiver kept nothing. The
+// sender's node had the Prepare answered with the 503 of an engine that
+// stopped, which says it had no effect. Once the node is back, the
+// payment completes.
+#[test]
+fn a_receiver_whose_commit_fails_sends_no_fulfill() {
+    let mut sim = Sim::new(75, 2, 1);
+    sim.loss_per_mille = 0;
+    sim.run_until(START + 60_000);
+    assert!(!sim.peers(0).is_empty(), "the nodes did not peer");
+    sim.pay(0, 1, 500_000_000, None, None);
+    sim.fail_commit(1, Aim::Packet, 0);
+    assert!(sim.run_until_or(sim.now + 30_000, stopped(1)), "no failure");
+    assert_eq!(received(&sim, &sim.payments[0]), 0);
+    assert_eq!(sent(&sim.payments[0]), 0);
+    assert_eq!(sim.counts["failed commits mid-payment"], 1);
+    sim.run_until(sim.now + 5_000);
+    sim.start(1);
+    sim.run_until(sim.now + 120_000);
+    assert!(sim.payments[0].done, "the payment did not finish");
+    check(&sim).unwrap();
+}
+
+/// Two nodes, peered, the junior paying its senior three units: it settles
+/// on the way, and the commit after the next `skip` of `node`'s that
+/// holds a settlement fails, `node` picking it from the senior and the
+/// junior. It is back a few seconds after it stopped.
+fn settling(node: impl FnOnce(usize, usize) -> usize, skip: u32) -> (Sim, usize) {
+    let mut sim = Sim::new(3, 2, 1);
+    sim.loss_per_mille = 0;
+    sim.run_until(START + 60_000);
+    let senior = usize::from(!sim.core(0).network().peers[0].peering.inbound);
+    let (junior, index) = (1 - senior, node(senior, 1 - senior));
+    sim.pay(junior, senior, 3_000_000_000, None, None);
+    sim.fail_commit(index, Aim::Settlement, skip);
+    let failed = sim.run_until_or(sim.now + 120_000, stopped(index));
+    assert!(failed, "no failure");
+    assert_eq!(sim.counts["failed commits mid-settlement"], 1);
+    sim.run_until(sim.now + 5_000);
+    sim.start(index);
+    sim.run_until(sim.now + 180_000);
+    (sim, index)
+}
+
+// D27: the senior fails the commit that books the junior's settlement.
+// The junior's message gets the 503 of an engine that stopped, and the
+// junior sends it again once the senior is back: it is booked once, and
+// the payment completes.
+#[test]
+fn a_settlement_whose_booking_failed_is_booked_when_sent_again() {
+    let (sim, senior) = settling(|senior, _| senior, 0);
+    // Where `text` is first traced after line `from`.
+    let after = |from: usize, text: &str| {
+        from + sim.trace[from..]
+            .iter()
+            .position(|line| line.contains(text))
+            .unwrap_or_else(|| panic!("no {text:?}"))
+    };
+    let failed = after(0, &format!(" {senior} failed a commit"));
+    let back = after(failed, &format!("start {senior}"));
+    // The junior's first settlement was paid in advance; its second is
+    // the one whose booking failed, delivered once the senior is back.
+    let delivered = after(back, "SettlementDelivered");
+    assert!(sim.trace[delivered].contains("sequence: 2 }"));
+    assert!(
+        !sim.trace[..back]
+            .iter()
+            .any(|line| line.contains("sequence: 2 }"))
+    );
+    assert!(sim.payments[0].done, "the payment did not finish");
+    check(&sim).unwrap();
+}
+
+// D27: the junior fails the commit of its settlement as it prepares it,
+// and, the second time, once it executed it: neither its transfer nor its
+// message goes out from what never reached the disk, and the books hold
+// after its restart.
+#[test]
+fn a_settlement_whose_commit_failed_leaves_the_books_holding() {
+    for skip in [0, 1] {
+        let (sim, _) = settling(|_, junior| junior, skip);
+        // The second time, the commit before put the settlement's transfer
+        // on disk, pending, and the scheme reconciles it at the restart:
+        // the stub never moved what the lost commit said it did.
+        let reconciled = sim.trace.iter().any(|line| line.contains("Reconciling"));
+        assert_eq!(reconciled, skip == 1, "skip {skip}");
+        check(&sim).unwrap_or_else(|problem| panic!("skip {skip}: {problem}"));
+    }
 }
 
 // D28: a ban withdraws the peer from the node's link state in the step

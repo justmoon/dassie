@@ -491,6 +491,47 @@ fn peer_settings_are_checked_and_kept() {
     assert_eq!(core.connector.charges(), settings.charges());
 }
 
+// D27: a commit that fails stops the core before it hands over anything of
+// the step, here the answer to a client, and its successor starts from the
+// commit before.
+#[cfg(feature = "testing")]
+#[test]
+fn a_failed_commit_hands_nothing_over() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_on(Arc::clone(&store), 8);
+    let mut outputs = Vec::new();
+    core.add_scheme("stub", String::new()).unwrap();
+    let token = core
+        .create_token("wallet".into(), "stub+usd", None)
+        .unwrap();
+    let link = core.btp_connect(&token.secret).unwrap().link;
+    core.finish_step(&mut outputs);
+    outputs.clear();
+    let failed = store.fail_commit(crate::store::Aim::Any, 0);
+    core.begin_step(NOW + 5);
+    let payment = core
+        .create_incoming_payment(super::NewIncoming {
+            ledger: dassie_ledger::LedgerId::StubUsd,
+            wallet_address: "https://node.example/.well-known/pay".into(),
+            client: None,
+            incoming_amount: Some(10),
+            expires_at_ms: None,
+            metadata: None,
+        })
+        .unwrap();
+    let request = ildcp::request(Timestamp::from_unix_ms(NOW)).to_vec();
+    core.btp_packet(link, 1, &request, false);
+    let stepped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        core.finish_step(&mut outputs);
+    }));
+    assert!(stepped.is_err() && failed.held().is_some());
+    assert!(outputs.is_empty(), "handed over {outputs:?}");
+    drop(core);
+    assert_eq!(store.incoming_payment(payment.id).unwrap(), None);
+    let core = core_on(store, 9);
+    assert_eq!(core.active_schemes(), ["stub"]);
+}
+
 // D16: a broken invariant stops the core before its batch is written, so
 // its successor starts from the last state that held.
 #[test]

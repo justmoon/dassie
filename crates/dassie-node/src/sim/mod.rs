@@ -42,6 +42,11 @@
 //! A node that never settles, or spends the credit it was given and
 //! vanishes, costs its peer no more than that credit (D23).
 //!
+//! A node's commit can be made to fail, the one fault injected at the
+//! store (D27): its core stops without handing over anything of the step,
+//! as it does in the daemon, and the node is down until restarted from
+//! its database, as after a crash.
+//!
 //! Test code, behind the `testing` feature: a panic here is a failed run.
 
 #![allow(
@@ -56,8 +61,10 @@ pub mod checks;
 pub mod scripted;
 pub mod swarm;
 
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
+use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
+use std::sync::{Arc, Once};
 
 use dassie_connector::SpendingCap;
 use dassie_identity::{NodeId, NodeKey};
@@ -76,7 +83,7 @@ use crate::engine::{
     SettlementEvent, Severity,
 };
 use crate::node::Policies;
-use crate::store::{ForeignAmount, PaymentId, PeerSettings, Store};
+use crate::store::{Aim, FailedCommit, ForeignAmount, Holds, PaymentId, PeerSettings, Store};
 
 /// When every simulation starts.
 pub const START: u64 = 1_800_000_000_000;
@@ -287,6 +294,8 @@ pub struct SimNode {
     /// Copies waiting for the core's reply, which goes nowhere: their
     /// original's place in [`Sim::originals`], and whether it only reads.
     replays: BTreeMap<InboundId, (usize, bool)>,
+    /// The commit it is to fail, while it has one.
+    failing: Option<FailedCommit>,
 }
 
 /// The simulated network: its nodes, its clock, its messages, the fake
@@ -351,6 +360,11 @@ pub struct Sim {
     /// Outgoing payments that may end failed: those whose payer gave up
     /// while the network was faulty, as it does after its reconnects.
     pub given_up: BTreeSet<PaymentId>,
+    /// The nodes that are to fail a commit for [`Sim::fail_commit_anywhere`]:
+    /// once one of them has, the others let their commits through.
+    anywhere: BTreeSet<usize>,
+    /// The node and the copy of a request it takes in the step under way.
+    replaying: Option<(usize, InboundId)>,
 }
 
 // Every run, whatever it checks besides, ends without an error event: a
@@ -450,6 +464,8 @@ impl Sim {
             counts: BTreeMap::new(),
             fundings: BTreeMap::new(),
             given_up: BTreeSet::new(),
+            anywhere: BTreeSet::new(),
+            replaying: None,
         };
         for &skew_ms in skews_ms {
             sim.nodes.push(SimNode {
@@ -461,6 +477,7 @@ impl Sim {
                 inbound: BTreeMap::new(),
                 copied: BTreeMap::new(),
                 replays: BTreeMap::new(),
+                failing: None,
             });
         }
         for index in 0..count {
@@ -521,10 +538,123 @@ impl Sim {
     /// Crashes node `index`: its clients are gone, its database stays.
     pub fn crash(&mut self, index: usize) {
         self.count("crashes");
+        self.stop(index);
+        self.trace.push(format!("{} crash {index}", self.now));
+    }
+
+    /// Makes node `index` fail the commit after the next `skip` that `aim`
+    /// aims at (D27). The node stops in the step that commits it, and is
+    /// down until restarted.
+    pub fn fail_commit(&mut self, index: usize, aim: Aim, skip: u32) {
+        let node = &mut self.nodes[index];
+        assert!(node.core.is_some(), "a node that runs fails a commit");
+        node.failing = Some(node.store.fail_commit(aim, skip));
+        self.trace.push(format!(
+            "{} {index} is to fail a commit, after {skip}: {aim:?}",
+            self.now
+        ));
+    }
+
+    /// Makes the first running node to commit what `aim` aims at, after
+    /// its next `skip` such commits, fail that commit (D27): for a moment
+    /// few nodes reach at any one time, such as a settlement. Nodes that
+    /// have a commit to fail already are left as they are.
+    pub fn fail_commit_anywhere(&mut self, aim: Aim, skip: u32) {
+        for (index, node) in self.nodes.iter_mut().enumerate() {
+            if node.core.is_some() && node.failing.is_none() {
+                node.failing = Some(node.store.fail_commit(aim, skip));
+                self.anywhere.insert(index);
+            }
+        }
+        self.trace.push(format!(
+            "{} a node is to fail a commit, after {skip}: {aim:?}",
+            self.now
+        ));
+    }
+
+    /// Whether node `index` has a commit to fail.
+    pub fn failing(&self, index: usize) -> bool {
+        self.nodes[index].failing.is_some()
+    }
+
+    /// Lets every commit through again: no node fails one any more.
+    pub fn let_commits_through(&mut self) {
+        for index in 0..self.nodes.len() {
+            self.let_through(index);
+        }
+        self.trace.push(format!("{} commits go through", self.now));
+    }
+
+    /// Lets node `index`'s commits through again.
+    fn let_through(&mut self, index: usize) {
+        let node = &mut self.nodes[index];
+        if node.failing.take().is_some() {
+            node.store.let_commits_through();
+        }
+        self.anywhere.remove(&index);
+    }
+
+    /// Node `index`'s commit failed, and its core stopped without handing
+    /// over anything of the step, as it does in the daemon. What it was
+    /// answering gets the 503 the daemon's peer endpoint answers when the
+    /// engine stops before its reply (`http/peer.rs`).
+    fn commit_failed(&mut self, index: usize, held: Holds) {
+        self.count("failed commits");
+        if self.anywhere.contains(&index) {
+            for other in std::mem::take(&mut self.anywhere) {
+                self.let_through(other);
+            }
+        }
+        // What the lost commit held: the floors on these counts prove that
+        // a packet's commit and a settlement's commit failed.
+        if held.packet {
+            self.count("failed commits mid-payment");
+        }
+        if held.settlement {
+            self.count("failed commits mid-settlement");
+        }
+        self.trace
+            .push(format!("{} {index} failed a commit and stopped", self.now));
+        let inbound = std::mem::take(&mut self.nodes[index].inbound);
+        for (inbound, (to, generation, id)) in inbound {
+            if let Some(original) = self.nodes[index].copied.remove(&inbound) {
+                self.originals[original] = Original::Answered(503);
+            }
+            let delay = self.latency();
+            let result = Ok(Response {
+                status: 503,
+                body: b"Service Unavailable".to_vec(),
+            });
+            self.schedule(
+                delay,
+                Delivery::Result {
+                    to,
+                    generation,
+                    id,
+                    result,
+                },
+            );
+        }
+        self.stop(index);
+    }
+
+    /// Stops node `index`: its clients are gone, its database stays, and
+    /// its commits go through again once it restarts.
+    fn stop(&mut self, index: usize) {
         self.nodes[index].core = None;
-        // A copy it was still working on passed the replay check.
+        self.let_through(index);
+        // A copy it was still working on passed the replay check. The copy
+        // whose own step failed a commit may not have: what it did was
+        // lost with its answer.
         let replays = std::mem::take(&mut self.nodes[index].replays);
-        for (original, reads) in replays.into_values() {
+        for (inbound, (original, reads)) in replays {
+            if self.replaying == Some((index, inbound)) {
+                self.trace.push(format!(
+                    "{} {index} lost a replay with its commit",
+                    self.now
+                ));
+                continue;
+            }
             self.replay_answered(index, original, reads, None);
         }
         if let Some(link) = self.links.remove(&index) {
@@ -535,7 +665,6 @@ impl Sim {
             .partition(|payment| payment.from == index);
         self.payments = kept;
         self.abandoned.extend::<Vec<Payment>>(gone);
-        self.trace.push(format!("{} crash {index}", self.now));
     }
 
     fn schedule(&mut self, delay: u64, delivery: Delivery) {
@@ -619,18 +748,43 @@ impl Sim {
     }
 
     /// Runs `f` on a node's core as one step, then carries out its outputs.
-    pub fn step(&mut self, index: usize, f: impl FnOnce(&mut Core)) {
+    /// Says whether the node took the step: not while it is down, nor when
+    /// the step's commit failed and stopped it.
+    pub fn step(&mut self, index: usize, f: impl FnOnce(&mut Core)) -> bool {
         let now = self.local_now(index);
-        let Some(core) = self.nodes[index].core.as_mut() else {
-            return;
+        let node = &mut self.nodes[index];
+        let failing = node.failing.clone();
+        let Some(core) = node.core.as_mut() else {
+            return false;
         };
-        core.begin_step(now);
-        f(core);
         let mut outputs = Vec::new();
-        core.finish_step(&mut outputs);
+        let step = || {
+            core.begin_step(now);
+            f(core);
+            core.finish_step(&mut outputs);
+        };
+        match failing {
+            None => step(),
+            Some(failed) => {
+                if let Err(panic) = catching(step) {
+                    // Only the commit made to fail stops the node; any
+                    // other panic fails the run.
+                    let message = panic.downcast_ref::<String>().map(String::as_str);
+                    let held = failed.held().filter(|_| {
+                        message.is_some_and(|message| message.starts_with(COMMIT_FAILED))
+                    });
+                    let Some(held) = held else {
+                        resume_unwind(panic);
+                    };
+                    self.commit_failed(index, held);
+                    return false;
+                }
+            }
+        }
         for output in outputs {
             self.carry(index, output);
         }
+        true
     }
 
     /// Keeps what a node reported in the trace, which a replay compares,
@@ -812,9 +966,12 @@ impl Sim {
         };
         self.ledger.disconnect(link.connection);
         let generation = self.nodes[index].generation;
-        self.step(index, |core| {
+        let stepped = self.step(index, |core| {
             core.ledger_event("xrpl-testnet", link.epoch, &LedgerEvent::Disconnected);
         });
+        if !stepped {
+            return;
+        }
         self.trace
             .push(format!("{} ledger link {index} drops", self.now));
         self.next_connection += 1;
@@ -930,7 +1087,9 @@ impl Sim {
                 let inbound = InboundId(node.next_inbound);
                 node.next_inbound += 1;
                 node.replays.insert(inbound, (original, reads));
+                self.replaying = Some((to, inbound));
                 self.step(to, |core| core.peer_inbound(inbound, &body, None));
+                self.replaying = None;
             }
             Delivery::LedgerRequest {
                 from,
@@ -1031,7 +1190,8 @@ impl Sim {
     }
 
     /// Starts a payment of `amount` from a BTP client of `from` to the
-    /// receiver of `to`.
+    /// receiver of `to`. Says whether it started: not when a failed commit
+    /// stopped either node before its part was on disk.
     pub fn pay(
         &mut self,
         from: usize,
@@ -1039,12 +1199,12 @@ impl Sim {
         amount: u64,
         cap: Option<SpendingCap>,
         limit: Option<u64>,
-    ) {
+    ) -> bool {
         // Paid from the sender's first ledger, into the receiver's last.
         let ledger = self.settling.ledgers(from)[0];
         let into = *self.settling.ledgers(to).last().unwrap();
         let mut credentials = None;
-        self.step(to, |core| {
+        let created = self.step(to, |core| {
             let payment = core
                 .create_incoming_payment(NewIncoming {
                     ledger: into,
@@ -1057,14 +1217,20 @@ impl Sim {
                 .unwrap();
             credentials = Some((payment.id, payment.ilp_address, payment.shared_secret));
         });
+        if !created {
+            return false;
+        }
         let (incoming, destination, shared_secret) = credentials.unwrap();
         let mut session = None;
-        self.step(from, |core| {
+        let connected = self.step(from, |core| {
             let token = core
                 .create_token("sim".into(), ledger.as_str(), cap)
                 .unwrap();
             session = Some((token.view.id, core.btp_connect(&token.secret).unwrap()));
         });
+        if !connected {
+            return false;
+        }
         let (token, session) = session.unwrap();
         let credentials = (session.address.clone(), destination, shared_secret);
         let connection = client(&credentials, ledger);
@@ -1088,6 +1254,7 @@ impl Sim {
         });
         self.trace
             .push(format!("{} pay {from} -> {to} {amount}", self.now));
+        true
     }
 
     /// An outgoing payment of `amount` from node `from` to an incoming
@@ -1097,10 +1264,13 @@ impl Sim {
     ///
     /// When node `from` refuses it, as it does while its owner has too
     /// little to pay it: on the XRP Ledger, before the faucet funded it.
+    /// Or when a failed commit stopped either node before its part was on
+    /// disk.
     pub fn pay_outgoing(&mut self, from: usize, to: usize, amount: u64) -> Result<(), String> {
         let ledger = self.settling.ledger();
         let mut incoming = None;
-        self.step(to, |core| {
+        let stopped = |index: usize| format!("node {index} stopped");
+        let created = self.step(to, |core| {
             let payment = core
                 .create_incoming_payment(NewIncoming {
                     ledger,
@@ -1113,9 +1283,12 @@ impl Sim {
                 .unwrap();
             incoming = Some(payment);
         });
+        if !created {
+            return Err(stopped(to));
+        }
         let incoming = incoming.unwrap();
         let mut outgoing = None;
-        self.step(from, |core| {
+        let sent = self.step(from, |core| {
             let created = core.create_outgoing_payment(NewOutgoing {
                 ledger,
                 wallet_address: "https://sim.example/.well-known/pay".into(),
@@ -1137,6 +1310,9 @@ impl Sim {
             });
             outgoing = Some(created.map(|created| created.row.id));
         });
+        if !sent {
+            return Err(stopped(from));
+        }
         let outgoing = outgoing.unwrap().map_err(|error| format!("{error:?}"))?;
         self.outgoing.push((from, to, incoming.id, outgoing));
         self.trace
@@ -1206,7 +1382,11 @@ impl Sim {
             }
             let (from, link) = (payment.from, payment.link);
             for (request, packet) in sends {
-                self.step(from, |core| core.btp_packet(link, request, &packet, false));
+                // A node that stops abandons its payments, which moves the
+                // rest: they go on at the next turn.
+                if !self.step(from, |core| core.btp_packet(link, request, &packet, false)) {
+                    return;
+                }
             }
         }
     }
@@ -1315,6 +1495,38 @@ impl Sim {
             })
             .collect()
     }
+}
+
+/// How a core's panic starts when a commit fails (`engine/core/mod.rs`).
+const COMMIT_FAILED: &str = "persisting the ledger failed";
+
+thread_local! {
+    /// Whether this thread runs a step whose commit is made to fail.
+    static FAILING: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Runs a step whose commit is made to fail, catching the panic that
+/// stops the core. That panic is the fault injected, not a failure of the
+/// run, so it is not printed; any other panic is, by the hook there was.
+fn catching(step: impl FnOnce()) -> std::thread::Result<()> {
+    static QUIET: Once = Once::new();
+    QUIET.call_once(|| {
+        let print = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let injected = FAILING.get()
+                && info
+                    .payload()
+                    .downcast_ref::<String>()
+                    .is_some_and(|message| message.starts_with(COMMIT_FAILED));
+            if !injected {
+                print(info);
+            }
+        }));
+    });
+    FAILING.set(true);
+    let result = catch_unwind(AssertUnwindSafe(step));
+    FAILING.set(false);
+    result
 }
 
 /// What an incoming payment received.
