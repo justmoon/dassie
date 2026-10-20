@@ -380,18 +380,16 @@ impl Connection {
             }
         }
         match failure {
-            Failure::TooLarge if max_packet > 0 => {
-                if let Some(slot) = probing.maxima.get_mut(probing.maxima_count) {
-                    *slot = max_packet;
-                    probing.maxima_count += 1;
-                }
-            }
+            Failure::TooLarge if max_packet > 0 => probing.retry(max_packet),
+            // Every probe lost or refused for the moment is tried again,
+            // smaller in case the amount was what failed, as with too
+            // little liquidity. Retrying only the smallest of them would
+            // retry a 1-unit probe, which can never be precise, and forget
+            // the larger ones: on a lossy path, two unlucky volleys would
+            // end the measurement.
             Failure::Temporary => {
-                probing.smallest_temporary = Some(
-                    probing
-                        .smallest_temporary
-                        .map_or(amount, |smallest| smallest.min(amount)),
-                );
+                probing.temporary = true;
+                probing.retry(amount - amount / 3);
             }
             _ => {}
         }
@@ -419,19 +417,22 @@ impl Connection {
             return;
         }
         probing.volleys += 1;
-        let maxima = probing.maxima;
-        for &maximum in maxima.get(..probing.maxima_count).unwrap_or_default() {
-            probing.enqueue(maximum);
+        // A probe no larger than the best result's cannot get more digits
+        // than it did, so it is not sent again.
+        let best_amount = probing.best.map_or(0, |(_, amount, _)| amount);
+        let retries = probing.retries;
+        for &amount in retries.get(..probing.retry_count).unwrap_or_default() {
+            let amount = amount.min(self.max_packet_amount);
+            if amount > best_amount {
+                probing.enqueue(amount);
+            }
         }
-        probing.maxima_count = 0;
-        let temporary = probing.smallest_temporary.take();
-        if let Some(smallest) = temporary {
-            probing.enqueue(smallest - smallest / 3);
-        }
+        probing.retry_count = 0;
+        let temporary = core::mem::take(&mut probing.temporary);
         if probing.queued == 0 {
             self.probing = None;
             self.push_event(Event::ExchangeRateMeasurementFailed);
-        } else if temporary.is_some() {
+        } else if temporary {
             self.back_off(now);
         }
     }

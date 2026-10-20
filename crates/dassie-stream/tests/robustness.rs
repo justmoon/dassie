@@ -15,7 +15,8 @@ mod support;
 use std::collections::BTreeMap;
 
 use dassie_ilp::{
-    Address, ErrorCode as IlpErrorCode, Fulfill, Prepare, Reject, Response, Timestamp,
+    Address, AmountTooLarge, ErrorCode as IlpErrorCode, Fulfill, Prepare, Reject, Response,
+    Timestamp,
 };
 use dassie_node_core::testing::SeededRng;
 use dassie_oer::{Decode, Encode, Writer};
@@ -342,6 +343,85 @@ fn measuring_twice_does_not_panic() {
         }
     }
     assert_eq!(measured, 1);
+}
+
+#[test]
+fn a_measurement_retries_every_lost_probe() {
+    // The STREAM simulation's seed 1371945081043875: on a path that loses
+    // packets, only the smallest lost probe was retried. When the 1-unit
+    // probe was among the lost, the next volley was that probe alone, which
+    // can never be precise, and the measurement failed on a working path.
+    // Here the path takes at most 7000 at 3/2 and loses every probe it would
+    // deliver in the first two volleys.
+    let mut server = server(Policy::DEFAULT);
+    let mut rng = SeededRng::new(10);
+    let credentials = server.generate_credentials(&mut rng, b"", None);
+    let mut connection = Connection::new(&Config {
+        role: Role::Client,
+        shared_secret: &credentials.shared_secret,
+        local_address: Address::parse("test.client").ok(),
+        remote_address: Address::parse(&credentials.destination).ok(),
+        local_asset: None,
+        receipt: None,
+        policy: Policy::DEFAULT,
+    });
+    let mut buffer = vec![0; BUFFER_LENGTH];
+    let mut now = NOW;
+    connection.measure_exchange_rate();
+    let mut result = None;
+    for volley in 1..=Policy::DEFAULT.max_probe_volleys {
+        let mut sent = Vec::new();
+        while let Some(transmit) = connection.poll_transmit(now, &mut rng, &mut buffer) {
+            sent.push((transmit.request_id, buffer[..transmit.length].to_vec()));
+        }
+        for (request_id, bytes) in sent {
+            let prepare = Prepare::decode_exact(&bytes).unwrap();
+            let response = if prepare.amount > 7000 {
+                let data = AmountTooLarge {
+                    received_amount: prepare.amount,
+                    maximum_amount: 7000,
+                }
+                .to_bytes();
+                connector_reject(IlpErrorCode::F08_AMOUNT_TOO_LARGE, &data)
+            } else if volley <= 2 && prepare.amount > 0 {
+                connector_reject(IlpErrorCode::R00_TRANSFER_TIMED_OUT, &[])
+            } else {
+                let forwarded = Prepare {
+                    amount: prepare.amount * 3 / 2,
+                    ..prepare
+                };
+                let length = server.handle_prepare(now, &mut rng, &forwarded, &mut buffer);
+                buffer[..length].to_vec()
+            };
+            connection.handle_response(now, request_id, &response, &mut buffer);
+            connection.check_invariants();
+        }
+        while let Some(event) = connection.poll_event() {
+            match event {
+                Event::ExchangeRateMeasured { rate } => result = Some(Some(rate)),
+                Event::ExchangeRateMeasurementFailed => result = Some(None),
+                _ => {}
+            }
+        }
+        if result.is_some() {
+            break;
+        }
+        now = connection.poll_timeout().unwrap();
+    }
+    // The third volley retries the 7000 the first one learned, at two
+    // thirds: 4667 arrives as 7000.
+    assert_eq!(result, Some(Some(Rate::new(7000, 4667).unwrap())));
+}
+
+/// A reject from the connector between client and server.
+fn connector_reject(code: IlpErrorCode, data: &[u8]) -> Vec<u8> {
+    Reject {
+        code,
+        triggered_by: Address::parse("test.connector").ok(),
+        message: "",
+        data,
+    }
+    .to_vec()
 }
 
 #[test]
