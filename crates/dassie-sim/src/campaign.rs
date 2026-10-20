@@ -18,14 +18,22 @@
 //! single step, is stopped and reported as a liveness failure at
 //! `wall-time`. A run that ends without its record, as one that overflows
 //! its stack aborts, is a safety failure at `abort`.
+//!
+//! No run outlives the campaign. When it ends early, as when its output
+//! is closed or it cannot start a run, its threads start no more runs, and
+//! stop and reap the ones under way before it exits. When it is killed, its
+//! runs die with it: each asks the kernel for that as it starts (see
+//! [`CAMPAIGN_ENV`]). Otherwise a stuck run, which nobody would stop at
+//! the wall-time limit any more, would run for ever.
 
 use std::collections::BTreeMap;
 use std::env;
 use std::io::{self, Read, Write};
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::process::{Command, ExitCode, ExitStatus, Stdio};
+use std::process::{Child, Command, ExitCode, ExitStatus, Stdio};
 use std::sync::Arc;
-use std::sync::mpsc::{self, SyncSender};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -64,6 +72,20 @@ pub const MOST_MINUTES: u64 = 7 * 24 * 60;
 /// thread whose runs are instant, as the tripwire's, waits for the lines
 /// to be written rather than queueing them without bound.
 const MESSAGES_PER_JOB: usize = 16;
+
+/// How often a thread waiting for a run looks whether the campaign has
+/// stopped, and so how long the campaign takes at most to stop its runs.
+const LOOK: Duration = Duration::from_millis(100);
+
+/// How often a thread looks whether a run's process has ended, once its
+/// output has closed, which it does as it ends.
+const REAP: Duration = Duration::from_millis(1);
+
+/// The variable that tells `dassie-sim record` it makes a campaign's run,
+/// and which process the campaign is: the run then dies when its campaign
+/// does, killed by the kernel, even if the campaign is killed, as no code
+/// of the campaign's can then stop it.
+pub const CAMPAIGN_ENV: &str = "DASSIE_SIM_CAMPAIGN";
 
 /// Seeds are drawn below 2^53, so that a record's seed is exact in any
 /// JSON parser, JavaScript's included. That still leaves more seeds than
@@ -126,8 +148,9 @@ type Draw = Arc<dyn Fn() -> Option<Result<(u64, u64), String>> + Send + Sync>;
 
 /// How a crew makes a run of a simulation, from its seed and what the seed
 /// drew: in a process of its own in a campaign, and in the test's own
-/// process in a test.
-type Runner = Arc<dyn Fn(&'static Sim, u64, &str) -> io::Result<Ran> + Send + Sync>;
+/// process in a test. It ends the run early, with an error, once the flag
+/// says the campaign stopped.
+type Runner = Arc<dyn Fn(&'static Sim, u64, &str, &AtomicBool) -> io::Result<Ran> + Send + Sync>;
 
 /// A finished run: its record, and what the tally counts of it.
 #[derive(Debug)]
@@ -182,50 +205,86 @@ struct Crew {
 impl Crew {
     /// Makes runs on `jobs` threads until the end, writing each run's
     /// record to `out` and counting it, until each thread is done. Says
-    /// what failed if the runner itself did.
+    /// what failed if the runner itself did. However it ends, early too,
+    /// it stops the runs under way, and returns only once every thread
+    /// has ended.
     fn run(
         &self,
         jobs: usize,
         out: &mut impl Write,
         tally: &mut Tally,
     ) -> io::Result<Result<(), String>> {
+        let stop = Arc::new(AtomicBool::new(false));
         let (sender, receiver) = mpsc::sync_channel(jobs * MESSAGES_PER_JOB);
+        let mut threads = Vec::with_capacity(jobs);
+        let mut spawned = Ok(());
         for job in 0..jobs {
             let (sims, end, sender) = (Arc::clone(&self.sims), self.end, sender.clone());
-            let (draw, run) = (Arc::clone(&self.draw), Arc::clone(&self.run));
-            thread::Builder::new()
+            let (draw, run, stop) = (
+                Arc::clone(&self.draw),
+                Arc::clone(&self.run),
+                Arc::clone(&stop),
+            );
+            let thread = thread::Builder::new()
                 .name(format!("job {job}"))
-                .spawn(move || work(&sims, end, &*draw, &*run, &sender))?;
-        }
-        drop(sender);
-        let mut working = jobs;
-        while working > 0 {
-            // Each thread holds a sender until it is done.
-            let Ok(message) = receiver.recv() else { break };
-            match message {
-                Message::Finished(sim, ran) => {
-                    writeln!(out, "{}", ran.record)?;
-                    out.flush()?;
-                    tally.add(sim, ran.outcome, ran.ms);
+                .spawn(move || work(&sims, end, &*draw, &*run, &stop, &sender));
+            match thread {
+                Ok(thread) => threads.push(thread),
+                Err(error) => {
+                    spawned = Err(error);
+                    break;
                 }
-                Message::Done => working -= 1,
-                Message::Failed(problem) => return Ok(Err(problem)),
             }
         }
-        Ok(Ok(()))
+        drop(sender);
+        let result = spawned.and_then(|()| listen(&receiver, threads.len(), out, tally));
+        // The threads start no more runs, and stop and reap those under
+        // way; one waiting to send finds nobody listening.
+        stop.store(true, Ordering::Relaxed);
+        drop(receiver);
+        for thread in threads {
+            // A thread that panicked has ended all the same.
+            let _ = thread.join();
+        }
+        result
     }
 }
 
+/// Writes and counts each run's record the threads send, until `working`
+/// threads are done. Says what failed if the runner itself did.
+fn listen(
+    receiver: &Receiver<Message>,
+    mut working: usize,
+    out: &mut impl Write,
+    tally: &mut Tally,
+) -> io::Result<Result<(), String>> {
+    while working > 0 {
+        // Each thread holds a sender until it is done.
+        let Ok(message) = receiver.recv() else { break };
+        match message {
+            Message::Finished(sim, ran) => {
+                writeln!(out, "{}", ran.record)?;
+                out.flush()?;
+                tally.add(sim, ran.outcome, ran.ms);
+            }
+            Message::Done => working -= 1,
+            Message::Failed(problem) => return Ok(Err(problem)),
+        }
+    }
+    Ok(Ok(()))
+}
+
 /// A thread's work: makes the runs `draw` gives until the campaign's end,
-/// or until `draw` has no more.
+/// until `draw` has no more, or until the campaign stops.
 fn work(
     sims: &[&'static Sim],
     end: Instant,
     draw: &(dyn Fn() -> Option<Result<(u64, u64), String>> + Send + Sync),
-    run: &(dyn Fn(&'static Sim, u64, &str) -> io::Result<Ran> + Send + Sync),
+    run: &(dyn Fn(&'static Sim, u64, &str, &AtomicBool) -> io::Result<Ran> + Send + Sync),
+    stop: &AtomicBool,
     sender: &SyncSender<Message>,
 ) {
-    while Instant::now() < end {
+    while Instant::now() < end && !stop.load(Ordering::Relaxed) {
         let (seed, picked) = match draw() {
             Some(Ok(drawn)) => drawn,
             Some(Err(problem)) => {
@@ -235,8 +294,10 @@ fn work(
             None => break,
         };
         let Some(sim) = pick(sims, picked) else { break };
-        let message = match run(sim, seed, &described(sim, seed)) {
+        let message = match run(sim, seed, &described(sim, seed), stop) {
             Ok(ran) => Message::Finished(sim.name, ran),
+            // A run the campaign stopped has nothing to report.
+            Err(_) if stop.load(Ordering::Relaxed) => return,
             Err(error) => Message::Failed(format!("cannot make a run: {error}")),
         };
         let failed = matches!(message, Message::Failed(_));
@@ -251,6 +312,32 @@ fn work(
 fn described(sim: &Sim, seed: u64) -> String {
     catch_unwind(AssertUnwindSafe(|| (sim.describe)(seed)))
         .unwrap_or_else(|_| "(describing it panicked)".to_owned())
+}
+
+/// For `dassie-sim record` making a campaign's run, as [`CAMPAIGN_ENV`]
+/// says: asks the kernel to kill this process when the campaign's thread
+/// that started it ends, which it does only once the run has ended, or
+/// when the campaign's process does. Says so when the campaign has already
+/// ended, before the kernel was asked: the run then has another parent.
+///
+/// # Errors
+///
+/// The campaign has ended, or the variable is not a process.
+pub fn die_with_campaign() -> Result<(), String> {
+    let Some(campaign) = env::var_os(CAMPAIGN_ENV) else {
+        return Ok(());
+    };
+    let campaign: u32 = campaign
+        .to_str()
+        .and_then(|campaign| campaign.parse().ok())
+        .ok_or_else(|| format!("{CAMPAIGN_ENV} is not a process: {}", campaign.display()))?;
+    #[cfg(target_os = "linux")]
+    rustix::process::set_parent_process_death_signal(Some(rustix::process::Signal::KILL))
+        .map_err(|error| format!("cannot die with the campaign: {error}"))?;
+    if std::os::unix::process::parent_id() != campaign {
+        return Err("the campaign of this run has ended".into());
+    }
+    Ok(())
 }
 
 /// Makes a run here, in this process, and returns its record: what
@@ -268,12 +355,20 @@ fn ran_here(sim: &'static Sim, seed: u64) -> Ran {
 
 /// Makes a run in a process of its own, `dassie-sim record`: its record is
 /// the one the process wrote, or, when it wrote none, or ran past
-/// [`RUN_LIMIT`] and was stopped, one that says so.
-fn in_a_process(sim: &'static Sim, seed: u64, options: &str) -> io::Result<Ran> {
+/// [`RUN_LIMIT`] and was stopped, one that says so. Once `stop` says the
+/// campaign stopped, it stops the run and says so instead.
+fn in_a_process(sim: &'static Sim, seed: u64, options: &str, stop: &AtomicBool) -> io::Result<Ran> {
     let mut command = Command::new(env::current_exe()?);
-    command.args(["record", sim.name, &seed.to_string()]);
+    command
+        .args(["record", sim.name, &seed.to_string()])
+        .env(CAMPAIGN_ENV, std::process::id().to_string());
     let since = Instant::now();
-    let ended = apart(command, RUN_LIMIT)?;
+    let Some(ended) = apart(command, RUN_LIMIT, stop)? else {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "the campaign stopped",
+        ));
+    };
     let ms = millis(since.elapsed());
     Ok(ended_as(sim.name, seed, options, ended, ms))
 }
@@ -312,8 +407,11 @@ enum Ended {
     Overdue,
 }
 
-/// Runs `command` until it ends, or stops it at `limit`.
-fn apart(mut command: Command, limit: Duration) -> io::Result<Ended> {
+/// Runs `command` until it ends, or stops it at `limit`, or as soon as
+/// `stop` says the campaign stopped: then `None`. Stopped or not, the
+/// process has ended and been reaped when this returns, errors aside.
+fn apart(mut command: Command, limit: Duration, stop: &AtomicBool) -> io::Result<Option<Ended>> {
+    let deadline = Instant::now() + limit;
     let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -323,23 +421,52 @@ fn apart(mut command: Command, limit: Duration) -> io::Result<Ended> {
     // A thread reads what it writes until it closes its end; the read end
     // closes after the most that is read, so that a process that wrote
     // more does not wait on a full pipe.
-    thread::Builder::new()
-        .name("output".into())
-        .spawn(move || {
-            let mut out = Vec::new();
-            if let Some(stdout) = stdout {
-                let _ = stdout.take(RECORD_BYTES).read_to_end(&mut out);
-            }
-            let _ = sender.send(out);
-        })?;
-    if let Ok(out) = receiver.recv_timeout(limit) {
-        let status = child.wait()?;
-        return Ok(Ended::Exited { status, out });
+    let reader = thread::Builder::new().name("output".into()).spawn(move || {
+        let mut out = Vec::new();
+        if let Some(stdout) = stdout {
+            let _ = stdout.take(RECORD_BYTES).read_to_end(&mut out);
+        }
+        let _ = sender.send(out);
+    });
+    if let Err(error) = reader {
+        end(child)?;
+        return Err(error);
     }
-    // It may have ended just now: then there is nothing to stop.
+    // Its output closes as it ends; it has ended once it is reaped. Both
+    // are waited for by the deadline, and only until the campaign stops.
+    let mut out = None;
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            end(child)?;
+            return Ok(None);
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            end(child)?;
+            return Ok(Some(Ended::Overdue));
+        }
+        match out.take() {
+            None => match receiver.recv_timeout(left.min(LOOK)) {
+                Ok(read) => out = Some(read),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => out = Some(Vec::new()),
+            },
+            Some(read) => {
+                if let Some(status) = child.try_wait()? {
+                    return Ok(Some(Ended::Exited { status, out: read }));
+                }
+                out = Some(read);
+                thread::sleep(REAP.min(left));
+            }
+        }
+    }
+}
+
+/// Kills a process, if it still runs, and reaps it.
+fn end(mut child: Child) -> io::Result<()> {
+    // It may have ended just now: then there is nothing to kill.
     let _ = child.kill();
-    child.wait()?;
-    Ok(Ended::Overdue)
+    child.wait().map(drop)
 }
 
 /// The simulation `draw` picks, each as likely as its weight. A draw from
@@ -601,7 +728,10 @@ mod tests {
         // well before its minute is up. Its runs are made here: a test's
         // process is not the runner's, so it cannot start `dassie-sim
         // record`.
-        let crew = tripwire_crew(fixed(100), Arc::new(|sim, seed, _| Ok(ran_here(sim, seed))));
+        let crew = tripwire_crew(
+            fixed(100),
+            Arc::new(|sim, seed, _, _| Ok(ran_here(sim, seed))),
+        );
         let (mut out, mut tally) = (Vec::new(), Tally::default());
         assert_eq!(crew.run(4, &mut out, &mut tally).unwrap(), Ok(()));
         let mut lines: Vec<Value> = String::from_utf8(out)
@@ -622,7 +752,7 @@ mod tests {
 
     #[test]
     fn a_crew_that_cannot_make_a_run_says_so() {
-        let failing: Runner = Arc::new(|_, _, _| Err(io::ErrorKind::NotFound.into()));
+        let failing: Runner = Arc::new(|_, _, _, _| Err(io::ErrorKind::NotFound.into()));
         let crew = tripwire_crew(fixed(100), failing);
         let (mut out, mut tally) = (Vec::new(), Tally::default());
         let problem = crew.run(2, &mut out, &mut tally).unwrap().unwrap_err();
@@ -637,11 +767,91 @@ mod tests {
         command
     }
 
+    /// How `command` ended, run by a campaign that does not stop.
+    fn ended(command: Command, limit: Duration) -> Ended {
+        apart(command, limit, &AtomicBool::new(false))
+            .unwrap()
+            .unwrap()
+    }
+
+    /// An output that is closed, as `head`'s is once it has read enough.
+    struct Closed;
+
+    impl Write for Closed {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::ErrorKind::BrokenPipe.into())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Whether process `pid` still runs.
+    fn runs(pid: &str) -> bool {
+        let quiet = Stdio::null;
+        let status = Command::new("kill")
+            .args(["-0", pid])
+            .stderr(quiet())
+            .status();
+        status.unwrap().success()
+    }
+
+    #[test]
+    fn a_crew_that_ends_early_leaves_no_run_behind() {
+        // Two runs sleep for longer than any test takes, each writing its
+        // process's number into a file of its own. The third ends once
+        // both are under way, and its record finds the output closed.
+        let files = env::temp_dir().join(format!("dassie-sim-early-{}", std::process::id()));
+        std::fs::create_dir_all(&files).unwrap();
+        let written = files.clone();
+        let run: Runner = Arc::new(move |sim, seed, options, stop| {
+            if seed == 0 {
+                let numbered = |file: &std::fs::DirEntry| file.metadata().unwrap().len() > 0;
+                while std::fs::read_dir(&written)
+                    .unwrap()
+                    .flatten()
+                    .filter(numbered)
+                    .count()
+                    < 2
+                {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                return Ok(ran_here(sim, seed));
+            }
+            let file = written.join(seed.to_string());
+            let sleeping = shell("echo $$ > \"$1\"; exec sleep 600", file.to_str().unwrap());
+            let ended = apart(sleeping, RUN_LIMIT, stop)?.ok_or(io::ErrorKind::Interrupted)?;
+            Ok(ended_as(sim.name, seed, options, ended, 1))
+        });
+        let crew = tripwire_crew(fixed(3), run);
+        let started = Instant::now();
+        let ended = crew.run(3, &mut Closed, &mut Tally::default());
+        assert_eq!(ended.unwrap_err().kind(), io::ErrorKind::BrokenPipe);
+        assert!(started.elapsed() < Duration::from_secs(60));
+        // Both sleeping runs were stopped, and reaped, before it returned.
+        for seed in ["500", "1000"] {
+            let pid = std::fs::read_to_string(files.join(seed)).unwrap();
+            assert!(pid.trim().parse::<u32>().is_ok(), "{pid:?}");
+            assert!(!runs(pid.trim()), "run {seed} still runs");
+        }
+        std::fs::remove_dir_all(&files).unwrap();
+    }
+
+    #[test]
+    fn a_run_the_campaign_stops_ends() {
+        let stop = AtomicBool::new(true);
+        let started = Instant::now();
+        let ended = apart(shell("exec sleep 600", ""), RUN_LIMIT, &stop).unwrap();
+        assert!(ended.is_none());
+        assert!(started.elapsed() < Duration::from_secs(30));
+    }
+
     #[test]
     fn the_record_a_run_writes_is_its_record() {
         let written = here(find("tripwire").unwrap(), 7_000);
-        let ended = apart(shell("echo \"$1\"", &written.to_string()), RUN_LIMIT);
-        let ran = ended_as("tripwire", 7_000, "", ended.unwrap(), 1);
+        let ended = ended(shell("echo \"$1\"", &written.to_string()), RUN_LIMIT);
+        let ran = ended_as("tripwire", 7_000, "", ended, 1);
         assert_eq!(ran.record, written);
         assert_eq!(ran.outcome, "safety");
         assert_eq!(ran.record["signature"], "tripwire/safety/on-purpose");
@@ -650,7 +860,7 @@ mod tests {
     #[test]
     fn a_run_past_the_limit_is_stopped_and_reported() {
         let started = Instant::now();
-        let ended = apart(shell("exec sleep 60", ""), Duration::from_millis(100)).unwrap();
+        let ended = ended(shell("exec sleep 60", ""), Duration::from_millis(100));
         assert!(matches!(ended, Ended::Overdue));
         assert!(started.elapsed() < Duration::from_secs(30));
         let ran = ended_as("node", 42, "3 nodes", ended, 600_001);
@@ -670,9 +880,9 @@ mod tests {
 
     #[test]
     fn a_run_that_ends_without_its_record_is_a_safety_failure() {
-        // Killed, as one out of memory is, or aborted, as one that
-        // overflows its stack is, a run's process writes no record.
-        let killed = apart(shell("kill -KILL $$", ""), RUN_LIMIT).unwrap();
+        // Killed by a signal, or aborted, as one that overflows its stack
+        // is, a run's process writes no record.
+        let killed = ended(shell("kill -KILL $$", ""), RUN_LIMIT);
         let line = ended_as("tripwire", 42, "nothing", killed, 5).record;
         assert_eq!(line["signature"], "tripwire/safety/abort");
         assert_eq!(line["options"], "nothing");
@@ -687,12 +897,12 @@ mod tests {
             ("echo \"$1\"; exit 1", 42),
             ("echo \"$1\"", 43),
         ] {
-            let ended = apart(shell(script, &written), RUN_LIMIT).unwrap();
+            let ended = ended(shell(script, &written), RUN_LIMIT);
             let ran = ended_as("tripwire", seed, "nothing", ended, 5);
             assert_eq!(ran.outcome, "safety", "{script}");
             assert_eq!(ran.record["signature"], "tripwire/safety/abort");
         }
-        let ended = apart(shell("echo \"$1\"", &written), RUN_LIMIT).unwrap();
+        let ended = ended(shell("echo \"$1\"", &written), RUN_LIMIT);
         assert_eq!(ended_as("tripwire", 42, "", ended, 5).outcome, "pass");
     }
 
@@ -700,7 +910,7 @@ mod tests {
     fn what_a_run_writes_is_read_only_up_to_the_most() {
         // A process that would write without end is not waited for on a
         // full pipe: its output closes after the most, and it ends.
-        let Ended::Exited { status, out } = apart(shell("exec yes", ""), RUN_LIMIT).unwrap() else {
+        let Ended::Exited { status, out } = ended(shell("exec yes", ""), RUN_LIMIT) else {
             panic!("it ends once its output closes");
         };
         assert!(!status.success());

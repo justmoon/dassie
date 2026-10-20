@@ -18,7 +18,8 @@
 //! The exit status of `run` and `explain` is 1 when a run broke safety, 2
 //! when one broke liveness and none safety, 3 when the runner itself
 //! failed, 64 for a usage error, and 0 otherwise. That of `record` is 0
-//! once it printed its line, whatever the run found, as a campaign's is.
+//! once it printed its line, whatever the run found, as a campaign's is,
+//! and 3 when the campaign it makes the run for has already ended.
 //!
 //! # The campaign
 //!
@@ -267,7 +268,13 @@ fn execute(command: Command) -> ExitCode {
         Command::Explain { sim, seed, grep } => explain(&mut out, &mut tally, sim, seed, &grep),
         // A campaign's run: its record says how it ended, as the
         // campaign's own status does not.
-        Command::Record { sim, seed } => writeln!(out, "{}", campaign::here(sim, seed)),
+        Command::Record { sim, seed } => {
+            if let Err(problem) = campaign::die_with_campaign() {
+                eprintln!("dassie-sim: {problem}");
+                return ExitCode::from(3);
+            }
+            writeln!(out, "{}", campaign::here(sim, seed))
+        }
         // A campaign's records say how its runs ended, and its status only
         // whether it ran to its end: a reader that stops reading leaves it
         // nobody to report to, which fails the runner.

@@ -22,3 +22,8 @@ getrandom = "0.4.3"
 lexopt = "0.3.2"
 # A campaign's records, one JSON object per line.
 serde_json = "1.0.154"
+
+# A campaign's run asks the kernel to kill it when its campaign's process
+# ends (PR_SET_PDEATHSIG), which only Linux offers in this form.
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1.1.5", features = ["process"] }
