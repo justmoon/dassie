@@ -1004,8 +1004,13 @@ export function sandboxArgs(spec: SandboxSpec): string[] {
     // Public addresses only: not the metadata server, which is link-local
     // (and fd20:ce::254 on IPv6), nor the VPC. Names resolve through
     // public resolvers, since the VM's resolver is the metadata server.
+    // systemd-run takes the keywords only as a whole value, unlike a unit
+    // file, so each gets its own property; the properties add up.
     properties.push(
-      "IPAddressDeny=localhost link-local multicast 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 fc00::/7",
+      "IPAddressDeny=localhost",
+      "IPAddressDeny=link-local",
+      "IPAddressDeny=multicast",
+      "IPAddressDeny=10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 fc00::/7",
       "RestrictAddressFamilies=AF_INET AF_INET6",
       `BindReadOnlyPaths=${spec.resolvConf}:/etc/resolv.conf`,
     );
