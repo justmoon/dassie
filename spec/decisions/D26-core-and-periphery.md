@@ -1,6 +1,6 @@
 # D26. Core and periphery
 
-**Areas:** [Periphery](../designs/periphery.md), [Network](../areas/network.md), [Peer protocol](../areas/peer-protocol.md), [Settlement](../areas/settlement.md), [Payments](../areas/payments.md). A design, not built yet ([roadmap](../roadmap.md#periphery)).
+**Areas:** [Periphery](../designs/periphery.md), [Network](../areas/network.md), [Peer protocol](../areas/peer-protocol.md), [Settlement](../areas/settlement.md), [Payments](../areas/payments.md). A design, partly built ([roadmap](../roadmap.md#periphery)).
 
 ## Facts
 

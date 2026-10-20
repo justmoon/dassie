@@ -40,6 +40,12 @@ The node ID is the short, self-certifying name of a node: a truncated SHA-256 of
 
 An ID received from elsewhere is only a name until checked: it must equal the ID computed from the key it comes with, and a link state, peering request or authenticated message whose ID and key disagree is refused ([Peer protocol](peer-protocol.md)).
 
+## Node label
+
+A node ID cannot be a hostname as it is: DNS ignores case, and base64url depends on it. So a node is named in DNS by its label (`src/label.rs`): the lowercase base32 (RFC 4648, no padding) of the 24 digest bytes the ID names, which are its characters after `d`, padded back to 32 with the `A`s the ID stripped, then decoded. That is 39 characters, within DNS's 63. Front doors serve a node without a hostname as `<label>.<domain>` ([Payments](payments.md#the-nodes-names)), and a client checks the key a node signs with against the ID the label names ([Payments](payments.md#signed-responses)).
+
+The mapping is one to one. A label is read in either case, but its unused last bits must be zero; an ID that ends in `A`, which no key gives, has no label, since it would share one with another ID. The label is a compatibility surface like the ID: names in DNS and in clients' records are built from it.
+
 ## Object identifiers
 
 Dassie's OIDs sit under the private arc `1.3.6.1.4.1.54392.5.1399`: `.1` for the peer protocol, `.2` for node fingerprints. They are hashed into node IDs and signed into link states, so an arc is never reassigned, including `.1.1`, which the original defined and nothing uses. A new version of a signed structure takes a new OID, so a signature over the old one cannot pass as the new ([Peer protocol](peer-protocol.md)).
@@ -54,7 +60,7 @@ Secrets (master seed, node key, derived secrets, X25519 and shared secrets) are 
 
 ## In the browser and in scripts
 
-`dassie-identity` and `dassie-stream` (with `dassie-ilp`'s codecs) are built to WASM (`node --run build:wasm`) and published as `@dassie/identity-wasm`, so the wallet derives keys with exactly the code the node runs. One `web` build serves browsers and Node ([D21](../decisions/D21-tooling-on-node-and-pnpm-not-deno.md)): `.` for scripts and tests, `./web` for browsers. Development-only functions (`devSessionToken`, `sign`, `mnemonicFromEntropy`) are left out of `./web`.
+`dassie-identity` and `dassie-stream` (with `dassie-ilp`'s codecs) are built to WASM (`node --run build:wasm`) and published as `@dassie/identity-wasm`, so the wallet derives keys with exactly the code the node runs. One `web` build serves browsers and Node ([D21](../decisions/D21-tooling-on-node-and-pnpm-not-deno.md)): `.` for scripts and tests, `./web` for browsers. Development-only functions (`devSessionToken`, `sign`, `mnemonicFromEntropy`) are left out of `./web`, and so are node labels (`nodeLabel`, `nodeIdFromLabel`), which only scripts use so far.
 
 ## Decisions
 

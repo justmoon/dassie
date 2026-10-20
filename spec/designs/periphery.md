@@ -14,7 +14,7 @@ A periphery node always opens its connections itself, to nodes with a public IP,
 - a way to reach a periphery node by its ID, for its owner's apps and for Open Payments clients (§5–§7);
 - receiving payments without paying anything first (§8).
 
-This is a design ([D26](../decisions/D26-core-and-periphery.md)); nothing in it is built yet. Durations and sizes in it are starting points, to be set from the deterministic simulation when the parts are built.
+This is a design ([D26](../decisions/D26-core-and-periphery.md)). Of it, QUIC between core nodes is built ([Peer protocol](../areas/peer-protocol.md#quic)), and so are a node's names, its signed responses and the `dassie` field of §7 ([Payments](../areas/payments.md#the-nodes-names)); the rest is not built yet. Durations and sizes in it are starting points, to be set from the deterministic simulation when the parts are built.
 
 ## 1. Concepts
 
@@ -130,7 +130,7 @@ Open Payments clients reach a wallet address by DNS and HTTPS, so whoever answer
 
 **Front doors.**
 
-- **Names.** A front door serves `<label>.<domain>`, where `<label>` is the lowercase base32 (RFC 4648, no padding) of the 24 digest bytes the [node ID](../areas/identity.md#node-id) names: its characters after `d`, padded back to 32 with `A`, then decoded. That is 39 characters, within DNS's 63. Base64url node IDs cannot be hostnames as they are, since DNS ignores case.
+- **Names.** A front door serves `<label>.<domain>`, where `<label>` is the node's [label](../areas/identity.md#node-label).
 - **What it serves.** It terminates TLS with a wildcard certificate and passes to the node, through a relay with purpose `payments`, only the [Open Payments routes](../areas/payments.md#http-routes). It returns only JSON, within the same size limits. It never serves the wallet, nor any page the node returns, so nobody can host pages on its domain.
 - **Inside the relayed stream,** it runs TLS with the node's key pinned, so the relay sees only ciphertext. The front door itself sees the requests in plain text.
 - **Consent.** `GET /gnap/interact/{id}/{key}` answers with a fixed page from the front door itself, "Approve this in your Dassie app", which asks for nothing. The page checks a JSON route for the grant's state, and sends the client on to its finish URI once the owner decided (§6).
@@ -144,20 +144,9 @@ Open Payments clients reach a wallet address by DNS and HTTPS, so whoever answer
 
 The payment pointer is then `$pay.example.com`.
 
-**The node's names.** A node writes absolute URLs into its Open Payments responses (wallet address `id`, `authServer`, `resourceServer`, payment and GNAP URLs), checks each request's signature against its own origin, and tells its own wallets from others' by origin ([Payments](../areas/payments.md#http-routes)). A core node has one hostname for all three. A periphery node has none, and is reached under its front door name and any domains of its owner, so it keeps a list of its names:
+**The node's names** are built ([Payments](../areas/payments.md#the-nodes-names)): a node without a hostname answers to its default front door name and the names its owner adds, each request under the name it came through, and refuses any other. What is left is the owner adding names in the wallet rather than in the node's environment, beside the TXT record that names the node.
 
-- **The list** starts with its name at the default front door, which it computes from its ID, and the owner adds names: another front door's, or a domain of their own, beside the TXT record that names the node.
-- **Each request is answered under the name it came through,** which the front door passes on: the node writes that name into the URLs of its answer, and checks the request's signature against it. A client that fetched `$pay.example.com` then finds a wallet address whose `id` is at that origin, as it must ([Payments](../areas/payments.md#the-node-as-a-client)).
-- **A request for a name not on the list is refused,** so a front door cannot make the node sign for a name its owner never chose, or take a request signed for another server.
-- **What outlives a request keeps the name it needs.** Wallet addresses are kept in their `/pay/<slug>` form ([Payments](../areas/payments.md#wallet-addresses)), so a grant made under one name holds under every other, and the node recognises its own wallet under any listed name. A pending grant keeps the name its request came through: the interaction hash covers the grant URL the client called (RFC 9635 §4.2.3), and the node computes it when the owner decides, outside any request. As a client at other wallets, the node is known by the first name on the list; changing that name changes how other wallets know it, as changing a core node's hostname does.
-
-**Checking the answer.** A node signs its Open Payments responses with its node key: RFC 9421, with `tag="dassie"`, covering `@status`, `content-digest`, and the request's `@method;req`, `@target-uri;req` and `dassie-nonce;req`, a nonce the client sends so that an old response cannot be replayed. A Dassie-aware client:
-
-1. computes the node ID from the key in the signature;
-2. checks it against the front door's label, or against the TXT record (with DNSSEC or DNS over HTTPS, since plain DNS answers can be forged);
-3. checks the signature.
-
-Wallet address documents carry the node ID and the node's chosen relays in an optional `dassie` field, which other clients ignore.
+**Checking the answer.** A node signs its Open Payments responses with its node key, and wallet address documents carry its ID in a `dassie` field ([Payments](../areas/payments.md#signed-responses)). Dassie's own client is still to check them: for an owner's domain it looks up the TXT record, with DNSSEC or DNS over HTTPS, since plain DNS answers can be forged, and checks the key against the node ID the record names. The node's chosen relays are to join the `dassie` field (§5).
 
 **What clients that do not check trust.** An ordinary Open Payments client takes what the front door says. The incoming payment it reads includes the STREAM shared secret, and a front door whose operator also sits on the payment's path could fulfill the payment's packets itself and keep them. The node tells its owner so in plain words, naming the front door's operator, and the owner can turn off Open Payments through front doors: Dassie nodes can still pay it, with a check that leaves nothing to trust.
 

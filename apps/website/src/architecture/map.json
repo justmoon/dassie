@@ -183,7 +183,7 @@
       "w": 246,
       "desc": "The Rust core crates compiled to WebAssembly, with TypeScript bindings: one build for browsers and Node. The wallet derives keys with exactly the code the node runs.",
       "does": [
-        "Identity: phrase to node key, node ID and login proof",
+        "Identity: phrase to node key, node ID and login proof, and node labels",
         "ILP packets and STREAM, with a STREAM driver for interop tests",
         "Decrypting STREAM packets, for the STREAM toy",
         "The phrase for a given entropy, for the dev network's vanity nodes"
@@ -302,7 +302,7 @@
         "The engine: ledger, connector, BTP server and STREAM receiver",
         "The peer protocol over QUIC, with each node's key pinned, and over HTTPS as `POST /peer` for nodes that do not take QUIC; the settlement loop",
         "RPC with live streams, the log ring, the database inspector and `GET /stats`",
-        "Open Payments over HTTPS: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments",
+        "Open Payments over HTTPS: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments, each answer signed with the node key and written under the name the request came through",
         "Exchange rates, fetched from several sources, and the fee and spread on what passes between peers",
         "Credit to each peer that grows with the fees it earned the node, read from the journal",
         "Simulated as a network of real engine cores, in tests and by `dassie-sim`: each seed draws its nodes, faults and payments, runs them through chaos, then heals the network, which must settle down"
@@ -419,12 +419,12 @@
       "w": 184,
       "desc": "Open Payments without IO: wallet addresses and their resources, GNAP grants, HTTP message signatures, payment pointers. The node serves it over HTTPS.",
       "does": [
-        "HTTP message signatures (RFC 9421) and content digests (RFC 9530)",
+        "HTTP message signatures (RFC 9421) and content digests (RFC 9530), and the node's signature on its answers, which Dassie-aware clients check against the node ID",
         "GNAP grant requests, access rules and the interaction hash",
         "Wallet addresses, incoming payments, quotes and outgoing payments",
         "Repeating intervals for grant limits",
         "Payment pointers and recipients, for Send",
-        "Reads no clock, touches no network, needs no other Dassie crate"
+        "Reads no clock, touches no network, and needs only `dassie-identity` of the other Dassie crates"
       ]
     },
     "ledger": {
@@ -509,6 +509,7 @@
       "does": [
         "BIP-39 phrases and seed paths",
         "The Ed25519 node key, node ID and login secret, and X25519 keys",
+        "The node label: a node ID as a DNS name, as front doors serve it",
         "Signature checks under the ZIP-215 rules",
         "Builds to WebAssembly"
       ]
@@ -760,6 +761,12 @@
     {
       "f": "node",
       "t": "payments",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "payments",
+      "t": "identity",
       "k": "uses",
       "h": true
     },
