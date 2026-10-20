@@ -21,7 +21,7 @@
 //! - the owner's own endpoints never convert, and only transit from one
 //!   peer to another is charged a fee and a spread (D7);
 //! - ILDCP answers the address that is routed and the endpoint's asset
-//!   (ILP-7, NET-25);
+//!   (ILP-7, NET-24, NET-25);
 //! - outgoing request IDs are unique per endpoint (ILP-8);
 //! - prefixes match whole segments (NET-33).
 //!

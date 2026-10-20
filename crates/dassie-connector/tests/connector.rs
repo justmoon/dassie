@@ -40,8 +40,8 @@ fn pay(h: &mut Harness, request_id: u32, amount: u64, fulfillment: [u8; 32]) -> 
     forwarded(h.prepare(NOW, ALICE, request_id, &packet))
 }
 
-// ILP-7 and NET-25: ILDCP answered XRP/9 to everyone, and an address that
-// was not the one routed.
+// ILP-7, NET-24 and NET-25: ILDCP answered XRP/9 to everyone, and an address
+// that was not the one routed.
 #[test]
 fn ildcp_answers_the_routed_address_and_the_ledgers_asset() {
     let mut h = Harness::new(Config::DEFAULT, 0);
