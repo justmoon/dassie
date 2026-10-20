@@ -415,13 +415,13 @@ export const DisplayTotalSchema: GenMessage<DisplayTotal> = /*@__PURE__*/
 
 /**
  * Where the node fetches exchange rates (D7). A currency's rate is the
- * median of the sources that give one, once more than half of them did.
+ * median of the sources that cover it, once more than half of them gave one.
  *
  * @generated from message dassie.ui.v1.RateSource
  */
 export type RateSource = Message<"dassie.ui.v1.RateSource"> & {
   /**
-   * "coinbase", "kraken" or "bitstamp".
+   * "coinbase", "kraken", "bitstamp" or "ecb".
    *
    * @generated from field: string kind = 1;
    */

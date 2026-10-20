@@ -94,14 +94,15 @@ impl Node {
                 let request = WebRequest {
                     method: http::Method::GET,
                     url: source.url().to_owned(),
-                    headers: vec![(http::header::ACCEPT, "application/json".to_owned())],
+                    headers: vec![(http::header::ACCEPT, source.kind.accept().to_owned())],
                     body: None,
                     timeout_ms: SOURCE_TIMEOUT_MS,
                     max_response_bytes: MAX_RESPONSE_BYTES,
                 };
                 match client.web(request).await {
                     Ok(response) if response.status == 200 => {
-                        rates::parse(source.kind, &response.body).map_err(|e| e.0.to_owned())
+                        rates::parse(source.kind, &response.body, self.now_ms())
+                            .map_err(|e| e.0.to_owned())
                     }
                     Ok(response) => Err(format!("status {}", response.status)),
                     Err(error) => Err(error.to_string()),

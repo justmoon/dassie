@@ -80,7 +80,7 @@ fn sources(sources: &[RateSource]) -> Vec<proto::RateSource> {
 
 fn source(message: &proto::RateSource) -> Result<RateSource, RpcError> {
     let kind = SourceKind::parse(&message.kind)
-        .ok_or_else(|| RpcError::invalid("a rate source is coinbase, kraken or bitstamp"))?;
+        .ok_or_else(|| RpcError::invalid("a rate source is coinbase, kraken, bitstamp or ecb"))?;
     let chosen = RateSource {
         kind,
         url: (!message.url.is_empty()).then(|| message.url.clone()),
