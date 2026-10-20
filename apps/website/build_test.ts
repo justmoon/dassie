@@ -1,21 +1,17 @@
 // What dassie.land's build must keep to:
 //
-// - the CSP in vercel.json: no inline script or style, no script, style or
+// - the CSP in headers.json: no inline script or style, no script, style or
 //   image from elsewhere (links to elsewhere are fine);
 // - every page has the shared header and footer;
-// - vercel-build.sh installs the Node and pnpm the flake has and the
-//   wasm-bindgen Cargo.lock has, so that Vercel builds what CI builds;
-// - vercel-ignore.sh skips a deployment only when nothing the site is
-//   built from changed, and watches every crate and package it is built
-//   from.
+// - the website workflow publishes on a change to anything the site is
+//   built from: its `paths` name every crate and package it is built from.
 //
 // The checks of the pages run only once `node --run build:website` has run.
 
 import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
-import process from "node:process";
 import { exists, scripts } from "@dassie/ui/testing/csp";
 import { PAGES } from "./src/layout.ts";
 
@@ -63,30 +59,6 @@ test(
   },
 );
 
-test("vercel-build.sh installs the flake's Node and pnpm and Cargo.lock's wasm-bindgen", async () => {
-  const script = await readFile(
-    new URL("vercel-build.sh", import.meta.url),
-    "utf8",
-  );
-  const pin = (name: string) =>
-    script.match(new RegExp(`^${name}=(\\S+)$`, "m"))?.[1];
-  // CI runs in the flake's shell, so its Node and pnpm are the flake's.
-  assertEquals(pin("NODE_VERSION"), process.versions.node);
-  assertEquals(
-    pin("PNPM_VERSION"),
-    (await output("pnpm", ["--version"])).trim(),
-  );
-  const lock = await readFile(
-    new URL("../../Cargo.lock", import.meta.url),
-    "utf8",
-  );
-  const bindgen = lock.match(/name = "wasm-bindgen"\nversion = "([^"]+)"/)?.[1];
-  assertEquals(pin("WASM_BINDGEN_VERSION"), bindgen);
-  for (const name of ["NODE", "PNPM", "RUSTUP", "WASM_BINDGEN"]) {
-    assert(/^[0-9a-f]{64}$/.test(pin(`${name}_SHA256`) ?? ""), name);
-  }
-});
-
 /** What `command` prints, run at the repository's root. */
 function output(command: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -107,14 +79,17 @@ function output(command: string, args: string[]): Promise<string> {
   });
 }
 
-/** The paths vercel-ignore.sh watches. */
+/** The paths whose change publishes the site, from website.yml. */
 async function watched(): Promise<string[]> {
-  const script = await readFile(
-    new URL("vercel-ignore.sh", import.meta.url),
+  const workflow = await readFile(
+    `${root}.github/workflows/website.yml`,
     "utf8",
   );
-  const list = script.slice(script.indexOf("HEAD -- \\"));
-  return [...list.matchAll(/^ {2}(\S+)(?: \\)?$/gm)].map((match) => match[1]);
+  const list = workflow.match(/^ {4}paths:\n((?:(?: *#.*| {6}- .*)\n)+)/m)?.[1];
+  assert(list, "website.yml has no paths");
+  return [...list.matchAll(/^ {6}- (\S+)$/gm)].map((match) =>
+    match[1].replace(/\/\*\*$/, "")
+  );
 }
 
 /** The workspace crates the WASM modules are built from. */
@@ -215,36 +190,9 @@ async function sitePackages(): Promise<Set<string>> {
   return packages;
 }
 
-test("vercel-ignore.sh watches every crate and package the site is built from", async () => {
+test("the website workflow watches every crate and package the site is built from", async () => {
   const paths = await watched();
   for (const dir of [...await wasmCrates(), ...await sitePackages()]) {
-    assert(paths.includes(dir), `vercel-ignore.sh does not watch ${dir}`);
+    assert(paths.includes(dir), `website.yml does not watch ${dir}`);
   }
-});
-
-test("vercel-ignore.sh skips only when it knows nothing changed", async () => {
-  const site = new URL(".", import.meta.url).pathname;
-  const run = async (previous?: string) => {
-    const env = { ...process.env };
-    delete env.VERCEL_GIT_PREVIOUS_SHA;
-    if (previous !== undefined) env.VERCEL_GIT_PREVIOUS_SHA = previous;
-    const child = spawn("sh", ["vercel-ignore.sh"], {
-      cwd: site,
-      env,
-      stdio: "ignore",
-    });
-    return await new Promise<number | null>((resolve, reject) => {
-      child.once("error", reject);
-      child.once("close", resolve);
-    });
-  };
-  // Skips: nothing can have changed since the commit itself.
-  assertEquals(
-    await run((await output("git", ["rev-parse", "HEAD"])).trim()),
-    0,
-  );
-  // Builds: a first deployment, and a commit this clone does not have.
-  assertEquals(await run(), 1);
-  assertEquals(await run(""), 1);
-  assertEquals(await run("0".repeat(40)), 1);
 });

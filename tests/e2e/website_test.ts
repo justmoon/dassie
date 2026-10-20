@@ -1,6 +1,6 @@
 // dassie.land in a headless browser: the built site (`node --run
-// build:website`), served with the headers and trailing slashes of its
-// vercel.json, so its CSP applies. The architecture map draws and answers
+// build:website`), served as its bucket serves it: with the headers of
+// headers.json, so its CSP applies, and trailing slashes. The architecture map draws and answers
 // clicks, and the STREAM toy runs a payment on the WASM STREAM
 // implementation to the end.
 
@@ -50,28 +50,22 @@ const TYPES: Record<string, string> = {
   ".woff2": "font/woff2",
 };
 
-interface Rule {
-  source: string;
-  headers: { key: string; value: string }[];
-}
-
-/** Serves dist/ as Vercel would, with vercel.json's headers. */
+/**
+ * Serves dist/ as the bucket behind the load balancer does: every response
+ * with headers.json's headers, and a page's path without its slash
+ * redirected to the path with it.
+ */
 async function serveSite(): Promise<Server> {
-  const config = JSON.parse(
-    await readFile(join(site, "vercel.json"), "utf8"),
-  ) as { headers: Rule[]; trailingSlash: boolean };
-  assert(config.trailingSlash);
-  const rules = config.headers.map((rule) => ({
-    pattern: new RegExp(`^${rule.source}$`),
-    headers: rule.headers,
-  }));
+  const siteHeaders = JSON.parse(
+    await readFile(join(site, "headers.json"), "utf8"),
+  ) as { key: string; value: string }[];
   return await serve(
     { port: 0, hostname: "127.0.0.1" },
     async (request) => {
       const path = decodeURIComponent(new URL(request.url).pathname);
       if (path.includes("..")) return new Response("bad path", { status: 400 });
       if (!path.endsWith("/") && extname(path) === "") {
-        return Response.redirect(new URL(`${path}/`, request.url), 308);
+        return Response.redirect(new URL(`${path}/`, request.url), 301);
       }
       const file = join(dist, path.endsWith("/") ? `${path}index.html` : path);
       let body: Uint8Array<ArrayBuffer>;
@@ -83,10 +77,7 @@ async function serveSite(): Promise<Server> {
       const headers = new Headers({
         "content-type": TYPES[extname(file)] ?? "application/octet-stream",
       });
-      for (const rule of rules) {
-        if (!rule.pattern.test(path)) continue;
-        for (const { key, value } of rule.headers) headers.set(key, value);
-      }
+      for (const { key, value } of siteHeaders) headers.set(key, value);
       return new Response(body, { headers });
     },
   );

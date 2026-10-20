@@ -87,7 +87,7 @@ The node that asks to peer extends the other 1.1 units of credit; the node that 
 | `apps/wallet` | The wallet (Solid 2), embedded in the binary: every page of the original, with live data, plus grants and consent for Open Payments |
 | `apps/dev` | `node --run dev`: the scenarios on real binaries, certificates, vanity identities, the dev server with its SNI proxy and relay, a rates server; also the scenario library the end-to-end tests use |
 | `apps/dev-dashboard` | The dev dashboard (Solid 2): the network, every node's log, the scenarios, each node's debug pages |
-| `apps/website` | dassie.land: the home page, the Quick Start, and the STREAM toy, which runs `dassie-stream` in WASM over a simulated network; Vercel builds it with `vercel-build.sh` |
+| `apps/website` | dassie.land: the home page, the Quick Start, and the STREAM toy, which runs `dassie-stream` in WASM over a simulated network; `main` publishes it to GCP |
 | `packages/ui` | The Solid components the wallet, the dev dashboard and the STREAM toy share: amounts, the log viewer, the network graph, the debug pages, the router, live data, the theme |
 | `packages/identity-wasm` | The core crates in WASM, one build for browsers and Node, with a STREAM driver |
 | `packages/rpc` | The client for the RPC contract, over WebSocket (browsers) or the IPC socket (Node) |
@@ -171,7 +171,7 @@ The first time, run `mkcert -install` so your browser trusts the certificates. O
 
 To work on the wallet alone, run `node --run dev` in `apps/wallet` and start a node with `DASSIE_DEV_WALLET_DIR` set to the absolute path of `apps/wallet/dist-dev`. `DASSIE_E2E_WALLET_DIR` does the same for the wallet's browser test, and `DASSIE_E2E_SCREENSHOTS` keeps a picture of each step of the wallet's and the dev environment's browser tests.
 
-To work on the website, run `node --run dev` in `apps/website`, which rebuilds `dist/` on every change, and `node --run preview` next to it to serve it. Vercel deploys every branch from `apps/website` ([deployment](spec/areas/website.md#deployment)). The CSP and the cache headers are in its `vercel.json`, and `vercel-ignore.sh` skips deployments that change nothing the site is built from.
+To work on the website, run `node --run dev` in `apps/website`, which rebuilds `dist/` on every change, and `node --run preview` next to it to serve it. A push to `main` that changes what the site is built from publishes it to a bucket on GCP ([deployment](spec/areas/website.md#deployment)). The headers every response gets, the CSP among them, are in its `headers.json`.
 
 ## Engineering style
 

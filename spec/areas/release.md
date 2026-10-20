@@ -43,7 +43,7 @@ How Dassie is built, signed, published, installed and updated. A release is one 
 
 ## The mirror
 
-`get.dassie.land` keeps the original's paths (`meta/<channel>`, `<version>/dassie-<version>-linux-<arch>.tar.{gz,xz}`), so its installer and updater URLs keep working, and adds `<version>/SHA256SUMS` and its `.minisig`. `sh.dassie.land` serves `install.sh`.
+`get.dassie.land` keeps the original's paths (`meta/<channel>`, `<version>/dassie-<version>-linux-<arch>.tar.{gz,xz}`), so its installer and updater URLs keep working, and adds `<version>/SHA256SUMS` and its `.minisig`. `sh.dassie.land` serves `install.sh`. The mirror's load balancer also serves dassie.land, from a bucket of its own ([Website](website.md#deployment), [D35](../decisions/D35-dassie-land-is-a-bucket-behind-the-mirrors-load-balancer.md)).
 
 ## Publishing
 

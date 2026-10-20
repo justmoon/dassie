@@ -1,0 +1,112 @@
+name: Website
+
+# Builds dassie.land from `main` and publishes it to its bucket, which the
+# mirror's load balancer serves (spec D35, spec/areas/website.md). Pull
+# requests get no preview: CI builds the site and serves it with its
+# headers in the browser test.
+#
+# It runs in the `Website` environment, which admits only `main`. What it
+# needs there:
+# - vars.GCP_WORKLOAD_IDENTITY_PROVIDER and vars.GCP_SERVICE_ACCOUNT: the
+#   service account scripts/website/provision.sh makes, which may write
+#   the bucket's objects and nothing else, through workload identity
+#   federation;
+# - vars.WEBSITE_BUCKET: that bucket.
+# Without them it builds and stops.
+#
+# Then it checks the live site: headers.json's headers, the cache
+# headers, the trailing-slash redirect and the WebAssembly's type. A
+# backend bucket provisioned with other headers fails here.
+
+on:
+  push:
+    branches: [main]
+    # The site, the packages it imports, the crates its WASM modules are
+    # built from, and what pins their builds: build_test.ts checks that
+    # the list keeps up with them.
+    paths:
+      - apps/website/**
+      - packages/identity-wasm/**
+      - packages/rpc/**
+      - packages/ui/**
+      - crates/dassie-identity/**
+      - crates/dassie-ilp/**
+      - crates/dassie-node-core/**
+      - crates/dassie-oer/**
+      - crates/dassie-stream/**
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+      - flake.nix
+      - flake.lock
+      - package.json
+      - pnpm-workspace.yaml
+      - pnpm-lock.yaml
+      - .npmrc
+      - scripts/build-wasm.ts
+      - scripts/website/**
+      - .github/workflows/website.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One publish at a time, each to its end; a newer push waits, and only the
+# newest waiting one runs.
+concurrency:
+  group: website
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: Website
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # Workload identity: GitHub's OIDC token is what GCP trusts.
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: website-cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'flake.lock') }}
+          restore-keys: website-cargo-${{ runner.os }}-
+      - name: pnpm store
+        id: pnpm
+        run: echo "store=$(nix develop --command pnpm store path)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ steps.pnpm.outputs.store }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+      # The flake's Node, pnpm and Rust, as in CI.
+      - name: Build
+        run: nix develop --command sh -c 'pnpm install --frozen-lockfile && node --run build:wasm && node --run build:website'
+
+      - id: gcp
+        if: vars.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      - if: steps.gcp.outcome == 'success'
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+      - name: Publish
+        if: steps.gcp.outcome == 'success'
+        env:
+          BUCKET: ${{ vars.WEBSITE_BUCKET }}
+        run: scripts/website/deploy.sh apps/website/dist "$BUCKET"
+      - name: Check the live site
+        if: steps.gcp.outcome == 'success'
+        run: scripts/website/check.sh https://dassie.land/
+      - if: steps.gcp.outcome != 'success'
+        run: echo "::notice::No GCP_WORKLOAD_IDENTITY_PROVIDER in the Website environment: built, not published"
