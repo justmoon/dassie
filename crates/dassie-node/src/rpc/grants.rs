@@ -2,10 +2,12 @@
 //! decision on it, and the grants approved, with what each spent.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use dassie_payments::amount::Amount;
 use dassie_payments::gnap::{Access, AccessType, Action};
 use dassie_payments::time;
+use futures_util::future::join_all;
 
 use super::RpcError;
 use super::handlers::{Items, Reply};
@@ -16,6 +18,11 @@ use crate::node::Node;
 use crate::open_payments::auth::OpError;
 use crate::open_payments::{Urls, WalletAddresses, consent, spending};
 use crate::store::{GrantRow, GrantState, PaymentId};
+
+/// The longest the consent page waits for the receivers a request names,
+/// however many steps a read of another node takes. Shorter than one of
+/// the client's timeouts, so a node that never answers reads as late.
+const RECEIVERS_READ_MS: u64 = 5_000;
 
 /// Most approved grants listed.
 const MAX_LISTED: u32 = 256;
@@ -204,15 +211,48 @@ fn spent(
 /// Reads the receiver each item that creates payments may only pay, so
 /// the owner sees what it is paid in and still asks for. Only while the
 /// owner is asked: the list of approved grants reads no other node.
+///
+/// The reads go at once, and all of them together take at most
+/// [`RECEIVERS_READ_MS`]: a receiver's node that never answers would
+/// otherwise hold the page through each of the client's timeouts.
 async fn read_receivers(node: &Node, urls: &Urls, grant: &mut proto::Grant) {
-    for item in &mut grant.access {
-        let creates = item.actions.iter().any(|action| action == "create");
-        let Some(limits) = item.limits.as_mut() else {
-            continue;
-        };
-        if creates && !limits.receiver.is_empty() {
-            limits.receiver_payment = Some(receiver_payment(node, urls, &limits.receiver).await);
+    let wanted: Vec<(usize, String)> = grant
+        .access
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.actions.iter().any(|action| action == "create"))
+        .filter_map(|(index, item)| {
+            let receiver = &item.limits.as_ref()?.receiver;
+            (!receiver.is_empty()).then(|| (index, receiver.clone()))
+        })
+        .collect();
+    if wanted.is_empty() {
+        return;
+    }
+    let reads = join_all(
+        wanted
+            .iter()
+            .map(|(_, url)| receiver_payment(node, urls, url)),
+    );
+    let read = tokio::time::timeout(Duration::from_millis(RECEIVERS_READ_MS), reads)
+        .await
+        .unwrap_or_else(|_| vec![unreadable("its node did not answer in time"); wanted.len()]);
+    for ((index, _), payment) in wanted.into_iter().zip(read) {
+        if let Some(limits) = grant
+            .access
+            .get_mut(index)
+            .and_then(|item| item.limits.as_mut())
+        {
+            limits.receiver_payment = Some(payment);
         }
+    }
+}
+
+/// A receiver that could not be read, and why, in the node's own words.
+fn unreadable(why: &str) -> proto::GrantReceiver {
+    proto::GrantReceiver {
+        error: why.into(),
+        ..proto::GrantReceiver::default()
     }
 }
 
@@ -223,10 +263,19 @@ async fn receiver_payment(node: &Node, urls: &Urls, url: &str) -> proto::GrantRe
     let payment = match spending::incoming_payment(node, urls, url).await {
         Ok(payment) => payment,
         Err(failure) => {
-            return proto::GrantReceiver {
-                error: failure.description,
-                ..proto::GrantReceiver::default()
-            };
+            tracing::info!(
+                target: crate::log::target::PAYMENT,
+                receiver = url,
+                error = %failure.description,
+                "a pending grant's receiver could not be read"
+            );
+            // The description may quote what the receiver's node sent;
+            // the page shows only what this node says.
+            return unreadable(match failure.status {
+                502 => "its node could not be reached",
+                503 => "this node is not ready",
+                _ => "it is not a payment request that can be read",
+            });
         }
     };
     let received = &payment.received_amount;

@@ -1186,8 +1186,29 @@ async fn the_owner_sees_the_span_and_receiver_of_a_request() {
     let limits = asked_limits(&node, &client, &missing, None).await;
     assert_eq!((limits.starts_at_ms, limits.ends_at_ms), (None, None));
     let read = limits.receiver_payment.unwrap();
-    assert_ne!(read.error, "");
+    assert_eq!(read.error, "it is not a payment request that can be read");
     assert_eq!(read.asset_code, "");
+
+    // Found in review: a receiver's node that takes the connection and
+    // never answers holds the page only for the lookup's bound, not for
+    // each of the client's timeouts in turn.
+    let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = silent.local_addr().unwrap().port();
+    let held = tokio::spawn(async move {
+        let mut open = Vec::new();
+        while let Ok((socket, _)) = silent.accept().await {
+            open.push(socket);
+        }
+    });
+    let (_, id) = local.rsplit_once('/').unwrap();
+    let late = format!("https://127.0.0.1:{port}/incoming-payments/{id}");
+    let asked = asked_limits(&node, &client, &late, None);
+    let limits = tokio::time::timeout(Duration::from_secs(8), asked)
+        .await
+        .expect("the lookup is bounded");
+    let read = limits.receiver_payment.unwrap();
+    assert_eq!(read.error, "its node did not answer in time");
+    held.abort();
 
     // The approved grants read no receiver.
     let access = json!([{
