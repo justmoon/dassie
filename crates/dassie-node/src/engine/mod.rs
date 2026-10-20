@@ -483,6 +483,17 @@ impl Engine {
     }
 }
 
+/// What the node's link state says about it. A periphery node's QUIC
+/// endpoint keeps the connections it dials alive, since they are the only
+/// way its uplinks reach it (spec/areas/peer-protocol.md#quic).
+fn own_info(node: &Node) -> dassie_peer::OwnInfo {
+    let info = node.own_info();
+    if let Some(quic) = node.quic() {
+        quic.set_keep_alive(info.is_periphery());
+    }
+    info
+}
+
 /// The engine as a supervised service: waits for the node's identity, then
 /// runs until shutdown. A panic or error ends the generation; the
 /// supervisor starts the next.
@@ -512,7 +523,7 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         policies: *node.policies(),
         rng: node.shared_rng(),
         peer_rng: node.shared_rng(),
-        own_info: node.own_info(),
+        own_info: own_info(&node),
         bootstrap: node.bootstrap(),
     };
     let core = match Core::start(parts, node.now_ms()) {
@@ -624,7 +635,7 @@ impl Driver<'_> {
                         break;
                     }
                     self.core.begin_step(self.node.now_ms());
-                    self.core.set_own_info(self.node.own_info());
+                    self.core.set_own_info(own_info(self.node));
                 }
             }
             self.finish();

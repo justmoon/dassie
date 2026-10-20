@@ -50,8 +50,8 @@ pub use cap::{CapError, CapUsage, CapView, SpendingCap, replay};
 pub use charges::Charges;
 pub use config::{Config, IN_FLIGHT_PACKETS};
 pub use connector::{
-    Connector, Forwarded, MAX_ROUTE_OPTIONS, Outcome, Posted, Responded, RoutesError, Stats,
-    Upstream,
+    Connector, Forwarded, MAX_CHILD_ADDRESSES, MAX_ROUTE_OPTIONS, Outcome, Posted, Responded,
+    RoutesError, Stats, Upstream,
 };
 pub use endpoint::{EndpointError, EndpointId};
 pub use fx::{RATE_PRECISION, Rates, convert};

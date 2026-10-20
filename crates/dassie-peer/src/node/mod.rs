@@ -45,12 +45,22 @@ pub struct OwnInfo {
     pub url: Option<String>,
     /// Its alias.
     pub alias: String,
-    /// Whether it takes the peer protocol over QUIC, on UDP at its URL's
-    /// host and port.
+    /// Whether it has a QUIC endpoint: with a URL, one that takes the peer
+    /// protocol on UDP at the URL's host and port; without one, one it
+    /// dials out from, which makes it a periphery node
+    /// (spec/areas/network.md#periphery-nodes).
     pub quic: bool,
 }
 
 impl OwnInfo {
+    /// Whether the node runs as a periphery node: it has a QUIC endpoint
+    /// but no URL, so it dials its uplinks and is reached only over the
+    /// connections it opened.
+    #[must_use]
+    pub const fn is_periphery(&self) -> bool {
+        self.url.is_none() && self.quic
+    }
+
     /// The same, without a URL that is not a valid node URL (too long, for
     /// one): a link state could not carry it, so the node goes without.
     #[must_use]
@@ -197,6 +207,8 @@ pub struct PeerNode {
     /// Settlement channels, by node.
     pub(crate) channels: BTreeMap<NodeId, Channel>,
     pub(crate) channels_dirty: BTreeSet<NodeId>,
+    /// How many of the channels are with downlinks: those without a URL.
+    pub(crate) downlink_channels: usize,
     /// When each channel's outbox goes next.
     pub(crate) retries: BTreeMap<NodeId, Retry>,
     /// Banned nodes, and the changes not yet persisted.
@@ -256,6 +268,7 @@ impl PeerNode {
             started_ms: now_ms,
             channels: BTreeMap::new(),
             channels_dirty: BTreeSet::new(),
+            downlink_channels: 0,
             retries: BTreeMap::new(),
             bans: BTreeSet::new(),
             banned: Vec::new(),
@@ -315,6 +328,7 @@ impl PeerNode {
         if info != self.own_info {
             self.own_info = info;
             self.gossip.own_changed = true;
+            self.end_downlinks();
         }
     }
 
@@ -422,12 +436,13 @@ impl PeerNode {
         self.deadlines.insert((deadline_ms, id));
         // Only a link state says a node takes QUIC; a bootstrap node known
         // only from the configuration is asked over HTTPS until its state
-        // arrives.
+        // arrives. A periphery node is reached only over the connection it
+        // opened, which its empty URL tells the transport.
         let quic = self
             .table
             .get(&to)
             .and_then(|entry| entry.link.as_ref())
-            .is_some_and(|link| link.quic);
+            .is_some_and(|link| link.quic || link.periphery);
         self.outputs.push_back(Output::Request(Request {
             id,
             to,
@@ -685,17 +700,28 @@ impl PeerNode {
 
     /// Ensures `node` is in the table with `source`, making room by
     /// removing a node with a weaker reason if needed. Returns whether it
-    /// is in the table.
+    /// is in the table. Downlinks have a bound of their own: they neither
+    /// make room nor are made room for (spec/areas/network.md#downlinks).
     pub(crate) fn ensure(&mut self, node: NodeId, source: Sources) -> bool {
+        let downlink = source == Sources::DOWNLINK;
+        let downlinks_full = downlink && self.downlinks() >= self.config.max_downlinks;
         if let Some(entry) = self.table.get_mut(&node) {
             if !entry.sources.contains(source) {
+                if downlinks_full {
+                    return false;
+                }
                 entry.sources.insert(source);
                 entry.orphaned_ms = None;
                 self.dirty.insert(node);
             }
             return true;
         }
-        if self.table.len() >= self.config.max_nodes && !self.evict_for(source) {
+        let room = if downlink {
+            !downlinks_full
+        } else {
+            self.table.len() - self.downlinks() < self.config.max_nodes || self.evict_for(source)
+        };
+        if !room {
             return false;
         }
         let rate = self.config.link_state_rate;
@@ -713,7 +739,7 @@ impl PeerNode {
         let victim = self
             .table
             .iter()
-            .filter(|(_, entry)| entry.sources.rank() < source.rank())
+            .filter(|(_, entry)| !entry.is_downlink() && entry.sources.rank() < source.rank())
             .min_by_key(|(_, entry)| (entry.sources.rank(), u64::MAX - entry.first_seen_ms))
             .map(|(id, _)| *id);
         victim.is_some_and(|id| {
@@ -734,6 +760,73 @@ impl PeerNode {
             }
             self.dirty.insert(*node);
         }
+    }
+
+    /// Takes away the reason a peer is in the table, a downlink's too.
+    pub(crate) fn drop_peer_source(&mut self, node: &NodeId) {
+        self.drop_source(node, Sources::PEER);
+        self.drop_downlink(node);
+    }
+
+    /// Takes away `node`'s place among the downlinks: every path that ends
+    /// one, refused, ended or dropped, comes here. A downlink took no core
+    /// place, so the entry stays only if it gets one now: within the
+    /// bound, or, kept for another reason, in place of a weaker entry.
+    /// Otherwise it goes at once, its replay state kept while a channel
+    /// needs it (spec/areas/network.md#downlinks).
+    pub(crate) fn drop_downlink(&mut self, node: &NodeId) {
+        if !self.is_downlink(node) {
+            return;
+        }
+        assert!(
+            self.peering_of(node).is_none(),
+            "a downlink leaves once its peering is over"
+        );
+        self.drop_source(node, Sources::DOWNLINK);
+        let sources = self.table.get(node).map(|entry| entry.sources);
+        let core = self.table.len() - self.downlinks();
+        let fits = core <= self.config.max_nodes
+            || sources.is_some_and(|sources| !sources.is_empty() && self.evict_for(sources));
+        if !fits {
+            self.remove(node);
+        }
+    }
+
+    /// The reason a peering with `node` keeps it in the table.
+    pub(crate) fn peer_source(&self, node: &NodeId) -> Sources {
+        if self.is_downlink(node) {
+            Sources::DOWNLINK
+        } else {
+            Sources::PEER
+        }
+    }
+
+    /// Whether `node` is our downlink, or asking to be.
+    #[must_use]
+    pub fn is_downlink(&self, node: &NodeId) -> bool {
+        self.table.get(node).is_some_and(Entry::is_downlink)
+    }
+
+    /// Whether this node runs as a periphery node: it peers only with core
+    /// nodes, as their downlink, and never forwards
+    /// (spec/areas/network.md#periphery-nodes).
+    #[must_use]
+    pub const fn is_periphery(&self) -> bool {
+        self.own_info.is_periphery()
+    }
+
+    /// Whether this node takes downlinks: a core node that takes QUIC, on
+    /// which they reach it, with room for any.
+    pub(crate) const fn takes_downlinks(&self) -> bool {
+        self.own_info.url.is_some() && self.own_info.quic && self.config.max_downlinks > 0
+    }
+
+    /// The downlinks in the table.
+    pub(crate) fn downlinks(&self) -> usize {
+        self.table
+            .values()
+            .filter(|entry| entry.is_downlink())
+            .count()
     }
 
     pub(crate) fn remove(&mut self, node: &NodeId) {

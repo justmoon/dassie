@@ -11,7 +11,7 @@ use super::{PeerNode, Problem, Purpose};
 use crate::auth::Accepted;
 use crate::hooks::PeeringHooks;
 use crate::io::{Event, Reply};
-use crate::table::{Advertise, Depeering, PeerState, Sources, Termination, backoff};
+use crate::table::{Advertise, Depeering, Entry, PeerState, Termination, backoff};
 use crate::wire::{Content, SchemeId, TerminationReason};
 
 /// Why a node could not be banned.
@@ -336,16 +336,20 @@ impl PeerNode {
     /// Whether `peer` is listed as our neighbor.
     #[must_use]
     pub fn is_advertised(&self, peer: &NodeId) -> bool {
-        self.table
-            .get(peer)
-            .is_some_and(|entry| entry.active_peering().is_some() && entry.advertise.on)
+        self.table.get(peer).is_some_and(|entry| {
+            !entry.is_downlink() && entry.active_peering().is_some() && entry.advertise.on
+        })
     }
 
-    /// The peers listed as our neighbors, in order.
+    /// The peers listed as our neighbors, in order. Downlinks never are:
+    /// their child addresses lie beneath ours, so the rest of the network
+    /// needs no route to them (D26).
     pub(crate) fn advertised(&self) -> Vec<NodeId> {
         self.table
             .iter()
-            .filter(|(_, entry)| entry.active_peering().is_some() && entry.advertise.on)
+            .filter(|(_, entry)| {
+                !entry.is_downlink() && entry.active_peering().is_some() && entry.advertise.on
+            })
             .map(|(id, _)| *id)
             .collect()
     }
@@ -353,6 +357,7 @@ impl PeerNode {
     /// Looks after the peerings: ends silent ones, sets the advertise
     /// flags, tells terminations, and ends those that are done.
     pub(super) fn review_peers(&mut self, hooks: &dyn PeeringHooks) {
+        self.end_downlinks();
         self.terminate_silent();
         self.terminate_short();
         self.advance_depeerings(hooks);
@@ -469,6 +474,30 @@ impl PeerNode {
 
     /// Terminates peers not heard from for too long, counted from our
     /// start at the earliest, so a node that was down ends nothing for it.
+    /// On a periphery node, ends the peerings with its downlinks, from
+    /// when it was a core node: a periphery node takes none, and a node
+    /// loses its URL other ways than its owner's choice
+    /// (spec/areas/network.md#downlinks). Those not peered leave at once.
+    pub(crate) fn end_downlinks(&mut self) {
+        if !self.is_periphery() {
+            return;
+        }
+        let downlinks: Vec<NodeId> = self
+            .table
+            .iter()
+            .filter(|(_, entry)| entry.is_downlink())
+            .map(|(id, _)| *id)
+            .collect();
+        for node in downlinks {
+            let peered = self.table.get(&node).and_then(Entry::peering).is_some();
+            if peered {
+                self.begin_depeering(node, TerminationReason::Unspecified);
+            } else {
+                self.drop_downlink(&node);
+            }
+        }
+    }
+
     fn terminate_silent(&mut self) {
         let (now, dead, start) = (self.now_ms, self.config.peer_dead_ms, self.started_ms);
         let silent: Vec<NodeId> = self
@@ -593,7 +622,7 @@ impl PeerNode {
         entry.peering_at_ms = now.saturating_add(wait);
         self.dirty.insert(peer);
         self.telling.remove(&peer);
-        self.drop_source(&peer, Sources::PEER);
+        self.drop_peer_source(&peer);
         self.gossip.routes_dirty = true;
         self.stats.terminations += 1;
         // Nothing is settled at the end: what the accounts show carries

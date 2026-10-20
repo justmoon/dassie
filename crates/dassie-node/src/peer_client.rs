@@ -292,7 +292,9 @@ impl PeerClient {
     /// the bounds are full.
     pub fn hold(&self, request: &Request) -> Result<Option<Slot>, Failure> {
         let host = request.url.strip_prefix("https://").unwrap_or_default();
-        if !self.allow_private && literal_is_private(host) {
+        // A periphery node has no URL, and so no address to check: it is
+        // reached only over the connection it opened to us.
+        if !request.url.is_empty() && !self.allow_private && literal_is_private(host) {
             return Err(Failure::NotDelivered);
         }
         // ILP packets are bounded by the connector's tables, and their
@@ -301,7 +303,14 @@ impl PeerClient {
         if request.kind == dassie_peer::wire::Kind::InterledgerPacket {
             return Ok(None);
         }
-        self.slot(host).map(Some).ok_or(Failure::NotDelivered)
+        // A periphery node has no URL: each counts by its ID, not all
+        // together under the empty host.
+        let slot = if request.url.is_empty() {
+            self.slot(&format!("node:{}", request.to))
+        } else {
+            self.slot(host)
+        };
+        slot.map(Some).ok_or(Failure::NotDelivered)
     }
 
     /// Sends `request` over HTTPS, its place in the bounds held
@@ -480,6 +489,37 @@ mod tests {
         assert!(!literal_is_private("1.1.1.1:443"));
         assert!(!literal_is_private("example.com:443"));
         assert!(!literal_is_private("localhost"));
+    }
+
+    // Found in review: periphery nodes have no URL, so every downlink's
+    // requests shared the bound of one host, the empty one. Each counts by
+    // its ID. And the empty host read as a private literal, so a node that
+    // allows no private addresses refused them all.
+    #[tokio::test]
+    async fn each_node_without_a_url_has_its_own_bound() {
+        // Roots of its own: the build sandbox has none of the system's.
+        let roots = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/pebble/root.pem"
+        );
+        let client = PeerClient::new(Some(Path::new(roots)), false).unwrap();
+        let request = |seed: u8| dassie_peer::Request {
+            id: dassie_peer::RequestId(0),
+            to: dassie_identity::NodeKey::from_bytes(&[seed; 32]).node_id(),
+            url: String::new(),
+            quic: true,
+            kind: dassie_peer::wire::Kind::LinkStateUpdate,
+            body: Vec::new(),
+            timeout_ms: 1_000,
+        };
+        let mut held = Vec::new();
+        for seed in 1..=u8::try_from(MAX_PER_HOST).unwrap() + 1 {
+            held.push(client.hold(&request(seed)).unwrap());
+        }
+        for _ in 1..MAX_PER_HOST {
+            held.push(client.hold(&request(1)).unwrap());
+        }
+        assert_eq!(client.hold(&request(1)).err(), Some(Failure::NotDelivered));
     }
 
     #[test]

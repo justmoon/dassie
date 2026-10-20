@@ -61,7 +61,7 @@ impl Connector {
                 endpoint.pending_from, expected,
                 "packets in flight from {id}"
             );
-            assert!(endpoint.pending_from <= self.config.max_pending_from(*id));
+            assert!(endpoint.pending_from <= self.max_pending_from(*id));
             if !id.is_peer() {
                 assert_eq!((endpoint.money_from, endpoint.money_to), (0, 0));
                 continue;

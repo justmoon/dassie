@@ -262,7 +262,8 @@ impl PeerNode {
         if *node == self.own || !self.lists.states.contains_key(node) {
             return Err(RegisterError::NotBootstrap);
         }
-        if self.own_link_bytes().is_none() {
+        // A periphery node registers nowhere: its link state has no URL.
+        if self.own_link_bytes().is_none() || self.is_periphery() {
             return Err(RegisterError::NoLinkState);
         }
         let state = self
@@ -282,6 +283,9 @@ impl PeerNode {
     /// at start, again before the registration lapses, and again if its
     /// list has not had us for a while (D4).
     pub(super) fn register_with_bootstrap(&mut self) {
+        if self.is_periphery() {
+            return;
+        }
         let Some(bytes) = self.own_link_bytes() else {
             return;
         };
@@ -388,6 +392,9 @@ impl PeerNode {
     /// When registering next has something to do: only once we have a
     /// link state to register with.
     pub(crate) fn registration_due(&self) -> Option<u64> {
+        if self.is_periphery() {
+            return None;
+        }
         self.own_link_bytes()?;
         self.lists
             .states

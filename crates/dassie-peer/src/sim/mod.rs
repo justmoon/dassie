@@ -50,6 +50,8 @@ pub struct StubHooks {
     pub busy: BTreeSet<NodeId>,
     /// Peers with a settlement of ours under way, before its message.
     pub settling: BTreeSet<NodeId>,
+    /// Why the scheme refuses peering requests, if it does.
+    pub refuse: Option<RefusalReason>,
 }
 
 impl PeeringHooks for StubHooks {
@@ -84,6 +86,9 @@ impl PeeringHooks for StubHooks {
         _: &[u8],
         _: &mut Vec<u8>,
     ) -> Result<Agreed, RefusalReason> {
+        if let Some(reason) = self.refuse {
+            return Err(reason);
+        }
         Ok(Agreed {
             state: Vec::new(),
             credit_out: CREDIT,
@@ -269,12 +274,42 @@ pub struct Network {
     /// While tampering, each request's MAC and the node it went to, by who
     /// sent it, in which generation, with which ID.
     macs: BTreeMap<(usize, u64, RequestId), (usize, [u8; 32])>,
+    /// Periphery nodes: without a URL, dialling out over QUIC, reached by
+    /// node ID over the connections they opened. Their uplinks are the
+    /// other nodes, which then take QUIC too.
+    pub periphery: BTreeSet<usize>,
+    /// Whether the nodes have a QUIC endpoint: core nodes then take
+    /// downlinks.
+    pub quic: bool,
 }
 
 impl Network {
     /// `count` nodes, the first `bootstrap_count` of them bootstrap
     /// nodes, each started with its own clock skew.
     pub fn new(seed: u64, count: usize, bootstrap_count: usize, config: Config) -> Self {
+        Self::build(seed, (count, bootstrap_count, 0), false, config)
+    }
+
+    /// `count` core nodes, the first `bootstrap_count` of them bootstrap
+    /// nodes, and after them `periphery` periphery nodes
+    /// (spec/areas/network.md#periphery-nodes). The core nodes take QUIC,
+    /// and so downlinks.
+    pub fn with_periphery(
+        seed: u64,
+        count: usize,
+        bootstrap_count: usize,
+        periphery: usize,
+        config: Config,
+    ) -> Self {
+        Self::build(seed, (count, bootstrap_count, periphery), true, config)
+    }
+
+    fn build(
+        seed: u64,
+        (count, bootstrap_count, periphery): (usize, usize, usize),
+        quic: bool,
+        config: Config,
+    ) -> Self {
         let mut rng = SeededRng::new(seed);
         let bootstrap: Vec<Bootstrap> = (0..bootstrap_count)
             .map(|index| Bootstrap {
@@ -308,10 +343,14 @@ impl Network {
             settlements_refused: 0,
             tamper: None,
             macs: BTreeMap::new(),
+            periphery: (count..count + periphery).collect(),
+            quic,
         };
-        for index in 0..count {
+        for index in 0..count + periphery {
             let skew = i64::try_from(rng.next_u64() % 20_001).unwrap() - 10_000;
-            network.by_url.insert(url(index), index);
+            if index < count {
+                network.by_url.insert(url(index), index);
+            }
             network.nodes.push(SimNode {
                 node: None,
                 stored: Stored::default(),
@@ -352,13 +391,14 @@ impl Network {
                 floor_ms: *floor_ms,
             })
             .collect();
+        let periphery = self.periphery.contains(&index);
         let mut node = PeerNode::new(
             self.config,
             key(index),
             OwnInfo {
-                url: Some(url(index)),
+                url: (!periphery).then(|| url(index)),
                 alias: format!("n{index}"),
-                quic: false,
+                quic: self.quic,
             },
             self.bootstrap.clone(),
             sim.stored.clone(),
@@ -509,7 +549,17 @@ impl Network {
             self.now, request.to, request.kind
         ));
         let generation = self.nodes[from].generation;
-        let Some(&to) = self.by_url.get(&request.url) else {
+        // A periphery node is reached by its ID, over the connection it
+        // opened; nothing else has an empty URL.
+        let to = if request.url.is_empty() {
+            self.periphery
+                .iter()
+                .copied()
+                .find(|index| key(*index).node_id() == request.to)
+        } else {
+            self.by_url.get(&request.url).copied()
+        };
+        let Some(to) = to else {
             self.schedule(
                 1,
                 Delivery::Result {

@@ -18,7 +18,8 @@ pub struct StoredNode {
     pub id: NodeId,
     /// Its link state's `SignedPeerNodeInfo` bytes, verified when received.
     pub link_state: Option<Vec<u8>>,
-    /// Why it is in the table.
+    /// Why it is in the table. A downlink's is stored as a peer's: its
+    /// link state, a periphery node's, tells it apart.
     pub sources: Sources,
     /// When it came in.
     pub first_seen_ms: u64,

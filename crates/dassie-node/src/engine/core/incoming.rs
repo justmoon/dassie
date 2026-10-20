@@ -357,12 +357,28 @@ impl Core {
         let mut key = [0u8; 16];
         self.rng.fill_bytes(&mut key);
         let tag = connection_tag(id, ConnectionKey::from_random(key));
-        let Self { rng, receivers, .. } = self;
+        // A periphery node is paid beneath an uplink it is connected to
+        // (spec/areas/connector.md#a-periphery-node).
+        let child = self.receiving_address();
+        let Self {
+            rng,
+            receivers,
+            connector,
+            ..
+        } = self;
         let receiver = receivers
             .get(&ledger)
             .ok_or_else(|| EngineError::Precondition("the ledger is not active".into()))?;
         let token = receiver.server.issue_token(rng.as_mut(), &tag, None);
-        Ok(receiver.server.credentials_for(&token))
+        let mut credentials = receiver.server.credentials_for(&token);
+        if let Some(child) = child
+            && let Some(below) = credentials
+                .destination
+                .strip_prefix(connector.own_address())
+        {
+            credentials.destination = format!("{child}{below}");
+        }
+        Ok(credentials)
     }
 
     /// Creates an incoming payment on an active ledger.

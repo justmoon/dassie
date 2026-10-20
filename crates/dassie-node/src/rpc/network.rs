@@ -194,7 +194,8 @@ fn node(view: &NodeView) -> proto::NetworkNode {
         bootstrap: sources.contains(Sources::BOOTSTRAP),
         majority: sources.contains(Sources::MAJORITY),
         registered: sources.contains(Sources::REGISTERED),
-        peer: sources.contains(Sources::PEER),
+        // A downlink is a peer too, in a place of its own.
+        peer: sources.contains(Sources::PEER) || sources.contains(Sources::DOWNLINK),
         registered_until_unix_ms: view.registered_until_ms.map_or(0, convert::time),
         first_hops: view.first_hops.iter().map(ToString::to_string).collect(),
         neighbors: view.neighbors.iter().map(ToString::to_string).collect(),

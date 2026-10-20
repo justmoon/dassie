@@ -72,6 +72,7 @@ A node can keep a QUIC connection open to a relay it chooses, so that clients re
 - The relay keeps the connection as it keeps any it is given, and reaches the node over it. Either node may hold other connections to the other beside it, when it is a peer or a bootstrap node, say: whichever is used, the kept connection stands by and takes over once the others close ([Peer protocol](peer-protocol.md#quic)), so the relay never loses the node while it stays connected.
 - A node never dials itself: one whose `DASSIE_RELAY` names its own node ID keeps no relay connection and says so in its log. The check waits for the node's key, which may come after startup.
 - A node without a QUIC endpoint cannot keep one.
+- A periphery node may keep one beside its uplinks ([Network](network.md#periphery-nodes)), and the relay is not one of them: its connection carries relayed streams, and only a peering makes an uplink. One whose relay is also an uplink holds two connections to it, both kept alive alike, one of them standing by.
 
 ## Database
 
@@ -107,7 +108,7 @@ Deliberately not kept: ILP packets in flight (their pending transfers were never
 
 ## Configuration
 
-The owner's configuration is one row, read into a validated `NodeConfig` (`dassie-node-core/src/config.rs`), with one RPC setter per value. Nothing derived is stored: URLs are computed from the current values, so a new hostname takes effect at once. The realm `live` is refused until the conditions for [real money](../roadmap.md#real-money) hold ([D8](../decisions/D08-real-money.md)). Settings that belong to an area are in that area's tables.
+The owner's configuration is one row, read into a validated `NodeConfig` (`dassie-node-core/src/config.rs`), with one RPC setter per value. Nothing derived is stored: URLs are computed from the current values, so a new hostname takes effect at once. A hostname is refused unless `https://<hostname>:65535` is a URL peers take, at most 256 bytes: with a longer one, the node would run as a periphery node ([Network](network.md#periphery-nodes)). The realm `live` is refused until the conditions for [real money](../roadmap.md#real-money) hold ([D8](../decisions/D08-real-money.md)). Settings that belong to an area are in that area's tables.
 
 ## Dev switches warn on a public node
 

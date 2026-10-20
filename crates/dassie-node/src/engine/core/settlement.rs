@@ -165,8 +165,16 @@ impl Core {
             .map(|(id, peering)| (*id, peering.scheme))
             .collect();
         for (node, scheme) in peers {
+            // A downlink is in no link state, so withdrawing it would only
+            // stop the payments to it that raise its room: one that owes
+            // nothing is never withdrawn or ended for room
+            // (spec/areas/network.md#advertised-peers).
+            let owes_nothing = self.peer.is_downlink(&node)
+                && self.owed(node, scheme).is_some_and(|owed| owed >= 0);
             let room = if !self.sees_ledger(scheme) {
                 Room::Unjudged
+            } else if owes_nothing {
+                Room::Enough
             } else if self
                 .position(node, scheme)
                 // `minimum` is one of the largest packets (D25).

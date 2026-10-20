@@ -388,3 +388,66 @@ fn a_late_fulfill_posts_nothing() {
         Responded::Resolved { posted: None, .. }
     ));
 }
+
+// spec/areas/connector.md#addresses-and-endpoints: a downlink is a peer at
+// its child address below ours. ILDCP tells it that address, and what lies
+// below it is routed to it as to a child, from any source; while its
+// peering ends, nothing new goes to it.
+#[test]
+fn downlinks_are_routed_below_our_address() {
+    let mut harness = harness();
+    let down = EndpointId::Peer(3);
+    harness.add_downlink(3, "ddown", TRUST, 0);
+    let request = ildcp::request(dassie_ilp::Timestamp::from_unix_ms(NOW + 10_000)).to_vec();
+    let Outcome::Respond(length) = harness.prepare(NOW, down, 1, &request) else {
+        panic!("ILDCP is answered at once")
+    };
+    let bytes = harness.written(length);
+    let Response::Fulfill(Fulfill { data, .. }) = Response::decode_exact(&bytes).unwrap() else {
+        panic!("ILDCP is fulfilled")
+    };
+    let answer = ildcp::Response::decode_exact(data).unwrap();
+    assert_eq!(answer.address.as_str(), format!("{OWN}.ddown"));
+    let packet = prepare(&format!("{OWN}.ddown.receiver"), 10, NOW + 20_000, [1; 32]);
+    assert_eq!(forwarded_to(harness.prepare(NOW, ONE, 2, &packet)), down);
+    harness.connector.set_draining(down, true);
+    let outcome = harness.prepare(NOW, ONE, 3, &packet);
+    assert_eq!(rejected(&harness, outcome), ErrorCode::F02_UNREACHABLE);
+}
+
+// spec/areas/connector.md#a-periphery-node: below the node's address beneath
+// an uplink lie its own endpoints, which get the packet written below its
+// own address; a peer's packet for anywhere else gets F02, while the
+// node's own packets still go out by the routes.
+#[test]
+fn a_periphery_node_forwards_nothing() {
+    let mut harness = harness();
+    set(&mut harness, &[("test.das.dfar", &[TWO])]);
+    let child = String::from("test.das.done.dnode");
+    harness
+        .connector
+        .set_periphery(Some(core::slice::from_ref(&child)))
+        .unwrap();
+    let to_alice = prepare(&format!("{child}.alice.x"), 10, NOW + 20_000, [1; 32]);
+    let Outcome::Forward(sent) = harness.prepare(NOW, ONE, 1, &to_alice) else {
+        panic!("not forwarded")
+    };
+    assert_eq!(sent.to, BTP);
+    let written = harness.written(sent.length);
+    assert_eq!(
+        decode_prepare(&written).destination.as_str(),
+        format!("{OWN}.alice.x")
+    );
+    let onward = prepare("test.das.dfar.x", 10, NOW + 20_000, [2; 32]);
+    let outcome = harness.prepare(NOW, ONE, 2, &onward);
+    assert_eq!(rejected(&harness, outcome), ErrorCode::F02_UNREACHABLE);
+    assert_eq!(forwarded_to(harness.prepare(NOW, BTP, 3, &onward)), TWO);
+    // Its address beneath the uplink is no endpoint's.
+    let bare = prepare(&child, 10, NOW + 20_000, [3; 32]);
+    let outcome = harness.prepare(NOW, ONE, 4, &bare);
+    assert_eq!(rejected(&harness, outcome), ErrorCode::F02_UNREACHABLE);
+    assert_eq!(
+        harness.connector.set_periphery(Some(&[format!("{OWN}.x")])),
+        Err(RoutesError::InvalidPrefix)
+    );
+}

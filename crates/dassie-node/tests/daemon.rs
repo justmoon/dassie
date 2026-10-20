@@ -428,6 +428,31 @@ async fn the_certificate_follows_the_hostname() {
     node.stop().await;
 }
 
+// Found in review: a DNS name whose URL peers refuse, past 256 bytes, made
+// the node a periphery node with its downlinks still there. It is refused,
+// as is any name whose URL would not fit with every port; the longest that
+// fits is taken.
+#[tokio::test]
+async fn a_hostname_too_long_for_the_url_is_refused() {
+    let node = TestNode::start().await;
+    let mut owner = node.ipc().await;
+    let name = |length: usize| {
+        let mut labels = vec!["a".repeat(63); length / 64];
+        labels.push("b".repeat(length % 64));
+        labels.join(".")
+    };
+    let set = |hostname: String| Method::SetHostname(proto::SetHostnameRequest { hostname });
+    // `https://` and `:65535` leave 242 bytes of the 256.
+    let refused = owner.call(set(name(243))).await;
+    assert_eq!(
+        refused.unwrap_err().code(),
+        proto::ErrorCode::InvalidArgument
+    );
+    let taken = owner.call(set(name(242))).await;
+    assert!(taken.is_ok(), "{taken:?}");
+    node.stop().await;
+}
+
 // RT-12: the original installed whatever it was sent.
 #[tokio::test]
 async fn installed_certificates_are_checked() {

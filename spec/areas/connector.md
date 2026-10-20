@@ -12,14 +12,23 @@ The connector is sans-IO and bounded ([engineering](../engineering.md)), and not
 Every endpoint has an ILP address, the [ledger](ledger.md) account its packets debit and credit, and that account's ledger (`endpoint.rs`). ILDCP answers each endpoint the address that is routed to it and its ledger's asset.
 
 - **Children** lie below the node's own address `<scheme>.das.<node ID>`: a random segment per BTP connection, and per ledger a STREAM receiver and a payer ([Payments](payments.md)). Children's addresses never overlap: neither is a segment prefix of the other.
-- **Peers** are reached through the route table; a peer's address is only what ILDCP tells it. A peer's endpoint ID is never reused, so a late response cannot resolve a later peering's packet.
+- **Peers** are reached through the route table; a peer's address is only what ILDCP tells it, `<scheme>.das.<node ID>`. A peer's endpoint ID is never reused, so a late response cannot resolve a later peering's packet.
+- **Downlinks** ([Network](network.md#downlinks)) are peers at a child address beneath ours, `<our address>.<node ID>`, which ILDCP tells them and which routes to them as to a child: the rest of the network reaches it through us, with no route of its own. A downlink sends only its own packets, so it has a child's share of the packets in flight, not a peer's; otherwise it is a peer like any other, for fees, conversion and the money in flight.
 - **Request IDs** are unique per endpoint while in flight. A peer's first outgoing request ID is random, so that after a restart new packets do not reuse IDs the peer still holds from before. A source that reuses an ID still in flight gets nothing done.
 
 ## Routing
 
-- **Below the node's own address,** only children, by whole-segment prefix. The node's own address itself is unroutable.
+- **Below the node's own address,** only children and downlinks, by whole-segment prefix; a downlink whose peering is ending takes no new Prepare. The node's own address itself is unroutable.
 - **Beyond it,** the longest whole-segment prefix in the route table, which the peer protocol's routing fills with a few first hops per node, best first ([Network](network.md)). The connector takes the first that is an endpoint, is not the packet's source (so packets do not bounce between peers), and is not draining.
 - **The owner's first hop.** For a packet from one of the node's own endpoints, the connector says which ledger its first hop is on: what the owner must pay from, since the owner's endpoints never convert ([Ledger](ledger.md#the-owners-accounts)).
+
+## A periphery node
+
+A periphery node ([Network](network.md#periphery-nodes)) has an address beneath each uplink, `<uplink's address>.<its node ID>`: what that uplink's ILDCP would tell it, which it derives rather than asks for, since an uplink's address and the rule are fixed. Its connector takes them all.
+
+- **Beneath any of them** lie the node's own endpoints, as below its own address. A packet routed there goes on with its destination written below the node's own address, the only one its endpoints know.
+- **It forwards nothing.** A Prepare from a peer that lies beneath none of its addresses gets F02. Its own endpoints' packets go out by the routes, through its uplinks.
+- **It is paid beneath an uplink it is connected to:** its STREAM receiver's credentials name the address beneath an uplink confirmed now ([Payments](payments.md)), so a payment's packets reach it through that uplink. Credentials handed out earlier keep their address, and reach it while that peering lasts.
 
 ## Handling a Prepare
 

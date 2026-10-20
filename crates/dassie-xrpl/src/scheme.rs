@@ -60,8 +60,10 @@ pub const MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrp-testnet/v1";
 /// Most of our transactions on their way at once.
 pub const MAX_IN_FLIGHT: usize = 8;
 /// Most peers whose addresses are kept: at least the node's settlement
-/// channels, so every node it peered with keeps its own.
-pub const MAX_PEERS: usize = 512;
+/// channels, with core nodes and with downlinks, so every node it peered
+/// with keeps its own. A table keyed by account, rather than this state,
+/// is to hold them (spec/roadmap.md#periphery).
+pub const MAX_PEERS: usize = 1536;
 /// The most fee the scheme pays, in drops: above it, it waits.
 pub const MAX_FEE_DROPS: u64 = 1_000;
 /// How many ledgers a transaction may take to get in.

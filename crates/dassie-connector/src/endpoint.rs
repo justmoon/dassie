@@ -81,11 +81,15 @@ pub(crate) struct Endpoint {
     /// It takes no new Prepares from it, but still goes to it: we are
     /// ending its peering, and have not told it yet (D28).
     pub refusing: bool,
+    /// Its address lies below the node's own, which routes to it: a child
+    /// of the node, or a peer that is our downlink
+    /// (spec/areas/connector.md#addresses-and-endpoints). Set when added.
+    pub child: bool,
 }
 
 /// The endpoints, by ID. A child's address, below the node's own, is its
-/// route; a peer's address is only what ILDCP tells it, and routes to
-/// peers come from the route table.
+/// route, and so is a downlink's; any other peer's address is only what
+/// ILDCP tells it, and routes to such peers come from the route table.
 #[derive(Debug, Default)]
 pub(crate) struct Endpoints {
     by_id: BTreeMap<EndpointId, Endpoint>,
@@ -111,7 +115,7 @@ impl Endpoints {
     pub fn insert(
         &mut self,
         id: EndpointId,
-        endpoint: Endpoint,
+        mut endpoint: Endpoint,
         own: Address<'_>,
     ) -> Result<(), EndpointError> {
         if self.by_id.contains_key(&id) {
@@ -119,12 +123,13 @@ impl Endpoints {
         }
         let address =
             Address::parse(&endpoint.address).map_err(|_| EndpointError::InvalidAddress)?;
-        let child_clash = !id.is_peer()
-            && (address.strip_prefix(own).is_none()
-                || self
+        endpoint.child = address.strip_prefix(own).is_some();
+        let child_clash = (!id.is_peer() && !endpoint.child)
+            || (endpoint.child
+                && self
                     .by_id
-                    .iter()
-                    .any(|(other, e)| !other.is_peer() && overlaps(&e.address, &endpoint.address)));
+                    .values()
+                    .any(|e| e.child && overlaps(&e.address, &endpoint.address)));
         if child_clash {
             return Err(EndpointError::InvalidAddress);
         }
@@ -137,14 +142,33 @@ impl Endpoints {
     }
 
     /// The child whose address is a whole-segment prefix of `destination`
-    /// (NET-33). Children's addresses never nest, so at most one fits.
+    /// (NET-33). Children's addresses never nest, so at most one fits. A
+    /// downlink whose peering is ending takes no new Prepare.
     pub fn route_child(&self, destination: Address<'_>) -> Option<EndpointId> {
         self.by_id
             .iter()
-            .filter(|(id, _)| !id.is_peer())
+            .filter(|(_, endpoint)| endpoint.child && !endpoint.draining)
             .find(|(_, endpoint)| {
                 Address::parse(&endpoint.address)
                     .is_ok_and(|address| destination.has_prefix(address))
+            })
+            .map(|(&id, _)| id)
+    }
+
+    /// The child below `own` whose address, after `own`, is a whole-segment
+    /// prefix of `below`: what `own.<below>` routes to, without writing it
+    /// out.
+    pub fn route_child_below(&self, own: &str, below: &str) -> Option<EndpointId> {
+        self.by_id
+            .iter()
+            .filter(|(_, endpoint)| endpoint.child && !endpoint.draining)
+            .find(|(_, endpoint)| {
+                endpoint
+                    .address
+                    .strip_prefix(own)
+                    .and_then(|rest| rest.strip_prefix('.'))
+                    .and_then(|segments| below.strip_prefix(segments))
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
             })
             .map(|(&id, _)| id)
     }

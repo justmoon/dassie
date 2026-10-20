@@ -12,9 +12,10 @@ pub struct Config {
     pub max_endpoints: usize,
     /// Most packets in flight.
     pub max_pending: usize,
-    /// Most packets in flight from one child endpoint.
+    /// Most packets in flight from one child endpoint, or one downlink:
+    /// each sends only its own.
     pub max_pending_per_endpoint: usize,
-    /// Most packets in flight from one peer: a peer carries other nodes'
+    /// Most packets in flight from any other peer: it carries other nodes'
     /// traffic too.
     pub max_pending_per_peer: usize,
     /// Most routes in the route table.
@@ -88,16 +89,6 @@ impl Config {
         // Request IDs are u32s: a counter skipping IDs in use always finds
         // one while fewer than 2^32 are pending.
         assert!(u32::try_from(self.max_pending).is_ok());
-    }
-
-    /// The most packets in flight from one endpoint.
-    #[must_use]
-    pub const fn max_pending_from(&self, endpoint: crate::EndpointId) -> usize {
-        if endpoint.is_peer() {
-            self.max_pending_per_peer
-        } else {
-            self.max_pending_per_endpoint
-        }
     }
 
     /// The most money in flight with one peer each way (D24).

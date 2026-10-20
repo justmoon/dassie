@@ -127,17 +127,20 @@ impl Policies {
         max_btp_connections: 64,
         btp_auth_timeout_ms: 10_000,
         btp_auth_attempts: RateLimitPolicy::DEFAULT,
+        // Two accounts for each core node and downlink ever peered with.
         ledger: dassie_ledger::Config {
-            max_accounts: 4096,
-            max_pending: 25_408,
+            max_accounts: 8192,
+            max_pending: 205_312,
             max_journal: 1024,
         },
-        // Every BTP client, the 8 local endpoints and every peer can fill
-        // their share of the packet table at once: 72 × 60 + 8 × 512 fits
-        // its 8448, and the ledger has three transfers for each (across
-        // ledgers, with our fee), and 64 more.
+        // Every BTP client, the 8 local endpoints, every downlink and every
+        // peer can fill their share of the packet table at once:
+        // 1072 × 60 + 8 × 512 fits its 68 416, and the ledger has three
+        // transfers for each (across ledgers, with our fee), and 64 more.
+        // Each of them is an endpoint.
         connector: dassie_connector::Config {
-            max_pending: 8448,
+            max_endpoints: 1088,
+            max_pending: 68_416,
             max_pending_per_endpoint: 60,
             ..dassie_connector::Config::DEFAULT
         },
@@ -573,19 +576,26 @@ impl Node {
     }
 
     /// What our link state says about us: the public URL, once there is a
-    /// hostname, and the alias.
+    /// hostname, and the alias. A node with a QUIC endpoint and no
+    /// hostname runs as a periphery node
+    /// (spec/areas/network.md#periphery-nodes).
     #[must_use]
     pub fn own_info(&self) -> dassie_peer::OwnInfo {
         let config = self.config();
-        dassie_peer::OwnInfo {
-            url: dassie_node_core::urls::node_url(config.hostname.as_ref(), self.ports().1),
-            alias: config.alias.as_str().to_owned(),
-            // Peers reach QUIC at the URL's port: a drop-in that moved the
-            // HTTPS socket elsewhere leaves QUIC where peers do not look.
-            quic: self.quic().is_some_and(|quic| {
-                quic.local_addr()
+        let url = dassie_node_core::urls::node_url(config.hostname.as_ref(), self.ports().1);
+        // Peers reach QUIC at the URL's port: a drop-in that moved the
+        // HTTPS socket elsewhere leaves QUIC where peers do not look. A
+        // periphery node only dials, from wherever its socket is.
+        let quic = self.quic().is_some_and(|quic| {
+            url.is_none()
+                || quic
+                    .local_addr()
                     .is_ok_and(|address| address.port() == self.ports().1)
-            }),
+        });
+        dassie_peer::OwnInfo {
+            url,
+            alias: config.alias.as_str().to_owned(),
+            quic,
         }
     }
 

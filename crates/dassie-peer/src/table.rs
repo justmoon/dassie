@@ -26,6 +26,11 @@ impl Sources {
     pub const REGISTERED: Self = Self(8);
     /// Peered with us, or asking to be.
     pub const PEER: Self = Self(16);
+    /// A periphery node peered with us as our downlink, or asking to be
+    /// (spec/areas/network.md#downlinks): in the table in place of
+    /// [`PEER`](Self::PEER), under a bound of its own, and never in the
+    /// way of the nodes the others bring.
+    pub const DOWNLINK: Self = Self(32);
 
     /// No reason at all.
     pub const NONE: Self = Self(0);
@@ -39,7 +44,7 @@ impl Sources {
     /// From persisted bits; unknown ones are dropped.
     #[must_use]
     pub const fn from_bits(bits: u8) -> Self {
-        Self(bits & 31)
+        Self(bits & 63)
     }
 
     /// Whether every source of `other` is here.
@@ -72,7 +77,7 @@ impl Sources {
             5
         } else if self.contains(Self::BOOTSTRAP) {
             4
-        } else if self.contains(Self::PEER) {
+        } else if self.contains(Self::PEER) || self.contains(Self::DOWNLINK) {
             3
         } else if self.contains(Self::MAJORITY) {
             2
@@ -158,6 +163,9 @@ pub struct LinkState {
     pub schemes: Vec<SchemeId>,
     /// Whether it takes the peer protocol over QUIC.
     pub quic: bool,
+    /// Whether it is a periphery node's, without a URL: it never floods,
+    /// and is reached only over the connection the node opened.
+    pub periphery: bool,
     /// Copies of this sequence received, for suppressing the flood.
     pub copies: u8,
     /// When to forward it, if it is to be.
@@ -181,6 +189,7 @@ impl LinkState {
             neighbors,
             schemes: signed.info.schemes().collect(),
             quic: signed.info.speaks_quic(),
+            periphery: signed.info.is_periphery(),
             copies: 1,
             retransmit_at_ms: None,
             from: None,
@@ -489,6 +498,13 @@ impl Entry {
             PeerState::Peered(peering) => Some(peering),
             _ => None,
         }
+    }
+
+    /// Whether it is our downlink, or asking to be: a periphery node,
+    /// kept under a bound of its own (spec/areas/network.md#downlinks).
+    #[must_use]
+    pub const fn is_downlink(&self) -> bool {
+        self.sources.contains(Sources::DOWNLINK)
     }
 
     /// The termination under way, if any.

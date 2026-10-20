@@ -140,9 +140,11 @@ impl Bound {
         let (http_address, https_address) =
             (http.local_addr().unwrap(), https.local_addr().unwrap());
         let (hand_out, handed) = tokio::sync::oneshot::channel();
+        let (node_out, node_handed) = tokio::sync::oneshot::channel();
         let mut prepared = Prepared::from_parts(settings, store, http, https, ipc)
             .with_quic(quic)
-            .handing_out(hand_out);
+            .handing_out(hand_out)
+            .handing_out_node(node_out);
         if let Some(path) = notify {
             prepared = prepared.notifying(Notifier::Path(path));
         }
@@ -161,11 +163,13 @@ impl Bound {
             ipc: ipc_path,
             clock,
             quic: None,
+            node: std::sync::Weak::new(),
             shutdown,
             handle: Some(handle),
         };
         node.wait_until_up().await;
         node.quic = handed.await.ok();
+        node.node = node_handed.await.unwrap_or_default();
         node
     }
 }
@@ -179,6 +183,10 @@ pub struct TestNode {
     pub clock: ManualClock,
     /// The QUIC endpoint, once the daemon made it.
     pub quic: Option<Arc<dassie_node::quic::Quic>>,
+    /// The node, held weakly so that stopping the daemon ends it: for a
+    /// test that reaches what no RPC does.
+    #[allow(clippy::disallowed_types)]
+    pub node: std::sync::Weak<dassie_node::node::Node>,
     shutdown: CancellationToken,
     handle: Option<JoinHandle<Result<(), DaemonError>>>,
 }

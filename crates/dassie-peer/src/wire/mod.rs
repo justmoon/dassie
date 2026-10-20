@@ -62,6 +62,12 @@ pub const MAX_EXTENSION_BYTES: usize = 2048;
 /// Its value is empty. Type 1 is kept for a post-quantum key.
 pub const EXTENSION_QUIC: u16 = 2;
 
+/// The link-state extension that says a node is a periphery node: it has
+/// no URL, dials out to its uplinks and is reached only over the
+/// connections it opened (spec/areas/peer-protocol.md#link-states). Its
+/// value is empty. Only with it may a link state's URL be empty.
+pub const EXTENSION_PERIPHERY: u16 = 3;
+
 /// Most scheme versions in a peering request.
 pub const MAX_VERSIONS: usize = 16;
 

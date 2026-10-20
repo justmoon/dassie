@@ -15,7 +15,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [D9](D09-open-payments-fully-and-no-spsp.md) | Open Payments, fully, and no SPSP | payments, http |
 | [D10](D10-secrets-at-rest.md) | Secrets at rest | node, http |
 | [D11](D11-release-integrity.md) | Release integrity | release |
-| [D12](D12-peering-lifecycle-and-liveness.md) | Peering lifecycle and liveness (child peers not built) | network |
+| [D12](D12-peering-lifecycle-and-liveness.md) | Peering lifecycle and liveness | network |
 | [D13](D13-connector-timing-and-packet-limits.md) | Connector timing and packet limits | connector, ilp |
 | [D14](D14-build-system.md) | Build system | engineering, release |
 | [D15](D15-bootstrap-network-for-v1.md) | Bootstrap network for v1 | network |
@@ -27,7 +27,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [D23](D23-each-node-books-its-own-fulfills.md) | Each node books its own Fulfills | settlement, connector, peer-protocol |
 | [D24](D24-money-in-flight-with-a-peer-stays-within-a-few-packets.md) | Money in flight with a peer stays within a few packets | connector, settlement |
 | [D25](D25-a-links-thresholds-are-counted-in-its-largest-packet.md) | A link's thresholds are counted in its largest packet | settlement, connector |
-| [D26](D26-core-and-periphery.md) | Core and periphery (design, not built) | designs/periphery |
+| [D26](D26-core-and-periphery.md) | Core and periphery (design, partly built) | designs/periphery |
 | [D27](D27-simulations-run-continuously-from-random-seeds.md) | Simulations run continuously, from random seeds (partly built) | testing |
 | [D28](D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md) | A node that ends a peering collects first, and pays nothing | network, settlement, peer-protocol, connector |
 | [D29](D29-a-grants-debit-limit-is-in-its-wallets-asset.md) | A grant's debit limit is in its wallet's asset | payments |

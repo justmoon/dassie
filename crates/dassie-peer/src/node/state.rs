@@ -80,19 +80,9 @@ impl PeerNode {
         let now = self.now_ms;
         self.restore_channels(stored.channels, stored.bans);
         let mut peered = false;
+        let mut downlinks = 0;
         for node in stored.nodes {
-            let mut entry = Entry::new(
-                node.sources,
-                node.first_seen_ms,
-                self.config.link_state_rate,
-            );
-            if let Some(bytes) = &node.link_state
-                && let Ok(signed) = SignedNodeInfo::decode_exact(bytes)
-            {
-                entry.key = PublicKey::from_bytes(&signed.info.public_key).ok();
-                entry.link = Some(LinkState::from_signed(&signed));
-            }
-            entry.registration = node.registration;
+            let mut entry = stored_entry(&node, self.config.link_state_rate);
             if let Some(peering) = node.peering {
                 self.auth.pin(node.id);
                 peered = true;
@@ -100,6 +90,7 @@ impl PeerNode {
             } else {
                 // An attempt cut short by the restart.
                 entry.sources.remove(Sources::PEER);
+                entry.sources.remove(Sources::DOWNLINK);
             }
             if !self
                 .bootstrap
@@ -114,7 +105,13 @@ impl PeerNode {
             if entry.sources.is_empty() {
                 entry.orphaned_ms = Some(self.now_ms);
             }
-            if self.table.len() < self.config.max_nodes && node.id != self.own {
+            let room = if entry.is_downlink() {
+                downlinks < self.config.max_downlinks
+            } else {
+                self.table.len() - downlinks < self.config.max_nodes
+            };
+            if room && node.id != self.own {
+                downlinks += usize::from(entry.is_downlink());
                 self.table.insert(node.id, entry);
             }
         }
@@ -144,6 +141,8 @@ impl PeerNode {
             self.open_channel(id);
         }
         self.restore_floors(&stored.floors);
+        // A node that lost its URL while down ends its downlinks.
+        self.end_downlinks();
         self.gossip.routes_dirty = true;
         if peered {
             // The peers we have get a heartbeat's time to confirm
@@ -171,7 +170,8 @@ impl PeerNode {
     /// and the bans.
     fn restore_channels(&mut self, channels: Vec<StoredChannel>, bans: Vec<NodeId>) {
         let now = self.now_ms;
-        for channel in channels.into_iter().take(self.config.max_channels) {
+        let most = self.config.max_channels + self.config.max_downlinks;
+        for channel in channels.into_iter().take(most) {
             if channel.channel.outbox.is_some() {
                 self.retries.insert(
                     channel.node,
@@ -184,6 +184,7 @@ impl PeerNode {
                 );
             }
             self.auth.pin(channel.node);
+            self.downlink_channels += usize::from(channel.channel.url.is_empty());
             self.channels.insert(channel.node, channel.channel);
         }
         self.bans = bans
@@ -241,7 +242,7 @@ impl PeerNode {
             batch.nodes.push(StoredNode {
                 id,
                 link_state: entry.link.as_ref().map(|link| link.bytes.clone()),
-                sources: entry.sources,
+                sources: stored_sources(entry.sources),
                 first_seen_ms: entry.first_seen_ms,
                 registration: entry.registration.clone(),
                 termination,
@@ -352,6 +353,17 @@ impl PeerNode {
             .filter_map(|(id, entry)| entry.peering().map(|peering| (id, peering)))
     }
 
+    /// The core nodes we are peered with, ending it or not: our peers but
+    /// our downlinks, which have slots of their own.
+    pub fn core_peers(&self) -> impl Iterator<Item = (&NodeId, &Peering)> {
+        self.table.iter().filter_map(|(id, entry)| {
+            entry
+                .peering()
+                .filter(|_| !entry.is_downlink())
+                .map(|peering| (id, peering))
+        })
+    }
+
     /// Notes an authenticated message from a peer (NET-12): it is alive,
     /// and the newest timestamp accepted from it is persisted, even for a
     /// read, so that no replay marks it as heard from again. A banned
@@ -394,7 +406,9 @@ impl PeerNode {
                 sources: entry.sources,
                 peering: entry.peering().cloned(),
                 termination: entry.termination().copied(),
-                advertised: entry.active_peering().is_some() && entry.advertise.on,
+                advertised: !entry.is_downlink()
+                    && entry.active_peering().is_some()
+                    && entry.advertise.on,
                 online: entry
                     .peering()
                     .is_some_and(|p| p.heard_within(self.now_ms, self.config.peer_confirm_ms)),
@@ -506,11 +520,18 @@ impl PeerNode {
         self.gossip.routes_computed(self.now_ms, &self.config);
         let (now, stale, future) = (self.now_ms, self.config.stale_ms, self.config.max_future_ms);
         let table = &self.table;
-        let routes = routing::compute(&self.own, |node| {
+        let neighbors = |node: &NodeId| {
             let link = table.get(node)?.link.as_ref()?;
             link.is_fresh(now, stale, future)
                 .then_some(link.neighbors.as_slice())
-        });
+        };
+        // A periphery node's uplinks never list it, and carry everything it
+        // sends.
+        let routes = if self.is_periphery() {
+            routing::through(&self.own, &self.advertised(), neighbors)
+        } else {
+            routing::compute(&self.own, neighbors)
+        };
         if routes != self.routes {
             self.routes = routes;
             self.event(Event::RoutesChanged);
@@ -538,8 +559,10 @@ impl PeerNode {
     /// If one does not hold.
     pub fn check_invariants(&self) {
         self.auth.check_invariants();
+        let downlinks = self.downlinks();
         assert!(
-            self.table.len() <= self.config.max_nodes,
+            self.table.len() - downlinks <= self.config.max_nodes
+                && downlinks <= self.config.max_downlinks,
             "the table within bounds"
         );
         assert!(
@@ -568,10 +591,31 @@ impl PeerNode {
             own.is_some_and(|entry| entry.sources.contains(Sources::SELF)),
             "we are in our table"
         );
-        let peers = self.peers().count();
-        assert!(peers <= self.config.max_peers, "peers within bounds");
+        let (peers, all) = (self.core_peers().count(), self.peers().count());
+        assert!(
+            peers <= self.config.max_peers && all - peers <= self.config.max_downlinks,
+            "peers within bounds"
+        );
+        self.check_periphery();
         self.check_channels();
         self.check_pins();
+        self.check_entries();
+        assert!(
+            !self.routes.contains_key(&self.own),
+            "no route to ourselves"
+        );
+        for route in self.routes.values() {
+            assert!(
+                !route.first_hops.is_empty() && route.first_hops.len() <= routing::MAX_FIRST_HOPS,
+                "routes have first hops"
+            );
+            assert!(route.distance_hops >= 1, "routes lead away from us");
+        }
+    }
+
+    /// Each entry's invariants: peers have channels, sources and keys, and
+    /// only active peers are advertised.
+    fn check_entries(&self) {
         for (id, entry) in &self.table {
             assert!(
                 entry.peering().is_none() || entry.key.is_none() || self.channels.contains_key(id),
@@ -586,24 +630,15 @@ impl PeerNode {
                 "a peering being ended is not advertised"
             );
             assert!(
-                entry.peering().is_none() || entry.sources.contains(Sources::PEER),
+                entry.peering().is_none()
+                    || entry.sources.contains(Sources::PEER)
+                    || entry.is_downlink(),
                 "a peer has the peer source"
             );
             assert!(
                 *id == self.own || entry.peering().is_none() || entry.key.is_some(),
                 "a peer's key is known"
             );
-        }
-        assert!(
-            !self.routes.contains_key(&self.own),
-            "no route to ourselves"
-        );
-        for route in self.routes.values() {
-            assert!(
-                !route.first_hops.is_empty() && route.first_hops.len() <= routing::MAX_FIRST_HOPS,
-                "routes have first hops"
-            );
-            assert!(route.distance_hops >= 1, "routes lead away from us");
         }
     }
 
@@ -618,11 +653,37 @@ impl PeerNode {
         }
     }
 
+    /// The periphery's invariants (spec/areas/network.md#periphery-nodes):
+    /// a periphery node has no downlinks, and its link state is a periphery
+    /// node's.
+    fn check_periphery(&self) {
+        if !self.is_periphery() {
+            return;
+        }
+        // Downlinks from when it was a core node are being ended.
+        for entry in self.table.values().filter(|entry| entry.is_downlink()) {
+            let ending = entry.termination().is_some()
+                || entry.peering().is_some_and(|p| p.depeering.is_some());
+            assert!(ending, "a periphery node's downlinks are ending");
+        }
+        if let Some(own) = self.table.get(&self.own).and_then(|e| e.link.as_ref()) {
+            assert!(
+                own.periphery || !own.url.is_empty(),
+                "a link state without a URL is a periphery node's"
+            );
+        }
+    }
+
     /// The channels' and bans' invariants.
     fn check_channels(&self) {
         assert!(
-            self.channels.len() <= self.config.max_channels,
+            self.channels.len() <= self.config.max_channels + self.config.max_downlinks,
             "channels within bounds"
+        );
+        assert_eq!(
+            self.downlink_channels,
+            self.channels.values().filter(|c| c.url.is_empty()).count(),
+            "channels with downlinks counted"
         );
         assert!(
             self.bans.len() <= self.config.max_bans,
@@ -649,4 +710,35 @@ impl PeerNode {
             );
         }
     }
+}
+
+/// `sources` as stored: a downlink's as a peer's, which its periphery link
+/// state tells apart again on restore, so the stored bits stay those of a
+/// node in the node list's terms.
+fn stored_sources(sources: Sources) -> Sources {
+    let mut stored = sources;
+    if stored.contains(Sources::DOWNLINK) {
+        stored.remove(Sources::DOWNLINK);
+        stored.insert(Sources::PEER);
+    }
+    stored
+}
+
+/// A node's entry as stored, without its peering. Link states were verified
+/// when received, so they are only decoded. A downlink is stored as a peer;
+/// its link state, a periphery node's, tells it apart.
+fn stored_entry(node: &crate::persist::StoredNode, rate: crate::config::Rate) -> Entry {
+    let mut entry = Entry::new(node.sources, node.first_seen_ms, rate);
+    if let Some(bytes) = &node.link_state
+        && let Ok(signed) = SignedNodeInfo::decode_exact(bytes)
+    {
+        entry.key = PublicKey::from_bytes(&signed.info.public_key).ok();
+        entry.link = Some(LinkState::from_signed(&signed));
+    }
+    entry.registration.clone_from(&node.registration);
+    if entry.sources.contains(Sources::PEER) && entry.link.as_ref().is_some_and(|l| l.periphery) {
+        entry.sources.remove(Sources::PEER);
+        entry.sources.insert(Sources::DOWNLINK);
+    }
+    entry
 }

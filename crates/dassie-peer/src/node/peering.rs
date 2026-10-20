@@ -14,7 +14,7 @@ use crate::auth::Accepted;
 use crate::hooks::PeeringHooks;
 use crate::io::{Event, Inbound, InboundId, Reply};
 use crate::table::{
-    Advertise, Entry, Network, PeerState, Peering as PeeringState, Sources, backoff,
+    Advertise, Entry, LinkState, Network, PeerState, Peering as PeeringState, Sources, backoff,
 };
 use crate::wire::{
     Content, PeeringRequest, PeeringResponse, RefusalReason, SchemeId, SignedNodeInfo,
@@ -79,7 +79,10 @@ impl PeerNode {
         }
         if self.peering.bridge_at_ms <= now {
             self.peering.bridge_at_ms = now.saturating_add(self.config.bridge_check_ms);
-            if self.can_start()
+            // A periphery node joins no islands: it routes through its
+            // uplinks only.
+            if !self.is_periphery()
+                && self.can_start()
                 && let Some((node, scheme)) = self.pick_candidate(true)
             {
                 self.start_peering(hooks, node, scheme);
@@ -106,6 +109,7 @@ impl PeerNode {
                     && self.channel_room(id)
                     && entry.link.as_ref().is_some_and(|link| {
                         link.is_fresh(now, stale, future)
+                            && self.may_ask(link)
                             && link.schemes.iter().any(|s| self.schemes.contains(s))
                     })
             })
@@ -114,21 +118,35 @@ impl PeerNode {
     }
 
     fn can_start(&self) -> bool {
-        let outbound = self.peers().filter(|(_, peering)| !peering.inbound).count();
+        let outbound = self
+            .core_peers()
+            .filter(|(_, peering)| !peering.inbound)
+            .count();
         self.peering.attempt.is_none()
             && !self.schemes.is_empty()
             && self.own_link_bytes().is_some()
             && outbound < self.config.max_outbound()
-            && self.peers().count() < self.config.max_peers
+            && self.core_peers().count() < self.config.max_peers
+    }
+
+    /// Whether a node with `link` may be asked to peer: never a periphery
+    /// node; and by a periphery node, only a core node that takes QUIC, on
+    /// which it then reaches its downlink
+    /// (spec/areas/network.md#periphery-nodes).
+    fn may_ask(&self, link: &LinkState) -> bool {
+        !link.periphery && (link.quic || !self.is_periphery())
     }
 
     /// Peers that count toward the target: advertised ones, confirmed by
     /// a recent message and not held down. A node whose peers went silent,
-    /// or flap, looks for others (D12).
+    /// or flap, looks for others (D12). Downlinks do not count: they are
+    /// apart from the core peering slots.
     pub(crate) fn confirmed_peers(&self) -> usize {
         self.table
             .values()
-            .filter(|entry| entry.active_peering().is_some() && entry.advertise.on)
+            .filter(|entry| {
+                !entry.is_downlink() && entry.active_peering().is_some() && entry.advertise.on
+            })
             .count()
     }
 
@@ -148,6 +166,7 @@ impl PeerNode {
                 || entry.peer != PeerState::None
                 || entry.peering_at_ms > now
                 || !link.is_fresh(now, stale, future)
+                || !self.may_ask(link)
                 || self.bans.contains(id)
                 || !self.channel_room(id)
             {
@@ -262,7 +281,8 @@ impl PeerNode {
         };
         match PeeringResponse::decode_exact(&body) {
             Ok(PeeringResponse::Accepted { .. })
-                if self.peers().count() >= self.config.max_peers || !self.channel_room(&node) =>
+                if self.core_peers().count() >= self.config.max_peers
+                    || !self.channel_room(&node) =>
             {
                 self.fail_attempt(node, "no room left");
             }
@@ -281,7 +301,11 @@ impl PeerNode {
                     .get(&node)
                     .is_some_and(|channel| channel.ended_for_room);
                 match hooks.finalize(now, node, scheme, version, &info, data, ended_for_room) {
-                    Ok(agreed) => self.become_peered(node, scheme, version, agreed, false),
+                    Ok(agreed) => {
+                        if !self.become_peered(node, scheme, version, agreed, false) {
+                            self.fail_attempt(node, "no room left");
+                        }
+                    }
                     Err(_) => self.fail_attempt(node, "the scheme would not finalize"),
                 }
             }
@@ -330,11 +354,14 @@ impl PeerNode {
             entry.peering_failures = entry.peering_failures.saturating_add(1);
             let delay = wait.unwrap_or_else(|| backoff(min, max, entry.peering_failures));
             entry.peering_at_ms = now.saturating_add(delay);
-            self.drop_source(&node, Sources::PEER);
+            self.drop_peer_source(&node);
         }
         self.event(Event::PeeringFailed { node, reason });
     }
 
+    /// Records the peering with `node`, with its channel. Returns whether
+    /// it is peered: not when its channel does not fit, since a peer we can
+    /// reach always has one.
     fn become_peered(
         &mut self,
         node: NodeId,
@@ -342,19 +369,25 @@ impl PeerNode {
         version: u16,
         agreed: crate::hooks::Agreed,
         inbound: bool,
-    ) {
+    ) -> bool {
         let now = self.now_ms;
         if self.peering.attempt == Some(node) {
             self.peering.attempt = None;
         }
-        self.ensure(node, Sources::PEER);
-        let Some(entry) = self.table.get_mut(&node) else {
-            return;
+        self.ensure(node, self.peer_source(&node));
+        let Some(entry) = self.table.get(&node) else {
+            return false;
         };
         if entry.peering().is_some() {
             // A peering stays as it was made (D12).
-            return;
+            return true;
         }
+        if !self.open_channel(node) {
+            return false;
+        }
+        let Some(entry) = self.table.get_mut(&node) else {
+            return false;
+        };
         let since_ms = now;
         let fresh = true;
         entry.advertise = Advertise {
@@ -376,7 +409,6 @@ impl PeerNode {
         });
         entry.peering_failures = 0;
         self.dirty.insert(node);
-        self.open_channel(node);
         if fresh {
             self.auth.pin(node);
             self.stats.peerings += 1;
@@ -389,6 +421,7 @@ impl PeerNode {
                 inbound,
             });
         }
+        true
     }
 
     /// A peering request (NET-3, NET-4): the requester's link state must
@@ -415,8 +448,14 @@ impl PeerNode {
         if request.node_info.info.sequence > self.now_ms.saturating_add(self.config.max_future_ms) {
             return Inbound::Reply(Reply::refuse(400, "the link state is from the future"));
         }
+        let downlink = request.node_info.info.is_periphery();
         if let Err(reason) = self.check_request(hooks, &sender, &request) {
             return Inbound::Reply(refused(&accepted, reason));
+        }
+        // A repeat keeps the peering as it was made, core or downlink.
+        let repeat = self.peering_of(&sender).is_some();
+        if downlink && !repeat && !self.ensure(sender, Sources::DOWNLINK) {
+            return Inbound::Reply(refused(&accepted, RefusalReason::Capacity));
         }
         self.process_link_state(&request.node_info, None, Retransmit::Never);
         if let Some(entry) = self.table.get_mut(&sender) {
@@ -436,6 +475,17 @@ impl PeerNode {
                 data: &[],
             };
             return Inbound::Reply(ok(&accepted, &answer.to_vec()));
+        }
+        // A periphery node has no URL to probe: the connection its request
+        // came on shows it is there, and is how we reach it
+        // (spec/areas/network.md#asking-and-answering).
+        if downlink {
+            let reply = self.complete_peering(hooks, &accepted, content, true);
+            // A refused downlink takes no place in the table.
+            if self.peering_of(&sender).is_none() {
+                self.drop_downlink(&sender);
+            }
+            return Inbound::Reply(reply);
         }
         let probe = Probe {
             inbound,
@@ -462,6 +512,12 @@ impl PeerNode {
         if self.bans.contains(sender) {
             return Err(RefusalReason::Banned);
         }
+        // A periphery node peers only as a downlink, and only a core node
+        // that takes QUIC takes downlinks.
+        let downlink = request.node_info.info.is_periphery();
+        if self.is_periphery() || (downlink && !self.takes_downlinks()) {
+            return Err(RefusalReason::Unspecified);
+        }
         // A repeat from a node peered with us on the scheme is answered with
         // the stored peering, also on a scheme no longer peered on anew,
         // such as one that stopped: the peerings made on it stay.
@@ -476,13 +532,20 @@ impl PeerNode {
         {
             return Err(RefusalReason::UnsupportedScheme);
         }
+        // A downlink is in no node list: it enters the table by asking.
         let Some(entry) = self.table.get(sender) else {
-            return Err(RefusalReason::UnknownNode);
+            return if downlink {
+                common_version(hooks.versions(request.scheme), &request.versions)
+                    .ok_or(RefusalReason::NoCommonVersion)?;
+                self.downlink_room(sender)
+            } else {
+                Err(RefusalReason::UnknownNode)
+            };
         };
         if entry.termination().is_some() || entry.refuse_until_ms > self.now_ms {
             return Err(RefusalReason::Terminating);
         }
-        if !self.channel_room(sender) {
+        if !self.channel_room_for(sender, downlink) {
             return Err(RefusalReason::Capacity);
         }
         if let Some(peering) = entry.peering() {
@@ -501,8 +564,25 @@ impl PeerNode {
             }
             self.abandon_attempt(*sender);
         }
-        let inbound = self.peers().filter(|(_, p)| p.inbound).count();
-        if inbound >= self.config.max_inbound() || self.peers().count() >= self.config.max_peers {
+        if downlink {
+            return self.downlink_room(sender);
+        }
+        let inbound = self.core_peers().filter(|(_, p)| p.inbound).count();
+        if inbound >= self.config.max_inbound()
+            || self.core_peers().count() >= self.config.max_peers
+        {
+            return Err(RefusalReason::Capacity);
+        }
+        Ok(())
+    }
+
+    /// Whether a downlink `sender` fits: its place in the table, its
+    /// peering and its channel, under their own bound, apart from the core
+    /// peering slots (spec/areas/network.md#downlinks).
+    fn downlink_room(&self, sender: &NodeId) -> Result<(), RefusalReason> {
+        let peered = self.peers().filter(|(id, _)| self.is_downlink(id)).count();
+        let placed = self.is_downlink(sender) || self.downlinks() < self.config.max_downlinks;
+        if peered >= self.config.max_downlinks || !placed || !self.channel_room_for(sender, true) {
             return Err(RefusalReason::Capacity);
         }
         Ok(())
@@ -516,7 +596,7 @@ impl PeerNode {
             && matches!(entry.peer, PeerState::Requesting { .. })
         {
             entry.peer = PeerState::None;
-            self.drop_source(&node, Sources::PEER);
+            self.drop_peer_source(&node);
         }
     }
 
@@ -544,6 +624,13 @@ impl PeerNode {
         else {
             return refused(accepted, RefusalReason::NoCommonVersion);
         };
+        // Its channel opens as the kind its room was checked for: the link
+        // state we hold for it says, by its URL, which kind that is.
+        let downlink = request.node_info.info.is_periphery();
+        let kind = self.contact(&sender).map(|(_, url)| url.is_empty());
+        if !self.channels.contains_key(&sender) && kind != Some(downlink) {
+            return refused(accepted, RefusalReason::Unspecified);
+        }
         let mut response = Vec::new();
         let now = self.now_ms;
         let agreed = match hooks.accept(
@@ -557,7 +644,9 @@ impl PeerNode {
             Ok(agreed) => agreed,
             Err(reason) => return refused(accepted, reason),
         };
-        self.become_peered(sender, request.scheme, version, agreed, true);
+        if !self.become_peered(sender, request.scheme, version, agreed, true) {
+            return refused(accepted, RefusalReason::Capacity);
+        }
         let answer = PeeringResponse::Accepted {
             version,
             credit: 0,

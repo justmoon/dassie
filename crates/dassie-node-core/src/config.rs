@@ -31,6 +31,8 @@ pub const MAX_DIRECTORY_URL_BYTES: usize = 2048;
 pub enum ConfigError {
     /// Not a DNS name (RFC 1123), or an IP address.
     InvalidHostname,
+    /// A DNS name too long for the node's URL, which peers would refuse.
+    HostnameTooLong,
     /// Too long, or contains control characters.
     InvalidAlias,
     /// Port 0.
@@ -49,6 +51,7 @@ impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::InvalidHostname => "not a valid DNS name",
+            Self::HostnameTooLong => "the hostname is too long for the node's URL",
             Self::InvalidAlias => "the alias must be at most 64 bytes without control characters",
             Self::InvalidPort => "ports must be between 1 and 65535",
             Self::SamePorts => "the HTTP and HTTPS ports must differ",
