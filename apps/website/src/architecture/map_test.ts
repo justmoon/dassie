@@ -1,5 +1,8 @@
 import { test } from "node:test";
+import { execFile } from "node:child_process";
 import { readdir, readFile, stat } from "node:fs/promises";
+import { dirname } from "node:path";
+import { promisify } from "node:util";
 import { assert, assertEquals } from "@std/assert";
 import {
   type ArchitectureMap,
@@ -94,6 +97,70 @@ test("map.json: every link and journey step names boxes", () => {
         assert(id in MAP.components, `${flow.id}: ${id}`);
       }
     }
+  }
+});
+
+/**
+ * What each crate and package builds on, by path, as its manifest says: a
+ * crate's normal dependencies (its dev- and build-dependencies serve only
+ * its tests and build script), and a package's `workspace:` dependencies
+ * (the test packages list theirs as devDependencies).
+ */
+async function manifestDependencies(): Promise<Map<string, string[]>> {
+  const deps = new Map<string, string[]>();
+  const relative = (dir: string) => dir.slice(root.length);
+  const { stdout } = await promisify(execFile)(
+    "cargo",
+    ["metadata", "--format-version=1", "--no-deps", "--offline"],
+    { cwd: root, maxBuffer: 16 << 20 },
+  );
+  for (const crate of JSON.parse(stdout).packages) {
+    deps.set(
+      relative(dirname(crate.manifest_path)),
+      crate.dependencies
+        .filter((dep: { kind: string | null; path?: string }) =>
+          dep.kind === null && dep.path !== undefined
+        )
+        .map((dep: { path: string }) => relative(dep.path)),
+    );
+  }
+  const packages = new Map<string, { path: string; uses: string[] }>();
+  for (const dir of ["apps", "packages", "tests"]) {
+    for (
+      const entry of await readdir(`${root}${dir}`, { withFileTypes: true })
+    ) {
+      if (!entry.isDirectory()) continue;
+      const path = `${dir}/${entry.name}`;
+      const json = JSON.parse(
+        await readFile(`${root}${path}/package.json`, "utf8"),
+      );
+      const all = { ...json.dependencies, ...json.devDependencies };
+      const uses = Object.keys(all).filter((dep) =>
+        all[dep].startsWith("workspace:")
+      );
+      packages.set(json.name, { path, uses });
+    }
+  }
+  for (const { path, uses } of packages.values()) {
+    deps.set(path, uses.map((name) => packages.get(name)!.path));
+  }
+  return deps;
+}
+
+test("map.json: a box uses what its manifest depends on", async () => {
+  const ids = new Map(
+    Object.entries(MAP.components).map(([id, box]) => [box.path, id]),
+  );
+  for (const [path, deps] of await manifestDependencies()) {
+    const id = ids.get(path)!;
+    const uses = MAP.edges
+      .filter((edge) => edge.f === id && edge.k === "uses")
+      .map((edge) => edge.t);
+    assertEquals(
+      uses.sort(),
+      deps.map((dep) => ids.get(dep)!).sort(),
+      `${id} uses`,
+    );
   }
 });
 

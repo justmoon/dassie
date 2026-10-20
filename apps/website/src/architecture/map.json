@@ -593,10 +593,22 @@
       "h": true
     },
     {
+      "f": "website",
+      "t": "rpc",
+      "k": "uses",
+      "h": true
+    },
+    {
       "f": "ui",
       "t": "rpc",
       "k": "uses",
       "h": false
+    },
+    {
+      "f": "ui",
+      "t": "identity-wasm",
+      "k": "uses",
+      "h": true
     },
     {
       "f": "rpc",
@@ -661,6 +673,12 @@
     {
       "f": "interop",
       "t": "identity-wasm",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "interop",
+      "t": "apps-dev",
       "k": "uses",
       "h": true
     },
@@ -785,16 +803,16 @@
       "h": false
     },
     {
+      "f": "xrpl",
+      "t": "ledger",
+      "k": "uses",
+      "h": true
+    },
+    {
       "f": "settlement",
       "t": "ledger",
       "k": "uses",
       "h": false
-    },
-    {
-      "f": "settlement",
-      "t": "node-core",
-      "k": "uses",
-      "h": true
     },
     {
       "f": "peer",
@@ -849,6 +867,12 @@
       "t": "oer",
       "k": "uses",
       "h": false
+    },
+    {
+      "f": "stream",
+      "t": "node-core",
+      "k": "uses",
+      "h": true
     },
     {
       "f": "node-core",
