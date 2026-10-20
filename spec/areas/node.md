@@ -9,22 +9,22 @@ The `dassie` binary: the daemon that composes every protocol crate into a runnin
 
 - **One static binary** holds the daemon, the CLI, every protocol and the wallet, embedded at build time from `DASSIE_WALLET_DIST`. Without it the binary embeds a placeholder, so `cargo build` and `cargo test` need no Node.js; `verify-install` then fails, so no such binary is released.
 - **Services are supervised tokio tasks** (`supervisor.rs`). A service that returns or panics before shutdown is restarted after a growing backoff; its state is what the wallet's service inspector shows.
-- **The engine owns the node's state and is its only writer** ([below](#the-engine)). Everything else reads through it, and live views follow change counters it publishes in `watch` cells ([RPC](rpc.md)). The config is a `watch` cell too, and the engine reconfigures itself when it changes.
+- **The engine owns the money path's state and is its only writer** ([below](#the-engine)): the ledger, peers and settlement schemes, BTP tokens, and payments as they are created, paid and sent, with what grants have spent. Everything else changes that state only through the engine's commands, and live views follow change counters it publishes in `watch` cells ([RPC](rpc.md)). State that moves no money, such as the configuration, sessions, certificates, exchange rates, and Open Payments grants and quotes, is written to the store directly by the service it belongs to, which also forgets payments that are over. The config is a `watch` cell too, and the engine reconfigures itself when it changes.
 - **The node's decisions are pure, in `dassie-node-core`:** setup and login checks, session lifetimes, rate limits, the same-origin rule, configuration values and certificate renewal are functions of their inputs, `now` and an injected RNG ([engineering](../engineering.md)). `dassie-node` only carries them out.
-- **Time and randomness are injected.** `clock.rs` is the only place the node reads the wall clock or the OS RNG, so tests and simulations substitute their own.
+- **Time and randomness are injected.** Everything the node decides takes its time and randomness from `clock.rs`, so tests and simulations substitute their own. Two things decide nothing and are exempt: pacing I/O on the monotonic clock (timeouts, keepalives, the supervisor's backoff), and the TLS and ACME keys, which `rcgen` generates from the OS RNG.
 - **Limits and timings** come from one `Policies` value (`node/mod.rs`): production, dev ([below](#dev-switches-warn-on-a-public-node)) and test settings.
 
 ### The engine
 
 One task owns the money path: the ledger, the connector, the STREAM receivers and payers, and the settlement schemes. None of them needs a lock, and their steps happen in one order, as in a simulation.
 
-- Everything else sends it commands through a bounded queue. It takes a batch, steps the core with each command, persists what the batch changed in **one transaction**, and only then sends the batch's packets and replies. So a Fulfill goes upstream only once its transfer is on disk ([Connector](connector.md), [Ledger](ledger.md)).
-- If the write fails, the core panics without handing anything over. The supervisor restarts the task, which rebuilds the core from the database: packets in flight do not survive, and clients reconnect. A failed commit is the only fault the store injects in simulations ([D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md)).
+- Everything else sends it commands through a bounded queue. It takes a batch, steps the core with each command, and persists what the batch changed in **one or more transactions, each before what it covers goes out**: settlements run only once their pending transfers are committed, and are committed in turn, and closing a BTP link that failed while the batch's messages went out is committed in another. The replies go out last. So a Fulfill goes upstream only once its transfer is on disk ([Connector](connector.md), [Ledger](ledger.md)).
+- If the write fails, the core panics without handing anything over. The supervisor restarts the task, which rebuilds the core from the database: packets in flight do not survive, and clients reconnect. The simulations do not inject failed commits yet; once they do, a failed commit is to be the only fault injected at the store ([roadmap](../roadmap.md#continuous-simulation), [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md)).
 - The engine starts once the node has an identity, since its ILP address comes from the node ID.
 
 ### Checking state before each commit
 
-A commit never holds a broken invariant, so what stops the core leaves the state that last held for its successor.
+In tests and simulations a commit never holds a broken invariant, so what stops the core leaves the state that last held for its successor. Release builds run only the cheap assertions on every commit, and the full sweep at most once a second, so there a broken invariant that only the sweep catches can reach the disk before the next sweep stops the core.
 
 - **Cheap assertions** run at every change.
 - **The full sweep** of every state machine's invariants runs before every commit when debug assertions are on (tests, simulations, the end-to-end binary). In release builds it is throttled (`SWEEP_EVERY_MS` in `engine/core/mod.rs`), since with full tables it costs about as much as a busy commit. The throttle counts engine time, not wall time, so a run stays the same for the same inputs.
@@ -81,7 +81,7 @@ Deliberately not kept: ILP packets in flight (their pending transfers were never
 
 ([D10](../decisions/D10-secrets-at-rest.md))
 
-- The data directory is 0700 and the database file and its copy 0600, created so before SQLite opens them; looser modes found at start are tightened.
+- The data directory is 0700 and the database file 0600, created so before SQLite opens it; looser modes found at start are tightened. The copy before a migration is created by SQLite (`VACUUM INTO`) with the process's umask, which the systemd unit sets to 0077, and set to 0600 before it takes its name; until then the directory's 0700 keeps it from other users.
 - Session, BTP and GNAP tokens are stored only as SHA-256 hashes.
 - The node key, the TLS key, the ACME credentials, the setup token and STREAM shared secrets are stored as they are: the node must sign and settle unattended, and a key stored next to them would add nothing.
 
@@ -115,4 +115,4 @@ The CLI talks to the daemon over the IPC socket with the same RPC contract as th
 - [D15](../decisions/D15-bootstrap-network-for-v1.md): the default bootstrap nodes, and `DASSIE_BOOTSTRAP_NODES`.
 - [D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md): injected time and randomness, decisions in `dassie-node-core`, and checking state before each commit.
 - [D23](../decisions/D23-each-node-books-its-own-fulfills.md): why an upgrade lifts the bans made for a grace limit and makes owed Fulfills final.
-- [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md): why a failed commit is the only fault the store injects.
+- [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md): why a failed commit is to be the only fault injected at the store.

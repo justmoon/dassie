@@ -1,6 +1,7 @@
-//! Time and randomness: the only places the node reads the real clock or
-//! the OS RNG (D16). Everything else gets them from here, so tests and
-//! simulations can substitute their own.
+//! Time and randomness: where everything the node decides gets them
+//! (D16), so tests and simulations can substitute their own. Pacing I/O on
+//! the monotonic clock and generating TLS and ACME keys decide nothing, and
+//! read the OS directly.
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
