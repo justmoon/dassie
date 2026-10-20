@@ -61,8 +61,8 @@ pub fn run(seed: u64) -> Run {
     });
     let outcome = match closed {
         Ok(()) if sim.trace.contains("ConnectionClosed") => Outcome::Pass,
-        Ok(()) => Outcome::Liveness("the connection never closed".into()),
-        Err(problem) => Outcome::Liveness(problem),
+        Ok(()) => Outcome::liveness("closed", "the connection never closed"),
+        Err(problem) => Outcome::liveness("finished", problem),
     };
     let mut trace: alloc::vec::Vec<String> = sim.trace.lines().map(ToString::to_string).collect();
     trace.push(format!("{:?}", sim.client.stats()));

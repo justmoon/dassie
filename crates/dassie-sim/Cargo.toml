@@ -20,3 +20,5 @@ dassie-stream = { path = "../dassie-stream", features = ["sim"] }
 getrandom = "0.4.3"
 # The few arguments there are, as in dassie-cli.
 lexopt = "0.3.2"
+# A campaign's records, one JSON object per line.
+serde_json = "1.0.154"

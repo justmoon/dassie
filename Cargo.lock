@@ -630,6 +630,7 @@ dependencies = [
  "dassie-stream",
  "getrandom 0.4.3",
  "lexopt",
+ "serde_json",
 ]
 
 [[package]]

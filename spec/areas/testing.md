@@ -72,9 +72,22 @@ The `node` simulation counts what it reached (crashes mid-payment, cuts, settlem
 
 A run ends as `pass`, `safety` (something that must never happen did: an assertion, an invariant or a check of what the run did), `liveness` (something that must happen did not, once the network was calm), or `unsupported` (the run drew a situation no code could recover from, such as a majority of bootstrap nodes cut off; it neither passes nor fails) (`dassie_node_core::testing::Outcome`). Each of the node simulation's checks says which of the two failures it found. A run that broke both says safety: one that did not settle down is first checked for what must not happen even with money in flight, and one that did runs every check and reports a safety failure before any liveness failure.
 
+Every outcome but `pass` also says where the run ended (`Finding`): the name of the check that failed or ruled the run out, or the file and line of a panic. It holds nothing a seed draws, so every seed that ends at the same place shares it; a check's name is words in lower case, so it cannot carry a number. With the simulation and the outcome, it is the run's **signature**, `<sim>/<outcome>/<where>`, which tells two failures apart whatever their seeds.
+
+A check's name changes only when the check is renamed. A panic's file and line are what a panic offers, and cost two things: an edit above it in the same file moves its line, so one bug seen before and after such a commit gets two signatures; and a panic inside a dependency that does not pass on its caller's location puts every caller under one. The first splits an issue, the second may merge two, and the message, the trace and the replay tell them apart.
+
 ### The runner: `dassie-sim`
 
-`dassie-sim` runs any simulation on any seed, to replay a failure, search a range for one, or run a commit's own seed. It is a developer tool, never released.
+`dassie-sim` runs any simulation on any seed, to replay a failure, search a range for one, run a commit's own seed, or run random seeds as a campaign. It is a developer tool, never released.
+
+**The campaign command.** `dassie-sim campaign` runs random seeds, drawn from the OS, on every core for a given time, and prints a line of JSON per finished run, then a summary. The lines are the runner's contract with the campaign's supervisor, set out in the runner's docs (`crates/dassie-sim/src/main.rs`).
+
+- Each run's simulation is drawn by its weight. A weight counts runs, not time, so the simulations whose runs take milliseconds cost almost nothing, and the `node` simulation, with the most weight, gets most of the time.
+- A record names its seed and signature; a failure's also holds what its seed drew and the end of its trace, enough to file it without running it again.
+- A panic is caught as a safety failure, so one run cannot end the campaign. Every simulation bounds its steps, so every run ends; a run that still takes far longer in wall time than any run should, stuck within a step, is reported as a liveness failure at `wall-time` and left behind on its thread. Only a run that aborts the process, such as one that overflows its stack, ends the campaign with it.
+- The campaign exits 0 when it ran to its end, whatever its runs found, since its records say that.
+
+**The tripwire.** The `tripwire` simulation fails on purpose, for safety at one fixed place, on a small share of seeds, and passes the others at once. A campaign runs it among the others, so that a campaign whose tripwire stops failing shows that it has stopped. No test expects it to pass on such a seed.
 
 **Reproducing a failure.** A test or run that fails names its simulation and seed.
 
@@ -86,11 +99,11 @@ A run ends as `pass`, `safety` (something that must never happen did: an asserti
 
 ## The campaign
 
-The campaign runs the simulations from random seeds on spot VMs, outside CI ([D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md)). Its supervisor, `scripts/sim-campaign.ts`, runs one loop at a time on each VM: it builds a commit's `dassie-sim` in the `sim` profile, runs the runner's campaign command on every core for a while, reports, and exits. That command and the tripwire are not built yet ([roadmap](../roadmap.md#continuous-simulation)). systemd starts the next loop from a fresh checkout of `main`, so a change to the supervisor or the runner on `main` reaches every VM within a loop. The VMs' setup is in `scripts/sim-campaign/`.
+The campaign runs the simulations from random seeds on spot VMs, outside CI ([D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md)). Its supervisor, `scripts/sim-campaign.ts`, runs one loop at a time on each VM: it builds a commit's `dassie-sim` in the `sim` profile, runs the runner's [campaign command](#the-runner-dassie-sim) on every core for a while, reports, and exits. systemd starts the next loop from a fresh checkout of `main`, so a change to the supervisor or the runner on `main` reaches every VM within a loop. The VMs' setup is in `scripts/sim-campaign/`.
 
 - **What runs.** Most loops run `main`. Open pull requests labelled `sim` share some of the time; the label is the gate, since only people with triage access to the repository can set it. A release candidate has a share too: the owner points the `release` branch at the commit to tag, and the campaign runs that commit, once `main` holds it, until its status settles. `main` alone would not do, since it moves faster than a commit clears.
-- **A failure's signature** is its simulation, its outcome, and the assertion or check that failed: what tells two failures apart, whatever their seeds.
-- **The tripwire,** a simulation to fail on purpose on a small share of seeds, shows that the campaign runs: while its issue keeps getting seeds, the campaign has not stopped. Its failures never hold up a commit.
+- **A failure's [signature](#outcomes)** is its simulation, its outcome, and the assertion or check that failed: what tells two failures apart, whatever their seeds.
+- **The [tripwire](#the-runner-dassie-sim),** a simulation that fails on purpose on a small share of seeds, shows that the campaign runs: while its issue keeps getting seeds, the campaign has not stopped. Its failures never hold up a commit.
 - **A trusted commit** (`main` or the release candidate) gets one issue per failure signature, labelled `sim-failure`, or `sim-tripwire` for the tripwire, and found again by a marker in its body. The issue holds the commit, the configuration, the end of the trace and the commands that reproduce the seed that failed fastest. Later seeds update its counts and its fastest seed in place, and a comment says when it fails on a newer commit, a bounded number of times, so that no issue grows without end. A closed issue is never reopened: a signature seen again after its fix gets a new one.
 - **A pull request** gets comments on itself, and nothing else: a summary of its latest loop, and one comment per failure signature, each edited in place.
 

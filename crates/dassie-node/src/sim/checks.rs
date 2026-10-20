@@ -86,13 +86,16 @@ pub fn check_incoming(sim: &Sim, payment: &Payment) -> Result<(), Outcome> {
         .store
         .incoming_payment(payment.incoming)
         .unwrap()
-        .ok_or_else(|| Outcome::Safety("an incoming payment vanished".into()))?;
+        .ok_or_else(|| Outcome::safety("incoming", "an incoming payment vanished"))?;
     let sent = sent(payment);
     if row.received_amount < sent {
-        return Err(Outcome::Safety(format!(
-            "node {} received {} of the {sent} sent",
-            payment.to, row.received_amount
-        )));
+        return Err(Outcome::safety(
+            "incoming",
+            format!(
+                "node {} received {} of the {sent} sent",
+                payment.to, row.received_amount
+            ),
+        ));
     }
     if let Some(limit) = payment.limit
         && (row.received_amount != limit || row.completed_at_ms.is_none())
@@ -102,9 +105,9 @@ pub fn check_incoming(sim: &Sim, payment: &Payment) -> Result<(), Outcome> {
             row.received_amount, row.completed_at_ms
         );
         return Err(if row.received_amount > limit {
-            Outcome::Safety(problem)
+            Outcome::safety("incoming", problem)
         } else {
-            Outcome::Liveness(problem)
+            Outcome::liveness("incoming", problem)
         });
     }
     Ok(())
@@ -245,19 +248,22 @@ pub fn check_events(sim: &Sim) -> Result<(), String> {
 /// fails for safety, before it fails for liveness.
 pub fn check_mid_flight(sim: &Sim) -> Result<(), Outcome> {
     for payment in &sim.payments {
-        check_cap(sim, payment).map_err(Outcome::Safety)?;
+        check_cap(sim, payment).map_err(|problem| Outcome::safety("cap", problem))?;
         let row = sim.nodes[payment.to]
             .store
             .incoming_payment(payment.incoming)
             .unwrap()
-            .ok_or_else(|| Outcome::Safety("an incoming payment vanished".into()))?;
+            .ok_or_else(|| Outcome::safety("mid-flight", "an incoming payment vanished"))?;
         if let Some(limit) = payment.limit
             && row.received_amount > limit
         {
-            return Err(Outcome::Safety(format!(
-                "an incoming payment of {limit} received {}",
-                row.received_amount
-            )));
+            return Err(Outcome::safety(
+                "mid-flight",
+                format!(
+                    "an incoming payment of {limit} received {}",
+                    row.received_amount
+                ),
+            ));
         }
     }
     for &(from, to, incoming, outgoing) in &sim.outgoing {
@@ -265,17 +271,20 @@ pub fn check_mid_flight(sim: &Sim) -> Result<(), Outcome> {
             .store
             .outgoing_payment(outgoing)
             .unwrap()
-            .ok_or_else(|| Outcome::Safety("an outgoing payment vanished".into()))?;
+            .ok_or_else(|| Outcome::safety("mid-flight", "an outgoing payment vanished"))?;
         let received = sim.nodes[to]
             .store
             .incoming_payment(incoming)
             .unwrap()
             .map_or(0, |row| row.received_amount);
         if received > row.receive_amount.value {
-            return Err(Outcome::Safety(format!(
-                "node {to} received {received}, more than the {} it asked for",
-                row.receive_amount.value
-            )));
+            return Err(Outcome::safety(
+                "mid-flight",
+                format!(
+                    "node {to} received {received}, more than the {} it asked for",
+                    row.receive_amount.value
+                ),
+            ));
         }
     }
     Ok(())
@@ -306,18 +315,18 @@ pub fn check(sim: &Sim) -> Result<(), Outcome> {
     let caps = sim
         .payments
         .iter()
-        .map(|payment| check_cap(sim, payment).map_err(Outcome::Safety));
+        .map(|payment| check_cap(sim, payment).map_err(|problem| Outcome::safety("cap", problem)));
     let incoming = sim
         .payments
         .iter()
         .map(|payment| check_incoming(sim, payment));
     first_failure(
-        [check_events(sim).map_err(Outcome::Safety)]
+        [check_events(sim).map_err(|problem| Outcome::safety("events", problem))]
             .into_iter()
             .chain(caps)
             .chain([
                 check_books(sim),
-                check_finished(sim).map_err(Outcome::Liveness),
+                check_finished(sim).map_err(|problem| Outcome::liveness("finished", problem)),
                 check_outgoing(sim),
             ])
             .chain(incoming)
@@ -381,23 +390,29 @@ fn check_outgoing_payment(
         .store
         .outgoing_payment(outgoing)
         .unwrap()
-        .ok_or_else(|| Outcome::Safety("an outgoing payment vanished".into()))?;
+        .ok_or_else(|| Outcome::safety("outgoing", "an outgoing payment vanished"))?;
     let received = sim.nodes[to]
         .store
         .incoming_payment(incoming)
         .unwrap()
         .map_or(0, |row| row.received_amount);
     if received < row.sent_amount {
-        return Err(Outcome::Safety(format!(
-            "node {to} received {received} of the {} node {from} sent",
-            row.sent_amount
-        )));
+        return Err(Outcome::safety(
+            "outgoing",
+            format!(
+                "node {to} received {received} of the {} node {from} sent",
+                row.sent_amount
+            ),
+        ));
     }
     if received > row.receive_amount.value {
-        return Err(Outcome::Safety(format!(
-            "node {to} received {received}, more than the {} it asked for",
-            row.receive_amount.value
-        )));
+        return Err(Outcome::safety(
+            "outgoing",
+            format!(
+                "node {to} received {received}, more than the {} it asked for",
+                row.receive_amount.value
+            ),
+        ));
     }
     // One whose payer gave up while the network was faulty may have
     // failed; what it sent still arrived.
@@ -406,16 +421,22 @@ fn check_outgoing_payment(
     }
     if row.state != OutgoingState::Completed {
         let incoming_row = sim.nodes[to].store.incoming_payment(incoming).unwrap();
-        return Err(Outcome::Liveness(format!(
-            "an outgoing payment from {from} to {to} ended {:?} ({:?}) having sent {} of {}; its receiver: {incoming_row:?}",
-            row.state, row.failure, row.sent_amount, row.debit_amount
-        )));
+        return Err(Outcome::liveness(
+            "outgoing",
+            format!(
+                "an outgoing payment from {from} to {to} ended {:?} ({:?}) having sent {} of {}; its receiver: {incoming_row:?}",
+                row.state, row.failure, row.sent_amount, row.debit_amount
+            ),
+        ));
     }
     if received != row.receive_amount.value {
-        return Err(Outcome::Liveness(format!(
-            "node {to} received {received} of the {} node {from} sent, for {}",
-            row.sent_amount, row.receive_amount.value
-        )));
+        return Err(Outcome::liveness(
+            "outgoing",
+            format!(
+                "node {to} received {received} of the {} node {from} sent, for {}",
+                row.sent_amount, row.receive_amount.value
+            ),
+        ));
     }
     Ok(())
 }
@@ -426,11 +447,11 @@ fn check_outgoing_payment(
 /// its own, and they may drift (D19).
 pub fn check_books(sim: &Sim) -> Result<(), Outcome> {
     first_failure([
-        check_owner_books(sim).map_err(Outcome::Safety),
-        check_ledgers(sim).map_err(Outcome::Safety),
-        check_funded(sim).map_err(Outcome::Liveness),
-        check_settled(sim).map_err(Outcome::Liveness),
-        check_delivered(sim).map_err(Outcome::Liveness),
+        check_owner_books(sim).map_err(|problem| Outcome::safety("owner-books", problem)),
+        check_ledgers(sim).map_err(|problem| Outcome::safety("ledgers", problem)),
+        check_funded(sim).map_err(|problem| Outcome::liveness("funded", problem)),
+        check_settled(sim).map_err(|problem| Outcome::liveness("settled", problem)),
+        check_delivered(sim).map_err(|problem| Outcome::liveness("delivered", problem)),
     ])
 }
 
@@ -519,9 +540,9 @@ pub fn check_across(sim: &Sim) -> Result<(), Outcome> {
             .store
             .outgoing_payment(outgoing)
             .unwrap()
-            .ok_or_else(|| Outcome::Safety("an outgoing payment vanished".into()))?;
+            .ok_or_else(|| Outcome::safety("outgoing", "an outgoing payment vanished"))?;
         if row.state != OutgoingState::Completed || row.sent_amount != row.debit_amount {
-            return Err(Outcome::Liveness(format!(
+            return Err(Outcome::liveness("outgoing", format!(
                 "an outgoing payment from {from} to {to} ended {:?} ({:?}) having sent {} of {}",
                 row.state, row.failure, row.sent_amount, row.debit_amount
             )));
@@ -530,11 +551,12 @@ pub fn check_across(sim: &Sim) -> Result<(), Outcome> {
     });
     first_failure(
         [
-            check_events(sim).map_err(Outcome::Safety),
-            check_received_across(sim).map_err(Outcome::Safety),
-            check_assets(sim).map_err(Outcome::Safety),
-            check_finished(sim).map_err(Outcome::Liveness),
-            check_settled(sim).map_err(Outcome::Liveness),
+            check_events(sim).map_err(|problem| Outcome::safety("events", problem)),
+            check_received_across(sim)
+                .map_err(|problem| Outcome::safety("received-across", problem)),
+            check_assets(sim).map_err(|problem| Outcome::safety("assets", problem)),
+            check_finished(sim).map_err(|problem| Outcome::liveness("finished", problem)),
+            check_settled(sim).map_err(|problem| Outcome::liveness("settled", problem)),
         ]
         .into_iter()
         .chain(outgoing)
@@ -604,8 +626,8 @@ mod tests {
 
     #[test]
     fn a_safety_failure_ranks_before_an_earlier_liveness_failure() {
-        let liveness = || Err(Outcome::Liveness("late".into()));
-        let safety = || Err(Outcome::Safety("broken".into()));
+        let liveness = || Err(Outcome::liveness("settled", "late"));
+        let safety = || Err(Outcome::safety("owner-books", "broken"));
         assert_eq!(first_failure([Ok(()), liveness(), safety()]), safety());
         assert_eq!(first_failure([liveness(), Ok(())]), liveness());
         assert_eq!(first_failure([Ok(()), Ok(())]), Ok(()));
