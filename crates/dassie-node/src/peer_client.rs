@@ -497,7 +497,12 @@ mod tests {
     // allows no private addresses refused them all.
     #[tokio::test]
     async fn each_node_without_a_url_has_its_own_bound() {
-        let client = PeerClient::new(None, false).unwrap();
+        // Roots of its own: the build sandbox has none of the system's.
+        let roots = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/pebble/root.pem"
+        );
+        let client = PeerClient::new(Some(Path::new(roots)), false).unwrap();
         let request = |seed: u8| dassie_peer::Request {
             id: dassie_peer::RequestId(0),
             to: dassie_identity::NodeKey::from_bytes(&[seed; 32]).node_id(),
