@@ -37,7 +37,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | `apps/wallet` | [Wallet](areas/wallet.md), [RPC](areas/rpc.md) |
 | `apps/dev` | [Dev](areas/dev.md) |
 | `apps/dev-dashboard` | [Dev](areas/dev.md), [Wallet](areas/wallet.md) |
-| `apps/website` | [Website](areas/website.md) |
+| `apps/website`, `scripts/website/`, `.github/workflows/website.yml` | [Website](areas/website.md) |
 | `tests/e2e` | [Testing](areas/testing.md), and the area under test |
 | `tests/interop` | [Testing](areas/testing.md), [STREAM](areas/stream.md), [Payments](areas/payments.md) |
 | `resources/`, `nix/`, `scripts/release.ts`, `.github/workflows/release.yml` | [Release](areas/release.md) |

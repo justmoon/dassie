@@ -133,7 +133,7 @@
       "x": 420,
       "y": 48,
       "w": 176,
-      "desc": "This website: static pages built by Vite and deployed by Vercel, under a strict content security policy.",
+      "desc": "This website: static pages built by Vite and published from main to a bucket behind the release mirror's load balancer, under a strict content security policy.",
       "does": [
         "The home page and the Quick Start",
         "This architecture page, drawn from one data file",

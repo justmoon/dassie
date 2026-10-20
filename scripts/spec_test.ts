@@ -18,7 +18,6 @@ const SKIP = new Set([
   "dist",
   "dist-dev",
   ".direnv",
-  ".vercel",
 ]);
 const TEXT = /\.(md|rs|ts|tsx|proto|nix|sh|ya?ml|toml|json|css|html)$/;
 
