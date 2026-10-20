@@ -14,7 +14,7 @@ A periphery node always opens its connections itself, to nodes with a public IP,
 - a way to reach a periphery node by its ID, for its owner's apps and for Open Payments clients (§5–§7);
 - receiving payments without paying anything first (§8).
 
-This is a design ([D26](../decisions/D26-core-and-periphery.md)). Of it, QUIC between core nodes is built ([Peer protocol](../areas/peer-protocol.md#quic)), and so are a node's names, its signed responses and the `dassie` field of §7 ([Payments](../areas/payments.md#the-nodes-names)); the rest is not built yet. Durations and sizes in it are starting points, to be set from the deterministic simulation when the parts are built.
+This is a design ([D26](../decisions/D26-core-and-periphery.md)). Of it, QUIC between core nodes is built ([Peer protocol](../areas/peer-protocol.md#quic)), and so are relayed streams and a node's chosen relay of §5 ([Peer protocol](../areas/peer-protocol.md#relayed-streams)), a node's names, its signed responses and the `dassie` field of §7 ([Payments](../areas/payments.md#the-nodes-names)); the rest is not built yet. Durations and sizes in it are starting points, to be set from the deterministic simulation when the parts are built.
 
 ## 1. Concepts
 
@@ -76,9 +76,7 @@ A core node keeps its peerings with other core nodes, and its downlinks, under s
 
 A periphery node cannot be dialled. Everything that needs to reach it (its owner's app, a front door with an Open Payments request) goes through a relay: a server it keeps a connection to.
 
-**Relays.** Every uplink is a relay for its downlinks: they are connected anyway. A periphery node may also keep a connection to a relay it chooses, which carries only relayed streams, never peer traffic. That relay is its fast path, and it keeps the node reachable before it has any peering, or while lookups fail.
-
-**A relayed stream** is opened at a relay with a header naming the destination node ID and a purpose (`owner` or `payments`). The relay opens a stream to that node over the node's connection and joins the two. Inside it, the client runs its own TLS 1.3 session with the node, pinned to the node's key, so the relay sees only ciphertext and its size. A relay limits relayed streams per destination and per client address. Relayed traffic is light: owner calls and Open Payments, never packets.
+**Relays and relayed streams** are built ([Peer protocol](../areas/peer-protocol.md#relayed-streams)): every QUIC endpoint relays streams to the nodes connected to it, never dialling them, with TLS end to end between client and node and bounds per destination and per client; and a node keeps a connection to a relay it chooses, without peering with it ([Node](../areas/node.md#a-chosen-relay)). That relay is the node's fast path, and it keeps the node reachable before it has any peering, or while lookups fail. What is left: every uplink is a relay for its downlinks, since they are connected anyway, once there are downlinks (§4); and clients find the relays that reach a node, below.
 
 **The record.** A periphery node signs a record of where it can be reached:
 
@@ -119,7 +117,7 @@ A record lasts 30 minutes and is renewed every 10, and whenever it changes.
 
 The wallet is never served through a relay or a front door. The owner enters the passphrase into the wallet's page to log in ([Wallet](../areas/wallet.md#key-derivation)), so a page served by anyone else could keep it, and a passphrase cannot be revoked. A periphery node's owner uses the wallet on `localhost`, or an app: a desktop app built with Tauri, or a mobile app.
 
-- **The node serves the wallet, `/api/*` and `/rpc` only on its own listeners.** On a relayed stream it speaks only the owner protocol below, or Open Payments.
+- **The node serves the wallet, `/api/*` and `/rpc` only on its own listeners.** On a relayed stream it speaks only the owner protocol below, or Open Payments. The Open Payments side of that is built, and a node refuses the `owner` purpose until the owner protocol is ([HTTP](../areas/http.md#relayed-streams)).
 - **Pairing.** On `localhost`, the wallet shows a code, as a QR code, with the node ID and a one-time pairing secret that expires in minutes. The app makes a device key (Ed25519) and sends its public key with the secret. The node keeps a bounded list of devices, which the owner can revoke one by one.
 - **Calls.** The app reaches the node directly on the local network, or through a relay (§5) with purpose `owner`. Either way, it runs TLS 1.3 with the node's key pinned and its device key as the client's, and then the same RPC contract as the wallet ([RPC](../areas/rpc.md#the-contract)). Revoking a device closes its sessions at once.
 - **Consent.** An Open Payments grant that needs the owner ([Payments](../areas/payments.md#the-owners-consent)) is shown in the app, at once if it is connected, otherwise when it next connects. A pending grant still lapses as it does today.
@@ -131,8 +129,8 @@ Open Payments clients reach a wallet address by DNS and HTTPS, so whoever answer
 **Front doors.**
 
 - **Names.** A front door serves `<label>.<domain>`, where `<label>` is the node's [label](../areas/identity.md#node-label).
-- **What it serves.** It terminates TLS with a wildcard certificate and passes to the node, through a relay with purpose `payments`, only the [Open Payments routes](../areas/payments.md#http-routes). It returns only JSON, within the same size limits. It never serves the wallet, nor any page the node returns, so nobody can host pages on its domain.
-- **Inside the relayed stream,** it runs TLS with the node's key pinned, so the relay sees only ciphertext. The front door itself sees the requests in plain text.
+- **What it serves.** It terminates TLS with a wildcard certificate and passes to the node, over a relayed stream with purpose `payments` (built: `Quic::open_relayed`, [Peer protocol](../areas/peer-protocol.md#relayed-streams)), only the [Open Payments routes](../areas/payments.md#http-routes), which are all the node serves there ([HTTP](../areas/http.md#relayed-streams)). It returns only JSON, within the same size limits. It never serves the wallet, nor any page the node returns, so nobody can host pages on its domain.
+- **The front door itself sees the requests in plain text;** the relay sees only ciphertext, since the stream's TLS is between the front door and the node.
 - **Consent.** `GET /gnap/interact/{id}/{key}` answers with a fixed page from the front door itself, "Approve this in your Dassie app", which asks for nothing. The page checks a JSON route for the grant's state, and sends the client on to its finish URI once the owner decided (§6).
 - **Anyone can run one,** and every front door reaches every node (§5). `dassiepay.net` is a default, not a requirement, and a node is not tied to it.
 - **No Public Suffix List entry is needed.** The list makes each name its own site to browsers, which matters where names serve pages that run scripts or set cookies. A front door serves no page whose content a node controls (only nodes' JSON, and its own fixed consent page) and sets no cookies, so its names share only a reputation.
@@ -191,7 +189,7 @@ A browser node is a short-lived periphery node, for demos: it lets someone join 
 
 ## 10. How it fits the node
 
-- **`dassie-node`** gains a QUIC listener and client, the TCP and WebSocket fallbacks, relayed streams, and the front door's HTTP side.
+- **`dassie-node`** gains the TCP and WebSocket fallbacks and the front door's HTTP side; its QUIC endpoint, relayed streams and signed Open Payments answers are built.
 - **`dassie-peer`** gains the downlink table, the `periphery` extension, records, home nodes and lookups, and the transport's link-state extension.
 - **`dassie-connector`** routes beneath a downlink's child address, and a periphery node's STREAM receiver takes its child addresses.
 - **The XRPL scheme** gains its table of peers' addresses and the two rules of §8.

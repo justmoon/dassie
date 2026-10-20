@@ -303,7 +303,7 @@
         "The peer protocol over QUIC, with each node's key pinned, and over HTTPS as `POST /peer` for nodes that do not take QUIC; the settlement loop",
         "Relayed streams: any QUIC node relays for the nodes connected to it, with TLS end to end, so a node without a public address that keeps a connection to a relay is still reached for Open Payments",
         "RPC with live streams, the log ring, the database inspector and `GET /stats`",
-        "Open Payments over HTTPS: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments, each answer signed with the node key and written under the name the request came through",
+        "Open Payments over HTTPS and relayed streams: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments, each answer signed with the node key and written under the name the request came through",
         "Exchange rates, fetched from several sources, and the fee and spread on what passes between peers",
         "Credit to each peer that grows with the fees it earned the node, read from the journal",
         "Simulated as a network of real engine cores, in tests and by `dassie-sim`: each seed draws its nodes, faults and payments, runs them through chaos, then heals the network, which must settle down"

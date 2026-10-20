@@ -22,7 +22,7 @@ Open Payments clients reach a wallet by DNS and HTTPS, and the node writes absol
 
 - **A node with a hostname** answers under it alone, whatever `Host` says, as a core node always has.
 - **A node without one** answers to a list of names (`Names` in `open_payments/mod.rs`): first its name at the default front door, `<label>.dassiepay.net`, which it computes from its [node label](identity.md#node-label), then the names its owner adds, another front door's or a domain of the owner's (`env.rs`). Front doors themselves are a [design](../designs/periphery.md#7-open-payments-without-a-public-address).
-- **Each request is answered under the name it came through,** its `Host`, which a front door passes on: the node writes that name into the URLs of its answer and checks the request's signature against it. So a client that fetched `$pay.example.com` finds a wallet address whose `id` is at that origin, as [the node as a client](#the-node-as-a-client) requires of others.
+- **Each request is answered under the name it came through,** its `Host`, which a front door passes on through a [relayed stream](http.md#relayed-streams): the node writes that name into the URLs of its answer and checks the request's signature against it. So a client that fetched `$pay.example.com` finds a wallet address whose `id` is at that origin, as [the node as a client](#the-node-as-a-client) requires of others.
 - **A name not on the list is refused** with 421, in the specs' error form, so that whoever passes requests on cannot make the node sign for a name its owner never chose, or hand it a request signed for another server.
 - **What outlives a request holds under every name.** Grants and resources keep the wallet address URL they were made under, which is the node's by construction, and are read and written under the name of the request at hand. The node takes a URL at any of its names as its own: a wallet address, a quote, or a payment request in the owner's Send.
 - **A pending grant keeps the name it was asked for under.** The interaction hash covers the grant endpoint the client called (RFC 9635 §4.2.3), and the node computes it when the owner decides, outside any request.
@@ -40,7 +40,7 @@ The node signs every Open Payments answer it gives under a name with its node ke
 
 ## The `dassie` field
 
-Wallet address documents carry an optional `dassie` object with the node's ID, which the specs' schema lets other clients ignore (it allows more properties). It tells a Dassie-aware client which node should sign the answers. The node reads other wallets' documents leniently: a `dassie` property in any other shape, which another server may use for something of its own, counts as absent, so it never makes a wallet unpayable. The relays a node chooses are to join it ([periphery](../designs/periphery.md#5-reaching-a-periphery-node)).
+Wallet address documents carry an optional `dassie` object with the node's ID, which the specs' schema lets other clients ignore (it allows more properties). It tells a Dassie-aware client which node should sign the answers. The node reads other wallets' documents leniently: a `dassie` property in any other shape, which another server may use for something of its own, counts as absent, so it never makes a wallet unpayable. The relay a node chooses ([Node](node.md#a-chosen-relay)) is to join it, so that a client finds the node through it; that is a [design](../designs/periphery.md#5-reaching-a-periphery-node).
 
 ## HTTP routes
 

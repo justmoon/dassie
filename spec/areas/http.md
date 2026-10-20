@@ -23,7 +23,7 @@ The decisions (whether an origin is allowed, a session valid, a setup attempt ri
 A node reached through a relay ([Peer protocol](peer-protocol.md#relayed-streams)) serves HTTP/1.1 on a relayed stream with purpose `payments`, once its TLS is done (`serve_relayed` in `http/mod.rs`):
 
 - **Open Payments only.** Every other path is 404, upgrades included: the wallet, `/api/*`, `/rpc`, `/peer`, BTP and `/stats` are served only on the node's own listeners ([D26](../decisions/D26-core-and-periphery.md)). A page served through a relay could keep the owner's passphrase, and nothing on a relayed stream shows that a browser's origin is the node's.
-- **The same rules as over HTTPS** ([Payments](payments.md#http-routes)): CORS, signatures, bounded bodies and the security headers, without HSTS. The rate limits per client address count the relay's address, the only one the node sees; the relay bounds streams per client.
+- **The same rules as over HTTPS** ([Payments](payments.md#http-routes)): the request's `Host` names the name it is answered under, and one that is not among [the node's names](payments.md#the-nodes-names) is refused with 421; the answer is [signed with the node key](payments.md#signed-responses), so a client can check it whoever passed it on; and CORS, request signatures, bounded bodies and the security headers apply, without HSTS. The rate limits per client address count the relay's address, the only one the node sees; the relay bounds streams per client.
 
 ### The wallet's files
 
