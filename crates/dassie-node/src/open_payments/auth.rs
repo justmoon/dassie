@@ -43,11 +43,11 @@ pub const OWNER_RESERVED_GRANTS: u32 = MAX_GRANTS / 16;
 /// Places among the grants waiting for the owner that only clients the
 /// owner approved before may take.
 pub const OWNER_RESERVED_PENDING: u32 = MAX_PENDING_GRANTS / 4;
-/// Most grants one client keeps.
+/// Most grants one stranger keeps.
 pub const MAX_GRANTS_PER_CLIENT: u32 = MAX_GRANTS / 64;
-/// Most grants kept that a stranger asked for from one network.
+/// Most grants kept that strangers asked for from one network.
 pub const MAX_GRANTS_PER_NETWORK: u32 = MAX_GRANTS / 16;
-/// Most grants of one client waiting for the owner.
+/// Most grants of one stranger waiting for the owner.
 pub const MAX_PENDING_PER_CLIENT: u32 = 4;
 /// Most grants waiting for the owner that strangers asked for from one
 /// network.
@@ -59,13 +59,14 @@ pub const MAX_PENDING_PER_NETWORK: u32 = MAX_PENDING_GRANTS / 16;
 /// are the owner's side: strangers leave them a share of the grants and
 /// of the places waiting for the owner. Grants approved at once leave
 /// room for every grant that may wait, so the table never stops one from
-/// asking. No one client holds more than a small share; no one network
-/// either, of what strangers hold, since a network is shared by many and
-/// a client the owner approved is known by its key.
+/// asking. No one stranger, and no one network of strangers, holds more
+/// than a small share. A client the owner approved has no share of its
+/// own, only the pools, as before: the owner chose it, its grants the
+/// owner approved last for months, and a network is shared by many.
 ///
 /// # Errors
 ///
-/// 503 when the pool the grant goes into is full, 429 when its client or
+/// 503 when the pool the grant goes into is full, 429 when a stranger or its
 /// network has its share.
 pub fn grant_fits(counts: &GrantCounts, needs_owner: bool) -> Result<(), OpError> {
     let mut most = MAX_GRANTS;
@@ -94,8 +95,11 @@ pub fn grant_fits(counts: &GrantCounts, needs_owner: bool) -> Result<(), OpError
             "too many grants; try again later",
         ));
     }
+    if counts.known {
+        return Ok(());
+    }
     let has_share = |of_client: u32, most_client: u32, of_network: u32, most_network: u32| {
-        of_client >= most_client || (!counts.known && of_network >= most_network)
+        of_client >= most_client || of_network >= most_network
     };
     let kept = (counts.client_kept, counts.network_kept);
     let pending = (counts.client_pending, counts.network_pending);
@@ -863,6 +867,41 @@ mod tests {
         assert_eq!(counts.network_kept, MAX_GRANTS_PER_CLIENT);
         assert_eq!(counts.network_pending, 0);
         assert!(!counts.known);
+    }
+
+    // An app the owner approved may ask for a grant at every payment, and
+    // the owner's grants last months: it has no share of its own, nor its
+    // network's, only the pools, as before.
+    #[test]
+    fn a_client_the_owner_approved_is_held_to_the_pools_only() {
+        let store = Store::open_in_memory().unwrap();
+        let known = "https://app.example/me";
+        let mut n = 0;
+        let mut next = |state, needs_owner| {
+            n += 1;
+            grant(n, known, state, needs_owner)
+        };
+        for _ in 0..=MAX_GRANTS_PER_CLIENT {
+            ask(&store, &next(GrantState::Approved, true), network(1)).unwrap();
+        }
+        for _ in 0..=MAX_PENDING_PER_CLIENT {
+            ask(&store, &next(GrantState::Pending, true), network(1)).unwrap();
+        }
+        // Strangers fill their network's share; the app still asks there.
+        for stranger in 0..MAX_PENDING_PER_NETWORK {
+            let row = pending(10_000 + stranger, &format!("https://s{stranger}.example/"));
+            ask(&store, &row, network(1)).unwrap();
+        }
+        let row = pending(20_000, "https://late.example/");
+        assert_eq!(ask(&store, &row, network(1)).unwrap_err().status, 429);
+        assert_eq!(
+            ask(&store, &next(GrantState::Pending, true), network(1)),
+            Ok(())
+        );
+        assert_eq!(
+            ask(&store, &next(GrantState::Approved, false), network(1)),
+            Ok(())
+        );
     }
 
     // Strangers' grants approved at once never take the room of grants

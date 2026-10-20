@@ -65,13 +65,19 @@ fn authorize(node: &Node, read: &ReadRequest) -> Result<Authorized, OpError> {
     auth::authorize(node, &read.signed(&fields))
 }
 
-/// The client a request's rate probe counts against: its grant's client,
-/// and the network it came from (D34).
-fn prober(node: &Node, peer: SocketAddr, authorized: &Authorized) -> Prober {
-    Prober::Client {
-        client: authorized.grant.client.clone(),
-        network: node.counted_network(peer.ip()),
+/// Whom a request's rate probe counts against (D34): an app the owner
+/// approved, under this grant or another, shares the clients' slots
+/// without a share of its own or its network's; a stranger is held to
+/// its own share and its network's.
+fn prober(node: &Node, peer: SocketAddr, authorized: &Authorized) -> Result<Prober, OpError> {
+    let grant = &authorized.grant;
+    if grant.needs_owner || node.store().client_approved(&grant.client)? {
+        return Ok(Prober::Approved);
     }
+    Ok(Prober::Stranger {
+        client: grant.client.clone(),
+        network: node.counted_network(peer.ip()),
+    })
 }
 
 /// The ledger of one of the node's wallet addresses.
@@ -108,7 +114,7 @@ async fn create_quote(
     }
     let receiver = spending::receiver(node, urls, &body.receiver).await?;
     let rate =
-        spending::quote_rate(node, ledger, &receiver, prober(node, peer, &authorized)).await?;
+        spending::quote_rate(node, ledger, &receiver, prober(node, peer, &authorized)?).await?;
     let (debit, receive) = spending::amounts(
         ledger,
         &receiver,
@@ -216,7 +222,7 @@ async fn create_outgoing(
             spending::from_quote(node, id, Some(&authorized.grant.client), Some(ledger))?
         }
         (None, Some(incoming), Some(debit)) => {
-            let by = prober(node, peer, &authorized);
+            let by = prober(node, peer, &authorized)?;
             spending::from_incoming(node, urls, ledger, incoming, debit, by).await?
         }
         _ => {

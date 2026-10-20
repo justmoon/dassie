@@ -6,8 +6,9 @@
 //!
 //! Clients' quotes need no owner, so anyone can start probes. The owner's
 //! Send keeps [`OWNER_PROBES`] of the slots, which no client can take, and
-//! no one client or network holds more than [`MAX_PROBES_PER_CLIENT`]
-//! (D34).
+//! no one stranger, or network of strangers, holds more than
+//! [`MAX_PROBES_PER_CLIENT`]. Apps the owner approved share the clients'
+//! slots without a share of their own (D34).
 
 use dassie_ilp::{Address, Timestamp};
 use dassie_ledger::LedgerId;
@@ -21,7 +22,8 @@ use super::{Core, EngineError, MAX_SENDS_PER_POLL, Output};
 pub const MAX_PROBES: usize = 8;
 /// Probe slots only the owner's Send may take.
 pub const OWNER_PROBES: usize = 2;
-/// Most probes of one client, and most from one network, at once.
+/// Most probes of one stranger, and most of strangers from one network,
+/// at once.
 pub const MAX_PROBES_PER_CLIENT: usize = 2;
 /// How long a probe may take.
 pub const PROBE_TIMEOUT_MS: u64 = 10_000;
@@ -29,13 +31,18 @@ pub const PROBE_TIMEOUT_MS: u64 = 10_000;
 const _: () =
     assert!(OWNER_PROBES < MAX_PROBES && MAX_PROBES_PER_CLIENT <= MAX_PROBES - OWNER_PROBES);
 
-/// Who measures a rate: the owner's Send, or a client with a grant.
+/// Who measures a rate: the owner's Send, an app the owner approved, or a
+/// stranger.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Prober {
     /// The owner.
     Owner,
-    /// A client.
-    Client {
+    /// A client the owner approved: under a grant the owner approved, or
+    /// one with such a grant. It shares the clients' slots, without a
+    /// share of its own or of its network's, which strangers may share.
+    Approved,
+    /// Any other client.
+    Stranger {
         /// The client, as its grant names it.
         client: String,
         /// The network its request came from; none where it counts in the
@@ -53,22 +60,26 @@ fn probe_room<'a>(
     if probers.clone().count() >= MAX_PROBES {
         return Err("too many rates are being measured");
     }
-    let Prober::Client { client, network } = prober else {
+    if *prober == Prober::Owner {
         return Ok(());
-    };
-    let clients = probers.filter_map(|other| match other {
-        Prober::Owner => None,
-        Prober::Client { client, network } => Some((client, network)),
-    });
-    if clients.clone().count() >= MAX_PROBES - OWNER_PROBES {
+    }
+    let clients = probers.clone().filter(|other| **other != Prober::Owner);
+    if clients.count() >= MAX_PROBES - OWNER_PROBES {
         return Err("too many rates are being measured");
     }
-    let of_client = clients
+    let Prober::Stranger { client, network } = prober else {
+        return Ok(());
+    };
+    let strangers = probers.filter_map(|other| match other {
+        Prober::Owner | Prober::Approved => None,
+        Prober::Stranger { client, network } => Some((client, network)),
+    });
+    let of_client = strangers
         .clone()
         .filter(|(other, _)| *other == client)
         .count();
     let of_network = network.map_or(0, |network| {
-        clients
+        strangers
             .filter(|(_, other)| **other == Some(network))
             .count()
     });

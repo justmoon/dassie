@@ -579,46 +579,61 @@ fn a_probe_to_nowhere_ends_at_once() {
     );
 }
 
+/// A core whose probes stay in progress until its step ends, as they go
+/// to its own receiver, whose answers come after the step's sending; and
+/// that receiver's address.
+fn probing_core(seed: u64) -> (Core, String) {
+    let mut core = core(seed);
+    core.add_scheme("stub", String::new()).unwrap();
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    core.begin_step(NOW + 1);
+    let receiver = core
+        .incoming_credentials(
+            crate::store::PaymentId([1; 16]),
+            dassie_ledger::LedgerId::StubUsd,
+        )
+        .unwrap()
+        .destination;
+    (core, receiver)
+}
+
+/// A stranger, the `n`th, from the `on`th IPv4 /24.
+fn stranger(n: u8, on: u8) -> super::Prober {
+    use std::net::{IpAddr, Ipv4Addr};
+    let network = IpAddr::V4(Ipv4Addr::new(192, 0, on, 1));
+    super::Prober::Stranger {
+        client: format!("jwk:stranger-{n}"),
+        network: Some(dassie_node_core::rate_limit::ClientKey::network_of(network)),
+    }
+}
+
+fn exhausted(result: Result<(), super::EngineError>) {
+    assert!(
+        matches!(result, Err(super::EngineError::Exhausted(_))),
+        "{result:?}"
+    );
+}
+
 // Clients' quotes need no owner, so strangers can start probes: they never
 // take the owner's slots, and no one client or network holds more than its
 // share (D34).
 #[test]
 fn strangers_probes_leave_the_owner_a_slot() {
+    use super::Prober;
     use super::probes::{MAX_PROBES, MAX_PROBES_PER_CLIENT, OWNER_PROBES};
-    use super::{EngineError, Prober};
-    use dassie_node_core::rate_limit::ClientKey;
 
-    let mut core = core(9);
-    core.add_scheme("stub", String::new()).unwrap();
-    let mut outputs = Vec::new();
-    core.finish_step(&mut outputs);
-    core.begin_step(NOW + 1);
-    let ledger = dassie_ledger::LedgerId::StubUsd;
-    // To the node's own receiver: its answers come after this step's
-    // sending, so every probe is still in progress until then.
-    let receiver = core
-        .incoming_credentials(crate::store::PaymentId([1; 16]), ledger)
-        .unwrap()
-        .destination;
-    let network = |byte: u8| {
-        Some(ClientKey::network_of(std::net::IpAddr::V4(
-            std::net::Ipv4Addr::new(192, 0, byte, 1),
-        )))
-    };
-    let stranger = |n: u8, on: u8| Prober::Client {
-        client: format!("jwk:stranger-{n}"),
-        network: network(on),
-    };
+    let (mut core, receiver) = probing_core(9);
     let mut id = 0;
     let mut start = |core: &mut Core, by: Prober| {
         id += 1;
-        core.start_probe(id, ledger, &receiver, &[3; 32], by)
-    };
-    let exhausted = |result: Result<(), EngineError>| {
-        assert!(
-            matches!(result, Err(EngineError::Exhausted(_))),
-            "{result:?}"
-        );
+        core.start_probe(
+            id,
+            dassie_ledger::LedgerId::StubUsd,
+            &receiver,
+            &[3; 32],
+            by,
+        )
     };
     // One client, or one network, takes only its share.
     for _ in 0..MAX_PROBES_PER_CLIENT {
@@ -638,6 +653,38 @@ fn strangers_probes_leave_the_owner_a_slot() {
         start(&mut core, Prober::Owner).unwrap();
     }
     exhausted(start(&mut core, Prober::Owner));
+    core.check_invariants();
+}
+
+// An app the owner approved shares a cloud's network with strangers: their
+// probes there never hold it to the network's share, nor to a share of
+// its own; only the clients' slots bound it, as before (D34).
+#[test]
+fn strangers_on_its_network_never_stop_an_approved_apps_probes() {
+    use super::Prober;
+    use super::probes::{MAX_PROBES, MAX_PROBES_PER_CLIENT, OWNER_PROBES};
+
+    let (mut core, receiver) = probing_core(10);
+    let mut id = 0;
+    let mut start = |core: &mut Core, by: Prober| {
+        id += 1;
+        core.start_probe(
+            id,
+            dassie_ledger::LedgerId::StubUsd,
+            &receiver,
+            &[3; 32],
+            by,
+        )
+    };
+    for n in 0..MAX_PROBES_PER_CLIENT {
+        start(&mut core, stranger(u8::try_from(n).unwrap(), 0)).unwrap();
+    }
+    exhausted(start(&mut core, stranger(9, 0)));
+    while core.spending.probes.len() < MAX_PROBES - OWNER_PROBES {
+        start(&mut core, Prober::Approved).unwrap();
+    }
+    exhausted(start(&mut core, Prober::Approved));
+    start(&mut core, Prober::Owner).unwrap();
     core.check_invariants();
 }
 

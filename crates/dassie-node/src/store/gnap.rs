@@ -110,9 +110,9 @@ pub struct GrantCounts {
     pub client_kept: u32,
     /// Grants of the client waiting for the owner.
     pub client_pending: u32,
-    /// Grants asked for from the network.
+    /// Grants strangers asked for from the network.
     pub network_kept: u32,
-    /// Grants asked for from the network waiting for the owner.
+    /// Grants strangers asked for from the network waiting for the owner.
     pub network_pending: u32,
     /// Whether the client has a grant the owner approved.
     pub known: bool,
@@ -128,6 +128,18 @@ fn count(value: i64) -> Result<u32, StoreError> {
 }
 
 impl Store {
+    /// Whether the owner approved a grant of `client` that is still kept:
+    /// a client on the owner's side (D34).
+    pub fn client_approved(&self, client: &str) -> Result<bool, StoreError> {
+        let approved: bool = self.lock().query_row(
+            "SELECT EXISTS (SELECT 1 FROM gnap_grants \
+             WHERE client = ?1 AND state = 'approved' AND needs_owner = 1)",
+            [client],
+            |row| row.get(0),
+        )?;
+        Ok(approved)
+    }
+
     /// What a new grant of `client`, asked for from `network`, would join.
     pub fn grant_counts(
         &self,
@@ -424,7 +436,7 @@ impl Store {
     }
 }
 
-/// What a new grant of `client` from `network` would join: one pass over
+/// What a new grant of `client` from `network` would join, counting a network's grants of strangers only: two passes over
 /// the table, which [`MAX_GRANTS`] bounds.
 fn grant_counts(
     connection: &rusqlite::Connection,
@@ -437,10 +449,12 @@ fn grant_counts(
            coalesce(sum(state = 'pending'), 0), \
            coalesce(sum(client = ?1), 0), \
            coalesce(sum(client = ?1 AND state = 'pending'), 0), \
-           coalesce(sum(network IS NOT NULL AND network = ?2), 0), \
-           coalesce(sum(network IS NOT NULL AND network = ?2 AND state = 'pending'), 0), \
+           coalesce(sum(stranger AND network = ?2), 0), \
+           coalesce(sum(stranger AND network = ?2 AND state = 'pending'), 0), \
            coalesce(max(client = ?1 AND state = 'approved' AND needs_owner = 1), 0) \
-         FROM gnap_grants",
+         FROM (SELECT *, network IS NOT NULL AND client NOT IN \
+           (SELECT client FROM gnap_grants WHERE state = 'approved' AND needs_owner = 1) \
+           AS stranger FROM gnap_grants)",
         params![client, network],
         |row| {
             Ok([

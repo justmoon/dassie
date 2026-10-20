@@ -17,7 +17,7 @@ Every such pool keeps a share strangers cannot take, and no one stranger holds m
 
 - **The owner's side** of the grants is the clients the owner approved before: a client with a grant the owner approved and still kept. Strangers leave them a share of the grants kept and of the places where grants wait. Grants approved at once leave room for every grant that may wait, so a flood of grants that need no owner never stops one that does.
 - **The rate probes** keep a few slots for the owner's Send alone.
-- **Shares per client and per network.** No one client, and no one network of strangers (an IPv4 /24, an IPv6 /56, IPv4 mapped into IPv6 counted as IPv4), holds more than a small share of the grants kept, the grants waiting and the probes. Each grant keeps the network it was asked for from, so the share holds across restarts. A client the owner approved is held to its own share only, not its network's. Loopback counts in the totals only where private peers are allowed, as other limits per client do, so development and tests run unchanged.
+- **Shares per stranger and per network.** No one stranger, and no one network of strangers (an IPv4 /24, an IPv6 /56, IPv4 mapped into IPv6 counted as IPv4), holds more than a small share of the grants kept, the grants waiting and the probes. Each grant keeps the network it was asked for from, so the share holds across restarts. A client the owner approved, and a probe under a grant the owner approved, has no share of its own or of its network's: only the pools bound it, as they did before. The owner chose it, the grants the owner approved last for months, an app may ask for one at every payment, and its network is shared by many. Loopback counts in the totals only where private peers are allowed, as other limits per client do, so development and tests run unchanged.
 - **Places in an incoming payment.** Once every place is taken, a new connection takes the place of one that received less than dust and nothing for STREAM's idle timeout, the one idle longest. Dust is as little as the XRP Ledger can move, the same share of an asset on every ledger. The connection replaced is forgotten; what it received stays in the payment's total.
 
 ## Accepted
@@ -26,6 +26,7 @@ Every such pool keeps a share strangers cannot take, and no one stranger holds m
 - A stranger who controls many networks still fills the strangers' share. The shares make that cost many networks, and leave the owner's share alone.
 - A sender whose place was taken and who comes back is told it received nothing. It may send again what it was told it had delivered, less than dust. Dassie's own payer keeps the highest total it heard on a connection, so only one that reconnects can be told less.
 - A stranger who pays dust or more on each connection keeps its places. Locking a payment link then costs dust for every place, paid to the owner.
+- A client the owner approved can take the whole of the owner's share of the grants, and every probe slot but the owner's own, as on a node without shares. It is held to the pools alone because the owner chose it.
 - A request over its client's or its network's share gets a 429, as a rate limit does; one that finds its pool full gets a 503.
 
 ## Rejected
