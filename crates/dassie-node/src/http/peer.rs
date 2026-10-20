@@ -22,6 +22,10 @@ use hyper::{Request, Response, StatusCode};
 use super::response::{self, Body, header_str};
 use crate::node::Node;
 
+// The largest ILP packet of any type fits in a request, with room for the
+// envelope's sender, authentication and tags.
+const _: () = assert!(dassie_ilp::MAX_PACKET_LENGTH + 1024 <= MAX_MESSAGE_BYTES);
+
 /// Handles a peer request.
 pub async fn handle(node: &Node, peer: SocketAddr, request: Request<Incoming>) -> Response<Body> {
     let headers = request.headers();

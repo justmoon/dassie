@@ -13,7 +13,7 @@ Parsing is strict and total: every malformed input is a `ParseError`, never a pa
 
 - **Addresses must follow the RFC 15 grammar**, in the destination and in a non-empty `triggeredBy`. Much Interledger software accepts any string; refusing malformed addresses at the edge keeps them out of the routing table. An empty `triggeredBy`, which ILPv4 allows, reads as no address.
 - **Expiries must be real dates** from 1970 on; a time past year 9999 is written as its end. A packet from before 1970 has expired anyway.
-- **Buffers are sized once,** by `MAX_PACKET_LENGTH`, the largest Prepare the format allows, so no packet path allocates per packet ([D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md)).
+- **Buffers are sized once,** by `MAX_PACKET_LENGTH`, the largest packet of any type the format allows, so no packet path allocates per packet ([D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md)). That is a Reject's, not a Prepare's: its message adds to the longest address and data, and a connector passes on any Reject that decodes, so a buffer that fits only the largest Prepare would lose one. The BTP and peer message limits hold it with its envelope.
 
 ## Addresses
 

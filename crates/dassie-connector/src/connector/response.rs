@@ -288,13 +288,13 @@ impl Connector {
     }
 }
 
-/// Copies a response that decoded, and so fits a packet, into `out`.
+/// Copies a response that decoded into `out`, which holds the largest
+/// packet of any type (`MAX_PACKET_LENGTH`), so it fits.
 fn copy(bytes: &[u8], out: &mut [u8]) -> usize {
-    match out.get_mut(..bytes.len()) {
-        Some(target) => {
-            target.copy_from_slice(bytes);
-            bytes.len()
-        }
-        None => 0,
+    let target = out.get_mut(..bytes.len());
+    assert!(target.is_some(), "a response that decoded does not fit");
+    if let Some(target) = target {
+        target.copy_from_slice(bytes);
     }
+    bytes.len()
 }
