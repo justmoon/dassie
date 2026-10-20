@@ -29,7 +29,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use crate::clock::{Clock, SharedRng};
-use crate::env::{Env, EnvError, Settings};
+use crate::env::{BootstrapNode, Env, EnvError, Settings};
 use crate::log::target;
 use crate::node::{Node, NodeError, NodeOptions, PeerOptions, Policies, Runtime};
 use crate::store::{Store, StoreError};
@@ -403,19 +403,7 @@ fn make_node(
     })
     .map_err(DaemonError::Node)?;
     if let Some(socket) = extras.quic {
-        let address = socket.local_addr().ok();
-        match crate::quic::Quic::new(socket, node.identity(), node.allows_private_peers()) {
-            Ok(quic) => {
-                let quic = Arc::new(quic);
-                node.attach_quic(Arc::clone(&quic));
-                if let Some(to) = extras.hand_out {
-                    let _ = to.send(quic);
-                }
-            }
-            Err(error) => {
-                tracing::warn!(target: target::DAEMON, ?address, %error, "no QUIC endpoint: peers reach this node over HTTPS only");
-            }
-        }
+        attach_quic(&node, socket, extras.hand_out, settings.relay.as_ref());
     }
     if let Some(dir) = &settings.dev_wallet_dir {
         tracing::warn!(target: target::HTTP, dir = %dir.display(), "serving a development build of the wallet");
@@ -429,6 +417,32 @@ fn make_node(
     }
     let tls = tls::server_config(Arc::clone(node.certificate())).map_err(DaemonError::Tls)?;
     Ok((node, listeners, tls))
+}
+
+/// Makes the QUIC endpoint on `socket` and gives it to the node, with the
+/// relay the node chose, if any, which the endpoint keeps a connection to
+/// once it serves (spec/areas/node.md#a-chosen-relay).
+fn attach_quic(
+    node: &Node,
+    socket: UdpSocket,
+    hand_out: Option<tokio::sync::oneshot::Sender<Arc<crate::quic::Quic>>>,
+    relay: Option<&BootstrapNode>,
+) {
+    let address = socket.local_addr().ok();
+    let quic = match crate::quic::Quic::new(socket, node.identity(), node.allows_private_peers()) {
+        Ok(quic) => Arc::new(quic),
+        Err(error) => {
+            tracing::warn!(target: target::DAEMON, ?address, %error, "no QUIC endpoint: peers reach this node over HTTPS only");
+            return;
+        }
+    };
+    if let (Some(relay), Some(client)) = (relay, node.peer_client()) {
+        quic.choose_relay(relay.id, relay.url.clone(), client.clone());
+    }
+    node.attach_quic(Arc::clone(&quic));
+    if let Some(to) = hand_out {
+        let _ = to.send(quic);
+    }
 }
 
 /// A development switch: its variable, and what it does to the node.
