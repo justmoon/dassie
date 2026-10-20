@@ -1,8 +1,8 @@
 //! A model of the XRP Ledger for simulations and tests: accounts with
 //! balances, sequences and reserves, Payments of XRP checked as the ledger
 //! checks them (signature, sequence, fee, last ledger, funds), ledgers that
-//! close on command with real result codes, the metadata, streams and
-//! history the node reads, and a faucet.
+//! close on command with real result codes and close times, the metadata,
+//! streams and history the node reads, resets, and a faucet.
 //!
 //! It answers the subset of the rippled WebSocket API in [`crate::api`],
 //! at API version 1, as rippled does. It checks what it is sent with the
@@ -30,6 +30,13 @@ pub const FAUCET_DROPS: u64 = 1_000_000_000;
 /// The first ledger: in the millions, as the testnet's are, so a lookup
 /// from ledger 1 spans more than a server searches.
 pub const FIRST_LEDGER: u32 = 5_000_000;
+/// When the first ledger closed, in seconds since the XRP Ledger's epoch.
+pub const FIRST_CLOSE_TIME: u64 = 800_000_000;
+/// The seconds between one ledger's close and the next's.
+pub const CLOSE_INTERVAL_S: u64 = 4;
+/// The ledger a reset starts the chain again from: far below where it was,
+/// as a new genesis is.
+pub const RESTART_LEDGER: u32 = 2_000;
 /// The most ledgers a `tx` lookup may span, as rippled's `kMaxRange`.
 const MAX_TX_RANGE_LEDGERS: u64 = 1_000;
 
@@ -52,11 +59,15 @@ struct Applied {
     message: Value,
 }
 
-/// The fake ledger.
+/// The fake ledger. A clone is a server that stops where the ledger was:
+/// one behind the others, once they go on.
+#[derive(Clone)]
 pub struct FakeLedger {
     accounts: BTreeMap<AccountId, Account>,
     /// The last validated ledger.
     ledger: u32,
+    /// When it closed, in seconds since the XRP Ledger's epoch.
+    close_time: u64,
     /// The first ledger the history holds: before it, `account_tx` and
     /// `tx` know nothing.
     history_from: u32,
@@ -103,6 +114,7 @@ impl FakeLedger {
         Self {
             accounts,
             ledger: FIRST_LEDGER,
+            close_time: FIRST_CLOSE_TIME,
             history_from: FIRST_LEDGER,
             account_tx_from: FIRST_LEDGER,
             history: Vec::new(),
@@ -179,8 +191,15 @@ impl FakeLedger {
         self.network_id = id;
     }
 
-    /// Wipes every account but genesis, as a testnet reset does.
+    /// Starts the chain again, as a testnet reset does: every account but
+    /// genesis and all history wiped, from a ledger below the last, which
+    /// closes later.
     pub fn reset(&mut self) {
+        self.ledger = RESTART_LEDGER.min(self.ledger.saturating_sub(1));
+        self.close_time = self.close_time.saturating_add(CLOSE_INTERVAL_S);
+        self.history_from = self.ledger;
+        self.account_tx_from = self.ledger;
+        self.history.clear();
         let genesis = self.accounts.get(&self.genesis).copied();
         let wiped: u64 = self
             .accounts
@@ -272,6 +291,7 @@ impl FakeLedger {
     /// streams carry, by connection.
     pub fn close(&mut self) -> Vec<(ConnectionId, Vec<u8>)> {
         self.ledger = self.ledger.saturating_add(1);
+        self.close_time = self.close_time.saturating_add(CLOSE_INTERVAL_S);
         let mut out = Vec::new();
         let queued = core::mem::take(&mut self.queued);
         self.queued_hashes.clear();
@@ -292,6 +312,7 @@ impl FakeLedger {
         let closed = json!({
             "type": "ledgerClosed",
             "ledger_index": self.ledger,
+            "ledger_time": self.close_time,
             "fee_base": FEE_BASE,
             "reserve_base": self.reserve.0,
             "reserve_inc": self.reserve.1,
@@ -322,6 +343,7 @@ impl FakeLedger {
         let mut state = json!({
             "validated_ledger": {
                 "seq": self.ledger,
+                "close_time": self.close_time,
                 "base_fee": FEE_BASE,
                 "reserve_base": self.reserve.0,
                 "reserve_inc": self.reserve.1,
@@ -371,10 +393,10 @@ impl FakeLedger {
 
     fn account_info(&self, request: &Value) -> Result<Value, Value> {
         let id = Self::account_of(request)?;
-        let account = self
-            .accounts
-            .get(&id)
-            .ok_or_else(|| json!({ "error": "actNotFound" }))?;
+        // As rippled, an absence names the ledger it is as of.
+        let account = self.accounts.get(&id).ok_or_else(
+            || json!({ "error": "actNotFound", "ledger_index": self.ledger, "validated": true }),
+        )?;
         Ok(json!({
             "account_data": {
                 "Account": id.to_address(),

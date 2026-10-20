@@ -327,6 +327,20 @@ fn ledger() -> BoxedStrategy<Leaf> {
     ])
 }
 
+/// A validated ledger's index and close time: mostly closed in the order of
+/// its index, sometimes at any time, as on a chain started again.
+fn validated_ledger() -> BoxedStrategy<(Leaf, Leaf)> {
+    (
+        ledger(),
+        prop_oneof![8 => Just(None), 1 => ledger().prop_map(Some)],
+    )
+        .prop_map(|(index, close_time)| {
+            let close_time = close_time.unwrap_or_else(|| index.clone());
+            (index, close_time)
+        })
+        .boxed()
+}
+
 /// A reference fee, as a number of drops: past what the scheme pays, it
 /// waits, so mostly not.
 fn fee() -> BoxedStrategy<Leaf> {
@@ -638,6 +652,8 @@ enum Status {
     Error {
         error: Leaf,
         searched_all: Leaf,
+        /// Whether the ledger the answer names is validated.
+        validated: Leaf,
     },
     /// What a lookup of a transaction the ledger never saw gets.
     NotFound {
@@ -651,9 +667,9 @@ enum Status {
 #[derive(Clone, Debug)]
 struct Answer {
     status: Status,
-    /// `server_state`'s: the validated ledger, its base fee and reserves,
-    /// the load, and the network.
-    server: [Leaf; 7],
+    /// `server_state`'s: the validated ledger, its close time, base fee and
+    /// reserves, the load, and the network.
+    server: [Leaf; 8],
     /// `account_info`'s: balance, sequence and owner count, and the ledger.
     info: [Leaf; 4],
     /// `account_tx`'s.
@@ -676,8 +692,13 @@ fn answer() -> impl Strategy<Value = Answer> {
                 1 => Just(Leaf::Bool(false)),
                 2 => Just(Leaf::Bool(true)),
             ]),
+            field(prop_oneof![1 => Just(Leaf::Absent), 3 => Just(Leaf::Bool(true))]),
         )
-            .prop_map(|(error, searched_all)| Status::Error { error, searched_all }),
+            .prop_map(|(error, searched_all, validated)| Status::Error {
+                error,
+                searched_all,
+                validated,
+            }),
         3 => field(prop_oneof![
             1 => Just(Leaf::Bool(false)),
             3 => Just(Leaf::Bool(true)),
@@ -695,7 +716,7 @@ fn answer() -> impl Strategy<Value = Answer> {
     let load =
         || field(prop_oneof![6 => Just(Leaf::Absent), 1 => (0u64..1_000).prop_map(Leaf::Index)]);
     let server = (
-        ledger(),
+        validated_ledger(),
         fee(),
         reserve(),
         reserve(),
@@ -726,7 +747,8 @@ fn answer() -> impl Strategy<Value = Answer> {
                 Answer {
                     status,
                     server: [
-                        server.0, server.1, server.2, server.3, server.4, server.5, server.6,
+                        server.0.0, server.0.1, server.1, server.2, server.3, server.4, server.5,
+                        server.6,
                     ],
                     info: [info.0, info.1, info.2, info.3],
                     transactions,
@@ -743,6 +765,7 @@ impl Answer {
     fn message(&self, id: u64, context: Context<'_>) -> Value {
         let [
             seq,
+            close_time,
             base_fee,
             reserve_base,
             reserve_inc,
@@ -766,6 +789,7 @@ impl Answer {
                     context,
                     &[
                         ("seq", seq),
+                        ("close_time", close_time),
                         ("base_fee", base_fee),
                         ("reserve_base", reserve_base),
                         ("reserve_inc", reserve_inc),
@@ -816,11 +840,16 @@ impl Answer {
             Status::Error {
                 error,
                 searched_all,
+                validated,
             } => with(
                 with(message, vec![("status", "error".into())]),
                 fields(object(
                     context,
-                    &[("error", error), ("searched_all", searched_all)],
+                    &[
+                        ("error", error),
+                        ("searched_all", searched_all),
+                        ("validated", validated),
+                    ],
                 )),
             ),
             Status::NotFound { searched_all } => with(
@@ -846,8 +875,8 @@ enum Step {
     Answer(usize, Box<Answer>),
     /// A transaction on the stream.
     Transaction(Box<Tx>),
-    /// A ledger closed: its index, fee and reserves.
-    LedgerClosed([Leaf; 4]),
+    /// A ledger closed: its index, close time, fee and reserves.
+    LedgerClosed([Leaf; 5]),
     /// Bytes, mostly no JSON at all.
     Raw(Vec<u8>),
     /// The connection is made anew.
@@ -865,7 +894,8 @@ fn step() -> impl Strategy<Value = Step> {
     prop_oneof![
         30 => (any::<usize>(), answer()).prop_map(|(pick, answer)| Step::Answer(pick, Box::new(answer))),
         8 => transaction().prop_map(|tx| Step::Transaction(Box::new(tx))),
-        3 => (ledger(), fee(), reserve(), reserve()).prop_map(|(a, b, c, d)| Step::LedgerClosed([a, b, c, d])),
+        3 => (validated_ledger(), fee(), reserve(), reserve())
+            .prop_map(|((a, t), b, c, d)| Step::LedgerClosed([a, t, b, c, d])),
         1 => prop::collection::vec(any::<u8>(), 0..64).prop_map(Step::Raw),
         1 => Just(Step::Connect),
         1 => any::<bool>().prop_map(Step::Disconnect),
@@ -1119,7 +1149,15 @@ impl Run {
                 });
                 self.message(&message);
             }
-            Step::LedgerClosed([ledger_index, fee_base, reserve_base, reserve_inc]) => {
+            Step::LedgerClosed(
+                [
+                    ledger_index,
+                    ledger_time,
+                    fee_base,
+                    reserve_base,
+                    reserve_inc,
+                ],
+            ) => {
                 let message = with(
                     object(
                         Context {
@@ -1128,6 +1166,7 @@ impl Run {
                         },
                         &[
                             ("ledger_index", ledger_index),
+                            ("ledger_time", ledger_time),
                             ("fee_base", fee_base),
                             ("reserve_base", reserve_base),
                             ("reserve_inc", reserve_inc),
@@ -1184,7 +1223,8 @@ fn synced_scheme() -> XrplScheme {
     run.input(LedgerInput::Connected);
     let results = [
         json!({ "state": { "network_id": 1, "validated_ledger":
-            { "seq": 10, "base_fee": 10, "reserve_base": 1_000_000, "reserve_inc": 200_000 } } }),
+            { "seq": 10, "close_time": 10, "base_fee": 10, "reserve_base": 1_000_000,
+              "reserve_inc": 200_000 } } }),
         json!({}),
         json!({ "account_data": { "Balance": "1000000000", "Sequence": 5, "OwnerCount": 0 },
             "ledger_index": 10 }),

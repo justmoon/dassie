@@ -33,6 +33,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [D29](D29-a-grants-debit-limit-is-in-its-wallets-asset.md) | A grant's debit limit is in its wallet's asset | payments |
 | [D30](D30-a-node-is-up-once-its-engine-has-committed-a-step.md) | A node is up once its engine has committed a step | node, release |
 | [D31](D31-a-node-peers-on-a-scheme-only-once-it-has-seen-its-ledger.md) | A node peers on a scheme only once it has seen its ledger | settlement, network, xrpl |
+| [D32](D32-a-ledger-below-the-newest-seen-is-a-reset-only-on-the-testnet.md) | A ledger below the newest seen is a reset only on the testnet | xrpl |
 
 ## Adding or changing a decision
 

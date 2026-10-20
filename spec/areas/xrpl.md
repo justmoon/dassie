@@ -14,6 +14,7 @@ Real money is refused at every level until the conditions of [D8](../decisions/D
 - The realm `live` is refused ([Node](node.md)), a scheme on a ledger outside the test realm does not activate ([Settlement](settlement.md#schemes-and-ledgers)), and there is no mainnet scheme.
 - **The testnet scheme refuses other networks.** Before it reads its account, it checks that its server reports the testnet's network ID. A server that reports another, or none, stops the scheme as failed, before anything is booked, written off or signed. An owner who points it at a mainnet server gets a failed scheme, not mainnet XRP booked or signed for with a testnet wallet.
 - A server that reports more XRP for the account than the books can hold stops the scheme as failed.
+- **Only the testnet resets** ([D32](../decisions/D32-a-ledger-below-the-newest-seen-is-a-reset-only-on-the-testnet.md)). Taking a ledger below the newest seen for a new chain, and writing off an account gone with it, are gated on the network ID by a check of their own (`resets` in `scheme.rs`), not only by the one that keeps the scheme on the testnet. On any other network, a lower ledger stops the scheme, and so does the absence of an account that held anything, with nothing written off. Letting the scheme run on another network can never make a lower ledger acceptable.
 
 ## The wallet
 
@@ -31,7 +32,9 @@ A settlement is a direct XRP `Payment` to the address the peer gave when peering
 
 The scheme books **every validated transaction that touches its account once, in ledger order**, from a cursor `(ledger, index)` kept in its state.
 
-**Connecting.** On each connection: check the network and read the server's fees and reserves; subscribe to the account and the ledger stream; only then read the account at the validated ledger, so nothing falls between what it says and what the stream says next; catch up from the cursor with the account's history, holding the stream's transactions meanwhile; then make the books match the balance, book what was held, and submit what waits. A server whose history does not reach back leaves the balance to say what changed, through suspense, without who it was.
+**Only what is newer** ([D32](../decisions/D32-a-ledger-below-the-newest-seen-is-a-reset-only-on-the-testnet.md)). The scheme acts only on what a server says as of a validated ledger at or past the newest it has seen, by the ledger stream, a server's state or what it booked. A public address spreads its connections over several servers, and one may answer from a ledger minutes old: its answers, an absent account included, are not acted on, and are asked for again as ledgers close, until it has caught up. Validated ledgers are final, so a server behind can only delay the scheme. The newest ledger seen, with its close time, is kept with the scheme's state.
+
+**Connecting.** On each connection: check the network, read the server's fees and reserves, and tell from its validated ledger whether it is behind or on a chain started again; subscribe to the account and the ledger stream; only then read the account at the validated ledger, so nothing falls between what it says and what the stream says next; catch up from the cursor with the account's history, holding the stream's transactions meanwhile; then make the books match the balance, book what was held, and submit what waits. A server whose history does not reach back leaves the balance to say what changed, through suspense, without who it was.
 
 **Booking a validated transaction** by what it did to the account:
 
@@ -45,7 +48,7 @@ After each, the books must hold the balance less the reserve; any difference, su
 
 **The first sync** books what the account holds above the reserve as the owner's deposit. Only then does the node peer on the scheme, so no peer's settlement is taken for that deposit ([Settlement](settlement.md#the-scheme-interface), [D31](../decisions/D31-a-node-peers-on-a-scheme-only-once-it-has-seen-its-ledger.md)). The cursor it sets is the record of that sync, kept with the state.
 
-**The account gone** (a testnet reset): what the books hold is a loss through suspense, everything in flight is cancelled (an account made again starts its sequence anew), the cursor is dropped, and the faucet is asked until the account exists again. The node takes no new peering on the scheme until it has synced again.
+**The account gone** (a testnet reset). A reset starts the chain again from a first ledger far below the newest seen, which the rule above alone would never act on. A server whose validated ledger is below the newest seen but closed after it is on a new chain: close times only grow along a chain, so a server behind cannot report that. On the testnet only, the scheme then follows the new chain. Then, or when the account is absent as of a ledger the scheme has not seen past: what the books hold is a loss through suspense, everything in flight is cancelled (an account made again starts its sequence anew), the cursor is dropped, and the faucet is asked until the account exists again. The node takes no new peering on the scheme until it has synced again.
 
 ## Settling
 
@@ -70,10 +73,11 @@ After a restart, executed transactions in flight are submitted again once synced
 
 ## The fake ledger
 
-The feature `fake` models the ledger for simulations and tests (`fake.rs`): accounts, reserves, fees, the checks the ledger makes on a Payment with their result codes, streams, history that can be cut short, network IDs, testnet resets and a faucet. It answers the subset of the rippled WebSocket API the scheme speaks, and checks what it is sent with the node's own codec. The node simulation settles on it in-process; `fake_ledger` serves it over WebSocket to the node's tests, the end-to-end tests and `node --run dev -- --xrpl fake`.
+The feature `fake` models the ledger for simulations and tests (`fake.rs`): accounts, reserves, fees, the checks the ledger makes on a Payment with their result codes, close times, streams, history that can be cut short, network IDs, testnet resets that start the chain again from a lower ledger, and a faucet. A copy of it is a server behind the others, stopped where the ledger was. It answers the subset of the rippled WebSocket API the scheme speaks, and checks what it is sent with the node's own codec. The node simulation settles on it in-process; `fake_ledger` serves it over WebSocket to the node's tests, the end-to-end tests and `node --run dev -- --xrpl fake`.
 
 ## Decisions
 
 - [D8](../decisions/D08-real-money.md): the gates before real money, and the testnet-only network check.
 - [D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md): sans-IO, so the fake ledger can stand in for the network.
 - [D31](../decisions/D31-a-node-peers-on-a-scheme-only-once-it-has-seen-its-ledger.md): no peering on the scheme before its first sync.
+- [D32](../decisions/D32-a-ledger-below-the-newest-seen-is-a-reset-only-on-the-testnet.md): only what is newer than the newest ledger seen; a reset is a lower ledger that closed later, and only on the testnet.
