@@ -39,7 +39,7 @@ The flow is GNAP's redirect interaction. The interaction URL carries a random ke
 
 - **A grant is bound to its client's key:** every later request of the grant must be signed with it, so a stolen token is of no use without the key.
 - **A limit caps the amount debited or the amount received, never both,** as in the specs and Rafiki.
-- **A debit limit is in its wallet address's asset,** code and scale, or the request is refused with the asset it must be in, since no payment from that wallet could fit it ([D29](../decisions/D29-a-grants-debit-limit-is-in-its-wallets-asset.md)).
+- **On an item that creates outgoing payments, a debit limit is in its wallet address's asset,** code and scale, or the request is refused with the asset it must be in, since no payment from that wallet could fit it ([D29](../decisions/D29-a-grants-debit-limit-is-in-its-wallets-asset.md)).
 - **Each access item keeps to its own limits,** and only one item per wallet address may allow `create`, since otherwise which limits apply would be unclear. On an item that only reads or lists, a `receiver` limit narrows what it reaches.
 - An item without an identifier reaches every wallet address of the node.
 - **Limits are reserved when a payment is created,** in the interval's current window, and what the payment did not send is released when it ends. Windows are at least a minute, since each window spent in is stored.
