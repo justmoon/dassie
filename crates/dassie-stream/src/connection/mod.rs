@@ -497,9 +497,12 @@ impl Connection {
     /// incoming payment; `u64::MAX` removes the limit.
     ///
     /// Under a limit, each stream reports the application's count as what
-    /// it received, and that count plus the limit as its maximum. Both only
-    /// grow, as senders expect, even when the sender's earlier connection
-    /// is forgotten: after a restart, or when the server dropped it.
+    /// it received, and that count plus the limit as its maximum. The count
+    /// only grows, even when the sender's earlier connection is forgotten:
+    /// after a restart, or when the server dropped it. The maximum falls
+    /// when something else takes from the total, which senders ignore; so
+    /// a packet that offers money with nothing left (`remaining` 0) is
+    /// refused and closes the connection, which tells every sender to stop.
     pub fn set_money_limit(&mut self, remaining: u64, received: u64) {
         self.money_limit = remaining;
         self.money_received = received;
