@@ -21,13 +21,14 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Everything but the lockfile's check, in the Nix sandbox: for Rust, fmt,
-  # clippy (native and wasm32), tests and the WASM bindings, with the
-  # toolchain pinned by the flake; for TypeScript, what `node --run ci`
-  # runs (nix/ts.nix). The checks build on the Vorstand Nix cloud
-  # (builds.vorstand.app, project dassie), which keeps what it built:
-  # dependencies that have not changed are not built again. The runner only
-  # sends the commit and follows the log.
+  # The flake's checks, in the Nix sandbox: for Rust, fmt, clippy (native
+  # and wasm32), tests and the WASM bindings, with the toolchain pinned by
+  # the flake; for TypeScript, what `node --run ci` runs (nix/ts.nix). The
+  # checks build on the Vorstand Nix cloud (builds.vorstand.app, project
+  # dassie), which keeps what it built: dependencies that have not changed
+  # are not built again. The runner sends the commit and follows the log,
+  # and checks the lockfile against the registries, which the sandbox
+  # can't.
   nix:
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -43,29 +44,24 @@ jobs:
           NIX_CLOUD_TOKEN: ${{ secrets.NIX_CLOUD_TOKEN }}
           COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: scripts/nix-cloud-build.sh build "$COMMIT" checks
+      # The lockfile against the registries: every package it pins must be
+      # as old as pnpm-workspace.yaml's release-age rule asks. This needs
+      # the registries' metadata, so it runs on the runner rather than in
+      # the sandbox, whose install trusts the lockfile (nix/pnpm.nix). With
+      # --lockfile-only it reads the metadata and downloads no package.
+      # Node and pnpm come from the flake's nixpkgs. It runs after a failed
+      # build too, so that one run reports both.
+      - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
+        if: ${{ !cancelled() }}
+      - name: Check the lockfile against the registries
+        if: ${{ !cancelled() }}
+        run: |
+          nix shell --inputs-from . nixpkgs#nodejs_26 nixpkgs#pnpm_11 --command \
+            pnpm install --frozen-lockfile --lockfile-only --ignore-scripts \
+            --config.update-notifier=false
       # A run that a newer push superseded stops its build too.
       - name: Cancel the build on the Nix cloud
         if: cancelled()
         env:
           NIX_CLOUD_TOKEN: ${{ secrets.NIX_CLOUD_TOKEN }}
         run: scripts/nix-cloud-build.sh cancel
-
-  # The lockfile against the registries: every package it pins must be as
-  # old as pnpm-workspace.yaml's release-age rule asks. This needs the
-  # registries' metadata, so it runs here rather than in the sandbox,
-  # whose install trusts the lockfile (nix/pnpm.nix). With
-  # --lockfile-only it reads the metadata and downloads no package. The
-  # TypeScript side's checks themselves build in `nix` (nix/ts.nix).
-  lockfile:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31
-      # Node and pnpm from the flake's nixpkgs, not the whole dev shell.
-      - name: Check the lockfile against the registries
-        run: |
-          nix shell --inputs-from . nixpkgs#nodejs_26 nixpkgs#pnpm_11 --command \
-            pnpm install --frozen-lockfile --lockfile-only --config.update-notifier=false

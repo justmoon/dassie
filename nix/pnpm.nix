@@ -245,7 +245,8 @@ in
   # and restored after it. pnpm verifies a lockfile against the release-age
   # rule and registry metadata unless it trusts it, and there is no metadata
   # here; every tarball is checked against the lockfile's integrity, by Nix
-  # and again by pnpm. The release-age rule is CI's `lockfile` job's.
+  # and again by pnpm. CI's `nix` job checks the release-age rule on the
+  # runner.
   install =
     dir:
     let

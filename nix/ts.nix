@@ -14,8 +14,8 @@
 #   systemd's socket activation. Each build has its own network namespace,
 #   so the tests' fixed ports are free.
 #
-# What the sandbox can't do runs in CI's `lockfile` job: checking the
-# lockfile against the registries (the release-age rule).
+# What the sandbox can't do, checking the lockfile against the registries
+# (the release-age rule), CI's `nix` job does on the runner.
 {
   lib,
   pkgs,
