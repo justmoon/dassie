@@ -4,7 +4,7 @@ A settlement scheme today is also the node's wallet on its ledger: the `xrpl-tes
 
 This design separates the two. An **external asset** is something the node holds outside its books, such as an XRPL account; a **settlement scheme** settles with peers through the external assets it requires. Its first use is RLUSD on the XRPL testnet, as the scheme `xrpl-testnet-rlusd`.
 
-This is a design ([external-assets](../decisions/external-assets.md), [issued-assets](../decisions/issued-assets.md)); nothing in it is built yet ([roadmap](../roadmap.md#external-assets-and-rlusd)).
+This is a design ([external-assets](../decisions/external-assets.md), [issued-assets](../decisions/issued-assets.md)). Only its wire format is built, the codec and reading the ledger for tokens ([XRPL](../areas/xrpl.md#tokens)); the rest is not ([roadmap](../roadmap.md#external-assets-and-rlusd)).
 
 ## 1. Concepts
 

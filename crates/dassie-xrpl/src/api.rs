@@ -2,14 +2,65 @@
 //! requests it sends, and what it reads from what comes back. Every parse
 //! is bounded and typed; fields the node does not need are ignored, and a
 //! message it cannot read is [`Message::Ignored`].
+//!
+//! Tokens (spec/areas/xrpl.md#tokens): the token a Payment delivered, what
+//! a transaction did to trust lines, a line as the ledger holds it, with
+//! its flags and limits read from either side, and an issuer's account.
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
+use crate::amount::{Currency, TokenAmount, TokenValue};
 use crate::keys::AccountId;
 use crate::{MAX_DROPS, from_hex, hex_upper};
+
+/// A trust line's flags (`RippleState`), each set by one side: the low
+/// account is the one whose ID is the lower number.
+pub mod line_flags {
+    /// The low account's side holds an owner reserve.
+    pub const LOW_RESERVE: u32 = 0x0001_0000;
+    /// The high account's side holds an owner reserve.
+    pub const HIGH_RESERVE: u32 = 0x0002_0000;
+    /// The low account authorised the high one to hold its token.
+    pub const LOW_AUTH: u32 = 0x0004_0000;
+    /// The high account authorised the low one to hold its token.
+    pub const HIGH_AUTH: u32 = 0x0008_0000;
+    /// The low account disabled rippling through its side.
+    pub const LOW_NO_RIPPLE: u32 = 0x0010_0000;
+    /// The high account disabled rippling through its side.
+    pub const HIGH_NO_RIPPLE: u32 = 0x0020_0000;
+    /// The low account froze the line: the high account can pay its
+    /// balance only to the low one.
+    pub const LOW_FREEZE: u32 = 0x0040_0000;
+    /// The high account froze the line: the low account can pay its
+    /// balance only to the high one.
+    pub const HIGH_FREEZE: u32 = 0x0080_0000;
+    /// The low account deep-froze the line: the high account can neither
+    /// pay nor receive, but to and from the low one.
+    pub const LOW_DEEP_FREEZE: u32 = 0x0200_0000;
+    /// The high account deep-froze the line: the low account can neither
+    /// pay nor receive, but to and from the high one.
+    pub const HIGH_DEEP_FREEZE: u32 = 0x0400_0000;
+}
+
+/// An account's flags (`AccountRoot`) that bear on its tokens.
+pub mod account_flags {
+    /// Holders of its tokens must be authorised.
+    pub const REQUIRE_AUTH: u32 = 0x0004_0000;
+    /// It gave up freezing lines for good.
+    pub const NO_FREEZE: u32 = 0x0020_0000;
+    /// It froze every line of its tokens: holders pay only it.
+    pub const GLOBAL_FREEZE: u32 = 0x0040_0000;
+    /// Its lines ripple by default.
+    pub const DEFAULT_RIPPLE: u32 = 0x0080_0000;
+    /// It may claw back its tokens.
+    pub const ALLOW_TRUST_LINE_CLAWBACK: u32 = 0x8000_0000;
+}
+
+/// A transfer rate that charges nothing: 1.0, in billionths.
+pub const TRANSFER_RATE_PAR: u32 = 1_000_000_000;
 
 /// Most transactions an `account_tx` page asks for.
 pub const PAGE: u32 = 200;
@@ -91,6 +142,23 @@ pub fn tx_anywhere(id: u64, hash: &[u8; 32]) -> Vec<u8> {
     request(id, "tx", json!({ "transaction": hex_upper(hash) }))
 }
 
+/// The trust line between `account` and `issuer` in `currency`, as of
+/// the last validated ledger; `entryNotFound` if there is none.
+#[must_use]
+pub fn ripple_state(id: u64, account: AccountId, issuer: AccountId, currency: Currency) -> Vec<u8> {
+    request(
+        id,
+        "ledger_entry",
+        json!({
+            "ripple_state": {
+                "accounts": [account.to_address(), issuer.to_address()],
+                "currency": currency.to_string(),
+            },
+            "ledger_index": "validated",
+        }),
+    )
+}
+
 /// Submits a signed transaction.
 #[must_use]
 pub fn submit(id: u64, blob: &[u8]) -> Vec<u8> {
@@ -108,7 +176,7 @@ pub enum Message {
         outcome: Result<Value, ApiError>,
     },
     /// A validated transaction that touches a subscribed account.
-    Transaction(TxRecord),
+    Transaction(alloc::boxed::Box<TxRecord>),
     /// A ledger was validated.
     LedgerClosed(LedgerClosed),
     /// Anything else.
@@ -182,10 +250,15 @@ pub struct TxRecord {
     pub result: String,
     /// The XRP it delivered, in drops, for a Payment of XRP.
     pub delivered: Option<u64>,
+    /// The token it delivered, for a Payment of a token: never with
+    /// [`delivered`](Self::delivered).
+    pub delivered_token: Option<TokenAmount>,
     /// Its first memo's type and data.
     pub memo: Option<(Vec<u8>, Vec<u8>)>,
     /// What it did to accounts' XRP.
     pub changes: Vec<BalanceChange>,
+    /// What it did to trust lines.
+    pub lines: Vec<LineChange>,
 }
 
 impl TxRecord {
@@ -202,6 +275,194 @@ impl TxRecord {
             .iter()
             .copied()
             .find(|change| change.account == account)
+    }
+
+    /// What it did to the line between `account` and `issuer` in
+    /// `currency`, if anything.
+    #[must_use]
+    pub fn line(
+        &self,
+        account: AccountId,
+        issuer: AccountId,
+        currency: Currency,
+    ) -> Option<&LineChange> {
+        self.lines
+            .iter()
+            .find(|change| change.line().is_between(account, issuer, currency))
+    }
+}
+
+/// One side's flags on a trust line: what that side set.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LineFlags {
+    /// Its side holds an owner reserve.
+    pub reserve: bool,
+    /// It authorised the other side to hold its token.
+    pub auth: bool,
+    /// It disabled rippling through its side.
+    pub no_ripple: bool,
+    /// It froze the line: the other side pays only to it.
+    pub freeze: bool,
+    /// It deep-froze the line: the other side neither pays nor receives,
+    /// but to and from it.
+    pub deep_freeze: bool,
+}
+
+/// A trust line (`RippleState`) as the ledger holds it, between a low and
+/// a high account: the one whose ID is the lower number is low.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrustLine {
+    /// The low account.
+    pub low: AccountId,
+    /// The high account, above the low one.
+    pub high: AccountId,
+    /// Its currency.
+    pub currency: Currency,
+    /// The balance from the low account's side: above zero, the low
+    /// account holds the high one's token; below, the other way round.
+    pub balance: TokenValue,
+    /// The most the low account holds of the high one's token.
+    pub low_limit: TokenValue,
+    /// The most the high account holds of the low one's token.
+    pub high_limit: TokenValue,
+    /// Its flags ([`line_flags`]).
+    pub flags: u32,
+}
+
+/// A trust line from one account's side.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LineView {
+    /// The other side, such as the issuer.
+    pub counterparty: AccountId,
+    /// What the account holds of the counterparty's token; below zero,
+    /// what it owes.
+    pub balance: TokenValue,
+    /// The most the account holds of the counterparty's token.
+    pub limit: TokenValue,
+    /// The most the counterparty holds of the account's.
+    pub counterparty_limit: TokenValue,
+    /// What the account set.
+    pub ours: LineFlags,
+    /// What the counterparty set, such as an issuer's freeze.
+    pub theirs: LineFlags,
+}
+
+impl TrustLine {
+    /// Whether it is the line between `a` and `b`, either way round, in
+    /// `currency`.
+    #[must_use]
+    pub fn is_between(&self, a: AccountId, b: AccountId, currency: Currency) -> bool {
+        self.currency == currency
+            && ((self.low, self.high) == (a, b) || (self.low, self.high) == (b, a))
+    }
+
+    /// The low side's flags.
+    #[must_use]
+    pub const fn low_flags(&self) -> LineFlags {
+        use line_flags::{LOW_AUTH, LOW_DEEP_FREEZE, LOW_FREEZE, LOW_NO_RIPPLE, LOW_RESERVE};
+        LineFlags {
+            reserve: self.flags & LOW_RESERVE != 0,
+            auth: self.flags & LOW_AUTH != 0,
+            no_ripple: self.flags & LOW_NO_RIPPLE != 0,
+            freeze: self.flags & LOW_FREEZE != 0,
+            deep_freeze: self.flags & LOW_DEEP_FREEZE != 0,
+        }
+    }
+
+    /// The high side's flags.
+    #[must_use]
+    pub const fn high_flags(&self) -> LineFlags {
+        use line_flags::{HIGH_AUTH, HIGH_DEEP_FREEZE, HIGH_FREEZE, HIGH_NO_RIPPLE, HIGH_RESERVE};
+        LineFlags {
+            reserve: self.flags & HIGH_RESERVE != 0,
+            auth: self.flags & HIGH_AUTH != 0,
+            no_ripple: self.flags & HIGH_NO_RIPPLE != 0,
+            freeze: self.flags & HIGH_FREEZE != 0,
+            deep_freeze: self.flags & HIGH_DEEP_FREEZE != 0,
+        }
+    }
+
+    /// The line from `account`'s side, if it is one of the two.
+    #[must_use]
+    pub fn view(&self, account: AccountId) -> Option<LineView> {
+        if account == self.low {
+            Some(LineView {
+                counterparty: self.high,
+                balance: self.balance,
+                limit: self.low_limit,
+                counterparty_limit: self.high_limit,
+                ours: self.low_flags(),
+                theirs: self.high_flags(),
+            })
+        } else if account == self.high {
+            Some(LineView {
+                counterparty: self.low,
+                balance: self.balance.negate(),
+                limit: self.high_limit,
+                counterparty_limit: self.low_limit,
+                ours: self.high_flags(),
+                theirs: self.low_flags(),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+/// What a transaction did to one trust line: the line before and after,
+/// `None` before it was created and after it was deleted. At least one is
+/// there, and both are of the same accounts and currency.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LineChange {
+    /// After if it is still there, else before.
+    line: TrustLine,
+    before: Option<TrustLine>,
+    after: Option<TrustLine>,
+}
+
+impl LineChange {
+    /// The change from `before` to `after`, if they are of one line.
+    #[must_use]
+    pub fn new(before: Option<TrustLine>, after: Option<TrustLine>) -> Option<Self> {
+        let line = after.or(before)?;
+        if before.is_some_and(|before| !before.is_between(line.low, line.high, line.currency)) {
+            return None;
+        }
+        Some(Self {
+            line,
+            before,
+            after,
+        })
+    }
+
+    /// The line before, unless the transaction created it.
+    #[must_use]
+    pub const fn before(&self) -> Option<&TrustLine> {
+        self.before.as_ref()
+    }
+
+    /// The line after, unless the transaction deleted it.
+    #[must_use]
+    pub const fn after(&self) -> Option<&TrustLine> {
+        self.after.as_ref()
+    }
+
+    /// The line, after if it is still there, else before.
+    #[must_use]
+    pub const fn line(&self) -> &TrustLine {
+        &self.line
+    }
+
+    /// `account`'s balance on the line before and after, zero where it
+    /// was not; `None` unless `account` is one of its two.
+    #[must_use]
+    pub fn balance_of(&self, account: AccountId) -> Option<(TokenValue, TokenValue)> {
+        let balance = |line: Option<&TrustLine>| match line {
+            None => Some(TokenValue::ZERO),
+            Some(line) => line.view(account).map(|view| view.balance),
+        };
+        self.line().view(account)?;
+        Some((balance(self.before())?, balance(self.after())?))
     }
 }
 
@@ -221,7 +482,9 @@ pub fn parse(bytes: &[u8]) -> Message {
                 value.get("hash"),
                 value.get("validated"),
             );
-            record.map_or(Message::Ignored, Message::Transaction)
+            record.map_or(Message::Ignored, |record| {
+                Message::Transaction(alloc::boxed::Box::new(record))
+            })
         }
         Some("ledgerClosed") => {
             ledger_closed(&value).map_or(Message::Ignored, Message::LedgerClosed)
@@ -336,9 +599,101 @@ fn tx_record(
             .take(32)
             .collect(),
         delivered: drops(meta.get("delivered_amount")),
+        delivered_token: token_amount(meta.get("delivered_amount")),
         memo,
         changes: balance_changes(meta),
+        lines: line_changes(meta),
     })
+}
+
+/// A token amount, as the ledger writes one: `currency`, `issuer` and
+/// `value`, nothing else.
+#[must_use]
+pub fn token_amount(value: Option<&Value>) -> Option<TokenAmount> {
+    let object = value?.as_object()?;
+    if object.len() != 3 {
+        return None;
+    }
+    let amount = TokenAmount {
+        value: TokenValue::parse(object.get("value")?.as_str()?)?,
+        currency: Currency::parse(object.get("currency")?.as_str()?)?,
+        issuer: AccountId::parse(object.get("issuer")?.as_str()?)?,
+    };
+    amount.is_valid().then_some(amount)
+}
+
+/// A `RippleState`'s fields as a line: its two accounts from the limits'
+/// issuers, low below high, and one currency throughout. A line just
+/// created may leave out a zero balance and no flags.
+fn trust_line(fields: &Value, created: bool) -> Option<TrustLine> {
+    let low_limit = token_amount(fields.get("LowLimit"))?;
+    let high_limit = token_amount(fields.get("HighLimit"))?;
+    // The balance's issuer is a placeholder (ACCOUNT_ONE): only its value
+    // and currency say anything.
+    let balance = match fields.get("Balance") {
+        None if created => TokenValue::ZERO,
+        balance => {
+            let balance = balance?;
+            if Currency::parse(balance.get("currency")?.as_str()?)? != low_limit.currency {
+                return None;
+            }
+            TokenValue::parse(balance.get("value")?.as_str()?)?
+        }
+    };
+    let flags = match fields.get("Flags") {
+        None if created => 0,
+        flags => number(flags)?,
+    };
+    if low_limit.issuer >= high_limit.issuer || low_limit.currency != high_limit.currency {
+        return None;
+    }
+    Some(TrustLine {
+        low: low_limit.issuer,
+        high: high_limit.issuer,
+        currency: low_limit.currency,
+        balance,
+        low_limit: low_limit.value,
+        high_limit: high_limit.value,
+        flags,
+    })
+}
+
+/// The trust lines a transaction changed, from its metadata. A line whose
+/// fields cannot be read is left out, as an account's are.
+fn line_changes(meta: &Value) -> Vec<LineChange> {
+    let Some(nodes) = meta.get("AffectedNodes").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    nodes
+        .iter()
+        .filter_map(|node| {
+            let (kind, inner) = node.as_object()?.iter().next()?;
+            if inner.get("LedgerEntryType").and_then(Value::as_str) != Some("RippleState") {
+                return None;
+            }
+            // Before: the final fields, with what the transaction changed
+            // as it was.
+            let before = || {
+                let mut fields: Map<String, Value> = inner.get("FinalFields")?.as_object()?.clone();
+                if let Some(previous) = inner.get("PreviousFields").and_then(Value::as_object) {
+                    for (key, value) in previous {
+                        fields.insert(key.clone(), value.clone());
+                    }
+                }
+                trust_line(&Value::Object(fields), false)
+            };
+            let (before, after) = match kind.as_str() {
+                "CreatedNode" => (None, Some(trust_line(inner.get("NewFields")?, true)?)),
+                "ModifiedNode" => (
+                    Some(before()?),
+                    Some(trust_line(inner.get("FinalFields")?, false)?),
+                ),
+                "DeletedNode" => (Some(before()?), None),
+                _ => return None,
+            };
+            LineChange::new(before, after)
+        })
+        .collect()
 }
 
 /// The `AccountRoot` balances a transaction changed, from its metadata.
@@ -451,6 +806,75 @@ pub fn account_info_result(result: &Value) -> Option<AccountInfo> {
     })
 }
 
+/// A trust line as of a validated ledger, from `ledger_entry`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LineEntry {
+    /// The line.
+    pub line: TrustLine,
+    /// The ledger this is as of.
+    pub ledger_index: u32,
+    /// Whether that ledger is validated.
+    pub validated: bool,
+}
+
+/// Reads the result of [`ripple_state`]'s request.
+#[must_use]
+pub fn ripple_state_result(result: &Value) -> Option<LineEntry> {
+    let node = result.get("node")?;
+    if node.get("LedgerEntryType").and_then(Value::as_str) != Some("RippleState") {
+        return None;
+    }
+    Some(LineEntry {
+        line: trust_line(node, false)?,
+        ledger_index: number(result.get("ledger_index"))?,
+        validated: result.get("validated").and_then(Value::as_bool) == Some(true),
+    })
+}
+
+/// What an account's root says about its tokens: an issuer's freeze and
+/// transfer fee.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AccountSettings {
+    /// Its flags ([`account_flags`]).
+    pub flags: u32,
+    /// Its transfer rate in billionths: 0 when it has none, which charges
+    /// nothing, as [`TRANSFER_RATE_PAR`] does.
+    pub transfer_rate: u32,
+    /// The ledger this is as of.
+    pub ledger_index: u32,
+    /// Whether that ledger is validated.
+    pub validated: bool,
+}
+
+impl AccountSettings {
+    /// Whether it froze every line of its tokens.
+    #[must_use]
+    pub const fn global_freeze(&self) -> bool {
+        self.flags & account_flags::GLOBAL_FREEZE != 0
+    }
+
+    /// Whether it charges a fee on transfers of its tokens between others.
+    #[must_use]
+    pub const fn charges_transfer_fee(&self) -> bool {
+        self.transfer_rate != 0 && self.transfer_rate != TRANSFER_RATE_PAR
+    }
+}
+
+/// Reads `account_info`'s result for an account's settings.
+#[must_use]
+pub fn account_settings_result(result: &Value) -> Option<AccountSettings> {
+    let data = result.get("account_data")?;
+    Some(AccountSettings {
+        flags: number(data.get("Flags"))?,
+        transfer_rate: match data.get("TransferRate") {
+            None => 0,
+            rate => number(rate)?,
+        },
+        ledger_index: number(result.get("ledger_index"))?,
+        validated: result.get("validated").and_then(Value::as_bool) == Some(true),
+    })
+}
+
 /// A page of `account_tx`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AccountTx {
@@ -508,4 +932,110 @@ pub fn tx_result(result: &Value) -> Option<TxRecord> {
 #[must_use]
 pub fn submit_result(result: &Value) -> Option<String> {
     Some(result.get("engine_result")?.as_str()?.to_string())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::indexing_slicing)]
+mod tests {
+    use super::*;
+
+    const RLUSD: &str = "524C555344000000000000000000000000000000";
+    const ISSUER: &str = "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV";
+
+    #[test]
+    fn a_line_is_asked_for_by_its_accounts_and_currency() {
+        let holder = AccountId([1; 20]);
+        let issuer = AccountId::parse(ISSUER).unwrap();
+        let request: Value = serde_json::from_slice(&ripple_state(
+            7,
+            holder,
+            issuer,
+            Currency::parse(RLUSD).unwrap(),
+        ))
+        .unwrap();
+        assert_eq!(request["command"], "ledger_entry");
+        assert_eq!(request["ledger_index"], "validated");
+        assert_eq!(request["ripple_state"]["currency"], RLUSD);
+        assert_eq!(
+            request["ripple_state"]["accounts"],
+            json!([holder.to_address(), ISSUER])
+        );
+    }
+
+    #[test]
+    fn an_issuers_freeze_and_transfer_fee_are_read() {
+        let settings = |flags: u32, rate: Option<u32>| {
+            let mut data = json!({ "Account": ISSUER, "Flags": flags, "Balance": "100" });
+            if let Some(rate) = rate {
+                data["TransferRate"] = rate.into();
+            }
+            account_settings_result(
+                &json!({ "account_data": data, "ledger_index": 12, "validated": true }),
+            )
+            .unwrap()
+        };
+        // RLUSD's issuer today: DefaultRipple and clawback, no fee.
+        let rlusd = settings(
+            account_flags::DEFAULT_RIPPLE | account_flags::ALLOW_TRUST_LINE_CLAWBACK,
+            None,
+        );
+        assert!(!rlusd.global_freeze() && !rlusd.charges_transfer_fee());
+        assert_eq!((rlusd.ledger_index, rlusd.validated), (12, true));
+        assert!(settings(account_flags::GLOBAL_FREEZE, None).global_freeze());
+        assert!(!settings(0, Some(TRANSFER_RATE_PAR)).charges_transfer_fee());
+        assert!(!settings(0, Some(0)).charges_transfer_fee());
+        assert!(settings(0, Some(1_002_000_000)).charges_transfer_fee());
+        // Flags are what the freeze is read from: no flags, no answer.
+        assert!(
+            account_settings_result(&json!({ "account_data": {}, "ledger_index": 1 })).is_none()
+        );
+    }
+
+    #[test]
+    fn a_clawback_lowers_the_holders_line() {
+        let issuer = AccountId::parse(ISSUER).unwrap();
+        let holder = AccountId([0xFF; 20]);
+        assert!(issuer < holder, "the issuer is low");
+        let line = |balance: &str| {
+            json!({
+                "Balance": { "currency": RLUSD, "issuer": "rrrrrrrrrrrrrrrrrrrrBZbvji", "value": balance },
+                "Flags": line_flags::HIGH_RESERVE | line_flags::HIGH_NO_RIPPLE | line_flags::LOW_FREEZE,
+                "LowLimit": { "currency": RLUSD, "issuer": ISSUER, "value": "0" },
+                "HighLimit": { "currency": RLUSD, "issuer": holder.to_address(), "value": "9999999999999999e80" },
+            })
+        };
+        let tx = json!({
+            "TransactionType": "Clawback",
+            "Account": ISSUER,
+            "Amount": { "currency": RLUSD, "issuer": holder.to_address(), "value": "2.5" },
+            "Fee": "12",
+            "Sequence": 3,
+            "hash": "CD".repeat(32),
+            "ledger_index": 40,
+            "validated": true,
+            "meta": {
+                "TransactionIndex": 2,
+                "TransactionResult": "tesSUCCESS",
+                "AffectedNodes": [{ "ModifiedNode": {
+                    "LedgerEntryType": "RippleState",
+                    "FinalFields": line("-7.5"),
+                    "PreviousFields": { "Balance": { "currency": RLUSD, "issuer": "rrrrrrrrrrrrrrrrrrrrBZbvji", "value": "-10" } },
+                }}],
+            },
+        });
+        let record = tx_result(&tx).unwrap();
+        let currency = Currency::parse(RLUSD).unwrap();
+        let change = record.line(holder, issuer, currency).unwrap();
+        let value = |text| TokenValue::parse(text).unwrap();
+        assert_eq!(change.balance_of(holder), Some((value("10"), value("7.5"))));
+        assert_eq!(
+            change.balance_of(issuer),
+            Some((value("-10"), value("-7.5")))
+        );
+        let view = change.after().unwrap().view(holder).unwrap();
+        assert_eq!(view.limit, TokenValue::MAX);
+        assert!(view.ours.no_ripple && view.ours.reserve && !view.ours.freeze);
+        assert!(view.theirs.freeze && !view.theirs.deep_freeze);
+        assert_eq!(record.delivered_token, None);
+    }
 }

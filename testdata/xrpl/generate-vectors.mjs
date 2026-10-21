@@ -2,7 +2,10 @@
 // original's XRPL module used (spec/areas/xrpl.md#the-payment-it-signs):
 // settlement Payments as the original builds them, signed by the wallets of
 // crates/dassie-identity/tests/data/chain.json, with what xrpl.js signs,
-// the blob it submits and the hash it reports.
+// the blob it submits and the hash it reports. Then the token wire format
+// (spec/areas/xrpl.md#tokens): token amounts on their own, at the edges of
+// what the ledger can express, and token Payments and TrustSets as xrpl.js
+// signs them, with RLUSD of its testnet issuer.
 //
 // Run from the repository root, with xrpl@3.1.0 installed somewhere:
 //
@@ -18,6 +21,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 const require = createRequire(`${process.env.NODE_PATH}/`);
 const { Wallet, hashes } = require("xrpl");
 const { encodeForSigning, decode } = require("ripple-binary-codec");
+const { Amount } = require("ripple-binary-codec/dist/types");
 
 const chain = JSON.parse(
   readFileSync("crates/dassie-identity/tests/data/chain.json", "utf8"),
@@ -63,7 +67,114 @@ for (const [index, shape] of shapes.entries()) {
   });
 }
 
+// RLUSD on the testnet: its issuer, and its currency code, which is
+// longer than three letters and so written in hex.
+const RLUSD = "524C555344000000000000000000000000000000";
+const RLUSD_ISSUER = "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV";
+
+// Token values at the edges: the smallest and largest the ledger can
+// express, sixteen significant digits, a millionth (the ledger unit of
+// `xrpl-testnet-rlusd+usd`), zero, negative values, and the forms rippled
+// writes (a decimal, or a mantissa and an exponent).
+const values = [
+  "0",
+  "1",
+  "-1",
+  "0.000001",
+  "1e-81",
+  "-1e-81",
+  "9999999999999999e80",
+  "-9999999999999999e80",
+  "1234567890.123456",
+  "1234567890123456",
+  "0.0000000000000001234567890123456",
+  "1000000000000000e-3",
+  "1000000000000000e1",
+  "99999999.99999999",
+  "12345678901234560000",
+];
+const amounts = [];
+for (const [index, value] of values.entries()) {
+  const amount = {
+    currency: index % 3 === 2 ? "USD" : RLUSD,
+    issuer: index % 3 === 1 ? chain[0].xrplTestnetWallet.address : RLUSD_ISSUER,
+    value,
+  };
+  const encoded = Amount.from(amount);
+  amounts.push({ amount, hex: encoded.toHex(), decoded: encoded.toJSON() });
+}
+
+// Token Payments as the scheme sends them: a token Amount, no paths, no
+// SendMax, no flags; and TrustSets with rippling disabled on our side.
+const tokenShapes = [
+  { value: "0.000001", fee: "12", sequence: 7, last: 27 },
+  { value: "1234567890.123456", fee: "15", sequence: 4_000_000, last: 4_000_020 },
+  { value: "1e-81", fee: "10", sequence: 1, last: 21, network: 21_338 },
+  { value: "9999999999999999e80", fee: "1000", sequence: 0xffff_ffff, last: 0xffff_ffff },
+];
+const trustShapes = [
+  { value: "9999999999999999e80", flags: 0x0002_0000, fee: "12", sequence: 3, last: 23 },
+  { value: "0", flags: 0x0002_0000, fee: "10", sequence: 9, last: 29 },
+  { value: "1000000", flags: 0, fee: "15", sequence: 77, last: 120, network: 21_338 },
+  { value: "1e-81", flags: 0x0002_0000, fee: "12", sequence: 0xffff_ffff, last: 0xffff_ffff, currency: "USD" },
+];
+
+const signedVector = (from, tx, wallet) => {
+  const signed = wallet.sign(tx);
+  return {
+    familySeed: from.xrplTestnetWallet.familySeed,
+    nodeId: from.nodeId,
+    tx,
+    signingPayload: encodeForSigning({ ...tx, SigningPubKey: wallet.publicKey }),
+    txBlob: signed.tx_blob,
+    hash: hashes.hashSignedTx(signed.tx_blob),
+    decoded: decode(signed.tx_blob),
+  };
+};
+const network = (shape) => (shape.network === undefined ? {} : { NetworkID: shape.network });
+
+const tokenPayments = [];
+for (const [index, shape] of tokenShapes.entries()) {
+  const from = chain[20 + index * 3];
+  const to = chain[20 + index * 3 + 1];
+  const wallet = Wallet.fromSeed(from.xrplTestnetWallet.familySeed);
+  const tx = {
+    TransactionType: "Payment",
+    Account: wallet.address,
+    Amount: { currency: RLUSD, issuer: RLUSD_ISSUER, value: shape.value },
+    Destination: to.xrplTestnetWallet.address,
+    Fee: shape.fee,
+    Flags: 0,
+    Sequence: shape.sequence,
+    LastLedgerSequence: shape.last,
+    Memos: [{ Memo: { MemoType: MEMO_TYPE, MemoData: hex(from.nodeId) } }],
+    ...network(shape),
+  };
+  tokenPayments.push(signedVector(from, tx, wallet));
+}
+
+const trustSets = [];
+for (const [index, shape] of trustShapes.entries()) {
+  const from = chain[40 + index * 3];
+  const wallet = Wallet.fromSeed(from.xrplTestnetWallet.familySeed);
+  const tx = {
+    TransactionType: "TrustSet",
+    Account: wallet.address,
+    LimitAmount: { currency: shape.currency ?? RLUSD, issuer: RLUSD_ISSUER, value: shape.value },
+    Fee: shape.fee,
+    Flags: shape.flags,
+    Sequence: shape.sequence,
+    LastLedgerSequence: shape.last,
+    ...network(shape),
+  };
+  trustSets.push(signedVector(from, tx, wallet));
+}
+
 writeFileSync(
   "crates/dassie-xrpl/tests/data/vectors.json",
-  `${JSON.stringify({ source: "xrpl@3.1.0", memoType: MEMO_TYPE, payments }, null, 2)}\n`,
+  `${JSON.stringify(
+    { source: "xrpl@3.1.0", memoType: MEMO_TYPE, payments, amounts, tokenPayments, trustSets },
+    null,
+    2,
+  )}\n`,
 );

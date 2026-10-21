@@ -1,5 +1,6 @@
 //! Golden vectors: the original's wallets, from `dassie-identity`'s chain,
-//! and Payments as xrpl.js 3.1.0 signs them (testdata/xrpl).
+//! and Payments, token amounts and TrustSets as xrpl.js 3.1.0 writes and
+//! signs them (testdata/xrpl).
 
 #![allow(
     clippy::unwrap_used,
@@ -9,7 +10,9 @@
 )]
 
 use dassie_identity::NodeKey;
-use dassie_xrpl::codec::{Memo, Payment, hash};
+use dassie_xrpl::codec::{
+    Amount, Currency, Memo, Payment, Signed, TokenAmount, TokenValue, Transaction, TrustSet, hash,
+};
 use dassie_xrpl::{AccountId, Wallet, from_hex, hex_upper};
 use serde_json::Value;
 
@@ -59,7 +62,7 @@ fn payment(vector: &Value) -> (Wallet, Payment) {
     let payment = Payment {
         account: AccountId::parse(text(tx, "Account")).unwrap(),
         destination: AccountId::parse(text(tx, "Destination")).unwrap(),
-        amount: drops("Amount"),
+        amount: Amount::Xrp(drops("Amount")),
         fee: drops("Fee"),
         sequence: number("Sequence"),
         last_ledger_sequence: number("LastLedgerSequence"),
@@ -95,10 +98,135 @@ fn payments_sign_and_hash_as_xrpl_js_does() {
         assert_eq!(signed.hash_hex(), text(vector, "hash"));
         let blob = from_hex(text(vector, "txBlob")).unwrap();
         assert_eq!(hex_upper(&hash(&blob)), text(vector, "hash"));
-        assert_eq!(Payment::decode(&blob).unwrap(), signed.payment);
+        assert_eq!(Payment::decode(&blob).unwrap(), signed.tx);
         assert_eq!(
-            signed.payment.memos[0].memo_data,
+            signed.tx.memos[0].memo_data,
             text(vector, "nodeId").as_bytes()
         );
+    }
+}
+
+/// A token amount as the vectors write it, read by the node's parser.
+fn token(value: &Value) -> TokenAmount {
+    TokenAmount {
+        value: TokenValue::parse(text(value, "value")).unwrap(),
+        currency: Currency::parse(text(value, "currency")).unwrap(),
+        issuer: AccountId::parse(text(value, "issuer")).unwrap(),
+    }
+}
+
+// Token amounts byte for byte as xrpl.js writes them, at the edges of what
+// the ledger expresses (spec/areas/xrpl.md#tokens); and the value xrpl.js
+// reads back is the same value to the node.
+#[test]
+fn token_amounts_encode_as_xrpl_js_does() {
+    let vectors = read("tests/data/vectors.json");
+    let amounts = vectors["amounts"].as_array().unwrap();
+    assert_eq!(amounts.len(), 15);
+    for vector in amounts {
+        let amount = token(&vector["amount"]);
+        let hex = text(vector, "hex");
+        assert_eq!(hex_upper(&amount.to_bytes()), hex, "{amount:?}");
+        let bytes: [u8; 48] = from_hex(hex).unwrap().try_into().unwrap();
+        assert_eq!(TokenAmount::from_bytes(&bytes), Some(amount));
+        assert_eq!(token(&vector["decoded"]), amount);
+    }
+}
+
+fn common(vector: &Value) -> (Wallet, &Value) {
+    let wallet = Wallet::from_family_seed(text(vector, "familySeed")).unwrap();
+    (wallet, &vector["tx"])
+}
+
+fn number(tx: &Value, key: &str) -> u32 {
+    u32::try_from(tx[key].as_u64().unwrap()).unwrap()
+}
+
+/// Checks a signed transaction against its vector: what was signed, the
+/// blob, the hash, and the blob read back.
+fn check<T>(vector: &Value, payload: &[u8], signed: &Signed<T>, read: Transaction) {
+    assert_eq!(hex_upper(payload), text(vector, "signingPayload"));
+    assert_eq!(hex_upper(&signed.blob), text(vector, "txBlob"));
+    assert_eq!(hex_upper(&signed.hash), text(vector, "hash"));
+    let blob = from_hex(text(vector, "txBlob")).unwrap();
+    assert_eq!(Transaction::decode(&blob).unwrap(), read);
+}
+
+// Token Payments as the scheme sends them: a token Amount, no paths, no
+// SendMax, not partial.
+#[test]
+fn token_payments_sign_and_hash_as_xrpl_js_does() {
+    let vectors = read("tests/data/vectors.json");
+    let payments = vectors["tokenPayments"].as_array().unwrap();
+    assert_eq!(payments.len(), 4);
+    for vector in payments {
+        let (wallet, tx) = common(vector);
+        let memo = &tx["Memos"][0]["Memo"];
+        let payment = Payment {
+            account: AccountId::parse(text(tx, "Account")).unwrap(),
+            destination: AccountId::parse(text(tx, "Destination")).unwrap(),
+            amount: Amount::Token(token(&tx["Amount"])),
+            fee: text(tx, "Fee").parse().unwrap(),
+            sequence: number(tx, "Sequence"),
+            last_ledger_sequence: number(tx, "LastLedgerSequence"),
+            flags: number(tx, "Flags"),
+            network_id: tx.get("NetworkID").map(|_| number(tx, "NetworkID")),
+            memos: vec![Memo {
+                memo_type: from_hex(text(memo, "MemoType")).unwrap(),
+                memo_data: from_hex(text(memo, "MemoData")).unwrap(),
+            }],
+            signing_pub_key: *wallet.public_key(),
+            signature: None,
+        };
+        let payload = payment.signing_payload();
+        let signed = payment.sign(&wallet);
+        check(
+            vector,
+            &payload,
+            &signed,
+            Transaction::Payment(signed.tx.clone()),
+        );
+        assert_eq!(
+            token(&vector["decoded"]["Amount"]),
+            *signed.tx.amount.token().unwrap()
+        );
+    }
+}
+
+// TrustSets: the line to the issuer, with rippling disabled on our side,
+// at the largest limit, at zero, and plain.
+#[test]
+fn trust_sets_sign_and_hash_as_xrpl_js_does() {
+    let vectors = read("tests/data/vectors.json");
+    let trust_sets = vectors["trustSets"].as_array().unwrap();
+    assert_eq!(trust_sets.len(), 4);
+    let limits: Vec<TokenValue> = trust_sets
+        .iter()
+        .map(|vector| token(&vector["tx"]["LimitAmount"]).value)
+        .collect();
+    assert!(limits.contains(&TokenValue::MAX) && limits.contains(&TokenValue::ZERO));
+    for vector in trust_sets {
+        let (wallet, tx) = common(vector);
+        let trust_set = TrustSet {
+            account: AccountId::parse(text(tx, "Account")).unwrap(),
+            limit: token(&tx["LimitAmount"]),
+            fee: text(tx, "Fee").parse().unwrap(),
+            sequence: number(tx, "Sequence"),
+            last_ledger_sequence: number(tx, "LastLedgerSequence"),
+            flags: number(tx, "Flags"),
+            network_id: tx.get("NetworkID").map(|_| number(tx, "NetworkID")),
+            memos: Vec::new(),
+            signing_pub_key: *wallet.public_key(),
+            signature: None,
+        };
+        let payload = trust_set.signing_payload();
+        let signed = trust_set.sign(&wallet);
+        check(
+            vector,
+            &payload,
+            &signed,
+            Transaction::TrustSet(signed.tx.clone()),
+        );
+        assert_eq!(token(&vector["decoded"]["LimitAmount"]), signed.tx.limit);
     }
 }
