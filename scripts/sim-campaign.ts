@@ -396,6 +396,9 @@ export interface Clearing {
   failed: boolean;
   /** The failure's link, from its status. */
   failureUrl: string;
+  /** The campaign's failure statuses on the commit, each as its text
+   * before its counts, and its link. */
+  failures: { head: string; url: string }[];
   /** The campaign's own statuses on the commit. */
   statuses: number;
   latest: StatusState | undefined;
@@ -415,6 +418,7 @@ export function foldStatuses(entries: StatusEntry[], login: string): Clearing {
     trips: 0,
     failed: false,
     failureUrl: "",
+    failures: [],
     statuses: 0,
     latest: undefined,
   };
@@ -422,11 +426,17 @@ export function foldStatuses(entries: StatusEntry[], login: string): Clearing {
     if (entry.creator !== login) continue;
     clearing.statuses += 1;
     clearing.latest ??= entry.state;
+    const match = entry.description.match(INCREMENT);
     if (entry.state === "failure") {
       clearing.failed = true;
       clearing.failureUrl ||= entry.targetUrl;
+      clearing.failures.push({
+        head: match
+          ? entry.description.slice(0, match.index).trimEnd()
+          : entry.description,
+        url: entry.targetUrl,
+      });
     }
-    const match = entry.description.match(INCREMENT);
     if (match) {
       clearing.runs += Number(match[1]);
       clearing.seconds += Number(match[2]);
@@ -447,6 +457,27 @@ export function settled(clearing: Clearing): boolean {
 function cleared(clearing: Clearing): boolean {
   return !clearing.failed && clearing.runs >= CLEAR_RUNS &&
     clearing.trips > 0;
+}
+
+const FAILED = "failed: ";
+
+/** Whether the commit's statuses already name the failure `signature`,
+ * whose issue is at `url`. A status names its failure as `failed:
+ * <signature>; <totals>`, and the counts after it take their room first,
+ * so a long signature may be cut short. A cut one could be the start of
+ * another signature too, so it names this one only if it also links to
+ * this signature's issue. */
+export function names(
+  clearing: Clearing,
+  signature: string,
+  url: string,
+): boolean {
+  const whole = `${FAILED}${signature};`;
+  return clearing.failures.some(({ head, url: link }) =>
+    head.startsWith(whole) ||
+    (head.length > FAILED.length && whole.startsWith(head) && url !== "" &&
+      link === url)
+  );
 }
 
 export interface LoopCounts {
@@ -980,8 +1011,15 @@ export async function reportTrusted(
   for (const failure of failures) {
     issues.set(failure.signature, await fileIssue(github, failure, sha));
   }
-  const [failure] = failures.filter((each) => !each.tripwire);
   const before = foldStatuses(await github.statuses(sha), github.login);
+  // A failure is final for its commit, and later runs count for nothing
+  // there: a commit that has failed gets a status only for a signature its
+  // statuses do not name yet. Another one, each loop on a commit `main`
+  // stays on, would notify the owner of nothing new.
+  const failure = failures.find((each) =>
+    !each.tripwire &&
+    !names(before, each.signature, issues.get(each.signature)?.url ?? "")
+  );
   // A loop the runner did not finish, or that was not all read, adds no
   // runs toward clearing; its failures still count.
   const loop = complete && !unreadable && tally.summary
@@ -991,23 +1029,27 @@ export async function reportTrusted(
       trips: tally.trips,
     }
     : { runs: 0, seconds: 0, trips: 0 };
-  if (!failure && before.statuses >= STATUS_CAP) return;
-  if (!failure && loop.runs === 0) return;
-  await github.createStatus(
-    sha,
-    nextStatus(
-      before,
-      loop,
-      failure && {
-        signature: failure.signature,
-        url: issues.get(failure.signature)?.url ?? "",
-      },
-    ),
-  );
+  const post = failure !== undefined ||
+    (!before.failed && before.statuses < STATUS_CAP && loop.runs > 0);
+  if (post) {
+    await github.createStatus(
+      sha,
+      nextStatus(
+        before,
+        loop,
+        failure && {
+          signature: failure.signature,
+          url: issues.get(failure.signature)?.url ?? "",
+        },
+      ),
+    );
+  }
   // Another VM may have posted a failure between our read and our write,
   // and the release check reads only the latest status: a failure in the
   // history is posted again on top.
-  const after = foldStatuses(await github.statuses(sha), github.login);
+  const after = post
+    ? foldStatuses(await github.statuses(sha), github.login)
+    : before;
   if (after.failed && after.latest !== "failure") {
     await github.createStatus(
       sha,

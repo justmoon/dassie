@@ -19,6 +19,7 @@ import {
   LABELS,
   mergeFailure,
   mergeTrouble,
+  names,
   type NewStatus,
   nextStatus,
   parseLine,
@@ -564,6 +565,106 @@ test("status: a failure another VM posted meanwhile ends up on top", async () =>
     "pending",
     "failure",
   ]);
+});
+
+test("status: a failed commit gets no status for a signature it already names", async () => {
+  const github = new FakeGitHub();
+  const loop = () =>
+    tally([failing("node", "6", 300, "settle-down"), line({})], {
+      runs: 14533,
+      seconds: 3600,
+    });
+  await reportTrusted(github, MAIN, loop(), true);
+  const [first] = github.statusesBySha.get(MAIN)!;
+  assertEquals(first.state, "failure");
+  assert(first.description.startsWith("failed: node/liveness/settle-down; "));
+  // `main` does not move, and the next loops find the same failure: its
+  // issue counts them, and nobody is notified again.
+  await reportTrusted(github, MAIN, loop(), true);
+  await reportTrusted(github, MAIN, loop(), true);
+  assertEquals(github.statusesBySha.get(MAIN), [first]);
+  assertEquals(decodeState(github.issues[0].body)!.seen, 3);
+  // Nor does a loop that finds nothing.
+  await reportTrusted(
+    github,
+    MAIN,
+    tally([line({})], { runs: CLEAR_RUNS, seconds: 3600 }),
+    true,
+  );
+  assertEquals(github.statusesBySha.get(MAIN), [first]);
+});
+
+test("status: a failed commit gets a status for a signature it does not name yet", async () => {
+  const github = new FakeGitHub();
+  await reportTrusted(
+    github,
+    MAIN,
+    tally([failing("node", "6", 300, "settle-down")], {
+      runs: 10,
+      seconds: 60,
+    }),
+    true,
+  );
+  // A loop that finds the known failure and a new one names the new one.
+  await reportTrusted(
+    github,
+    MAIN,
+    tally([
+      failing("node", "7", 300, "settle-down"),
+      failing("node", "8", 300, "books"),
+    ], { runs: 10, seconds: 60 }),
+    true,
+  );
+  const statuses = github.statusesBySha.get(MAIN)!;
+  assertEquals(statuses.map((each) => each.state), ["failure", "failure"]);
+  assert(statuses[0].description.startsWith("failed: node/liveness/books; "));
+  const books = github.issues.find((each) =>
+    each.title === "sim: node/liveness/books"
+  )!;
+  assertEquals(statuses[0].targetUrl, books.url);
+  // The history still adds up every status's own counts.
+  assertEquals(foldStatuses(statuses, BOT).runs, 20);
+});
+
+test("status: a commit that has not failed gets a status each loop", async () => {
+  const github = new FakeGitHub();
+  const loop = () => tally([line({})], { runs: 10, seconds: 60 });
+  await reportTrusted(github, MAIN, loop(), true);
+  await reportTrusted(github, MAIN, loop(), true);
+  assertEquals(
+    github.statusesBySha.get(MAIN)!.map((each) => each.state),
+    ["pending", "pending"],
+  );
+  assertEquals(foldStatuses(github.statusesBySha.get(MAIN)!, BOT).runs, 20);
+});
+
+test("status: a signature cut short in a description is told apart by its issue", () => {
+  const long = `node/safety/${"x".repeat(150)}`;
+  const status = nextStatus(foldStatuses([], BOT), {
+    runs: 1,
+    seconds: 1,
+    trips: 0,
+  }, { signature: `${long}/a`, url: "https://issues/1" });
+  assert(!status.description.includes(`${long}/a`));
+  const history = foldStatuses([{
+    state: status.state,
+    description: status.description,
+    creator: BOT,
+    targetUrl: status.targetUrl!,
+  }], BOT);
+  assert(names(history, `${long}/a`, "https://issues/1"));
+  // Another signature that starts the same is a new failure.
+  assert(!names(history, `${long}/b`, "https://issues/2"));
+  // A whole signature is named by its text alone, and not by another that
+  // it starts.
+  const short = foldStatuses([
+    entry("failure", "failed: node/liveness/books; 1 runs [+1 +1s +0t]"),
+    entry("failure", "failed earlier; 2 runs [+1 +1s +0t]"),
+  ], BOT);
+  assert(names(short, "node/liveness/books", "https://issues/3"));
+  assert(!names(short, "node/liveness/book", ""));
+  assert(!names(short, "node/liveness/books-2", ""));
+  assert(!names(foldStatuses([], BOT), "node/liveness/books", ""));
 });
 
 test("a pull request gets comments on itself, and no status or issue", async () => {
