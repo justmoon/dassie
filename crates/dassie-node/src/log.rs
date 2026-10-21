@@ -350,14 +350,58 @@ struct RingLayer {
 }
 
 /// What `f` logs, as the ring would keep it: for tests of what is logged.
+///
+/// Tracing caches, for each line in the code, whether anyone wants it.
+/// While at most one subscriber is registered, it asks only the default
+/// of whichever thread reaches the line first: another test's thread, with
+/// none, cached that no one does, and the capture lost the line. Two
+/// silent subscribers, kept for the process, make it ask every registered
+/// one instead, the capture's among them.
 #[cfg(test)]
 pub(crate) fn capture(f: impl FnOnce()) -> Vec<LogLine> {
+    static SILENT: OnceLock<[tracing::Dispatch; 2]> = OnceLock::new();
+    SILENT.get_or_init(|| {
+        [
+            tracing::Dispatch::new(Silent),
+            tracing::Dispatch::new(Silent),
+        ]
+    });
     let ring = Arc::new(LogRing::default());
     let layer = RingLayer {
         ring: Arc::clone(&ring),
     };
     tracing::subscriber::with_default(tracing_subscriber::registry().with(layer), f);
     ring.after(0, MAX_LINES).0
+}
+
+/// A subscriber that takes nothing, but leaves each line for the others to
+/// decide: see [`capture`].
+#[cfg(test)]
+struct Silent;
+
+#[cfg(test)]
+impl Subscriber for Silent {
+    fn register_callsite(&self, _: &'static Metadata<'static>) -> tracing::subscriber::Interest {
+        tracing::subscriber::Interest::sometimes()
+    }
+
+    fn enabled(&self, _: &Metadata<'_>) -> bool {
+        false
+    }
+
+    fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        tracing::span::Id::from_u64(1)
+    }
+
+    fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+
+    fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+
+    fn event(&self, _: &Event<'_>) {}
+
+    fn enter(&self, _: &tracing::span::Id) {}
+
+    fn exit(&self, _: &tracing::span::Id) {}
 }
 
 impl<S: Subscriber> Layer<S> for RingLayer {
@@ -528,5 +572,20 @@ mod tests {
         assert!(filter.enabled(Level::WARN, "hyper::proto"));
         let none = LogFilter::new(LogLevel::None, "*");
         assert!(!none.enabled(Level::ERROR, "das:node:daemon"));
+    }
+
+    // A test of what is logged lost lines at random when another test's
+    // thread, with no subscriber, reached the same line first: tracing
+    // cached that no one wanted it.
+    #[test]
+    fn a_capture_keeps_lines_another_thread_reached_first() {
+        fn log() {
+            tracing::info!(target: "das:node:test", "reached");
+        }
+        let lines = capture(|| {
+            std::thread::spawn(log).join().unwrap();
+            log();
+        });
+        assert_eq!(lines.len(), 1);
     }
 }
