@@ -73,6 +73,10 @@ use crate::log::target;
 /// The database file's name.
 pub const DATABASE_FILE: &str = "dassie.sqlite3";
 
+/// The file a store holds an exclusive lock on while it is open, so that
+/// only one node runs on a data directory.
+pub const LOCK_FILE: &str = "dassie.lock";
+
 /// Something went wrong with the database.
 #[derive(Debug)]
 pub enum StoreError {
@@ -102,6 +106,8 @@ pub enum StoreError {
     /// ([`ROLLING_BACK_FILE`]): it stopped before it put back the copy from
     /// before the migration.
     RollbackUnfinished,
+    /// Another process has the data directory open: a node runs on it.
+    InUse,
 }
 
 impl fmt::Display for StoreError {
@@ -142,6 +148,10 @@ impl fmt::Display for StoreError {
                  the update, move those side files aside and put {PRE_MIGRATION_FILE} in place \
                  as {DATABASE_FILE}. To start afresh instead, with a new identity and no \
                  books, remove {ROLLING_BACK_FILE} and its side files"
+            ),
+            Self::InUse => write!(
+                f,
+                "another Dassie node runs on this data directory (it holds {LOCK_FILE})"
             ),
         }
     }
@@ -187,6 +197,9 @@ pub struct SessionRecord {
 #[derive(Debug)]
 pub struct Store {
     connection: Mutex<Connection>,
+    /// The data directory's lock, held while the store is open; none in
+    /// memory.
+    _lock: Option<fs::File>,
     /// The commit a simulation makes fail, while it has one to.
     #[cfg(feature = "testing")]
     failing: Mutex<Option<faults::Failing>>,
@@ -196,6 +209,7 @@ impl Store {
     /// Opens or creates the database in `data_dir`.
     pub fn open(data_dir: &Path) -> Result<Self, StoreError> {
         secure_directory(data_dir)?;
+        let lock = lock_directory(data_dir)?;
         let path = data_dir.join(DATABASE_FILE);
         // A rollback that stopped between moving the database aside and
         // putting the copy in left none, and a new one would be a node
@@ -212,21 +226,22 @@ impl Store {
         if let Some(from) = schema::pending_migration(&connection)? {
             snapshot::keep_copy(&connection, data_dir, from)?;
         }
-        Self::prepare(connection)
+        Self::prepare(connection, Some(lock))
     }
 
     /// A database in memory, for `verify-install` and tests.
     pub fn open_in_memory() -> Result<Self, StoreError> {
-        Self::prepare(Connection::open_in_memory()?)
+        Self::prepare(Connection::open_in_memory()?, None)
     }
 
-    fn prepare(mut connection: Connection) -> Result<Self, StoreError> {
+    fn prepare(mut connection: Connection, lock: Option<fs::File>) -> Result<Self, StoreError> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.pragma_update(None, "foreign_keys", "ON")?;
         schema::prepare(&mut connection)?;
         schema::check(&mut connection)?;
         Ok(Self {
             connection: Mutex::new(connection),
+            _lock: lock,
             #[cfg(feature = "testing")]
             failing: Mutex::new(None),
         })
@@ -538,6 +553,26 @@ fn secure_directory(path: &Path) -> Result<(), StoreError> {
         DirBuilder::new().recursive(true).mode(0o700).create(path)?;
     }
     tighten(path, 0o700)
+}
+
+/// Takes the exclusive lock on the data directory's [`LOCK_FILE`], which
+/// lasts until the file is closed, when the process exits at the latest.
+/// Two nodes on one database would each sign, settle and book as if the
+/// other did not exist; SQLite's own locks keep only their transactions
+/// apart.
+fn lock_directory(data_dir: &Path) -> Result<fs::File, StoreError> {
+    let path = data_dir.join(LOCK_FILE);
+    let file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .mode(0o600)
+        .open(&path)?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(fs::TryLockError::WouldBlock) => Err(StoreError::InUse),
+        Err(fs::TryLockError::Error(error)) => Err(StoreError::Io(error)),
+    }
 }
 
 /// Creates `path` with mode 0600 before SQLite opens it, so there is no
