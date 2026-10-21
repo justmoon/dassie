@@ -1209,6 +1209,34 @@ fn a_restart_mid_settlement_posts_it_once() {
     );
 }
 
+// spec/areas/xrpl.md#rlusd: a transaction read again after a restart, from
+// the cursor on, is booked by what it did to the line, from its own
+// metadata: one that moved no RLUSD, such as the issuer's freeze while the
+// node was down, books nothing, though the scheme has not been told the
+// line yet. The node simulation found a restart that booked the whole line
+// as a deposit here, and took it back through suspense.
+#[test]
+fn a_restart_books_what_a_transaction_did_to_the_line_by_its_metadata() {
+    let (mut world, _, _) = synced(2);
+    world.mint(0, "10");
+    world.closes(2);
+    let held = i128::from(usd(10_000_000));
+    assert_eq!(world.nodes[0].books[USD].owner, held);
+    let connection = world.nodes[0].connection;
+    world.ledger.disconnect(connection);
+    world.nodes[0].online = false;
+    world.input(0, LedgerInput::Disconnected);
+    let address = world.address(0);
+    world.ledger.freeze(address, Token::RLUSD, true).unwrap();
+    world.closes(2);
+    world.restart(0);
+    world.closes(3);
+    let books = &world.nodes[0].books[USD];
+    assert_eq!((books.owner, books.suspense), (held, 0));
+    assert_eq!(books.settlement, held);
+    assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
+}
+
 // spec/areas/xrpl.md#rlusd: a testnet reset takes the line and what it
 // held: written off through suspense, and the line made again once the
 // account and the issuer are back.
