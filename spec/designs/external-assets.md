@@ -77,15 +77,15 @@ After each, the books hold the line's balance in whole units; a remainder below 
 
 **Freezes.** The scheme reads them from the ledger, and reports each in the wallet:
 
-- **Our line's flags** with every transaction that touches the line, an issuer's freeze included, which the account's stream carries.
+- **Our line's flags** at each sync, with the read of the line that checks NoRipple and the limit, so a line frozen before the node first saw it is known; then with every transaction that touches the line, an issuer's freeze included, which the account's stream carries.
 - **The issuer's account,** for a global freeze and a transfer fee, at every settlement check, taking only an answer as of a ledger at or past the newest seen ([ledger-resets](../decisions/ledger-resets.md)). Both change only the issuer's account, which the stream of ours never carries, and following the issuer's stream would bring every payment of the token. Read only on connecting, a global freeze would go unnoticed for as long as the connection holds.
 
 What each freeze stops:
 
 - **A frozen line** (ours, by the issuer) stops our settlements: `prepare_settlement` is `Unavailable`. Peerings stay; a peer that asks us to settle gets nothing, and stops advertising us once its room is gone ([Network](../areas/network.md#advertised-peers)).
 - **A line that cannot receive** (ours deep-frozen, or the issuer's global freeze, which stops every holder's payments but to the issuer) also stops what peers pay us, and a peer's settlement would only fail and cost it a fee. While it lasts:
-  - **The node asks no peer on it to settle,** as while the scheme does not see its ledger, and a peer's time short does not grow, so no peer is ended for room for what it could not pay ([Network](../areas/network.md#advertised-peers), [ended-for-room](../decisions/ended-for-room.md)).
-  - **A peer short of room is withdrawn at once,** without waiting for the grace, since no settlement can restore its room while the freeze lasts, which may be for good. Its packets toward us would only fail at the edge. It stays peered, and is advertised again once the line receives and the peer has settled, as a peer that could not be reached is ([Network](../areas/network.md#advertised-peers)).
+  - **The node asks no peer on it to settle,** as while the scheme does not see its ledger.
+  - **A peer's time short withdraws it but never ends it,** as for a peer that could not be reached ([Network](../areas/network.md#advertised-peers)): it grows as usual, so a peer short of room past the grace is withdrawn, since no settlement can restore its room while the freeze lasts, which may be for good; but it does not count toward ending the peering for room, so no peer is ended for what it could not pay ([ended-for-room](../decisions/ended-for-room.md)). The grace stays, so our own packets toward a peer that dips below its room only briefly can restore it before it is withdrawn.
   - **The link state leaves the scheme out,** so no new peering is made on it. This is a rule of its own: a scheme that only lost its ledger stays in the link state once it has synced.
 
 **Testnet resets** take the line, its balance and the issuer's account with them. The scheme follows the account's reset as today, and makes the line again once the issuer exists. An issuer that does not come back at the same address leaves the scheme unsynced until a release names the new one.
