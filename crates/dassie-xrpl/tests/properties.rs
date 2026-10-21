@@ -1448,7 +1448,70 @@ fn peer_bytes() -> impl Strategy<Value = Vec<u8>> {
     ]
 }
 
+/// A value with an exponent in `-20..=0`, and the same as an integer of
+/// 10^-20, which an `i128` holds.
+fn small_value() -> impl Strategy<Value = (TokenValue, i128)> {
+    (any::<bool>(), 0..=MAX_MANTISSA, -20_i32..=0).prop_map(|(negative, mantissa, exponent)| {
+        let value = TokenValue::new(negative, mantissa, exponent).unwrap();
+        (value, as_integer(value))
+    })
+}
+
+/// A value as an integer of 10^-20, which it is a multiple of.
+fn as_integer(value: TokenValue) -> i128 {
+    let mantissa = i128::from(value.mantissa());
+    let shift = value.exponent() + 20;
+    let scale = 10_i128.pow(shift.unsigned_abs());
+    let magnitude = if shift >= 0 {
+        mantissa * scale
+    } else {
+        assert_eq!(mantissa % scale, 0, "a multiple of 10^-20");
+        mantissa / scale
+    };
+    if value.is_negative() {
+        -magnitude
+    } else {
+        magnitude
+    }
+}
+
+/// The significant digits an integer needs.
+fn digits(mut integer: i128) -> u32 {
+    if integer == 0 {
+        return 0;
+    }
+    while integer % 10 == 0 {
+        integer /= 10;
+    }
+    integer.unsigned_abs().ilog10() + 1
+}
+
 proptest! {
+    /// A sum is exact or refused, and refused only when its exact value
+    /// needs more than sixteen digits.
+    #[test]
+    fn sums_are_exact_against_integers((a, x) in small_value(), (b, y) in small_value()) {
+        match a.checked_add(b) {
+            Some(sum) => prop_assert_eq!(as_integer(sum), x + y),
+            None => prop_assert!(digits(x + y) > 16, "{a:?} + {b:?}"),
+        }
+        if let Some(difference) = a.checked_sub(b) {
+            prop_assert_eq!(as_integer(difference), x - y);
+        }
+    }
+
+    /// The fake ledger's exact sums have the sign of the integers' sum.
+    #[test]
+    fn exact_sums_agree_with_integers(values in prop::collection::vec(small_value(), 0..12)) {
+        let mut sum = dassie_xrpl::fake::ExactSum::default();
+        let mut exact = 0_i128;
+        for (value, integer) in values {
+            sum.add(value);
+            exact += integer;
+        }
+        prop_assert_eq!(sum.signum(), exact.cmp(&0));
+    }
+
     #[test]
     fn decoders_never_panic(bytes in prop::collection::vec(any::<u8>(), 0..400), text in "\\PC{0,60}") {
         let _ = Payment::decode(&bytes);

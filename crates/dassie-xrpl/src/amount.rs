@@ -72,20 +72,25 @@ impl TokenValue {
     /// `±mantissa × 10^exponent`, if the ledger can express it exactly.
     #[must_use]
     pub fn new(negative: bool, mantissa: u64, exponent: i32) -> Option<Self> {
-        if mantissa == 0 {
+        Self::from_wide(negative, u128::from(mantissa), exponent)
+    }
+
+    /// `±magnitude × 10^exponent`, if the ledger can express it exactly.
+    fn from_wide(negative: bool, magnitude: u128, exponent: i32) -> Option<Self> {
+        if magnitude == 0 {
             return Some(Self::ZERO);
         }
-        let (mut mantissa, mut exponent) = (mantissa, exponent);
-        // At most 15 steps up and 4 down, for a u64.
-        while mantissa < MIN_MANTISSA {
-            mantissa *= 10;
+        let (mut magnitude, mut exponent) = (magnitude, exponent);
+        // At most 15 steps up and 23 down, for a u128.
+        while magnitude < u128::from(MIN_MANTISSA) {
+            magnitude *= 10;
             exponent = exponent.checked_sub(1)?;
         }
-        while mantissa > MAX_MANTISSA {
-            if !mantissa.is_multiple_of(10) {
+        while magnitude > u128::from(MAX_MANTISSA) {
+            if !magnitude.is_multiple_of(10) {
                 return None;
             }
-            mantissa /= 10;
+            magnitude /= 10;
             exponent = exponent.checked_add(1)?;
         }
         if !(MIN_EXPONENT..=MAX_EXPONENT).contains(&exponent) {
@@ -93,11 +98,51 @@ impl TokenValue {
         }
         let value = Self {
             negative,
-            mantissa,
+            mantissa: u64::try_from(magnitude).ok()?,
             exponent,
         };
         value.check();
         Some(value)
+    }
+
+    /// The sum, exactly; `None` if the ledger cannot express it (more than
+    /// sixteen significant digits, or beyond its exponents). Nothing is
+    /// rounded.
+    #[must_use]
+    pub fn checked_add(self, other: Self) -> Option<Self> {
+        if self.is_zero() {
+            return Some(other);
+        }
+        if other.is_zero() {
+            return Some(self);
+        }
+        let (high, low) = if self.exponent >= other.exponent {
+            (self, other)
+        } else {
+            (other, self)
+        };
+        // Past sixteen places apart, the sum spans more than sixteen
+        // digits: the high value's last is above the low one's first.
+        let apart = high.exponent - low.exponent;
+        if apart > 16 {
+            return None;
+        }
+        let signed = |value: Self, shift: u32| {
+            let magnitude = i128::from(value.mantissa) * 10_i128.pow(shift);
+            if value.negative {
+                -magnitude
+            } else {
+                magnitude
+            }
+        };
+        let sum = signed(high, apart.unsigned_abs()) + signed(low, 0);
+        Self::from_wide(sum < 0, sum.unsigned_abs(), low.exponent)
+    }
+
+    /// The difference, exactly; `None` as for [`checked_add`](Self::checked_add).
+    #[must_use]
+    pub fn checked_sub(self, other: Self) -> Option<Self> {
+        self.checked_add(other.negate())
     }
 
     /// Whether it is zero.
@@ -613,6 +658,29 @@ mod tests {
             Some(value("1e13"))
         );
         assert_eq!(TokenValue::from_units(1, 97), None);
+    }
+
+    #[test]
+    fn sums_are_exact_or_refused() {
+        let sum = |a: &str, b: &str| value(a).checked_add(value(b));
+        assert_eq!(sum("1", "2.5"), Some(value("3.5")));
+        assert_eq!(sum("1", "-1"), Some(TokenValue::ZERO));
+        assert_eq!(sum("-1.5", "1"), Some(value("-0.5")));
+        assert_eq!(sum("0", "-7"), Some(value("-7")));
+        assert_eq!(sum("1000000000000000", "0.1"), None);
+        assert_eq!(
+            sum("100000000000000", "0.1"),
+            Some(value("100000000000000.1"))
+        );
+        assert_eq!(sum("9999999999999999", "1"), Some(value("1e16")));
+        assert_eq!(sum("9999999999999999e80", "1e80"), None);
+        assert_eq!(sum("1e-81", "-1e-81"), Some(TokenValue::ZERO));
+        assert_eq!(sum("1e10", "1e-10"), None);
+        assert_eq!(value("5").checked_sub(value("7")), Some(value("-2")));
+        assert_eq!(
+            TokenValue::MAX.checked_sub(TokenValue::MAX),
+            Some(TokenValue::ZERO)
+        );
     }
 
     #[test]

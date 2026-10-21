@@ -34,6 +34,17 @@ pub const TF_PARTIAL_PAYMENT: u32 = 0x0002_0000;
 pub const TF_SET_NO_RIPPLE: u32 = 0x0002_0000;
 /// A TrustSet's flag that enables rippling on the sender's side.
 pub const TF_CLEAR_NO_RIPPLE: u32 = 0x0004_0000;
+/// A TrustSet's flag that freezes the line on the sender's side: the
+/// other side pays its balance only to the sender.
+pub const TF_SET_FREEZE: u32 = 0x0010_0000;
+/// A TrustSet's flag that lifts the sender's freeze.
+pub const TF_CLEAR_FREEZE: u32 = 0x0020_0000;
+/// A TrustSet's flag that deep-freezes the line on the sender's side: the
+/// other side neither pays nor receives, but to and from the sender. Only
+/// on a line frozen already, or with [`TF_SET_FREEZE`].
+pub const TF_SET_DEEP_FREEZE: u32 = 0x0040_0000;
+/// A TrustSet's flag that lifts the sender's deep freeze.
+pub const TF_CLEAR_DEEP_FREEZE: u32 = 0x0080_0000;
 
 // Type codes.
 const UINT16: u8 = 1;

@@ -368,3 +368,103 @@ async fn the_owner_asks_the_faucet_for_more() {
     a.stop().await;
     server.stop();
 }
+
+/// Waits, on the wall clock the fake ledger closes on, until `done`.
+async fn eventually(mut done: impl FnMut() -> bool) {
+    for _ in 0..200 {
+        if done() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("never happened");
+}
+
+/// The issuer of the fake ledger's test RLUSD takes requests over HTTPS
+/// next to the faucet, for dev and the end-to-end tests: what it mints and
+/// claws back shows on the holder's line once a ledger closes.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_fake_issuer_mints_and_claws_back_over_https() {
+    use dassie_xrpl::codec::{TF_SET_NO_RIPPLE, TokenValue, TrustSet};
+    use dassie_xrpl::fake::{FEE_BASE, Token};
+
+    let server = fake_ledger().await;
+    let wallet = Wallet::from_seed([3; 16]);
+    let holder = wallet.account();
+    server.ledger().deposit(holder, 100_000_000);
+    eventually(|| server.ledger().balance(holder).is_some()).await;
+    // A new account's first sequence is the ledger that made it.
+    let info = serde_json::json!({ "command": "account_info", "account": holder.to_address() });
+    let info: serde_json::Value =
+        serde_json::from_slice(&server.ledger().request(0, info.to_string().as_bytes())).unwrap();
+    let sequence =
+        u32::try_from(info["result"]["account_data"]["Sequence"].as_u64().unwrap()).unwrap();
+    let ledger = server.ledger().ledger();
+    let signed = TrustSet {
+        account: holder,
+        limit: Token::RLUSD.amount(TokenValue::MAX),
+        fee: FEE_BASE,
+        sequence,
+        last_ledger_sequence: ledger + 20,
+        flags: TF_SET_NO_RIPPLE,
+        network_id: None,
+        memos: Vec::new(),
+        signing_pub_key: *wallet.public_key(),
+        signature: None,
+    }
+    .sign(&wallet);
+    let submit =
+        serde_json::json!({ "command": "submit", "tx_blob": dassie_xrpl::hex_upper(&signed.blob) });
+    server.ledger().request(0, submit.to_string().as_bytes());
+    eventually(|| {
+        server
+            .ledger()
+            .token_balance(holder, Token::RLUSD)
+            .is_some()
+    })
+    .await;
+
+    let address = std::net::SocketAddr::from((
+        [127, 0, 0, 1],
+        port_of(server.tokens_url.as_deref().unwrap()),
+    ));
+    let post = |path: &str, body: serde_json::Value| {
+        hyper::Request::post(path)
+            .header("host", "localhost")
+            .body(http_body_util::Full::new(bytes::Bytes::from(
+                body.to_string(),
+            )))
+            .unwrap()
+    };
+    let mint = post(
+        "/tokens/mint",
+        serde_json::json!({ "destination": holder.to_address(), "value": "12.5" }),
+    );
+    assert_eq!(
+        support::send(address, true, mint).await.status,
+        hyper::StatusCode::OK
+    );
+    let held = |value: &str| {
+        server.ledger().token_balance(holder, Token::RLUSD) == TokenValue::parse(value)
+    };
+    eventually(|| held("12.5")).await;
+    let claw = post(
+        "/tokens/clawback",
+        serde_json::json!({ "account": holder.to_address(), "value": "2" }),
+    );
+    assert_eq!(
+        support::send(address, true, claw).await.status,
+        hyper::StatusCode::OK
+    );
+    eventually(|| held("10.5")).await;
+    let refused = post(
+        "/tokens/mint",
+        serde_json::json!({ "destination": holder.to_address(), "value": "-1" }),
+    );
+    assert_eq!(
+        support::send(address, true, refused).await.status,
+        hyper::StatusCode::BAD_REQUEST
+    );
+    assert!(server.ledger().tokens_conserved());
+    server.stop();
+}

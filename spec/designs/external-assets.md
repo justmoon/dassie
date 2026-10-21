@@ -4,7 +4,7 @@ A settlement scheme today is also the node's wallet on its ledger: the `xrpl-tes
 
 This design separates the two. An **external asset** is something the node holds outside its books, such as an XRPL account; a **settlement scheme** settles with peers through the external assets it requires. Its first use is RLUSD on the XRPL testnet, as the scheme `xrpl-testnet-rlusd`.
 
-This is a design ([external-assets](../decisions/external-assets.md), [issued-assets](../decisions/issued-assets.md)). Only its wire format is built, the codec and reading the ledger for tokens ([XRPL](../areas/xrpl.md#tokens)); the rest is not ([roadmap](../roadmap.md#external-assets-and-rlusd)).
+This is a design ([external-assets](../decisions/external-assets.md), [issued-assets](../decisions/issued-assets.md)). Only its wire format is built, the codec and reading the ledger for tokens ([XRPL](../areas/xrpl.md#tokens)), and the fake ledger's tokens and issuer ([XRPL](../areas/xrpl.md#tokens-in-the-fake-ledger)); the rest is not ([roadmap](../roadmap.md#external-assets-and-rlusd)).
 
 ## 1. Concepts
 
@@ -90,7 +90,7 @@ What each freeze stops:
 
 **Testnet resets** take the line, its balance and the issuer's account with them. The scheme follows the account's reset as today, and makes the line again once the issuer exists. An issuer that does not come back at the same address leaves the scheme unsynced until a release names the new one.
 
-**Funding.** The owner sends the account XRP for gas, from the testnet faucet as for `xrpl-testnet`, and RLUSD, which Ripple hands out only by hand and in small amounts. Dev, end-to-end tests and simulations use an issuer of the fake ledger, which mints, freezes and claws back on request ([XRPL](../areas/xrpl.md#the-fake-ledger)).
+**Funding.** The owner sends the account XRP for gas, from the testnet faucet as for `xrpl-testnet`, and RLUSD, which Ripple hands out only by hand and in small amounts. Dev, end-to-end tests and simulations use the fake ledger's issuer of test RLUSD, which mints, freezes and claws back on request ([XRPL](../areas/xrpl.md#tokens-in-the-fake-ledger)).
 
 ## 5. The wallet
 

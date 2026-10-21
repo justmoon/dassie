@@ -7,7 +7,9 @@
 //! ```
 //!
 //! Once up, it prints one line of JSON, `{"url": "ws://…", "faucet":
-//! "https://…" | null}`, and serves until stdin closes or it is killed.
+//! "https://…" | null, "tokens": "https://…" | null}`, and serves until
+//! stdin closes or it is killed. `tokens` is where the issuer of its test
+//! RLUSD mints, freezes and claws back on request.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 // A process for the end-to-end tests: it watches stdin from a thread, and
@@ -55,7 +57,11 @@ async fn main() {
     .unwrap();
     println!(
         "{}",
-        serde_json::json!({ "url": server.url, "faucet": server.faucet_url })
+        serde_json::json!({
+            "url": server.url,
+            "faucet": server.faucet_url,
+            "tokens": server.tokens_url,
+        })
     );
     // Until stdin closes (the parent went away), or a signal.
     let (closed, stdin_closed) = tokio::sync::oneshot::channel::<()>();
