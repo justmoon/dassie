@@ -294,11 +294,15 @@ export function limitAssetText(
   const read = limits?.receiverPayment;
   const limit = limits?.receiveAmount;
   if (read?.limitInOtherAsset !== true || limit === undefined) return undefined;
-  const [mine, theirs] = code(limit) === code(read)
+  // The node compares codes as sent, so "usd" and "USD" differ: name them
+  // as sent then, since uppercased they would read alike.
+  const [mine, theirs] = limit.assetCode === read.assetCode
     ? [
       `counts ${code(limit)} to ${placesText(limit.assetScale)}`,
       `counts it to ${placesText(read.assetScale)}`,
     ]
+    : code(limit) === code(read)
+    ? [`is in "${limit.assetCode}"`, `is paid in "${read.assetCode}"`]
     : [`is in ${code(limit)}`, `is paid in ${code(read)}`];
   return `The app can't pay this payment request: the limit ${mine}, and the request ${theirs}. Every payment it tries will be refused.`;
 }

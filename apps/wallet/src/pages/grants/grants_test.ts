@@ -276,6 +276,19 @@ test("a receive limit in another asset than its payment request is flagged", () 
     }),
     "The app can't pay this payment request: the limit counts USD to 2 decimal places, and the request counts it to 9 decimal places. Every payment it tries will be refused.",
   );
+  // Codes are compared as sent: "usd" is not "USD", and reads as sent.
+  assertEquals(
+    limitAssetText({
+      ...limits,
+      receiveAmount: { value: 500n, assetCode: "usd", assetScale: 9 },
+      receiverPayment: {
+        ...limits.receiverPayment,
+        assetCode: "USD",
+        assetScale: 9,
+      },
+    }),
+    'The app can\'t pay this payment request: the limit is in "usd", and the request is paid in "USD". Every payment it tries will be refused.',
+  );
   // The node decides; the page says nothing unless it found a mismatch.
   assertEquals(
     limitAssetText({ ...limits, receiverPayment: shopRead }),
