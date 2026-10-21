@@ -7,6 +7,7 @@ use alloc::vec::Vec;
 use dassie_ledger::{LedgerId, Name};
 use rand_core::CryptoRng;
 
+use crate::asset::ExternalAsset;
 use crate::scheme::{Effect, PreparedSettlement, SchemeError, SettlementScheme};
 
 /// The balance the stub starts with on its first activation: 100 USD at
@@ -100,6 +101,7 @@ impl SettlementScheme for Stub {
     fn prepare_settlement(
         &mut self,
         rng: &mut dyn CryptoRng,
+        _asset: Option<&mut dyn ExternalAsset>,
         peer: Name,
         amount: u64,
         _peer_state: &[u8],
@@ -117,7 +119,12 @@ impl SettlementScheme for Stub {
         })
     }
 
-    fn execute_settlement(&mut self, settlement: Name, effects: &mut Vec<Effect>) {
+    fn execute_settlement(
+        &mut self,
+        _asset: Option<&mut dyn ExternalAsset>,
+        settlement: Name,
+        effects: &mut Vec<Effect>,
+    ) {
         let Some((_, amount)) = self.prepared.remove(&settlement) else {
             return;
         };
@@ -131,7 +138,12 @@ impl SettlementScheme for Stub {
         }
     }
 
-    fn reconcile(&mut self, pending: &[(Name, u64)], effects: &mut Vec<Effect>) {
+    fn reconcile(
+        &mut self,
+        _asset: Option<&mut dyn ExternalAsset>,
+        pending: &[(Name, u64)],
+        effects: &mut Vec<Effect>,
+    ) {
         // The stub executes right after the pending transfer is on disk,
         // and its balance is checkpointed with the result. A settlement
         // pending at a restart was never executed: its money never moved.
@@ -178,7 +190,7 @@ impl SettlementScheme for Stub {
         Ok(())
     }
 
-    fn discard_settlement(&mut self, settlement: Name) {
+    fn discard_settlement(&mut self, _asset: Option<&mut dyn ExternalAsset>, settlement: Name) {
         self.prepared.remove(&settlement);
     }
 
@@ -245,15 +257,19 @@ mod tests {
     fn a_settlement_beyond_the_balance_is_cancelled() {
         let mut stub = Stub::new("", Some(10)).unwrap();
         let mut rng = SeededRng::new(1);
-        let small = stub.prepare_settlement(&mut rng, peer(), 4, &[]).unwrap();
-        let large = stub.prepare_settlement(&mut rng, peer(), 40, &[]).unwrap();
+        let small = stub
+            .prepare_settlement(&mut rng, None, peer(), 4, &[])
+            .unwrap();
+        let large = stub
+            .prepare_settlement(&mut rng, None, peer(), 40, &[])
+            .unwrap();
         assert_ne!(small.id, large.id);
         assert_eq!(small.id.as_str().len(), 32);
         let mut effects = Vec::new();
-        stub.execute_settlement(small.id, &mut effects);
-        stub.execute_settlement(large.id, &mut effects);
+        stub.execute_settlement(None, small.id, &mut effects);
+        stub.execute_settlement(None, large.id, &mut effects);
         // Executing twice does nothing.
-        stub.execute_settlement(small.id, &mut effects);
+        stub.execute_settlement(None, small.id, &mut effects);
         assert_eq!(
             effects,
             [
@@ -273,10 +289,12 @@ mod tests {
     fn settlements_pending_at_a_restart_are_cancelled() {
         let mut stub = Stub::new("", Some(10)).unwrap();
         let mut rng = SeededRng::new(3);
-        let known = stub.prepare_settlement(&mut rng, peer(), 4, &[]).unwrap();
+        let known = stub
+            .prepare_settlement(&mut rng, None, peer(), 4, &[])
+            .unwrap();
         let lost = Name::new("0123456789abcdef0123456789abcdef").unwrap();
         let mut effects = Vec::new();
-        stub.reconcile(&[(known.id, 4), (lost, 7)], &mut effects);
+        stub.reconcile(None, &[(known.id, 4), (lost, 7)], &mut effects);
         assert_eq!(effects, [Effect::Cancel { settlement: lost }]);
         assert_eq!(stub.balance(), 10);
     }
@@ -286,10 +304,11 @@ mod tests {
         let mut stub = Stub::new("", None).unwrap();
         let mut rng = SeededRng::new(2);
         for _ in 0..MAX_PREPARED {
-            stub.prepare_settlement(&mut rng, peer(), 1, &[]).unwrap();
+            stub.prepare_settlement(&mut rng, None, peer(), 1, &[])
+                .unwrap();
         }
         assert_eq!(
-            stub.prepare_settlement(&mut rng, peer(), 1, &[]),
+            stub.prepare_settlement(&mut rng, None, peer(), 1, &[]),
             Err(SchemeError::TooManyPrepared)
         );
         stub.check_invariants();
@@ -303,8 +322,10 @@ mod tests {
         let mut stub = Stub::new("", None).unwrap();
         let mut rng = SeededRng::new(2);
         for _ in 0..MAX_PREPARED * 2 {
-            let prepared = stub.prepare_settlement(&mut rng, peer(), 1, &[]).unwrap();
-            stub.discard_settlement(prepared.id);
+            let prepared = stub
+                .prepare_settlement(&mut rng, None, peer(), 1, &[])
+                .unwrap();
+            stub.discard_settlement(None, prepared.id);
             stub.check_invariants();
         }
         assert!(stub.prepared.is_empty());

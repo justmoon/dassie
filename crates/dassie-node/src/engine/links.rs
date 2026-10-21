@@ -1,6 +1,7 @@
-//! The settlement schemes' connections to their ledgers
-//! (spec/areas/settlement.md#schemes-that-follow-a-ledger): one WebSocket per
-//! scheme that follows a ledger, opened and closed when the core says, and
+//! The external assets' connections to their ledgers
+//! (spec/areas/settlement.md#assets-that-follow-a-ledger): one WebSocket per
+//! external asset that follows a ledger, however many schemes settle
+//! through it, opened and closed when the core says, and
 //! fed back to it with the connection's epoch, so a message from a connection
 //! it has replaced is dropped. A connection that drops is made again, backing
 //! off from 1 s to 60 s.
@@ -27,7 +28,7 @@ use crate::peer_client::{PeerClient, WebRequest};
 /// Most bytes in one message from a ledger.
 const MAX_MESSAGE: usize = 1 << 20;
 /// Messages waiting to go out on one connection; beyond, they are dropped,
-/// and the scheme, hearing nothing, connects anew.
+/// and the asset, hearing nothing, connects anew.
 const QUEUE: usize = 64;
 /// How long connecting may take.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -43,37 +44,37 @@ struct Link {
     cancel: CancellationToken,
 }
 
-/// The open connections, by scheme.
+/// The open connections, by asset.
 #[derive(Default)]
 pub(super) struct Links {
-    by_scheme: BTreeMap<String, Link>,
+    by_asset: BTreeMap<String, Link>,
 }
 
 impl Links {
-    /// Opens `scheme`'s connection numbered `epoch` to `url`, replacing any
+    /// Opens `asset`'s connection numbered `epoch` to `url`, replacing any
     /// it had. It ends with the engine's generation.
     pub(super) fn connect(
         &mut self,
         client: Option<PeerClient>,
         commands: mpsc::Sender<Command>,
         generation: &CancellationToken,
-        scheme: String,
+        asset: String,
         epoch: u64,
         url: String,
     ) {
-        self.close(&scheme, None);
+        self.close(&asset, None);
         let (outgoing, queue) = mpsc::channel(QUEUE);
         let cancel = generation.child_token();
         let task = Task {
             client,
             commands,
-            scheme: scheme.clone(),
+            asset: asset.clone(),
             epoch,
             url,
         };
         tokio::spawn(task.run(queue, cancel.clone()));
-        self.by_scheme.insert(
-            scheme,
+        self.by_asset.insert(
+            asset,
             Link {
                 epoch,
                 outgoing,
@@ -82,37 +83,33 @@ impl Links {
         );
     }
 
-    /// Closes `scheme`'s connection, if it is `epoch` or any.
-    pub(super) fn close(&mut self, scheme: &str, epoch: Option<u64>) {
+    /// Closes `asset`'s connection, if it is `epoch` or any.
+    pub(super) fn close(&mut self, asset: &str, epoch: Option<u64>) {
         let matches = self
-            .by_scheme
-            .get(scheme)
+            .by_asset
+            .get(asset)
             .is_some_and(|link| epoch.is_none_or(|epoch| link.epoch == epoch));
-        if matches && let Some(link) = self.by_scheme.remove(scheme) {
+        if matches && let Some(link) = self.by_asset.remove(asset) {
             link.cancel.cancel();
         }
     }
 
-    /// Sends a message on `scheme`'s connection `epoch`.
-    pub(super) fn send(&self, scheme: &str, epoch: u64, message: Vec<u8>) {
-        let Some(link) = self
-            .by_scheme
-            .get(scheme)
-            .filter(|link| link.epoch == epoch)
-        else {
+    /// Sends a message on `asset`'s connection `epoch`.
+    pub(super) fn send(&self, asset: &str, epoch: u64, message: Vec<u8>) {
+        let Some(link) = self.by_asset.get(asset).filter(|link| link.epoch == epoch) else {
             return;
         };
         if link.outgoing.try_send(message).is_err() {
-            tracing::warn!(target: target::SETTLEMENT, scheme, "a ledger connection is not keeping up: a message was dropped");
+            tracing::warn!(target: target::SETTLEMENT, asset, "a ledger connection is not keeping up: a message was dropped");
         }
     }
 }
 
-/// Asks a faucet for `scheme`, and tells the core how it went.
+/// Asks a faucet for `asset`, and tells the core how it went.
 pub(super) fn fund(
     client: Option<PeerClient>,
     commands: mpsc::Sender<Command>,
-    scheme: String,
+    asset: String,
     epoch: u64,
     url: String,
     body: Vec<u8>,
@@ -131,22 +128,22 @@ pub(super) fn fund(
                 match client.web(request).await {
                     Ok(response) => (200..300).contains(&response.status),
                     Err(error) => {
-                        tracing::warn!(target: target::SETTLEMENT, %scheme, ?error, "the faucet did not answer");
+                        tracing::warn!(target: target::SETTLEMENT, %asset, ?error, "the faucet did not answer");
                         false
                     }
                 }
             }
             None => false,
         };
-        tracing::info!(target: target::SETTLEMENT, %scheme, funded, "asked the faucet");
-        report(&commands, scheme, epoch, LedgerEvent::Funded(funded)).await;
+        tracing::info!(target: target::SETTLEMENT, %asset, funded, "asked the faucet");
+        report(&commands, asset, epoch, LedgerEvent::Funded(funded)).await;
     });
 }
 
 /// Feeds an event to the core.
-async fn report(commands: &mpsc::Sender<Command>, scheme: String, epoch: u64, event: LedgerEvent) {
+async fn report(commands: &mpsc::Sender<Command>, asset: String, epoch: u64, event: LedgerEvent) {
     let call: super::Call = Box::new(move |core| {
-        core.ledger_event(&scheme, epoch, &event);
+        core.ledger_event(&asset, epoch, &event);
         Box::new(|| {})
     });
     let _ = commands.send(Command::Call(call)).await;
@@ -155,7 +152,7 @@ async fn report(commands: &mpsc::Sender<Command>, scheme: String, epoch: u64, ev
 struct Task {
     client: Option<PeerClient>,
     commands: mpsc::Sender<Command>,
-    scheme: String,
+    asset: String,
     epoch: u64,
     url: String,
 }
@@ -173,9 +170,9 @@ impl Task {
             match connected {
                 Ok(socket) => {
                     backoff = BACKOFF_MIN;
-                    tracing::info!(target: target::SETTLEMENT, scheme = %self.scheme, url = %self.url, "connected to the ledger");
+                    tracing::info!(target: target::SETTLEMENT, asset = %self.asset, url = %self.url, "connected to the ledger");
                     // What was queued for an earlier connection goes
-                    // nowhere, before the scheme hears it is connected and
+                    // nowhere, before the asset hears it is connected and
                     // queues what it asks first.
                     while queue.try_recv().is_ok() {}
                     self.event(LedgerEvent::Connected).await;
@@ -186,7 +183,7 @@ impl Task {
                     }
                 }
                 Err(error) => {
-                    tracing::warn!(target: target::SETTLEMENT, scheme = %self.scheme, url = %self.url, %error, "cannot connect to the ledger");
+                    tracing::warn!(target: target::SETTLEMENT, asset = %self.asset, url = %self.url, %error, "cannot connect to the ledger");
                 }
             }
             tokio::select! {
@@ -198,7 +195,7 @@ impl Task {
     }
 
     async fn event(&self, event: LedgerEvent) {
-        report(&self.commands, self.scheme.clone(), self.epoch, event).await;
+        report(&self.commands, self.asset.clone(), self.epoch, event).await;
     }
 
     async fn serve<S>(

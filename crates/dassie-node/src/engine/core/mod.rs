@@ -47,7 +47,7 @@ pub use packets::ledger_slug;
 pub use payers::{CreatedOutgoing, NewOutgoing};
 pub use peers::{NetworkView, PeerView};
 pub use probes::{MAX_PROBES, MAX_PROBES_PER_CLIENT, OWNER_PROBES, PROBE_TIMEOUT_MS, Prober};
-pub use schemes::{LedgerEvent, SCHEMES};
+pub use schemes::{AssetView, LedgerEvent, SCHEMES};
 pub use settlement::Lie;
 pub use tokens::{BtpSession, NewToken, TokenView, token_hash};
 
@@ -155,37 +155,37 @@ pub enum Output {
         /// What it measured.
         rate: Option<dassie_stream::Rate>,
     },
-    /// Open a settlement scheme's connection to its ledger, numbered
+    /// Open an external asset's connection to its ledger, numbered
     /// `epoch`; what comes over it is fed back with the same epoch.
     LedgerConnect {
-        /// The scheme.
-        scheme: String,
+        /// The asset's ID.
+        asset: String,
         /// The connection.
         epoch: u64,
         /// Where: a WebSocket URL.
         url: String,
     },
-    /// Close a scheme's connection.
+    /// Close an asset's connection.
     LedgerClose {
-        /// The scheme.
-        scheme: String,
+        /// The asset's ID.
+        asset: String,
         /// The connection.
         epoch: u64,
     },
-    /// Send a message over a scheme's connection.
+    /// Send a message over an asset's connection.
     LedgerSend {
-        /// The scheme.
-        scheme: String,
+        /// The asset's ID.
+        asset: String,
         /// The connection.
         epoch: u64,
         /// The message.
         message: Vec<u8>,
     },
-    /// Ask a faucet for a scheme: an HTTPS POST, whose outcome comes back
+    /// Ask a faucet for an asset: an HTTPS POST, whose outcome comes back
     /// as [`LedgerEvent::Funded`].
     Fund {
-        /// The scheme.
-        scheme: String,
+        /// The asset's ID.
+        asset: String,
         /// Its connection, which the outcome is for.
         epoch: u64,
         /// The faucet.
@@ -240,7 +240,11 @@ pub struct Core {
     schemes: BTreeMap<Name, ActiveScheme>,
     /// What the books last kept for each scheme.
     checkpoints: BTreeMap<Name, Checkpoint>,
-    /// The last connection number given to a scheme.
+    /// The external assets the active schemes settle through.
+    assets: BTreeMap<dassie_settlement::AssetId, schemes::ActiveAsset>,
+    /// What the books last kept for each external asset: its state.
+    asset_checkpoints: BTreeMap<dassie_settlement::AssetId, Vec<u8>>,
+    /// The last connection number given to an asset.
     next_epoch: u64,
     /// Each active ledger's STREAM receiver.
     receivers: BTreeMap<dassie_ledger::LedgerId, Receiver>,
@@ -372,18 +376,17 @@ impl Core {
             bootstrap,
         } = parts;
         check_bounds(&policies);
-        let peer = dassie_peer::PeerNode::new(
-            policies.peer,
-            Arc::clone(&key),
-            own_info,
-            bootstrap,
-            store.load_peer().map_err(text)?,
-            Box::new(peer_rng),
+        let peer = new_peer(
+            &store,
+            &key,
+            &policies,
+            (own_info, bootstrap),
+            peer_rng,
             now_ms,
-        );
+        )?;
         let ledger = restore_ledger(&store, policies.ledger)?;
         let connector = new_connector(&store, &key, realm, &policies)?;
-        let checkpoints = store.checkpoints().map_err(text)?.into_iter().collect();
+        let (checkpoints, asset_checkpoints) = checkpoints(&store)?;
         let mut core = Self {
             store,
             rng,
@@ -394,6 +397,8 @@ impl Core {
             rates: Rates::new(0),
             schemes: BTreeMap::new(),
             checkpoints,
+            assets: BTreeMap::new(),
+            asset_checkpoints,
             next_epoch: 0,
             receivers: BTreeMap::new(),
             next_local: 0,
@@ -619,6 +624,7 @@ impl Core {
             && batch.schemes_added.is_empty()
             && batch.schemes_removed.is_empty()
             && batch.checkpoints.is_empty()
+            && batch.asset_checkpoints.is_empty()
             && batch.tokens_created.is_empty()
             && batch.tokens_revoked.is_empty()
             && batch.token_caps.is_empty());
@@ -815,6 +821,26 @@ fn check_bounds(policies: &Policies) {
 /// there is.
 pub const MAX_LOCAL_ENDPOINTS: usize = 8;
 
+/// The peer protocol's state machine, from what the store kept of it.
+fn new_peer(
+    store: &Store,
+    key: &Arc<NodeKey>,
+    policies: &Policies,
+    (own_info, bootstrap): (dassie_peer::OwnInfo, Vec<dassie_peer::Bootstrap>),
+    peer_rng: Box<dyn SharedRng>,
+    now_ms: u64,
+) -> Result<dassie_peer::PeerNode, String> {
+    Ok(dassie_peer::PeerNode::new(
+        policies.peer,
+        Arc::clone(key),
+        own_info,
+        bootstrap,
+        store.load_peer().map_err(text)?,
+        Box::new(peer_rng),
+        now_ms,
+    ))
+}
+
 /// The connector, at the node's address, with this boot's epoch.
 fn new_connector(
     store: &Store,
@@ -829,6 +855,28 @@ fn new_connector(
         ..policies.connector
     };
     Ok(Connector::new(config, &own_address))
+}
+
+/// What the books last kept for each scheme, and for each external asset.
+type Checkpoints = (
+    BTreeMap<Name, Checkpoint>,
+    BTreeMap<dassie_settlement::AssetId, Vec<u8>>,
+);
+
+/// What the books last kept for each scheme and each external asset.
+fn checkpoints(store: &Store) -> Result<Checkpoints, String> {
+    let schemes = store.checkpoints().map_err(text)?.into_iter().collect();
+    let assets = store
+        .asset_checkpoints()
+        .map_err(text)?
+        .into_iter()
+        .map(|(id, state)| {
+            let id = dassie_settlement::AssetId::parse(&id)
+                .ok_or_else(|| format!("an external asset this node does not know: {id}"))?;
+            Ok((id, state))
+        })
+        .collect::<Result<_, String>>()?;
+    Ok((schemes, assets))
 }
 
 /// The ledger, from its journal.

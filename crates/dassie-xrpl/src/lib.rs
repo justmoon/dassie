@@ -10,8 +10,11 @@
 //!   signing and their hash.
 //! - [`api`]: the rippled WebSocket JSON the node speaks: requests, and
 //!   what comes back, parsed and bounded.
-//! - [`scheme`]: the `xrpl-testnet` settlement scheme. It says what to send
-//!   its ledger and books what the ledger says, through the node.
+//! - [`account`]: the node's XRPL testnet account, an external asset: it
+//!   says what to send its ledger, signs, keeps the sequence and what is in
+//!   flight, and tells the schemes on it what the ledger says.
+//! - [`scheme`]: the `xrpl-testnet` settlement scheme, which settles in the
+//!   account's XRP and books what the account tells it.
 //! - `fake` (feature `fake`): a model of the ledger, for simulations and
 //!   tests.
 //!
@@ -24,6 +27,7 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+pub mod account;
 pub mod amount;
 pub mod api;
 pub mod base58;
@@ -33,8 +37,9 @@ pub mod fake;
 pub mod keys;
 pub mod scheme;
 
+pub use account::{Config, XrplAccount};
 pub use keys::{AccountId, Wallet};
-pub use scheme::{Config, XrplScheme};
+pub use scheme::XrplScheme;
 
 /// Drops per XRP. The ledger counts in drops, at scale 6.
 pub const DROPS_PER_XRP: u64 = 1_000_000;

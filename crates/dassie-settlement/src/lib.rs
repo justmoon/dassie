@@ -13,10 +13,15 @@
 //! - [`policy`] decides when to settle with a peer, and how much.
 //! - [`Stub`] is the test-realm scheme without an underlying ledger.
 //!
-//! A scheme with an underlying ledger to follow, such as XRPL's, does no
-//! IO of its own: it says what to send ([`Effect::LedgerSend`]) and the
-//! node feeds it what comes back ([`LedgerInput`]). The node keeps the
-//! registry of schemes, since they live in their own crates.
+//! - [`ExternalAsset`] is what the node holds outside its books, such as an
+//!   account on the XRP Ledger, apart from the schemes that settle through
+//!   it (spec/areas/settlement.md#external-assets). It does no IO of its
+//!   own: it says what to send its ledger ([`AssetEffect::Send`]) and the
+//!   node feeds it what comes back ([`LedgerInput`]), then hands every
+//!   scheme on it what it learnt ([`SettlementScheme::on_asset`]).
+//!
+//! The node keeps the registry of schemes and assets, since they live in
+//! their own crates.
 
 #![no_std]
 
@@ -25,13 +30,14 @@ extern crate alloc;
 extern crate std;
 
 mod activation;
+mod asset;
 pub mod policy;
 mod scheme;
 mod stub;
 
 pub use activation::{Activation, activation};
+pub use asset::{AssetEffect, AssetId, AssetKind, ExternalAsset, Holding, LedgerInput};
 pub use scheme::{
-    Effect, LedgerInput, LedgerStatus, PreparedSettlement, SchemeError, SchemeInfo,
-    SettlementScheme,
+    Effect, LedgerStatus, PreparedSettlement, SchemeError, SchemeInfo, SettlementScheme,
 };
 pub use stub::{STUB_INITIAL_BALANCE, Stub};

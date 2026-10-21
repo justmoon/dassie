@@ -47,6 +47,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_23,
     MIGRATION_24,
     MIGRATION_25,
+    MIGRATION_26,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -827,6 +828,38 @@ INSERT INTO replay_floors (node, floor_ms) SELECT node, replay_floor_ms FROM pee
 ALTER TABLE peers DROP COLUMN replay_floor_ms;
 ";
 
+/// External assets (spec/areas/settlement.md#external-assets): what the
+/// node holds outside its books keeps its own state, apart from the schemes
+/// that settle through it. The `xrpl-testnet` scheme's state is split
+/// between it and the node's first XRPL testnet account: the account takes
+/// the sequence, the transactions in flight (each the scheme's) and the
+/// newest ledger seen; the scheme keeps its cursor, its peers' addresses and
+/// the settlements it looks up. Nothing is booked anew
+/// (spec/areas/xrpl.md#state-and-restarts). A state is a BLOB, which the
+/// JSON functions would read as JSONB, so it is read as text.
+const MIGRATION_26: &str = "
+CREATE TABLE asset_checkpoints (
+  asset TEXT PRIMARY KEY CHECK (length(asset) BETWEEN 1 AND 64),
+  updated_at_ms INTEGER NOT NULL,
+  state BLOB NOT NULL CHECK (length(state) <= 262144)
+) STRICT, WITHOUT ROWID;
+
+INSERT INTO asset_checkpoints (asset, updated_at_ms, state)
+  SELECT 'xrpl-testnet-account/0', updated_at_ms, CAST(json_object(
+    'sequence', json_extract(CAST(state AS TEXT), '$.sequence'),
+    'in_flight', json((
+      SELECT json_group_array(json_set(value, '$.scheme', 'xrpl-testnet'))
+      FROM json_each(CAST(state AS TEXT), '$.in_flight'))),
+    'never_sent', json_array(),
+    'newest', json_extract(CAST(state AS TEXT), '$.newest')
+  ) AS BLOB)
+  FROM settlement_checkpoints WHERE scheme = 'xrpl-testnet' AND state IS NOT NULL;
+
+UPDATE settlement_checkpoints
+  SET state = CAST(json_remove(CAST(state AS TEXT), '$.sequence', '$.in_flight', '$.newest') AS BLOB)
+  WHERE scheme = 'xrpl-testnet' AND state IS NOT NULL;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -966,6 +999,15 @@ pub const TABLES: &[Table] = &[
             ("balance", "INTEGER", true, false),
             ("updated_at_ms", "INTEGER", true, false),
             ("state", "BLOB", false, false),
+        ],
+    },
+    Table {
+        name: "asset_checkpoints",
+        without_rowid: true,
+        columns: &[
+            ("asset", "TEXT", true, true),
+            ("updated_at_ms", "INTEGER", true, false),
+            ("state", "BLOB", true, false),
         ],
     },
     Table {

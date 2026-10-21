@@ -199,7 +199,7 @@ impl Core {
         Name::new(scheme.as_str()).ok().is_some_and(|name| {
             self.schemes
                 .get(&name)
-                .is_some_and(|active| active.scheme.status() == LedgerStatus::Synced)
+                .is_some_and(|active| self.scheme_status(active) == LedgerStatus::Synced)
         })
     }
 
@@ -479,16 +479,26 @@ impl Core {
         let now = self.now_ms;
         let Self {
             schemes,
+            assets,
             rng,
             settle,
             events,
             ..
         } = self;
         let active = schemes.get_mut(&scheme).filter(|a| a.failed.is_none())?;
-        match active
-            .scheme
-            .prepare_settlement(rng.as_mut(), name, amount, state)
-        {
+        let asset = match active.asset {
+            Some(id) => Some(assets.get_mut(&id)?),
+            None => None,
+        };
+        let asset_status = asset.as_ref().map(|asset| asset.asset.status());
+        let prepared = active.scheme.prepare_settlement(
+            rng.as_mut(),
+            asset.map(|asset| asset.asset.as_mut()),
+            name,
+            amount,
+            state,
+        );
+        match prepared {
             Ok(prepared) => Some(prepared),
             // Not now: asked again at the next check, with no backoff, so
             // a slow ledger does not hold our peers' liquidity for long.
@@ -497,7 +507,8 @@ impl Core {
                 let warned = settle.unavailable_warned.entry(scheme).or_insert(0);
                 if *warned == 0 || now.saturating_sub(*warned) >= UNAVAILABLE_WARN_MS {
                     *warned = now.max(1);
-                    let status = active.scheme.status();
+                    let status =
+                        super::schemes::merged_status(asset_status, active.scheme.status());
                     events.push(
                         SettlementEvent::SchemeUnavailable {
                             node,
@@ -525,11 +536,11 @@ impl Core {
         for (scheme, id) in std::mem::take(&mut self.settle.to_execute) {
             // A scheme removed or stopped since stays pending: its next
             // activation reconciles it.
-            let Some(active) = self.schemes.get_mut(&scheme).filter(|a| a.failed.is_none()) else {
+            let Some((active, asset)) = self.scheme_and_asset(scheme) else {
                 continue;
             };
             let mut effects = Vec::new();
-            active.scheme.execute_settlement(id, &mut effects);
+            active.scheme.execute_settlement(asset, id, &mut effects);
             let ledger = active.scheme.ledger();
             self.scheme_effects(scheme, ledger, &effects);
         }
@@ -565,11 +576,11 @@ impl Core {
             if pending.is_empty() {
                 continue;
             }
-            let Some(active) = self.schemes.get_mut(&scheme) else {
+            let Some((active, asset)) = self.scheme_and_asset(scheme) else {
                 continue;
             };
             let mut effects = Vec::new();
-            active.scheme.reconcile(&pending, &mut effects);
+            active.scheme.reconcile(asset, &pending, &mut effects);
             let ledger = active.scheme.ledger();
             self.report(SettlementEvent::Reconciling {
                 scheme,

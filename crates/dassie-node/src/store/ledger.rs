@@ -1,5 +1,5 @@
 //! The ledger's tables: accounts, the transfer journal, settlement schemes
-//! and their checkpoints, and BTP tokens.
+//! and their checkpoints, external assets' checkpoints, and BTP tokens.
 //!
 //! The ledger's engine is the only writer. It hands a [`LedgerBatch`] to
 //! [`Store::commit_ledger`] after every batch of work, and acts on the work's
@@ -30,6 +30,9 @@ pub struct LedgerBatch {
     pub schemes_removed: Vec<Name>,
     /// Each scheme's balance as the books now record it, and its state.
     pub checkpoints: Vec<(Name, Checkpoint)>,
+    /// Each external asset's state, by its ID as text, written with what
+    /// it explains.
+    pub asset_checkpoints: Vec<(String, Vec<u8>)>,
     /// BTP tokens created.
     pub tokens_created: Vec<BtpTokenRow>,
     /// BTP tokens revoked, by ID.
@@ -63,6 +66,7 @@ impl LedgerBatch {
             && self.schemes_added.is_empty()
             && self.schemes_removed.is_empty()
             && self.checkpoints.is_empty()
+            && self.asset_checkpoints.is_empty()
             && self.tokens_created.is_empty()
             && self.tokens_revoked.is_empty()
             && self.token_caps.is_empty()
@@ -256,6 +260,18 @@ impl Store {
                     },
                 ))
             })
+            .collect()
+    }
+
+    /// What the books last kept for each external asset: its ID as text,
+    /// and its state.
+    pub fn asset_checkpoints(&self) -> Result<Vec<(String, Vec<u8>)>, StoreError> {
+        let connection = self.lock();
+        let mut statement =
+            connection.prepare("SELECT asset, state FROM asset_checkpoints ORDER BY asset")?;
+        statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .map(|row| Ok(row?))
             .collect()
     }
 
@@ -691,6 +707,13 @@ fn write_settlement(transaction: &Transaction<'_>, batch: &LedgerBatch) -> Resul
              VALUES (?1, ?2, ?3, ?4) \
              ON CONFLICT (scheme) DO UPDATE SET balance = ?2, updated_at_ms = ?3, state = ?4",
             params![scheme.as_str(), sql_amount(checkpoint.balance)?, at, state],
+        )?;
+    }
+    for (asset, state) in &batch.asset_checkpoints {
+        transaction.execute(
+            "INSERT INTO asset_checkpoints (asset, updated_at_ms, state) VALUES (?1, ?2, ?3) \
+             ON CONFLICT (asset) DO UPDATE SET updated_at_ms = ?2, state = ?3",
+            params![asset, at, state],
         )?;
     }
     Ok(())

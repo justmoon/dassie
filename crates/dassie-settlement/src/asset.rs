@@ -1,0 +1,259 @@
+//! External assets: what the node holds outside its books, such as an
+//! account on the XRP Ledger, apart from the settlement schemes that settle
+//! through it (spec/areas/settlement.md#external-assets).
+//!
+//! An external asset owns what more than one scheme would otherwise race
+//! for: its keys, its connection to its ledger, the transactions it signs
+//! and the order they take, and what it holds, as its ledger says. It is
+//! sans-IO like a scheme: it says what to send its ledger
+//! ([`AssetEffect`]) and the node feeds it what comes back
+//! ([`LedgerInput`]). What it learns for the schemes on it, it keeps until
+//! the node has handed it to each of them
+//! ([`SettlementScheme::on_asset`](crate::SettlementScheme::on_asset)).
+
+use alloc::string::String;
+use alloc::vec::Vec;
+use core::any::Any;
+use core::fmt;
+
+use dassie_ledger::Name;
+
+use crate::scheme::{LedgerStatus, SchemeError};
+
+/// A kind of external asset. The list is closed, as the ledgers' is: a new
+/// kind comes with the schemes that settle through it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AssetKind {
+    /// An account on the XRP Ledger testnet.
+    XrplTestnetAccount,
+}
+
+impl AssetKind {
+    /// Every kind, in a fixed order.
+    pub const ALL: &'static [Self] = &[Self::XrplTestnetAccount];
+
+    /// Its name, as IDs and the database write it.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::XrplTestnetAccount => "xrpl-testnet-account",
+        }
+    }
+}
+
+/// An external asset's ID: its kind, and its number among the node's of
+/// that kind. Written `<kind>/<index>`, such as `xrpl-testnet-account/0`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct AssetId {
+    /// What it is.
+    pub kind: AssetKind,
+    /// Which of the node's of that kind: the first is 0.
+    pub index: u16,
+}
+
+impl AssetId {
+    /// The ID written as `text`, if it is one.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        let (kind, index) = text.split_once('/')?;
+        let kind = AssetKind::ALL
+            .iter()
+            .copied()
+            .find(|candidate| candidate.as_str() == kind)?;
+        // One way to write each number: no sign, no leading zero.
+        if index.is_empty()
+            || !index.bytes().all(|byte| byte.is_ascii_digit())
+            || (index.len() > 1 && index.starts_with('0'))
+        {
+            return None;
+        }
+        Some(Self {
+            kind,
+            index: index.parse().ok()?,
+        })
+    }
+}
+
+impl fmt::Display for AssetId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/{}", self.kind.as_str(), self.index)
+    }
+}
+
+/// What an external asset holds of one asset, as its ledger last said:
+/// never what the books add up (spec/decisions/external-assets.md).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Holding {
+    /// The asset's code on its ledger, such as `XRP`.
+    pub code: String,
+    /// Who issued it, for an issued asset: an address on the ledger.
+    pub issuer: Option<String>,
+    /// How much, in units of `10^-scale` of the asset.
+    pub amount: u128,
+    /// The scale `amount` and `reserve` are written at.
+    pub scale: u8,
+    /// What the ledger holds back of it, in the same units: never
+    /// spendable.
+    pub reserve: u128,
+}
+
+/// What the node passes an external asset from its connection to its
+/// ledger, and from the faucet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LedgerInput<'a> {
+    /// The connection is up.
+    Connected,
+    /// A message came.
+    Message(&'a [u8]),
+    /// The connection went down, and is tried again; or the node closed
+    /// it, or made it anew.
+    Disconnected,
+    /// The faucet answered, or did not.
+    Funded(bool),
+}
+
+/// Something the node must do on an external asset's ledger.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AssetEffect {
+    /// Send a message over the asset's connection
+    /// ([`ExternalAsset::connection`]).
+    Send {
+        /// The message.
+        message: Vec<u8>,
+    },
+    /// Connect to the ledger anew: the connection stopped answering.
+    Reconnect,
+    /// Ask a faucet to fund the account on a test ledger, by an HTTPS POST
+    /// of `body` to `url`. The answer comes as [`LedgerInput::Funded`].
+    Fund {
+        /// The faucet.
+        url: String,
+        /// What to post.
+        body: Vec<u8>,
+    },
+}
+
+/// An external asset (spec/areas/settlement.md#external-assets), sans-IO.
+///
+/// The node keeps one connection per asset, feeds it what comes over it,
+/// then hands every scheme on it what it learnt
+/// ([`SettlementScheme::on_asset`](crate::SettlementScheme::on_asset)),
+/// tells it they have heard ([`told`](Self::told)), and carries out what
+/// it asks ([`take_effects`](Self::take_effects)). Schemes on it reach
+/// their own kind of asset by downcasting, which is why it is [`Any`].
+pub trait ExternalAsset: Send + Any {
+    /// Its ID.
+    fn id(&self) -> AssetId;
+
+    /// Where the owner sends money to fund it, if anywhere: an address on
+    /// its ledger.
+    fn address(&self) -> Option<String> {
+        None
+    }
+
+    /// What it holds, each asset as its ledger last said; nothing until
+    /// the ledger has said.
+    fn holdings(&self) -> Vec<Holding>;
+
+    /// How it stands with its ledger.
+    fn status(&self) -> LedgerStatus;
+
+    /// Where the node connects for its ledger, if it has one: a WebSocket
+    /// URL.
+    fn connection(&self) -> Option<&str> {
+        None
+    }
+
+    /// Takes in what came from its ledger, or the faucet.
+    fn on_ledger(&mut self, now_ms: u64, input: LedgerInput<'_>);
+
+    /// When [`on_timer`](Self::on_timer) is due next, if ever.
+    fn deadline(&self) -> Option<u64> {
+        None
+    }
+
+    /// Runs its timers that are due.
+    fn on_timer(&mut self, now_ms: u64) {
+        let _ = now_ms;
+    }
+
+    /// Whether it can ask a faucet for test money on its ledger.
+    fn has_faucet(&self) -> bool {
+        false
+    }
+
+    /// Asks the faucet of a test ledger for money on the owner's behalf, as
+    /// [`AssetEffect::Fund`]. Nothing is booked now: what the faucet sends
+    /// is a deposit once the ledger shows it.
+    ///
+    /// # Errors
+    ///
+    /// [`SchemeError::Unsupported`] where it has no faucet;
+    /// [`SchemeError::Unavailable`] while the faucet was asked too
+    /// recently, or while there is no connection to take its answer on.
+    fn ask_faucet(&mut self) -> Result<(), SchemeError> {
+        Err(SchemeError::Unsupported)
+    }
+
+    /// Every scheme on it has been handed what it learnt: it is forgotten.
+    fn told(&mut self);
+
+    /// Moves what it asks the node to do into `out`, in order.
+    fn take_effects(&mut self, out: &mut Vec<AssetEffect>);
+
+    /// `scheme` no longer settles through it: removed, or stopped. What it
+    /// learns of the scheme's own meanwhile, such as the outcome of a
+    /// transaction the scheme had it sign, it keeps for the scheme, which
+    /// reads it once back.
+    fn detach(&mut self, scheme: Name);
+
+    /// What it must keep across restarts, such as the transactions it
+    /// signed. The node writes it in the batch with what it explains, and
+    /// hands it back when it makes the asset again.
+    fn state(&self) -> Vec<u8>;
+
+    /// A number that changes whenever [`state`](Self::state) does: the
+    /// node writes the state with its next batch only then.
+    fn state_version(&self) -> u64;
+
+    /// Asserts what holds between calls (spec/decisions/tigerstyle.md).
+    ///
+    /// # Panics
+    ///
+    /// If its state is inconsistent.
+    fn check_invariants(&self);
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::string::ToString;
+
+    use super::*;
+
+    #[test]
+    fn ids_are_written_one_way() {
+        let first = AssetId {
+            kind: AssetKind::XrplTestnetAccount,
+            index: 0,
+        };
+        assert_eq!(first.to_string(), "xrpl-testnet-account/0");
+        assert_eq!(AssetId::parse("xrpl-testnet-account/0"), Some(first));
+        assert_eq!(
+            AssetId::parse("xrpl-testnet-account/65535").map(|id| id.index),
+            Some(u16::MAX)
+        );
+        for wrong in [
+            "",
+            "xrpl-testnet-account",
+            "xrpl-testnet-account/",
+            "xrpl-testnet-account/00",
+            "xrpl-testnet-account/01",
+            "xrpl-testnet-account/+1",
+            "xrpl-testnet-account/65536",
+            "xrpl-testnet/0",
+            "xrpl-testnet-account/0/0",
+        ] {
+            assert_eq!(AssetId::parse(wrong), None, "{wrong}");
+        }
+    }
+}

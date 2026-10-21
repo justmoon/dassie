@@ -1,10 +1,10 @@
 # External assets
 
-A settlement scheme today is also the node's wallet on its ledger: the `xrpl-testnet` scheme derives its account, follows it, signs for it and books what it holds ([XRPL](../areas/xrpl.md)). That works while a scheme settles in the one asset its account holds. It stops working with the first scheme that needs more than one: a scheme that settles in RLUSD, Ripple's USD token on the XRP Ledger, pays its fees and its reserve in XRP.
+A settlement scheme that is also the node's wallet on its ledger works while it settles in the one asset its account holds. It stops working with the first scheme that needs more than one: a scheme that settles in RLUSD, Ripple's USD token on the XRP Ledger, pays its fees and its reserve in XRP.
 
 This design separates the two. An **external asset** is something the node holds outside its books, such as an XRPL account; a **settlement scheme** settles with peers through the external assets it requires. Its first use is RLUSD on the XRPL testnet, as the scheme `xrpl-testnet-rlusd`.
 
-This is a design ([external-assets](../decisions/external-assets.md), [issued-assets](../decisions/issued-assets.md)). Only its wire format is built, the codec and reading the ledger for tokens ([XRPL](../areas/xrpl.md#tokens)), and the fake ledger's tokens and issuer ([XRPL](../areas/xrpl.md#tokens-in-the-fake-ledger)); the rest is not ([roadmap](../roadmap.md#external-assets-and-rlusd)).
+This is a design ([external-assets](../decisions/external-assets.md), [issued-assets](../decisions/issued-assets.md)). Built: its wire format, the codec and reading the ledger for tokens ([XRPL](../areas/xrpl.md#tokens)); the fake ledger's tokens and issuer ([XRPL](../areas/xrpl.md#tokens-in-the-fake-ledger)); and the XRPL account as an external asset, with `xrpl-testnet` a scheme on it ([§2](#2-the-external-asset), [§6](#6-migration)), described in [Settlement](../areas/settlement.md#external-assets) and [XRPL](../areas/xrpl.md#the-account). The rest is not built yet ([roadmap](../roadmap.md#external-assets-and-rlusd)).
 
 ## 1. Concepts
 
@@ -23,18 +23,9 @@ This is a design ([external-assets](../decisions/external-assets.md), [issued-as
 
 ## 2. The external asset
 
-An external asset owns everything about its account that more than one scheme would otherwise race for:
+Built: the asset owns its keys, its connection, what it signs and what it holds; each scheme on it keeps its own cursor; its state is written with what it explains; and a transaction it signed but never sent is remembered until its scheme reconciles it, which cancels it ([XRPL](../areas/xrpl.md#the-account), [XRPL](../areas/xrpl.md#state-and-restarts), [Settlement](../areas/settlement.md#external-assets)).
 
-- **Its keys.** It derives them from the node's seed. The node's first XRPL testnet account is the one it has today, at `node/settlement-module/xrpl-testnet/seed-testnet`, which is frozen ([Identity](../areas/identity.md#derivation-chain)). Further accounts of a type get new paths below `node` when they are built; no path gets a new meaning.
-- **Its connection to its ledger:** the network check, the newest ledger seen, resets, the faucet ([XRPL](../areas/xrpl.md#following-the-account), [ledger-resets](../decisions/ledger-resets.md)).
-- **What it signs:** the account's next sequence and its transactions in flight. Schemes ask it to sign and submit; it hands out sequences in order, so two schemes on one account never take the same one.
-- **What it holds:** each holding as the ledger says, read from the ledger, never from the books.
-
-It stays sans-IO, like the scheme today: it says what to send its ledger, and the node feeds it what comes back over the one connection it keeps for it ([Settlement](../areas/settlement.md#schemes-that-follow-a-ledger)).
-
-**Its state is written with what it explains,** as a scheme's is today ([Settlement](../areas/settlement.md#checkpoints-and-activation)): the sequence and the transaction a scheme asked it to sign go to disk in the batch with that settlement's pending transfer, so nothing it signed is lost to a crash. A transaction it signed but never submitted, because the settlement was never executed, is dropped past its last ledger as today, and its sequence goes to the next transaction, whichever scheme asked. The account remembers it as never sent until its scheme has reconciled it, so a scheme that stopped and starts again cancels that settlement, rather than looking for a hash no ledger will ever hold and leaving it pending for good ([XRPL](../areas/xrpl.md#state-and-restarts)).
-
-**Several schemes may share one external asset.** By default `xrpl-testnet-rlusd` uses the node's first XRPL testnet account, the one `xrpl-testnet` uses: one address for the owner to fund, and one supply of XRP for both. Each validated transaction is handed to every scheme on the account; each scheme keeps its own cursor into them, written with what it books, so a scheme that stopped ([Settlement](../areas/settlement.md#the-scheme-interface)) reads again what it missed, and the other is not held back.
+**`xrpl-testnet-rlusd` shares the node's first XRPL testnet account** with `xrpl-testnet` by default: one address for the owner to fund, and one supply of XRP for both.
 
 Sharing has one cost. Until a stopped scheme's transaction that was never sent is dropped, the other scheme's transactions with later sequences cannot apply: they are looked up and cancelled past their last ledger, and that scheme backs off settling, as after any cancelled settlement ([Settlement](../areas/settlement.md#outgoing-settlements)). It costs one window of ledgers and a backoff, and nothing is paid twice.
 
@@ -100,7 +91,7 @@ What each freeze stops:
 
 ## 6. Migration
 
-The `xrpl-testnet` scheme becomes the node's first XRPL testnet account and a scheme on it. Its state is split between them: the sequence, the transactions in flight, the newest ledger seen and the faucet go to the account; the cursor, the peers' addresses and the settlements being looked up stay with the scheme. The account and its derivation are unchanged, the checkpoint keeps the balance it books, and settlements still pending are reconciled by their hash as before. A node that restarts on the new release books nothing anew.
+Built: the `xrpl-testnet` scheme's state is split between the account and the scheme by a database migration, and a node that restarts on it books nothing anew ([XRPL](../areas/xrpl.md#state-and-restarts)).
 
 ## 7. Open points
 

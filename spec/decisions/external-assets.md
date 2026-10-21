@@ -1,10 +1,10 @@
 # External assets apart from settlement schemes
 
-**Areas:** [External assets](../designs/external-assets.md), [Settlement](../areas/settlement.md), [XRPL](../areas/xrpl.md), [Ledger](../areas/ledger.md). A design, not built yet ([roadmap](../roadmap.md#external-assets-and-rlusd)).
+**Areas:** [Settlement](../areas/settlement.md#external-assets), [XRPL](../areas/xrpl.md#the-account), [Ledger](../areas/ledger.md), [External assets](../designs/external-assets.md). The XRPL account as an external asset is built; RLUSD is not yet ([roadmap](../roadmap.md#external-assets-and-rlusd)).
 
 ## Facts
 
-- A settlement scheme today owns its account on the underlying ledger: it derives it, follows it, signs for it and books what it holds. That is one asset, one account, one scheme.
+- A settlement scheme that owns its account on the underlying ledger derives it, follows it, signs for it and books what it holds. That is one asset, one account, one scheme.
 - A scheme that settles in a token on the XRP Ledger, such as RLUSD, pays its fees and its reserve in XRP, which its ledger's books (in dollars) have no place for.
 - Two schemes that each signed for one XRPL account would take the same sequences: one of the two transactions fails, and the other scheme's books see a fee it did not pay as a withdrawal.
 - The node decides from its own books ([own-books](own-books.md)): the owner's spending limit and the check before each settlement read the account that stands for what the node holds. If that account drifts from the ledger, the owner can spend money already gone, and the node owes its peers more than it can settle.
