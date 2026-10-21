@@ -10,7 +10,9 @@
 //! - **The owner's choice is kept** in the app's data directory, whether
 //!   made in the tray or in the desktop's own settings, which remove the
 //!   entry or turn it off in place (`Hidden=true`,
-//!   `X-GNOME-Autostart-enabled=false`): such an entry is not written again.
+//!   `X-GNOME-Autostart-enabled=false`, `X-MATE-Autostart-enabled=false`):
+//!   such an entry is not written again. An entry turned on again there
+//!   counts as on.
 //! - **An entry that is wanted is written again at every start,** so that it
 //!   names the binary as it is now.
 
@@ -39,24 +41,48 @@ pub fn wanted(data_dir: &Path) -> bool {
     choice(data_dir).unwrap_or(false)
 }
 
-/// At each start: makes the default choice on the first, keeps an entry the
-/// owner removed or turned off as it is, and writes a wanted entry again.
+/// At each start: makes the default choice on the first, follows what the
+/// owner did to the entry in the desktop's settings since, and writes a
+/// wanted entry again.
 pub fn refresh(data_dir: &Path) -> io::Result<()> {
     let entry = entry_path()?;
-    match choice(data_dir) {
-        None => choose(data_dir, on_path()),
-        Some(true) => match fs::read_to_string(&entry) {
-            Ok(text) if !turned_off(&text) => write_entry(&entry),
-            Ok(_) => keep(data_dir, false),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => keep(data_dir, false),
-            Err(error) => Err(error),
-        },
-        Some(false) => Ok(()),
+    match (choice(data_dir), state(&entry)) {
+        (None, _) => choose(data_dir, on_path()),
+        (Some(true), Entry::On) => write_entry(&entry),
+        (Some(true), Entry::Missing | Entry::Off) => keep(data_dir, false),
+        (Some(false), Entry::On) => {
+            keep(data_dir, true)?;
+            write_entry(&entry)
+        }
+        (Some(false), Entry::Missing | Entry::Off) => Ok(()),
     }
 }
 
-/// Whether the entry `text` was turned off in place, as GNOME's and KDE's
-/// startup settings do rather than remove it.
+/// How the autostart entry stands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Entry {
+    /// There is none.
+    Missing,
+    /// It is there, turned off in place.
+    Off,
+    /// It is there, and not turned off: or it cannot be read, and is written
+    /// again, so that it does not go stale.
+    On,
+}
+
+fn state(path: &Path) -> Entry {
+    match fs::read(path) {
+        // The keys read are ASCII, so a lossy decoding cannot hide them.
+        Ok(bytes) if turned_off(&String::from_utf8_lossy(&bytes)) => Entry::Off,
+        Ok(_) => Entry::On,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Entry::Missing,
+        Err(_) => Entry::On,
+    }
+}
+
+/// Whether the entry `text` was turned off in place, as the desktops'
+/// startup settings do rather than remove it: `Hidden` (KDE, Xfce, LXQt),
+/// GNOME's and Cinnamon's key, and MATE's.
 fn turned_off(text: &str) -> bool {
     let mut in_entry = false;
     for line in text.lines().map(str::trim) {
@@ -70,7 +96,8 @@ fn turned_off(text: &str) -> bool {
         let (key, value) = (key.trim(), value.trim());
         if in_entry
             && ((key == "Hidden" && value == "true")
-                || (key == "X-GNOME-Autostart-enabled" && value == "false"))
+                || (key == "X-GNOME-Autostart-enabled" && value == "false")
+                || (key == "X-MATE-Autostart-enabled" && value == "false"))
         {
             return true;
         }
@@ -223,10 +250,29 @@ mod tests {
             entry("dassie-desktop")
         )));
         assert!(turned_off("[Desktop Entry]\nHidden = true\n"));
+        assert!(turned_off(
+            "[Desktop Entry]\nX-MATE-Autostart-enabled=false\n"
+        ));
         // Only the entry's own group counts.
         assert!(!turned_off(
             "[Desktop Entry]\nName=Dassie\n[Desktop Action x]\nHidden=true\n"
         ));
+    }
+
+    #[test]
+    fn an_entry_is_read_as_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(ENTRY_FILE);
+        assert_eq!(state(&path), Entry::Missing);
+        // Not UTF-8: still read, and its keys still count.
+        fs::write(&path, b"[Desktop Entry]\nName=Dass\xefe\nExec=x\n").unwrap();
+        assert_eq!(state(&path), Entry::On);
+        fs::write(&path, b"[Desktop Entry]\nName=Dass\xefe\nHidden=true\n").unwrap();
+        assert_eq!(state(&path), Entry::Off);
+        // A directory where the entry should be cannot be read: written again.
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        assert_eq!(state(&path), Entry::On);
     }
 
     #[test]
