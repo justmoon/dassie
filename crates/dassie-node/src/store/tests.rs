@@ -472,7 +472,7 @@ fn completed_payments_keep_what_their_connections_received_for_a_while() {
              'stub+usd', 'https://a.example/pay', NULL, 100, 40, 'g.a.c', zeroblob(32), NULL, \
              10, 1000000000, NULL, 2); \
              INSERT INTO incoming_payments VALUES (x'03030303030303030303030303030303', \
-             'stub+usd', 'https://a.example/pay', NULL, 10, 10, 'g.a.d', zeroblob(32), NULL, \
+             'stub+usd', 'https://a.example/pay', NULL, NULL, 10, 'g.a.d', zeroblob(32), NULL, \
              10, 1000000000, 300, 3); \
              INSERT INTO incoming_connections VALUES \
                (x'01010101010101010101010101010101', x'08080808080808080808080808080808', 60), \
@@ -483,11 +483,14 @@ fn completed_payments_keep_what_their_connections_received_for_a_while() {
     let first = FinishedIncoming {
         id: PaymentId([1; 16]),
         ledger: LedgerId::StubUsd,
+        full: true,
         received: vec![(ConnectionKey([8; 16]), 60), (ConnectionKey([9; 16]), 40)],
     };
+    // Completed by its creator, without an amount: never full.
     let third = FinishedIncoming {
         id: PaymentId([3; 16]),
         ledger: LedgerId::StubUsd,
+        full: false,
         received: Vec::new(),
     };
     // Newest first, open ones left out, and only since a time.

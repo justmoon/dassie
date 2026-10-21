@@ -722,3 +722,49 @@ async fn a_fixed_amount_to_send_ends_when_the_request_is_full() {
     let paid = paid_in(&pair.clock, b, AMOUNT, |payment| payment.id == request.id).await;
     assert_eq!(paid.received_amount, AMOUNT);
 }
+
+// Found on the testnet: a wallet that pays through another node completed
+// the incoming payment it made there a few seconds in, while the payment
+// was still sending. The sender then said the receiver takes no more, as
+// if the request had been filled. A receiver that stops short of what it
+// asked for, or that asked for no amount, says so, and so does the sender.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_receiver_completed_early_stops_the_payment_and_says_so() {
+    let pair = Pair::start(51, 52).await;
+    let (a, b) = (&pair.a, &pair.b);
+    let quoted = match a
+        .ipc()
+        .await
+        .call(Method::QuoteSend(proto::QuoteSendRequest {
+            recipient: format!("${}", b.host()),
+            ledger: String::new(),
+            amount: Some(proto::quote_send_request::Amount::DebitAmount(AMOUNT)),
+            note: String::new(),
+        }))
+        .await
+    {
+        Ok(response::Method::QuoteSend(quoted)) => quoted.quote.unwrap(),
+        other => panic!("{other:?}"),
+    };
+    let receiver = incoming(b)
+        .await
+        .into_iter()
+        .find(|payment| quoted.receiver.ends_with(&payment.id))
+        .unwrap();
+    let completed = b
+        .ipc()
+        .await
+        .call(Method::CompleteIncomingPayment(
+            proto::CompleteIncomingPaymentRequest { id: receiver.id },
+        ))
+        .await;
+    assert!(completed.is_ok(), "{completed:?}");
+    let sent = send(a, &quoted.id).await.unwrap();
+    let done = finished(&pair.clock, a, &sent.id).await;
+    assert_eq!(done.state, "failed");
+    assert_eq!(
+        done.failure,
+        "the receiver stopped the payment before it was complete"
+    );
+    assert_eq!(done.sent_amount, 0);
+}

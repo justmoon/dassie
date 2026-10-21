@@ -24,14 +24,16 @@ pub const FINISHED_RETENTION_MS: u64 = 10 * 60 * 1_000;
 /// Most rows one pruning deletes.
 const PRUNE_BATCH: u32 = 1_000;
 
-/// A completed incoming payment, and what each of its connections
-/// received.
+/// A completed incoming payment, whether it was full, and what each of its
+/// connections received.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FinishedIncoming {
     /// The payment.
     pub id: PaymentId,
     /// The ledger it was paid into.
     pub ledger: LedgerId,
+    /// Whether it received all it asked for: it had an amount, and got it.
+    pub full: bool,
     /// What each connection received.
     pub received: Vec<(ConnectionKey, u64)>,
 }
@@ -298,22 +300,28 @@ impl Store {
     ) -> Result<Vec<FinishedIncoming>, StoreError> {
         let connection = self.lock();
         let mut payments = connection.prepare(
-            "SELECT id, ledger FROM incoming_payments WHERE completed_at_ms >= ?1 \
-             ORDER BY completed_at_ms DESC, id LIMIT ?2",
+            "SELECT id, ledger, incoming_amount, received_amount FROM incoming_payments \
+             WHERE completed_at_ms >= ?1 ORDER BY completed_at_ms DESC, id LIMIT ?2",
         )?;
         let mut connections = connection.prepare(
             "SELECT connection, received FROM incoming_connections \
              WHERE incoming_payment = ?1 ORDER BY connection",
         )?;
         let rows = payments.query_map(params![to_sql_time(since_ms), limit], |row| {
-            Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, String>(1)?))
+            Ok((
+                row.get::<_, Vec<u8>>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<i64>>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
         })?;
         let mut finished = Vec::new();
         for row in rows {
-            let (id, ledger) = row?;
+            let (id, ledger, incoming, paid) = row?;
             let corrupt = || StoreError::Corrupt("finished incoming payment");
             let id = PaymentId(<[u8; 16]>::try_from(id.as_slice()).map_err(|_| corrupt())?);
             let ledger = LedgerId::parse(&ledger).ok_or_else(corrupt)?;
+            let full = incoming.is_some_and(|amount| paid >= amount);
             let received = connections
                 .query_map([id.0.as_slice()], |row| {
                     Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, i64>(1)?))
@@ -329,6 +337,7 @@ impl Store {
             finished.push(FinishedIncoming {
                 id,
                 ledger,
+                full,
                 received,
             });
         }

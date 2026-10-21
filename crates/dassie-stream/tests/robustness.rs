@@ -651,11 +651,13 @@ fn a_burst_of_rejects_backs_off_once() {
     );
 }
 
-/// An incoming payment several connections pay: what it still takes, and
-/// what each connection's tag paid.
+/// An incoming payment several connections pay: what it still takes,
+/// what each connection's tag paid, and the code that closes a connection
+/// once it takes nothing more.
 struct Payment {
     remaining: u64,
     paid: BTreeMap<Vec<u8>, u64>,
+    exhausted: ErrorCode,
 }
 
 /// Exchanges what `client` has to send now with `server`, admitting each
@@ -677,6 +679,7 @@ fn pay(
         let admit = |tag: &[u8]| Admission::Accept {
             money_limit: payment.remaining,
             received: payment.paid.get(tag).copied().unwrap_or(0),
+            exhausted: payment.exhausted,
         };
         let handled = server.handle_prepare_admitted(now, rng, &prepare, admit, &mut answer);
         if let Some(id) = handled.connection {
@@ -717,6 +720,7 @@ fn a_sender_whose_room_another_connection_took_stops_at_once() {
     let mut payment = Payment {
         remaining: 1_000,
         paid: BTreeMap::new(),
+        exhausted: ErrorCode::NO_ERROR,
     };
     let connect = |server: &Server, rng: &mut SeededRng, tag: &[u8]| {
         let credentials = server.generate_credentials(rng, tag, None);
@@ -776,4 +780,55 @@ fn a_sender_whose_room_another_connection_took_stops_at_once() {
     );
     assert_eq!(a.stats().amount_sent, 100);
     assert_eq!(payment.paid.values().sum::<u64>(), 1_000);
+}
+
+#[test]
+fn a_receiver_that_stops_short_closes_with_the_code_it_gives() {
+    // The application stops taking money before the total is reached, as
+    // when an incoming payment is completed early, and says so with
+    // another code than the one for a total that is reached.
+    let policy = Policy {
+        remote_stream_receive_max: u64::MAX,
+        ..Policy::DEFAULT
+    };
+    let mut server = server(policy);
+    let mut rng = SeededRng::new(6);
+    let mut payment = Payment {
+        remaining: 1_000,
+        paid: BTreeMap::new(),
+        exhausted: ErrorCode::APPLICATION_ERROR,
+    };
+    let credentials = server.generate_credentials(&mut rng, b"payment/a", None);
+    let mut client = Connection::new(&Config {
+        role: Role::Client,
+        shared_secret: &credentials.shared_secret,
+        local_address: Address::parse("test.client").ok(),
+        remote_address: Address::parse(&credentials.destination).ok(),
+        local_asset: None,
+        receipt: None,
+        policy: Policy::DEFAULT,
+    });
+    client.set_exchange_rate(Rate::ONE);
+    let stream = client.open_stream().unwrap();
+    client.set_send_max(stream, 100).unwrap();
+    assert_eq!(
+        pay(NOW, &mut rng, &mut server, &mut payment, &mut client),
+        (1, 0)
+    );
+
+    // Stopped short: nothing more fits, though the total was not reached.
+    payment.remaining = 0;
+    client.set_send_max(stream, 500).unwrap();
+    assert_eq!(
+        pay(NOW, &mut rng, &mut server, &mut payment, &mut client),
+        (0, 1)
+    );
+    let mut closed = None;
+    while let Some(event) = client.poll_event() {
+        if let Event::ConnectionClosed { code, by_remote } = event {
+            closed = Some((code, by_remote));
+        }
+    }
+    assert_eq!(closed, Some((ErrorCode::APPLICATION_ERROR, true)));
+    assert_eq!(client.stream(stream).unwrap().remote_received(), 100);
 }

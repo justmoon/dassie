@@ -9,7 +9,10 @@
 //! what others did. When a packet arrives, its receiver asks [`admission`]
 //! whether the payment is open on that ledger, how much it may still take
 //! over all its connections, and what this one received, and the
-//! connection takes no more. What it took is added to the payment and the
+//! connection takes no more. One that pays a payment with nothing left is
+//! closed, with `NoError` if the payment received all it asked for, and
+//! `ApplicationError` if it was completed or closed short of that, so that
+//! its sender can tell the two apart. What it took is added to the payment and the
 //! connection in the step that books the packet, and written with its
 //! journal row, so the payment never shows money the books lack, nor the
 //! other way round.
@@ -29,7 +32,7 @@ use std::collections::BTreeMap;
 
 use dassie_ilp::ErrorCode;
 use dassie_ledger::LedgerId;
-use dassie_stream::{Admission, Credentials};
+use dassie_stream::{Admission, Credentials, ErrorCode as StreamErrorCode};
 
 use super::events::PaymentEvent;
 use super::{Core, EngineError};
@@ -117,6 +120,13 @@ impl OpenIncoming {
         ceiling.saturating_sub(self.received)
     }
 
+    /// Whether it received all it asked for: one without an amount never
+    /// does.
+    fn full(&self) -> bool {
+        self.incoming_amount
+            .is_some_and(|amount| self.received >= amount)
+    }
+
     /// The connection a new payer may take the place of, when all places
     /// are taken: of those that paid less than [`dust`] and nothing for
     /// [`IDLE_CONNECTION_MS`], the one idle longest. A connection is
@@ -191,14 +201,23 @@ pub struct NewIncoming {
 /// Most completed incoming payments remembered, to tell their senders.
 const MAX_FINISHED: usize = 4_096;
 
-/// Incoming payments completed lately, with what each connection received:
-/// a sender still sending is told what its connection delivered and that
-/// no more fits, rather than refused without a word, so it learns what got
-/// there, which may be more than it heard of when a Fulfill was lost.
+/// Incoming payments completed lately, with whether each was full and what
+/// each connection received: a sender still sending is told what its
+/// connection delivered and that no more fits, and whether because the
+/// payment got all it asked for, rather than refused without a word, so it
+/// learns what got there, which may be more than it heard of when a
+/// Fulfill was lost.
 #[derive(Default)]
 pub(super) struct Finished {
-    payments: BTreeMap<PaymentId, (LedgerId, BTreeMap<ConnectionKey, u64>)>,
+    payments: BTreeMap<PaymentId, Ended>,
     order: std::collections::VecDeque<PaymentId>,
+}
+
+/// A completed incoming payment, as its senders are told of it.
+struct Ended {
+    ledger: LedgerId,
+    full: bool,
+    received: BTreeMap<ConnectionKey, u64>,
 }
 
 impl Finished {
@@ -206,13 +225,19 @@ impl Finished {
         &mut self,
         id: PaymentId,
         ledger: LedgerId,
+        full: bool,
         received: BTreeMap<ConnectionKey, u64>,
     ) {
         assert!(
             received.len() <= MAX_CONNECTIONS_PER_PAYMENT,
             "a payment has too many connections"
         );
-        if self.payments.insert(id, (ledger, received)).is_none() {
+        let ended = Ended {
+            ledger,
+            full,
+            received,
+        };
+        if self.payments.insert(id, ended).is_none() {
             self.order.push_back(id);
         }
         while self.order.len() > MAX_FINISHED {
@@ -225,7 +250,8 @@ impl Finished {
 
 /// Whether a packet for the connection tagged `tag` may into its receiver
 /// on `ledger`, and the payment and connection it pays. A connection is
-/// told what it received, not what the payment did. A new one past
+/// told what it received, not what the payment did, and, once nothing is
+/// left, whether the payment received all it asked for. A new one past
 /// [`MAX_CONNECTIONS_PER_PAYMENT`] is refused, unless an idle one paid
 /// only dust, whose place it takes once it pays
 /// ([`OpenIncoming::idle_place`]).
@@ -249,19 +275,27 @@ pub(super) fn admission(
             {
                 return refused;
             }
+            // Open, it has room unless it is full: the step that fills it
+            // completes it.
             (
                 Admission::Accept {
                     money_limit: payment.remaining(),
                     received: counted.map_or(0, |paid| paid.received),
+                    exhausted: StreamErrorCode::NO_ERROR,
                 },
                 Some((id, key)),
             )
         }
         None => match finished.payments.get(&id) {
-            Some((paid_into, received)) if *paid_into == ledger => (
+            Some(ended) if ended.ledger == ledger => (
                 Admission::Accept {
                     money_limit: 0,
-                    received: received.get(&key).copied().unwrap_or(0),
+                    received: ended.received.get(&key).copied().unwrap_or(0),
+                    exhausted: if ended.full {
+                        StreamErrorCode::NO_ERROR
+                    } else {
+                        StreamErrorCode::APPLICATION_ERROR
+                    },
                 },
                 None,
             ),
@@ -338,7 +372,7 @@ impl Core {
                 .take(MAX_CONNECTIONS_PER_PAYMENT)
                 .collect();
             self.finished_incoming
-                .remember(payment.id, payment.ledger, received);
+                .remember(payment.id, payment.ledger, payment.full, received);
         }
         Ok(())
     }
@@ -492,8 +526,12 @@ impl Core {
         let Some(payment) = self.incoming.remove(&id) else {
             return;
         };
-        self.finished_incoming
-            .remember(id, payment.ledger, payment.received_by_connection());
+        self.finished_incoming.remember(
+            id,
+            payment.ledger,
+            payment.full(),
+            payment.received_by_connection(),
+        );
         self.batch.incoming_progress.insert(
             id,
             IncomingProgress {
@@ -544,8 +582,12 @@ impl Core {
             ));
         }
         if let Some(payment) = self.incoming.remove(&id) {
-            self.finished_incoming
-                .remember(id, payment.ledger, payment.received_by_connection());
+            self.finished_incoming.remember(
+                id,
+                payment.ledger,
+                payment.full(),
+                payment.received_by_connection(),
+            );
         }
         // A clock that went back since it was made must not date its end
         // before its start.
@@ -618,7 +660,7 @@ impl Core {
         }
         if let Some((ledger, received)) = finished {
             self.incoming.remove(&id);
-            self.finished_incoming.remember(id, ledger, received);
+            self.finished_incoming.remember(id, ledger, true, received);
             self.report(PaymentEvent::IncomingCompleted { id });
         }
         self.batch.incoming_progress.insert(id, progress);
@@ -735,7 +777,8 @@ mod tests {
             admitted,
             Admission::Accept {
                 money_limit: 1_000_000_000_000 - 32,
-                received: 0
+                received: 0,
+                exhausted: StreamErrorCode::NO_ERROR,
             }
         );
         assert_eq!(paid, Some((id, key)));

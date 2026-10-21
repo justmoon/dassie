@@ -11,6 +11,7 @@ use rand_core::CryptoRng;
 
 use crate::base64url;
 use crate::connection::{AssetDetails, BUFFER_LENGTH, Config, Connection, Role};
+use crate::frame::ErrorCode;
 use crate::policy::Policy;
 use crate::receipt::ReceiptSecret;
 use crate::token::{MAX_TOKEN_LENGTH, ServerSecret, TokenContents};
@@ -47,14 +48,16 @@ pub enum Admission {
     /// Let it in. The connection may receive at most `money_limit` more in
     /// total, over all its streams; `u64::MAX` means no limit beyond the
     /// streams' own, and 0 that it takes nothing more: a packet that
-    /// offers money then closes it. `received` is what the application
-    /// already counts as received for this tag, over earlier connections
-    /// too (see [`Connection::set_money_limit`]).
+    /// offers money then closes it with `exhausted`. `received` is what
+    /// the application already counts as received for this tag, over
+    /// earlier connections too (see [`Connection::set_money_limit`]).
     Accept {
         /// What the connection may still receive.
         money_limit: u64,
         /// What was received before, as the application counts it.
         received: u64,
+        /// The code that closes the connection once nothing is left.
+        exhausted: ErrorCode,
     },
 }
 
@@ -217,6 +220,7 @@ impl Server {
         let admit = |_: &[u8]| Admission::Accept {
             money_limit: u64::MAX,
             received: 0,
+            exhausted: ErrorCode::NO_ERROR,
         };
         self.handle_prepare_admitted(now, rng, prepare, admit, buffer)
             .length
@@ -263,12 +267,13 @@ impl Server {
                 }
             }
         };
-        let (money_limit, received_before) = match admission {
+        let (money_limit, received_before, exhausted) = match admission {
             Admission::Refuse(code) => return refused(self, code, buffer),
             Admission::Accept {
                 money_limit,
                 received,
-            } => (money_limit, received),
+                exhausted,
+            } => (money_limit, received, exhausted),
         };
         let index = match existing {
             Some(index) => index,
@@ -282,7 +287,7 @@ impl Server {
         };
         entry
             .connection
-            .set_money_limit(money_limit, received_before);
+            .set_money_limit(money_limit, received_before, exhausted);
         let before = entry.connection.stats().amount_received;
         let length = entry.connection.handle_prepare(now, rng, prepare, buffer);
         let received = entry.connection.stats().amount_received - before;

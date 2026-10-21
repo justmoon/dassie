@@ -10,7 +10,8 @@
 //! credentials. A payment completes once it sent its debit amount, or once
 //! the receiver says it has what it was to get, which a hop that lost a
 //! Fulfill may have paid for (D23); it fails when the receiver says it
-//! takes no more, keeps closing it, or its deadline passes. It ends only
+//! takes no more or stopped it short, keeps closing it, or its deadline
+//! passes. It ends only
 //! once none of its packets is in flight, so what it says it sent is
 //! final. A packet to the node's own receiver waits in a bounded queue the
 //! step drains, so nothing recurses.
@@ -939,7 +940,12 @@ impl Core {
 }
 
 /// Notes a connection that closed while its payment still had to send:
-/// to reopen, or, if the receiver ended it, to stop.
+/// to reopen, or, if the receiver ended it, to stop. A receiver closes
+/// with `NoError` once what it pays into received all it asked for,
+/// possibly from another payment, and with `ApplicationError` once it
+/// stopped short of that, as when its incoming payment was completed
+/// early or asked for no amount; a new connection would be closed too.
+/// The payment can only go by what the receiver says.
 fn closed_early(payment: &mut Unfinished) {
     let Some(connection) = payment.connection.as_mut() else {
         return;
@@ -949,9 +955,12 @@ fn closed_early(payment: &mut Unfinished) {
             && payment.stopping.is_none()
         {
             if by_remote && code == ErrorCode::NO_ERROR {
-                // The receiver ended it: what it pays into is full, maybe
-                // by another payment. A new connection would be closed too.
                 payment.stopping = Some("the receiver takes no more".into());
+                continue;
+            }
+            if by_remote && code == ErrorCode::APPLICATION_ERROR {
+                payment.stopping =
+                    Some("the receiver stopped the payment before it was complete".into());
                 continue;
             }
             payment.closed = Some(if by_remote {
