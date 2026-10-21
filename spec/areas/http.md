@@ -52,7 +52,7 @@ What protects the owner's side of the node:
 
 - **The owner in a browser** holds a [session](#sessions) cookie, which the RPC WebSocket checks at the upgrade and again on every call ([rpc.md](rpc.md#authentication)).
 - **The owner on the machine** uses the IPC socket, whose file mode is the only access control ([node.md](node.md)).
-- **The owner's paired apps** prove a device key on a relayed stream, checked on every call; only the owner on the node's machine can pair one ([rpc.md](rpc.md#paired-devices)).
+- **The owner's paired apps** prove a device key on a relayed stream, checked on every call; only the owner on the node's machine can pair one ([rpc.md](rpc.md#paired-devices)). The node tells that from the address a browser's connection came from, so it must see each client's own address: it terminates TLS itself, and nothing may stand in front of it on its machine and pass connections on from loopback, such as a reverse or TLS-passthrough proxy, which would make every browser look local.
 - **The passphrase never leaves the browser:** setup sends the node key seed and the login proof derived from it, login only the proof ([identity.md](identity.md)).
 - **Cross-site requests** meet the [same-origin rule](#same-origin-rule) on `/rpc` and `/api/*`. `POST /api/setup` and `POST /api/login` also require `Content-Type: application/json`, which no cross-site form can send and no cross-origin script can send without a CORS preflight, which the node never grants.
 - **Setup and login attempts are rate-limited per client,** with no bucket shared by all clients, so a handful of addresses cannot lock the owner out. The login proof is 256 bits, so the limit is not against guessing but against making the node work as fast as a client can send.
