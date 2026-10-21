@@ -8,6 +8,7 @@
 
 mod access;
 mod certificates;
+mod devices;
 mod rates;
 mod settings;
 
@@ -28,6 +29,9 @@ use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, broadcast, watch};
 
 pub use access::{AuthError, NewSession, SessionView};
 pub use certificates::{ObtainError, ObtainRequest};
+pub use devices::{
+    MAX_CODE_RELAYS, PAIRING_LIFETIME_MS, PairingError, Reach, StartedPairing, pairing_code,
+};
 pub use settings::SettingsError;
 
 use crate::acme::AcmeClient;
@@ -342,6 +346,8 @@ pub enum Revocation {
     /// Some sessions ended (expired, or evicted for newer ones) without
     /// being named: each socket checks its own.
     Recheck,
+    /// A paired device was revoked.
+    Device(dassie_identity::NodeId),
 }
 
 impl Revocation {
@@ -351,7 +357,7 @@ impl Revocation {
         match self {
             Self::Session(id) => id == session,
             Self::AllExcept(keep) => keep.as_ref() != Some(session),
-            Self::Recheck => false,
+            Self::Recheck | Self::Device(_) => false,
         }
     }
 }
@@ -383,6 +389,8 @@ pub struct Node {
     acme_order: tokio::sync::Mutex<()>,
     acme_last_error: Mutex<Option<String>>,
     revocations: broadcast::Sender<Revocation>,
+    /// The pairing waiting to be claimed, if any.
+    pairing: Mutex<Option<devices::Pairing>>,
     websockets: Arc<Semaphore>,
     /// Places for RPC sockets without a session, within `websockets`.
     anonymous_sockets: ClientSlots,
@@ -489,6 +497,7 @@ impl Node {
             acme_order: tokio::sync::Mutex::new(()),
             acme_last_error: Mutex::new(None),
             revocations: broadcast::Sender::new(16),
+            pairing: Mutex::new(None),
             websockets: Arc::new(Semaphore::new(policies.max_websockets)),
             anonymous_sockets: ClientSlots::new(policies.anonymous_socket_limits()),
             policies,

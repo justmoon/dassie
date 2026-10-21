@@ -12,6 +12,7 @@
 //! loss included; the ledger's engine commits a whole batch of packets at
 //! once to keep that affordable.
 
+mod devices;
 #[cfg(feature = "testing")]
 mod faults;
 mod gnap;
@@ -45,6 +46,9 @@ use dassie_node_core::config::{Alias, DirectoryUrl, Hostname, NodeConfig, Ports,
 use dassie_node_core::session::{SessionId, SessionPolicy, SessionTimes};
 use rusqlite::{Connection, OptionalExtension, params};
 
+pub use devices::{
+    AddDevice, DEVICE_SEEN_GRANULARITY_MS, DeviceRow, MAX_DEVICE_NAME_BYTES, MAX_DEVICES,
+};
 #[cfg(feature = "testing")]
 pub use faults::{Aim, FailedCommit, Holds};
 pub use gnap::{GrantCounts, GrantRow, GrantState, MAX_GRANTS, TokenRow};

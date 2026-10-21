@@ -519,29 +519,36 @@ impl Quic {
             .held(destination)
             .await
             .ok_or(RelayError::UnknownDestination)?;
-        let (mut send, mut recv) =
-            match tokio::time::timeout(HEADER_TIMEOUT, connection.open_bi()).await {
-                Ok(Ok(stream)) => stream,
-                Ok(Err(_)) => return Err(RelayError::UnknownDestination),
-                Err(_) => return Err(RelayError::Busy),
-            };
-        let header = relayed_header(purpose.byte(), &own);
-        let answer = tokio::time::timeout(HEADER_TIMEOUT, async {
-            send.write_all(&header).await.ok()?;
-            read_byte(&mut recv).await
-        })
-        .await;
-        let failed = match answer.map(|byte| byte.map(Outcome::from_destination)) {
-            Ok(Some(Outcome::Joined)) => None,
-            Ok(Some(Outcome::Busy)) | Err(_) => Some(RelayError::Busy),
-            Ok(Some(_)) => Some(RelayError::Refused),
-            Ok(None) => Some(RelayError::Broken),
+        let stream = open_relayed_on(&connection, own, purpose).await?;
+        self.secure(destination, purpose, stream).await
+    }
+
+    /// Opens a relayed stream for `purpose` to `destination` at `url`
+    /// directly, as relay and client in one: how an owner app reaches a node
+    /// it can dial, on the local network or at the node's own URL. The
+    /// stream names this endpoint's own node ID as the client, and the TLS
+    /// inside it is pinned to the destination's key.
+    ///
+    /// # Errors
+    ///
+    /// [`RelayError::Unreachable`] when the node cannot be dialled;
+    /// otherwise as [`open_relayed`](Self::open_relayed).
+    pub async fn open_direct(
+        self: &Arc<Self>,
+        (destination, url): (NodeId, &str),
+        purpose: Purpose,
+        resolver: &PeerClient,
+    ) -> Result<RelayedStream, RelayError> {
+        let Some((own, _)) = self.keys.current() else {
+            return Err(RelayError::Unreachable);
         };
-        if let Some(failed) = failed {
-            let _ = send.reset(0u32.into());
-            return Err(failed);
-        }
-        self.secure(destination, purpose, (send, recv)).await
+        let place = self.place(destination).ok_or(RelayError::Unreachable)?;
+        let connection = self
+            .connection(&place, (destination, url), resolver, CONNECT_TIMEOUT)
+            .await
+            .map_err(|_| RelayError::Unreachable)?;
+        let stream = open_relayed_on(&connection, own, purpose).await?;
+        self.secure(destination, purpose, stream).await
     }
 
     /// Runs TLS for `purpose` inside a joined stream, pinned to
@@ -896,6 +903,39 @@ impl On {
         let _ = tokio::time::timeout(LIFETIME, serving).await;
         drop(counted);
     }
+}
+
+/// Opens a relayed stream for `purpose` on `connection` to its destination,
+/// naming `own` as the client, and reads whether the destination takes it;
+/// the stream, once joined.
+async fn open_relayed_on(
+    connection: &Connection,
+    own: NodeId,
+    purpose: Purpose,
+) -> Result<(SendStream, RecvStream), RelayError> {
+    let (mut send, mut recv) =
+        match tokio::time::timeout(HEADER_TIMEOUT, connection.open_bi()).await {
+            Ok(Ok(stream)) => stream,
+            Ok(Err(_)) => return Err(RelayError::UnknownDestination),
+            Err(_) => return Err(RelayError::Busy),
+        };
+    let header = relayed_header(purpose.byte(), &own);
+    let answer = tokio::time::timeout(HEADER_TIMEOUT, async {
+        send.write_all(&header).await.ok()?;
+        read_byte(&mut recv).await
+    })
+    .await;
+    let failed = match answer.map(|byte| byte.map(Outcome::from_destination)) {
+        Ok(Some(Outcome::Joined)) => None,
+        Ok(Some(Outcome::Busy)) | Err(_) => Some(RelayError::Busy),
+        Ok(Some(_)) => Some(RelayError::Refused),
+        Ok(None) => Some(RelayError::Broken),
+    };
+    if let Some(failed) = failed {
+        let _ = send.reset(0u32.into());
+        return Err(failed);
+    }
+    Ok((send, recv))
 }
 
 /// Sends a relay request on a new stream of `connection` and reads the

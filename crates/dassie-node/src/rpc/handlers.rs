@@ -9,7 +9,11 @@ use tokio::sync::mpsc;
 use super::connection::Queued;
 use super::proto::{self, request::Method, response, stream_item};
 use super::{Caller, RpcError, convert};
-use crate::node::{Node, ObtainError, ObtainRequest, SettingsError};
+use dassie_identity::NodeId;
+
+use crate::node::{
+    MAX_CODE_RELAYS, Node, ObtainError, ObtainRequest, PairingError, Reach, SettingsError,
+};
 use crate::quic::relay::RelayLink;
 
 /// What a call ended with, short of an error. One per call, moved once:
@@ -64,17 +68,39 @@ impl Items {
 }
 
 /// The session behind `caller`, if the call is authenticated: always over
-/// IPC, and over a WebSocket while its session is valid (checked on every
-/// call, RT-6).
+/// IPC, over a WebSocket while its session is valid, and from a device
+/// while it is paired (each checked on every call, RT-6).
 fn authenticate(node: &Node, caller: Caller) -> Result<Option<SessionId>, RpcError> {
     match caller {
         Caller::Owner => Ok(None),
-        Caller::Browser(None) => Err(RpcError::unauthenticated()),
-        Caller::Browser(Some(id)) => match node.check_session(&id).map_err(RpcError::internal)? {
+        Caller::Browser { session: None, .. } => Err(RpcError::unauthenticated()),
+        Caller::Browser {
+            session: Some(id), ..
+        } => match node.check_session(&id).map_err(RpcError::internal)? {
             Some(id) => Ok(Some(id)),
             None => Err(RpcError::unauthenticated()),
         },
+        Caller::Device(device) => {
+            if node.check_device(&device).map_err(RpcError::internal)? {
+                Ok(None)
+            } else {
+                Err(RpcError::new(
+                    proto::ErrorCode::Unauthenticated,
+                    "this device is not paired; claim a pairing first",
+                ))
+            }
+        }
     }
+}
+
+/// Whether `caller` may start a pairing, which only the owner on this
+/// machine can: over IPC, or in a browser on loopback. A device or a remote
+/// browser could otherwise turn its access into lasting access of its own.
+const fn may_start_pairing(caller: Caller) -> bool {
+    matches!(
+        caller,
+        Caller::Owner | Caller::Browser { loopback: true, .. }
+    )
 }
 
 /// Answers one call.
@@ -91,9 +117,13 @@ pub async fn dispatch(
             node, caller,
         ))));
     }
+    if let Method::ClaimPairing(request) = method {
+        return claim_pairing(node, caller, &request);
+    }
     let session = authenticate(node, caller)?;
     let reply = match method {
-        Method::GetBasicState(_) => unreachable!("answered above"),
+        Method::GetBasicState(_) | Method::ClaimPairing(_) => unreachable!("answered above"),
+        Method::StartPairing(_) => start_pairing(node, caller).await?,
         Method::GetStatus(_) => response::Method::GetStatus(status(node)),
         Method::GetConfig(_) => response::Method::GetConfig(get_config(node)),
         Method::GetSetupUrl(_) => {
@@ -192,6 +222,20 @@ async fn dispatch_more(
             let revoked = node.revoke_sessions(keep).map_err(RpcError::internal)?;
             response::Method::RevokeAllSessions(proto::RevokeAllSessionsResponse { revoked })
         }
+        Method::ListDevices(_) => {
+            let devices = node.devices().map_err(RpcError::internal)?;
+            response::Method::ListDevices(proto::ListDevicesResponse {
+                devices: devices.iter().map(convert::device).collect(),
+            })
+        }
+        Method::RevokeDevice(request) => {
+            let id =
+                NodeId::parse(&request.id).map_err(|_| RpcError::invalid("not a device ID"))?;
+            if !node.revoke_device(&id).map_err(RpcError::internal)? {
+                return Err(RpcError::not_found("no such device"));
+            }
+            response::Method::RevokeDevice(proto::RevokeDeviceResponse {})
+        }
         other => {
             return match super::inspect::dispatch(node, other, items).await? {
                 Ok(reply) => Ok(reply),
@@ -231,6 +275,90 @@ async fn obtain_certificate(
         },
     ));
     Ok(Reply::StreamEnd)
+}
+
+/// Starts a pairing, for the owner on the node's own machine.
+async fn start_pairing(node: &Node, caller: Caller) -> Result<response::Method, RpcError> {
+    if !may_start_pairing(caller) {
+        return Err(RpcError::precondition(
+            "start a pairing on the node's own machine: in the wallet on localhost, \
+             or with `dassie pair`",
+        ));
+    }
+    let reach = reach(node).await;
+    let started = node.start_pairing(&reach).map_err(pairing_error)?;
+    Ok(response::Method::StartPairing(
+        proto::StartPairingResponse {
+            code: started.code,
+            expires_at_unix_ms: convert::time(started.expires_at_ms),
+        },
+    ))
+}
+
+/// Pairs the device calling, the one call it may make before it is paired.
+fn claim_pairing(
+    node: &Node,
+    caller: Caller,
+    request: &proto::ClaimPairingRequest,
+) -> Result<Reply, RpcError> {
+    let Caller::Device(device) = caller else {
+        return Err(RpcError::precondition(
+            "only an owner app claims a pairing, on a stream with purpose owner",
+        ));
+    };
+    node.claim_pairing(device, &request.secret, &request.name)
+        .map_err(pairing_error)?;
+    Ok(Reply::Unary(response::Method::ClaimPairing(
+        proto::ClaimPairingResponse {},
+    )))
+}
+
+/// Where a device reaches the node: at its own URL if its QUIC endpoint
+/// answers there; otherwise through the peers it is connected to, which
+/// relay to it, if its engine runs.
+async fn reach(node: &Node) -> Reach {
+    let own = node.own_info();
+    if let (Some(url), true) = (own.url, own.quic) {
+        return Reach {
+            direct: Some(url),
+            relays: Vec::new(),
+        };
+    }
+    let Some(engine) = node.engine() else {
+        return Reach::default();
+    };
+    let Ok(view) = engine.network().await else {
+        return Reach::default();
+    };
+    let relays = view
+        .peers
+        .iter()
+        .filter(|peer| peer.online)
+        .filter_map(|peer| {
+            let url = view
+                .nodes
+                .iter()
+                .find(|node| node.id == peer.id)?
+                .url
+                .clone()?;
+            Some((peer.id, url))
+        })
+        .take(MAX_CODE_RELAYS)
+        .collect();
+    Reach {
+        direct: None,
+        relays,
+    }
+}
+
+fn pairing_error(error: PairingError) -> RpcError {
+    match error {
+        PairingError::NotSetUp => RpcError::precondition(error),
+        PairingError::NoPairing => RpcError::not_found(error),
+        PairingError::InvalidName => RpcError::invalid(error),
+        PairingError::Full => RpcError::exhausted(error),
+        PairingError::Store(error) => RpcError::internal(error),
+    }
 }
 
 fn directory(text: &str) -> Result<Option<DirectoryUrl>, RpcError> {
@@ -344,5 +472,29 @@ fn obtain_error(error: ObtainError) -> RpcError {
         }
         ObtainError::Unavailable(..) => RpcError::unavailable(error),
         ObtainError::Internal(_) => RpcError::internal(error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use dassie_identity::NodeKey;
+
+    use super::*;
+
+    // spec/areas/rpc.md#paired-devices: a stolen session cookie, used from
+    // elsewhere, must not become a device's lasting access.
+    #[test]
+    fn only_the_owner_on_this_machine_may_start_a_pairing() {
+        assert!(may_start_pairing(Caller::Owner));
+        assert!(may_start_pairing(Caller::Browser {
+            session: None,
+            loopback: true,
+        }));
+        assert!(!may_start_pairing(Caller::Browser {
+            session: None,
+            loopback: false,
+        }));
+        let device = NodeKey::from_bytes(&[1; 32]).node_id();
+        assert!(!may_start_pairing(Caller::Device(device)));
     }
 }

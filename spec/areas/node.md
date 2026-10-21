@@ -101,8 +101,9 @@ What must survive a restart. Most of the original's integrity gaps came from sta
 - **Replay floors** of every sender whose replay state is kept for good (peers, former peers we hold a channel with, registered and bootstrap nodes), so a restart does not reopen a replay window ([Peer protocol](peer-protocol.md#replay-protection)), and **settlement channels,** kept after a peering ends ([Settlement](settlement.md#settlement-channels)).
 - **Payment state with its STREAM credentials,** written with the journal rows that pay it, so a restart neither loses money received nor pays twice ([Payments](payments.md#persistence)).
 - **The setup token,** so a restart keeps the setup URL valid, and **the self-signed certificate,** made once and kept ([HTTP](http.md#certificates)).
+- **Paired devices,** by their device key's node ID, in a bounded list ([RPC](rpc.md#paired-devices)).
 
-Deliberately not kept: ILP packets in flight (their pending transfers were never on disk, so the books stand as if they were rejected) and ACME challenge tokens (the daemon that serves them runs the order).
+Deliberately not kept: ILP packets in flight (their pending transfers were never on disk, so the books stand as if they were rejected), ACME challenge tokens (the daemon that serves them runs the order) and a pairing's secret (it works for minutes; the owner starts another).
 
 ### Secrets at rest
 
@@ -134,6 +135,7 @@ The CLI talks to the daemon over the IPC socket with the same RPC contract as th
 - **`dassie status`** names no secret, so its output can be pasted where the owner asks for help; that is why the setup URL has a command of its own, `dassie setup-url`. It also reports the last update ([Release](release.md#dassie-update)).
   - It gives a hint only where something is wrong, so the normal state of a node never reads as a fault. A periphery node ([Network](network.md#periphery-nodes)) registers nowhere and needs no domain name, so status does not report its membership or send its owner to `dassie init`. It names the node's uplinks and whether each is connected, its [chosen relay](#a-chosen-relay) and whether the node holds its connection to it, is connecting or finds it unreachable, and the names the node answers Open Payments to ([Payments](payments.md#the-nodes-names)) as its addresses. A periphery node without an uplink, or whose relay is unreachable, is out of reach, and those get a hint; a relay the node is still connecting to, right after a start or a brief drop, gets none.
   - A node that is not a periphery node reports how many bootstrap nodes list it, and a relay if it chose one.
+- **`dassie pair`** prints a code that pairs an owner app, as the wallet does on `localhost` ([RPC](rpc.md#paired-devices)): the IPC socket is the owner on this machine, so a node whose wallet is reached only remotely still pairs apps.
 - **`dassie verify-install`** checks that this binary works on this host (SQLite, TLS, the embedded wallet, a version the updater can parse) and names the release key it trusts. The installer and the updater run it before switching to a binary.
 - **`dassie update`** is [Release](release.md#dassie-update)'s.
 

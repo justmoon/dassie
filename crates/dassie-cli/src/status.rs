@@ -96,6 +96,29 @@ pub async fn setup_url(env: &Env) -> Result<(), String> {
     }
 }
 
+/// Prints a pairing code (spec/areas/rpc.md#paired-devices).
+pub async fn pair(env: &Env) -> Result<(), String> {
+    let mut client = Client::connect(env).await.map_err(|error| error.message)?;
+    match client
+        .call(Method::StartPairing(proto::StartPairingRequest {}))
+        .await
+    {
+        Ok(response::Method::StartPairing(started)) => {
+            println!("{}", started.code);
+            eprintln!(
+                "Enter this code in the app within five minutes. It works once, and \
+                 `dassie pair` again replaces it. The wallet on localhost shows it as a QR code."
+            );
+            Ok(())
+        }
+        Err(CallError {
+            code: Some(proto::ErrorCode::FailedPrecondition),
+            message,
+        }) => Err(message),
+        other => Err(unexpected(other)),
+    }
+}
+
 fn unexpected(result: Result<response::Method, CallError>) -> String {
     match result {
         Err(error) => error.message,

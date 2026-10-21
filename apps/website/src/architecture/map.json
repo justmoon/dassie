@@ -285,7 +285,7 @@
       "does": [
         "`dassie daemon`: standalone, or socket-activated by systemd",
         "`dassie init`: the domain name and the certificate, then a URL to finish setup in the browser",
-        "`dassie status`, and `dassie setup-url` to print that URL again",
+        "`dassie status`, `dassie setup-url` to print that URL again, and `dassie pair` for a code that pairs an owner app",
         "`dassie update`: fetches, verifies and switches to a newer release, and goes back if it does not start",
         "`dassie verify-install`, which also names the release key",
         "`dassie front-door`: runs a front door, which is no node, and `--make-key` makes its key and prints the entry a node names it by"
@@ -305,9 +305,10 @@
         "The engine: ledger, connector, BTP server and STREAM receiver",
         "The peer protocol over QUIC, with each node's key pinned, and over HTTPS as `POST /peer` for nodes that do not take QUIC; the settlement loop",
         "QUIC connections held apart by who opened them, as the key each proved says: core peers, downlinks and everyone else each have room of their own, so many downlinks never crowd out the links that carry the network",
-        "Relayed streams: any QUIC node relays for the nodes connected to it, with TLS end to end, so a node without a public address that keeps a connection to a relay is still reached for Open Payments; a node without a hostname keeps one to the `dassiepay.net` front door unless `DASSIE_RELAY` names another or, empty, none",
+        "Relayed streams: any QUIC node relays for the nodes connected to it, with TLS end to end, so a node without a public address that keeps a connection to a relay is still reached for Open Payments and by the owner's paired apps; a node without a hostname keeps one to the `dassiepay.net` front door unless `DASSIE_RELAY` names another or, empty, none",
         "Front doors: a server with a key of its own and a wildcard certificate that takes Open Payments requests for `<label>.<domain>` and passes them to the node the label names, over relayed streams it opens on the connection the node keeps to it; it returns only the node's signed JSON, under a policy that lets nothing run, and never a node's page or a cookie; at the root of a name it shows a short static page of its own, saying what the name is and whether the node is connected",
         "RPC with live streams, the log ring, the database inspector and `GET /stats`",
+        "Owner apps paired by the owner on the node's own machine: each proves a device key on a relayed stream and calls the RPC as the owner until it is revoked",
         "Open Payments over HTTPS and relayed streams: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments, each answer signed with the node key and written under the name the request came through",
         "Exchange rates, fetched from several sources, and the fee and spread on what passes between peers",
         "Credit to each peer that grows with the fees it earned the node, read from the journal",

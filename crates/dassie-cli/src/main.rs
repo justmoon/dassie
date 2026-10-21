@@ -2,8 +2,9 @@
 //!
 //! - `dassie daemon [--runtime standalone|systemd]` runs the node.
 //! - `dassie init` configures it, over the IPC socket.
-//! - `dassie status` says how it is doing, and `dassie setup-url` prints the
-//!   link that completes setup, over the IPC socket too.
+//! - `dassie status` says how it is doing, `dassie setup-url` prints the
+//!   link that completes setup, and `dassie pair` a code that pairs an owner
+//!   app, over the IPC socket too.
 //! - `dassie update` installs a newer release from the mirror.
 //! - `dassie verify-install` checks that this binary works here.
 //! - `dassie front-door` runs a front door, which is no node.
@@ -51,6 +52,8 @@ Commands:
   status            Show how the node is doing: version, address,
                     certificate, setup, network, ledgers and updates.
   setup-url         Print the link that completes setup in a browser.
+  pair              Print a code that pairs an owner app with the node, for
+                    the next five minutes.
   update           Update Dassie to the newest version of its channel, once
                     its signature and sums check out.
                       -f, --force                  install even if not newer, or
@@ -120,6 +123,10 @@ fn run() -> Result<ExitCode, lexopt::Error> {
             "setup-url" => {
                 no_more(&mut parser)?;
                 Ok(over_ipc(status::setup_url))
+            }
+            "pair" => {
+                no_more(&mut parser)?;
+                Ok(over_ipc(status::pair))
             }
             "update" => Ok(update::run(update_args(&mut parser)?)),
             "verify-install" => {

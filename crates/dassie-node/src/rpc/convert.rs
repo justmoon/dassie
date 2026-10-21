@@ -76,3 +76,12 @@ pub fn session(view: &SessionView) -> proto::Session {
         current: view.current,
     }
 }
+
+pub fn device(row: &crate::store::DeviceRow) -> proto::Device {
+    proto::Device {
+        id: row.id.as_str().to_string(),
+        name: row.name.clone(),
+        paired_at_unix_ms: time(row.paired_at_ms),
+        last_seen_at_unix_ms: time(row.last_seen_at_ms),
+    }
+}

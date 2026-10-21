@@ -20,7 +20,7 @@ The decisions (whether an origin is allowed, a session valid, a setup attempt ri
 
 ### Relayed streams
 
-A node reached through a relay ([Peer protocol](peer-protocol.md#relayed-streams)) serves HTTP/1.1 on a relayed stream with purpose `payments`, once its TLS is done (`serve_relayed` in `http/mod.rs`):
+A node reached through a relay ([Peer protocol](peer-protocol.md#relayed-streams)) serves HTTP/1.1 on a relayed stream with purpose `payments`, once its TLS is done (`serve_relayed` in `http/mod.rs`). A stream with purpose `owner` carries no HTTP, only a paired app's RPC ([RPC](rpc.md#paired-devices)).
 
 - **Open Payments only.** Every other path is 404, upgrades included: the wallet, `/api/*`, `/rpc`, `/peer`, BTP and `/stats` are served only on the node's own listeners ([core-and-periphery](../decisions/core-and-periphery.md)). A page served through a relay could keep the owner's passphrase, and nothing on a relayed stream shows that a browser's origin is the node's.
 - **The same rules as over HTTPS** ([Payments](payments.md#http-routes)): the request's `Host` names the name it is answered under, and one that is not among [the node's names](payments.md#the-nodes-names) is refused with 421; the answer is [signed with the node key](payments.md#signed-responses), so a client can check it whoever passed it on; and CORS, request signatures, bounded bodies and the security headers apply, without HSTS. The rate limits per client address count the relay's address, the only one the node sees; the relay bounds streams per client.
@@ -52,6 +52,7 @@ What protects the owner's side of the node:
 
 - **The owner in a browser** holds a [session](#sessions) cookie, which the RPC WebSocket checks at the upgrade and again on every call ([rpc.md](rpc.md#authentication)).
 - **The owner on the machine** uses the IPC socket, whose file mode is the only access control ([node.md](node.md)).
+- **The owner's paired apps** prove a device key on a relayed stream, checked on every call; only the owner on the node's machine can pair one ([rpc.md](rpc.md#paired-devices)).
 - **The passphrase never leaves the browser:** setup sends the node key seed and the login proof derived from it, login only the proof ([identity.md](identity.md)).
 - **Cross-site requests** meet the [same-origin rule](#same-origin-rule) on `/rpc` and `/api/*`. `POST /api/setup` and `POST /api/login` also require `Content-Type: application/json`, which no cross-site form can send and no cross-origin script can send without a CORS preflight, which the node never grants.
 - **Setup and login attempts are rate-limited per client,** with no bucket shared by all clients, so a handful of addresses cannot lock the owner out. The login proof is 256 bits, so the limit is not against guessing but against making the node work as fast as a client can send.

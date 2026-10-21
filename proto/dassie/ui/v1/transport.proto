@@ -13,7 +13,11 @@
 // - The IPC socket (`/run/dassie.sock`). Every message is a frame with a
 //   4-byte big-endian length prefix. Whoever can open the socket is the
 //   owner, so every call is authenticated.
-// Both limit a message to 1 MiB, and refuse calls beyond a fixed number in
+// - A relayed stream with purpose `owner` (`dassie-owner/1`), through a
+//   relay or dialled directly, framed as the IPC socket. Its TLS proves the
+//   device's key: a paired device's calls are authenticated, and one not
+//   paired may only claim a pairing. Revoking the device closes the stream.
+// All limit a message to 1 MiB, and refuse calls beyond a fixed number in
 // flight per connection (`ERROR_CODE_RESOURCE_EXHAUSTED`).
 //
 // Calls
@@ -50,6 +54,7 @@ import "dassie/ui/v1/acme.proto";
 import "dassie/ui/v1/btp.proto";
 import "dassie/ui/v1/config.proto";
 import "dassie/ui/v1/debug.proto";
+import "dassie/ui/v1/devices.proto";
 import "dassie/ui/v1/inspect.proto";
 import "dassie/ui/v1/ledger.proto";
 import "dassie/ui/v1/network.proto";
@@ -96,6 +101,10 @@ message Request {
     ListSessionsRequest list_sessions = 40;
     RevokeSessionRequest revoke_session = 41;
     RevokeAllSessionsRequest revoke_all_sessions = 42;
+    StartPairingRequest start_pairing = 43;
+    ClaimPairingRequest claim_pairing = 44;
+    ListDevicesRequest list_devices = 45;
+    RevokeDeviceRequest revoke_device = 46;
 
     // UNAVAILABLE from here on while the node's ledger is not running: before
     // setup, or for a moment after a failure.
@@ -210,6 +219,10 @@ message Response {
     ListSessionsResponse list_sessions = 40;
     RevokeSessionResponse revoke_session = 41;
     RevokeAllSessionsResponse revoke_all_sessions = 42;
+    StartPairingResponse start_pairing = 43;
+    ClaimPairingResponse claim_pairing = 44;
+    ListDevicesResponse list_devices = 45;
+    RevokeDeviceResponse revoke_device = 46;
 
     ListLedgersResponse list_ledgers = 50;
     AddSettlementSchemeResponse add_settlement_scheme = 51;
