@@ -110,5 +110,5 @@ If the node does not come up after the switch, the update disables and removes t
 - [D11](../decisions/D11-release-integrity.md): signed sums with minisign rather than Sigstore, the trusted comment, unsigned channel files, verify before extract, atomic switch and rollback; a release built once, until a second build can check it.
 - [D14](../decisions/D14-build-system.md): the Nix flake for release builds, cross-compiled with musl.
 - [D21](../decisions/D21-tooling-on-node-and-pnpm-not-deno.md): the wallet's packages fetched from the lockfile's hashes.
-- [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md): releases are to wait for the simulation campaign; that check is [not built](../roadmap.md#continuous-simulation).
+- [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md): releases do not wait for the simulation campaign yet; they will once a live network runs on them ([roadmap](../roadmap.md#continuous-simulation)).
 - [D30](../decisions/D30-a-node-is-up-once-its-engine-has-committed-a-step.md): a release whose engine cannot start fails its start, and is rolled back.
