@@ -6,7 +6,13 @@ import {
   NetworkNodeSchema,
   PeerState,
 } from "@dassie/rpc/proto";
-import { groupNodes, routingGraph, seedIndex, sortNodes } from "./nodes.ts";
+import {
+  groupNodes,
+  routingGraph,
+  seedIndex,
+  sortNodes,
+  uplinks,
+} from "./nodes.ts";
 
 function node(
   id: string,
@@ -19,6 +25,7 @@ function node(
     peerState === PeerState.TERMINATING;
   return create(NetworkNodeSchema, {
     id,
+    isSelf: distance === 0,
     distance,
     neighbors,
     peerState,
@@ -87,6 +94,40 @@ test("the graph keeps this node when nothing is reached", () => {
   ]);
   assertEquals(graph.nodes.map((n) => n.id), ["da"]);
   assertEquals(graph.links, []);
+});
+
+// A periphery node publishes no link state, so its uplinks do not list it,
+// and only its own peerings say where its packets go.
+const periphery = [
+  node("dm", 0),
+  node("db", 1, ["dc", "dd"], PeerState.PEERED),
+  node("dc", 1, ["db", "dd"], PeerState.PEERED),
+  node("dd", 2, ["db", "dc"]),
+  // An uplink gone offline: no route reaches it.
+  node("do", undefined, [], PeerState.PEERED, false),
+  // A peering still being asked for is no uplink yet.
+  node("dr", undefined, [], PeerState.REQUESTING),
+];
+
+test("a periphery node is drawn with a line to each uplink a route reaches", () => {
+  const graph = routingGraph(periphery, true);
+  assertEquals(graph.nodes.map((n) => n.id), ["dm", "db", "dc", "dd"]);
+  assertEquals(graph.links, [
+    { a: "db", b: "dc" },
+    { a: "db", b: "dd" },
+    { a: "db", b: "dm" },
+    { a: "dc", b: "dd" },
+    { a: "dc", b: "dm" },
+  ]);
+  // A core node's own link state draws its lines; nothing is added.
+  assertEquals(
+    routingGraph(periphery).links.some((l) => l.b === "dm"),
+    false,
+  );
+});
+
+test("a periphery node's uplinks are its peers, online or not", () => {
+  assertEquals(uplinks(periphery).map((n) => n.id), ["db", "dc", "do"]);
 });
 
 test("colors are stable per ID", () => {

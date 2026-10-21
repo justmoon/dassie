@@ -1,11 +1,16 @@
 /**
  * The network (spec/areas/wallet.md#pages): the graph, the node listing by
  * distance, and the selected node's details, with what the owner can do about
- * it (UI-4).
+ * it (UI-4). A periphery node is shown as one: with lines to its uplinks, and
+ * its uplinks and relay where a core node's registration is.
  */
 
 import type { JSX } from "@solidjs/web";
-import { type NetworkNode, PeerState } from "@dassie/rpc/proto";
+import {
+  type GetStatusResponse,
+  type NetworkNode,
+  PeerState,
+} from "@dassie/rpc/proto";
 import { createMemo, For, Show } from "solid-js";
 import { Amount, ledgerCurrency } from "@dassie/ui/amount";
 import { currencyOf } from "@dassie/ui/currency";
@@ -16,18 +21,28 @@ import {
   groupNodes,
   peerStateName,
   routingGraph,
+  uplinks,
 } from "@dassie/ui/network/nodes";
 import { useNodeData } from "@dassie/ui/node-data";
 import { describe, useClient } from "@dassie/ui/rpc";
 import { Link, type RouteProps, useRouter } from "@dassie/ui/router";
 import { useToast } from "@dassie/ui/toast";
 import { Badge, Card, ConfirmButton, LiveNote, PageTitle } from "@dassie/ui/ui";
+import { useStatus } from "../../status.ts";
+import {
+  NO_UPLINKS,
+  relayState,
+  uplinkConnected,
+  uplinkState,
+} from "./periphery.ts";
 
 export function Network(props: RouteProps): JSX.Element {
   const data = useNodeData();
   const router = useRouter();
+  const status = useStatus();
+  const periphery = () => status()?.periphery === true;
   const nodes = createMemo(() => Object.values(data.nodes.byId));
-  const graph = createMemo(() => routingGraph(nodes()));
+  const graph = createMemo(() => routingGraph(nodes(), periphery()));
   const selected = () => props.params.node;
   const node = () => (selected() ? data.nodes.byId[selected()!] : undefined);
   return (
@@ -47,10 +62,17 @@ export function Network(props: RouteProps): JSX.Element {
         />
       </Card>
       <div class="grid-2">
-        <Listing nodes={nodes()} />
+        <Listing nodes={nodes()} periphery={periphery()} />
         <Show
           when={node() && node()!.id !== data.selfId}
-          fallback={<OwnNode />}
+          fallback={
+            <Show
+              when={periphery()}
+              fallback={<OwnNode />}
+            >
+              <PeripheryNode nodes={nodes()} status={status()} />
+            </Show>
+          }
         >
           <NodeDetail node={node()!} />
         </Show>
@@ -59,7 +81,9 @@ export function Network(props: RouteProps): JSX.Element {
   );
 }
 
-function Listing(props: { nodes: readonly NetworkNode[] }): JSX.Element {
+function Listing(
+  props: { nodes: readonly NetworkNode[]; periphery: boolean },
+): JSX.Element {
   return (
     <Card title="Nodes" testid="node-listing">
       <For each={groupNodes(props.nodes)}>
@@ -79,7 +103,12 @@ function Listing(props: { nodes: readonly NetworkNode[] }): JSX.Element {
                     >
                       <strong>{node.alias || shortId(node.id, 20)}</strong>
                     </Link>
-                    <div class="muted">{node.url || "no link state"}</div>
+                    <div class="muted">
+                      {node.url ||
+                        (node.isSelf && props.periphery
+                          ? "a periphery node, reached through its uplinks"
+                          : "no link state")}
+                    </div>
                   </li>
                 )}
               </For>
@@ -133,6 +162,61 @@ function OwnNode(): JSX.Element {
             </Link>
           </>
         )}
+      </Show>
+    </Card>
+  );
+}
+
+/**
+ * A periphery node registers with no bootstrap node: it reaches the network
+ * through its uplinks, and Open Payments clients reach it through its relay
+ * (spec/areas/network.md#periphery-nodes).
+ */
+function PeripheryNode(props: {
+  nodes: readonly NetworkNode[];
+  status: GetStatusResponse | undefined;
+}): JSX.Element {
+  const now = () => Date.now();
+  const relay = () => props.status?.relay ?? null;
+  return (
+    <Card title="Details for Your Node" testid="own-node">
+      <h3>Periphery Node</h3>
+      <p class="muted">
+        Your node has no public address, so it registers with no bootstrap node.
+        It reaches the network through its uplinks, core nodes it peers with,
+        and is paid through them.
+      </p>
+      <h3>Uplinks</h3>
+      <Show
+        when={uplinks(props.nodes).length > 0}
+        fallback={<p data-testid="uplinks-none">{NO_UPLINKS}</p>}
+      >
+        <ul data-testid="uplinks">
+          <For each={uplinks(props.nodes)}>
+            {(uplink) => (
+              <li>
+                <Link href={`/network/${uplink.id}`}>
+                  <strong>{uplink.alias || shortId(uplink.id, 20)}</strong>
+                </Link>{" "}
+                <Badge tone={uplinkConnected(uplink.peering) ? "good" : "bad"}>
+                  {uplinkState(uplink.peering, now())}
+                </Badge>
+                <div class="muted">{uplink.url}</div>
+              </li>
+            )}
+          </For>
+        </ul>
+      </Show>
+      <h3>Relay</h3>
+      <Show when={props.status} fallback={<p class="muted">Asking…</p>}>
+        <p data-testid="relay">
+          <Show when={relay()}>
+            {(chosen) => <span>{chosen().url}{" "}</span>}
+          </Show>
+          <Badge tone={relayState(relay()).tone}>
+            {relayState(relay()).text}
+          </Badge>
+        </p>
       </Show>
     </Card>
   );

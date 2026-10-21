@@ -54,7 +54,7 @@ Nodes without a public IP join as periphery nodes: they connect only to core nod
 - **Parts that can be built side by side:**
   - QUIC for periphery links: dialling an uplink again with a backoff when its connection is lost, and the fallbacks where UDP is blocked (TLS over TCP, WebSocket, WebTransport for browser nodes);
   - the downlink table: downlinks on disk in a table of their own rather than in the node table, in memory only while connected, with rows closed once nothing is owed either way, and the XRPL scheme's peers' addresses in a table keyed by account rather than in its state ([§4](designs/periphery.md#4-downlinks-on-a-core-node));
-  - a child's Network graph, which shows the child itself and its links to its uplinks, although no route reaches it; and BTP clients of a periphery node, whose ILDCP address is still beneath the node's own address rather than an uplink's;
+  - BTP clients of a periphery node, whose ILDCP address is still beneath the node's own address rather than an uplink's;
   - periphery nodes in the `peer` and `node` simulations' chaos runs, losing and regaining uplinks;
   - records and home nodes, so that clients find the relays that reach a node. Relays are built: every QUIC endpoint relays streams to the nodes connected to it, so every uplink is already a relay for its downlinks, and a node keeps a connection to a relay it chooses ([Peer protocol](areas/peer-protocol.md#relayed-streams)). Relayed streams carry Open Payments; the owner's purpose waits for owner apps;
   - owner apps paired on `localhost`;
