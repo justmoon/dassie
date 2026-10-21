@@ -10,6 +10,7 @@
 export const PAGES = [
   { path: "/", title: "Home" },
   { path: "/guides/quick-start/", title: "Quick Start" },
+  { path: "/guides/nixos/", title: "NixOS" },
   { path: "/tools/stream-toy/", title: "STREAM Toy" },
   { path: "/architecture/", title: "Architecture" },
 ] as const;

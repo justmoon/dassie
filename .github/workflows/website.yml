@@ -45,6 +45,7 @@ on:
       - .npmrc
       - scripts/build-wasm.ts
       - scripts/website/**
+      - resources/minisign.pub
       - .github/workflows/website.yml
   workflow_dispatch:
 

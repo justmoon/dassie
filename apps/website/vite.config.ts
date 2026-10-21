@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import solid from "@solidjs/vite-plugin";
 import { defineConfig, type Plugin } from "vite";
@@ -9,7 +10,18 @@ import { footer, header, PAGES } from "./src/layout.ts";
 // wallet's: no inline script or style, nothing from other origins. Only the
 // STREAM toy runs a script.
 
-/** Puts the shared header and footer into every page. */
+/** The release key, as the binaries and the installer trust it: the NixOS
+ * guide prints it for checking a release's signature by hand. */
+const releaseKey = readFileSync(
+  new URL("../../resources/minisign.pub", import.meta.url),
+  "utf8",
+).split("\n")[1] ?? "";
+if (!/^RW[A-Za-z0-9+/]{54}$/.test(releaseKey)) {
+  throw new Error("resources/minisign.pub holds no minisign public key");
+}
+
+/** Puts the shared header and footer, and the release key, into every
+ * page. */
 function layout(): Plugin {
   return {
     name: "dassie-website-layout",
@@ -22,7 +34,8 @@ function layout(): Plugin {
         }
         return html
           .replace("<!-- header -->", header(path))
-          .replace("<!-- footer -->", footer());
+          .replace("<!-- footer -->", footer())
+          .replaceAll("%RELEASE_KEY%", releaseKey);
       },
     },
   };

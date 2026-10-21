@@ -8,7 +8,7 @@
 ## Pages
 
 - Each page is a plain HTML file and a Vite build input; a build step puts the shared header and footer into each (`src/layout.ts`). Only the toy and the architecture page run a script, each a Solid 2 island.
-- **The Quick Start must match what the tools do:** the installer and `dassie update` ([Release](release.md)) and the `dassie` commands ([Node](node.md#the-dassie-command)).
+- **The Quick Start and the NixOS guide must match what the tools do:** the installer, `dassie update` and the flake for NixOS ([Release](release.md)), and the `dassie` commands ([Node](node.md#the-dassie-command)). The NixOS guide prints the release key, which the build takes from `resources/minisign.pub`.
 - The website does not serve the installer: `sh.dassie.land` and `get.dassie.land` belong to the release mirror ([Release](release.md)).
 
 ## Build

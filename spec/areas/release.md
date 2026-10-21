@@ -2,7 +2,7 @@
 
 How Dassie is built, signed, published, installed and updated. A release is one static binary per platform with the wallet built in, packed in bundles whose sums are signed with the release key; the installer and the updater trust nothing they cannot verify with that key.
 
-**Paths:** `crates/dassie-release/`, `crates/dassie-cli/src/update.rs`, `crates/dassie-cli/build.rs`, `resources/` (`minisign.pub`, `systemd/`, `installer/install.sh`), `nix/release.nix`, `nix/pnpm.nix`, `scripts/release.ts`, `.github/workflows/release.yml`
+**Paths:** `crates/dassie-release/`, `crates/dassie-cli/src/update.rs`, `crates/dassie-cli/build.rs`, `resources/` (`minisign.pub`, `systemd/`, `installer/install.sh`), `nix/release.nix`, `nix/pnpm.nix`, `nix/flake/`, `scripts/release.ts`, `.github/workflows/release.yml`
 **Read with:** [Node](node.md), [Testing](testing.md)
 
 ## Versions and channels
@@ -43,7 +43,7 @@ How Dassie is built, signed, published, installed and updated. A release is one 
 
 ## The mirror
 
-`get.dassie.land` keeps the original's paths (`meta/<channel>`, `<version>/dassie-<version>-linux-<arch>.tar.{gz,xz}`), so its installer and updater URLs keep working, and adds `<version>/SHA256SUMS` and its `.minisig`. `sh.dassie.land` serves `install.sh`. The mirror's load balancer also serves dassie.land, from a bucket of its own ([Website](website.md#deployment), [website-hosting](../decisions/website-hosting.md)).
+`get.dassie.land` keeps the original's paths (`meta/<channel>`, `<version>/dassie-<version>-linux-<arch>.tar.{gz,xz}`), so its installer and updater URLs keep working, and adds `<version>/flake.tar.gz` ([NixOS](#nixos)), `<version>/SHA256SUMS`, which lists the bundles and the flake, and its `.minisig`. `sh.dassie.land` serves `install.sh`. The mirror's load balancer also serves dassie.land, from a bucket of its own ([Website](website.md#deployment), [website-hosting](../decisions/website-hosting.md)).
 
 ## Publishing
 
@@ -98,17 +98,28 @@ If the node does not come up after the switch, the update disables and removes t
 - **A version that did not start is not tried again until the mirror offers another.** Tried again, it would take the node down at every run of the timer until a fix is out. `last-update` names it and why it did not start, and every record keeps both, failed runs included, until an update installs a version; the updater and `dassie status` say why it passes over it. The owner can still install it, with `--force` or `--target-version`. Without a record that reads, every version is tried, as before the first update.
 - **If the database cannot be put back, the old version is not started:** it would refuse a database too new for it, or, finding none, start afresh with another identity and no books. The node stays stopped, and the update says where the database, the one the new version left and the copy are, for the owner to choose. Nor does a node start afresh where a rollback stopped half way, whatever starts it ([Node](node.md#database)).
 
+## NixOS
+
+`nix/flake/`, published as `<version>/flake.tar.gz` ([nix-flake-on-the-mirror](../decisions/nix-flake-on-the-mirror.md)). An owner points a flake input at it and enables `services.dassie`.
+
+- **The package is the release's own bundle,** fetched by the sum `SHA256SUMS` lists, which `nix build .#release` writes into the flake's `release.json`. Nothing is compiled or patched.
+- **The units are the bundle's,** with `ExecStart` naming the package's binary, enabled as `install.sh` enables them. The module sets environment variables and opens the firewall in drop-ins, and makes the group `dassie-users`. The socket units keep their names, which the node takes its sockets by ([Node](node.md#runtimes)).
+- **No updater:** the updater's units are left out, and the flake's version is the node's. Updating is changing the flake input, and going back is going back a generation, which across a migration needs the database copy put back by hand.
+- **Nix checks the flake by its lock, not the release key.** An owner who checks `flake.tar.gz` once against the signed `SHA256SUMS` holds the binaries to the signed ones from then on.
+
 ## Tests
 
 - `crates/dassie-cli/tests/update.rs` runs the updater against a TLS mirror signed with the test key, including tampered and mis-signed releases.
 - The store's tests check the copy before a migration, and when a rollback puts it back.
 - `tests/e2e/install_test.ts` installs, updates, rolls back, passes over the version it rolled back, and uninstalls on several distributions against `nix build .#install-test-mirror`, whose newest release's node fails to start on purpose, so the rollback runs for real ([Testing](testing.md#installer-and-updater)). It runs in the release workflow before signing, not in CI.
 - `scripts/release_test.ts` tests the signing script; the installer's ShellCheck runs with `nix flake check`.
+- `nixos-units`, with `nix flake check`, builds the units a NixOS system with the module would have, around a stand-in binary. `nixos-test` boots the module in a VM with the install tests' 1.0.0, and checks that the node answers, that only root and `dassie-users` reach its IPC socket, and that there is no updater. It needs KVM, so it runs in the release workflow before signing.
 
 ## Decisions
 
 - [release-integrity](../decisions/release-integrity.md): signed sums with minisign rather than Sigstore, the trusted comment, unsigned channel files, verify before extract, atomic switch and rollback; a release built once, until a second build can check it.
 - [build-system](../decisions/build-system.md): the Nix flake for release builds, cross-compiled with musl.
+- [nix-flake-on-the-mirror](../decisions/nix-flake-on-the-mirror.md): NixOS takes the signed binary from a flake each release publishes, with its own units and no updater.
 - [node-and-pnpm](../decisions/node-and-pnpm.md): the wallet's packages fetched from the lockfile's hashes.
 - [random-seed-simulations](../decisions/random-seed-simulations.md): releases do not wait for the simulation campaign yet; they will once a live network runs on them ([roadmap](../roadmap.md#continuous-simulation)).
 - [ready-after-first-step](../decisions/ready-after-first-step.md): a release whose engine cannot start fails its start, and is rolled back.

@@ -6,8 +6,8 @@
 //     --verifier <dassie-release binary> [--version <expected version>]
 //
 // The built tree is `nix build .#release` or `.#canary`: meta/<channel>
-// and <version>/ with the bundles and SHA256SUMS. The script copies it to
-// <out dir>, checks every bundle against SHA256SUMS, and signs SHA256SUMS
+// and <version>/ with the bundles, the flake for NixOS and SHA256SUMS. The
+// script copies it to <out dir>, checks every file against SHA256SUMS, and signs SHA256SUMS
 // with minisign (SHA256SUMS.minisig, trusted comment "dassie <version>").
 // Then `dassie-release verify` checks the signed tree with the public key
 // the binaries trust, and with the code the updater trusts a release with:
@@ -58,10 +58,15 @@ export async function readRelease(tree: string): Promise<Release> {
 }
 
 /** The bundle file names a release has. */
-export function bundles(version: string): string[] {
+function bundles(version: string): string[] {
   return ARCHES.flatMap((arch) =>
     COMPRESSIONS.map((ext) => `dassie-${version}-linux-${arch}.tar.${ext}`)
   );
+}
+
+/** The files SHA256SUMS lists: the bundles, and the flake for NixOS. */
+export function files(version: string): string[] {
+  return [...bundles(version), "flake.tar.gz"];
 }
 
 async function sha256(path: string): Promise<string> {
@@ -75,7 +80,7 @@ async function sha256(path: string): Promise<string> {
   ).join("");
 }
 
-/** Checks that SHA256SUMS lists exactly the release's bundles, and that
+/** Checks that SHA256SUMS lists exactly the release's files, and that
  * each matches. */
 export async function checkSums(dir: string, version: string): Promise<void> {
   const lines = (await readFile(`${dir}/SHA256SUMS`, "utf8")).trimEnd().split(
@@ -88,7 +93,7 @@ export async function checkSums(dir: string, version: string): Promise<void> {
     }
     return [match[2], match[1]];
   }));
-  const expected = bundles(version);
+  const expected = files(version);
   if (
     listed.size !== expected.length ||
     !expected.every((name) => listed.has(name))
@@ -194,7 +199,7 @@ export async function release(options: {
     `${options.tree}/meta/${built.channel}`,
     `${options.out}/meta/${built.channel}`,
   );
-  for (const name of [...bundles(built.version), "SHA256SUMS"]) {
+  for (const name of [...files(built.version), "SHA256SUMS"]) {
     await copyFile(
       `${options.tree}/${built.version}/${name}`,
       `${options.out}/${built.version}/${name}`,

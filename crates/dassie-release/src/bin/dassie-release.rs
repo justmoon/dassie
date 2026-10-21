@@ -3,8 +3,8 @@
 //!
 //! - `dassie-release verify <tree> <minisign.pub>` checks a signed tree for
 //!   the mirror: one `meta/<channel>` naming a version of that channel, its
-//!   `SHA256SUMS` signed for that version by this key, every bundle listed,
-//!   and each matching its sum.
+//!   `SHA256SUMS` signed for that version by this key, every bundle and the
+//!   flake listed, and each matching its sum.
 //! - `dassie-release supersedes <new> <old>` exits 0 if the updater would
 //!   move from `old` to `new` on its own, 1 if not: the workflow never moves
 //!   `meta/<channel>` back.
@@ -70,6 +70,7 @@ fn verify(tree: &Path, key: &Path) -> Result<String, String> {
             [Compression::Gz, Compression::Xz]
                 .map(|compression| layout::bundle(&version, *arch, compression))
         })
+        .chain([layout::FLAKE.to_string()])
         .collect();
     let listed: Vec<&str> = sums.names().collect();
     if listed.len() != expected.len()

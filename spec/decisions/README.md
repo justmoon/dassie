@@ -18,6 +18,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [ledger-resets](ledger-resets.md) | A ledger below the newest seen is a reset only on the testnet | xrpl |
 | [membership-economics](membership-economics.md) | Network membership economics (fee not built) | network |
 | [named-decisions](named-decisions.md) | Decisions are named, not numbered | engineering |
+| [nix-flake-on-the-mirror](nix-flake-on-the-mirror.md) | NixOS takes a release from a flake on the mirror | release |
 | [node-and-pnpm](node-and-pnpm.md) | Tooling on Node and pnpm, not Deno | engineering |
 | [open-payments](open-payments.md) | Open Payments, fully, and no SPSP | payments, http |
 | [own-books](own-books.md) | Each node keeps its own books | engineering, settlement, testing |

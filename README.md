@@ -26,6 +26,8 @@ Dassie updates itself: once a day, a systemd timer checks for a newer release, v
 
 The [Quick Start](https://dassie.land/guides/quick-start/) on dassie.land walks through the same steps.
 
+On NixOS, each release publishes a flake instead, `https://get.dassie.land/<version>/flake.tar.gz`, with a module that runs the release's signed binary under its own systemd units, without the updater. [Dassie on NixOS](https://dassie.land/guides/nixos/) shows how to use it.
+
 ## Using your node
 
 Once set up, the wallet asks you for a first ledger:
@@ -89,7 +91,7 @@ The node that asks to peer extends the other 1.1 units of credit; the node that 
 | `apps/wallet` | The wallet (Solid 2), embedded in the binary: every page of the original, with live data, plus grants and consent for Open Payments |
 | `apps/dev` | `node --run dev`: the scenarios on real binaries, certificates, vanity identities, the dev server with its SNI proxy and relay, a rates server; also the scenario library the end-to-end tests use |
 | `apps/dev-dashboard` | The dev dashboard (Solid 2): the network, every node's log, the scenarios, each node's debug pages |
-| `apps/website` | dassie.land: the home page, the Quick Start, and the STREAM toy, which runs `dassie-stream` in WASM over a simulated network; `main` publishes it to GCP |
+| `apps/website` | dassie.land: the home page, the Quick Start, the NixOS guide, and the STREAM toy, which runs `dassie-stream` in WASM over a simulated network; `main` publishes it to GCP |
 | `packages/ui` | The Solid components the wallet, the dev dashboard and the STREAM toy share: amounts, the log viewer, the network graph, the debug pages, the router, live data, the theme |
 | `packages/identity-wasm` | The core crates in WASM, one build for browsers and Node, with a STREAM driver |
 | `packages/rpc` | The client for the RPC contract, over WebSocket (browsers) or the IPC socket (Node) |
@@ -155,9 +157,9 @@ To make a few such nodes find each other locally, set `DASSIE_PEER_ALLOW_PRIVATE
 Releases are built by Nix on x86_64 Linux ([the build](spec/areas/release.md#the-build)):
 
 - `nix build .#dassie-x64` or `.#dassie-arm64` makes a static binary with the wallet built in;
-- `nix build .#release` (or `.#canary`) makes the tree a release uploads to the mirror, without its signature.
+- `nix build .#release` (or `.#canary`) makes the tree a release uploads to the mirror, with its flake for NixOS, without its signature.
 
-The wallet's build fetches its packages one by one with the hashes in `pnpm-lock.yaml`, so a change to the lockfile needs no hash updated by hand. For every tag `v<version>`, the release workflow runs the install tests on each distribution and checks the static binaries (`nix build .#static-binaries`), then signs and publishes the release. CI on pull requests and `main` runs neither.
+The wallet's build fetches its packages one by one with the hashes in `pnpm-lock.yaml`, so a change to the lockfile needs no hash updated by hand. For every tag `v<version>`, the release workflow runs the install tests on each distribution, boots the NixOS module in a VM (`nix build .#nixos-test`) and checks the static binaries (`nix build .#static-binaries`), then signs and publishes the release. CI on pull requests and `main` runs neither.
 
 ## The dev environment
 

@@ -7,7 +7,8 @@
 //! meta/canary                               the newest canary's
 //! <version>/dassie-<version>-linux-<arch>.tar.gz
 //! <version>/dassie-<version>-linux-<arch>.tar.xz
-//! <version>/SHA256SUMS                      the bundles' SHA-256
+//! <version>/flake.tar.gz                     the flake for NixOS
+//! <version>/SHA256SUMS                      the SHA-256 of both
 //! <version>/SHA256SUMS.minisig              its signature
 //! ```
 
@@ -19,7 +20,11 @@ use crate::{Channel, Version};
 /// The mirror the installer and the updater use unless told otherwise.
 pub const DEFAULT_MIRROR: &str = "https://get.dassie.land";
 
-/// The sums of a release's bundles.
+/// The flake NixOS takes a release from: its module, and a package of the
+/// release's bundles by their sums.
+pub const FLAKE: &str = "flake.tar.gz";
+
+/// The sums of a release's bundles and its flake.
 pub const SUMS: &str = "SHA256SUMS";
 
 /// Their signature.
