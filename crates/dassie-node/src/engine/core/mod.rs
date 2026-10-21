@@ -287,6 +287,9 @@ pub struct Core {
     settle: Settlements,
     /// What changed since the driver last asked.
     changes: Changes,
+    /// Whether a peering began or ended since the driver last asked: at
+    /// start, the peerings restored.
+    peerings_changed: bool,
     /// The ledger's counters when last looked at: pending transfers move
     /// balances without a journal entry.
     ledger_stats: dassie_ledger::Stats,
@@ -415,6 +418,7 @@ impl Core {
             outputs_peer: Vec::new(),
             settle: Settlements::new(now_ms, &policies),
             changes: Changes::default(),
+            peerings_changed: true,
             ledger_stats: dassie_ledger::Stats::default(),
             spending: payers::Spending::default(),
             peer_settings: PeerSettings::DEFAULT,

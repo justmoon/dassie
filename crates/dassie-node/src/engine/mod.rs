@@ -771,6 +771,18 @@ impl Driver<'_> {
             self.transports
                 .answered(peer, over, |node| core.is_peer(node));
         }
+        if self.core.take_peerings_changed() {
+            let mut classes = crate::quic::places::Classes::default();
+            for (node, downlink) in self.core.peerings() {
+                let class = if downlink {
+                    &mut classes.downlinks
+                } else {
+                    &mut classes.core
+                };
+                class.insert(node);
+            }
+            self.node.set_peerings(classes);
+        }
         for reply in self.replies.drain(..) {
             reply();
         }

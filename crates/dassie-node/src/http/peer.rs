@@ -29,6 +29,7 @@ use hyper::{Request, Response, StatusCode};
 
 use super::response::{self, Body, header_str};
 use crate::node::Node;
+use crate::quic::places::Peerings;
 use crate::quic::relay::{Purpose, ServedStream};
 
 // The largest ILP packet of any type fits in a request, with room for the
@@ -117,7 +118,8 @@ async fn answer_body(
 }
 
 /// Answers peer requests over QUIC with the node, as over HTTPS: the same
-/// checks, limits and statuses, and the same bound on connections.
+/// checks, limits and statuses, and the same bound on connections from
+/// anyone. Core peers and downlinks have places of their own.
 #[derive(Debug)]
 pub struct QuicHandler(pub Arc<Node>);
 
@@ -131,6 +133,16 @@ impl crate::quic::Handler for QuicHandler {
             max_total: super::MAX_CONNECTIONS,
             max_per_client: self.0.policies().http_connections_per_client,
         }
+    }
+
+    /// Core peers and downlinks, each under the peer node's own bound.
+    fn peerings(&self) -> Option<Peerings> {
+        let peer = &self.0.policies().peer;
+        Some(Peerings {
+            classes: self.0.peerings(),
+            max_core_peers: peer.max_peers,
+            max_downlinks: peer.max_downlinks,
+        })
     }
 
     fn answer<'a>(

@@ -6,7 +6,8 @@
 //! way, then a two-byte status and the body back, with the same bytes and
 //! statuses as over HTTPS. The other kinds carry relayed streams
 //! ([`relay`]). Each side proves its node key in the TLS handshake
-//! ([`keys`]), so a dialler knows it reached the node it meant.
+//! ([`keys`]), so a dialler knows it reached the node it meant, and a
+//! connection takes a place by who opened it ([`places`]).
 //!
 //! A pair of nodes keeps one connection, which both use: the one the lower
 //! node ID opened, when both dialled. A node whose QUIC cannot be reached
@@ -14,6 +15,7 @@
 //! node takes QUIC and `POST /peer` goes ([`send_peer`]).
 
 pub mod keys;
+pub mod places;
 pub mod relay;
 
 use std::collections::BTreeMap;
@@ -22,7 +24,7 @@ use std::future::Future;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -39,11 +41,11 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use self::keys::{AnyNodeKey, Keys, PinnedServer, Present};
+use self::places::{Counts, Peerings, Places};
 use self::relay::{Purpose, Relaying, ServedStream};
 use crate::http::peer::{Answer, BodyError};
 use crate::log::target;
 use crate::peer_client::PeerClient;
-use crate::slots::ClientSlots;
 use crate::tls;
 
 /// The protocol a connection speaks, by ALPN.
@@ -173,8 +175,16 @@ pub trait Handler: Send + Sync + 'static {
     /// only.
     fn client(&self, address: IpAddr) -> Option<ClientKey>;
 
-    /// How many connections the endpoint holds, in all and per client.
+    /// How many connections the endpoint holds from anyone, in all and per
+    /// client, and how many it sets up at once.
     fn limits(&self) -> ConnectionLimits;
+
+    /// The node's peerings, which give the connections of its core peers
+    /// and its downlinks places of their own ([`places`]). None, unless a
+    /// handler says so: every connection is then anyone's.
+    fn peerings(&self) -> Option<Peerings> {
+        None
+    }
 
     /// Answers a request from `client` whose body `body` reads.
     fn answer<'a>(
@@ -328,6 +338,7 @@ struct Serving {
     handler: Arc<dyn Handler>,
     shutdown: CancellationToken,
     tasks: TaskTracker,
+    places: Arc<Places>,
 }
 
 type Place = Arc<tokio::sync::Mutex<Option<Link>>>;
@@ -463,6 +474,17 @@ impl Quic {
     #[must_use]
     pub fn open_connections(&self) -> usize {
         self.endpoint.open_connections()
+    }
+
+    /// The places the connections it took hold now, by kind, while it
+    /// serves.
+    #[must_use]
+    pub fn places(&self) -> Option<Counts> {
+        self.serving
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .map(|serving| serving.places.counts())
     }
 
     /// Whether the endpoint takes connections: from [`serve`](Self::serve)'s
@@ -743,14 +765,13 @@ impl Quic {
     /// finish for a bounded time, and only then closes the endpoint, which
     /// tells peers the connections are gone.
     pub async fn serve(self: Arc<Self>, handler: Arc<dyn Handler>, shutdown: CancellationToken) {
-        let limits = handler.limits();
-        let slots = ClientSlots::new(limits);
-        let open = Arc::new(AtomicUsize::new(0));
+        let places = Arc::new(Places::new(handler.limits(), handler.peerings()));
         let tasks = TaskTracker::new();
         *self.serving.lock().unwrap_or_else(PoisonError::into_inner) = Some(Serving {
             handler: Arc::clone(&handler),
             shutdown: shutdown.clone(),
             tasks: tasks.clone(),
+            places: Arc::clone(&places),
         });
         let relay = self.keep_chosen_relay(&tasks, &shutdown);
         loop {
@@ -763,27 +784,24 @@ impl Quic {
             };
             // Once places run short, a client must show it receives at its
             // address before it holds one: spoofed handshakes cannot.
-            if !incoming.remote_address_validated()
-                && open.load(Ordering::Relaxed) >= limits.max_total / 2
-            {
+            if !incoming.remote_address_validated() && places.short() {
                 let _ = incoming.retry();
                 continue;
             }
             let client = incoming.remote_address().ip().to_canonical();
-            let slot = match slots.take(handler.client(client)) {
+            let key = handler.client(client);
+            let setting_up = match places.set_up(key) {
                 Ok(slot) => slot,
                 Err(refused) => {
-                    tracing::debug!(target: target::PEER, %client, ?refused, "too many QUIC connections; refusing");
+                    tracing::debug!(target: target::PEER, %client, ?refused, "too many QUIC connections being set up; refusing");
                     incoming.refuse();
                     continue;
                 }
             };
-            let counted = Counted::new(&open);
             let quic = Arc::clone(&self);
-            let handler = Arc::clone(&handler);
+            let (handler, places) = (Arc::clone(&handler), Arc::clone(&places));
             let shutdown = shutdown.clone();
             tasks.spawn(async move {
-                let (_slot, _counted) = (slot, counted);
                 let Ok(connecting) = incoming.accept() else {
                     return;
                 };
@@ -791,12 +809,18 @@ impl Quic {
                 else {
                     return;
                 };
+                // Who opened it is known now, and so its class.
+                let Some(held) = places.settle(&connection, key, setting_up) else {
+                    return;
+                };
                 if let Some(peer) = keys::peer_node(&connection) {
                     let (quic, connection) = (Arc::clone(&quic), connection.clone());
                     tokio::spawn(async move { quic.keep_inbound(peer, connection).await });
                 }
-                quic.requests(&connection, client, &handler, &shutdown)
-                    .await;
+                tokio::select! {
+                    () = quic.requests(&connection, client, &handler, &shutdown) => {}
+                    () = places.follow(&connection, held) => {}
+                }
             });
         }
         *self.serving.lock().unwrap_or_else(PoisonError::into_inner) = None;
@@ -903,22 +927,6 @@ impl On {
                 let _ = send.reset(0u32.into());
             }
         }
-    }
-}
-
-/// Counts an open connection while it lives.
-struct Counted(Arc<AtomicUsize>);
-
-impl Counted {
-    fn new(open: &Arc<AtomicUsize>) -> Self {
-        open.fetch_add(1, Ordering::Relaxed);
-        Self(Arc::clone(open))
-    }
-}
-
-impl Drop for Counted {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::Relaxed);
     }
 }
 

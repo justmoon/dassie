@@ -140,6 +140,7 @@ async fn a_periphery_node_is_paid_beneath_its_uplink() {
     // periphery node opened.
     let quic = a.quic.as_ref().unwrap();
     assert!(quic.stats().sent.load(std::sync::atomic::Ordering::Relaxed) > 0);
+    holds_a_downlinks_place(&a, &key_p).await;
     let payment = incoming(&p).await;
     let child = format!("test.das.{}.{}.", key_a.node_id(), key_p.node_id());
     assert!(
@@ -173,6 +174,28 @@ async fn a_periphery_node_is_paid_beneath_its_uplink() {
     assert_eq!(owes(&p, &key_a).await, -i128::from(PAYMENT - BACK));
     a.stop().await;
     p.stop().await;
+}
+
+/// Waits until `downlink`'s connection holds a downlink's place at its
+/// uplink, apart from anyone else's (spec/areas/peer-protocol.md#quic).
+async fn holds_a_downlinks_place(uplink: &TestNode, downlink: &NodeKey) {
+    let node = uplink.node.upgrade().unwrap();
+    assert!(
+        node.peerings()
+            .borrow()
+            .downlinks
+            .contains(&downlink.node_id())
+    );
+    let quic = uplink.quic.as_ref().unwrap();
+    let mut places = quic.places().unwrap();
+    for _ in 0..500 {
+        if places.downlinks == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        places = quic.places().unwrap();
+    }
+    assert_eq!((places.core, places.downlinks), (0, 1), "{places:?}");
 }
 
 /// An incoming payment of the owner of `node`, made through its engine:

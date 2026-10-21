@@ -1,6 +1,7 @@
-//! The peer protocol over QUIC, between two endpoints on loopback: requests
-//! and their answers, keys pinned by node ID, bounds on bodies, and one
-//! connection per pair of nodes (spec/areas/peer-protocol.md#quic).
+//! The peer protocol over QUIC, between endpoints on loopback: requests and
+//! their answers, keys pinned by node ID, bounds on bodies, one connection
+//! per pair of nodes, and places for connections by who opened them
+//! (spec/areas/peer-protocol.md#quic).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -14,6 +15,7 @@ use std::sync::atomic::Ordering;
 use dassie_identity::{NodeId, NodeKey};
 use dassie_node::http::peer::{Answer, BodyError};
 use dassie_node::peer_client::PeerClient;
+use dassie_node::quic::places::{Classes, Counts, Peerings};
 use dassie_node::quic::{Body, Handler, Quic, SendError, Transport, send_peer};
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
@@ -43,18 +45,56 @@ impl Handler for Echo {
         _client: IpAddr,
         body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
-        Box::pin(async move {
-            match body.await {
-                Ok(body) => Answer { status: 200, body },
-                Err(BodyError::TooLarge) => Answer {
-                    status: 413,
-                    body: Vec::new(),
-                },
-                Err(BodyError::Broken) => Answer {
-                    status: 400,
-                    body: Vec::new(),
-                },
-            }
+        Box::pin(echo(body))
+    }
+}
+
+async fn echo(body: Body<'_>) -> Answer {
+    match body.await {
+        Ok(body) => Answer { status: 200, body },
+        Err(BodyError::TooLarge) => Answer {
+            status: 413,
+            body: Vec::new(),
+        },
+        Err(BodyError::Broken) => Answer {
+            status: 400,
+            body: Vec::new(),
+        },
+    }
+}
+
+/// Echoes, with the peerings a test sets: room for one core peer and one
+/// downlink, and for [`ANYONE`] connections from anyone else.
+struct Classed(watch::Receiver<Arc<Classes>>);
+
+/// The places for anyone else's connections, and for those being set up.
+const ANYONE: usize = 2;
+
+impl Handler for Classed {
+    fn client(&self, _address: IpAddr) -> Option<ClientKey> {
+        None
+    }
+
+    fn limits(&self) -> ConnectionLimits {
+        ConnectionLimits {
+            max_total: ANYONE,
+            max_per_client: 16,
+        }
+    }
+
+    fn answer<'a>(
+        &'a self,
+        _client: IpAddr,
+        body: Body<'a>,
+    ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
+        Box::pin(echo(body))
+    }
+
+    fn peerings(&self) -> Option<Peerings> {
+        Some(Peerings {
+            classes: self.0.clone(),
+            max_core_peers: 1,
+            max_downlinks: 1,
         })
     }
 }
@@ -358,4 +398,110 @@ async fn a_request_in_progress_is_answered_at_shutdown() {
     let response = sending.await.unwrap().unwrap();
     assert_eq!((response.status, response.body), (200, b"late".to_vec()));
     shutdown_a.cancel();
+}
+
+/// A server whose peerings the test sets, as `classes`.
+fn classed(shutdown: &CancellationToken) -> (Side, watch::Sender<Arc<Classes>>) {
+    let (classes, receiver) = watch::channel(Arc::new(Classes::default()));
+    let server = side_with(1, shutdown, Arc::new(Classed(receiver)));
+    (server, classes)
+}
+
+fn peerings(core: &[&Side], downlinks: &[&Side]) -> Arc<Classes> {
+    Arc::new(Classes {
+        core: core.iter().map(|side| side.id).collect(),
+        downlinks: downlinks.iter().map(|side| side.id).collect(),
+    })
+}
+
+fn counts(core: usize, downlinks: usize, others: usize) -> Counts {
+    Counts {
+        setting_up: 0,
+        core,
+        downlinks,
+        others,
+    }
+}
+
+/// Waits, a few seconds at most, until `done`.
+async fn until(mut done: impl FnMut() -> bool) {
+    for _ in 0..500 {
+        if done() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("not done in time");
+}
+
+/// Sends `from` a request to `to`, and says whether it was answered.
+async fn answered(from: &Side, to: &Side) -> bool {
+    let request = request(to, b"hello".to_vec());
+    from.quic.send(&request, &client(), CONNECT).await.is_ok()
+}
+
+// Anyone else's places are full, yet a core peer and a downlink each find
+// room among their own.
+#[tokio::test]
+async fn core_peers_and_downlinks_have_room_of_their_own() {
+    let shutdown = CancellationToken::new();
+    let (server, classes) = classed(&shutdown);
+    let (core, downlink) = (side(2, &shutdown), side(3, &shutdown));
+    classes.send_replace(peerings(&[&core], &[&downlink]));
+    for seed in 4..4 + ANYONE {
+        let stranger = side(u8::try_from(seed).unwrap(), &shutdown);
+        assert!(answered(&stranger, &server).await);
+    }
+    let late = side(9, &shutdown);
+    assert!(!answered(&late, &server).await);
+    assert_eq!(server.quic.places(), Some(counts(0, 0, ANYONE)));
+    assert!(answered(&core, &server).await);
+    assert!(answered(&downlink, &server).await);
+    assert_eq!(server.quic.places(), Some(counts(1, 1, ANYONE)));
+    shutdown.cancel();
+}
+
+// A node that becomes a downlink takes its connection out of anyone
+// else's places, and loses it once its peering ends with them full.
+#[tokio::test]
+async fn a_connection_moves_with_its_nodes_peering() {
+    let shutdown = CancellationToken::new();
+    let (server, classes) = classed(&shutdown);
+    let newcomer = side(2, &shutdown);
+    assert!(answered(&newcomer, &server).await);
+    assert_eq!(server.quic.places(), Some(counts(0, 0, 1)));
+    classes.send_replace(peerings(&[], &[&newcomer]));
+    until(|| server.quic.places() == Some(counts(0, 1, 0))).await;
+    // The same connection carries its requests still.
+    assert!(answered(&newcomer, &server).await);
+    assert_eq!(newcomer.quic.open_connections(), 1);
+    for seed in 3..3 + ANYONE {
+        let stranger = side(u8::try_from(seed).unwrap(), &shutdown);
+        assert!(answered(&stranger, &server).await);
+    }
+    assert_eq!(server.quic.places(), Some(counts(0, 1, ANYONE)));
+    classes.send_replace(peerings(&[], &[]));
+    until(|| newcomer.quic.open_connections() == 0).await;
+    assert_eq!(server.quic.places(), Some(counts(0, 0, ANYONE)));
+    shutdown.cancel();
+}
+
+// A downlink cannot hold more than its share by opening more connections:
+// the newest takes the place of its oldest, and nobody else's.
+#[tokio::test]
+async fn a_node_past_its_share_replaces_its_oldest_connection() {
+    let shutdown = CancellationToken::new();
+    let (server, classes) = classed(&shutdown);
+    // One node, three endpoints: three connections under one key.
+    let endpoints = [side(3, &shutdown), side(3, &shutdown), side(3, &shutdown)];
+    classes.send_replace(peerings(&[], &[&endpoints[0]]));
+    let [first, second, third] = &endpoints;
+    assert!(answered(first, &server).await);
+    assert!(answered(second, &server).await);
+    assert_eq!(server.quic.places(), Some(counts(0, 2, 0)));
+    assert!(answered(third, &server).await);
+    until(|| first.quic.open_connections() == 0).await;
+    assert_eq!(second.quic.open_connections(), 1);
+    assert_eq!(server.quic.places(), Some(counts(0, 2, 0)));
+    shutdown.cancel();
 }
