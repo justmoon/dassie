@@ -13,7 +13,12 @@
 use dassie_ledger::{MAX_TOTAL, Name};
 use dassie_node_core::testing::SeededRng;
 use dassie_settlement::{Effect, LedgerInput, LedgerStatus, SettlementScheme};
-use dassie_xrpl::codec::{self, MAX_MEMO_BYTES, MAX_MEMOS, Memo, Payment};
+use dassie_xrpl::amount::{MAX_DECIMALS, MAX_EXPONENT, MAX_MANTISSA, MIN_EXPONENT, MIN_MANTISSA};
+use dassie_xrpl::api::line_flags;
+use dassie_xrpl::codec::{
+    self, Amount, Currency, MAX_MEMO_BYTES, MAX_MEMOS, Memo, Payment, TF_PARTIAL_PAYMENT,
+    TokenAmount, TokenValue, Transaction, TrustSet,
+};
 use dassie_xrpl::scheme::{Config, MEMO_TYPE};
 use dassie_xrpl::{
     AccountId, MAX_DROPS, UNITS_PER_DROP, Wallet, XrplScheme, api, base58, from_hex, hex_upper,
@@ -101,22 +106,25 @@ fn mutate(mut bytes: Vec<u8>, mutations: &[Mutation]) -> Vec<u8> {
 
 /// A Payment the codec can write: any fields within the ledger's bounds.
 fn payment() -> impl Strategy<Value = Payment> {
-    let bytes = |max| prop::collection::vec(any::<u8>(), 0..=max);
-    let memo =
-        (bytes(MAX_MEMO_BYTES), bytes(MAX_MEMO_BYTES)).prop_map(|(memo_type, memo_data)| Memo {
-            memo_type,
-            memo_data,
-        });
     (
         (any::<[u8; 20]>(), any::<[u8; 20]>()),
-        (0..=MAX_DROPS, 0..=MAX_DROPS),
+        (
+            prop_oneof![
+                (0..=MAX_DROPS).prop_map(Amount::Xrp),
+                token_amount().prop_map(|token| Amount::Token(TokenAmount {
+                    value: positive(token.value),
+                    ..token
+                })),
+            ],
+            0..=MAX_DROPS,
+        ),
         (
             any::<u32>(),
             any::<u32>(),
-            any::<u32>(),
+            any::<u32>().prop_map(|flags| flags & !TF_PARTIAL_PAYMENT),
             any::<Option<u32>>(),
         ),
-        prop::collection::vec(memo, 0..=MAX_MEMOS),
+        prop::collection::vec(memo(), 0..=MAX_MEMOS),
         (any::<[u8; 33]>(), any::<Option<[u8; 64]>>()),
     )
         .prop_map(
@@ -140,6 +148,191 @@ fn payment() -> impl Strategy<Value = Payment> {
                 signature,
             },
         )
+}
+
+fn memo() -> impl Strategy<Value = Memo> {
+    let bytes = |max| prop::collection::vec(any::<u8>(), 0..=max);
+    (bytes(MAX_MEMO_BYTES), bytes(MAX_MEMO_BYTES)).prop_map(|(memo_type, memo_data)| Memo {
+        memo_type,
+        memo_data,
+    })
+}
+
+/// A TrustSet the codec can write: any fields within the ledger's bounds.
+fn trust_set() -> impl Strategy<Value = TrustSet> {
+    (
+        any::<[u8; 20]>(),
+        token_amount(),
+        0..=MAX_DROPS,
+        (
+            any::<u32>(),
+            any::<u32>(),
+            any::<u32>(),
+            any::<Option<u32>>(),
+        ),
+        prop::collection::vec(memo(), 0..=MAX_MEMOS),
+        (any::<[u8; 33]>(), any::<Option<[u8; 64]>>()),
+    )
+        .prop_map(
+            |(
+                account,
+                limit,
+                fee,
+                (sequence, last_ledger_sequence, flags, network_id),
+                memos,
+                (signing_pub_key, signature),
+            )| TrustSet {
+                account: AccountId(account),
+                limit: TokenAmount {
+                    value: positive(limit.value),
+                    ..limit
+                },
+                fee,
+                sequence,
+                last_ledger_sequence,
+                flags,
+                network_id,
+                memos,
+                signing_pub_key,
+                signature,
+            },
+        )
+}
+
+/// The value, or its negation if it is below zero.
+fn positive(value: TokenValue) -> TokenValue {
+    if value.is_negative() {
+        value.negate()
+    } else {
+        value
+    }
+}
+
+/// RLUSD's currency code.
+const RLUSD: &str = "524C555344000000000000000000000000000000";
+
+/// Any value the ledger can express: its edges, any mantissa and
+/// exponent, and amounts near the books' units.
+fn token_value() -> impl Strategy<Value = TokenValue> {
+    prop_oneof![
+        1 => Just(TokenValue::ZERO),
+        1 => Just(TokenValue::MAX),
+        1 => Just(TokenValue::MAX.negate()),
+        1 => any::<bool>().prop_map(|negative| TokenValue::new(negative, 1, MIN_EXPONENT + 15).unwrap()),
+        4 => (any::<bool>(), MIN_MANTISSA..=MAX_MANTISSA, MIN_EXPONENT..=MAX_EXPONENT)
+            .prop_map(|(negative, mantissa, exponent)| TokenValue::new(negative, mantissa, exponent).unwrap()),
+        4 => (any::<bool>(), 0..=MAX_MANTISSA, -40i32..=10)
+            .prop_filter_map("exact", |(negative, mantissa, exponent)| TokenValue::new(negative, mantissa, exponent)),
+    ]
+}
+
+fn currency() -> impl Strategy<Value = Currency> {
+    prop_oneof![
+        2 => Just(Currency::parse(RLUSD).unwrap()),
+        1 => Just(Currency::parse("USD").unwrap()),
+        1 => any::<[u8; 20]>().prop_map(Currency).prop_filter("a token's", Currency::is_token),
+    ]
+}
+
+fn token_amount() -> impl Strategy<Value = TokenAmount> {
+    (token_value(), currency(), any::<[u8; 20]>()).prop_filter_map(
+        "a token",
+        |(value, currency, issuer)| {
+            let amount = TokenAmount {
+                value,
+                currency,
+                issuer: AccountId(issuer),
+            };
+            amount.is_valid().then_some(amount)
+        },
+    )
+}
+
+/// Two accounts that are not one.
+fn two_accounts() -> impl Strategy<Value = (AccountId, AccountId)> {
+    (any::<[u8; 20]>(), any::<[u8; 20]>())
+        .prop_filter("two accounts", |(a, b)| a != b)
+        .prop_map(|(a, b)| (AccountId(a), AccountId(b)))
+}
+
+/// A token amount as the ledger writes it.
+fn amount_json(value: TokenValue, currency: Currency, issuer: &str) -> Value {
+    json!({ "currency": currency.to_string(), "issuer": issuer, "value": value.to_string() })
+}
+
+/// A `RippleState` between `a` and `b`, from `a`'s side: its balance and
+/// limit, `b`'s limit, and the flags `a` and `b` set, each as the low
+/// side's ([`side_flags`]), put on the low or the high side by which of
+/// the two is the lower number.
+fn ripple_state(
+    (a, b): (AccountId, AccountId),
+    currency: Currency,
+    balance: TokenValue,
+    (limit_a, limit_b): (TokenValue, TokenValue),
+    (flags_a, flags_b): (u32, u32),
+) -> Value {
+    let a_is_low = a < b;
+    let (low, high, balance, low_limit, high_limit) = if a_is_low {
+        (a, b, balance, limit_a, limit_b)
+    } else {
+        (b, a, balance.negate(), limit_b, limit_a)
+    };
+    let (low_flags, high_flags) = if a_is_low {
+        (flags_a, flags_b)
+    } else {
+        (flags_b, flags_a)
+    };
+    json!({
+        "LedgerEntryType": "RippleState",
+        // Each of the high side's flags is the low side's, doubled.
+        "Flags": low_flags | high_flags << 1,
+        "Balance": amount_json(balance, currency, "rrrrrrrrrrrrrrrrrrrrBZbvji"),
+        "LowLimit": amount_json(low_limit, currency, &low.to_address()),
+        "HighLimit": amount_json(high_limit, currency, &high.to_address()),
+        "HighNode": "0",
+        "LowNode": "0",
+    })
+}
+
+/// One side's flags from five bits (reserve, auth, no ripple, freeze,
+/// deep freeze), as the low side's.
+fn side_flags(bits: u32) -> u32 {
+    let flag = |bit: u32, low: u32| if bits & (1 << bit) != 0 { low } else { 0 };
+    flag(0, line_flags::LOW_RESERVE)
+        | flag(1, line_flags::LOW_AUTH)
+        | flag(2, line_flags::LOW_NO_RIPPLE)
+        | flag(3, line_flags::LOW_FREEZE)
+        | flag(4, line_flags::LOW_DEEP_FREEZE)
+}
+
+/// What `bits` say one side set.
+fn expected_flags(bits: u32) -> api::LineFlags {
+    api::LineFlags {
+        reserve: bits & 1 != 0,
+        auth: bits & 2 != 0,
+        no_ripple: bits & 4 != 0,
+        freeze: bits & 8 != 0,
+        deep_freeze: bits & 16 != 0,
+    }
+}
+
+/// A validated transaction by `account` whose metadata has `nodes`.
+fn tx_with(account: AccountId, nodes: Vec<Value>, delivered: Option<Value>) -> Value {
+    let mut meta =
+        json!({ "TransactionIndex": 0, "TransactionResult": "tesSUCCESS", "AffectedNodes": nodes });
+    if let Some(delivered) = delivered {
+        meta["delivered_amount"] = delivered;
+    }
+    json!({
+        "TransactionType": "Payment",
+        "Account": account.to_address(),
+        "Sequence": 1,
+        "Fee": "12",
+        "hash": "AB".repeat(32),
+        "ledger_index": 5,
+        "validated": true,
+        "meta": meta,
+    })
 }
 
 /// Config text: anything, JSON objects of the right keys and wrong ones,
@@ -1259,7 +1452,11 @@ proptest! {
     #[test]
     fn decoders_never_panic(bytes in prop::collection::vec(any::<u8>(), 0..400), text in "\\PC{0,60}") {
         let _ = Payment::decode(&bytes);
+        let _ = TrustSet::decode(&bytes);
+        let _ = Transaction::decode(&bytes);
         let _ = api::parse(&bytes);
+        let _ = TokenValue::parse(&text);
+        let _ = Currency::parse(&text);
         let _ = base58::decode_check(&text, &[0]);
         let _ = AccountId::parse(&text);
     }
@@ -1272,6 +1469,149 @@ proptest! {
         // write again.
         if let Ok(decoded) = Payment::decode(&mutate(blob, &mutations)) {
             prop_assert_eq!(Payment::decode(&decoded.blob()), Ok(decoded));
+        }
+    }
+
+    #[test]
+    fn trust_sets_decode_what_was_changed_or_refuse_it(trust_set in trust_set(), mutations in mutations()) {
+        let blob = trust_set.blob();
+        prop_assert_eq!(TrustSet::decode(&blob), Ok(trust_set.clone()));
+        prop_assert_eq!(Transaction::decode(&blob), Ok(Transaction::TrustSet(trust_set)));
+        if let Ok(decoded) = Transaction::decode(&mutate(blob, &mutations)) {
+            prop_assert_eq!(Transaction::decode(&decoded.blob()), Ok(decoded));
+        }
+    }
+
+    // A value has one form, in bytes and in text, and its order is its
+    // worth (spec/areas/xrpl.md#tokens).
+    #[test]
+    fn token_values_have_one_form(value in token_value(), other in token_value()) {
+        prop_assert_eq!(TokenValue::from_bits(value.to_bits()), Some(value));
+        prop_assert_eq!(TokenValue::parse(&value.to_string()), Some(value));
+        prop_assert_eq!(
+            TokenValue::parse(&format!("{}{}e{}", if value.is_negative() { "-" } else { "" }, value.mantissa(), value.exponent())),
+            Some(value)
+        );
+        prop_assert_eq!(value.negate().negate(), value);
+        prop_assert_eq!(value < other, other.negate() < value.negate());
+        prop_assert_eq!(value == other, value.to_bits() == other.to_bits());
+        let bytes = TokenAmount { value, currency: Currency::parse(RLUSD).unwrap(), issuer: theirs() }.to_bytes();
+        prop_assert_eq!(TokenAmount::from_bytes(&bytes).map(|amount| amount.value), Some(value));
+    }
+
+    // Whole units round down, toward minus infinity, exactly.
+    #[test]
+    fn whole_units_round_down(value in token_value(), decimals in 0..=40u8) {
+        let Some(units) = value.floor_units(decimals) else {
+            // Only what is beyond an i128 is refused.
+            prop_assert!(value.exponent() + i32::from(decimals) > 21);
+            return Ok(());
+        };
+        let signed = if value.is_negative() { -i128::from(value.mantissa()) } else { i128::from(value.mantissa()) };
+        let shift = value.exponent() + i32::from(decimals);
+        if value.is_zero() {
+            prop_assert_eq!(units, 0);
+        } else if shift >= 0 {
+            prop_assert_eq!(Some(units), signed.checked_mul(10_i128.pow(shift.unsigned_abs())));
+        } else if shift < -30 {
+            prop_assert_eq!(units, if value.is_negative() { -1 } else { 0 });
+        } else {
+            let unit = 10_i128.pow(shift.unsigned_abs());
+            prop_assert!(units * unit <= signed && signed < (units + 1) * unit);
+        }
+    }
+
+    // Whole units become a value exactly or not at all, and back.
+    #[test]
+    fn units_convert_exactly(units in prop_oneof![any::<u64>(), 0..10_000_000_000_000_000u64], decimals in 0..=MAX_DECIMALS) {
+        let value = TokenValue::from_units(units, decimals);
+        if let Some(value) = value {
+            prop_assert!(!value.is_negative());
+            prop_assert_eq!(value.floor_units(decimals), Some(i128::from(units)));
+        } else {
+            // More than sixteen digits, or below the least value.
+            let digits = units.to_string();
+            let significant = digits.trim_end_matches('0').len();
+            let exponent = i32::try_from(digits.len()).unwrap() - 16 - i32::from(decimals);
+            prop_assert!(significant > 16 || exponent < MIN_EXPONENT);
+        }
+    }
+
+    // A trust line reads the same from either side: one side's balance is
+    // the other's negated, and each side's limit and flags are its own,
+    // whichever of the two is the lower number.
+    #[test]
+    fn trust_lines_read_the_same_from_either_side(
+        (a, b) in two_accounts(),
+        currency in currency(),
+        balance in token_value(),
+        (limit_a, limit_b) in (token_value(), token_value()),
+        (bits_a, bits_b) in (0..32u32, 0..32u32),
+    ) {
+        let state = ripple_state((a, b), currency, balance, (limit_a, limit_b), (side_flags(bits_a), side_flags(bits_b)));
+        let result = json!({ "node": state, "ledger_index": 9, "validated": true });
+        let entry = api::ripple_state_result(&result).unwrap();
+        prop_assert_eq!(entry.ledger_index, 9);
+        prop_assert!(entry.validated);
+        let line = entry.line;
+        prop_assert!(line.low < line.high);
+        prop_assert!(line.is_between(a, b, currency) && line.is_between(b, a, currency));
+        let (from_a, from_b) = (line.view(a).unwrap(), line.view(b).unwrap());
+        prop_assert_eq!(from_a.counterparty, b);
+        prop_assert_eq!(from_b.counterparty, a);
+        prop_assert_eq!(from_a.balance, balance);
+        prop_assert_eq!(from_b.balance, balance.negate());
+        prop_assert_eq!((from_a.limit, from_a.counterparty_limit), (limit_a, limit_b));
+        prop_assert_eq!((from_b.limit, from_b.counterparty_limit), (limit_b, limit_a));
+        prop_assert_eq!(from_a.ours, expected_flags(bits_a));
+        prop_assert_eq!(from_a.theirs, expected_flags(bits_b));
+        prop_assert_eq!(from_b.ours, from_a.theirs);
+        prop_assert_eq!(from_b.theirs, from_a.ours);
+        prop_assert!(line.view(ours()).is_none() || ours() == a || ours() == b);
+        // Limits the wrong way round are no line.
+        let mut swapped = result;
+        let (low, high) = (swapped["node"]["LowLimit"].clone(), swapped["node"]["HighLimit"].clone());
+        swapped["node"]["LowLimit"] = high;
+        swapped["node"]["HighLimit"] = low;
+        prop_assert!(api::ripple_state_result(&swapped).is_none());
+    }
+
+    // What a transaction did to a line, from either side: created (from
+    // zero), changed, or deleted (to zero).
+    #[test]
+    fn line_changes_read_the_same_from_either_side(
+        (a, b) in two_accounts(),
+        currency in currency(),
+        (before, after) in (token_value(), token_value()),
+        kind in 0..3u8,
+        delivered in token_amount(),
+    ) {
+        let state = |balance| ripple_state((a, b), currency, balance, (TokenValue::MAX, TokenValue::ZERO), (side_flags(4), 0));
+        let previous = state(before)["Balance"].clone();
+        let (node, expected) = match kind {
+            0 => (json!({ "CreatedNode": { "LedgerEntryType": "RippleState", "NewFields": state(after) } }), (TokenValue::ZERO, after)),
+            1 => (
+                json!({ "ModifiedNode": { "LedgerEntryType": "RippleState", "FinalFields": state(after), "PreviousFields": { "Balance": previous } } }),
+                (before, after),
+            ),
+            _ => (
+                json!({ "DeletedNode": { "LedgerEntryType": "RippleState", "FinalFields": state(after), "PreviousFields": { "Balance": previous } } }),
+                (before, TokenValue::ZERO),
+            ),
+        };
+        let delivered_json = amount_json(delivered.value, delivered.currency, &delivered.issuer.to_address());
+        let record = api::tx_result(&tx_with(a, vec![node], Some(delivered_json))).unwrap();
+        prop_assert_eq!(record.delivered_token, Some(delivered));
+        prop_assert_eq!(record.delivered, None);
+        let change = record.line(a, b, currency).unwrap();
+        prop_assert_eq!(record.line(b, a, currency), Some(change));
+        prop_assert_eq!(change.balance_of(a), Some(expected));
+        prop_assert_eq!(change.balance_of(b), Some((expected.0.negate(), expected.1.negate())));
+        prop_assert_eq!(change.line().view(a).unwrap().ours.no_ripple, true);
+        let third = AccountId([0xEE; 20]);
+        if third != a && third != b {
+            prop_assert_eq!(change.balance_of(third), None);
+            prop_assert!(record.line(a, third, currency).is_none());
         }
     }
 

@@ -15,7 +15,7 @@ use alloc::vec::Vec;
 
 use serde_json::{Value, json};
 
-use crate::codec::{Payment, hash};
+use crate::codec::{Amount, Payment, hash};
 use crate::keys::{AccountId, verify};
 use crate::{from_hex, hex_upper};
 
@@ -236,7 +236,7 @@ impl FakeLedger {
         self.queued.push(Payment {
             account: self.genesis,
             destination: to,
-            amount: drops,
+            amount: Amount::Xrp(drops),
             fee: FEE_BASE,
             sequence,
             last_ledger_sequence: self.ledger.saturating_add(20),
@@ -532,7 +532,15 @@ impl FakeLedger {
             .and_then(from_hex)
             .ok_or_else(|| json!({ "error": "invalidTransaction" }))?;
         let result = |code: &str| Ok(json!({ "engine_result": code, "tx_blob": hex_upper(&blob) }));
-        let Ok(payment) = Payment::decode(&blob) else {
+        // Tokens are not modelled: a token Payment is as malformed as
+        // anything else the codec cannot read as XRP.
+        let Ok(
+            payment @ Payment {
+                amount: Amount::Xrp(drops),
+                ..
+            },
+        ) = Payment::decode(&blob)
+        else {
             return result("temMALFORMED");
         };
         let tx_hash = hash(&blob);
@@ -554,7 +562,7 @@ impl FakeLedger {
         {
             return result("temBAD_SIGNATURE");
         }
-        if payment.amount == 0 {
+        if drops == 0 {
             return result("temBAD_AMOUNT");
         }
         if !self.accounts.contains_key(&payment.account) {
@@ -580,6 +588,7 @@ impl FakeLedger {
 
     /// Applies a queued Payment, as the ledger closes.
     fn apply(&mut self, payment: Payment, index: u32) -> Option<Applied> {
+        let amount = payment.amount.drops()?;
         let sender = *self.accounts.get(&payment.account)?;
         if payment.last_ledger_sequence < self.ledger || payment.sequence != sender.sequence {
             return None;
@@ -587,20 +596,16 @@ impl FakeLedger {
         let fee = payment.fee.min(sender.balance);
         let destination = self.accounts.get(&payment.destination).copied();
         let after_fee = sender.balance - fee;
-        let code = if destination.is_none() && payment.amount < self.reserve.0 {
+        let code = if destination.is_none() && amount < self.reserve.0 {
             "tecNO_DST_INSUF_XRP"
-        } else if after_fee < payment.amount.saturating_add(self.reserve_of(&sender))
+        } else if after_fee < amount.saturating_add(self.reserve_of(&sender))
             && payment.account != self.genesis
         {
             "tecUNFUNDED_PAYMENT"
         } else {
             "tesSUCCESS"
         };
-        let moved = if code == "tesSUCCESS" {
-            payment.amount
-        } else {
-            0
-        };
+        let moved = if code == "tesSUCCESS" { amount } else { 0 };
         self.burned = self.burned.saturating_add(fee);
         let sender_after = Account {
             balance: after_fee - moved,
@@ -664,7 +669,7 @@ impl FakeLedger {
             "TransactionType": "Payment",
             "Account": payment.account.to_address(),
             "Destination": payment.destination.to_address(),
-            "Amount": payment.amount.to_string(),
+            "Amount": payment.amount.drops().unwrap_or(0).to_string(),
             "Fee": payment.fee.to_string(),
             "Sequence": payment.sequence,
             "LastLedgerSequence": payment.last_ledger_sequence,

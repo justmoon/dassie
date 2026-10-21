@@ -1,12 +1,15 @@
-//! The binary form of an XRP `Payment` with memos: the only transaction
-//! the node signs. Fields go in the ledger's canonical order, by type code
-//! and then field code; the decoder takes only that order and only these
-//! fields, which is all the fake ledger needs to check what it is sent.
+//! The binary form of the transactions the node signs: a `Payment` of XRP
+//! or of a token, with memos, and a `TrustSet` that opens or changes a
+//! line to a token's issuer. Fields go in the ledger's canonical order, by
+//! type code and then field code; the decoder takes only that order and
+//! only these fields, which is all the fake ledger needs to check what it
+//! is sent. A Payment has no paths and no `SendMax`, and is never partial.
 
 use alloc::vec::Vec;
 
 use sha2::{Digest, Sha512};
 
+pub use crate::amount::{Amount, Currency, TokenAmount, TokenValue};
 use crate::keys::{AccountId, Wallet};
 use crate::{MAX_DROPS, hex_upper};
 
@@ -21,6 +24,16 @@ const SIGNING_PREFIX: [u8; 4] = *b"STX\0";
 const HASH_PREFIX: [u8; 4] = *b"TXN\0";
 /// The `Payment` transaction type.
 const PAYMENT: u16 = 0;
+/// The `TrustSet` transaction type.
+const TRUST_SET: u16 = 20;
+
+/// A Payment's flag that lets it deliver less than its amount; the node
+/// never sets it, and the decoder refuses it.
+pub const TF_PARTIAL_PAYMENT: u32 = 0x0002_0000;
+/// A TrustSet's flag that disables rippling on the sender's side.
+pub const TF_SET_NO_RIPPLE: u32 = 0x0002_0000;
+/// A TrustSet's flag that enables rippling on the sender's side.
+pub const TF_CLEAR_NO_RIPPLE: u32 = 0x0004_0000;
 
 // Type codes.
 const UINT16: u8 = 1;
@@ -38,6 +51,7 @@ const FLAGS: (u8, u8) = (UINT32, 2);
 const SEQUENCE: (u8, u8) = (UINT32, 4);
 const LAST_LEDGER_SEQUENCE: (u8, u8) = (UINT32, 27);
 const AMOUNT_FIELD: (u8, u8) = (AMOUNT, 1);
+const LIMIT_AMOUNT: (u8, u8) = (AMOUNT, 3);
 const FEE: (u8, u8) = (AMOUNT, 8);
 const SIGNING_PUB_KEY: (u8, u8) = (BLOB, 3);
 const TXN_SIGNATURE: (u8, u8) = (BLOB, 4);
@@ -59,22 +73,23 @@ pub struct Memo {
     pub memo_data: Vec<u8>,
 }
 
-/// A Payment of XRP.
+/// A Payment of XRP or of a token: no paths, no `SendMax`, never
+/// partial.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Payment {
     /// Who pays.
     pub account: AccountId,
     /// Who is paid.
     pub destination: AccountId,
-    /// How much, in drops.
-    pub amount: u64,
+    /// How much: drops, or a token amount not below zero.
+    pub amount: Amount,
     /// The fee, in drops.
     pub fee: u64,
     /// The payer's sequence number.
     pub sequence: u32,
     /// The last ledger the transaction may be in.
     pub last_ledger_sequence: u32,
-    /// Flags; 0 for the node's.
+    /// Flags; 0 for the node's, and never [`TF_PARTIAL_PAYMENT`].
     pub flags: u32,
     /// The network, required above 1024 and left out below.
     pub network_id: Option<u32>,
@@ -86,18 +101,53 @@ pub struct Payment {
     pub signature: Option<[u8; 64]>,
 }
 
-/// A signed Payment, ready to submit.
+/// A TrustSet: opens or changes the sender's line to a token's issuer.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Signed {
+pub struct TrustSet {
+    /// Whose line it is.
+    pub account: AccountId,
+    /// The line: the issuer, the currency, and as value the most the
+    /// sender holds of it, not below zero.
+    pub limit: TokenAmount,
+    /// The fee, in drops.
+    pub fee: u64,
+    /// The sender's sequence number.
+    pub sequence: u32,
+    /// The last ledger the transaction may be in.
+    pub last_ledger_sequence: u32,
+    /// Flags, such as [`TF_SET_NO_RIPPLE`].
+    pub flags: u32,
+    /// The network, required above 1024 and left out below.
+    pub network_id: Option<u32>,
+    /// Memos.
+    pub memos: Vec<Memo>,
+    /// The signer's public key.
+    pub signing_pub_key: [u8; 33],
+    /// The signature, once signed.
+    pub signature: Option<[u8; 64]>,
+}
+
+/// A transaction the codec reads: either kind.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Transaction {
+    /// A Payment.
+    Payment(Payment),
+    /// A TrustSet.
+    TrustSet(TrustSet),
+}
+
+/// A signed transaction, ready to submit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Signed<T = Payment> {
     /// The transaction.
-    pub payment: Payment,
+    pub tx: T,
     /// Its binary form.
     pub blob: Vec<u8>,
     /// Its hash.
     pub hash: [u8; 32],
 }
 
-impl Signed {
+impl<T> Signed<T> {
     /// The hash as the ledger writes it, in uppercase hex.
     #[must_use]
     pub fn hash_hex(&self) -> alloc::string::String {
@@ -130,58 +180,72 @@ pub fn hash(blob: &[u8]) -> [u8; 32] {
     out
 }
 
-impl Payment {
-    /// What the payer signs: `STX\0` and the fields, signature left out.
-    #[must_use]
-    pub fn signing_payload(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(256);
-        out.extend_from_slice(&SIGNING_PREFIX);
-        self.encode(&mut out, false);
-        out
-    }
-
-    /// Signs it with `wallet`, whose key it names.
-    ///
-    /// # Panics
-    ///
-    /// If `wallet` is not the payer's, or an amount is beyond the ledger's
-    /// (bugs: the scheme builds every Payment it signs).
-    #[must_use]
-    pub fn sign(mut self, wallet: &Wallet) -> Signed {
-        assert_eq!(
-            self.signing_pub_key,
-            *wallet.public_key(),
-            "signed by its payer"
-        );
-        assert_eq!(self.account, wallet.account(), "signed by its payer");
-        self.signature = Some(wallet.sign(&self.signing_payload()));
-        let mut blob = Vec::with_capacity(256);
-        self.encode(&mut blob, true);
-        Signed {
-            hash: hash(&blob),
-            payment: self,
-            blob,
-        }
-    }
-
-    /// Its binary form, with the signature if it has one: what was
-    /// submitted, since the form is canonical.
-    #[must_use]
-    pub fn blob(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(256);
-        self.encode(&mut out, true);
-        out
-    }
-
+/// What signing, writing and reading share between the kinds.
+trait Fields: Sized {
     /// The fields in canonical order; the signature only `with_signature`.
-    fn encode(&self, out: &mut Vec<u8>, with_signature: bool) {
-        assert!(
-            self.amount <= MAX_DROPS && self.fee <= MAX_DROPS,
-            "amounts within the ledger's"
-        );
+    fn encode(&self, out: &mut Vec<u8>, with_signature: bool);
+    /// Who signs, and with which key.
+    fn signer(&self) -> (AccountId, [u8; 33]);
+    /// Signs it.
+    fn set_signature(&mut self, signature: [u8; 64]);
+}
+
+/// What the sender signs: `STX\0` and the fields, signature left out.
+fn signing_payload(tx: &impl Fields) -> Vec<u8> {
+    let mut out = Vec::with_capacity(256);
+    out.extend_from_slice(&SIGNING_PREFIX);
+    tx.encode(&mut out, false);
+    out
+}
+
+fn sign<T: Fields>(mut tx: T, wallet: &Wallet) -> Signed<T> {
+    let (account, key) = tx.signer();
+    assert_eq!(key, *wallet.public_key(), "signed by its sender");
+    assert_eq!(account, wallet.account(), "signed by its sender");
+    tx.set_signature(wallet.sign(&signing_payload(&tx)));
+    let mut blob = Vec::with_capacity(256);
+    tx.encode(&mut blob, true);
+    Signed {
+        hash: hash(&blob),
+        tx,
+        blob,
+    }
+}
+
+fn blob_of(tx: &impl Fields) -> Vec<u8> {
+    let mut out = Vec::with_capacity(256);
+    tx.encode(&mut out, true);
+    out
+}
+
+/// The fields both kinds have, borrowed to be written.
+struct Common<'a> {
+    kind: u16,
+    network_id: Option<u32>,
+    flags: u32,
+    sequence: u32,
+    last_ledger_sequence: u32,
+    fee: u64,
+    signing_pub_key: &'a [u8; 33],
+    signature: Option<&'a [u8; 64]>,
+    account: AccountId,
+    memos: &'a [Memo],
+}
+
+impl Common<'_> {
+    /// Writes the fields, with the kind's one amount and its destination,
+    /// if it has one, in their places.
+    fn encode(
+        &self,
+        out: &mut Vec<u8>,
+        (amount_field, amount): ((u8, u8), &Amount),
+        destination: Option<AccountId>,
+        with_signature: bool,
+    ) {
+        assert!(self.fee <= MAX_DROPS, "fees within the ledger's");
         assert!(self.memos.len() <= MAX_MEMOS, "few memos");
         field(out, TRANSACTION_TYPE);
-        out.extend_from_slice(&PAYMENT.to_be_bytes());
+        out.extend_from_slice(&self.kind.to_be_bytes());
         if let Some(network) = self.network_id {
             field(out, NETWORK_ID);
             out.extend_from_slice(&network.to_be_bytes());
@@ -192,23 +256,26 @@ impl Payment {
         out.extend_from_slice(&self.sequence.to_be_bytes());
         field(out, LAST_LEDGER_SEQUENCE);
         out.extend_from_slice(&self.last_ledger_sequence.to_be_bytes());
-        field(out, AMOUNT_FIELD);
-        out.extend_from_slice(&xrp(self.amount));
+        // Amount (1) or LimitAmount (3) goes before the Fee (8).
+        field(out, amount_field);
+        write_amount(out, amount);
         field(out, FEE);
         out.extend_from_slice(&xrp(self.fee));
         field(out, SIGNING_PUB_KEY);
-        blob(out, &self.signing_pub_key);
-        if let (true, Some(signature)) = (with_signature, &self.signature) {
+        blob(out, self.signing_pub_key);
+        if let (true, Some(signature)) = (with_signature, self.signature) {
             field(out, TXN_SIGNATURE);
             blob(out, signature);
         }
         field(out, ACCOUNT);
         blob(out, &self.account.0);
-        field(out, DESTINATION);
-        blob(out, &self.destination.0);
+        if let Some(destination) = destination {
+            field(out, DESTINATION);
+            blob(out, &destination.0);
+        }
         if !self.memos.is_empty() {
             field(out, MEMOS);
-            for memo in &self.memos {
+            for memo in self.memos {
                 assert!(
                     memo.memo_type.len() <= MAX_MEMO_BYTES
                         && memo.memo_data.len() <= MAX_MEMO_BYTES,
@@ -224,9 +291,285 @@ impl Payment {
             field(out, ARRAY_END);
         }
     }
+}
+
+/// The fields both kinds have, read.
+struct Decoded {
+    network_id: Option<u32>,
+    flags: u32,
+    sequence: u32,
+    last_ledger_sequence: u32,
+    amount: Amount,
+    fee: u64,
+    signing_pub_key: [u8; 33],
+    signature: Option<[u8; 64]>,
+    account: AccountId,
+    destination: Option<AccountId>,
+    memos: Vec<Memo>,
+}
+
+/// Reads a transaction of `kind`, whose one amount is `amount_field`, with
+/// a `Destination` if `with_destination`: these fields, in this order,
+/// nothing else.
+fn decode_fields(
+    bytes: &[u8],
+    kind: u16,
+    amount_field: (u8, u8),
+    with_destination: bool,
+) -> Result<Decoded, DecodeError> {
+    let mut reader = Reader { bytes };
+    reader.expect(TRANSACTION_TYPE)?;
+    if u16::from_be_bytes(reader.take()?) != kind {
+        return Err(DecodeError::Value);
+    }
+    let network_id = if reader.peek(NETWORK_ID) {
+        reader.expect(NETWORK_ID)?;
+        Some(u32::from_be_bytes(reader.take()?))
+    } else {
+        None
+    };
+    reader.expect(FLAGS)?;
+    let flags = u32::from_be_bytes(reader.take()?);
+    reader.expect(SEQUENCE)?;
+    let sequence = u32::from_be_bytes(reader.take()?);
+    reader.expect(LAST_LEDGER_SEQUENCE)?;
+    let last_ledger_sequence = u32::from_be_bytes(reader.take()?);
+    reader.expect(amount_field)?;
+    let amount = reader.amount()?;
+    reader.expect(FEE)?;
+    let fee = from_xrp(reader.take()?)?;
+    reader.expect(SIGNING_PUB_KEY)?;
+    let signing_pub_key = reader.blob()?.try_into().map_err(|_| DecodeError::Value)?;
+    let signature = if reader.peek(TXN_SIGNATURE) {
+        reader.expect(TXN_SIGNATURE)?;
+        Some(reader.blob()?.try_into().map_err(|_| DecodeError::Value)?)
+    } else {
+        None
+    };
+    reader.expect(ACCOUNT)?;
+    let account = AccountId(reader.blob()?.try_into().map_err(|_| DecodeError::Value)?);
+    let destination = if with_destination {
+        reader.expect(DESTINATION)?;
+        Some(AccountId(
+            reader.blob()?.try_into().map_err(|_| DecodeError::Value)?,
+        ))
+    } else {
+        None
+    };
+    let memos = reader.memos()?;
+    if !reader.bytes.is_empty() {
+        return Err(DecodeError::Trailing);
+    }
+    Ok(Decoded {
+        network_id,
+        flags,
+        sequence,
+        last_ledger_sequence,
+        amount,
+        fee,
+        signing_pub_key,
+        signature,
+        account,
+        destination,
+        memos,
+    })
+}
+
+impl Fields for Payment {
+    fn encode(&self, out: &mut Vec<u8>, with_signature: bool) {
+        assert!(
+            match &self.amount {
+                Amount::Xrp(drops) => *drops <= MAX_DROPS,
+                Amount::Token(token) => token.is_valid() && !token.value.is_negative(),
+            },
+            "amounts within the ledger's"
+        );
+        assert_eq!(
+            self.flags & TF_PARTIAL_PAYMENT,
+            0,
+            "never a partial payment"
+        );
+        Common {
+            kind: PAYMENT,
+            network_id: self.network_id,
+            flags: self.flags,
+            sequence: self.sequence,
+            last_ledger_sequence: self.last_ledger_sequence,
+            fee: self.fee,
+            signing_pub_key: &self.signing_pub_key,
+            signature: self.signature.as_ref(),
+            account: self.account,
+            memos: &self.memos,
+        }
+        .encode(
+            out,
+            (AMOUNT_FIELD, &self.amount),
+            Some(self.destination),
+            with_signature,
+        );
+    }
+
+    fn signer(&self) -> (AccountId, [u8; 33]) {
+        (self.account, self.signing_pub_key)
+    }
+
+    fn set_signature(&mut self, signature: [u8; 64]) {
+        self.signature = Some(signature);
+    }
+}
+
+impl Fields for TrustSet {
+    fn encode(&self, out: &mut Vec<u8>, with_signature: bool) {
+        assert!(
+            self.limit.is_valid() && !self.limit.value.is_negative(),
+            "a limit the ledger takes"
+        );
+        Common {
+            kind: TRUST_SET,
+            network_id: self.network_id,
+            flags: self.flags,
+            sequence: self.sequence,
+            last_ledger_sequence: self.last_ledger_sequence,
+            fee: self.fee,
+            signing_pub_key: &self.signing_pub_key,
+            signature: self.signature.as_ref(),
+            account: self.account,
+            memos: &self.memos,
+        }
+        .encode(
+            out,
+            (LIMIT_AMOUNT, &Amount::Token(self.limit)),
+            None,
+            with_signature,
+        );
+    }
+
+    fn signer(&self) -> (AccountId, [u8; 33]) {
+        (self.account, self.signing_pub_key)
+    }
+
+    fn set_signature(&mut self, signature: [u8; 64]) {
+        self.signature = Some(signature);
+    }
+}
+
+impl Payment {
+    /// What the payer signs: `STX\0` and the fields, signature left out.
+    #[must_use]
+    pub fn signing_payload(&self) -> Vec<u8> {
+        signing_payload(self)
+    }
+
+    /// Signs it with `wallet`, whose key it names.
+    ///
+    /// # Panics
+    ///
+    /// If `wallet` is not the payer's, an amount is beyond the ledger's or
+    /// below zero, or it is partial (bugs: the scheme builds every Payment
+    /// it signs).
+    #[must_use]
+    pub fn sign(self, wallet: &Wallet) -> Signed<Self> {
+        sign(self, wallet)
+    }
+
+    /// Its binary form, with the signature if it has one: what was
+    /// submitted, since the form is canonical.
+    #[must_use]
+    pub fn blob(&self) -> Vec<u8> {
+        blob_of(self)
+    }
 
     /// The Payment in `bytes`, signed or not, if it is one the node would
-    /// send: these fields, in this order, nothing else.
+    /// send: these fields, in this order, nothing else, an amount not
+    /// below zero, and not partial.
+    ///
+    /// # Errors
+    ///
+    /// Why it is not.
+    pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let decoded = decode_fields(bytes, PAYMENT, AMOUNT_FIELD, true)?;
+        if decoded.flags & TF_PARTIAL_PAYMENT != 0
+            || decoded
+                .amount
+                .token()
+                .is_some_and(|token| token.value.is_negative())
+        {
+            return Err(DecodeError::Value);
+        }
+        Ok(Self {
+            account: decoded.account,
+            destination: decoded.destination.ok_or(DecodeError::Field)?,
+            amount: decoded.amount,
+            fee: decoded.fee,
+            sequence: decoded.sequence,
+            last_ledger_sequence: decoded.last_ledger_sequence,
+            flags: decoded.flags,
+            network_id: decoded.network_id,
+            memos: decoded.memos,
+            signing_pub_key: decoded.signing_pub_key,
+            signature: decoded.signature,
+        })
+    }
+}
+
+impl TrustSet {
+    /// What the sender signs: `STX\0` and the fields, signature left out.
+    #[must_use]
+    pub fn signing_payload(&self) -> Vec<u8> {
+        signing_payload(self)
+    }
+
+    /// Signs it with `wallet`, whose key it names.
+    ///
+    /// # Panics
+    ///
+    /// If `wallet` is not the sender's, or the limit or the fee is beyond
+    /// the ledger's or below zero (bugs: the scheme builds every TrustSet
+    /// it signs).
+    #[must_use]
+    pub fn sign(self, wallet: &Wallet) -> Signed<Self> {
+        sign(self, wallet)
+    }
+
+    /// Its binary form, with the signature if it has one.
+    #[must_use]
+    pub fn blob(&self) -> Vec<u8> {
+        blob_of(self)
+    }
+
+    /// The TrustSet in `bytes`, signed or not, if it is one the node would
+    /// send: these fields, in this order, nothing else (no qualities), and
+    /// a limit not below zero.
+    ///
+    /// # Errors
+    ///
+    /// Why it is not.
+    pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let decoded = decode_fields(bytes, TRUST_SET, LIMIT_AMOUNT, false)?;
+        let Amount::Token(limit) = decoded.amount else {
+            return Err(DecodeError::Value);
+        };
+        if limit.value.is_negative() {
+            return Err(DecodeError::Value);
+        }
+        Ok(Self {
+            account: decoded.account,
+            limit,
+            fee: decoded.fee,
+            sequence: decoded.sequence,
+            last_ledger_sequence: decoded.last_ledger_sequence,
+            flags: decoded.flags,
+            network_id: decoded.network_id,
+            memos: decoded.memos,
+            signing_pub_key: decoded.signing_pub_key,
+            signature: decoded.signature,
+        })
+    }
+}
+
+impl Transaction {
+    /// The transaction in `bytes`, of either kind, if it is one the node
+    /// would send.
     ///
     /// # Errors
     ///
@@ -234,54 +577,20 @@ impl Payment {
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader { bytes };
         reader.expect(TRANSACTION_TYPE)?;
-        if u16::from_be_bytes(reader.take()?) != PAYMENT {
-            return Err(DecodeError::Value);
+        match u16::from_be_bytes(reader.take()?) {
+            PAYMENT => Payment::decode(bytes).map(Self::Payment),
+            TRUST_SET => TrustSet::decode(bytes).map(Self::TrustSet),
+            _ => Err(DecodeError::Value),
         }
-        let network_id = if reader.peek(NETWORK_ID) {
-            reader.expect(NETWORK_ID)?;
-            Some(u32::from_be_bytes(reader.take()?))
-        } else {
-            None
-        };
-        reader.expect(FLAGS)?;
-        let flags = u32::from_be_bytes(reader.take()?);
-        reader.expect(SEQUENCE)?;
-        let sequence = u32::from_be_bytes(reader.take()?);
-        reader.expect(LAST_LEDGER_SEQUENCE)?;
-        let last_ledger_sequence = u32::from_be_bytes(reader.take()?);
-        reader.expect(AMOUNT_FIELD)?;
-        let amount = from_xrp(reader.take()?)?;
-        reader.expect(FEE)?;
-        let fee = from_xrp(reader.take()?)?;
-        reader.expect(SIGNING_PUB_KEY)?;
-        let signing_pub_key = reader.blob()?.try_into().map_err(|_| DecodeError::Value)?;
-        let signature = if reader.peek(TXN_SIGNATURE) {
-            reader.expect(TXN_SIGNATURE)?;
-            Some(reader.blob()?.try_into().map_err(|_| DecodeError::Value)?)
-        } else {
-            None
-        };
-        reader.expect(ACCOUNT)?;
-        let account = AccountId(reader.blob()?.try_into().map_err(|_| DecodeError::Value)?);
-        reader.expect(DESTINATION)?;
-        let destination = AccountId(reader.blob()?.try_into().map_err(|_| DecodeError::Value)?);
-        let memos = reader.memos()?;
-        if !reader.bytes.is_empty() {
-            return Err(DecodeError::Trailing);
+    }
+
+    /// Its binary form, with the signature if it has one.
+    #[must_use]
+    pub fn blob(&self) -> Vec<u8> {
+        match self {
+            Self::Payment(payment) => payment.blob(),
+            Self::TrustSet(trust_set) => trust_set.blob(),
         }
-        Ok(Self {
-            account,
-            destination,
-            amount,
-            fee,
-            sequence,
-            last_ledger_sequence,
-            flags,
-            network_id,
-            memos,
-            signing_pub_key,
-            signature,
-        })
     }
 }
 
@@ -307,6 +616,14 @@ fn blob(out: &mut Vec<u8>, bytes: &[u8]) {
         out.push(u8::try_from(rest & 0xff).unwrap_or(0));
     }
     out.extend_from_slice(bytes);
+}
+
+/// An amount: eight bytes of XRP, or 48 of a token.
+fn write_amount(out: &mut Vec<u8>, amount: &Amount) {
+    match amount {
+        Amount::Xrp(drops) => out.extend_from_slice(&xrp(*drops)),
+        Amount::Token(token) => out.extend_from_slice(&token.to_bytes()),
+    }
 }
 
 /// An XRP amount: the "not an IOU" and "positive" bits, and the drops.
@@ -355,6 +672,17 @@ impl<'a> Reader<'a> {
         }
         self.bytes = self.bytes.get(length..).ok_or(DecodeError::Truncated)?;
         Ok(())
+    }
+
+    /// An amount: a token if its first bit says so, else XRP.
+    fn amount(&mut self) -> Result<Amount, DecodeError> {
+        let first = *self.bytes.first().ok_or(DecodeError::Truncated)?;
+        if first & 0x80 == 0 {
+            return Ok(Amount::Xrp(from_xrp(self.take()?)?));
+        }
+        TokenAmount::from_bytes(&self.take()?)
+            .map(Amount::Token)
+            .ok_or(DecodeError::Value)
     }
 
     /// The memos, if any.
@@ -423,7 +751,7 @@ mod tests {
         Payment {
             account: wallet.account(),
             destination: AccountId([9; 20]),
-            amount: 1_000,
+            amount: Amount::Xrp(1_000),
             fee: 12,
             sequence: 5,
             last_ledger_sequence: 25,
@@ -442,11 +770,11 @@ mod tests {
     fn signed_payments_decode_to_themselves() {
         let wallet = Wallet::from_seed([1; 16]);
         let signed = payment(&wallet).sign(&wallet);
-        assert_eq!(Payment::decode(&signed.blob), Ok(signed.payment.clone()));
+        assert_eq!(Payment::decode(&signed.blob), Ok(signed.tx.clone()));
         assert_eq!(hash(&signed.blob), signed.hash);
         let unsigned = Payment {
             signature: None,
-            ..signed.payment
+            ..signed.tx
         };
         assert_eq!(
             Payment::decode(unsigned.signing_payload().get(4..).unwrap()),
@@ -473,5 +801,90 @@ mod tests {
                 Ok(shorter) => assert!(shorter.memos.is_empty(), "{cut}"),
             }
         }
+    }
+
+    fn rlusd(value: &str) -> TokenAmount {
+        TokenAmount {
+            value: TokenValue::parse(value).unwrap(),
+            currency: Currency::parse("524C555344000000000000000000000000000000").unwrap(),
+            issuer: AccountId([7; 20]),
+        }
+    }
+
+    #[test]
+    fn token_payments_and_trust_sets_decode_to_themselves() {
+        let wallet = Wallet::from_seed([1; 16]);
+        let token = Payment {
+            amount: Amount::Token(rlusd("1234567890.123456")),
+            ..payment(&wallet)
+        };
+        let signed = token.sign(&wallet);
+        assert_eq!(Payment::decode(&signed.blob), Ok(signed.tx.clone()));
+        assert_eq!(
+            Transaction::decode(&signed.blob),
+            Ok(Transaction::Payment(signed.tx.clone()))
+        );
+        let trust_set = TrustSet {
+            account: wallet.account(),
+            limit: TokenAmount {
+                value: TokenValue::MAX,
+                ..rlusd("0")
+            },
+            fee: 12,
+            sequence: 6,
+            last_ledger_sequence: 26,
+            flags: TF_SET_NO_RIPPLE,
+            network_id: Some(21_338),
+            memos: alloc::vec::Vec::new(),
+            signing_pub_key: *wallet.public_key(),
+            signature: None,
+        };
+        let signed = trust_set.sign(&wallet);
+        assert_eq!(TrustSet::decode(&signed.blob), Ok(signed.tx.clone()));
+        assert_eq!(
+            Transaction::decode(&signed.blob),
+            Ok(Transaction::TrustSet(signed.tx.clone()))
+        );
+        assert_eq!(
+            Transaction::decode(&signed.blob).unwrap().blob(),
+            signed.blob
+        );
+        // Each kind refuses the other.
+        assert_eq!(Payment::decode(&signed.blob), Err(DecodeError::Value));
+    }
+
+    #[test]
+    fn partial_payments_and_negative_amounts_are_refused() {
+        let wallet = Wallet::from_seed([1; 16]);
+        let token = Payment {
+            amount: Amount::Token(rlusd("1")),
+            ..payment(&wallet)
+        };
+        let blob = token.blob();
+        // Flags are bytes 4 to 7 of the blob: TransactionType, then Flags.
+        let mut partial = blob.clone();
+        partial[4..8].copy_from_slice(&TF_PARTIAL_PAYMENT.to_be_bytes());
+        assert_eq!(Payment::decode(&partial), Err(DecodeError::Value));
+        // The sign bit is the second of the amount's first byte, after
+        // Sequence and LastLedgerSequence.
+        let amount_at = blob.iter().position(|b| *b == 0x61).unwrap() + 1;
+        let mut negative = blob.clone();
+        negative[amount_at] &= !0x40;
+        assert_eq!(Payment::decode(&negative), Err(DecodeError::Value));
+        // A token of the zero issuer is none.
+        let mut zero_issuer = blob;
+        zero_issuer[amount_at + 28..amount_at + 48].fill(0);
+        assert_eq!(Payment::decode(&zero_issuer), Err(DecodeError::Value));
+    }
+
+    #[test]
+    #[should_panic(expected = "never a partial payment")]
+    fn the_node_never_signs_a_partial_payment() {
+        let wallet = Wallet::from_seed([1; 16]);
+        let partial = Payment {
+            flags: TF_PARTIAL_PAYMENT,
+            ..payment(&wallet)
+        };
+        let _ = partial.sign(&wallet);
     }
 }

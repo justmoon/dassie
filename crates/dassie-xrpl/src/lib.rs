@@ -3,8 +3,11 @@
 //! - [`keys`]: the original's wallet, derived from the node's settlement
 //!   entropy, so the same phrase finds the same funds; account IDs and
 //!   their addresses ([`base58`]).
-//! - [`codec`]: the binary form of the one transaction the node sends, a
-//!   `Payment` of XRP with memos, its signing and its hash.
+//! - [`amount`]: amounts of XRP and of tokens, exact, and their
+//!   conversion to and from whole units.
+//! - [`codec`]: the binary form of the transactions the node sends, a
+//!   `Payment` of XRP or of a token with memos and a `TrustSet`, their
+//!   signing and their hash.
 //! - [`api`]: the rippled WebSocket JSON the node speaks: requests, and
 //!   what comes back, parsed and bounded.
 //! - [`scheme`]: the `xrpl-testnet` settlement scheme. It says what to send
@@ -21,6 +24,7 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+pub mod amount;
 pub mod api;
 pub mod base58;
 pub mod codec;

@@ -339,10 +339,11 @@
       "x": 20,
       "y": 576,
       "w": 184,
-      "desc": "The XRP Ledger testnet as a settlement scheme: the wallet, the Payment codec, the rippled API, and the scheme that books what the ledger says. A fake ledger serves the tests and the dev network.",
+      "desc": "The XRP Ledger testnet as a settlement scheme: the wallet, the transaction codec, the rippled API, and the scheme that books what the ledger says. A fake ledger serves the tests and the dev network.",
       "does": [
         "Derives the node's XRP Ledger wallet from its key, so the same phrase finds the same funds",
-        "Signs Payments byte for byte as `xrpl.js` does",
+        "Signs Payments byte for byte as `xrpl.js` does, and writes token Payments and TrustSets the same way",
+        "Reads token amounts exactly, and a trust line, its flags and its issuer from either side",
         "Books every validated transaction once: settlements, deposits, withdrawals and fees",
         "Never books the reserve, and catches up after a restart",
         "Asks the testnet faucet when the account is new, or when the owner wants more test XRP"

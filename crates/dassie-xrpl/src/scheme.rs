@@ -43,7 +43,7 @@ use rand_core::CryptoRng;
 use serde_json::{Value, json};
 
 use crate::api::{self, AccountInfo, ApiError, LedgerClosed, Message, TxRecord};
-use crate::codec::{Memo, Payment};
+use crate::codec::{Amount, Memo, Payment};
 use crate::keys::{AccountId, Wallet};
 use crate::{UNITS_PER_DROP, from_hex, hex_upper};
 
@@ -518,7 +518,7 @@ impl XrplScheme {
                     if self.buffer.len() >= MAX_BUFFERED {
                         self.reconnect(effects);
                     } else {
-                        self.buffer.push(record);
+                        self.buffer.push(*record);
                     }
                 }
             }
@@ -1640,7 +1640,7 @@ impl SettlementScheme for XrplScheme {
         let payment = Payment {
             account: self.account(),
             destination,
-            amount: drops,
+            amount: Amount::Xrp(drops),
             fee,
             sequence: self.sequence,
             last_ledger_sequence: self.validated.saturating_add(LEDGER_WINDOW),
@@ -1662,8 +1662,8 @@ impl SettlementScheme for XrplScheme {
             blob: signed.blob,
             drops,
             fee,
-            sequence: signed.payment.sequence,
-            last_ledger: signed.payment.last_ledger_sequence,
+            sequence: signed.tx.sequence,
+            last_ledger: signed.tx.last_ledger_sequence,
             submitted_at: self.validated,
             executed: false,
             needs_submit: false,

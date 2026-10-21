@@ -7,7 +7,7 @@ The `xrpl-testnet` settlement scheme: the node's wallet on the XRP Ledger testne
 
 The crate does no IO and reads no clock. The scheme says what to send its ledger (`LedgerSend`) and books what the ledger says, through the node, over the connection the node keeps for it ([Settlement](settlement.md#schemes-that-follow-a-ledger)). Its constants are in `lib.rs` and `scheme.rs`.
 
-The scheme owns its account and settles only in XRP. An XRPL account kept apart from the schemes that settle through it, and RLUSD as a second scheme on it, are [not built](../roadmap.md#external-assets-and-rlusd).
+The scheme owns its account and settles only in XRP. The crate reads and writes tokens too ([Tokens](#tokens)), but nothing signs or books one yet: an XRPL account kept apart from the schemes that settle through it, and RLUSD as a second scheme on it, are [not built](../roadmap.md#external-assets-and-rlusd).
 
 ## Real money
 
@@ -29,6 +29,17 @@ A settlement is a direct XRP `Payment` to the address the peer gave when peering
 - **Byte for byte as xrpl.js, which the original used, signs it.** Golden vectors (`crates/dassie-xrpl/tests/data/vectors.json`, made by `testdata/xrpl/generate-vectors.mjs`) pin the codec.
 - **The settlement's ID is the transaction hash.** The message for the peer is the hash, so it can always be made again from the ID.
 - **The memo type and what a `settlement` message means are a contract between peers.** Both sides of a peering must agree, so they change only with the peer protocol version.
+
+## Tokens
+
+The codec and the API's parser also cover tokens on trust lines, such as RLUSD (`amount.rs`, `codec.rs`, `api.rs`), for the RLUSD scheme to come ([designs/external-assets.md](../designs/external-assets.md#4-rlusd-on-the-xrpl-testnet)).
+
+- **Amounts are exact.** A token's value is decimal, a mantissa of sixteen digits and an exponent, held in the ledger's one canonical form and never as a float. A value the ledger cannot express exactly, in text or in bytes, is refused rather than rounded, so what the node reads is what the ledger holds.
+- **Whole units convert exactly.** A value becomes the whole units of a ledger rounded down, toward minus infinity, so the books never hold more than the line. Units become a value only when the ledger can express it exactly (sixteen significant digits), so the node never signs an amount other than the one it booked.
+- **The transactions** are a token `Payment`, without paths or `SendMax`, and a `TrustSet`, which sets a line's limit and flags. A Payment is never partial: the encoder asserts it and the decoder refuses it, so a payment delivers its whole amount or fails. Golden vectors from xrpl.js pin both, and token amounts at the edges (the least and the largest value, sixteen digits, zero), byte for byte.
+- **A line reads the same from either side.** The ledger keeps a line's balance from the side of the account whose ID is the lower number, and its flags in a low and a high half. The parser gives the balance, the limits and the flags (NoRipple, freeze and deep freeze, as each side set them) from the side asked for, so no caller depends on which number is lower; a line whose limits name its accounts out of order is refused.
+- **What a transaction did to a line,** from its metadata: the line before and after, created from zero or deleted to zero. A settlement, a deposit, a withdrawal and an issuer's clawback, which is no Payment, all show as a change of the line's balance. A Payment's delivered amount is read when it is a token.
+- **Reading the ledger:** the line itself (`ledger_entry`), and the issuer's account (`account_info`): its global freeze and its transfer rate. Each answer names the ledger it is as of, so a scheme can take only what is [newer](#following-the-account).
 
 ## Following the account
 
