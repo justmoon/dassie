@@ -12,7 +12,8 @@ use dassie_settlement::policy;
 use dassie_ledger::LedgerId;
 
 use super::{
-    Payment, RLUSD, START, Settling, Sim, TRIGGER, USD, XRP, key, received, sent, xrpl_account,
+    Payment, RLUSD, START, Settling, Sim, TRIGGER, USD, Withdrawal, XRP, key, received, sent,
+    xrpl_account,
 };
 use crate::store::{OutgoingState, PaymentId};
 
@@ -224,27 +225,34 @@ pub fn check_settled(sim: &Sim) -> Result<(), String> {
 /// Routine settlement never withdraws an honest peer for room: only a peer
 /// that stays short, settling nothing, past the grace
 /// (spec/decisions/peering-lifecycle.md). An issuer's freeze of RLUSD
-/// stops what the nodes it touches pay or are paid, so while it holds,
-/// and for a grace after it is lifted, a pair it touches may be withdrawn
+/// stops what the nodes it touches pay or are paid in RLUSD, so while it
+/// holds, and for a grace after it is lifted, a pair it touches that
+/// settles in RLUSD may be withdrawn; a pair that settles in XRP may not
 /// (spec/areas/settlement.md#when-peers-cannot-pay-us).
 pub fn check_withdrawn(sim: &Sim) -> Result<(), String> {
     let grace = sim.peer.advertise_short_grace_ms;
+    let rlusd = Settling::scheme(RLUSD).0;
     let id = |index: usize| key(index).node_id();
-    let frozen = |at: u64, by: usize, peer: &dassie_identity::NodeId| {
-        sim.freezes.iter().any(|&(freeze, from, until)| {
-            let touched = (0..sim.nodes.len())
-                .any(|index| freeze.stops(index) && (index == by || id(index) == *peer));
-            touched && at >= from && until.is_none_or(|until| at <= until + grace)
-        })
+    let frozen = |withdrawal: &Withdrawal| {
+        let on_rlusd = withdrawal
+            .scheme
+            .is_some_and(|scheme| scheme.as_str() == rlusd);
+        on_rlusd
+            && sim.freezes.iter().any(|&(freeze, from, until)| {
+                let touched = (0..sim.nodes.len()).any(|index| {
+                    freeze.stops(index) && (index == withdrawal.by || id(index) == withdrawal.peer)
+                });
+                touched
+                    && withdrawal.at >= from
+                    && until.is_none_or(|until| withdrawal.at <= until + grace)
+            })
     };
-    match sim
-        .withdrawn
-        .iter()
-        .find(|(at, by, peer)| !frozen(*at, *by, peer))
-    {
-        Some((at, by, peer)) => Err(format!(
-            "node {by} withdrew {peer} for room at {}",
-            at - START
+    match sim.withdrawn.iter().find(|withdrawal| !frozen(withdrawal)) {
+        Some(withdrawal) => Err(format!(
+            "node {} withdrew {} for room at {}",
+            withdrawal.by,
+            withdrawal.peer,
+            withdrawal.at - START
         )),
         None => Ok(()),
     }

@@ -83,6 +83,7 @@ use dassie_ledger::LedgerId;
 use dassie_node_core::config::Realm;
 use dassie_node_core::testing::SeededRng;
 use dassie_oer::Decode;
+use dassie_peer::wire::SchemeId;
 use dassie_peer::{Bootstrap, Failure, InboundId, OwnInfo, RequestId, Response};
 use dassie_settlement::policy;
 use dassie_stream::{AssetDetails, BUFFER_LENGTH, Config, Connection, Policy, Role};
@@ -206,6 +207,20 @@ impl Settling {
             _ => ("stub", ""),
         }
     }
+}
+
+/// A withdrawal of a peer short of room.
+#[derive(Clone, Copy, Debug)]
+pub struct Withdrawal {
+    /// When.
+    pub at: u64,
+    /// The node that withdrew it.
+    pub by: usize,
+    /// The peer.
+    pub peer: NodeId,
+    /// The scheme the pair settles over, if the node still had the
+    /// peering.
+    pub scheme: Option<SchemeId>,
 }
 
 /// What the issuer of RLUSD stops, in a run on RLUSD.
@@ -434,9 +449,8 @@ pub struct Sim {
     pub ledger_down: BTreeSet<usize>,
     /// The peer protocol's settings.
     peer: dassie_peer::Config,
-    /// Each withdrawal of a peer short of room: when, by which node, of
-    /// which peer.
-    pub withdrawn: Vec<(u64, usize, NodeId)>,
+    /// Each withdrawal of a peer short of room.
+    pub withdrawn: Vec<Withdrawal>,
     /// The shortest and the longest a message takes, in milliseconds.
     pub latency_ms: (u64, u64),
     /// How many times the run reached each thing it counts
@@ -914,7 +928,19 @@ impl Sim {
             peer, short: true, ..
         }) = event
         {
-            self.withdrawn.push((self.now, index, *peer));
+            let scheme = self.nodes[index].core.as_ref().and_then(|core| {
+                core.network()
+                    .peers
+                    .into_iter()
+                    .find(|view| view.id == *peer)
+                    .map(|view| view.peering.scheme)
+            });
+            self.withdrawn.push(Withdrawal {
+                at: self.now,
+                by: index,
+                peer: *peer,
+                scheme,
+            });
         }
         let lost = matches!(event, Event::Engine(EngineEvent::EventsDropped { .. }));
         if event.severity() == Severity::Error || lost {

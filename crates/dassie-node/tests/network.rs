@@ -492,7 +492,7 @@ fn a_peer_that_never_settles_costs_at_most_its_credit() {
         assert!(
             sim.withdrawn
                 .iter()
-                .any(|(_, by, peer)| *by == 0 && *peer == liar),
+                .any(|withdrawal| withdrawal.by == 0 && withdrawal.peer == liar),
             "seed {seed}: node 0 did not withdraw it for room"
         );
     }
@@ -645,7 +645,7 @@ fn a_peer_short_of_room_is_withdrawn_until_it_settles() {
     assert_eq!(
         sim.withdrawn
             .iter()
-            .map(|(_, by, peer)| (*by, *peer))
+            .map(|withdrawal| (withdrawal.by, withdrawal.peer))
             .collect::<Vec<_>>(),
         [(senior, junior_id)],
         "only the senior withdraws"
@@ -703,8 +703,8 @@ fn requests_to_settle_that_never_arrived_withdraw_no_honest_junior() {
     let for_room: Vec<u64> = sim
         .withdrawn
         .iter()
-        .filter(|(_, by, peer)| *by == senior && *peer == junior_id)
-        .map(|(at, _, _)| at - cut_at)
+        .filter(|withdrawal| withdrawal.by == senior && withdrawal.peer == junior_id)
+        .map(|withdrawal| withdrawal.at - cut_at)
         .collect();
     assert!(
         for_room.is_empty(),
