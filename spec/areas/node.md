@@ -59,7 +59,7 @@ On SIGTERM or SIGINT the daemon stops accepting, gives requests in progress a bo
 
 `--runtime standalone|systemd` chooses how the daemon gets its sockets; without it, `systemd` when `LISTEN_PID` is the daemon's own PID.
 
-- **standalone** binds the configured ports (or `--http-port`/`--https-port` for one run), a UDP socket for QUIC on the HTTPS listener's address and port, and an IPC socket path of its own.
+- **standalone** binds the configured ports (or `--http-port`/`--https-port` for one run), a UDP socket for QUIC on the HTTPS listener's address and port, and an IPC socket path of its own. A host that embeds the daemon may bind QUIC on an address of its own (`DaemonOptions::quic`), so that a node whose listeners stay on loopback, where only its owner reaches the wallet, still dials its relay and uplinks from every address.
 - **systemd** takes its sockets by name from the socket units ([Release](release.md#systemd-units)), and reports readiness to `NOTIFY_SOCKET` itself. Sockets that are not this process's, or a missing name of the three it needs, stop the daemon rather than letting it bind its own.
 - **QUIC is optional.** Without its UDP socket (units from before QUIC, or a port taken), the node runs as before and says so in its log: its link state does not say it takes QUIC, so peers ask it over HTTPS ([Peer protocol](peer-protocol.md#transport)).
 - **Either way,** URLs the node prints or redirects to use the ports it actually listens on, which under systemd need not be the configured ones.
@@ -116,7 +116,7 @@ The owner's configuration is one row, read into a validated `NodeConfig` (`dassi
 
 ## Dev switches warn on a public node
 
-`DASSIE_PEER_ALLOW_PRIVATE` (peers on private and loopback addresses) and `DASSIE_DEV_TIMINGS` (the dev timers) are plain environment variables that make a node unsafe on the internet. If either is set while any listener is bound beyond loopback, the daemon warns at startup, naming the variable and what it does. The address checked is the one actually bound, and an unspecified address counts as beyond loopback. Dev and the tests listen on loopback, so they stay quiet.
+`DASSIE_PEER_ALLOW_PRIVATE` (peers on private and loopback addresses) and `DASSIE_DEV_TIMINGS` (the dev timers) are plain environment variables that make a node unsafe on the internet. If either is set while any listener, the QUIC socket among them, is bound beyond loopback, the daemon warns at startup, naming the variable and what it does. The address checked is the one actually bound, and an unspecified address counts as beyond loopback. Dev and the tests listen on loopback, so they stay quiet.
 
 ## Logging
 
