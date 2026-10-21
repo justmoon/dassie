@@ -16,7 +16,7 @@ A front door lets ordinary Open Payments clients reach Dassie nodes that have no
   ```
 
   `deploy-certificate.sh` is that hook: it copies the certificate where the front door reads it, readable by its user, so that user must exist before the first certificate. certbot runs the hook at the first issuance too, and at every renewal. The front door reads the files again every minute, so a renewal takes effect without a restart. Without an email address Let's Encrypt has no one to write to, which it no longer does about expiry anyway; give one with `-m` if you want its notices.
-- **Its own key,** an Ed25519 key in `/var/lib/dassie-front-door/front-door.key`, as 32 bytes of seed or PKCS#8. The unit makes one on its first start (`dassie front-door --make-key`). Keep it: nodes name the front door by it, and a new key means every node must be told again. Back it up like any secret.
+- **Its own key,** an Ed25519 key in `/var/lib/dassie-front-door/front-door.key`, as 32 bytes of seed or PKCS#8. The unit makes one on its first start (`dassie front-door --make-key`). Keep it: nodes name the front door by it, and a new key means every node must be told again. `dassiepay.net`'s key is built into the `dassie` binary as every node's default relay (`DEFAULT_RELAY` in `crates/dassie-node/src/env.rs`), so a new one takes a release. Back it up like any secret.
 
 ## A DNS credential for one zone alone
 
@@ -69,12 +69,14 @@ Run the VM without the default compute service account and its scopes (`gcloud c
 
 ## Naming it as a node's relay
 
-A node without a public address keeps a connection to the front door by naming it as its relay ([spec/areas/node.md](../../spec/areas/node.md#a-chosen-relay)), with the entry the front door logs, in the node's environment:
+A node without a hostname keeps a connection to the `dassiepay.net` front door by default, and answers at `https://<label>.dassiepay.net`, its default name ([spec/areas/node.md](../../spec/areas/node.md#a-chosen-relay)). It closes that connection once it has a hostname.
+
+To keep another front door instead, name it as the node's relay with the entry that front door logs, in the node's environment:
 
 ```sh
 systemctl edit dassie
 # [Service]
-# Environment='DASSIE_RELAY={"id":"d…","url":"https://relay.dassiepay.net","publicKey":"…"}'
+# Environment='DASSIE_RELAY={"id":"d…","url":"https://relay.example.com","publicKey":"…"}'
 ```
 
-The node then answers at `https://<label>.dassiepay.net`, its default name. Under another front door's domain, the node also lists that name: `DASSIE_PUBLIC_NAMES=<label>.<domain>` ([spec/areas/payments.md](../../spec/areas/payments.md#the-nodes-names)).
+and list its name for the node: `DASSIE_PUBLIC_NAMES=<label>.<domain>` ([spec/areas/payments.md](../../spec/areas/payments.md#the-nodes-names)). A node keeps a relay it is told whether or not it has a hostname. `Environment=DASSIE_RELAY=` (empty) keeps no relay at all.

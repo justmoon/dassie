@@ -34,6 +34,11 @@ export const PEBBLE_DIRECTORY = "https://localhost:14000/dir";
  * off the public testnet the default list names.
  */
 export const NO_BOOTSTRAP_NODES = "[]";
+/**
+ * `DASSIE_RELAY` for a daemon under test: none, so that a node without a
+ * hostname never dials the public front door, the default relay (D40).
+ */
+export const NO_RELAY = "";
 
 /** The ports Pebble validates http-01 on (pebble-config.json) and HTTPS. */
 export const HTTP_PORT = 18780;
@@ -253,6 +258,7 @@ export async function startActivated(dir: string): Promise<Process> {
     `--setenv=DASSIE_STATE_DIRECTORY=${dir}/state`,
     `--setenv=DASSIE_ACME_CA_FILE=${PEBBLE_API_ROOT}`,
     `--setenv=DASSIE_BOOTSTRAP_NODES=${NO_BOOTSTRAP_NODES}`,
+    `--setenv=DASSIE_RELAY=${NO_RELAY}`,
     DASSIE,
     "daemon",
   ]);

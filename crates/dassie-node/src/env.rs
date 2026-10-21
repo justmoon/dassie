@@ -32,6 +32,14 @@ pub const DEFAULT_BOOTSTRAP_NODES: &str = r#"[
   {"id":"dtTay2e6AV4J940nFJ6_WPkVL-TyrVKGW","url":"https://boot3.dassie.xyz","publicKey":"--P-gYMJ_ZZrFHa4GiNfVQ0x2jSu9_dr7z0mI_bcngY"}
 ]"#;
 
+/// The relay a node keeps a connection to while it has no hostname, unless
+/// `DASSIE_RELAY` names another: the front door of the node's default name,
+/// `<label>.dassiepay.net`, which reaches the node only over that
+/// connection (D40, spec/areas/node.md#a-chosen-relay). Its ID is checked
+/// against its key at startup, like any entry. `DASSIE_RELAY=` (empty)
+/// keeps no relay.
+pub const DEFAULT_RELAY: &str = r#"{"id":"ddTEO6qzWIorLvNGybj0uyK-mhlVJNa-q","url":"https://relay.dassiepay.net","publicKey":"DliIZHngMG7GTDqfHBSP_dfSTmn8ziA9OE37FnxC7eo"}"#;
+
 /// Most bootstrap nodes accepted.
 pub const MAX_BOOTSTRAP_NODES: usize = 64;
 
@@ -114,6 +122,17 @@ pub struct BootstrapNode {
     pub public_key: PublicKey,
 }
 
+/// The relay a node keeps a connection to
+/// ([a chosen relay](../../../spec/areas/node.md#a-chosen-relay)).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Relay {
+    /// Its ID, URL and key.
+    pub node: BootstrapNode,
+    /// Whether it is [`DEFAULT_RELAY`], as `DASSIE_RELAY` is unset: the
+    /// node keeps it only while it has no hostname (D40).
+    pub is_default: bool,
+}
+
 /// Everything the daemon takes from its environment.
 #[derive(Clone, Debug)]
 pub struct Settings {
@@ -129,8 +148,9 @@ pub struct Settings {
     /// The network's bootstrap nodes.
     pub bootstrap_nodes: Vec<BootstrapNode>,
     /// The relay the node keeps a connection to, so that it can be reached
-    /// through it (`DASSIE_RELAY`, an entry as in the bootstrap list).
-    pub relay: Option<BootstrapNode>,
+    /// through it (`DASSIE_RELAY`, an entry as in the bootstrap list):
+    /// [`DEFAULT_RELAY`] when unset, none when empty.
+    pub relay: Option<Relay>,
     /// An extra root the ACME client trusts, for test CAs such as Pebble.
     pub acme_ca_file: Option<PathBuf>,
     /// Extra roots the peer client trusts, beside the platform's: a dev or
@@ -308,11 +328,13 @@ fn bootstrap_nodes(env: &Env) -> Result<Vec<BootstrapNode>, EnvError> {
     Ok(nodes)
 }
 
-/// `DASSIE_RELAY`: one entry in the bootstrap list's format, or none when
-/// unset or empty.
-fn relay(env: &Env) -> Result<Option<BootstrapNode>, EnvError> {
-    let Some(text) = env.get("DASSIE_RELAY")?.filter(|text| !text.is_empty()) else {
-        return Ok(None);
+/// `DASSIE_RELAY`: one entry in the bootstrap list's format; when unset,
+/// [`DEFAULT_RELAY`]; when empty, none.
+fn relay(env: &Env) -> Result<Option<Relay>, EnvError> {
+    let (text, is_default) = match env.get("DASSIE_RELAY")? {
+        None => (DEFAULT_RELAY, true),
+        Some("") => return Ok(None),
+        Some(text) => (text, false),
     };
     let error = |problem: String| EnvError {
         variable: "DASSIE_RELAY",
@@ -320,9 +342,9 @@ fn relay(env: &Env) -> Result<Option<BootstrapNode>, EnvError> {
     };
     let node: BootstrapNodeJson =
         serde_json::from_str(text).map_err(|e| error(format!("is not valid: {e}")))?;
-    check_bootstrap_node(&node)
-        .map(Some)
-        .ok_or_else(|| error(format!("is an invalid entry for {:?}", node.id)))
+    let node = check_bootstrap_node(&node)
+        .ok_or_else(|| error(format!("is an invalid entry for {:?}", node.id)))?;
+    Ok(Some(Relay { node, is_default }))
 }
 
 /// A bootstrap node's entry, if its URL is HTTPS, its key decodes and its
@@ -481,16 +503,34 @@ mod tests {
     #[test]
     fn a_relay_is_one_checked_entry() {
         let relay = |value: &str| settings(&[("HOME", "/h"), ("DASSIE_RELAY", value)]);
-        assert_eq!(relay("").map(|s| s.relay), Ok(None));
-        assert_eq!(settings(&[("HOME", "/h")]).map(|s| s.relay), Ok(None));
         let boot1 = r#"{"id":"dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"}"#;
         let chosen = relay(boot1).unwrap().relay.unwrap();
-        assert_eq!(chosen.url, "https://boot1.dassie.xyz");
-        assert_eq!(chosen.public_key.node_id(), chosen.id);
+        assert_eq!(chosen.node.url, "https://boot1.dassie.xyz");
+        assert_eq!(chosen.node.public_key.node_id(), chosen.node.id);
+        // One the owner named is kept, hostname or not.
+        assert!(!chosen.is_default);
         let swapped = r#"{"id":"dyrjUANXiJ5S6JXxwo7jdKKJjdLtK129U","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"}"#;
         assert!(relay(swapped).is_err());
         assert!(relay(&format!("[{boot1}]")).is_err());
         let http = boot1.replace("https://", "http://");
         assert!(relay(&http).is_err());
+    }
+
+    // D40: unset, the relay is the front door of the default name, checked
+    // as any entry and kept only without a hostname; empty, there is none.
+    #[test]
+    fn the_default_relay_is_the_default_names_front_door() {
+        let unset = settings(&[("HOME", "/h")]).unwrap().relay.unwrap();
+        assert!(unset.is_default);
+        assert_eq!(
+            unset.node.url,
+            format!(
+                "https://relay.{}",
+                crate::open_payments::DEFAULT_FRONT_DOOR_DOMAIN
+            )
+        );
+        assert_eq!(unset.node.public_key.node_id(), unset.node.id);
+        let empty = settings(&[("HOME", "/h"), ("DASSIE_RELAY", "")]);
+        assert_eq!(empty.map(|s| s.relay), Ok(None));
     }
 }

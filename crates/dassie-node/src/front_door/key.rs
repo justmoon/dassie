@@ -140,7 +140,7 @@ mod tests {
             ("DASSIE_STATE_DIRECTORY", "/tmp/unused"),
             ("DASSIE_RELAY", entry.as_str()),
         ]);
-        let relay = Settings::from_env(&env).unwrap().relay.unwrap();
+        let relay = Settings::from_env(&env).unwrap().relay.unwrap().node;
         assert_eq!(relay.id, key.node_id());
         assert_eq!(relay.url, "https://relay.dassiepay.net");
     }

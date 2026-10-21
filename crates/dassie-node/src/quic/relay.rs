@@ -26,11 +26,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dassie_identity::{MAX_NODE_ID_LENGTH, NodeId};
+use dassie_node_core::config::NodeConfig;
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
 use quinn::{Connection, RecvStream, SendStream};
 use rustls::pki_types::ServerName;
 use tokio::io::Join;
+use tokio::sync::watch;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -113,6 +115,78 @@ const _: () = assert!(MAX_RELAYED_PER_CLIENT_TO_DESTINATION < MAX_RELAYED_PER_DE
 const _: () = assert!((MAX_RELAYED_PER_CLIENT as usize) < MAX_RELAYED);
 const _: () = assert!(MAX_SERVED_PER_RELAY as usize * 2 <= MAX_STREAMS as usize);
 const _: () = assert!((MAX_SERVED_PER_RELAY as usize) < MAX_SERVED);
+
+/// While a node keeps its chosen relay
+/// (spec/areas/node.md#a-chosen-relay).
+#[derive(Clone, Debug)]
+pub enum KeepWhile {
+    /// Always: the owner named it (`DASSIE_RELAY`).
+    Always,
+    /// While the node's configuration has no hostname: the default relay
+    /// is the front door of the node's default name, which a node with a
+    /// hostname does not answer under (D40).
+    NoHostname(watch::Receiver<NodeConfig>),
+}
+
+impl KeepWhile {
+    /// Whether the node keeps the relay now.
+    #[must_use]
+    pub fn holds(&self) -> bool {
+        match self {
+            Self::Always => true,
+            Self::NoHostname(config) => config.borrow().hostname.is_none(),
+        }
+    }
+
+    /// Whether the node keeps the relay now, marking the configuration
+    /// seen, so that [`changed`](Self::changed) waits for the next change.
+    fn holds_seen(&mut self) -> bool {
+        match self {
+            Self::Always => true,
+            Self::NoHostname(config) => config.borrow_and_update().hostname.is_none(),
+        }
+    }
+
+    /// Returns once whether it holds may have changed: never for
+    /// [`Always`](Self::Always), nor once the configuration has no writer.
+    async fn changed(&mut self) {
+        let changed = match self {
+            Self::Always => false,
+            Self::NoHostname(config) => config.changed().await.is_ok(),
+        };
+        if !changed {
+            std::future::pending::<()>().await;
+        }
+    }
+
+    /// Returns once it no longer holds.
+    async fn ended(&mut self) {
+        while self.holds_seen() {
+            self.changed().await;
+        }
+    }
+}
+
+/// The relay a node chose: its ID and URL, how to resolve its name, and
+/// while to keep it.
+#[derive(Clone)]
+pub(super) struct Chosen {
+    relay: NodeId,
+    url: String,
+    resolver: PeerClient,
+    keep: KeepWhile,
+}
+
+/// How holding the connection to the chosen relay ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Held {
+    /// The connection closed.
+    Lost,
+    /// The node no longer keeps the relay, and closed it.
+    Released,
+    /// The endpoint is shutting down.
+    Shutdown,
+}
 
 /// What a client wants from the node it reaches through a relay.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -438,20 +512,29 @@ impl Quic {
     }
 
     /// Chooses the relay `relay` at `url`, which [`serve`](Self::serve)
-    /// keeps a connection to while it runs ([`keep_relay`](Self::keep_relay)),
-    /// resolving its name with `resolver`.
-    pub fn choose_relay(&self, relay: NodeId, url: String, resolver: PeerClient) {
-        *lock(&self.chosen_relay) = Some((relay, url, resolver));
+    /// keeps a connection to while it runs and `keep` holds
+    /// ([`keep_relay`](Self::keep_relay)), resolving its name with
+    /// `resolver`.
+    pub fn choose_relay(&self, relay: NodeId, url: String, resolver: PeerClient, keep: KeepWhile) {
+        *lock(&self.chosen_relay) = Some(Chosen {
+            relay,
+            url,
+            resolver,
+            keep,
+        });
     }
 
-    /// The relay the node chose, its URL, and whether the node holds its
-    /// connection to it now ([`keep_relay`](Self::keep_relay)).
+    /// The relay the node chose and keeps now, its URL, and whether the
+    /// node holds its connection to it now ([`keep_relay`](Self::keep_relay)).
+    /// The default relay is no choice of a node with a hostname, which
+    /// keeps none.
     #[must_use]
     pub fn chosen_relay(&self) -> Option<(NodeId, String, bool)> {
         let connected = self.relay_connected.load(Ordering::Relaxed);
         lock(&self.chosen_relay)
             .as_ref()
-            .map(|(relay, url, _)| (*relay, url.clone(), connected))
+            .filter(|chosen| chosen.keep.holds())
+            .map(|chosen| (chosen.relay, chosen.url.clone(), connected))
     }
 
     /// Keeps the chosen relay's connection on `tasks`, if a relay was
@@ -462,8 +545,14 @@ impl Quic {
         shutdown: &CancellationToken,
     ) -> CancellationToken {
         let stop = shutdown.child_token();
-        if let Some((relay, url, resolver)) = lock(&self.chosen_relay).clone() {
-            tasks.spawn(Arc::clone(self).keep_relay(relay, url, resolver, stop.clone()));
+        if let Some(chosen) = lock(&self.chosen_relay).clone() {
+            tasks.spawn(Arc::clone(self).keep_relay(
+                chosen.relay,
+                chosen.url,
+                chosen.resolver,
+                chosen.keep,
+                stop.clone(),
+            ));
         }
         stop
     }
@@ -475,16 +564,25 @@ impl Quic {
     /// dial doubles after each that fails or whose connection did not last
     /// [`RELAY_HELD_FOR`], so a relay that takes the connection and closes
     /// it at once is not dialled every second. A node never dials itself.
+    /// While `keep` does not hold, it neither dials nor keeps the
+    /// connection.
     pub async fn keep_relay(
         self: Arc<Self>,
         relay: NodeId,
         url: String,
         resolver: PeerClient,
+        mut keep: KeepWhile,
         shutdown: CancellationToken,
     ) {
         let mut backoff = RELAY_BACKOFF_MIN;
         let mut warned = false;
         while !shutdown.is_cancelled() {
+            if !keep.holds_seen() {
+                tokio::select! {
+                    () = keep.changed() => continue,
+                    () = shutdown.cancelled() => return,
+                }
+            }
             let mut wait = RELAY_BACKOFF_MIN;
             match self.keys.current() {
                 Some((own, _)) if own == relay => {
@@ -499,17 +597,18 @@ impl Quic {
                         .dial((relay, &url), &resolver, CONNECT_TIMEOUT, true)
                         .await;
                     if let Some(connection) = dialled {
-                        tracing::info!(target: target::PEER, %relay, "connected to the chosen relay");
                         let since = tokio::time::Instant::now();
-                        self.relay_connected.store(true, Ordering::Relaxed);
-                        tokio::select! {
-                            () = self.hold_relay(relay, &connection) => {}
-                            () = shutdown.cancelled() => {
-                                self.relay_connected.store(false, Ordering::Relaxed);
-                                return;
+                        match self
+                            .hold_kept(relay, &connection, &mut keep, &shutdown)
+                            .await
+                        {
+                            Held::Lost => {}
+                            Held::Released => {
+                                backoff = RELAY_BACKOFF_MIN;
+                                continue;
                             }
+                            Held::Shutdown => return,
                         }
-                        self.relay_connected.store(false, Ordering::Relaxed);
                         if since.elapsed() >= RELAY_HELD_FOR {
                             backoff = RELAY_BACKOFF_MIN;
                         }
@@ -527,6 +626,31 @@ impl Quic {
                 () = shutdown.cancelled() => return,
             }
         }
+    }
+
+    /// Holds the connection to the chosen relay ([`hold_relay`](Self::hold_relay))
+    /// until it is lost, `keep` no longer holds, which closes it, or
+    /// `shutdown`.
+    async fn hold_kept(
+        self: &Arc<Self>,
+        relay: NodeId,
+        connection: &Connection,
+        keep: &mut KeepWhile,
+        shutdown: &CancellationToken,
+    ) -> Held {
+        tracing::info!(target: target::PEER, %relay, "connected to the chosen relay");
+        self.relay_connected.store(true, Ordering::Relaxed);
+        let held = tokio::select! {
+            () = self.hold_relay(relay, connection) => Held::Lost,
+            () = keep.ended() => Held::Released,
+            () = shutdown.cancelled() => Held::Shutdown,
+        };
+        self.relay_connected.store(false, Ordering::Relaxed);
+        if held == Held::Released {
+            connection.close(0u32.into(), b"no longer chosen");
+            tracing::info!(target: target::PEER, %relay, "the node has a hostname now; it keeps no connection to the default relay");
+        }
+        held
     }
 
     /// Answers on the connection to the chosen relay, and uses it for

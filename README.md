@@ -37,6 +37,8 @@ From there, the wallet sends and receives payments, shows their status and your 
 
 **Open Payments.** Each ledger has a wallet address at `https://<your host>/pay/<ledger>`, for example `/pay/stub`, and `$<your host>` names the default one. Other wallets and apps pay into it, and with a grant you approve in the wallet, they may also pay out of it, up to the limits you agreed to. The wallet's Send takes a payment pointer or a payment request, and its grants page lists who may do what.
 
+A node without a hostname answers Open Payments at `https://<label>.dassiepay.net` instead, through the front door there, which reaches it over a connection the node keeps to it while it has no hostname. `DASSIE_RELAY` names another relay, as the entry its front door logs, or, set empty, none ([D40](spec/decisions/D40-a-node-without-a-hostname-keeps-the-default-front-door-as-its-relay.md)).
+
 **BTP.** A BTP token, made in the wallet's settings, lets an ILP client such as `ilp-plugin-btp` spend through the node, at most its spending cap per window if you give it one. Over RPC, `createBtpToken` answers with the `btp+wss://` URL to connect with.
 
 **Exchange rates.** When your ledgers hold different currencies, the node converts between them at rates it fetches from Coinbase, Kraken, Bitstamp and the European Central Bank, taking the median of the three that cover each currency. You can change the sources and the currency the wallet shows totals in, in the wallet's settings or with `setRateSources` and `setDisplayCurrency`.

@@ -358,7 +358,7 @@ pub struct Quic {
     serving: Mutex<Option<Serving>>,
     relaying: Relaying,
     /// The relay the node keeps a connection to while it serves.
-    chosen_relay: Mutex<Option<(NodeId, String, PeerClient)>>,
+    chosen_relay: Mutex<Option<relay::Chosen>>,
     /// Whether the connection to the chosen relay is open now.
     relay_connected: AtomicBool,
     allow_private: bool,

@@ -28,6 +28,7 @@ import {
   HTTPS_PORT,
   missingTools,
   NO_BOOTSTRAP_NODES,
+  NO_RELAY,
   PEBBLE_API_ROOT,
   PEBBLE_DIRECTORY,
   Process,
@@ -200,6 +201,7 @@ test(
         DASSIE_STATE_DIRECTORY: `${dir}/state`,
         DASSIE_IPC_SOCKET_PATH: `${dir}/ipc.sock`,
         DASSIE_BOOTSTRAP_NODES: NO_BOOTSTRAP_NODES,
+        DASSIE_RELAY: NO_RELAY,
       },
     });
     await waitForPort(18843);

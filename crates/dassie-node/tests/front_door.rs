@@ -29,7 +29,7 @@ use dassie_node::http::open_payments::MAX_BODY_BYTES;
 use dassie_node::http::peer::Answer;
 use dassie_node::node::Policies;
 use dassie_node::peer_client::PeerClient;
-use dassie_node::quic::relay::{Purpose, RelayError, ServedStream};
+use dassie_node::quic::relay::{KeepWhile, Purpose, RelayError, ServedStream};
 use dassie_node::quic::{Body, Handler, Quic};
 use dassie_node::rpc::proto::{self, request::Method, response};
 use dassie_node_core::connections::ConnectionLimits;
@@ -582,6 +582,7 @@ async fn the_front_door_passes_back_only_json_without_cookies() {
         door.id,
         door.url.clone(),
         resolver.clone(),
+        KeepWhile::Always,
         shutdown.clone(),
     ));
     let name = name_of(&id);

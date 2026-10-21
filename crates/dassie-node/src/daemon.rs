@@ -29,9 +29,10 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use crate::clock::{Clock, SharedRng};
-use crate::env::{BootstrapNode, Env, EnvError, Settings};
+use crate::env::{Env, EnvError, Relay, Settings};
 use crate::log::target;
 use crate::node::{Node, NodeError, NodeOptions, PeerOptions, Policies, Runtime};
+use crate::quic::relay::KeepWhile;
 use crate::store::{Store, StoreError};
 use crate::supervisor::{BeforeUp, Start};
 use crate::systemd::{self, ActivationError, Notifier};
@@ -441,12 +442,13 @@ fn make_node(
 
 /// Makes the QUIC endpoint on `socket` and gives it to the node, with the
 /// relay the node chose, if any, which the endpoint keeps a connection to
-/// once it serves (spec/areas/node.md#a-chosen-relay).
+/// once it serves (spec/areas/node.md#a-chosen-relay): the default relay
+/// only while the node has no hostname (D40).
 fn attach_quic(
     node: &Node,
     socket: UdpSocket,
     hand_out: Option<tokio::sync::oneshot::Sender<Arc<crate::quic::Quic>>>,
-    relay: Option<&BootstrapNode>,
+    relay: Option<&Relay>,
 ) {
     let address = socket.local_addr().ok();
     let quic = match crate::quic::Quic::new(socket, node.identity(), node.allows_private_peers()) {
@@ -457,7 +459,12 @@ fn attach_quic(
         }
     };
     if let (Some(relay), Some(client)) = (relay, node.peer_client()) {
-        quic.choose_relay(relay.id, relay.url.clone(), client.clone());
+        let keep = if relay.is_default {
+            KeepWhile::NoHostname(node.subscribe_config())
+        } else {
+            KeepWhile::Always
+        };
+        quic.choose_relay(relay.node.id, relay.node.url.clone(), client.clone(), keep);
     }
     node.attach_quic(Arc::clone(&quic));
     if let Some(to) = hand_out {
