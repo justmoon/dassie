@@ -39,7 +39,11 @@ import {
   type ScenarioNode,
   SCENARIOS,
 } from "./scenario/mod.ts";
-import { MAX_NODES } from "./scenario/scenarios.ts";
+import {
+  MAX_NODES,
+  type ScenarioDef,
+  unavailable,
+} from "./scenario/scenarios.ts";
 import { recordPids } from "./stale.ts";
 import { type Identity, identity, loadTable } from "./vanity.ts";
 
@@ -133,13 +137,20 @@ export class Environment {
     const saved = await readFile(this.options.layout.scenarioFile, "utf8")
       .then((text) => text.trim(), () => undefined);
     const def = findScenario(override ?? saved ?? DEFAULT_SCENARIO);
-    this.#scenarioId = def && !def.unavailable ? def.id : DEFAULT_SCENARIO;
+    this.#scenarioId = def && !this.#unavailable(def)
+      ? def.id
+      : DEFAULT_SCENARIO;
     if (saved === this.#scenarioId) return false;
     await writeFile(
       this.options.layout.scenarioFile,
       `${this.#scenarioId}\n`,
     );
     return saved !== undefined;
+  }
+
+  /** Why `def` cannot run here, with or without the fake ledger. */
+  #unavailable(def: ScenarioDef): string | undefined {
+    return unavailable(def, this.options.fakeLedger !== undefined);
   }
 
   #identity(index: number): Identity {
@@ -173,8 +184,8 @@ export class Environment {
         id: def.id,
         name: def.name,
         description: def.description,
-        available: !def.unavailable,
-        unavailable: def.unavailable ?? "",
+        available: !this.#unavailable(def),
+        unavailable: this.#unavailable(def) ?? "",
       })),
       nodes,
       build: this.#build,
@@ -299,11 +310,9 @@ export class Environment {
 
   setScenario(id: string): Promise<void> {
     const def = findScenario(id);
-    if (!def || def.unavailable) {
-      this.log(
-        LogLevel.WARN,
-        `cannot run scenario ${id}: ${def?.unavailable ?? "no such scenario"}`,
-      );
+    const why = def ? this.#unavailable(def) : "no such scenario";
+    if (!def || why) {
+      this.log(LogLevel.WARN, `cannot run scenario ${id}: ${why}`);
       return Promise.resolve();
     }
     return this.#enqueue(`scenario ${id}`, async () => {

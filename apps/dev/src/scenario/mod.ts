@@ -12,7 +12,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { caFile, certificate } from "../certs.ts";
 import {
+  askIssuer,
   type FakeLedger,
+  type IssuerRequest,
   startFakeLedger,
   xrplConfig,
 } from "../fake_ledger.ts";
@@ -22,7 +24,14 @@ import type { Stream } from "../process.ts";
 import { identity, loadTable, type Table } from "../vanity.ts";
 import { until } from "../wait.ts";
 import { type NodeEnvironment, ScenarioNode } from "./node.ts";
-import { findScenario, MAX_NODES, type ScenarioDef } from "./scenarios.ts";
+import {
+  findScenario,
+  MAX_NODES,
+  type ScenarioDef,
+  settlesOnXrpl,
+  unavailable,
+  XRPL_SCHEMES,
+} from "./scenarios.ts";
 
 export { ScenarioNode } from "./node.ts";
 export {
@@ -31,13 +40,21 @@ export {
   MAX_NODES,
   type ScenarioDef,
   SCENARIOS,
+  unavailable,
+  XRPL_SCHEMES,
 } from "./scenarios.ts";
 export { type Layout, layout, socketPath } from "../paths.ts";
 export { caFile, certificate } from "../certs.ts";
-export { fakeLedgerBinary } from "../fake_ledger.ts";
+export { fakeLedgerBinary, type IssuerRequest } from "../fake_ledger.ts";
 export { DEV_RATES, RATES_PORT, type RateTable } from "../rates.ts";
 export { until, waitForPort, waitForSocket } from "../wait.ts";
 export type { Exit } from "../process.ts";
+
+/**
+ * How long a node may take to show its RLUSD line: the faucet funds its
+ * account in the next ledger, and its `TrustSet` applies in the one after.
+ */
+const LINE_WITHIN_MS = 60_000;
 
 /** How a scenario runs. */
 export interface ScenarioOptions {
@@ -130,7 +147,8 @@ export class Scenario {
   ): Promise<Scenario> {
     const def = findScenario(id);
     if (!def) throw new Error(`no scenario ${id}`);
-    if (def.unavailable) throw new Error(`${id} ${def.unavailable}`);
+    const why = unavailable(def, options.fakeLedger !== undefined);
+    if (why) throw new Error(`${id} ${why}`);
     const ca = await caFile(options.layout.tls, options.layout.caRoot);
     const environment: NodeEnvironment = {
       dassie: options.dassie,
@@ -149,9 +167,7 @@ export class Scenario {
         "127.0.0.1",
       ], options.layout.caRoot);
       scenario.rates = await startRates(rates, options.portOffset ?? 0);
-      const xrpl = [...def.schemes, def.addedSchemes]
-        .some((schemes) => schemes.includes("xrpl-testnet"));
-      if (xrpl && options.fakeLedger) {
+      if (settlesOnXrpl(def) && options.fakeLedger) {
         // Its faucet is at `localhost`, under the scenario's CA, which the
         // nodes trust.
         const faucet = await certificate(options.layout.tls, "fake-ledger", [
@@ -163,10 +179,20 @@ export class Scenario {
           faucet,
           options.portOffset ?? 0,
         );
-        scenario.#configs["xrpl-testnet"] = xrplConfig(scenario.ledger);
+        // Both schemes settle through the node's one account, which they
+        // set up alike.
+        for (const scheme of XRPL_SCHEMES) {
+          scenario.#configs[scheme] = xrplConfig(scenario.ledger);
+        }
       }
       for (let index = 0; index < def.schemes.length; index++) {
         await scenario.#startNode(index, def.schemes[index]);
+      }
+      if (def.rlusd !== undefined) {
+        const value = def.rlusd;
+        await Promise.all(
+          scenario.nodes.map((node) => scenario.mintRlusd(node, value)),
+        );
       }
     } catch (error) {
       await scenario.stop();
@@ -229,7 +255,38 @@ export class Scenario {
 
   /** Starts one more node, with the scenario's schemes for added nodes. */
   async addNode(): Promise<ScenarioNode> {
-    return await this.#startNode(this.nodes.length, this.def.addedSchemes);
+    const node = await this.#startNode(
+      this.nodes.length,
+      this.def.addedSchemes,
+    );
+    if (this.def.rlusd !== undefined) {
+      await this.mintRlusd(node, this.def.rlusd);
+    }
+    return node;
+  }
+
+  /** Asks the fake ledger's issuer of test RLUSD to act. */
+  async askIssuer(request: IssuerRequest): Promise<void> {
+    if (!this.ledger) throw new Error("the scenario runs no fake ledger");
+    await askIssuer(this.ledger, this.caFile, request);
+  }
+
+  /**
+   * Has the fake ledger's issuer mint `value` test RLUSD, in dollars, to
+   * `node`'s account, once the node shows its trust line: the issuer can
+   * pay only over a line, which the node's RLUSD scheme sets up itself.
+   */
+  async mintRlusd(node: ScenarioNode, value: string): Promise<void> {
+    let address = "";
+    await until(`${node.name}'s RLUSD line`, async () => {
+      const { externalAssets } = await node.rpc.call("listLedgers", {});
+      const account = externalAssets.find((asset) =>
+        asset.holdings.some((holding) => holding.assetCode === "RLUSD")
+      );
+      address = account?.address ?? "";
+      return address !== "";
+    }, LINE_WITHIN_MS);
+    await this.askIssuer({ action: "mint", destination: address, value });
   }
 
   /**
