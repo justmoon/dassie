@@ -399,19 +399,37 @@ struct Sent {
     generation: u64,
     /// Whether the peer sent a Fulfill for it, which it booked first.
     fulfilled: bool,
-    /// What lost it for good, first, if anything did yet.
+    /// What lost it for good, if anything did yet.
     lost: Option<Lost>,
 }
 
 /// What lost a Prepare's Fulfill for good, before it was past being taken.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Lost {
-    /// A crash or a failed commit: of the sender, while it could still
-    /// take the Fulfill, or of the peer, while its Fulfill could still
-    /// have arrived.
-    Crash,
+    /// A crash or a failed commit of the sender, while it could still take
+    /// the Fulfill: its connector forgot the packet.
+    SenderCrash,
+    /// A crash or a failed commit of the peer, while its Fulfill could
+    /// still arrive: it sends it no more. A copy already on its way may
+    /// still arrive, and be refused or late.
+    PeerCrash,
     /// The sender refused the peer's Fulfill with 400, 401 or 409.
     Refused,
+    /// The Fulfill reached the sender after its expiry, or after it
+    /// restarted.
+    Late,
+}
+
+impl Lost {
+    /// Records in `lost` that `cause` lost a Fulfill, unless something
+    /// already did. The sender's crash, a refusal or a late arrival takes
+    /// the place of the peer's crash, since the peer's copy on its way
+    /// could still have arrived; otherwise the first cause stays.
+    fn record(lost: &mut Option<Self>, cause: Self) {
+        if lost.is_none() || (*lost == Some(Self::PeerCrash) && cause != Self::PeerCrash) {
+            *lost = Some(cause);
+        }
+    }
 }
 
 /// How far two peers' books drifted apart, by what really happened: the
@@ -541,9 +559,10 @@ pub struct Sim {
     /// When each Prepare in [`Sim::sent`] is past being taken, on the
     /// network's clock.
     finals: BTreeSet<(u64, PacketKey)>,
-    /// The requests that carry a Fulfill, by their sender and ID, until
-    /// their result arrives: a refusal loses it.
-    fulfills_sent: BTreeMap<(usize, RequestId), PacketKey>,
+    /// The requests that carry a Fulfill, by their sender, its generation
+    /// and the request's ID, until their result arrives: a refusal loses
+    /// it.
+    fulfills_sent: BTreeMap<(usize, u64, RequestId), PacketKey>,
     /// How far each pair of nodes' books drifted, the lower index first.
     drift: BTreeMap<(usize, usize), Drift>,
 }
@@ -847,8 +866,10 @@ impl Sim {
         for (&(from, to, ..), sent) in &mut self.sent {
             let open =
                 self.now.saturating_add_signed(self.nodes[from].skew_ms) < sent.expires_at_ms;
-            if open && (from == index || (to == index && sent.fulfilled)) {
-                sent.lost.get_or_insert(Lost::Crash);
+            if open && from == index {
+                Lost::record(&mut sent.lost, Lost::SenderCrash);
+            } else if open && to == index && sent.fulfilled {
+                Lost::record(&mut sent.lost, Lost::PeerCrash);
             }
         }
         // A copy it was still working on passed the replay check. The copy
@@ -1470,11 +1491,11 @@ impl Sim {
                 id,
                 result,
             } => {
-                if let Some(key) = self.fulfills_sent.remove(&(to, id))
+                if let Some(key) = self.fulfills_sent.remove(&(to, generation, id))
                     && matches!(&result, Ok(response) if matches!(response.status, 400 | 401 | 409))
                     && let Some(sent) = self.sent.get_mut(&key)
                 {
-                    sent.lost.get_or_insert(Lost::Refused);
+                    Lost::record(&mut sent.lost, Lost::Refused);
                 }
                 if self.nodes[to].generation == generation {
                     self.step(to, |core| core.peer_response(id, result));
@@ -1522,7 +1543,8 @@ impl Sim {
                 let key = (to, from, request_id, condition);
                 if let Some(sent) = self.sent.get_mut(&key) {
                     sent.fulfilled = true;
-                    self.fulfills_sent.insert((from, id), key);
+                    let generation = self.nodes[from].generation;
+                    self.fulfills_sent.insert((from, generation, id), key);
                     assert!(
                         self.fulfills_sent.len() <= MAX_SENT,
                         "too many Fulfills to follow"
@@ -1544,16 +1566,18 @@ impl Sim {
     }
 
     /// Node `index` answered 200 to a Fulfill of the Prepare `key`: its
-    /// connector took it if it still had the packet, before its expiry.
+    /// connector took it if it still had the packet, before its expiry, and
+    /// otherwise it came late.
     fn took_fulfill(&mut self, index: usize, key: PacketKey) {
         let now = self.local_now(index);
         let generation = self.nodes[index].generation;
-        if self
-            .sent
-            .get(&key)
-            .is_some_and(|sent| sent.generation == generation && now < sent.expires_at_ms)
-        {
+        let Some(sent) = self.sent.get_mut(&key) else {
+            return;
+        };
+        if sent.generation == generation && now < sent.expires_at_ms {
             self.sent.remove(&key);
+        } else {
+            Lost::record(&mut sent.lost, Lost::Late);
         }
     }
 
@@ -1578,7 +1602,7 @@ impl Sim {
             let drift = self.drift.entry((from.min(to), from.max(to))).or_default();
             let amount = u128::from(sent.amount);
             let (how, why) = match sent.lost {
-                Some(Lost::Crash) => {
+                Some(Lost::SenderCrash | Lost::PeerCrash) => {
                     drift.crashes += amount;
                     ("fulfills lost to crashes", "a crash")
                 }
@@ -1586,7 +1610,7 @@ impl Sim {
                     drift.others += amount;
                     ("fulfills refused", "refused")
                 }
-                None => {
+                Some(Lost::Late) | None => {
                     drift.others += amount;
                     ("fulfills lost late", "late")
                 }
@@ -2152,5 +2176,35 @@ impl Sim {
             .push((from, to, incoming.id, outgoing.unwrap()));
         self.trace
             .push(format!("{} across {from} -> {to} {debit}", self.now));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Lost;
+
+    fn recorded(causes: &[Lost]) -> Option<Lost> {
+        let mut lost = None;
+        for &cause in causes {
+            Lost::record(&mut lost, cause);
+        }
+        lost
+    }
+
+    // spec/decisions/crash-drift.md: a peer that crashed with its Fulfill on
+    // its way did not lose it if that copy then arrived and was refused, or
+    // late; a refusal is never taken for a crash's, so a bug that refuses
+    // Fulfills is never ruled out. The sender's crash lost it whatever came
+    // after, and what lost it first stays.
+    #[test]
+    fn what_really_lost_a_fulfill_outranks_the_peers_crash() {
+        use Lost::{Late, PeerCrash, Refused, SenderCrash};
+        assert_eq!(recorded(&[PeerCrash, Refused]), Some(Refused));
+        assert_eq!(recorded(&[PeerCrash, Late]), Some(Late));
+        assert_eq!(recorded(&[PeerCrash, SenderCrash]), Some(SenderCrash));
+        assert_eq!(recorded(&[PeerCrash, PeerCrash]), Some(PeerCrash));
+        assert_eq!(recorded(&[SenderCrash, Refused]), Some(SenderCrash));
+        assert_eq!(recorded(&[Refused, SenderCrash]), Some(Refused));
+        assert_eq!(recorded(&[Late, PeerCrash]), Some(Late));
     }
 }
