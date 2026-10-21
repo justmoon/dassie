@@ -221,6 +221,9 @@ pub struct Connection {
     /// What the application counts as received already, over earlier
     /// connections too, while it sets a limit.
     money_received: u64,
+    /// How far a total may land from the limit, over or under, and count
+    /// as reached.
+    money_tolerance: u64,
     /// What a packet that offers money closes the connection with once
     /// nothing is left.
     money_exhausted: ErrorCode,
@@ -237,6 +240,9 @@ pub struct Connection {
     window_update_sequence: u64,
     /// Last sign of life from the remote, for the idle timeout.
     last_activity: Option<Timestamp>,
+    /// The sequence of the newest request whose reply was taken: only
+    /// its reply may lower the remote's receive maxima.
+    newest_reply: Option<u64>,
 
     next_sequence: u64,
     streams: Vec<Stream>,
@@ -314,6 +320,7 @@ impl Connection {
             receipt: config.receipt,
             money_limit: u64::MAX,
             money_received: 0,
+            money_tolerance: 0,
             money_exhausted: ErrorCode::NO_ERROR,
             state: State::Open,
             close_attempts: 0,
@@ -325,6 +332,7 @@ impl Connection {
             window_update_pending: false,
             window_update_sequence: 0,
             last_activity: None,
+            newest_reply: None,
             next_sequence: 0,
             streams: Vec::with_capacity(stream_capacity),
             next_local_stream_id,
@@ -497,25 +505,47 @@ impl Connection {
         Ok(())
     }
 
-    /// Sets how much more the connection may receive in total, over all its
-    /// streams, and what was received before: a packet that would exceed
-    /// the limit is rejected. The application sets both before each packet
-    /// when the connection pays into something with a total, such as an
-    /// incoming payment; `u64::MAX` removes the limit.
+    /// Sets how much more the connection is to receive in total, over all
+    /// its streams, what was received before, and how far the total may
+    /// land from the limit and count as reached: a packet that would
+    /// exceed the limit by more than `tolerance` is rejected. The
+    /// application sets them before each packet when the connection pays
+    /// into something with a total, such as an incoming payment;
+    /// `u64::MAX` removes the limit.
     ///
     /// Under a limit, each stream reports the application's count as what
-    /// it received, and that count plus the limit as its maximum. The count
-    /// only grows, even when the sender's earlier connection is forgotten:
-    /// after a restart, or when the server dropped it. The maximum falls
-    /// when something else takes from the total, which senders ignore; so
-    /// a packet that offers money with nothing left (`remaining` 0) is
+    /// it received, and that count plus the limit as its maximum, so a
+    /// sender aims at the limit itself; the tolerance only absorbs what
+    /// rounding on the way puts over or under it. The count only grows,
+    /// even when the sender's earlier connection is forgotten: after a
+    /// restart, or when the server dropped it. The maximum falls when
+    /// something else takes from the total, and a refused packet's reply
+    /// says so. A limit within the tolerance counts as nothing left: the
+    /// streams report no more room, and a packet that offers money is
     /// refused and closes the connection with `exhausted`, which tells
     /// every sender to stop, and why: `NO_ERROR` for a total that is
     /// reached, another code for one the application stopped short of it.
-    pub fn set_money_limit(&mut self, remaining: u64, received: u64, exhausted: ErrorCode) {
+    pub fn set_money_limit(
+        &mut self,
+        remaining: u64,
+        received: u64,
+        tolerance: u64,
+        exhausted: ErrorCode,
+    ) {
         self.money_limit = remaining;
         self.money_received = received;
+        self.money_tolerance = tolerance;
         self.money_exhausted = exhausted;
+    }
+
+    /// What is left of the money limit once a remainder within the
+    /// tolerance counts as nothing: the room the streams report.
+    fn money_room(&self) -> u64 {
+        if self.money_limit <= self.money_tolerance {
+            0
+        } else {
+            self.money_limit
+        }
     }
 
     /// What the connection may still receive (see

@@ -45,17 +45,21 @@ pub struct Credentials {
 pub enum Admission {
     /// Reject the packet with this ILP error, without opening a connection.
     Refuse(IlpErrorCode),
-    /// Let it in. The connection may receive at most `money_limit` more in
-    /// total, over all its streams; `u64::MAX` means no limit beyond the
-    /// streams' own, and 0 that it takes nothing more: a packet that
-    /// offers money then closes it with `exhausted`. `received` is what
-    /// the application already counts as received for this tag, over
-    /// earlier connections too (see [`Connection::set_money_limit`]).
+    /// Let it in. The connection is to receive `money_limit` more in
+    /// total, over all its streams, and takes a packet that overshoots it
+    /// by at most `tolerance`; `u64::MAX` means no limit beyond the
+    /// streams' own. With at most `tolerance` left it takes nothing more:
+    /// a packet that offers money then closes it with `exhausted`.
+    /// `received` is what the application already counts as received for
+    /// this tag, over earlier connections too (see
+    /// [`Connection::set_money_limit`]).
     Accept {
-        /// What the connection may still receive.
+        /// What the connection is still to receive.
         money_limit: u64,
         /// What was received before, as the application counts it.
         received: u64,
+        /// How far a total may land from the limit and count as reached.
+        tolerance: u64,
         /// The code that closes the connection once nothing is left.
         exhausted: ErrorCode,
     },
@@ -220,6 +224,7 @@ impl Server {
         let admit = |_: &[u8]| Admission::Accept {
             money_limit: u64::MAX,
             received: 0,
+            tolerance: 0,
             exhausted: ErrorCode::NO_ERROR,
         };
         self.handle_prepare_admitted(now, rng, prepare, admit, buffer)
@@ -267,13 +272,14 @@ impl Server {
                 }
             }
         };
-        let (money_limit, received_before, exhausted) = match admission {
+        let (money_limit, received_before, tolerance, exhausted) = match admission {
             Admission::Refuse(code) => return refused(self, code, buffer),
             Admission::Accept {
                 money_limit,
                 received,
+                tolerance,
                 exhausted,
-            } => (money_limit, received, exhausted),
+            } => (money_limit, received, tolerance, exhausted),
         };
         let index = match existing {
             Some(index) => index,
@@ -287,12 +293,12 @@ impl Server {
         };
         entry
             .connection
-            .set_money_limit(money_limit, received_before, exhausted);
+            .set_money_limit(money_limit, received_before, tolerance, exhausted);
         let before = entry.connection.stats().amount_received;
         let length = entry.connection.handle_prepare(now, rng, prepare, buffer);
         let received = entry.connection.stats().amount_received - before;
         assert!(
-            received <= money_limit,
+            received <= money_limit.saturating_add(tolerance),
             "connection took more than its limit"
         );
         Handled {

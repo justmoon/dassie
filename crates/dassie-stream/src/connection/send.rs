@@ -162,9 +162,27 @@ impl Connection {
         // refused forever.
         let room_rate = self.expected_rate.unwrap_or(rate);
         for stream in self.streams.iter().filter(|stream| stream.can_send()) {
-            let sendable = stream
-                .unsent_amount()
-                .min(room_rate.max_source_amount(stream.remote_room()));
+            // What is in flight takes from that room already, so packets
+            // sent together never offer more than the receiver takes.
+            let room = room_rate
+                .max_source_amount(stream.remote_room())
+                .saturating_sub(stream.held);
+            let unsent = stream.unsent_amount();
+            let mut sendable = unsent.min(room);
+            if sendable == 0 && unsent > 0 && stream.held == 0 && stream.remote_max_fell {
+                // No room for what is left, after the receiver lowered its
+                // maximum: something else takes from what it pays into.
+                // Offer it the least that delivers a unit anyway, once per
+                // back-off, so that it can say why: a reply with the room
+                // it has now, or a close with the reason it takes no more
+                // (spec/areas/stream.md#money-limit). Waiting instead
+                // would wait for a word it may never send. A receiver that
+                // never lowered its maximum is simply full.
+                sendable = rate
+                    .min_source_for_one_unit()
+                    .filter(|&least| least <= unsent)
+                    .unwrap_or(0);
+            }
             let amount = sendable.min(budget);
             if amount > 0 {
                 slot.money.push((stream.id, amount));
@@ -297,7 +315,7 @@ impl Connection {
         // Under a connection limit, a stream reports the application's
         // count, which survives reconnections and leaves out what the
         // application does not count yet, and no more room than what is
-        // left of the limit.
+        // left of the limit: none once that is within the tolerance.
         let (receive_max, total_received) = if self.money_limit == u64::MAX {
             (stream.receive_max, stream.received)
         } else {
@@ -305,7 +323,7 @@ impl Connection {
             (
                 stream
                     .receive_max
-                    .min(received.saturating_add(self.money_limit)),
+                    .min(received.saturating_add(self.money_room())),
                 received,
             )
         };

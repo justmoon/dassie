@@ -100,6 +100,16 @@ impl Rate {
         saturate(destination as u128 * self.denominator as u128 / self.numerator as u128)
     }
 
+    /// The fewest source units that convert to at least one destination
+    /// unit: `ceil(1 / rate)`. None for a zero rate.
+    #[must_use]
+    pub const fn min_source_for_one_unit(self) -> Option<u64> {
+        if self.numerator == 0 {
+            return None;
+        }
+        Some(self.denominator.div_ceil(self.numerator))
+    }
+
     /// The rate reduced by `slippage_permille` thousandths, the least a
     /// sender accepts when its measured rate is this one.
     #[must_use]

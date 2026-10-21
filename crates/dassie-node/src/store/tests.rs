@@ -470,6 +470,50 @@ fn open_payments_keep_what_they_received_over_the_upgrade_to_connections() {
     );
 }
 
+// Migration 28 lets a payment receive more than its amount, as a packet
+// within the tolerance may bring it
+// (spec/decisions/paid-within-a-tolerance.md), and keeps the payments and
+// what their connections received.
+#[test]
+fn payments_and_their_connections_survive_the_upgrade_to_a_tolerance() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+    connection
+        .pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap();
+    connection
+        .pragma_update(None, "foreign_keys", "ON")
+        .unwrap();
+    schema::migrate_until(&mut connection, 27).unwrap();
+    connection
+        .execute_batch(
+            "INSERT INTO incoming_payments VALUES (x'01010101010101010101010101010101', \
+             'stub+usd', 'https://a.example/pay', NULL, 100, 40, 'g.a.b', zeroblob(32), NULL, \
+             10, 1000, NULL, 1); \
+             INSERT INTO incoming_connections VALUES \
+               (x'01010101010101010101010101010101', x'08080808080808080808080808080808', 40);",
+        )
+        .unwrap();
+    let over = "UPDATE incoming_payments SET received_amount = 101";
+    assert!(connection.execute_batch(over).is_err());
+    drop(connection);
+    let store = Store::open(temp.path()).unwrap();
+    let key = ConnectionKey([8; 16]);
+    assert_eq!(
+        store.open_incoming_connections(30, 10).unwrap(),
+        [(PaymentId([1; 16]), key, 40)]
+    );
+    store.lock().execute_batch(over).unwrap();
+    let row = store.incoming_payment(PaymentId([1; 16])).unwrap().unwrap();
+    assert_eq!((row.incoming_amount, row.received_amount), (Some(100), 101));
+    // A payment's connections still go with it.
+    store
+        .lock()
+        .execute_batch("DELETE FROM incoming_payments")
+        .unwrap();
+    assert!(store.open_incoming_connections(30, 10).unwrap().is_empty());
+}
+
 // Found by the simulation (spec/decisions/random-seed-simulations.md): a
 // receiver that restarts after an incoming payment completed must still tell
 // a sender that reconnects what its connection delivered, or the sender,

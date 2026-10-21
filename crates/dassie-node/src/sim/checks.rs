@@ -7,6 +7,7 @@
 
 use dassie_connector::{CapUsage, replay};
 use dassie_node_core::testing::Outcome;
+use dassie_payments::amount::{paid_in_full, payment_tolerance};
 use dassie_settlement::policy;
 
 use dassie_ledger::LedgerId;
@@ -90,8 +91,10 @@ pub fn check_cap(sim: &Sim, payment: &Payment) -> Result<(), String> {
 
 /// An incoming payment received at least what its sender sent, more only
 /// what hops lost (checked over all payments), never more than it asked
-/// for, and is complete once it has that. Less than was sent, or more than
-/// it asked for, is a safety failure; not yet all it asked for, liveness.
+/// for beyond its tolerance, and is complete once it has that, to within
+/// its tolerance (spec/decisions/paid-within-a-tolerance.md). Less than
+/// was sent, or more than it may take, is a safety failure; not yet all it
+/// asked for, liveness.
 pub fn check_incoming(sim: &Sim, payment: &Payment) -> Result<(), Outcome> {
     let row = sim.nodes[payment.to]
         .store
@@ -109,15 +112,20 @@ pub fn check_incoming(sim: &Sim, payment: &Payment) -> Result<(), Outcome> {
         ));
     }
     // One that expired first got what it got, never more than its limit.
-    if let Some(limit) = payment.limit
-        && (row.received_amount > limit
-            || !payment.expired && (row.received_amount != limit || row.completed_at_ms.is_none()))
+    let scale = row.ledger.asset().scale;
+    let full = paid_in_full(payment.limit, row.received_amount, scale);
+    let ceiling = payment
+        .limit
+        .map(|limit| limit + payment_tolerance(Some(limit), scale));
+    if let (Some(limit), Some(ceiling)) = (payment.limit, ceiling)
+        && (row.received_amount > ceiling
+            || !payment.expired && (!full || row.completed_at_ms.is_none()))
     {
         let problem = format!(
             "an incoming payment of {limit} received {} (completed {:?})",
             row.received_amount, row.completed_at_ms
         );
-        return Err(if row.received_amount > limit {
+        return Err(if row.received_amount > ceiling {
             Outcome::safety("incoming", problem)
         } else {
             Outcome::liveness("incoming", problem)
@@ -400,7 +408,8 @@ pub fn check_mid_flight(sim: &Sim) -> Result<(), Outcome> {
             .unwrap()
             .ok_or_else(|| Outcome::safety("mid-flight", "an incoming payment vanished"))?;
         if let Some(limit) = payment.limit
-            && row.received_amount > limit
+            && row.received_amount
+                > limit + payment_tolerance(Some(limit), row.ledger.asset().scale)
         {
             return Err(Outcome::safety(
                 "mid-flight",
@@ -422,7 +431,8 @@ pub fn check_mid_flight(sim: &Sim) -> Result<(), Outcome> {
             .incoming_payment(incoming)
             .unwrap()
             .map_or(0, |row| row.received_amount);
-        if received > row.receive_amount.value {
+        let asked = &row.receive_amount;
+        if received > asked.value + payment_tolerance(Some(asked.value), asked.asset_scale) {
             return Err(Outcome::safety(
                 "mid-flight",
                 format!(

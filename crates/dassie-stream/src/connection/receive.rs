@@ -132,21 +132,27 @@ impl Connection {
                 .frames
                 .iter()
                 .any(|frame| matches!(frame, Frame::StreamMoney { .. }));
-        if self.money_limit == 0 && offers_money && decision.close.is_none() {
+        if self.money_room() == 0 && offers_money && decision.close.is_none() {
             // What the connection pays into is full, possibly by another
-            // connection, or closed short of it: its streams' maxima fell,
-            // which senders ignore, so they would offer money until their
-            // deadline. A close they all understand ends it, with the code
-            // the application gave for why; the response still reports the
-            // streams' totals, so the sender learns what it delivered.
-            // Rate probes and packets without money are answered as
-            // before, so a sender can still measure and open a stream.
+            // connection, or within the tolerance of it, or closed short
+            // of it: its streams' maxima fell, which other senders ignore,
+            // so they would offer money until their deadline. A close they
+            // all understand ends it, with the code the application gave
+            // for why; the response still reports the streams' totals, so
+            // the sender learns what it delivered. Rate probes and packets
+            // without money are answered as before, so a sender can still
+            // measure and open a stream.
             decision.close = Some((self.money_exhausted, false));
             return decision;
         }
         let fulfillable = dassie_ilp::condition_for(&fulfillment) == prepare.execution_condition;
         let enough = prepare.amount >= packet.prepare_amount;
-        let within_limit = prepare.amount <= self.money_limit;
+        // A packet may overshoot what is left by the tolerance, which
+        // rounding on the way can put over it. One that overshoots more is
+        // refused with F99, and the reply carries what arrived and each
+        // stream's room, so the sender can send what is left instead
+        // (spec/areas/stream.md#money-limit).
+        let within_limit = prepare.amount <= self.money_limit.saturating_add(self.money_tolerance);
         if !(acceptable && fulfillable && enough && within_limit) {
             return decision;
         }
@@ -444,7 +450,8 @@ impl Connection {
             self.stats.packets_received_fulfilled.saturating_add(1);
         self.stats.amount_received = self.stats.amount_received.saturating_add(prepare.amount);
         if self.money_limit != u64::MAX {
-            self.money_limit -= prepare.amount;
+            // Within the tolerance, a packet may take more than was left.
+            self.money_limit = self.money_limit.saturating_sub(prepare.amount);
             self.money_received = self.money_received.saturating_add(prepare.amount);
         }
     }

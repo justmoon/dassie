@@ -143,12 +143,21 @@ impl Connection {
             self.connected = true;
             self.push_event(Event::Connected);
         }
+        // Replies may arrive out of order. Only the reply to the newest
+        // request says what the receiver takes now; an older one may only
+        // raise its limits.
+        let newest = self
+            .newest_reply
+            .is_none_or(|newest| slot.sequence > newest);
+        if newest {
+            self.newest_reply = Some(slot.sequence);
+        }
         let mut remote_close = None;
         for frame in packet.frames.iter() {
             if let Frame::ConnectionClose { code, .. } = frame {
                 remote_close = Some(code);
             }
-            self.apply_reply_frame(&frame, expected == PacketType::Fulfill);
+            self.apply_reply_frame(&frame, expected == PacketType::Fulfill, newest);
         }
         if let Some(code) = remote_close {
             self.finish_close(code, true);
@@ -156,8 +165,24 @@ impl Connection {
         Some(packet.prepare_amount)
     }
 
-    fn apply_reply_frame(&mut self, frame: &Frame<'_>, fulfilled: bool) {
+    fn apply_reply_frame(&mut self, frame: &Frame<'_>, fulfilled: bool, newest: bool) {
         match *frame {
+            Frame::StreamMaxMoney {
+                stream_id,
+                receive_max,
+                total_received,
+            } if newest => {
+                // What the receiver takes now, even when it fell, as when
+                // another payment took from what it pays into: sent what
+                // it no longer takes, every packet would be refused
+                // (spec/areas/stream.md#money-limit).
+                if let Some(stream) = self.stream_mut(stream_id) {
+                    stream.remote_received = stream.remote_received.max(total_received);
+                    let known = stream.remote_receive_max != u64::MAX;
+                    stream.remote_max_fell |= known && receive_max < stream.remote_receive_max;
+                    stream.remote_receive_max = receive_max;
+                }
+            }
             Frame::StreamReceipt { stream_id, receipt } if fulfilled => {
                 if let (Some(stream), Ok(receipt)) = (
                     self.stream_mut(stream_id),

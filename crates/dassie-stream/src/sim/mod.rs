@@ -102,6 +102,9 @@ pub struct Simulation {
     /// What the server's application counts as received, over every
     /// connection and restart.
     pub money_received: u64,
+    /// How far what the server's application lets in may land from its
+    /// limit and count as reached.
+    pub money_tolerance: u64,
     /// The error the server's application refuses packets with, if any.
     pub refusal: Option<IlpErrorCode>,
     server_config: (u64, [u8; 32], Policy),
@@ -169,6 +172,7 @@ impl Simulation {
             server_receive_max: u64::MAX,
             client_receive_max: u64::MAX,
             money_limit: None,
+            money_tolerance: 0,
             money_received: 0,
             refusal: None,
             server_config: (seed, secret, policy),
@@ -297,6 +301,7 @@ impl Simulation {
     /// and takes what it received off the limit.
     fn admitted(&mut self, prepare: &Prepare<'_>, buffer: &mut [u8]) -> usize {
         let (refusal, limit, received) = (self.refusal, self.money_limit, self.money_received);
+        let tolerance = self.money_tolerance;
         let tags = &mut self.admitted_tags;
         let admit = |tag: &[u8]| {
             if tags.len() < 64 {
@@ -307,6 +312,7 @@ impl Simulation {
                 None => Admission::Accept {
                     money_limit: limit.unwrap_or(u64::MAX),
                     received,
+                    tolerance,
                     exhausted: ErrorCode::NO_ERROR,
                 },
             }
@@ -315,7 +321,7 @@ impl Simulation {
             self.server
                 .handle_prepare_admitted(self.now, &mut self.rng, prepare, admit, buffer);
         if let Some(limit) = self.money_limit.as_mut() {
-            *limit -= handled.received;
+            *limit = limit.saturating_sub(handled.received);
         }
         self.money_received += handled.received;
         handled.length
