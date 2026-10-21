@@ -93,6 +93,19 @@ The XRPL scheme takes its server's word on which ledgers are validated and what 
 - **It matters before real money.** A mainnet scheme that took one server's word would let that server's operator have the node book XRP that never arrived. [real-money](decisions/real-money.md)'s conditions do not name this check; whether they should is decided with the mainnet scheme ([Real money](#real-money)).
 - **Done when:** a server that reports a transaction, a balance or an absent account that no validated ledger holds, or a reset no quorum signed, gets nothing booked, written off or cancelled, and the scheme waits until an honest server answers; with an honest server, the scheme settles as before.
 
+### External assets and RLUSD
+
+Settlement in RLUSD, Ripple's dollar token on the XRP Ledger, on the testnet, as the scheme `xrpl-testnet-rlusd`. It needs what the node holds kept apart from how it settles: an XRPL account is an external asset, and the XRP and RLUSD schemes settle through it ([designs/external-assets.md](designs/external-assets.md), [external-assets](decisions/external-assets.md), [issued-assets](decisions/issued-assets.md)).
+
+- **Parts that can be built side by side:**
+  - the XRPL account as an external asset, with `xrpl-testnet` as a scheme on it: keys, connection, sequences and transactions in flight in the account, a cursor per scheme, and the migration of the scheme's state;
+  - the codec: token amounts, a token `Payment` and `TrustSet`, pinned by golden vectors made with xrpl.js;
+  - reading the ledger: a trust line's balance from either side, delivered token amounts, a line's flags;
+  - the fake ledger: trust lines and their reserve, token payments through the issuer and their failures, and an issuer that mints, freezes and claws back;
+  - the `xrpl-testnet-rlusd` scheme and its ledger `xrpl-testnet-rlusd+usd`: the line set up before it syncs, settling, booking by the line, gas;
+  - the wallet's page of external assets, Receive for RLUSD, a dev scenario, the `node` simulation on RLUSD and across XRP and RLUSD, and end-to-end tests.
+- **Done when:** two nodes peer and settle on `xrpl-testnet-rlusd` over the fake ledger, in the simulation and end to end, with the issuer drawing freezes and clawbacks, and each node's books stay in step with its line; a node that runs both XRPL schemes on one account never reuses a sequence, and books every XRP fee once; and two nodes funded by hand settle RLUSD on the real testnet.
+
 ## Not built yet
 
 Gaps between what the spec's contract or decisions ask for and what `main` does. Each can be picked up on its own.
@@ -116,7 +129,7 @@ The `live` realm is refused, and the XRP Ledger mainnet has no scheme ([real-mon
 - releases are signed ([Release](areas/release.md));
 - there has been an external review.
 
-The first four are on `main`; the external review has not happened. Mainnet also needs a scheme of its own, with its own memo type, versioned with the peer protocol, and a mainnet bootstrap node list must exist before `live` makes sense. Until then, the testnet scheme stops unless its server reports the testnet's network ID, so a mainnet server never gets XRP booked or signed for with a testnet wallet. The scheme still takes its server's word on what is validated; checking the validators itself is an [open area](#checking-xrp-ledger-validators). Settlement hubs hold real money only under the same conditions.
+The first four are on `main`; the external review has not happened. Mainnet also needs a scheme of its own, with its own memo type, versioned with the peer protocol, and a mainnet bootstrap node list must exist before `live` makes sense. Until then, the testnet scheme stops unless its server reports the testnet's network ID, so a mainnet server never gets XRP booked or signed for with a testnet wallet. The scheme still takes its server's word on what is validated; checking the validators itself is an [open area](#checking-xrp-ledger-validators). Settlement hubs hold real money only under the same conditions. A scheme in an issued asset needs, besides, the issuer's conditions decided again: a dollar token priced at par, and what freezes and clawbacks cost ([issued-assets](decisions/issued-assets.md)).
 
 ## Smaller open points
 
@@ -149,3 +162,4 @@ Designs that stay future work. The architecture must not preclude them.
 - [random-seed-simulations](decisions/random-seed-simulations.md): the simulation campaign.
 - [ledger-resets](decisions/ledger-resets.md): a lagging server is handled; one that lies needs the validators checked.
 - [default-relay](decisions/default-relay.md): the default relay, until an onboarding asks.
+- [external-assets](decisions/external-assets.md), [issued-assets](decisions/issued-assets.md): external assets and RLUSD.

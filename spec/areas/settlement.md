@@ -9,7 +9,7 @@ Each node keeps its own books and decides from them alone: whether it takes a se
 
 ## Schemes and ledgers
 
-A settlement scheme serves one internal ledger, and a ledger has at most one active scheme. The node's registry is in `engine/core/schemes.rs`. Only ledgers of the test realm activate ([XRPL](xrpl.md#real-money)).
+A settlement scheme serves one internal ledger, and a ledger has at most one active scheme. The node's registry is in `engine/core/schemes.rs`. Only ledgers of the test realm activate ([XRPL](xrpl.md#real-money)). A scheme owns what it settles from; external assets that several schemes share are [not built](../roadmap.md#external-assets-and-rlusd).
 
 Activating a scheme, when the owner adds it or at start, makes it from its config and its last [checkpoint](#checkpoints-and-activation), opens the ledger's common accounts, books the activation entry, and gives the ledger its STREAM receiver and payer ([Connector](connector.md#local-endpoints)). Removing a scheme is refused while anything still depends on it: tokens, peerings, or outgoing payments on its ledger. Its accounts and checkpoint stay, so adding it again picks up where it was, including the settlements still pending.
 
