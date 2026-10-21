@@ -438,9 +438,10 @@ async fn a_device_not_paired_cannot_hold_its_stream_for_ever() {
         "the stream stayed open: {closed:?}"
     );
 
-    // Paired within it, the app connects again, and keeps that stream.
-    let mut app = connect_direct(&quic, &node, id).await;
+    // Paired within it, the app connects again, and keeps that stream. The
+    // pairing starts first, so that the claim alone races the lifetime.
     let (_, secret) = start_pairing(&node).await;
+    let mut app = connect_direct(&quic, &node, id).await;
     claim(&mut app, &secret, "Phone").await.unwrap();
     let mut app = connect_direct(&quic, &node, id).await;
     tokio::time::sleep(Duration::from_millis(900)).await;

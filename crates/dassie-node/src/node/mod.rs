@@ -69,8 +69,9 @@ pub struct Policies {
     /// Most RPC WebSockets without a session open at once from one client
     /// (an IPv4 address or an IPv6 /56). A wallet page holds one.
     pub anonymous_websockets_per_client: u32,
-    /// A browser's RPC socket without a session closes after this long,
-    /// whatever it sends: it only asks for the node's basic state.
+    /// A browser's RPC socket without a session, or a device's stream that
+    /// was not paired when it connected, closes after this long, whatever it
+    /// sends: it only asks for the node's basic state, or claims a pairing.
     pub anonymous_socket_lifetime_ms: u64,
     /// A browser's RPC socket with no call in flight closes after this long
     /// without a message either way.

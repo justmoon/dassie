@@ -59,7 +59,8 @@ pub enum Closed {
     SessionEnded,
     /// Nothing happened for the idle timeout.
     Idle,
-    /// A connection without a session reached its lifetime.
+    /// A connection without a session, or of a device not paired when it
+    /// connected, reached its lifetime.
     Expired,
     /// The node is shutting down.
     Shutdown,
