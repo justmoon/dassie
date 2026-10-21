@@ -34,6 +34,7 @@ use dassie_node::store::MAX_DEVICES;
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
 use futures_util::{SinkExt, StreamExt};
+use support::op::CA;
 use support::{Bound, RpcClient, START_MS, TestNode, Transport, set_up, websocket};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
@@ -223,7 +224,10 @@ async fn a_device_pairs_through_the_relay_the_node_keeps() {
     let shutdown = CancellationToken::new();
     let (_relay, relay_key, relay_url) = endpoint(70, Some(Arc::new(Relay)), &shutdown);
     let entry = key::relay_entry(&relay_key, &relay_url);
+    // The test CA: the node's peer client needs roots, and a build sandbox
+    // has no system ones.
     let (node, id) = node(&[
+        ("DASSIE_PEER_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
         ("DASSIE_RELAY", entry.as_str()),
     ])
