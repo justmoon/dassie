@@ -4,20 +4,35 @@
 //! close on command with real result codes and close times, the metadata,
 //! streams and history the node reads, resets, and a faucet.
 //!
+//! Tokens on trust lines ([`tokens`]): lines as `RippleState` entries with
+//! their owner reserve, `TrustSet`, token Payments that ripple through the
+//! issuer with the ledger's failures, and issuers that mint, freeze, set a
+//! transfer fee and claw back. The fake is the only source of test RLUSD:
+//! [`FakeLedger::new`] makes RLUSD's testnet issuer, at its address.
+//!
 //! It answers the subset of the rippled WebSocket API in [`crate::api`],
 //! at API version 1, as rippled does. It checks what it is sent with the
 //! node's own codec, so the codec is pinned by the xrpl.js vectors, not by
 //! this.
 
+mod meta;
+pub mod tokens;
+
 use alloc::collections::{BTreeMap, BTreeSet};
-use alloc::string::{String, ToString};
+use alloc::string::ToString;
 use alloc::vec::Vec;
 
 use serde_json::{Value, json};
 
-use crate::codec::{Amount, Payment, hash};
+use crate::api::account_flags;
+use crate::codec::{Amount, Currency, Payment, TokenAmount, Transaction, TrustSet, hash};
 use crate::keys::{AccountId, verify};
-use crate::{from_hex, hex_upper};
+use crate::{DROPS_PER_XRP, from_hex, hex_upper};
+
+pub use tokens::{ExactSum, Token};
+
+use meta::{Applied, Touched};
+use tokens::{Clawback, IssuerSet, LineKey};
 
 /// The reference fee, in drops.
 pub const FEE_BASE: u64 = 10;
@@ -39,24 +54,124 @@ pub const CLOSE_INTERVAL_S: u64 = 4;
 pub const RESTART_LEDGER: u32 = 2_000;
 /// The most ledgers a `tx` lookup may span, as rippled's `kMaxRange`.
 const MAX_TX_RANGE_LEDGERS: u64 = 1_000;
+/// The ledgers an issuer's or genesis's own transaction may wait.
+const OWN_TX_LEDGERS: u32 = 20;
+
+/// RLUSD's issuer on the XRPL testnet, `rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV`:
+/// the fake ledger issues its test RLUSD at the same address.
+pub const RLUSD_ISSUER: AccountId = AccountId([
+    0xFC, 0xF4, 0xDD, 0x8C, 0x64, 0x63, 0x6B, 0xC5, 0x03, 0xF4, 0xA5, 0x8D, 0xC6, 0xC6, 0x84, 0xD2,
+    0xC7, 0xC3, 0xC2, 0x4F,
+]);
+/// RLUSD's currency code: "RLUSD" in 40 hex digits.
+pub const RLUSD_CURRENCY: Currency = Currency([
+    0x52, 0x4C, 0x55, 0x53, 0x44, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+]);
+/// What an issuer is given from genesis, in drops, to pay its fees.
+pub const ISSUER_DROPS: u64 = 1_000 * DROPS_PER_XRP;
+/// An issuer's flags, as RLUSD's on the testnet: lines ripple through it,
+/// it may claw back, it requires no authorisation and keeps the right to
+/// freeze.
+pub const ISSUER_FLAGS: u32 =
+    account_flags::DEFAULT_RIPPLE | account_flags::ALLOW_TRUST_LINE_CLAWBACK;
 
 /// A connection to the fake ledger.
 pub type ConnectionId = u64;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Account {
     balance: u64,
     sequence: u32,
     owner_count: u32,
+    /// Its flags ([`account_flags`]).
+    flags: u32,
+    /// Its transfer rate in billionths; 0 when it charges nothing.
+    transfer_rate: u32,
 }
 
-/// A transaction in a validated ledger, with its metadata.
+impl Account {
+    const fn new(balance: u64, sequence: u32) -> Self {
+        Self {
+            balance,
+            sequence,
+            owner_count: 0,
+            flags: 0,
+            transfer_rate: 0,
+        }
+    }
+}
+
+/// A transaction waiting for the next close.
 #[derive(Clone, Debug)]
-struct Applied {
-    ledger: u32,
-    hash: [u8; 32],
-    accounts: Vec<AccountId>,
-    message: Value,
+enum Tx {
+    Payment(Payment),
+    TrustSet(TrustSet),
+    /// An issuer's own: a global freeze or a transfer rate.
+    AccountSet(IssuerSet),
+    /// An issuer's own.
+    Clawback(Clawback),
+}
+
+impl Tx {
+    fn account(&self) -> AccountId {
+        match self {
+            Self::Payment(tx) => tx.account,
+            Self::TrustSet(tx) => tx.account,
+            Self::AccountSet(tx) => tx.account,
+            Self::Clawback(tx) => tx.account,
+        }
+    }
+
+    fn sequence(&self) -> u32 {
+        match self {
+            Self::Payment(tx) => tx.sequence,
+            Self::TrustSet(tx) => tx.sequence,
+            Self::AccountSet(tx) => tx.sequence,
+            Self::Clawback(tx) => tx.sequence,
+        }
+    }
+
+    fn last_ledger_sequence(&self) -> u32 {
+        match self {
+            Self::Payment(tx) => tx.last_ledger_sequence,
+            Self::TrustSet(tx) => tx.last_ledger_sequence,
+            Self::AccountSet(tx) => tx.last_ledger_sequence,
+            Self::Clawback(tx) => tx.last_ledger_sequence,
+        }
+    }
+
+    fn fee(&self) -> u64 {
+        match self {
+            Self::Payment(tx) => tx.fee,
+            Self::TrustSet(tx) => tx.fee,
+            Self::AccountSet(_) | Self::Clawback(_) => FEE_BASE,
+        }
+    }
+
+    /// Its blob, if it was signed and submitted.
+    fn signed_blob(&self) -> Option<Vec<u8>> {
+        match self {
+            Self::Payment(tx) => tx.signature.map(|_| tx.blob()),
+            Self::TrustSet(tx) => tx.signature.map(|_| tx.blob()),
+            Self::AccountSet(_) | Self::Clawback(_) => None,
+        }
+    }
+}
+
+/// What applying a transaction came to.
+struct Outcome {
+    code: &'static str,
+    /// What a successful Payment delivered.
+    delivered: Option<Amount>,
+}
+
+impl Outcome {
+    const fn code(code: &'static str) -> Self {
+        Self {
+            code,
+            delivered: None,
+        }
+    }
 }
 
 /// The fake ledger. A clone is a server that stops where the ledger was:
@@ -64,6 +179,13 @@ struct Applied {
 #[derive(Clone)]
 pub struct FakeLedger {
     accounts: BTreeMap<AccountId, Account>,
+    /// Trust lines, by their low and high account and currency.
+    lines: BTreeMap<LineKey, crate::api::TrustLine>,
+    /// The accounts that issue tokens here, which the fake acts as.
+    issuers: BTreeSet<AccountId>,
+    /// What each issuer's holders hold of each of its currencies, by
+    /// what it minted less what came back to it, was clawed back or wiped.
+    supply: BTreeMap<Token, ExactSum>,
     /// The last validated ledger.
     ledger: u32,
     /// When it closed, in seconds since the XRP Ledger's epoch.
@@ -74,7 +196,7 @@ pub struct FakeLedger {
     /// The first ledger `account_tx` reaches, at or after `history_from`.
     account_tx_from: u32,
     history: Vec<Applied>,
-    queued: Vec<Payment>,
+    queued: Vec<Tx>,
     queued_hashes: BTreeSet<[u8; 32]>,
     accounts_of: BTreeMap<ConnectionId, BTreeSet<AccountId>>,
     ledger_stream: BTreeSet<ConnectionId>,
@@ -98,21 +220,17 @@ impl Default for FakeLedger {
 }
 
 impl FakeLedger {
-    /// A ledger with only the genesis account.
+    /// A ledger with only the genesis account and RLUSD's issuer.
     #[must_use]
     pub fn new() -> Self {
         let genesis = AccountId([0xAB; 20]);
         let mut accounts = BTreeMap::new();
-        accounts.insert(
-            genesis,
-            Account {
-                balance: crate::MAX_DROPS,
-                sequence: 1,
-                owner_count: 0,
-            },
-        );
-        Self {
+        accounts.insert(genesis, Account::new(crate::MAX_DROPS, 1));
+        let mut ledger = Self {
             accounts,
+            lines: BTreeMap::new(),
+            issuers: BTreeSet::new(),
+            supply: BTreeMap::new(),
             ledger: FIRST_LEDGER,
             close_time: FIRST_CLOSE_TIME,
             history_from: FIRST_LEDGER,
@@ -127,6 +245,26 @@ impl FakeLedger {
             wiped: 0,
             reserve: (RESERVE_BASE, RESERVE_INC),
             network_id: Some(1),
+        };
+        ledger.add_issuer(RLUSD_ISSUER);
+        ledger
+    }
+
+    /// Makes `issuer` an account the fake acts as, with [`ISSUER_FLAGS`]
+    /// and [`ISSUER_DROPS`] from genesis, as of the current ledger. It
+    /// stays through resets, as an issuer that came back at its address.
+    pub fn add_issuer(&mut self, issuer: AccountId) {
+        assert_ne!(issuer, self.genesis, "genesis issues nothing");
+        if self.issuers.insert(issuer) && !self.accounts.contains_key(&issuer) {
+            let genesis = self
+                .accounts
+                .entry(self.genesis)
+                .or_insert(Account::new(0, 1));
+            assert!(genesis.balance >= ISSUER_DROPS, "genesis funds issuers");
+            genesis.balance -= ISSUER_DROPS;
+            let mut account = Account::new(ISSUER_DROPS, self.ledger);
+            account.flags = ISSUER_FLAGS;
+            self.accounts.insert(issuer, account);
         }
     }
 
@@ -146,6 +284,18 @@ impl FakeLedger {
     #[must_use]
     pub fn balance(&self, account: AccountId) -> Option<u64> {
         self.accounts.get(&account).map(|a| a.balance)
+    }
+
+    /// The objects an account owns, such as trust lines, if it exists.
+    #[must_use]
+    pub fn owner_count(&self, account: AccountId) -> Option<u32> {
+        self.accounts.get(&account).map(|a| a.owner_count)
+    }
+
+    /// An account's flags ([`account_flags`]), if it exists.
+    #[must_use]
+    pub fn account_flags(&self, account: AccountId) -> Option<u32> {
+        self.accounts.get(&account).map(|a| a.flags)
     }
 
     /// All XRP there is, with what fees burned and resets wiped: it never
@@ -199,26 +349,30 @@ impl FakeLedger {
     }
 
     /// Starts the chain again, as a testnet reset does: every account but
-    /// genesis and all history wiped, from a ledger below the last, which
-    /// closes later.
+    /// genesis and the issuers, every trust line and all history wiped,
+    /// from a ledger below the last, which closes later.
     pub fn reset(&mut self) {
         self.ledger = RESTART_LEDGER.min(self.ledger.saturating_sub(1));
         self.close_time = self.close_time.saturating_add(CLOSE_INTERVAL_S);
         self.history_from = self.ledger;
         self.account_tx_from = self.ledger;
         self.history.clear();
-        let genesis = self.accounts.get(&self.genesis).copied();
+        let (genesis, issuers) = (self.genesis, &self.issuers);
+        let kept = |id: &AccountId| *id == genesis || issuers.contains(id);
         let wiped: u64 = self
             .accounts
             .iter()
-            .filter(|(id, _)| **id != self.genesis)
+            .filter(|(id, _)| !kept(id))
             .map(|(_, account)| account.balance)
             .sum();
         self.wiped = self.wiped.saturating_add(wiped);
-        self.accounts.clear();
-        if let Some(genesis) = genesis {
-            self.accounts.insert(self.genesis, genesis);
+        self.accounts.retain(|id, _| kept(id));
+        // Their lines are gone, and with them what their holders held.
+        for account in self.accounts.values_mut() {
+            account.owner_count = 0;
         }
+        self.lines.clear();
+        self.supply.clear();
         self.queued.clear();
         self.queued_hashes.clear();
     }
@@ -233,19 +387,19 @@ impl FakeLedger {
     /// outside.
     pub fn deposit(&mut self, to: AccountId, drops: u64) {
         let sequence = self.next_sequence(self.genesis);
-        self.queued.push(Payment {
+        self.queued.push(Tx::Payment(Payment {
             account: self.genesis,
             destination: to,
             amount: Amount::Xrp(drops),
             fee: FEE_BASE,
             sequence,
-            last_ledger_sequence: self.ledger.saturating_add(20),
+            last_ledger_sequence: self.ledger.saturating_add(OWN_TX_LEDGERS),
             flags: 0,
             network_id: None,
             memos: Vec::new(),
             signing_pub_key: [0; 33],
             signature: None,
-        });
+        }));
     }
 
     /// Sets the sequence `account` uses next, as for an account that has
@@ -274,6 +428,7 @@ impl FakeLedger {
             "subscribe" => self.subscribe(connection, &request),
             "account_info" => self.account_info(&request),
             "account_tx" => self.account_tx(&request),
+            "ledger_entry" => self.ledger_entry(&request),
             "tx" => self.tx(&request),
             "submit" => self.submit(&request),
             _ => Err(json!({ "error": "unknownCmd" })),
@@ -309,9 +464,9 @@ impl FakeLedger {
         let mut out = Vec::new();
         let queued = core::mem::take(&mut self.queued);
         self.queued_hashes.clear();
-        for (index, payment) in queued.into_iter().enumerate() {
+        for (index, tx) in queued.into_iter().enumerate() {
             let index = u32::try_from(index).unwrap_or(u32::MAX);
-            if let Some(applied) = self.apply(payment, index) {
+            if let Some(applied) = self.apply(&tx, index) {
                 for (connection, accounts) in &self.accounts_of {
                     if applied.accounts.iter().any(|a| accounts.contains(a)) {
                         out.push((
@@ -341,7 +496,11 @@ impl FakeLedger {
 
     fn next_sequence(&self, account: AccountId) -> u32 {
         let base = self.accounts.get(&account).map_or(1, |a| a.sequence);
-        let queued = self.queued.iter().filter(|p| p.account == account).count();
+        let queued = self
+            .queued
+            .iter()
+            .filter(|tx| tx.account() == account)
+            .count();
         base.saturating_add(u32::try_from(queued).unwrap_or(u32::MAX))
     }
 
@@ -412,13 +571,50 @@ impl FakeLedger {
             || json!({ "error": "actNotFound", "ledger_index": self.ledger, "validated": true }),
         )?;
         Ok(json!({
-            "account_data": {
-                "Account": id.to_address(),
-                "Balance": account.balance.to_string(),
-                "Sequence": account.sequence,
-                "OwnerCount": account.owner_count,
-            },
+            "account_data": meta::account_fields(id, account),
             "ledger_index": self.ledger,
+            "validated": true,
+        }))
+    }
+
+    /// `ledger_entry` for a trust line: `ripple_state` by its two accounts
+    /// and currency, as of the last validated ledger.
+    fn ledger_entry(&self, request: &Value) -> Result<Value, Value> {
+        let malformed = || json!({ "error": "malformedRequest" });
+        let state = request.get("ripple_state").ok_or_else(malformed)?;
+        let accounts = state
+            .get("accounts")
+            .and_then(Value::as_array)
+            .filter(|accounts| accounts.len() == 2)
+            .ok_or_else(malformed)?;
+        let account = |index: usize| {
+            accounts
+                .get(index)
+                .and_then(Value::as_str)
+                .and_then(AccountId::parse)
+                .ok_or_else(malformed)
+        };
+        let (a, b) = (account(0)?, account(1)?);
+        let currency = state
+            .get("currency")
+            .and_then(Value::as_str)
+            .and_then(Currency::parse)
+            .ok_or_else(malformed)?;
+        if a == b {
+            return Err(malformed());
+        }
+        let key = tokens::line_key(a, b, currency);
+        let line = self.lines.get(&key).ok_or_else(
+            || json!({ "error": "entryNotFound", "ledger_index": self.ledger, "validated": true }),
+        )?;
+        let mut node = meta::line_fields(line);
+        if let Some(object) = node.as_object_mut() {
+            object.insert("LedgerEntryType".into(), "RippleState".into());
+        }
+        Ok(json!({
+            "index": hex_upper(&tokens::line_index(&key)),
+            "ledger_index": self.ledger,
+            "node": node,
             "validated": true,
         }))
     }
@@ -532,197 +728,205 @@ impl FakeLedger {
             .and_then(from_hex)
             .ok_or_else(|| json!({ "error": "invalidTransaction" }))?;
         let result = |code: &str| Ok(json!({ "engine_result": code, "tx_blob": hex_upper(&blob) }));
-        // Tokens are not modelled: a token Payment is as malformed as
-        // anything else the codec cannot read as XRP.
-        let Ok(
-            payment @ Payment {
-                amount: Amount::Xrp(drops),
-                ..
-            },
-        ) = Payment::decode(&blob)
-        else {
+        // What the codec cannot read, the node would never send: a partial
+        // Payment, paths, `SendMax`, or any other transaction.
+        let Ok(tx) = Transaction::decode(&blob) else {
             return result("temMALFORMED");
         };
         let tx_hash = hash(&blob);
         if self.queued_hashes.contains(&tx_hash) || self.history.iter().any(|a| a.hash == tx_hash) {
             return result("tefALREADY");
         }
-        let Some(signature) = payment.signature else {
-            return result("temBAD_SIGNATURE");
-        };
-        let unsigned = Payment {
-            signature: None,
-            ..payment.clone()
-        };
-        if !verify(
-            &payment.signing_pub_key,
-            &unsigned.signing_payload(),
-            &signature,
-        ) || AccountId::from_public_key(&payment.signing_pub_key) != payment.account
-        {
+        if !signed_by_sender(&tx) {
             return result("temBAD_SIGNATURE");
         }
-        if drops == 0 {
-            return result("temBAD_AMOUNT");
+        let tx = match tx {
+            Transaction::Payment(payment) => Tx::Payment(payment),
+            Transaction::TrustSet(trust_set) => Tx::TrustSet(trust_set),
+        };
+        if let Err(code) = preflight(&tx) {
+            return result(code);
         }
-        if !self.accounts.contains_key(&payment.account) {
+        if !self.accounts.contains_key(&tx.account()) {
             return result("terNO_ACCOUNT");
         }
-        if payment.fee < FEE_BASE {
+        if tx.fee() < FEE_BASE {
             return result("telINSUF_FEE_P");
         }
-        if payment.last_ledger_sequence <= self.ledger {
+        if tx.last_ledger_sequence() <= self.ledger {
             return result("tefMAX_LEDGER");
         }
-        let next = self.next_sequence(payment.account);
-        if payment.sequence < next {
+        let next = self.next_sequence(tx.account());
+        if tx.sequence() < next {
             return result("tefPAST_SEQ");
         }
-        if payment.sequence > next {
+        if tx.sequence() > next {
             return result("terPRE_SEQ");
         }
         self.queued_hashes.insert(tx_hash);
-        self.queued.push(payment);
+        self.queued.push(tx);
         result("tesSUCCESS")
     }
 
-    /// Applies a queued Payment, as the ledger closes.
-    fn apply(&mut self, payment: Payment, index: u32) -> Option<Applied> {
-        let amount = payment.amount.drops()?;
-        let sender = *self.accounts.get(&payment.account)?;
-        if payment.last_ledger_sequence < self.ledger || payment.sequence != sender.sequence {
+    /// Applies a queued transaction, as the ledger closes: its fee is
+    /// burned and its sequence used whatever its result, and nothing else
+    /// changes unless it succeeds.
+    fn apply(&mut self, tx: &Tx, index: u32) -> Option<Applied> {
+        let sender = *self.accounts.get(&tx.account())?;
+        if tx.last_ledger_sequence() < self.ledger || tx.sequence() != sender.sequence {
             return None;
         }
-        let fee = payment.fee.min(sender.balance);
+        let fee = tx.fee().min(sender.balance);
+        self.burned = self.burned.saturating_add(fee);
+        let mut touched = Touched::default();
+        let after_fee = Account {
+            balance: sender.balance - fee,
+            sequence: sender.sequence.saturating_add(1),
+            ..sender
+        };
+        self.put_account(&mut touched, tx.account(), after_fee);
+        let outcome = match tx {
+            Tx::Payment(payment) => match payment.amount {
+                Amount::Xrp(drops) => self.pay_xrp(&mut touched, payment, drops),
+                Amount::Token(amount) => {
+                    self.pay_token(&mut touched, payment.account, payment.destination, amount)
+                }
+            },
+            Tx::TrustSet(trust_set) => {
+                Outcome::code(self.trust_set(&mut touched, trust_set, sender.balance))
+            }
+            Tx::AccountSet(set) => Outcome::code(self.issuer_set(&mut touched, set)),
+            Tx::Clawback(clawback) => Outcome::code(self.claw(&mut touched, clawback)),
+        };
+        Some(self.applied(tx, index, &outcome, &touched))
+    }
+
+    /// A Payment of XRP, after its fee.
+    fn pay_xrp(&mut self, touched: &mut Touched, payment: &Payment, amount: u64) -> Outcome {
+        let Some(sender) = self.accounts.get(&payment.account).copied() else {
+            return Outcome::code("tefINTERNAL");
+        };
         let destination = self.accounts.get(&payment.destination).copied();
-        let after_fee = sender.balance - fee;
         let code = if destination.is_none() && amount < self.reserve.0 {
             "tecNO_DST_INSUF_XRP"
-        } else if after_fee < amount.saturating_add(self.reserve_of(&sender))
+        } else if sender.balance < amount.saturating_add(self.reserve_of(&sender))
             && payment.account != self.genesis
         {
             "tecUNFUNDED_PAYMENT"
         } else {
             "tesSUCCESS"
         };
-        let moved = if code == "tesSUCCESS" { amount } else { 0 };
-        self.burned = self.burned.saturating_add(fee);
+        if code != "tesSUCCESS" {
+            return Outcome::code(code);
+        }
         let sender_after = Account {
-            balance: after_fee - moved,
-            sequence: sender.sequence.saturating_add(1),
+            balance: sender.balance - amount,
             ..sender
         };
-        self.accounts.insert(payment.account, sender_after);
-        let mut nodes = alloc::vec![account_node(
-            "ModifiedNode",
-            payment.account,
-            sender.balance,
-            &sender_after
-        )];
-        if moved > 0 {
-            let before = destination.map_or(0, |d| d.balance);
-            let after = Account {
-                balance: before.saturating_add(moved),
-                sequence: destination.map_or(self.ledger, |d| d.sequence),
-                owner_count: destination.map_or(0, |d| d.owner_count),
-            };
-            self.accounts.insert(payment.destination, after);
-            let kind = if destination.is_some() {
-                "ModifiedNode"
-            } else {
-                "CreatedNode"
-            };
-            nodes.push(account_node(kind, payment.destination, before, &after));
+        self.put_account(touched, payment.account, sender_after);
+        let after = destination.map_or_else(
+            || Account::new(amount, self.ledger),
+            |d| Account {
+                balance: d.balance.saturating_add(amount),
+                ..d
+            },
+        );
+        self.put_account(touched, payment.destination, after);
+        Outcome {
+            code,
+            delivered: Some(Amount::Xrp(amount)),
         }
-        Some(self.applied(&payment, index, code, moved, nodes))
     }
 
-    fn applied(
-        &self,
-        payment: &Payment,
-        index: u32,
-        code: &str,
-        moved: u64,
-        nodes: Vec<Value>,
-    ) -> Applied {
-        // The hash of the transaction as submitted. Genesis's own are not
-        // signed: their ledger and index make them unique.
-        let tx_hash = if payment.signature.is_some() {
-            hash(&payment.blob())
-        } else {
-            let mut seed = Vec::new();
-            seed.extend_from_slice(&self.ledger.to_be_bytes());
-            seed.extend_from_slice(&index.to_be_bytes());
-            hash(&seed)
-        };
-        let memos: Vec<Value> = payment
-            .memos
-            .iter()
-            .map(|memo| {
-                json!({ "Memo": {
-                    "MemoType": hex_upper(&memo.memo_type),
-                    "MemoData": hex_upper(&memo.memo_data),
-                }})
-            })
-            .collect();
-        let mut transaction = json!({
-            "TransactionType": "Payment",
-            "Account": payment.account.to_address(),
-            "Destination": payment.destination.to_address(),
-            "Amount": payment.amount.drops().unwrap_or(0).to_string(),
-            "Fee": payment.fee.to_string(),
-            "Sequence": payment.sequence,
-            "LastLedgerSequence": payment.last_ledger_sequence,
-            "hash": hex_upper(&tx_hash),
-        });
-        if !memos.is_empty()
-            && let Some(object) = transaction.as_object_mut()
-        {
-            object.insert("Memos".into(), memos.into());
+    /// Writes an account, keeping what it was before the transaction.
+    fn put_account(&mut self, touched: &mut Touched, id: AccountId, account: Account) {
+        touched.account(id, self.accounts.get(&id).copied());
+        self.accounts.insert(id, account);
+    }
+
+    /// The fake's own transaction, unsigned: its hash is made from its
+    /// ledger and index.
+    fn queue_own(&mut self, tx: Tx) {
+        self.queued.push(tx);
+    }
+
+    /// The sequence and last ledger of `issuer`'s next own transaction, if
+    /// it is one of the fake's issuers.
+    fn own_slot(&self, issuer: AccountId) -> Result<(u32, u32), &'static str> {
+        if !self.issuers.contains(&issuer) || !self.accounts.contains_key(&issuer) {
+            return Err("terNO_ACCOUNT");
         }
-        let mut meta = json!({
-            "TransactionIndex": index,
-            "TransactionResult": code,
-            "AffectedNodes": nodes,
-        });
-        if code == "tesSUCCESS"
-            && let Some(object) = meta.as_object_mut()
-        {
-            object.insert("delivered_amount".into(), moved.to_string().into());
-        }
-        Applied {
-            ledger: self.ledger,
-            hash: tx_hash,
-            accounts: alloc::vec![payment.account, payment.destination],
-            message: json!({
-                "type": "transaction",
-                "validated": true,
-                "ledger_index": self.ledger,
-                "engine_result": code,
-                "transaction": transaction,
-                "meta": meta,
-            }),
-        }
+        Ok((
+            self.next_sequence(issuer),
+            self.ledger.saturating_add(OWN_TX_LEDGERS),
+        ))
     }
 }
 
-fn account_node(kind: &str, account: AccountId, before: u64, after: &Account) -> Value {
-    let final_fields = json!({
-        "Account": account.to_address(),
-        "Balance": after.balance.to_string(),
-        "Sequence": after.sequence,
-        "OwnerCount": after.owner_count,
-    });
-    let inner = if kind == "CreatedNode" {
-        json!({ "LedgerEntryType": "AccountRoot", "NewFields": final_fields })
-    } else {
-        json!({
-            "LedgerEntryType": "AccountRoot",
-            "FinalFields": final_fields,
-            "PreviousFields": { "Balance": before.to_string() },
-        })
+/// Whether a submitted transaction is signed, by the key of its sender.
+fn signed_by_sender(tx: &Transaction) -> bool {
+    let (account, key, signature, payload) = match tx {
+        Transaction::Payment(payment) => (
+            payment.account,
+            payment.signing_pub_key,
+            payment.signature,
+            Payment {
+                signature: None,
+                ..payment.clone()
+            }
+            .signing_payload(),
+        ),
+        Transaction::TrustSet(trust_set) => (
+            trust_set.account,
+            trust_set.signing_pub_key,
+            trust_set.signature,
+            TrustSet {
+                signature: None,
+                ..trust_set.clone()
+            }
+            .signing_payload(),
+        ),
     };
-    let mut node = serde_json::Map::new();
-    node.insert(String::from(kind), inner);
-    Value::Object(node)
+    signature.is_some_and(|signature| verify(&key, &payload, &signature))
+        && AccountId::from_public_key(&key) == account
+}
+
+/// Universal transaction flags: `tfFullyCanonicalSig`.
+const TF_FULLY_CANONICAL_SIG: u32 = 0x8000_0000;
+/// The Payment flags the fake knows: `tfNoRippleDirect` and
+/// `tfLimitQuality`, which change nothing without paths. The codec refuses
+/// `tfPartialPayment`.
+const PAYMENT_FLAGS: u32 = 0x0001_0000 | 0x0004_0000 | TF_FULLY_CANONICAL_SIG;
+
+/// What the ledger checks before anything else: the transaction alone.
+fn preflight(tx: &Tx) -> Result<(), &'static str> {
+    match tx {
+        Tx::Payment(payment) => {
+            if payment.flags & !PAYMENT_FLAGS != 0 {
+                return Err("temINVALID_FLAG");
+            }
+            let zero = match &payment.amount {
+                Amount::Xrp(drops) => *drops == 0,
+                Amount::Token(token) => token.value.is_zero(),
+            };
+            if zero {
+                return Err("temBAD_AMOUNT");
+            }
+            if payment.account == payment.destination {
+                return Err("temREDUNDANT");
+            }
+            Ok(())
+        }
+        Tx::TrustSet(trust_set) => tokens::preflight_trust_set(trust_set),
+        Tx::AccountSet(_) | Tx::Clawback(_) => Ok(()),
+    }
+}
+
+/// A token amount as the ledger writes one.
+fn token_json(amount: &TokenAmount) -> Value {
+    json!({
+        "currency": amount.currency.to_string(),
+        "issuer": amount.issuer.to_address(),
+        "value": amount.value.to_string(),
+    })
 }

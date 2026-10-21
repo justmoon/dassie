@@ -2,6 +2,11 @@
 //! one: its WebSocket API on `ws://`, its faucet on HTTPS, and a ledger
 //! closed every so often. For tests and dev environments only (feature
 //! `testing`): CI and `node --run dev -- --xrpl fake` settle against it.
+//!
+//! Next to the faucet, under `/tokens/`, the issuer of its test RLUSD takes
+//! requests: it mints to an address, freezes, deep-freezes and globally
+//! freezes, sets a transfer fee and claws back, each in the next ledger
+//! (spec/areas/xrpl.md#the-fake-ledger).
 
 use std::collections::BTreeMap;
 use std::convert::Infallible;
@@ -12,7 +17,8 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use dassie_xrpl::AccountId;
-use dassie_xrpl::fake::FakeLedger;
+use dassie_xrpl::codec::TokenValue;
+use dassie_xrpl::fake::{FakeLedger, Token};
 use futures_util::{SinkExt, StreamExt};
 use http_body_util::{BodyExt, Full, Limited};
 use hyper::server::conn::http1;
@@ -52,6 +58,8 @@ pub struct Server {
     pub url: String,
     /// Its faucet's URL, if it has one.
     pub faucet_url: Option<String>,
+    /// Where its issuer takes requests, with the faucet: `…/tokens`.
+    pub tokens_url: Option<String>,
 }
 
 impl Server {
@@ -82,7 +90,7 @@ impl Server {
             Arc::clone(&shared),
             cancel.clone(),
         ));
-        let faucet_url = match options.faucet {
+        let (faucet_url, tokens_url) = match options.faucet {
             Some((listen, certificate)) => {
                 let listener = TcpListener::bind(listen).await.map_err(|e| e.to_string())?;
                 let address = listener.local_addr().map_err(|e| e.to_string())?;
@@ -96,15 +104,19 @@ impl Server {
                     Arc::clone(&shared),
                     cancel.clone(),
                 ));
-                Some(format!("https://localhost:{}/accounts", address.port()))
+                (
+                    Some(format!("https://localhost:{}/accounts", address.port())),
+                    Some(format!("https://localhost:{}/tokens", address.port())),
+                )
             }
-            None => None,
+            None => (None, None),
         };
         Ok(Self {
             shared,
             cancel,
             url: format!("ws://{address}"),
             faucet_url,
+            tokens_url,
         })
     }
 
@@ -242,7 +254,7 @@ async fn serve_faucet(
             };
             let service = service_fn(move |request| {
                 let shared = Arc::clone(&shared);
-                async move { Ok::<_, Infallible>(fund(&shared, request).await) }
+                async move { Ok::<_, Infallible>(serve_request(&shared, request).await) }
             });
             let _ = http1::Builder::new()
                 .serve_connection(TokioIo::new(tls), service)
@@ -260,35 +272,238 @@ async fn serve_faucet(
     }
 }
 
-/// The faucet: `{"destination": "r…"}` gets 1000 test XRP in the next
-/// ledger.
-async fn fund(shared: &Shared, request: Request<hyper::body::Incoming>) -> Response<Full<Bytes>> {
-    let respond = |status: StatusCode, body: &str| {
-        let mut response = Response::new(Full::new(Bytes::from(body.to_string())));
-        *response.status_mut() = status;
-        response
+/// The faucet and the issuer, over HTTPS: a JSON body, a JSON answer.
+async fn serve_request(
+    shared: &Shared,
+    request: Request<hyper::body::Incoming>,
+) -> Response<Full<Bytes>> {
+    let path = request.uri().path().to_owned();
+    let (status, body) = match Limited::new(request.into_body(), 4096).collect().await {
+        Ok(body) => answer(
+            &mut shared.ledger.lock().unwrap_or_else(PoisonError::into_inner),
+            &path,
+            &body.to_bytes(),
+        ),
+        Err(_) => (StatusCode::BAD_REQUEST, "{}".to_string()),
     };
-    let Ok(body) = Limited::new(request.into_body(), 4096).collect().await else {
-        return respond(StatusCode::BAD_REQUEST, "{}");
+    let mut response = Response::new(Full::new(Bytes::from(body)));
+    *response.status_mut() = status;
+    response
+}
+
+/// What a request to `path` with `body` gets, done to `ledger`: an
+/// issuer's request under `/tokens/`, else the faucet's.
+fn answer(ledger: &mut FakeLedger, path: &str, body: &[u8]) -> (StatusCode, String) {
+    let body = serde_json::from_slice::<serde_json::Value>(body).unwrap_or_default();
+    let Some(action) = path.strip_prefix("/tokens/") else {
+        // The faucet: `{"destination": "r…"}` gets 1000 test XRP in the
+        // next ledger.
+        let destination = body
+            .get("destination")
+            .and_then(serde_json::Value::as_str)
+            .and_then(AccountId::parse);
+        let Some(destination) = destination else {
+            return (
+                StatusCode::BAD_REQUEST,
+                r#"{"error":"no destination"}"#.into(),
+            );
+        };
+        ledger.fund(destination);
+        return (
+            StatusCode::OK,
+            format!(r#"{{"account":{{"address":"{destination}"}}}}"#),
+        );
     };
-    let destination = serde_json::from_slice::<serde_json::Value>(&body.to_bytes())
-        .ok()
-        .and_then(|value| {
-            value
-                .get("destination")?
-                .as_str()
-                .and_then(AccountId::parse)
-        });
-    let Some(destination) = destination else {
-        return respond(StatusCode::BAD_REQUEST, r#"{"error":"no destination"}"#);
+    match issuer_request(ledger, action, &body) {
+        None => (StatusCode::NOT_FOUND, r#"{"error":"unknown"}"#.into()),
+        Some(Ok(())) => (StatusCode::OK, r#"{"queued":true}"#.into()),
+        Some(Err(error)) => (
+            StatusCode::BAD_REQUEST,
+            serde_json::json!({ "error": error }).to_string(),
+        ),
+    }
+}
+
+/// The issuer of the fake's test RLUSD does `action`, in the next ledger;
+/// `None` if there is no such action.
+///
+/// - `mint`, `{"destination": "r…", "value": "12.5"}`: pays it RLUSD.
+/// - `freeze` and `deep-freeze`, `{"account": "r…", "on": true}`: freezes
+///   its line or deep-freezes it; `false` lifts the freeze (and any deep
+///   freeze), or the deep freeze alone.
+/// - `global-freeze`, `{"on": true}`: freezes every line, or lifts that.
+/// - `transfer-rate`, `{"rate": 1002000000}`: a fee on transfers between
+///   holders, in billionths; 0 for none.
+/// - `clawback`, `{"account": "r…", "value": "2"}`: takes it back.
+fn issuer_request(
+    ledger: &mut FakeLedger,
+    action: &str,
+    body: &serde_json::Value,
+) -> Option<Result<(), &'static str>> {
+    let token = Token::RLUSD;
+    let account = |key: &str| {
+        body.get(key)
+            .and_then(serde_json::Value::as_str)
+            .and_then(AccountId::parse)
+            .ok_or("no account")
     };
-    shared
-        .ledger
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .fund(destination);
-    respond(
-        StatusCode::OK,
-        &format!(r#"{{"account":{{"address":"{destination}"}}}}"#),
-    )
+    let value = || {
+        body.get("value")
+            .and_then(serde_json::Value::as_str)
+            .and_then(TokenValue::parse)
+            .ok_or("no value")
+    };
+    let on = || {
+        body.get("on")
+            .and_then(serde_json::Value::as_bool)
+            .ok_or("no on")
+    };
+    let rate = || {
+        body.get("rate")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|rate| u32::try_from(rate).ok())
+            .ok_or("no rate")
+    };
+    Some(match action {
+        "mint" => account("destination").and_then(|to| ledger.issue(to, token.amount(value()?))),
+        "freeze" => account("account").and_then(|holder| ledger.freeze(holder, token, on()?)),
+        "deep-freeze" => {
+            account("account").and_then(|holder| ledger.deep_freeze(holder, token, on()?))
+        }
+        "global-freeze" => on().and_then(|on| ledger.global_freeze(token.issuer, on)),
+        "transfer-rate" => rate().and_then(|rate| ledger.set_transfer_rate(token.issuer, rate)),
+        "clawback" => {
+            account("account").and_then(|holder| ledger.claw_back(holder, token.amount(value()?)))
+        }
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::indexing_slicing)]
+mod tests {
+    use dassie_xrpl::Wallet;
+    use dassie_xrpl::api::account_flags;
+    use dassie_xrpl::codec::{TF_SET_NO_RIPPLE, TrustSet};
+    use dassie_xrpl::fake::{FEE_BASE, RLUSD_ISSUER};
+    use serde_json::json;
+
+    use super::*;
+
+    fn value(text: &str) -> TokenValue {
+        TokenValue::parse(text).unwrap()
+    }
+
+    /// A holder with a line to the issuer, as the scheme makes it.
+    fn holder(ledger: &mut FakeLedger) -> AccountId {
+        let wallet = Wallet::from_seed([1; 16]);
+        ledger.deposit(wallet.account(), 100_000_000);
+        ledger.close();
+        let signed = TrustSet {
+            account: wallet.account(),
+            limit: Token::RLUSD.amount(TokenValue::MAX),
+            fee: FEE_BASE,
+            // A new account's first sequence is the ledger it was made in.
+            sequence: ledger.ledger(),
+            last_ledger_sequence: ledger.ledger() + 5,
+            flags: TF_SET_NO_RIPPLE,
+            network_id: None,
+            memos: Vec::new(),
+            signing_pub_key: *wallet.public_key(),
+            signature: None,
+        }
+        .sign(&wallet);
+        let submit =
+            json!({ "command": "submit", "tx_blob": dassie_xrpl::hex_upper(&signed.blob) });
+        let reply = ledger.request(1, &serde_json::to_vec(&submit).unwrap());
+        assert!(String::from_utf8_lossy(&reply).contains("tesSUCCESS"));
+        ledger.close();
+        wallet.account()
+    }
+
+    /// Asks, and closes the ledger that applies it.
+    fn ask(ledger: &mut FakeLedger, path: &str, body: &serde_json::Value) -> StatusCode {
+        let (status, _) = answer(ledger, path, &serde_json::to_vec(body).unwrap());
+        ledger.close();
+        status
+    }
+
+    #[test]
+    fn the_issuer_mints_freezes_and_claws_back_on_request() {
+        let mut ledger = FakeLedger::new();
+        let holder = holder(&mut ledger);
+        let address = holder.to_address();
+        let held = |ledger: &FakeLedger| ledger.token_balance(holder, Token::RLUSD);
+        let theirs = |ledger: &FakeLedger| {
+            let line = ledger
+                .line(holder, RLUSD_ISSUER, Token::RLUSD.currency)
+                .unwrap();
+            line.view(holder).unwrap().theirs
+        };
+        let mint = json!({ "destination": address, "value": "25.5" });
+        assert_eq!(ask(&mut ledger, "/tokens/mint", &mint), StatusCode::OK);
+        assert_eq!(held(&ledger), Some(value("25.5")));
+        let on = json!({ "account": address, "on": true });
+        assert_eq!(ask(&mut ledger, "/tokens/freeze", &on), StatusCode::OK);
+        assert!(theirs(&ledger).freeze && !theirs(&ledger).deep_freeze);
+        assert_eq!(ask(&mut ledger, "/tokens/deep-freeze", &on), StatusCode::OK);
+        assert!(theirs(&ledger).deep_freeze);
+        let off = json!({ "account": address, "on": false });
+        assert_eq!(ask(&mut ledger, "/tokens/freeze", &off), StatusCode::OK);
+        assert!(!theirs(&ledger).freeze && !theirs(&ledger).deep_freeze);
+        let global = json!({ "on": true });
+        assert_eq!(
+            ask(&mut ledger, "/tokens/global-freeze", &global),
+            StatusCode::OK
+        );
+        let flags = ledger.account_flags(RLUSD_ISSUER).unwrap();
+        assert_ne!(flags & account_flags::GLOBAL_FREEZE, 0);
+        let rate = json!({ "rate": 1_002_000_000 });
+        assert_eq!(
+            ask(&mut ledger, "/tokens/transfer-rate", &rate),
+            StatusCode::OK
+        );
+        let claw = json!({ "account": address, "value": "5" });
+        assert_eq!(ask(&mut ledger, "/tokens/clawback", &claw), StatusCode::OK);
+        assert_eq!(held(&ledger), Some(value("20.5")));
+        assert!(ledger.tokens_conserved());
+    }
+
+    #[test]
+    fn requests_the_issuer_cannot_take_are_refused() {
+        let mut ledger = FakeLedger::new();
+        let someone = AccountId([7; 20]);
+        let address = someone.to_address();
+        let refused = [
+            ("/tokens/mint", json!({ "destination": address })),
+            (
+                "/tokens/mint",
+                json!({ "destination": address, "value": "0" }),
+            ),
+            ("/tokens/mint", json!({ "value": "1" })),
+            ("/tokens/freeze", json!({ "account": address })),
+            (
+                "/tokens/clawback",
+                json!({ "account": address, "value": "-1" }),
+            ),
+            ("/tokens/transfer-rate", json!({ "rate": 5 })),
+            ("/tokens/global-freeze", json!({})),
+        ];
+        for (path, body) in refused {
+            assert_eq!(
+                ask(&mut ledger, path, &body),
+                StatusCode::BAD_REQUEST,
+                "{path} {body}"
+            );
+        }
+        assert_eq!(ledger.queued(), 0);
+        assert_eq!(
+            ask(&mut ledger, "/tokens/print", &json!({})),
+            StatusCode::NOT_FOUND
+        );
+        // Anything else is the faucet.
+        let fund = json!({ "destination": address });
+        assert_eq!(ask(&mut ledger, "/accounts", &fund), StatusCode::OK);
+        assert!(ledger.balance(someone).is_some());
+    }
 }
