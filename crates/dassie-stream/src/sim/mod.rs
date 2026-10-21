@@ -23,8 +23,8 @@ use alloc::vec::Vec;
 use core::fmt::Write as _;
 
 use crate::{
-    Admission, AssetDetails, BUFFER_LENGTH, Config, Connection, ConnectionId, Event, Policy, Role,
-    Server, ServerConfig,
+    Admission, AssetDetails, BUFFER_LENGTH, Config, Connection, ConnectionId, ErrorCode, Event,
+    Policy, Role, Server, ServerConfig,
 };
 use dassie_ilp::{
     Address, AmountTooLarge, ErrorCode as IlpErrorCode, Prepare, Reject, Response, Timestamp,
@@ -306,6 +306,7 @@ impl Simulation {
                 None => Admission::Accept {
                     money_limit: limit.unwrap_or(u64::MAX),
                     received,
+                    exhausted: ErrorCode::NO_ERROR,
                 },
             }
         };

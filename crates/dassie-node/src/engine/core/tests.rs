@@ -928,8 +928,82 @@ fn a_restarted_receiver_tells_a_reconnecting_sender_what_got_there() {
         Admission::Accept {
             money_limit: 0,
             received: 100,
+            exhausted: dassie_stream::ErrorCode::NO_ERROR,
         }
     );
+}
+
+// An incoming payment its creator completes before it received all it
+// asked for, or that asked for no amount, tells its senders so with
+// another close code than a full one, before a restart and after: a
+// sender then says the receiver stopped the payment, rather than that it
+// takes no more.
+#[test]
+fn a_payment_completed_short_tells_its_senders_so() {
+    use dassie_ledger::LedgerId;
+    use dassie_stream::{Admission, ErrorCode};
+
+    use super::incoming::{NewIncoming, admission, connection_tag};
+    use crate::store::{ConnectionKey, IncomingPaid};
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let key = ConnectionKey([8; 16]);
+    let short = |core: &Core, id| {
+        admission(
+            &core.incoming,
+            &core.finished_incoming,
+            LedgerId::StubUsd,
+            NOW,
+            &connection_tag(id, key),
+        )
+        .0
+    };
+    let ids = {
+        let mut core = core_on(Arc::clone(&store), 5);
+        core.add_scheme("stub", String::new()).unwrap();
+        let ids = [Some(100), None].map(|incoming_amount| {
+            let payment = core
+                .create_incoming_payment(NewIncoming {
+                    ledger: LedgerId::StubUsd,
+                    wallet_address: "https://a.example/pay".into(),
+                    client: None,
+                    incoming_amount,
+                    expires_at_ms: None,
+                    metadata: None,
+                })
+                .unwrap();
+            core.incoming_received(IncomingPaid {
+                payment: payment.id,
+                connection: key,
+                amount: 30,
+            });
+            core.complete_incoming_payment(payment.id).unwrap();
+            payment.id
+        });
+        core.flush();
+        for id in ids {
+            assert_eq!(
+                short(&core, id),
+                Admission::Accept {
+                    money_limit: 0,
+                    received: 30,
+                    exhausted: ErrorCode::APPLICATION_ERROR,
+                }
+            );
+        }
+        ids
+    };
+    let core = core_on(store, 6);
+    for id in ids {
+        assert_eq!(
+            short(&core, id),
+            Admission::Accept {
+                money_limit: 0,
+                received: 30,
+                exhausted: ErrorCode::APPLICATION_ERROR,
+            }
+        );
+    }
 }
 
 /// The `n`th connection key.
@@ -1019,6 +1093,7 @@ fn a_replaced_connection_is_forgotten_across_a_restart() {
         Admission::Accept {
             money_limit: 1_000_000 - 37,
             received: 5,
+            exhausted: dassie_stream::ErrorCode::NO_ERROR,
         }
     );
     assert_eq!(
@@ -1026,6 +1101,7 @@ fn a_replaced_connection_is_forgotten_across_a_restart() {
         Admission::Accept {
             money_limit: 1_000_000 - 37,
             received: 1,
+            exhausted: dassie_stream::ErrorCode::NO_ERROR,
         }
     );
     // The one replaced is a stranger now, and every place is taken again.

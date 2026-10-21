@@ -221,6 +221,9 @@ pub struct Connection {
     /// What the application counts as received already, over earlier
     /// connections too, while it sets a limit.
     money_received: u64,
+    /// What a packet that offers money closes the connection with once
+    /// nothing is left.
+    money_exhausted: ErrorCode,
 
     state: State,
     close_attempts: u32,
@@ -311,6 +314,7 @@ impl Connection {
             receipt: config.receipt,
             money_limit: u64::MAX,
             money_received: 0,
+            money_exhausted: ErrorCode::NO_ERROR,
             state: State::Open,
             close_attempts: 0,
             close_acknowledged: false,
@@ -505,10 +509,13 @@ impl Connection {
     /// after a restart, or when the server dropped it. The maximum falls
     /// when something else takes from the total, which senders ignore; so
     /// a packet that offers money with nothing left (`remaining` 0) is
-    /// refused and closes the connection, which tells every sender to stop.
-    pub fn set_money_limit(&mut self, remaining: u64, received: u64) {
+    /// refused and closes the connection with `exhausted`, which tells
+    /// every sender to stop, and why: `NO_ERROR` for a total that is
+    /// reached, another code for one the application stopped short of it.
+    pub fn set_money_limit(&mut self, remaining: u64, received: u64, exhausted: ErrorCode) {
         self.money_limit = remaining;
         self.money_received = received;
+        self.money_exhausted = exhausted;
     }
 
     /// What the connection may still receive (see

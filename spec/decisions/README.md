@@ -39,6 +39,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [D35](D35-dassie-land-is-a-bucket-behind-the-mirrors-load-balancer.md) | dassie.land is a bucket behind the mirror's load balancer | website, release |
 | [D36](D36-a-node-becomes-core-by-registering-and-being-promoted.md) | A node becomes core by registering and being promoted (not built) | network, peer-protocol, designs/periphery |
 | [D37](D37-nodes-of-0-1-and-0-2-do-not-settle-with-each-other.md) | Nodes of 0.1 and 0.2 do not settle with each other | peer-protocol, settlement, release |
+| [D38](D38-a-receiver-says-whether-it-is-full-or-stopped-short.md) | A receiver says whether it is full or stopped short | payments, stream |
 
 ## Adding or changing a decision
 
