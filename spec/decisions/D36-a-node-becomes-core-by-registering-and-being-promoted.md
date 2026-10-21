@@ -29,7 +29,7 @@
   - Home nodes ([design §5](../designs/periphery.md#5-reaching-a-periphery-node)) are drawn from the core, not from the majority list, which now also holds registered nodes that are not core.
 - **Becoming core** is a process the owner starts:
   1. a public IP address, a domain, and TLS with a certificate a public authority issued;
-  2. at least two uplinks, as a periphery node;
+  2. uplinks, as a periphery node: as many as the definition asks edges of, two in a network with three or more bootstrap nodes;
   3. registration with the bootstrap nodes, which probe the URL as they do today;
   4. asking each uplink for promotion.
 - **Promotion** is an uplink advertising the node as its neighbor in its link state, which it does only once the node:
@@ -47,7 +47,7 @@
 
 ## Accepted
 
-- **The time to become core** is at least the hour of good standing, the time for registration to reach the majority, and the set wait before the own address. Short-lived nodes never become core, which is the point.
+- **The time to become core** is at least the hour of good standing, the time for registration to reach the majority, and the set wait before the own address. Short-lived nodes never become core through an honest uplink, which is the point.
 - **A core node vouches for whomever it advertises.** The checks bind only honest uplinks: a core node can advertise registered nodes its owner controls, which then advertise each other and it, and so join the core without anyone else's checks. What that costs is a registration for each, under registration's throttles today and its fee later. Each such node still has to answer at its URL and stay registered.
 - **Bootstrap nodes trust each other without the checks.** The configured list is the root of trust already; a bootstrap node that misbehaves is taken off the list.
 - **Joining or splitting components can tilt a tie** between components with equally many bootstrap nodes; an attacker can do that only with the edges it holds itself.

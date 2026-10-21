@@ -91,7 +91,7 @@ SignedPeripheryRecord ::= SEQUENCE { record OCTET STRING CONTAINING PeripheryRec
 
 A record lasts 30 minutes and is renewed every 10, and whenever it changes.
 
-**Home nodes.** Every node computes the same core from the same signed data ([D36](../decisions/D36-a-node-becomes-core-by-registering-and-being-promoted.md)); the majority node list alone is not the core, since it also holds registered nodes not yet promoted. A periphery node's home nodes are the five core nodes that rank highest by `SHA-256("dassie home" ‖ periphery ID ‖ core ID)`. Anyone with the list computes the same five, so a lookup is a single request, with no routing through a distributed table.
+**Home nodes.** Every node computes the same core from the same signed data ([D36](../decisions/D36-a-node-becomes-core-by-registering-and-being-promoted.md)); the majority node list alone is not the core, since it also holds registered nodes not yet promoted. A periphery node's home nodes are the five core nodes that rank highest by `SHA-256("dassie home" ‖ periphery ID ‖ core ID)`. Anyone with the same signed data computes the same five, so a lookup is a single request, with no routing through a distributed table.
 
 - **Storing.** An uplink stores its downlink's record with the downlink's home nodes, as an authenticated peer message, when the downlink connects and whenever the downlink renews it. A home node takes a record only from a core node the record names as an uplink, and a record is about 200 bytes.
 - **Sharing a home node.** A core node can name any number of keys it made itself as its downlinks, since keys cost nothing. So a home node bounds its records in all, and gives each submitting core node a fair share of them: when it is full, a new record displaces the oldest of the core node that holds the most, never one of a node within its share. A few registered core nodes can then crowd out only each other, not the records of every other uplink.
@@ -105,7 +105,7 @@ A record lasts 30 minutes and is renewed every 10, and whenever it changes.
 2. the relays the node names in its wallet address document (§7), if it has fetched it;
 3. a lookup at the node's home nodes, then one of the uplinks or relays from the record.
 
-**Grinding.** An attacker who wants to hide a node can generate core node keys until five of them rank highest for its ID. Each must register and stay in the majority, under the limits of [registration](../areas/network.md#registration) and, later, its fee. It can only withhold the record, and a relay the node chose still reaches it.
+**Grinding.** An attacker who wants to hide a node can generate core node keys until five of them rank highest for its ID. Each must register, stay in the majority and be promoted into the core ([D36](../decisions/D36-a-node-becomes-core-by-registering-and-being-promoted.md)), under the limits of [registration](../areas/network.md#registration) and, later, its fee. It can only withhold the record, and a relay the node chose still reaches it.
 
 ## 6. Owner apps
 
