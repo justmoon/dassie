@@ -4,16 +4,18 @@
 # checksums dprint.json pins them with, and the binaries the tests run are
 # built here with crane, as `node --run build:e2e` builds them.
 #
-# Three checks, so that a change reruns only what reads it:
+# Four checks, so that a change reruns only what reads it:
 # - ts-check: fmt, lint and the type check;
 # - ts-test: the unit tests, with the wallet, the dashboard and the site
 #   built;
+# - spec: the spec's links and citations, the only test that reads the
+#   docs;
 # - ts-e2e: the end-to-end and interop tests, with Chrome, Pebble and
 #   systemd's socket activation. Each build has its own network namespace,
 #   so the tests' fixed ports are free.
 #
-# What the sandbox can't do runs in CI's `lockfile` job: checking the
-# lockfile against the registries (the release-age rule).
+# What the sandbox can't do, checking the lockfile against the registries
+# (the release-age rule), CI's `nix` job does on the runner.
 {
   lib,
   pkgs,

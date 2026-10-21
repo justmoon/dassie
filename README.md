@@ -104,7 +104,7 @@ The node that asks to peer extends the other 1.1 units of credit; the node that 
 
 ## Building and testing
 
-The easiest way to get every tool at the right version is [Nix](https://nixos.org): `nix develop` gives you a shell with all of them, and `nix flake check` runs what CI runs (CI builds those checks on the Vorstand Nix cloud).
+The easiest way to get every tool at the right version is [Nix](https://nixos.org): `nix develop` gives you a shell with all of them, and `nix flake check` runs what CI runs (CI builds those checks on the Vorstand Nix cloud), offline; CI also checks the lockfile against the npm and JSR registries, which `pnpm install` does too.
 
 Without Nix, you need:
 
