@@ -18,11 +18,12 @@ The simulations run continuously, outside CI, from random seeds; each seed draws
 - **A campaign on spot VMs** runs `main`, and pull requests that ask for it. It runs unreviewed code in the project that holds the bootstrap nodes' phrases, so its VMs run as a service account that can read only its GitHub credentials, and the code they build runs in a sandbox that cannot reach those ([Testing](../areas/testing.md#isolating-pull-requests)).
 - **Failures become issues,** one per signature; a failure on a pull request is a comment there instead. A tripwire simulation fails on purpose now and then, so a silent campaign shows. A fix comes with a targeted test, because a seed reproduces a failure only at the commit it ran on.
 - **CI runs fixed seeds only,** plus the coverage minimums.
-- **Releases wait for the campaign** to have run on the tagged commit without an open failure.
+- **Releases do not wait for the campaign yet.** While Dassie changes quickly and no live network runs on its releases, a release held until the campaign has cleared its commit would slow every release for little gain. The campaign's commit status still records what it saw on each commit. Releases wait for it once a live network depends on them ([roadmap](../roadmap.md#continuous-simulation)).
 
 ## Accepted
 
 - A failure surfaces after the merge that caused it, sometimes hours later.
+- Until releases wait for the campaign, a release can carry a failure the campaign has already found; its issue says so, and the owner decides.
 - Spot VMs cost money, and each holds credentials that write this repository's issues, comments and commit statuses.
 
 ## Rejected

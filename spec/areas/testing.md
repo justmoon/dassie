@@ -130,12 +130,12 @@ The campaign runs the simulations from random seeds on spot VMs, outside CI ([D2
 
 ### The commit status
 
-Each loop on a trusted commit posts the `sim-campaign` commit status, which the release check reads. It is `pending` until the commit has run long enough (`CLEAR_RUNS` in the supervisor, with its reason) with no failure but the tripwire's, and the tripwire has tripped on it; then `success`. It is `failure` once any failure was seen on the commit, and stays so. Requiring a trip means that a runner which stopped reporting failures clears nothing.
+Each loop on a trusted commit posts the `sim-campaign` commit status, which says whether the campaign has cleared the commit; releases do not wait for it yet ([D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md)). It is `pending` until the commit has run long enough (`CLEAR_RUNS` in the supervisor, with its reason) with no failure but the tripwire's, and the tripwire has tripped on it; then `success`. It is `failure` once any failure was seen on the commit, and stays so. Requiring a trip means that a runner which stopped reporting failures clears nothing.
 
 - **A loop counts only if all of it was read.** A line the supervisor could not parse, a failure past what one loop keeps, or a count that disagrees with the runner's summary could each hide a failure. Such a loop adds no runs, and fails the commit under a signature of its own, `campaign/unreadable`, rather than let it clear with a failure nobody saw. A loop the runner did not finish adds no runs either, and is not failed for its last line, cut short: a runner stopped at its sandbox's limits leaves one, through no fault of the commit. Anything else it could not read still fails the commit.
 
 - **The state lives only in the statuses,** since a spot VM loses its disk. Each status records what its own loop added, and a VM adds up the commit's history, so two VMs reporting at once both count. A failure anywhere in the history is final, and a VM that finds one under a later status posts it again on top.
-- **Only the campaign's own statuses count,** by their creator: anyone with write access, and any workflow allowed to, can post a status in that context. The campaign posts as a GitHub App, or a dedicated account, whose credentials nothing else holds, and the release check checks the creator too.
+- **Only the campaign's own statuses count,** by their creator: anyone with write access, and any workflow allowed to, can post a status in that context. The campaign posts as a GitHub App, or a dedicated account, whose credentials nothing else holds, and a release check that reads the status must check the creator too.
 
 ### Isolating pull requests
 
