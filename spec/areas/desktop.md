@@ -11,7 +11,7 @@ It is not the paired owner app of the [periphery design](../designs/periphery.md
 
 The app runs the daemon as `dassie daemon` does (`daemon::run`), on an async runtime and a thread of its own, so the node never shares the window's event loop or its runtime. It reads the same environment, with the same defaults: the data directory, the IPC socket, the bootstrap nodes and the default relay are a server node's, so `dassie status` reports on the desktop node too. The app sets no dev switch.
 
-The node is the same code as the server's, and stops the same way: quitting the app cancels the daemon and waits for it to [shut down](node.md#shutdown). A node that stops on its own, or does not start, is shown in the window with why, and the app keeps nothing else running.
+The node is the same code as the server's, and stops the same way: quitting the app cancels the daemon and waits for it to [shut down](node.md#shutdown). A node that stops on its own, or does not start, is shown in the window with why, and closing that window quits the app.
 
 ## Sockets
 
@@ -31,8 +31,13 @@ The wallet is served by the node, at `https://localhost:<port>`, and the window 
 
 A periphery node is reachable only while it runs, so the app keeps running when its window closes, with a tray icon that shows how the node stands (set up, its relay connected, connecting or unreachable), opens the wallet again and quits.
 
-- **Starting at login** is on unless the owner turns it off in the tray: an XDG autostart entry starts the app with `--hidden`, in the tray without a window. The owner's choice is kept in the app's data directory, so an entry the owner turned off stays off. While it is on, the entry is written again at every start, naming the binary by name where `PATH` finds it, so that an upgrade that moves the binary, as a Nix profile does, does not leave the entry behind.
-- **Closing the window** destroys it, which frees its web process; the node and the tray stay.
+- **Starting at login:** an XDG autostart entry starts the app with `--hidden`, in the tray without a window. It is on by default where `PATH` finds the binary by its name, as it does for an installed app; an entry naming a path that an upgrade or a garbage collection removes, as a one-off `nix run` gives, would only go stale. The owner's choice is kept in the app's data directory, whether made in the tray or by removing the entry in the desktop's own settings, so an entry the owner removed stays removed. While it is wanted, the entry is written again at every start, so that it names the binary as it is now.
+- **Closing the window** destroys it, which frees its web process; the node and the tray stay. Once the node has stopped, closing the window, which then says why, quits the app.
+- **SIGTERM and SIGINT,** which a session sends when it ends, quit the app, which stops the node as they stop `dassie daemon`; a second one, while the node still stops, ends the process at once. They are handled for as long as the app runs, not only while its node does.
+
+## Private files
+
+The window's web engine keeps the wallet's session cookie, its cache and its storage in the app's data directory, and a session cookie lets whoever reads it use the wallet without the passphrase, from any local account, since the wallet's port is on loopback. So what the app writes is its user's alone: it runs with a umask of 0077, as the server's systemd unit runs the node, and keeps its data directories at 0700, tightening one that is looser, as the node keeps its own ([Database](node.md#database), [secrets-at-rest](../decisions/secrets-at-rest.md)).
 
 ## One node
 

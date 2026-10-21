@@ -59,13 +59,11 @@ impl Status {
 }
 
 /// Starts the node on `ports`; `on_end` runs once it stops, with why if it
-/// failed, and `on_signal` on SIGTERM or SIGINT. Returns once the node is
-/// made, or with why it could not start.
+/// failed. Returns once the node is made, or with why it could not start.
 pub fn start(
     env: &Env,
     ports: Ports,
     on_end: impl FnOnce(Option<String>) + Send + 'static,
-    on_signal: impl FnOnce() + Send + 'static,
 ) -> Result<RunningNode, String> {
     let options = DaemonOptions {
         runtime: Some(Runtime::Standalone),
@@ -86,7 +84,7 @@ pub fn start(
     let thread = std::thread::Builder::new()
         .name("dassie-node".into())
         .spawn(move || {
-            let outcome = run(prepared, token, on_signal);
+            let outcome = run(prepared, token);
             if ended.load(Ordering::Acquire) {
                 on_end(outcome.clone().err());
             }
@@ -110,47 +108,22 @@ pub fn start(
     })
 }
 
-/// Runs the daemon to its end on a runtime of its own. SIGTERM and SIGINT,
-/// which a session sends when it ends, go to `on_signal`, which quits the
-/// app and so stops the node, as they stop `dassie daemon`.
-fn run(
-    prepared: Prepared,
-    shutdown: CancellationToken,
-    on_signal: impl FnOnce() + Send + 'static,
-) -> Result<(), String> {
+/// Runs the daemon to its end on a runtime of its own.
+fn run(prepared: Prepared, shutdown: CancellationToken) -> Result<(), String> {
     let runtime = tokio::runtime::Runtime::new().map_err(|error| error.to_string())?;
     let clock = Arc::new(SystemClock);
     runtime
-        .block_on(async move {
-            match signals() {
-                Some((mut terminate, mut interrupt)) => {
-                    tokio::spawn(async move {
-                        tokio::select! {
-                            _ = terminate.recv() => {}
-                            _ = interrupt.recv() => {}
-                        }
-                        on_signal();
-                    });
-                }
-                None => {
-                    tracing::warn!(target: "dassie_desktop", "SIGTERM and SIGINT end the app without stopping its node");
-                }
-            }
-            daemon::run(prepared, clock, os_rng(), Policies::DEFAULT, shutdown).await
-        })
+        .block_on(daemon::run(
+            prepared,
+            clock,
+            os_rng(),
+            Policies::DEFAULT,
+            shutdown,
+        ))
         .map_err(|error| {
             tracing::error!(target: "dassie_desktop", %error, "the node stopped");
             error.to_string()
         })
-}
-
-/// SIGTERM and SIGINT, handled from now on.
-fn signals() -> Option<(tokio::signal::unix::Signal, tokio::signal::unix::Signal)> {
-    use tokio::signal::unix::{SignalKind, signal};
-    Some((
-        signal(SignalKind::terminate()).ok()?,
-        signal(SignalKind::interrupt()).ok()?,
-    ))
 }
 
 /// Every address, IPv6 and IPv4 where the system has IPv6, IPv4 only where

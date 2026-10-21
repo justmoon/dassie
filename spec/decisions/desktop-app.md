@@ -24,7 +24,8 @@
 - **A node's panic ends the app,** as it ends `dassie daemon`; starting the app again recovers the node, as a restart does.
 - **The app is a second build of the node's code,** against glibc and with the window's libraries, beside the static release binary. Both are the same crates; the app's build is not the one the release signs.
 - **Every build of the whole workspace needs GTK and WebKitGTK,** in CI and in the dev shell, since the app is a workspace member like any other crate and is linted and tested with them.
-- **A local process can reach the wallet's port,** as it can on any machine that runs a node; logging in still needs the passphrase.
+- **A local process can reach the wallet's port,** as it can on any machine that runs a node; logging in still needs the passphrase, and the session cookie the window keeps is readable by the owner's user alone ([Private files](../areas/desktop.md#private-files)).
+- **Unmaintained crates in Tauri's tree:** its Linux backend is built on the GTK 3 bindings, and its plugins on zbus 5, which bring crates RustSec lists as unmaintained. `deny.toml` ignores those advisories by ID, each with its reason, so that any other advisory against them still fails.
 - **WebKitGTK is the system's,** with its own updates and graphics quirks.
 
 ## Rejected

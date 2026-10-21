@@ -9,6 +9,8 @@
 mod autostart;
 mod node;
 mod ports;
+mod private;
+mod signals;
 mod tray;
 mod trust;
 mod window;
@@ -21,7 +23,7 @@ use dassie_node::env::{Env, Settings};
 use dassie_node::log;
 use tauri::{AppHandle, Manager, RunEvent};
 
-use crate::node::RunningNode;
+use crate::node::{RunningNode, Status};
 
 /// The app's state, once its node runs.
 struct Desktop {
@@ -29,6 +31,8 @@ struct Desktop {
 }
 
 fn main() -> ExitCode {
+    // Before anything is written: the window's session cookie among it.
+    private::umask();
     let hidden = std::env::args_os().skip(1).any(|arg| arg == "--hidden");
     let env = Env::from_process();
     match Settings::from_env(&env) {
@@ -65,19 +69,15 @@ fn main() -> ExitCode {
 /// Starts the node, the tray and, unless `hidden`, the window. A node that
 /// cannot start is shown in the window, which then quits the app.
 fn setup(app: &AppHandle, env: &Env, hidden: bool) {
+    signals::watch(app);
     let started = data_dir(app).and_then(|dir| {
         let ports = ports::choose(&dir).map_err(|error| format!("choosing ports: {error}"))?;
-        let (ended, signalled) = (app.clone(), app.clone());
-        let node = node::start(
-            env,
-            ports,
-            move |error| {
-                if let Some(error) = error {
-                    window::show_error(&ended, &error);
-                }
-            },
-            move || signalled.exit(0),
-        )?;
+        let ended = app.clone();
+        let node = node::start(env, ports, move |error| {
+            if let Some(error) = error {
+                window::show_error(&ended, &error);
+            }
+        })?;
         Ok((dir, Arc::new(node)))
     });
     let (dir, node) = match started {
@@ -91,7 +91,7 @@ fn setup(app: &AppHandle, env: &Env, hidden: bool) {
     app.manage(Desktop {
         node: Arc::clone(&node),
     });
-    if let Err(error) = autostart::apply(autostart::wanted(&dir)) {
+    if let Err(error) = autostart::refresh(&dir) {
         tracing::warn!(target: "dassie_desktop", %error, "could not update starting at login");
     }
     if let Err(error) = tray::build(app, &node, dir) {
@@ -102,21 +102,36 @@ fn setup(app: &AppHandle, env: &Env, hidden: bool) {
     }
 }
 
-/// The app's data directory: its ports and the owner's choices. The node's
-/// own data stays where `dassie daemon` keeps it.
+/// The app's data directory, private: its ports, the owner's choices, and
+/// the window's cookies, cache and storage (Tauri gives the web engine the
+/// local data directory, the same one on Linux). The node's own data stays
+/// where `dassie daemon` keeps it.
 fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
+    let paths = app.path();
+    let dir = paths
         .app_data_dir()
-        .map_err(|error| format!("finding the app's data directory: {error}"))
+        .map_err(|error| format!("finding the app's data directory: {error}"))?;
+    let local = paths
+        .app_local_data_dir()
+        .map_err(|error| format!("finding the app's data directory: {error}"))?;
+    for private in [&dir, &local] {
+        private::directory(private)
+            .map_err(|error| format!("securing {}: {error}", private.display()))?;
+    }
+    Ok(dir)
 }
 
-/// Keeps the app, and its node, running when its window closes; stops the
-/// node when the app exits.
+/// Keeps the app, and its node, running when its window closes, while the
+/// node runs; stops the node when the app exits.
 fn on_event(app: &AppHandle, event: RunEvent) {
+    let running = || {
+        app.try_state::<Desktop>()
+            .is_some_and(|desktop| desktop.node.status() != Status::Stopped)
+    };
     match event {
         RunEvent::ExitRequested {
             code: None, api, ..
-        } if app.try_state::<Desktop>().is_some() => api.prevent_exit(),
+        } if running() => api.prevent_exit(),
         RunEvent::Exit => {
             if let Some(desktop) = app.try_state::<Desktop>() {
                 desktop.node.stop();
