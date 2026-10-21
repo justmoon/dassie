@@ -13,10 +13,10 @@
 //!
 //! Connections from nodes that proved their key are counted per node
 //! instead, in a [`NodeTable`]. A node cannot pass for another without its
-//! key, so its share is its own: one that opens more than its share
-//! replaces its own oldest connection rather than being refused, since the
-//! one it opened last is the one it uses, and the oldest is the likeliest
-//! to be gone without our knowing yet.
+//! key, so its share is its own: a newer connection past its share
+//! replaces its own oldest rather than being refused, since the one it
+//! made last is the one it uses, and the oldest is the likeliest to be gone
+//! without our knowing yet.
 
 use alloc::vec::Vec;
 
@@ -209,26 +209,17 @@ impl NodeLimits {
     }
 }
 
-/// A place a [`NodeTable`] gave: its number, and the number of the node's
-/// oldest place, which it took over when the node had its share.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Taken {
-    /// The place's number, never given twice.
-    pub place: u64,
-    /// The place it took over, whose connection is to close.
-    pub replaced: Option<u64>,
-}
-
 /// A bounded table of open connections, per node `K`: each node holds at
 /// most its share, and all of them together at most the table's places.
+/// Each connection holds its place by its age, a number the caller gives
+/// it once, in the order connections were made: a node's oldest is the one
+/// with the lowest.
 #[derive(Clone, Debug)]
 pub struct NodeTable<K> {
     limits: NodeLimits,
-    /// The places held, sorted by node, then by number: since numbers only
-    /// grow, a node's oldest place comes first among its own.
+    /// The places held, sorted by node, then by age, so a node's oldest
+    /// comes first among its own.
     places: Vec<(K, u64)>,
-    /// The next place's number.
-    next: u64,
 }
 
 impl<K: Ord + Copy> NodeTable<K> {
@@ -240,44 +231,55 @@ impl<K: Ord + Copy> NodeTable<K> {
         Self {
             limits,
             places: Vec::with_capacity(limits.max_total()),
-            next: 0,
         }
     }
 
-    /// Takes a place for a connection from `node`. One that holds its share
-    /// already gives up its oldest place for it; otherwise it is refused
+    /// Takes a place for `node`'s connection of age `age`. A node that
+    /// holds its share already gives up the place of its oldest connection
+    /// for a newer one, and returns that one's age; otherwise it is refused
     /// when the table is full.
+    ///
+    /// Panics if `node` holds a place of that age already: the caller gives
+    /// each connection its own.
     ///
     /// # Errors
     ///
-    /// [`Refused::Full`]: the table is full, and `node` holds less than its
-    /// share.
-    pub fn take(&mut self, node: K) -> Result<Taken, Refused> {
+    /// [`Refused::ClientFull`]: `node` holds its share, all of connections
+    /// newer than this one. [`Refused::Full`]: the table is full, and `node`
+    /// holds less than its share.
+    pub fn take(&mut self, node: K, age: u64) -> Result<Option<u64>, Refused> {
         let (first, held) = self.run(node);
-        let place = self.next;
         let replaced = if held >= self.limits.max_per_node {
             assert!(
                 held == self.limits.max_per_node,
                 "a node holds at most its share"
             );
-            let (_, oldest) = self.places.remove(first);
-            self.places.insert(first + held - 1, (node, place));
-            Some(oldest)
+            match self.places.get(first) {
+                Some((_, oldest)) if *oldest < age => {
+                    let oldest = *oldest;
+                    self.places.remove(first);
+                    Some(oldest)
+                }
+                _ => return Err(Refused::ClientFull),
+            }
         } else if self.places.len() >= self.limits.max_total() {
             return Err(Refused::Full);
         } else {
-            self.places.insert(first + held, (node, place));
             None
         };
-        self.next += 1;
+        let found = self.places.binary_search(&(node, age));
+        assert!(found.is_err(), "a connection takes one place");
+        if let Err(index) = found {
+            self.places.insert(index, (node, age));
+        }
         self.check_invariants();
-        Ok(Taken { place, replaced })
+        Ok(replaced)
     }
 
-    /// Gives back `node`'s place `place`. Returns whether it held it: not
-    /// once another of its connections took it over.
-    pub fn release(&mut self, node: K, place: u64) -> bool {
-        let found = self.places.binary_search(&(node, place));
+    /// Gives back the place of `node`'s connection of age `age`. Returns
+    /// whether it held one: not once a newer connection took it over.
+    pub fn release(&mut self, node: K, age: u64) -> bool {
+        let found = self.places.binary_search(&(node, age));
         if let Ok(index) = found {
             self.places.remove(index);
         }
@@ -304,9 +306,8 @@ impl<K: Ord + Copy> NodeTable<K> {
         self.run(node).1
     }
 
-    /// Panics if the table is inconsistent: places out of order or given
-    /// twice, a number not given yet, a node past its share, or more
-    /// places than the table has. One pass, so it runs after every change.
+    /// Panics if the table is inconsistent: places out of order or held
+    /// twice, a node past its share, or more places than the table has. One pass, so it runs after every change.
     pub fn check_invariants(&self) {
         assert!(self.places.len() <= self.limits.max_total());
         let sorted = self.places.windows(2).all(|pair| match pair {
@@ -314,7 +315,6 @@ impl<K: Ord + Copy> NodeTable<K> {
             _ => true,
         });
         assert!(sorted, "places are sorted, each once");
-        assert!(self.places.iter().all(|(_, place)| *place < self.next));
         let mut run = 0_usize;
         let mut last: Option<K> = None;
         for (node, _) in &self.places {
@@ -423,16 +423,26 @@ mod tests {
     #[test]
     fn a_node_past_its_share_replaces_its_oldest() {
         let mut table = NodeTable::new(NODES);
-        let first = table.take(1_u8).unwrap();
-        let second = table.take(1).unwrap();
-        assert_eq!((first.replaced, second.replaced), (None, None));
-        let third = table.take(1).unwrap();
-        assert_eq!(third.replaced, Some(first.place));
+        assert_eq!(table.take(1_u8, 10), Ok(None));
+        assert_eq!(table.take(1, 11), Ok(None));
+        assert_eq!(table.take(1, 12), Ok(Some(10)));
         assert_eq!(table.node_count(1), 2);
         // The place taken over is gone: giving it back finds nothing.
-        assert!(!table.release(1, first.place));
-        assert!(table.release(1, second.place));
-        assert_eq!(table.take(1).unwrap().replaced, None);
+        assert!(!table.release(1, 10));
+        assert!(table.release(1, 11));
+        assert_eq!(table.take(1, 13), Ok(None));
+    }
+
+    // Age is the connection's, not the order places are asked for in: an
+    // older connection that comes late replaces nothing newer.
+    #[test]
+    fn an_older_connection_never_replaces_a_newer() {
+        let mut table = NodeTable::new(NODES);
+        table.take(1_u8, 20).unwrap();
+        table.take(1, 30).unwrap();
+        assert_eq!(table.take(1, 10), Err(Refused::ClientFull));
+        assert_eq!(table.take(1, 25), Ok(Some(20)));
+        assert!(table.release(1, 30) && table.release(1, 25));
     }
 
     // A full table refuses a node below its share, and still lets one at
@@ -440,14 +450,16 @@ mod tests {
     #[test]
     fn a_full_table_refuses_newcomers_only() {
         let mut table = NodeTable::new(NODES);
+        let mut age = 0;
         for node in 1..=3_u8 {
-            table.take(node).unwrap();
-            table.take(node).unwrap();
+            for _ in 0..2 {
+                age += 1;
+                table.take(node, age).unwrap();
+            }
         }
         assert_eq!(table.open_count(), NODES.max_total());
-        assert_eq!(table.take(4), Err(Refused::Full));
-        let taken = table.take(2).unwrap();
-        assert!(taken.replaced.is_some());
+        assert_eq!(table.take(4, 100), Err(Refused::Full));
+        assert!(table.take(2, 101).unwrap().is_some());
         assert_eq!(table.node_count(1), 2);
         assert_eq!(table.node_count(3), 2);
     }
@@ -458,38 +470,42 @@ mod tests {
             max_nodes: 0,
             max_per_node: 2,
         });
-        assert_eq!(table.take(1_u8), Err(Refused::Full));
+        assert_eq!(table.take(1_u8, 1), Err(Refused::Full));
         assert_eq!(table.open_count(), 0);
     }
 
     proptest! {
-        // Random takes and releases over 8 nodes agree with a plain model,
-        // each node's places from oldest to newest, and keep the table
-        // consistent.
+        // Random takes and releases over 8 nodes, of connections of random
+        // ages, agree with a plain model, each node's ages in order, and
+        // keep the table consistent.
         #[test]
         fn nodes_match_a_model(steps in proptest::collection::vec((0_u8..8, any::<bool>(), any::<u8>()), 1..400)) {
             let limits = NodeLimits { max_nodes: 4, max_per_node: 2 };
             let mut table = NodeTable::new(limits);
             let mut model: BTreeMap<u8, Vec<u64>> = BTreeMap::new();
-            for (node, taking, pick) in steps {
+            for (step, (node, taking, pick)) in steps.into_iter().enumerate() {
                 let held = model.get(&node).cloned().unwrap_or_default();
                 if taking {
+                    // Each its own, and in no particular order.
+                    let age = u64::from(pick) * 1_000 + u64::try_from(step).unwrap();
                     let open: usize = model.values().map(Vec::len).sum();
-                    let result = table.take(node);
-                    if held.len() < limits.max_per_node && open >= limits.max_total() {
+                    let result = table.take(node, age);
+                    if held.len() == limits.max_per_node && held[0] > age {
+                        prop_assert_eq!(result, Err(Refused::ClientFull));
+                    } else if held.len() < limits.max_per_node && open >= limits.max_total() {
                         prop_assert_eq!(result, Err(Refused::Full));
                     } else {
-                        let taken = result.unwrap();
-                        let places = model.entry(node).or_default();
-                        let oldest = (places.len() == limits.max_per_node).then(|| places.remove(0));
-                        prop_assert_eq!(taken.replaced, oldest);
-                        places.push(taken.place);
+                        let ages = model.entry(node).or_default();
+                        let oldest = (ages.len() == limits.max_per_node).then(|| ages.remove(0));
+                        prop_assert_eq!(result, Ok(oldest));
+                        ages.push(age);
+                        ages.sort_unstable();
                     }
                 } else if !held.is_empty() {
-                    let place = held[usize::from(pick) % held.len()];
-                    prop_assert!(table.release(node, place));
-                    prop_assert!(!table.release(node, place));
-                    model.entry(node).or_default().retain(|kept| *kept != place);
+                    let age = held[usize::from(pick) % held.len()];
+                    prop_assert!(table.release(node, age));
+                    prop_assert!(!table.release(node, age));
+                    model.entry(node).or_default().retain(|kept| *kept != age);
                 }
                 table.check_invariants();
                 let open: usize = model.values().map(Vec::len).sum();

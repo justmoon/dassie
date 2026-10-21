@@ -20,6 +20,7 @@
 //! which it cannot borrow, and our own peerings.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use dassie_identity::NodeId;
@@ -28,7 +29,7 @@ use dassie_node_core::rate_limit::ClientKey;
 use quinn::{Connection, VarInt};
 use tokio::sync::watch;
 
-use super::keys;
+use super::{NO_ROOM, keys};
 use crate::log::target;
 use crate::node::lock;
 use crate::slots::{ClientSlot, ClientSlots};
@@ -39,9 +40,10 @@ use crate::slots::{ClientSlot, ClientSlots};
 /// the place of its oldest.
 pub const MAX_CONNECTIONS_PER_NODE: usize = 2;
 
-/// The code a connection closes with when it has no place, or lost its
-/// place to a newer one of its node's.
-const NO_PLACE: VarInt = VarInt::from_u32(0);
+/// The code a connection closes with when it loses its place, to a newer
+/// connection of its node's or to a change of class into one without room:
+/// as at shutdown, since requests may have been read on it.
+const LOST_PLACE: VarInt = VarInt::from_u32(0);
 
 /// Who opened a connection, as our peerings say.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -114,6 +116,9 @@ pub(super) struct Places {
     downlinks: NodeSlots,
     /// None for a handler without peerings: every connection is anyone's.
     classes: Option<watch::Receiver<Arc<Classes>>>,
+    /// The next connection's age, in the order they were made, by which a
+    /// node's oldest gives up its place.
+    next_age: AtomicU64,
 }
 
 impl Places {
@@ -136,6 +141,7 @@ impl Places {
             core: per_node(core),
             downlinks: per_node(downlinks),
             classes: peerings.map(|peerings| peerings.classes),
+            next_age: AtomicU64::new(0),
         }
     }
 
@@ -167,7 +173,8 @@ impl Places {
 
     /// The place in its class for `connection`, set up from `client`, in
     /// place of the one it held while it was set up. None, and the
-    /// connection closed, when its class has no room.
+    /// connection closed with [`NO_ROOM`], when its class has no room: no
+    /// stream on it has been read, so nothing sent on it was delivered.
     pub(super) fn settle(
         &self,
         connection: &Connection,
@@ -175,14 +182,16 @@ impl Places {
         setting_up: ClientSlot,
     ) -> Option<Held> {
         let node = keys::peer_node(connection);
+        let age = self.next_age.fetch_add(1, Ordering::Relaxed);
         let mut classes = self.classes.clone();
         let class = class_of(node, classes.as_mut());
-        let place = self.take(class, node, client, connection);
+        let place = self.take(class, (node, age), client, connection);
         drop(setting_up);
-        let place = refused(place, connection, class)?;
+        let place = refused(place, connection, class, NO_ROOM)?;
         Some(Held {
             place,
             node,
+            age,
             client,
             classes,
         })
@@ -196,6 +205,7 @@ impl Places {
         let Held {
             mut place,
             node,
+            age,
             client,
             mut classes,
         } = held;
@@ -205,8 +215,8 @@ impl Places {
                 if class == place.class() {
                     continue;
                 }
-                let moved = self.take(class, node, client, connection);
-                match refused(moved, connection, class) {
+                let moved = self.take(class, (node, age), client, connection);
+                match refused(moved, connection, class, LOST_PLACE) {
                     Some(moved) => place = moved,
                     None => break,
                 }
@@ -219,7 +229,7 @@ impl Places {
     fn take(
         &self,
         class: Class,
-        node: Option<NodeId>,
+        (node, age): (Option<NodeId>, u64),
         client: Option<ClientKey>,
         connection: &Connection,
     ) -> Result<Place, Refused> {
@@ -231,7 +241,7 @@ impl Places {
         // A class but anyone's needs a node, which only a proven key gives.
         let node = node.ok_or(Refused::Full)?;
         by_node
-            .take(node, connection)
+            .take(node, age, connection)
             .map(|slot| Place::node(class, slot))
     }
 }
@@ -244,14 +254,19 @@ fn class_of(node: Option<NodeId>, classes: Option<&mut watch::Receiver<Arc<Class
     }
 }
 
-/// The place taken, or none, and `connection` closed.
-fn refused(place: Result<Place, Refused>, connection: &Connection, class: Class) -> Option<Place> {
+/// The place taken, or none, and `connection` closed with `code`.
+fn refused(
+    place: Result<Place, Refused>,
+    connection: &Connection,
+    class: Class,
+    code: VarInt,
+) -> Option<Place> {
     match place {
         Ok(place) => Some(place),
         Err(refused) => {
             let client = connection.remote_address();
             tracing::debug!(target: target::PEER, %client, ?class, ?refused, "no place for a QUIC connection; closing");
-            connection.close(NO_PLACE, b"no place");
+            connection.close(code, b"no place");
             None
         }
     }
@@ -261,6 +276,7 @@ fn refused(place: Result<Place, Refused>, connection: &Connection, class: Class)
 pub(super) struct Held {
     place: Place,
     node: Option<NodeId>,
+    age: u64,
     client: Option<ClientKey>,
     classes: Option<watch::Receiver<Arc<Classes>>>,
 }
@@ -296,14 +312,14 @@ impl Place {
     }
 }
 
-/// Places for connections per node, and the connection in each, so that
-/// one replaced by a newer of its node's closes.
+/// Places for connections per node, and the connection in each, by its
+/// age, so that one replaced by a newer of its node's closes.
 #[derive(Clone)]
 struct NodeSlots(Arc<Mutex<ByNode>>);
 
 struct ByNode {
     table: NodeTable<NodeId>,
-    /// Each place's connection: as many as the table has places.
+    /// Each place's connection, by age: as many as the table has places.
     connections: BTreeMap<u64, Connection>,
 }
 
@@ -319,27 +335,25 @@ impl NodeSlots {
         lock(&self.0).table.open_count()
     }
 
-    /// Takes a place for `connection` from `node`; the node's oldest
-    /// connection closes if it held its share.
-    fn take(&self, node: NodeId, connection: &Connection) -> Result<NodeSlot, Refused> {
-        let (place, replaced) = {
+    /// Takes a place for `connection` from `node`, made `age`-th; the
+    /// node's oldest connection closes if it held its share.
+    fn take(&self, node: NodeId, age: u64, connection: &Connection) -> Result<NodeSlot, Refused> {
+        let replaced = {
             let mut by_node = lock(&self.0);
-            let taken = by_node.table.take(node)?;
-            by_node.connections.insert(taken.place, connection.clone());
-            let replaced = taken
-                .replaced
-                .and_then(|place| by_node.connections.remove(&place));
+            let replaced = by_node.table.take(node, age)?;
+            by_node.connections.insert(age, connection.clone());
+            let replaced = replaced.and_then(|oldest| by_node.connections.remove(&oldest));
             assert!(by_node.connections.len() == by_node.table.open_count());
-            (taken.place, replaced)
+            replaced
         };
         if let Some(replaced) = replaced {
             tracing::debug!(target: target::PEER, %node, "a newer QUIC connection takes the place of the oldest of its node's");
-            replaced.close(NO_PLACE, b"replaced");
+            replaced.close(LOST_PLACE, b"replaced");
         }
         Ok(NodeSlot {
             slots: self.clone(),
             node,
-            place,
+            age,
         })
     }
 }
@@ -348,15 +362,15 @@ impl NodeSlots {
 struct NodeSlot {
     slots: NodeSlots,
     node: NodeId,
-    place: u64,
+    age: u64,
 }
 
 impl Drop for NodeSlot {
     fn drop(&mut self) {
         let mut by_node = lock(&self.slots.0);
         // Gone already if a newer connection took it over.
-        if by_node.table.release(self.node, self.place) {
-            by_node.connections.remove(&self.place);
+        if by_node.table.release(self.node, self.age) {
+            by_node.connections.remove(&self.age);
         }
         assert!(by_node.connections.len() == by_node.table.open_count());
     }

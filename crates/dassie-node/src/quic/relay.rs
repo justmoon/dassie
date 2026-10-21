@@ -36,7 +36,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use super::keys::{self, AnyNodeKey, Keys, PinnedServer, Present};
-use super::{CONNECT_TIMEOUT, Handler, Link, MAX_STREAMS, On, Quic, StreamKind, stand_by};
+use super::{CONNECT_TIMEOUT, Handler, Link, MAX_STREAMS, On, Quic, StreamKind, no_room, stand_by};
 use crate::log::target;
 use crate::node::lock;
 use crate::peer_client::PeerClient;
@@ -356,7 +356,16 @@ impl Quic {
             .connection(&place, relay, resolver, CONNECT_TIMEOUT)
             .await
             .map_err(|_| RelayError::Unreachable)?;
-        let stream = ask_relay(&connection, destination, purpose).await?;
+        // A relay with no room for us read nothing: it is busy, not broken.
+        let stream = ask_relay(&connection, destination, purpose)
+            .await
+            .map_err(|error| {
+                if no_room(&connection) {
+                    RelayError::Busy
+                } else {
+                    error
+                }
+            })?;
         self.secure(destination, purpose, stream).await
     }
 

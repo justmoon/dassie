@@ -99,6 +99,12 @@ const DRAIN_TIMEOUT: Duration = Duration::from_secs(10);
 /// Time for the endpoint to tell its peers it closed.
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 
+/// The code a server closes a connection with when it has no place for it
+/// once it knows who opened it (spec/areas/peer-protocol.md#quic): before
+/// it read any stream, so nothing sent on it was delivered, and the client
+/// takes it as a dial that failed. Shutdown and every other close use 0.
+pub const NO_ROOM: VarInt = VarInt::from_u32(1);
+
 /// The status ahead of a response's body.
 const STATUS_BYTES: usize = 2;
 
@@ -569,6 +575,13 @@ impl Quic {
                 }
             };
             let result = exchange(&connection, &request.body).await;
+            // A node with no room for us closes before it reads anything:
+            // nothing was delivered, and it is asked over HTTPS for a while,
+            // as one whose QUIC refused the connection outright.
+            if result.is_err() && no_room(&connection) {
+                self.mark_unreachable(request.to);
+                return Err(SendError::Unreachable);
+            }
             if result == Err(Failure::NotDelivered) && attempt == 0 {
                 let mut held = place.lock().await;
                 if held
@@ -928,6 +941,15 @@ impl On {
             }
         }
     }
+}
+
+/// Whether the other side closed `connection` for want of room
+/// ([`NO_ROOM`]), before it read anything sent on it.
+fn no_room(connection: &Connection) -> bool {
+    matches!(
+        connection.close_reason(),
+        Some(quinn::ConnectionError::ApplicationClosed(close)) if close.error_code == NO_ROOM
+    )
 }
 
 /// Sends `body` on a new stream of `connection` and reads the answer.
