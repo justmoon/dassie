@@ -34,7 +34,7 @@ export function LedgerDeposit(
         <dd>
           {network()}{" "}
           <Show when={testnet()}>
-            <Badge>Testnet</Badge>
+            <Badge testid={`deposit-testnet-${props.ledger.id}`}>Testnet</Badge>
           </Show>
         </dd>
       </dl>
