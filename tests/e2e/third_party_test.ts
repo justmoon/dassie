@@ -356,14 +356,20 @@ test("a third-party client pays from one node to another with consent", {
       401,
     );
 
-    // 6. Asked again, the owner denies: the app learns it on its return,
-    // and continuing is refused.
+    // 6. Asked again, with a receive limit in cents for a receiver that
+    // counts in billionths: the page warns that no payment fits, and the
+    // owner denies. The app learns it on its return, and continuing is
+    // refused.
     const again = await op.grant.request({ url: payerAddress.authServer }, {
       access_token: {
         access: [{
           type: "outgoing-payment",
           actions: ["create"],
           identifier: payerAddress.id,
+          limits: {
+            receiver: incoming.id,
+            receiveAmount: { value: "100", assetCode: "USD", assetScale: 2 },
+          },
         }],
       },
       interact: {
@@ -378,6 +384,11 @@ test("a third-party client pays from one node to another with consent", {
       "the consent page asks again",
       () => text(page, "consent-client"),
       (name) => name === "Budget App",
+    );
+    assert(
+      (await text(page, "consent-limit-asset")).includes(
+        "the limit counts USD to 2 decimal places, and the request counts it to 9 decimal places",
+      ),
     );
     await click(page, "consent-deny");
     for (let tries = 0; app.finished.length < 2 && tries < 100; tries++) {

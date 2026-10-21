@@ -5,6 +5,7 @@ import {
   clientName,
   dateText,
   intervalText,
+  limitAssetText,
   type LimitFields,
   limitText,
   paymentsTitle,
@@ -148,6 +149,7 @@ const shopRead = {
   expiresAtMs: at("2026-10-16T18:30:00Z"),
   closed: false,
   error: "",
+  limitInOtherAsset: false,
 };
 
 test("A: a fixed send, renewed for ever", () => {
@@ -240,6 +242,7 @@ test("D: a fixed send, once, to one payment request in another currency", () => 
       assetScale: 0,
       closed: false,
       error: "the receiver cannot be read: unreachable",
+      limitInOtherAsset: false,
     },
   };
   assertEquals(
@@ -247,6 +250,55 @@ test("D: a fixed send, once, to one payment request in another currency", () => 
     "Unknown: the payment request could not be read (the receiver cannot be read: unreachable)",
   );
   assertEquals(toText(unread, "UTC"), "One payment request at shop.example");
+});
+
+test("a receive limit in another asset than its payment request is flagged", () => {
+  const limits = {
+    ...none,
+    receiver: SHOP,
+    receiveAmount: usd(5_000_000_000n),
+    receiverPayment: { ...shopRead, limitInOtherAsset: true },
+  };
+  assertEquals(
+    limitAssetText(limits),
+    "The app can't pay this payment request: the limit is in USD, and the request is paid in EUR. Every payment it tries will be refused.",
+  );
+  // One code at two scales would read "USD" twice: the places tell them apart.
+  assertEquals(
+    limitAssetText({
+      ...limits,
+      receiveAmount: { value: 500n, assetCode: "USD", assetScale: 2 },
+      receiverPayment: {
+        ...limits.receiverPayment,
+        assetCode: "USD",
+        assetScale: 9,
+      },
+    }),
+    "The app can't pay this payment request: the limit counts USD to 2 decimal places, and the request counts it to 9 decimal places. Every payment it tries will be refused.",
+  );
+  // Codes are compared as sent: "usd" is not "USD", and reads as sent.
+  assertEquals(
+    limitAssetText({
+      ...limits,
+      receiveAmount: { value: 500n, assetCode: "usd", assetScale: 9 },
+      receiverPayment: {
+        ...limits.receiverPayment,
+        assetCode: "USD",
+        assetScale: 9,
+      },
+    }),
+    'The app can\'t pay this payment request: the limit is in "usd", and the request is paid in "USD". Every payment it tries will be refused.',
+  );
+  // The node decides; the page says nothing unless it found a mismatch.
+  assertEquals(
+    limitAssetText({ ...limits, receiverPayment: shopRead }),
+    undefined,
+  );
+  assertEquals(
+    limitAssetText({ ...none, receiveAmount: eur(500n) }),
+    undefined,
+  );
+  assertEquals(limitAssetText(undefined), undefined);
 });
 
 test("E: a total for all payments, to anyone", () => {

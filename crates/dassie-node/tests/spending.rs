@@ -1141,6 +1141,11 @@ async fn asked_limits(
     if let Some(interval) = interval {
         limits["interval"] = json!(interval);
     }
+    limits_read(node, client, limits).await
+}
+
+/// Asks to pay within `limits`; returns them as the owner read them.
+async fn limits_read(node: &TestNode, client: &Client, limits: Value) -> proto::GrantLimits {
     let access = json!([{
         "type": "outgoing-payment",
         "actions": ["create", "read"],
@@ -1172,6 +1177,8 @@ async fn the_owner_sees_the_span_and_receiver_of_a_request() {
     assert_eq!((read.asset_code.as_str(), read.asset_scale), ("USD", 9));
     assert_eq!(read.remaining, Some(700));
     assert!(!read.closed);
+    // A debit limit says nothing of what the receiver is paid in.
+    assert!(!read.limit_in_other_asset);
 
     // On another node, for ever.
     let remote = receiver(&payee, 300).await;
@@ -1233,4 +1240,32 @@ async fn the_owner_sees_the_span_and_receiver_of_a_request() {
     assert_eq!(limits.receiver_payment, None);
     node.stop().await;
     payee.stop().await;
+}
+
+// A receive limit in another asset than the receiver the grant names fits
+// no payment to it: the consent page is told, so the owner sees it before
+// approving (D29). The request itself is not refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_owner_sees_a_receive_limit_in_another_asset() {
+    let (node, key) = start().await;
+    let client = own_client(&node, &key);
+    let local = receiver(&node, 700).await;
+    let flagged = async |receiver: &str, code: &str, scale: u8| {
+        let limit = json!({ "value": "500", "assetCode": code, "assetScale": scale });
+        let limits = json!({ "receiver": receiver, "receiveAmount": limit });
+        let read = limits_read(&node, &client, limits)
+            .await
+            .receiver_payment
+            .unwrap();
+        (read.error.is_empty(), read.limit_in_other_asset)
+    };
+    // The receiver is paid in USD at scale 9.
+    assert_eq!(flagged(&local, "EUR", 9).await, (true, true));
+    assert_eq!(flagged(&local, "USD", 2).await, (true, true));
+    assert_eq!(flagged(&local, "USD", 9).await, (true, false));
+    // One that cannot be read is not judged.
+    let (prefix, _) = local.rsplit_once('/').unwrap();
+    let missing = format!("{prefix}/{}", "0".repeat(26));
+    assert_eq!(flagged(&missing, "EUR", 2).await, (false, false));
+    node.stop().await;
 }

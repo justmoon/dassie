@@ -36,6 +36,8 @@ export interface ReceiverFields {
   expiresAtMs?: bigint;
   closed: boolean;
   error: string;
+  /** Whether the grant's receive limit is in another asset than this. */
+  limitInOtherAsset: boolean;
 }
 
 /** An amount in an asset. */
@@ -279,6 +281,34 @@ export function receiveText(limits: LimitFields | undefined): string {
     ? `Any amount, in ${code(read)}: this payment request has no set amount`
     : `${owed}, in ${code(read)}: what this payment request still asks for`;
 }
+
+/**
+ * Why the app can't pay the payment request it names, when the node found
+ * the grant's receive limit in another asset than the request: none
+ * otherwise. Assets of one code are told apart by their decimal places,
+ * which amounts rounded for display would hide.
+ */
+export function limitAssetText(
+  limits: LimitFields | undefined,
+): string | undefined {
+  const read = limits?.receiverPayment;
+  const limit = limits?.receiveAmount;
+  if (read?.limitInOtherAsset !== true || limit === undefined) return undefined;
+  // The node compares codes as sent, so "usd" and "USD" differ: name them
+  // as sent then, since uppercased they would read alike.
+  const [mine, theirs] = limit.assetCode === read.assetCode
+    ? [
+      `counts ${code(limit)} to ${placesText(limit.assetScale)}`,
+      `counts it to ${placesText(read.assetScale)}`,
+    ]
+    : code(limit) === code(read)
+    ? [`is in "${limit.assetCode}"`, `is paid in "${read.assetCode}"`]
+    : [`is in ${code(limit)}`, `is paid in ${code(read)}`];
+  return `The app can't pay this payment request: the limit ${mine}, and the request ${theirs}. Every payment it tries will be refused.`;
+}
+
+const placesText = (scale: number) =>
+  `${scale} decimal ${scale === 1 ? "place" : "places"}`;
 
 /** To whom: anyone, or the one payment request. */
 export function toText(

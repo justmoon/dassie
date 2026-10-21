@@ -30,7 +30,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [D26](D26-core-and-periphery.md) | Core and periphery (design, partly built) | designs/periphery |
 | [D27](D27-simulations-run-continuously-from-random-seeds.md) | Simulations run continuously, from random seeds (partly built) | testing |
 | [D28](D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md) | A node that ends a peering collects first, and pays nothing | network, settlement, peer-protocol, connector |
-| [D29](D29-a-grants-debit-limit-is-in-its-wallets-asset.md) | A grant's debit limit is in its wallet's asset | payments |
+| [D29](D29-a-limit-no-payment-can-use-is-caught-before-approval.md) | A limit no payment can use is caught before approval | payments, wallet |
 | [D30](D30-a-node-is-up-once-its-engine-has-committed-a-step.md) | A node is up once its engine has committed a step | node, release |
 | [D31](D31-a-node-peers-on-a-scheme-only-once-it-has-seen-its-ledger.md) | A node peers on a scheme only once it has seen its ledger | settlement, network, xrpl |
 | [D32](D32-a-ledger-below-the-newest-seen-is-a-reset-only-on-the-testnet.md) | A ledger below the newest seen is a reset only on the testnet | xrpl |
