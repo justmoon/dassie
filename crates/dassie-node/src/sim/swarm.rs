@@ -12,8 +12,10 @@
 //! or for days: a partition that outlasts the chaos keeps the network as
 //! the chaos left it, its cuts too, until it ends. Then the network heals:
 //! every node runs, no link is cut, nothing is lost or replayed, and within
-//! [`HEAL_MS`] the network must settle down. Then each node is checked by
-//! its own books (spec/decisions/own-books.md), as the scripted runs are.
+//! [`HEAL_MS`] the network must settle down, unless crashes drifted a
+//! link's books past what it survives, which rules the run out
+//! (spec/decisions/crash-drift.md). Then each node is checked by its own
+//! books (spec/decisions/own-books.md), as the scripted runs are.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -25,6 +27,7 @@ use dassie_settlement::LedgerStatus;
 
 use super::checks::{
     check, check_delivered, check_events, check_finished, check_mid_flight, check_settled,
+    not_settled_down,
 };
 use super::scripted::{
     PAID_WITHIN_MS, READY_WITHIN_MS, collected_before_telling, ended, ready,
@@ -907,13 +910,7 @@ fn heal(
         check_end(sim, end)?;
     }
     if let Some(what) = stuck {
-        return Err(Outcome::liveness(
-            "settle-down",
-            format!(
-                "healed, the network did not settle down in {} s: {what}",
-                HEAL_MS / 1_000
-            ),
-        ));
+        return Err(not_settled_down(sim, HEAL_MS / 1_000, &what));
     }
     check(sim)?;
     for end in ends.iter().filter(|end| !end.ban) {

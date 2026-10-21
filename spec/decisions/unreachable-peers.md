@@ -30,5 +30,5 @@ So a cut one way drifts the books by at most what was in flight when it began, a
 ## Rejected
 
 - *The upstream notices:* the node whose Prepares are acknowledged but never answered before their expiry would stop routing to that peer. It needs a count of such expiries, learns only after a packet expired, and withdrawing the peer is network-wide, which [peering-lifecycle](peering-lifecycle.md) avoids for failed deliveries.
-- *Accept the drift, and have the simulation forgive a link that drifted past what it survives:* [peering-lifecycle](peering-lifecycle.md) accepts that such a link is withdrawn and, after a day, ended. But a cut one way, not a fault of either node, would then eat a link's whole liquidity, and the checks would hide it.
+- *Accept the drift, and have the simulation forgive a link that a cut drifted past what it survives:* [peering-lifecycle](peering-lifecycle.md) accepts that such a link is withdrawn and, after a day, ended. But a cut one way, not a fault of either node, would then eat a link's whole liquidity, and the checks would hide it. The simulation forgives only what crashes drift, which [own-fulfills](own-fulfills.md) bounds by what was in flight at each ([crash-drift](crash-drift.md)).
 - *Raise the default credit:* the drift across a cut grows with time, so no credit covers it.

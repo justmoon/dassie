@@ -24,12 +24,14 @@ use dassie_identity::NodeId;
 use dassie_ledger::LedgerId;
 use dassie_node::engine::{EngineEvent, Lie, NewIncoming, NewOutgoing};
 use dassie_node::node::Policies;
-use dassie_node::sim::checks::{check, check_across, check_books, check_events};
+use dassie_node::sim::checks::{
+    check, check_across, check_books, check_events, drifted_past, not_settled_down,
+};
 use dassie_node::sim::{
     CREDIT, START, Settling, Sim, USD, XRP, key, received, scripted, sent, xrpl_account,
 };
 use dassie_node::store::{Aim, ForeignAmount};
-use dassie_node_core::testing::assert_seeds_pass;
+use dassie_node_core::testing::{Outcome, assert_seeds_pass};
 use dassie_settlement::LedgerStatus;
 
 #[test]
@@ -126,6 +128,24 @@ fn an_upstream_that_forgot_the_packet_changes_nothing_downstream() {
     sim.run_until(sim.now + 60_000);
     check_books(&sim).unwrap();
     assert!(received(&sim, &sim.abandoned[0]) >= before);
+    // The simulation saw the drift the crash made, no more than was in
+    // flight, and it is all the books show (spec/decisions/crash-drift.md).
+    let drift = sim.drift(0, 1);
+    let packet = u128::from(Policies::DEFAULT.connector.max_packet_amount);
+    assert!(
+        drift.crashes > 0 && drift.crashes * 2 <= packet * 5,
+        "{drift:?}"
+    );
+    assert_eq!(drift.others, 0);
+    assert_eq!(drift.crashes, books_drift(&sim));
+    assert_eq!(drifted_past(&mut sim), None);
+}
+
+/// How far the two nodes' books drifted apart, by their books: a test of
+/// what the simulation saw, never of the nodes (spec/decisions/own-books.md).
+fn books_drift(sim: &Sim) -> u128 {
+    let (zero, one) = (key(0).node_id(), key(1).node_id());
+    u128::try_from(-(sim.owes(0, &one) + sim.owes(1, &zero))).unwrap()
 }
 
 // spec/decisions/own-fulfills.md: a Fulfill that cannot get through before
@@ -190,6 +210,11 @@ fn a_peer_that_cannot_hear_us_drifts_by_at_most_what_was_in_flight() {
         drift > 0 && drift * 2 <= packet * 5,
         "the books drifted by {drift}, past 2.5 packets of {packet}"
     );
+    // The simulation saw it all, and none of it as a crash's, so it never
+    // excuses a link this drifted (spec/decisions/crash-drift.md).
+    let seen = sim.drift(0, 1);
+    assert_eq!(seen.crashes, 0);
+    assert_eq!(i128::try_from(seen.others).unwrap(), drift);
     sim.cut.clear();
     sim.run_until(sim.now + 180_000);
     assert!(sim.payments[0].done, "the payment did not finish");
@@ -965,4 +990,58 @@ fn a_node_that_saw_its_ledger_once_peers_while_it_is_down() {
     sim.ledger_down.clear();
     sim.run_until(sim.now + 120_000);
     check_books(&sim).unwrap();
+}
+
+// spec/decisions/crash-drift.md: the senior crashes again and again while
+// it pays its junior, each time with Fulfills on their way to it, until the
+// books drifted past what the link survives: the credit the junior extends,
+// less two triggers and twice the least settlement. The junior's room for
+// the senior stays short while the senior's books leave it nothing to
+// settle, and the junior withdraws it: the link is not saved
+// (spec/decisions/own-fulfills.md). A network that does not settle down
+// for that is a run the simulation rules out, not a failure.
+#[test]
+fn a_link_crashes_drifted_past_what_it_survives_is_ruled_out() {
+    let mut sim = Sim::new(78, 2, 1);
+    sim.loss_per_mille = 0;
+    sim.run_until(START + 60_000);
+    assert!(!sim.peers(0).is_empty(), "the nodes did not peer");
+    let senior = usize::from(!sim.core(0).network().peers[0].peering.inbound);
+    let junior = 1 - senior;
+    let packet = u128::from(Policies::DEFAULT.connector.max_packet_amount);
+    let survives = u128::try_from(CREDIT).unwrap() - 5 * packet;
+    // The junior's receiver took money: it posted a packet, and its Fulfill
+    // is on its way.
+    let took = |sim: &Sim| sim.payments.last().is_some_and(|p| received(sim, p) > 0);
+    for _ in 0..30 {
+        if sim.drift(senior, junior).crashes > survives {
+            break;
+        }
+        sim.pay(senior, junior, 3_000_000_000, None, None);
+        if sim.run_until_or(sim.now + 30_000, took) {
+            sim.crash(senior);
+            sim.run_until(sim.now + 2_000);
+            sim.start(senior);
+        }
+        sim.run_until(sim.now + 30_000);
+    }
+    assert!(
+        sim.drift(senior, junior).crashes > survives,
+        "{:?}",
+        sim.drift(senior, junior)
+    );
+    sim.run_until(sim.now + 600_000);
+    let withdrawn = key(senior).node_id();
+    assert!(
+        sim.withdrawn
+            .iter()
+            .any(|withdrawal| withdrawal.by == junior && withdrawal.peer == withdrawn),
+        "the junior did not withdraw the senior"
+    );
+    let drift = sim.drift(senior, junior);
+    assert_eq!(drift.crashes + drift.others, books_drift(&sim));
+    match not_settled_down(&mut sim, 600, "stuck") {
+        Outcome::Unsupported(finding) => assert_eq!(finding.at, "drifted-past-what-it-survives"),
+        outcome => panic!("{outcome}"),
+    }
 }
