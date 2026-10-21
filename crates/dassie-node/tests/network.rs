@@ -4,8 +4,8 @@
 //! seeds. A failure names its seed: `dassie-sim run node-stub <seed>` replays it,
 //! `dassie-sim explain node-stub <seed>` prints its trace, and `dassie-sim run
 //! node-stub <from>..<to>` runs others
-//! (spec/decisions/random-seed-simulations.md); so do `node-xrpl` and
-//! `node-currencies`.
+//! (spec/decisions/random-seed-simulations.md); so do `node-xrpl`,
+//! `node-currencies`, `node-rlusd` and `node-xrp-rlusd`.
 //!
 //! The targeted tests below set up one situation each: a hop that crashes
 //! after posting, a late Fulfill, lying peers, a junior paying its senior
@@ -47,6 +47,23 @@ fn simulated_networks_settle_on_the_xrp_ledger() {
 #[test]
 fn simulated_networks_pay_across_currencies() {
     assert_seeds_pass(0..6, scripted::run_across);
+}
+
+// spec/areas/xrpl.md#rlusd: the same runs settling in RLUSD, with the
+// issuer clawing back and freezing while payments are under way; each
+// node's books count what the issuer did as its owner's deposits and
+// withdrawals, and hold its line.
+#[test]
+fn simulated_networks_settle_in_rlusd_through_the_issuers_acts() {
+    assert_seeds_pass(0..6, scripted::run_rlusd);
+}
+
+// spec/areas/xrpl.md#the-account: across RLUSD and XRP, with both schemes on
+// one account at the nodes that run both: no sequence is taken twice, and
+// every XRP fee is booked once, which the books against the account show.
+#[test]
+fn simulated_networks_pay_across_rlusd_and_xrp() {
+    assert_seeds_pass(0..6, scripted::run_xrp_rlusd);
 }
 
 // On this seed, a node ends a peering just after its books took the peer's
