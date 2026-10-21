@@ -352,6 +352,10 @@ message GrantReceiver {
   bool closed = 5;
   // Why it could not be read; empty if it was, and then the rest is unset.
   string error = 6;
+  // Whether the grant's receive limit is in another asset than this
+  // receiver is paid in, so no payment to it fits the limit. False when
+  // it could not be read.
+  bool limit_in_other_asset = 7;
 }
 
 // A grant the owner decides, or decided.

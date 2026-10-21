@@ -42,7 +42,7 @@ pub async fn dispatch(
             let mut grant = grant(node, &urls, &view.grant, &view.access).await?;
             grant.subject = view.subject.unwrap_or_default();
             grant.client_name = view.public_name.unwrap_or_default();
-            read_receivers(node, &urls, &mut grant).await;
+            read_receivers(node, &urls, &mut grant, &view.access).await;
             response::Method::GetGrantRequest(proto::GetGrantRequestResponse { grant: Some(grant) })
         }
         Method::DecideGrant(request) => {
@@ -215,7 +215,11 @@ fn spent(
 /// The reads go at once, and all of them together take at most
 /// [`RECEIVERS_READ_MS`]: a receiver's node that never answers would
 /// otherwise hold the page through each of the client's timeouts.
-async fn read_receivers(node: &Node, urls: &Urls, grant: &mut proto::Grant) {
+///
+/// A receiver read is checked against the item's receive limit, as a
+/// payment to it would be: one in another asset fits no payment, which
+/// the page warns of (D29). `access` is the grant's, item for item.
+async fn read_receivers(node: &Node, urls: &Urls, grant: &mut proto::Grant, access: &[Access]) {
     let wanted: Vec<(usize, String)> = grant
         .access
         .iter()
@@ -237,7 +241,13 @@ async fn read_receivers(node: &Node, urls: &Urls, grant: &mut proto::Grant) {
     let read = tokio::time::timeout(Duration::from_millis(RECEIVERS_READ_MS), reads)
         .await
         .unwrap_or_else(|_| vec![unreadable("its node did not answer in time"); wanted.len()]);
-    for ((index, _), payment) in wanted.into_iter().zip(read) {
+    for ((index, _), mut payment) in wanted.into_iter().zip(read) {
+        let receive_limit = access.get(index).and_then(|item| item.limits.as_ref());
+        payment.limit_in_other_asset = payment.error.is_empty()
+            && receive_limit.is_some_and(|limits| {
+                u8::try_from(payment.asset_scale)
+                    .is_ok_and(|scale| !limits.receives_in(&payment.asset_code, scale))
+            });
         if let Some(limits) = grant
             .access
             .get_mut(index)
@@ -303,6 +313,7 @@ async fn receiver_payment(node: &Node, urls: &Urls, url: &str) -> proto::GrantRe
         expires_at_ms,
         closed: payment.completed || expired,
         error: String::new(),
+        limit_in_other_asset: false,
     }
 }
 

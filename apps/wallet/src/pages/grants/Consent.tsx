@@ -15,6 +15,7 @@ import { Alert, Card, ErrorText, PageTitle, Spinner } from "@dassie/ui/ui";
 import {
   accessText,
   clientName,
+  limitAssetText,
   paymentsTitle,
   receiveText,
   sendText,
@@ -124,6 +125,8 @@ const sends = (access: GrantAccess) =>
  * What sending payments means for the owner: what they send, what the
  * receiver gets, to whom, and for how long. Each as far as the grant, and
  * the receiver it names, say: fees and exchange are known only per quote.
+ * When the node finds that the limit can't fit a payment to that receiver,
+ * a warning says so; the owner may still approve.
  */
 function Payments(props: { access: GrantAccess }): JSX.Element {
   const limits = () => props.access.limits;
@@ -142,6 +145,17 @@ function Payments(props: { access: GrantAccess }): JSX.Element {
           {spanText(limits(), BigInt(Date.now()))}
         </dd>
       </dl>
+      <Show when={limitAssetText(limits())}>
+        {(warning) => (
+          <Alert
+            title="The limit doesn't match the payment request"
+            tone="warning"
+            testid="consent-limit-asset"
+          >
+            <p>{warning()}</p>
+          </Alert>
+        )}
+      </Show>
     </>
   );
 }
