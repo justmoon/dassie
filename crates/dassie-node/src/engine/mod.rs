@@ -20,6 +20,7 @@
 pub mod core;
 mod links;
 mod logging;
+mod transports;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -84,7 +85,11 @@ enum Command {
     /// The result of one of our peer requests.
     PeerResponse {
         id: dassie_peer::RequestId,
+        /// The node asked.
+        to: dassie_identity::NodeId,
         result: Result<dassie_peer::Response, dassie_peer::Failure>,
+        /// The transport that carried it.
+        over: crate::quic::Transport,
     },
     /// Measure the rate to a receiver; the reply comes once the probe is
     /// done.
@@ -560,6 +565,8 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         probe_replies: BTreeMap::new(),
         next_probe: 0,
         versions,
+        answered: Vec::with_capacity(BATCH),
+        transports: transports::PeerTransports::default(),
     };
     driver.run(receiver, config, &shutdown).await;
 }
@@ -588,6 +595,11 @@ struct Driver<'a> {
     next_probe: u64,
     /// What changed, counted, for live views.
     versions: watch::Sender<Versions>,
+    /// The nodes that answered our requests in this batch, and over what:
+    /// at most one per command, so at most a batch's worth.
+    answered: Vec<(dassie_identity::NodeId, crate::quic::Transport)>,
+    /// The transport each peer last answered over, for the log.
+    transports: transports::PeerTransports,
 }
 
 impl Driver<'_> {
@@ -679,7 +691,12 @@ impl Driver<'_> {
                 self.peer_replies.insert(inbound, reply);
                 self.core.peer_inbound(inbound, &body, source);
             }
-            Command::PeerResponse { id, result } => self.core.peer_response(id, result),
+            Command::PeerResponse {
+                id,
+                to,
+                result,
+                over,
+            } => self.peer_response(id, to, result, over),
             Command::Probe {
                 ledger,
                 destination,
@@ -709,6 +726,22 @@ impl Driver<'_> {
         self.core.take_journal();
     }
 
+    /// Hands the core the result of a peer request to `to`, and notes the
+    /// transport an answer came over, to log once the step's events are.
+    fn peer_response(
+        &mut self,
+        id: dassie_peer::RequestId,
+        to: dassie_identity::NodeId,
+        result: Result<dassie_peer::Response, dassie_peer::Failure>,
+        over: crate::quic::Transport,
+    ) {
+        // Only an answer shows the transport works.
+        if result.is_ok() {
+            self.answered.push((to, over));
+        }
+        self.core.peer_response(id, result);
+    }
+
     /// Ends a step: the core persists, then its messages go out, then the
     /// callers hear back. A client that does not read, or whose task is
     /// gone, is disconnected, which is another step.
@@ -731,6 +764,13 @@ impl Driver<'_> {
                 versions.payments += u64::from(changes.payments);
             });
         }
+        // After the step's events, so a peering is logged before the
+        // transport its first answer came over.
+        for (peer, over) in self.answered.drain(..) {
+            let core = &self.core;
+            self.transports
+                .answered(peer, over, |node| core.is_peer(node));
+        }
         for reply in self.replies.drain(..) {
             reply();
         }
@@ -742,6 +782,13 @@ impl Driver<'_> {
         for output in std::mem::take(&mut self.outputs) {
             let (link, message) = match output {
                 Output::Event(event) => {
+                    if let Event::PeerNode(
+                        dassie_peer::Event::Peered { node: peer, .. }
+                        | dassie_peer::Event::PeeringEnded { peer },
+                    ) = &event
+                    {
+                        self.transports.forget(peer);
+                    }
                     logging::log(&event);
                     continue;
                 }
@@ -856,7 +903,14 @@ impl Driver<'_> {
             };
             let status = result.as_ref().map(|response| response.status);
             tracing::debug!(target: target::PEER, ?kind, %to, %over, ?status, "peer request");
-            let _ = commands.send(Command::PeerResponse { id, result }).await;
+            let _ = commands
+                .send(Command::PeerResponse {
+                    id,
+                    to,
+                    result,
+                    over,
+                })
+                .await;
         });
     }
 }

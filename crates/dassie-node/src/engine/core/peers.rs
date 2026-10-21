@@ -497,6 +497,12 @@ impl Core {
         self.peer.bans().copied().collect()
     }
 
+    /// Whether `node` is a peer, ending the peering or not.
+    #[must_use]
+    pub fn is_peer(&self, node: &NodeId) -> bool {
+        self.peer.peering_of(node).is_some()
+    }
+
     /// The result of one of our peer requests.
     pub fn peer_response(
         &mut self,
