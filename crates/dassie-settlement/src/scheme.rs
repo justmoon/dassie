@@ -387,7 +387,8 @@ pub trait SettlementScheme: Send {
     /// # Errors
     ///
     /// [`SchemeError::Unsupported`] where the scheme has no faucet;
-    /// [`SchemeError::Unavailable`] while the faucet was asked too recently.
+    /// [`SchemeError::Unavailable`] while the faucet was asked too recently,
+    /// or while the scheme has no connection to take its answer on.
     fn ask_faucet(&mut self, effects: &mut Vec<Effect>) -> Result<(), SchemeError> {
         let _ = effects;
         Err(SchemeError::Unsupported)
