@@ -9,8 +9,9 @@
   stdenvNoCC,
   fetchurl,
   release,
-  # The bundle itself, in place of the mirror's: for tests.
-  src ? null,
+  # The bundle itself, in place of the mirror's: for tests. Not `src`,
+  # which callPackage would fill from nixpkgs.
+  localBundle ? null,
 }:
 let
   inherit (stdenvNoCC.hostPlatform) system;
@@ -23,8 +24,8 @@ stdenvNoCC.mkDerivation {
   inherit (release) version;
 
   src =
-    if src != null then
-      src
+    if localBundle != null then
+      localBundle
     else
       fetchurl {
         url = "${release.mirror}/${release.version}/${bundle.file}";

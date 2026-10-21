@@ -295,18 +295,19 @@ let
 
   # The flake's package over a bundle of this tree, rather than the
   # mirror's: what the NixOS checks install.
+  flakeRelease = version: {
+    inherit version;
+    mirror = "https://get.dassie.land";
+    bundles.x86_64-linux = {
+      file = "dassie-${version}-linux-x64.tar.xz";
+      sha256 = lib.fakeSha256;
+    };
+  };
   flakePackageFor =
     version: dassie:
     pkgs.callPackage ./flake/package.nix {
-      release = {
-        inherit version;
-        mirror = "https://get.dassie.land";
-        bundles.x86_64-linux = {
-          file = "dassie-${version}-linux-x64.tar.xz";
-          sha256 = lib.fakeSha256;
-        };
-      };
-      src = "${bundle version "x64" dassie}/dassie-${version}-linux-x64.tar.xz";
+      release = flakeRelease version;
+      localBundle = "${bundle version "x64" dassie}/dassie-${version}-linux-x64.tar.xz";
     };
 
   # The flake's module on NixOS, in a VM, with 1.0.0 of the install tests
@@ -349,9 +350,12 @@ let
   };
 
   # The flake's units as NixOS writes them, for every PR: a stand-in
-  # binary, so that nothing is compiled, and no VM.
+  # binary, so that nothing is compiled, and no VM. The package as the
+  # flake makes it, from the mirror, must evaluate too: callPackage fills
+  # every argument it is not given from nixpkgs.
   nixos-units =
     let
+      fromMirror = pkgs.callPackage ./flake/package.nix { release = flakeRelease releaseVersion; };
       stub = pkgs.writeShellScriptBin "dassie" "exit 0";
       system = import "${nixpkgs}/nixos/lib/eval-config.nix" {
         system = "x86_64-linux";
@@ -372,6 +376,7 @@ let
       units = system.config.environment.etc."systemd/system".source;
       package = system.config.services.dassie.package;
     in
+    assert lib.hasSuffix ".drv" (builtins.unsafeDiscardStringContext fromMirror.drvPath);
     pkgs.runCommand "dassie-nixos-units" { } ''
       cd ${units}
       [ "$(readlink -f dassie.service)" = ${package}/lib/systemd/system/dassie.service ]
