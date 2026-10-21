@@ -54,7 +54,7 @@ use crate::codec::{Memo, TF_SET_NO_RIPPLE};
 use crate::keys::AccountId;
 use crate::scheme::{
     MAX_PEERS, MAX_RECOVER_WAIT_LEDGERS, MAX_RECOVERING, Recovering, account_of, address_bytes,
-    hash_name, missed_write_off, name_hash, narrow, parse_address, restore_unread,
+    hash_name, missed_write_off, name_hash, narrow, parse_address, recover, restore_unread,
     restore_write_offs, unread_value,
 };
 use crate::{from_hex, hex_upper};
@@ -445,7 +445,7 @@ impl RlusdScheme {
             }
             Some(cursor) if at <= cursor => {
                 if let Some(ours) = mine.filter(|ours| ours.settles) {
-                    let booked = self.resolve(record, ours, effects);
+                    let booked = self.resolve(record, paid(&ours), effects);
                     self.hold(booked, effects);
                     self.match_line(effects);
                 }
@@ -464,7 +464,7 @@ impl RlusdScheme {
         let mut booked = i128::from(self.booked);
         if let Some(ours) = mine {
             if ours.settles {
-                booked = self.resolve(record, ours, effects);
+                booked = self.resolve(record, paid(&ours), effects);
             }
         } else if let (Some(before), Some(after)) = (before, after) {
             if let Some((peer, amount)) = self.settled_by(record) {
@@ -506,19 +506,15 @@ impl RlusdScheme {
         }
     }
 
-    /// Settles one of our settlements the ledger validated: posted or
-    /// voided. Its fee is gas, which this ledger does not hold. Returns what
-    /// the books then hold.
-    fn resolve(&mut self, record: &TxRecord, ours: Ours, effects: &mut Vec<Effect>) -> i128 {
+    /// Settles one of our settlements the ledger validated, which paid
+    /// `paid` in internal units: posted or voided. Its fee is gas, which
+    /// this ledger does not hold. Returns what the books then hold.
+    fn resolve(&mut self, record: &TxRecord, paid: u64, effects: &mut Vec<Effect>) -> i128 {
         self.recovering.retain(|r| r.hash != record.hash);
         let settlement = hash_name(&record.hash);
         if record.succeeded() {
             effects.push(Effect::Finalize { settlement });
-            let paid = ours
-                .token
-                .and_then(|value| value.floor_units(DECIMALS))
-                .unwrap_or(0);
-            i128::from(self.booked) - paid.saturating_mul(i128::from(UNITS_PER_MICRO))
+            i128::from(self.booked) - i128::from(paid)
         } else {
             effects.push(Effect::Cancel { settlement });
             i128::from(self.booked)
@@ -538,27 +534,18 @@ impl RlusdScheme {
     /// posted or voided now (spec/areas/xrpl.md#state-and-restarts). `hash`
     /// is what was looked up. One the scheme read before the restart, it
     /// booked then, with what it did to the line. One it never read is
-    /// booked now as one of ours read behind the cursor is: what the line
-    /// booked through suspense at the sync comes back out.
+    /// booked now as one of ours read behind the cursor is, by what the
+    /// books hold pending for it, which is what we signed, never by what a
+    /// server says it delivered: what the line booked through suspense at
+    /// the sync comes back out.
     fn recovered(&mut self, hash: [u8; 32], record: &TxRecord, effects: &mut Vec<Effect>) {
         let Some(position) = self.recovering.iter().position(|r| r.hash == hash) else {
             return;
         };
         let recovering = self.recovering.remove(position);
         let settlement = hash_name(&hash);
-        if recovering.unread {
-            let token = record
-                .delivered_token
-                .filter(|paid| paid.currency == CURRENCY && paid.issuer == ISSUER)
-                .map(|paid| paid.value);
-            let ours = Ours {
-                scheme: self.id(),
-                drops: 0,
-                token,
-                settles: true,
-                again: true,
-            };
-            let booked = self.resolve(record, ours, effects);
+        if let (true, Some(amount)) = (recovering.unread, recovering.amount) {
+            let booked = self.resolve(record, amount, effects);
             self.hold(booked, effects);
             self.match_line(effects);
             return;
@@ -636,6 +623,18 @@ impl RlusdScheme {
         self.next_learnt = self.next_learnt.wrapping_add(1);
         self.peers.insert(peer, (address, self.next_learnt));
     }
+}
+
+/// What a settlement of ours paid, as we signed it, in internal units: a
+/// Payment of ours is never partial, so it delivered all of it.
+fn paid(ours: &Ours) -> u64 {
+    let micros = ours
+        .token
+        .and_then(|value| value.floor_units(DECIMALS))
+        .and_then(|micros| u64::try_from(micros).ok())
+        .unwrap_or(0);
+    assert!(micros <= MAX_MICROS, "we sign at most what the books hold");
+    micros * UNITS_PER_MICRO
 }
 
 /// What is kept with the books: the same as the XRP scheme keeps.
@@ -929,20 +928,14 @@ impl SettlementScheme for RlusdScheme {
         let Some(account) = account else {
             return;
         };
-        for (id, _) in pending {
+        for (id, amount) in pending {
             let Some(hash) = name_hash(*id) else {
                 continue;
             };
             match account.resume(self.id(), hash) {
                 Resumed::InFlight => {}
                 Resumed::NeverSent => effects.push(Effect::Cancel { settlement: *id }),
-                Resumed::Unknown => {
-                    if !self.recovering.iter().any(|r| r.hash == hash)
-                        && self.recovering.len() < MAX_RECOVERING
-                    {
-                        self.recovering.push(Recovering::new(hash));
-                    }
-                }
+                Resumed::Unknown => recover(&mut self.recovering, hash, *amount),
             }
         }
     }

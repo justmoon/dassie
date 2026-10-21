@@ -21,7 +21,7 @@ use dassie_settlement::{
     AssetEffect, Detach, Effect, ExternalAsset, LedgerInput, LedgerStatus, PreparedSettlement,
     SchemeError, SettlementScheme,
 };
-use dassie_xrpl::account::{self, XrplAccount};
+use dassie_xrpl::account::{self, News, XrplAccount};
 use dassie_xrpl::codec::{Amount, Payment, TokenValue, TrustSet};
 use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, FakeLedger, RESERVE_BASE, RESERVE_INC, Token};
 use dassie_xrpl::rlusd::{self, RlusdScheme, UNITS_PER_MICRO};
@@ -184,6 +184,34 @@ impl Node {
 /// What the books keep of a scheme: its balance and its state.
 type Kept = (u64, Vec<u8>);
 
+/// The ID of the scheme of `ledger`.
+fn scheme_name(ledger: usize) -> Name {
+    if ledger == XRP {
+        name(dassie_xrpl::scheme::SCHEME_ID)
+    } else {
+        name(rlusd::SCHEME_ID)
+    }
+}
+
+impl Node {
+    /// The books refused what the scheme of `ledger` said, in `effects`,
+    /// and the node stops it before the account forgets what it told: none
+    /// of it is booked, and the scheme is as its checkpoint `kept` it.
+    fn stopped(&mut self, ledger: usize, kept: &Kept, effects: &mut Vec<Effect>) {
+        effects.clear();
+        let (balance, state) = kept;
+        if ledger == XRP {
+            self.xrp =
+                Some(XrplScheme::new(&self.account, self.name, Some(*balance), state).unwrap());
+        } else {
+            self.rlusd =
+                Some(RlusdScheme::new(&self.account, self.name, Some(*balance), state).unwrap());
+        }
+        self.away[ledger] = true;
+        self.account.detach(scheme_name(ledger), Detach::Stopped);
+    }
+}
+
 struct World {
     ledger: FakeLedger,
     nodes: Vec<Node>,
@@ -191,6 +219,11 @@ struct World {
     next_connection: u64,
     /// Whether the server answers no lookup of a transaction.
     drop_lookups: bool,
+    /// The scheme, by its ledger, whose bookings the books refuse when it
+    /// is next told anything of its own, which stops it.
+    refuse_own: Option<usize>,
+    /// What a server's answer to a lookup is changed to say.
+    tamper_lookup: Option<fn(&mut serde_json::Value)>,
 }
 
 fn name(text: &str) -> Name {
@@ -228,6 +261,8 @@ impl World {
             now: 1_000,
             next_connection: 1,
             drop_lookups: false,
+            refuse_own: None,
+            tamper_lookup: None,
         };
         for (index, with_xrp) in xrp.iter().enumerate() {
             let seed = u8::try_from(index).unwrap() + 1;
@@ -307,11 +342,35 @@ impl World {
             node.account.owner_funds(name(rlusd::SCHEME_ID), funds[USD]);
         }
         let mut booked: [Vec<Effect>; 2] = [Vec::new(), Vec::new()];
+        let refused = self.refuse_own.filter(|ledger| {
+            let scheme = scheme_name(*ledger);
+            node.runs(*ledger)
+                && node.account.news().iter().any(|news| match news {
+                    News::Transaction {
+                        ours: Some(ours), ..
+                    }
+                    | News::Unread { ours, .. } => ours.scheme == scheme,
+                    News::Cancelled { scheme: of, .. } => *of == scheme,
+                    _ => false,
+                })
+        });
+        // What the books keep of the scheme they refuse: its checkpoint
+        // stays from before.
+        let kept = refused.map(|ledger| node.states().1[ledger].clone().unwrap());
         if let (Some(xrp), false) = (&mut node.xrp, node.away[XRP]) {
             xrp.on_asset(now, &mut node.account, &mut booked[XRP]);
         }
+        if refused == Some(XRP) {
+            node.stopped(XRP, kept.as_ref().unwrap(), &mut booked[XRP]);
+        }
         if let (Some(rlusd), false) = (&mut node.rlusd, node.away[USD]) {
             rlusd.on_asset(now, &mut node.account, &mut booked[USD]);
+        }
+        if refused == Some(USD) {
+            node.stopped(USD, kept.as_ref().unwrap(), &mut booked[USD]);
+        }
+        if refused.is_some() {
+            self.refuse_own = None;
         }
         node.account.told();
         for (ledger, effects) in booked.into_iter().enumerate() {
@@ -349,7 +408,12 @@ impl World {
         if self.drop_lookups && request["command"] == "tx" {
             return;
         }
-        let reply = self.ledger.request(self.nodes[index].connection, message);
+        let mut reply = self.ledger.request(self.nodes[index].connection, message);
+        if let (Some(tamper), true) = (self.tamper_lookup, request["command"] == "tx") {
+            let mut answer: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+            tamper(&mut answer);
+            reply = serde_json::to_vec(&answer).unwrap();
+        }
         self.input(index, LedgerInput::Message(&reply));
     }
 
@@ -711,6 +775,8 @@ fn no_line_without_xrp_for_it() {
         now: 1_000,
         next_connection: 1,
         drop_lookups: false,
+        refuse_own: None,
+        tamper_lookup: None,
     };
     let seed = 9;
     let address = Wallet::from_entropy(&entropy(seed)).account();
@@ -794,6 +860,8 @@ fn a_line_made_outside_the_node_is_corrected() {
         now: 1_000,
         next_connection: 1,
         drop_lookups: false,
+        refuse_own: None,
+        tamper_lookup: None,
     };
     let node = name("outside");
     world.nodes.push(Node {
@@ -1068,6 +1136,8 @@ fn gas_on_a_shared_account_is_the_owners_to_spend() {
         now: 1_000,
         next_connection: 1,
         drop_lookups: false,
+        refuse_own: None,
+        tamper_lookup: None,
     };
     world.add_with(1, true, Some(0));
     world.closes(3);
@@ -1369,6 +1439,69 @@ fn a_settlement_never_read_is_booked_once_across_a_restart() {
     assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
     assert!(world.nodes[0].books[USD].finalized.is_empty());
     world.drop_lookups = false;
+    world.restart(0);
+    world.closes(2);
+    let books = &world.nodes[0].books[USD];
+    assert_eq!(books.finalized, [id]);
+    assert_eq!(books.suspense, 0, "what suspense booked came back out");
+    assert_eq!(books.settlement, i128::from(usd(8_000_000)));
+}
+
+// Found in review: the books refuse what the RLUSD scheme is told with its
+// own settlement, validated, and stop it, while the XRP scheme runs on and
+// has the account's state written. The account keeps the settlement for
+// the RLUSD scheme, so after a restart it is posted once, never also booked
+// as a withdrawal from the line; with a history that no longer reaches back
+// to it, it is looked up and booked once found.
+#[test]
+fn a_settlement_told_in_a_refused_batch_is_booked_once() {
+    for short_history in [false, true] {
+        let mut world = World::new(&[true, false]);
+        world.closes(3);
+        let (usd_a, _) = world.peer(USD, 0, 1);
+        world.mint(0, "10");
+        world.close();
+        let id = world.settle(USD, 0, 1, usd(2_000_000), &usd_a);
+        world.refuse_own = Some(USD);
+        world.close();
+        assert!(world.nodes[0].away[USD], "the books refused the batch");
+        world.close();
+        if short_history {
+            world.ledger.shorten_account_history();
+        }
+        world.restart(0);
+        world.closes(2);
+        let books = &world.nodes[0].books[USD];
+        assert_eq!(books.finalized, [id], "{short_history}");
+        assert!(books.pending.is_empty(), "{short_history}");
+        assert!(books.withdrawals.is_empty(), "{short_history}");
+        assert_eq!(books.suspense, 0, "{short_history}");
+        assert_eq!(
+            books.settlement,
+            i128::from(usd(8_000_000)),
+            "{short_history}"
+        );
+    }
+}
+
+// Found in review: a server's answer to the lookup of a settlement the
+// RLUSD scheme never read says it delivered more RLUSD than any line holds.
+// The scheme books it by what it signed, which the books hold pending, so
+// the server's figure books nothing, and the node does not panic.
+#[test]
+fn a_settlement_never_read_is_booked_by_what_was_signed() {
+    let mut world = World::new(&[true, false]);
+    world.closes(3);
+    let (usd_a, _) = world.peer(USD, 0, 1);
+    world.mint(0, "10");
+    world.close();
+    let id = world.settle(USD, 0, 1, usd(2_000_000), &usd_a);
+    world.leave(0, USD, Detach::Stopped);
+    world.closes(2);
+    world.ledger.shorten_account_history();
+    world.tamper_lookup = Some(|answer| {
+        answer["result"]["meta"]["delivered_amount"]["value"] = "1e25".into();
+    });
     world.restart(0);
     world.closes(2);
     let books = &world.nodes[0].books[USD];

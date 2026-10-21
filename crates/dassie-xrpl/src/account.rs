@@ -789,8 +789,12 @@ impl XrplAccount {
             drops.saturating_add(fee).saturating_add(reserve)
         };
         // A scheme back on the account reads its own transactions again
-        // before it signs more.
-        let reading = self.parked.iter().any(|p| p.scheme == scheme);
+        // before it signs more. Nor does one sign while it is being told of
+        // its own (a `TrustSet` it signs as it takes the news): should the
+        // books refuse what it was told, the account keeps those for it
+        // ([`keep_untaken`](Self::keep_untaken)), within what it may have
+        // in flight.
+        let reading = self.parked.iter().any(|p| p.scheme == scheme) || self.told_own(scheme);
         self.is_synced()
             && !reading
             && self.sequence < u32::MAX
@@ -1864,6 +1868,19 @@ impl XrplAccount {
                 self.never_sent(scheme, hash);
             }
         }
+    }
+
+    /// Whether the account told `scheme` of its own transactions since its
+    /// schemes were last told, which it keeps for the scheme should the
+    /// books refuse them ([`keep_untaken`](Self::keep_untaken)).
+    fn told_own(&self, scheme: Name) -> bool {
+        self.news.iter().any(|news| match news {
+            News::Transaction {
+                ours: Some(ours), ..
+            }
+            | News::Unread { ours, .. } => ours.scheme == scheme,
+            _ => false,
+        })
     }
 
     /// A scheme's lookup of `hash`, answered: only a transaction found

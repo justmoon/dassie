@@ -611,7 +611,7 @@ impl XrplScheme {
 /// Looks up settlement `hash`, pending in the books for `amount`, unless it
 /// is already, or [`MAX_RECOVERING`] are: one restored from the state is
 /// told its amount.
-fn recover(recovering: &mut Vec<Recovering>, hash: [u8; 32], amount: u64) {
+pub(crate) fn recover(recovering: &mut Vec<Recovering>, hash: [u8; 32], amount: u64) {
     assert!(
         amount <= MAX_TOTAL,
         "the books hold at most a total pending"
