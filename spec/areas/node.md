@@ -98,7 +98,7 @@ What must survive a restart. Most of the original's integrity gaps came from sta
 
 - **The ledger's journal,** including pending outgoing settlements, which are reconciled with the scheme at start ([Ledger](ledger.md), [Settlement](settlement.md#outgoing-settlements)), and each scheme's checkpoint, written in the batch it explains ([Settlement](settlement.md#checkpoints-and-activation)).
 - **The node table and the own link-state sequence,** which only goes up: a restarted node must not reuse a sequence number its peers have seen ([Network](network.md#persistence)).
-- **Per-peer replay floors,** so a restart does not reopen a replay window ([Peer protocol](peer-protocol.md#replay-protection)), and **settlement channels,** kept after a peering ends ([Settlement](settlement.md#settlement-channels)).
+- **Replay floors** of every sender whose replay state is kept for good (peers, former peers we hold a channel with, registered and bootstrap nodes), so a restart does not reopen a replay window ([Peer protocol](peer-protocol.md#replay-protection)), and **settlement channels,** kept after a peering ends ([Settlement](settlement.md#settlement-channels)).
 - **Payment state with its STREAM credentials,** written with the journal rows that pay it, so a restart neither loses money received nor pays twice ([Payments](payments.md#persistence)).
 - **The setup token,** so a restart keeps the setup URL valid, and **the self-signed certificate,** made once and kept ([HTTP](http.md#certificates)).
 

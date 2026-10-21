@@ -20,7 +20,7 @@ use dassie_peer::auth::{AuthConfig, Authenticator};
 use dassie_peer::sim::{Network, START, key, url};
 use dassie_peer::wire::{
     Authentication, Content, Entry, NodeInfo, PeeringRequest, PeeringResponse, RefusalReason,
-    ResponseEnvelope, SchemeId, SignedNodeInfo, encode_envelope, sign_node_info,
+    ResponseEnvelope, SchemeId, SignedNodeInfo, TerminationReason, encode_envelope, sign_node_info,
 };
 use dassie_peer::{Config, Event, OwnInfo, PeerNode, PeerStatus, RegisterError, Sources, Stored};
 
@@ -37,6 +37,18 @@ fn request(network: &Network, from: &Arc<NodeKey>, to: usize, content: &Content<
 /// The same, stamped `timestamp_ms` by the sender's clock.
 fn request_at(timestamp_ms: u64, from: &Arc<NodeKey>, to: usize, content: &Content<'_>) -> Vec<u8> {
     let mut auth = Authenticator::new(Arc::clone(from), AuthConfig::DEFAULT, START - 1);
+    request_by(&mut auth, timestamp_ms, to, content)
+}
+
+/// The same, in the session of `auth`, so that a sender's requests follow
+/// one another as a real sender's do.
+fn request_by(
+    auth: &mut Authenticator,
+    timestamp_ms: u64,
+    to: usize,
+    content: &Content<'_>,
+) -> Vec<u8> {
+    let from = auth.node_key().node_id();
     let bytes = content.to_vec();
     let target = key(to);
     let (hmac, _) = auth
@@ -48,7 +60,7 @@ fn request_at(timestamp_ms: u64, from: &Arc<NodeKey>, to: usize, content: &Conte
             &bytes,
         )
         .unwrap();
-    encode_envelope(&from.node_id(), &Authentication::Hmac(hmac), &bytes)
+    encode_envelope(&from, &Authentication::Hmac(hmac), &bytes)
 }
 
 fn link_state(key: &NodeKey, sequence: u64, url: &str) -> Vec<u8> {
@@ -366,10 +378,15 @@ fn registration(network: &Network, from: &Arc<NodeKey>, url: &str) -> Vec<u8> {
 /// A request that changes state, from a node that is not a peer: refused
 /// with 409, after its replay state is recorded.
 fn settlement_request(network: &Network, from: &Arc<NodeKey>) -> Vec<u8> {
+    settlement_request_at(network.clock(0), from)
+}
+
+/// The same, stamped `timestamp_ms` by the sender's clock.
+fn settlement_request_at(timestamp_ms: u64, from: &Arc<NodeKey>) -> Vec<u8> {
     let content = Content::SettlementRequest {
         scheme: SchemeId::parse("stub").unwrap(),
     };
-    request(network, from, 0, &content)
+    request_at(timestamp_ms, from, 0, &content)
 }
 
 // Anyone may make identities, and requests that only read are answered 200,
@@ -476,6 +493,105 @@ fn a_restart_does_not_reopen_a_registered_nodes_replays() {
     network.start(0);
     let replayed = network.inbound(0, &renewal);
     assert_eq!(replayed.status, 401, "refused as a replay");
+    network.node(0).check_invariants();
+}
+
+// A peering that ended kept no replay floor, so after a restart a request
+// its former peer sent shortly before, stamped ahead of our clock, was
+// taken again: the timestamp was within the window and above the start. A
+// node we hold a settlement channel with keeps its floor, peered or not.
+#[test]
+fn a_restart_does_not_reopen_a_former_peers_replays() {
+    let count = 6;
+    let mut network = Network::new(7, count, 1, Config::DEV);
+    settle(&mut network, 60_000);
+    // Two peers neither of which is the other's bootstrap node, nor
+    // registered with it, so that only the peering and then its channel
+    // keep the sender's replay state.
+    let (at, from) = (1..count)
+        .flat_map(|at| (1..count).map(move |from| (at, from)))
+        .find(|(at, from)| {
+            at != from
+                && network
+                    .node(*at)
+                    .peering_of(&key(*from).node_id())
+                    .is_some()
+        })
+        .expect("two peers apart from the bootstrap node");
+    let former = key(from).node_id();
+    let mut sender = Authenticator::new(key(from), AuthConfig::DEFAULT, START - 1);
+    let content = Content::SettlementRequest {
+        scheme: SchemeId::parse("stub").unwrap(),
+    };
+    // Its clock runs ahead of ours by less than the window.
+    let ahead = AuthConfig::DEFAULT.skew_ms / 2;
+    let while_peered = request_by(&mut sender, network.clock(at) + ahead, at, &content);
+    assert_ne!(network.inbound(at, &while_peered).status, 401, "taken");
+    network.act(at, |node, now| {
+        assert!(node.terminate(now, &former, TerminationReason::Owner));
+    });
+    settle(&mut network, 10_000);
+    assert!(network.node(at).peering_of(&former).is_none(), "ended");
+    let own = *network.node(at).own();
+    assert!(network.holds_channel(&own, from), "the channel is kept");
+    let after_the_end = request_by(&mut sender, network.clock(at) + ahead, at, &content);
+    assert_ne!(network.inbound(at, &after_the_end).status, 401, "taken");
+    network.crash(at);
+    network.start(at);
+    for (body, sent) in [
+        (&while_peered, "while peered"),
+        (&after_the_end, "after the end"),
+    ] {
+        let replayed = network.inbound(at, body);
+        assert_eq!(replayed.status, 401, "sent {sent}, refused as a replay");
+    }
+    let fresh = request_by(&mut sender, network.clock(at) + ahead + 1, at, &content);
+    assert_ne!(
+        network.inbound(at, &fresh).status,
+        401,
+        "a fresh one is taken"
+    );
+    network.node(at).check_invariants();
+}
+
+// Raising every sender's floor after a restart by the timestamp window
+// would refuse honest requests for that long. Only what was taken before
+// the restart is refused: a registered node's next renewal, and a
+// stranger's first request, are taken right after it.
+#[test]
+fn honest_requests_are_taken_right_after_a_restart() {
+    let count = 6;
+    let mut network = Network::new(5, count, 1, Config::DEFAULT);
+    settle(&mut network, 600_000);
+    let registered = registered_stranger(&network, count);
+    let mut sender = Authenticator::new(key(registered), AuthConfig::DEFAULT, START - 1);
+    let renewal = |network: &Network, sender: &mut Authenticator, ahead: u64| {
+        let state = link_state(&key(registered), network.clock(0), &url(registered));
+        let info = SignedNodeInfo::decode_exact(&state).unwrap();
+        request_by(
+            sender,
+            network.clock(0) + ahead,
+            0,
+            &Content::Registration(info),
+        )
+    };
+    let first = renewal(&network, &mut sender, 1_000);
+    assert_eq!(network.inbound(0, &first).status, 200, "renewed");
+    network.crash(0);
+    network.start(0);
+    assert_eq!(
+        network.inbound(0, &first).status,
+        401,
+        "refused as a replay"
+    );
+    let next = renewal(&network, &mut sender, 2_000);
+    assert_eq!(network.inbound(0, &next).status, 200, "renewed again");
+    let stranger = settlement_request_at(network.clock(0) + 1, &made_up(0));
+    assert_eq!(
+        network.inbound(0, &stranger).status,
+        409,
+        "taken, and refused"
+    );
     network.node(0).check_invariants();
 }
 
