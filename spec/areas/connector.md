@@ -92,11 +92,13 @@ A limit refusal becomes T04, a full table T03. So a peer can push packets to us 
 
 **Draining.** While a peering ends, its endpoint is draining: no new Prepare goes to it or is taken from it, but packets in flight finish. The peering ends once nothing is in flight to or from it ([Network](network.md#termination)). Before that, while the node collects from a peer it decided to end and has not told, the peer's endpoint is refusing: its new Prepares get T04 "insufficient liquidity" before any other check, so a peer that probes with a packet another check would answer can tell, and ours still go to it ([D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)).
 
+**Unreached peers.** A peer our messages surely do not reach is refused the same way, on its own: once an ILP packet of ours to it surely did not arrive, its new Prepares get T04 before any other check, until it answers a request of ours, while ours still go to it. Across a link cut one way, a Fulfill of ours would never arrive and count only in our books, so each try of the sender's would drift the books apart by a packet; refused, they drift by at most what was in flight ([D41](../decisions/D41-a-node-takes-no-prepare-from-a-peer-it-cannot-reach.md)).
+
 ## Money in flight with a peer
 
 The connector caps, for each peer and each way, what the packets in flight carry, at two and a half of the [largest packets](#the-largest-packet) (`IN_FLIGHT_PACKETS` and `Config::max_in_flight`). A Prepare that would pass it gets T05, from which STREAM backs off as from any temporary error.
 
-- **Why it exists.** A node that crashes with Prepares in flight never learns that its downstream fulfilled them, so each one drifts the two peers' books apart by its amount. Without a cap, a crash with many STREAM connections over one peer drifted the books far enough that settlement between them stalled for good. The cap is the most one crash costs a link, and the [least credit](settlement.md#credit) is derived from it.
+- **Why it exists.** A node that crashes with Prepares in flight never learns that its downstream fulfilled them, so each one drifts the two peers' books apart by its amount. Without a cap, a crash with many STREAM connections over one peer drifted the books far enough that settlement between them stalled for good. The cap is the most one crash, or one link cut one way ([D41](../decisions/D41-a-node-takes-no-prepare-from-a-peer-it-cannot-reach.md)), costs a link, and the [least credit](settlement.md#credit) is derived from it.
 - **Two and a half.** A payment's STREAM keeps two of the largest packets in flight; the half packet left takes smaller ones, such as a quote's probes while a payment fills the link. Without it those probes are refused and the quote fails.
 - **Amounts, not packets,** so packets from parts of the network with a smaller largest packet just fit more of them.
 - **Each way, with our own number.** A crash of either side raises what our books say the peer owes us, so each node bounds both directions with its own cap, knowing nothing of the peer's.
@@ -158,3 +160,4 @@ ILP-over-HTTP (RFC 35) is not built: the connector has no HTTP endpoint ([roadma
 - [D23](../decisions/D23-each-node-books-its-own-fulfills.md): Fulfills booked as final; a stale resend from a peer is dropped.
 - [D24](../decisions/D24-money-in-flight-with-a-peer-stays-within-a-few-packets.md): the cap on money in flight with a peer.
 - [D25](../decisions/D25-a-links-thresholds-are-counted-in-its-largest-packet.md): the cap counted in the largest packet.
+- [D41](../decisions/D41-a-node-takes-no-prepare-from-a-peer-it-cannot-reach.md): no Prepare taken from a peer our messages surely do not reach.

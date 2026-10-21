@@ -410,6 +410,9 @@ impl PeerNode {
         entry.peering_failures = 0;
         self.dirty.insert(node);
         if fresh {
+            // It just answered us, or we it after probing its URL: what an
+            // earlier peering left of our reach to it is gone (D41).
+            self.unreached.remove(&node);
             self.auth.pin(node);
             self.stats.peerings += 1;
             self.gossip.heartbeat_soon(now);

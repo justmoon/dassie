@@ -601,6 +601,15 @@ impl Core {
             | Event::SettlementRequestNotDelivered { peer } => {
                 self.settle.asked.remove(&peer);
             }
+            // While our messages surely do not reach the peer, its new
+            // Prepares are refused: a Fulfill of ours would count only in
+            // our books (D41).
+            Event::Reachable { peer, reachable } => {
+                if let Some(&endpoint) = self.peer_endpoints.get(&peer) {
+                    self.connector
+                        .set_unreached(EndpointId::Peer(endpoint), !reachable);
+                }
+            }
             Event::PacketFailed {
                 peer,
                 request_id,
@@ -704,6 +713,9 @@ impl Core {
             .map_err(|e| e.to_string())?;
         self.peer_endpoints.insert(node, id);
         self.endpoint_peers.insert(id, node);
+        if !self.peer.reachable(&node) {
+            self.connector.set_unreached(EndpointId::Peer(id), true);
+        }
         Ok(())
     }
 

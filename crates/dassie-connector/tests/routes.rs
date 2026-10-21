@@ -326,6 +326,43 @@ fn a_refusing_peer_still_takes_ours() {
     assert!(!harness.connector.set_refusing(EndpointId::Peer(9), true));
 }
 
+// A peer our messages surely do not reach has its new Prepares refused,
+// for a while, as for want of liquidity (D41); ours still go to it. The
+// refusal is its own: it holds while a D28 refusal is lifted, and lifting
+// it leaves a D28 refusal in place.
+#[test]
+fn an_unreached_peer_still_takes_ours() {
+    let mut harness = harness();
+    set(&mut harness, &[("test.das.dfar", &[ONE, TWO])]);
+    let from_it = |id: u8| prepare(&format!("{OWN}.alice"), 10, NOW + 20_000, [id; 32]);
+    assert!(harness.connector.set_unreached(ONE, true));
+    let outcome = harness.prepare(NOW, ONE, 1, &from_it(3));
+    assert_eq!(
+        rejected(&harness, outcome),
+        ErrorCode::T04_INSUFFICIENT_LIQUIDITY
+    );
+    let packet = prepare("test.das.dfar", 10, NOW + 20_000, [1; 32]);
+    assert_eq!(forwarded_to(harness.prepare(NOW, BTP, 1, &packet)), ONE);
+    assert!(harness.connector.set_refusing(ONE, true));
+    assert!(harness.connector.set_refusing(ONE, false));
+    let outcome = harness.prepare(NOW, ONE, 2, &from_it(4));
+    assert_eq!(
+        rejected(&harness, outcome),
+        ErrorCode::T04_INSUFFICIENT_LIQUIDITY
+    );
+    assert!(harness.connector.set_refusing(ONE, true));
+    assert!(harness.connector.set_unreached(ONE, false));
+    let outcome = harness.prepare(NOW, ONE, 3, &from_it(5));
+    assert_eq!(
+        rejected(&harness, outcome),
+        ErrorCode::T04_INSUFFICIENT_LIQUIDITY
+    );
+    assert!(harness.connector.set_refusing(ONE, false));
+    let onward = prepare("test.das.dfar", 10, NOW + 20_000, [6; 32]);
+    assert_eq!(forwarded_to(harness.prepare(NOW, ONE, 4, &onward)), TWO);
+    assert!(!harness.connector.set_unreached(EndpointId::Peer(9), true));
+}
+
 fn fulfill_bytes(fulfillment: [u8; 32]) -> Vec<u8> {
     Fulfill {
         fulfillment,

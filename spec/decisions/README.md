@@ -42,6 +42,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [D38](D38-a-receiver-says-whether-it-is-full-or-stopped-short.md) | A receiver says whether it is full or stopped short | payments, stream |
 | [D39](D39-a-connection-holds-a-place-by-the-key-it-proved.md) | A connection holds a place by the key it proved | peer-protocol, network, designs/periphery |
 | [D40](D40-a-node-without-a-hostname-keeps-the-default-front-door-as-its-relay.md) | A node without a hostname keeps the default front door as its relay | node, http, payments, wallet |
+| [D41](D41-a-node-takes-no-prepare-from-a-peer-it-cannot-reach.md) | A node takes no Prepare from a peer it cannot reach | connector, peer-protocol, settlement |
 
 ## Adding or changing a decision
 

@@ -140,6 +140,42 @@ fn a_peering_ends_while_its_fulfills_cannot_arrive() {
     check_books(&sim).unwrap();
 }
 
+// D41: the receiver's node cannot reach the sender's for ten minutes, while
+// the sender's reaches it, as behind an asymmetric firewall. The client
+// tries again after each packet expires. Were each try fulfilled, the
+// receiver's books would drift from the sender's by a packet a try, until
+// the receiver's node had no room left for the sender's: here node 0, the
+// junior, extends the default credit, and the books drifted by six packets,
+// as much as the credit lets a link survive. Once a Fulfill of the
+// receiver's node surely did not arrive, it takes no new Prepare from the
+// sender's, so the books drift by at most what was in flight, two and a
+// half of the largest packets (D24). Once the cut is gone, its Rejects and
+// heartbeats get through, and the payment completes.
+#[test]
+fn a_peer_that_cannot_hear_us_drifts_by_at_most_what_was_in_flight() {
+    let mut sim = Sim::new(76, 2, 1);
+    sim.loss_per_mille = 0;
+    sim.run_until(START + 60_000);
+    assert!(!sim.peers(0).is_empty(), "the nodes did not peer");
+    // Three units: more than the credit, so only the rule bounds the drift.
+    sim.pay(1, 0, 3_000_000_000, None, None);
+    let rate = |sim: &Sim| sim.payments[0].connection.exchange_rate().is_some();
+    assert!(sim.run_until_or(sim.now + 30_000, rate), "no rate");
+    sim.cut.insert((0, 1));
+    sim.run_until(sim.now + 600_000);
+    let (sender, receiver) = (key(1).node_id(), key(0).node_id());
+    let drift = -(sim.owes(0, &sender) + sim.owes(1, &receiver));
+    let packet = i128::from(Policies::DEFAULT.connector.max_packet_amount);
+    assert!(
+        drift > 0 && drift * 2 <= packet * 5,
+        "the books drifted by {drift}, past 2.5 packets of {packet}"
+    );
+    sim.cut.clear();
+    sim.run_until(sim.now + 180_000);
+    assert!(sim.payments[0].done, "the payment did not finish");
+    check(&sim).unwrap();
+}
+
 /// Whether node `index` stopped.
 fn stopped(index: usize) -> impl Fn(&Sim) -> bool {
     move |sim: &Sim| sim.nodes[index].core.is_none()

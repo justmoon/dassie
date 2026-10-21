@@ -218,6 +218,11 @@ pub struct PeerNode {
     /// Peers we are telling that we end the peering, and when to try
     /// next (`u64::MAX` while a message is in flight).
     pub(crate) telling: BTreeMap<NodeId, u64>,
+    /// Peers our messages surely do not reach: an ILP packet of ours to
+    /// each surely did not arrive, and nothing we sent it since was
+    /// answered (D41). Only peers are kept, so it holds at most one per
+    /// peering.
+    pub(crate) unreached: BTreeSet<NodeId>,
 }
 
 impl PeerNode {
@@ -274,6 +279,7 @@ impl PeerNode {
             banned: Vec::new(),
             unbanned: Vec::new(),
             telling: BTreeMap::new(),
+            unreached: BTreeSet::new(),
             config,
         };
         node.restore(stored);
@@ -482,6 +488,7 @@ impl PeerNode {
                 .map_err(|_| Problem::Invalid)?;
             Ok(envelope.body.to_vec())
         });
+        self.note_reach(outstanding.to, &outstanding.purpose, &checked);
         if checked.is_err() {
             self.stats.requests_failed += 1;
         } else {
@@ -491,6 +498,50 @@ impl PeerNode {
             }
         }
         self.dispatch_response(hooks, outstanding.to, outstanding.purpose, checked);
+    }
+
+    /// Whether our messages reach `node`, from what became of one of our
+    /// requests to it (D41). An authenticated answer says they do. Only an
+    /// ILP packet that surely did not arrive says they do not: the
+    /// protocol's other requests may be refused here, by the bounds on
+    /// requests in flight, which says nothing of the peer, while packets
+    /// take no place in those bounds. A request that may have arrived says
+    /// nothing either way.
+    fn note_reach(&mut self, node: NodeId, purpose: &Purpose, result: &Result<Vec<u8>, Problem>) {
+        let reachable = match (result, purpose) {
+            (Ok(_), _) => true,
+            (
+                Err(Problem::Failed(Failure::NotDelivered)),
+                Purpose::Prepare(_) | Purpose::Response(_),
+            ) => false,
+            (Err(_), _) => return,
+        };
+        if self.peering_of(&node).is_none() {
+            return;
+        }
+        let changed = if reachable {
+            self.unreached.remove(&node)
+        } else {
+            self.unreached.insert(node)
+        };
+        assert!(
+            self.unreached.len() <= self.config.max_peers + self.config.max_downlinks,
+            "more peers unreached than peerings"
+        );
+        if changed {
+            self.event(Event::Reachable {
+                peer: node,
+                reachable,
+            });
+        }
+    }
+
+    /// Whether our messages reach `peer`, as far as we know: false once an
+    /// ILP packet of ours to it surely did not arrive, until it answers a
+    /// request of ours (D41).
+    #[must_use]
+    pub fn reachable(&self, peer: &NodeId) -> bool {
+        !self.unreached.contains(peer)
     }
 
     fn dispatch_response(

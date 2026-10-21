@@ -622,6 +622,7 @@ impl PeerNode {
         entry.peering_at_ms = now.saturating_add(wait);
         self.dirty.insert(peer);
         self.telling.remove(&peer);
+        self.unreached.remove(&peer);
         self.drop_peer_source(&peer);
         self.gossip.routes_dirty = true;
         self.stats.terminations += 1;

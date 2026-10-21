@@ -392,7 +392,7 @@
         "Endpoints: BTP clients, the local STREAM receiver, ILDCP",
         "Peers and the route table",
         "Downlinks at child addresses below the node's own; a periphery node's addresses beneath its uplinks, forwarding nothing",
-        "A cap on money in flight with each peer, which bounds what a crash loses",
+        "A cap on money in flight with each peer, which bounds what a crash loses, and no new packets from a peer it cannot answer",
         "Exchange between currencies, with fees and a spread",
         "A spending cap per BTP token",
         "A packet trace for the debug pages"
