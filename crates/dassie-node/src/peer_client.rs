@@ -53,11 +53,22 @@ const MAX_RECORDS_READ: usize = 64;
 /// Most addresses of a name kept, per address family.
 const MAX_ADDRESSES_PER_FAMILY: usize = 8;
 
-/// How long the other family's lookup is waited for once one family has
-/// given addresses. A resolver that never answers one family would
-/// otherwise hold the lookup until its own timeout, which can be longer
-/// than the time to connect.
-const OTHER_FAMILY_GRACE: Duration = Duration::from_millis(250);
+/// How long the IPv6 lookup is still waited for once the IPv4 lookup has
+/// given addresses the node may use. A resolver that never answers AAAA
+/// queries would otherwise hold the lookup until its own timeout, which
+/// can be longer than the time to connect. The IPv4 lookup is always
+/// waited for in full.
+const IPV6_GRACE: Duration = Duration::from_millis(250);
+
+/// Most IPv6 lookups running at once. One no longer waited for runs on, on
+/// tokio's blocking pool, until the system's resolver gives up; this keeps
+/// a resolver that never answers AAAA from filling the pool, which the
+/// node's file IO shares. IPv4 lookups are always waited for, so the
+/// requests in flight bound them.
+const MAX_IPV6_LOOKUPS: usize = 64;
+
+/// The places of [`MAX_IPV6_LOOKUPS`].
+static IPV6_LOOKUPS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(MAX_IPV6_LOOKUPS);
 
 /// A request to another server, for Open Payments.
 #[derive(Clone, Debug)]
@@ -135,9 +146,10 @@ impl tower_service::Service<Name> for GuardedResolver {
                 return Ok(vec![SocketAddr::from((Ipv4Addr::LOCALHOST, 0))].into_iter());
             }
             let (four, six) = both_families(
-                lookup(name.as_str(), Family::V4),
-                lookup(name.as_str(), Family::V6),
-                OTHER_FAMILY_GRACE,
+                lookup(name.as_str(), Family::V4, None),
+                lookup(name.as_str(), Family::V6, Some(&IPV6_LOOKUPS)),
+                IPV6_GRACE,
+                allow_private,
             )
             .await;
             let allowed = merge(four, six, allow_private)?;
@@ -165,9 +177,25 @@ enum Family {
 /// routers answer one family with NXDOMAIN while the other resolves. The
 /// system's resolver, not a DNS client of our own, so that `/etc/hosts`
 /// and nsswitch still apply (spec/decisions/resolving-by-family.md).
-async fn lookup(name: &str, family: Family) -> io::Result<Vec<IpAddr>> {
+///
+/// With `places`, the lookup runs only if it gets a place there, which it
+/// holds until the system's resolver returns, waited for or not.
+async fn lookup(
+    name: &str,
+    family: Family,
+    places: Option<&'static tokio::sync::Semaphore>,
+) -> io::Result<Vec<IpAddr>> {
+    let place = match places {
+        Some(places) => Some(
+            places
+                .try_acquire()
+                .map_err(|_| io::Error::other("too many lookups running"))?,
+        ),
+        None => None,
+    };
     let name = name.to_owned();
     tokio::task::spawn_blocking(move || {
+        let _place = place;
         let hints = dns_lookup::AddrInfoHints {
             address: match family {
                 Family::V4 => dns_lookup::AddrFamily::Inet,
@@ -195,47 +223,43 @@ async fn lookup(name: &str, family: Family) -> io::Result<Vec<IpAddr>> {
     .map_err(io::Error::other)?
 }
 
-/// Runs both families' lookups at once, and gives both results. Once one
-/// has given addresses, the other has `grace` left to answer, and counts
-/// as failed if it does not; while neither has, both are waited for.
+/// Runs both families' lookups at once, and gives both results. The IPv4
+/// lookup is always waited for in full. The IPv6 lookup is too, unless
+/// IPv4 gave addresses the node may use: then it has `grace` left to
+/// answer, and counts as failed if it does not.
 async fn both_families<F4, F6>(
     four: F4,
     six: F6,
     grace: Duration,
+    allow_private: bool,
 ) -> (io::Result<Vec<IpAddr>>, io::Result<Vec<IpAddr>>)
 where
     F4: Future<Output = io::Result<Vec<IpAddr>>>,
     F6: Future<Output = io::Result<Vec<IpAddr>>>,
 {
     let (mut four, mut six) = (std::pin::pin!(four), std::pin::pin!(six));
-    tokio::select! {
-        found = &mut four => {
-            let other = rest(&found, six, grace).await;
-            (found, other)
+    let (four, six_found) = tokio::select! {
+        found = &mut four => (found, None),
+        found = &mut six => (four.await, Some(found)),
+    };
+    let six = match six_found {
+        Some(found) => found,
+        None if four
+            .as_ref()
+            .is_ok_and(|found| found.iter().any(|address| usable(*address, allow_private))) =>
+        {
+            tokio::time::timeout(grace, six).await.unwrap_or_else(|_| {
+                Err(io::Error::new(io::ErrorKind::TimedOut, "no answer in time"))
+            })
         }
-        found = &mut six => {
-            let other = rest(&found, four, grace).await;
-            (other, found)
-        }
-    }
+        None => six.await,
+    };
+    (four, six)
 }
 
-/// The other family's result, given the first one's.
-async fn rest<F>(
-    first: &io::Result<Vec<IpAddr>>,
-    other: F,
-    grace: Duration,
-) -> io::Result<Vec<IpAddr>>
-where
-    F: Future<Output = io::Result<Vec<IpAddr>>>,
-{
-    if first.as_ref().is_ok_and(|found| !found.is_empty()) {
-        tokio::time::timeout(grace, other)
-            .await
-            .unwrap_or_else(|_| Err(io::Error::new(io::ErrorKind::TimedOut, "no answer in time")))
-    } else {
-        other.await
-    }
+/// Whether the node may connect to `address`.
+fn usable(address: IpAddr, allow_private: bool) -> bool {
+    allow_private || is_public(address)
 }
 
 /// The addresses the node may use, from both families' lookups: the
@@ -261,7 +285,7 @@ fn merge(
     let allowed = |found: Vec<IpAddr>| -> Vec<IpAddr> {
         found
             .into_iter()
-            .filter(|address| allow_private || is_public(*address))
+            .filter(|address| usable(*address, allow_private))
             .take(MAX_ADDRESSES_PER_FAMILY)
             .collect()
     };
@@ -766,34 +790,91 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_family_that_never_answers_is_waited_for_only_briefly() {
+    async fn an_ipv6_lookup_that_never_answers_is_waited_for_only_briefly() {
         let start = tokio::time::Instant::now();
         let (four, six) = both_families(
             async { Ok(vec![public_v4(1)]) },
             std::future::pending(),
-            OTHER_FAMILY_GRACE,
+            IPV6_GRACE,
+            false,
         )
         .await;
-        assert_eq!(start.elapsed(), OTHER_FAMILY_GRACE);
+        assert_eq!(start.elapsed(), IPV6_GRACE);
         assert_eq!(four.unwrap(), [public_v4(1)]);
         assert_eq!(six.unwrap_err().kind(), io::ErrorKind::TimedOut);
     }
 
+    // Found in review: AAAA cached, A not. Cutting the A lookup short left
+    // only IPv6 addresses, which an IPv4-only home network cannot reach.
     #[tokio::test(start_paused = true)]
-    async fn a_failed_family_waits_for_the_other() {
-        let slow = 20 * OTHER_FAMILY_GRACE;
+    async fn a_late_ipv4_lookup_is_waited_for_in_full() {
+        let slow = 20 * IPV6_GRACE;
         let start = tokio::time::Instant::now();
         let (four, six) = both_families(
             async {
                 tokio::time::sleep(slow).await;
                 Ok(vec![public_v4(1)])
             },
-            async { Err(nxdomain()) },
-            OTHER_FAMILY_GRACE,
+            async { Ok(vec![public_v6(1)]) },
+            IPV6_GRACE,
+            false,
         )
         .await;
         assert_eq!(start.elapsed(), slow);
-        assert_eq!(merge(four, six, false).unwrap(), [public_v4(1)]);
+        assert_eq!(
+            merge(four, six, false).unwrap(),
+            [public_v4(1), public_v6(1)]
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_ipv4_lookup_waits_for_ipv6_in_full() {
+        let slow = 20 * IPV6_GRACE;
+        let start = tokio::time::Instant::now();
+        let (four, six) = both_families(
+            async { Err(nxdomain()) },
+            async {
+                tokio::time::sleep(slow).await;
+                Ok(vec![public_v6(1)])
+            },
+            IPV6_GRACE,
+            false,
+        )
+        .await;
+        assert_eq!(start.elapsed(), slow);
+        assert_eq!(merge(four, six, false).unwrap(), [public_v6(1)]);
+    }
+
+    // Found in review: IPv4 addresses the node may not use are no reason
+    // to cut the IPv6 lookup short.
+    #[tokio::test(start_paused = true)]
+    async fn only_private_ipv4_addresses_wait_for_ipv6_in_full() {
+        let slow = 20 * IPV6_GRACE;
+        let private = IpAddr::from([10, 0, 0, 1]);
+        let start = tokio::time::Instant::now();
+        let (four, six) = both_families(
+            async { Ok(vec![private]) },
+            async {
+                tokio::time::sleep(slow).await;
+                Ok(vec![public_v6(1)])
+            },
+            IPV6_GRACE,
+            false,
+        )
+        .await;
+        assert_eq!(start.elapsed(), slow);
+        assert_eq!(merge(four, six, false).unwrap(), [public_v6(1)]);
+        // Where private addresses are allowed, they are usable ones.
+        let start = tokio::time::Instant::now();
+        let (four, six) = both_families(
+            async { Ok(vec![private]) },
+            std::future::pending(),
+            IPV6_GRACE,
+            true,
+        )
+        .await;
+        assert_eq!(start.elapsed(), IPV6_GRACE);
+        assert_eq!(merge(four, six, true).unwrap(), [private]);
     }
 
     // The FFI path, without the network: literals resolve in their own
@@ -802,11 +883,22 @@ mod tests {
     async fn the_system_resolver_is_asked_per_family() {
         let v4 = IpAddr::from(Ipv4Addr::LOCALHOST);
         let v6 = IpAddr::from(std::net::Ipv6Addr::LOCALHOST);
-        assert_eq!(lookup("127.0.0.1", Family::V4).await.unwrap(), [v4]);
-        assert!(lookup("127.0.0.1", Family::V6).await.is_err());
-        assert_eq!(lookup("::1", Family::V6).await.unwrap(), [v6]);
-        assert!(lookup("::1", Family::V4).await.is_err());
-        assert!(lookup("bad\0name", Family::V4).await.is_err());
+        assert_eq!(lookup("127.0.0.1", Family::V4, None).await.unwrap(), [v4]);
+        assert!(lookup("127.0.0.1", Family::V6, None).await.is_err());
+        assert_eq!(lookup("::1", Family::V6, None).await.unwrap(), [v6]);
+        assert!(lookup("::1", Family::V4, None).await.is_err());
+        assert!(lookup("bad\0name", Family::V4, None).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_lookup_runs_only_with_a_place() {
+        static NONE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(0);
+        static ONE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+        assert!(lookup("::1", Family::V6, Some(&NONE)).await.is_err());
+        let v6 = IpAddr::from(std::net::Ipv6Addr::LOCALHOST);
+        assert_eq!(lookup("::1", Family::V6, Some(&ONE)).await.unwrap(), [v6]);
+        // The place is given back once the lookup returned.
+        assert_eq!(ONE.available_permits(), 1);
     }
 
     // The HTTP client reads `[::1]a` as the IPv6 literal `::1`, and
