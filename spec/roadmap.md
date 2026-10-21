@@ -100,7 +100,7 @@ Settlement in RLUSD, Ripple's dollar token on the XRP Ledger, on the testnet, as
 - **Parts that can be built side by side:**
   - the XRPL account as an external asset, with `xrpl-testnet` as a scheme on it: keys, connection, sequences and transactions in flight in the account, a cursor per scheme, and the migration of the scheme's state;
   - the codec: token amounts, a token `Payment` and `TrustSet`, pinned by golden vectors made with xrpl.js;
-  - reading the ledger: a trust line's balance from either side, delivered token amounts, a line's flags;
+  - reading the ledger: a trust line's balance from either side, delivered token amounts, a line's flags and limit, and the issuer's account (its global freeze and transfer fee);
   - the fake ledger: trust lines and their reserve, token payments through the issuer and their failures, and an issuer that mints, freezes and claws back;
   - the `xrpl-testnet-rlusd` scheme and its ledger `xrpl-testnet-rlusd+usd`: the line set up before it syncs, settling, booking by the line, gas;
   - the wallet's page of external assets, Receive for RLUSD, a dev scenario, the `node` simulation on RLUSD and across XRP and RLUSD, and end-to-end tests.

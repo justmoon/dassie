@@ -21,7 +21,7 @@ Separate what the node holds from how it settles ([the design](../designs/extern
 
 ## Accepted
 
-- **Fees paid in gas leave no entry.** On a node that runs only an RLUSD scheme, the owner's revenue and expenses show no XRP fees; a report has to read them from the ledger. This holds for real money too: what decides is the settled holding, and that stays in step with the ledger.
+- **Fees paid in gas leave no entry.** On a node that runs only an RLUSD scheme, the owner's revenue and expenses show no XRP fees; a report has to read them from the ledger. This holds for real money too: what decides is the settled holding, and that stays in step with the ledger. On an account another scheme settles from, the gas is that scheme's booked holding: it is spent only within the owner's funds on that ledger, and booked there.
 - **A migration.** The XRPL scheme's state is split between the account and the scheme, once, with nothing booked anew.
 
 ## Rejected
