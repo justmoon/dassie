@@ -15,7 +15,10 @@ Add settlement hubs as another way to peer, beside bilateral peering, which stay
 - **One ordered log** for every operation, with Simplex consensus, built without IO as [tigerstyle](tigerstyle.md) asks.
 - **Native multi-signing** for the escrow, each validator signing alone.
 - **Payout even from a stalled hub,** through payout sets that hand the escrow to keys made for that set alone, so the XRP Ledger applies one set and refuses the rest.
-- **Fees are rules,** with caps; **the asset is XRP** at first; the default list of validators is kept like the default bootstrap node list.
+- **Fees are rules,** with caps, and **accounts and holds lock reserves,** as on the XRP Ledger, which price their place in the hub and pay each account out at shutdown.
+- **The asset is XRP** at first. The default list of validators is kept like the default bootstrap node list, and so is a **default hub** for each asset and ledger, which owners may override.
+- **Validators accept the terms, not the set,** so one that fails while a hub is founded is replaced at the cost of its own setup fee.
+- **A node limits what it keeps** in each hub, and in all the hubs of each validator operator.
 
 Hubs hold real money only once [real-money](real-money.md)'s conditions are met.
 
@@ -25,11 +28,16 @@ It will affect: the `hub` settlement scheme, commitments and claims in the peer 
 
 - A hub that loses more than f validators pays out only once q of them have signed, which may take until enough return: the XRP Ledger has no way to make a transaction or a change of signers valid only after a time.
 - A stall pays out with no notice period for claims, so payees lose what they had not taken from holds, from a block that may be older than the last one any member saw.
+- Volume may gather in one hub per asset. The fewer the hubs, the more peers one deposit reaches, and a hub is bounded already by its asset and the region its validators share.
 
 ## Rejected
 
 - *Reserving funds in the hub for every batch of packets:* a consensus round on every hop, funds locked by every rejected packet until it expires, and every packet's condition shown to the validators.
 - *Payments without consensus* (FastPay, Astro): a hold is spent by two parties, its payee before the expiry and its payer after, and near the expiry neither may get a quorum.
+- *A setup fee paid atomically against the validator's keys:* a validator that takes the fee and makes no keys has shown early that it is not one to trust; the sponsor loses one fee and picks another.
+- *Acceptances over rules that name the validators:* replacing one validator would void every other acceptance, and the setup fees paid for them.
+- *An idle fee without reserves:* a place in the bounded tables would cost only a balance its owner can spend again, and an account's payment in the payout set could cost more than it holds.
+- *An exposure limit per hub only:* hubs that share validators fail together.
 - *A threshold key (FROST) for the escrow:* its signing is interactive within a fixed group, so a validator that returns later cannot add its share.
 - *A recovery signer* that can move the escrow without the validators: without a time lock, it weakens the escrow at all times.
 - *Paying out only after a committed shutdown:* a hub that lost more than f validators could never pay out.
