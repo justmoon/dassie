@@ -13,7 +13,9 @@
 //! - that it is up to date, as of a validated ledger;
 //! - that a transaction of a scheme can never apply, or that the account
 //!   and everything it held are gone (a testnet reset);
-//! - each ledger that closes, and each transaction a scheme looked up.
+//! - each ledger that closes, and each transaction a scheme looked up;
+//! - the trust lines its schemes follow, read at each sync as of the same
+//!   ledger as the account, and an issuer's account a scheme asked for.
 //!
 //! Each scheme keeps its own cursor into the transactions, and tells the
 //! account where it is ([`XrplAccount::follow`]): on each connection the
@@ -40,14 +42,22 @@ use alloc::vec::Vec;
 
 use dassie_ledger::{MAX_TOTAL, Name};
 use dassie_settlement::{
-    AssetEffect, AssetId, AssetKind, ExternalAsset, Holding, LedgerInput, LedgerStatus, SchemeError,
+    AssetEffect, AssetId, AssetKind, Detach, ExternalAsset, Holding, LedgerInput, LedgerStatus,
+    SchemeError,
 };
 use serde_json::{Value, json};
 
-use crate::api::{self, AccountInfo, ApiError, LedgerClosed, Message, TxRecord};
-use crate::codec::{Amount, Memo, Payment};
+use crate::amount::{Currency, TokenAmount, TokenValue};
+use crate::api::{
+    self, AccountInfo, AccountSettings, ApiError, LedgerClosed, Message, TrustLine, TxRecord,
+};
+use crate::codec::{Amount, Memo, Payment, TrustSet};
 use crate::keys::{AccountId, Wallet};
 use crate::{UNITS_PER_DROP, from_hex, hex_upper};
+
+/// The scale the account reports a token it holds at: fifteen decimals,
+/// the most a token's sixteen digits leave below a unit of it.
+pub const TOKEN_SCALE: u8 = 15;
 
 /// The node's first XRPL testnet account: the one whose keys are at
 /// `node/settlement-module/xrpl-testnet/seed-testnet`
@@ -79,9 +89,9 @@ const REQUEST_TIMEOUT_MS: u64 = 20_000;
 /// How often the faucet is asked, while the account does not exist.
 const FUND_RETRY_MS: u64 = 60_000;
 /// Most requests waiting for an answer: a submission and a lookup for
-/// each transaction in flight, the schemes' lookups, and the four that
-/// keep the account in sync.
-const MAX_PENDING: usize = 2 * MAX_IN_FLIGHT + MAX_LOOKUPS + 4;
+/// each transaction in flight, the schemes' lookups, the four that keep
+/// the account in sync, and for each scheme a line and an issuer read.
+const MAX_PENDING: usize = 2 * MAX_IN_FLIGHT + MAX_LOOKUPS + 4 + 2 * MAX_SCHEMES;
 /// Most transactions held while catching up.
 const MAX_BUFFERED: usize = 256;
 /// Most transactions remembered as never sent, until their schemes have
@@ -97,7 +107,8 @@ const MAX_PARKED: usize = MAX_IN_FLIGHT * MAX_SCHEMES;
 /// what was kept for schemes and not read again.
 // PAGE is a few hundred: no truncation.
 #[allow(clippy::cast_possible_truncation)]
-const MAX_NEWS: usize = api::PAGE as usize + MAX_BUFFERED + MAX_IN_FLIGHT + MAX_PARKED + 4;
+const MAX_NEWS: usize =
+    api::PAGE as usize + MAX_BUFFERED + MAX_IN_FLIGHT + MAX_PARKED + 4 + 2 * MAX_SCHEMES;
 /// Most effects between two takings: one message's worth.
 const MAX_EFFECTS: usize = MAX_PENDING + MAX_IN_FLIGHT + 4;
 /// Most bytes of config.
@@ -178,6 +189,21 @@ fn chain(newest: Option<Validated>, network_id: u32, ledger: Validated) -> Chain
     }
 }
 
+/// The scheme that settles in the account's XRP: on an account it settles
+/// from, what other schemes spend of the XRP as gas is the owner's funds on
+/// its ledger (spec/decisions/external-assets.md).
+const XRP_SCHEME: &str = crate::scheme::SCHEME_ID;
+
+/// A trust line the account follows for a scheme on it: of its token's
+/// issuer, in its currency.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct LineKey {
+    /// The token's issuer.
+    pub issuer: AccountId,
+    /// The token's currency.
+    pub currency: Currency,
+}
+
 /// Where the account connects, and where it asks for test XRP.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {
@@ -235,6 +261,14 @@ pub struct Ours {
     pub scheme: Name,
     /// The XRP it pays, in drops.
     pub drops: u64,
+    /// The token it pays, for a Payment of a token.
+    pub token: Option<TokenValue>,
+    /// Whether it settles with a peer: a Payment. A `TrustSet` does not.
+    pub settles: bool,
+    /// Whether it was kept for its scheme while the scheme was not on the
+    /// account, and is told again for it alone: the schemes that were on
+    /// the account were told it when the ledger validated it.
+    pub again: bool,
 }
 
 /// What the account learnt for the schemes on it, in the order it did.
@@ -259,6 +293,8 @@ pub enum News {
         scheme: Name,
         /// The transaction.
         hash: [u8; 32],
+        /// Whether it was a settlement, rather than a `TrustSet`.
+        settles: bool,
     },
     /// The account is gone, and with it what the books held of it: a
     /// testnet reset, or the account absent. `restarted` when the chain
@@ -290,6 +326,24 @@ pub enum News {
         /// What the ledger holds under it.
         record: TxRecord,
     },
+    /// A trust line a scheme follows, as of the ledger of the
+    /// [`Synced`](Self::Synced) that comes right after it: `None` if the
+    /// account has none.
+    Line {
+        /// Which line.
+        key: LineKey,
+        /// The line.
+        line: Option<TrustLine>,
+    },
+    /// An issuer's account a scheme asked for, as of a validated ledger at
+    /// or past the newest the account had seen: `None` if it does not
+    /// exist.
+    Issuer {
+        /// The issuer.
+        issuer: AccountId,
+        /// What its account says about its tokens.
+        settings: Option<AccountSettings>,
+    },
 }
 
 /// What became of a settlement a scheme still holds pending after a
@@ -313,6 +367,13 @@ struct InFlight {
     blob: Vec<u8>,
     drops: u64,
     fee: u64,
+    /// The token a Payment of a token pays.
+    token: Option<TokenValue>,
+    /// Whether it is a `TrustSet`, which settles nothing.
+    trust_set: bool,
+    /// The reserve it may take, in drops: a `TrustSet` that makes the
+    /// account's side of a line hold one.
+    reserve: u64,
     sequence: u32,
     last_ledger: u32,
     submitted_at: u32,
@@ -345,6 +406,10 @@ struct Parked {
     scheme: Name,
     hash: [u8; 32],
     drops: u64,
+    /// The token a Payment of a token paid.
+    token: Option<TokenValue>,
+    /// Whether it is a `TrustSet`.
+    trust_set: bool,
 }
 
 /// Where a scheme on the account is: its cursor, and whether its books
@@ -367,6 +432,10 @@ enum Request {
     /// A transaction a scheme looks up, wherever the server's history has
     /// it.
     LookUp([u8; 32]),
+    /// A line a scheme follows, as of the ledger the account is read at.
+    Line(LineKey, u32),
+    /// An issuer's account, for a scheme.
+    Issuer(AccountId),
 }
 
 /// Where the account stands with its ledger.
@@ -403,6 +472,9 @@ pub struct XrplAccount {
     in_flight: Vec<InFlight>,
     never_sent: Vec<NeverSent>,
     parked: Vec<Parked>,
+    /// How many times the account was written off: a scheme that kept
+    /// another count missed a write-off while it was not on the account.
+    write_offs: u64,
     /// The newest validated ledger seen, by its server's state or the
     /// ledger stream. Kept with the books whenever the rest is: any ledger
     /// of the chain tells a server behind from a chain started again.
@@ -435,6 +507,18 @@ pub struct XrplAccount {
     /// When the connection last said anything.
     heard_ms: u64,
     followers: BTreeMap<Name, Follower>,
+    /// The schemes the books stopped, until the node restarts: what they
+    /// settle in is still on their books.
+    stopped: BTreeSet<Name>,
+    /// The trust lines its schemes follow, as the ledger last said: `None`
+    /// until it said, then the line, or `None` if there is none.
+    lines: BTreeMap<LineKey, Option<Option<TrustLine>>>,
+    /// The lines read on this connection as of `reads_at`, the ledger the
+    /// account was read at.
+    reads: BTreeMap<LineKey, Option<TrustLine>>,
+    reads_at: u32,
+    /// What the owner may spend on each scheme's ledger, by the books.
+    funds: BTreeMap<Name, u64>,
     news: Vec<News>,
     effects: Vec<AssetEffect>,
 }
@@ -472,6 +556,7 @@ impl XrplAccount {
             in_flight: Vec::new(),
             never_sent: Vec::new(),
             parked: Vec::new(),
+            write_offs: 0,
             newest: None,
             phase: Phase::Disconnected,
             network_id: None,
@@ -493,6 +578,11 @@ impl XrplAccount {
             now_ms: 0,
             heard_ms: 0,
             followers: BTreeMap::new(),
+            stopped: BTreeSet::new(),
+            lines: BTreeMap::new(),
+            reads: BTreeMap::new(),
+            reads_at: 0,
+            funds: BTreeMap::new(),
             news: Vec::new(),
             effects: Vec::new(),
         };
@@ -541,7 +631,10 @@ impl XrplAccount {
     /// `scheme` settles through the account, and is at `cursor`; `holds`
     /// whether its books hold anything of it. The account reads its history
     /// from the earliest cursor of its schemes, and an account gone from a
-    /// network that never resets stops it if any of them held anything.
+    /// network that never resets stops it if any of them held anything. A
+    /// scheme follows only once it has written off what it held through a
+    /// write-off it missed ([`write_offs`](Self::write_offs)), so no cursor
+    /// of a chain gone holds the account back.
     ///
     /// # Panics
     ///
@@ -551,7 +644,59 @@ impl XrplAccount {
             self.schemes.contains(&scheme),
             "a scheme that may settle through the account"
         );
+        self.stopped.remove(&scheme);
         self.followers.insert(scheme, Follower { cursor, holds });
+    }
+
+    /// How many times the account was written off, with everything the
+    /// books held of it (a testnet reset, or the account gone), kept with
+    /// its state. A scheme keeps the count it last saw with its own state:
+    /// one that sees another missed a write-off while it was not on the
+    /// account (stopped, or removed), and writes off what it held before it
+    /// follows the account again.
+    #[must_use]
+    pub const fn write_offs(&self) -> u64 {
+        self.write_offs
+    }
+
+    /// Follows the trust line `key` for a scheme on the account: it is read
+    /// at every sync, as of the ledger the account is read at, and kept
+    /// as each transaction leaves it. A scheme follows it before the
+    /// account connects for it, as the node connects the account anew for
+    /// a scheme activated on it.
+    ///
+    /// # Panics
+    ///
+    /// Past [`MAX_SCHEMES`] lines: each scheme follows one at most.
+    pub fn follow_line(&mut self, key: LineKey) {
+        if self.lines.contains_key(&key) {
+            return;
+        }
+        assert!(
+            self.lines.len() < MAX_SCHEMES,
+            "more lines than schemes on an account"
+        );
+        self.lines.insert(key, None);
+    }
+
+    /// The trust line `key`, as the ledger last said: `None` until it
+    /// said, then the line, or `None` if there is none.
+    #[must_use]
+    pub fn line(&self, key: &LineKey) -> Option<Option<&TrustLine>> {
+        self.lines.get(key)?.as_ref().map(Option::as_ref)
+    }
+
+    /// Reads the account of `issuer` for a scheme, if synced and not being
+    /// read already: what it says comes as [`News::Issuer`], only as of a
+    /// validated ledger at or past the newest the account has seen.
+    pub fn read_issuer(&mut self, issuer: AccountId) {
+        let reading = self
+            .pending
+            .values()
+            .any(|(request, _)| *request == Request::Issuer(issuer));
+        if self.phase == Phase::Synced && !reading {
+            self.send(Request::Issuer(issuer));
+        }
     }
 
     /// Whether transaction `hash` is in flight, or remembered as never
@@ -594,6 +739,72 @@ impl XrplAccount {
 
 /// What the schemes on the account ask of it.
 impl XrplAccount {
+    /// What the account holds above its reserve, after what is in flight,
+    /// in drops.
+    fn spare(&self) -> u64 {
+        let in_flight: u64 = self
+            .in_flight
+            .iter()
+            .map(|t| t.drops.saturating_add(t.fee).saturating_add(t.reserve))
+            .sum();
+        self.balance
+            .map(|balance| balance.saturating_sub(self.reserve_drops(self.owner_count)))
+            .unwrap_or(0)
+            .saturating_sub(in_flight)
+    }
+
+    /// Whether `scheme` may spend `gas` drops of XRP it does not settle in:
+    /// on an account the XRP scheme settles from, only within the owner's
+    /// funds on its ledger, after the gas in flight, and none while the
+    /// books stopped that scheme, whose books still hold the XRP; on any
+    /// other, the XRP is off the books, and only the reserve bounds it.
+    fn gas_allows(&self, scheme: Name, gas: u64) -> bool {
+        let xrp = dassie_ledger::name!(XRP_SCHEME);
+        if scheme == xrp {
+            return true;
+        }
+        if self.stopped.contains(&xrp) {
+            return false;
+        }
+        if !self.followers.contains_key(&xrp) {
+            return true;
+        }
+        let funds = self.funds.get(&xrp).copied().unwrap_or(0) / UNITS_PER_DROP;
+        let in_flight: u64 = self
+            .in_flight
+            .iter()
+            .filter(|t| t.scheme != xrp)
+            .map(|t| t.fee.saturating_add(t.reserve))
+            .sum();
+        gas.saturating_add(in_flight) <= funds
+    }
+
+    /// Whether `scheme` may sign a transaction now that pays `drops` of
+    /// XRP and `fee`, and may take `reserve` more.
+    fn can_sign(&self, scheme: Name, drops: u64, fee: u64, reserve: u64) -> bool {
+        let xrp = dassie_ledger::name!(XRP_SCHEME);
+        let gas = if scheme == xrp {
+            0
+        } else {
+            drops.saturating_add(fee).saturating_add(reserve)
+        };
+        // A scheme back on the account reads its own transactions again
+        // before it signs more. Nor does one sign while it is being told of
+        // its own (a `TrustSet` it signs as it takes the news): should the
+        // books refuse what it was told, the account keeps those for it
+        // ([`keep_untaken`](Self::keep_untaken)), within what it may have
+        // in flight.
+        let reading = self.parked.iter().any(|p| p.scheme == scheme) || self.told_own(scheme);
+        self.is_synced()
+            && !reading
+            && self.sequence < u32::MAX
+            && self.in_flight.len() < MAX_IN_FLIGHT
+            && self.sequence > 0
+            && fee <= MAX_FEE_DROPS
+            && drops.saturating_add(fee).saturating_add(reserve) <= self.spare()
+            && self.gas_allows(scheme, gas)
+    }
+
     /// Signs a Payment of `drops` to `destination` for `scheme`, with the
     /// next sequence, and keeps it in flight, not yet executed. Returns its
     /// hash.
@@ -613,28 +824,7 @@ impl XrplAccount {
         memos: Vec<Memo>,
     ) -> Result<[u8; 32], SchemeError> {
         let fee = self.fee();
-        let in_flight: u64 = self
-            .in_flight
-            .iter()
-            .map(|t| t.drops.saturating_add(t.fee))
-            .sum();
-        let spare = self
-            .balance
-            .map(|balance| balance.saturating_sub(self.reserve_drops(self.owner_count)))
-            .unwrap_or(0)
-            .saturating_sub(in_flight);
-        // A scheme back on the account reads its own transactions again
-        // before it signs more.
-        let reading = self.parked.iter().any(|p| p.scheme == scheme);
-        let ready = self.is_synced()
-            && !reading
-            && self.sequence < u32::MAX
-            && self.in_flight.len() < MAX_IN_FLIGHT
-            && self.sequence > 0
-            && drops > 0
-            && fee <= MAX_FEE_DROPS
-            && drops.saturating_add(fee) <= spare;
-        if !ready {
+        if drops == 0 || !self.can_sign(scheme, drops, fee, 0) {
             return Err(SchemeError::Unavailable);
         }
         let payment = Payment {
@@ -653,21 +843,171 @@ impl XrplAccount {
             signature: None,
         };
         let signed = payment.sign(&self.wallet);
+        Ok(self.keep(scheme, signed.hash, signed.blob, drops, fee, None, 0))
+    }
+
+    /// Signs a Payment of a token `amount` to `destination` for `scheme`,
+    /// without paths and never partial, and keeps it in flight, not yet
+    /// executed, as [`sign_payment`](Self::sign_payment). Its fee is gas.
+    ///
+    /// # Errors
+    ///
+    /// [`SchemeError::Unavailable`] unless the account could sign a Payment
+    /// of XRP now, the amount is above zero, the line holds it after what
+    /// the scheme has in flight, and the fee fits the gas
+    /// ([`gas_allows`](Self::gas_allows)).
+    pub fn sign_token_payment(
+        &mut self,
+        scheme: Name,
+        destination: AccountId,
+        amount: TokenAmount,
+        memos: Vec<Memo>,
+    ) -> Result<[u8; 32], SchemeError> {
+        let fee = self.fee();
+        let positive = !amount.value.is_zero() && !amount.value.is_negative();
+        if !positive
+            || !amount.is_valid()
+            || !self.line_holds(scheme, &amount)
+            || !self.can_sign(scheme, 0, fee, 0)
+        {
+            return Err(SchemeError::Unavailable);
+        }
+        let payment = Payment {
+            account: self.account(),
+            destination,
+            amount: Amount::Token(amount),
+            fee,
+            sequence: self.sequence,
+            last_ledger_sequence: self.validated.saturating_add(LEDGER_WINDOW),
+            flags: 0,
+            network_id: None,
+            memos,
+            signing_pub_key: *self.wallet.public_key(),
+            signature: None,
+        };
+        let signed = payment.sign(&self.wallet);
+        Ok(self.keep(
+            scheme,
+            signed.hash,
+            signed.blob,
+            0,
+            fee,
+            Some(amount.value),
+            0,
+        ))
+    }
+
+    /// Whether the line of `amount`'s issuer and currency holds `amount`,
+    /// as the ledger last said, after the token `scheme` has in flight: a
+    /// scheme follows one line, so all it has in flight is on it.
+    fn line_holds(&self, scheme: Name, amount: &TokenAmount) -> bool {
+        let key = LineKey {
+            issuer: amount.issuer,
+            currency: amount.currency,
+        };
+        let Some(balance) = self
+            .line(&key)
+            .flatten()
+            .and_then(|line| line.view(self.account()))
+            .map(|view| view.balance)
+        else {
+            return false;
+        };
+        let spent = self
+            .in_flight
+            .iter()
+            .filter(|t| t.scheme == scheme)
+            .filter_map(|t| t.token)
+            .try_fold(amount.value, TokenValue::checked_add);
+        spent.is_some_and(|spent| spent <= balance)
+    }
+
+    /// Signs a `TrustSet` for `scheme` that sets the account's `limit` on
+    /// its line to the limit's issuer, with `flags`, and submits it: it
+    /// books nothing on the scheme's ledger, so it waits for nothing. Its
+    /// fee is gas, and so is the reserve of a line the account holds none
+    /// for yet. Returns its hash.
+    ///
+    /// # Errors
+    ///
+    /// [`SchemeError::Unavailable`] unless the account could sign now
+    /// ([`sign_payment`](Self::sign_payment)) and the fee and the reserve
+    /// fit the gas ([`gas_allows`](Self::gas_allows)).
+    pub fn sign_trust_set(
+        &mut self,
+        scheme: Name,
+        limit: TokenAmount,
+        flags: u32,
+    ) -> Result<[u8; 32], SchemeError> {
+        let fee = self.fee();
+        let key = LineKey {
+            issuer: limit.issuer,
+            currency: limit.currency,
+        };
+        let account = self.account();
+        let holds_reserve = self
+            .line(&key)
+            .flatten()
+            .and_then(|line| line.view(account))
+            .is_some_and(|view| view.ours.reserve);
+        let reserve = if holds_reserve { 0 } else { self.reserve_inc };
+        if !limit.is_valid() || !self.can_sign(scheme, 0, fee, reserve) {
+            return Err(SchemeError::Unavailable);
+        }
+        let trust_set = TrustSet {
+            account,
+            limit,
+            fee,
+            sequence: self.sequence,
+            last_ledger_sequence: self.validated.saturating_add(LEDGER_WINDOW),
+            flags,
+            network_id: None,
+            memos: Vec::new(),
+            signing_pub_key: *self.wallet.public_key(),
+            signature: None,
+        };
+        let signed = trust_set.sign(&self.wallet);
+        let hash = self.keep(scheme, signed.hash, signed.blob, 0, fee, None, reserve);
+        if let Some(transaction) = self.in_flight.iter_mut().find(|t| t.hash == hash) {
+            transaction.trust_set = true;
+        }
+        let executed = self.execute(scheme, hash);
+        assert!(executed, "a TrustSet just signed is in flight");
+        Ok(hash)
+    }
+
+    /// Keeps a transaction just signed in flight, with the next sequence,
+    /// not yet executed. Returns its hash.
+    #[allow(clippy::too_many_arguments)]
+    fn keep(
+        &mut self,
+        scheme: Name,
+        hash: [u8; 32],
+        blob: Vec<u8>,
+        drops: u64,
+        fee: u64,
+        token: Option<TokenValue>,
+        reserve: u64,
+    ) -> [u8; 32] {
+        let sequence = self.sequence;
         self.sequence = self.sequence.saturating_add(1);
         self.in_flight.push(InFlight {
             scheme,
-            hash: signed.hash,
-            blob: signed.blob,
+            hash,
+            blob,
             drops,
             fee,
-            sequence: signed.tx.sequence,
-            last_ledger: signed.tx.last_ledger_sequence,
+            token,
+            trust_set: false,
+            reserve,
+            sequence,
+            last_ledger: self.validated.saturating_add(LEDGER_WINDOW),
             submitted_at: self.validated,
             executed: false,
             needs_submit: false,
             looked_up: false,
         });
-        Ok(signed.hash)
+        hash
     }
 
     /// The node executed `scheme`'s transaction `hash`: it is submitted,
@@ -726,6 +1066,14 @@ impl XrplAccount {
             return Resumed::NeverSent;
         }
         Resumed::Unknown
+    }
+
+    /// Whether a `TrustSet` of `scheme` is on its way.
+    #[must_use]
+    pub fn signs_trust_set(&self, scheme: Name) -> bool {
+        self.in_flight
+            .iter()
+            .any(|t| t.trust_set && t.scheme == scheme)
     }
 
     /// Whether a lookup may be asked now: synced, with room for one.
@@ -796,6 +1144,10 @@ impl XrplAccount {
                 api::submit(id, &transaction.blob)
             }
             Request::LookUp(hash) => api::tx_anywhere(id, &hash),
+            Request::Line(key, ledger) => {
+                api::ripple_state_at(id, account, key.issuer, key.currency, ledger)
+            }
+            Request::Issuer(issuer) => api::account_info(id, issuer),
         };
         self.pending.insert(id, (request, self.now_ms));
         self.effect(AssetEffect::Send { message });
@@ -815,6 +1167,7 @@ impl XrplAccount {
         // dropped: it is asked again in time.
         self.funding = false;
         self.ask_account = false;
+        self.reads.clear();
         for transaction in &mut self.in_flight {
             transaction.needs_submit = transaction.executed;
             transaction.looked_up = false;
@@ -875,7 +1228,83 @@ impl XrplAccount {
             Request::Tx(hash) => self.looked_up(hash, outcome),
             Request::Submit(hash) => self.submitted(hash, outcome.ok().as_ref()),
             Request::LookUp(hash) => self.found(hash, outcome),
+            Request::Line(key, ledger) => self.line_read(key, ledger, outcome),
+            Request::Issuer(issuer) => self.issuer_read(issuer, outcome),
         }
+    }
+
+    /// A line a scheme follows, read as of `ledger`, where the account was
+    /// read: kept until the account is synced. An answer as of another
+    /// ledger makes the connection anew, which reads the account again.
+    fn line_read(&mut self, key: LineKey, ledger: u32, outcome: Result<Value, ApiError>) {
+        let reading = matches!(
+            self.phase,
+            Phase::Starting {
+                info: Some(info),
+                ..
+            } if info.ledger_index == ledger
+        );
+        if !reading || self.reads_at != ledger {
+            return;
+        }
+        let read = match outcome {
+            Ok(result) => match api::ripple_state_result(&result) {
+                Some(entry)
+                    if entry.ledger_index == ledger
+                        && entry
+                            .line
+                            .is_between(self.account(), key.issuer, key.currency) =>
+                {
+                    Some(entry.line)
+                }
+                // As of another ledger than the account: read again, on a
+                // new connection.
+                Some(_) => {
+                    self.reconnect();
+                    return;
+                }
+                None => {
+                    self.reconnect();
+                    return;
+                }
+            },
+            Err(error)
+                if error.error == "entryNotFound"
+                    && error.ledger_index.is_none_or(|at| at == ledger) =>
+            {
+                None
+            }
+            Err(_) => {
+                self.reconnect();
+                return;
+            }
+        };
+        self.reads.insert(key, read);
+        self.start();
+    }
+
+    /// An issuer's account a scheme asked for: news only as of a validated
+    /// ledger at or past the newest the account has seen; an older answer
+    /// is dropped, and the scheme asks again (spec/decisions/ledger-resets.md).
+    fn issuer_read(&mut self, issuer: AccountId, outcome: Result<Value, ApiError>) {
+        let seen = self.seen();
+        let settings = match outcome {
+            Ok(result) => match api::account_settings_result(&result) {
+                Some(settings) if settings.validated && settings.ledger_index >= seen => {
+                    Some(settings)
+                }
+                _ => return,
+            },
+            Err(error)
+                if error.error == "actNotFound"
+                    && error.validated
+                    && error.ledger_index.is_some_and(|at| at >= seen) =>
+            {
+                None
+            }
+            Err(_) => return,
+        };
+        self.tell(News::Issuer { issuer, settings });
     }
 
     /// The server's state, the first answer on a connection: a server off
@@ -1031,7 +1460,11 @@ impl XrplAccount {
 
     /// What the books hold of the account is gone (a testnet reset): what
     /// was in flight can never apply now, since an account made again
-    /// starts its sequence anew. Its schemes write off what they held.
+    /// starts its sequence anew. Its schemes write off what they held; one
+    /// not on the account does when it is back, as the count of write-offs
+    /// tells it ([`write_offs`](Self::write_offs)), and what was kept for
+    /// it went with the chain: a settlement is cancelled, as one in flight
+    /// is.
     fn write_off(&mut self, restarted: bool) {
         assert!(
             !self.holds_anything() || self.network_id.is_some_and(resets),
@@ -1039,11 +1472,17 @@ impl XrplAccount {
         );
         for transaction in core::mem::take(&mut self.in_flight) {
             if transaction.executed {
-                self.cancelled(transaction.scheme, transaction.hash);
+                self.cancelled(transaction.scheme, transaction.hash, !transaction.trust_set);
             } else {
                 self.never_sent(transaction.scheme, transaction.hash);
             }
         }
+        for parked in core::mem::take(&mut self.parked) {
+            if !parked.trust_set {
+                self.cancelled(parked.scheme, parked.hash, true);
+            }
+        }
+        self.write_offs = self.write_offs.wrapping_add(1);
         self.tell(News::WrittenOff { restarted });
         for follower in self.followers.values_mut() {
             *follower = Follower {
@@ -1053,6 +1492,10 @@ impl XrplAccount {
         }
         self.at = None;
         self.balance = None;
+        // The lines went with the account: read again once it is back.
+        for state in self.lines.values_mut() {
+            *state = None;
+        }
     }
 
     /// Remembers `scheme`'s transaction `hash` as never sent; past
@@ -1089,6 +1532,12 @@ impl XrplAccount {
         else {
             return;
         };
+        // The lines its schemes follow, as of the same ledger, so that what
+        // a scheme books from them and from the transactions after it adds
+        // up.
+        if !self.lines_read(info.ledger_index) {
+            return;
+        }
         let from = self
             .followers
             .values()
@@ -1105,6 +1554,31 @@ impl XrplAccount {
             }
             _ => self.synced(info),
         }
+    }
+
+    /// Whether every line the schemes follow was read as of `ledger`;
+    /// those not read yet are asked for.
+    fn lines_read(&mut self, ledger: u32) -> bool {
+        if self.reads_at != ledger {
+            self.reads.clear();
+            self.reads_at = ledger;
+        }
+        let missing: Vec<LineKey> = self
+            .lines
+            .keys()
+            .filter(|key| !self.reads.contains_key(key))
+            .copied()
+            .collect();
+        for key in &missing {
+            let asking = self
+                .pending
+                .values()
+                .any(|(request, _)| *request == Request::Line(*key, ledger));
+            if !asking {
+                self.send(Request::Line(*key, ledger));
+            }
+        }
+        missing.is_empty()
     }
 
     fn account_tx(&mut self, outcome: Result<Value, ApiError>) {
@@ -1153,6 +1627,12 @@ impl XrplAccount {
         }));
         self.validated = self.validated.max(info.ledger_index);
         self.phase = Phase::Synced;
+        for (key, line) in core::mem::take(&mut self.reads) {
+            if let Some(state) = self.lines.get_mut(&key) {
+                *state = Some(line);
+                self.tell(News::Line { key, line });
+            }
+        }
         self.tell(News::Synced(info));
         for record in core::mem::take(&mut self.buffer) {
             self.transaction(&record);
@@ -1171,6 +1651,9 @@ impl XrplAccount {
                 ours: Ours {
                     scheme: parked.scheme,
                     drops: parked.drops,
+                    token: parked.token,
+                    settles: !parked.trust_set,
+                    again: true,
                 },
             });
         }
@@ -1316,16 +1799,20 @@ impl XrplAccount {
             return;
         };
         let transaction = self.in_flight.remove(position);
-        self.cancelled(transaction.scheme, transaction.hash);
+        self.cancelled(transaction.scheme, transaction.hash, !transaction.trust_set);
         self.send(Request::AccountInfo);
     }
 
     /// `scheme`'s transaction `hash` can never apply: the scheme is told,
     /// or, while it is not on the account, it is remembered as never sent
     /// until the scheme reconciles it.
-    fn cancelled(&mut self, scheme: Name, hash: [u8; 32]) {
+    fn cancelled(&mut self, scheme: Name, hash: [u8; 32], settles: bool) {
         if self.followers.contains_key(&scheme) {
-            self.tell(News::Cancelled { scheme, hash });
+            self.tell(News::Cancelled {
+                scheme,
+                hash,
+                settles,
+            });
         } else {
             self.never_sent(scheme, hash);
         }
@@ -1354,13 +1841,19 @@ impl XrplAccount {
                     scheme,
                     hash: record.hash,
                     drops: ours.drops,
+                    token: ours.token,
+                    trust_set: !ours.settles,
                 }),
                 News::Unread { hash, ours } if ours.scheme == scheme => parked.push(Parked {
                     scheme,
                     hash: *hash,
                     drops: ours.drops,
+                    token: ours.token,
+                    trust_set: !ours.settles,
                 }),
-                News::Cancelled { scheme: of, hash } if *of == scheme => never_sent.push(*hash),
+                News::Cancelled {
+                    scheme: of, hash, ..
+                } if *of == scheme => never_sent.push(*hash),
                 _ => {}
             }
         }
@@ -1375,6 +1868,19 @@ impl XrplAccount {
                 self.never_sent(scheme, hash);
             }
         }
+    }
+
+    /// Whether the account told `scheme` of its own transactions since its
+    /// schemes were last told, which it keeps for the scheme should the
+    /// books refuse them ([`keep_untaken`](Self::keep_untaken)).
+    fn told_own(&self, scheme: Name) -> bool {
+        self.news.iter().any(|news| match news {
+            News::Transaction {
+                ours: Some(ours), ..
+            }
+            | News::Unread { ours, .. } => ours.scheme == scheme,
+            _ => false,
+        })
     }
 
     /// A scheme's lookup of `hash`, answered: only a transaction found
@@ -1420,6 +1926,11 @@ impl XrplAccount {
                     self.owner_count = count;
                 }
             }
+            for (key, state) in &mut self.lines {
+                if let Some(change) = record.line(account, key.issuer, key.currency) {
+                    *state = Some(change.after().copied());
+                }
+            }
         }
         let ours = self.ours(record.hash);
         self.tell(News::Transaction {
@@ -1431,7 +1942,8 @@ impl XrplAccount {
     /// Which scheme validated transaction `hash` is of, if it is ours. One
     /// in flight is no longer, and is kept for its scheme while the scheme
     /// is not on the account to be told; one kept so is its scheme's again
-    /// once the scheme is back and reads it.
+    /// once the scheme is back and reads it, told as `again`, so that no
+    /// other scheme books it twice.
     fn ours(&mut self, hash: [u8; 32]) -> Option<Ours> {
         if let Some(position) = self.in_flight.iter().position(|t| t.hash == hash) {
             let transaction = self.in_flight.remove(position);
@@ -1441,11 +1953,16 @@ impl XrplAccount {
                     scheme: transaction.scheme,
                     hash,
                     drops: transaction.drops,
+                    token: transaction.token,
+                    trust_set: transaction.trust_set,
                 });
             }
             return Some(Ours {
                 scheme: transaction.scheme,
                 drops: transaction.drops,
+                token: transaction.token,
+                settles: !transaction.trust_set,
+                again: false,
             });
         }
         let followers = &self.followers;
@@ -1457,6 +1974,9 @@ impl XrplAccount {
         Some(Ours {
             scheme: parked.scheme,
             drops: parked.drops,
+            token: parked.token,
+            settles: !parked.trust_set,
+            again: true,
         })
     }
 
@@ -1506,6 +2026,7 @@ impl XrplAccount {
             add(head(&parked.hash));
         }
         add(self.parked.len() as u64);
+        add(self.write_offs);
         mix
     }
 
@@ -1514,7 +2035,7 @@ impl XrplAccount {
             .in_flight
             .iter()
             .map(|t| {
-                json!({
+                let mut entry = json!({
                     "scheme": t.scheme.as_str(),
                     "blob": hex_upper(&t.blob),
                     "drops": t.drops,
@@ -1523,7 +2044,18 @@ impl XrplAccount {
                     "last_ledger": t.last_ledger,
                     "submitted_at": t.submitted_at,
                     "executed": t.executed,
-                })
+                });
+                // A Payment of XRP is written as it always was.
+                if let Some(object) = entry.as_object_mut() {
+                    if let Some(token) = t.token {
+                        object.insert("token".into(), token.to_string().into());
+                    }
+                    if t.trust_set {
+                        object.insert("trust_set".into(), true.into());
+                        object.insert("reserve".into(), t.reserve.into());
+                    }
+                }
+                entry
             })
             .collect();
         let never_sent: Vec<Value> = self
@@ -1535,11 +2067,20 @@ impl XrplAccount {
             .parked
             .iter()
             .map(|p| {
-                json!({
+                let mut entry = json!({
                     "scheme": p.scheme.as_str(),
                     "hash": hex_upper(&p.hash),
                     "drops": p.drops,
-                })
+                });
+                if let Some(object) = entry.as_object_mut() {
+                    if let Some(token) = p.token {
+                        object.insert("token".into(), token.to_string().into());
+                    }
+                    if p.trust_set {
+                        object.insert("trust_set".into(), true.into());
+                    }
+                }
+                entry
             })
             .collect();
         json!({
@@ -1547,6 +2088,7 @@ impl XrplAccount {
             "in_flight": in_flight,
             "never_sent": never_sent,
             "parked": parked,
+            "write_offs": self.write_offs,
             "newest": self.newest.map(|newest| json!([newest.index, newest.close_time])),
         })
     }
@@ -1555,6 +2097,12 @@ impl XrplAccount {
         let value: Value = serde_json::from_slice(state).ok()?;
         let number = |value: &Value| u32::try_from(value.as_u64()?).ok();
         self.sequence = number(value.get("sequence")?)?;
+        // Written only since schemes keep the count too: before, none
+        // missed a write-off.
+        self.write_offs = match value.get("write_offs") {
+            None => 0,
+            Some(count) => count.as_u64()?,
+        };
         self.newest = match value.get("newest") {
             None | Some(Value::Null) => None,
             Some(newest) => Some(Validated {
@@ -1588,6 +2136,7 @@ impl XrplAccount {
             });
         }
         for entry in parked {
+            let (token, trust_set) = token_and_trust_set(entry)?;
             self.parked.push(Parked {
                 scheme: Name::new(entry.get("scheme")?.as_str()?).ok()?,
                 hash: from_hex(entry.get("hash")?.as_str()?)?.try_into().ok()?,
@@ -1595,6 +2144,8 @@ impl XrplAccount {
                     .get("drops")?
                     .as_u64()
                     .filter(|&drops| drops <= MAX_ACCOUNT_DROPS)?,
+                token,
+                trust_set,
             });
         }
         // Each transaction once, in flight, never sent or kept, of a scheme
@@ -1633,6 +2184,21 @@ impl XrplAccount {
     }
 }
 
+/// What a transaction the account wrote pays of a token, and whether it is
+/// a `TrustSet`: neither is written for a Payment of XRP, as before tokens.
+fn token_and_trust_set(entry: &Value) -> Option<(Option<TokenValue>, bool)> {
+    let token = match entry.get("token") {
+        None => None,
+        Some(token) => Some(TokenValue::parse(token.as_str()?)?),
+    };
+    let trust_set = match entry.get("trust_set") {
+        None => false,
+        Some(trust_set) => trust_set.as_bool()?,
+    };
+    // A TrustSet pays no token.
+    (!(trust_set && token.is_some())).then_some((token, trust_set))
+}
+
 /// One transaction in flight, as the account wrote it.
 fn restore_in_flight(entry: &Value) -> Option<InFlight> {
     let number = |value: &Value| u32::try_from(value.as_u64()?).ok();
@@ -1641,6 +2207,15 @@ fn restore_in_flight(entry: &Value) -> Option<InFlight> {
         .get("executed")
         .and_then(Value::as_bool)
         .unwrap_or(true);
+    let (token, trust_set) = token_and_trust_set(entry)?;
+    let reserve = match entry.get("reserve") {
+        None => 0,
+        Some(reserve) => reserve.as_u64().filter(|&r| r <= MAX_ACCOUNT_DROPS)?,
+    };
+    // A TrustSet pays no token, and only a TrustSet takes a reserve.
+    if (trust_set && token.is_some()) || (!trust_set && reserve > 0) {
+        return None;
+    }
     Some(InFlight {
         scheme: Name::new(entry.get("scheme")?.as_str()?).ok()?,
         hash: crate::codec::hash(&blob),
@@ -1653,6 +2228,9 @@ fn restore_in_flight(entry: &Value) -> Option<InFlight> {
             .get("fee")?
             .as_u64()
             .filter(|&fee| fee <= MAX_ACCOUNT_DROPS)?,
+        token,
+        trust_set,
+        reserve,
         sequence: number(entry.get("sequence")?)?,
         last_ledger: number(entry.get("last_ledger")?)?,
         submitted_at: number(entry.get("submitted_at")?)?,
@@ -1694,6 +2272,15 @@ impl XrplAccount {
                 "only what the node executed is looked up"
             );
             assert!(transaction.drops <= MAX_ACCOUNT_DROPS && transaction.fee <= MAX_ACCOUNT_DROPS);
+            assert!(transaction.reserve <= MAX_ACCOUNT_DROPS);
+            assert!(
+                !transaction.trust_set || (transaction.token.is_none() && transaction.drops == 0),
+                "a TrustSet pays nothing"
+            );
+            assert!(
+                transaction.trust_set || transaction.reserve == 0,
+                "only a TrustSet takes a reserve"
+            );
         }
     }
 
@@ -1724,17 +2311,31 @@ impl ExternalAsset for XrplAccount {
         Some(self.account().to_address())
     }
 
+    /// Its XRP, with the reserve, and each line its schemes follow that
+    /// the ledger showed, at [`TOKEN_SCALE`].
     fn holdings(&self) -> Vec<Holding> {
-        self.balance
-            .map(|balance| Holding {
-                code: "XRP".to_string(),
-                issuer: None,
-                amount: u128::from(balance),
-                scale: 6,
-                reserve: u128::from(self.reserve_drops(self.owner_count)),
+        let account = self.account();
+        let xrp = self.balance.map(|balance| Holding {
+            code: "XRP".to_string(),
+            issuer: None,
+            amount: u128::from(balance),
+            scale: 6,
+            reserve: u128::from(self.reserve_drops(self.owner_count)),
+        });
+        let tokens = self.lines.iter().filter_map(move |(key, state)| {
+            let line = state.as_ref()?.as_ref()?;
+            let balance = line.view(account)?.balance;
+            Some(Holding {
+                code: key.currency.code(),
+                issuer: Some(key.issuer.to_address()),
+                amount: balance
+                    .floor_units(TOKEN_SCALE)
+                    .map_or(u128::MAX, |units| u128::try_from(units).unwrap_or(0)),
+                scale: TOKEN_SCALE,
+                reserve: 0,
             })
-            .into_iter()
-            .collect()
+        });
+        xrp.into_iter().chain(tokens).collect()
     }
 
     fn status(&self) -> LedgerStatus {
@@ -1838,9 +2439,24 @@ impl ExternalAsset for XrplAccount {
         out.append(&mut self.effects);
     }
 
-    fn detach(&mut self, scheme: Name) {
+    fn detach(&mut self, scheme: Name, why: Detach) {
         self.followers.remove(&scheme);
         self.keep_untaken(scheme);
+        self.funds.remove(&scheme);
+        match why {
+            Detach::Stopped if self.schemes.contains(&scheme) => {
+                self.stopped.insert(scheme);
+            }
+            Detach::Stopped | Detach::Removed => {
+                self.stopped.remove(&scheme);
+            }
+        }
+    }
+
+    fn owner_funds(&mut self, scheme: Name, funds: u64) {
+        if self.funds.contains_key(&scheme) || self.funds.len() < MAX_SCHEMES {
+            self.funds.insert(scheme, funds);
+        }
     }
 
     fn state(&self) -> Vec<u8> {
@@ -1858,6 +2474,17 @@ impl ExternalAsset for XrplAccount {
         assert!(self.pending.len() <= MAX_PENDING);
         assert!(self.buffer.len() <= MAX_BUFFERED);
         assert!(self.followers.len() <= MAX_SCHEMES);
+        assert!(
+            self.stopped.iter().all(|scheme| self.schemes.contains(scheme)
+                && !self.followers.contains_key(scheme)),
+            "a scheme stopped is one of the account's, and not on it"
+        );
+        assert!(self.lines.len() <= MAX_SCHEMES);
+        assert!(self.funds.len() <= MAX_SCHEMES);
+        assert!(
+            self.reads.keys().all(|key| self.lines.contains_key(key)),
+            "only followed lines are read"
+        );
         assert!(self.news.len() <= MAX_NEWS);
         assert!(self.effects.len() <= MAX_EFFECTS);
         assert!(self.next_id >= 1, "request IDs start at 1");

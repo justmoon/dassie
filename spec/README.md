@@ -60,7 +60,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [Peer protocol](areas/peer-protocol.md) | The wire protocol between nodes: transport, envelope, messages, authentication, replay, link states |
 | [Network](areas/network.md) | The node table, flooding, membership and registration, bootstrap nodes, peering and its lifecycle, routing |
 | [Settlement](areas/settlement.md) | Settlement schemes, external assets, credit and its growth, thresholds, settling on request, settlement channels |
-| [XRPL](areas/xrpl.md) | The XRP Ledger testnet account, the scheme on it, and the fake ledger |
+| [XRPL](areas/xrpl.md) | The XRP Ledger testnet account, the XRP and RLUSD schemes on it, and the fake ledger |
 | [Payments](areas/payments.md) | Open Payments: wallet addresses, GNAP, incoming and outgoing payments, quotes, the owner's Send |
 | [Node](areas/node.md) | The daemon: runtime, startup, configuration, environment, CLI, persistence, secrets, logging |
 | [HTTP](areas/http.md) | Listeners, routes, security headers, ACME and TLS, setup, login and sessions, front doors |
@@ -72,7 +72,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [Dev](areas/dev.md) | The local dev network and its dashboard |
 | [Testing](areas/testing.md) | Test levels, golden vectors, simulations and the simulation runner |
 
-Not built yet: the [roadmap](roadmap.md), and the designs in `designs/`: [settlement hubs](designs/settlement-hubs.md), what is not built of the [periphery](designs/periphery.md), and what is not built of [external assets](designs/external-assets.md), with RLUSD.
+Not built yet: the [roadmap](roadmap.md), and the designs in `designs/`: [settlement hubs](designs/settlement-hubs.md), what is not built of the [periphery](designs/periphery.md), and what is not built of [external assets](designs/external-assets.md).
 
 ## What belongs here
 

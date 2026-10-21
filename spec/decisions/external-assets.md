@@ -1,6 +1,6 @@
 # External assets apart from settlement schemes
 
-**Areas:** [Settlement](../areas/settlement.md#external-assets), [XRPL](../areas/xrpl.md#the-account), [Ledger](../areas/ledger.md), [External assets](../designs/external-assets.md). The XRPL account as an external asset is built; RLUSD is not yet ([roadmap](../roadmap.md#external-assets-and-rlusd)).
+**Areas:** [Settlement](../areas/settlement.md#external-assets), [XRPL](../areas/xrpl.md#the-account), [Ledger](../areas/ledger.md), [External assets](../designs/external-assets.md). Built, with the XRPL account as an external asset and RLUSD a second scheme on it ([XRPL](../areas/xrpl.md#rlusd)); the wallet's page is not yet ([roadmap](../roadmap.md#external-assets-and-rlusd)).
 
 ## Facts
 

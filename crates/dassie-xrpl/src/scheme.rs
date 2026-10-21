@@ -9,6 +9,10 @@
 //!   failed, its fee booked either way;
 //! - a Payment from a peer's known address, with our memo naming the peer:
 //!   a settlement from it, by the XRP it delivered;
+//! - a transaction another scheme on the account signed, such as an RLUSD
+//!   settlement or a `TrustSet`: its fee, booked here as a ledger fee, since
+//!   this is the ledger whose scheme settles in the account's XRP
+//!   (spec/decisions/external-assets.md);
 //! - anything else that adds XRP: a deposit; that takes it: a withdrawal.
 //!
 //! After each, what the books hold must be the account's balance less its
@@ -54,16 +58,29 @@ pub const MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrp-testnet/v1";
 /// is to hold them (spec/roadmap.md#periphery).
 pub const MAX_PEERS: usize = 1536;
 /// Most settlements of ours whose outcome is looked for after a restart.
-const MAX_RECOVERING: usize = 64;
+pub(crate) const MAX_RECOVERING: usize = 64;
 /// The longest a settlement's outcome goes unasked after a restart, in
 /// ledgers: about a quarter of an hour on the testnet. One that no history
 /// holds is never found, and is asked less often the longer it is not.
-const MAX_RECOVER_WAIT_LEDGERS: u32 = 256;
+pub(crate) const MAX_RECOVER_WAIT_LEDGERS: u32 = 256;
 
 /// The account `asset` is, if it is one.
-fn account_of(asset: &mut dyn ExternalAsset) -> Option<&mut XrplAccount> {
+pub(crate) fn account_of(asset: &mut dyn ExternalAsset) -> Option<&mut XrplAccount> {
     let any: &mut dyn Any = asset;
     any.downcast_mut()
+}
+
+/// Whether a scheme that last saw `write_offs` missed a write-off of
+/// `account` while it was not on it (stopped, or removed): the account
+/// counts another, and is not telling one now, which the scheme writes off
+/// in order. What it held went with the account, and its cursor is on a
+/// chain gone, which would hold the account back
+/// (spec/areas/xrpl.md#following-the-account).
+pub(crate) fn missed_write_off(write_offs: u64, account: &XrplAccount, news: &[News]) -> bool {
+    let telling = news
+        .iter()
+        .any(|news| matches!(news, News::WrittenOff { .. }));
+    write_offs != account.write_offs() && !telling
 }
 
 /// A settlement of ours a restart left pending, though the account no
@@ -71,27 +88,27 @@ fn account_of(asset: &mut dyn ExternalAsset) -> Option<&mut XrplAccount> {
 /// hash, and whether it is unread, are kept with the books; a restart asks
 /// at once.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Recovering {
-    hash: [u8; 32],
+pub(crate) struct Recovering {
+    pub(crate) hash: [u8; 32],
     /// What the books hold pending for it, in internal units: what we
     /// signed, as the node hands it at each reconcile. A settlement never
     /// read is booked by it, never by what a server says it delivered.
-    amount: Option<u64>,
+    pub(crate) amount: Option<u64>,
     /// Whether the scheme never read it: it validated while the scheme was
     /// not on the account, and the history no longer reached back to it
     /// once it was ([`News::Unread`]). What it did is in the balance the
     /// scheme synced to, booked through suspense; otherwise, the scheme
     /// read it before a restart, and booked it then.
-    unread: bool,
+    pub(crate) unread: bool,
     /// The validated ledger from which it may be asked again.
-    ask_at: u32,
+    pub(crate) ask_at: u32,
     /// How many ledgers the next lookup waits for the one after it: it
     /// doubles with each, up to [`MAX_RECOVER_WAIT_LEDGERS`].
-    wait: u32,
+    pub(crate) wait: u32,
 }
 
 impl Recovering {
-    const fn new(hash: [u8; 32]) -> Self {
+    pub(crate) const fn new(hash: [u8; 32]) -> Self {
         Self {
             hash,
             amount: None,
@@ -117,6 +134,9 @@ pub struct XrplScheme {
     peers: BTreeMap<Name, (AccountId, u64)>,
     next_learnt: u64,
     recovering: Vec<Recovering>,
+    /// How many times the account was written off, as the scheme last saw
+    /// it ([`XrplAccount::write_offs`]).
+    write_offs: u64,
     // Learnt from the account, as it told the scheme.
     /// The account's balance after the last transaction booked, in drops.
     balance: Option<u64>,
@@ -150,6 +170,7 @@ impl XrplScheme {
             peers: BTreeMap::new(),
             next_learnt: 0,
             recovering: Vec::new(),
+            write_offs: 0,
             balance: None,
             owner_count: 0,
             reserve: (0, 0),
@@ -201,9 +222,10 @@ impl XrplScheme {
             News::Synced(info) => self.synced(account, info, effects),
             News::Transaction { record, ours } => {
                 let mine = ours.filter(|ours| ours.scheme == id);
-                self.transaction(record, mine, effects);
+                let other = ours.filter(|ours| ours.scheme != id);
+                self.transaction(record, mine, other, effects);
             }
-            News::Cancelled { scheme, hash } if *scheme == id => {
+            News::Cancelled { scheme, hash, .. } if *scheme == id => {
                 effects.push(Effect::Cancel {
                     settlement: hash_name(hash),
                 });
@@ -219,6 +241,7 @@ impl XrplScheme {
             News::Unread { hash, ours } if ours.scheme == id => self.unread(*hash),
             News::Unread { .. } => {}
             News::Found { hash, record } => self.recovered(*hash, record, effects),
+            News::Line { .. } | News::Issuer { .. } => {}
         }
     }
 
@@ -281,14 +304,28 @@ impl XrplScheme {
     /// Books one validated transaction, once, in ledger order. One of ours
     /// is settled whenever the ledger shows it, even behind the cursor:
     /// what the balance booked through suspense meanwhile comes back out.
-    /// Before its first sync, a scheme books no other: the sync books what
-    /// the account holds then as the owner's, which a scheme that joins an
-    /// account other schemes read from earlier is told after their history.
-    fn transaction(&mut self, record: &TxRecord, mine: Option<Ours>, effects: &mut Vec<Effect>) {
+    /// So is the fee of one another scheme on the account signed (`other`),
+    /// once the scheme has synced, unless the account tells it again for
+    /// the scheme that signed it: this scheme was told it, and booked it,
+    /// when the ledger validated it. Before its first sync, a scheme books
+    /// no other: the sync books what the account holds then as the
+    /// owner's, which a scheme that joins an account other schemes read
+    /// from earlier is told after their history.
+    fn transaction(
+        &mut self,
+        record: &TxRecord,
+        mine: Option<Ours>,
+        other: Option<Ours>,
+        effects: &mut Vec<Effect>,
+    ) {
         let at = (record.ledger_index, record.index);
         if self.cursor.is_none_or(|cursor| at <= cursor) {
             if let Some(ours) = mine {
                 let booked = self.resolve(record, units(ours.drops), effects);
+                self.hold(booked, effects);
+                self.match_balance(effects);
+            } else if other.is_some_and(|other| !other.again) && self.cursor.is_some() {
+                let booked = self.gas(record, effects);
                 self.hold(booked, effects);
                 self.match_balance(effects);
             }
@@ -305,6 +342,22 @@ impl XrplScheme {
         let mut booked = i128::from(self.booked);
         if let Some(ours) = mine {
             booked = self.resolve(record, units(ours.drops), effects);
+        } else if other.is_some() {
+            // Its fee is ours to book; anything else it did to the XRP is
+            // a deposit or a withdrawal, as from anyone.
+            booked = self.gas(record, effects);
+            if let Some(change) = change {
+                let moved =
+                    i128::from(change.after) - i128::from(change.before) + i128::from(record.fee);
+                let amount = units(narrow(moved.abs()));
+                if moved > 0 {
+                    effects.push(Effect::Deposit { amount });
+                    booked += i128::from(amount);
+                } else if moved < 0 {
+                    effects.push(Effect::Withdrawal { amount });
+                    booked -= i128::from(amount);
+                }
+            }
         } else if let Some(change) = change {
             if let Some(peer) = self.settled_by(record) {
                 let amount = units(record.delivered.unwrap_or(0));
@@ -359,6 +412,18 @@ impl XrplScheme {
             id: settlement,
         });
         booked - i128::from(units(record.fee))
+    }
+
+    /// Books the fee of a transaction another scheme on the account signed:
+    /// the XRP it spent as gas, a ledger fee here. Returns what the books
+    /// then hold.
+    fn gas(&self, record: &TxRecord, effects: &mut Vec<Effect>) -> i128 {
+        let fee = units(record.fee);
+        effects.push(Effect::Fee {
+            amount: fee,
+            id: hash_name(&record.hash),
+        });
+        i128::from(self.booked) - i128::from(fee)
     }
 
     /// A settlement of ours that validated while the scheme was not on the
@@ -476,6 +541,7 @@ impl XrplScheme {
             add(u64::from(hash[0]) << 8 | u64::from(hash[1]) | u64::from(*unread) << 16);
         }
         add(self.recovering.len() as u64);
+        add(self.write_offs);
         mix
     }
 
@@ -494,6 +560,7 @@ impl XrplScheme {
             "cursor": self.cursor.map(|(ledger, index)| json!([ledger, index])),
             "peers": peers,
             "recovering": recovering,
+            "write_offs": self.write_offs,
             "unread": unread_value(&self.recovering),
         })
     }
@@ -515,6 +582,7 @@ impl XrplScheme {
             Value::Null => None,
             cursor => Some((number(cursor.get(0)?)?, number(cursor.get(1)?)?)),
         };
+        self.write_offs = restore_write_offs(&value)?;
         // More than the scheme keeps is a state it did not write: refused,
         // rather than orphaning a settlement by dropping it.
         let peers = value.get("peers")?.as_object()?;
@@ -543,7 +611,7 @@ impl XrplScheme {
 /// Looks up settlement `hash`, pending in the books for `amount`, unless it
 /// is already, or [`MAX_RECOVERING`] are: one restored from the state is
 /// told its amount.
-fn recover(recovering: &mut Vec<Recovering>, hash: [u8; 32], amount: u64) {
+pub(crate) fn recover(recovering: &mut Vec<Recovering>, hash: [u8; 32], amount: u64) {
     assert!(
         amount <= MAX_TOTAL,
         "the books hold at most a total pending"
@@ -559,7 +627,7 @@ fn recover(recovering: &mut Vec<Recovering>, hash: [u8; 32], amount: u64) {
 
 /// Which of the settlements looked up the scheme never read, as its state
 /// keeps them.
-fn unread_value(recovering: &[Recovering]) -> Value {
+pub(crate) fn unread_value(recovering: &[Recovering]) -> Value {
     recovering
         .iter()
         .filter(|r| r.unread)
@@ -569,7 +637,7 @@ fn unread_value(recovering: &[Recovering]) -> Value {
 
 /// Marks the settlements a state keeps as unread: each one looked up, and
 /// once. A state written before the scheme kept them has none.
-fn restore_unread(state: &Value, recovering: &mut [Recovering]) -> Option<()> {
+pub(crate) fn restore_unread(state: &Value, recovering: &mut [Recovering]) -> Option<()> {
     let unread = match state.get("unread") {
         None => return Some(()),
         Some(unread) => unread.as_array()?,
@@ -585,41 +653,50 @@ fn restore_unread(state: &Value, recovering: &mut [Recovering]) -> Option<()> {
     Some(())
 }
 
+/// The count of write-offs a scheme's state keeps: written only since the
+/// account counts them, before which none was missed.
+pub(crate) fn restore_write_offs(state: &Value) -> Option<u64> {
+    match state.get("write_offs") {
+        None => Some(0),
+        Some(count) => count.as_u64(),
+    }
+}
+
 /// Drops in internal units. Only amounts checked against
 /// [`MAX_ACCOUNT_DROPS`] come here.
-fn units(drops: u64) -> u64 {
+pub(crate) fn units(drops: u64) -> u64 {
     assert!(drops <= MAX_ACCOUNT_DROPS, "drops past what the books hold");
     drops * UNITS_PER_DROP
 }
 
 /// What the books hold, or a difference from it. Every amount booked is
 /// within [`MAX_TOTAL`], and so is what the books held before it.
-fn narrow(booked: i128) -> u64 {
+pub(crate) fn narrow(booked: i128) -> u64 {
     let narrow = u64::try_from(booked);
     assert!(narrow.is_ok(), "booked past what a u64 holds");
     narrow.unwrap_or_default()
 }
 
 /// A transaction hash as a settlement ID: uppercase hex, 64 characters.
-fn hash_name(hash: &[u8; 32]) -> Name {
+pub(crate) fn hash_name(hash: &[u8; 32]) -> Name {
     Name::hex(hash, true)
 }
 
 /// A settlement ID as the transaction hash it is, if it is one.
-fn name_hash(settlement: Name) -> Option<[u8; 32]> {
+pub(crate) fn name_hash(settlement: Name) -> Option<[u8; 32]> {
     from_hex(settlement.as_str())?.try_into().ok()
 }
 
 /// Peering info: the address, as the original's OER wrote it (IA5String,
 /// 25 to 35 characters, after a length byte).
-fn address_bytes(account: AccountId, out: &mut Vec<u8>) {
+pub(crate) fn address_bytes(account: AccountId, out: &mut Vec<u8>) {
     let address = account.to_address();
     out.clear();
     out.push(u8::try_from(address.len()).unwrap_or(0));
     out.extend_from_slice(address.as_bytes());
 }
 
-fn parse_address(bytes: &[u8]) -> Result<AccountId, SchemeError> {
+pub(crate) fn parse_address(bytes: &[u8]) -> Result<AccountId, SchemeError> {
     let (&length, rest) = bytes.split_first().ok_or(SchemeError::InvalidData)?;
     if usize::from(length) != rest.len() {
         return Err(SchemeError::InvalidData);
@@ -693,6 +770,10 @@ impl SettlementScheme for XrplScheme {
         assert_eq!(account.account(), self.account, "the scheme's own account");
         self.validated = account.validated();
         let news = account.news().to_vec();
+        if missed_write_off(self.write_offs, account, &news) {
+            self.written_off(true, effects);
+        }
+        self.write_offs = account.write_offs();
         // The reserve the books are matched to is the one the account had
         // when it last told something: a reserve it read meanwhile, before
         // it is synced again, is matched when it is.

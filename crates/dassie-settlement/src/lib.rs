@@ -36,7 +36,7 @@ mod scheme;
 mod stub;
 
 pub use activation::{Activation, activation};
-pub use asset::{AssetEffect, AssetId, AssetKind, ExternalAsset, Holding, LedgerInput};
+pub use asset::{AssetEffect, AssetId, AssetKind, Detach, ExternalAsset, Holding, LedgerInput};
 pub use scheme::{
     Effect, LedgerStatus, PreparedSettlement, SchemeError, SchemeInfo, SettlementScheme,
 };

@@ -468,3 +468,157 @@ async fn the_fake_issuer_mints_and_claws_back_over_https() {
     assert!(server.ledger().tokens_conserved());
     server.stop();
 }
+
+/// The RLUSD ledger.
+const RLUSD_LEDGER: &str = "xrpl-testnet-rlusd+usd";
+
+async fn ledger_named(node: &TestNode, id: &str) -> Option<proto::Ledger> {
+    let reply = node
+        .ipc()
+        .await
+        .call(Method::ListLedgers(proto::ListLedgersRequest {}))
+        .await;
+    match reply {
+        Ok(response::Method::ListLedgers(list)) => list.ledgers.into_iter().find(|l| l.id == id),
+        _ => None,
+    }
+}
+
+/// What `key`'s account holds of RLUSD, in the ledger's internal units:
+/// whole millionths.
+fn rlusd_held(key: &NodeKey, server: &Server) -> Option<u64> {
+    use dassie_xrpl::fake::Token;
+
+    let held = server
+        .ledger()
+        .token_balance(account_of(key), Token::RLUSD)?;
+    Some(u64::try_from(held.floor_units(6)?).ok()? * 1_000)
+}
+
+/// Whether the node is up to date with its RLUSD line, with its books
+/// holding the line in whole millionths.
+async fn rlusd_in_step(node: &TestNode, key: &NodeKey, server: &Server) -> bool {
+    let Some(ledger) = ledger_named(node, RLUSD_LEDGER).await else {
+        return false;
+    };
+    ledger.connection() == proto::LedgerConnection::Synced
+        && rlusd_held(key, server).is_some_and(|held| ledger.on_ledger_balance == held)
+}
+
+// spec/areas/xrpl.md#rlusd: two daemons on `xrpl-testnet-rlusd` alone, over
+// the fake ledger: the faucet gives them XRP for gas, each sets its line,
+// the issuer mints test RLUSD to A, and A pays B several times the credit,
+// so it settles in RLUSD as it goes. After both restart, the books still
+// hold each line, and nothing is booked twice.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_daemons_settle_rlusd_across_restarts() {
+    use dassie_xrpl::codec::TokenValue;
+    use dassie_xrpl::fake::Token;
+
+    let server = fake_ledger().await;
+    let config = serde_json::json!({
+        "server": server.url,
+        "faucet": server.faucet_url,
+    })
+    .to_string();
+    let (key_a, key_b) = (key(37), key(38));
+    let (bound_a, bound_b) = (Bound::new(), Bound::new());
+    let nodes = bootstrap(&key_a, bound_a.https_port());
+    let env = [
+        ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
+        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+    ];
+    let clock = ManualClock::new(START_MS);
+    let a = bound_a.start(clock.clone(), 1, Policies::DEV, &env).await;
+    let b = bound_b.start(clock.clone(), 2, Policies::DEV, &env).await;
+    prepare_with(&a, &key_a, "xrpl-testnet-rlusd", &config).await;
+    prepare_with(&b, &key_b, "xrpl-testnet-rlusd", &config).await;
+    until(&clock, async || {
+        rlusd_in_step(&a, &key_a, &server).await && rlusd_in_step(&b, &key_b, &server).await
+    })
+    .await;
+    // No XRP ledger: the gas is off the books.
+    assert!(ledger_of(&a).await.is_none());
+    server
+        .ledger()
+        .issue(
+            account_of(&key_a),
+            Token::RLUSD.amount(TokenValue::parse("20").unwrap()),
+        )
+        .unwrap();
+    until(&clock, async || {
+        rlusd_in_step(&a, &key_a, &server).await
+            && ledger_named(&a, RLUSD_LEDGER)
+                .await
+                .is_some_and(|ledger| ledger.owner_balance == 20_000_000_000)
+    })
+    .await;
+    until(&clock, async || {
+        peered_on(&a, &key_b, RLUSD_LEDGER).await && peered_on(&b, &key_a, RLUSD_LEDGER).await
+    })
+    .await;
+    settle(&clock).await;
+
+    let Ok(response::Method::CreateBtpToken(token)) = a
+        .ipc()
+        .await
+        .call(Method::CreateBtpToken(proto::CreateBtpTokenRequest {
+            label: "wallet".into(),
+            ledger: RLUSD_LEDGER.into(),
+            cap: None,
+        }))
+        .await
+    else {
+        panic!("no token")
+    };
+    let credentials = b.ipc().await.incoming_payment(None).await;
+    let mut client = BtpClient::connect(&a, &token.secret).await.unwrap();
+    // 5 dollars: over four times the credit.
+    pay_stream_waiting(
+        &clock,
+        &mut client,
+        &credentials.destination_account,
+        &credentials.shared_secret,
+        PAYMENT,
+        Duration::from_millis(5),
+    )
+    .await;
+    until(&clock, async || {
+        rlusd_in_step(&a, &key_a, &server).await && rlusd_in_step(&b, &key_b, &server).await
+    })
+    .await;
+    let settled = rlusd_held(&key_b, &server).unwrap();
+    assert!(settled >= PAYMENT - 1_100_000_000, "settled {settled}");
+    let owner_a = ledger_named(&a, RLUSD_LEDGER).await.unwrap().owner_balance;
+    let owner_b = ledger_named(&b, RLUSD_LEDGER).await.unwrap().owner_balance;
+    // The fees were gas: no fee on the RLUSD ledger.
+    assert_eq!(fees(&a).await, 0);
+
+    let (dir_a, _) = a.stop().await;
+    let (dir_b, _) = b.stop().await;
+    let a = Bound::bind_in(dir_a)
+        .start(clock.clone(), 3, Policies::DEV, &env)
+        .await;
+    let b = Bound::bind_in(dir_b)
+        .start(clock.clone(), 4, Policies::DEV, &env)
+        .await;
+    until(&clock, async || {
+        rlusd_in_step(&a, &key_a, &server).await && rlusd_in_step(&b, &key_b, &server).await
+    })
+    .await;
+    settle(&clock).await;
+    assert_eq!(deposits(&a).await, [20_000_000_000]);
+    assert!(deposits(&b).await.is_empty());
+    assert_eq!(
+        ledger_named(&a, RLUSD_LEDGER).await.unwrap().owner_balance,
+        owner_a
+    );
+    assert_eq!(
+        ledger_named(&b, RLUSD_LEDGER).await.unwrap().owner_balance,
+        owner_b
+    );
+    a.stop().await;
+    b.stop().await;
+    server.stop();
+}

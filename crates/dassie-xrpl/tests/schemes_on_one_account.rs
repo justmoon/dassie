@@ -15,7 +15,7 @@
 use dassie_ledger::Name;
 use dassie_node_core::testing::SeededRng;
 use dassie_settlement::{
-    AssetEffect, Effect, ExternalAsset, LedgerInput, LedgerStatus, SettlementScheme,
+    AssetEffect, Detach, Effect, ExternalAsset, LedgerInput, LedgerStatus, SettlementScheme,
 };
 use dassie_xrpl::account::{self, News, XrplAccount};
 use dassie_xrpl::fake::{FIRST_LEDGER, FakeLedger, RESERVE_BASE};
@@ -98,7 +98,7 @@ impl Shared {
     /// does: the account lets go of it, and the witness runs on.
     fn stop(&mut self) {
         self.stopped = true;
-        self.account.detach(XRPL);
+        self.account.detach(XRPL, Detach::Stopped);
     }
 
     /// Tells every scheme on the account what it learnt, as the node does,
@@ -121,7 +121,7 @@ impl Shared {
             if self.refuse_own && own {
                 self.refuse_own = false;
                 self.stopped = true;
-                self.account.detach(XRPL);
+                self.account.detach(XRPL, Detach::Stopped);
             } else {
                 scheme.check_invariants();
                 self.booked.append(&mut effects);

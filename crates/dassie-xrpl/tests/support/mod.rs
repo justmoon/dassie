@@ -306,6 +306,11 @@ fn split(state: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
             account.insert(key.into(), value);
         }
     }
+    // Both count the account's write-offs, the scheme as it last saw them:
+    // one count, once the scheme has been told.
+    if let Some(count) = scheme.get("write_offs") {
+        account.insert("write_offs".into(), count.clone());
+    }
     account
         .entry("never_sent")
         .or_insert_with(|| Value::Array(Vec::new()));

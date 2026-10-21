@@ -7,7 +7,7 @@
 //! not hold exactly, is refused rather than rounded, and nothing passes
 //! through a float.
 
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use core::cmp::Ordering;
 use core::fmt;
 
@@ -419,6 +419,30 @@ impl Currency {
     #[must_use]
     pub fn is_token(&self) -> bool {
         self.0 != [0; 20] && self.standard() != Some(*b"XRP")
+    }
+
+    /// Its code for people: three characters for a standard code; the
+    /// text of a nonstandard one that spells printable characters and
+    /// pads them with zeros, as RLUSD's does; and its hex otherwise.
+    #[must_use]
+    pub fn code(&self) -> String {
+        if self.standard().is_some() {
+            return self.to_string();
+        }
+        let text: &[u8] = match self.0.iter().position(|b| *b == 0) {
+            Some(end) => self.0.get(..end).unwrap_or_default(),
+            None => &self.0,
+        };
+        let padded = self
+            .0
+            .get(text.len()..)
+            .is_some_and(|rest| rest.iter().all(|b| *b == 0));
+        let printable = text.iter().all(|b| b.is_ascii_graphic());
+        if text.len() > 3 && padded && printable {
+            text.iter().map(|b| char::from(*b)).collect()
+        } else {
+            self.to_string()
+        }
     }
 
     /// Its three characters, if it is a standard code.

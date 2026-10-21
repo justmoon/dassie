@@ -9,7 +9,7 @@ The ledger is sans-IO and bounded ([engineering](../engineering.md)): callers pa
 
 ## Ledgers and amounts
 
-A ledger is `<settlement family>+<currency>`, and the list is closed (`ledger_id.rs`): a new ledger comes with the settlement scheme that serves it. `xrpl+xrp` exists so that the live ledger has a name, and is refused ([XRPL](xrpl.md#real-money)).
+A ledger is `<settlement family>+<currency>`, and the list is closed (`ledger_id.rs`): a new ledger comes with the settlement scheme that serves it. `xrpl+xrp` exists so that the live ledger has a name, and is refused ([XRPL](xrpl.md#real-money)). A ledger's family is its slug, which names its receiver, its seed path and its wallet address, so no two ledgers share one: RLUSD's is `xrpl-testnet-rlusd+usd`, a dollar ledger of its own beside `xrpl-testnet+xrp` ([XRPL](xrpl.md#rlusd)).
 
 Every amount is an unsigned integer at scale 9 for every asset, and ILP packet amounts are applied to the books in these units without conversion: ILDCP tells each endpoint scale 9. So a ledger's scale is the books' choice, not its underlying ledger's; the XRPL scheme converts drops at its edge.
 

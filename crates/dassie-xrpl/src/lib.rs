@@ -15,6 +15,9 @@
 //!   flight, and tells the schemes on it what the ledger says.
 //! - [`scheme`]: the `xrpl-testnet` settlement scheme, which settles in the
 //!   account's XRP and books what the account tells it.
+//! - [`rlusd`]: the `xrpl-testnet-rlusd` settlement scheme, which settles in
+//!   RLUSD on the account's trust line to its issuer, with the account's
+//!   XRP as gas.
 //! - `fake` (feature `fake`): a model of the ledger, for simulations and
 //!   tests.
 //!
@@ -35,10 +38,12 @@ pub mod codec;
 #[cfg(feature = "fake")]
 pub mod fake;
 pub mod keys;
+pub mod rlusd;
 pub mod scheme;
 
 pub use account::{Config, XrplAccount};
 pub use keys::{AccountId, Wallet};
+pub use rlusd::RlusdScheme;
 pub use scheme::XrplScheme;
 
 /// Drops per XRP. The ledger counts in drops, at scale 6.
