@@ -171,6 +171,7 @@ mod tests {
             on_ledger_balance: 0,
             reserve: 0,
             deposit_address: None,
+            faucet: false,
             status: LedgerStatus::Synced,
             removal_blockers: Vec::new(),
         }

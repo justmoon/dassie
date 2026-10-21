@@ -103,6 +103,7 @@
       "does": [
         "Setup and login",
         "Accounts and ledgers, sending and receiving, payment status and activity",
+        "Deposit pages like an exchange's: the address as a QR code, what to send, and a button for testnet XRP from the faucet",
         "Wallet addresses and payment requests for Open Payments",
         "The consent page for apps, the apps it has let in, and their grants",
         "The network as the node routes over it, its peers online and offline, bans, and the node's settings",
@@ -343,7 +344,8 @@
         "Derives the node's XRP Ledger wallet from its key, so the same phrase finds the same funds",
         "Signs Payments byte for byte as `xrpl.js` does",
         "Books every validated transaction once: settlements, deposits, withdrawals and fees",
-        "Never books the reserve, and catches up after a restart"
+        "Never books the reserve, and catches up after a restart",
+        "Asks the testnet faucet when the account is new, or when the owner wants more test XRP"
       ]
     },
     "settlement": {

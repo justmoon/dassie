@@ -1765,6 +1765,25 @@ impl SettlementScheme for XrplScheme {
         Err(SchemeError::Unsupported)
     }
 
+    fn has_faucet(&self) -> bool {
+        self.config.faucet.is_some()
+    }
+
+    /// The owner's top-up: the same request as for an account that does
+    /// not exist, at the same pace.
+    fn ask_faucet(&mut self, effects: &mut Vec<Effect>) -> Result<(), SchemeError> {
+        if self.config.faucet.is_none() {
+            return Err(SchemeError::Unsupported);
+        }
+        // Its answer is taken on a connection; while there is none, the
+        // faucet waits.
+        if self.phase == Phase::Disconnected || self.funding || self.fund_at_ms > self.now_ms {
+            return Err(SchemeError::Unavailable);
+        }
+        self.fund(effects);
+        Ok(())
+    }
+
     fn check_invariants(&self) {
         assert!(self.in_flight.len() <= MAX_IN_FLIGHT);
         assert!(self.peers.len() <= MAX_PEERS);

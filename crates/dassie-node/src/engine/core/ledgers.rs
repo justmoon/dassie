@@ -3,7 +3,9 @@
 use dassie_ledger::{
     AccountId, AccountName, AccountPath, LedgerId, Name, Realm, Reference, TransferSpec,
 };
-use dassie_settlement::{Activation, Effect, LedgerStatus, SettlementScheme, activation};
+use dassie_settlement::{
+    Activation, Effect, LedgerStatus, SchemeError, SettlementScheme, activation,
+};
 
 use super::Core;
 use super::EngineError;
@@ -42,6 +44,8 @@ pub struct LedgerView {
     pub reserve: u64,
     /// Where the owner sends money to fund it, if anywhere.
     pub deposit_address: Option<String>,
+    /// Whether the node can ask a faucet for test money on it.
+    pub faucet: bool,
     /// How the scheme stands with its ledger.
     pub status: LedgerStatus,
     /// What keeps the scheme from being removed now.
@@ -261,6 +265,42 @@ impl Core {
             .deposit(amount, &mut effects)
             .map_err(|e| EngineError::Invalid(e.to_string()))?;
         self.apply_effects(stub, ledger, &effects)?;
+        self.ledger_view(ledger)
+            .ok_or_else(|| EngineError::Internal("the ledger vanished".into()))
+    }
+
+    /// Asks the faucet of a scheme's test ledger for money. What it sends is
+    /// booked as a deposit once the ledger shows it.
+    ///
+    /// # Errors
+    ///
+    /// The scheme is not active, or stopped, has no faucet, or asked it
+    /// too recently.
+    pub fn ask_faucet(&mut self, id: &str) -> Result<LedgerView, EngineError> {
+        let inactive = || EngineError::NotFound("the scheme is not active".into());
+        let id = Name::new(id).map_err(|_| inactive())?;
+        let active = self.schemes.get_mut(&id).ok_or_else(inactive)?;
+        if active.failed.is_some() {
+            return Err(EngineError::Precondition(
+                "the scheme has stopped; restart the node".into(),
+            ));
+        }
+        let ledger = active.scheme.ledger();
+        let mut effects = Vec::new();
+        active
+            .scheme
+            .ask_faucet(&mut effects)
+            .map_err(|error| match error {
+                SchemeError::Unsupported => {
+                    EngineError::Precondition("the ledger has no faucet".into())
+                }
+                SchemeError::Unavailable => EngineError::Exhausted(
+                    "the faucet was asked less than a minute ago, or the ledger cannot be reached"
+                        .into(),
+                ),
+                other => EngineError::Internal(other.to_string()),
+            })?;
+        self.apply_effects(id, ledger, &effects)?;
         self.ledger_view(ledger)
             .ok_or_else(|| EngineError::Internal("the ledger vanished".into()))
     }
@@ -624,6 +664,7 @@ impl Core {
             on_ledger_balance: active.scheme.balance(),
             reserve: active.scheme.reserve(),
             deposit_address: active.scheme.deposit_address(),
+            faucet: active.scheme.has_faucet(),
             status: match active.failed {
                 Some(_) => dassie_settlement::LedgerStatus::Failed(
                     "the books could not take what the ledger said; restart the node",

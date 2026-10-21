@@ -67,6 +67,10 @@ The `settlement` message carries the transaction's hash, and books nothing: the 
 
 The owner funds the scheme by sending XRP to its account. The node cannot deposit for the owner, and has no way to withdraw: a withdrawal is made outside the node, with the same keys, and booked when the ledger shows it.
 
+The account takes payments with or without a destination tag: it is the node's alone, so tags tell nothing apart and are ignored.
+
+**The owner may ask the faucet** of a test ledger for more test XRP (`AskFaucet`), as the scheme asks while the account does not exist. It is the same request, at the same pace: at most one at a time and one a minute, so the owner adds no load the faucet would not see anyway. It is asked only on a connection, since its answer is taken on one. Nothing is booked at the asking: what the faucet sends is a deposit once the ledger shows it, by the rule above. A ledger without a faucet (the config's `faucet` is `null`, as on the live ledger) refuses.
+
 ## State and restarts
 
 The scheme's state (cursor, next sequence, transactions in flight, peers' addresses, settlements being looked up) is kept with its checkpoint in the batch it explains ([Settlement](settlement.md#checkpoints-and-activation)), and a state the scheme could not have written is refused.

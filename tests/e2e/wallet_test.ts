@@ -13,9 +13,16 @@ import { join } from "node:path";
 import process from "node:process";
 
 import { assert, assertEquals, assertMatch } from "@std/assert";
-import { loginSecret } from "@dassie/identity-wasm";
 import type { Page } from "puppeteer-core";
-import { attribute, click, count, text, type, until } from "./browser.ts";
+import {
+  attribute,
+  click,
+  count,
+  signIn,
+  text,
+  type,
+  until,
+} from "./browser.ts";
 import {
   DASSIE,
   missingTools,
@@ -33,22 +40,9 @@ const devWallet = process.env.DASSIE_E2E_WALLET_DIR;
 const screenshots = process.env.DASSIE_E2E_SCREENSHOTS;
 const env = devWallet ? { DASSIE_DEV_WALLET_DIR: devWallet } : undefined;
 
-/** Signs the browser in to `node` as its owner, with the node's key. */
-async function signIn(page: Page, node: ScenarioNode): Promise<void> {
-  await page.goto(node.url, { waitUntil: "load" });
-  const proof = loginSecret(node.key).toHex();
-  const status = await page.evaluate(
-    async (proof: string) => {
-      const response = await fetch("/api/login", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ loginAuthorizationSignature: proof }),
-      });
-      return response.status;
-    },
-    proof,
-  );
-  assertEquals(status, 200);
+/** Signs the browser in to `node` as its owner, and opens the wallet. */
+async function signInWallet(page: Page, node: ScenarioNode): Promise<void> {
+  await signIn(page, node);
   await page.goto(node.url, { waitUntil: "load" });
 }
 
@@ -88,7 +82,7 @@ test("every page of the wallet works against two nodes", {
     const [d1, d2] = scenario.nodes;
     const page = await browser.newPage();
     const errors = watchErrors(page);
-    await signIn(page, d1);
+    await signInWallet(page, d1);
 
     await t.test("the dashboard follows the balance live", async () => {
       await until(
@@ -505,7 +499,7 @@ test(
       const [node] = scenario.nodes;
       const page = await browser.newPage();
       const errors = watchErrors(page);
-      await signIn(page, node);
+      await signInWallet(page, node);
       assertEquals(await text(page, "node-id"), node.id);
       await text(page, "testnet-alert");
       await click(page, "select-scheme-stub");

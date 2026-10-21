@@ -191,6 +191,11 @@ impl Engine {
         self.call(move |core| core.stub_deposit(amount)).await
     }
 
+    /// Asks the faucet of a scheme's test ledger for money.
+    pub async fn ask_faucet(&self, scheme: String) -> Result<LedgerView, EngineError> {
+        self.call(move |core| core.ask_faucet(&scheme)).await
+    }
+
     /// The active schemes' IDs.
     pub async fn active_schemes(&self) -> Result<Vec<String>, EngineError> {
         self.call(|core| Ok(core.active_schemes())).await
