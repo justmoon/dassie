@@ -18,7 +18,7 @@ A node caps the money in flight with each peer, each way, at two and a half of i
 ## Accepted
 
 - *Less throughput per peer:* two of the largest packets per round trip. The credit and the settlements bound a link long before the cap does.
-- *Drift still adds up* over many crashes, or runs of lost responses; the cap bounds what each one costs.
+- *Drift still adds up* over many crashes, and over a run of responses that may have arrived, were refused with an error status or arrived late, by about a window each time the Prepares expire. The cap bounds what each crash costs, and each run of responses that surely did not arrive ([unreachable-peers](unreachable-peers.md)); the credit bounds the rest ([own-fulfills](own-fulfills.md)).
 
 ## Rejected
 
