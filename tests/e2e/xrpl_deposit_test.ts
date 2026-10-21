@@ -101,10 +101,11 @@ test(
       assertMatch(funded.depositAddress, /^r/);
       assertEquals(await count(page, `deposit-qr-${LEDGER}`), 1);
       assertMatch(await text(page, `deposit-tag-${LEDGER}`), /^Not needed/);
-      assertMatch(
-        await text(page, `deposit-warning-${LEDGER}`),
-        /Send only XRP/,
-      );
+      // Test money, as the node reports the ledger's realm.
+      const warning = await text(page, `deposit-warning-${LEDGER}`);
+      assertMatch(warning, /Send only XRP/);
+      assertMatch(warning, /Test XRP has no value/);
+      assertEquals(await text(page, `deposit-testnet-${LEDGER}`), "Testnet");
       assertEquals(await count(page, `deposit-unfunded-${LEDGER}`), 0);
       await picture(page, "receive-xrp");
       await page.setViewport({ width: 390, height: 844 });
