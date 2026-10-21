@@ -291,7 +291,9 @@ fn uplinks(
 
 /// The relay the node chose, if any. A periphery node without one says so:
 /// Open Payments clients reach it only through a relay
-/// (spec/areas/node.md#a-chosen-relay).
+/// (spec/areas/node.md#a-chosen-relay). A node that is still connecting to
+/// its relay, right after it starts or after a brief drop, gets no hint:
+/// only one that stays unreachable does.
 fn relay(relay: Option<&proto::ChosenRelay>, periphery: bool) -> Option<String> {
     let Some(relay) = relay else {
         return periphery.then(|| {
@@ -299,8 +301,11 @@ fn relay(relay: Option<&proto::ChosenRelay>, periphery: bool) -> Option<String> 
         });
     };
     let who = who(&relay.node, &relay.url);
-    Some(if relay.connected {
+    let connection = relay_connection(relay);
+    Some(if connection == proto::RelayConnection::Connected {
         format!("{who}, connected")
+    } else if connection == proto::RelayConnection::Connecting {
+        format!("{who}, connecting")
     } else {
         format!(
             "{who}, not connected, so Open Payments clients cannot reach the node through it: \
@@ -308,6 +313,19 @@ fn relay(relay: Option<&proto::ChosenRelay>, periphery: bool) -> Option<String> 
              and key, and that the node can reach it over UDP"
         )
     })
+}
+
+/// How the node stands with its relay. A daemon that predates
+/// `connection`, or knows a state this CLI does not, still says whether it
+/// is connected; not connected then reads as unreachable, as it did before.
+fn relay_connection(relay: &proto::ChosenRelay) -> proto::RelayConnection {
+    match proto::RelayConnection::try_from(relay.connection) {
+        Ok(proto::RelayConnection::Unspecified) | Err(_) if relay.connected => {
+            proto::RelayConnection::Connected
+        }
+        Ok(proto::RelayConnection::Unspecified) | Err(_) => proto::RelayConnection::Unreachable,
+        Ok(connection) => connection,
+    }
 }
 
 /// A node by its ID, and its URL if it has one.
@@ -614,6 +632,7 @@ mod tests {
             node: "dRelay".into(),
             url: "https://relay.dassiepay.net".into(),
             connected: true,
+            ..Default::default()
         };
         let connected = "dRelay at https://relay.dassiepay.net, connected";
         assert_eq!(relay(Some(&chosen), true).as_deref(), Some(connected));
@@ -639,6 +658,41 @@ mod tests {
             relay(None, true).as_deref(),
             Some("none (DASSIE_RELAY is empty), so Open Payments clients cannot reach the node")
         );
+    }
+
+    // A daemon that says how it stands with its relay (above, one that says
+    // only whether it is connected): connecting, right after a start or a
+    // brief drop, is no fault and gets no hint; a relay that stays
+    // unreachable does.
+    #[test]
+    fn the_chosen_relay_while_connecting() {
+        use proto::RelayConnection::{Connected, Connecting, Unreachable};
+        let chosen = |connection: proto::RelayConnection| proto::ChosenRelay {
+            node: "dRelay".into(),
+            url: "https://relay.dassiepay.net".into(),
+            connected: connection == Connected,
+            connection: connection.into(),
+        };
+        let text = |connection| relay(Some(&chosen(connection)), true).unwrap();
+        let who = "dRelay at https://relay.dassiepay.net";
+        assert_eq!(text(Connected), format!("{who}, connected"));
+        assert_eq!(text(Connecting), format!("{who}, connecting"));
+        let unreachable = text(Unreachable);
+        assert!(
+            unreachable.starts_with(&format!("{who}, not connected, so ")),
+            "{unreachable}"
+        );
+        assert!(
+            unreachable.contains("check that DASSIE_RELAY"),
+            "{unreachable}"
+        );
+        // A state this CLI does not know, from a newer daemon, falls back to
+        // whether it is connected.
+        let mut newer = chosen(Connecting);
+        newer.connection = 99;
+        assert_eq!(relay(Some(&newer), true), Some(unreachable));
+        newer.connected = true;
+        assert_eq!(relay(Some(&newer), true), Some(format!("{who}, connected")));
     }
 
     #[test]

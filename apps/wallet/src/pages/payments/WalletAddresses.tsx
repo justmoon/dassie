@@ -74,6 +74,7 @@ function FrontDoorStatus(props: { pointer?: string }): JSX.Element {
         <p class="muted" data-testid="front-door-note">
           {NAMED}
           {state() === "reachable" ? " It is connected now." : ""}
+          {state() === "connecting" ? " It is connecting now." : ""}
         </p>
       }
     >

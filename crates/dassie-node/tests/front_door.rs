@@ -315,6 +315,10 @@ async fn a_periphery_node_with_an_uplink_is_reached_through_its_front_door() {
     assert_eq!(relay.node, door.id.as_str());
     assert_eq!(relay.url, door.url);
     assert!(relay.connected);
+    assert_eq!(
+        relay.connection,
+        i32::from(proto::RelayConnection::Connected)
+    );
     assert_eq!(status.open_payments_origins, [format!("https://{name}")]);
     let status = status_of(&a).await;
     assert!(!status.periphery);

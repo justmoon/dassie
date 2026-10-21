@@ -24,7 +24,7 @@ use std::future::Future;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -359,8 +359,9 @@ pub struct Quic {
     relaying: Relaying,
     /// The relay the node keeps a connection to while it serves.
     chosen_relay: Mutex<Option<relay::Chosen>>,
-    /// Whether the connection to the chosen relay is open now.
-    relay_connected: AtomicBool,
+    /// How the node stands with the chosen relay now, a
+    /// [`relay::RelayLink`] as its byte.
+    relay_link: AtomicU8,
     allow_private: bool,
     /// How long a connection lasts without traffic: [`IDLE_TIMEOUT`],
     /// except in tests.
@@ -404,7 +405,7 @@ impl Quic {
             serving: Mutex::new(None),
             relaying: Relaying::new(),
             chosen_relay: Mutex::new(None),
-            relay_connected: AtomicBool::new(false),
+            relay_link: AtomicU8::new(relay::RelayLink::Connecting.byte()),
             allow_private,
             idle: IDLE_TIMEOUT,
             keep_alive: AtomicBool::new(false),

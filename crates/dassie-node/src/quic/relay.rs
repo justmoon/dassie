@@ -101,6 +101,59 @@ const RELAY_BACKOFF_MAX: Duration = Duration::from_secs(60);
 /// once it is lost, the node dials again after the least backoff.
 const RELAY_HELD_FOR: Duration = RELAY_BACKOFF_MAX;
 
+/// How the node stands with the relay it chose
+/// (spec/areas/node.md#a-chosen-relay).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RelayLink {
+    /// The node holds its connection to the relay.
+    Connected,
+    /// The node dials the relay, or waits to dial it again, and has not
+    /// failed long enough for that to be a fault: right after it starts,
+    /// and after a brief drop.
+    Connecting,
+    /// The node has failed to reach the relay for so long that the wait
+    /// before its next dial has reached its cap, [`RELAY_BACKOFF_MAX`]; or
+    /// the relay is the node itself.
+    Unreachable,
+}
+
+impl RelayLink {
+    /// How the node stands with its relay while it waits `wait` to dial it
+    /// again. While the wait still grows, the node is connecting: a relay
+    /// that restarts, or a path that drops for a moment, is dialled again
+    /// within seconds of coming back. Once the wait has reached its cap,
+    /// every dial has failed for over a minute (the waits before it add up
+    /// to that), longer than a restart or a brief drop lasts, and the node
+    /// dials only once per cap: the relay is unreachable. A relay that takes
+    /// each connection and drops it soon after reaches the cap the same way.
+    /// So the cap is the bound, and no other constant decides when a relay
+    /// reads as a fault.
+    #[must_use]
+    pub fn waiting(wait: Duration) -> Self {
+        if wait >= RELAY_BACKOFF_MAX {
+            Self::Unreachable
+        } else {
+            Self::Connecting
+        }
+    }
+
+    pub(super) const fn byte(self) -> u8 {
+        match self {
+            Self::Connected => 0,
+            Self::Connecting => 1,
+            Self::Unreachable => 2,
+        }
+    }
+
+    const fn from_byte(byte: u8) -> Self {
+        match byte {
+            0 => Self::Connected,
+            2 => Self::Unreachable,
+            _ => Self::Connecting,
+        }
+    }
+}
+
 /// The name the TLS inside a relayed stream asks for. Nobody checks it: the
 /// key is what counts.
 const SERVER_NAME: &str = "dassie";
@@ -524,17 +577,27 @@ impl Quic {
         });
     }
 
-    /// The relay the node chose and keeps now, its URL, and whether the
-    /// node holds its connection to it now ([`keep_relay`](Self::keep_relay)).
-    /// The default relay is no choice of a node with a hostname, which
-    /// keeps none.
+    /// The relay the node chose and keeps now, its URL, and how the node
+    /// stands with it now ([`keep_relay`](Self::keep_relay)). The default
+    /// relay is no choice of a node with a hostname, which keeps none.
     #[must_use]
-    pub fn chosen_relay(&self) -> Option<(NodeId, String, bool)> {
-        let connected = self.relay_connected.load(Ordering::Relaxed);
+    pub fn chosen_relay(&self) -> Option<(NodeId, String, RelayLink)> {
+        let link = self.relay_link();
         lock(&self.chosen_relay)
             .as_ref()
             .filter(|chosen| chosen.keep.holds())
-            .map(|chosen| (chosen.relay, chosen.url.clone(), connected))
+            .map(|chosen| (chosen.relay, chosen.url.clone(), link))
+    }
+
+    /// How the node stands with the relay it keeps a connection to
+    /// ([`keep_relay`](Self::keep_relay)).
+    #[must_use]
+    pub fn relay_link(&self) -> RelayLink {
+        RelayLink::from_byte(self.relay_link.load(Ordering::Relaxed))
+    }
+
+    fn set_relay_link(&self, link: RelayLink) {
+        self.relay_link.store(link.byte(), Ordering::Relaxed);
     }
 
     /// Keeps the chosen relay's connection on `tasks`, if a relay was
@@ -565,7 +628,9 @@ impl Quic {
     /// [`RELAY_HELD_FOR`], so a relay that takes the connection and closes
     /// it at once is not dialled every second. A node never dials itself.
     /// While `keep` does not hold, it neither dials nor keeps the
-    /// connection.
+    /// connection, and once it holds again it starts afresh. Meanwhile
+    /// [`relay_link`](Self::relay_link) says how it stands with the relay
+    /// ([`RelayLink::waiting`]).
     pub async fn keep_relay(
         self: Arc<Self>,
         relay: NodeId,
@@ -578,6 +643,8 @@ impl Quic {
         let mut warned = false;
         while !shutdown.is_cancelled() {
             if !keep.holds_seen() {
+                backoff = RELAY_BACKOFF_MIN;
+                self.set_relay_link(RelayLink::Connecting);
                 tokio::select! {
                     () = keep.changed() => continue,
                     () = shutdown.cancelled() => return,
@@ -603,10 +670,7 @@ impl Quic {
                             .await
                         {
                             Held::Lost => {}
-                            Held::Released => {
-                                backoff = RELAY_BACKOFF_MIN;
-                                continue;
-                            }
+                            Held::Released => continue,
                             Held::Shutdown => return,
                         }
                         if since.elapsed() >= RELAY_HELD_FOR {
@@ -621,6 +685,7 @@ impl Quic {
                 }
                 _ => {}
             }
+            self.set_relay_link(RelayLink::waiting(wait));
             tokio::select! {
                 () = tokio::time::sleep(wait) => {}
                 () = shutdown.cancelled() => return,
@@ -630,7 +695,9 @@ impl Quic {
 
     /// Holds the connection to the chosen relay ([`hold_relay`](Self::hold_relay))
     /// until it is lost, `keep` no longer holds, which closes it, or
-    /// `shutdown`.
+    /// `shutdown`. A connection whose dial ended after `keep` stopped
+    /// holding, when a hostname was set meanwhile, is closed at once: it
+    /// is never reported as connected.
     async fn hold_kept(
         self: &Arc<Self>,
         relay: NodeId,
@@ -638,14 +705,20 @@ impl Quic {
         keep: &mut KeepWhile,
         shutdown: &CancellationToken,
     ) -> Held {
+        if !keep.holds_seen() {
+            connection.close(0u32.into(), b"no longer chosen");
+            return Held::Released;
+        }
         tracing::info!(target: target::PEER, %relay, "connected to the chosen relay");
-        self.relay_connected.store(true, Ordering::Relaxed);
+        self.set_relay_link(RelayLink::Connected);
         let held = tokio::select! {
             () = self.hold_relay(relay, connection) => Held::Lost,
             () = keep.ended() => Held::Released,
             () = shutdown.cancelled() => Held::Shutdown,
         };
-        self.relay_connected.store(false, Ordering::Relaxed);
+        // Once lost, how it stands follows from the wait before the next
+        // dial, which the caller knows.
+        self.set_relay_link(RelayLink::Connecting);
         if held == Held::Released {
             connection.close(0u32.into(), b"no longer chosen");
             tracing::info!(target: target::PEER, %relay, "the node has a hostname now; it keeps no connection to the default relay");
@@ -1077,6 +1150,33 @@ mod tests {
         assert_eq!(Outcome::from_destination(1), Outcome::Refused);
         assert_eq!(Outcome::from_destination(9), Outcome::Refused);
         assert_eq!(StreamKind::from_byte(3), None);
+    }
+
+    // The waits a relay that refuses every dial gets, in turn: it reads as
+    // connecting until the wait reaches its cap, by when its dials have
+    // failed for at least that long.
+    #[test]
+    fn a_relay_reads_as_unreachable_once_the_wait_reaches_its_cap() {
+        let mut backoff = RELAY_BACKOFF_MIN;
+        let mut failing = Duration::ZERO;
+        for _ in 0..64 {
+            let wait = backoff;
+            backoff = backoff.saturating_mul(2).min(RELAY_BACKOFF_MAX);
+            if RelayLink::waiting(wait) == RelayLink::Unreachable {
+                break;
+            }
+            failing = failing.saturating_add(wait);
+        }
+        assert_eq!(backoff, RELAY_BACKOFF_MAX);
+        assert!(failing >= RELAY_BACKOFF_MAX, "{failing:?}");
+        assert_eq!(RelayLink::waiting(RELAY_BACKOFF_MIN), RelayLink::Connecting);
+        for link in [
+            RelayLink::Connected,
+            RelayLink::Connecting,
+            RelayLink::Unreachable,
+        ] {
+            assert_eq!(RelayLink::from_byte(link.byte()), link);
+        }
     }
 
     #[test]

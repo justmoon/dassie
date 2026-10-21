@@ -27,7 +27,7 @@ use dassie_node::node::Policies;
 use dassie_node::peer_client::PeerClient;
 use dassie_node::quic::relay::{
     KeepWhile, MAX_RELAYED_PER_CLIENT_TO_DESTINATION, MAX_RELAYED_PER_DESTINATION, Purpose,
-    RelayError, RelayedStream, ServedStream,
+    RelayError, RelayLink, RelayedStream, ServedStream,
 };
 use dassie_node::quic::{Body, Handler, Quic};
 use dassie_node::rpc::proto::{self, request::Method};
@@ -281,7 +281,8 @@ async fn the_default_relay_is_kept_only_while_the_node_has_no_hostname() {
     let mut stream = reach(&from, &relay, destination.id, Purpose::Payments).await;
     assert_eq!(echo(&mut stream, b"ping").await, b"ping");
     let reported = destination.quic.chosen_relay();
-    assert_eq!(reported, Some((relay.id, relay.url.clone(), true)));
+    let connected = RelayLink::Connected;
+    assert_eq!(reported, Some((relay.id, relay.url.clone(), connected)));
     config.send_replace(named);
     assert_eq!(destination.quic.chosen_relay(), None);
     let mut closed = false;
@@ -462,6 +463,33 @@ async fn a_node_does_not_choose_itself_as_its_relay() {
     keep(&node, &node, &shutdown);
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(node.quic.open_connections(), 0);
+    // It will never connect: that is a fault from the start.
+    assert_eq!(node.quic.relay_link(), RelayLink::Unreachable);
+    shutdown.cancel();
+}
+
+// A relay the node cannot reach reads as connecting while the node dials it
+// again quickly, and as unreachable once the wait before each dial has
+// reached its cap: after over a minute of failed dials, and not before.
+#[tokio::test(start_paused = true)]
+async fn a_relay_out_of_reach_reads_as_unreachable_once_its_dials_slow_down() {
+    let shutdown = CancellationToken::new();
+    let node = side(1, &shutdown);
+    let relay = NodeKey::from_bytes(&[2; 32]).node_id();
+    // A URL with no port to dial: each dial fails at once.
+    tokio::spawn(Arc::clone(&node.quic).keep_relay(
+        relay,
+        "https://127.0.0.1:none".into(),
+        client(),
+        KeepWhile::Always,
+        shutdown.clone(),
+    ));
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(node.quic.relay_link(), RelayLink::Connecting);
+    tokio::time::sleep(Duration::from_secs(59)).await;
+    assert_eq!(node.quic.relay_link(), RelayLink::Connecting);
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    assert_eq!(node.quic.relay_link(), RelayLink::Unreachable);
     shutdown.cancel();
 }
 
@@ -516,6 +544,7 @@ async fn a_node_waits_for_its_key_and_reconnects_to_its_relay() {
     let key = destination.identity.send_replace(None);
     keep(&destination, &relay, &shutdown);
     tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(destination.quic.relay_link(), RelayLink::Connecting);
     let result = from
         .quic
         .open_relayed(relay.relay(), destination.id, Purpose::Payments, &client())
@@ -524,12 +553,21 @@ async fn a_node_waits_for_its_key_and_reconnects_to_its_relay() {
     destination.identity.send_replace(key);
     let mut stream = reach(&from, &relay, destination.id, Purpose::Payments).await;
     assert_eq!(echo(&mut stream, b"one").await, b"one");
+    assert_eq!(destination.quic.relay_link(), RelayLink::Connected);
     drop(stream);
     // The relay restarts on the same port: the node dials it again.
     relay_shutdown.cancel();
     while relay.quic.is_serving() {
         tokio::task::yield_now().await;
     }
+    // Meanwhile the node is connecting, which is no fault yet.
+    for _ in 0..500 {
+        if destination.quic.relay_link() != RelayLink::Connected {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(destination.quic.relay_link(), RelayLink::Connecting);
     let url = relay.url.clone();
     drop(relay);
     let relay_shutdown = CancellationToken::new();
