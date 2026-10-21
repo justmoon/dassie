@@ -124,8 +124,9 @@ enum Outcome {
     UpToDate,
     /// The node runs this version now.
     Updated(Version),
-    /// This version did not come up, and the one before runs again.
-    RolledBack(Version, Problem),
+    /// This version did not come up, and the one `current` named before,
+    /// as it named it, runs again.
+    RolledBack(Version, Problem, PathBuf),
     /// The mirror offers this version again, which was rolled back.
     Skipped(Version),
     /// The update stopped, or could not go back: the problem says which.
@@ -150,9 +151,9 @@ async fn update(options: Options) -> Result<(), Problem> {
     }
     match outcome {
         Outcome::UpToDate | Outcome::Updated(_) | Outcome::Skipped(_) => Ok(()),
-        Outcome::RolledBack(target, _) => Err(format!(
+        Outcome::RolledBack(target, _, before) => Err(format!(
             "dassie {target} did not start, and {} runs again",
-            install.version
+            before.display()
         )),
         Outcome::Failed(problem) => Err(problem),
     }
@@ -168,13 +169,18 @@ async fn attempt(
     let Some(target) = choose(options, install, &mirror).await? else {
         return Ok(Outcome::UpToDate);
     };
+    // What `current` names, to go back to should the update not go
+    // through: not always the version running this, which may be an older
+    // one kept. Where it names nothing, this one is what the owner runs.
+    let before = fs::read_link(install.base.join("current"))
+        .unwrap_or_else(|_| PathBuf::from(install.version.to_string()));
     // Tried again, a version that did not start would take the node down
     // at every run of the timer, until a fix is out.
     if rolled_back == Some(&target) && options.target.is_none() && !options.force {
         println!(
             "The mirror offers {target}, which did not start here, so {} runs on; \
              waiting for a newer version. `dassie update --force` tries {target} again.",
-            install.version
+            before.display()
         );
         return Ok(Outcome::Skipped(target));
     }
@@ -188,11 +194,6 @@ async fn attempt(
     // The staging directory goes either way; what it held is in place.
     let _ = fs::remove_dir_all(&staging);
     let dir = installed?;
-    // What `current` names, to put back should the switch not go through:
-    // not always the version running this, which may be an older one kept.
-    // Where it names nothing, this one is what the owner runs.
-    let before = fs::read_link(install.base.join("current"))
-        .unwrap_or_else(|_| PathBuf::from(install.version.to_string()));
     let mut units = Units::default();
     let switched = install_units(&dir.join("share/systemd"), &mut units)
         .and_then(|()| switch(&install.base, &target));
@@ -216,17 +217,24 @@ async fn attempt(
     if let Err(problem) = restarted {
         eprintln!(
             "dassie {target} did not start ({problem}); going back to {}.",
-            install.version
+            before.display()
         );
-        if let Err(failed) = roll_back(install, &units, since) {
+        if let Err(failed) = roll_back(&install.base, &units, &before, since) {
             return Err(format!(
                 "dassie {target} did not start ({problem}), and going back to {} failed: {failed}",
-                install.version
+                before.display()
             ));
         }
-        return Ok(Outcome::RolledBack(target, problem));
+        return Ok(Outcome::RolledBack(target, problem, before));
     }
-    prune(&install.base, &[&target, &install.version]);
+    // The version `current` named stays, for the owner to go back to, and
+    // so does the one running this, which the owner kept.
+    let came_from = before
+        .file_name()
+        .and_then(|name| Version::parse(&name.to_string_lossy()).ok());
+    let mut keep = vec![&target, &install.version];
+    keep.extend(came_from.as_ref());
+    prune(&install.base, &keep);
     Ok(Outcome::Updated(target))
 }
 
@@ -243,10 +251,11 @@ fn restart(units: &Units) -> Result<(), Problem> {
     systemctl(&["restart", SERVICE])
 }
 
-/// Points `current` back at the version that ran, with its units, puts back
-/// the database from before the update if the new version migrated it, and
-/// starts the old version. The units the update added are disabled and go.
-fn roll_back(install: &Install, units: &Units, since: SystemTime) -> Result<(), Problem> {
+/// Points `current` back at `before`, what it named before the update, with
+/// that version's units, puts back the database from before the update if
+/// the new version migrated it, and starts that version again. The units
+/// the update added are disabled and go.
+fn roll_back(base: &Path, units: &Units, before: &Path, since: SystemTime) -> Result<(), Problem> {
     // A unit that will not be disabled must not keep the old version down:
     // its file goes all the same.
     for unit in &units.added {
@@ -254,8 +263,7 @@ fn roll_back(install: &Install, units: &Units, since: SystemTime) -> Result<(), 
             eprintln!("Note: {problem}; removing {unit} all the same.");
         }
     }
-    let version = PathBuf::from(install.version.to_string());
-    put_back(&install.base, units, &version)?;
+    put_back(base, units, before)?;
     systemctl(&["daemon-reload"])?;
     // systemd may be restarting the failed node; the database must be left
     // alone while it is put back.
@@ -397,7 +405,7 @@ fn record(
         });
     let rolled_back = match outcome {
         Outcome::Updated(_) => None,
-        Outcome::RolledBack(target, problem) => Some(RolledBack {
+        Outcome::RolledBack(target, problem, _) => Some(RolledBack {
             version: target.to_string(),
             problem: Some(problem.clone()),
         }),
@@ -411,7 +419,7 @@ fn record(
     let (outcome, target, problem) = match outcome {
         Outcome::UpToDate => ("up-to-date", None, None),
         Outcome::Updated(target) => ("updated", Some(target), None),
-        Outcome::RolledBack(target, problem) => {
+        Outcome::RolledBack(target, problem, _) => {
             ("rolled-back", Some(target), Some(problem.clone()))
         }
         Outcome::Skipped(target) => ("skipped", Some(target), None),
