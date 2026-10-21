@@ -1,5 +1,5 @@
-// The simulation campaign's supervisor (spec
-// spec/decisions/random-seed-simulations.md): one loop of it, on a campaign
+// The simulation campaign's supervisor
+// (spec/decisions/random-seed-simulations.md): one loop of it, on a campaign
 // VM.
 //
 //   node scripts/sim-campaign.ts [--minutes N] [--dry-run [--unsandboxed]]

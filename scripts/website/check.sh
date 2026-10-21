@@ -1,6 +1,6 @@
 #!/bin/sh
-# Checks that dassie.land is served as the site expects (spec
-# spec/decisions/website-hosting.md):
+# Checks that dassie.land is served as the site expects
+# (spec/decisions/website-hosting.md):
 #
 #   scripts/website/check.sh [<url>] [<curl option>...]
 #

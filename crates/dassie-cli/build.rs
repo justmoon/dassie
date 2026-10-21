@@ -1,5 +1,5 @@
 //! Builds in the release key, which `dassie update` trusts releases with
-//! (spec spec/decisions/release-integrity.md): the minisign public key in the
+//! (spec/decisions/release-integrity.md): the minisign public key in the
 //! file `DASSIE_RELEASE_KEY` names, or else `resources/minisign.pub` at the
 //! repo root. With the `test-key` feature, the test key of `testdata/release`
 //! instead, for tests only. With none of them, the binary trusts no key, and

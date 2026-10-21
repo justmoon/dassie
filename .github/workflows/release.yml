@@ -1,7 +1,7 @@
 name: Release
 
 # Builds, checks, signs and publishes Dassie to the mirror,
-# get.dassie.land (spec spec/decisions/release-integrity.md,
+# get.dassie.land (spec/decisions/release-integrity.md,
 # spec/decisions/build-system.md): every tag v<version> as a release
 # (meta/latest). The checks only a release needs run here, not in CI: the
 # install tests on each distribution, and the static release binaries. The

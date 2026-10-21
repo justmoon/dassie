@@ -1,6 +1,6 @@
 #!/bin/sh
-# Publishes dassie.land: copies the built site into its bucket (spec
-# spec/decisions/website-hosting.md), which the mirror's load balancer serves.
+# Publishes dassie.land: copies the built site into its bucket
+# (spec/decisions/website-hosting.md), which the mirror's load balancer serves.
 #
 #   scripts/website/deploy.sh <dist> <bucket>
 #

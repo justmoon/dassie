@@ -13,7 +13,7 @@ A decision's file name is its name: a few words that say what was decided (`own-
 ## Accepted
 
 - A citation is longer than a number, and wraps comments sooner.
-- The numbers that decisions had before are translated only by [a table](README.md#former-numbers), for the commits, pull requests and issues that cite them.
+- The numbers that decisions had before are translated only by [a table](README.md#former-numbers), for the commits, pull requests and issues that cite them. Their links to the numbered files no longer resolve on `main`.
 - Two pull requests that pick the same name still conflict, but only when both decide about the same thing, and the conflict is then worth seeing.
 
 ## Rejected

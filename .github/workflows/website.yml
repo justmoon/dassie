@@ -1,7 +1,7 @@
 name: Website
 
 # Builds dassie.land from `main` and publishes it to its bucket, which the
-# mirror's load balancer serves (spec spec/decisions/website-hosting.md,
+# mirror's load balancer serves (spec/decisions/website-hosting.md,
 # spec/areas/website.md). Pull requests get no preview: CI builds the site and
 # serves it with its headers in the browser test.
 #

@@ -1,8 +1,7 @@
 #!/bin/sh
-# Sets up dassie.land on GCP (spec spec/decisions/website-hosting.md): a
-# bucket behind the release mirror's load balancer, the account that publishes
-# it, a certificate for dassie.land and its subdomains, and the dassie.land
-# zone.
+# Sets up dassie.land on GCP (spec/decisions/website-hosting.md): a bucket
+# behind the release mirror's load balancer, the account that publishes it, a
+# certificate for dassie.land and its subdomains, and the dassie.land zone.
 #
 #   scripts/website/provision.sh [--apply]
 #
@@ -175,8 +174,9 @@ run gcloud certificate-manager maps entries create primary \
 
 # The zone.
 run gcloud dns managed-zones create "$zone" --project="$project" \
-  --dns-name="$domain." --description="dassie.land
-  --(spec/decisions/website-hosting.md)" \ dnssec-state=on
+  --dns-name="$domain." \
+  --description="dassie.land (spec/decisions/website-hosting.md)" \
+  --dnssec-state=on
 for name in "" www. get. sh.; do
   run gcloud dns record-sets create "$name$domain." --project="$project" \
     --zone="$zone" --type=A --ttl=300 --rrdatas="$address"

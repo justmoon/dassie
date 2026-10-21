@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regenerates the minisign vectors of crates/dassie-release with the
-# minisign CLI, as the release workflow signs (spec
-# spec/decisions/release-integrity.md):
+# minisign CLI, as the release workflow signs
+# (spec/decisions/release-integrity.md):
 #
 #   test.pub, test.key        the test key: unencrypted, for tests only,
 #                             never trusted by a release build

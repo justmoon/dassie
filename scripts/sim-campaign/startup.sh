@@ -1,6 +1,6 @@
 #!/bin/sh
-# The boot script of a simulation campaign VM (spec
-# spec/decisions/random-seed-simulations.md), which GCE runs as root at every
+# The boot script of a simulation campaign VM
+# (spec/decisions/random-seed-simulations.md), which GCE runs as root at every
 # boot from the instance metadata (provision.sh puts it there). It is
 # idempotent: a spot VM boots afresh after each preemption.
 #

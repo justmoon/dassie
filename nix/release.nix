@@ -1,4 +1,4 @@
-# Release builds (spec spec/decisions/release-integrity.md,
+# Release builds (spec/decisions/release-integrity.md,
 # spec/decisions/build-system.md): the wallet, the `dassie` binary for x64 and
 # arm64 Linux, statically linked against musl, its bundles, and the mirror
 # tree a release publishes.

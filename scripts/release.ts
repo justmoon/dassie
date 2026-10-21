@@ -1,4 +1,4 @@
-// Signs a release for the mirror (spec spec/decisions/release-integrity.md),
+// Signs a release for the mirror (spec/decisions/release-integrity.md),
 // as the release workflow does:
 //
 //   node scripts/release.ts <built tree> <out dir> \
