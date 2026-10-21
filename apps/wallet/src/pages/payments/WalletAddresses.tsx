@@ -5,11 +5,11 @@
 
 import type { JSX } from "@solidjs/web";
 import type { WalletAddress } from "@dassie/rpc/proto";
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, onCleanup, Show } from "solid-js";
 import { describe, useClient } from "@dassie/ui/rpc";
-import { Badge, CopyButton, ErrorText } from "@dassie/ui/ui";
+import { Alert, Badge, CopyButton, ErrorText } from "@dassie/ui/ui";
 import { schemeName } from "../schemes.ts";
-import { atFrontDoor } from "./front_door.ts";
+import { atFrontDoor, frontDoorState, type Relay } from "./front_door.ts";
 
 /** Loads the wallet addresses once; `reload` asks again. */
 export function useWalletAddresses(): {
@@ -34,17 +34,81 @@ export function useWalletAddresses(): {
   return { addresses, error, reload, set: setAddresses };
 }
 
-/** Says not to hand out a pointer at the front door, while none runs. */
+/** How often the note asks the node again whether it is connected. */
+const RELAY_POLL_MS = 15_000;
+
+/**
+ * Says that a pointer at the default front door reaches the node through
+ * it, and warns while it does not (spec/areas/payments.md#the-nodes-names).
+ */
 export function FrontDoorNote(props: { pointer?: string }): JSX.Element {
   return (
     <Show when={props.pointer !== undefined && atFrontDoor(props.pointer)}>
-      <p class="muted" data-testid="front-door-note">
-        Your node has no hostname, so it is named at the dassiepay.net front
-        door. Front doors do not pass payments on to nodes yet: don't hand this
-        address out until they do, or set a hostname.
-      </p>
+      <FrontDoorStatus pointer={props.pointer} />
     </Show>
   );
+}
+
+const NAMED =
+  "Your node has no hostname, so it is named at the dassiepay.net front door, which reaches it only while your node is connected to it.";
+
+function FrontDoorStatus(props: { pointer?: string }): JSX.Element {
+  const relay = useRelay();
+  const state = () => frontDoorState(props.pointer, relay());
+  const warning = () => {
+    switch (state()) {
+      case "disconnected":
+        return "It is not connected now, so payments to this address fail until it is. Check that your node can reach relay.dassiepay.net over UDP, or set a hostname.";
+      case "other-relay":
+        return "Your node keeps another relay, so the front door cannot reach it: don't hand this address out, or set a hostname.";
+      case "no-relay":
+        return "Your node keeps no relay (DASSIE_RELAY is empty), so the front door cannot reach it: don't hand this address out, or set a hostname.";
+      default:
+        return undefined;
+    }
+  };
+  return (
+    <Show
+      when={warning()}
+      fallback={
+        <p class="muted" data-testid="front-door-note">
+          {NAMED}
+          {state() === "reachable" ? " It is connected now." : ""}
+        </p>
+      }
+    >
+      {(text) => (
+        <Alert
+          title="This address may reach no one"
+          tone="warning"
+          testid="front-door-note"
+        >
+          <p>{NAMED} {text()}</p>
+        </Alert>
+      )}
+    </Show>
+  );
+}
+
+/**
+ * The relay the node reports, asked again every little while: `null` when
+ * it keeps none, `undefined` until known.
+ */
+function useRelay(): () => Relay | null | undefined {
+  const client = useClient();
+  const [relay, setRelay] = createSignal<Relay | null>();
+  const ask = async () => {
+    try {
+      const status = await client.call("getStatus", {});
+      setRelay(status.relay ?? null);
+    } catch {
+      // Keep what is known; the next poll asks again.
+    }
+  };
+  void ask();
+  const timer = setInterval(() => void ask(), RELAY_POLL_MS);
+  onCleanup(() => clearInterval(timer));
+  return relay;
 }
 
 /** The ledger's name in the wallet: its scheme's, from the ledger ID. */

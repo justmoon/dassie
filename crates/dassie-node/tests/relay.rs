@@ -26,11 +26,12 @@ use dassie_node::http::peer::Answer;
 use dassie_node::node::Policies;
 use dassie_node::peer_client::PeerClient;
 use dassie_node::quic::relay::{
-    MAX_RELAYED_PER_CLIENT_TO_DESTINATION, MAX_RELAYED_PER_DESTINATION, Purpose, RelayError,
-    RelayedStream, ServedStream,
+    KeepWhile, MAX_RELAYED_PER_CLIENT_TO_DESTINATION, MAX_RELAYED_PER_DESTINATION, Purpose,
+    RelayError, RelayedStream, ServedStream,
 };
 use dassie_node::quic::{Body, Handler, Quic};
 use dassie_node::rpc::proto::{self, request::Method};
+use dassie_node_core::config::{Hostname, NodeConfig};
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
 use dassie_payments::httpsig;
@@ -176,10 +177,16 @@ fn client() -> PeerClient {
 
 /// `destination` keeps a connection to `relay`, as with `DASSIE_RELAY`.
 fn keep(destination: &Side, relay: &Side, shutdown: &CancellationToken) {
+    keep_while(destination, relay, KeepWhile::Always, shutdown);
+}
+
+/// `destination` keeps a connection to `relay` while `keep` holds.
+fn keep_while(destination: &Side, relay: &Side, keep: KeepWhile, shutdown: &CancellationToken) {
     tokio::spawn(Arc::clone(&destination.quic).keep_relay(
         relay.id,
         relay.url.clone(),
         client(),
+        keep,
         shutdown.clone(),
     ));
 }
@@ -233,6 +240,63 @@ async fn a_client_reaches_a_node_through_its_relay_and_the_relay_sees_only_ciphe
     // plaintext.
     assert!(relayed.len() > 2 * secret.len());
     assert!(!relayed.windows(secret.len()).any(|window| window == secret));
+    shutdown.cancel();
+}
+
+// D40: the default relay, `DASSIE_RELAY` unset, is kept only while the node
+// has no hostname: not dialled while it has one, dialled once it has none,
+// and closed once it has one again. Only then does the node report it.
+#[tokio::test]
+async fn the_default_relay_is_kept_only_while_the_node_has_no_hostname() {
+    let shutdown = CancellationToken::new();
+    let (relay, destination, from) = (side(1, &shutdown), side(2, &shutdown), side(3, &shutdown));
+    let named = NodeConfig {
+        hostname: Some(Hostname::parse("node.example").unwrap()),
+        ..NodeConfig::default()
+    };
+    let (config, watched) = watch::channel(named.clone());
+    // Chosen after the endpoint serves, so only for what it reports: the
+    // test keeps the relay itself.
+    destination.quic.choose_relay(
+        relay.id,
+        relay.url.clone(),
+        client(),
+        KeepWhile::NoHostname(watched.clone()),
+    );
+    keep_while(
+        &destination,
+        &relay,
+        KeepWhile::NoHostname(watched),
+        &shutdown,
+    );
+    assert_eq!(destination.quic.chosen_relay(), None);
+    // Time to dial, were it to: the relay never gets a connection.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let unknown = from
+        .quic
+        .open_relayed(relay.relay(), destination.id, Purpose::Payments, &client())
+        .await;
+    assert_eq!(unknown.err(), Some(RelayError::UnknownDestination));
+    config.send_replace(NodeConfig::default());
+    let mut stream = reach(&from, &relay, destination.id, Purpose::Payments).await;
+    assert_eq!(echo(&mut stream, b"ping").await, b"ping");
+    let reported = destination.quic.chosen_relay();
+    assert_eq!(reported, Some((relay.id, relay.url.clone(), true)));
+    config.send_replace(named);
+    assert_eq!(destination.quic.chosen_relay(), None);
+    let mut closed = false;
+    for _ in 0..250 {
+        let result = from
+            .quic
+            .open_relayed(relay.relay(), destination.id, Purpose::Payments, &client())
+            .await;
+        if result.err() == Some(RelayError::UnknownDestination) {
+            closed = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(closed, "the node kept the default relay with a hostname");
     shutdown.cancel();
 }
 

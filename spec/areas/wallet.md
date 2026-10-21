@@ -58,6 +58,7 @@ The pages are in `apps/wallet/src/pages/`, and their routes in `apps/wallet/src/
 - What blocks removing a ledger, the total in the display currency, whether a rate is stale, what a quote costs and how long it holds, and what a grant asks for all come from the node ([Ledger](ledger.md), [Connector](connector.md), [Payments](payments.md)).
 - The network page draws the routing table, not the peerings: an edge only where both ends list it, so a peer that is offline or does not list us back has no line. The layout is deterministic: a node starts where its ID puts it and keeps its place as the table changes.
 - A BTP token's secret is shown once, when it is made; the node keeps only its hash ([Connector](connector.md#btp-tokens), [D10](../decisions/D10-secrets-at-rest.md)).
+- The note on the node's name at the default front door follows the relay `GetStatus` reports: the name reaches the node while it holds the connection to that front door, and the wallet warns while it does not, or when the node keeps another relay or none ([Payments](payments.md#the-nodes-names)).
 - The consent page is where the node sends the owner when a third-party app asks for access ([Payments](payments.md#the-owners-consent)). It names Connected Apps, where access is revoked, but links there only once the owner has decided, so that no one leaves a request half-read. When the node flags a limit that no payment to the named receiver can fit, the page warns of it and leaves Approve enabled ([D29](../decisions/D29-a-limit-no-payment-can-use-is-caught-before-approval.md)).
 
 ## Amounts and currencies
@@ -85,3 +86,4 @@ The wallet, the dev dashboard and the website share them: amounts, live data, th
 - [D12](../decisions/D12-peering-lifecycle-and-liveness.md): terminating peerings and bans.
 - [D21](../decisions/D21-tooling-on-node-and-pnpm-not-deno.md): built on Node and pnpm.
 - [D29](../decisions/D29-a-limit-no-payment-can-use-is-caught-before-approval.md): why the consent page warns of a receive limit no payment can fit, rather than refusing it.
+- [D40](../decisions/D40-a-node-without-a-hostname-keeps-the-default-front-door-as-its-relay.md): the default relay, whose connection the note on the default name reports.

@@ -135,6 +135,9 @@ export class ScenarioNode {
         "127.0.0.1",
       ],
       env: {
+        // No relay unless the scenario names one: the default is the
+        // public front door (D40).
+        DASSIE_RELAY: "",
         ...this.environment.env,
         ...this.env,
         DASSIE_STATE_DIRECTORY: `${this.dir}/state`,

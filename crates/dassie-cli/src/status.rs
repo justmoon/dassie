@@ -294,8 +294,9 @@ fn uplinks(
 /// (spec/areas/node.md#a-chosen-relay).
 fn relay(relay: Option<&proto::ChosenRelay>, periphery: bool) -> Option<String> {
     let Some(relay) = relay else {
-        return periphery
-            .then(|| "none (DASSIE_RELAY), so Open Payments clients cannot reach the node".into());
+        return periphery.then(|| {
+            "none (DASSIE_RELAY is empty), so Open Payments clients cannot reach the node".into()
+        });
     };
     let who = who(&relay.node, &relay.url);
     Some(if relay.connected {
@@ -636,7 +637,7 @@ mod tests {
         assert_eq!(relay(None, false), None);
         assert_eq!(
             relay(None, true).as_deref(),
-            Some("none (DASSIE_RELAY), so Open Payments clients cannot reach the node")
+            Some("none (DASSIE_RELAY is empty), so Open Payments clients cannot reach the node")
         );
     }
 
