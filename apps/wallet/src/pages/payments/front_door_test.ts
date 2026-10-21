@@ -33,9 +33,13 @@ test("a name at the front door is reachable while the node is connected to it", 
     frontDoorState(pointer, relay(door, UNREACHABLE)),
     "disconnected",
   );
-  // A state the wallet does not know falls back to whether it is connected.
-  const unknown = { url: door, connected: false, connection: 99 };
-  assertEquals(frontDoorState(pointer, unknown), "disconnected");
+  // Without a state (UNSPECIFIED), or with one the wallet does not know,
+  // whether it is connected decides.
+  const { UNSPECIFIED } = RelayConnection;
+  const unsaid = { url: door, connected: false, connection: UNSPECIFIED };
+  assertEquals(frontDoorState(pointer, unsaid), "disconnected");
+  const held = { ...unsaid, connected: true };
+  assertEquals(frontDoorState(pointer, held), "reachable");
   // Opted out with an empty DASSIE_RELAY.
   assertEquals(frontDoorState(pointer, null), "no-relay");
   // Another relay does not take the front door's requests.
