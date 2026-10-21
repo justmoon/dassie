@@ -61,8 +61,28 @@ message GetStatusResponse {
 message ChosenRelay {
   string node = 1;
   string url = 2;
-  // Whether the node holds its connection to the relay now.
+  // Whether the node holds its connection to the relay now: `connection`
+  // is CONNECTED. For clients that predate `connection`.
   bool connected = 3;
+  // How the node stands with the relay now. UNSPECIFIED from a node that
+  // predates it, which says only `connected`.
+  RelayConnection connection = 4;
+}
+
+// How a node stands with the relay it chose
+// (spec/areas/node.md#a-chosen-relay).
+enum RelayConnection {
+  RELAY_CONNECTION_UNSPECIFIED = 0;
+  // The node holds its connection to the relay.
+  RELAY_CONNECTION_CONNECTED = 1;
+  // The node dials the relay, or waits to dial it again, and has not failed
+  // for long enough for that to be a fault: right after it starts, or after
+  // a brief drop.
+  RELAY_CONNECTION_CONNECTING = 2;
+  // The node has failed to reach the relay for so long that the wait before
+  // each dial has reached its cap (`RelayLink` in quic/relay.rs), or the
+  // relay is the node itself.
+  RELAY_CONNECTION_UNREACHABLE = 3;
 }
 
 enum Runtime {

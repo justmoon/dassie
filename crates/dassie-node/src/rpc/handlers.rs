@@ -10,6 +10,7 @@ use super::connection::Queued;
 use super::proto::{self, request::Method, response, stream_item};
 use super::{Caller, RpcError, convert};
 use crate::node::{Node, ObtainError, ObtainRequest, SettingsError};
+use crate::quic::relay::RelayLink;
 
 /// What a call ended with, short of an error. One per call, moved once:
 /// boxing the response would cost an allocation for nothing.
@@ -296,10 +297,16 @@ fn status(node: &Node) -> proto::GetStatusResponse {
         relay: node
             .quic()
             .and_then(|quic| quic.chosen_relay())
-            .map(|(relay, url, connected)| proto::ChosenRelay {
+            .map(|(relay, url, link)| proto::ChosenRelay {
                 node: relay.as_str().to_string(),
                 url,
-                connected,
+                connected: link == RelayLink::Connected,
+                connection: match link {
+                    RelayLink::Connected => proto::RelayConnection::Connected,
+                    RelayLink::Connecting => proto::RelayConnection::Connecting,
+                    RelayLink::Unreachable => proto::RelayConnection::Unreachable,
+                }
+                .into(),
             }),
         open_payments_origins: crate::open_payments::Names::of(node)
             .map(|names| names.origins())

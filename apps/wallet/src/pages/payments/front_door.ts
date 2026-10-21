@@ -5,6 +5,8 @@
  * to it, as its relay, which it keeps by default (D40).
  */
 
+import { RelayConnection } from "@dassie/rpc/proto";
+
 /** The front door's domain. */
 const DOMAIN = "dassiepay.net";
 
@@ -18,12 +20,16 @@ export function atFrontDoor(pointer: string): boolean {
 export interface Relay {
   readonly url: string;
   readonly connected: boolean;
+  readonly connection: RelayConnection;
 }
 
 /**
  * What the wallet says of a name at the default front door:
  * - `reachable`: the node holds its connection to the front door;
- * - `disconnected`: the front door is its relay, but not connected now;
+ * - `connecting`: the front door is its relay, and the node is connecting
+ *   to it, right after a start or a brief drop, which is no fault;
+ * - `disconnected`: the front door is its relay, but has stayed unreachable
+ *   (spec/areas/node.md#a-chosen-relay);
  * - `other-relay`: the node keeps another relay, so the front door does not
  *   reach it;
  * - `no-relay`: the node keeps none (`DASSIE_RELAY` is empty);
@@ -31,6 +37,7 @@ export interface Relay {
  */
 export type FrontDoorState =
   | "reachable"
+  | "connecting"
   | "disconnected"
   | "other-relay"
   | "no-relay"
@@ -49,7 +56,17 @@ export function frontDoorState(
   if (relay === undefined) return "unknown";
   if (relay === null) return "no-relay";
   if (!isFrontDoor(relay.url)) return "other-relay";
-  return relay.connected ? "reachable" : "disconnected";
+  switch (relay.connection) {
+    case RelayConnection.CONNECTED:
+      return "reachable";
+    case RelayConnection.CONNECTING:
+      return "connecting";
+    case RelayConnection.UNREACHABLE:
+      return "disconnected";
+    default:
+      // A state this wallet does not know says only whether it is connected.
+      return relay.connected ? "reachable" : "disconnected";
+  }
 }
 
 /** Whether a relay's URL is the default front door's. */

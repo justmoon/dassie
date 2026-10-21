@@ -12,7 +12,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/ui/v1/node.proto.
  */
 export const file_dassie_ui_v1_node: GenFile = /*@__PURE__*/
-  fileDesc("ChdkYXNzaWUvdWkvdjEvbm9kZS5wcm90bxIMZGFzc2llLnVpLnYxIhYKFEdldEJhc2ljU3RhdGVSZXF1ZXN0IrUBChVHZXRCYXNpY1N0YXRlUmVzcG9uc2USJgoFc3RhdGUYASABKA4yFy5kYXNzaWUudWkudjEuTm9kZVN0YXRlEg8KB25vZGVfaWQYAiABKAkSEAoIaG9zdG5hbWUYAyABKAkSHQoVaWxwX2FsbG9jYXRpb25fc2NoZW1lGAQgASgJEg8KB3ZlcnNpb24YBSABKAkSIQoZYWN0aXZlX3NldHRsZW1lbnRfc2NoZW1lcxgGIAMoCSISChBHZXRTdGF0dXNSZXF1ZXN0IsMCChFHZXRTdGF0dXNSZXNwb25zZRIPCgd2ZXJzaW9uGAEgASgJEiYKB3J1bnRpbWUYAiABKA4yFS5kYXNzaWUudWkudjEuUnVudGltZRIaChJzdGFydGVkX2F0X3VuaXhfbXMYAyABKAMSLgoLY2VydGlmaWNhdGUYBCABKAsyGS5kYXNzaWUudWkudjEuQ2VydGlmaWNhdGUSJgoEYWNtZRgFIAEoCzIYLmRhc3NpZS51aS52MS5BY21lU3RhdHVzEhEKCWh0dHBfcG9ydBgGIAEoDRISCgpodHRwc19wb3J0GAcgASgNEhEKCXBlcmlwaGVyeRgIIAEoCBIoCgVyZWxheRgJIAEoCzIZLmRhc3NpZS51aS52MS5DaG9zZW5SZWxheRIdChVvcGVuX3BheW1lbnRzX29yaWdpbnMYCiADKAkiOwoLQ2hvc2VuUmVsYXkSDAoEbm9kZRgBIAEoCRILCgN1cmwYAiABKAkSEQoJY29ubmVjdGVkGAMgASgIIlEKCkFjbWVTdGF0dXMSEwoLaGFzX2FjY291bnQYASABKAgSGgoSbmV4dF9jaGVja191bml4X21zGAIgASgDEhIKCmxhc3RfZXJyb3IYAyABKAkqfQoJTm9kZVN0YXRlEhoKFk5PREVfU1RBVEVfVU5TUEVDSUZJRUQQABIcChhOT0RFX1NUQVRFX1VOSU5JVElBTElaRUQQARIYChROT0RFX1NUQVRFX0FOT05ZTU9VUxACEhwKGE5PREVfU1RBVEVfQVVUSEVOVElDQVRFRBADKk8KB1J1bnRpbWUSFwoTUlVOVElNRV9VTlNQRUNJRklFRBAAEhYKElJVTlRJTUVfU1RBTkRBTE9ORRABEhMKD1JVTlRJTUVfU1lTVEVNRBACYgZwcm90bzM", [file_dassie_ui_v1_tls]);
+  fileDesc("ChdkYXNzaWUvdWkvdjEvbm9kZS5wcm90bxIMZGFzc2llLnVpLnYxIhYKFEdldEJhc2ljU3RhdGVSZXF1ZXN0IrUBChVHZXRCYXNpY1N0YXRlUmVzcG9uc2USJgoFc3RhdGUYASABKA4yFy5kYXNzaWUudWkudjEuTm9kZVN0YXRlEg8KB25vZGVfaWQYAiABKAkSEAoIaG9zdG5hbWUYAyABKAkSHQoVaWxwX2FsbG9jYXRpb25fc2NoZW1lGAQgASgJEg8KB3ZlcnNpb24YBSABKAkSIQoZYWN0aXZlX3NldHRsZW1lbnRfc2NoZW1lcxgGIAMoCSISChBHZXRTdGF0dXNSZXF1ZXN0IsMCChFHZXRTdGF0dXNSZXNwb25zZRIPCgd2ZXJzaW9uGAEgASgJEiYKB3J1bnRpbWUYAiABKA4yFS5kYXNzaWUudWkudjEuUnVudGltZRIaChJzdGFydGVkX2F0X3VuaXhfbXMYAyABKAMSLgoLY2VydGlmaWNhdGUYBCABKAsyGS5kYXNzaWUudWkudjEuQ2VydGlmaWNhdGUSJgoEYWNtZRgFIAEoCzIYLmRhc3NpZS51aS52MS5BY21lU3RhdHVzEhEKCWh0dHBfcG9ydBgGIAEoDRISCgpodHRwc19wb3J0GAcgASgNEhEKCXBlcmlwaGVyeRgIIAEoCBIoCgVyZWxheRgJIAEoCzIZLmRhc3NpZS51aS52MS5DaG9zZW5SZWxheRIdChVvcGVuX3BheW1lbnRzX29yaWdpbnMYCiADKAkibgoLQ2hvc2VuUmVsYXkSDAoEbm9kZRgBIAEoCRILCgN1cmwYAiABKAkSEQoJY29ubmVjdGVkGAMgASgIEjEKCmNvbm5lY3Rpb24YBCABKA4yHS5kYXNzaWUudWkudjEuUmVsYXlDb25uZWN0aW9uIlEKCkFjbWVTdGF0dXMSEwoLaGFzX2FjY291bnQYASABKAgSGgoSbmV4dF9jaGVja191bml4X21zGAIgASgDEhIKCmxhc3RfZXJyb3IYAyABKAkqfQoJTm9kZVN0YXRlEhoKFk5PREVfU1RBVEVfVU5TUEVDSUZJRUQQABIcChhOT0RFX1NUQVRFX1VOSU5JVElBTElaRUQQARIYChROT0RFX1NUQVRFX0FOT05ZTU9VUxACEhwKGE5PREVfU1RBVEVfQVVUSEVOVElDQVRFRBADKpYBCg9SZWxheUNvbm5lY3Rpb24SIAocUkVMQVlfQ09OTkVDVElPTl9VTlNQRUNJRklFRBAAEh4KGlJFTEFZX0NPTk5FQ1RJT05fQ09OTkVDVEVEEAESHwobUkVMQVlfQ09OTkVDVElPTl9DT05ORUNUSU5HEAISIAocUkVMQVlfQ09OTkVDVElPTl9VTlJFQUNIQUJMRRADKk8KB1J1bnRpbWUSFwoTUlVOVElNRV9VTlNQRUNJRklFRBAAEhYKElJVTlRJTUVfU1RBTkRBTE9ORRABEhMKD1JVTlRJTUVfU1lTVEVNRBACYgZwcm90bzM", [file_dassie_ui_v1_tls]);
 
 /**
  * @generated from message dassie.ui.v1.GetBasicStateRequest
@@ -187,11 +187,20 @@ export type ChosenRelay = Message<"dassie.ui.v1.ChosenRelay"> & {
   url: string;
 
   /**
-   * Whether the node holds its connection to the relay now.
+   * Whether the node holds its connection to the relay now: `connection`
+   * is CONNECTED. For clients that predate `connection`.
    *
    * @generated from field: bool connected = 3;
    */
   connected: boolean;
+
+  /**
+   * How the node stands with the relay now. UNSPECIFIED from a node that
+   * predates it, which says only `connected`.
+   *
+   * @generated from field: dassie.ui.v1.RelayConnection connection = 4;
+   */
+  connection: RelayConnection;
 };
 
 /**
@@ -277,6 +286,58 @@ export const NodeStateSchema: GenEnum<NodeState> = /*@__PURE__*/
   enumDesc(file_dassie_ui_v1_node, 0);
 
 /**
+ * How a node stands with the relay it chose
+ * (spec/areas/node.md#a-chosen-relay).
+ *
+ * @generated from enum dassie.ui.v1.RelayConnection
+ */
+export const RelayConnection = {
+  /**
+   * @generated from enum value: RELAY_CONNECTION_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED: 0,
+
+  /**
+   * The node holds its connection to the relay.
+   *
+   * @generated from enum value: RELAY_CONNECTION_CONNECTED = 1;
+   */
+  CONNECTED: 1,
+
+  /**
+   * The node dials the relay, or waits to dial it again, and has not failed
+   * for long enough for that to be a fault: right after it starts, or after
+   * a brief drop.
+   *
+   * @generated from enum value: RELAY_CONNECTION_CONNECTING = 2;
+   */
+  CONNECTING: 2,
+
+  /**
+   * The node has failed to reach the relay for so long that the wait before
+   * each dial has reached its cap (`RelayLink` in quic/relay.rs), or the
+   * relay is the node itself.
+   *
+   * @generated from enum value: RELAY_CONNECTION_UNREACHABLE = 3;
+   */
+  UNREACHABLE: 3,
+} as const;
+
+/**
+ * How a node stands with the relay it chose
+ * (spec/areas/node.md#a-chosen-relay).
+ *
+ * @generated from enum dassie.ui.v1.RelayConnection
+ */
+export type RelayConnection = (typeof RelayConnection)[keyof typeof RelayConnection] | UnknownEnum;
+
+/**
+ * Describes the enum dassie.ui.v1.RelayConnection.
+ */
+export const RelayConnectionSchema: GenEnum<RelayConnection> = /*@__PURE__*/
+  enumDesc(file_dassie_ui_v1_node, 1);
+
+/**
  * @generated from enum dassie.ui.v1.Runtime
  */
 export const Runtime = {
@@ -309,5 +370,5 @@ export type Runtime = (typeof Runtime)[keyof typeof Runtime] | UnknownEnum;
  * Describes the enum dassie.ui.v1.Runtime.
  */
 export const RuntimeSchema: GenEnum<Runtime> = /*@__PURE__*/
-  enumDesc(file_dassie_ui_v1_node, 1);
+  enumDesc(file_dassie_ui_v1_node, 2);
 
