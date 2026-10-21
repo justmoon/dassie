@@ -282,6 +282,12 @@ impl Nodes {
         Ok(sender)
     }
 
+    /// Whether `node` holds a connection to the front door now, so that a
+    /// request to it could be passed on.
+    pub async fn is_connected(&self, node: NodeId) -> bool {
+        self.quic.holds_connection(node).await
+    }
+
     /// Streams open now, idle and in use.
     #[must_use]
     pub fn streams(&self) -> usize {

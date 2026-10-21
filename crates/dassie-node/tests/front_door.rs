@@ -329,6 +329,14 @@ async fn a_periphery_node_with_an_uplink_is_reached_through_its_front_door() {
     shutdown.cancel();
 }
 
+/// Each of `hosts` with a wallet address's path and with the root.
+fn hosts_and_paths<'a>(hosts: &[&'a str]) -> Vec<(&'a str, &'static str)> {
+    hosts
+        .iter()
+        .flat_map(|host| [(*host, "/.well-known/pay"), (*host, "/")])
+        .collect()
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn the_front_door_serves_only_its_names_and_open_payments() {
     let shutdown = CancellationToken::new();
@@ -336,13 +344,35 @@ async fn the_front_door_serves_only_its_names_and_open_payments() {
     let (node, key) = node_behind(&door, 62).await;
     let name = name_of(&key.node_id());
     door.until_reached(&name).await;
-    // Paths outside Open Payments, and upgrades, reach no node.
-    for path in ["/", "/index.html", "/stats", "/api/login", "/peer", "/rpc"] {
+    // Paths outside Open Payments, and upgrades, reach no node. The root
+    // is the front door's own page, but only for GET and HEAD.
+    for path in ["/index.html", "/stats", "/api/login", "/peer", "/rpc"] {
         let reply = door.get(&name, path).await;
         assert_eq!(reply.status, StatusCode::NOT_FOUND, "{path}");
         assert_eq!(json_of(&reply)["error"]["code"], "not_found", "{path}");
         assert!(reply.header("signature").is_none(), "{path}");
     }
+    for method in ["POST", "PUT", "DELETE", "OPTIONS"] {
+        let request = Request::builder()
+            .method(method)
+            .uri("/")
+            .header("host", &name)
+            .body(Full::new(Bytes::new()))
+            .unwrap();
+        let reply = door.send(&name, request).await;
+        assert_eq!(reply.status, StatusCode::NOT_FOUND, "{method}");
+        assert_eq!(json_of(&reply)["error"]["code"], "not_found", "{method}");
+    }
+    let upgrade = Request::get("/")
+        .header("host", &name)
+        .header("connection", "upgrade")
+        .header("upgrade", "websocket")
+        .body(Full::new(Bytes::new()))
+        .unwrap();
+    assert_eq!(
+        door.send(&name, upgrade).await.status,
+        StatusCode::NOT_FOUND
+    );
     let upgrade = Request::get("/.well-known/pay")
         .header("host", &name)
         .header("connection", "upgrade")
@@ -356,25 +386,30 @@ async fn the_front_door_serves_only_its_names_and_open_payments() {
     // Names under the domain that are no node's label find nothing.
     let other = NodeKey::from_bytes(&[63; 32]).node_id();
     let deeper = format!("x.{name}");
-    for host in ["nope.dassiepay.net", DOMAIN, deeper.as_str()] {
-        let request = Request::get("/.well-known/pay")
+    // Their roots show no page either.
+    for (host, path) in hosts_and_paths(&["nope.dassiepay.net", DOMAIN, deeper.as_str()]) {
+        let request = Request::get(path)
             .header("host", host)
             .body(Full::new(Bytes::new()))
             .unwrap();
         let reply = door.send(&name, request).await;
-        assert_eq!(reply.status, StatusCode::NOT_FOUND, "{host}");
+        assert_eq!(reply.status, StatusCode::NOT_FOUND, "{host}{path}");
         assert_eq!(json_of(&reply)["error"]["code"], "not_found");
     }
     // Names outside it, or on another port, are refused.
     let elsewhere = format!("{}.example.net", key.node_id().label().unwrap());
     let ported = format!("{name}:8443");
-    for host in [elsewhere.as_str(), ported.as_str(), "127.0.0.1"] {
-        let request = Request::get("/.well-known/pay")
+    for (host, path) in hosts_and_paths(&[elsewhere.as_str(), ported.as_str(), "127.0.0.1"]) {
+        let request = Request::get(path)
             .header("host", host)
             .body(Full::new(Bytes::new()))
             .unwrap();
         let reply = door.send(&name, request).await;
-        assert_eq!(reply.status, StatusCode::MISDIRECTED_REQUEST, "{host}");
+        assert_eq!(
+            reply.status,
+            StatusCode::MISDIRECTED_REQUEST,
+            "{host}{path}"
+        );
     }
     // A node that is not connected cannot be reached now.
     let reply = door.get(&name_of(&other), "/.well-known/pay").await;
@@ -398,6 +433,102 @@ async fn the_front_door_serves_only_its_names_and_open_payments() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert!(gone, "the front door still reaches a node that stopped");
+    shutdown.cancel();
+}
+
+/// Checks that `reply` is the front door's page about `id`, connected or
+/// not, and returns its text.
+fn page_of(reply: &Reply, id: &NodeId, connected: bool) -> String {
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    assert_eq!(
+        reply.header("content-type"),
+        Some("text/html; charset=utf-8")
+    );
+    assert_eq!(
+        reply.header("content-security-policy"),
+        Some(front_door::page::CONTENT_SECURITY_POLICY)
+    );
+    let policy = front_door::page::CONTENT_SECURITY_POLICY;
+    assert!(policy.starts_with("default-src 'none';"), "{policy}");
+    assert!(policy.contains("frame-ancestors 'none'"), "{policy}");
+    assert!(policy.ends_with("; sandbox"), "{policy}");
+    assert!(!policy.contains("script-src"), "{policy}");
+    assert_eq!(reply.header("x-content-type-options"), Some("nosniff"));
+    assert_eq!(reply.header("cache-control"), Some("no-store"));
+    for absent in ["set-cookie", "signature", "access-control-allow-origin"] {
+        assert!(reply.header(absent).is_none(), "{absent}");
+    }
+    let page = reply.text();
+    let name = name_of(id);
+    assert!(page.starts_with("<!doctype html>"));
+    assert!(!page.to_ascii_lowercase().contains("<script"));
+    assert!(page.contains(&format!("<code>{name}</code>")), "{page}");
+    assert!(page.contains(&format!("<code>{}</code>", id.as_str())));
+    let address = format!("https://{name}/.well-known/pay");
+    assert!(page.contains(&format!("<a href=\"{address}\">{address}</a>")));
+    assert!(page.contains("<a href=\"https://dassie.land\">"));
+    assert!(page.contains("address of the Dassie node with the ID below"));
+    assert!(page.contains("Open Payments only"));
+    assert!(page.contains("own wallet, not here"));
+    let state = if connected {
+        "Connected to this front door now."
+    } else {
+        "Not connected to this front door now."
+    };
+    assert!(page.contains(state), "{page}");
+    page
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_root_of_a_name_is_a_page_the_front_door_writes() {
+    let shutdown = CancellationToken::new();
+    let door = Door::start(&shutdown).await;
+    let (node, key) = node_behind(&door, 68).await;
+    let id = key.node_id();
+    let name = name_of(&id);
+    door.until_reached(&name).await;
+    page_of(&door.get(&name, "/").await, &id, true);
+    // The same page whatever the client accepts, and under the name in
+    // capitals, which DNS does not tell apart.
+    let request = Request::get("/?q=1")
+        .header("host", name.to_ascii_uppercase())
+        .header("accept", "application/json")
+        .body(Full::new(Bytes::new()))
+        .unwrap();
+    page_of(&door.send(&name, request).await, &id, true);
+    // HEAD has the page's head and no body.
+    let head = Request::head("/")
+        .header("host", &name)
+        .body(Full::new(Bytes::new()))
+        .unwrap();
+    let reply = door.send(&name, head).await;
+    assert_eq!(reply.status, StatusCode::OK);
+    assert_eq!(
+        reply.header("content-type"),
+        Some("text/html; charset=utf-8")
+    );
+    assert_eq!(
+        reply.header("content-security-policy"),
+        Some(front_door::page::CONTENT_SECURITY_POLICY)
+    );
+    assert!(reply.body.is_empty());
+    // A node that never connected has its page too, which says so.
+    let other = NodeKey::from_bytes(&[69; 32]).node_id();
+    page_of(&door.get(&name_of(&other), "/").await, &other, false);
+    // And so does one that stopped, once the front door has seen it go.
+    node.stop().await;
+    let mut gone = false;
+    for _ in 0..200 {
+        let reply = door.get(&name, "/").await;
+        if reply.text().contains("Not connected") {
+            page_of(&reply, &id, false);
+            gone = true;
+            break;
+        }
+        door.clock.advance(1_000);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(gone, "the page still says a node that stopped is connected");
     shutdown.cancel();
 }
 

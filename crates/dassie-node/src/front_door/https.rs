@@ -4,8 +4,9 @@
 //! the node's signature on it still verifies.
 //!
 //! It passes on only Open Payments' routes, with bounded heads and bodies,
-//! and only end-to-end headers. It returns only JSON, or no body. It never
-//! serves a page, the wallet or a cookie of its own or of a node's.
+//! and only end-to-end headers. It returns only JSON, or no body, but for
+//! one static page it writes itself at the root of a node's name
+//! ([`page`]). It never serves a node's page, the wallet or a cookie.
 
 use std::convert::Infallible;
 use std::net::SocketAddr;
@@ -23,7 +24,7 @@ use hyper::body::Incoming;
 use hyper::header::{self, HeaderMap, HeaderName, HeaderValue};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
-use hyper::{Request, Response, StatusCode, Version};
+use hyper::{Method, Request, Response, StatusCode, Version};
 use hyper_util::rt::{TokioIo, TokioTimer};
 use rustls::ServerConfig;
 use sha2::{Digest, Sha256};
@@ -33,6 +34,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use super::nodes::{Answer, Missed, Nodes};
+use super::page;
 use crate::clock::Clock;
 use crate::http::open_payments::{MAX_BODY_BYTES, is_open_payments_path};
 use crate::http::response::{self, Body, header_has_token, header_str};
@@ -105,6 +107,9 @@ enum Target {
     Node(NodeId),
     /// The consent route, which the front door answers.
     Interact,
+    /// The page at the root of the node's name, which the front door
+    /// writes itself ([`page`]).
+    Page(NodeId),
 }
 
 impl Door {
@@ -129,6 +134,14 @@ impl Door {
         }
         match self.target(&request) {
             Err(refused) => refused.response(),
+            Ok(Target::Page(node)) => {
+                // A node ID the front door read from a label has a label.
+                let Ok(label) = node.label() else {
+                    return Refused::NoNode.response();
+                };
+                let connected = self.nodes.is_connected(node).await;
+                page::response(&self.domain, &label, &node, connected)
+            }
             Ok(Target::Interact) => error(
                 StatusCode::NOT_IMPLEMENTED,
                 "interaction_unavailable",
@@ -151,9 +164,13 @@ impl Door {
         let host = header_str(request.headers(), &header::HOST);
         let node = self.node_of(host)?;
         let path = request.uri().path();
-        if header_has_token(request.headers(), &header::CONNECTION, "upgrade")
-            || !is_open_payments_path(path)
-        {
+        if header_has_token(request.headers(), &header::CONNECTION, "upgrade") {
+            return Err(Refused::NoRoute);
+        }
+        if path == page::PATH && matches!(*request.method(), Method::GET | Method::HEAD) {
+            return Ok(Target::Page(node));
+        }
+        if !is_open_payments_path(path) {
             return Err(Refused::NoRoute);
         }
         if path.starts_with(INTERACT_PREFIX) {
