@@ -119,6 +119,8 @@ The owner's configuration is one row, read into a validated `NodeConfig` (`dassi
 
 Events go through `tracing` (`log.rs`). Core crates do not log; the node maps their events ([engineering](../engineering.md)). Besides standard output, the node keeps a bounded ring of its last lines for the wallet's logs page, whatever the log level says, with fields named like secrets redacted.
 
+Which transport the peer protocol uses can be read from the journal at the default level, under either runtime, without watching the network: the line that says the node listens names its QUIC endpoint, or says it has none, and each peer's transport ([Peer protocol](peer-protocol.md#transport)) is logged when its first answer in a peering, or since the engine started, arrives and whenever it changes. Never once per request, so the volume stays that of the peerings.
+
 ## The `dassie` command
 
 The CLI talks to the daemon over the IPC socket with the same RPC contract as the wallet ([D5](../decisions/D05-ui-and-cli-rpc-contract.md)); access to the socket is the owner's ([RPC](rpc.md#ipc-socket)).

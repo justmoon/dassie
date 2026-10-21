@@ -150,6 +150,9 @@ impl Prepared {
         let (http, https, ipc, quic, ipc_socket) = match runtime {
             Runtime::Systemd => {
                 let sockets = systemd::take_sockets(env).map_err(DaemonError::Activation)?;
+                if sockets.quic.is_none() {
+                    tracing::warn!(target: target::DAEMON, socket = systemd::QUIC_SOCKET, "systemd passed no UDP socket for QUIC: peers reach this node over HTTPS only");
+                }
                 (sockets.http, sockets.https, sockets.ipc, sockets.quic, None)
             }
             Runtime::Standalone => {
@@ -660,8 +663,8 @@ async fn prune_sessions(node: Arc<Node>, shutdown: CancellationToken) {
 }
 
 fn report_ready(node: &Node, notifier: Option<&Notifier>) {
-    let (http_port, https_port) = node.ports();
-    tracing::info!(target: target::DAEMON, version = crate::VERSION, runtime = ?node.runtime(), http_port, https_port, "listening");
+    let quic = node.quic().and_then(|quic| quic.local_addr().ok());
+    log_listening(node.runtime(), node.ports(), quic);
     if !node.is_set_up() {
         // Not the URL itself: whoever opens it first claims the node, and the
         // journal is readable by groups that do not administer it (adm,
@@ -674,6 +677,14 @@ fn report_ready(node: &Node, notifier: Option<&Notifier>) {
     {
         tracing::warn!(target: target::SYSTEMD, %error, "could not report readiness");
     }
+}
+
+/// The line that says the node serves, and on what: the TCP ports, and
+/// the QUIC endpoint's address, or `none` when peers reach the node over
+/// HTTPS only (spec/areas/node.md#logging).
+fn log_listening(runtime: Runtime, (http_port, https_port): (u16, u16), quic: Option<SocketAddr>) {
+    let quic = quic.map_or_else(|| "none".to_owned(), |address| address.to_string());
+    tracing::info!(target: target::DAEMON, version = crate::VERSION, ?runtime, http_port, https_port, %quic, "listening");
 }
 
 #[cfg(test)]
@@ -730,5 +741,47 @@ mod tests {
     async fn the_bound_address_is_read_from_the_listener() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         assert_eq!(bound_ip(&listener), IpAddr::V4(Ipv4Addr::LOCALHOST));
+    }
+
+    /// The `listening` line's fields, by name.
+    fn listening(runtime: Runtime, quic: Option<SocketAddr>) -> Vec<(String, String)> {
+        let lines = crate::log::capture(|| log_listening(runtime, (80, 443), quic));
+        let [line] = lines.as_slice() else {
+            panic!("one line, not {lines:?}");
+        };
+        assert_eq!(
+            (line.level, line.target.as_str(), line.message.as_str()),
+            (crate::log::LogLevel::Info, target::DAEMON, "listening")
+        );
+        line.fields
+            .iter()
+            .filter(|(name, _)| name != "version")
+            .cloned()
+            .collect()
+    }
+
+    // Whether a node takes QUIC is in its journal at info level, under
+    // either runtime, so nobody needs to watch UDP to find out.
+    #[test]
+    fn the_listening_line_names_the_quic_endpoint_or_none() {
+        let field = |name: &str, value: &str| (name.to_owned(), value.to_owned());
+        assert_eq!(
+            listening(Runtime::Systemd, Some("[::]:443".parse().unwrap())),
+            [
+                field("runtime", "Systemd"),
+                field("http_port", "80"),
+                field("https_port", "443"),
+                field("quic", "[::]:443"),
+            ]
+        );
+        assert_eq!(
+            listening(Runtime::Standalone, None),
+            [
+                field("runtime", "Standalone"),
+                field("http_port", "80"),
+                field("https_port", "443"),
+                field("quic", "none"),
+            ]
+        );
     }
 }
