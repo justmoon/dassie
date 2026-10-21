@@ -1131,13 +1131,24 @@ fn a_replaced_connection_is_forgotten_across_a_restart() {
 /// A periphery node's peering request to a core node at `https://core.test`
 /// that takes QUIC, from `downlink`, at `now`.
 fn downlink_request(core: &Core, downlink: &Arc<NodeKey>, now: u64) -> Vec<u8> {
+    downlink_request_on(core, downlink, now, "stub", &[])
+}
+
+/// A peering request from `downlink` on `scheme`, with the scheme's `data`.
+fn downlink_request_on(
+    core: &Core,
+    downlink: &Arc<NodeKey>,
+    now: u64,
+    scheme: &str,
+    data: &[u8],
+) -> Vec<u8> {
     use dassie_oer::Decode;
     use dassie_peer::auth::{AuthConfig, Authenticator};
     use dassie_peer::wire::{
         Authentication, Content, EXTENSION_PERIPHERY, Entry, NodeInfo, PeeringRequest, SchemeId,
         SignedNodeInfo, encode_envelope, sign_node_info,
     };
-    let stub = SchemeId::parse("stub").unwrap();
+    let stub = SchemeId::parse(scheme).unwrap();
     let info = NodeInfo {
         node_id: downlink.node_id(),
         sequence: now,
@@ -1156,7 +1167,7 @@ fn downlink_request(core: &Core, downlink: &Arc<NodeKey>, now: u64) -> Vec<u8> {
     let content = Content::PeeringRequest(PeeringRequest {
         scheme: stub,
         node_info: SignedNodeInfo::decode_exact(&state).unwrap(),
-        data: &[],
+        data,
         versions: vec![1],
         credit: 0,
     });
@@ -1750,4 +1761,182 @@ fn rlusd_beside_xrp_on_one_account() {
     core.begin_step(NOW + 60_000);
     follow_xrpl(&mut core, &mut ledger);
     assert!(!advertised(&core), "advertised during a global freeze");
+}
+
+/// A core node that takes downlinks, on RLUSD alone, synced and holding $10
+/// on `ledger`.
+fn rlusd_core(ledger: &mut dassie_xrpl::fake::FakeLedger) -> Core {
+    use dassie_ledger::Name;
+    use dassie_settlement::LedgerStatus;
+    use dassie_xrpl::Wallet;
+    use dassie_xrpl::codec::TokenValue;
+    use dassie_xrpl::fake::Token;
+
+    let key = Arc::new(NodeKey::from_bytes(&[7; 32]));
+    let address = Wallet::from_entropy(
+        key.settlement_entropy("xrpl-testnet", "seed-testnet")
+            .unwrap()
+            .as_bytes(),
+    )
+    .account();
+    ledger.fund(address);
+    ledger.close();
+    let mut core = Core::start(
+        CoreParts {
+            store: Arc::new(Store::open_in_memory().unwrap()),
+            key,
+            realm: Realm::Test,
+            policies: Policies::DEFAULT,
+            rng: Box::new(SeededRng::new(5)),
+            peer_rng: Box::new(SeededRng::new(6)),
+            own_info: dassie_peer::OwnInfo {
+                url: Some("https://core.test".into()),
+                alias: String::new(),
+                quic: true,
+            },
+            bootstrap: Vec::new(),
+        },
+        NOW,
+    )
+    .unwrap();
+    let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
+    core.add_scheme("xrpl-testnet-rlusd", config.into())
+        .unwrap();
+    follow_xrpl(&mut core, ledger);
+    close_xrpl(&mut core, ledger);
+    ledger
+        .issue(
+            address,
+            Token::RLUSD.amount(TokenValue::parse("10").unwrap()),
+        )
+        .unwrap();
+    close_xrpl(&mut core, ledger);
+    let rlusd = Name::new("xrpl-testnet-rlusd").unwrap();
+    assert_eq!(core.schemes[&rlusd].scheme.status(), LedgerStatus::Synced);
+    core
+}
+
+/// A downlink that peers with `core` on RLUSD at `now`, and uses up the
+/// dollar of credit we extend it: it owes us, and our room for it is gone.
+fn rlusd_downlink_owing(
+    core: &mut Core,
+    ledger: &mut dassie_xrpl::fake::FakeLedger,
+    now: u64,
+) -> dassie_identity::NodeId {
+    use dassie_ledger::{AccountName, LedgerId, Name, Reference, TransferSpec};
+    use dassie_xrpl::Wallet;
+
+    let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
+    let id = downlink.node_id();
+    let theirs = Wallet::from_entropy(&[11; 32]).account().to_address();
+    let mut data = vec![u8::try_from(theirs.len()).unwrap()];
+    data.extend_from_slice(theirs.as_bytes());
+    core.begin_step(now);
+    let body = downlink_request_on(core, &downlink, now, "xrpl-testnet-rlusd", &data);
+    core.peer_inbound(dassie_peer::InboundId(1), &body, None);
+    follow_xrpl(core, ledger);
+    assert!(core.peer.peering_of(&id).is_some(), "peered");
+    let name = Name::new(id.as_str()).unwrap();
+    let on = LedgerId::XrplTestnetRlusdUsd;
+    let account = |core: &Core, name| core.account(on, name).unwrap();
+    let interledger = account(core, AccountName::AssetsInterledger(name));
+    let dollar = 1_000_000_000;
+    for (debit, credit, reference) in [
+        (
+            account(core, AccountName::ContraTrust(name)),
+            interledger,
+            Reference::Trust,
+        ),
+        (
+            interledger,
+            account(core, AccountName::EquitySuspense),
+            Reference::Reconciliation,
+        ),
+    ] {
+        let spec = TransferSpec {
+            debit,
+            credit,
+            amount: dollar,
+            pending: false,
+            reference,
+        };
+        core.ledger.create(now, &spec).unwrap();
+    }
+    id
+}
+
+// spec/areas/settlement.md#when-peers-cannot-pay-us: while RLUSD's issuer
+// charges a transfer fee, no RLUSD node can pay us, as none pays the fee.
+// The node asks no peer on the scheme to settle, and reports a peer short of
+// room as one that cannot pay us (`Room::ShortUnpayable`), so its time short
+// counts toward withdrawing it but never toward ending it for room. The
+// scheme leaves the link state meanwhile, and stays synced. Once the fee is
+// gone, the peer is asked again, and its time short counts in full.
+#[test]
+fn a_transfer_fee_asks_no_peer_and_ends_none_for_room() {
+    use dassie_ledger::Name;
+    use dassie_settlement::LedgerStatus;
+    use dassie_xrpl::fake::FakeLedger;
+
+    let mut ledger = FakeLedger::new();
+    let mut core = rlusd_core(&mut ledger);
+    let rlusd = Name::new("xrpl-testnet-rlusd").unwrap();
+    let mut now = NOW + 1_000;
+    let id = rlusd_downlink_owing(&mut core, &mut ledger, now);
+
+    // The issuer charges a transfer fee, read at the settlement check.
+    ledger
+        .set_transfer_rate(dassie_xrpl::rlusd::ISSUER, 1_002_000_000)
+        .unwrap();
+    close_xrpl(&mut core, &mut ledger);
+    let interval = core.settle.interval_ms;
+    let check = |core: &mut Core, ledger: &mut FakeLedger, now: &mut u64| {
+        *now += interval;
+        core.begin_step(*now);
+        follow_xrpl(core, ledger);
+    };
+    check(&mut core, &mut ledger, &mut now);
+    check(&mut core, &mut ledger, &mut now);
+    assert!(!core.schemes[&rlusd].scheme.can_receive());
+    assert_eq!(core.schemes[&rlusd].scheme.status(), LedgerStatus::Synced);
+    assert!(
+        !core
+            .peer
+            .schemes()
+            .iter()
+            .any(|scheme| scheme.as_str() == "xrpl-testnet-rlusd"),
+        "in the link state during a transfer fee"
+    );
+    core.settle.asked.remove(&id);
+    let short = core.peer.peering_of(&id).unwrap().short_for_ms;
+    let reached = core.peer.peering_of(&id).unwrap().short_reached_ms;
+    check(&mut core, &mut ledger, &mut now);
+    check(&mut core, &mut ledger, &mut now);
+    assert!(
+        !core.settle.asked.contains_key(&id),
+        "asked during a transfer fee"
+    );
+    let peering = core.peer.peering_of(&id).unwrap();
+    assert!(
+        peering.short_for_ms > short,
+        "short of room, toward withdrawing it"
+    );
+    assert_eq!(
+        peering.short_reached_ms, reached,
+        "never toward ending it for room"
+    );
+
+    // The fee is gone: the peer is asked again, and its time short counts.
+    ledger
+        .set_transfer_rate(dassie_xrpl::rlusd::ISSUER, 0)
+        .unwrap();
+    close_xrpl(&mut core, &mut ledger);
+    check(&mut core, &mut ledger, &mut now);
+    check(&mut core, &mut ledger, &mut now);
+    assert!(core.schemes[&rlusd].scheme.can_receive());
+    assert!(
+        core.settle.asked.contains_key(&id),
+        "asked once the fee is gone"
+    );
+    assert!(core.peer.peering_of(&id).unwrap().short_reached_ms > reached);
 }

@@ -1031,6 +1031,8 @@ fn freezes_stop_settling_and_receiving() {
     world.settlement_check(0);
     assert!(world.nodes[0].rlusd().can_receive());
 
+    // A transfer fee no RLUSD node pays: no peer can pay us either
+    // (spec/areas/settlement.md#when-peers-cannot-pay-us).
     world
         .ledger
         .set_transfer_rate(rlusd::ISSUER, 1_002_000_000)
@@ -1038,9 +1040,12 @@ fn freezes_stop_settling_and_receiving() {
     world.close();
     world.settlement_check(0);
     assert!(unavailable(&mut world));
+    assert!(!world.nodes[0].rlusd().can_receive());
+    assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
     world.ledger.set_transfer_rate(rlusd::ISSUER, 0).unwrap();
     world.close();
     world.settlement_check(0);
+    assert!(world.nodes[0].rlusd().can_receive());
     let id = world.settle(USD, 0, 1, usd(1_000_000), &state_a);
     world.close();
     assert_eq!(world.nodes[0].books[USD].finalized, [id]);

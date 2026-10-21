@@ -184,8 +184,9 @@ pub trait SettlementScheme: Send {
     }
 
     /// Whether a peer's settlement can reach us on the underlying ledger
-    /// now. While it cannot, as while an issuer has frozen our line deep or
-    /// frozen its token globally, the node asks no peer on the scheme to
+    /// now. While it cannot, as while an issuer has frozen our line deep,
+    /// frozen its token globally or charges a transfer fee no peer pays, the
+    /// node asks no peer on the scheme to
     /// settle, counts a peer's time short of room toward withdrawing it but
     /// never toward ending the peering, and leaves the scheme out of its
     /// link state (spec/areas/settlement.md#when-peers-cannot-pay-us). The

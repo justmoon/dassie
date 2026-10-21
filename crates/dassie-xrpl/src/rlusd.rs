@@ -33,7 +33,8 @@
 //! Our line's flags are read at each sync and with every transaction on it;
 //! the issuer's account at every settlement check. While the line is frozen,
 //! a global freeze holds or a transfer fee is set, the scheme settles
-//! nothing; while the line cannot receive, peers cannot pay us
+//! nothing; while the line is deep-frozen, a global freeze holds or a
+//! transfer fee is set, peers cannot pay us either
 //! ([`can_receive`](SettlementScheme::can_receive)).
 
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -206,11 +207,13 @@ impl RlusdScheme {
         matches!(self.line, Some(Some(view)) if view.theirs.freeze || view.theirs.deep_freeze)
     }
 
-    /// Whether our line cannot receive from a peer: deep-frozen, or the
-    /// issuer's token frozen for every holder.
+    /// Whether no peer can pay us on our line: it is deep-frozen, the
+    /// issuer froze its token for every holder, or it charges a transfer
+    /// fee, which no RLUSD node pays, as a Payment without `SendMax` cannot
+    /// (spec/areas/settlement.md#when-peers-cannot-pay-us).
     fn cannot_receive(&self) -> bool {
         matches!(self.line, Some(Some(view)) if view.theirs.deep_freeze)
-            || matches!(self.issuer, Some(Some(issuer)) if issuer.global_freeze)
+            || matches!(self.issuer, Some(Some(issuer)) if issuer.global_freeze || issuer.transfer_fee)
     }
 
     /// Whether the scheme may settle now, as far as the line and the
