@@ -187,6 +187,7 @@ A core node keeps its downlinks, the periphery nodes peered with it, apart from 
 - **A bound of their own** (`max_downlinks` in `crates/dassie-peer/src/config.rs`) on their places in the table, their peerings and their settlement channels, apart from the core peering slots, the table's other nodes and the channels with core nodes. Channels are never closed ([Settlement channels](#settlement-channels)), so it bounds the downlinks ever peered with. Past it, a new downlink is refused for capacity. A downlink took no place among the table's other nodes, so one that is refused, or whose peering ends, stays in the table only if it gets such a place: within their bound, or, if another reason keeps it, in place of a weaker node. Otherwise it leaves at once, and with it the wait before it may ask again after a termination; its channel stays, and with it its replay state. An owner who wants it kept away bans it.
 - **In nobody's routes.** A downlink is never listed in our link state, so no route leads to it: its child address lies beneath ours, which the rest of the network routes to us, and the connector passes it on ([Connector](connector.md#addresses-and-endpoints)).
 - **Reached only over its connection** ([Peer protocol](peer-protocol.md#quic)), each with its own bound on requests in flight rather than one for all nodes without a URL, and never withdrawn for room while it owes nothing ([Advertised peers](#advertised-peers)).
+- **Places of their own for its connections.** A downlink's QUIC connections hold places among the downlinks', which have room for every downlink within the bound, apart from core peers' and everyone else's: however many downlinks a node keeps, its core peers and relayed streams keep their room ([Peer protocol](peer-protocol.md#quic)).
 
 ## Routing
 
@@ -220,3 +221,4 @@ Periphery nodes peer with their uplinks on the same simulated network in `crates
 - [D31](../decisions/D31-a-node-peers-on-a-scheme-only-once-it-has-seen-its-ledger.md): no peering on a scheme before its first sync.
 - [D33](../decisions/D33-a-peering-ended-for-room-stays-apart-and-earns-no-credit-back.md): a pair parted for room stays apart for the cooldown, and earns no credit back.
 - [D26](../decisions/D26-core-and-periphery.md): core and periphery; why periphery nodes are in no node list and no link state.
+- [D39](../decisions/D39-a-connection-holds-a-place-by-the-key-it-proved.md): downlinks' connections hold places of their own.

@@ -35,6 +35,12 @@ impl ClientSlots {
             client,
         })
     }
+
+    /// Places taken now, in all.
+    #[must_use]
+    pub fn open_count(&self) -> usize {
+        lock(&self.0).open_count()
+    }
 }
 
 /// One connection's place, returned when it drops.

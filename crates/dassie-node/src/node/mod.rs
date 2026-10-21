@@ -34,6 +34,7 @@ use crate::acme::AcmeClient;
 use crate::clock::{Clock, SharedRng};
 use crate::engine::Engine;
 use crate::peer_client::PeerClient;
+use crate::quic::places::Classes;
 use crate::slots::{ClientSlot, ClientSlots};
 use crate::store::{Store, StoreError};
 use crate::tls::{CertificateSlot, TlsError};
@@ -270,6 +271,9 @@ struct PeerSide {
     /// Places held by each client, for its share.
     by_client: HeldByClient,
     limiter: Mutex<RateLimiter>,
+    /// The nodes peered with us, by kind, as the engine last said: what
+    /// gives their QUIC connections places of their own.
+    peerings: watch::Sender<Arc<Classes>>,
 }
 
 impl PeerSide {
@@ -289,6 +293,7 @@ impl PeerSide {
             permits: Arc::new(Semaphore::new(MAX_PEER_REQUESTS)),
             by_client: Arc::new(Mutex::new(BTreeMap::new())),
             limiter: Mutex::new(RateLimiter::new(PEER_ANONYMOUS)),
+            peerings: watch::Sender::new(Arc::new(Classes::default())),
         })
     }
 }
@@ -567,6 +572,25 @@ impl Node {
     pub fn peer_charge(&self, client: IpAddr) {
         let now = self.now_ms();
         let _ = lock(&self.peer.limiter).check(ClientKey::from_ip(client), now);
+    }
+
+    /// The nodes peered with us, by kind, as they change
+    /// (spec/areas/peer-protocol.md#quic).
+    #[must_use]
+    pub fn peerings(&self) -> watch::Receiver<Arc<Classes>> {
+        self.peer.peerings.subscribe()
+    }
+
+    /// Says who is peered with us now; those who follow hear of it only if
+    /// that changed.
+    pub fn set_peerings(&self, classes: Classes) {
+        self.peer.peerings.send_if_modified(|held| {
+            let changed = **held != classes;
+            if changed {
+                *held = Arc::new(classes);
+            }
+            changed
+        });
     }
 
     /// The configuration as it changes.

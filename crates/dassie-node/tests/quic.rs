@@ -1,6 +1,7 @@
-//! The peer protocol over QUIC, between two endpoints on loopback: requests
-//! and their answers, keys pinned by node ID, bounds on bodies, and one
-//! connection per pair of nodes (spec/areas/peer-protocol.md#quic).
+//! The peer protocol over QUIC, between endpoints on loopback: requests and
+//! their answers, keys pinned by node ID, bounds on bodies, one connection
+//! per pair of nodes, and places for connections by who opened them
+//! (spec/areas/peer-protocol.md#quic).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -14,10 +15,11 @@ use std::sync::atomic::Ordering;
 use dassie_identity::{NodeId, NodeKey};
 use dassie_node::http::peer::{Answer, BodyError};
 use dassie_node::peer_client::PeerClient;
+use dassie_node::quic::places::{Classes, Counts, Peerings};
 use dassie_node::quic::{Body, Handler, Quic, SendError, Transport, send_peer};
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
-use dassie_peer::wire::{Kind, MAX_MESSAGE_BYTES};
+use dassie_peer::wire::{Kind, MAX_MESSAGE_BYTES, RESPONSE_CONTENT_TYPE};
 use dassie_peer::{Request, RequestId};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
@@ -43,18 +45,56 @@ impl Handler for Echo {
         _client: IpAddr,
         body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
-        Box::pin(async move {
-            match body.await {
-                Ok(body) => Answer { status: 200, body },
-                Err(BodyError::TooLarge) => Answer {
-                    status: 413,
-                    body: Vec::new(),
-                },
-                Err(BodyError::Broken) => Answer {
-                    status: 400,
-                    body: Vec::new(),
-                },
-            }
+        Box::pin(echo(body))
+    }
+}
+
+async fn echo(body: Body<'_>) -> Answer {
+    match body.await {
+        Ok(body) => Answer { status: 200, body },
+        Err(BodyError::TooLarge) => Answer {
+            status: 413,
+            body: Vec::new(),
+        },
+        Err(BodyError::Broken) => Answer {
+            status: 400,
+            body: Vec::new(),
+        },
+    }
+}
+
+/// Echoes, with the peerings a test sets: room for one core peer and one
+/// downlink, and for [`ANYONE`] connections from anyone else.
+struct Classed(watch::Receiver<Arc<Classes>>);
+
+/// The places for anyone else's connections, and for those being set up.
+const ANYONE: usize = 2;
+
+impl Handler for Classed {
+    fn client(&self, _address: IpAddr) -> Option<ClientKey> {
+        None
+    }
+
+    fn limits(&self) -> ConnectionLimits {
+        ConnectionLimits {
+            max_total: ANYONE,
+            max_per_client: 16,
+        }
+    }
+
+    fn answer<'a>(
+        &'a self,
+        _client: IpAddr,
+        body: Body<'a>,
+    ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
+        Box::pin(echo(body))
+    }
+
+    fn peerings(&self) -> Option<Peerings> {
+        Some(Peerings {
+            classes: self.0.clone(),
+            max_core_peers: 1,
+            max_downlinks: 1,
         })
     }
 }
@@ -129,10 +169,19 @@ fn side(seed: u8, shutdown: &CancellationToken) -> Side {
 }
 
 fn side_with(seed: u8, shutdown: &CancellationToken, handler: Arc<dyn Handler>) -> Side {
+    let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+    side_on(seed, shutdown, handler, socket)
+}
+
+fn side_on(
+    seed: u8,
+    shutdown: &CancellationToken,
+    handler: Arc<dyn Handler>,
+    socket: UdpSocket,
+) -> Side {
     let key = Arc::new(NodeKey::from_bytes(&[seed; 32]));
     let id = key.node_id();
     let (identity, receiver) = watch::channel(Some(key));
-    let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
     let quic = Arc::new(Quic::new(socket, receiver, true).unwrap());
     let port = quic.local_addr().unwrap().port();
     tokio::spawn(Arc::clone(&quic).serve(handler, shutdown.clone()));
@@ -290,9 +339,9 @@ async fn requests_to_one_node_run_side_by_side() {
     shutdown.cancel();
 }
 
-/// A node whose UDP drops everything, and whose HTTPS takes connections but
-/// answers nothing: a UDP socket that is never read, and a TCP listener on
-/// the same port number.
+/// A UDP socket and a TCP listener on the same port number. Left unserved,
+/// a node whose UDP drops everything, and whose HTTPS takes connections
+/// but answers nothing.
 async fn silent() -> (UdpSocket, tokio::net::TcpListener, u16) {
     for _ in 0..16 {
         let udp = UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -358,4 +407,186 @@ async fn a_request_in_progress_is_answered_at_shutdown() {
     let response = sending.await.unwrap().unwrap();
     assert_eq!((response.status, response.body), (200, b"late".to_vec()));
     shutdown_a.cancel();
+}
+
+/// Answers `POST /peer` over HTTPS on `listener`, with the test's
+/// certificate for 127.0.0.1, echoing each body, as [`Echo`] does over QUIC.
+fn https_echo(listener: tokio::net::TcpListener) {
+    use http_body_util::{BodyExt, Full};
+    use hyper::service::service_fn;
+    use rustls::pki_types::pem::PemObject;
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+    let pebble = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/pebble");
+    let certs = CertificateDer::pem_file_iter(format!("{pebble}/cert.pem"))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let key = PrivateKeyDer::from_pem_file(format!("{pebble}/key.pem")).unwrap();
+    let config = rustls::ServerConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_no_client_auth()
+    .with_single_cert(certs, key)
+    .unwrap();
+    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            let acceptor = acceptor.clone();
+            tokio::spawn(async move {
+                let Ok(tls) = acceptor.accept(stream).await else {
+                    return;
+                };
+                let service = service_fn(|request: hyper::Request<hyper::body::Incoming>| async {
+                    let body = request.into_body().collect().await?.to_bytes();
+                    let mut response = hyper::Response::new(Full::new(body));
+                    let content_type =
+                        hyper::header::HeaderValue::from_static(RESPONSE_CONTENT_TYPE);
+                    response
+                        .headers_mut()
+                        .insert(hyper::header::CONTENT_TYPE, content_type);
+                    Ok::<_, hyper::Error>(response)
+                });
+                let _ = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(hyper_util::rt::TokioIo::new(tls), service)
+                    .await;
+            });
+        }
+    });
+}
+
+/// A server whose peerings the test sets, as `classes`.
+fn classed(shutdown: &CancellationToken) -> (Side, watch::Sender<Arc<Classes>>) {
+    let (classes, receiver) = watch::channel(Arc::new(Classes::default()));
+    let server = side_with(1, shutdown, Arc::new(Classed(receiver)));
+    (server, classes)
+}
+
+fn peerings(core: &[&Side], downlinks: &[&Side]) -> Arc<Classes> {
+    Arc::new(Classes {
+        core: core.iter().map(|side| side.id).collect(),
+        downlinks: downlinks.iter().map(|side| side.id).collect(),
+    })
+}
+
+fn counts(core: usize, downlinks: usize, others: usize) -> Counts {
+    Counts {
+        setting_up: 0,
+        core,
+        downlinks,
+        others,
+    }
+}
+
+/// Waits, a few seconds at most, until `done`.
+async fn until(mut done: impl FnMut() -> bool) {
+    for _ in 0..500 {
+        if done() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("not done in time");
+}
+
+/// Sends `from` a request to `to`, and says whether it was answered.
+async fn answered(from: &Side, to: &Side) -> bool {
+    let request = request(to, b"hello".to_vec());
+    from.quic.send(&request, &client(), CONNECT).await.is_ok()
+}
+
+// Anyone else's places are full, yet a core peer and a downlink each find
+// room among their own.
+#[tokio::test]
+async fn core_peers_and_downlinks_have_room_of_their_own() {
+    let shutdown = CancellationToken::new();
+    let (server, classes) = classed(&shutdown);
+    let (core, downlink) = (side(2, &shutdown), side(3, &shutdown));
+    classes.send_replace(peerings(&[&core], &[&downlink]));
+    for seed in 4..4 + ANYONE {
+        let stranger = side(u8::try_from(seed).unwrap(), &shutdown);
+        assert!(answered(&stranger, &server).await);
+    }
+    let late = side(9, &shutdown);
+    assert!(!answered(&late, &server).await);
+    assert_eq!(server.quic.places(), Some(counts(0, 0, ANYONE)));
+    assert!(answered(&core, &server).await);
+    assert!(answered(&downlink, &server).await);
+    assert_eq!(server.quic.places(), Some(counts(1, 1, ANYONE)));
+    shutdown.cancel();
+}
+
+// A node that becomes a downlink takes its connection out of anyone
+// else's places, and loses it once its peering ends with them full.
+#[tokio::test]
+async fn a_connection_moves_with_its_nodes_peering() {
+    let shutdown = CancellationToken::new();
+    let (server, classes) = classed(&shutdown);
+    let newcomer = side(2, &shutdown);
+    assert!(answered(&newcomer, &server).await);
+    assert_eq!(server.quic.places(), Some(counts(0, 0, 1)));
+    classes.send_replace(peerings(&[], &[&newcomer]));
+    until(|| server.quic.places() == Some(counts(0, 1, 0))).await;
+    // The same connection carries its requests still.
+    assert!(answered(&newcomer, &server).await);
+    assert_eq!(newcomer.quic.open_connections(), 1);
+    for seed in 3..3 + ANYONE {
+        let stranger = side(u8::try_from(seed).unwrap(), &shutdown);
+        assert!(answered(&stranger, &server).await);
+    }
+    assert_eq!(server.quic.places(), Some(counts(0, 1, ANYONE)));
+    classes.send_replace(peerings(&[], &[]));
+    until(|| newcomer.quic.open_connections() == 0).await;
+    assert_eq!(server.quic.places(), Some(counts(0, 0, ANYONE)));
+    shutdown.cancel();
+}
+
+// A downlink cannot hold more than its share by opening more connections:
+// the newest takes the place of its oldest, and nobody else's.
+#[tokio::test]
+async fn a_node_past_its_share_replaces_its_oldest_connection() {
+    let shutdown = CancellationToken::new();
+    let (server, classes) = classed(&shutdown);
+    // One node, three endpoints: three connections under one key.
+    let endpoints = [side(3, &shutdown), side(3, &shutdown), side(3, &shutdown)];
+    classes.send_replace(peerings(&[], &[&endpoints[0]]));
+    let [first, second, third] = &endpoints;
+    assert!(answered(first, &server).await);
+    assert!(answered(second, &server).await);
+    assert_eq!(server.quic.places(), Some(counts(0, 2, 0)));
+    assert!(answered(third, &server).await);
+    until(|| first.quic.open_connections() == 0).await;
+    assert_eq!(second.quic.open_connections(), 1);
+    assert_eq!(server.quic.places(), Some(counts(0, 2, 0)));
+    shutdown.cancel();
+}
+
+// A stranger the server has no room for is told so as its connection
+// closes, before anything it sent was read: it asks over HTTPS, as when a
+// connection is refused outright, and for a while after.
+#[tokio::test]
+async fn a_stranger_without_room_is_asked_over_https() {
+    let shutdown = CancellationToken::new();
+    let (udp, tcp, _) = silent().await;
+    let (classes, receiver) = watch::channel(Arc::new(Classes::default()));
+    let server = side_on(1, &shutdown, Arc::new(Classed(receiver)), udp);
+    https_echo(tcp);
+    for seed in 4..4 + ANYONE {
+        let stranger = side(u8::try_from(seed).unwrap(), &shutdown);
+        assert!(answered(&stranger, &server).await);
+    }
+    let late = side(9, &shutdown);
+    let (result, transport) = send_peer(
+        Some(Arc::clone(&late.quic)),
+        &client(),
+        request(&server, b"hello".to_vec()),
+    )
+    .await;
+    assert_eq!(transport, Transport::Https);
+    assert_eq!(result.unwrap().body, b"hello");
+    assert!(late.quic.is_unreachable(&server.id));
+    assert_eq!(server.quic.places(), Some(counts(0, 0, ANYONE)));
+    drop(classes);
+    shutdown.cancel();
 }

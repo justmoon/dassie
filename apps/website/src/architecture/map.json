@@ -302,6 +302,7 @@
         "The database and its migrations, HTTPS and IPC listeners, TLS and ACME, the owner's login",
         "The engine: ledger, connector, BTP server and STREAM receiver",
         "The peer protocol over QUIC, with each node's key pinned, and over HTTPS as `POST /peer` for nodes that do not take QUIC; the settlement loop",
+        "QUIC connections held apart by who opened them, as the key each proved says: core peers, downlinks and everyone else each have room of their own, so many downlinks never crowd out the links that carry the network",
         "Relayed streams: any QUIC node relays for the nodes connected to it, with TLS end to end, so a node without a public address that keeps a connection to a relay is still reached for Open Payments",
         "Front doors: a server with a key of its own and a wildcard certificate that takes Open Payments requests for `<label>.<domain>` and passes them to the node the label names, over relayed streams it opens on the connection the node keeps to it; it returns only the node's signed JSON, under a policy that lets nothing run, and never a page or a cookie",
         "RPC with live streams, the log ring, the database inspector and `GET /stats`",

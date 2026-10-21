@@ -272,6 +272,21 @@ impl Core {
         Ok(())
     }
 
+    /// Whether a peering began or ended since the last call, or, at the
+    /// first, whether any was restored.
+    pub fn take_peerings_changed(&mut self) -> bool {
+        std::mem::take(&mut self.peerings_changed)
+    }
+
+    /// The nodes peered with us, ending it or not, and whether each is our
+    /// downlink: what gives their QUIC connections places of their own
+    /// (spec/areas/peer-protocol.md#quic).
+    pub fn peerings(&self) -> impl Iterator<Item = (NodeId, bool)> + '_ {
+        self.peer
+            .peers()
+            .map(|(node, _)| (*node, self.peer.is_downlink(node)))
+    }
+
     /// The network as the owner sees it.
     pub fn network(&self) -> NetworkView {
         NetworkView {
@@ -571,6 +586,7 @@ impl Core {
         self.report(event.clone());
         match event {
             Event::Peered { node, .. } => {
+                self.peerings_changed = true;
                 if let Err(error) = self.add_peer_endpoint(node) {
                     self.report(PeerEvent::NoEndpoint { node, error });
                 }
@@ -626,6 +642,7 @@ impl Core {
                 self.update_routes();
             }
             Event::PeeringEnded { peer } => {
+                self.peerings_changed = true;
                 self.remove_peer_endpoint(&peer);
                 self.update_routes();
             }

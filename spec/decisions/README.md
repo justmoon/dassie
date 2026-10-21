@@ -40,6 +40,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [D36](D36-a-node-becomes-core-by-registering-and-being-promoted.md) | A node becomes core by registering and being promoted (not built) | network, peer-protocol, designs/periphery |
 | [D37](D37-nodes-of-0-1-and-0-2-do-not-settle-with-each-other.md) | Nodes of 0.1 and 0.2 do not settle with each other | peer-protocol, settlement, release |
 | [D38](D38-a-receiver-says-whether-it-is-full-or-stopped-short.md) | A receiver says whether it is full or stopped short | payments, stream |
+| [D39](D39-a-connection-holds-a-place-by-the-key-it-proved.md) | A connection holds a place by the key it proved | peer-protocol, network, designs/periphery |
 
 ## Adding or changing a decision
 

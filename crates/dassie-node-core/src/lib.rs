@@ -9,7 +9,8 @@
 //! - [`session`]: session tokens, lifetimes and cookies;
 //! - [`origin`]: the same-origin rule for the owner's endpoints;
 //! - [`rate_limit`]: a bounded token-bucket table for login attempts;
-//! - [`connections`]: a bounded table of open connections, per client;
+//! - [`connections`]: bounded tables of open connections, per client and
+//!   per node;
 //! - [`certificate`]: which certificate to serve, and when to replace it;
 //! - [`acme`]: when to renew, how to back off, and the challenge tokens.
 //!
