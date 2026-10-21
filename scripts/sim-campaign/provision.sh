@@ -1,5 +1,6 @@
 #!/bin/sh
-# Sets up the simulation campaign's VMs on GCP (spec D27):
+# Sets up the simulation campaign's VMs on GCP
+# (spec/decisions/random-seed-simulations.md):
 #
 #   scripts/sim-campaign/provision.sh [--apply]
 #
@@ -55,7 +56,7 @@ run gcloud services enable compute.googleapis.com secretmanager.googleapis.com \
   --project="$project"
 
 run gcloud iam service-accounts create "$account" --project="$project" \
-  --display-name="Simulation campaign (D27)" \
+  --display-name="Simulation campaign (spec/decisions/random-seed-simulations.md)" \
   --description="Runs the simulation campaign's VMs; reads only the GitHub secret"
 
 run gcloud secrets create "$secret" --project="$project" \

@@ -1,8 +1,8 @@
 //! The node's outbound HTTPS client: peer requests
 //! (spec/areas/peer-protocol.md#outbound-requests), `POST {url}/peer`, and
-//! Open Payments' requests to other servers (D9), over HTTPS to public
-//! addresses only, with bounded concurrency and response sizes, and no
-//! redirects.
+//! Open Payments' requests to other servers
+//! (spec/decisions/open-payments.md), over HTTPS to public addresses only,
+//! with bounded concurrency and response sizes, and no redirects.
 //!
 //! The node owns one client, so its connection pool outlives restarts of
 //! the engine. Whether a failure means the request surely did not arrive

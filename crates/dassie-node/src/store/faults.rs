@@ -1,9 +1,10 @@
 //! A commit that fails, the one fault a simulation injects at the store
-//! (D27). The store commits with `synchronous = FULL`, so a commit that
-//! returned is on disk, and a torn write is SQLite's to handle: what is
-//! left to go wrong is a commit that fails, as on a full disk or an I/O
-//! error. SQLite then rolls the transaction back and reports an error, and
-//! the database stays at the commit before.
+//! (spec/decisions/random-seed-simulations.md). The store commits with
+//! `synchronous = FULL`, so a commit that returned is on disk, and a torn
+//! write is SQLite's to handle: what is left to go wrong is a commit that
+//! fails, as on a full disk or an I/O error. SQLite then rolls the
+//! transaction back and reports an error, and the database stays at the
+//! commit before.
 //!
 //! The fault can be aimed at the commits that matter: one that books a
 //! packet's Fulfill, or one that holds a settlement. Only the engine's

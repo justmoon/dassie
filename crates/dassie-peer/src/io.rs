@@ -113,8 +113,9 @@ pub enum Inbound<'a> {
         /// The ILP packet.
         packet: &'a [u8],
         /// The acknowledgement. A Fulfill's says it was accepted, whatever
-        /// the node does with it: each side books its own Fulfills (D23),
-        /// and nodes of 0.1 still read the reply as a verdict.
+        /// the node does with it: each side books its own Fulfills
+        /// (spec/decisions/own-fulfills.md), and nodes of 0.1 still read the
+        /// reply as a verdict.
         reply: Reply,
     },
     /// A settlement not applied before. The node books it, then calls
@@ -136,8 +137,8 @@ pub enum Inbound<'a> {
         reply: Reply,
     },
     /// A peer asks us to settle on its scheme: the node decides how much,
-    /// if anything (D23), and answers with what it then has on its way to
-    /// the peer (D28).
+    /// if anything (spec/decisions/own-fulfills.md), and answers with what it
+    /// then has on its way to the peer (spec/decisions/ending-a-peering.md).
     SettlementRequest {
         /// The peer.
         from: NodeId,
@@ -160,7 +161,8 @@ pub enum Inbound<'a> {
 }
 
 /// The body of the reply to a Fulfill. Nodes of 0.1 read it as a verdict,
-/// which "accepted" tells them to keep their own books by (D23).
+/// which "accepted" tells them to keep their own books by
+/// (spec/decisions/own-fulfills.md).
 pub const VERDICT_ACCEPTED: u8 = 1;
 
 /// What the node hands its driver.
@@ -226,7 +228,7 @@ pub enum Event {
         by_us: bool,
     },
     /// We decided to end a peering, and tell no one until we collected
-    /// what the peer owes (D28).
+    /// what the peer owes (spec/decisions/ending-a-peering.md).
     Depeering {
         /// The peer.
         peer: NodeId,
@@ -234,7 +236,7 @@ pub enum Event {
         reason: TerminationReason,
     },
     /// A peering ended. Its accounts and settlement channel stay, and
-    /// nothing is settled for its end (D28).
+    /// nothing is settled for its end (spec/decisions/ending-a-peering.md).
     PeeringEnded {
         /// The peer.
         peer: NodeId,
@@ -253,7 +255,7 @@ pub enum Event {
     /// Prepare, Fulfill or Reject of ours surely did not arrive, and reach
     /// it again once it answers any request of ours. While they do not, a
     /// Fulfill of ours could not count in the peer's books, so the node
-    /// takes no new Prepare from it (D41).
+    /// takes no new Prepare from it (spec/decisions/unreachable-peers.md).
     Reachable {
         /// The peer.
         peer: NodeId,
@@ -269,7 +271,7 @@ pub enum Event {
     },
     /// A peer answered our request to settle: with how much it has on its
     /// way to us, or `None` if its answer does not say, as a node from
-    /// before D28 answers.
+    /// before spec/decisions/ending-a-peering.md answers.
     SettlementRequestAnswered {
         /// The node.
         peer: NodeId,
@@ -329,6 +331,6 @@ pub struct Stats {
     pub settlements_applied: u64,
     /// Settlement messages that arrived again and were not applied twice.
     pub settlements_duplicate: u64,
-    /// Settlement requests sent (D23).
+    /// Settlement requests sent (spec/decisions/own-fulfills.md).
     pub settlements_requested: u64,
 }

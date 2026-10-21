@@ -1,5 +1,6 @@
-//! Grants for the owner (D9): the one waiting at the consent page, the
-//! decision on it, and the grants approved, with what each spent.
+//! Grants for the owner (spec/decisions/open-payments.md): the one waiting at
+//! the consent page, the decision on it, and the grants approved, with what
+//! each spent.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -218,7 +219,8 @@ fn spent(
 ///
 /// A receiver read is checked against the item's receive limit, as a
 /// payment to it would be: one in another asset fits no payment, which
-/// the page warns of (D29). `access` is the grant's, item for item.
+/// the page warns of (spec/decisions/unusable-limits.md). `access` is the
+/// grant's, item for item.
 async fn read_receivers(node: &Node, urls: &Urls, grant: &mut proto::Grant, access: &[Access]) {
     let wanted: Vec<(usize, String)> = grant
         .access

@@ -3,7 +3,7 @@
 //! Byte-oriented on purpose: keys and secrets cross the boundary as
 //! `Uint8Array`s and phrases as strings. This is the edge where randomness
 //! comes from the platform (`crypto.getRandomValues`), so the core stays
-//! deterministic (D16).
+//! deterministic (spec/decisions/tigerstyle.md).
 
 extern crate alloc;
 

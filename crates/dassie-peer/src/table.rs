@@ -214,7 +214,7 @@ pub struct Peering {
     /// The scheme's state for this peer (ACC-15).
     pub state: Vec<u8>,
     /// The credit we extend to the peer. The credit it extends to us is
-    /// not ours to know (D23).
+    /// not ours to know (spec/decisions/own-fulfills.md).
     pub credit_out: u64,
     /// When it began.
     pub since_ms: u64,
@@ -223,25 +223,28 @@ pub struct Peering {
     /// The last authenticated message from it (NET-12).
     pub last_seen_ms: u64,
     /// How long the room our books give the peer has been short of a
-    /// packet, settling nothing (D12): counted only between checks at
-    /// which the node could ask it to settle, so neither the node's
-    /// downtime nor an outage of its ledger counts. Kept across a restart,
-    /// so a node that restarts often still ends a link that stays short.
-    /// It withdraws the peer.
+    /// packet, settling nothing (spec/decisions/peering-lifecycle.md):
+    /// counted only between checks at which the node could ask it to settle,
+    /// so neither the node's downtime nor an outage of its ledger counts.
+    /// Kept across a restart, so a node that restarts often still ends a link
+    /// that stays short. It withdraws the peer.
     pub short_for_ms: u64,
     /// How much of [`short_for_ms`](Self::short_for_ms) passed while the
     /// peer could be reached: the last request to settle was not one that
     /// surely never arrived. Only this ends the peering for room, so a peer
     /// cut off from us is ended for its silence, if at all, never for room
-    /// it had no chance to restore (D12). Kept across a restart too.
+    /// it had no chance to restore (spec/decisions/peering-lifecycle.md).
+    /// Kept across a restart too.
     pub short_reached_ms: u64,
-    /// Our decision to end it, while we collect first (D28).
+    /// Our decision to end it, while we collect first
+    /// (spec/decisions/ending-a-peering.md).
     pub depeering: Option<Depeering>,
 }
 
 /// Our decision to end a peering, kept to ourselves while we collect what
-/// the peer owes (D28, spec/areas/network.md#termination): for the peer,
-/// the peering goes on as before, but we take nothing new from it.
+/// the peer owes (spec/decisions/ending-a-peering.md,
+/// spec/areas/network.md#termination): for the peer, the peering goes on as
+/// before, but we take nothing new from it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Depeering {
     /// When we decided.
@@ -284,14 +287,15 @@ impl Depeering {
 
 impl Peering {
     /// Whether it was heard from within the last `window_ms`: online, as
-    /// the advertise flag sees it (D12).
+    /// the advertise flag sees it (spec/decisions/peering-lifecycle.md).
     #[must_use]
     pub const fn heard_within(&self, now_ms: u64, window_ms: u64) -> bool {
         self.last_seen_ms.saturating_add(window_ms) >= now_ms
     }
 }
 
-/// A peering being ended (D12, spec/areas/network.md#termination).
+/// A peering being ended (spec/decisions/peering-lifecycle.md,
+/// spec/areas/network.md#termination).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Termination {
     /// When it began.
@@ -313,7 +317,7 @@ impl Termination {
     }
 }
 
-/// The peering lifecycle (D12).
+/// The peering lifecycle (spec/decisions/peering-lifecycle.md).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PeerState {
     /// Not peered.
@@ -331,7 +335,8 @@ pub enum PeerState {
     Terminating(Peering, Termination),
 }
 
-/// Whether a peer is listed as our neighbor, with its damping (D12).
+/// Whether a peer is listed as our neighbor, with its damping
+/// (spec/decisions/peering-lifecycle.md).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Advertise {
     /// Whether it is listed now.
@@ -346,12 +351,13 @@ pub struct Advertise {
     /// the next one adds the time since. Not kept across a restart.
     pub short_checked_ms: Option<u64>,
     /// Whether the last request to settle that came back surely never
-    /// reached the peer (D12). Not kept across a restart, whose first
-    /// check adds nothing anyway.
+    /// reached the peer (spec/decisions/peering-lifecycle.md). Not kept
+    /// across a restart, whose first check adds nothing anyway.
     pub settle_unreached: bool,
 }
 
-/// What a settlement check found of the room our books give a peer (D12).
+/// What a settlement check found of the room our books give a peer
+/// (spec/decisions/peering-lifecycle.md).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Room {
     /// Short of a packet: the time since the last check counts, up to
@@ -386,7 +392,7 @@ pub struct Registration {
     /// again.
     pub url: String,
     /// The network the registration came from, for the cap per network
-    /// (D4): a /24 or /48.
+    /// (spec/decisions/membership-economics.md): a /24 or /48.
     pub network: Option<Network>,
 }
 

@@ -1,7 +1,7 @@
 //! GNAP's tables: grants and their access tokens, which the authorization
 //! server writes directly; they move no money, so they need not wait for
 //! the engine. Tokens and continuation tokens are stored as SHA-256
-//! hashes only (D10).
+//! hashes only (spec/decisions/secrets-at-rest.md).
 
 use dassie_node_core::rate_limit::ClientKey;
 use rusqlite::{OptionalExtension, Row, params};
@@ -129,7 +129,7 @@ fn count(value: i64) -> Result<u32, StoreError> {
 
 impl Store {
     /// Whether the owner approved a grant of `client` that is still kept:
-    /// a client on the owner's side (D34).
+    /// a client on the owner's side (spec/decisions/owners-share.md).
     pub fn client_approved(&self, client: &str) -> Result<bool, StoreError> {
         let approved: bool = self.lock().query_row(
             "SELECT EXISTS (SELECT 1 FROM gnap_grants \

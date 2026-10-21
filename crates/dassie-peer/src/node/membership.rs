@@ -1,6 +1,7 @@
-//! Membership (spec/areas/network.md#membership, D4): polling the bootstrap
-//! nodes' lists, the majority with its freeze, the list we serve, and
-//! registering with the bootstrap nodes.
+//! Membership (spec/areas/network.md#membership,
+//! spec/decisions/membership-economics.md): polling the bootstrap nodes'
+//! lists, the majority with its freeze, the list we serve, and registering
+//! with the bootstrap nodes.
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
@@ -91,7 +92,8 @@ impl Lists {
 }
 
 impl PeerNode {
-    /// The list we serve: registrations that hold, and ourselves (D4).
+    /// The list we serve: registrations that hold, and ourselves
+    /// (spec/decisions/membership-economics.md).
     pub(crate) fn rebuild_served(&mut self) {
         if !self.lists.served_changed {
             return;
@@ -209,7 +211,8 @@ impl PeerNode {
     /// The majority: nodes on more than half of the configured lists
     /// (NET-16). Lists not fetched for a day no longer vote; nodes leave
     /// the majority only while more than half of the lists are fresh, so
-    /// bootstrap nodes going down do not empty every table (D4).
+    /// bootstrap nodes going down do not empty every table
+    /// (spec/decisions/membership-economics.md).
     pub(crate) fn recompute_majority(&mut self) {
         let total = self.bootstrap.len();
         if total == 0 {
@@ -281,7 +284,8 @@ impl PeerNode {
 
     /// Registers with every bootstrap node that should hear from us: once
     /// at start, again before the registration lapses, and again if its
-    /// list has not had us for a while (D4).
+    /// list has not had us for a while
+    /// (spec/decisions/membership-economics.md).
     pub(super) fn register_with_bootstrap(&mut self) {
         if self.is_periphery() {
             return;

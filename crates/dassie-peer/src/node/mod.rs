@@ -143,7 +143,7 @@ pub(crate) enum Purpose {
     /// Asking a peer to settle.
     SettlementRequest,
     /// Asking a peer to settle a last time, before we tell it we end the
-    /// peering (D28).
+    /// peering (spec/decisions/ending-a-peering.md).
     FinalRequest,
     /// Telling a peer we end the peering.
     Termination,
@@ -220,8 +220,8 @@ pub struct PeerNode {
     pub(crate) telling: BTreeMap<NodeId, u64>,
     /// Peers our messages surely do not reach: an ILP packet of ours to
     /// each surely did not arrive, and nothing we sent it since was
-    /// answered (D41). Only peers are kept, so it holds at most one per
-    /// peering.
+    /// answered (spec/decisions/unreachable-peers.md). Only peers are kept,
+    /// so it holds at most one per peering.
     pub(crate) unreached: BTreeSet<NodeId>,
 }
 
@@ -501,12 +501,12 @@ impl PeerNode {
     }
 
     /// Whether our messages reach `node`, from what became of one of our
-    /// requests to it (D41). An authenticated answer says they do. Only an
-    /// ILP packet that surely did not arrive says they do not: the
-    /// protocol's other requests may be refused here, by the bounds on
-    /// requests in flight, which says nothing of the peer, while packets
-    /// take no place in those bounds. A request that may have arrived says
-    /// nothing either way.
+    /// requests to it (spec/decisions/unreachable-peers.md). An authenticated
+    /// answer says they do. Only an ILP packet that surely did not arrive
+    /// says they do not: the protocol's other requests may be refused here,
+    /// by the bounds on requests in flight, which says nothing of the peer,
+    /// while packets take no place in those bounds. A request that may have
+    /// arrived says nothing either way.
     fn note_reach(&mut self, node: NodeId, purpose: &Purpose, result: &Result<Vec<u8>, Problem>) {
         let reachable = match (result, purpose) {
             (Ok(_), _) => true,
@@ -538,7 +538,7 @@ impl PeerNode {
 
     /// Whether our messages reach `peer`, as far as we know: false once an
     /// ILP packet of ours to it surely did not arrive, until it answers a
-    /// request of ours (D41).
+    /// request of ours (spec/decisions/unreachable-peers.md).
     #[must_use]
     pub fn reachable(&self, peer: &NodeId) -> bool {
         !self.unreached.contains(peer)
@@ -556,7 +556,8 @@ impl PeerNode {
             Purpose::SettlementRequest => {
                 // Until another request comes back, the time the peer
                 // stays short counts toward ending the peering only if this
-                // one may have reached it (D12).
+                // one may have reached it
+                // (spec/decisions/peering-lifecycle.md).
                 let unreached = matches!(result, Err(Problem::Failed(Failure::NotDelivered)));
                 if let Some(entry) = self.table.get_mut(&to) {
                     entry.advertise.settle_unreached = unreached;
@@ -695,7 +696,7 @@ impl PeerNode {
     /// Prepare is held has passed; a copy that arrives twice is dropped by
     /// the peer. A Reject that never arrives has the effect of the packet's
     /// expiry; a Fulfill counts in our books whether or not the peer took
-    /// it (D23).
+    /// it (spec/decisions/own-fulfills.md).
     pub fn send_response(&mut self, now_ms: u64, peer: &NodeId, request_id: u32, packet: &[u8]) {
         self.advance(now_ms);
         let answer = Answer {

@@ -1,4 +1,5 @@
-//! The RPC contract with the owner's clients (`proto/dassie/ui/v1`, D5).
+//! The RPC contract with the owner's clients (`proto/dassie/ui/v1`,
+//! spec/decisions/rpc-contract.md).
 //!
 //! [`connection::serve`] runs one connection, over the WebSocket or the IPC
 //! socket alike; [`handlers`] answers each method. The original's RPC

@@ -2,8 +2,8 @@
 //!
 //! One SQLite file, `dassie.sqlite3`, in a data directory that only the
 //! daemon's user may enter (0700), itself readable only by that user (0600),
-//! because it holds the node key (D10, RT-25). Modes found looser at start
-//! are tightened, with a warning.
+//! because it holds the node key (spec/decisions/secrets-at-rest.md, RT-25).
+//! Modes found looser at start are tightened, with a warning.
 //!
 //! Every statement is short, and the connection is used synchronously behind
 //! a mutex: a statement takes microseconds and a thread pool would cost more

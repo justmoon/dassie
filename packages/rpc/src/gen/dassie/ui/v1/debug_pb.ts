@@ -201,7 +201,7 @@ export type Transfer = Message<"dassie.ui.v1.Transfer"> & {
     /**
      * The packet whose Fulfill the upstream peer refused: this row
      * reverses it or books the loss, as nodes did before each kept its
-     * own Fulfills (D23).
+     * own Fulfills (spec/decisions/own-fulfills.md).
      *
      * @generated from field: dassie.ui.v1.TraceId refusal = 14;
      */

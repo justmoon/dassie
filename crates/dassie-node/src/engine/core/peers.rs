@@ -22,7 +22,8 @@ use crate::store::PeerSettings;
 pub(super) struct Hooks<'a> {
     pub schemes: &'a mut BTreeMap<Name, ActiveScheme>,
     pub ledger: &'a mut Ledger,
-    /// The credit a junior extends to its senior at first (D20).
+    /// The credit a junior extends to its senior at first
+    /// (spec/decisions/earned-trust.md).
     pub credit: u64,
     /// The credit a senior extends to its junior at first.
     pub senior_credit: u64,
@@ -133,7 +134,7 @@ impl PeeringHooks for Hooks<'_> {
             .ok_or(RefusalReason::UnsupportedScheme)?;
         let ledger = active.scheme.ledger();
         // We accept, so we are the senior: the requester gets our credit
-        // only once the peering earned it (D20).
+        // only once the peering earned it (spec/decisions/earned-trust.md).
         let start = self.senior_credit;
         let credit_out = self.credit_for(peer, ledger, start);
         let active = self
@@ -168,7 +169,7 @@ impl PeeringHooks for Hooks<'_> {
         let active = self.scheme(scheme).ok_or(Declined)?;
         let ledger = active.scheme.ledger();
         // Our request was accepted, so we are the junior, and extend the
-        // default credit line (D20).
+        // default credit line (spec/decisions/earned-trust.md).
         let start = self.credit;
         let credit_out = self.credit_for(peer, ledger, start);
         let active = self.scheme(scheme).ok_or(Declined)?;
@@ -181,7 +182,7 @@ impl PeeringHooks for Hooks<'_> {
         // A trust account from an earlier peering may hold less, from a
         // time we were the senior: a junior extends at least the default,
         // unless we ended a peering with it for room, which keeps what it
-        // had (D33).
+        // had (spec/decisions/ended-for-room.md).
         let credit_out = if credit_out < start && !ended_for_room {
             self.raise(now_ms, peer, ledger, start - credit_out)
                 .map_err(|()| Declined)?;
@@ -299,8 +300,9 @@ impl Core {
                 .into_iter()
                 .filter_map(|view| {
                     let mut peering = view.peering?;
-                    // The credit we extend now, which grows (D20); the
-                    // peering keeps what it started with.
+                    // The credit we extend now, which grows
+                    // (spec/decisions/earned-trust.md); the peering keeps
+                    // what it started with.
                     if let Some(credit) = self.credit_out(view.id, peering.scheme) {
                         peering.credit_out = credit;
                     }
@@ -548,13 +550,14 @@ impl Core {
     }
 
     /// Tells the peer node which schemes it may peer on, in a fixed order:
-    /// the active ones that have seen their ledger (D31) and have not
-    /// stopped. Before a scheme first synced, a peer's settlement would be
-    /// booked as the owner's deposit; once it stopped, it would be refused.
-    /// So the node neither offers, asks for nor accepts a peering on it;
-    /// peerings already made stay. The list is made from the schemes
-    /// active now, each time: the original's started from those active at
-    /// its start, so of two changes the second undid the first (ACC-11).
+    /// the active ones that have seen their ledger
+    /// (spec/decisions/synced-before-peering.md) and have not stopped. Before
+    /// a scheme first synced, a peer's settlement would be booked as the
+    /// owner's deposit; once it stopped, it would be refused. So the node
+    /// neither offers, asks for nor accepts a peering on it; peerings already
+    /// made stay. The list is made from the schemes active now, each time:
+    /// the original's started from those active at its start, so of two
+    /// changes the second undid the first (ACC-11).
     pub(super) fn update_peer_schemes(&mut self) {
         let schemes: Vec<SchemeId> = self
             .schemes
@@ -595,15 +598,16 @@ impl Core {
             Event::RoutesChanged => self.update_routes(),
             // Asked again at the next check, not a minute later: a junior
             // that had not yet taken in our acceptance pays in advance at
-            // once (D23), and a request that never arrived does not use up
-            // the grace before a peer short of room is withdrawn (D12).
+            // once (spec/decisions/own-fulfills.md), and a request that never
+            // arrived does not use up the grace before a peer short of room
+            // is withdrawn (spec/decisions/peering-lifecycle.md).
             Event::SettlementRequestRefused { peer }
             | Event::SettlementRequestNotDelivered { peer } => {
                 self.settle.asked.remove(&peer);
             }
             // While our messages surely do not reach the peer, its new
             // Prepares are refused: a Fulfill of ours would count only in
-            // our books (D41).
+            // our books (spec/decisions/unreachable-peers.md).
             Event::Reachable { peer, reachable } => {
                 if let Some(&endpoint) = self.peer_endpoints.get(&peer) {
                     self.connector
@@ -636,7 +640,7 @@ impl Core {
     fn lifecycle_event(&mut self, event: Event) {
         match event {
             // Its new Prepares are refused while we collect, ours still go
-            // (D28).
+            // (spec/decisions/ending-a-peering.md).
             Event::Depeering { peer, .. } => {
                 if let Some(&endpoint) = self.peer_endpoints.get(&peer) {
                     self.connector
@@ -667,7 +671,8 @@ impl Core {
             let now = self.now_ms;
             // What was in flight to it is due now: the step expires it as
             // it finishes, rather than here, which the expiry could reach
-            // again through the peer node (D16: no recursion).
+            // again through the peer node (spec/decisions/tigerstyle.md: no
+            // recursion).
             self.connector
                 .remove_endpoint(now, EndpointId::Peer(endpoint));
         }

@@ -1,6 +1,7 @@
 //! Schema v1, its migrations, and the check that the file matches it.
 //!
-//! The original's database is not read (D3). The new one keeps its ideas: an
+//! The original's database is not read
+//! (spec/decisions/database-continuity.md). The new one keeps its ideas: an
 //! application ID that marks the file as Dassie's, `user_version` migrations
 //! each in a transaction, STRICT tables, and a check at every open that the
 //! tables are what the code expects (spec/areas/node.md#database). The check
@@ -15,7 +16,7 @@ use super::StoreError;
 pub const APPLICATION_ID: i32 = 0x7DA5_E2C9;
 
 /// The original's ID. A file with it is a v0 database, which this version
-/// does not read (D3).
+/// does not read (spec/decisions/database-continuity.md).
 pub const V0_APPLICATION_ID: i32 = 0x1DA5_3B81;
 
 /// The migrations, in order. Migration `n` (1-based) brings `user_version`
@@ -128,8 +129,9 @@ CREATE INDEX sessions_by_last_use ON sessions (last_used_at_ms);
 
 /// The ledger (spec/areas/node.md#persistence): its accounts with their
 /// posted totals cached, the journal of transfers, the settlement schemes and
-/// their checkpoints, and the BTP tokens, by hash (D10). Amounts are integers
-/// in the ledger's units; the ledger keeps every total below `i64::MAX`.
+/// their checkpoints, and the BTP tokens, by hash
+/// (spec/decisions/secrets-at-rest.md). Amounts are integers in the ledger's
+/// units; the ledger keeps every total below `i64::MAX`.
 const MIGRATION_2: &str = "
 CREATE TABLE boot (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -308,10 +310,11 @@ CREATE INDEX ledger_transfers_by_debit_sequence ON ledger_transfers (debit, sequ
 CREATE INDEX ledger_transfers_by_credit_sequence ON ledger_transfers (credit, sequence);
 ";
 
-/// Open Payments (D9, spec/areas/payments.md#persistence): incoming payments,
-/// written by the engine with the journal rows that pay them; GNAP grants and
-/// their access tokens, by hash (D10), written by the authorization server;
-/// and which ledger `$host` names.
+/// Open Payments (spec/decisions/open-payments.md,
+/// spec/areas/payments.md#persistence): incoming payments, written by the
+/// engine with the journal rows that pay them; GNAP grants and their access
+/// tokens, by hash (spec/decisions/secrets-at-rest.md), written by the
+/// authorization server; and which ledger `$host` names.
 const MIGRATION_6: &str = "
 CREATE TABLE incoming_payments (
   id BLOB PRIMARY KEY CHECK (length(id) = 16),
@@ -382,7 +385,8 @@ CREATE TABLE payment_settings (
 INSERT INTO payment_settings VALUES (1, NULL);
 ";
 
-/// Verdicts on Fulfills between peers, as 0.1 kept them (D23,
+/// Verdicts on Fulfills between peers, as 0.1 kept them
+/// (spec/decisions/own-fulfills.md,
 /// spec/areas/ledger.md#fulfills-booked-as-final): the Fulfills we sent peers
 /// and wait for a verdict on, written with the journal rows that post their
 /// packets; the Fulfills we took from peers, kept 30 days to answer a resend
@@ -470,11 +474,11 @@ ALTER TABLE incoming_payments ADD COLUMN released_amount INTEGER NOT NULL DEFAUL
   CHECK (released_amount >= 0);
 ";
 
-/// Spending through Open Payments (D9, spec/areas/payments.md#persistence):
-/// quotes, which the resource server writes as it makes them; outgoing
-/// payments, written by the engine with the journal rows that move their
-/// money; and what each grant spent per window of its interval, written with
-/// the payments that spend it.
+/// Spending through Open Payments (spec/decisions/open-payments.md,
+/// spec/areas/payments.md#persistence): quotes, which the resource server
+/// writes as it makes them; outgoing payments, written by the engine with the
+/// journal rows that move their money; and what each grant spent per window
+/// of its interval, written with the payments that spend it.
 const MIGRATION_8: &str = "
 CREATE TABLE quotes (
   id BLOB PRIMARY KEY CHECK (length(id) = 16),
@@ -547,18 +551,18 @@ CREATE TABLE grant_spend (
 
 const MIGRATION_9: &str = "
 -- The wallet address an owner's payment goes to, as the owner named it;
--- NULL when only the incoming payment is known (D9).
+-- NULL when only the incoming payment is known
+-- (spec/decisions/open-payments.md).
 ALTER TABLE quotes ADD COLUMN recipient TEXT
   CHECK (recipient IS NULL OR length(recipient) BETWEEN 1 AND 2048);
 ALTER TABLE outgoing_payments ADD COLUMN recipient TEXT
   CHECK (recipient IS NULL OR length(recipient) BETWEEN 1 AND 2048);
 ";
 
-/// One grace limit per peer, as 0.1 kept it (D23 removed it): the share of
-/// the credit we extend that a peer may cost us before it is banned, and why
-/// each node was banned.
-/// A record outlives its ban, so a peer unbanned is held to account only
-/// for what it cost since.
+/// One grace limit per peer, as 0.1 kept it (spec/decisions/own-fulfills.md
+/// removed it): the share of the credit we extend that a peer may cost us
+/// before it is banned, and why each node was banned. A record outlives its
+/// ban, so a peer unbanned is held to account only for what it cost since.
 const MIGRATION_10: &str = "
 CREATE TABLE peer_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -626,11 +630,11 @@ ALTER TABLE settlement_checkpoints ADD COLUMN state BLOB
   CHECK (state IS NULL OR length(state) <= 262144);
 ";
 
-/// Exchange rates, fees and spread (M7c, D7): a Fulfill owed a verdict
-/// keeps a third transfer, our fee on transit; the owner sets the fee and
-/// the spread, the sources of exchange rates, and the currency totals are
-/// shown in; the last rates fetched outlive a restart, each with when it
-/// was.
+/// Exchange rates, fees and spread (M7c, spec/decisions/exchange-rates.md): a
+/// Fulfill owed a verdict keeps a third transfer, our fee on transit; the
+/// owner sets the fee and the spread, the sources of exchange rates, and the
+/// currency totals are shown in; the last rates fetched outlive a restart,
+/// each with when it was.
 const MIGRATION_12: &str = "
 ALTER TABLE owed_fulfills ADD COLUMN debit_3 INTEGER REFERENCES ledger_accounts (id);
 ALTER TABLE owed_fulfills ADD COLUMN credit_3 INTEGER REFERENCES ledger_accounts (id);
@@ -679,12 +683,12 @@ CREATE TABLE setup_token (
 ) STRICT;
 ";
 
-/// Each node books its own Fulfills (D23): a downstream no longer keeps the
-/// Fulfills it owes a verdict, nor an upstream those it took, and no peer
-/// is banned for what it cost. What our receiver took for a Fulfill still
-/// owed a verdict counts as received, as it would now. The bans the node
-/// made for a grace limit are lifted, with every ban's record, and the
-/// owner's grace share goes.
+/// Each node books its own Fulfills (spec/decisions/own-fulfills.md): a
+/// downstream no longer keeps the Fulfills it owes a verdict, nor an upstream
+/// those it took, and no peer is banned for what it cost. What our receiver
+/// took for a Fulfill still owed a verdict counts as received, as it would
+/// now. The bans the node made for a grace limit are lifted, with every ban's
+/// record, and the owner's grace share goes.
 const MIGRATION_15: &str = "
 UPDATE incoming_payments SET received_amount = received_amount
   + (SELECT sum(o.incoming_amount) FROM owed_fulfills o WHERE o.incoming_payment = incoming_payments.id)
@@ -713,14 +717,14 @@ ALTER TABLE peer_settings DROP COLUMN grace_share_ppm;
 ";
 
 /// A node knows only the credit it extends to a peer, not the credit the
-/// peer extends to it (D23).
+/// peer extends to it (spec/decisions/own-fulfills.md).
 const MIGRATION_16: &str = "
 ALTER TABLE peers DROP COLUMN credit_in;
 ";
 
-/// Credit grows with the fees a peer earned us (D20): a fee's packet is
-/// found by its reference, and where to start reading fees by the last
-/// trust transfer.
+/// Credit grows with the fees a peer earned us
+/// (spec/decisions/earned-trust.md): a fee's packet is found by its
+/// reference, and where to start reading fees by the last trust transfer.
 const MIGRATION_17: &str = "
 CREATE INDEX ledger_transfers_by_packet ON ledger_transfers (packet_epoch, packet_sequence)
   WHERE packet_epoch IS NOT NULL;
@@ -728,23 +732,25 @@ CREATE INDEX ledger_transfers_trust ON ledger_transfers (sequence) WHERE referen
 ";
 
 /// How long a peer's room has been short of a packet, settling nothing,
-/// counted at checks at which the node could ask (D12): kept, so that a
-/// node that restarts often still ends a link that stays short.
+/// counted at checks at which the node could ask
+/// (spec/decisions/peering-lifecycle.md): kept, so that a node that restarts
+/// often still ends a link that stays short.
 const MIGRATION_18: &str = "
 ALTER TABLE peers ADD COLUMN short_for_ms INTEGER NOT NULL DEFAULT 0;
 ";
 
-/// Nothing is settled at a peering's end (D28): a final settlement still
-/// due when the node upgrades is not made, and what it would have paid
-/// stays on the accounts, which a later peering settles as usual.
+/// Nothing is settled at a peering's end
+/// (spec/decisions/ending-a-peering.md): a final settlement still due when
+/// the node upgrades is not made, and what it would have paid stays on the
+/// accounts, which a later peering settles as usual.
 const MIGRATION_19: &str = "
 ALTER TABLE settlement_channels DROP COLUMN final_state;
 ALTER TABLE settlement_channels DROP COLUMN final_scheme;
 ";
 
 /// A peering we are ending, while we collect first and have not told the
-/// peer (D28): kept, so a restart takes the steps again rather than
-/// forgetting the decision.
+/// peer (spec/decisions/ending-a-peering.md): kept, so a restart takes the
+/// steps again rather than forgetting the decision.
 const MIGRATION_20: &str = "
 ALTER TABLE peers ADD COLUMN depeering_since_ms INTEGER;
 ALTER TABLE peers ADD COLUMN depeering_reason INTEGER
@@ -753,15 +759,16 @@ ALTER TABLE peers ADD COLUMN depeering_reason INTEGER
 
 /// Whether we once ended a peering with the node for want of room: kept
 /// with the relationship, so that a later peering with us as the junior
-/// raises it no credit (D33).
+/// raises it no credit (spec/decisions/ended-for-room.md).
 const MIGRATION_21: &str = "
 ALTER TABLE settlement_channels ADD COLUMN ended_for_room INTEGER NOT NULL DEFAULT 0
   CHECK (ended_for_room IN (0, 1));
 ";
 
-/// The European Central Bank's reference rates are a source (D7), so that
-/// three sources cover every currency. A node that still has the sources
-/// it started with gets it too; an owner who chose others keeps them.
+/// The European Central Bank's reference rates are a source
+/// (spec/decisions/exchange-rates.md), so that three sources cover every
+/// currency. A node that still has the sources it started with gets it too;
+/// an owner who chose others keeps them.
 const MIGRATION_22: &str = "
 CREATE TABLE rate_sources_new (
   position INTEGER PRIMARY KEY CHECK (position BETWEEN 0 AND 7),
@@ -784,19 +791,20 @@ DROP TABLE rate_sources;
 ALTER TABLE rate_sources_new RENAME TO rate_sources;
 ";
 
-/// Strangers never take the owner's share of the grants (D34): each grant
-/// keeps the network it was asked for from, so no one network holds more
-/// than its share. Grants asked for before, and from loopback in
-/// development, count in the totals only.
+/// Strangers never take the owner's share of the grants
+/// (spec/decisions/owners-share.md): each grant keeps the network it was
+/// asked for from, so no one network holds more than its share. Grants asked
+/// for before, and from loopback in development, count in the totals only.
 const MIGRATION_23: &str = "
 ALTER TABLE gnap_grants ADD COLUMN network BLOB
   CHECK (network IS NULL OR length(network) = 16);
 ";
 
 /// How much of a peer's time short of room passed while it could be
-/// reached (D12): only that ends the peering for room, so a peer our
-/// requests to settle never reached is not ended for room it had no chance
-/// to restore. Until now, all of it counted, so all of it was reached.
+/// reached (spec/decisions/peering-lifecycle.md): only that ends the peering
+/// for room, so a peer our requests to settle never reached is not ended for
+/// room it had no chance to restore. Until now, all of it counted, so all of
+/// it was reached.
 const MIGRATION_24: &str = "
 ALTER TABLE peers ADD COLUMN short_reached_ms INTEGER NOT NULL DEFAULT 0;
 UPDATE peers SET short_reached_ms = short_for_ms;

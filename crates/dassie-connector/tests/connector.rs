@@ -1,5 +1,6 @@
-//! The connector's behaviour, each D13 fix with a test that fails against
-//! the original (spec/original/README.md#conventions).
+//! The connector's behaviour, each spec/decisions/connector-timing.md fix
+//! with a test that fails against the original
+//! (spec/original/README.md#conventions).
 
 #![allow(clippy::panic)]
 

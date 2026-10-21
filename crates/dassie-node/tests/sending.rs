@@ -1,7 +1,7 @@
-//! The owner's Send (D9, M6c), over IPC as the wallet calls it: to a
-//! payment pointer on a peer, to a payment request, to the node's own
-//! wallet address, and what is refused, with fake wallets for what real
-//! nodes never do.
+//! The owner's Send (spec/decisions/open-payments.md, M6c), over IPC as the
+//! wallet calls it: to a payment pointer on a peer, to a payment request, to
+//! the node's own wallet address, and what is refused, with fake wallets for
+//! what real nodes never do.
 
 #![allow(
     clippy::unwrap_used,

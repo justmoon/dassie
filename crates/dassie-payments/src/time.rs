@@ -2,7 +2,8 @@
 //! milliseconds since the Unix epoch.
 //!
 //! The calendar arithmetic is Howard Hinnant's `days_from_civil` and
-//! `civil_from_days`, in integers: no clock, no floating point (D16).
+//! `civil_from_days`, in integers: no clock, no floating point
+//! (spec/decisions/tigerstyle.md).
 
 use alloc::format;
 use alloc::string::String;

@@ -1,5 +1,6 @@
-//! The rate fetcher (D7): every minute, each source is asked at once, and
-//! the rates its answers agree on are kept and handed to the engine.
+//! The rate fetcher (spec/decisions/exchange-rates.md): every minute, each
+//! source is asked at once, and the rates its answers agree on are kept and
+//! handed to the engine.
 
 use std::sync::Arc;
 use std::time::Duration;

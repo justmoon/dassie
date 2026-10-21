@@ -3,7 +3,7 @@
 //!
 //! The rest of the crate goes through [`Keys`] and [`Cipher`] and never
 //! touches a primitive directly, so a simulation can later swap them for a
-//! cheaper implementation in one place (D16).
+//! cheaper implementation in one place (spec/decisions/tigerstyle.md).
 
 use core::fmt;
 

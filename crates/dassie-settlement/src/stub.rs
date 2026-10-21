@@ -295,8 +295,9 @@ mod tests {
         stub.check_invariants();
     }
 
-    // Found by the invariants (D16): a settlement the node could not book
-    // stayed prepared, so after 64 of them the stub settled nothing more.
+    // Found by the invariants (spec/decisions/tigerstyle.md): a settlement
+    // the node could not book stayed prepared, so after 64 of them the stub
+    // settled nothing more.
     #[test]
     fn a_discarded_settlement_frees_its_slot() {
         let mut stub = Stub::new("", None).unwrap();

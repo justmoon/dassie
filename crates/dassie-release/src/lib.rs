@@ -1,5 +1,6 @@
 //! What a release of Dassie is, and how the updater and the installer trust
-//! one ([D11](../../../spec/decisions/D11-release-integrity.md)), sans-IO.
+//! one ([release-integrity](../../../spec/decisions/release-integrity.md)),
+//! sans-IO.
 //!
 //! - [`Version`]: a release (`0.1.0`) or a canary
 //!   (`canary-2026-10-15-041530-15bd7aa`), and the [`Channel`] it is published on.

@@ -428,9 +428,10 @@ impl Server {
             .map(|entry| entry.tag.as_slice())
     }
 
-    /// Asserts the table's invariants, and each connection's (D16): no
-    /// more connections than room for them, IDs in the order they were
-    /// given, and one connection per token, which is how packets find it.
+    /// Asserts the table's invariants, and each connection's
+    /// (spec/decisions/tigerstyle.md): no more connections than room for
+    /// them, IDs in the order they were given, and one connection per token,
+    /// which is how packets find it.
     ///
     /// # Panics
     ///

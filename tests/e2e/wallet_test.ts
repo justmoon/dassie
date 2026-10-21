@@ -219,7 +219,7 @@ test("every page of the wallet works against two nodes", {
         await picture(page, "03-payment");
         // d2 has it, with the note; the money moved. d2 counted each
         // packet received as it posted it, before its Fulfill went back
-        // (D23).
+        // (spec/decisions/own-fulfills.md).
         const sent = async () => {
           const { payments } = await d2.rpc.call("listIncomingPayments", {});
           return payments.find((payment) =>
@@ -288,7 +288,8 @@ test("every page of the wallet works against two nodes", {
         () => attribute(page, "payment", "data-state"),
         (state) => state === "completed",
       );
-      // d2 counted it received as it posted it (D23).
+      // d2 counted it received as it posted it
+      // (spec/decisions/own-fulfills.md).
       const paid = async () => {
         const { payments } = await d2.rpc.call("listIncomingPayments", {});
         return payments.find((entry) => entry.id === payment.id)

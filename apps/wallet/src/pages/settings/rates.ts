@@ -1,6 +1,7 @@
 /**
- * Exchange rates and charges (D7), apart from the pages: how rates read,
- * how old they are, and the owner's fee and spread as percentages.
+ * Exchange rates and charges (spec/decisions/exchange-rates.md), apart from
+ * the pages: how rates read, how old they are, and the owner's fee and spread
+ * as percentages.
  */
 
 /** The currencies the node keeps rates for, and can show totals in. */

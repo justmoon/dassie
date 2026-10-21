@@ -1,12 +1,13 @@
-//! Runs Dassie's simulations from seeds (D27).
+//! Runs Dassie's simulations from seeds
+//! (spec/decisions/random-seed-simulations.md).
 //!
 //! Each simulation lives in the crate it simulates, in its `sim` module,
 //! behind that crate's `sim` feature (`testing` for `dassie-node`), and is
 //! a function from a seed to a [`Run`]: the same seed
-//! gives the same run, byte for byte (D16). `cargo test` runs each on a few
-//! fixed seeds. This crate runs them on any seed: one to replay a failure,
-//! a range to search for one, a commit's, or random ones for as long as a
-//! campaign lasts, as TigerBeetle's VOPR does.
+//! gives the same run, byte for byte (spec/decisions/tigerstyle.md). `cargo
+//! test` runs each on a few fixed seeds. This crate runs them on any seed:
+//! one to replay a failure, a range to search for one, a commit's, or random
+//! ones for as long as a campaign lasts, as TigerBeetle's VOPR does.
 
 use std::ops::RangeInclusive;
 
@@ -104,11 +105,12 @@ pub static SIMS: [Sim; 8] = [
     },
 ];
 
-/// The tripwire (D27): a simulation that fails on purpose, for safety, on
-/// one seed in [`tripwire::ONE_IN`], and passes on the others, at once. A
-/// campaign runs it now and then, and files its failures apart, so that a
-/// campaign whose tripwire stops failing shows that it has stopped. No
-/// test expects it to pass on a seed where it fails.
+/// The tripwire (spec/decisions/random-seed-simulations.md): a simulation
+/// that fails on purpose, for safety, on one seed in [`tripwire::ONE_IN`],
+/// and passes on the others, at once. A campaign runs it now and then, and
+/// files its failures apart, so that a campaign whose tripwire stops failing
+/// shows that it has stopped. No test expects it to pass on a seed where it
+/// fails.
 pub mod tripwire {
     use super::{Outcome, Run};
 

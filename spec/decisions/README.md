@@ -2,52 +2,99 @@
 
 Each file records one choice between real alternatives: the facts that forced it, what was decided, what was accepted, and what was rejected and why. The rules themselves live in the [area docs](../README.md#areas) and the code; a decision says why they are what they are. Read one before changing the rule it explains.
 
-| # | Decision | Areas |
+| Decision | Title | Areas |
 |---|---|---|
-| [D1](D01-what-runs-in-rust-and-what-in-typescript.md) | What runs in Rust and what in TypeScript | overview, engineering |
-| [D2](D02-peer-protocol-v0-or-v1.md) | Peer protocol: v0 or v1 | peer-protocol, identity |
-| [D3](D03-database-continuity.md) | Database continuity | node |
-| [D4](D04-network-membership-economics.md) | Network membership economics (fee not built) | network |
-| [D5](D05-ui-and-cli-rpc-contract.md) | UI and CLI RPC contract | rpc, wallet |
-| [D6](D06-owner-ledger-and-multi-currency-accounts.md) | Owner ledger and multi-currency accounts | ledger, connector |
-| [D7](D07-exchange-rates-fees-and-spread.md) | Exchange rates, fees and spread | connector |
-| [D8](D08-real-money.md) | Real money | xrpl, roadmap |
-| [D9](D09-open-payments-fully-and-no-spsp.md) | Open Payments, fully, and no SPSP | payments, http |
-| [D10](D10-secrets-at-rest.md) | Secrets at rest | node, http |
-| [D11](D11-release-integrity.md) | Release integrity | release |
-| [D12](D12-peering-lifecycle-and-liveness.md) | Peering lifecycle and liveness | network |
-| [D13](D13-connector-timing-and-packet-limits.md) | Connector timing and packet limits | connector, ilp |
-| [D14](D14-build-system.md) | Build system | engineering, release |
-| [D15](D15-bootstrap-network-for-v1.md) | Bootstrap network for v1 | network |
-| [D16](D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md) | Engineering style: pragmatic TigerStyle and deterministic simulation | engineering, testing |
-| [D19](D19-each-node-keeps-its-own-books.md) | Each node keeps its own books | engineering, settlement, testing |
-| [D20](D20-trust-follows-what-a-peer-earned-us.md) | Trust follows what a peer earned us | settlement, network |
-| [D21](D21-tooling-on-node-and-pnpm-not-deno.md) | Tooling on Node and pnpm, not Deno | engineering |
-| [D22](D22-settlement-hubs.md) | Settlement hubs (design, not built) | designs/settlement-hubs |
-| [D23](D23-each-node-books-its-own-fulfills.md) | Each node books its own Fulfills | settlement, connector, peer-protocol |
-| [D24](D24-money-in-flight-with-a-peer-stays-within-a-few-packets.md) | Money in flight with a peer stays within a few packets | connector, settlement |
-| [D25](D25-a-links-thresholds-are-counted-in-its-largest-packet.md) | A link's thresholds are counted in its largest packet | settlement, connector |
-| [D26](D26-core-and-periphery.md) | Core and periphery (design, partly built) | designs/periphery |
-| [D27](D27-simulations-run-continuously-from-random-seeds.md) | Simulations run continuously, from random seeds (partly built) | testing |
-| [D28](D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md) | A node that ends a peering collects first, and pays nothing | network, settlement, peer-protocol, connector |
-| [D29](D29-a-limit-no-payment-can-use-is-caught-before-approval.md) | A limit no payment can use is caught before approval | payments, wallet |
-| [D30](D30-a-node-is-up-once-its-engine-has-committed-a-step.md) | A node is up once its engine has committed a step | node, release |
-| [D31](D31-a-node-peers-on-a-scheme-only-once-it-has-seen-its-ledger.md) | A node peers on a scheme only once it has seen its ledger | settlement, network, xrpl |
-| [D32](D32-a-ledger-below-the-newest-seen-is-a-reset-only-on-the-testnet.md) | A ledger below the newest seen is a reset only on the testnet | xrpl |
-| [D33](D33-a-peering-ended-for-room-stays-apart-and-earns-no-credit-back.md) | A peering ended for room stays apart, and earns no credit back | network, settlement |
-| [D34](D34-strangers-never-take-the-owners-share-of-a-pool.md) | Strangers never take the owner's share of a pool | payments, stream |
-| [D35](D35-dassie-land-is-a-bucket-behind-the-mirrors-load-balancer.md) | dassie.land is a bucket behind the mirror's load balancer | website, release |
-| [D36](D36-a-node-becomes-core-by-registering-and-being-promoted.md) | A node becomes core by registering and being promoted (not built) | network, peer-protocol, designs/periphery |
-| [D37](D37-nodes-of-0-1-and-0-2-do-not-settle-with-each-other.md) | Nodes of 0.1 and 0.2 do not settle with each other | peer-protocol, settlement, release |
-| [D38](D38-a-receiver-says-whether-it-is-full-or-stopped-short.md) | A receiver says whether it is full or stopped short | payments, stream |
-| [D39](D39-a-connection-holds-a-place-by-the-key-it-proved.md) | A connection holds a place by the key it proved | peer-protocol, network, designs/periphery |
-| [D40](D40-a-node-without-a-hostname-keeps-the-default-front-door-as-its-relay.md) | A node without a hostname keeps the default front door as its relay | node, http, payments, wallet |
-| [D41](D41-a-node-takes-no-prepare-from-a-peer-it-cannot-reach.md) | A node takes no Prepare from a peer it cannot reach | connector, peer-protocol, settlement |
+| [bootstrap-network](bootstrap-network.md) | Bootstrap network for v1 | network |
+| [build-system](build-system.md) | Build system | engineering, release |
+| [connector-timing](connector-timing.md) | Connector timing and packet limits | connector, ilp |
+| [core-and-periphery](core-and-periphery.md) | Core and periphery (design, partly built) | designs/periphery |
+| [database-continuity](database-continuity.md) | Database continuity | node |
+| [default-relay](default-relay.md) | A node without a hostname keeps the default front door as its relay | node, http, payments, wallet |
+| [earned-trust](earned-trust.md) | Trust follows what a peer earned us | settlement, network |
+| [ended-for-room](ended-for-room.md) | A peering ended for room stays apart, and earns no credit back | network, settlement |
+| [ending-a-peering](ending-a-peering.md) | A node that ends a peering collects first, and pays nothing | network, settlement, peer-protocol, connector |
+| [exchange-rates](exchange-rates.md) | Exchange rates, fees and spread | connector |
+| [full-or-stopped-short](full-or-stopped-short.md) | A receiver says whether it is full or stopped short | payments, stream |
+| [ledger-resets](ledger-resets.md) | A ledger below the newest seen is a reset only on the testnet | xrpl |
+| [membership-economics](membership-economics.md) | Network membership economics (fee not built) | network |
+| [named-decisions](named-decisions.md) | Decisions are named, not numbered | engineering |
+| [node-and-pnpm](node-and-pnpm.md) | Tooling on Node and pnpm, not Deno | engineering |
+| [open-payments](open-payments.md) | Open Payments, fully, and no SPSP | payments, http |
+| [own-books](own-books.md) | Each node keeps its own books | engineering, settlement, testing |
+| [own-fulfills](own-fulfills.md) | Each node books its own Fulfills | settlement, connector, peer-protocol |
+| [owner-ledger](owner-ledger.md) | Owner ledger and multi-currency accounts | ledger, connector |
+| [owners-share](owners-share.md) | Strangers never take the owner's share of a pool | payments, stream |
+| [packets-in-flight](packets-in-flight.md) | Money in flight with a peer stays within a few packets | connector, settlement |
+| [peer-protocol-v1](peer-protocol-v1.md) | Peer protocol: v0 or v1 | peer-protocol, identity |
+| [peering-lifecycle](peering-lifecycle.md) | Peering lifecycle and liveness | network |
+| [places-by-proved-key](places-by-proved-key.md) | A connection holds a place by the key it proved | peer-protocol, network, designs/periphery |
+| [promotion-to-core](promotion-to-core.md) | A node becomes core by registering and being promoted (not built) | network, peer-protocol, designs/periphery |
+| [random-seed-simulations](random-seed-simulations.md) | Simulations run continuously, from random seeds (partly built) | testing |
+| [ready-after-first-step](ready-after-first-step.md) | A node is up once its engine has committed a step | node, release |
+| [real-money](real-money.md) | Real money | xrpl, roadmap |
+| [release-integrity](release-integrity.md) | Release integrity | release |
+| [rpc-contract](rpc-contract.md) | UI and CLI RPC contract | rpc, wallet |
+| [rust-and-typescript](rust-and-typescript.md) | What runs in Rust and what in TypeScript | overview, engineering |
+| [secrets-at-rest](secrets-at-rest.md) | Secrets at rest | node, http |
+| [settlement-hubs](settlement-hubs.md) | Settlement hubs (design, not built) | designs/settlement-hubs |
+| [synced-before-peering](synced-before-peering.md) | A node peers on a scheme only once it has seen its ledger | settlement, network, xrpl |
+| [thresholds-in-packets](thresholds-in-packets.md) | A link's thresholds are counted in its largest packet | settlement, connector |
+| [tigerstyle](tigerstyle.md) | Engineering style: pragmatic TigerStyle and deterministic simulation | engineering, testing |
+| [unreachable-peers](unreachable-peers.md) | A node takes no Prepare from a peer it cannot reach | connector, peer-protocol, settlement |
+| [unusable-limits](unusable-limits.md) | A limit no payment can use is caught before approval | payments, wallet |
+| [versions-0-1-and-0-2](versions-0-1-and-0-2.md) | Nodes of 0.1 and 0.2 do not settle with each other | peer-protocol, settlement, release |
+| [website-hosting](website-hosting.md) | dassie.land is a bucket behind the mirror's load balancer | website, release |
 
 ## Adding or changing a decision
 
-- A new decision gets the next free number, `Dnn-<slug>.md`. Numbers are never reused, so `D23` is a valid citation in code; a missing number belongs to a decision that was replaced or is under review.
-- Add a row to the table above.
+- A new decision gets a short name of its own, in lowercase words joined by hyphens, as `own-fulfills.md`: what was decided, in a few words. Its title, the file's heading, says it in full. A name is never given to another decision, so `spec/decisions/own-fulfills.md` is a valid citation in code ([named-decisions](named-decisions.md)).
+- Add a row to the table above, where its name falls in alphabetical order.
 - Use the shape of the files here: areas, facts, decision, accepted, rejected. No dates or history: git has those. Past experience belongs in only as an argument ("the simulation showed …").
 - Keep it to the reasons. A number belongs in a decision only when the argument is about it.
 - When a decision replaces another, fold what still argues for the current design (usually the rejected option and why) into the new one, and delete the old file.
+
+## Former numbers
+
+Decisions were once numbered, and commits, pull requests and issues still cite them so. This table only translates those numbers; nothing is added to it. A missing number belonged to a decision that was replaced.
+
+| Number | Decision |
+|---|---|
+| D1 | [rust-and-typescript](rust-and-typescript.md) |
+| D2 | [peer-protocol-v1](peer-protocol-v1.md) |
+| D3 | [database-continuity](database-continuity.md) |
+| D4 | [membership-economics](membership-economics.md) |
+| D5 | [rpc-contract](rpc-contract.md) |
+| D6 | [owner-ledger](owner-ledger.md) |
+| D7 | [exchange-rates](exchange-rates.md) |
+| D8 | [real-money](real-money.md) |
+| D9 | [open-payments](open-payments.md) |
+| D10 | [secrets-at-rest](secrets-at-rest.md) |
+| D11 | [release-integrity](release-integrity.md) |
+| D12 | [peering-lifecycle](peering-lifecycle.md) |
+| D13 | [connector-timing](connector-timing.md) |
+| D14 | [build-system](build-system.md) |
+| D15 | [bootstrap-network](bootstrap-network.md) |
+| D16 | [tigerstyle](tigerstyle.md) |
+| D19 | [own-books](own-books.md) |
+| D20 | [earned-trust](earned-trust.md) |
+| D21 | [node-and-pnpm](node-and-pnpm.md) |
+| D22 | [settlement-hubs](settlement-hubs.md) |
+| D23 | [own-fulfills](own-fulfills.md) |
+| D24 | [packets-in-flight](packets-in-flight.md) |
+| D25 | [thresholds-in-packets](thresholds-in-packets.md) |
+| D26 | [core-and-periphery](core-and-periphery.md) |
+| D27 | [random-seed-simulations](random-seed-simulations.md) |
+| D28 | [ending-a-peering](ending-a-peering.md) |
+| D29 | [unusable-limits](unusable-limits.md) |
+| D30 | [ready-after-first-step](ready-after-first-step.md) |
+| D31 | [synced-before-peering](synced-before-peering.md) |
+| D32 | [ledger-resets](ledger-resets.md) |
+| D33 | [ended-for-room](ended-for-room.md) |
+| D34 | [owners-share](owners-share.md) |
+| D35 | [website-hosting](website-hosting.md) |
+| D36 | [promotion-to-core](promotion-to-core.md) |
+| D37 | [versions-0-1-and-0-2](versions-0-1-and-0-2.md) |
+| D38 | [full-or-stopped-short](full-or-stopped-short.md) |
+| D39 | [places-by-proved-key](places-by-proved-key.md) |
+| D40 | [default-relay](default-relay.md) |
+| D41 | [unreachable-peers](unreachable-peers.md) |

@@ -1,5 +1,6 @@
 /// Limits and tuning of a connection. Every table, queue and buffer a
-/// connection has is sized from these when it is created (D16).
+/// connection has is sized from these when it is created
+/// (spec/decisions/tigerstyle.md).
 ///
 /// The defaults follow the original Dassie where it had a value and
 /// `ilp-protocol-stream` where it did not, so that both kinds of peer see
@@ -52,7 +53,7 @@ pub struct Policy {
     pub remote_stream_receive_max: u64,
     /// How long a connection may go without hearing from the remote before
     /// it closes, as in `ilp-protocol-stream`. Bounds how long abandoned
-    /// connections hold a server's table (D16).
+    /// connections hold a server's table (spec/decisions/tigerstyle.md).
     pub idle_timeout_ms: u64,
 }
 

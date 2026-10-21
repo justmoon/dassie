@@ -1,5 +1,5 @@
 //! Every decoder of untrusted input returns an error instead of panicking
-//! (D16), and the encoders round-trip.
+//! (spec/decisions/tigerstyle.md), and the encoders round-trip.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};

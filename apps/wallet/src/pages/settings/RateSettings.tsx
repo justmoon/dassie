@@ -1,7 +1,7 @@
 /**
- * Exchange rates (D7): the currency totals are shown in, and where the
- * node fetches rates. A rate is the median of the sources that give one,
- * once more than half of them do.
+ * Exchange rates (spec/decisions/exchange-rates.md): the currency totals are
+ * shown in, and where the node fetches rates. A rate is the median of the
+ * sources that give one, once more than half of them do.
  */
 
 import type { JSX } from "@solidjs/web";

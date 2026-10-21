@@ -3,8 +3,8 @@
 //! the invariants hold after every step, no transfer that checks limits
 //! breaks one that held, and the journal alone rebuilds the ledger. And the
 //! decoders of what the network and the database hand the ledger never
-//! panic on arbitrary input (D16): names, ledger IDs, account paths, and
-//! damaged rows to restore from.
+//! panic on arbitrary input (spec/decisions/tigerstyle.md): names, ledger
+//! IDs, account paths, and damaged rows to restore from.
 
 #![allow(
     clippy::unwrap_used,

@@ -245,17 +245,17 @@ fn crash_mid_payment(sim: &mut Sim, rng: &mut SeededRng, calm_ms: u64) {
     sim.run_until_or(sim.now + PAID_WITHIN_MS, paid);
 }
 
-/// How long ending a peering may take (D28): waiting for our own
-/// settlements, then for what the peer has on its way, each at most the
-/// wait, then telling it, then the packets in flight.
+/// How long ending a peering may take (spec/decisions/ending-a-peering.md):
+/// waiting for our own settlements, then for what the peer has on its way,
+/// each at most the wait, then telling it, then the packets in flight.
 const ENDED_WITHIN_MS: u64 = 2 * Policies::DEFAULT.peer.depeer_wait_ms
     + Policies::DEFAULT.peer.termination_timeout_ms
     + Policies::DEFAULT.connector.max_hold_ms;
 
 /// An owner ends a peering: its node collects first, then tells the peer,
 /// and it ends on both sides. Neither side settles anything once it knows
-/// (D28): what the books show stays owed, as the check of each node's books
-/// then sees.
+/// (spec/decisions/ending-a-peering.md): what the books show stays owed, as
+/// the check of each node's books then sees.
 fn terminate(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     let count = sim.nodes.len();
     let ender = usize::try_from(rng.next_u64() % count as u64).unwrap();
@@ -291,15 +291,16 @@ fn terminate(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
 
 /// What node `with` said it had on its way, when node `index`, ending their
 /// peering, asked it a last time, was booked before `index` told it, unless
-/// `index` waited the whole time for it first (D28): between honest nodes,
-/// no settlement crosses the end. Booked, not announced: on the XRP Ledger
-/// the ledger may show it before its message arrives, or after, and even
-/// before `index` decided to end the peering. Only if `index` told it
-/// before `until`, and `with` was not ending the peering too: both ending
-/// it at once, each answers the other as one ending does, and either may
-/// tell the other without waiting for what was on its way, which is then
-/// credited once after the end. One whose owner bans the peer from `until`
-/// on also tells it at once.
+/// `index` waited the whole time for it first
+/// (spec/decisions/ending-a-peering.md): between honest nodes, no settlement
+/// crosses the end. Booked, not announced: on the XRP Ledger the ledger may
+/// show it before its message arrives, or after, and even before `index`
+/// decided to end the peering. Only if `index` told it before `until`, and
+/// `with` was not ending the peering too: both ending it at once, each
+/// answers the other as one ending does, and either may tell the other
+/// without waiting for what was on its way, which is then credited once after
+/// the end. One whose owner bans the peer from `until` on also tells it at
+/// once.
 pub(super) fn collected_before_telling(
     sim: &Sim,
     mark: usize,
@@ -398,7 +399,7 @@ pub(super) fn collected_before_telling(
 
 /// Where, in `lines` from `start` on, node `index` peers with node `with`
 /// again, or the end of `lines`: a later peering settles what the books
-/// show as usual (D28).
+/// show as usual (spec/decisions/ending-a-peering.md).
 pub(super) fn until_peered(lines: &[String], start: usize, index: usize, with: usize) -> usize {
     let peered = format!(
         " {index} PeerNode(Peered {{ node: {:?}",
@@ -416,9 +417,9 @@ pub(super) fn trace_ms(line: &str) -> Option<u64> {
 }
 
 /// Node `index` started no settlement to node `with` from its `event` on:
-/// from when it decided, or learned, that their peering ends (D28), until
-/// they peer again, if they do. An honest node paying then is money the
-/// rule says it keeps.
+/// from when it decided, or learned, that their peering ends
+/// (spec/decisions/ending-a-peering.md), until they peer again, if they do.
+/// An honest node paying then is money the rule says it keeps.
 pub(super) fn settled_nothing_once_ending(
     sim: &Sim,
     mark: usize,

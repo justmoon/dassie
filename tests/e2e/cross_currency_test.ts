@@ -195,7 +195,7 @@ test("cross-currency pays across assets, and reconciles across restarts", {
     const { payments } = await d1.rpc.call("listOutgoingPayments", {});
     const sent = payments.find((entry) => entry.id === payment.id)!;
     // d3 counted each packet received as it posted it, before its Fulfill
-    // went back (D23).
+    // went back (spec/decisions/own-fulfills.md).
     const arrived = async () => {
       const { payments: received } = await d3.rpc.call(
         "listIncomingPayments",

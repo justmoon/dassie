@@ -165,9 +165,9 @@ fn timestamp_ms(seconds: i64) -> u64 {
 /// `now_ms` (for clocks that disagree a little) for ten years.
 ///
 /// The key is ECDSA P-256 from ring's RNG: key generation is crypto behind
-/// a narrow interface, which a simulation replaces whole (D16). The serial
-/// is derived from the key, positive and 20 bytes (the original's could be
-/// negative, RT-14).
+/// a narrow interface, which a simulation replaces whole
+/// (spec/decisions/tigerstyle.md). The serial is derived from the key,
+/// positive and 20 bytes (the original's could be negative, RT-14).
 pub fn self_signed(names: &[String], now_ms: u64) -> Result<StoredCertificate, TlsError> {
     let generate = |error: rcgen::Error| TlsError::Generate(error.to_string());
     let key = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).map_err(generate)?;
@@ -395,7 +395,7 @@ mod tests {
             #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
 
             // The owner's `SetCertificate` sends any PEM: it loads or is
-            // refused, without a panic (D16).
+            // refused, without a panic (spec/decisions/tigerstyle.md).
             #[test]
             fn any_pem_is_loaded_or_refused(chain in pem(), key in pem(), real_key in any::<bool>()) {
                 let key_pem = if real_key { real().key_pem.clone() } else { key };

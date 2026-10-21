@@ -160,7 +160,8 @@ impl LogFilter {
 
 /// Whether `text` matches `pattern` in full, where `*` matches any run of
 /// characters. Iterative, with a single backtrack point, so it runs in
-/// O(pattern × text) at worst and never recurses (D16).
+/// O(pattern × text) at worst and never recurses
+/// (spec/decisions/tigerstyle.md).
 fn wildcard_match(pattern: &str, text: &str) -> bool {
     let pattern = pattern.as_bytes();
     let text = text.as_bytes();

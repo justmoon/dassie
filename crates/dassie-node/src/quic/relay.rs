@@ -177,7 +177,7 @@ pub enum KeepWhile {
     Always,
     /// While the node's configuration has no hostname: the default relay
     /// is the front door of the node's default name, which a node with a
-    /// hostname does not answer under (D40).
+    /// hostname does not answer under (spec/decisions/default-relay.md).
     NoHostname(watch::Receiver<NodeConfig>),
 }
 

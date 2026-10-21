@@ -20,7 +20,7 @@ enum Resolution<'a> {
 
 /// What a response did.
 // Returned once per response and taken apart at once: boxing it would
-// allocate on the packet path (D16).
+// allocate on the packet path (spec/decisions/tigerstyle.md).
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Responded {

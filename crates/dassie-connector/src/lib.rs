@@ -8,7 +8,8 @@
 //! [`TraceId`](dassie_ledger::TraceId) that its transfers carry, and a
 //! record in a bounded trace, so the journal and the packets line up.
 //!
-//! The behaviour is ILPv4's, fixing the original's gaps (D13):
+//! The behaviour is ILPv4's, fixing the original's gaps
+//! (spec/decisions/connector-timing.md):
 //!
 //! - packets time out at their outgoing expiry, not after a fixed 5 s
 //!   (ILP-1);
@@ -19,16 +20,17 @@
 //! - F08 carries the amounts (ILP-4);
 //! - linked transfers are all or none (ILP-5, through the ledger);
 //! - the owner's own endpoints never convert, and only transit from one
-//!   peer to another is charged a fee and a spread (D7);
+//!   peer to another is charged a fee and a spread
+//!   (spec/decisions/exchange-rates.md);
 //! - ILDCP answers the address that is routed and the endpoint's asset
 //!   (ILP-7, NET-24, NET-25);
 //! - outgoing request IDs are unique per endpoint (ILP-8);
 //! - prefixes match whole segments (NET-33).
 //!
 //! It never reads a clock: `now` comes in with every call, and the caller
-//! polls [`Connector::poll_timeout`] for the next deadline (D16). Packets
-//! are written into a buffer the caller passes, so the packet path does not
-//! allocate.
+//! polls [`Connector::poll_timeout`] for the next deadline
+//! (spec/decisions/tigerstyle.md). Packets are written into a buffer the
+//! caller passes, so the packet path does not allocate.
 
 #![no_std]
 

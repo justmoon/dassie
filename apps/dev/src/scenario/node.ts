@@ -136,7 +136,7 @@ export class ScenarioNode {
       ],
       env: {
         // No relay unless the scenario names one: the default is the
-        // public front door (D40).
+        // public front door (spec/decisions/default-relay.md).
         DASSIE_RELAY: "",
         ...this.environment.env,
         ...this.env,

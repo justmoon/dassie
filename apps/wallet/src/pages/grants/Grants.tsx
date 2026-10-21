@@ -1,6 +1,7 @@
 /**
- * Connected apps (D9): the grants the owner approved, what each may do and
- * what it spent this period, and a way to revoke each.
+ * Connected apps (spec/decisions/open-payments.md): the grants the owner
+ * approved, what each may do and what it spent this period, and a way to
+ * revoke each.
  */
 
 import type { JSX } from "@solidjs/web";

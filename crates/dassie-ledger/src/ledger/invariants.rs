@@ -1,5 +1,5 @@
 //! What holds after every step. Tests and simulations check it after each
-//! transition (D16).
+//! transition (spec/decisions/tigerstyle.md).
 //!
 //! One pass over the pending transfers and one over the accounts, so the
 //! check costs what the tables hold, once.

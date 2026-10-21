@@ -1,7 +1,7 @@
 //! Regression tests for defects a review found: hostile remotes must not
 //! crash or wedge a connection, money in flight must be counted, and
-//! limits must hold (D16). A hostile peer here knows the shared secret and
-//! crafts arbitrary encrypted STREAM packets.
+//! limits must hold (spec/decisions/tigerstyle.md). A hostile peer here knows
+//! the shared secret and crafts arbitrary encrypted STREAM packets.
 
 #![allow(
     clippy::unwrap_used,

@@ -17,8 +17,8 @@ pub const UNPAID_RETENTION_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
 
 /// How long what a completed incoming payment's connections received is
 /// kept: a sender that lost a Fulfill to a crash may still reconnect to
-/// learn what got there (D23), and a node's own payer does so until its
-/// deadline. A node that restarts reads them back.
+/// learn what got there (spec/decisions/own-fulfills.md), and a node's own
+/// payer does so until its deadline. A node that restarts reads them back.
 pub const FINISHED_RETENTION_MS: u64 = 10 * 60 * 1_000;
 
 /// Most rows one pruning deletes.
@@ -672,7 +672,8 @@ mod tests {
     }
 
     proptest! {
-        // Path segments and cursors come from the network (D16).
+        // Path segments and cursors come from the network
+        // (spec/decisions/tigerstyle.md).
         #[test]
         fn parsing_never_panics_and_is_canonical(text in text()) {
             if let Some(id) = PaymentId::parse(&text) {

@@ -1,8 +1,9 @@
 //! Deterministic simulations of a client and a server
-//! (spec/areas/testing.md#deterministic-simulation, D16). Every step checks
-//! both sides' invariants. `dassie_stream::sim::payment` is the random run:
-//! a failure names its seed, `dassie-sim run stream <seed>` replays it, and
-//! `dassie-sim run stream <from>..<to>` runs others (D27).
+//! (spec/areas/testing.md#deterministic-simulation,
+//! spec/decisions/tigerstyle.md). Every step checks both sides' invariants.
+//! `dassie_stream::sim::payment` is the random run: a failure names its seed,
+//! `dassie-sim run stream <seed>` replays it, and `dassie-sim run stream
+//! <from>..<to>` runs others (spec/decisions/random-seed-simulations.md).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
@@ -278,8 +279,9 @@ fn rejects_a_rate_below_the_minimum() {
 
 #[test]
 fn simulations_are_deterministic() {
-    // The same seed must give the same run, event for event (D16), and
-    // runs that differ must still both finish.
+    // The same seed must give the same run, event for event
+    // (spec/decisions/tigerstyle.md), and runs that differ must still both
+    // finish.
     let (first, again, other) = (payment::run(23), payment::run(23), payment::run(24));
     assert_eq!(first.outcome, Outcome::Pass);
     assert_eq!(other.outcome, Outcome::Pass);

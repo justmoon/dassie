@@ -1,6 +1,6 @@
 // The node's RPC contract with its owner's clients: the wallet in the
-// browser and the `dassie` CLI. Decision D5
-// (spec/decisions/D05-ui-and-cli-rpc-contract.md) chose it;
+// browser and the `dassie` CLI. Decision spec/decisions/rpc-contract.md
+// (spec/decisions/rpc-contract.md) chose it;
 // spec/areas/rpc.md has the details. This file is normative: change it
 // first, then both sides.
 //

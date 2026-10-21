@@ -1,7 +1,7 @@
 //! Arbitrary frames never make an RPC connection panic, and anything that is
 //! not a `ClientMessage` ends it as a protocol error; nor do the owner's
-//! calls with arbitrary fields make a handler panic (D16,
-//! spec/areas/testing.md#property-tests).
+//! calls with arbitrary fields make a handler panic
+//! (spec/decisions/tigerstyle.md, spec/areas/testing.md#property-tests).
 
 #![allow(
     clippy::unwrap_used,

@@ -1,6 +1,6 @@
 # Website
 
-`apps/website` builds `dassie.land`: a few static pages, the architecture page, and the STREAM toy, which sends a STREAM payment over a simulated network in the browser with Dassie's own STREAM code compiled to WebAssembly. A bucket behind the release mirror's load balancer serves it ([D35](../decisions/D35-dassie-land-is-a-bucket-behind-the-mirrors-load-balancer.md)).
+`apps/website` builds `dassie.land`: a few static pages, the architecture page, and the STREAM toy, which sends a STREAM payment over a simulated network in the browser with Dassie's own STREAM code compiled to WebAssembly. A bucket behind the release mirror's load balancer serves it ([website-hosting](../decisions/website-hosting.md)).
 
 **Paths:** `apps/website/`, `scripts/website/`, `.github/workflows/website.yml`
 **Read with:** [Stream](stream.md), [Wallet](wallet.md) (shared components), [Release](release.md) (what the Quick Start installs), [Testing](testing.md)
@@ -21,7 +21,7 @@
 
 ## STREAM toy
 
-The sender and the receiver are `dassie-stream`'s real state machines, from the same `web` WASM build that Node loads in the tests, so the toy shows what Dassie's STREAM does, not a model of it ([Stream](stream.md), [D1](../decisions/D01-what-runs-in-rust-and-what-in-typescript.md)). Its packet log decrypts the STREAM packets inside each ILP packet with the connection's shared secret, through the same build.
+The sender and the receiver are `dassie-stream`'s real state machines, from the same `web` WASM build that Node loads in the tests, so the toy shows what Dassie's STREAM does, not a model of it ([Stream](stream.md), [rust-and-typescript](../decisions/rust-and-typescript.md)). Its packet log decrypts the STREAM packets inside each ILP packet with the connection's shared secret, through the same build.
 
 ### The simulated network
 
@@ -45,6 +45,6 @@ Between them sits a connector, simulated one event at a time in `src/toy/simulat
 
 ## Decisions
 
-- [D1](../decisions/D01-what-runs-in-rust-and-what-in-typescript.md): the toy runs the real STREAM implementation compiled to WASM.
-- [D21](../decisions/D21-tooling-on-node-and-pnpm-not-deno.md): Node and pnpm, one `web` WASM build for the browser and Node.
-- [D35](../decisions/D35-dassie-land-is-a-bucket-behind-the-mirrors-load-balancer.md): a bucket behind the mirror's load balancer, published from `main`, with no previews.
+- [rust-and-typescript](../decisions/rust-and-typescript.md): the toy runs the real STREAM implementation compiled to WASM.
+- [node-and-pnpm](../decisions/node-and-pnpm.md): Node and pnpm, one `web` WASM build for the browser and Node.
+- [website-hosting](../decisions/website-hosting.md): a bucket behind the mirror's load balancer, published from `main`, with no previews.

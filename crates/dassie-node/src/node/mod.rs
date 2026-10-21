@@ -92,23 +92,25 @@ pub struct Policies {
     pub peer: dassie_peer::Config,
     /// The credit a junior extends to the node that accepted its peering
     /// request, in its ledger's units: 1.1 units at scale 9 on the test
-    /// network (spec/areas/settlement.md#credit, D20). At least what survives
-    /// a crash (D25).
+    /// network (spec/areas/settlement.md#credit,
+    /// spec/decisions/earned-trust.md). At least what survives a crash
+    /// (spec/decisions/thresholds-in-packets.md).
     pub peer_credit: u64,
     /// The credit a senior extends to the node whose peering request it
     /// accepted, at first: nothing, so a newcomer pays in advance until the
-    /// peering earned it more (D20). Otherwise at least what survives a
-    /// crash, as `peer_credit`.
+    /// peering earned it more (spec/decisions/earned-trust.md). Otherwise at
+    /// least what survives a crash, as `peer_credit`.
     pub senior_credit: u64,
     /// How often peers are checked, to ask those near the credit we extend
-    /// to settle (D23).
+    /// to settle (spec/decisions/own-fulfills.md).
     pub settlement_interval_ms: u64,
     /// How often a peer that did not settle since it was last asked is
     /// asked again, at most.
     pub settlement_request_every_ms: u64,
     /// Open Payments' incoming payments.
     pub incoming: crate::engine::IncomingPolicy,
-    /// How often exchange rates are fetched (D7).
+    /// How often exchange rates are fetched
+    /// (spec/decisions/exchange-rates.md).
     pub rates_every_ms: u64,
 }
 

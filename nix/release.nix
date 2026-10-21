@@ -1,6 +1,7 @@
-# Release builds (spec D11, D14): the wallet, the `dassie` binary for
-# x64 and arm64 Linux, statically linked against musl, its bundles, and the
-# mirror tree a release publishes.
+# Release builds (spec/decisions/release-integrity.md,
+# spec/decisions/build-system.md): the wallet, the `dassie` binary for x64 and
+# arm64 Linux, statically linked against musl, its bundles, and the mirror
+# tree a release publishes.
 #
 # Everything is built on x86_64-linux: arm64 is cross-compiled, and the
 # wallet is built with the npm packages for the build host's platform
@@ -64,8 +65,8 @@ let
   };
 
   # The release key, once the owner has made it: the binaries trust it and
-  # the installer prints it (D11). Until then they trust none, and the
-  # release workflow signs nothing.
+  # the installer prints it (spec/decisions/release-integrity.md). Until then
+  # they trust none, and the release workflow signs nothing.
   releaseKey = if builtins.pathExists ../resources/minisign.pub then ../resources/minisign.pub else null;
   # The test key of testdata/release, for the install tests' releases.
   testKey = ../testdata/release/test.pub;

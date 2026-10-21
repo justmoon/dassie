@@ -33,7 +33,8 @@ fn node(seed: u8) -> StoredNode {
             last_seen_ms: 15,
             short_for_ms: 17,
             short_reached_ms: 12,
-            // Every other node is one we are ending, and have not told (D28).
+            // Every other node is one we are ending, and have not told
+            // (spec/decisions/ending-a-peering.md).
             depeering: seed
                 .is_multiple_of(2)
                 .then(|| dassie_peer::Depeering::new(18, TerminationReason::ShortOfRoom)),
@@ -76,7 +77,7 @@ fn the_node_table_round_trips() {
 
 // Migration 24 keeps how long a peer has been short of room: all of it
 // counted toward ending the peering before, so all of it was reached, and
-// an upgrade forgives nothing (D12).
+// an upgrade forgives nothing (spec/decisions/peering-lifecycle.md).
 #[test]
 fn the_time_short_is_all_reached_after_the_upgrade() {
     let temp = tempfile::tempdir().unwrap();

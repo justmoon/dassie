@@ -1,6 +1,7 @@
-//! The node as an Open Payments client of other wallets (D9): resolving a
-//! wallet address, creating the incoming payment the owner's Send pays
-//! there, and reading the incoming payment it is to pay.
+//! The node as an Open Payments client of other wallets
+//! (spec/decisions/open-payments.md): resolving a wallet address, creating
+//! the incoming payment the owner's Send pays there, and reading the incoming
+//! payment it is to pay.
 //!
 //! An incoming payment's `methods`, the STREAM credentials, are readable
 //! only with a grant. The node asks the payment's authorization server for

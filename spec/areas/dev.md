@@ -87,6 +87,6 @@ The dev environment and the dashboard are tools around the node, not part of it,
 
 ## Decisions
 
-- [D1](../decisions/D01-what-runs-in-rust-and-what-in-typescript.md): the dev environment is TypeScript; the nodes are the real Rust binary.
-- [D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md): tooling is not simulated, but bounded.
-- [D21](../decisions/D21-tooling-on-node-and-pnpm-not-deno.md): Node and pnpm, `node --run`.
+- [rust-and-typescript](../decisions/rust-and-typescript.md): the dev environment is TypeScript; the nodes are the real Rust binary.
+- [tigerstyle](../decisions/tigerstyle.md): tooling is not simulated, but bounded.
+- [node-and-pnpm](../decisions/node-and-pnpm.md): Node and pnpm, `node --run`.

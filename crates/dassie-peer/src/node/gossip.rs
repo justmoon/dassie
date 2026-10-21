@@ -261,7 +261,8 @@ impl PeerNode {
         } else {
             now.max(high.saturating_add(1))
         };
-        // Only advertised peers: confirmed, and not held down (D12).
+        // Only advertised peers: confirmed, and not held down
+        // (spec/decisions/peering-lifecycle.md).
         let neighbors = self.advertised();
         let extension = if periphery {
             Some(EXTENSION_PERIPHERY)

@@ -1,9 +1,9 @@
 name: Website
 
 # Builds dassie.land from `main` and publishes it to its bucket, which the
-# mirror's load balancer serves (spec D35, spec/areas/website.md). Pull
-# requests get no preview: CI builds the site and serves it with its
-# headers in the browser test.
+# mirror's load balancer serves (spec/decisions/website-hosting.md,
+# spec/areas/website.md). Pull requests get no preview: CI builds the site and
+# serves it with its headers in the browser test.
 #
 # The publish job runs in the `Website` environment, which admits only
 # `main`. What it needs there:

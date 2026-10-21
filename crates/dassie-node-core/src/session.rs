@@ -5,12 +5,14 @@
 //! (spec/original/02-node-runtime.md#87-sessions-store, RT-11). Here:
 //!
 //! - the browser holds a random token, and the node stores only its SHA-256,
-//!   the [`SessionId`] (D10), so a copy of the database logs no one in;
+//!   the [`SessionId`] (spec/decisions/secrets-at-rest.md), so a copy of the
+//!   database logs no one in;
 //! - a session ends after [`SessionPolicy::idle_timeout_ms`] unused, or
 //!   [`SessionPolicy::max_lifetime_ms`] after login, whichever comes first;
 //! - the cookie lasts exactly as long as the session can;
 //! - at most [`SessionPolicy::max_sessions`] are kept, so a script that logs
-//!   in over and over cannot grow the table without bound (D16).
+//!   in over and over cannot grow the table without bound
+//!   (spec/decisions/tigerstyle.md).
 //!
 //! The cookie's name and attributes are kept (spec/areas/http.md#sessions).
 

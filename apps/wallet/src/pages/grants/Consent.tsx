@@ -1,9 +1,9 @@
 /**
- * The consent page (D9): an app asks to act for the owner, for example to
- * send payments up to a limit. The owner reads who asks and what for:
- * for payments, what they send, what the receiver gets, to whom and for
- * how long. They approve or deny; the wallet then sends them back to the
- * app, which learns the answer from the node.
+ * The consent page (spec/decisions/open-payments.md): an app asks to act for
+ * the owner, for example to send payments up to a limit. The owner reads who
+ * asks and what for: for payments, what they send, what the receiver gets, to
+ * whom and for how long. They approve or deny; the wallet then sends them
+ * back to the app, which learns the answer from the node.
  */
 
 import type { JSX } from "@solidjs/web";

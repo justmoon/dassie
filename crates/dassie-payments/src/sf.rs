@@ -4,7 +4,8 @@
 //! them.
 //!
 //! Everything is bounded: the field length, the members of a dictionary,
-//! the items of an inner list and the parameters of each (D16).
+//! the items of an inner list and the parameters of each
+//! (spec/decisions/tigerstyle.md).
 
 use alloc::string::String;
 use alloc::vec::Vec;

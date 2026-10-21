@@ -1,7 +1,8 @@
 {
-  # Builds and checks for the Dassie rewrite (spec D14). Plain `cargo` and
-  # `node --run` work locally as well; this flake pins the toolchain for CI
-  # and makes the releases (nix/release.nix).
+  # Builds and checks for the Dassie rewrite
+  # (spec/decisions/build-system.md). Plain `cargo` and `node --run` work
+  # locally as well; this flake pins the toolchain for CI and makes the
+  # releases (nix/release.nix).
   description = "Dassie: a multi-currency, peer-to-peer, Interledger-enabled payment network";
 
   inputs = {

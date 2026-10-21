@@ -1,5 +1,5 @@
 //! Properties of the codec, allocation and helpers. The decoders never
-//! panic on anything a remote can send (D16,
+//! panic on anything a remote can send (spec/decisions/tigerstyle.md,
 //! spec/areas/testing.md#property-tests).
 
 mod support;

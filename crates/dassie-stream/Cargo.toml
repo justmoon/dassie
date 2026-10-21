@@ -22,7 +22,7 @@ wasm = [
   "dassie-ilp/wasm",
 ]
 # The simulated client and server, for this crate's tests and the
-# simulation runner, dassie-sim (D27).
+# simulation runner, dassie-sim (spec/decisions/random-seed-simulations.md).
 sim = ["dep:dassie-node-core", "dassie-oer/alloc"]
 
 [dependencies]

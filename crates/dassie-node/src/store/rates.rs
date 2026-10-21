@@ -1,5 +1,5 @@
-//! Exchange rates (D7): where the node fetches them, the last it got, and
-//! the currency the owner sees totals in.
+//! Exchange rates (spec/decisions/exchange-rates.md): where the node fetches
+//! them, the last it got, and the currency the owner sees totals in.
 
 use rusqlite::params;
 

@@ -6,7 +6,7 @@ use dassie_oer::{Alphabet, Decode, DecodeError, Encode, Reader, Size, Writer, si
 use crate::error::{ParseError, ParseErrorKind};
 
 /// Most protocol data entries a packet may carry. RFC 23 sets no limit;
-/// real clients send one or two (D16).
+/// real clients send one or two (spec/decisions/tigerstyle.md).
 pub const MAX_PROTOCOL_DATA_ENTRIES: usize = 16;
 /// Largest `data` of a BTP Error, in octets (RFC 23).
 pub const MAX_ERROR_DATA_LENGTH: usize = 8192;

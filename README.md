@@ -4,7 +4,7 @@
 
 Dassie is a payment node you run on your own server. It finds other Dassie nodes, peers with them on its own, and routes [Interledger](https://interledger.org) payments through them. Peers keep track of what they owe each other and settle it on a real ledger, today the XRP Ledger testnet. You run your node from a web wallet that it serves itself, and apps can pay through it with [Open Payments](https://openpayments.dev) or BTP.
 
-**Status:** Dassie is early and works with test money only. A new node joins the public testnet through its three bootstrap nodes, `boot1`–`boot3.dassie.xyz` ([D15](spec/decisions/D15-bootstrap-network-for-v1.md)).
+**Status:** Dassie is early and works with test money only. A new node joins the public testnet through its three bootstrap nodes, `boot1`–`boot3.dassie.xyz` ([bootstrap-network](spec/decisions/bootstrap-network.md)).
 
 This is the second implementation of Dassie, written in Rust, Node and Solid 2. It replaced the original TypeScript implementation, which you can still find at the tag `original`. The [specification](spec/README.md) describes Dassie as it is on `main`; start with its README, which says which docs to read for the code you touch. It has one doc per area, such as the [wallet](spec/areas/wallet.md) or the [connector](spec/areas/connector.md), which states that area's rules; one file per [decision](spec/decisions/README.md), which records why a rule is what it is; and [the original's chapters](spec/original/README.md), which describe how the original works, for reference.
 
@@ -37,7 +37,7 @@ From there, the wallet sends and receives payments, shows their status and your 
 
 **Open Payments.** Each ledger has a wallet address at `https://<your host>/pay/<ledger>`, for example `/pay/stub`, and `$<your host>` names the default one. Other wallets and apps pay into it, and with a grant you approve in the wallet, they may also pay out of it, up to the limits you agreed to. The wallet's Send takes a payment pointer or a payment request, and its grants page lists who may do what.
 
-A node without a hostname answers Open Payments at `https://<label>.dassiepay.net` instead, through the front door there, which reaches it over a connection the node keeps to it while it has no hostname. `DASSIE_RELAY` names another relay, as the entry its front door logs, or, set empty, none ([D40](spec/decisions/D40-a-node-without-a-hostname-keeps-the-default-front-door-as-its-relay.md)).
+A node without a hostname answers Open Payments at `https://<label>.dassiepay.net` instead, through the front door there, which reaches it over a connection the node keeps to it while it has no hostname. `DASSIE_RELAY` names another relay, as the entry its front door logs, or, set empty, none ([default-relay](spec/decisions/default-relay.md)).
 
 **BTP.** A BTP token, made in the wallet's settings, lets an ILP client such as `ilp-plugin-btp` spend through the node, at most its spending cap per window if you give it one. Over RPC, `createBtpToken` answers with the `btp+wss://` URL to connect with.
 
@@ -55,9 +55,9 @@ Environment='DASSIE_BOOTSTRAP_NODES=[{"id":"dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk","
 
 `listNodes`, `listPeers`, `listRoutes` and `getRegistrationStatus` show what your node knows, and the wallet's network page shows the same.
 
-The node that asks to peer extends the other 1.1 units of credit; the node that accepts extends nothing at first, so the newcomer pays in advance. Each side's credit then grows by a tenth of the fees the other earned it, up to 10 units. A node asks a peer to settle once its room for the peer is down to one and a half of the largest packets, checking every 4 seconds; asked, a node settles half the way to its own point of asking; `listSettlementChannels` shows the settlements on their way. Each node keeps its own books, Fulfills it sent included, whatever its peer counted ([D23](spec/decisions/D23-each-node-books-its-own-fulfills.md)): a peer can cost your node at most the credit it extends, since packets past it are refused. The wallet's settings, or `getPeerSettings` and `setPeerSettings`, change the fee and the exchange spread your node charges for passing payments on.
+The node that asks to peer extends the other 1.1 units of credit; the node that accepts extends nothing at first, so the newcomer pays in advance. Each side's credit then grows by a tenth of the fees the other earned it, up to 10 units. A node asks a peer to settle once its room for the peer is down to one and a half of the largest packets, checking every 4 seconds; asked, a node settles half the way to its own point of asking; `listSettlementChannels` shows the settlements on their way. Each node keeps its own books, Fulfills it sent included, whatever its peer counted ([own-fulfills](spec/decisions/own-fulfills.md)): a peer can cost your node at most the credit it extends, since packets past it are refused. The wallet's settings, or `getPeerSettings` and `setPeerSettings`, change the fee and the exchange spread your node charges for passing payments on.
 
-`terminatePeering` ends a peering. Your node first collects, without telling the peer: it takes nothing new from it, asks it to settle once more, and waits for that settlement; then it tells the peer, and the peering drains and ends on both sides. Nothing else is settled for its end ([D28](spec/decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)): what either side still owes stays on its books, for a later peering to settle. `banNode`, `unbanNode` and `listBans` keep nodes away. `GET /stats` tells anyone the node's version and the peers it advertises.
+`terminatePeering` ends a peering. Your node first collects, without telling the peer: it takes nothing new from it, asks it to settle once more, and waits for that settlement; then it tells the peer, and the peering drains and ends on both sides. Nothing else is settled for its end ([ending-a-peering](spec/decisions/ending-a-peering.md)): what either side still owes stays on its books, for a later peering to settle. `banNode`, `unbanNode` and `listBans` keep nodes away. `GET /stats` tells anyone the node's version and the peers it advertises.
 
 **Logs.** `DASSIE_LOG_LEVEL` sets how much the node logs (`debug`, `info`, `warn`, `error` or `none`; `info` by default). The wallet's debug pages show the recent log as well.
 
@@ -79,7 +79,7 @@ The node that asks to peer extends the other 1.1 units of credit; the node that 
 | `crates/dassie-node` | The daemon: database, HTTP(S) and IPC listeners, TLS, ACME, owner login, RPC with its live streams, the engine (ledger, peer protocol, Open Payments, bans), `/peer` and the peer client, the BTP server, the STREAM receiver, the rate fetcher, `/stats`, the log ring, and a fake XRP Ledger for tests |
 | `crates/dassie-cli` | The `dassie` binary: `daemon`, `init`, `update`, `verify-install` |
 | `crates/dassie-release` | What a release is and how to trust one: versions and channels, the mirror's layout, `SHA256SUMS` and its minisign signature |
-| `crates/dassie-sim` | Runs the simulations from any seed, to replay and explain failures: `dassie-sim run peer 0..1000`, `dassie-sim explain peer 42` (D27); a developer tool, never released |
+| `crates/dassie-sim` | Runs the simulations from any seed, to replay and explain failures: `dassie-sim run peer 0..1000`, `dassie-sim explain peer 42` ([random-seed-simulations](spec/decisions/random-seed-simulations.md)); a developer tool, never released |
 | `nix/release.nix` | The release builds: the wallet, static binaries for x64 and arm64, their bundles, the mirror tree, and the install tests' releases |
 | `resources` | What a release ships beside the binary: the systemd units (the node, its sockets and the daily updater) and `install.sh`, and the release key (`minisign.pub`) |
 | `scripts/build-wasm.ts` | Builds the WASM modules and their bindings (`node --run build:wasm`) |
@@ -177,7 +177,7 @@ To work on the website, run `node --run dev` in `apps/website`, which rebuilds `
 
 ## Engineering style
 
-The code follows a pragmatic TigerStyle and is built for deterministic simulation testing ([D16](spec/decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md), [Engineering](spec/engineering.md#pragmatic-tigerstyle)): the core crates never read a clock or the OS RNG, bound every table and queue, and check their invariants after every step of their simulations.
+The code follows a pragmatic TigerStyle and is built for deterministic simulation testing ([tigerstyle](spec/decisions/tigerstyle.md), [Engineering](spec/engineering.md#pragmatic-tigerstyle)): the core crates never read a clock or the OS RNG, bound every table and queue, and check their invariants after every step of their simulations.
 
 ## License
 

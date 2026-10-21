@@ -316,7 +316,8 @@ export type ListLedgersResponse = Message<"dassie.ui.v1.ListLedgersResponse"> & 
   ledgers: Ledger[];
 
   /**
-   * The exchange rates the node converts at (D7), by currency.
+   * The exchange rates the node converts at
+   * (spec/decisions/exchange-rates.md), by currency.
    *
    * @generated from field: repeated dassie.ui.v1.ExchangeRate rates = 2;
    */
@@ -414,8 +415,9 @@ export const DisplayTotalSchema: GenMessage<DisplayTotal> = /*@__PURE__*/
   messageDesc(file_dassie_ui_v1_ledger, 9);
 
 /**
- * Where the node fetches exchange rates (D7). A currency's rate is the
- * median of the sources that cover it, once more than half of them gave one.
+ * Where the node fetches exchange rates (spec/decisions/exchange-rates.md). A
+ * currency's rate is the median of the sources that cover it, once more than
+ * half of them gave one.
  *
  * @generated from message dassie.ui.v1.RateSource
  */

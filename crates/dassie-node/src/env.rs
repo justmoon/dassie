@@ -9,7 +9,8 @@
 //! it.
 //!
 //! The environment arrives as an [`Env`] snapshot rather than being read
-//! through `std::env`, so tests can pass their own (D16).
+//! through `std::env`, so tests can pass their own
+//! (spec/decisions/tigerstyle.md).
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -22,9 +23,10 @@ use serde::Deserialize;
 
 use crate::log::{LogFilter, LogLevel};
 
-/// The public testnet's bootstrap nodes (D15), one per region: boot1 in
-/// us-east1, boot2 in europe-west3, boot3 in asia-northeast1. Each ID is
-/// checked against its key at startup, like any entry (NET-19).
+/// The public testnet's bootstrap nodes
+/// (spec/decisions/bootstrap-network.md), one per region: boot1 in us-east1,
+/// boot2 in europe-west3, boot3 in asia-northeast1. Each ID is checked
+/// against its key at startup, like any entry (NET-19).
 /// `DASSIE_BOOTSTRAP_NODES=[]` makes a node run alone.
 pub const DEFAULT_BOOTSTRAP_NODES: &str = r#"[
   {"id":"dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"},
@@ -35,9 +37,9 @@ pub const DEFAULT_BOOTSTRAP_NODES: &str = r#"[
 /// The relay a node keeps a connection to while it has no hostname, unless
 /// `DASSIE_RELAY` names another: the front door of the node's default name,
 /// `<label>.dassiepay.net`, which reaches the node only over that
-/// connection (D40, spec/areas/node.md#a-chosen-relay). Its ID is checked
-/// against its key at startup, like any entry. `DASSIE_RELAY=` (empty)
-/// keeps no relay.
+/// connection (spec/decisions/default-relay.md,
+/// spec/areas/node.md#a-chosen-relay). Its ID is checked against its key at
+/// startup, like any entry. `DASSIE_RELAY=` (empty) keeps no relay.
 pub const DEFAULT_RELAY: &str = r#"{"id":"ddTEO6qzWIorLvNGybj0uyK-mhlVJNa-q","url":"https://relay.dassiepay.net","publicKey":"DliIZHngMG7GTDqfHBSP_dfSTmn8ziA9OE37FnxC7eo"}"#;
 
 /// Most bootstrap nodes accepted.
@@ -129,7 +131,8 @@ pub struct Relay {
     /// Its ID, URL and key.
     pub node: BootstrapNode,
     /// Whether it is [`DEFAULT_RELAY`], as `DASSIE_RELAY` is unset: the
-    /// node keeps it only while it has no hostname (D40).
+    /// node keeps it only while it has no hostname
+    /// (spec/decisions/default-relay.md).
     pub is_default: bool,
 }
 
@@ -393,8 +396,9 @@ mod tests {
         assert!(dir(&[]).is_err());
     }
 
-    // D15: the default list names the testnet's three bootstrap nodes, and
-    // each passes the same checks as a configured entry.
+    // spec/decisions/bootstrap-network.md: the default list names the
+    // testnet's three bootstrap nodes, and each passes the same checks as a
+    // configured entry.
     #[test]
     fn the_default_bootstrap_nodes_are_the_testnet() {
         let urls = settings(&[("HOME", "/h")]).map(|s| {
@@ -516,8 +520,9 @@ mod tests {
         assert!(relay(&http).is_err());
     }
 
-    // D40: unset, the relay is the front door of the default name, checked
-    // as any entry and kept only without a hostname; empty, there is none.
+    // spec/decisions/default-relay.md: unset, the relay is the front door of
+    // the default name, checked as any entry and kept only without a
+    // hostname; empty, there is none.
     #[test]
     fn the_default_relay_is_the_default_names_front_door() {
         let unset = settings(&[("HOME", "/h")]).unwrap().relay.unwrap();

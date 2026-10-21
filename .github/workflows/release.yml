@@ -1,11 +1,12 @@
 name: Release
 
 # Builds, checks, signs and publishes Dassie to the mirror,
-# get.dassie.land (spec D11, D14): every tag v<version> as a release
+# get.dassie.land (spec/decisions/release-integrity.md,
+# spec/decisions/build-system.md): every tag v<version> as a release
 # (meta/latest). The checks only a release needs run here, not in CI: the
-# install tests on each distribution, and the static release binaries.
-# The original's releases were uploaded by hand, and nothing in its
-# repository published the installer (UI-12).
+# install tests on each distribution, and the static release binaries. The
+# original's releases were uploaded by hand, and nothing in its repository
+# published the installer (UI-12).
 #
 # It runs in the `Release` environment. What it needs:
 # - secrets.NIX_CLOUD_TOKEN: the builds run on the Vorstand Nix cloud

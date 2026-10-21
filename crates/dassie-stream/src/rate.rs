@@ -1,7 +1,8 @@
 use core::fmt;
 
 /// An exchange rate: `numerator` destination units per `denominator` source
-/// units, in lowest terms. Exact integer math throughout (D7); no floats.
+/// units, in lowest terms. Exact integer math throughout
+/// (spec/decisions/exchange-rates.md); no floats.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Rate {
     numerator: u64,

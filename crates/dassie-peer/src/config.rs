@@ -71,7 +71,8 @@ pub struct Config {
     pub registration_renew_ms: u64,
     /// New registrations a bootstrap node takes.
     pub registration_rate: Rate,
-    /// Most registrations from one /24 or /48 (D4).
+    /// Most registrations from one /24 or /48
+    /// (spec/decisions/membership-economics.md).
     pub max_registrations_per_network: usize,
     /// Probes of registrants' and peers' URLs a node makes.
     pub probe_rate: Rate,
@@ -102,7 +103,7 @@ pub struct Config {
     /// A peer not heard from for this long is terminated as unresponsive.
     pub peer_dead_ms: u64,
     /// The first hold-down of a peer that stopped being advertised; each
-    /// further one doubles it (damping, D12).
+    /// further one doubles it (damping, spec/decisions/peering-lifecycle.md).
     pub advertise_hold_min_ms: u64,
     /// The longest hold-down.
     pub advertise_hold_max_ms: u64,
@@ -119,12 +120,12 @@ pub struct Config {
     /// How long the side that terminates keeps telling the other.
     pub termination_timeout_ms: u64,
     /// How long a node ending a peering waits for each of two things before
-    /// it tells the peer (D28): its own settlements to the peer under way,
-    /// and what the peer's answer to its last request says is on its way.
-    /// Long enough for a settlement to reach the ledger and be announced:
-    /// on the XRP Ledger, a transaction applies within its window of 20
-    /// ledgers, some 80 s, or never; with a request's timeout for its
-    /// announcement, 110 s.
+    /// it tells the peer (spec/decisions/ending-a-peering.md): its own
+    /// settlements to the peer under way, and what the peer's answer to its
+    /// last request says is on its way. Long enough for a settlement to reach
+    /// the ledger and be announced: on the XRP Ledger, a transaction applies
+    /// within its window of 20 ledgers, some 80 s, or never; with a request's
+    /// timeout for its announcement, 110 s.
     pub depeer_wait_ms: u64,
     /// How long after an owner's termination the node does not ask the
     /// peer again.
@@ -245,7 +246,7 @@ impl Config {
     };
 
     /// Most inbound peerings: the rest of the slots are for ours, so that
-    /// requests alone cannot fill them (D12).
+    /// requests alone cannot fill them (spec/decisions/peering-lifecycle.md).
     #[must_use]
     pub const fn max_inbound(&self) -> usize {
         self.max_peers.saturating_sub(self.peer_target)

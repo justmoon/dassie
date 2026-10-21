@@ -22,14 +22,14 @@
 //! or none, stops the scheme before the account is read, so mainnet XRP is
 //! never booked, written off or signed for. The original's mainnet module,
 //! never registered, would have taken every settlement for a deposit
-//! (ACC-13); a mainnet scheme waits for real money (D8), with a memo type
-//! of its own.
+//! (ACC-13); a mainnet scheme waits for real money
+//! (spec/decisions/real-money.md), with a memo type of its own.
 //!
 //! It acts only on what a server says as of a validated ledger at or past
 //! the newest it has seen: a server behind the others says nothing new,
 //! and its answers wait for it to catch up. A ledger below the newest that
 //! closed later is a new chain, which only a testnet reset makes, and only
-//! on a network [`resets`] allows (D32).
+//! on a network [`resets`] allows (spec/decisions/ledger-resets.md).
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::{String, ToString};
@@ -117,7 +117,8 @@ const ACCOUNT_GONE: &str =
 /// is a reset, and an account gone with it is written off. Only the
 /// testnet: on any other network, mainnet included, a ledger below one
 /// seen is never taken, and an absent account never written off, whatever
-/// else lets the scheme run there (D8, D32).
+/// else lets the scheme run there (spec/decisions/real-money.md,
+/// spec/decisions/ledger-resets.md).
 #[must_use]
 pub const fn resets(network_id: u32) -> bool {
     network_id == TESTNET_NETWORK_ID
@@ -1786,10 +1787,10 @@ mod tests {
         close_time: 800_000_000,
     };
 
-    // D32: a ledger below the newest seen that closed later is a reset only
-    // on the testnet. On mainnet, devnet or any other network it is never
-    // taken, whatever lets the scheme run there; one that closed earlier is
-    // a server behind, anywhere.
+    // spec/decisions/ledger-resets.md: a ledger below the newest seen that
+    // closed later is a reset only on the testnet. On mainnet, devnet or any
+    // other network it is never taken, whatever lets the scheme run there;
+    // one that closed earlier is a server behind, anywhere.
     #[test]
     fn only_the_testnet_starts_again() {
         let lower_later = Validated {
@@ -1817,9 +1818,9 @@ mod tests {
         }
     }
 
-    // D32: on a network that is never reset, an account that held anything
-    // and is gone stops the scheme: nothing is cancelled or written off,
-    // and the faucet is not asked.
+    // spec/decisions/ledger-resets.md: on a network that is never reset, an
+    // account that held anything and is gone stops the scheme: nothing is
+    // cancelled or written off, and the faucet is not asked.
     #[test]
     fn an_account_gone_from_a_network_never_reset_stops_the_scheme() {
         for (network, stops) in [(0, true), (2, true), (1, false)] {

@@ -144,10 +144,10 @@ fn packets_need_a_peering() {
     );
 }
 
-// D4: registrations lapse without renewal and leave the served list, so
-// the node loses its majority place, and leaves the table of every node
-// that is not its peer after the grace period (NET-18). Peers keep it
-// until liveness ends the peering (M4b).
+// spec/decisions/membership-economics.md: registrations lapse without renewal
+// and leave the served list, so the node loses its majority place, and leaves
+// the table of every node that is not its peer after the grace period
+// (NET-18). Peers keep it until liveness ends the peering (M4b).
 #[test]
 fn registrations_expire_and_nodes_leave() {
     let mut network = Network::new(4, 6, 1, Config::DEV);
@@ -173,7 +173,7 @@ fn registrations_expire_and_nodes_leave() {
         let held = node.nodes().into_iter().find(|v| v.id == gone);
         // A peer keeps it, or ended its peering with it for its silence,
         // which takes as long as the window here, and holds it no more
-        // than the grace (D28).
+        // than the grace (spec/decisions/ending-a-peering.md).
         let ended = network
             .events
             .iter()
@@ -187,8 +187,9 @@ fn registrations_expire_and_nodes_leave() {
     assert!(removed > 0, "some node was not its peer");
 }
 
-// D4: with most bootstrap nodes down, their lists go stale, and nobody is
-// removed for losing a majority they can no longer have.
+// spec/decisions/membership-economics.md: with most bootstrap nodes down,
+// their lists go stale, and nobody is removed for losing a majority they can
+// no longer have.
 #[test]
 fn membership_freezes_when_lists_go_stale() {
     let mut network = Network::new(5, 5, 3, Config::DEV);

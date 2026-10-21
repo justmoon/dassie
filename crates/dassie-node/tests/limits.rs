@@ -1,6 +1,6 @@
 //! The limits that keep a node's resources bounded against clients that
-//! misbehave (D16), and the ends of sessions that are not logouts. Each
-//! test guards a defect a review found.
+//! misbehave (spec/decisions/tigerstyle.md), and the ends of sessions that
+//! are not logouts. Each test guards a defect a review found.
 
 #![allow(
     clippy::unwrap_used,

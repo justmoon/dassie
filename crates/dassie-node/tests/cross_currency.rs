@@ -169,7 +169,7 @@ async fn dollars_arrive_as_xrp() {
     let paid = payment.sent_amount;
     assert!((1_000_000_000..=1_000_000_100).contains(&paid), "{paid}");
     // B counted each packet received as it posted it, before its Fulfill
-    // went back to A (D23).
+    // went back to A (spec/decisions/own-fulfills.md).
     let received = async || {
         let Ok(response::Method::ListIncomingPayments(list)) = b
             .ipc()
@@ -202,8 +202,9 @@ async fn dollars_arrive_as_xrp() {
     assert_eq!(owner_balance(b, XRP_LEDGER).await, xrp_b);
 
     // B's source goes quiet for over an hour: its XRP rate is stale, and
-    // B refuses what would need it with T00 (D7). The rate cannot be
-    // measured, so there is no quote.
+    // B refuses what would need it with T00
+    // (spec/decisions/exchange-rates.md). The rate cannot be measured, so
+    // there is no quote.
     rates.answer(503, String::new());
     pair.clock.advance(61 * 60 * 1_000);
     until(&pair.clock, async || {

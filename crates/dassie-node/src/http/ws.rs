@@ -238,7 +238,7 @@ mod tests {
         #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
 
         // A handshake's headers are anyone's: they make one, or none,
-        // without a panic (D16).
+        // without a panic (spec/decisions/tigerstyle.md).
         #[test]
         fn any_handshake_is_read(headers in handshake()) {
             let mut request = Request::new(());

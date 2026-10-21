@@ -1,4 +1,5 @@
-//! `dassie-sim`: runs Dassie's simulations from seeds (D27).
+//! `dassie-sim`: runs Dassie's simulations from seeds
+//! (spec/decisions/random-seed-simulations.md).
 //!
 //! ```text
 //! dassie-sim list                                  the simulations
@@ -29,7 +30,7 @@
 //! the tripwire included). Each run is a process of its own, `record`, so
 //! that runs share nothing and take as long as each alone. Its output is
 //! the contract with the supervisor that runs it on the campaign's machines
-//! and files what it finds (D27):
+//! and files what it finds (spec/decisions/random-seed-simulations.md):
 //!
 //! - **One JSON object per line on stdout, per finished run,** written as
 //!   the run ends:

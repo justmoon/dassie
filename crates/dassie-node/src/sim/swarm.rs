@@ -1,7 +1,8 @@
-//! The node simulation's random run (D27): every seed draws its own
-//! network, faults and payments, as swarm testing does, so that runs
-//! differ in kind and not only in detail. Some seeds switch a fault off
-//! entirely, so that rare combinations get their turn.
+//! The node simulation's random run
+//! (spec/decisions/random-seed-simulations.md): every seed draws its own
+//! network, faults and payments, as swarm testing does, so that runs differ
+//! in kind and not only in detail. Some seeds switch a fault off entirely, so
+//! that rare combinations get their turn.
 //!
 //! A run has two phases. In the chaos, payments start while nodes crash
 //! or fail a commit and restart, links are cut and healed, messages are
@@ -12,7 +13,7 @@
 //! the chaos left it, its cuts too, until it ends. Then the network heals:
 //! every node runs, no link is cut, nothing is lost or replayed, and within
 //! [`HEAL_MS`] the network must settle down. Then each node is checked by
-//! its own books (D19), as the scripted runs are.
+//! its own books (spec/decisions/own-books.md), as the scripted runs are.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -90,7 +91,8 @@ pub struct Weights {
     pub heal: u64,
     /// Dropping a node's connection to the XRP Ledger.
     pub ledger_drop: u64,
-    /// Making one of a node's next commits fail (D27).
+    /// Making one of a node's next commits fail
+    /// (spec/decisions/random-seed-simulations.md).
     pub fail_commit: u64,
     /// An owner ending one of its node's peerings.
     pub end: u64,
@@ -715,9 +717,10 @@ struct End {
 /// through the owner's API, as the scripted run's owner does: an end only
 /// of a peering still active, a ban also of one being ended. Never one
 /// that would split the network: after an owner's end the pair stays
-/// apart for the owner's cooldown of a day (D33), which outlasts the heal
-/// unless a partition held the network split for most of it, and after a
-/// ban for good, while the heal needs every node to reach every other.
+/// apart for the owner's cooldown of a day
+/// (spec/decisions/ended-for-room.md), which outlasts the heal unless a
+/// partition held the network split for most of it, and after a ban for good,
+/// while the heal needs every node to reach every other.
 fn owner_ends(sim: &mut Sim, rng: &mut SeededRng, ends: &mut Vec<End>, ban: bool) {
     let running: Vec<usize> = (0..sim.nodes.len()).filter(|i| up(sim, *i)).collect();
     let Some(&by) = choose(&running, rng) else {
@@ -964,7 +967,8 @@ fn unsettled(sim: &Sim) -> Option<String> {
     if in_flight {
         return Some("a transaction is on its way to or from the ledger".into());
     }
-    // An end, the owner's or the node's own, takes a bounded time (D28).
+    // An end, the owner's or the node's own, takes a bounded time
+    // (spec/decisions/ending-a-peering.md).
     for index in 0..count {
         let network = sim.core(index).network();
         let ending = network
@@ -1003,14 +1007,14 @@ fn unsettled(sim: &Sim) -> Option<String> {
 }
 
 /// What each node did about an owner's end or ban, by its own books and
-/// what it did (D28), whether or not the network settled down: neither
-/// node settles with the other once it knows the peering ends, until they
-/// peer again; a node that bans a peer tells it at once, asks it for
-/// nothing, and never peers with it again; and neither node is owed by the
-/// other past the credit it extends (D23). What the node ended collects,
-/// and a settlement that lands after the end, credited once to the peer's
-/// account, the books against the scheme and the owner's funds show
-/// ([`check`]).
+/// what it did (spec/decisions/ending-a-peering.md), whether or not the
+/// network settled down: neither node settles with the other once it knows
+/// the peering ends, until they peer again; a node that bans a peer tells it
+/// at once, asks it for nothing, and never peers with it again; and neither
+/// node is owed by the other past the credit it extends
+/// (spec/decisions/own-fulfills.md). What the node ended collects, and a
+/// settlement that lands after the end, credited once to the peer's account,
+/// the books against the scheme and the owner's funds show ([`check`]).
 fn check_end(sim: &Sim, end: &End) -> Result<(), Outcome> {
     let &End {
         mark,
@@ -1049,12 +1053,12 @@ fn check_end(sim: &Sim, end: &End) -> Result<(), Outcome> {
     Ok(())
 }
 
-/// A ban collects nothing (D28): node `by`, banning node `peer`, tells it
-/// the peering ends at once, unless it was ending already, and asks it to
-/// settle no more. And it never peers with the peer again: it neither
-/// asks it nor accepts it (spec/areas/network.md#bans). The peer may still
-/// record a peering it asked for before the ban, once the acceptance
-/// arrives, and is then told it ends.
+/// A ban collects nothing (spec/decisions/ending-a-peering.md): node `by`,
+/// banning node `peer`, tells it the peering ends at once, unless it was
+/// ending already, and asks it to settle no more. And it never peers with the
+/// peer again: it neither asks it nor accepts it
+/// (spec/areas/network.md#bans). The peer may still record a peering it asked
+/// for before the ban, once the acceptance arrives, and is then told it ends.
 fn banned(sim: &Sim, mark: usize, by: usize, peer: usize) -> Result<(), Outcome> {
     let lines = &sim.trace[mark..];
     if until_peered(lines, 0, by, peer) < lines.len() {
@@ -1088,7 +1092,8 @@ fn banned(sim: &Sim, mark: usize, by: usize, peer: usize) -> Result<(), Outcome>
 
 /// Counts what the owners' ends reached: an end whose last request found
 /// a settlement on its way, and a settlement booked after the end, which
-/// the books then credit to the peer's account, once (D28).
+/// the books then credit to the peer's account, once
+/// (spec/decisions/ending-a-peering.md).
 fn count_ends(sim: &mut Sim, ends: &[End]) {
     let mut collected = 0;
     let mut late = 0;

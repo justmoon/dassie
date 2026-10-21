@@ -1,7 +1,7 @@
 /**
  * The browser's client for the node's RPC contract (`proto/dassie/ui/v1`,
- * D5, spec/areas/rpc.md#the-typescript-client): one WebSocket to `/rpc`,
- * binary protobuf frames.
+ * spec/decisions/rpc-contract.md, spec/areas/rpc.md#the-typescript-client):
+ * one WebSocket to `/rpc`, binary protobuf frames.
  *
  * What the original's client got wrong, and this one does not
  * (spec/original/02-node-runtime.md#10-rpc-apprpc-server--packageslib-rpc,

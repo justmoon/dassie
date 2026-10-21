@@ -1,5 +1,5 @@
 //! The authorization server, and the checks the resource server makes of
-//! every request (D9).
+//! every request (spec/decisions/open-payments.md).
 //!
 //! A client asks for a grant at `POST /gnap`, signing the request with its
 //! key: the key its wallet address publishes, or one it sends along
@@ -38,7 +38,7 @@ pub const ACCESS_TOKEN_LIFETIME_MS: u64 = 60 * 60 * 1_000;
 pub const PENDING_GRANT_LIFETIME_MS: u64 = 10 * 60 * 1_000;
 
 /// Grants only clients the owner approved before may take: strangers'
-/// grants never fill the table (D34).
+/// grants never fill the table (spec/decisions/owners-share.md).
 pub const OWNER_RESERVED_GRANTS: u32 = MAX_GRANTS / 16;
 /// Places among the grants waiting for the owner that only clients the
 /// owner approved before may take.
@@ -53,7 +53,8 @@ pub const MAX_PENDING_PER_CLIENT: u32 = 4;
 /// network.
 pub const MAX_PENDING_PER_NETWORK: u32 = MAX_PENDING_GRANTS / 16;
 
-/// Whether a new grant fits beside those kept (D34).
+/// Whether a new grant fits beside those kept
+/// (spec/decisions/owners-share.md).
 ///
 /// Clients the owner approved before, by their grant the owner approved,
 /// are the owner's side: strangers leave them a share of the grants and
@@ -243,7 +244,7 @@ pub fn token_hash(token: &str) -> [u8; 32] {
 ///
 /// Refuses too an item that creates outgoing payments with a debit limit
 /// in another asset than its wallet address: no payment from it could
-/// fit the limit (D29).
+/// fit the limit (spec/decisions/unusable-limits.md).
 fn canonical(
     access: &mut [Access],
     addresses: &WalletAddresses,
@@ -817,7 +818,7 @@ mod tests {
 
     // Grants the owner decides need no owner to ask for, so strangers can
     // fill the places where they wait. A client the owner approved before
-    // still gets one (D34).
+    // still gets one (spec/decisions/owners-share.md).
     #[test]
     fn a_client_the_owner_approved_asks_while_strangers_fill_the_waiting_grants() {
         let store = Store::open_in_memory().unwrap();

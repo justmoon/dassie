@@ -357,7 +357,8 @@ impl PeerNode {
     }
 
     /// Asks `peer` to settle on `scheme`, once: the node asks again later
-    /// if it still has to (D23). The peer decides how much.
+    /// if it still has to (spec/decisions/own-fulfills.md). The peer decides
+    /// how much.
     ///
     /// # Errors
     ///
@@ -369,7 +370,8 @@ impl PeerNode {
         scheme: SchemeId,
     ) -> Result<(), SendError> {
         self.advance(now_ms);
-        // A peering we are ending asks once more, by itself (D28).
+        // A peering we are ending asks once more, by itself
+        // (spec/decisions/ending-a-peering.md).
         if self
             .table
             .get(peer)

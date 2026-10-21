@@ -13,7 +13,8 @@
 //!
 //! Durations with years or months step one window at a time, at most
 //! [`MAX_CALENDAR_STEPS`] of them (a century of months); durations of fixed
-//! length are divided out. Nothing here loops further (D16).
+//! length are divided out. Nothing here loops further
+//! (spec/decisions/tigerstyle.md).
 
 use crate::time::{self, Civil, MS_PER_DAY, days_in_month};
 

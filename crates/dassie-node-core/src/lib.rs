@@ -18,7 +18,7 @@
 //! database. Nothing here reads a clock, draws OS randomness or touches the
 //! network: time comes in as `now_ms` (milliseconds since the Unix epoch)
 //! and randomness from an RNG the caller passes in, so the same inputs give
-//! the same outputs (D16).
+//! the same outputs (spec/decisions/tigerstyle.md).
 
 #![no_std]
 

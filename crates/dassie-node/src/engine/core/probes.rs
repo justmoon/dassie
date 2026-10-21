@@ -1,14 +1,14 @@
-//! Rate probes (D9): before quoting a payment to a receiver on another
-//! node, the payer measures what the path delivers with packets the
-//! receiver cannot fulfill, as STREAM measures exchange rates. They move
-//! no money, but hold the owner's funds while in flight, as the payment
-//! would.
+//! Rate probes (spec/decisions/open-payments.md): before quoting a payment to
+//! a receiver on another node, the payer measures what the path delivers with
+//! packets the receiver cannot fulfill, as STREAM measures exchange rates.
+//! They move no money, but hold the owner's funds while in flight, as the
+//! payment would.
 //!
 //! Clients' quotes need no owner, so anyone can start probes. The owner's
 //! Send keeps [`OWNER_PROBES`] of the slots, which no client can take, and
 //! no one stranger, or network of strangers, holds more than
 //! [`MAX_PROBES_PER_CLIENT`]. Apps the owner approved share the clients'
-//! slots without a share of their own (D34).
+//! slots without a share of their own (spec/decisions/owners-share.md).
 
 use dassie_ilp::{Address, Timestamp};
 use dassie_ledger::LedgerId;

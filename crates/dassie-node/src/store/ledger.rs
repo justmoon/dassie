@@ -94,7 +94,8 @@ pub struct Checkpoint {
     pub state: Vec<u8>,
 }
 
-/// A BTP token as stored: its hash, never the token (D10).
+/// A BTP token as stored: its hash, never the token
+/// (spec/decisions/secrets-at-rest.md).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BtpTokenRow {
     /// Never reused.
@@ -350,10 +351,10 @@ impl Store {
     }
 
     /// Up to `limit` fees posted to `fees` after the sequence `after`, in
-    /// sequence order (D20). Each comes with the account its packet came
-    /// from, which the fee debits, and the account the packet's other
-    /// transfer from it credits: on the same ledger, the account it went
-    /// to; across ledgers, the FX account.
+    /// sequence order (spec/decisions/earned-trust.md). Each comes with the
+    /// account its packet came from, which the fee debits, and the account
+    /// the packet's other transfer from it credits: on the same ledger, the
+    /// account it went to; across ledgers, the FX account.
     pub fn fees_after(
         &self,
         fees: AccountId,

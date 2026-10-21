@@ -1,7 +1,7 @@
 #!/bin/sh
-# Sets up dassie.land on GCP (spec D35): a bucket behind the release
-# mirror's load balancer, the account that publishes it, a certificate for
-# dassie.land and its subdomains, and the dassie.land zone.
+# Sets up dassie.land on GCP (spec/decisions/website-hosting.md): a bucket
+# behind the release mirror's load balancer, the account that publishes it, a
+# certificate for dassie.land and its subdomains, and the dassie.land zone.
 #
 #   scripts/website/provision.sh [--apply]
 #
@@ -90,7 +90,7 @@ run gcloud storage buckets add-iam-policy-binding "gs://$bucket" \
 # the `Website` environment, which admits only `main`, may act as it: the
 # subject of its token names the environment.
 run gcloud iam service-accounts create "$account" --project="$project" \
-  --display-name="dassie.land publisher (D35)" \
+  --display-name="dassie.land publisher (spec/decisions/website-hosting.md)" \
   --description="Writes the dassie.land bucket's objects; nothing else"
 run gcloud storage buckets add-iam-policy-binding "gs://$bucket" \
   --member="serviceAccount:$email" --role=roles/storage.objectUser
@@ -174,7 +174,8 @@ run gcloud certificate-manager maps entries create primary \
 
 # The zone.
 run gcloud dns managed-zones create "$zone" --project="$project" \
-  --dns-name="$domain." --description="dassie.land (D35)" \
+  --dns-name="$domain." \
+  --description="dassie.land (spec/decisions/website-hosting.md)" \
   --dnssec-state=on
 for name in "" www. get. sh.; do
   run gcloud dns record-sets create "$name$domain." --project="$project" \

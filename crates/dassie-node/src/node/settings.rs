@@ -85,7 +85,7 @@ impl Node {
         Ok(config)
     }
 
-    /// Sets the realm; `live` is refused (D8).
+    /// Sets the realm; `live` is refused (spec/decisions/real-money.md).
     pub fn set_realm(&self, realm: Realm) -> Result<NodeConfig, SettingsError> {
         let realm = realm.check_settable()?;
         let (config, _) = self.change_config(|config| {

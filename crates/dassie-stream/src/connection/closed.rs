@@ -8,8 +8,9 @@ const WINDOW: u64 = 256;
 /// tracked one bit each, and the window slides up as the remote opens
 /// higher IDs. A stream skipped so far behind that the window passed it
 /// counts as closed, as QUIC treats streams below the highest one opened.
-/// The memory is fixed whatever the remote does (D16); the original kept
-/// no record at all, so closed streams could be reopened.
+/// The memory is fixed whatever the remote does
+/// (spec/decisions/tigerstyle.md); the original kept no record at all, so
+/// closed streams could be reopened.
 #[derive(Debug, Default)]
 pub(super) struct ClosedIds {
     base: u64,

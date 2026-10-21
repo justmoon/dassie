@@ -1,5 +1,6 @@
-//! Open Payments over HTTPS (D9, spec/areas/payments.md#http-routes): the
-//! wallet addresses, the authorization server and the resource server.
+//! Open Payments over HTTPS (spec/decisions/open-payments.md,
+//! spec/areas/payments.md#http-routes): the wallet addresses, the
+//! authorization server and the resource server.
 //!
 //! Unlike the owner's endpoints, these are for anyone: they check no
 //! `Origin` and allow every origin (CORS, without credentials), since a

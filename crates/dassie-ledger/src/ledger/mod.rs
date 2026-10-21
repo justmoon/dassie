@@ -16,7 +16,7 @@ use crate::name::Name;
 use crate::path::{AccountName, AccountPath};
 use crate::reference::Reference;
 
-/// The ledger's bounds (D16).
+/// The ledger's bounds (spec/decisions/tigerstyle.md).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Config {
     /// Most accounts.

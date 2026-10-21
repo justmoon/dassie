@@ -14,14 +14,14 @@ A periphery node always opens its connections itself, to nodes with a public IP,
 - a way to reach a periphery node by its ID, for its owner's apps and for Open Payments clients (§5–§7);
 - receiving payments without paying anything first (§8).
 
-This is a design ([D26](../decisions/D26-core-and-periphery.md)). Of it, QUIC between core nodes is built ([Peer protocol](../areas/peer-protocol.md#quic)), and so are relayed streams and a node's chosen relay of §5 ([Peer protocol](../areas/peer-protocol.md#relayed-streams)), a node's names, its signed responses and the `dassie` field of §7 ([Payments](../areas/payments.md#the-nodes-names)), and front doors that reach the nodes which chose them as their relay (§7, [HTTP](../areas/http.md#front-doors)). So are periphery nodes, their peerings with their uplinks and their child addresses (§3), described in the area docs; the connection an uplink sends to its downlink on (§2), over which every uplink already relays to its downlinks (§5); and the downlinks' bound, their places for connections apart from core peers' and everyone else's, and their exemption from withdrawal for room (§4). The rest is not built yet ([roadmap](../roadmap.md#periphery)). Durations and sizes in it are starting points, to be set from the deterministic simulation when the parts are built.
+This is a design ([core-and-periphery](../decisions/core-and-periphery.md)). Of it, QUIC between core nodes is built ([Peer protocol](../areas/peer-protocol.md#quic)), and so are relayed streams and a node's chosen relay of §5 ([Peer protocol](../areas/peer-protocol.md#relayed-streams)), a node's names, its signed responses and the `dassie` field of §7 ([Payments](../areas/payments.md#the-nodes-names)), and front doors that reach the nodes which chose them as their relay (§7, [HTTP](../areas/http.md#front-doors)). So are periphery nodes, their peerings with their uplinks and their child addresses (§3), described in the area docs; the connection an uplink sends to its downlink on (§2), over which every uplink already relays to its downlinks (§5); and the downlinks' bound, their places for connections apart from core peers' and everyone else's, and their exemption from withdrawal for room (§4). The rest is not built yet ([roadmap](../roadmap.md#periphery)). Durations and sizes in it are starting points, to be set from the deterministic simulation when the parts are built.
 
 ## 1. Concepts
 
 | Term | Meaning |
 |---|---|
-| **Core node** | A registered node that its peers have promoted, in the core the signed data defines ([D36](../decisions/D36-a-node-becomes-core-by-registering-and-being-promoted.md)). |
-| **Periphery node** | A node that connects only to core nodes and never forwards. Every node starts as one, and registers only to become core ([D36](../decisions/D36-a-node-becomes-core-by-registering-and-being-promoted.md)). |
+| **Core node** | A registered node that its peers have promoted, in the core the signed data defines ([promotion-to-core](../decisions/promotion-to-core.md)). |
+| **Periphery node** | A node that connects only to core nodes and never forwards. Every node starts as one, and registers only to become core ([promotion-to-core](../decisions/promotion-to-core.md)). |
 | **Uplink** | A core node a periphery node peers with. |
 | **Downlink** | A periphery node, as its uplink sees it. |
 | **Relay** | A server that carries streams to the periphery nodes connected to it. Every uplink is a relay for its downlinks; a periphery node may also connect to a relay it chooses (§5). |
@@ -70,7 +70,7 @@ A core node keeps its peerings with other core nodes, and its downlinks, under s
 
 A periphery node cannot be dialled. Everything that needs to reach it (its owner's app, a front door with an Open Payments request) goes through a relay: a server it keeps a connection to.
 
-**Relays and relayed streams** are built ([Peer protocol](../areas/peer-protocol.md#relayed-streams)): every QUIC endpoint relays streams to the nodes connected to it, never dialling them, with TLS end to end between client and node and bounds per destination and per client; and a node keeps a connection to a relay it chooses, without peering with it, by default the `dassiepay.net` front door while it has no hostname ([Node](../areas/node.md#a-chosen-relay), [D40](../decisions/D40-a-node-without-a-hostname-keeps-the-default-front-door-as-its-relay.md)). That relay is the node's fast path, and it keeps the node reachable before it has any peering, or while lookups fail. Every uplink is a relay for its downlinks too, since they are connected anyway (§4): that is built with downlinks. What is left is how clients find the relays that reach a node, below.
+**Relays and relayed streams** are built ([Peer protocol](../areas/peer-protocol.md#relayed-streams)): every QUIC endpoint relays streams to the nodes connected to it, never dialling them, with TLS end to end between client and node and bounds per destination and per client; and a node keeps a connection to a relay it chooses, without peering with it, by default the `dassiepay.net` front door while it has no hostname ([Node](../areas/node.md#a-chosen-relay), [default-relay](../decisions/default-relay.md)). That relay is the node's fast path, and it keeps the node reachable before it has any peering, or while lookups fail. Every uplink is a relay for its downlinks too, since they are connected anyway (§4): that is built with downlinks. What is left is how clients find the relays that reach a node, below.
 
 **The record.** A periphery node signs a record of where it can be reached:
 
@@ -91,7 +91,7 @@ SignedPeripheryRecord ::= SEQUENCE { record OCTET STRING CONTAINING PeripheryRec
 
 A record lasts 30 minutes and is renewed every 10, and whenever it changes.
 
-**Home nodes.** Every node computes the same core from the same signed data ([D36](../decisions/D36-a-node-becomes-core-by-registering-and-being-promoted.md)); the majority node list alone is not the core, since it also holds registered nodes not yet promoted. A periphery node's home nodes are the five core nodes that rank highest by `SHA-256("dassie home" ‖ periphery ID ‖ core ID)`. Anyone with the same signed data computes the same five, so a lookup is a single request, with no routing through a distributed table.
+**Home nodes.** Every node computes the same core from the same signed data ([promotion-to-core](../decisions/promotion-to-core.md)); the majority node list alone is not the core, since it also holds registered nodes not yet promoted. A periphery node's home nodes are the five core nodes that rank highest by `SHA-256("dassie home" ‖ periphery ID ‖ core ID)`. Anyone with the same signed data computes the same five, so a lookup is a single request, with no routing through a distributed table.
 
 - **Storing.** An uplink stores its downlink's record with the downlink's home nodes, as an authenticated peer message, when the downlink connects and whenever the downlink renews it. A home node takes a record only from a core node the record names as an uplink, and a record is about 200 bytes.
 - **Sharing a home node.** A core node can name any number of keys it made itself as its downlinks, since keys cost nothing. So a home node bounds its records in all, and gives each submitting core node a fair share of them: when it is full, a new record displaces the oldest of the core node that holds the most, never one of a node within its share. A few registered core nodes can then crowd out only each other, not the records of every other uplink.
@@ -105,7 +105,7 @@ A record lasts 30 minutes and is renewed every 10, and whenever it changes.
 2. the relays the node names in its wallet address document (§7), if it has fetched it;
 3. a lookup at the node's home nodes, then one of the uplinks or relays from the record.
 
-**Grinding.** An attacker who wants to hide a node can generate core node keys until five of them rank highest for its ID. Each must register, stay in the majority and be promoted into the core ([D36](../decisions/D36-a-node-becomes-core-by-registering-and-being-promoted.md)), under the limits of [registration](../areas/network.md#registration) and, later, its fee. It can only withhold the record, and a relay the node chose still reaches it.
+**Grinding.** An attacker who wants to hide a node can generate core node keys until five of them rank highest for its ID. Each must register, stay in the majority and be promoted into the core ([promotion-to-core](../decisions/promotion-to-core.md)), under the limits of [registration](../areas/network.md#registration) and, later, its fee. It can only withhold the record, and a relay the node chose still reaches it.
 
 ## 6. Owner apps
 
@@ -163,7 +163,7 @@ A new user can receive payments without paying anything up front. A free receive
 
 The first rule narrows a condition for real money, "an account's creation is a deposit" ([Real money](../roadmap.md#real-money), [XRP Ledger](../areas/xrpl.md#real-money)): it holds for every creation but one made by a peer's settlement, and its wording changes when this is built.
 
-**Ending a free receiver's peering** follows [D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md):
+**Ending a free receiver's peering** follows [ending-a-peering](../decisions/ending-a-peering.md):
 
 - **The uplink evicts** a free receiver that has received nothing and sent nothing for 30 days. Ending the peering, the uplink pays nothing, and it still asks the receiver to settle once. A receiver whose account exists by then, and holds more than the reserve, answers as any junior does, paying half the way to its own trigger. Either way it loses at most the credit it extends. Its row stays, and counts toward the rows' limit (§4), until the receiver peers again and is settled as usual, or nothing is owed.
 - **A free receiver that leaves** asks the uplink to settle once, as any node ending a peering does. Below the reserve, the uplink has nothing it can send yet, and the receiver stays owed.

@@ -130,7 +130,7 @@ impl Core {
         let ledger = scheme.ledger();
         if ledger.realm() != Realm::Test {
             return Err(EngineError::Precondition(
-                "real money is not supported yet (D8)".into(),
+                "real money is not supported yet (spec/decisions/real-money.md)".into(),
             ));
         }
         if self
@@ -453,13 +453,14 @@ impl Core {
         };
         self.book(Some(TransferSpec { reference, ..spec }));
         // It answered, and our books show it: it may be asked again at the
-        // next check (D23). Not on its message alone, which on a ledger
-        // like the XRP Ledger books nothing: asked again before our books
-        // moved, an honest peer would pay twice.
-        // And a peer that settles is not stuck: the grace before it is
-        // withdrawn for want of room starts again (D12).
-        // A peer whose peering we end collects what it said was on its way
-        // (D28).
+        // next check (spec/decisions/own-fulfills.md). Not on its message
+        // alone, which on a ledger like the XRP Ledger books nothing: asked
+        // again before our books moved, an honest peer would pay twice. And a
+        // peer that settles is not stuck: the grace before it is withdrawn
+        // for want of room starts again
+        // (spec/decisions/peering-lifecycle.md). A peer whose peering we end
+        // collects what it said was on its way
+        // (spec/decisions/ending-a-peering.md).
         if let Ok(node) = dassie_identity::NodeId::parse(peer.as_str()) {
             self.settle.asked.remove(&node);
             self.peer

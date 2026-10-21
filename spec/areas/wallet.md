@@ -28,7 +28,7 @@ The same policy applies in development, so there is no HMR: a change shows after
 
 ## Key derivation
 
-- Keys are derived in the browser with `dassie-identity` compiled to WASM, the same code the node runs ([Identity](identity.md), [D1](../decisions/D01-what-runs-in-rust-and-what-in-typescript.md)), so the browser and the node cannot disagree on what a passphrase means.
+- Keys are derived in the browser with `dassie-identity` compiled to WASM, the same code the node runs ([Identity](identity.md), [rust-and-typescript](../decisions/rust-and-typescript.md)), so the browser and the node cannot disagree on what a passphrase means.
 - A passphrase is checked (known words and checksum) and normalized before anything is derived from it.
 - Setup sends the node key and the login proof derived from it; login sends only the proof. The passphrase never leaves the browser and is never stored, in the URL or anywhere else.
 
@@ -57,13 +57,13 @@ The pages are in `apps/wallet/src/pages/`, and their routes in `apps/wallet/src/
 
 - What blocks removing a ledger, the total in the display currency, whether a rate is stale, what a quote costs and how long it holds, and what a grant asks for all come from the node ([Ledger](ledger.md), [Connector](connector.md), [Payments](payments.md)).
 - The network page draws the routing table, not the peerings: an edge only where both ends list it, so a peer that is offline or does not list us back has no line. The layout is deterministic: a node starts where its ID puts it and keeps its place as the table changes.
-- A BTP token's secret is shown once, when it is made; the node keeps only its hash ([Connector](connector.md#btp-tokens), [D10](../decisions/D10-secrets-at-rest.md)).
+- A BTP token's secret is shown once, when it is made; the node keeps only its hash ([Connector](connector.md#btp-tokens), [secrets-at-rest](../decisions/secrets-at-rest.md)).
 - The note on the node's name at the default front door follows the relay `GetStatus` reports: the name reaches the node while it holds the connection to that front door, and the wallet warns once the node finds that front door unreachable, but not while it is still connecting ([Node](node.md#a-chosen-relay)), or when the node keeps another relay or none ([Payments](payments.md#the-nodes-names)).
-- The consent page is where the node sends the owner when a third-party app asks for access ([Payments](payments.md#the-owners-consent)). It names Connected Apps, where access is revoked, but links there only once the owner has decided, so that no one leaves a request half-read. When the node flags a limit that no payment to the named receiver can fit, the page warns of it and leaves Approve enabled ([D29](../decisions/D29-a-limit-no-payment-can-use-is-caught-before-approval.md)).
+- The consent page is where the node sends the owner when a third-party app asks for access ([Payments](payments.md#the-owners-consent)). It names Connected Apps, where access is revoked, but links there only once the owner has decided, so that no one leaves a request half-read. When the node flags a limit that no payment to the named receiver can fit, the page warns of it and leaves Approve enabled ([unusable-limits](../decisions/unusable-limits.md)).
 
 ## Amounts and currencies
 
-- Every amount carries its currency, a ledger's asset code and scale, as the node reports it ([D6](../decisions/D06-owner-ledger-and-multi-currency-accounts.md)). Amounts are exact integers in the asset's smallest unit (bigints), never floats.
+- Every amount carries its currency, a ledger's asset code and scale, as the node reports it ([owner-ledger](../decisions/owner-ledger.md)). Amounts are exact integers in the asset's smallest unit (bigints), never floats.
 - Display cuts digits, never rounds, and mutes the digits beyond cents, so a balance never shows more than it is.
 - Input refuses a number with both a comma and a point, since `1,500` means different things on different keyboards.
 
@@ -77,13 +77,13 @@ The wallet, the dev dashboard and the website share them: amounts, live data, th
 
 ## Decisions
 
-- [D1](../decisions/D01-what-runs-in-rust-and-what-in-typescript.md): the wallet is Solid 2, and keys are derived in the browser with the node's own code compiled to WASM.
-- [D5](../decisions/D05-ui-and-cli-rpc-contract.md): the typed RPC contract and its live streams.
-- [D6](../decisions/D06-owner-ledger-and-multi-currency-accounts.md): every amount carries its currency; the display currency and its total.
-- [D7](../decisions/D07-exchange-rates-fees-and-spread.md): rate sources, fees and spread, as the Settings page edits them.
-- [D9](../decisions/D09-open-payments-fully-and-no-spsp.md): Open Payments in full, which the wallet's payment, consent and connected-app pages front ([Payments](payments.md)).
-- [D10](../decisions/D10-secrets-at-rest.md): BTP tokens shown once, secret columns never shown.
-- [D12](../decisions/D12-peering-lifecycle-and-liveness.md): terminating peerings and bans.
-- [D21](../decisions/D21-tooling-on-node-and-pnpm-not-deno.md): built on Node and pnpm.
-- [D29](../decisions/D29-a-limit-no-payment-can-use-is-caught-before-approval.md): why the consent page warns of a receive limit no payment can fit, rather than refusing it.
-- [D40](../decisions/D40-a-node-without-a-hostname-keeps-the-default-front-door-as-its-relay.md): the default relay, whose connection the note on the default name reports.
+- [rust-and-typescript](../decisions/rust-and-typescript.md): the wallet is Solid 2, and keys are derived in the browser with the node's own code compiled to WASM.
+- [rpc-contract](../decisions/rpc-contract.md): the typed RPC contract and its live streams.
+- [owner-ledger](../decisions/owner-ledger.md): every amount carries its currency; the display currency and its total.
+- [exchange-rates](../decisions/exchange-rates.md): rate sources, fees and spread, as the Settings page edits them.
+- [open-payments](../decisions/open-payments.md): Open Payments in full, which the wallet's payment, consent and connected-app pages front ([Payments](payments.md)).
+- [secrets-at-rest](../decisions/secrets-at-rest.md): BTP tokens shown once, secret columns never shown.
+- [peering-lifecycle](../decisions/peering-lifecycle.md): terminating peerings and bans.
+- [node-and-pnpm](../decisions/node-and-pnpm.md): built on Node and pnpm.
+- [unusable-limits](../decisions/unusable-limits.md): why the consent page warns of a receive limit no payment can fit, rather than refusing it.
+- [default-relay](../decisions/default-relay.md): the default relay, whose connection the note on the default name reports.

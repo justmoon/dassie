@@ -22,7 +22,7 @@ Values are validated when the typed wrappers a protocol encodes are built, so wr
 
 ## Bounded decoding
 
-Decoding never allocates and never panics, whatever the input ([D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md)):
+Decoding never allocates and never panics, whatever the input ([tigerstyle](../decisions/tigerstyle.md)):
 
 - strings and octets are borrowed from the input;
 - every SEQUENCE OF is read with a limit the protocol passes (`read_quantity`), checked before any element is read, so a count field cannot make a reader loop or reserve beyond what the protocol allows;
@@ -37,4 +37,4 @@ Golden vectors generated from the original (`tests/data/vectors.json`, by `testd
 
 ## Decisions
 
-- [D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md): deterministic, bounded, no allocation per message; every count has a caller's limit.
+- [tigerstyle](../decisions/tigerstyle.md): deterministic, bounded, no allocation per message; every count has a caller's limit.

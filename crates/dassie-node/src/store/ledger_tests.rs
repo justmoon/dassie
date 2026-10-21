@@ -167,8 +167,9 @@ fn a_batch_is_all_or_nothing() {
     assert_eq!(store.load_ledger().unwrap().accounts.len(), 3);
 }
 
-// D27: the fault a simulation injects at the store. The commit it fails
-// leaves the database at the commit before, and the next one goes through.
+// spec/decisions/random-seed-simulations.md: the fault a simulation injects
+// at the store. The commit it fails leaves the database at the commit before,
+// and the next one goes through.
 #[cfg(feature = "testing")]
 #[test]
 fn a_failed_commit_leaves_the_commit_before() {
@@ -202,7 +203,8 @@ fn a_failed_commit_leaves_the_commit_before() {
     assert_eq!(rows(&store), before.len() + 1);
 }
 
-// D27: a failure aimed at settlements lets every other commit through.
+// spec/decisions/random-seed-simulations.md: a failure aimed at settlements
+// lets every other commit through.
 #[cfg(feature = "testing")]
 #[test]
 fn a_failure_aimed_at_settlements_waits_for_one() {
@@ -465,9 +467,10 @@ fn transfers_of_one_account() {
     assert_eq!(store.transfers_last(100, None).unwrap(), all);
 }
 
-// D20: a fee comes with the account its packet came from and the one the
-// packet's other transfer credits: on one ledger, the peer it went to.
-// Fees are read after a sequence, and the last trust transfer is found.
+// spec/decisions/earned-trust.md: a fee comes with the account its packet
+// came from and the one the packet's other transfer credits: on one ledger,
+// the peer it went to. Fees are read after a sequence, and the last trust
+// transfer is found.
 #[test]
 fn fees_come_with_both_peers_of_their_packet() {
     let store = Store::open_in_memory().unwrap();

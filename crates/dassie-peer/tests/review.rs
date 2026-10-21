@@ -131,11 +131,11 @@ fn responses_to_peers_are_retried_until_they_arrive() {
     assert_eq!(network.packets, [(1, own, 7)]);
 }
 
-// D41: a peer our ILP packets surely do not reach is reported as such, so
-// the node takes no new Prepare from it; heartbeats that fail say nothing,
-// since the bounds on requests in flight may refuse them here. Once the
-// cut is gone, the next request it answers, a heartbeat or the Reject sent
-// again, reports it reached.
+// spec/decisions/unreachable-peers.md: a peer our ILP packets surely do not
+// reach is reported as such, so the node takes no new Prepare from it;
+// heartbeats that fail say nothing, since the bounds on requests in flight
+// may refuse them here. Once the cut is gone, the next request it answers, a
+// heartbeat or the Reject sent again, reports it reached.
 #[test]
 fn a_peer_our_packets_do_not_reach_is_reported_until_it_answers() {
     let mut network = Network::new(16, 2, 1, Config::DEV);

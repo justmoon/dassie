@@ -1,4 +1,5 @@
-//! When to settle with a peer, and how much (D23, D25,
+//! When to settle with a peer, and how much (spec/decisions/own-fulfills.md,
+//! spec/decisions/thresholds-in-packets.md,
 //! spec/areas/settlement.md#positions-and-thresholds).
 //!
 //! A node knows only the credit it extends to a peer, never the credit the
@@ -68,7 +69,8 @@ pub const fn least_credit(max_packet: u64, drift: u64) -> u64 {
 /// The share of the fees a peer earned us by which the credit we extend
 /// to it grows, in millionths: 10%. A packet comes in through one peer and
 /// leaves through another, so its fee counts toward both; at most 50%, so
-/// that the credit a node hands out never exceeds what it earned (D20).
+/// that the credit a node hands out never exceeds what it earned
+/// (spec/decisions/earned-trust.md).
 pub const GROWTH_PPM: u64 = 100_000;
 const _: () = assert!(GROWTH_PPM <= 500_000, "growth above half the fees");
 
@@ -128,8 +130,8 @@ mod tests {
     const T: u64 = trigger(P);
     const M: u64 = minimum(P);
 
-    // D20: credit grows by a tenth of the fees, up to a hundred packets,
-    // and never falls.
+    // spec/decisions/earned-trust.md: credit grows by a tenth of the fees, up
+    // to a hundred packets, and never falls.
     #[test]
     fn credit_grows_up_to_the_cap() {
         let cap = credit_cap(P);
@@ -166,7 +168,7 @@ mod tests {
     }
 
     // A senior extends a junior nothing: it asks at once, and the junior,
-    // owing nothing yet, pays in advance (D20).
+    // owing nothing yet, pays in advance (spec/decisions/earned-trust.md).
     #[test]
     fn without_credit_a_peer_pays_in_advance() {
         assert!(ask(0, T));

@@ -20,7 +20,8 @@ base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }
 # check, not the ZIP-215 rules of the peer protocol.
 ed25519-dalek = { version = "3.0", default-features = false, features = ["fast", "zeroize"] }
 serde = { version = "1.0.229", default-features = false, features = ["alloc", "derive"] }
-# Without `preserve_order`, objects are BTreeMaps: a defined order (D16).
+# Without `preserve_order`, objects are BTreeMaps: a defined order
+# (spec/decisions/tigerstyle.md).
 serde_json = { version = "1.0.154", default-features = false, features = ["alloc"] }
 sha2 = { version = "0.11", default-features = false }
 subtle = { version = "2.6", default-features = false }

@@ -1,5 +1,6 @@
-//! Exchange rates (D7), without IO: where they come from, what each
-//! source says, and the rate the node takes from what its sources say.
+//! Exchange rates (spec/decisions/exchange-rates.md), without IO: where they
+//! come from, what each source says, and the rate the node takes from what
+//! its sources say.
 //!
 //! Every rate is how many units of a currency one US dollar buys, times
 //! 10^[`RATE_PRECISION`], as the connector converts with. Each source is

@@ -2,7 +2,8 @@
 //! (spec/areas/testing.md#the-simulations), on fixed seeds:
 //! `dassie_connector::sim::traffic` is the run. A failure names its
 //! seed; `dassie-sim run connector <seed>` replays it, and
-//! `dassie-sim run connector <from>..<to>` runs others (D27).
+//! `dassie-sim run connector <from>..<to>` runs others
+//! (spec/decisions/random-seed-simulations.md).
 
 use dassie_connector::sim::traffic;
 use dassie_node_core::testing::assert_seeds_pass;

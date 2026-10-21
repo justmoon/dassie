@@ -82,7 +82,8 @@ pub struct BtpSession {
     pub address: String,
 }
 
-/// The SHA-256 of a token: what the database keeps (D10).
+/// The SHA-256 of a token: what the database keeps
+/// (spec/decisions/secrets-at-rest.md).
 #[must_use]
 pub fn token_hash(token: &str) -> [u8; 32] {
     Sha256::digest(token.as_bytes()).into()

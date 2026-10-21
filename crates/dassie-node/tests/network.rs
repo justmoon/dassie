@@ -3,7 +3,8 @@
 //! harness, and `dassie_node::sim::scripted` the runs these tests make on fixed
 //! seeds. A failure names its seed: `dassie-sim run node-stub <seed>` replays it,
 //! `dassie-sim explain node-stub <seed>` prints its trace, and `dassie-sim run
-//! node-stub <from>..<to>` runs others (D27); so do `node-xrpl` and
+//! node-stub <from>..<to>` runs others
+//! (spec/decisions/random-seed-simulations.md); so do `node-xrpl` and
 //! `node-currencies`.
 //!
 //! The targeted tests below set up one situation each: a hop that crashes
@@ -51,8 +52,8 @@ fn simulated_networks_pay_across_currencies() {
 // On this seed, a node ends a peering just after its books took the peer's
 // settlement from the XRP Ledger, before the settlement's message arrived.
 // The peer's last answer names that settlement, which the node does not
-// count, so it waits the whole time before it tells the peer, as D28 lets
-// it.
+// count, so it waits the whole time before it tells the peer, as
+// spec/decisions/ending-a-peering.md lets it.
 #[test]
 fn a_peering_ended_after_its_last_settlement_was_booked_ends_after_the_wait() {
     let run = scripted::run_xrpl(7_000_002_237);
@@ -82,8 +83,9 @@ fn paying(seed: u64, before: impl FnOnce(&mut Sim)) -> Sim {
     sim
 }
 
-// D23: the receiver's node crashes once it posted, before its Fulfill
-// arrives. What it booked stays, and the payment still completes.
+// spec/decisions/own-fulfills.md: the receiver's node crashes once it posted,
+// before its Fulfill arrives. What it booked stays, and the payment still
+// completes.
 #[test]
 fn a_hop_that_crashes_after_posting_keeps_its_books() {
     let mut sim = paying(70, |_| {});
@@ -94,9 +96,9 @@ fn a_hop_that_crashes_after_posting_keeps_its_books() {
     check(&sim).unwrap();
 }
 
-// D23: the sender's node crashes before the Fulfill reaches it, and
-// forgets the packet. The receiver's node keeps what it booked; each
-// node's books still hold against what its own clients moved.
+// spec/decisions/own-fulfills.md: the sender's node crashes before the
+// Fulfill reaches it, and forgets the packet. The receiver's node keeps what
+// it booked; each node's books still hold against what its own clients moved.
 #[test]
 fn an_upstream_that_forgot_the_packet_changes_nothing_downstream() {
     let mut sim = paying(71, |_| {});
@@ -109,10 +111,10 @@ fn an_upstream_that_forgot_the_packet_changes_nothing_downstream() {
     assert!(received(&sim, &sim.abandoned[0]) >= before);
 }
 
-// D23: a Fulfill that cannot get through before the upstream's expiry
-// counts in the downstream's books, and not in the upstream's, which
-// expired the packet. Neither is wrong by its own books, and the payment
-// completes.
+// spec/decisions/own-fulfills.md: a Fulfill that cannot get through before
+// the upstream's expiry counts in the downstream's books, and not in the
+// upstream's, which expired the packet. Neither is wrong by its own books,
+// and the payment completes.
 #[test]
 fn a_late_fulfill_counts_downstream_only() {
     let mut sim = paying(72, |sim| {
@@ -124,8 +126,8 @@ fn a_late_fulfill_counts_downstream_only() {
     check(&sim).unwrap();
 }
 
-// D23: a peering being ended waits only for the packets in flight, not
-// for Fulfills that cannot get through.
+// spec/decisions/own-fulfills.md: a peering being ended waits only for the
+// packets in flight, not for Fulfills that cannot get through.
 #[test]
 fn a_peering_ends_while_its_fulfills_cannot_arrive() {
     let mut sim = paying(73, |sim| {
@@ -140,17 +142,18 @@ fn a_peering_ends_while_its_fulfills_cannot_arrive() {
     check_books(&sim).unwrap();
 }
 
-// D41: the receiver's node cannot reach the sender's for ten minutes, while
-// the sender's reaches it, as behind an asymmetric firewall. The client
-// tries again after each packet expires. Were each try fulfilled, the
-// receiver's books would drift from the sender's by a packet a try, until
-// the receiver's node had no room left for the sender's: here node 0, the
-// junior, extends the default credit, and the books drifted by six packets,
-// as much as the credit lets a link survive. Once a Fulfill of the
-// receiver's node surely did not arrive, it takes no new Prepare from the
-// sender's, so the books drift by at most what was in flight, two and a
-// half of the largest packets (D24). Once the cut is gone, its Rejects and
-// heartbeats get through, and the payment completes.
+// spec/decisions/unreachable-peers.md: the receiver's node cannot reach the
+// sender's for ten minutes, while the sender's reaches it, as behind an
+// asymmetric firewall. The client tries again after each packet expires. Were
+// each try fulfilled, the receiver's books would drift from the sender's by a
+// packet a try, until the receiver's node had no room left for the sender's:
+// here node 0, the junior, extends the default credit, and the books drifted
+// by six packets, as much as the credit lets a link survive. Once a Fulfill
+// of the receiver's node surely did not arrive, it takes no new Prepare from
+// the sender's, so the books drift by at most what was in flight, two and a
+// half of the largest packets (spec/decisions/packets-in-flight.md). Once the
+// cut is gone, its Rejects and heartbeats get through, and the payment
+// completes.
 #[test]
 fn a_peer_that_cannot_hear_us_drifts_by_at_most_what_was_in_flight() {
     let mut sim = Sim::new(76, 2, 1);
@@ -181,12 +184,12 @@ fn stopped(index: usize) -> impl Fn(&Sim) -> bool {
     move |sim: &Sim| sim.nodes[index].core.is_none()
 }
 
-// D27: a node whose commit fails stops before anything of the step goes
-// out. The receiver's node fails the commit that books its first Fulfill:
-// the client hears of no Fulfill and its receiver kept nothing. The
-// sender's node had the Prepare answered with the 503 of an engine that
-// stopped, which says it had no effect. Once the node is back, the
-// payment completes.
+// spec/decisions/random-seed-simulations.md: a node whose commit fails stops
+// before anything of the step goes out. The receiver's node fails the commit
+// that books its first Fulfill: the client hears of no Fulfill and its
+// receiver kept nothing. The sender's node had the Prepare answered with the
+// 503 of an engine that stopped, which says it had no effect. Once the node
+// is back, the payment completes.
 #[test]
 fn a_receiver_whose_commit_fails_sends_no_fulfill() {
     let mut sim = Sim::new(75, 2, 1);
@@ -227,10 +230,10 @@ fn settling(node: impl FnOnce(usize, usize) -> usize, skip: u32) -> (Sim, usize)
     (sim, index)
 }
 
-// D27: the senior fails the commit that books the junior's settlement.
-// The junior's message gets the 503 of an engine that stopped, and the
-// junior sends it again once the senior is back: it is booked once, and
-// the payment completes.
+// spec/decisions/random-seed-simulations.md: the senior fails the commit that
+// books the junior's settlement. The junior's message gets the 503 of an
+// engine that stopped, and the junior sends it again once the senior is back:
+// it is booked once, and the payment completes.
 #[test]
 fn a_settlement_whose_booking_failed_is_booked_when_sent_again() {
     let (sim, senior) = settling(|senior, _| senior, 0);
@@ -256,10 +259,10 @@ fn a_settlement_whose_booking_failed_is_booked_when_sent_again() {
     check(&sim).unwrap();
 }
 
-// D27: the junior fails the commit of its settlement as it prepares it,
-// and, the second time, once it executed it: neither its transfer nor its
-// message goes out from what never reached the disk, and the books hold
-// after its restart.
+// spec/decisions/random-seed-simulations.md: the junior fails the commit of
+// its settlement as it prepares it, and, the second time, once it executed
+// it: neither its transfer nor its message goes out from what never reached
+// the disk, and the books hold after its restart.
 #[test]
 fn a_settlement_whose_commit_failed_leaves_the_books_holding() {
     for skip in [0, 1] {
@@ -273,9 +276,10 @@ fn a_settlement_whose_commit_failed_leaves_the_books_holding() {
     }
 }
 
-// D28: a ban withdraws the peer from the node's link state in the step
-// that bans it, and ends the peering without asking the peer to settle a
-// last time. What the peer owes stays on the books.
+// spec/decisions/ending-a-peering.md: a ban withdraws the peer from the
+// node's link state in the step that bans it, and ends the peering without
+// asking the peer to settle a last time. What the peer owes stays on the
+// books.
 #[test]
 fn a_ban_withdraws_the_peer_at_once_and_asks_nothing() {
     let mut sim = Sim::new(74, 2, 1);
@@ -440,10 +444,10 @@ fn liar_owes(sim: &Sim) -> i128 {
     CREDIT - position
 }
 
-// D23: a peer that never settles uses the credit it was given, and no
-// more: past it, its packets are refused. It is not banned for it, but it
-// is withdrawn once its room stays short of a packet past the grace (D12),
-// and stays peered.
+// spec/decisions/own-fulfills.md: a peer that never settles uses the credit
+// it was given, and no more: past it, its packets are refused. It is not
+// banned for it, but it is withdrawn once its room stays short of a packet
+// past the grace (spec/decisions/peering-lifecycle.md), and stays peered.
 #[test]
 fn a_peer_that_never_settles_costs_at_most_its_credit() {
     for seed in 0..20 {
@@ -477,9 +481,10 @@ fn a_peer_that_never_settles_costs_at_most_its_credit() {
     }
 }
 
-// D12: a peer whose room stays short of a packet, settling nothing, for as
-// long as a silent peer is kept, is ended with reason 4: a link that stuck
-// or drifted past what it survives is not saved.
+// spec/decisions/peering-lifecycle.md: a peer whose room stays short of a
+// packet, settling nothing, for as long as a silent peer is kept, is ended
+// with reason 4: a link that stuck or drifted past what it survives is not
+// saved.
 #[test]
 fn a_peer_short_of_room_for_a_day_is_ended() {
     // Each seed simulates a day, about 2.5 s of wall time.
@@ -504,10 +509,10 @@ fn a_peer_short_of_room_for_a_day_is_ended() {
     }
 }
 
-// D19: a peer that spends the credit it was given and vanishes, as a
-// retiring node may, costs the peer it spent through no more than that
-// credit. That peer ends the peering once it stops answering, and the rest
-// of the network loses nothing.
+// spec/decisions/own-books.md: a peer that spends the credit it was given and
+// vanishes, as a retiring node may, costs the peer it spent through no more
+// than that credit. That peer ends the peering once it stops answering, and
+// the rest of the network loses nothing.
 #[test]
 fn a_peer_that_spends_its_credit_and_vanishes_costs_at_most_that_credit() {
     // Each seed simulates the day a silent peer is kept, about 2.5 s of
@@ -535,8 +540,8 @@ fn a_peer_that_spends_its_credit_and_vanishes_costs_at_most_that_credit() {
 
 /// Runs until node `index`'s scheme first saw its ledger, before it
 /// peered, then restarts the node with its ledger out of reach. Having seen
-/// it once, the node peers (D31), but sees nothing its ledger does until
-/// it is back.
+/// it once, the node peers (spec/decisions/synced-before-peering.md), but
+/// sees nothing its ledger does until it is back.
 fn restart_without_ledger(sim: &mut Sim, index: usize) {
     let synced = |sim: &Sim| {
         sim.core(index)
@@ -596,12 +601,12 @@ fn a_node_asks_no_one_to_settle_while_it_cannot_see_its_ledger() {
     check(&sim).unwrap();
 }
 
-// D12: a peer whose room stays short of a packet past the grace, settling
-// nothing, is withdrawn, and advertised again once it settles. Node 0, the
-// junior, cannot pay its senior in advance while it cannot see its ledger:
-// node 1 asks, and withdraws it once the grace is over. Both stay peered.
-// Once the ledger is back, node 0 pays in advance, node 1 lists it again,
-// and a payment goes through.
+// spec/decisions/peering-lifecycle.md: a peer whose room stays short of a
+// packet past the grace, settling nothing, is withdrawn, and advertised again
+// once it settles. Node 0, the junior, cannot pay its senior in advance while
+// it cannot see its ledger: node 1 asks, and withdraws it once the grace is
+// over. Both stay peered. Once the ledger is back, node 0 pays in advance,
+// node 1 lists it again, and a payment goes through.
 #[test]
 fn a_peer_short_of_room_is_withdrawn_until_it_settles() {
     let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::Xrpl);
@@ -646,12 +651,12 @@ fn a_peer_short_of_room_is_withdrawn_until_it_settles() {
     check(&sim).unwrap();
 }
 
-// D12: requests to settle that never arrived withdraw no one. For over two
-// request intervals, nothing the senior sends reaches its junior, which
-// is still heard from and pays in advance as soon as it is asked: each
-// request that fails to arrive is asked again at the next check, not an
-// interval later, so the junior is asked as soon as the link is back,
-// well within the grace.
+// spec/decisions/peering-lifecycle.md: requests to settle that never arrived
+// withdraw no one. For over two request intervals, nothing the senior sends
+// reaches its junior, which is still heard from and pays in advance as soon
+// as it is asked: each request that fails to arrive is asked again at the
+// next check, not an interval later, so the junior is asked as soon as the
+// link is back, well within the grace.
 #[test]
 fn requests_to_settle_that_never_arrived_withdraw_no_honest_junior() {
     let mut sim = Sim::new(3, 2, 1);
@@ -692,11 +697,12 @@ fn requests_to_settle_that_never_arrived_withdraw_no_honest_junior() {
     assert!(sim.advertises(senior, &junior_id));
 }
 
-// D20: the node whose peering request was accepted, the junior, extends
-// its senior the default credit; the senior extends it nothing. So the
-// senior asks at once, and the junior pays half the way to its trigger in
-// advance, (1.1 - 0.15) / 2 = 0.475, before anything flows. Then the
-// junior pays through its senior, settling as it goes.
+// spec/decisions/earned-trust.md: the node whose peering request was
+// accepted, the junior, extends its senior the default credit; the senior
+// extends it nothing. So the senior asks at once, and the junior pays half
+// the way to its trigger in advance, (1.1 - 0.15) / 2 = 0.475, before
+// anything flows. Then the junior pays through its senior, settling as it
+// goes.
 #[test]
 fn a_junior_pays_its_senior_in_advance() {
     let mut sim = Sim::new(3, 2, 1);
@@ -720,10 +726,11 @@ fn a_junior_pays_its_senior_in_advance() {
     check(&sim).unwrap();
 }
 
-// D20: what a peer earned us raises the credit we extend to it, by a tenth
-// of the fees, counted on the peer's own ledger. Node 1 charges for what
-// passes from node 0, on dollars, to node 2, on XRP: the fees are booked
-// on dollars, so they raise its credit to node 0, and not to node 2.
+// spec/decisions/earned-trust.md: what a peer earned us raises the credit we
+// extend to it, by a tenth of the fees, counted on the peer's own ledger.
+// Node 1 charges for what passes from node 0, on dollars, to node 2, on XRP:
+// the fees are booked on dollars, so they raise its credit to node 0, and not
+// to node 2.
 #[test]
 fn credit_grows_with_the_fees_a_peer_earned() {
     let mut sim = Sim::with(9, 3, 2, BTreeMap::new(), Settling::Cross);
@@ -786,10 +793,10 @@ fn an_error_event_fails_the_run() {
     sim.errors.clear();
 }
 
-// A peer asked to settle answers with what it has on its way (D28): the
-// settlement it makes, or one already under way, which under the
-// one-at-a-time rule is the whole answer. Every amount a node is told is
-// one its peer made to it.
+// A peer asked to settle answers with what it has on its way
+// (spec/decisions/ending-a-peering.md): the settlement it makes, or one
+// already under way, which under the one-at-a-time rule is the whole answer.
+// Every amount a node is told is one its peer made to it.
 #[test]
 fn a_peer_asked_to_settle_tells_what_it_has_on_its_way() {
     let id = |index: usize| format!("{:?}", key(index).node_id());
@@ -845,15 +852,16 @@ fn a_peer_asked_to_settle_tells_what_it_has_on_its_way() {
     assert!(told > 0, "no peer answered with an amount on its way");
 }
 
-// D31: a node peers on a scheme only once the scheme has seen its ledger.
-// Its first sync books what the account holds as the owner's deposit, so a
-// peer's settlement that reached the ledger before it, such as one a node
-// ending the peering asks for (D28), would be taken for that deposit while
-// the peer still owed it on our books. Node 0's ledger is down from its
-// first start, its account funded: it does not peer, and node 1 does not
-// peer with it. Once the ledger is back, they peer; node 1 pays node 0 past
-// the credit node 0 extends, and node 0's owner ends the peering. What node
-// 1 settles is booked as its settlement.
+// spec/decisions/synced-before-peering.md: a node peers on a scheme only once
+// the scheme has seen its ledger. Its first sync books what the account holds
+// as the owner's deposit, so a peer's settlement that reached the ledger
+// before it, such as one a node ending the peering asks for
+// (spec/decisions/ending-a-peering.md), would be taken for that deposit while
+// the peer still owed it on our books. Node 0's ledger is down from its first
+// start, its account funded: it does not peer, and node 1 does not peer with
+// it. Once the ledger is back, they peer; node 1 pays node 0 past the credit
+// node 0 extends, and node 0's owner ends the peering. What node 1 settles is
+// booked as its settlement.
 #[test]
 fn a_node_peers_only_once_it_has_seen_its_ledger() {
     let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::Xrpl);
@@ -884,10 +892,11 @@ fn a_node_peers_only_once_it_has_seen_its_ledger() {
     check_books(&sim).unwrap();
 }
 
-// D31: having seen its ledger once, a node peers on the scheme after a
-// restart while its ledger is out of reach, and keeps the peerings it has:
-// the first sync is kept with the scheme's state, and what reaches the
-// ledger meanwhile is read from where the scheme left off once it is back.
+// spec/decisions/synced-before-peering.md: having seen its ledger once, a
+// node peers on the scheme after a restart while its ledger is out of reach,
+// and keeps the peerings it has: the first sync is kept with the scheme's
+// state, and what reaches the ledger meanwhile is read from where the scheme
+// left off once it is back.
 #[test]
 fn a_node_that_saw_its_ledger_once_peers_while_it_is_down() {
     let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::Xrpl);

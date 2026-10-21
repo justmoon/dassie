@@ -36,7 +36,7 @@ A debits-≤-credits limit counts the account's posted and pending debits agains
 
 Each ledger has one pool of owner funds, `equity/owner`. Every endpoint that spends for the owner gets a sub-account under it: one per BTP token, and one for the payer ([Payments](payments.md)). The node's STREAM receivers credit `equity/owner` itself.
 
-**The owner's own endpoints never convert.** A packet from a BTP token, the payer or a receiver goes out only on its own ledger, and one whose first hop is on another ledger is refused ([Connector](connector.md#routing)). The owner pays from the ledger the route starts on, and the first hop that charges for a conversion converts; that keeps the FX accounts inside the owner's group coherent ([D6](../decisions/D06-owner-ledger-and-multi-currency-accounts.md)).
+**The owner's own endpoints never convert.** A packet from a BTP token, the payer or a receiver goes out only on its own ledger, and one whose first hop is on another ledger is refused ([Connector](connector.md#routing)). The owner pays from the ledger the route starts on, and the first hop that charges for a conversion converts; that keeps the FX accounts inside the owner's group coherent ([owner-ledger](../decisions/owner-ledger.md)).
 
 - A BTP client paying the node's own receiver moves money within the group: the total is unchanged, and the journal still has a transfer per packet.
 - A packet from a peer on another ledger into the node's receiver converts at the node's rates: the receiver's account shows what arrived, `expenses/fx` takes it back out on that ledger, and `revenue/fx` keeps it on the ledger it came from.
@@ -68,9 +68,9 @@ At a start the ledger is rebuilt from the journal and refused if the cached tota
 
 ## Fulfills booked as final
 
-A packet is posted when it is fulfilled, and stays posted whatever the upstream peer does with the Fulfill: each node books its own Fulfills, and what its receiver took counts at once ([D23](../decisions/D23-each-node-books-its-own-fulfills.md)). A peer that does not count one owes us more than its books say; it can still owe us no more than the credit we extend.
+A packet is posted when it is fulfilled, and stays posted whatever the upstream peer does with the Fulfill: each node books its own Fulfills, and what its receiver took counts at once ([own-fulfills](../decisions/own-fulfills.md)). A peer that does not count one owes us more than its books say; it can still owe us no more than the credit we extend.
 
-Each node keeps its own books and enforces its own limits from them. It never compares them with a peer's, and does not measure drift ([D19](../decisions/D19-each-node-keeps-its-own-books.md)).
+Each node keeps its own books and enforces its own limits from them. It never compares them with a peer's, and does not measure drift ([own-books](../decisions/own-books.md)).
 
 Journals written by nodes up to 0.1.3 may hold `refusal` rows: Fulfills an upstream refused, booked as a reversal or a loss in `expenses/losses`. They stay, and are the only thing `expenses/losses` holds.
 
@@ -80,9 +80,9 @@ Asserted after every step (`ledger/invariants.rs`): every ledger balances, poste
 
 ## Decisions
 
-- [D3](../decisions/D03-database-continuity.md): no carried-over totals from v0 databases.
-- [D6](../decisions/D06-owner-ledger-and-multi-currency-accounts.md): an owner account per ledger, the owner's group and its limit, sub-accounts instead of allocations.
-- [D8](../decisions/D08-real-money.md): `xrpl+xrp` stays refused.
-- [D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md): sans-IO, bounded, asserted.
-- [D19](../decisions/D19-each-node-keeps-its-own-books.md): each node keeps its own books.
-- [D23](../decisions/D23-each-node-books-its-own-fulfills.md): Fulfills booked as final.
+- [database-continuity](../decisions/database-continuity.md): no carried-over totals from v0 databases.
+- [owner-ledger](../decisions/owner-ledger.md): an owner account per ledger, the owner's group and its limit, sub-accounts instead of allocations.
+- [real-money](../decisions/real-money.md): `xrpl+xrp` stays refused.
+- [tigerstyle](../decisions/tigerstyle.md): sans-IO, bounded, asserted.
+- [own-books](../decisions/own-books.md): each node keeps its own books.
+- [own-fulfills](../decisions/own-fulfills.md): Fulfills booked as final.

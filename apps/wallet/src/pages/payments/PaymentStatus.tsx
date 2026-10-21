@@ -1,7 +1,7 @@
 /**
- * One outgoing payment, live (D9, M6c): how much it sent of what it
- * debits, until it completes or fails. The owner's Send leads here; so
- * does each outgoing payment in Activity.
+ * One outgoing payment, live (spec/decisions/open-payments.md, M6c): how much
+ * it sent of what it debits, until it completes or fails. The owner's Send
+ * leads here; so does each outgoing payment in Activity.
  */
 
 import type { JSX } from "@solidjs/web";

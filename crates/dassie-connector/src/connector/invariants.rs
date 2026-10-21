@@ -1,4 +1,4 @@
-//! What holds after every step (D16).
+//! What holds after every step (spec/decisions/tigerstyle.md).
 
 use alloc::collections::BTreeMap;
 
@@ -13,7 +13,8 @@ impl Connector {
     ///
     /// - the deadline and incoming tables match the packets in flight;
     /// - each endpoint's count of packets in flight from it is right, and
-    ///   each peer's money in flight either way, within its limit (D24);
+    ///   each peer's money in flight either way, within its limit
+    ///   (spec/decisions/packets-in-flight.md);
     /// - the bounds hold, and the trace is in order.
     ///
     /// # Panics

@@ -8,7 +8,7 @@ What is not built yet: the open areas of work, the gaps between the spec's contr
 
 ### Settlement hubs
 
-Another way to peer, beside bilateral peering: a ledger kept by n = 3f + 1 validators and backed by an escrow on the XRP Ledger, so that two nodes peered over a hub cannot walk away with what they owe each other. The design is [designs/settlement-hubs.md](designs/settlement-hubs.md); the reasons are [D22](decisions/D22-settlement-hubs.md).
+Another way to peer, beside bilateral peering: a ledger kept by n = 3f + 1 validators and backed by an escrow on the XRP Ledger, so that two nodes peered over a hub cannot walk away with what they owe each other. The design is [designs/settlement-hubs.md](designs/settlement-hubs.md); the reasons are [settlement-hubs](decisions/settlement-hubs.md).
 
 - **Parts that can be built side by side:**
   - `dassie-hub`: the hub's ledger, its operations and Simplex consensus, in the simulation without an escrow;
@@ -19,12 +19,12 @@ Another way to peer, beside bilateral peering: a ledger kept by n = 3f + 1 valid
 
 ### Continuous simulation
 
-The simulations are to run continuously, outside CI, from random seeds; each seed draws its own configuration, and a failure becomes an issue that names its seed ([D27](decisions/D27-simulations-run-continuously-from-random-seeds.md)). The runner, its campaign command, the tripwire and the campaign's supervisor exist ([Testing](areas/testing.md#the-campaign)); a spot VM runs it on `main` (`scripts/sim-campaign/provision.sh`), and releases do not wait for it yet. Not built, in parts that can be built side by side:
+The simulations are to run continuously, outside CI, from random seeds; each seed draws its own configuration, and a failure becomes an issue that names its seed ([random-seed-simulations](decisions/random-seed-simulations.md)). The runner, its campaign command, the tripwire and the campaign's supervisor exist ([Testing](areas/testing.md#the-campaign)); a spot VM runs it on `main` (`scripts/sim-campaign/provision.sh`), and releases do not wait for it yet. Not built, in parts that can be built side by side:
 
 - **Swarm testing** in the peer, connector and STREAM simulations, as the `node` simulation has it: before a run starts, its seed draws the whole configuration (nodes, latency, loss, duplication, partitions, crashes biased toward payments in flight, clock skew, faults of the ledger link, the share of lying peers, the workload), and the run prints it first. Some seeds switch a fault off entirely, so rare combinations get their turn; a fixed realistic profile runs alongside. The `node` simulation does not yet draw lying peers or runs across currencies.
 - **Two phases** in the peer, connector and STREAM simulations, and in the `node` simulation the checks during the chaos (it checks the books once, after the heal). A run first has a stretch of chaos, with every invariant and every [per-node check](areas/testing.md#each-node-judged-by-its-own-books) checked throughout. Then it heals, and must [settle down in production time](areas/testing.md#simulation-time-follows-production). Lying peers are judged only by what they cost the honest ones.
 - **Coverage** in the peer, connector and STREAM simulations, as the `node` simulation has it: each run counts what it reached, and a test in CI asserts a minimum for each count over fixed seeds, so that a generator cannot quietly stop reaching a case.
-- **The release check, once a live network runs on Dassie's releases** ([D27](decisions/D27-simulations-run-continuously-from-random-seeds.md)). The release workflow's first step refuses to build, sign or publish a tagged commit on which an open `sim-failure` issue was seen, or on which the campaign has not yet run long enough. A refused tag is deleted, and the version is tagged again once the campaign has cleared a commit.
+- **The release check, once a live network runs on Dassie's releases** ([random-seed-simulations](decisions/random-seed-simulations.md)). The release workflow's first step refuses to build, sign or publish a tagged commit on which an open `sim-failure` issue was seen, or on which the campaign has not yet run long enough. A refused tag is deleted, and the version is tagged again once the campaign has cleared a commit.
 
 **Done when:** the campaign runs unattended on `main`, files one issue per failure signature with a command that reproduces it, and its tripwire keeps showing up. CI asserts the coverage minimums.
 
@@ -32,7 +32,7 @@ The simulations are to run continuously, outside CI, from random seeds; each see
 
 ### Rebuilding releases
 
-A release is built once, on the Vorstand Nix cloud, and the release workflow signs what that build made ([Release](areas/release.md#the-build)). Its archives are deterministic, but nothing builds the release a second time to compare: whether the binaries reproduce on another builder is untested, and the release key vouches for whatever the one builder and its cache produced ([D11](decisions/D11-release-integrity.md)). Building again to verify would be welcome, but GitHub's runners are very slow, and the project is early and wants to move fast.
+A release is built once, on the Vorstand Nix cloud, and the release workflow signs what that build made ([Release](areas/release.md#the-build)). Its archives are deterministic, but nothing builds the release a second time to compare: whether the binaries reproduce on another builder is untested, and the release key vouches for whatever the one builder and its cache produced ([release-integrity](decisions/release-integrity.md)). Building again to verify would be welcome, but GitHub's runners are very slow, and the project is early and wants to move fast.
 
 - **The likely shape:** the project may move its builds off GitHub, onto a build system that is Nix throughout. A dedicated builder that builds nothing but releases then runs `nix build --rebuild` on the release before it is signed: it builds the store path again, from the source and the pinned inputs, and fails if the bytes differ from what the Nix cloud made. Signing waits for it.
 - **A bypass for urgent hotfixes:** a hotfix that cannot wait for the second build may be signed without it, by an explicit choice that the release run records.
@@ -40,7 +40,7 @@ A release is built once, on the Vorstand Nix cloud, and the release workflow sig
 
 ### Registration fees
 
-Registration is free, and throttled instead ([Network](areas/network.md#registration)). The design calls for a paid registration whose fee grows with the size of the list ([D4](decisions/D04-network-membership-economics.md)).
+Registration is free, and throttled instead ([Network](areas/network.md#registration)). The design calls for a paid registration whose fee grows with the size of the list ([membership-economics](decisions/membership-economics.md)).
 
 - **What it covers:**
   - **The fee quote and payment,** as a v1.x peer-protocol addition: a quote message, and payment by ILP with a signed quote condition (the "naive" variant of the [token payment protocol](original/05-accounting-and-settlement.md)), to the cheapest 75% of bootstrap nodes.
@@ -49,7 +49,7 @@ Registration is free, and throttled instead ([Network](areas/network.md#registra
 
 ### Periphery
 
-Nodes without a public IP join as periphery nodes: they connect only to core nodes, get child addresses beneath them, and never forward. The design is [designs/periphery.md](designs/periphery.md); the reasons are [D26](decisions/D26-core-and-periphery.md). Periphery nodes with their uplinks, over the QUIC connections they open, with child addresses and downlinks under a bound of their own, are built ([Network](areas/network.md#periphery-nodes), [Connector](areas/connector.md#a-periphery-node)).
+Nodes without a public IP join as periphery nodes: they connect only to core nodes, get child addresses beneath them, and never forward. The design is [designs/periphery.md](designs/periphery.md); the reasons are [core-and-periphery](decisions/core-and-periphery.md). Periphery nodes with their uplinks, over the QUIC connections they open, with child addresses and downlinks under a bound of their own, are built ([Network](areas/network.md#periphery-nodes), [Connector](areas/connector.md#a-periphery-node)).
 
 - **Parts that can be built side by side:**
   - QUIC for periphery links: dialling an uplink again with a backoff when its connection is lost, and the fallbacks where UDP is blocked (TLS over TCP, WebSocket, WebTransport for browser nodes);
@@ -61,7 +61,7 @@ Nodes without a public IP join as periphery nodes: they connect only to core nod
   - front doors. Front doors are built, for the nodes that keep one as their relay, which a node without a hostname does with `dassiepay.net`'s by default ([HTTP](areas/http.md#front-doors), [Node](areas/node.md#a-chosen-relay)), and so are a node's names and its signed responses ([Payments](areas/payments.md#the-nodes-names)); left are their consent page (the front door answers the consent route with a fixed error until then), an owner's own domain as a CNAME to a front door with a certificate for that name, the DNS TXT record that names the node and its check in Dassie's own client, the owner's names as a wallet setting rather than an environment variable, a node's rate limits per client behind its chosen relay (today a node counts its front door as one client, so a few clients use up its budget for every client through it: [HTTP](areas/http.md#front-doors)), and the proposal to Open Payments;
   - free receivers, with the XRPL scheme's rules for accounts that do not exist yet;
   - browser nodes;
-  - **becoming core** ([D36](decisions/D36-a-node-becomes-core-by-registering-and-being-promoted.md)). On `main` a node with a hostname is core and one without is periphery; under D36 every node starts in the periphery and is core only when the signed data says so: registered, in the 2-core of the graph of edges both ends advertise, in its component with the most bootstrap nodes. The parts:
+  - **becoming core** ([promotion-to-core](decisions/promotion-to-core.md)). On `main` a node with a hostname is core and one without is periphery; under [promotion-to-core](decisions/promotion-to-core.md) every node starts in the periphery and is core only when the signed data says so: registered, in the 2-core of the graph of edges both ends advertise, in its component with the most bootstrap nodes. The parts:
     - computing the core from the majority list and fresh link states, the same in every node, and routing to a node's own address only once it is core;
     - promotion: an uplink advertises its downlink as a neighbor once the downlink is registered, answers at its URL with a publicly issued certificate, has an hour of good standing and its heartbeats, twenty of the largest packets of room in the uplink's books and a completed settlement, a clock within bounds, and no ban; a link-state entry for a core node's free core relationships, so a node chooses uplinks that can promote it;
     - a peering's kind following the peer's status in place, both ways, with its accounts and channel, and the uplink routing the child address for as long as they are peered;
@@ -78,19 +78,19 @@ Nodes without a public IP join as periphery nodes: they connect only to core nod
 
 A new owner opens a setup URL, enters a passphrase and chooses a first ledger ([Overview](overview.md#life-of-a-node)); every other choice is a default in the node's environment. An onboarding in the wallet is to walk the owner through the choices that matter, explaining each. It is not designed yet; what it must hold so far:
 
-- **Choosing a relay** is one of its steps. A node without a hostname keeps a connection to the `dassiepay.net` front door by default, so that it is reached at its default name ([D40](decisions/D40-a-node-without-a-hostname-keeps-the-default-front-door-as-its-relay.md)). The step explains what that costs: a machine the project runs learns when the node is online, and reads the Open Payments requests it passes on, as any front door does. The owner keeps it, names another relay, or keeps none and is not reached at that name.
+- **Choosing a relay** is one of its steps. A node without a hostname keeps a connection to the `dassiepay.net` front door by default, so that it is reached at its default name ([default-relay](decisions/default-relay.md)). The step explains what that costs: a machine the project runs learns when the node is online, and reads the Open Payments requests it passes on, as any front door does. The owner keeps it, names another relay, or keeps none and is not reached at that name.
 - **Done when:** an owner sets a node up in the wallet without the command line, and makes each choice the node otherwise defaults, the relay among them, knowing what it costs.
 
 ### Checking XRP Ledger validators
 
-The XRPL scheme takes its server's word on which ledgers are validated and what they hold ([XRPL](areas/xrpl.md#following-the-account)). Acting only on ledgers past the newest seen ([D32](decisions/D32-a-ledger-below-the-newest-seen-is-a-reset-only-on-the-testnet.md)) protects against a server that lags, not one that lies. A dishonest server can make the scheme book a settlement that never arrived, cancel one that applied by calling the account absent, or, on the testnet, claim a reset by reporting a lower ledger that closed later, so that the node writes off its balance. The node is to check the validators' signatures itself, so that no server can fake validated state or a reset.
+The XRPL scheme takes its server's word on which ledgers are validated and what they hold ([XRPL](areas/xrpl.md#following-the-account)). Acting only on ledgers past the newest seen ([ledger-resets](decisions/ledger-resets.md)) protects against a server that lags, not one that lies. A dishonest server can make the scheme book a settlement that never arrived, cancel one that applied by calling the account absent, or, on the testnet, claim a reset by reporting a lower ledger that closed later, so that the node writes off its balance. The node is to check the validators' signatures itself, so that no server can fake validated state or a reset.
 
 - **What it covers:**
   - **A UNL of the node's own:** the validator list it trusts, signed by a list publisher whose key the node is configured with, and the validators' manifests, which bind each validator's signing key to its master key and can revoke it.
   - **Validations checked on every ledger the scheme acts on:** a ledger counts as validated only once a quorum of the UNL has signed its hash. What the scheme reads from it, its transactions and the account's state, counts only once it is tied to that hash; how each answer is tied to it is part of the work.
   - **A reset** is a new chain that the UNL validates, so a server alone can no longer claim one.
   - **The fake ledger** gets validators that sign its ledgers, and a server that lies, so the simulation can show the scheme ignoring it.
-- **It matters before real money.** A mainnet scheme that took one server's word would let that server's operator have the node book XRP that never arrived. [D8](decisions/D08-real-money.md)'s conditions do not name this check; whether they should is decided with the mainnet scheme ([Real money](#real-money)).
+- **It matters before real money.** A mainnet scheme that took one server's word would let that server's operator have the node book XRP that never arrived. [real-money](decisions/real-money.md)'s conditions do not name this check; whether they should is decided with the mainnet scheme ([Real money](#real-money)).
 - **Done when:** a server that reports a transaction, a balance or an absent account that no validated ledger holds, or a reset no quorum signed, gets nothing booked, written off or cancelled, and the scheme waits until an honest server answers; with an honest server, the scheme settles as before.
 
 ## Not built yet
@@ -98,17 +98,17 @@ The XRPL scheme takes its server's word on which ledgers are validated and what 
 Gaps between what the spec's contract or decisions ask for and what `main` does. Each can be picked up on its own.
 
 - **ILP-over-HTTP** (RFC 35, with its synchronous mode): the node serves no `/ilp` route ([Connector](areas/connector.md#ilp-over-http)). **Done when** an RFC 35 client, synchronous mode included, pays through the node over `/ilp`.
-- **Hybrid post-quantum TLS.** Confidentiality against "harvest now, decrypt later" belongs to TLS with the hybrid key exchange X25519MLKEM768 ([D2](decisions/D02-peer-protocol-v0-or-v1.md)). The node's TLS uses rustls with ring as its only crypto provider, which offers no ML-KEM, so its handshakes use classical key exchange only ([HTTP](areas/http.md#certificates)). **Done when** the node's listeners and its clients (peer client, ACME) offer and prefer X25519MLKEM768, with a crypto provider that still builds the static musl binaries.
-- **Per-ledger credit line and largest packet** ([D6](decisions/D06-owner-ledger-and-multi-currency-accounts.md)). Both, and with the largest packet every threshold counted in it, are one value for the whole node ([Connector](areas/connector.md#the-largest-packet), [Settlement](areas/settlement.md#credit)). **Done when** each ledger is configured with its own, and the thresholds and the junior's starting credit follow the ledger's.
+- **Hybrid post-quantum TLS.** Confidentiality against "harvest now, decrypt later" belongs to TLS with the hybrid key exchange X25519MLKEM768 ([peer-protocol-v1](decisions/peer-protocol-v1.md)). The node's TLS uses rustls with ring as its only crypto provider, which offers no ML-KEM, so its handshakes use classical key exchange only ([HTTP](areas/http.md#certificates)). **Done when** the node's listeners and its clients (peer client, ACME) offer and prefer X25519MLKEM768, with a crypto provider that still builds the static musl binaries.
+- **Per-ledger credit line and largest packet** ([owner-ledger](decisions/owner-ledger.md)). Both, and with the largest packet every threshold counted in it, are one value for the whole node ([Connector](areas/connector.md#the-largest-packet), [Settlement](areas/settlement.md#credit)). **Done when** each ledger is configured with its own, and the thresholds and the junior's starting credit follow the ledger's.
 - **Draining in-flight packets on shutdown.** On SIGTERM the engine stops at once; it does not wait for the packets in flight to be answered or to expire ([Node](areas/node.md#shutdown)). Their pending transfers were never on disk, so after the restart the books stand as if they had been rejected, and a Fulfill that came back is lost, as in a crash; the cap on money in flight with a peer bounds what that costs ([Connector](areas/connector.md#money-in-flight-with-a-peer)). **Done when** the node stops taking new Prepares on SIGTERM and waits, up to the latest expiry among them, for the ones in flight before it closes the database.
 - **`POST /peer` going.** A node that does not take QUIC is asked over HTTPS, and every node still serves `POST /peer` ([Peer protocol](areas/peer-protocol.md#transport)). **Done when** every node of the network takes QUIC, and a release drops `POST /peer` and the fallback.
-- **The channel limit.** A node never closes a peer's accounts or settlement channel, and keeps a bounded number of channels, one per node it has ever peered with; once they are taken, peering with a new node is refused for capacity ([Settlement](areas/settlement.md), [D12](decisions/D12-peering-lifecycle-and-liveness.md)). **Done when** a relationship whose peering has ended and whose balance is settled can be closed, freeing its channel, without a late settlement being lost or credited twice.
+- **The channel limit.** A node never closes a peer's accounts or settlement channel, and keeps a bounded number of channels, one per node it has ever peered with; once they are taken, peering with a new node is refused for capacity ([Settlement](areas/settlement.md), [peering-lifecycle](decisions/peering-lifecycle.md)). **Done when** a relationship whose peering has ended and whose balance is settled can be closed, freeing its channel, without a late settlement being lost or credited twice.
 - **Registration fees:** see [Registration fees](#registration-fees).
-- **The rest of D27:** see [Continuous simulation](#continuous-simulation), including the release check.
+- **The rest of [random-seed-simulations](decisions/random-seed-simulations.md):** see [Continuous simulation](#continuous-simulation), including the release check.
 
 ## Real money
 
-The `live` realm is refused, and the XRP Ledger mainnet has no scheme ([D8](decisions/D08-real-money.md), [XRP Ledger](areas/xrpl.md#real-money)). `live` is enabled only when all of these hold:
+The `live` realm is refused, and the XRP Ledger mainnet has no scheme ([real-money](decisions/real-money.md), [XRP Ledger](areas/xrpl.md#real-money)). `live` is enabled only when all of these hold:
 
 - the peer protocol's sender authentication is in place ([Peer protocol](areas/peer-protocol.md));
 - the ledger is durable: journal and reconciliation ([Ledger](areas/ledger.md));
@@ -120,10 +120,10 @@ The first four are on `main`; the external review has not happened. Mainnet also
 
 ## Smaller open points
 
-- **A later peer-protocol version** drops the `credit` field of `peeringRequest` and of its response (sent as 0 and ignored), and the one-byte body of the reply to a Fulfill (always `accepted`, kept for older nodes) ([D23](decisions/D23-each-node-books-its-own-fulfills.md)).
-- **A post-quantum peer-protocol scheme.** The authentication choice reserves a tag for a scheme on the X-Wing hybrid KEM, and a link-state extension type for its key; neither is built ([Peer protocol](areas/peer-protocol.md#versions), [D2](decisions/D02-peer-protocol-v0-or-v1.md)). Signatures and node IDs stay Ed25519.
-- **Credit growth** ([D20](decisions/D20-trust-follows-what-a-peer-earned-us.md)): its share and cap are node constants; owner settings may follow. The spread's gain is not booked per packet and does not count toward growth yet.
-- **Importing a v0 node's config and BTP tokens** is not planned; it is cheap to add if anyone asks ([D3](decisions/D03-database-continuity.md)).
+- **A later peer-protocol version** drops the `credit` field of `peeringRequest` and of its response (sent as 0 and ignored), and the one-byte body of the reply to a Fulfill (always `accepted`, kept for older nodes) ([own-fulfills](decisions/own-fulfills.md)).
+- **A post-quantum peer-protocol scheme.** The authentication choice reserves a tag for a scheme on the X-Wing hybrid KEM, and a link-state extension type for its key; neither is built ([Peer protocol](areas/peer-protocol.md#versions), [peer-protocol-v1](decisions/peer-protocol-v1.md)). Signatures and node IDs stay Ed25519.
+- **Credit growth** ([earned-trust](decisions/earned-trust.md)): its share and cap are node constants; owner settings may follow. The spread's gain is not booked per packet and does not count toward growth yet.
+- **Importing a v0 node's config and BTP tokens** is not planned; it is cheap to add if anyone asks ([database-continuity](decisions/database-continuity.md)).
 
 ## Future work, design only
 
@@ -131,21 +131,21 @@ Designs that stay future work. The architecture must not preclude them.
 
 - **The token payment protocol** ([original 5 §9](original/05-accounting-and-settlement.md)).
 - **A private UDP peer transport** ([original 3 §18](original/03-peer-network.md)).
-- **Signed or independent frontends,** so that the wallet need not trust the node it is served by ([original 2 §8.8](original/02-node-runtime.md), [D10](decisions/D10-secrets-at-rest.md)).
+- **Signed or independent frontends,** so that the wallet need not trust the node it is served by ([original 2 §8.8](original/02-node-runtime.md), [secrets-at-rest](decisions/secrets-at-rest.md)).
 
 ## Decisions
 
-- [D2](decisions/D02-peer-protocol-v0-or-v1.md): the post-quantum path: X-Wing for the peer protocol, hybrid TLS for confidentiality.
-- [D3](decisions/D03-database-continuity.md): no import of v0 data for now.
-- [D4](decisions/D04-network-membership-economics.md): registration fees and why registration is free and throttled meanwhile.
-- [D6](decisions/D06-owner-ledger-and-multi-currency-accounts.md): per-ledger credit line and largest packet.
-- [D8](decisions/D08-real-money.md): the conditions for real money.
-- [D10](decisions/D10-secrets-at-rest.md): frontend signing stays future work.
-- [D11](decisions/D11-release-integrity.md): a release is built once until a second build can check it.
-- [D12](decisions/D12-peering-lifecycle-and-liveness.md): the channel limit.
-- [D26](decisions/D26-core-and-periphery.md): the periphery.
-- [D20](decisions/D20-trust-follows-what-a-peer-earned-us.md), [D23](decisions/D23-each-node-books-its-own-fulfills.md): credit growth's constants; the fields a later protocol version drops.
-- [D22](decisions/D22-settlement-hubs.md): settlement hubs.
-- [D27](decisions/D27-simulations-run-continuously-from-random-seeds.md): the simulation campaign.
-- [D32](decisions/D32-a-ledger-below-the-newest-seen-is-a-reset-only-on-the-testnet.md): a lagging server is handled; one that lies needs the validators checked.
-- [D40](decisions/D40-a-node-without-a-hostname-keeps-the-default-front-door-as-its-relay.md): the default relay, until an onboarding asks.
+- [peer-protocol-v1](decisions/peer-protocol-v1.md): the post-quantum path: X-Wing for the peer protocol, hybrid TLS for confidentiality.
+- [database-continuity](decisions/database-continuity.md): no import of v0 data for now.
+- [membership-economics](decisions/membership-economics.md): registration fees and why registration is free and throttled meanwhile.
+- [owner-ledger](decisions/owner-ledger.md): per-ledger credit line and largest packet.
+- [real-money](decisions/real-money.md): the conditions for real money.
+- [secrets-at-rest](decisions/secrets-at-rest.md): frontend signing stays future work.
+- [release-integrity](decisions/release-integrity.md): a release is built once until a second build can check it.
+- [peering-lifecycle](decisions/peering-lifecycle.md): the channel limit.
+- [core-and-periphery](decisions/core-and-periphery.md): the periphery.
+- [earned-trust](decisions/earned-trust.md), [own-fulfills](decisions/own-fulfills.md): credit growth's constants; the fields a later protocol version drops.
+- [settlement-hubs](decisions/settlement-hubs.md): settlement hubs.
+- [random-seed-simulations](decisions/random-seed-simulations.md): the simulation campaign.
+- [ledger-resets](decisions/ledger-resets.md): a lagging server is handled; one that lies needs the validators checked.
+- [default-relay](decisions/default-relay.md): the default relay, until an onboarding asks.

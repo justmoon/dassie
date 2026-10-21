@@ -18,7 +18,7 @@ message NodeConfig {
 enum Realm {
   REALM_UNSPECIFIED = 0;
   REALM_TEST = 1;
-  // Refused until the conditions of decision D8 are met.
+  // Refused until the conditions of spec/decisions/real-money.md are met.
   REALM_LIVE = 2;
 }
 
@@ -51,7 +51,7 @@ message SetHostnameResponse {
   NodeConfig config = 1;
 }
 
-// FAILED_PRECONDITION for REALM_LIVE (decision D8).
+// FAILED_PRECONDITION for REALM_LIVE (spec/decisions/real-money.md).
 message SetRealmRequest {
   Realm realm = 1;
 }

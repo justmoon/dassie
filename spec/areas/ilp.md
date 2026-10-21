@@ -9,11 +9,11 @@ The formats are the standards', byte for byte, so that existing Interledger soft
 
 ## Packets
 
-Parsing is strict and total: every malformed input is a `ParseError`, never a panic, and the connector answers it with F01 ([D13](../decisions/D13-connector-timing-and-packet-limits.md)). Beyond the encoding:
+Parsing is strict and total: every malformed input is a `ParseError`, never a panic, and the connector answers it with F01 ([connector-timing](../decisions/connector-timing.md)). Beyond the encoding:
 
 - **Addresses must follow the RFC 15 grammar**, in the destination and in a non-empty `triggeredBy`. Much Interledger software accepts any string; refusing malformed addresses at the edge keeps them out of the routing table. An empty `triggeredBy`, which ILPv4 allows, reads as no address.
 - **Expiries must be real dates** from 1970 on; a time past year 9999 is written as its end. A packet from before 1970 has expired anyway.
-- **Buffers are sized once,** by `MAX_PACKET_LENGTH`, the largest packet of any type the format allows, so no packet path allocates per packet ([D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md)). That is a Reject's, not a Prepare's: its message adds to the longest address and data, and a connector passes on any Reject that decodes, so a buffer that fits only the largest Prepare would lose one. The BTP and peer message limits hold it with its envelope.
+- **Buffers are sized once,** by `MAX_PACKET_LENGTH`, the largest packet of any type the format allows, so no packet path allocates per packet ([tigerstyle](../decisions/tigerstyle.md)). That is a Reject's, not a Prepare's: its message adds to the longest address and data, and a connector passes on any Reject that decodes, so a buffer that fits only the largest Prepare would lose one. The BTP and peer message limits hold it with its envelope.
 
 ## Addresses
 
@@ -21,11 +21,11 @@ Parsing is strict and total: every malformed input is a `ParseError`, never a pa
 
 ## F08 data
 
-An F08 Amount Too Large carries the amount that arrived and the most the rejecting hop accepts, which senders scale their packets by ([STREAM](stream.md#responses)). Dassie's own F08s always carry it ([D13](../decisions/D13-connector-timing-and-packet-limits.md)). Other software may send F08 without data, so a reader gets nothing for missing or malformed data and must cope.
+An F08 Amount Too Large carries the amount that arrived and the most the rejecting hop accepts, which senders scale their packets by ([STREAM](stream.md#responses)). Dassie's own F08s always carry it ([connector-timing](../decisions/connector-timing.md)). Other software may send F08 without data, so a reader gets nothing for missing or malformed data and must cope.
 
 ## ILDCP
 
-RFC 31 leaves the asset code unbounded; Dassie bounds it to 255 characters so a hostile parent cannot hand out megabytes. Which address and asset the node answers each endpoint with is the [connector](connector.md)'s ([D6](../decisions/D06-owner-ledger-and-multi-currency-accounts.md)).
+RFC 31 leaves the asset code unbounded; Dassie bounds it to 255 characters so a hostile parent cannot hand out megabytes. Which address and asset the node answers each endpoint with is the [connector](connector.md)'s ([owner-ledger](../decisions/owner-ledger.md)).
 
 ## BTP 2.0
 
@@ -37,6 +37,6 @@ How the server authenticates a client, what routes a connection gets and how eac
 
 ## Decisions
 
-- [D6](../decisions/D06-owner-ledger-and-multi-currency-accounts.md): ILDCP answers each endpoint's own asset.
-- [D13](../decisions/D13-connector-timing-and-packet-limits.md): F08 carries amount data, malformed packets get F01, nothing throws on the packet path, prefix matching is segment-aware.
-- [D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md): bounded decoding and no clock in the core.
+- [owner-ledger](../decisions/owner-ledger.md): ILDCP answers each endpoint's own asset.
+- [connector-timing](../decisions/connector-timing.md): F08 carries amount data, malformed packets get F01, nothing throws on the packet path, prefix matching is segment-aware.
+- [tigerstyle](../decisions/tigerstyle.md): bounded decoding and no clock in the core.

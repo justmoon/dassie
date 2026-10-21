@@ -7,7 +7,7 @@ How Dassie is tested: what each level of tests is for, what the deterministic si
 
 ## Levels
 
-Deterministic simulation is the main source of confidence ([D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md)), and the other levels cover what a simulation cannot judge:
+Deterministic simulation is the main source of confidence ([tigerstyle](../decisions/tigerstyle.md)), and the other levels cover what a simulation cannot judge:
 
 - golden vectors pin the wire formats and derivations that must never change;
 - interop tests pin the standards against their reference implementations;
@@ -30,7 +30,7 @@ Other vectors come from their own reference: XRPL Payments signed as xrpl.js sig
 
 ## Property tests
 
-Properties pin what no example can: every decoder never panics, only canonical encodings parse, no transfer breaks a ledger limit, balances equal the journal. Their regression files (`*.proptest-regressions`) are committed beside the tests. They run from one fixed seed, set in `.cargo/config.toml`, so a local `cargo test` runs what CI runs; a seed in `PROPTEST_RNG_SEED` explores others, outside CI ([D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md)).
+Properties pin what no example can: every decoder never panics, only canonical encodings parse, no transfer breaks a ledger limit, balances equal the journal. Their regression files (`*.proptest-regressions`) are committed beside the tests. They run from one fixed seed, set in `.cargo/config.toml`, so a local `cargo test` runs what CI runs; a seed in `PROPTEST_RNG_SEED` explores others, outside CI ([random-seed-simulations](../decisions/random-seed-simulations.md)).
 
 ## Interop
 
@@ -48,11 +48,11 @@ N nodes, or a crate's state machines, are wired in-process through the sans-IO c
 
 The simulations run the production timings, not the dev ones: on the virtual clock a simulated day costs seconds, and the ledgers they settle on, like the fake XRP Ledger, run at their real speed. Dev timings, scaled down, are only for what runs on a real clock: the dev environment and the end-to-end tests.
 
-Once a run heals, payments must complete, settlements arrive, routes converge and no node owe an honest peer past that peer's trigger, within a time derived from the production rules: for the `node` simulation, the longest wait a fault leaves behind (the backoff of a registration, a refresh, a peering attempt or a settlement, or a peer's hold-down), then as long as a network takes to be ready, then as long as a run's payments, and the settlements they call for, may take. A deadline is derived from the rules the node runs by, never chosen so that a run passes ([D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md)). The one exception to payments completing is also a production rule: a node's payer gives up after a bounded number of reconnects, so an outgoing payment that failed in the chaos, or whose payer was already reconnecting when the run healed (since its node last started: a start gives the payer all its reconnects again), may end failed, since what is left of its reconnects can run out before the healed network routes it, for instance while a pair an owner's end split must peer anew. A payment started after the heal must complete. After a partition that outlasted the chaos it starts once the healed network is ready again, as the run's first payments do, since the network then forms anew for longer than a payer keeps trying; otherwise it starts at once, while the network re-forms after the chaos. Nor does the heal ask for routes or settlements across a pair that an owner's end or a ban keeps apart.
+Once a run heals, payments must complete, settlements arrive, routes converge and no node owe an honest peer past that peer's trigger, within a time derived from the production rules: for the `node` simulation, the longest wait a fault leaves behind (the backoff of a registration, a refresh, a peering attempt or a settlement, or a peer's hold-down), then as long as a network takes to be ready, then as long as a run's payments, and the settlements they call for, may take. A deadline is derived from the rules the node runs by, never chosen so that a run passes ([random-seed-simulations](../decisions/random-seed-simulations.md)). The one exception to payments completing is also a production rule: a node's payer gives up after a bounded number of reconnects, so an outgoing payment that failed in the chaos, or whose payer was already reconnecting when the run healed (since its node last started: a start gives the payer all its reconnects again), may end failed, since what is left of its reconnects can run out before the healed network routes it, for instance while a pair an owner's end split must peer anew. A payment started after the heal must complete. After a partition that outlasted the chaos it starts once the healed network is ready again, as the run's first payments do, since the network then forms anew for longer than a payer keeps trying; otherwise it starts at once, while the network re-forms after the chaos. Nor does the heal ask for routes or settlements across a pair that an owner's end or a ban keeps apart.
 
 ### Failed commits
 
-Faults stay within what the node relies on. The store commits with `synchronous = FULL`, so a commit that returned is on disk, and a torn write is SQLite's to handle; the only fault injected at the store is a commit that fails, as on a full disk ([D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md)).
+Faults stay within what the node relies on. The store commits with `synchronous = FULL`, so a commit that returned is on disk, and a torn write is SQLite's to handle; the only fault injected at the store is a commit that fails, as on a full disk ([random-seed-simulations](../decisions/random-seed-simulations.md)).
 
 - **It fails in SQLite,** through its commit hook, behind the `testing` feature, so SQLite rolls the transaction back as it would, and the engine meets the error its real commit returns.
 - **The node stops as the daemon's engine does** ([Node](node.md#the-engine)): the core panics without handing over anything of the step, a peer request it was answering gets the daemon's 503, and the simulation treats the node as crashed until it restarts it from its last good commit.
@@ -71,11 +71,11 @@ A split that outlasts the chaos keeps the network as the chaos left it, its cuts
 
 ### Each node judged by its own books
 
-Beyond the invariants, a simulation judges each node on its own, by its own books, and never compares two nodes' books or adds them up: each node keeps its own, and they may drift ([Engineering](../engineering.md#each-node-keeps-its-own-books), [D19](../decisions/D19-each-node-keeps-its-own-books.md)).
+Beyond the invariants, a simulation judges each node on its own, by its own books, and never compares two nodes' books or adds them up: each node keeps its own, and they may drift ([Engineering](../engineering.md#each-node-keeps-its-own-books), [own-books](../decisions/own-books.md)).
 
 - **Against what really happened:** a node's books hold what its scheme holds; its owner's funds moved by what its receivers took and its payers sent, and each token's by what its client sent. The underlying ledgers neither make nor lose money, each asset apart in runs across currencies.
-- **Its decisions, against the liquidity its books show:** it refuses a Prepare for liquidity only by the limits its books set; it takes every settlement an honest peer sends; once the network is calm, it owes no peer past its own threshold for long; once it knows a peering is ending, it starts no settlement to that peer until they peer again; when its owner bans a peer, it tells the peer at once, asks it for nothing and never peers with it again; and when it ends one, it tells the peer only once what the peer last said it had on its way is booked, earlier bookings included, or once the wait for it ran out ([D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)).
-- **Against adversaries:** whatever a lying peer does (never settle, spend the credit it was given and vanish), an honest node loses no more than the credit it extends ([D23](../decisions/D23-each-node-books-its-own-fulfills.md)); one that vanishes loses its peering.
+- **Its decisions, against the liquidity its books show:** it refuses a Prepare for liquidity only by the limits its books set; it takes every settlement an honest peer sends; once the network is calm, it owes no peer past its own threshold for long; once it knows a peering is ending, it starts no settlement to that peer until they peer again; when its owner bans a peer, it tells the peer at once, asks it for nothing and never peers with it again; and when it ends one, it tells the peer only once what the peer last said it had on its way is booked, earlier bookings included, or once the wait for it ran out ([ending-a-peering](../decisions/ending-a-peering.md)).
+- **Against adversaries:** whatever a lying peer does (never settle, spend the credit it was given and vanish), an honest node loses no more than the credit it extends ([own-fulfills](../decisions/own-fulfills.md)); one that vanishes loses its peering.
 - **Against replays:** a copy of a request, sent again by someone who saw it arrive, is refused if its original was answered 200 or is still under way. Only a copy of a request that had no effect, refused or lost in a crash, may be taken once. A copy of a request that only reads may be taken too: a stranger's replay state does not record it, and taking it again changes nothing ([Peer protocol](peer-protocol.md#replay-protection)).
 - **Liveness:** payments complete, and settlements arrive.
 
@@ -119,7 +119,7 @@ A check's name changes only when the check is renamed. A panic's file and line a
 
 ## The campaign
 
-The campaign runs the simulations from random seeds on spot VMs, outside CI ([D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md)). Its supervisor, `scripts/sim-campaign.ts`, runs one loop at a time on each VM: it builds a commit's `dassie-sim` in the `sim` profile, runs the runner's [campaign command](#the-runner-dassie-sim) on every core for a while, reports, and exits. systemd starts the next loop from a fresh checkout of `main`, so a change to the supervisor or the runner on `main` reaches every VM within a loop. The VMs' setup is in `scripts/sim-campaign/`.
+The campaign runs the simulations from random seeds on spot VMs, outside CI ([random-seed-simulations](../decisions/random-seed-simulations.md)). Its supervisor, `scripts/sim-campaign.ts`, runs one loop at a time on each VM: it builds a commit's `dassie-sim` in the `sim` profile, runs the runner's [campaign command](#the-runner-dassie-sim) on every core for a while, reports, and exits. systemd starts the next loop from a fresh checkout of `main`, so a change to the supervisor or the runner on `main` reaches every VM within a loop. The VMs' setup is in `scripts/sim-campaign/`.
 
 - **What runs.** Most loops run `main`. Open pull requests labelled `sim` share some of the time; the label is the gate, since only people with triage access to the repository can set it. A release candidate has a share too: the owner points the `release` branch at the commit to tag, and the campaign runs that commit, once `main` holds it, until its status settles. `main` alone would not do, since it moves faster than a commit clears.
 - **A failure's [signature](#outcomes)** is its simulation, its outcome, and the assertion or check that failed: what tells two failures apart, whatever their seeds.
@@ -130,7 +130,7 @@ The campaign runs the simulations from random seeds on spot VMs, outside CI ([D2
 
 ### The commit status
 
-A trusted commit has the `sim-campaign` commit status, which says whether the campaign has cleared the commit; releases do not wait for it yet ([D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md)). It is `pending` until the commit has run long enough (`CLEAR_RUNS` in the supervisor, with its reason) with no failure but the tripwire's, and the tripwire has tripped on it; then `success`. It is `failure` once any failure was seen on the commit, and stays so. Requiring a trip means that a runner which stopped reporting failures clears nothing.
+A trusted commit has the `sim-campaign` commit status, which says whether the campaign has cleared the commit; releases do not wait for it yet ([random-seed-simulations](../decisions/random-seed-simulations.md)). It is `pending` until the commit has run long enough (`CLEAR_RUNS` in the supervisor, with its reason) with no failure but the tripwire's, and the tripwire has tripped on it; then `success`. It is `failure` once any failure was seen on the commit, and stays so. Requiring a trip means that a runner which stopped reporting failures clears nothing.
 
 Each loop on a commit that has not failed posts a status. Once it has failed, a loop posts one only for a failure signature that the commit's statuses do not name yet: the failure is final and later runs count for nothing, so a status after every loop on a commit that `main` stays on would only notify the owner again. The failure's issue still counts every loop's seeds. A signature cut short in a status's description, to fit GitHub's limit, names a failure only together with its link to that signature's issue.
 
@@ -165,7 +165,7 @@ The install tests run the installer and the updater in containers with systemd a
 
 ## Decisions
 
-- [D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md): why simulation is the main tool, and why the code is built for it from the start.
-- [D19](../decisions/D19-each-node-keeps-its-own-books.md): why a simulation judges each node by its own books.
-- [D23](../decisions/D23-each-node-books-its-own-fulfills.md): the bound an adversary is held to.
-- [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md): one runner, simulations from random seeds, the campaign, and why CI keeps fixed seeds.
+- [tigerstyle](../decisions/tigerstyle.md): why simulation is the main tool, and why the code is built for it from the start.
+- [own-books](../decisions/own-books.md): why a simulation judges each node by its own books.
+- [own-fulfills](../decisions/own-fulfills.md): the bound an adversary is held to.
+- [random-seed-simulations](../decisions/random-seed-simulations.md): one runner, simulations from random seeds, the campaign, and why CI keeps fixed seeds.

@@ -182,7 +182,7 @@ export const SetHostnameResponseSchema: GenMessage<SetHostnameResponse> = /*@__P
   messageDesc(file_dassie_ui_v1_config, 6);
 
 /**
- * FAILED_PRECONDITION for REALM_LIVE (decision D8).
+ * FAILED_PRECONDITION for REALM_LIVE (spec/decisions/real-money.md).
  *
  * @generated from message dassie.ui.v1.SetRealmRequest
  */
@@ -316,7 +316,7 @@ export const Realm = {
   TEST: 1,
 
   /**
-   * Refused until the conditions of decision D8 are met.
+   * Refused until the conditions of spec/decisions/real-money.md are met.
    *
    * @generated from enum value: REALM_LIVE = 2;
    */

@@ -39,7 +39,7 @@ Cheap checks come first, so floods are cheap: an echo of our own state, a node n
 
 ### How link states spread
 
-The gossip defaults (copies before suppression, forward jitter, heartbeat interval, staleness, re-issue) are the original's, kept because they proved sound; the peering timings were set from the network simulation ([D12](../decisions/D12-peering-lifecycle-and-liveness.md)). All are in `crates/dassie-peer/src/config.rs`.
+The gossip defaults (copies before suppression, forward jitter, heartbeat interval, staleness, re-issue) are the original's, kept because they proved sound; the peering timings were set from the network simulation ([peering-lifecycle](../decisions/peering-lifecycle.md)). All are in `crates/dassie-peer/src/config.rs`.
 
 - **Flooding.** A state taken from a `linkStateUpdate` is forwarded after a random delay to every peer except its subject and the peer it came from, unless enough copies arrived meanwhile. Our own new state goes at once. States learned from refreshes, sweeps, registrations and peering requests are not forwarded, nor is a periphery node's, and a periphery node forwards none. Nothing is forwarded to a downlink.
 - **Heartbeats.** A node sends its current state, authenticated, to every peer it is not terminating with, advertised or not, at random intervals and once when a peering forms, so both sides can confirm each other ([Advertised peers](#advertised-peers)).
@@ -48,11 +48,11 @@ The gossip defaults (copies before suppression, forward jitter, heartbeat interv
 
 ## Membership
 
-The network's members are the nodes that a majority of the bootstrap nodes list. Bootstrap nodes take registrations and serve lists of the nodes registered with them. The design and its economics are [D4](../decisions/D04-network-membership-economics.md).
+The network's members are the nodes that a majority of the bootstrap nodes list. Bootstrap nodes take registrations and serve lists of the nodes registered with them. The design and its economics are [membership-economics](../decisions/membership-economics.md).
 
 ### Bootstrap nodes
 
-- The bootstrap node list is `DASSIE_BOOTSTRAP_NODES` (format and validation in `crates/dassie-node/src/env.rs`). A bad entry stops the node at startup, as does a node listed twice, which would vote twice. The default is the public testnet's three nodes ([D15](../decisions/D15-bootstrap-network-for-v1.md)); tests and the dev environment set their own, so they stay off the testnet. An empty list makes a node run alone.
+- The bootstrap node list is `DASSIE_BOOTSTRAP_NODES` (format and validation in `crates/dassie-node/src/env.rs`). A bad entry stops the node at startup, as does a node listed twice, which would vote twice. The default is the public testnet's three nodes ([bootstrap-network](../decisions/bootstrap-network.md)); tests and the dev environment set their own, so they stay off the testnet. An empty list makes a node run alone.
 - Bootstrap nodes are always in the table, with their configured key, and always keep their replay state.
 - A node takes registrations only when it is one of its own bootstrap nodes, so each bootstrap node lists itself in its own configuration. Each testnet bootstrap node runs `xrpl-testnet`, so a new node has someone to peer with.
 
@@ -108,7 +108,7 @@ Each node looks for a few peers on its own (auto-peering). A peering is between 
 
 The settlement schemes have their say through `PeeringHooks` (`crates/dassie-peer/src/hooks.rs`, [Settlement](settlement.md)).
 
-- **Only on a scheme that has seen its ledger.** A node offers, asks for and accepts peerings on a scheme only once the scheme has synced with its ledger at least once: before that, a peer's settlement would be booked as the owner's deposit ([Settlement](settlement.md#the-scheme-interface), [D31](../decisions/D31-a-node-peers-on-a-scheme-only-once-it-has-seen-its-ledger.md)). A request on another scheme is refused as unsupported, and the requester backs off as from any refusal; once the scheme has synced, the node's link state lists it. Having synced once, a scheme stays peered on across restarts, its ledger reachable or not.
+- **Only on a scheme that has seen its ledger.** A node offers, asks for and accepts peerings on a scheme only once the scheme has synced with its ledger at least once: before that, a peer's settlement would be booked as the owner's deposit ([Settlement](settlement.md#the-scheme-interface), [synced-before-peering](../decisions/synced-before-peering.md)). A request on another scheme is refused as unsupported, and the requester backs off as from any refusal; once the scheme has synced, the node's link state lists it. Having synced once, a scheme stays peered on across restarts, its ledger reachable or not.
 - **Not on a stopped scheme.** A scheme whose effects the books refused stops until the node restarts, and refuses a peer's settlement meanwhile ([Settlement](settlement.md#the-scheme-interface)). So the node leaves it out as before its first sync: its link state no longer lists it, it asks for no peering on it, and refuses a request on it as unsupported. Peerings already made on it stay, and a repeat request on one is still answered with the stored peering; a restart lists it again.
 
 - **Repeats.** A request from a node already peered on the same scheme is answered at once, without a probe, with the stored peering's version. This covers an acceptance that got lost.
@@ -116,11 +116,11 @@ The settlement schemes have their say through `PeeringHooks` (`crates/dassie-pee
 
 ### Roles
 
-The **junior** is the node whose peering request was accepted, the **senior** the node that accepted it; when requests cross, the lower node ID is the junior. The junior extends the senior a default credit line, the senior extends the junior none at first, and credit then grows with what a peer earned us ([Settlement](settlement.md#credit), [D20](../decisions/D20-trust-follows-what-a-peer-earned-us.md)).
+The **junior** is the node whose peering request was accepted, the **senior** the node that accepted it; when requests cross, the lower node ID is the junior. The junior extends the senior a default credit line, the senior extends the junior none at first, and credit then grows with what a peer earned us ([Settlement](settlement.md#credit), [earned-trust](../decisions/earned-trust.md)).
 
 ## Lifecycle
 
-A peering is `requesting`, `peered` or `terminating` ([D12](../decisions/D12-peering-lifecycle-and-liveness.md)). "Peered" in other documents covers `peered` and `terminating`; "active" means `peered`.
+A peering is `requesting`, `peered` or `terminating` ([peering-lifecycle](../decisions/peering-lifecycle.md)). "Peered" in other documents covers `peered` and `terminating`; "active" means `peered`.
 
 **Withdrawing is prompt, ending is not.** A node takes a peer out of its link state moderately soon, weighing route flaps against stale routes that lose packets: a withdrawn peer stays peered, and comes back once it is healthy and its hold-down is over. Ending a peering is for good, and needs much stronger evidence: the owner's word, or a peer silent or short of room for as long as a silent peer is kept ([Termination](#termination)). Nothing that withdraws a peer ends it.
 
@@ -130,22 +130,22 @@ A node lists a peer as a neighbor in its link state, and routing uses the edge, 
 
 - **Hold-down.** Each time a peer stops being advertised it is held down, for a time that doubles with each flap and resets after a long stable stretch, so a flapping peer does not churn routes across the network.
 - **Restarts** do not drop neighbors: confirmation starts from the persisted time the peer was last heard from, without a hold-down.
-- **Withdrawal for room.** Withdrawing an edge removes it both ways for the whole network, turning a temporary T04 into a final F02, so neither a failed delivery nor a peer waiting seconds for a routine settlement withdraws it. A peer whose room in our books has stayed below one of the largest packets for the grace, without settling, is stuck: settling, not traffic, restores room, and a creditor asks over the peer protocol, which needs no route ([D12](../decisions/D12-peering-lifecycle-and-liveness.md)). It is withdrawn like a flap: still peered and asked to settle, but no packet crosses the edge either way until its room is back and its hold-down is over. The grace lets two requests to settle go unanswered and still gives the third a request's timeout to be answered, and its settlement time to be booked. A request that surely never reached the peer costs none of it: it is asked again at the next check ([Settlement](settlement.md#asking-a-peer-to-settle)). A node counts only the room it gives a peer, never the room the peer gives it.
+- **Withdrawal for room.** Withdrawing an edge removes it both ways for the whole network, turning a temporary T04 into a final F02, so neither a failed delivery nor a peer waiting seconds for a routine settlement withdraws it. A peer whose room in our books has stayed below one of the largest packets for the grace, without settling, is stuck: settling, not traffic, restores room, and a creditor asks over the peer protocol, which needs no route ([peering-lifecycle](../decisions/peering-lifecycle.md)). It is withdrawn like a flap: still peered and asked to settle, but no packet crosses the edge either way until its room is back and its hold-down is over. The grace lets two requests to settle go unanswered and still gives the third a request's timeout to be answered, and its settlement time to be booked. A request that surely never reached the peer costs none of it: it is asked again at the next check ([Settlement](settlement.md#asking-a-peer-to-settle)). A node counts only the room it gives a peer, never the room the peer gives it.
 - **Downlinks owing nothing are not withdrawn.** A downlink is in no link state, so withdrawing it would only stop the payments to it, which are what raise its room when it owes nothing. One whose debt in our books is zero is never withdrawn or ended for room, however short its room; one that owes and does not settle is, as any peer.
-- **Counting the time short.** Each settlement booked from the peer starts the grace again. The time short is a total, grown only while the node can ask (its scheme sees its ledger), by at most two check intervals per check, so neither the node's downtime, a stall of its host, nor an outage of its own ledger counts against the peer. Only the part of it during which the peer could be reached ends the peering: time during which the node's last request to settle surely never reached the peer still withdraws it, since the link carries nothing, but does not count toward ending it for room, as the peer had no chance to settle ([D12](../decisions/D12-peering-lifecycle-and-liveness.md)). Both are persisted with the peering, so a restart neither forgives them nor starts them again.
+- **Counting the time short.** Each settlement booked from the peer starts the grace again. The time short is a total, grown only while the node can ask (its scheme sees its ledger), by at most two check intervals per check, so neither the node's downtime, a stall of its host, nor an outage of its own ledger counts against the peer. Only the part of it during which the peer could be reached ends the peering: time during which the node's last request to settle surely never reached the peer still withdraws it, since the link carries nothing, but does not count toward ending it for room, as the peer had no chance to settle ([peering-lifecycle](../decisions/peering-lifecycle.md)). Both are persisted with the peering, so a restart neither forgives them nor starts them again.
 
 ### Termination
 
 Termination starts when the owner asks, when the owner bans the node, when the peer has not been heard from for a long time (counted from the later of its last message and the node's start, so our own downtime ends nothing), or when its room has stayed short, without a settlement, for as long while it could be reached ([Advertised peers](#advertised-peers)). A peer cut off from the node is ended for its silence, if at all, never for room.
 
-The node that ends a peering collects first, and tells the peer only then, unless its owner banned the peer ([D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)):
+The node that ends a peering collects first, and tells the peer only then, unless its owner banned the peer ([ending-a-peering](../decisions/ending-a-peering.md)):
 
 1. **It decides privately.** Nothing the peer can see changes: a peer it advertised stays advertised, and our own Prepares still go to it. Its owner sees it terminating. Its new Prepares are refused, as for want of liquidity ([Connector](connector.md#responses-and-expiry)), and its requests to settle are answered as ones that settle nothing.
 2. **It waits for its own settlements to the peer under way,** so the peer counts them; then asks the peer to settle, once. The answer says what the peer has on its way ([Settlement](settlement.md#settling-on-request)), and the node waits until that is booked. Each wait lasts at most a time a settlement takes to reach the ledger and be announced (`depeer_wait_ms`). A peer that does not answer is waited out.
 3. **Then it tells the peer:** it stops advertising it, takes no new Prepares to or from it, and sends `peeringTermination` until it is acknowledged or times out. Responses still flow.
 4. **The other side ends at once** when the message arrives, as the node does that is told first when both decided: it stops advertising and routing to the peer, takes no new Prepares and settles nothing.
 5. Once the exchange is over, no packet is in flight with the peer and no response to it waits to be sent again, the peering ends. Neither side settles anything for the end ([Settlement](settlement.md#settling-at-a-peerings-end)): what the books show stays owed, for a later peering to settle.
-6. After an owner's termination, or one for room, the two do not peer again for a while: neither asks the other, and each refuses the other's requests meanwhile ([D33](../decisions/D33-a-peering-ended-for-room-stays-apart-and-earns-no-credit-back.md)). A node collecting for its owner, or for room, keeps its reason when the peer tells it first. That cooldown does not survive a restart; a ban is the lasting way. After any other end, asking again waits only a backoff.
+6. After an owner's termination, or one for room, the two do not peer again for a while: neither asks the other, and each refuses the other's requests meanwhile ([ended-for-room](../decisions/ended-for-room.md)). A node collecting for its owner, or for room, keeps its reason when the peer tells it first. That cooldown does not survive a restart; a ban is the lasting way. After any other end, asking again waits only a backoff.
 
 **Termination ends a peering, not a relationship.** The peer's accounts stay, with their balances, as the record of what is owed, and so does the settlement channel with its sequence ([Settlement channels](#settlement-channels)). A settlement that arrives after the peering ended is still credited once, and a later peering with the node reuses both without posting trust twice. The channel also remembers that the node ended a peering for room, so a later one raises the peer no credit ([Settlement](settlement.md#credit)). A termination under way survives a restart, and so does a decision to end a peering; its steps start again after it.
 
@@ -153,14 +153,14 @@ The node that ends a peering collects first, and tells the peer only then, unles
 
 A node that holds no peering with an authenticated sender, and is not asking for one, answers any request from it that presumes a peering with a `peeringTermination` of reason "not peered", at most once per termination timeout per node. The request itself gets the answer it would get anyway, a refusal for not being peered, so no status changes meaning. The other side then ends its peering at once, as the node being ended does ([Termination](#termination)).
 
-This repairs a peering whose `peeringTermination` never arrived while it was sent, as when the two were cut off for the whole termination timeout. The side left over would otherwise keep it until the peer had been silent for as long as a silent peer is kept, and, if the peer is short of room in its books, ask it to settle at every check, since a refusal for not being peered is also what a peer that has not taken in our acceptance yet answers ([D12](../decisions/D12-peering-lifecycle-and-liveness.md)).
+This repairs a peering whose `peeringTermination` never arrived while it was sent, as when the two were cut off for the whole termination timeout. The side left over would otherwise keep it until the peer had been silent for as long as a silent peer is kept, and, if the peer is short of room in its books, ask it to settle at every check, since a refusal for not being peered is also what a peer that has not taken in our acceptance yet answers ([peering-lifecycle](../decisions/peering-lifecycle.md)).
 
 - **What presumes a peering:** a Prepare, a request to settle, a scheme's message, another node's link state forwarded to us, since floods go only to peers, and a node's own link state that lists us as a neighbor. Its own link state that does not list us presumes nothing: a node also sends it to the bootstrap nodes it is not peered with ([How link states spread](#how-link-states-spread)), even to one it is asking for a peering.
 - **Not while asking.** A node whose own peering request is under way answers nothing: the peer may have accepted it, and hold the peering before the acceptance arrives.
 
 ### Bans
 
-- Bans are a bounded list the owner keeps. Only the owner bans; a node never bans a peer for what it cost ([D23](../decisions/D23-each-node-books-its-own-fulfills.md)).
+- Bans are a bounded list the owner keeps. Only the owner bans; a node never bans a peer for what it cost ([own-fulfills](../decisions/own-fulfills.md)).
 - A banned node is never asked, is refused, and its messages do not confirm it as a peer. A ban ends a peering as the owner's termination does, with its cooldown, but collects nothing: the node withdraws the peer from its link state and tells it at once (step 3 of [Termination](#termination)), without waiting for its own settlements or asking the peer to settle. What the peer owes stays on the books. A ban is the owner's emphatic word, often about misbehaviour, and a peer being banned has little reason to settle. Its link states still flood: a ban is one node's choice, and other nodes route by both ends' word.
 - A ban is a list, not a peering state, since a node can be banned while its peering is still terminating.
 
@@ -170,7 +170,7 @@ Every peer gets a settlement channel, which belongs to the pair of nodes and out
 
 ## Periphery nodes
 
-A node without a public address joins as a periphery node ([D26](../decisions/D26-core-and-periphery.md)): it connects only to core nodes, its uplinks, is reached only over the connections it opened to them, and forwards nothing. What else the [design](../designs/periphery.md) holds is not built yet ([roadmap](../roadmap.md#periphery)).
+A node without a public address joins as a periphery node ([core-and-periphery](../decisions/core-and-periphery.md)): it connects only to core nodes, its uplinks, is reached only over the connections it opened to them, and forwards nothing. What else the [design](../designs/periphery.md) holds is not built yet ([roadmap](../roadmap.md#periphery)).
 
 - **Who is one.** A node with a QUIC endpoint and no hostname, so no URL. A node with a URL is a core node, and a core node that takes QUIC takes downlinks. The owner's hostname must make a URL peers take, with any port, so a node never turns periphery by a hostname too long ([Node](node.md#configuration)).
 - **Changing kind.** A core node that loses its URL ends the peerings with its downlinks, since a periphery node takes none, and asks for uplinks. A peer whose link state turns from core to periphery, or back, is a peer of the other kind, with another address and other bounds: the peering made as the old kind ends, and it may ask anew.
@@ -212,13 +212,13 @@ Periphery nodes peer with their uplinks on the same simulated network in `crates
 
 ## Decisions
 
-- [D2](../decisions/D02-peer-protocol-v0-or-v1.md): v1 instead of v0: authenticated senders and responses, peering requests that carry the signed node info, termination, scheme versions.
-- [D4](../decisions/D04-network-membership-economics.md): removal and expiry, automatic registration, the served list, the membership freeze, authenticated lists, and the limits on free registration until fees.
-- [D12](../decisions/D12-peering-lifecycle-and-liveness.md): the peering lifecycle, confirmed peers, the bridge rule, slot caps, repeats and crossings, the advertise flag and withdrawal for room, termination, bans as a list, the channel limit, and why child peers wait.
-- [D15](../decisions/D15-bootstrap-network-for-v1.md): the testnet's bootstrap nodes as the default list.
-- [D20](../decisions/D20-trust-follows-what-a-peer-earned-us.md): junior and senior.
-- [D23](../decisions/D23-each-node-books-its-own-fulfills.md): only the owner bans.
-- [D31](../decisions/D31-a-node-peers-on-a-scheme-only-once-it-has-seen-its-ledger.md): no peering on a scheme before its first sync.
-- [D33](../decisions/D33-a-peering-ended-for-room-stays-apart-and-earns-no-credit-back.md): a pair parted for room stays apart for the cooldown, and earns no credit back.
-- [D26](../decisions/D26-core-and-periphery.md): core and periphery; why periphery nodes are in no node list and no link state.
-- [D39](../decisions/D39-a-connection-holds-a-place-by-the-key-it-proved.md): downlinks' connections hold places of their own.
+- [peer-protocol-v1](../decisions/peer-protocol-v1.md): v1 instead of v0: authenticated senders and responses, peering requests that carry the signed node info, termination, scheme versions.
+- [membership-economics](../decisions/membership-economics.md): removal and expiry, automatic registration, the served list, the membership freeze, authenticated lists, and the limits on free registration until fees.
+- [peering-lifecycle](../decisions/peering-lifecycle.md): the peering lifecycle, confirmed peers, the bridge rule, slot caps, repeats and crossings, the advertise flag and withdrawal for room, termination, bans as a list, the channel limit, and why child peers wait.
+- [bootstrap-network](../decisions/bootstrap-network.md): the testnet's bootstrap nodes as the default list.
+- [earned-trust](../decisions/earned-trust.md): junior and senior.
+- [own-fulfills](../decisions/own-fulfills.md): only the owner bans.
+- [synced-before-peering](../decisions/synced-before-peering.md): no peering on a scheme before its first sync.
+- [ended-for-room](../decisions/ended-for-room.md): a pair parted for room stays apart for the cooldown, and earns no credit back.
+- [core-and-periphery](../decisions/core-and-periphery.md): core and periphery; why periphery nodes are in no node list and no link state.
+- [places-by-proved-key](../decisions/places-by-proved-key.md): downlinks' connections hold places of their own.

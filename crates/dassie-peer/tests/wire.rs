@@ -338,7 +338,8 @@ fn settlements_and_terminations_are_pinned() {
     );
     assert_eq!(Kind::from_tag(10), Some(Kind::PeeringTermination));
     assert!(Kind::PeeringTermination.requires_authentication());
-    // D23: a settlement request names its scheme alone.
+    // spec/decisions/own-fulfills.md: a settlement request names its scheme
+    // alone.
     let request = Content::SettlementRequest {
         scheme: SchemeId::parse("stub").unwrap(),
     };
@@ -630,7 +631,8 @@ proptest! {
 }
 
 // The answer to a settlement request is the amount on its way, eight bytes
-// big-endian; an empty answer, from a node before D28, says nothing.
+// big-endian; an empty answer, from a node before
+// spec/decisions/ending-a-peering.md, says nothing.
 #[test]
 fn a_settlement_requests_answer_is_the_amount_on_its_way() {
     assert_eq!(

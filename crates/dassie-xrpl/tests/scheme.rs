@@ -519,9 +519,10 @@ fn a_testnet_reset_is_a_loss_and_a_new_deposit() {
     assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
 }
 
-// D31: the scheme has synced once its first sync booked what the account
-// held as the owner's, and the node peers on it only from then. That is
-// kept with its state, so a restart that cannot reach the ledger keeps it.
+// spec/decisions/synced-before-peering.md: the scheme has synced once its
+// first sync booked what the account held as the owner's, and the node peers
+// on it only from then. That is kept with its state, so a restart that cannot
+// reach the ledger keeps it.
 #[test]
 fn the_first_sync_is_kept_across_restarts() {
     let node = name("node0");
@@ -538,9 +539,10 @@ fn the_first_sync_is_kept_across_restarts() {
     assert!(restarted.has_synced(), "a restart forgot the first sync");
 }
 
-// D32: a reset starts the chain again from a ledger below the newest seen,
-// which closed later. It is recognised as one even when the account exists
-// again on the new chain: the old funds are a loss, the new a deposit.
+// spec/decisions/ledger-resets.md: a reset starts the chain again from a
+// ledger below the newest seen, which closed later. It is recognised as one
+// even when the account exists again on the new chain: the old funds are a
+// loss, the new a deposit.
 #[test]
 fn a_reset_is_recognised_when_the_account_exists_again() {
     let (mut world, _, _) = funded_pair();
@@ -655,9 +657,10 @@ fn an_old_answer_while_synced_is_asked_again() {
     assert_eq!(asked(&world), before + 1, "asked once");
 }
 
-// D32: a server behind what the scheme booked (here a peer's settlement),
-// or only behind the newest ledger it saw, says nothing new: nothing is
-// booked from it, and the scheme waits for one that caught up.
+// spec/decisions/ledger-resets.md: a server behind what the scheme booked
+// (here a peer's settlement), or only behind the newest ledger it saw, says
+// nothing new: nothing is booked from it, and the scheme waits for one that
+// caught up.
 #[test]
 fn a_server_behind_is_never_booked_from() {
     for settled in [true, false] {
@@ -936,8 +939,9 @@ fn a_settlement_no_history_holds_stays_pending_and_is_asked_less_often() {
     assert!(books.pending.contains_key(&id));
 }
 
-// D16: a server that reports more XRP for the account than the books can
-// hold stops the scheme, rather than booking an amount clamped to fit.
+// spec/decisions/tigerstyle.md: a server that reports more XRP for the
+// account than the books can hold stops the scheme, rather than booking an
+// amount clamped to fit.
 #[test]
 fn more_xrp_than_the_books_hold_stops_the_scheme() {
     let (mut world, _, _) = funded_pair();
@@ -954,9 +958,9 @@ fn more_xrp_than_the_books_hold_stops_the_scheme() {
     assert_eq!(world.nodes[1].scheme.status(), LedgerStatus::Synced);
 }
 
-// Found by the invariants (D16): more settlements to look up after a
-// restart than requests may wait made the scheme reconnect, and then look
-// them all up again, for ever. It asks for a few at a time.
+// Found by the invariants (spec/decisions/tigerstyle.md): more settlements to
+// look up after a restart than requests may wait made the scheme reconnect,
+// and then look them all up again, for ever. It asks for a few at a time.
 #[test]
 fn many_settlements_to_recover_are_looked_up_a_few_at_a_time() {
     let (mut world, _, _) = funded_pair();

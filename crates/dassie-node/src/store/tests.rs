@@ -59,7 +59,8 @@ fn keeps_its_data_across_opens() {
     assert_eq!(store.config().unwrap(), config);
 }
 
-// D3: the original's database is refused with a way forward.
+// spec/decisions/database-continuity.md: the original's database is refused
+// with a way forward.
 #[test]
 fn refuses_a_v0_database() {
     let temp = tempfile::tempdir().unwrap();
@@ -117,7 +118,8 @@ fn database_at(dir: &Path, version: usize) {
     schema::migrate_until(&mut connection, version).unwrap();
 }
 
-// D11: a rollback needs the database as the version before left it.
+// spec/decisions/release-integrity.md: a rollback needs the database as the
+// version before left it.
 #[test]
 fn keeps_a_copy_before_migrating() {
     let temp = tempfile::tempdir().unwrap();
@@ -192,8 +194,8 @@ fn a_rollback_puts_the_copy_back() {
     drop(Store::open(temp.path()).unwrap());
 }
 
-// D11: a node never starts afresh where a rollback stopped half way, with
-// another identity and no books.
+// spec/decisions/release-integrity.md: a node never starts afresh where a
+// rollback stopped half way, with another identity and no books.
 #[test]
 fn opens_no_new_database_where_a_rollback_did_not_finish() {
     let temp = tempfile::tempdir().unwrap();
@@ -331,7 +333,8 @@ fn certificates_and_acme_accounts() {
     );
 }
 
-// D16: the session table is bounded; the least recently used goes first.
+// spec/decisions/tigerstyle.md: the session table is bounded; the least
+// recently used goes first.
 #[test]
 fn sessions_are_bounded_by_least_recent_use() {
     let store = Store::open_in_memory().unwrap();
@@ -454,11 +457,12 @@ fn open_payments_keep_what_they_received_over_the_upgrade_to_connections() {
     );
 }
 
-// Found by the simulation (D27): a receiver that restarts after an incoming
-// payment completed must still tell a sender that reconnects what its
-// connection delivered, or the sender, having lost a Fulfill to a crash,
-// gives up on money that arrived. A completed payment's connections are
-// kept for a while, then pruned; an open one's stay.
+// Found by the simulation (spec/decisions/random-seed-simulations.md): a
+// receiver that restarts after an incoming payment completed must still tell
+// a sender that reconnects what its connection delivered, or the sender,
+// having lost a Fulfill to a crash, gives up on money that arrived. A
+// completed payment's connections are kept for a while, then pruned; an open
+// one's stay.
 #[test]
 fn completed_payments_keep_what_their_connections_received_for_a_while() {
     let store = Store::open_in_memory().unwrap();
@@ -663,9 +667,10 @@ fn clients_quotes_do_not_crowd_out_the_owners() {
     );
 }
 
-// Migration 19: nothing is settled at a peering's end (D28). A final
-// settlement still due when the node upgrades is dropped with its columns;
-// the channel, and what it owes the peer on its accounts, stay.
+// Migration 19: nothing is settled at a peering's end
+// (spec/decisions/ending-a-peering.md). A final settlement still due when the
+// node upgrades is dropped with its columns; the channel, and what it owes
+// the peer on its accounts, stay.
 #[test]
 fn a_final_settlement_due_is_dropped_over_the_upgrade() {
     let temp = tempfile::tempdir().unwrap();

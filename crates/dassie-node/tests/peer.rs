@@ -31,7 +31,7 @@ const PAYMENT: u64 = 5_000_000_000;
 const DEPOSIT: u64 = 100_000_000_000;
 
 /// The credit a junior extends to its senior: 1.1 USD. The senior
-/// extends the junior nothing (D20).
+/// extends the junior nothing (spec/decisions/earned-trust.md).
 const CREDIT: u64 = 1_100_000_000;
 
 /// The net credit of `node`'s account `account` for its peer `peer`.
@@ -69,7 +69,8 @@ async fn check_network(node: &TestNode, own: &NodeKey, other: &NodeKey) {
     let peer = &peers.peers[0];
     assert_eq!(peer.node, other.node_id().to_string());
     assert_eq!((peer.scheme.as_str(), peer.version), ("stub", 1));
-    // The node that asked is the junior, and extends the credit (D20).
+    // The node that asked is the junior, and extends the credit
+    // (spec/decisions/earned-trust.md).
     assert_eq!(peer.credit_out, if peer.inbound { 0 } else { CREDIT });
     let Ok(response::Method::ListRoutes(routes)) = owner
         .call(Method::ListRoutes(proto::ListRoutesRequest {}))
@@ -247,8 +248,9 @@ async fn two_daemons_peer_and_keep_their_peering() {
     assert_eq!(owes(&b, &key_a).await, at_b);
     assert_eq!(stub_balance(&b).await, DEPOSIT + moved);
     // A's owner ends the peering: A collects first, asking B to settle once
-    // more, then tells it, and it ends on both sides (D28). A pays nothing:
-    // what it owes B can only have grown, by what B settled.
+    // more, then tells it, and it ends on both sides
+    // (spec/decisions/ending-a-peering.md). A pays nothing: what it owes B
+    // can only have grown, by what B settled.
     let owed = owes(&a, &key_b).await;
     let ended = a
         .ipc()
@@ -294,8 +296,8 @@ async fn two_daemons_peer_and_keep_their_peering() {
     b.stop().await;
 }
 
-// D7: the owner's fee and spread are read, changed within range, and
-// kept.
+// spec/decisions/exchange-rates.md: the owner's fee and spread are read,
+// changed within range, and kept.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_peer_settings_are_the_owners() {
     let node = TestNode::start().await;

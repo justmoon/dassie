@@ -173,7 +173,7 @@ function NodeSettings(): JSX.Element {
   );
 }
 
-/** What passing a packet from one peer to another is charged (D7). */
+/** What passing a packet from one peer to another is charged (spec/decisions/exchange-rates.md). */
 function PeerSettings(): JSX.Element {
   const client = useClient();
   const toast = useToast();

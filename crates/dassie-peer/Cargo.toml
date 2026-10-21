@@ -13,7 +13,7 @@ workspace = true
 [features]
 default = []
 # The simulated network, for this crate's tests and the simulation runner,
-# dassie-sim (D27).
+# dassie-sim (spec/decisions/random-seed-simulations.md).
 sim = ["dep:dassie-node-core"]
 
 [dependencies]
@@ -21,7 +21,8 @@ dassie-identity = { path = "../dassie-identity" }
 dassie-node-core = { path = "../dassie-node-core", features = ["testing"], optional = true }
 dassie-oer = { path = "../dassie-oer", default-features = false, features = ["alloc"] }
 hmac = { version = "0.13", default-features = false, features = ["zeroize"] }
-# The RNG trait only: the caller injects the generator (D16).
+# The RNG trait only: the caller injects the generator
+# (spec/decisions/tigerstyle.md).
 rand_core = { version = "0.10", default-features = false }
 sha2 = { version = "0.11", default-features = false }
 subtle = { version = "2.6", default-features = false }

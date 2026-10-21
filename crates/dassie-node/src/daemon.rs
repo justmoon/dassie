@@ -443,7 +443,7 @@ fn make_node(
 /// Makes the QUIC endpoint on `socket` and gives it to the node, with the
 /// relay the node chose, if any, which the endpoint keeps a connection to
 /// once it serves (spec/areas/node.md#a-chosen-relay): the default relay
-/// only while the node has no hostname (D40).
+/// only while the node has no hostname (spec/decisions/default-relay.md).
 fn attach_quic(
     node: &Node,
     socket: UdpSocket,

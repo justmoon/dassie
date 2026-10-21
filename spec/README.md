@@ -85,4 +85,4 @@ Not built yet: the [roadmap](roadmap.md), and the designs in `designs/`: [settle
 - **A choice between real alternatives gets a decision** ([how](decisions/README.md#adding-or-changing-a-decision)). The decision keeps the reasons.
 - **New work that is not built yet** is an open area of the [roadmap](roadmap.md), never a numbered milestone. A large design gets a file in `designs/`.
 - **A new crate, app, package, test suite or contract** gets a row in the index above, and an area doc, or a section in an existing one.
-- **Cite the spec by path and heading,** as `spec/areas/peer-protocol.md#replay-protection` in code and as relative links inside the spec. Decisions may be cited by number, as `D23`. `node --test scripts/spec_test.ts` checks every link and citation, and the index.
+- **Cite the spec by path and heading,** as `spec/areas/peer-protocol.md#replay-protection` in code and as relative links inside the spec. Cite a decision the same way, by its file (`spec/decisions/own-fulfills.md`), never by a number. `node --test scripts/spec_test.ts` checks every link and citation, and the index.
