@@ -70,7 +70,7 @@ Every table has a limit in the rules; an operation that would exceed one fails, 
 | `redeem` | payee | Takes from a hold with the payer's latest signed claim (§4). |
 | `claim` | payee | Takes from a hold with the payer's signed commitments and their fulfillments (§4). |
 | `withdraw` | owner | Pays funds out to an address on the underlying ledger (§6). |
-| `close` | owner | Pays out the account's balance and its account reserve, to an address on the underlying ledger as `withdraw` does (§6), or to another account. Refused while the account has holds, as payer or payee, or withdrawals pending. Paid to another account, it deletes the account at once; paid out on the underlying ledger, only once the payout settled. A payout that fails returns the funds to the account, less the fee, and the account stays open. |
+| `close` | owner | Pays out the account's balance and its account reserve, to an address on the underlying ledger as `withdraw` does (§6), or to another account. Refused while the account has holds, as payer or payee, or withdrawals pending. Paid to another account, it deletes the account at once; paid out on the underlying ledger, only once the payout settled. Until then the account is closing: it takes no credits and no holds as payee, a `transfer`, `pay` or `hold-open` to it fails, a deposit to its tag is paid back as one to a tag with no account (§6), and the idle fee does not apply. A payout that fails returns the funds to the account, less the fee; the account locks its account reserve again from them and is open as before. |
 | `attest-deposit`, `attest-withdrawal` | validator | Reports what it saw on the underlying ledger (§6). |
 | `reconfigure` | validators | Changes the validators or the rules (§8). |
 | `set-endpoint` | validator | Changes the validator's own endpoint, at once. |
@@ -122,7 +122,7 @@ A node joins a hub in one of two ways.
   - **A asked to peer,** so B extends it nothing. A submits `pay` before it sends any packet, which creates B's account with the key B gave in the peering and pays it the hub's minimum for a new account. From then on the peering works as in §4.
   - **B asked to peer,** so B extends A its starting credit: A sends packets on it, which that credit bounds, and submits `pay` once it owes B the hub's minimum for a new account.
 
-**The hub's minimum for a new account** is the account reserve, which the account locks, plus a starting balance in the rules, which pays the fees of its first operations, so that a member paid into the hub needs no deposit before it can act. A new account must set its disbursal address before the hub accepts any other operation from it. Without one, its funds at shutdown stay in the escrow (§9).
+**The hub's minimum for a new account** is the account reserve, which the account locks, plus a starting balance in the rules, sized to pay the fees of its first operations at the congestion cap (§7), so that a member paid into the hub needs no deposit before it can act. A new account must set its disbursal address before the hub accepts any other operation from it. Without one, its funds at shutdown stay in the escrow (§9).
 
 ## 6. Deposits and withdrawals
 
@@ -133,7 +133,7 @@ A node joins a hub in one of two ways.
 - the asset is the hub's;
 - the transaction's hash was not credited before.
 
-Once q validators attested the same deposit, the hub credits the account. A deposit to a tag that has no account is paid back to its sender, less a fee.
+Once q validators attested the same deposit, the hub credits the account. A deposit to a tag that has no account, or whose account is closing (§3), is paid back to its sender, less a fee.
 
 **Withdrawals.**
 
