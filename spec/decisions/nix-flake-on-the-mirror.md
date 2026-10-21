@@ -27,7 +27,7 @@
 - **A rollback across a migration stops the node.** A version refuses a database newer than it knows ([Node](../areas/node.md#database)). Going back to an older NixOS generation runs the older version on the newer database, and only the updater puts the copy from before the migration back. The owner does it by hand: stop the node, and put `dassie.sqlite3.pre-migration` in place of `dassie.sqlite3` and its `-wal` and `-shm`. The copy is one step deep.
 - **`dassie status` says the binary is not updated,** which is true: Nix updates it.
 - **A flake per version, and none for a release published before it.**
-- **The release workflow may change the mirror's URL maps.** Compute has no roles on a single URL map, so the role that moves the route holds for every map in the project, which also route dassie.land. The workflow can already replace `install.sh`, which every new node runs as root, so this adds little to what its account is trusted with.
+- **The release workflow may change the mirror's URL maps.** Compute has no roles on a single URL map, so the role that moves the route holds for every map in the project, which also route dassie.land. The workflow can already replace `install.sh`, which every new node runs as root, so this adds little to what its account is trusted with. Google marks the URL-map permissions as testing for custom roles; if it drops them, the route stops moving until the role is replaced with a broader predefined one, and the versioned flakes are unaffected.
 
 ## Rejected
 
