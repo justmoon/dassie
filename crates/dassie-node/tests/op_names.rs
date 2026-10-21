@@ -149,8 +149,9 @@ async fn a_node_with_a_hostname_keeps_to_it() {
     node.stop().await;
 }
 
-// D9: a grant made under one name holds under every other, and a
-// request's signature is checked against the name it came through.
+// spec/decisions/open-payments.md: a grant made under one name holds under
+// every other, and a request's signature is checked against the name it came
+// through.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_grant_holds_under_every_name() {
     let (node, key) = start_unnamed(42, OWNERS).await;

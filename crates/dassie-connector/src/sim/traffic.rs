@@ -1,7 +1,8 @@
-//! The connector's random run (spec/areas/testing.md#the-simulations, D27):
-//! children send random packets, answer late, wrongly or never, and
-//! disconnect. The invariants are checked after every step, every request
-//! gets exactly one answer, and the journal matches the packet trace.
+//! The connector's random run (spec/areas/testing.md#the-simulations,
+//! spec/decisions/random-seed-simulations.md): children send random packets,
+//! answer late, wrongly or never, and disconnect. The invariants are checked
+//! after every step, every request gets exactly one answer, and the journal
+//! matches the packet trace.
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::format;

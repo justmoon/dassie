@@ -206,11 +206,53 @@ test("spec: every crate, app, package, test suite and contract is indexed", asyn
   }
 });
 
+test("spec: the index of decisions lists each one once, by name", () => {
+  // spec/decisions/named-decisions.md: in alphabetical order, so that two
+  // pull requests adding a decision each add their row in a different place.
+  const decisions = spec
+    .filter((path) =>
+      path.startsWith("spec/decisions/") && path !== "spec/decisions/README.md"
+    )
+    .map((path) => path.slice("spec/decisions/".length, -".md".length));
+  const index = texts.get("spec/decisions/README.md")!;
+  const table = index.slice(index.indexOf("| Decision | Title | Areas |"));
+  const rows = [
+    ...table.slice(0, table.indexOf("\n\n")).matchAll(
+      /^\| \[([\w-]+)\]\(([\w-]+)\.md\) \|/gm,
+    ),
+  ];
+  for (const [, name, file] of rows) assertEquals(name, file);
+  const listed = rows.map(([, name]) => name);
+  assertEquals(listed, [...decisions].sort());
+  for (const name of decisions) {
+    assert(/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name), `${name}: not a name`);
+  }
+});
+
+test("spec: nothing cites a decision by a number", () => {
+  // spec/decisions/named-decisions.md. The former numbers' table only
+  // translates them, and `D1.localhost` is a hostname.
+  const number = /\bD[0-9]{1,3}\b(?!\.[Ll]ocal[Hh]ost\b)/;
+  const problems: string[] = [];
+  for (const [path, text] of texts) {
+    if (path === "scripts/spec_test.ts") continue;
+    text.split("\n").forEach((line, index) => {
+      if (path === "spec/decisions/README.md" && /^\| D[0-9]+ \|/.test(line)) {
+        return;
+      }
+      if (number.test(line)) {
+        problems.push(`${path}:${index + 1}: ${line.trim()}`);
+      }
+    });
+  }
+  assertEquals(problems, []);
+});
+
 test("spec: slugs follow GitHub's rules", () => {
   assertEquals(slug("4.7 Peer protocol v1"), "47-peer-protocol-v1");
   assertEquals(
-    slug("D23. Each node books its own Fulfills"),
-    "d23-each-node-books-its-own-fulfills",
+    slug("v0.2. Each node books its own Fulfills"),
+    "v02-each-node-books-its-own-fulfills",
   );
   assertEquals(slug("A link's thresholds"), "a-links-thresholds");
   assertEquals(slug("`settlementRequest` [11]"), "settlementrequest-11");

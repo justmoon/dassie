@@ -13,7 +13,8 @@ workspace = true
 [features]
 default = []
 # The test harness and the simulated traffic, for this crate's tests and
-# the simulation runner, dassie-sim (D27).
+# the simulation runner, dassie-sim
+# (spec/decisions/random-seed-simulations.md).
 sim = ["dep:dassie-node-core", "dassie-oer/alloc"]
 
 [dependencies]

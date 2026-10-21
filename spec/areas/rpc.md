@@ -40,7 +40,7 @@ The `Subscribe*` methods stream live state, which feeds the wallet's signals and
 
 ## Backpressure
 
-Every queue, stream and socket is bounded ([D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md)); the values are in `rpc/connection.rs`, `http/ws.rs` and `node/mod.rs`.
+Every queue, stream and socket is bounded ([tigerstyle](../decisions/tigerstyle.md)); the values are in `rpc/connection.rs`, `http/ws.rs` and `node/mod.rs`.
 
 - **A client that does not read is disconnected, not buffered for.** Each connection has a bounded queue toward its client, drained only by the connection's own loop. A client that does not accept a message in time is disconnected, and so is one whose refusals no longer fit in the queue: it sends faster than it reads.
 - **Live items wait for room; progress items are dropped.** A lost live item would corrupt the client's state, while a lost progress step (`ObtainCertificate`) is harmless.
@@ -63,5 +63,5 @@ Every queue, stream and socket is bounded ([D16](../decisions/D16-engineering-st
 
 ## Decisions
 
-- [D5](../decisions/D05-ui-and-cli-rpc-contract.md): a protobuf contract in `proto/dassie/ui/v1` over one WebSocket per client and the IPC socket, typed errors, and `Subscribe*` streams instead of polling; why not JSON.
-- [D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md): every queue, stream and socket bounded; idle sockets close.
+- [rpc-contract](../decisions/rpc-contract.md): a protobuf contract in `proto/dassie/ui/v1` over one WebSocket per client and the IPC socket, typed errors, and `Subscribe*` streams instead of polling; why not JSON.
+- [tigerstyle](../decisions/tigerstyle.md): every queue, stream and socket bounded; idle sockets close.

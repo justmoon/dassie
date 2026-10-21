@@ -1,5 +1,6 @@
 //! A connector with a funded owner, BTP children and a local receiver, for
-//! this crate's tests and the simulation runner (D27).
+//! this crate's tests and the simulation runner
+//! (spec/decisions/random-seed-simulations.md).
 //!
 //! Test code, behind the `sim` feature: a panic here is a failed run.
 

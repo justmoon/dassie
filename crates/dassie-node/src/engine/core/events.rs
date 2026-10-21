@@ -1,6 +1,6 @@
-//! What the core reports (D16): everything it would log, as values the
-//! driver logs and a simulation records. The core has no logging of its
-//! own, so a run can be compared and replayed event by event.
+//! What the core reports (spec/decisions/tigerstyle.md): everything it would
+//! log, as values the driver logs and a simulation records. The core has no
+//! logging of its own, so a run can be compared and replayed event by event.
 
 use std::collections::VecDeque;
 
@@ -330,7 +330,8 @@ pub enum SettlementEvent {
         /// Why.
         error: EngineError,
     },
-    /// The fees a peer earned us raised the credit we extend to it (D20).
+    /// The fees a peer earned us raised the credit we extend to it
+    /// (spec/decisions/earned-trust.md).
     CreditRaised {
         /// The peer.
         peer: Name,

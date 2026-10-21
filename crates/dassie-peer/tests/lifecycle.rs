@@ -1,7 +1,7 @@
-//! The peering lifecycle and settlement delivery (D12,
-//! spec/areas/network.md#lifecycle,
-//! spec/areas/settlement.md#settlement-channels), one rule at a time, on
-//! two simulated nodes.
+//! The peering lifecycle and settlement delivery
+//! (spec/decisions/peering-lifecycle.md, spec/areas/network.md#lifecycle,
+//! spec/areas/settlement.md#settlement-channels), one rule at a time, on two
+//! simulated nodes.
 
 #![allow(
     clippy::unwrap_used,
@@ -186,10 +186,11 @@ fn a_settlement_survives_a_restart() {
     assert_eq!((network.applied[0].from, network.applied[0].amount), (a, 7));
 }
 
-// Found by the node simulation (D27): a settlement that could not be
-// delivered through a long outage backs off, up to an hour at production
-// timings. Once its node answers a request of ours again, it goes at once,
-// rather than when its backoff ends, and arrives once.
+// Found by the node simulation (spec/decisions/random-seed-simulations.md): a
+// settlement that could not be delivered through a long outage backs off, up
+// to an hour at production timings. Once its node answers a request of ours
+// again, it goes at once, rather than when its backoff ends, and arrives
+// once.
 #[test]
 fn a_settlement_goes_as_soon_as_its_node_is_back() {
     let config = Config {
@@ -257,8 +258,9 @@ fn refused_settlement(status: Option<u16>, tries: usize) {
 
 // NET-13: the original could not end a peering. Here an owner's
 // termination ends it on both sides, and the pair does not peer again
-// during the cooldown. It begins privately (D28): the peer is still
-// advertised, until the node collected and tells it.
+// during the cooldown. It begins privately
+// (spec/decisions/ending-a-peering.md): the peer is still advertised, until
+// the node collected and tells it.
 #[test]
 fn an_owner_ends_a_peering() {
     let (mut network, a, b) = peered(34);
@@ -306,7 +308,8 @@ fn crossed_terminations_end_both_sides() {
 }
 
 // A termination outlives a restart of the side that began it: while it
-// still collects (D28), and while it tells the peer.
+// still collects (spec/decisions/ending-a-peering.md), and while it tells the
+// peer.
 #[test]
 fn a_termination_survives_a_restart() {
     let (mut network, a, b) = peered(36);
@@ -356,7 +359,8 @@ fn a_termination_waits_for_packets_in_flight() {
 }
 
 // A peer silent for too long is terminated: each step that needs it times
-// out (D28). When it comes back, the two hold the same view again.
+// out (spec/decisions/ending-a-peering.md). When it comes back, the two hold
+// the same view again.
 #[test]
 fn an_unresponsive_peer_is_terminated() {
     let (mut network, a, b) = peered(38);
@@ -480,9 +484,10 @@ fn peerings_from_before_channels_get_one() {
 
 // Found in review: a peer that kept sending Prepares while its peering
 // was ending kept it from ever ending. They are refused at the protocol,
-// once the peer is told. Before, while the node collects (D28), the peer
-// node takes them as before, and the node's connector refuses them, as
-// for want of liquidity, which tells the peer nothing.
+// once the peer is told. Before, while the node collects
+// (spec/decisions/ending-a-peering.md), the peer node takes them as before,
+// and the node's connector refuses them, as for want of liquidity, which
+// tells the peer nothing.
 #[test]
 fn a_peering_being_ended_takes_no_new_prepares() {
     let (mut network, _, b) = peered(47);
@@ -521,7 +526,7 @@ fn a_peering_being_ended_takes_no_new_prepares() {
 }
 
 // The advertise flag follows liveness, and each withdrawal holds the peer
-// down longer (damping, D12).
+// down longer (damping, spec/decisions/peering-lifecycle.md).
 #[test]
 fn the_advertise_flag_is_damped() {
     let (mut network, _, b) = peered(41);
@@ -553,7 +558,8 @@ fn the_advertise_flag_is_damped() {
 
 // A peer whose room in our books stays short of a packet past the grace
 // is withdrawn, as stuck, with the same damping; while short for less, it
-// is waiting for a routine settlement and stays listed (D12).
+// is waiting for a routine settlement and stays listed
+// (spec/decisions/peering-lifecycle.md).
 #[test]
 fn a_peer_short_of_room_is_withdrawn_after_the_grace() {
     let (mut network, _, b) = peered(43);
@@ -656,11 +662,12 @@ fn a_silent_peer_short_of_room_is_withdrawn_for_its_silence() {
     assert_eq!(withdrawn, [false], "withdrawn for room, though silent");
 }
 
-// D33: a link that stayed short of room, settling nothing, is ended, and
-// the pair stays apart for the owner's cooldown, by node 0's own clock:
-// neither asks the other, and node 0 refuses node 1's request. The next
-// peering with it as node 0's senior raises it no credit, which the
-// channel remembers. Only past the cooldown do they peer again.
+// spec/decisions/ended-for-room.md: a link that stayed short of room,
+// settling nothing, is ended, and the pair stays apart for the owner's
+// cooldown, by node 0's own clock: neither asks the other, and node 0 refuses
+// node 1's request. The next peering with it as node 0's senior raises it no
+// credit, which the channel remembers. Only past the cooldown do they peer
+// again.
 #[test]
 fn a_peer_ended_for_room_is_not_peered_again_within_the_cooldown() {
     let (mut network, a, b) = peered(44);
@@ -708,7 +715,7 @@ fn a_peer_ended_for_room_is_not_peered_again_within_the_cooldown() {
 /// Node 0 checks `peer` every second for `ms`, as its settlement checks do
 /// in dev, finds it short, and asks it to settle at each check: a peer
 /// short of room is always close enough to be asked, and one that cannot
-/// be reached is asked at every check (D12).
+/// be reached is asked at every check (spec/decisions/peering-lifecycle.md).
 fn report_asking(network: &mut Network, peer: &NodeId, ms: u64) {
     let end = network.now + ms;
     while network.now < end {
@@ -739,8 +746,9 @@ fn depeered(network: &Network, peer: &NodeId, reason: TerminationReason) -> bool
 // since the link carries nothing, but not ended for room: every request to
 // settle failed before it reached node 1, so it had no chance to settle,
 // and an end for room would keep the pair apart and raise node 1 no credit
-// again (D12, D33). Once it is reached again, only the time it is reached
-// counts toward the end.
+// again (spec/decisions/peering-lifecycle.md,
+// spec/decisions/ended-for-room.md). Once it is reached again, only the time
+// it is reached counts toward the end.
 #[test]
 fn a_peer_out_of_reach_is_not_ended_for_room() {
     let (mut network, a, b) = peered(53);
@@ -886,8 +894,9 @@ fn a_restart_keeps_the_neighbors() {
 }
 
 // A Fulfill's reply says it was accepted, which nodes of 0.1 read as the
-// verdict that keeps their books as they are (D23). A node we hold a
-// channel with still gets it after the peering ended; a Prepare does not.
+// verdict that keeps their books as they are
+// (spec/decisions/own-fulfills.md). A node we hold a channel with still gets
+// it after the peering ended; a Prepare does not.
 #[test]
 fn a_fulfill_is_accepted_before_and_after_the_end() {
     let (mut network, a, b) = peered(48);
@@ -917,9 +926,9 @@ fn a_fulfill_is_accepted_before_and_after_the_end() {
     assert_eq!(network.inbound(0, &body).status, 409);
 }
 
-// D23: a node asks a peer to settle, naming only the scheme; the peer
-// takes it on that scheme while peered, and refuses it on another, or
-// once the peering ended.
+// spec/decisions/own-fulfills.md: a node asks a peer to settle, naming only
+// the scheme; the peer takes it on that scheme while peered, and refuses it
+// on another, or once the peering ended.
 #[test]
 fn a_settlement_request_reaches_the_peer_only() {
     let (mut network, a, b) = peered(50);
@@ -929,7 +938,8 @@ fn a_settlement_request_reaches_the_peer_only() {
     settle(&mut network, 1_000);
     assert_eq!(network.settlement_requests, [(0, b)]);
     assert_eq!(network.node(1).stats().settlements_requested, 1);
-    // Its answer says what it has on its way: nothing, here (D28).
+    // Its answer says what it has on its way: nothing, here
+    // (spec/decisions/ending-a-peering.md).
     let answered = Event::SettlementRequestAnswered {
         peer: a,
         settling: Some(0),
@@ -1199,9 +1209,10 @@ fn ending(network: &Network, index: usize, peer: &NodeId) -> Vec<&'static str> {
         .collect()
 }
 
-// A node ending a peering collects first, privately (D28): it asks the
-// peer to settle once, and tells it only once the answer is in. Until
-// then the peer sees nothing change.
+// A node ending a peering collects first, privately
+// (spec/decisions/ending-a-peering.md): it asks the peer to settle once, and
+// tells it only once the answer is in. Until then the peer sees nothing
+// change.
 #[test]
 fn a_node_ending_a_peering_collects_before_it_tells() {
     let (mut network, a, b) = peered(52);
@@ -1277,7 +1288,8 @@ fn a_node_ending_a_peering_waits_for_what_the_peer_has_on_its_way() {
 }
 
 // While it collects, the peer's own request to settle is answered as one
-// that settles nothing, and goes no further (D28).
+// that settles nothing, and goes no further
+// (spec/decisions/ending-a-peering.md).
 #[test]
 fn a_node_ending_a_peering_settles_nothing_the_peer_asks() {
     let (mut network, a, b) = peered(57);
@@ -1321,7 +1333,8 @@ fn a_node_told_first_drops_its_own_steps() {
 
 // Found in review: told by the peer, for its own reason, while we collect
 // for our owner, the end is still the owner's, and so is its cooldown: we
-// refuse the peer's request to peer again (D28).
+// refuse the peer's request to peer again
+// (spec/decisions/ending-a-peering.md).
 #[test]
 fn an_owners_end_keeps_its_cooldown_when_the_peer_tells_first() {
     let (mut network, a, b) = peered(59);
@@ -1356,7 +1369,7 @@ fn an_owners_decision_outranks_the_nodes_own() {
 // A ban is the owner's emphatic word: the node withdraws the peer from its
 // link state at once and tells it, without waiting for its own settlements
 // or asking the peer to settle; what the peer owes stays on the books
-// (D28).
+// (spec/decisions/ending-a-peering.md).
 #[test]
 fn a_ban_withdraws_the_peer_at_once_and_collects_nothing() {
     let (mut network, a, b) = peered(61);

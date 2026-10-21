@@ -1,5 +1,6 @@
-//! The owner's Send (D9, M6c): to a payment pointer, a wallet address URL,
-//! or a payment request, on this node or another.
+//! The owner's Send (spec/decisions/open-payments.md, M6c): to a payment
+//! pointer, a wallet address URL, or a payment request, on this node or
+//! another.
 //!
 //! The owner needs no grant: the node quotes and pays as the owner, with
 //! the same quote and payment logic as third-party clients. For a wallet

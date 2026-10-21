@@ -186,10 +186,11 @@ where
 /// Serves HTTP/1.1 on a relayed stream with purpose payments
 /// (spec/areas/http.md#relayed-streams), once its TLS is done: Open Payments
 /// and nothing else. The wallet, `/api/*`, `/rpc`, `/peer` and BTP are
-/// never served this way (D26), since the page could keep the owner's
-/// passphrase, and nothing on a relayed stream proves a browser's origin.
-/// `client` is the node the TLS proved; `relay` the address of the node
-/// that carried the stream, which the rate limits count requests against.
+/// never served this way (spec/decisions/core-and-periphery.md), since the
+/// page could keep the owner's passphrase, and nothing on a relayed stream
+/// proves a browser's origin. `client` is the node the TLS proved; `relay`
+/// the address of the node that carried the stream, which the rate limits
+/// count requests against.
 pub async fn serve_relayed<S>(
     node: Arc<Node>,
     io: S,

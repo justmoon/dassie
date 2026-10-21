@@ -31,7 +31,7 @@ const PAYMENT = 5_000_000_000n;
  * (spec/areas/settlement.md#credit).
  */
 const CREDIT = 1_100_000_000n;
-/** Every node's trigger: one and a half of the largest packets (D25). */
+/** Every node's trigger: one and a half of the largest packets (spec/decisions/thresholds-in-packets.md). */
 const TRIGGER = 150_000_000n;
 const DEPOSIT = 100_000_000_000n;
 
@@ -50,7 +50,7 @@ async function trusting(scenario: Scenario): Promise<typeof WebSocket> {
 /**
  * A client of `from` pays `PAYMENT` to the receiver of `to`, once settling
  * is quiet: every junior on the way has paid its senior in advance, which
- * extends it nothing until then (D20).
+ * extends it nothing until then (spec/decisions/earned-trust.md).
  */
 async function pay(scenario: Scenario, from: ScenarioNode, to: ScenarioNode) {
   await scenario.until("paid in advance", () => quiet(scenario));
@@ -146,8 +146,8 @@ function assertMirrored(accounts: Map<string, bigint>) {
 /**
  * Whether settling has gone quiet: no settlement on its way anywhere, no
  * node's books showing a peer at its trigger (its room for the peer down
- * to one and a half of the largest packets, D25), and every pair's books
- * mirrored.
+ * to one and a half of the largest packets,
+ * spec/decisions/thresholds-in-packets.md), and every pair's books mirrored.
  */
 async function quiet(scenario: Scenario): Promise<boolean> {
   for (const node of scenario.nodes) {
@@ -258,8 +258,9 @@ test(
       await assertSettled(scenario);
       // d1's owner ends the peering: d1 collects first, asking d2 to settle
       // once more, then tells it, and it ends on both sides. d1 pays
-      // nothing (D28): what d1 owes can only have grown, what d2 owes only
-      // shrunk, by what d2 settled. They do not peer again at once.
+      // nothing (spec/decisions/ending-a-peering.md): what d1 owes can only
+      // have grown, what d2 owes only shrunk, by what d2 settled. They do not
+      // peer again at once.
       const before = await peerAccounts(scenario);
       await d1.rpc.call("terminatePeering", { node: d2.id });
       await scenario.until("parted", async () => {

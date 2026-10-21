@@ -131,7 +131,7 @@ impl Bound {
         let state_text = state.to_str().unwrap().to_owned();
         // No bootstrap nodes and no relay unless the test names some: the
         // default list is the public testnet's, and the default relay the
-        // public front door (D40).
+        // public front door (spec/decisions/default-relay.md).
         let pairs = [("DASSIE_BOOTSTRAP_NODES", "[]"), ("DASSIE_RELAY", "")]
             .into_iter()
             .chain(env.iter().copied())

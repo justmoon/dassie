@@ -1,7 +1,7 @@
 //! Nothing that comes from the network, or from disk, makes the crate
 //! panic or breaks the scheme's invariants
-//! (spec/areas/testing.md#property-tests, D16): the ledger's messages,
-//! peers' bytes, the config and the state the books kept.
+//! (spec/areas/testing.md#property-tests, spec/decisions/tigerstyle.md): the
+//! ledger's messages, peers' bytes, the config and the state the books kept.
 
 #![allow(
     clippy::unwrap_used,

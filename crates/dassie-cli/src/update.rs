@@ -1,5 +1,6 @@
 //! `dassie update`: installs a newer release from the mirror
-//! (spec/areas/release.md#dassie-update, D11).
+//! (spec/areas/release.md#dassie-update,
+//! spec/decisions/release-integrity.md).
 //!
 //! The install is `/opt/dassie/<version>`, with `/opt/dassie/current`
 //! pointing at the one that runs. The updater finds it from its own path,
@@ -990,8 +991,8 @@ mod tests {
         assert_eq!(sync_tree(temp.path()), Ok(()));
     }
 
-    // D16: the walk has a bound, which no bundle the updater admits
-    // reaches.
+    // spec/decisions/tigerstyle.md: the walk has a bound, which no bundle the
+    // updater admits reaches.
     #[test]
     fn a_tree_past_its_bound_is_refused() {
         let temp = tempfile::tempdir().unwrap();

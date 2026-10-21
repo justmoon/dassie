@@ -1,6 +1,7 @@
-//! The core's events, logged (D16): each at the level its severity says,
-//! with the target, message and fields the core logged them with when it
-//! logged for itself, so filters and the log's redaction work as before.
+//! The core's events, logged (spec/decisions/tigerstyle.md): each at the
+//! level its severity says, with the target, message and fields the core
+//! logged them with when it logged for itself, so filters and the log's
+//! redaction work as before.
 
 use super::core::{
     BtpEvent, EngineEvent, Event, PaymentEvent, PeerEvent, SettlementEvent, Severity,

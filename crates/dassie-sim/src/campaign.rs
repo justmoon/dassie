@@ -1,7 +1,7 @@
-//! The campaign (D27): random seeds of the simulations, several at once,
-//! for a while, each finished run reported as one line of JSON. What the
-//! lines hold is the runner's contract with the campaign's supervisor, in
-//! the runner's docs.
+//! The campaign (spec/decisions/random-seed-simulations.md): random seeds of
+//! the simulations, several at once, for a while, each finished run reported
+//! as one line of JSON. What the lines hold is the runner's contract with the
+//! campaign's supervisor, in the runner's docs.
 //!
 //! Each run is a process of its own, `dassie-sim record`, which one of the
 //! campaign's threads starts and waits for; the main thread writes every
@@ -46,7 +46,8 @@ pub const TRACE_TAIL_LINES: usize = 40;
 
 /// The most bytes a record keeps of a message, of what a seed drew, and of
 /// a trace's tail. JSON escapes a byte into six at worst, so a record stays
-/// well under the megabyte the supervisor reads of a line (D27).
+/// well under the megabyte the supervisor reads of a line
+/// (spec/decisions/random-seed-simulations.md).
 pub const TEXT_BYTES: usize = 16 * 1024;
 
 /// The most bytes the campaign reads of what a run's process writes: the

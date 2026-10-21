@@ -1,39 +1,40 @@
-# Functions stay short enough to read in one go (D16).
+# Functions stay short enough to read in one go
+# (spec/decisions/tigerstyle.md).
 too-many-lines-threshold = 70
 
 # The daemon does IO, so these are allowed in the crate as a whole. The
 # engine's core denies them (`engine/core`): it gets time, randomness and
 # its inputs from its driver, so a simulation can drive the same code
-# (D16).
+# (spec/decisions/tigerstyle.md).
 disallowed-types = [
-  { path = "std::collections::HashMap", reason = "random iteration order; use BTreeMap or a fixed table (D16)" },
-  { path = "std::collections::HashSet", reason = "random iteration order; use BTreeSet or a fixed table (D16)" },
-  { path = "std::time::SystemTime", reason = "time is an input, `now_ms` (D16)" },
-  { path = "std::time::Instant", reason = "time is an input, `now_ms` (D16)" },
-  { path = "getrandom::SysRng", reason = "randomness is injected, as an `RngCore` (D16)" },
-  { path = "tokio::sync::mpsc::Sender", reason = "the core hands outputs to its driver (D16)" },
-  { path = "tokio::sync::broadcast::Sender", reason = "the core hands outputs to its driver (D16)" },
-  { path = "dassie_node::node::Node", reason = "the core gets what it needs in `CoreParts` (D16)" },
-  { path = "dassie_node::clock::SystemClock", reason = "time is an input, `now_ms` (D16)" },
+  { path = "std::collections::HashMap", reason = "random iteration order; use BTreeMap or a fixed table (spec/decisions/tigerstyle.md)" },
+  { path = "std::collections::HashSet", reason = "random iteration order; use BTreeSet or a fixed table (spec/decisions/tigerstyle.md)" },
+  { path = "std::time::SystemTime", reason = "time is an input, `now_ms` (spec/decisions/tigerstyle.md)" },
+  { path = "std::time::Instant", reason = "time is an input, `now_ms` (spec/decisions/tigerstyle.md)" },
+  { path = "getrandom::SysRng", reason = "randomness is injected, as an `RngCore` (spec/decisions/tigerstyle.md)" },
+  { path = "tokio::sync::mpsc::Sender", reason = "the core hands outputs to its driver (spec/decisions/tigerstyle.md)" },
+  { path = "tokio::sync::broadcast::Sender", reason = "the core hands outputs to its driver (spec/decisions/tigerstyle.md)" },
+  { path = "dassie_node::node::Node", reason = "the core gets what it needs in `CoreParts` (spec/decisions/tigerstyle.md)" },
+  { path = "dassie_node::clock::SystemClock", reason = "time is an input, `now_ms` (spec/decisions/tigerstyle.md)" },
 ]
 disallowed-methods = [
-  { path = "std::env::var", reason = "configuration is an input (D16)" },
-  { path = "std::env::var_os", reason = "configuration is an input (D16)" },
-  { path = "std::thread::spawn", reason = "a state machine is driven from one thread (D16)" },
-  { path = "tokio::sync::mpsc::unbounded_channel", reason = "every queue has a limit (D16)" },
+  { path = "std::env::var", reason = "configuration is an input (spec/decisions/tigerstyle.md)" },
+  { path = "std::env::var_os", reason = "configuration is an input (spec/decisions/tigerstyle.md)" },
+  { path = "std::thread::spawn", reason = "a state machine is driven from one thread (spec/decisions/tigerstyle.md)" },
+  { path = "tokio::sync::mpsc::unbounded_channel", reason = "every queue has a limit (spec/decisions/tigerstyle.md)" },
 ]
 
 # Allowed in the daemon, denied in the engine's core like the types and
 # methods above: assertions stay on in release, and the core reports an
-# `Event` that its driver logs, so a simulation sees it (D16). Clippy does
-# not see `tracing`'s macros under a module's `deny`, so a test of the core
-# reads its sources for them instead.
+# `Event` that its driver logs, so a simulation sees it
+# (spec/decisions/tigerstyle.md). Clippy does not see `tracing`'s macros under
+# a module's `deny`, so a test of the core reads its sources for them instead.
 disallowed-macros = [
-  { path = "core::debug_assert", reason = "assertions stay on in release; use assert! (D16)" },
-  { path = "core::debug_assert_eq", reason = "assertions stay on in release; use assert_eq! (D16)" },
-  { path = "core::debug_assert_ne", reason = "assertions stay on in release; use assert_ne! (D16)" },
-  { path = "std::println", reason = "the core reports an Event; its driver logs it (D16)" },
-  { path = "std::eprintln", reason = "the core reports an Event; its driver logs it (D16)" },
+  { path = "core::debug_assert", reason = "assertions stay on in release; use assert! (spec/decisions/tigerstyle.md)" },
+  { path = "core::debug_assert_eq", reason = "assertions stay on in release; use assert_eq! (spec/decisions/tigerstyle.md)" },
+  { path = "core::debug_assert_ne", reason = "assertions stay on in release; use assert_ne! (spec/decisions/tigerstyle.md)" },
+  { path = "std::println", reason = "the core reports an Event; its driver logs it (spec/decisions/tigerstyle.md)" },
+  { path = "std::eprintln", reason = "the core reports an Event; its driver logs it (spec/decisions/tigerstyle.md)" },
 ]
 
 # Tests may unwrap, index and panic: a panic there is a failed test.

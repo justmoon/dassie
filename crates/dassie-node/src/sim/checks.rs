@@ -1,8 +1,9 @@
 //! What a node simulation checks
 //! (spec/areas/testing.md#each-node-judged-by-its-own-books): each node on its
-//! own, by its own books, against what really happened (D19). A check that fails
-//! says whether something that must never happen did (safety), or something that
-//! must happen did not (liveness).
+//! own, by its own books, against what really happened
+//! (spec/decisions/own-books.md). A check that fails says whether something
+//! that must never happen did (safety), or something that must happen did not
+//! (liveness).
 
 use dassie_connector::{CapUsage, replay};
 use dassie_node_core::testing::Outcome;
@@ -46,8 +47,8 @@ pub fn check_cap(sim: &Sim, payment: &Payment) -> Result<(), String> {
     spent.sort_unstable();
     let total: u64 = spent.iter().map(|(_, amount)| amount).sum();
     // Less is a payment still under way, or one whose receiver had it all
-    // before its sender counted it (D23): what the token spent is held to
-    // what the client sent by the owner's books.
+    // before its sender counted it (spec/decisions/own-fulfills.md): what the
+    // token spent is held to what the client sent by the owner's books.
     if total > payment.amount {
         return Err(format!(
             "the capped token spent {total} of {}",
@@ -195,7 +196,8 @@ pub fn outgoing_flows(sim: &Sim) -> impl Iterator<Item = Flow> + '_ {
 }
 
 /// Once the network is calm, no node's books show an honest peer still at
-/// its ask point: asked, the peer settled (D23, spec/areas/settlement.md#asking-a-peer-to-settle).
+/// its ask point: asked, the peer settled (spec/decisions/own-fulfills.md,
+/// spec/areas/settlement.md#asking-a-peer-to-settle).
 pub fn check_settled(sim: &Sim) -> Result<(), String> {
     for index in 0..sim.nodes.len() {
         for peer in sim.core(index).network().peers {
@@ -216,7 +218,8 @@ pub fn check_settled(sim: &Sim) -> Result<(), String> {
 }
 
 /// Routine settlement never withdraws an honest peer for room: only a peer
-/// that stays short, settling nothing, past the grace (D12).
+/// that stays short, settling nothing, past the grace
+/// (spec/decisions/peering-lifecycle.md).
 pub fn check_withdrawn(sim: &Sim) -> Result<(), String> {
     match sim.withdrawn.first() {
         Some((at, by, peer)) => Err(format!(
@@ -446,7 +449,7 @@ fn check_outgoing_payment(
 /// Each node's books, on their own: they hold what its scheme holds, and
 /// it settled what it owed. The underlying ledgers neither made nor lost
 /// money. No check compares two nodes' books, or adds them up: each keeps
-/// its own, and they may drift (D19).
+/// its own, and they may drift (spec/decisions/own-books.md).
 pub fn check_books(sim: &Sim) -> Result<(), Outcome> {
     first_failure([
         check_owner_books(sim).map_err(|problem| Outcome::safety("owner-books", problem)),
@@ -535,7 +538,7 @@ pub fn check_ledgers(sim: &Sim) -> Result<(), String> {
 
 /// A run across currencies: every payment finished, each node settled
 /// what it owed and took every settlement, and no ledger made or lost an
-/// asset. Each node is judged by its own books (D19).
+/// asset. Each node is judged by its own books (spec/decisions/own-books.md).
 pub fn check_across(sim: &Sim) -> Result<(), Outcome> {
     let outgoing = sim.outgoing.iter().map(|&(from, to, _, outgoing)| {
         let row = sim.nodes[from]

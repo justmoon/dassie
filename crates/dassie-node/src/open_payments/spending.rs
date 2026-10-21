@@ -1,5 +1,5 @@
-//! Spending, whoever asks (D9): a third-party client over HTTP, with a
-//! grant, or the owner over RPC, without one.
+//! Spending, whoever asks (spec/decisions/open-payments.md): a third-party
+//! client over HTTP, with a grant, or the owner over RPC, without one.
 //!
 //! A quote reads its receiver, here or on another node, measures the rate
 //! of the path to it with a probe, and fixes what an outgoing payment
@@ -212,7 +212,8 @@ pub fn ilp_method(credentials: Credentials) -> resources::IlpMethod {
 /// The rate a payment from `ledger` to `receiver` is quoted at: what the
 /// path delivers per unit sent, as a probe measures it, less STREAM's
 /// slippage. One for one to the node's own receivers, which convert and
-/// charge nothing. The probe takes a slot of `by`'s share (D34).
+/// charge nothing. The probe takes a slot of `by`'s share
+/// (spec/decisions/owners-share.md).
 ///
 /// # Errors
 ///

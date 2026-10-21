@@ -1,6 +1,6 @@
-//! Inputs for the never-panics properties (D16): a valid encoding of every
-//! kind of content, and ways to break an encoding that, unlike random
-//! bytes, get past its first fields.
+//! Inputs for the never-panics properties (spec/decisions/tigerstyle.md): a
+//! valid encoding of every kind of content, and ways to break an encoding
+//! that, unlike random bytes, get past its first fields.
 
 use dassie_oer::{Decode, Encode};
 use dassie_peer::wire::{Content, PeeringRequest, SchemeId, SignedNodeInfo, TerminationReason};

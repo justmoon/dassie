@@ -33,9 +33,9 @@ How Dassie is built, signed, published, installed and updated. A release is one 
 
 ## The build
 
-`nix/release.nix`, on x86_64-linux ([D14](../decisions/D14-build-system.md)): `nix build .#release` (or `.#canary`) makes the unsigned mirror tree.
+`nix/release.nix`, on x86_64-linux ([build-system](../decisions/build-system.md)): `nix build .#release` (or `.#canary`) makes the unsigned mirror tree.
 
-- **The wallet** is built in the Nix sandbox, offline, from npm packages fetched one by one with the integrity `pnpm-lock.yaml` records (`nix/pnpm.nix`, [D21](../decisions/D21-tooling-on-node-and-pnpm-not-deno.md)), so a change to the lockfile needs no hash updated by hand.
+- **The wallet** is built in the Nix sandbox, offline, from npm packages fetched one by one with the integrity `pnpm-lock.yaml` records (`nix/pnpm.nix`, [node-and-pnpm](../decisions/node-and-pnpm.md)), so a change to the lockfile needs no hash updated by hand.
 - **The binaries** are statically linked against musl, for x86_64 and, cross-compiled, aarch64.
 - **The archives are deterministic:** sorted, with fixed times and owners, so the same binaries give the same bytes.
 - **A release is built once,** on the Vorstand Nix cloud, and what that build made is what is signed. Nothing builds it a second time to compare, so whether the binaries come out byte for byte the same on another builder is untested, and the signature vouches for what the one builder and its cache produced. Checking that by building again is [not built](../roadmap.md#rebuilding-releases).
@@ -43,7 +43,7 @@ How Dassie is built, signed, published, installed and updated. A release is one 
 
 ## The mirror
 
-`get.dassie.land` keeps the original's paths (`meta/<channel>`, `<version>/dassie-<version>-linux-<arch>.tar.{gz,xz}`), so its installer and updater URLs keep working, and adds `<version>/SHA256SUMS` and its `.minisig`. `sh.dassie.land` serves `install.sh`. The mirror's load balancer also serves dassie.land, from a bucket of its own ([Website](website.md#deployment), [D35](../decisions/D35-dassie-land-is-a-bucket-behind-the-mirrors-load-balancer.md)).
+`get.dassie.land` keeps the original's paths (`meta/<channel>`, `<version>/dassie-<version>-linux-<arch>.tar.{gz,xz}`), so its installer and updater URLs keep working, and adds `<version>/SHA256SUMS` and its `.minisig`. `sh.dassie.land` serves `install.sh`. The mirror's load balancer also serves dassie.land, from a bucket of its own ([Website](website.md#deployment), [website-hosting](../decisions/website-hosting.md)).
 
 ## Publishing
 
@@ -73,7 +73,7 @@ The original's layout, kept for operators' habits and docs. Each version is unpa
 
 - **The whole script is one function called on its last line,** so a download cut short runs nothing.
 - **The mirror chooses neither the channel nor the direction,** as for the updater ([Versions and channels](#versions-and-channels)). The installed version is what the installed binary names, which it named before it was installed, so the mirror cannot fake it. A run without `--channel` keeps the installed channel; `--target` installs any version.
-- **It verifies with minisign where there is minisign, and else with OpenSSL,** reading minisign's format by hand, so there is no tool to install first ([D11](../decisions/D11-release-integrity.md)).
+- **It verifies with minisign where there is minisign, and else with OpenSSL,** reading minisign's format by hand, so there is no tool to install first ([release-integrity](../decisions/release-integrity.md)).
 - **It sets `umask 022`,** so that on a hardened host what it installs stays readable by the node's own user.
 - **It never runs beside `dassie update`:** it takes the updater's lock with `flock` before it reads an existing install, or before it makes the first one, and holds it to the end, uninstalling included. An update prunes every version it does not keep and what an install left half done, so beside an install it could delete the version `current` is about to name. Where an update holds the lock, it stops and changes nothing.
 - **Uninstalling keeps the node's data and the group `dassie-users`.** It removes the units, every version and the link in `/usr/local/bin`, but the data holds the node key and the books, which installing again picks up.
@@ -107,8 +107,8 @@ If the node does not come up after the switch, the update disables and removes t
 
 ## Decisions
 
-- [D11](../decisions/D11-release-integrity.md): signed sums with minisign rather than Sigstore, the trusted comment, unsigned channel files, verify before extract, atomic switch and rollback; a release built once, until a second build can check it.
-- [D14](../decisions/D14-build-system.md): the Nix flake for release builds, cross-compiled with musl.
-- [D21](../decisions/D21-tooling-on-node-and-pnpm-not-deno.md): the wallet's packages fetched from the lockfile's hashes.
-- [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md): releases do not wait for the simulation campaign yet; they will once a live network runs on them ([roadmap](../roadmap.md#continuous-simulation)).
-- [D30](../decisions/D30-a-node-is-up-once-its-engine-has-committed-a-step.md): a release whose engine cannot start fails its start, and is rolled back.
+- [release-integrity](../decisions/release-integrity.md): signed sums with minisign rather than Sigstore, the trusted comment, unsigned channel files, verify before extract, atomic switch and rollback; a release built once, until a second build can check it.
+- [build-system](../decisions/build-system.md): the Nix flake for release builds, cross-compiled with musl.
+- [node-and-pnpm](../decisions/node-and-pnpm.md): the wallet's packages fetched from the lockfile's hashes.
+- [random-seed-simulations](../decisions/random-seed-simulations.md): releases do not wait for the simulation campaign yet; they will once a live network runs on them ([roadmap](../roadmap.md#continuous-simulation)).
+- [ready-after-first-step](../decisions/ready-after-first-step.md): a release whose engine cannot start fails its start, and is rolled back.

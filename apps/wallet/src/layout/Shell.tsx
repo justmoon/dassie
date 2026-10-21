@@ -1,7 +1,7 @@
 /**
  * The wallet's frame: the navigation, a notice while the connection is down,
  * and the page (spec/areas/wallet.md#pages, and the Send, payment status,
- * consent and connected apps pages of D9).
+ * consent and connected apps pages of spec/decisions/open-payments.md).
  */
 
 import type { JSX } from "@solidjs/web";

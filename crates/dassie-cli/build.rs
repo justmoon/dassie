@@ -1,9 +1,9 @@
 //! Builds in the release key, which `dassie update` trusts releases with
-//! (spec D11): the minisign public key in the file `DASSIE_RELEASE_KEY`
-//! names, or else `resources/minisign.pub` at the repo root. With the
-//! `test-key` feature, the test key of `testdata/release` instead, for
-//! tests only. With none of them, the binary trusts no key, and `dassie
-//! update` refuses to run. A key that does not parse fails the build.
+//! (spec spec/decisions/release-integrity.md): the minisign public key in the
+//! file `DASSIE_RELEASE_KEY` names, or else `resources/minisign.pub` at the
+//! repo root. With the `test-key` feature, the test key of `testdata/release`
+//! instead, for tests only. With none of them, the binary trusts no key, and
+//! `dassie update` refuses to run. A key that does not parse fails the build.
 
 use std::path::{Path, PathBuf};
 use std::{env, fs};

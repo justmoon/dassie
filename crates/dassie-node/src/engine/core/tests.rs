@@ -54,7 +54,8 @@ fn session(seed: u64) -> Vec<Output> {
 }
 
 // The core reads no clock and no OS randomness: the same seed and inputs
-// give the same outputs, which a simulation relies on (D16).
+// give the same outputs, which a simulation relies on
+// (spec/decisions/tigerstyle.md).
 #[test]
 fn the_same_seed_gives_the_same_steps() {
     let first = session(3);
@@ -168,9 +169,10 @@ fn a_refused_effect_books_none_of_its_batch() {
     assert_eq!(posted(&store), before);
 }
 
-// A stopped scheme is not peered on, as before its first sync (D31): a
-// peer's settlement on it would be refused until a restart. It leaves what
-// the node offers, asks for and accepts; a restart brings it back
+// A stopped scheme is not peered on, as before its first sync
+// (spec/decisions/synced-before-peering.md): a peer's settlement on it would
+// be refused until a restart. It leaves what the node offers, asks for and
+// accepts; a restart brings it back
 // (spec/areas/network.md#asking-and-answering).
 #[test]
 fn a_stopped_scheme_is_not_peered_on() {
@@ -492,9 +494,9 @@ fn peer_settings_are_checked_and_kept() {
     assert_eq!(core.connector.charges(), settings.charges());
 }
 
-// D27: a commit that fails stops the core before it hands over anything of
-// the step, here the answer to a client, and its successor starts from the
-// commit before.
+// spec/decisions/random-seed-simulations.md: a commit that fails stops the
+// core before it hands over anything of the step, here the answer to a
+// client, and its successor starts from the commit before.
 #[cfg(feature = "testing")]
 #[test]
 fn a_failed_commit_hands_nothing_over() {
@@ -533,8 +535,8 @@ fn a_failed_commit_hands_nothing_over() {
     assert_eq!(core.active_schemes(), ["stub"]);
 }
 
-// D16: a broken invariant stops the core before its batch is written, so
-// its successor starts from the last state that held.
+// spec/decisions/tigerstyle.md: a broken invariant stops the core before its
+// batch is written, so its successor starts from the last state that held.
 #[test]
 fn a_broken_invariant_never_reaches_the_disk() {
     let store = Arc::new(Store::open_in_memory().unwrap());
@@ -575,9 +577,9 @@ fn sweeps_follow_the_engine_clock() {
     }
 }
 
-// D16: the core reports events and logs nothing itself, so a simulation
-// sees all it says. Clippy does not see `tracing`'s macros under the
-// core's `deny`, so its sources are read for them.
+// spec/decisions/tigerstyle.md: the core reports events and logs nothing
+// itself, so a simulation sees all it says. Clippy does not see `tracing`'s
+// macros under the core's `deny`, so its sources are read for them.
 #[test]
 fn the_core_does_not_log() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/engine/core");
@@ -596,7 +598,8 @@ fn the_core_does_not_log() {
 
 // A probe the connector answers at once, to an address nobody routes, ends
 // in the same step without a rate: its packets' answers are taken in as
-// they come, without the sending loop calling itself again (D16).
+// they come, without the sending loop calling itself again
+// (spec/decisions/tigerstyle.md).
 #[test]
 fn a_probe_to_nowhere_ends_at_once() {
     let mut core = core(8);
@@ -659,7 +662,7 @@ fn exhausted(result: Result<(), super::EngineError>) {
 
 // Clients' quotes need no owner, so strangers can start probes: they never
 // take the owner's slots, and no one client or network holds more than its
-// share (D34).
+// share (spec/decisions/owners-share.md).
 #[test]
 fn strangers_probes_leave_the_owner_a_slot() {
     use super::Prober;
@@ -700,7 +703,8 @@ fn strangers_probes_leave_the_owner_a_slot() {
 
 // An app the owner approved shares a cloud's network with strangers: their
 // probes there never hold it to the network's share, nor to a share of
-// its own; only the clients' slots bound it, as before (D34).
+// its own; only the clients' slots bound it, as before
+// (spec/decisions/owners-share.md).
 #[test]
 fn strangers_on_its_network_never_stop_an_approved_apps_probes() {
     use super::Prober;
@@ -795,10 +799,11 @@ fn a_stopped_scheme_closes_its_connection() {
     assert_eq!(core.ledger_views()[0].status, LedgerStatus::Connecting);
 }
 
-// D20: a node that once accepted a peer's request extended it nothing, on
-// a trust account that stays when the peering ends. Peering again on its
-// own request, it is the junior, and extends at least the default credit:
-// it posts the difference, rather than keep the senior's nothing.
+// spec/decisions/earned-trust.md: a node that once accepted a peer's request
+// extended it nothing, on a trust account that stays when the peering ends.
+// Peering again on its own request, it is the junior, and extends at least
+// the default credit: it posts the difference, rather than keep the senior's
+// nothing.
 #[test]
 fn a_junior_extends_at_least_the_default_credit() {
     use dassie_ledger::{AccountName, AccountPath, LedgerId, Name};
@@ -835,10 +840,10 @@ fn a_junior_extends_at_least_the_default_credit() {
     assert_eq!(trust, Policies::DEFAULT.peer_credit);
 }
 
-// D33: a peering we ended because the peer's room stayed short is formed
-// again later on our own request. We are the junior now, but the peer
-// gets no more credit than it had as our junior: the default would be a
-// new line for a peer that never settled.
+// spec/decisions/ended-for-room.md: a peering we ended because the peer's
+// room stayed short is formed again later on our own request. We are the
+// junior now, but the peer gets no more credit than it had as our junior: the
+// default would be a new line for a peer that never settled.
 #[test]
 fn a_junior_keeps_the_lower_credit_of_a_peer_it_ended_for_room() {
     use dassie_ledger::{AccountName, AccountPath, LedgerId, Name};
@@ -876,13 +881,13 @@ fn a_junior_keeps_the_lower_credit_of_a_peer_it_ended_for_room() {
     assert_eq!(trust, core.senior_credit);
 }
 
-// Found by the simulation (D27): a sender crashed before the last Fulfill
-// of a payment reached it, and its receiver restarted after the payment
-// completed. Restarted, the receiver forgot the payment and refused the
-// sender's new connections, so the sender never learned that the money had
-// arrived, and failed the payment. A restarted receiver still tells a
-// sender that reconnects what its connection delivered, and that no more
-// fits.
+// Found by the simulation (spec/decisions/random-seed-simulations.md): a
+// sender crashed before the last Fulfill of a payment reached it, and its
+// receiver restarted after the payment completed. Restarted, the receiver
+// forgot the payment and refused the sender's new connections, so the sender
+// never learned that the money had arrived, and failed the payment. A
+// restarted receiver still tells a sender that reconnects what its connection
+// delivered, and that no more fits.
 #[test]
 fn a_restarted_receiver_tells_a_reconnecting_sender_what_got_there() {
     use dassie_ledger::LedgerId;
@@ -1042,7 +1047,8 @@ fn payment_paid_by_every_connection(core: &mut Core) -> crate::store::PaymentId 
 
 // A new payer that takes the place of an idle connection that paid only
 // dust is counted, and the connection it replaced is forgotten on disk
-// too, so a restart reads back the payment's places as they were (D34).
+// too, so a restart reads back the payment's places as they were
+// (spec/decisions/owners-share.md).
 #[test]
 fn a_replaced_connection_is_forgotten_across_a_restart() {
     use dassie_ilp::ErrorCode;

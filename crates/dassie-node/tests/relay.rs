@@ -243,9 +243,10 @@ async fn a_client_reaches_a_node_through_its_relay_and_the_relay_sees_only_ciphe
     shutdown.cancel();
 }
 
-// D40: the default relay, `DASSIE_RELAY` unset, is kept only while the node
-// has no hostname: not dialled while it has one, dialled once it has none,
-// and closed once it has one again. Only then does the node report it.
+// spec/decisions/default-relay.md: the default relay, `DASSIE_RELAY` unset,
+// is kept only while the node has no hostname: not dialled while it has one,
+// dialled once it has none, and closed once it has one again. Only then does
+// the node report it.
 #[tokio::test]
 async fn the_default_relay_is_kept_only_while_the_node_has_no_hostname() {
     let shutdown = CancellationToken::new();
@@ -653,8 +654,9 @@ fn signed_by(
     httpsig::check_node_response(&request, &answer, body, Some(id), now_s)
 }
 
-// D26: through a relay a node serves Open Payments and nothing else; never
-// the wallet, `/api/*`, `/rpc`, `/peer` or BTP.
+// spec/decisions/core-and-periphery.md: through a relay a node serves Open
+// Payments and nothing else; never the wallet, `/api/*`, `/rpc`, `/peer` or
+// BTP.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_relayed_payments_stream_serves_only_open_payments() {
     let shutdown = CancellationToken::new();

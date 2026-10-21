@@ -9,7 +9,7 @@ The protocol is [RFC 29](https://interledger.org/developers/rfcs/stream-protocol
 
 ## Shape
 
-- **Sans-IO and deterministic.** A connection never touches a socket, a clock or the OS RNG; the caller passes them in. The same code therefore runs in the node, in simulations and in the browser, and the same inputs give the same outputs ([D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md)).
+- **Sans-IO and deterministic.** A connection never touches a socket, a clock or the OS RNG; the caller passes them in. The same code therefore runs in the node, in simulations and in the browser, and the same inputs give the same outputs ([tigerstyle](../decisions/tigerstyle.md)).
 - **Bounded.** Every table, queue and buffer is sized from the connection's [policy](#policy) when it is created; nothing grows per packet. `check_invariants` checks a connection's and a server's state; tests and simulations call it after every step.
 - **Exact amounts.** Amounts are `u64` and rates exact integer ratios, never floats. Wire values above 64 bits saturate, as RFC 29 asks.
 - **Lenient on the wire, as RFC 29 asks:** padding after the frames, unknown frame types and bytes after a known frame's fields are skipped, so frames can gain fields without breaking older receivers. A packet has at most 512 frames, a bound RFC 29 does not set and no sender comes near.
@@ -40,7 +40,7 @@ A connection is the **client** (given the destination and shared secret) or the 
 
 ### Money limit
 
-An application that pays a connection into something with a total, such as an incoming payment, sets before each packet how much more the connection may receive over all its streams and how much it already counts as received (`set_money_limit`; a server does it through admission). Under a limit, every stream reports its received total from the application's count, so it only grows, even when the server forgot the sender's earlier connection after a restart or to make room in its table, for as long as the application keeps its count. The node's receivers drop a count only for a connection that gave its place in its incoming payment to a new payer, having paid less than dust ([Payments](payments.md#receiving)). Its receive maximum is that count plus the limit, so it falls when something else takes from the total, such as another connection paying the same incoming payment. Senders, `ilp-protocol-stream` and Dassie's own, keep the highest maximum they saw, and a packet above what is left is refused. Once nothing is left, a packet that offers money closes the connection, a close every sender understands and stops at, with the code the application gave with the limit: `NoError` when the total was reached, `ApplicationError` when the application stopped short of it ([D38](../decisions/D38-a-receiver-says-whether-it-is-full-or-stopped-short.md)). The response still reports the streams' totals, so the sender learns what it delivered. Rate probes and packets without money are answered as usual. A connection never takes more than its limit (asserted).
+An application that pays a connection into something with a total, such as an incoming payment, sets before each packet how much more the connection may receive over all its streams and how much it already counts as received (`set_money_limit`; a server does it through admission). Under a limit, every stream reports its received total from the application's count, so it only grows, even when the server forgot the sender's earlier connection after a restart or to make room in its table, for as long as the application keeps its count. The node's receivers drop a count only for a connection that gave its place in its incoming payment to a new payer, having paid less than dust ([Payments](payments.md#receiving)). Its receive maximum is that count plus the limit, so it falls when something else takes from the total, such as another connection paying the same incoming payment. Senders, `ilp-protocol-stream` and Dassie's own, keep the highest maximum they saw, and a packet above what is left is refused. Once nothing is left, a packet that offers money closes the connection, a close every sender understands and stops at, with the code the application gave with the limit: `NoError` when the total was reached, `ApplicationError` when the application stopped short of it ([full-or-stopped-short](../decisions/full-or-stopped-short.md)). The response still reports the streams' totals, so the sender learns what it delivered. Rate probes and packets without money are answered as usual. A connection never takes more than its limit (asserted).
 
 ## Receiving
 
@@ -72,7 +72,7 @@ Packets in flight still settle after the connection closed, since money they car
 
 ### Congestion control
 
-AIMD on the number of packets in flight: an extension RFC 29 does not have (`ilp-protocol-stream` sends one packet at a time). Packets in flight together are usually refused together, by the same full credit limit, so a burst of rejections counts as one back-off: only a packet sent after the last back-off triggers another. However many packets a connection has in flight, the connector caps the money in flight with a peer ([D24](../decisions/D24-money-in-flight-with-a-peer-stays-within-a-few-packets.md)).
+AIMD on the number of packets in flight: an extension RFC 29 does not have (`ilp-protocol-stream` sends one packet at a time). Packets in flight together are usually refused together, by the same full credit limit, so a burst of rejections counts as one back-off: only a packet sent after the last back-off triggers another. However many packets a connection has in flight, the connector caps the money in flight with a peer ([packets-in-flight](../decisions/packets-in-flight.md)).
 
 ## Exchange rates
 
@@ -93,7 +93,7 @@ Each stream carries an ordered byte stream each way, with RFC 29's flow control.
 
 ## Receipts
 
-A connection whose credentials carry receipt keys issues RFC 39 receipts. Its format has one byte for the stream ID, so streams above 255 get none. The node issues none: they are not part of Open Payments ([D9](../decisions/D09-open-payments-fully-and-no-spsp.md)).
+A connection whose credentials carry receipt keys issues RFC 39 receipts. Its format has one byte for the stream ID, so streams above 255 get none. The node issues none: they are not part of Open Payments ([open-payments](../decisions/open-payments.md)).
 
 ## Closing
 
@@ -115,13 +115,13 @@ The WASM build (`src/wasm.rs`, with `dassie-identity`, [Identity](identity.md#in
 
 - **Golden vectors** from the original (`tests/data/vectors.json`, by `testdata/original/`): its STREAM packet fixtures and crypto vectors. Where Dassie differs on purpose, the test has its own vector.
 - **Interop** (`tests/interop/`): `dassie-stream`, native and WASM, against `ilp-protocol-stream` in both directions.
-- **Simulations** (feature `sim`): a client and a server across a simulated connector with loss, latency and a rate, deterministic per seed ([D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md), [Testing](testing.md)).
+- **Simulations** (feature `sim`): a client and a server across a simulated connector with loss, latency and a rate, deterministic per seed ([random-seed-simulations](../decisions/random-seed-simulations.md), [Testing](testing.md)).
 
 ## Decisions
 
-- [D9](../decisions/D09-open-payments-fully-and-no-spsp.md): STREAM under Open Payments, and no receipts from the node; why each payment has a connection of its own is in [Payments](payments.md).
-- [D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md): sans-IO, deterministic, bounded and asserted.
-- [D24](../decisions/D24-money-in-flight-with-a-peer-stays-within-a-few-packets.md): why the connector caps money in flight with a peer, though a STREAM connection may have many packets in flight.
-- [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md): the STREAM simulation runs from any seed.
-- [D34](../decisions/D34-strangers-never-take-the-owners-share-of-a-pool.md): why a node's receiver may forget what a connection that paid only dust received.
-- [D38](../decisions/D38-a-receiver-says-whether-it-is-full-or-stopped-short.md): why the application gives the code that closes a connection with nothing left.
+- [open-payments](../decisions/open-payments.md): STREAM under Open Payments, and no receipts from the node; why each payment has a connection of its own is in [Payments](payments.md).
+- [tigerstyle](../decisions/tigerstyle.md): sans-IO, deterministic, bounded and asserted.
+- [packets-in-flight](../decisions/packets-in-flight.md): why the connector caps money in flight with a peer, though a STREAM connection may have many packets in flight.
+- [random-seed-simulations](../decisions/random-seed-simulations.md): the STREAM simulation runs from any seed.
+- [owners-share](../decisions/owners-share.md): why a node's receiver may forget what a connection that paid only dust received.
+- [full-or-stopped-short](../decisions/full-or-stopped-short.md): why the application gives the code that closes a connection with nothing left.

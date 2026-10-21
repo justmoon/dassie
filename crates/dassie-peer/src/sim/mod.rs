@@ -1,8 +1,9 @@
 //! A simulated network of peer nodes
 //! (spec/areas/testing.md#deterministic-simulation), for this crate's tests
-//! and the simulation runner (D27): virtual time, a network that delays,
-//! loses, duplicates and partitions, nodes that crash and restart from what
-//! they persisted. Everything comes from one seed.
+//! and the simulation runner (spec/decisions/random-seed-simulations.md):
+//! virtual time, a network that delays, loses, duplicates and partitions,
+//! nodes that crash and restart from what they persisted. Everything comes
+//! from one seed.
 //!
 //! Test code, behind the `sim` feature: a panic here is a failed run.
 

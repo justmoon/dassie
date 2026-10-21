@@ -1,7 +1,8 @@
-//! The rate fetcher (D7), against a source over HTTPS: the owner chooses
-//! the sources and a display currency, the node fetches and keeps the
-//! rates, shows the total in that currency, marks rates stale when their
-//! source stops answering, and has them again after a restart.
+//! The rate fetcher (spec/decisions/exchange-rates.md), against a source over
+//! HTTPS: the owner chooses the sources and a display currency, the node
+//! fetches and keeps the rates, shows the total in that currency, marks rates
+//! stale when their source stops answering, and has them again after a
+//! restart.
 
 #![allow(
     clippy::unwrap_used,

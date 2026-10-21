@@ -77,7 +77,8 @@ pub enum Content<'a> {
     /// `peeringTermination [10]`.
     PeeringTermination(TerminationReason),
     /// `settlementRequest [11]`: the sender asks the recipient to settle
-    /// on `scheme`, leaving the amount to it (D23).
+    /// on `scheme`, leaving the amount to it
+    /// (spec/decisions/own-fulfills.md).
     SettlementRequest {
         /// The scheme.
         scheme: SchemeId,
@@ -98,7 +99,8 @@ pub enum TerminationReason {
     /// left over.
     NotPeered,
     /// The recipient's room in the sender's books stayed short of a packet,
-    /// without a settlement, for too long (D12).
+    /// without a settlement, for too long
+    /// (spec/decisions/peering-lifecycle.md).
     ShortOfRoom,
 }
 

@@ -1,9 +1,9 @@
-//! The node simulation's random run (D27) on fixed seeds:
-//! `dassie_node::sim::swarm` draws each seed's network, faults and
-//! payments, runs its chaos, heals it, and checks it. A failure names its
-//! seed: `dassie-sim run node <seed>` replays it, `dassie-sim explain node
-//! <seed>` prints its trace, and `dassie-sim run node <from>..<to>` runs
-//! others.
+//! The node simulation's random run
+//! (spec/decisions/random-seed-simulations.md) on fixed seeds:
+//! `dassie_node::sim::swarm` draws each seed's network, faults and payments,
+//! runs its chaos, heals it, and checks it. A failure names its seed:
+//! `dassie-sim run node <seed>` replays it, `dassie-sim explain node <seed>`
+//! prints its trace, and `dassie-sim run node <from>..<to>` runs others.
 //!
 //! The same seeds must reach every kind of fault and payment the run
 //! draws, so that a change to the generator that stops reaching one fails

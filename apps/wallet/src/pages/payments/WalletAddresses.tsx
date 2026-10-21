@@ -1,6 +1,7 @@
 /**
- * The node's wallet addresses (D9): one per ledger, with the default one
- * at `$host`, and a way to choose which ledger that is.
+ * The node's wallet addresses (spec/decisions/open-payments.md): one per
+ * ledger, with the default one at `$host`, and a way to choose which ledger
+ * that is.
  */
 
 import type { JSX } from "@solidjs/web";

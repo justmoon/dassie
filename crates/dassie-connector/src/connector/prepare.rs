@@ -86,9 +86,10 @@ impl Connector {
         let trace = self.next_trace();
         // A peering that ends takes no new Prepares; one we end and have
         // not told the peer of yet refuses them as for want of liquidity
-        // (D28), and so does one our messages surely do not reach, since
-        // a Fulfill of ours would count only in our books (D41). Our
-        // Reject is the first message to try it again.
+        // (spec/decisions/ending-a-peering.md), and so does one our messages
+        // surely do not reach, since a Fulfill of ours would count only in
+        // our books (spec/decisions/unreachable-peers.md). Our Reject is the
+        // first message to try it again.
         let closed = self.endpoints.get(source).and_then(|endpoint| {
             if endpoint.draining {
                 Some(refuse(
@@ -274,12 +275,12 @@ impl Connector {
     }
 
     /// Whether the money in flight with each peer the packet passes stays
-    /// within [`Config::max_in_flight`] each way, or T05 (D24). A crash
-    /// loses the Fulfills of what was in flight, so this bounds how far
-    /// a crash makes two peers' books drift apart. Half a packet of it
-    /// stays free for smaller packets while a payment fills the link. A
-    /// packet always passes alone, even one a conversion made larger than
-    /// the limit.
+    /// within [`Config::max_in_flight`] each way, or T05
+    /// (spec/decisions/packets-in-flight.md). A crash loses the Fulfills of
+    /// what was in flight, so this bounds how far a crash makes two peers'
+    /// books drift apart. Half a packet of it stays free for smaller packets
+    /// while a payment fills the link. A packet always passes alone, even one
+    /// a conversion made larger than the limit.
     fn admits_in_flight(
         &self,
         source: EndpointId,

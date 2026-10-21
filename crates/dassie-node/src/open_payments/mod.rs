@@ -1,5 +1,6 @@
-//! Open Payments around the engine (D9): the URLs of the node's wallet
-//! addresses and resources, and which ledger a wallet address names.
+//! Open Payments around the engine (spec/decisions/open-payments.md): the
+//! URLs of the node's wallet addresses and resources, and which ledger a
+//! wallet address names.
 //!
 //! Each active ledger has a wallet address at `https://host/pay/<slug>`.
 //! `$host`, that is `https://host/.well-known/pay`, names the default
@@ -14,9 +15,10 @@
 //! The original's Open Payments had no GNAP, served no incoming payment by
 //! its ID, fixed the asset at USD/2, linked no money it received to a
 //! payment, quoted 1:1, and counted outgoing payments twice (ILP-10). Here
-//! it is served as its specs define it. SPSP stays out on purpose (D9), and
-//! each read still hands out fresh credentials, now for a STREAM
-//! connection per payment (spec/areas/payments.md#receiving).
+//! it is served as its specs define it. SPSP stays out on purpose
+//! (spec/decisions/open-payments.md), and each read still hands out fresh
+//! credentials, now for a STREAM connection per payment
+//! (spec/areas/payments.md#receiving).
 
 pub mod auth;
 pub mod client;
@@ -673,7 +675,8 @@ mod tests {
 
             // Paths and URLs come from clients' requests and grants: a
             // ledger is found only for one of the node's wallet addresses,
-            // and anything else is none, without a panic (D16).
+            // and anything else is none, without a panic
+            // (spec/decisions/tigerstyle.md).
             #[test]
             fn any_path_names_an_active_ledger_or_none(path in path(), (ledgers, chosen) in ledgers()) {
                 let addresses = WalletAddresses::new(ledgers, chosen);

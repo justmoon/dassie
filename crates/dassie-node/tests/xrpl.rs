@@ -247,8 +247,8 @@ async fn two_daemons_settle_on_the_xrp_ledger_across_restarts() {
 
 /// A fake ledger started anew where the last one was, as the dev
 /// environment does whenever it restarts, is a new chain that closes later
-/// (D32): the node sees a testnet reset, writes off its old funds, and the
-/// faucet funds it again.
+/// (spec/decisions/ledger-resets.md): the node sees a testnet reset, writes
+/// off its old funds, and the faucet funds it again.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_new_fake_ledger_is_a_testnet_reset() {
     let server = fake_ledger().await;

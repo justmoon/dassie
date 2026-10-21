@@ -1,6 +1,7 @@
-//! Credit that grows with what a peering earned us (D20). At every
-//! settlement check, the fees our connector earned on packets from or to a
-//! peer, booked on that peer's ledger, raise the credit we extend it by
+//! Credit that grows with what a peering earned us
+//! (spec/decisions/earned-trust.md). At every settlement check, the fees our
+//! connector earned on packets from or to a peer, booked on that peer's
+//! ledger, raise the credit we extend it by
 //! [`policy::GROWTH_PPM`] of them, up to [`policy::credit_cap`].
 //!
 //! What a peer earned is read from the journal, and counted nowhere else:
@@ -22,9 +23,10 @@ use super::Core;
 use super::events::SettlementEvent;
 use crate::engine::EngineError;
 
-/// Fees read per ledger at a check; the rest wait for the next (D16).
-/// At a check every 4 s, over a thousand fee-paying packets a second, so
-/// reading keeps up with a busy connector rather than fall behind.
+/// Fees read per ledger at a check; the rest wait for the next
+/// (spec/decisions/tigerstyle.md). At a check every 4 s, over a thousand
+/// fee-paying packets a second, so reading keeps up with a busy connector
+/// rather than fall behind.
 const FEES_PER_CHECK: u32 = 4_096;
 
 /// Millionths, the unit of [`policy::GROWTH_PPM`].

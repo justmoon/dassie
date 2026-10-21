@@ -1,7 +1,8 @@
 #!/bin/sh
-# The boot script of a simulation campaign VM (spec D27), which GCE runs as
-# root at every boot from the instance metadata (provision.sh puts it
-# there). It is idempotent: a spot VM boots afresh after each preemption.
+# The boot script of a simulation campaign VM (spec
+# spec/decisions/random-seed-simulations.md), which GCE runs as root at every
+# boot from the instance metadata (provision.sh puts it there). It is
+# idempotent: a spot VM boots afresh after each preemption.
 #
 # It installs Git and Nix, makes the two users the sandboxes run as, clones
 # the repository, writes the supervisor's configuration from the instance

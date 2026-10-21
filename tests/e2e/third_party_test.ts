@@ -314,7 +314,7 @@ test("a third-party client pays from one node to another with consent", {
     assertEquals(payment.failed, false);
     assertEquals(payment.sentAmount.value, `${AMOUNT}`);
     // The receiver counted each packet received as it posted it, before
-    // its Fulfill went back to the payer (D23).
+    // its Fulfill went back to the payer (spec/decisions/own-fulfills.md).
     const receivedNow = () =>
       op.incomingPayment.get({
         url: incoming.id,

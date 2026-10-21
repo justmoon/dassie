@@ -134,10 +134,12 @@ impl PeerNode {
         }
     }
 
-    /// A peer's request that we settle on `scheme` (D23).
+    /// A peer's request that we settle on `scheme`
+    /// (spec/decisions/own-fulfills.md).
     fn settle_on_request(&mut self, accepted: Accepted, scheme: SchemeId) -> Inbound<'static> {
         // Only an active peering on that scheme is settled on request;
-        // nothing is settled for one being ended (D28).
+        // nothing is settled for one being ended
+        // (spec/decisions/ending-a-peering.md).
         let peering = self
             .table
             .get(&accepted.sender)
@@ -161,7 +163,7 @@ impl PeerNode {
     /// An ILP packet. A Prepare needs a peering that is not ending. A
     /// response also comes from a node we hold a settlement channel with,
     /// peered or not: a node of 0.1 asks for verdicts after the peering
-    /// ended, and is told it was accepted (D23).
+    /// ended, and is told it was accepted (spec/decisions/own-fulfills.md).
     fn packet_request<'a>(
         &mut self,
         accepted: &Accepted,
@@ -271,8 +273,9 @@ impl PeerNode {
         }
     }
 
-    /// A registration (D4): verified, and limited until it has a fee. A new
-    /// one, or one at a new URL, waits on a probe of that URL.
+    /// A registration (spec/decisions/membership-economics.md): verified, and
+    /// limited until it has a fee. A new one, or one at a new URL, waits on a
+    /// probe of that URL.
     fn registration_request(
         &mut self,
         accepted: Accepted,
@@ -378,11 +381,12 @@ impl PeerNode {
 
     /// Asks `node` at `url` for its link state, authenticated, before
     /// answering `probe.inbound`: it proves the URL is the node's, and
-    /// that the node can be reached (D4, D12). Every probe spends a token
-    /// of all the node's probes. The network the request came from also
-    /// pays one of its own share while the probe is in flight, and gets it
-    /// back if the probe succeeds, so failing probes from one network
-    /// cannot spend them all (spec/areas/network.md#registration).
+    /// that the node can be reached (spec/decisions/membership-economics.md,
+    /// spec/decisions/peering-lifecycle.md). Every probe spends a token of
+    /// all the node's probes. The network the request came from also pays one
+    /// of its own share while the probe is in flight, and gets it back if the
+    /// probe succeeds, so failing probes from one network cannot spend them
+    /// all (spec/areas/network.md#registration).
     pub(crate) fn start_probe(
         &mut self,
         node: NodeId,

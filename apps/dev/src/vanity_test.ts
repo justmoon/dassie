@@ -12,7 +12,7 @@ import {
   parseTable,
 } from "./vanity.ts";
 
-const D1: Entry = [
+const ENTRY_D1: Entry = [
   "ad6f2a1f40a4004a1660939aa11ca81a",
   "d1_UeCE9UMCwvVHSXdI9o0Tpz4rnidWvR",
 ];
@@ -29,7 +29,7 @@ test("the table's first nodes derive their IDs", () => {
 });
 
 test("an entry that does not give its ID is refused", () => {
-  assertThrows(() => derive(0, [D1[0], "d1_somethingElse"]));
+  assertThrows(() => derive(0, [ENTRY_D1[0], "d1_somethingElse"]));
   assertThrows(() => identity(new Map(), 0));
 });
 
@@ -61,14 +61,20 @@ test("merge drops indexes beyond 999 but the record", () => {
 });
 
 test("brute-forcer lines and the table's form", () => {
-  assertEquals(parseFound(`0x${D1[0].toUpperCase()}: ${D1[1]}`), D1);
+  assertEquals(
+    parseFound(`0x${ENTRY_D1[0].toUpperCase()}: ${ENTRY_D1[1]}`),
+    ENTRY_D1,
+  );
   assertEquals(parseFound("# a comment"), undefined);
   assertEquals(parseFound(""), undefined);
   assertThrows(() => parseFound("nonsense"));
-  const table = new Map<number, Entry>([[10, D1], [2, D1]]);
+  const table = new Map<number, Entry>([[10, ENTRY_D1], [2, ENTRY_D1]]);
   const text = formatTable(table);
-  assertEquals(parseTable(JSON.parse(text)), new Map([[2, D1], [10, D1]]));
+  assertEquals(
+    parseTable(JSON.parse(text)),
+    new Map([[2, ENTRY_D1], [10, ENTRY_D1]]),
+  );
   assertEquals(text.indexOf('"2"') < text.indexOf('"10"'), true);
-  assertThrows(() => parseTable({ "01": [...D1] }));
+  assertThrows(() => parseTable({ "01": [...ENTRY_D1] }));
   assertThrows(() => parseTable({ "1": ["xyz", "d2_a"] }));
 });

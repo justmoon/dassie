@@ -1,8 +1,8 @@
-//! STREAM's random run (spec/areas/testing.md#the-simulations, D27): a client
-//! pays and sends data to a server over a lossy path with an exchange rate
-//! and a maximum packet amount, then closes. Both sides check their
-//! invariants at every step, and the payment must arrive and the connection
-//! close.
+//! STREAM's random run (spec/areas/testing.md#the-simulations,
+//! spec/decisions/random-seed-simulations.md): a client pays and sends data
+//! to a server over a lossy path with an exchange rate and a maximum packet
+//! amount, then closes. Both sides check their invariants at every step, and
+//! the payment must arrive and the connection close.
 
 use alloc::format;
 use alloc::string::{String, ToString};

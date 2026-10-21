@@ -232,7 +232,7 @@ impl Core {
     /// Carries out what the connector did with a response: counts what our
     /// receiver took once the packet is posted, and sends the response
     /// upstream. A Fulfill counts in our books whether or not the upstream
-    /// takes it (D23).
+    /// takes it (spec/decisions/own-fulfills.md).
     fn responded(
         &mut self,
         now: u64,

@@ -1,5 +1,5 @@
-//! Open Payments for the owner (D9): the wallet addresses, the default
-//! ledger, and incoming and outgoing payments.
+//! Open Payments for the owner (spec/decisions/open-payments.md): the wallet
+//! addresses, the default ledger, and incoming and outgoing payments.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

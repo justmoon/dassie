@@ -1,7 +1,7 @@
-//! Spending through Open Payments over real HTTPS (D9): a grant the owner
-//! approves in the wallet, quotes, outgoing payments within the grant's
-//! limits and interval, what the grant spent, and receivers on another
-//! node.
+//! Spending through Open Payments over real HTTPS
+//! (spec/decisions/open-payments.md): a grant the owner approves in the
+//! wallet, quotes, outgoing payments within the grant's limits and interval,
+//! what the grant spent, and receivers on another node.
 
 #![allow(
     clippy::unwrap_used,
@@ -198,8 +198,9 @@ async fn sent(node: &TestNode, client: &Client, token: &str, path: &str) -> Valu
     panic!("the payment did not finish");
 }
 
-// D9: the owner approves a grant in the wallet; its client quotes and
-// pays within the limit, a day at a time, and reads what it spent.
+// spec/decisions/open-payments.md: the owner approves a grant in the wallet;
+// its client quotes and pays within the limit, a day at a time, and reads
+// what it spent.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_owner_approves_and_the_client_pays_within_its_limit() {
     let (node, key) = start().await;
@@ -918,7 +919,8 @@ async fn two_items_may_not_both_create_from_one_wallet_address() {
 
 // A debit limit in another asset than its wallet address, even one that
 // differs only in scale, would make a grant no payment can use: the
-// request is refused, naming the asset the limit must be in (D29).
+// request is refused, naming the asset the limit must be in
+// (spec/decisions/unusable-limits.md).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_debit_limit_in_another_asset_is_refused() {
     let (node, key) = start().await;
@@ -1244,7 +1246,8 @@ async fn the_owner_sees_the_span_and_receiver_of_a_request() {
 
 // A receive limit in another asset than the receiver the grant names fits
 // no payment to it: the consent page is told, so the owner sees it before
-// approving (D29). The request itself is not refused.
+// approving (spec/decisions/unusable-limits.md). The request itself is not
+// refused.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_owner_sees_a_receive_limit_in_another_asset() {
     let (node, key) = start().await;

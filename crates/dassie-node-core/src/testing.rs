@@ -1,5 +1,6 @@
 //! A seeded RNG for tests and simulations, and what the simulations
-//! share: how a run ended, and running a range of seeds (D27).
+//! share: how a run ended, and running a range of seeds
+//! (spec/decisions/random-seed-simulations.md).
 
 use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
@@ -86,7 +87,7 @@ impl TryRng for SeededRng {
 
 impl TryCryptoRng for SeededRng {}
 
-/// How a simulated run ended (D27).
+/// How a simulated run ended (spec/decisions/random-seed-simulations.md).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
     /// Every check held.
@@ -109,7 +110,7 @@ pub struct Finding {
     /// the file and line of a panic. It holds nothing a seed draws, so
     /// runs that end the same way share it; with the simulation and the
     /// outcome, it is a failure's signature, and a campaign files one
-    /// issue per signature (D27).
+    /// issue per signature (spec/decisions/random-seed-simulations.md).
     pub at: String,
     /// What happened, with this run's numbers.
     pub message: String,
@@ -193,7 +194,7 @@ impl fmt::Display for Outcome {
 
 /// A simulated run: how it ended, what happened in it, a line per event,
 /// for comparing and explaining runs, and how often it reached what it
-/// counts (D27).
+/// counts (spec/decisions/random-seed-simulations.md).
 #[derive(Clone, Debug)]
 pub struct Run {
     /// How it ended.

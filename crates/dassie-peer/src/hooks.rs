@@ -50,7 +50,8 @@ pub trait PeeringHooks {
 
     /// Accepts a request from `peer`: opens its accounts, and writes the
     /// scheme's response into `response`. Called
-    /// again for a peer already peered (D12), which must change nothing.
+    /// again for a peer already peered (spec/decisions/peering-lifecycle.md),
+    /// which must change nothing.
     ///
     /// # Errors
     ///
@@ -93,7 +94,8 @@ pub trait PeeringHooks {
 
     /// Whether a settlement of ours to `peer` is under way in the node:
     /// prepared, executing, or pending in its ledger. A node ending a
-    /// peering waits for it before it asks the peer a last time (D28); the
-    /// message announcing one is the peer node's own to know.
+    /// peering waits for it before it asks the peer a last time
+    /// (spec/decisions/ending-a-peering.md); the message announcing one is
+    /// the peer node's own to know.
     fn settling_to(&self, peer: NodeId) -> bool;
 }

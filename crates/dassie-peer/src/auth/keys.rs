@@ -1,9 +1,10 @@
 //! Keys and MACs of `hmacSha256V1` (spec/areas/peer-protocol.md#keys-and-macs).
 //!
 //! The key between two nodes comes from their static X25519 keys alone: a
-//! scheme that only MACs gains nothing from an ephemeral key (D2). It is
-//! expanded into four keys, one per direction and per request or response,
-//! so that no MAC is valid in any other place.
+//! scheme that only MACs gains nothing from an ephemeral key
+//! (spec/decisions/peer-protocol-v1.md). It is expanded into four keys, one
+//! per direction and per request or response, so that no MAC is valid in any
+//! other place.
 
 use dassie_identity::{NodeId, NodeKey, PublicKey};
 use hmac::{Hmac, KeyInit, Mac};

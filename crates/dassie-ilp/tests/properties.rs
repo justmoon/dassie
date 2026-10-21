@@ -4,7 +4,8 @@
 //! Random bytes rarely get past a type octet and a length prefix, so most
 //! decoders are also fed valid encodings that are then damaged: octets
 //! changed, inserted or removed, the end cut off or extended. That reaches
-//! the bodies, where hostile input does its work (D16).
+//! the bodies, where hostile input does its work
+//! (spec/decisions/tigerstyle.md).
 
 #![allow(clippy::unwrap_used, clippy::indexing_slicing)]
 

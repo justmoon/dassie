@@ -34,7 +34,7 @@ const LEDGER = "xrpl-testnet+xrp";
 const PAYMENT = 5_000_000_000n;
 /** What a node extends to each peer: 1.1 XRP. */
 const CREDIT = 1_100_000_000n;
-/** Every node's trigger: one and a half of the largest packets (D25). */
+/** Every node's trigger: one and a half of the largest packets (spec/decisions/thresholds-in-packets.md). */
 const TRIGGER = 150_000_000n;
 const PORT_OFFSET = SCENARIO_PORT_OFFSET + 600;
 
@@ -86,8 +86,9 @@ async function peerAccounts(scenario: Scenario): Promise<Map<string, bigint>> {
 /**
  * Settling went quiet: nothing on its way, no node's books showing a peer
  * at its trigger (its room for the peer down to one and a half of the
- * largest packets, D25), and both books agree. A senior extends its junior
- * nothing, so until the junior paid in advance it is at its trigger.
+ * largest packets, spec/decisions/thresholds-in-packets.md), and both books
+ * agree. A senior extends its junior nothing, so until the junior paid in
+ * advance it is at its trigger.
  */
 async function quiet(scenario: Scenario): Promise<boolean> {
   for (const node of scenario.nodes) {
@@ -158,7 +159,7 @@ test(
       const address = (await ledger(d1)).depositAddress;
       assert(address.startsWith("r"), address);
       // The junior pays its senior in advance before it can send through
-      // it, on the ledger (D20).
+      // it, on the ledger (spec/decisions/earned-trust.md).
       await scenario.until("paid in advance", () => settled(scenario), 120_000);
 
       const before = await ledger(d1);

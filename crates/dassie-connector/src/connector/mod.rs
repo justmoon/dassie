@@ -441,8 +441,9 @@ impl Connector {
 
     /// Stops, or resumes, new Prepares from an endpoint, while Prepares to
     /// it still go: a peering we are ending, and have not told the peer of
-    /// yet (D28). Its Prepares are refused as for want of liquidity, which
-    /// tells it nothing more. Returns whether the endpoint exists.
+    /// yet (spec/decisions/ending-a-peering.md). Its Prepares are refused as
+    /// for want of liquidity, which tells it nothing more. Returns whether
+    /// the endpoint exists.
     pub fn set_refusing(&mut self, id: EndpointId, refusing: bool) -> bool {
         self.endpoints
             .get_mut(id)
@@ -451,11 +452,12 @@ impl Connector {
     }
 
     /// Stops, or resumes, new Prepares from a peer that our messages
-    /// surely do not reach, while Prepares to it still go (D41): a Fulfill
-    /// of ours could not count in its books, and would only drift ours
-    /// from its. Its Prepares are refused as for want of liquidity, which
-    /// is temporary. Independent of [`set_refusing`](Self::set_refusing):
-    /// either refuses. Returns whether the endpoint exists.
+    /// surely do not reach, while Prepares to it still go
+    /// (spec/decisions/unreachable-peers.md): a Fulfill of ours could not
+    /// count in its books, and would only drift ours from its. Its Prepares
+    /// are refused as for want of liquidity, which is temporary. Independent
+    /// of [`set_refusing`](Self::set_refusing): either refuses. Returns
+    /// whether the endpoint exists.
     pub fn set_unreached(&mut self, id: EndpointId, unreached: bool) -> bool {
         self.endpoints
             .get_mut(id)

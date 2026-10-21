@@ -1,4 +1,4 @@
-//! Settling with peers (D23,
+//! Settling with peers (spec/decisions/own-fulfills.md,
 //! spec/areas/settlement.md#asking-a-peer-to-settle): a node asks a peer to
 //! settle once the peer is close to the credit it extends, and settles half
 //! the way to its own trigger when a peer asks it. A settlement is prepared,
@@ -45,10 +45,10 @@ pub(super) struct Settlements {
     /// How often a peer that did not settle since is asked again, at most.
     pub request_every_ms: u64,
     /// Our trigger for every peer, and the least we settle, from the
-    /// largest packet (D25).
+    /// largest packet (spec/decisions/thresholds-in-packets.md).
     pub trigger: u64,
     pub minimum: u64,
-    /// The most credit a peer can earn (D20).
+    /// The most credit a peer can earn (spec/decisions/earned-trust.md).
     pub credit_cap: u64,
     /// Where reading the fees peers earned us stands.
     pub growth: super::growth::Growth,
@@ -151,12 +151,13 @@ impl Core {
     /// Tells the peer protocol which peers our books leave short of room
     /// for a packet while we can ask them to settle: one that stays short
     /// past the grace, settling nothing, is withdrawn as stuck rather than
-    /// waiting for a routine settlement (D12). Each settlement booked from
-    /// it starts the grace again. While our scheme does not see its ledger,
-    /// we cannot ask: nothing is judged, and the time short neither grows
-    /// nor starts again. While our requests to settle surely never reach
-    /// the peer, the peer protocol counts the time toward withdrawing it,
-    /// not toward ending the peering for room.
+    /// waiting for a routine settlement
+    /// (spec/decisions/peering-lifecycle.md). Each settlement booked from it
+    /// starts the grace again. While our scheme does not see its ledger, we
+    /// cannot ask: nothing is judged, and the time short neither grows nor
+    /// starts again. While our requests to settle surely never reach the
+    /// peer, the peer protocol counts the time toward withdrawing it, not
+    /// toward ending the peering for room.
     fn report_room(&mut self) {
         let now = self.now_ms;
         let peers: Vec<(NodeId, SchemeId)> = self
@@ -177,7 +178,8 @@ impl Core {
                 Room::Enough
             } else if self
                 .position(node, scheme)
-                // `minimum` is one of the largest packets (D25).
+                // `minimum` is one of the largest packets
+                // (spec/decisions/thresholds-in-packets.md).
                 .is_some_and(|at| at.position < u128::from(self.settle.minimum))
             {
                 // Two checks' worth at most: more is a stall of ours.
@@ -205,14 +207,15 @@ impl Core {
     /// again at the next check once our books show a settlement from it,
     /// and otherwise at most once per [`Settlements::request_every_ms`],
     /// for a peer that does not answer. Only our own books decide; the peer
-    /// decides how much (D23).
+    /// decides how much (spec/decisions/own-fulfills.md).
     ///
     /// A peer is asked only while our scheme sees its ledger: until then,
     /// what the peer pays is not booked, and it would be asked again. A
-    /// peering is made on a scheme only once it first synced (D31), which
-    /// booked what the account held as the owner's deposit, so what a peer
-    /// settles when asked, here or by a node ending the peering (D28), is
-    /// booked as its settlement.
+    /// peering is made on a scheme only once it first synced
+    /// (spec/decisions/synced-before-peering.md), which booked what the
+    /// account held as the owner's deposit, so what a peer settles when
+    /// asked, here or by a node ending the peering
+    /// (spec/decisions/ending-a-peering.md), is booked as its settlement.
     fn ask_peers(&mut self) {
         let now = self.now_ms;
         let every = self.settle.request_every_ms;
@@ -245,11 +248,11 @@ impl Core {
 
     /// A peer asks us to settle on `scheme`: we settle half the way to our
     /// own trigger for it, unless a settlement to it is on its way already,
-    /// which is the answer (D23).
+    /// which is the answer (spec/decisions/own-fulfills.md).
     ///
     /// Returns what is then on its way to the peer, which the answer tells
-    /// it (D28): a settlement already under way, which is the whole answer,
-    /// or the one made now.
+    /// it (spec/decisions/ending-a-peering.md): a settlement already under
+    /// way, which is the whole answer, or the one made now.
     pub(super) fn settlement_requested(&mut self, node: NodeId, scheme: SchemeId) -> u64 {
         if self.settle.never_settles {
             return 0;

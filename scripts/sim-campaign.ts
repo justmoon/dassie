@@ -1,5 +1,6 @@
-// The simulation campaign's supervisor (spec D27): one loop of it, on a
-// campaign VM.
+// The simulation campaign's supervisor (spec
+// spec/decisions/random-seed-simulations.md): one loop of it, on a campaign
+// VM.
 //
 //   node scripts/sim-campaign.ts [--minutes N] [--dry-run [--unsandboxed]]
 //
@@ -60,22 +61,26 @@ export const LABELS = {
   failure: {
     name: "sim-failure",
     color: "b60205",
-    description: "A failure the simulation campaign found (D27)",
+    description:
+      "A failure the simulation campaign found (spec/decisions/random-seed-simulations.md)",
   },
   tripwire: {
     name: "sim-tripwire",
     color: "fbca04",
-    description: "The campaign's tripwire, which fails on purpose (D27)",
+    description:
+      "The campaign's tripwire, which fails on purpose (spec/decisions/random-seed-simulations.md)",
   },
   optIn: {
     name: "sim",
     color: "1d76db",
-    description: "Run this pull request in the simulation campaign (D27)",
+    description:
+      "Run this pull request in the simulation campaign (spec/decisions/random-seed-simulations.md)",
   },
   trouble: {
     name: "sim-campaign",
     color: "5319e7",
-    description: "The simulation campaign itself is in trouble (D27)",
+    description:
+      "The simulation campaign itself is in trouble (spec/decisions/random-seed-simulations.md)",
   },
 };
 
@@ -713,7 +718,7 @@ export function issueBody(state: FailureState): string {
       state.commits.join(", ")
     }).`,
     details(state),
-    "A seed reproduces a failure only at the commit it ran on, so a fix comes with a targeted test (D27).",
+    "A seed reproduces a failure only at the commit it ran on, so a fix comes with a targeted test (spec/decisions/random-seed-simulations.md).",
     encodeState(state),
   ].join("\n\n");
 }

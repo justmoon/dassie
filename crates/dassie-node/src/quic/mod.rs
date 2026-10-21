@@ -81,7 +81,8 @@ const MAX_RESPONSE_BYTES: usize = 256 * 1024;
 const MAX_STREAMS: u32 = crate::node::MAX_PEER_REQUESTS_PER_CLIENT;
 
 /// What one connection may have unread, in all: its streams' worth of the
-/// largest message, so memory per connection is bounded (D16).
+/// largest message, so memory per connection is bounded
+/// (spec/decisions/tigerstyle.md).
 const CONNECTION_WINDOW: u32 = 4 * 1024 * 1024;
 
 /// Most addresses of a name tried, in turn, within the time to connect.
@@ -1025,7 +1026,7 @@ fn transport_config(idle: Duration) -> TransportConfig {
     transport.max_concurrent_bidi_streams(MAX_STREAMS.into());
     transport.max_concurrent_uni_streams(0u8.into());
     // Bounded windows: a stream holds at most the largest message, and a
-    // connection a few of them (D16).
+    // connection a few of them (spec/decisions/tigerstyle.md).
     let stream_window = u32::try_from(MAX_RESPONSE_BYTES).unwrap_or(u32::MAX);
     transport.stream_receive_window(VarInt::from_u32(stream_window));
     transport.receive_window(VarInt::from_u32(CONNECTION_WINDOW));

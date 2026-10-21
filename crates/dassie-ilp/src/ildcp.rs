@@ -24,7 +24,8 @@ pub const CONDITION: [u8; 32] = [
 pub const REQUEST_TIMEOUT_MS: u64 = 30_000;
 
 // RFC 31 leaves the asset code unbounded. Real codes are a few characters,
-// and a bound keeps a hostile parent from handing out megabytes (D16).
+// and a bound keeps a hostile parent from handing out megabytes
+// (spec/decisions/tigerstyle.md).
 const ASSET_CODE_SIZE: Size = Size::range(0, 255);
 const ADDRESS_SIZE: Size = Size::range(1, MAX_ADDRESS_LENGTH);
 

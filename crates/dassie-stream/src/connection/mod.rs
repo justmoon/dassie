@@ -15,7 +15,7 @@
 //!
 //! Every table is allocated when the connection is created, from its
 //! [`Policy`], and [`Connection::check_invariants`] verifies the state after
-//! any step (D16).
+//! any step (spec/decisions/tigerstyle.md).
 
 mod closed;
 mod receive;
@@ -642,7 +642,7 @@ impl Connection {
     /// Events one incoming packet can cause at most: a stream opened, data
     /// and money for each stream, every stream closed, and connection
     /// events. Packets are refused while the queue lacks this much room, so
-    /// a remote cannot overflow it (D16).
+    /// a remote cannot overflow it (spec/decisions/tigerstyle.md).
     fn event_reserve(&self) -> usize {
         3 * self.streams.capacity() + 4
     }

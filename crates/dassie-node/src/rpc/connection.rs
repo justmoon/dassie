@@ -10,11 +10,12 @@
 //! The loop never waits on its own outgoing queue, which only it drains:
 //! a client that sends faster than it reads, so that even refusals no
 //! longer fit, is disconnected. A browser's connection with nothing in
-//! flight closes after a while without messages (D16: an idle socket is
-//! memory and a file descriptor held for nothing). A browser's connection
-//! without a session also closes after a fixed lifetime, whatever it
-//! sends, so that no one can hold the places for such sockets for ever;
-//! like an ending session, it lets the calls in flight answer first.
+//! flight closes after a while without messages
+//! (spec/decisions/tigerstyle.md: an idle socket is memory and a file
+//! descriptor held for nothing). A browser's connection without a session
+//! also closes after a fixed lifetime, whatever it sends, so that no one can
+//! hold the places for such sockets for ever; like an ending session, it lets
+//! the calls in flight answer first.
 
 use std::collections::BTreeMap;
 use std::panic::AssertUnwindSafe;

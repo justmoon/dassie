@@ -1,5 +1,6 @@
-//! Peering (spec/areas/network.md#peering, D12): looking for peers, asking,
-//! and answering. Termination, bans and the advertise flag are in
+//! Peering (spec/areas/network.md#peering,
+//! spec/decisions/peering-lifecycle.md): looking for peers, asking, and
+//! answering. Termination, bans and the advertise flag are in
 //! [`lifecycle`](super::lifecycle).
 
 use alloc::vec::Vec;
@@ -64,7 +65,7 @@ impl Peering {
 
 impl PeerNode {
     /// Looks for peers until enough are confirmed, and for a bridge when a
-    /// majority node stays unreachable (D12).
+    /// majority node stays unreachable (spec/decisions/peering-lifecycle.md).
     pub(super) fn seek_peers(&mut self, hooks: &mut dyn PeeringHooks) {
         let now = self.now_ms;
         if self.peering.check_at_ms <= now {
@@ -139,8 +140,8 @@ impl PeerNode {
 
     /// Peers that count toward the target: advertised ones, confirmed by
     /// a recent message and not held down. A node whose peers went silent,
-    /// or flap, looks for others (D12). Downlinks do not count: they are
-    /// apart from the core peering slots.
+    /// or flap, looks for others (spec/decisions/peering-lifecycle.md).
+    /// Downlinks do not count: they are apart from the core peering slots.
     pub(crate) fn confirmed_peers(&self) -> usize {
         self.table
             .values()
@@ -249,7 +250,7 @@ impl PeerNode {
             data: &data,
             versions: hooks.versions(scheme).to_vec(),
             // A node knows only the credit it extends, and says nothing of
-            // it (D23); nodes of 0.1 read 0.
+            // it (spec/decisions/own-fulfills.md); nodes of 0.1 read 0.
             credit: 0,
         });
         if let Some(entry) = self.table.get_mut(&node) {
@@ -379,7 +380,8 @@ impl PeerNode {
             return false;
         };
         if entry.peering().is_some() {
-            // A peering stays as it was made (D12).
+            // A peering stays as it was made
+            // (spec/decisions/peering-lifecycle.md).
             return true;
         }
         if !self.open_channel(node) {
@@ -411,7 +413,8 @@ impl PeerNode {
         self.dirty.insert(node);
         if fresh {
             // It just answered us, or we it after probing its URL: what an
-            // earlier peering left of our reach to it is gone (D41).
+            // earlier peering left of our reach to it is gone
+            // (spec/decisions/unreachable-peers.md).
             self.unreached.remove(&node);
             self.auth.pin(node);
             self.stats.peerings += 1;
@@ -465,7 +468,7 @@ impl PeerNode {
             entry.key.get_or_insert(key);
         }
         // A repeat, after an answer that got lost: the stored peering, as
-        // it is (D12).
+        // it is (spec/decisions/peering-lifecycle.md).
         if let Some(peering) = self
             .table
             .get(&sender)

@@ -24,10 +24,11 @@ rust-version = "1.98"
 license = "Apache-2.0"
 publish = false
 
-# D16's simple shape, in every crate and every target, so that a new crate
-# cannot forget it: no unsafe code, no panicking index or unwrap, no lossy
-# integer cast, no floating point, and functions of at most 70 lines
-# (clippy.toml). Tests opt out where a panic is the failed test.
+# The simple shape of spec/decisions/tigerstyle.md, in every crate and every
+# target, so that a new crate cannot forget it: no unsafe code, no panicking
+# index or unwrap, no lossy integer cast, no floating point, and functions of
+# at most 70 lines (clippy.toml). Tests opt out where a panic is the failed
+# test.
 [workspace.lints.rust]
 unsafe_code = "forbid"
 missing_docs = "deny"
@@ -46,7 +47,8 @@ panic = "deny"
 unreachable = "deny"
 
 # Integer overflow is a bug wherever it happens, and in this code base it
-# usually means a wrong balance. Checks stay on in every profile (D16).
+# usually means a wrong balance. Checks stay on in every profile
+# (spec/decisions/tigerstyle.md).
 [profile.dev]
 overflow-checks = true
 
@@ -81,8 +83,9 @@ inherits = "dev"
 [profile.ci]
 inherits = "test"
 
-# The simulation runner, dassie-sim (D27): the test profile's code, so that
-# a run checks every invariant before every commit, as it does in tests,
+# The simulation runner, dassie-sim
+# (spec/decisions/random-seed-simulations.md): the test profile's code, so
+# that a run checks every invariant before every commit, as it does in tests,
 # and replays exactly as the test of the same seed.
 [profile.sim]
 inherits = "test"

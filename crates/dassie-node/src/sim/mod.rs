@@ -1,29 +1,31 @@
 //! A simulated network of real engine cores
 //! (spec/areas/testing.md#deterministic-simulation), for this crate's tests and
-//! the simulation runner, dassie-sim (D27): each node's core with its own
-//! in-memory database, wired through a virtual network with latency, loss
-//! and replayed requests, each on a clock of its own, crashed and restarted
-//! from its database, paying over STREAM through BTP clients. Everything
-//! comes from one seed.
+//! the simulation runner, dassie-sim
+//! (spec/decisions/random-seed-simulations.md): each node's core with its own
+//! in-memory database, wired through a virtual network with latency, loss and
+//! replayed requests, each on a clock of its own, crashed and restarted from
+//! its database, paying over STREAM through BTP clients. Everything comes
+//! from one seed.
 //!
 //! It checks what only the whole node can show: peerings and balances
 //! survive restarts, payments of several times the credit cross hops, so
 //! every hop settles, an owner's termination ends a peering with nothing
-//! settled for its end (D28), and
+//! settled for its end (spec/decisions/ending-a-peering.md), and
 //! the stubs' "underlying ledger" neither makes nor loses money. One
 //! payment's token has a spending cap, which the journal must show it
 //! kept to.
 //!
-//! Each node is judged on its own, by its own books (D19): they hold what
-//! its scheme holds and what its clients and receivers really moved, it
-//! takes every settlement its peers send, and it settles whatever its
-//! books say it owes past its threshold. No check compares two nodes'
-//! books, or adds them up: each keeps its own, and they may drift.
+//! Each node is judged on its own, by its own books
+//! (spec/decisions/own-books.md): they hold what its scheme holds and what
+//! its clients and receivers really moved, it takes every settlement its
+//! peers send, and it settles whatever its books say it owes past its
+//! threshold. No check compares two nodes' books, or adds them up: each keeps
+//! its own, and they may drift.
 //!
 //! A node also crashes mid-payment: a sender, a hop or a receiver. Each
 //! node books the Fulfills it sent as final, whether or not its upstream
-//! took them (D23), and its books still hold against what its own clients
-//! and receivers moved.
+//! took them (spec/decisions/own-fulfills.md), and its books still hold
+//! against what its own clients and receivers moved.
 //!
 //! Outgoing payments go between nodes and to a node's own receiver: each
 //! sends exactly its debit amount, across a crash of its node too, and
@@ -40,12 +42,13 @@
 //! nodes that convert. No ledger makes or loses any asset.
 //!
 //! A node that never settles, or spends the credit it was given and
-//! vanishes, costs its peer no more than that credit (D23).
+//! vanishes, costs its peer no more than that credit
+//! (spec/decisions/own-fulfills.md).
 //!
 //! A node's commit can be made to fail, the one fault injected at the
-//! store (D27): its core stops without handing over anything of the step,
-//! as it does in the daemon, and the node is down until restarted from
-//! its database, as after a crash.
+//! store (spec/decisions/random-seed-simulations.md): its core stops without
+//! handing over anything of the step, as it does in the daemon, and the node
+//! is down until restarted from its database, as after a crash.
 //!
 //! Test code, behind the `testing` feature: a panic here is a failed run.
 
@@ -89,7 +92,8 @@ use crate::store::{Aim, FailedCommit, ForeignAmount, Holds, PaymentId, PeerSetti
 pub const START: u64 = 1_800_000_000_000;
 /// The credit a node extends by default.
 pub const CREDIT: i128 = 1_100_000_000;
-/// Every node's trigger, one and a half of the largest packets (D25).
+/// Every node's trigger, one and a half of the largest packets
+/// (spec/decisions/thresholds-in-packets.md).
 pub const TRIGGER: u64 = policy::trigger(Policies::DEFAULT.connector.max_packet_amount);
 /// How long a payment's client waits to measure the exchange rate again,
 /// after a measurement failed, or to connect again, after its connection
@@ -359,7 +363,8 @@ pub struct Sim {
     pub withdrawn: Vec<(u64, usize, NodeId)>,
     /// The shortest and the longest a message takes, in milliseconds.
     pub latency_ms: (u64, u64),
-    /// How many times the run reached each thing it counts (D27).
+    /// How many times the run reached each thing it counts
+    /// (spec/decisions/random-seed-simulations.md).
     pub counts: BTreeMap<&'static str, u64>,
     /// How many times the faucet funded each node: again after a crash cut
     /// its first request short.
@@ -376,7 +381,8 @@ pub struct Sim {
 }
 
 // Every run, whatever it checks besides, ends without an error event: a
-// node reports one only for what should not happen (D16).
+// node reports one only for what should not happen
+// (spec/decisions/tigerstyle.md).
 impl Drop for Sim {
     fn drop(&mut self) {
         if !std::thread::panicking() {
@@ -553,8 +559,8 @@ impl Sim {
     }
 
     /// Makes node `index` fail the commit after the next `skip` that `aim`
-    /// aims at (D27). The node stops in the step that commits it, and is
-    /// down until restarted.
+    /// aims at (spec/decisions/random-seed-simulations.md). The node stops in
+    /// the step that commits it, and is down until restarted.
     pub fn fail_commit(&mut self, index: usize, aim: Aim, skip: u32) {
         let node = &mut self.nodes[index];
         assert!(node.core.is_some(), "a node that runs fails a commit");
@@ -566,9 +572,10 @@ impl Sim {
     }
 
     /// Makes the first running node to commit what `aim` aims at, after
-    /// its next `skip` such commits, fail that commit (D27): for a moment
-    /// few nodes reach at any one time, such as a settlement. Nodes that
-    /// have a commit to fail already are left as they are.
+    /// its next `skip` such commits, fail that commit
+    /// (spec/decisions/random-seed-simulations.md): for a moment few nodes
+    /// reach at any one time, such as a settlement. Nodes that have a commit
+    /// to fail already are left as they are.
     pub fn fail_commit_anywhere(&mut self, aim: Aim, skip: u32) {
         for (index, node) in self.nodes.iter_mut().enumerate() {
             if node.core.is_some() && node.failing.is_none() {
@@ -798,7 +805,8 @@ impl Sim {
     }
 
     /// Keeps what a node reported in the trace, which a replay compares,
-    /// and an error or a lost event as a failure of the run (D16).
+    /// and an error or a lost event as a failure of the run
+    /// (spec/decisions/tigerstyle.md).
     pub fn record(&mut self, index: usize, event: &Event) {
         if matches!(
             event,
@@ -838,7 +846,8 @@ impl Sim {
                 let to = (0..to).find(|i| url(*i) == request.url).unwrap();
                 let generation = self.nodes[index].generation;
                 // When a node asks a peer to settle, so that the checks can
-                // tell how long it waited for the answer (D28).
+                // tell how long it waited for the answer
+                // (spec/decisions/ending-a-peering.md).
                 if dassie_peer::wire::peek_kind(&request.body)
                     == Some(dassie_peer::wire::Kind::SettlementRequest)
                 {
@@ -1356,7 +1365,7 @@ impl Sim {
             // An incoming payment that takes less stops the stream there.
             // Its receiver may have all of it before the sender counts it:
             // a hop that crashed counted a Fulfill the sender never got,
-            // and the receiver says so (D23).
+            // and the receiver says so (spec/decisions/own-fulfills.md).
             // The receiver reports what its connection key delivered, over
             // every connection the client made with the same credentials:
             // it always counts against a limit, the payment's or the most

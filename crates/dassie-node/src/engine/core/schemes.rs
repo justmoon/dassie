@@ -112,7 +112,7 @@ impl Core {
     /// ([`apply_effects`](Self::apply_effects)).
     ///
     /// A scheme that has just synced for the first time can be peered on
-    /// from now (D31).
+    /// from now (spec/decisions/synced-before-peering.md).
     pub(super) fn scheme_effects(&mut self, scheme: Name, ledger: LedgerId, effects: &[Effect]) {
         if self.apply_effects(scheme, ledger, effects).is_err() {
             return;

@@ -36,7 +36,8 @@ export const PEBBLE_DIRECTORY = "https://localhost:14000/dir";
 export const NO_BOOTSTRAP_NODES = "[]";
 /**
  * `DASSIE_RELAY` for a daemon under test: none, so that a node without a
- * hostname never dials the public front door, the default relay (D40).
+ * hostname never dials the public front door, the default relay
+ * (spec/decisions/default-relay.md).
  */
 export const NO_RELAY = "";
 

@@ -269,7 +269,8 @@ export type NetworkPeer = Message<"dassie.ui.v1.NetworkPeer"> & {
   inbound: boolean;
 
   /**
-   * "peered", or "terminating" while it is being ended (D12).
+   * "peered", or "terminating" while it is being ended
+   * (spec/decisions/peering-lifecycle.md).
    *
    * @generated from field: string state = 9;
    */
@@ -303,7 +304,7 @@ export type NetworkPeer = Message<"dassie.ui.v1.NetworkPeer"> & {
   /**
    * Whether the peer was heard from within the last 60 s. An offline peer
    * is not advertised, so no route goes through it; the peering stays
-   * until it has been silent for a day (D12).
+   * until it has been silent for a day (spec/decisions/peering-lifecycle.md).
    *
    * @generated from field: bool online = 15;
    */
@@ -478,7 +479,8 @@ export const SubscribeRoutesRequestSchema: GenMessage<SubscribeRoutesRequest> = 
   messageDesc(file_dassie_ui_v1_network, 12);
 
 /**
- * This node's standing with one bootstrap node (D4).
+ * This node's standing with one bootstrap node
+ * (spec/decisions/membership-economics.md).
  *
  * @generated from message dassie.ui.v1.BootstrapStatus
  */
@@ -615,11 +617,11 @@ export const RegisterWithBootstrapResponseSchema: GenMessage<RegisterWithBootstr
   messageDesc(file_dassie_ui_v1_network, 18);
 
 /**
- * Ends a peering, as its owner (D12): the node first collects, privately,
- * asking the peer to settle once more, then tells it; once the packets in
- * flight are done it ends on both sides. Nothing else is settled for its end
- * (D28): what is owed stays on the books. The pair does not peer again for
- * a day.
+ * Ends a peering, as its owner (spec/decisions/peering-lifecycle.md): the
+ * node first collects, privately, asking the peer to settle once more, then
+ * tells it; once the packets in flight are done it ends on both sides.
+ * Nothing else is settled for its end (spec/decisions/ending-a-peering.md):
+ * what is owed stays on the books. The pair does not peer again for a day.
  *
  * @generated from message dassie.ui.v1.TerminatePeeringRequest
  */
@@ -731,7 +733,7 @@ export const ListBansRequestSchema: GenMessage<ListBansRequest> = /*@__PURE__*/
  */
 export type ListBansResponse = Message<"dassie.ui.v1.ListBansResponse"> & {
   /**
-   * By ID. Only the owner bans (D23).
+   * By ID. Only the owner bans (spec/decisions/own-fulfills.md).
    *
    * @generated from field: repeated string nodes = 1;
    */
@@ -746,7 +748,7 @@ export const ListBansResponseSchema: GenMessage<ListBansResponse> = /*@__PURE__*
   messageDesc(file_dassie_ui_v1_network, 26);
 
 /**
- * The owner's settings for peers (D7).
+ * The owner's settings for peers (spec/decisions/exchange-rates.md).
  *
  * @generated from message dassie.ui.v1.PeerSettings
  */

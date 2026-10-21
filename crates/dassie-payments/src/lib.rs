@@ -15,7 +15,7 @@
 //!
 //! `dassie-node` serves and calls Open Payments with these. Nothing here
 //! reads a clock or touches the network: time comes in as an argument, so
-//! the same inputs give the same outputs (D16).
+//! the same inputs give the same outputs (spec/decisions/tigerstyle.md).
 
 #![no_std]
 

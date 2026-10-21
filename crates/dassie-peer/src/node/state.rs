@@ -209,7 +209,7 @@ impl PeerNode {
             .depeering
             .map(|depeering| Depeering::new(depeering.since_ms, depeering.reason));
         // Advertised at once if heard from recently: a restart does not
-        // drop our neighbors (D12).
+        // drop our neighbors (spec/decisions/peering-lifecycle.md).
         let confirmed = peering.heard_within(now, self.config.peer_confirm_ms);
         entry.advertise = Advertise {
             on: confirmed && termination.is_none(),
@@ -302,11 +302,12 @@ impl PeerNode {
     /// `peer`. A peer short, settling nothing, for longer than
     /// [`Config::advertise_short_grace_ms`](crate::Config) of checks at
     /// which the node could ask is no longer advertised: it is stuck, not
-    /// waiting for a routine settlement (D12). Of that time, only what
-    /// passed while the last request to settle may have reached the peer
-    /// counts toward ending the peering: one that cannot be reached is
-    /// asked at every check, and each attempt fails before it reaches the
-    /// peer, so it costs the peer nothing.
+    /// waiting for a routine settlement
+    /// (spec/decisions/peering-lifecycle.md). Of that time, only what passed
+    /// while the last request to settle may have reached the peer counts
+    /// toward ending the peering: one that cannot be reached is asked at
+    /// every check, and each attempt fails before it reaches the peer, so it
+    /// costs the peer nothing.
     pub fn room(&mut self, now_ms: u64, peer: &NodeId, room: Room) {
         self.advance(now_ms);
         let now = self.now_ms;
@@ -418,7 +419,8 @@ impl PeerNode {
                 peer_status: match &entry.peer {
                     PeerState::None => PeerStatus::None,
                     PeerState::Requesting { .. } => PeerStatus::Requesting,
-                    // Ending it privately is ending it, to its owner (D28).
+                    // Ending it privately is ending it, to its owner
+                    // (spec/decisions/ending-a-peering.md).
                     PeerState::Peered(peering) if peering.depeering.is_some() => {
                         PeerStatus::Terminating
                     }
@@ -551,8 +553,8 @@ impl PeerNode {
         }
     }
 
-    /// Checks the node's invariants (D16): bounds, ourselves in the table,
-    /// and peers that are what the table says.
+    /// Checks the node's invariants (spec/decisions/tigerstyle.md): bounds,
+    /// ourselves in the table, and peers that are what the table says.
     ///
     /// # Panics
     ///
@@ -596,8 +598,9 @@ impl PeerNode {
             peers <= self.config.max_peers && all - peers <= self.config.max_downlinks,
             "peers within bounds"
         );
-        // A peering that ends forgets the mark (D41); one that is left
-        // behind would refuse a later peering's first Prepares.
+        // A peering that ends forgets the mark
+        // (spec/decisions/unreachable-peers.md); one that is left behind
+        // would refuse a later peering's first Prepares.
         assert!(
             self.unreached
                 .iter()

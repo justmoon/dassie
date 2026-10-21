@@ -1,5 +1,5 @@
 //! The copy of the database from before a migration, and putting it back
-//! when an update is rolled back (D11).
+//! when an update is rolled back (spec/decisions/release-integrity.md).
 //!
 //! A new version migrates the schema as it opens the database, before it
 //! serves anything. The version before it refuses a database it does not

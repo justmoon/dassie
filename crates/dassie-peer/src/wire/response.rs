@@ -320,14 +320,15 @@ pub fn decode_expiry(body: &[u8]) -> Result<u64, DecodeError> {
 }
 
 /// Encodes the answer to a settlement request: how much the answering node
-/// has on its way to the asker, in the scheme ledger's units (D28).
+/// has on its way to the asker, in the scheme ledger's units
+/// (spec/decisions/ending-a-peering.md).
 #[must_use]
 pub fn encode_settling(amount: u64) -> Vec<u8> {
     amount.to_be_bytes().to_vec()
 }
 
 /// Reads the answer to a settlement request: `None` for an empty one, as a
-/// node from before D28 answers.
+/// node from before spec/decisions/ending-a-peering.md answers.
 ///
 /// # Errors
 ///

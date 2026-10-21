@@ -1,4 +1,5 @@
-//! The core: what the engine owns, and its steps, without IO (D16).
+//! The core: what the engine owns, and its steps, without IO
+//! (spec/decisions/tigerstyle.md).
 //!
 //! The core never reads a clock, an RNG or a socket of its own. Its driver
 //! gives it the time at the start of each step, an RNG when it starts, and
@@ -135,7 +136,7 @@ pub enum Output {
     },
     /// A packet as the trace records it, for subscribers.
     Trace(TraceEvent),
-    /// What the core reports, for the log (D16).
+    /// What the core reports, for the log (spec/decisions/tigerstyle.md).
     Event(Event),
     /// A peer request to send.
     PeerRequest(dassie_peer::Request),
@@ -278,7 +279,7 @@ pub struct Core {
     /// `test` or `g`, for nodes' addresses.
     allocation_scheme: &'static str,
     /// The credit a junior extends to its senior, and a senior to its
-    /// junior, at first (D20).
+    /// junior, at first (spec/decisions/earned-trust.md).
     peer_credit: u64,
     senior_credit: u64,
     /// Peer requests and replies, handed over once the batch is persisted.
@@ -303,7 +304,7 @@ pub struct Core {
     events: Events,
 }
 
-/// When the invariants are swept (D16).
+/// When the invariants are swept (spec/decisions/tigerstyle.md).
 #[derive(Debug)]
 struct Sweeps {
     /// The next sweep, at the earliest.
@@ -323,22 +324,24 @@ impl Sweeps {
     };
 }
 
-/// Most rounds a step's end takes (D16). A round repeats only for what the
-/// one before set going, which is finite: settlements executed, links
-/// closed. A few suffice; past this, what is left waits for
-/// the next step.
+/// Most rounds a step's end takes (spec/decisions/tigerstyle.md). A round
+/// repeats only for what the one before set going, which is finite:
+/// settlements executed, links closed. A few suffice; past this, what is left
+/// waits for the next step.
 const MAX_FINISH_ROUNDS: usize = 16;
 
-/// Most packets one connection sends at a time (D16). A connection's
-/// packets in flight are fewer; only answers given at once could take it
-/// further. What is left goes in the next step, which is due at once.
+/// Most packets one connection sends at a time
+/// (spec/decisions/tigerstyle.md). A connection's packets in flight are
+/// fewer; only answers given at once could take it further. What is left goes
+/// in the next step, which is due at once.
 pub(super) const MAX_SENDS_PER_POLL: usize = 256;
 
-/// How often the full sweep of the invariants runs, in engine time (D16).
-/// Where debug assertions are on (tests, simulations and the end-to-end
-/// binary) it runs before every commit; in release at most this often.
-/// Each change asserts what it can see on its own either way, and the
-/// time is the engine's, so a run stays the same for the same inputs.
+/// How often the full sweep of the invariants runs, in engine time
+/// (spec/decisions/tigerstyle.md). Where debug assertions are on (tests,
+/// simulations and the end-to-end binary) it runs before every commit; in
+/// release at most this often. Each change asserts what it can see on its own
+/// either way, and the time is the engine's, so a run stays the same for the
+/// same inputs.
 ///
 /// Measured with the tables full (October 2026, optimized): the ledger's
 /// part takes 0.4 ms (4 000 accounts, 25 000 pending), the connector's
@@ -454,7 +457,8 @@ impl Core {
                 self.report(PeerEvent::NoEndpoint { node, error });
             }
             // One being ended stays drained; one we end privately still
-            // refuses the peer's Prepares (D28).
+            // refuses the peer's Prepares
+            // (spec/decisions/ending-a-peering.md).
             let depeering = self
                 .peer
                 .peering_of(&node)
@@ -770,7 +774,8 @@ fn check_bounds(policies: &Policies) {
     );
     // Less credit, and a link could stop settling after one crash: its
     // drift, up to what was in flight, would leave the debtor less than
-    // the minimum to settle when asked (D25).
+    // the minimum to settle when asked
+    // (spec/decisions/thresholds-in-packets.md).
     let least = dassie_settlement::policy::least_credit(
         connector.max_packet_amount,
         connector.max_in_flight(),
@@ -783,7 +788,8 @@ fn check_bounds(policies: &Policies) {
     // A request that never arrived is asked again at the next check; one
     // whose fate is unknown, or that the peer refused, only after a request
     // interval. Two of those withdraw nothing: the third request is answered,
-    // or times out, before the grace is over (D12).
+    // or times out, before the grace is over
+    // (spec/decisions/peering-lifecycle.md).
     assert!(
         policies.peer.advertise_short_grace_ms
             > 2 * policies.settlement_request_every_ms + policies.peer.request_timeout_ms,

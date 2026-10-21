@@ -126,10 +126,11 @@ fn peer_packets_book_against_its_credit() {
     );
 }
 
-// D24: money in flight with a peer stays within two and a half of the
-// largest packets each way, whatever the credit: a crash loses the Fulfills
-// of what was in flight, so this is how far it makes two peers' books drift
-// apart. Two of the largest fit, and the half left takes smaller ones.
+// spec/decisions/packets-in-flight.md: money in flight with a peer stays
+// within two and a half of the largest packets each way, whatever the credit:
+// a crash loses the Fulfills of what was in flight, so this is how far it
+// makes two peers' books drift apart. Two of the largest fit, and the half
+// left takes smaller ones.
 #[test]
 fn money_in_flight_with_a_peer_is_capped() {
     let mut harness = harness();
@@ -307,9 +308,9 @@ fn draining_peers_finish_what_is_in_flight() {
     assert!(!harness.connector.set_draining(EndpointId::Peer(9), true));
 }
 
-// A peer whose peering we end, and have not told yet (D28), has its new
-// Prepares refused as for want of liquidity, which tells it nothing more;
-// ours still go to it.
+// A peer whose peering we end, and have not told yet
+// (spec/decisions/ending-a-peering.md), has its new Prepares refused as for
+// want of liquidity, which tells it nothing more; ours still go to it.
 #[test]
 fn a_refusing_peer_still_takes_ours() {
     let mut harness = harness();
@@ -327,9 +328,11 @@ fn a_refusing_peer_still_takes_ours() {
 }
 
 // A peer our messages surely do not reach has its new Prepares refused,
-// for a while, as for want of liquidity (D41); ours still go to it. The
-// refusal is its own: it holds while a D28 refusal is lifted, and lifting
-// it leaves a D28 refusal in place.
+// for a while, as for want of liquidity
+// (spec/decisions/unreachable-peers.md); ours still go to it. The refusal is
+// its own: it holds while a spec/decisions/ending-a-peering.md refusal is
+// lifted, and lifting it leaves a spec/decisions/ending-a-peering.md refusal
+// in place.
 #[test]
 fn an_unreached_peer_still_takes_ours() {
     let mut harness = harness();

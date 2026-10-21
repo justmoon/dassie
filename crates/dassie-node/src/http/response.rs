@@ -174,7 +174,7 @@ pub(super) mod tests {
         #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
 
         // Headers are the client's: whatever they hold is read or skipped,
-        // without a panic (D16).
+        // without a panic (spec/decisions/tigerstyle.md).
         #[test]
         fn any_headers_are_read(
             headers in headers(NAMES),

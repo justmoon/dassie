@@ -1,7 +1,7 @@
-//! What holds between steps, checked before each commit (D16): every
-//! state machine the core owns checks its own, and the core checks how
-//! they fit together. The parts whose fields a module keeps to itself are
-//! checked in that module.
+//! What holds between steps, checked before each commit
+//! (spec/decisions/tigerstyle.md): every state machine the core owns checks
+//! its own, and the core checks how they fit together. The parts whose fields
+//! a module keeps to itself are checked in that module.
 
 use dassie_ledger::{AccountName, Name, Reference};
 

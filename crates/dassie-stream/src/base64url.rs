@@ -1,5 +1,5 @@
 //! Unpadded base64url (RFC 4648 §5), for connection tokens in ILP addresses.
-//! Small enough not to justify a dependency (D16).
+//! Small enough not to justify a dependency (spec/decisions/tigerstyle.md).
 
 const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 

@@ -1,4 +1,5 @@
-//! Message authentication, v1 (D2, spec/areas/peer-protocol.md#keys-and-macs).
+//! Message authentication, v1 (spec/decisions/peer-protocol-v1.md,
+//! spec/areas/peer-protocol.md#keys-and-macs).
 //!
 //! A request names its sender's key, which must hash to the sender's node
 //! ID; the MAC key comes from the two nodes' static keys; the MAC covers
@@ -624,7 +625,7 @@ impl Authenticator {
         current
     }
 
-    /// Checks the bounds of every table (D16).
+    /// Checks the bounds of every table (spec/decisions/tigerstyle.md).
     pub fn check_invariants(&self) {
         assert!(
             self.keys.len() <= self.config.max_keys,

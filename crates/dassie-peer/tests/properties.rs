@@ -1,7 +1,7 @@
-//! The peer node never panics on what other nodes send it (D16): requests
-//! and the responses to its own, arbitrary or broken from valid ones, on a
-//! small simulated network that checks the nodes' invariants after every
-//! step.
+//! The peer node never panics on what other nodes send it
+//! (spec/decisions/tigerstyle.md): requests and the responses to its own,
+//! arbitrary or broken from valid ones, on a small simulated network that
+//! checks the nodes' invariants after every step.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 

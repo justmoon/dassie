@@ -12,7 +12,8 @@
 //! - `fake` (feature `fake`): a model of the ledger, for simulations and
 //!   tests.
 //!
-//! Nothing here reads a clock or touches the network (D16).
+//! Nothing here reads a clock or touches the network
+//! (spec/decisions/tigerstyle.md).
 
 #![no_std]
 

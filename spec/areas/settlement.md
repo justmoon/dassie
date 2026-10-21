@@ -5,7 +5,7 @@ How a node moves money with its peers on an underlying ledger, and how its books
 **Paths:** `crates/dassie-settlement/`, `crates/dassie-node/src/engine/core/settlement.rs`, `crates/dassie-node/src/engine/core/growth.rs`, `crates/dassie-node/src/engine/core/ledgers.rs`, `crates/dassie-node/src/engine/core/schemes.rs`, `crates/dassie-node/src/engine/links.rs`, `crates/dassie-peer/src/node/settle.rs`, `crates/dassie-peer/src/channel.rs`
 **Read with:** [Ledger](ledger.md), [XRPL](xrpl.md), [Network](network.md), [Peer protocol](peer-protocol.md), [Connector](connector.md)
 
-Each node keeps its own books and decides from them alone: whether it takes a settlement, when it asks a peer to settle, how much it settles, and when it ends a peering. What a peer says is an input to these decisions, never trusted past the node's limits. However a peer behaves, and however far its books are from ours, **it costs us at most the credit we extend, plus what it has in flight** ([Connector](connector.md#money-in-flight-with-a-peer)). The node does not know the credit a peer extends to it, does not model the peer's books, and does not measure drift ([D19](../decisions/D19-each-node-keeps-its-own-books.md)).
+Each node keeps its own books and decides from them alone: whether it takes a settlement, when it asks a peer to settle, how much it settles, and when it ends a peering. What a peer says is an input to these decisions, never trusted past the node's limits. However a peer behaves, and however far its books are from ours, **it costs us at most the credit we extend, plus what it has in flight** ([Connector](connector.md#money-in-flight-with-a-peer)). The node does not know the credit a peer extends to it, does not model the peer's books, and does not measure drift ([own-books](../decisions/own-books.md)).
 
 ## Schemes and ledgers
 
@@ -21,7 +21,7 @@ A scheme is sans-IO: its methods return effects (`Effect` in `scheme.rs`) for th
 - **Execute only once the pending transfer is on disk,** and report `Finalize` or `Cancel`, now or later. After a restart, `reconcile` gets the settlements still pending and reports the same for each.
 - **The message can be made again** from the settlement's ID, so a restart that lost it can still announce the settlement.
 - **Peering keeps nothing until it is made.** Creating, accepting and finalizing a peering request only check the other side's data; the scheme keeps what it needs of a peer when the node tells it the peering is made (`on_peered`), after the peer's accounts are open. So attempts that fail cost the scheme no room.
-- **Peering waits for the first sync.** A scheme's first sync books what its account holds as the owner's deposit; only after it can the scheme tell a peer's settlement from a deposit (`has_synced`). Until then the node neither offers, asks for nor accepts a peering on the scheme: it leaves the scheme out of its link state, picks no candidate on it, and refuses requests on it as for a scheme not active here ([Network](network.md#asking-and-answering), [D31](../decisions/D31-a-node-peers-on-a-scheme-only-once-it-has-seen-its-ledger.md)). The first sync is kept with the scheme's state, so a restart with the ledger out of reach peers as before, and peerings already made stay. A scheme without a ledger to follow has synced from the start.
+- **Peering waits for the first sync.** A scheme's first sync books what its account holds as the owner's deposit; only after it can the scheme tell a peer's settlement from a deposit (`has_synced`). Until then the node neither offers, asks for nor accepts a peering on the scheme: it leaves the scheme out of its link state, picks no candidate on it, and refuses requests on it as for a scheme not active here ([Network](network.md#asking-and-answering), [synced-before-peering](../decisions/synced-before-peering.md)). The first sync is kept with the scheme's state, so a restart with the ledger out of reach peers as before, and peerings already made stay. A scheme without a ledger to follow has synced from the start.
 - **Reports** (deposits, withdrawals, ledger fees, reconciliations) are recorded even past the owner's limit ([Ledger](ledger.md#what-the-ledger-refuses-and-what-it-records)). An incoming settlement is booked Dr `assets/settlement`, Cr `assets/interledger/<peer>`.
 - **`Unavailable`** means not now (its ledger not seen, no funds to spare, too much in flight). It is asked again at the next check as if nothing happened.
 - **The scheme's reserve** is what its ledger holds back from the balance: never booked, so never spendable.
@@ -42,14 +42,14 @@ Activation books only the difference between the scheme's balance and the last c
 
 ## Credit
 
-**Roles.** The **junior** is the node whose peering request was accepted, the **senior** the node that accepted it; when requests cross, the lower node ID's request wins, so the lower ID is the junior ([Network](network.md)). The node that asked to peer takes the risk at first ([D20](../decisions/D20-trust-follows-what-a-peer-earned-us.md)). A periphery node always asks, so it is always its uplinks' junior ([Network](network.md#periphery-nodes)).
+**Roles.** The **junior** is the node whose peering request was accepted, the **senior** the node that accepted it; when requests cross, the lower node ID's request wins, so the lower ID is the junior ([Network](network.md)). The node that asked to peer takes the risk at first ([earned-trust](../decisions/earned-trust.md)). A periphery node always asks, so it is always its uplinks' junior ([Network](network.md#periphery-nodes)).
 
 **Starting credit.** The junior extends the senior the default credit line; the senior extends the junior nothing. Asked to settle at once, the junior then pays in advance, and payments to the junior flow at once, within the credit it extends. Both are policies of the node (`Policies` in `crates/dassie-node/src/node/mod.rs`), not owner settings, and one value for every ledger ([roadmap](../roadmap.md#not-built-yet)).
 
-- **Peering again** keeps the trust account and its credit. A junior still extends at least the default line: a node that was the senior before, or that accepted a request only one side recorded, raises the account to it. Not when it once ended a peering with that node for want of room: then it keeps the lower credit, so a peer that never settled gets no new line by being asked again ([D33](../decisions/D33-a-peering-ended-for-room-stays-apart-and-earns-no-credit-back.md)).
+- **Peering again** keeps the trust account and its credit. A junior still extends at least the default line: a node that was the senior before, or that accepted a request only one side recorded, raises the account to it. Not when it once ended a peering with that node for want of room: then it keeps the lower credit, so a peer that never settled gets no new line by being asked again ([ended-for-room](../decisions/ended-for-room.md)).
 - **Nothing is announced.** The credit a node extends is its own business: the peer protocol's `credit` fields are sent as 0 and ignored ([Peer protocol](peer-protocol.md)). More credit only means the creditor asks later.
 
-**The least credit.** Asked at the asker's trigger, a debtor settles only if its own books leave it its trigger plus twice the least settlement ([below](#settling-on-request)). So a link survives drift of up to its credit less two triggers and twice the least settlement, and the node refuses to start with a default credit (or a senior credit other than 0) below that plus one crash's drift at the cap on money in flight (`policy::least_credit`). A link cut one way drifts no more than a crash: a node takes no new Prepare from a peer its messages surely do not reach, so its Fulfills that cannot arrive are only those in flight when the cut began ([D41](../decisions/D41-a-node-takes-no-prepare-from-a-peer-it-cannot-reach.md)).
+**The least credit.** Asked at the asker's trigger, a debtor settles only if its own books leave it its trigger plus twice the least settlement ([below](#settling-on-request)). So a link survives drift of up to its credit less two triggers and twice the least settlement, and the node refuses to start with a default credit (or a senior credit other than 0) below that plus one crash's drift at the cap on money in flight (`policy::least_credit`). A link cut one way drifts no more than a crash: a node takes no new Prepare from a peer its messages surely do not reach, so its Fulfills that cannot arrive are only those in flight when the cut began ([unreachable-peers](../decisions/unreachable-peers.md)).
 
 ```
 least_credit = 2 · trigger + 2 · least settlement + max_in_flight = 3P + 2P + 2.5P = 7.5 P
@@ -67,7 +67,7 @@ The default clears it with room for about two crashes.
 
 ## Positions and thresholds
 
-A node knows only the credit it extends to a peer, not the credit the peer extends to it, so only the creditor can tell when a peer should settle. It asks; the debtor decides how much ([D23](../decisions/D23-each-node-books-its-own-fulfills.md)). Both rules are in `crates/dassie-settlement/src/policy.rs`.
+A node knows only the credit it extends to a peer, not the credit the peer extends to it, so only the creditor can tell when a peer should settle. It asks; the debtor decides how much ([own-fulfills](../decisions/own-fulfills.md)). Both rules are in `crates/dassie-settlement/src/policy.rs`.
 
 ```
 position = what the peer may still owe us: the credit we extend, plus what we owe it,
@@ -77,7 +77,7 @@ ask the peer to settle   when position ≤ trigger
 when asked, settle       (position − trigger) / 2, or nothing if that is less than the least settlement
 ```
 
-Every threshold of a link is counted in its [largest packet](connector.md#the-largest-packet) `P`, not in the credit, which differs on each side and grows with earnings ([D25](../decisions/D25-a-links-thresholds-are-counted-in-its-largest-packet.md)). So even a senior that extends nothing asks while its junior still has room.
+Every threshold of a link is counted in its [largest packet](connector.md#the-largest-packet) `P`, not in the credit, which differs on each side and grows with earnings ([thresholds-in-packets](../decisions/thresholds-in-packets.md)). So even a senior that extends nothing asks while its junior still has room.
 
 | Threshold | In `P` | Why |
 |---|---|---|
@@ -105,13 +105,13 @@ A request says that the debtor stands near the asker's trigger. The debtor settl
 
 - **It never pays itself into asking back:** settling lowers its own position, however far two nodes' books have drifted apart.
 - **One settlement at a time.** It settles nothing while a settlement to that peer is on its way (prepared, executing, pending in the ledger, or announced and not yet acknowledged): that one is the answer. Nor while a cancelled settlement holds it off ([below](#outgoing-settlements)).
-- **The answer says what is on its way:** the settlement it makes now, or the one already under way, or nothing. So an asker can tell a settlement still coming from none ([D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)).
+- **The answer says what is on its way:** the settlement it makes now, or the one already under way, or nothing. So an asker can tell a settlement still coming from none ([ending-a-peering](../decisions/ending-a-peering.md)).
 - **A lying asker gets at most the credit the debtor extends to it.**
 - **A node never settles on its own,** not even at a peering's end.
 
 ## Settling at a peering's end
 
-Nothing is settled for a peering's end ([D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md)). From the moment a node knows a peering is ending, by deciding it or by being told, it settles nothing more with that peer: neither side has a reason to pay at the end. The node that ends it collects first: it waits for what the peer had on its way when last asked, so no settlement crosses the end between honest nodes ([Network](network.md#termination)). A ban collects nothing: the node tells the peer at once. What each side's books show stays on the peer's accounts, and a later peering with the node settles it as usual. A settlement already under way still arrives, and is credited once ([below](#incoming-settlements)).
+Nothing is settled for a peering's end ([ending-a-peering](../decisions/ending-a-peering.md)). From the moment a node knows a peering is ending, by deciding it or by being told, it settles nothing more with that peer: neither side has a reason to pay at the end. The node that ends it collects first: it waits for what the peer had on its way when last asked, so no settlement crosses the end between honest nodes ([Network](network.md#termination)). A ban collects nothing: the node tells the peer at once. What each side's books show stays on the peer's accounts, and a later peering with the node settles it as usual. A settlement already under way still arrives, and is credited once ([below](#incoming-settlements)).
 
 ## Outgoing settlements
 
@@ -139,7 +139,7 @@ The node keeps a settlement channel with every node it has ever peered with (`cr
 
 **Delivery is exactly once.** Each `settlement` message carries a sequence per sender and recipient that never resets. The sender sends one at a time, in order, again until it is acknowledged, across restarts, never dropping it; one that got no answer goes again as soon as the node answers us at all ([Peer protocol](peer-protocol.md#message-set)). The receiver applies only the next sequence, recording it in the batch that books it, acknowledges anything at or below the last one without applying it again, and refuses anything else. So a copy from an old peering is never applied twice, and none is lost.
 
-**Channels are never closed,** so a node keeps a bounded number of them, one per node it has ever peered with: with core nodes under one bound, and with downlinks under their own ([Network](network.md#downlinks)). Once all of a kind are taken, peering with a new node of that kind is refused for capacity; nodes it holds a channel with can still peer. Closing a settled channel safely is not built ([roadmap](../roadmap.md#not-built-yet), [D12](../decisions/D12-peering-lifecycle-and-liveness.md)).
+**Channels are never closed,** so a node keeps a bounded number of them, one per node it has ever peered with: with core nodes under one bound, and with downlinks under their own ([Network](network.md#downlinks)). Once all of a kind are taken, peering with a new node of that kind is refused for capacity; nodes it holds a channel with can still peer. Closing a settled channel safely is not built ([roadmap](../roadmap.md#not-built-yet), [peering-lifecycle](../decisions/peering-lifecycle.md)).
 
 ## The stub scheme
 
@@ -149,14 +149,14 @@ A peer's settlement is believed as stated. Anyone peered over the stub can mint 
 
 ## Decisions
 
-- [D6](../decisions/D06-owner-ledger-and-multi-currency-accounts.md): the default trust line becomes the junior's starting credit.
-- [D8](../decisions/D08-real-money.md): only test-realm ledgers activate.
-- [D12](../decisions/D12-peering-lifecycle-and-liveness.md): channels kept after a peering, and their limit.
-- [D28](../decisions/D28-a-node-that-ends-a-peering-collects-first-and-pays-nothing.md): nothing settled for a peering's end.
-- [D31](../decisions/D31-a-node-peers-on-a-scheme-only-once-it-has-seen-its-ledger.md): no peering on a scheme before its first sync.
-- [D19](../decisions/D19-each-node-keeps-its-own-books.md): each node decides from its own books, and the bound that holds whatever a peer does.
-- [D20](../decisions/D20-trust-follows-what-a-peer-earned-us.md): junior and senior, starting credit, growth from fees.
-- [D33](../decisions/D33-a-peering-ended-for-room-stays-apart-and-earns-no-credit-back.md): no credit back for a peer once ended for room.
-- [D23](../decisions/D23-each-node-books-its-own-fulfills.md): the creditor asks, the debtor decides how much.
-- [D24](../decisions/D24-money-in-flight-with-a-peer-stays-within-a-few-packets.md), [D25](../decisions/D25-a-links-thresholds-are-counted-in-its-largest-packet.md): thresholds in the largest packet, and the least credit.
-- [D41](../decisions/D41-a-node-takes-no-prepare-from-a-peer-it-cannot-reach.md): a link cut one way drifts no more than a crash.
+- [owner-ledger](../decisions/owner-ledger.md): the default trust line becomes the junior's starting credit.
+- [real-money](../decisions/real-money.md): only test-realm ledgers activate.
+- [peering-lifecycle](../decisions/peering-lifecycle.md): channels kept after a peering, and their limit.
+- [ending-a-peering](../decisions/ending-a-peering.md): nothing settled for a peering's end.
+- [synced-before-peering](../decisions/synced-before-peering.md): no peering on a scheme before its first sync.
+- [own-books](../decisions/own-books.md): each node decides from its own books, and the bound that holds whatever a peer does.
+- [earned-trust](../decisions/earned-trust.md): junior and senior, starting credit, growth from fees.
+- [ended-for-room](../decisions/ended-for-room.md): no credit back for a peer once ended for room.
+- [own-fulfills](../decisions/own-fulfills.md): the creditor asks, the debtor decides how much.
+- [packets-in-flight](../decisions/packets-in-flight.md), [thresholds-in-packets](../decisions/thresholds-in-packets.md): thresholds in the largest packet, and the least credit.
+- [unreachable-peers](../decisions/unreachable-peers.md): a link cut one way drifts no more than a crash.

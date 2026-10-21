@@ -1,4 +1,5 @@
-// Signs a release for the mirror (spec D11), as the release workflow does:
+// Signs a release for the mirror (spec spec/decisions/release-integrity.md),
+// as the release workflow does:
 //
 //   node scripts/release.ts <built tree> <out dir> \
 //     --secret-key <file> --public-key resources/minisign.pub \

@@ -1,5 +1,5 @@
 //! The owner's settings for peers: the fee and spread on what passes from
-//! one peer to another (D7).
+//! one peer to another (spec/decisions/exchange-rates.md).
 
 use rusqlite::Transaction;
 
@@ -9,7 +9,7 @@ use super::{Store, StoreError};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PeerSettings {
     /// Our fee on what passes from one peer to another, in parts per
-    /// million of what comes in (D7).
+    /// million of what comes in (spec/decisions/exchange-rates.md).
     pub connector_fee_ppm: u32,
     /// Our spread on what such a packet converts, in parts per million.
     pub fx_spread_ppm: u32,

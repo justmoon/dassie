@@ -1,5 +1,6 @@
 //! What the node charges for carrying a packet from one peer to another
-//! (D7): a connector fee, and a spread on conversions.
+//! (spec/decisions/exchange-rates.md): a connector fee, and a spread on
+//! conversions.
 
 /// Parts per million.
 const MILLION: u128 = 1_000_000;

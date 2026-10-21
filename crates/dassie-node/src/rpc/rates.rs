@@ -1,5 +1,5 @@
-//! Exchange rates (D7): their sources, the rates the node converts at, and
-//! the owner's total in a display currency.
+//! Exchange rates (spec/decisions/exchange-rates.md): their sources, the
+//! rates the node converts at, and the owner's total in a display currency.
 
 use std::sync::Arc;
 

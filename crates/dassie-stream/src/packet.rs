@@ -8,7 +8,8 @@ use crate::frame::Frame;
 pub const VERSION: u8 = 1;
 
 /// Most frames a packet may carry. RFC 29 sets no limit; this one is far
-/// above what any sender needs and keeps decoding bounded (D16).
+/// above what any sender needs and keeps decoding bounded
+/// (spec/decisions/tigerstyle.md).
 pub const MAX_FRAMES: usize = 512;
 
 /// The ILP packet type a STREAM packet says it travels on. A response that

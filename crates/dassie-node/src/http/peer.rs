@@ -154,7 +154,8 @@ impl crate::quic::Handler for QuicHandler {
     }
 
     /// Open Payments only. Owner apps are not built, so the owner's purpose
-    /// is refused (D26: the wallet, `/api/*` and `/rpc` are never relayed).
+    /// is refused (spec/decisions/core-and-periphery.md: the wallet, `/api/*`
+    /// and `/rpc` are never relayed).
     fn serves(&self, purpose: Purpose) -> bool {
         purpose == Purpose::Payments
     }

@@ -1,5 +1,5 @@
 //! Open Payments' incoming payments, as the money path sees them: which are
-//! open, and what each may still receive (D9,
+//! open, and what each may still receive (spec/decisions/open-payments.md,
 //! spec/areas/payments.md#receiving).
 //!
 //! An incoming payment's STREAM credentials carry its ID and a connection
@@ -26,7 +26,7 @@
 //! In the same way, a payment's connections cannot lock out a new payer:
 //! once all [`MAX_CONNECTIONS_PER_PAYMENT`] have paid it, a new one takes
 //! the place of the one idle longest of those that paid only dust and
-//! nothing for [`IDLE_CONNECTION_MS`] (D34).
+//! nothing for [`IDLE_CONNECTION_MS`] (spec/decisions/owners-share.md).
 
 use std::collections::BTreeMap;
 
@@ -356,7 +356,7 @@ impl Core {
 
     /// Reads back the incoming payments completed lately, so that a sender
     /// that reconnects after a restart still learns what got there, rather
-    /// than being refused (D23).
+    /// than being refused (spec/decisions/own-fulfills.md).
     fn load_finished_incoming(&mut self) -> Result<(), String> {
         let since = self.now_ms.saturating_sub(FINISHED_RETENTION_MS);
         let most = u32::try_from(MAX_FINISHED).unwrap_or(u32::MAX);
@@ -748,7 +748,8 @@ mod tests {
     // Anyone who can read a payment request gets credentials of their own,
     // so connections that each pay one unit could take every place and
     // lock out a new payer. Once they have been idle for a while, a new
-    // payer takes the place of the one idle longest (D34).
+    // payer takes the place of the one idle longest
+    // (spec/decisions/owners-share.md).
     #[test]
     fn a_new_payer_takes_the_place_of_idle_connections_that_paid_dust() {
         let id = PaymentId([1; 16]);
@@ -819,7 +820,8 @@ mod tests {
 
         // A packet's tag is whatever its sender put in the STREAM token:
         // only the two lengths the node writes name a connection, and
-        // anything else is refused, without a panic (D16).
+        // anything else is refused, without a panic
+        // (spec/decisions/tigerstyle.md).
         #[test]
         fn any_tag_is_read_or_refused(tag in proptest::collection::vec(any::<u8>(), 0..48)) {
             let parsed = parse_tag(&tag);

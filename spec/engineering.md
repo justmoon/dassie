@@ -2,7 +2,7 @@
 
 The rules Dassie's code follows, in every crate and package, and why. Every agent reads this, together with the [overview](overview.md).
 
-Dassie is built mostly by agents, and it must still reach a very high level of confidence in its security and reliability. That confidence comes from testing, simulating and exercising the code far more than review could, so the code is built for deterministic simulation from the first crate ([D16](decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md)). How it is tested is in [Testing](areas/testing.md).
+Dassie is built mostly by agents, and it must still reach a very high level of confidence in its security and reliability. That confidence comes from testing, simulating and exercising the code far more than review could, so the code is built for deterministic simulation from the first crate ([tigerstyle](decisions/tigerstyle.md)). How it is tested is in [Testing](areas/testing.md).
 
 ## Pragmatic TigerStyle
 
@@ -38,7 +38,7 @@ So timing rules are unit-testable, the same `dassie-stream` code runs in WASM fo
 
 ## Each node keeps its own books
 
-Dassie is not a consensus system ([D19](decisions/D19-each-node-keeps-its-own-books.md)). Each node books what it saw, and two peers' books can drift apart: a crash with packets in flight, a Fulfill that comes late, less than the least unit a ledger can move, or a peer that lies. A node cannot tell these apart, and does not need to. Each node keeps its own books and enforces its own limits from them; agreement between nodes' books is a non-goal.
+Dassie is not a consensus system ([own-books](decisions/own-books.md)). Each node books what it saw, and two peers' books can drift apart: a crash with packets in flight, a Fulfill that comes late, less than the least unit a ledger can move, or a peer that lies. A node cannot tell these apart, and does not need to. Each node keeps its own books and enforces its own limits from them; agreement between nodes' books is a non-goal.
 
 - **What a node decides,** from its own books and limits alone: whether it takes a Prepare, whether it takes a settlement, when it settles and how much, and when it ends a peering. What a peer says (a settlement, a request to settle) is an input to these decisions, never trusted past the limits.
 - **Drift and malice are one case.** However a peer behaves, and however far its books are from ours, it costs us at most what our limits allow: the credit we extend, plus what it has in flight. That bound is the design's safety property, and the simulation holds every adversary it models to it.
@@ -47,7 +47,7 @@ Dassie is not a consensus system ([D19](decisions/D19-each-node-keeps-its-own-bo
 
 ## No fuzzing or random seeds in CI
 
-CI runs tests and simulations on fixed seeds only, property tests included ([Testing](areas/testing.md#property-tests)). A random seed per commit would fail pull requests on bugs they did not touch. Random-seed campaigns and any fuzzing run outside CI, and never in it, nightly included ([D27](decisions/D27-simulations-run-continuously-from-random-seeds.md)).
+CI runs tests and simulations on fixed seeds only, property tests included ([Testing](areas/testing.md#property-tests)). A random seed per commit would fail pull requests on bugs they did not touch. Random-seed campaigns and any fuzzing run outside CI, and never in it, nightly included ([random-seed-simulations](decisions/random-seed-simulations.md)).
 
 ## TypeScript and packages
 
@@ -57,8 +57,8 @@ CI runs tests and simulations on fixed seeds only, property tests included ([Tes
 
 ## Decisions
 
-- [D14](decisions/D14-build-system.md): the Nix flake for CI and releases.
-- [D16](decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md): pragmatic TigerStyle and deterministic simulation, and why determinism comes first.
-- [D19](decisions/D19-each-node-keeps-its-own-books.md): each node keeps its own books; why not reconcile.
-- [D21](decisions/D21-tooling-on-node-and-pnpm-not-deno.md): Node and pnpm rather than Deno or Bun.
-- [D27](decisions/D27-simulations-run-continuously-from-random-seeds.md): simulations from random seeds, and why CI keeps fixed seeds.
+- [build-system](decisions/build-system.md): the Nix flake for CI and releases.
+- [tigerstyle](decisions/tigerstyle.md): pragmatic TigerStyle and deterministic simulation, and why determinism comes first.
+- [own-books](decisions/own-books.md): each node keeps its own books; why not reconcile.
+- [node-and-pnpm](decisions/node-and-pnpm.md): Node and pnpm rather than Deno or Bun.
+- [random-seed-simulations](decisions/random-seed-simulations.md): simulations from random seeds, and why CI keeps fixed seeds.

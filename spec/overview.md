@@ -14,7 +14,7 @@ Dassie is a peer-to-peer payment network built on [Interledger](https://interled
 
 It is not a blockchain: nodes keep bilateral balances and settle them on whichever ledgers they share. It is not a consensus system either. Each node keeps its own books and enforces its own limits from them, so whatever a peer does, what it can cost the node is bounded; agreement between nodes' books is not a goal ([engineering](engineering.md#each-node-keeps-its-own-books)).
 
-Dassie works with test money only: the `live` realm is refused until the conditions in the [roadmap](roadmap.md#real-money) are met ([D8](decisions/D08-real-money.md)).
+Dassie works with test money only: the `live` realm is refused until the conditions in the [roadmap](roadmap.md#real-money) are met ([real-money](decisions/real-money.md)).
 
 ## Concepts
 
@@ -32,9 +32,9 @@ Dassie works with test money only: the `live` realm is refused until the conditi
 | **Registration** | A node asking a bootstrap node to list it, renewed automatically. It is free for now ([roadmap](roadmap.md#registration-fees)). |
 | **Link state** | A node's signed self-description (URL, key, neighbors, settlement schemes), flooded through the network. Routing runs on link states. |
 | **Peer** | A node we have a peering with: a shared settlement scheme, ledger accounts, a credit line and a settlement channel. Packets travel only between peers. |
-| **Junior, senior** | The junior is the node whose peering request was accepted, the senior the node that accepted it. The junior extends credit at first, and the senior none ([D20](decisions/D20-trust-follows-what-a-peer-earned-us.md)). |
+| **Junior, senior** | The junior is the node whose peering request was accepted, the senior the node that accepted it. The junior extends credit at first, and the senior none ([earned-trust](decisions/earned-trust.md)). |
 | **Credit** | What a node lets a peer owe it. A node knows only the credit it extends, never the credit it is extended. Credit grows with the fees a peer earned the node ([Settlement](areas/settlement.md)). |
-| **Largest packet** | The most one packet may carry on a ledger. A link's thresholds (in flight, the trigger to ask for settlement, the least settlement) are counted in it, never as a share of credit ([D25](decisions/D25-a-links-thresholds-are-counted-in-its-largest-packet.md)). |
+| **Largest packet** | The most one packet may carry on a ledger. A link's thresholds (in flight, the trigger to ask for settlement, the least settlement) are counted in it, never as a share of credit ([thresholds-in-packets](decisions/thresholds-in-packets.md)). |
 | **Settlement scheme** | A pluggable module that moves value on an underlying ledger ([Settlement](areas/settlement.md), [XRP Ledger](areas/xrpl.md)). |
 | **Settlement channel** | What a node keeps per node it ever peered with to deliver settlements exactly once: sequences sent and applied, and the message not yet acknowledged. |
 | **Internal ledger** | The node's double-entry ledger, with accounts named `<ledgerId>:<path>`, and an append-only transfer journal ([Ledger](areas/ledger.md)). |
@@ -73,7 +73,7 @@ Dassie works with test money only: the `live` realm is refused until the conditi
 
 ## How the code is split
 
-The node is Rust, the browser is Solid 2, and the tooling is Node ([D1](decisions/D01-what-runs-in-rust-and-what-in-typescript.md), [D21](decisions/D21-tooling-on-node-and-pnpm-not-deno.md)).
+The node is Rust, the browser is Solid 2, and the tooling is Node ([rust-and-typescript](decisions/rust-and-typescript.md), [node-and-pnpm](decisions/node-and-pnpm.md)).
 
 - **Rust:** the daemon, the CLI and every protocol, in one static binary per platform, with no bundled interpreter or native add-on.
 - **WASM:** the cryptographic and protocol cores are also built to WASM, so the wallet derives keys with exactly the code the node uses, and the website's STREAM toy runs the real STREAM implementation.
@@ -93,7 +93,7 @@ Most of Dassie may change freely: the UI ↔ node RPC and the HTTP API ship with
 - **The peer protocol, and what a settlement on a ledger means** (the XRPL memo type and its semantics), within one network version. Both sides of a peering must agree; a change is a new protocol version that older nodes refuse cleanly ([Peer protocol](areas/peer-protocol.md), [XRP Ledger](areas/xrpl.md)).
 - **The release mirror's layout and the install layout.** Installed nodes' updaters and the `curl | sh` installer fetch from those paths and switch between those directories. Pinned by `dassie-release`'s layout tests and the install tests ([Release](areas/release.md)).
 
-Not frozen, on purpose: a node does not talk to the original implementation's nodes or read its databases; an owner of one recovers by entering their passphrase in a new node ([D2](decisions/D02-peer-protocol-v0-or-v1.md), [D3](decisions/D03-database-continuity.md)).
+Not frozen, on purpose: a node does not talk to the original implementation's nodes or read its databases; an owner of one recovers by entering their passphrase in a new node ([peer-protocol-v1](decisions/peer-protocol-v1.md), [database-continuity](decisions/database-continuity.md)).
 
 ## Principles
 
@@ -105,9 +105,9 @@ Not frozen, on purpose: a node does not talk to the original implementation's no
 
 ## Decisions
 
-- [D1](decisions/D01-what-runs-in-rust-and-what-in-typescript.md): the node is Rust, the browser Solid, the tooling TypeScript.
-- [D2](decisions/D02-peer-protocol-v0-or-v1.md), [D3](decisions/D03-database-continuity.md): no v0 peer protocol, no v0 databases.
-- [D8](decisions/D08-real-money.md): no real money yet.
-- [D15](decisions/D15-bootstrap-network-for-v1.md): the testnet's bootstrap nodes.
-- [D19](decisions/D19-each-node-keeps-its-own-books.md): each node keeps its own books.
-- [D21](decisions/D21-tooling-on-node-and-pnpm-not-deno.md): tooling on Node and pnpm.
+- [rust-and-typescript](decisions/rust-and-typescript.md): the node is Rust, the browser Solid, the tooling TypeScript.
+- [peer-protocol-v1](decisions/peer-protocol-v1.md), [database-continuity](decisions/database-continuity.md): no v0 peer protocol, no v0 databases.
+- [real-money](decisions/real-money.md): no real money yet.
+- [bootstrap-network](decisions/bootstrap-network.md): the testnet's bootstrap nodes.
+- [own-books](decisions/own-books.md): each node keeps its own books.
+- [node-and-pnpm](decisions/node-and-pnpm.md): tooling on Node and pnpm.

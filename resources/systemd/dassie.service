@@ -16,9 +16,9 @@ After=network-online.target time-set.target
 Type=notify
 NotifyAccess=main
 ExecStart=/opt/dassie/current/bin/dassie daemon --runtime=systemd
-# The node's database lives in /var/lib/dassie (0700, D10), owned by a user
-# systemd makes for it: it holds no privilege, and privileged ports come
-# from the socket units.
+# The node's database lives in /var/lib/dassie (0700,
+# spec/decisions/secrets-at-rest.md), owned by a user systemd makes for it: it
+# holds no privilege, and privileged ports come from the socket units.
 DynamicUser=yes
 StateDirectory=dassie
 StateDirectoryMode=0700

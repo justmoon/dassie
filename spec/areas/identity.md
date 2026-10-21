@@ -52,20 +52,20 @@ Dassie's OIDs sit under the private arc `1.3.6.1.4.1.54392.5.1399`: `.1` for the
 
 ## X25519 key
 
-Peer messages are authenticated with a key agreed by static-static X25519 between the two node keys ([D2](../decisions/D02-peer-protocol-v0-or-v1.md)). The Ed25519-to-X25519 conversions are libsodium's, so a node's X25519 key follows from its node key alone and peers need no second key. An all-zero shared secret is refused, so a peer cannot force a secret it knows with a small-order key. How the secret keys the MACs is the peer protocol's.
+Peer messages are authenticated with a key agreed by static-static X25519 between the two node keys ([peer-protocol-v1](../decisions/peer-protocol-v1.md)). The Ed25519-to-X25519 conversions are libsodium's, so a node's X25519 key follows from its node key alone and peers need no second key. An all-zero shared secret is refused, so a peer cannot force a secret it knows with a small-order key. How the secret keys the MACs is the peer protocol's.
 
 ## Handling of secrets
 
-Secrets (master seed, node key, derived secrets, X25519 and shared secrets) are wiped on drop, are not `Copy`, print redacted and compare in constant time. Errors never carry a secret, so they may be logged and shown. A mistyped phrase is an error, never silently a different node. The node stores its key as the raw seed ([Node](node.md), [D10](../decisions/D10-secrets-at-rest.md)).
+Secrets (master seed, node key, derived secrets, X25519 and shared secrets) are wiped on drop, are not `Copy`, print redacted and compare in constant time. Errors never carry a secret, so they may be logged and shown. A mistyped phrase is an error, never silently a different node. The node stores its key as the raw seed ([Node](node.md), [secrets-at-rest](../decisions/secrets-at-rest.md)).
 
 ## In the browser and in scripts
 
-`dassie-identity` and `dassie-stream` (with `dassie-ilp`'s codecs) are built to WASM (`node --run build:wasm`) and published as `@dassie/identity-wasm`, so the wallet derives keys with exactly the code the node runs. One `web` build serves browsers and Node ([D21](../decisions/D21-tooling-on-node-and-pnpm-not-deno.md)): `.` for scripts and tests, `./web` for browsers. Development-only functions (`devSessionToken`, `sign`, `mnemonicFromEntropy`) are left out of `./web`, and so are node labels (`nodeLabel`, `nodeIdFromLabel`), which only scripts use so far.
+`dassie-identity` and `dassie-stream` (with `dassie-ilp`'s codecs) are built to WASM (`node --run build:wasm`) and published as `@dassie/identity-wasm`, so the wallet derives keys with exactly the code the node runs. One `web` build serves browsers and Node ([node-and-pnpm](../decisions/node-and-pnpm.md)): `.` for scripts and tests, `./web` for browsers. Development-only functions (`devSessionToken`, `sign`, `mnemonicFromEntropy`) are left out of `./web`, and so are node labels (`nodeLabel`, `nodeIdFromLabel`), which only scripts use so far.
 
 ## Decisions
 
-- [D2](../decisions/D02-peer-protocol-v0-or-v1.md): peer authentication by static-static X25519 between node keys.
-- [D3](../decisions/D03-database-continuity.md): an owner recovers by entering the phrase again, which gives the same node ID and accounts.
-- [D10](../decisions/D10-secrets-at-rest.md): the node key stays plaintext at rest.
-- [D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md): deterministic, bounded, no OS randomness in the core.
-- [D21](../decisions/D21-tooling-on-node-and-pnpm-not-deno.md): one `web` build of the WASM modules for browsers and Node.
+- [peer-protocol-v1](../decisions/peer-protocol-v1.md): peer authentication by static-static X25519 between node keys.
+- [database-continuity](../decisions/database-continuity.md): an owner recovers by entering the phrase again, which gives the same node ID and accounts.
+- [secrets-at-rest](../decisions/secrets-at-rest.md): the node key stays plaintext at rest.
+- [tigerstyle](../decisions/tigerstyle.md): deterministic, bounded, no OS randomness in the core.
+- [node-and-pnpm](../decisions/node-and-pnpm.md): one `web` build of the WASM modules for browsers and Node.

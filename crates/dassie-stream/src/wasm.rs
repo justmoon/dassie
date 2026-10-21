@@ -4,7 +4,7 @@
 //!
 //! The JavaScript side owns the clock and the network: it passes the time
 //! in milliseconds and moves packets as `Uint8Array`s. Randomness comes
-//! from the platform here, at the edge (D16).
+//! from the platform here, at the edge (spec/decisions/tigerstyle.md).
 
 use alloc::string::{String, ToString};
 use alloc::vec;

@@ -5,7 +5,7 @@ The node's HTTP and HTTPS listeners, how the owner's side of them is protected (
 **Paths:** `crates/dassie-node/src/http/` (`mod.rs` is the route table), `crates/dassie-node/src/front_door/`, `resources/front-door/`, `crates/dassie-node/src/tls.rs`, `crates/dassie-node/src/acme.rs`, `crates/dassie-node/src/slots.rs`, `crates/dassie-node/src/node/access.rs`, `crates/dassie-node/src/node/certificates.rs`, `crates/dassie-node-core/src/` (`origin.rs`, `session.rs`, `setup.rs`, `rate_limit.rs`, `acme.rs`, `certificate.rs`, `connections.rs`, `urls.rs`)
 **Read with:** [RPC](rpc.md), [Payments](payments.md), [Node](node.md), [Identity](identity.md), [Connector](connector.md), [Peer protocol](peer-protocol.md)
 
-The decisions (whether an origin is allowed, a session valid, a setup attempt right, a certificate kept, a renewal due) are pure functions in `dassie-node-core`, of their inputs, `now` and an injected RNG; `dassie-node` only carries them out ([D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md)).
+The decisions (whether an origin is allowed, a session valid, a setup attempt right, a certificate kept, a renewal due) are pure functions in `dassie-node-core`, of their inputs, `now` and an injected RNG; `dassie-node` only carries them out ([tigerstyle](../decisions/tigerstyle.md)).
 
 ## Listeners
 
@@ -22,7 +22,7 @@ The decisions (whether an origin is allowed, a session valid, a setup attempt ri
 
 A node reached through a relay ([Peer protocol](peer-protocol.md#relayed-streams)) serves HTTP/1.1 on a relayed stream with purpose `payments`, once its TLS is done (`serve_relayed` in `http/mod.rs`):
 
-- **Open Payments only.** Every other path is 404, upgrades included: the wallet, `/api/*`, `/rpc`, `/peer`, BTP and `/stats` are served only on the node's own listeners ([D26](../decisions/D26-core-and-periphery.md)). A page served through a relay could keep the owner's passphrase, and nothing on a relayed stream shows that a browser's origin is the node's.
+- **Open Payments only.** Every other path is 404, upgrades included: the wallet, `/api/*`, `/rpc`, `/peer`, BTP and `/stats` are served only on the node's own listeners ([core-and-periphery](../decisions/core-and-periphery.md)). A page served through a relay could keep the owner's passphrase, and nothing on a relayed stream shows that a browser's origin is the node's.
 - **The same rules as over HTTPS** ([Payments](payments.md#http-routes)): the request's `Host` names the name it is answered under, and one that is not among [the node's names](payments.md#the-nodes-names) is refused with 421; the answer is [signed with the node key](payments.md#signed-responses), so a client can check it whoever passed it on; and CORS, request signatures, bounded bodies and the security headers apply, without HSTS. The rate limits per client address count the relay's address, the only one the node sees; the relay bounds streams per client.
 
 ### The wallet's files
@@ -31,9 +31,9 @@ The wallet ([wallet.md](wallet.md)) is embedded in the binary and served for any
 
 ## Front doors
 
-A front door lets ordinary Open Payments clients reach a node without a public address, at `<label>.<domain>`, where the label is the node's [label](identity.md#node-label) ([D26](../decisions/D26-core-and-periphery.md), [the design](../designs/periphery.md#7-open-payments-without-a-public-address)). `dassiepay.net` is the default domain, whose names nodes answer to unless told otherwise ([Payments](payments.md#the-nodes-names)); anyone can run another. It is a mode of the `dassie` binary (`dassie front-door`, `front_door/`), and no node: no ledger, no peer protocol, no wallet, no database. `resources/front-door/` has its systemd unit and what an operator sets up, apart from the node's units, which the installer never installs with it.
+A front door lets ordinary Open Payments clients reach a node without a public address, at `<label>.<domain>`, where the label is the node's [label](identity.md#node-label) ([core-and-periphery](../decisions/core-and-periphery.md), [the design](../designs/periphery.md#7-open-payments-without-a-public-address)). `dassiepay.net` is the default domain, whose names nodes answer to unless told otherwise ([Payments](payments.md#the-nodes-names)); anyone can run another. It is a mode of the `dassie` binary (`dassie front-door`, `front_door/`), and no node: no ledger, no peer protocol, no wallet, no database. `resources/front-door/` has its systemd unit and what an operator sets up, apart from the node's units, which the installer never installs with it.
 
-- **Its own key.** A front door proves an Ed25519 key of its own, as a node proves its node key. A node names it as its relay by that key, its ID and a URL for its QUIC endpoint (`DASSIE_RELAY`, [Node](node.md#a-chosen-relay)), and keeps a connection to it. The key signs nothing else, and changing it means telling every node again. The `dassiepay.net` front door is the relay of every node without a hostname that names none, by an entry built into the binary, so changing its key takes a release ([D40](../decisions/D40-a-node-without-a-hostname-keeps-the-default-front-door-as-its-relay.md)).
+- **Its own key.** A front door proves an Ed25519 key of its own, as a node proves its node key. A node names it as its relay by that key, its ID and a URL for its QUIC endpoint (`DASSIE_RELAY`, [Node](node.md#a-chosen-relay)), and keeps a connection to it. The key signs nothing else, and changing it means telling every node again. The `dassiepay.net` front door is the relay of every node without a hostname that names none, by an entry built into the binary, so changing its key takes a release ([default-relay](../decisions/default-relay.md)).
 - **Relay and client in one.** It opens relayed streams with purpose `payments` itself, on the connection the node keeps to it (`Quic::open_held`), naming its own ID as the client, and runs TLS inside them pinned to the node's key, as any client through any relay ([Peer protocol](peer-protocol.md#relayed-streams)). It answers no peer requests, carries no one else's relay requests, and serves no relayed stream. Reaching nodes that chose another relay, by records and home nodes, is not built ([roadmap](../roadmap.md#periphery)).
 - **Names.** Each request is routed by its `Host`: exactly one label under the domain, on the default port, which must be a node's label. Any other name under the domain is 404; a name outside it is refused with 421. Both are in the specs' error form, as every answer the front door gives itself.
 - **What it passes on:** Open Payments' routes alone, by the node's own predicate (`is_open_payments_path`), with the node's bound on bodies and bounded heads; everything else is 404 and never reaches a node, upgrades included. It passes `Host` unchanged, since the node answers under it and checks signatures against it, and only end-to-end headers: no hop-by-hop headers and nothing a proxy adds (`Forwarded`, `X-Forwarded-*`), which the node would not trust anyway.
@@ -43,7 +43,7 @@ A front door lets ordinary Open Payments clients reach a node without a public a
 - **Limits,** as a node's HTTPS listener has: connections in all and per client, a rate limit on requests per client address, at the rate the node's Open Payments allows one client, and bounded handshakes, heads and bodies (`front_door/https.rs`). Nodes connected at once are bounded in all and per address too (`front_door/relay.rs`).
 - **A node's budget for its front door.** The node sees only the front door's address, and counts every request the front door passes on against that one client, at the rate it allows any client. So the front door is what tells clients apart, and it gives each client a fraction of that rate for each node; a few clients at their allowance still use up a node's whole budget for its front door, and the node's other clients through it wait. A front door that the node can trust to name the client is not built ([roadmap](../roadmap.md#periphery)).
 - **Its certificate** for `*.<domain>` comes from files, which it reads again periodically, so that a renewal (certbot's, by DNS-01, since a wildcard needs it) takes effect without a restart. A certificate that does not load, or does not name the wildcard, is never served; the one before stays.
-- **What it sees.** It terminates TLS, so it reads the requests and answers, including the STREAM secret of an incoming payment; a client that does not check the node's signature trusts it ([Payments](payments.md#signed-responses), [D26](../decisions/D26-core-and-periphery.md)). A relay between it and the node would see only ciphertext, but a front door is its own relay.
+- **What it sees.** It terminates TLS, so it reads the requests and answers, including the STREAM secret of an incoming payment; a client that does not check the node's signature trusts it ([Payments](payments.md#signed-responses), [core-and-periphery](../decisions/core-and-periphery.md)). A relay between it and the node would see only ciphertext, but a front door is its own relay.
 
 ## Security model
 
@@ -54,7 +54,7 @@ What protects the owner's side of the node:
 - **The passphrase never leaves the browser:** setup sends the node key seed and the login proof derived from it, login only the proof ([identity.md](identity.md)).
 - **Cross-site requests** meet the [same-origin rule](#same-origin-rule) on `/rpc` and `/api/*`. `POST /api/setup` and `POST /api/login` also require `Content-Type: application/json`, which no cross-site form can send and no cross-origin script can send without a CORS preflight, which the node never grants.
 - **Setup and login attempts are rate-limited per client,** with no bucket shared by all clients, so a handful of addresses cannot lock the owner out. The login proof is 256 bits, so the limit is not against guessing but against making the node work as fast as a client can send.
-- **Secrets at rest:** sessions are stored as hashes, and so are BTP tokens ([D10](../decisions/D10-secrets-at-rest.md)).
+- **Secrets at rest:** sessions are stored as hashes, and so are BTP tokens ([secrets-at-rest](../decisions/secrets-at-rest.md)).
 
 Making the wallet trustworthy without trusting the node that serves it (signed or independent frontends) is not built ([roadmap](../roadmap.md)).
 
@@ -91,7 +91,7 @@ Setup happens once: whoever opens the setup URL claims the node with their passp
 
 ## Sessions
 
-- **The token** is random; the cookie is `__Host-Dassie-Session`, `HttpOnly`, `Secure`, `SameSite=Strict`. The node keeps only the token's SHA-256, as the session's ID ([D10](../decisions/D10-secrets-at-rest.md)), so the database alone gives no one a session.
+- **The token** is random; the cookie is `__Host-Dassie-Session`, `HttpOnly`, `Secure`, `SameSite=Strict`. The node keeps only the token's SHA-256, as the session's ID ([secrets-at-rest](../decisions/secrets-at-rest.md)), so the database alone gives no one a session.
 - **A session ends** when unused for a while, after an absolute lifetime however used, and when the owner revokes it. The number kept is bounded, and a new session always stays, so a script that logs in over and over cannot grow the table, nor lock the owner out (`SessionPolicy` in `session.rs`).
 - **Every way a session ends closes its RPC sockets** ([rpc.md](rpc.md#a-sessions-end-closes-its-sockets)).
 
@@ -117,7 +117,7 @@ The daemon runs every ACME order ([RFC 8555](https://www.rfc-editor.org/rfc/rfc8
 
 ## Decisions
 
-- [D5](../decisions/D05-ui-and-cli-rpc-contract.md): the RPC contract the `/rpc` WebSocket carries, and why the Origin check and per-call session checks came with it.
-- [D9](../decisions/D09-open-payments-fully-and-no-spsp.md): why Open Payments routes are open to every origin.
-- [D10](../decisions/D10-secrets-at-rest.md): session tokens stored only as hashes.
-- [D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md): the node's decisions as pure functions in `dassie-node-core`; every table and timer bounded.
+- [rpc-contract](../decisions/rpc-contract.md): the RPC contract the `/rpc` WebSocket carries, and why the Origin check and per-call session checks came with it.
+- [open-payments](../decisions/open-payments.md): why Open Payments routes are open to every origin.
+- [secrets-at-rest](../decisions/secrets-at-rest.md): session tokens stored only as hashes.
+- [tigerstyle](../decisions/tigerstyle.md): the node's decisions as pure functions in `dassie-node-core`; every table and timer bounded.

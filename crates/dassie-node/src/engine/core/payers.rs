@@ -1,5 +1,6 @@
 //! Outgoing payments: each ledger's payer, a local endpoint that pays out of
-//! the owner's funds, and the STREAM connections that send them (D9,
+//! the owner's funds, and the STREAM connections that send them
+//! (spec/decisions/open-payments.md,
 //! spec/areas/payments.md#outgoing-payments).
 //!
 //! An outgoing payment sends its debit amount to its receiver on one
@@ -9,12 +10,11 @@
 //! so a restart sends only the rest, on a new connection with the same
 //! credentials. A payment completes once it sent its debit amount, or once
 //! the receiver says it has what it was to get, which a hop that lost a
-//! Fulfill may have paid for (D23); it fails when the receiver says it
-//! takes no more or stopped it short, keeps closing it, or its deadline
-//! passes. It ends only
-//! once none of its packets is in flight, so what it says it sent is
-//! final. A packet to the node's own receiver waits in a bounded queue the
-//! step drains, so nothing recurses.
+//! Fulfill may have paid for (spec/decisions/own-fulfills.md); it fails when
+//! the receiver says it takes no more or stopped it short, keeps closing it,
+//! or its deadline passes. It ends only once none of its packets is in
+//! flight, so what it says it sent is final. A packet to the node's own
+//! receiver waits in a bounded queue the step drains, so nothing recurses.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -581,7 +581,8 @@ impl Core {
 
     /// Hands the connector a payer's packet, written into the scratch
     /// buffer. Returns its answer, if the connector gave it at once: the
-    /// caller takes it in, and goes on sending (D16: nothing recurses).
+    /// caller takes it in, and goes on sending (spec/decisions/tigerstyle.md:
+    /// nothing recurses).
     pub(super) fn send_payer_packet(
         &mut self,
         now: u64,
@@ -713,11 +714,12 @@ impl Core {
             payment.stopping = Some("the payment ran out of time".into());
         }
         // One of a fixed amount to deliver also ends once the receiver has
-        // it, which a hop that lost a Fulfill may have paid for (D23), or
-        // all of it but less than a unit sent is worth: no packet can be
-        // sized to deliver that, as the hops round down. One of a fixed
-        // amount to send ends once it delivered what its quote said, and
-        // the receiver takes no more: a request it filled.
+        // it, which a hop that lost a Fulfill may have paid for
+        // (spec/decisions/own-fulfills.md), or all of it but less than a unit
+        // sent is worth: no packet can be sized to deliver that, as the hops
+        // round down. One of a fixed amount to send ends once it delivered
+        // what its quote said, and the receiver takes no more: a request it
+        // filled.
         let receive = u128::from(payment.row.receive_amount.value);
         let debit = u128::from(payment.row.debit_amount.max(1));
         let short = receive.saturating_sub(u128::from(delivered));

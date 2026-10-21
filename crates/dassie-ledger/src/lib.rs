@@ -23,7 +23,7 @@
 //!
 //! Nothing here performs IO or reads a clock: callers pass `now_ms` in and
 //! persist what [`Ledger::poll_journal`] hands them, before they act on the
-//! result (D16).
+//! result (spec/decisions/tigerstyle.md).
 
 #![no_std]
 

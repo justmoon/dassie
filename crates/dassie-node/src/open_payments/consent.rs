@@ -1,5 +1,6 @@
-//! Grants the owner decides (D9): outgoing payments, proof of a wallet
-//! address, and reading or listing what others created.
+//! Grants the owner decides (spec/decisions/open-payments.md): outgoing
+//! payments, proof of a wallet address, and reading or listing what others
+//! created.
 //!
 //! Such a grant waits, pending, for the owner. The client sends the owner
 //! to `GET /gnap/interact/{id}/{key}`, which leads to the wallet's consent
@@ -49,7 +50,7 @@ const INTERACTION_TEXT_BYTES: usize = 24;
 
 /// What a pending grant keeps of its interaction, as JSON in the grant's
 /// row. The key and the reference are secrets of the owner's and the
-/// client's; the column is never shown (D10).
+/// client's; the column is never shown (spec/decisions/secrets-at-rest.md).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Interaction {
     /// The key in the interaction URL.

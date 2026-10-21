@@ -19,7 +19,7 @@ The `dassie` binary: the daemon that composes every protocol crate into a runnin
 One task owns the money path: the ledger, the connector, the STREAM receivers and payers, and the settlement schemes. None of them needs a lock, and their steps happen in one order, as in a simulation.
 
 - Everything else sends it commands through a bounded queue. It takes a batch, steps the core with each command, and persists what the batch changed in **one or more transactions, each before what it covers goes out**: settlements run only once their pending transfers are committed, and are committed in turn, and closing a BTP link that failed while the batch's messages went out is committed in another. The replies go out last. So a Fulfill goes upstream only once its transfer is on disk ([Connector](connector.md), [Ledger](ledger.md)).
-- If the write fails, the core panics without handing anything over: nothing of the step goes out, so nothing the node sends, settles or acknowledges rests on state that never reached the disk. The supervisor restarts the task, which rebuilds the core from the database, at its last good commit: packets in flight do not survive, clients reconnect, and a peer request the engine was answering gets a 503. A failed commit is the only fault the simulations inject at the store ([Testing](testing.md#failed-commits), [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md)).
+- If the write fails, the core panics without handing anything over: nothing of the step goes out, so nothing the node sends, settles or acknowledges rests on state that never reached the disk. The supervisor restarts the task, which rebuilds the core from the database, at its last good commit: packets in flight do not survive, clients reconnect, and a peer request the engine was answering gets a 503. A failed commit is the only fault the simulations inject at the store ([Testing](testing.md#failed-commits), [random-seed-simulations](../decisions/random-seed-simulations.md)).
 - The engine starts once the node has an identity, since its ILP address comes from the node ID.
 
 ### Checking state before each commit
@@ -44,7 +44,7 @@ In tests and simulations a commit never holds a broken invariant, so what stops 
 
 ### Readiness
 
-The daemon reports readiness (`READY=1` under systemd) once the node works, not once it listens, since an update rolls back only a node that does not come up ([Release](release.md#rolling-back), [D30](../decisions/D30-a-node-is-up-once-its-engine-has-committed-a-step.md)).
+The daemon reports readiness (`READY=1` under systemd) once the node works, not once it listens, since an update rolls back only a node that does not come up ([Release](release.md#rolling-back), [ready-after-first-step](../decisions/ready-after-first-step.md)).
 
 - **Ready once the engine has committed its first step,** with the listeners bound and the services started. The engine takes that step as soon as it has rebuilt itself from the database, without waiting for a command, a timer or the network, so a node with nothing to do is ready at once.
 - **A node without an identity is ready at once.** It has no engine to wait for: the engine starts once the owner sets the node up, and its failures from then on are restarted like any other service's.
@@ -68,7 +68,7 @@ On SIGTERM or SIGINT the daemon stops accepting, gives requests in progress a bo
 
 A node can keep a QUIC connection open to a relay it chooses, so that clients reach it through that relay ([Peer protocol](peer-protocol.md#relayed-streams)), even without a public address or any peering ([the design](../designs/periphery.md#5-reaching-a-periphery-node)). The relay is configured as a bootstrap node is, by node ID, URL and key (`env.rs`), and the connection is pinned to that key; the two need not peer.
 
-- **By default, the front door of the node's default name,** so that a node without a hostname is reached at `<label>.dassiepay.net` with no configuration ([D40](../decisions/D40-a-node-without-a-hostname-keeps-the-default-front-door-as-its-relay.md)). With `DASSIE_RELAY` unset, the relay is that front door (`DEFAULT_RELAY` in `env.rs`, built in as the default bootstrap nodes are, and checked as any entry), and the node keeps it only while it has no hostname: a node with a hostname answers under it alone ([Payments](payments.md#the-nodes-names)), so it does not dial the front door, and closes the connection when the owner sets a hostname. It dials again if the hostname is cleared. An entry in `DASSIE_RELAY` is kept whether or not the node has a hostname. An empty `DASSIE_RELAY` is the opt-out: the node keeps no relay. Tests and the dev environment set it empty, as they set their own bootstrap nodes, so that none of their nodes dials the public front door.
+- **By default, the front door of the node's default name,** so that a node without a hostname is reached at `<label>.dassiepay.net` with no configuration ([default-relay](../decisions/default-relay.md)). With `DASSIE_RELAY` unset, the relay is that front door (`DEFAULT_RELAY` in `env.rs`, built in as the default bootstrap nodes are, and checked as any entry), and the node keeps it only while it has no hostname: a node with a hostname answers under it alone ([Payments](payments.md#the-nodes-names)), so it does not dial the front door, and closes the connection when the owner sets a hostname. It dials again if the hostname is cleared. An entry in `DASSIE_RELAY` is kept whether or not the node has a hostname. An empty `DASSIE_RELAY` is the opt-out: the node keeps no relay. Tests and the dev environment set it empty, as they set their own bootstrap nodes, so that none of their nodes dials the public front door.
 - The node reports the relay it keeps now, and how it stands with it (connected, connecting or unreachable, below), in `GetStatus`: the default relay of a node with a hostname is none.
 - The node dials the relay once it has its key and its QUIC endpoint serves, keeps the connection alive well within the idle timeout, so that a NAT keeps its mapping, and dials again when it is lost. The wait before a dial doubles, up to a minute, after each dial that fails and each connection that did not last a minute, so a relay that takes the connection and closes it at once is not dialled every second.
 - **Connecting or unreachable.** While the node holds no connection, it counts as connecting to its relay until the wait before its next dial has reached its cap, and as unreachable from then on (`RelayLink` in `quic/relay.rs`). A relay that restarts, or a path that drops for a moment, is dialled again within seconds of coming back, so in those first dials a missing connection is no fault. Once the wait has reached its cap, every dial has failed for longer than the cap (the waits before it add up to that), longer than a restart or a brief drop lasts, and the node dials only once per cap; a relay that takes each connection and drops it soon after gets there too. The cap is the bound, so no constant of its own decides when a relay counts as a fault. A relay that is the node itself is unreachable from the start.
@@ -82,7 +82,7 @@ A node can keep a QUIC connection open to a relay it chooses, so that clients re
 
 One SQLite file, `dassie.sqlite3`, in the data directory (`env.rs` has where). `store/`.
 
-- **The application ID** claims a new file and refuses another application's. A file with the v0 node's ID is refused with a message to set the node up again from the passphrase, since the node ID and ledger accounts follow from it ([D3](../decisions/D03-database-continuity.md)).
+- **The application ID** claims a new file and refuses another application's. A file with the v0 node's ID is refused with a message to set the node up again from the passphrase, since the node ID and ledger accounts follow from it ([database-continuity](../decisions/database-continuity.md)).
 - **Migrations** are numbered by `user_version`, each in its own transaction. A shipped migration is never edited; a change adds another. A database from a newer version is refused, which is why a rollback needs the copy below.
 - **The copy before a migration.** Before migrating an existing database, the daemon writes a consistent copy (`VACUUM INTO`) to `dassie.sqlite3.pre-migration`. It does so before serving anything, so nothing the copy lacks has reached a peer, and a rollback of an update may put it back ([Release](release.md#rolling-back)).
 - **No new database while a rollback is half way.** A rollback moves the database aside as `dassie.sqlite3.rolling-back`, with its side files, puts the copy in, and only then renames what it moved aside to `dassie.sqlite3.rolled-back`. So `dassie.sqlite3.rolling-back` without `dassie.sqlite3` means exactly that a rollback stopped between those steps, and the node refuses to start, rather than start afresh with another identity, until the owner puts the copy in place or removes what was moved aside. A finished rollback leaves nothing that stops a deliberate fresh start.
@@ -104,7 +104,7 @@ Deliberately not kept: ILP packets in flight (their pending transfers were never
 
 ### Secrets at rest
 
-([D10](../decisions/D10-secrets-at-rest.md))
+([secrets-at-rest](../decisions/secrets-at-rest.md))
 
 - The data directory is 0700 and the database file 0600, created so before SQLite opens it; looser modes found at start are tightened. The copy before a migration is created by SQLite (`VACUUM INTO`) with the process's umask, which the systemd unit sets to 0077, and set to 0600 before it takes its name; until then the directory's 0700 keeps it from other users.
 - Session, BTP and GNAP tokens are stored only as SHA-256 hashes.
@@ -112,7 +112,7 @@ Deliberately not kept: ILP packets in flight (their pending transfers were never
 
 ## Configuration
 
-The owner's configuration is one row, read into a validated `NodeConfig` (`dassie-node-core/src/config.rs`), with one RPC setter per value. Nothing derived is stored: URLs are computed from the current values, so a new hostname takes effect at once. A hostname is refused unless `https://<hostname>:65535` is a URL peers take, at most 256 bytes: with a longer one, the node would run as a periphery node ([Network](network.md#periphery-nodes)). The realm `live` is refused until the conditions for [real money](../roadmap.md#real-money) hold ([D8](../decisions/D08-real-money.md)). Settings that belong to an area are in that area's tables.
+The owner's configuration is one row, read into a validated `NodeConfig` (`dassie-node-core/src/config.rs`), with one RPC setter per value. Nothing derived is stored: URLs are computed from the current values, so a new hostname takes effect at once. A hostname is refused unless `https://<hostname>:65535` is a URL peers take, at most 256 bytes: with a longer one, the node would run as a periphery node ([Network](network.md#periphery-nodes)). The realm `live` is refused until the conditions for [real money](../roadmap.md#real-money) hold ([real-money](../decisions/real-money.md)). Settings that belong to an area are in that area's tables.
 
 ## Dev switches warn on a public node
 
@@ -126,7 +126,7 @@ Which transport the peer protocol uses can be read from the journal at the defau
 
 ## The `dassie` command
 
-The CLI talks to the daemon over the IPC socket with the same RPC contract as the wallet ([D5](../decisions/D05-ui-and-cli-rpc-contract.md)); access to the socket is the owner's ([RPC](rpc.md#ipc-socket)).
+The CLI talks to the daemon over the IPC socket with the same RPC contract as the wallet ([rpc-contract](../decisions/rpc-contract.md)); access to the socket is the owner's ([RPC](rpc.md#ipc-socket)).
 
 - **`dassie init`** is the original's wizard. The daemon runs the ACME order and the wizard shows its progress, so there is one ACME client, not two. Every prompt has a flag, so scripts and tests can run it unattended.
 - **`dassie status`** names no secret, so its output can be pasted where the owner asks for help; that is why the setup URL has a command of its own, `dassie setup-url`. It also reports the last update ([Release](release.md#dassie-update)).
@@ -137,13 +137,13 @@ The CLI talks to the daemon over the IPC socket with the same RPC contract as th
 
 ## Decisions
 
-- [D3](../decisions/D03-database-continuity.md): a new schema, v0 databases refused, and what a v0 owner loses by setting up again.
-- [D5](../decisions/D05-ui-and-cli-rpc-contract.md): the CLI talks to the daemon over the same contract as the wallet.
-- [D8](../decisions/D08-real-money.md): why the `live` realm is refused.
-- [D10](../decisions/D10-secrets-at-rest.md): file modes, hashed tokens, and why the node key stays plaintext.
-- [D15](../decisions/D15-bootstrap-network-for-v1.md): the default bootstrap nodes, and `DASSIE_BOOTSTRAP_NODES`.
-- [D16](../decisions/D16-engineering-style-pragmatic-tigerstyle-and-deterministic-simulation.md): injected time and randomness, decisions in `dassie-node-core`, and checking state before each commit.
-- [D23](../decisions/D23-each-node-books-its-own-fulfills.md): why an upgrade lifts the bans made for a grace limit and makes owed Fulfills final.
-- [D27](../decisions/D27-simulations-run-continuously-from-random-seeds.md): why a failed commit is the only fault injected at the store.
-- [D30](../decisions/D30-a-node-is-up-once-its-engine-has-committed-a-step.md): readiness once the engine has committed a step, and a daemon that exits when its engine cannot start.
-- [D40](../decisions/D40-a-node-without-a-hostname-keeps-the-default-front-door-as-its-relay.md): the default relay, kept only without a hostname, and `DASSIE_RELAY=` to keep none.
+- [database-continuity](../decisions/database-continuity.md): a new schema, v0 databases refused, and what a v0 owner loses by setting up again.
+- [rpc-contract](../decisions/rpc-contract.md): the CLI talks to the daemon over the same contract as the wallet.
+- [real-money](../decisions/real-money.md): why the `live` realm is refused.
+- [secrets-at-rest](../decisions/secrets-at-rest.md): file modes, hashed tokens, and why the node key stays plaintext.
+- [bootstrap-network](../decisions/bootstrap-network.md): the default bootstrap nodes, and `DASSIE_BOOTSTRAP_NODES`.
+- [tigerstyle](../decisions/tigerstyle.md): injected time and randomness, decisions in `dassie-node-core`, and checking state before each commit.
+- [own-fulfills](../decisions/own-fulfills.md): why an upgrade lifts the bans made for a grace limit and makes owed Fulfills final.
+- [random-seed-simulations](../decisions/random-seed-simulations.md): why a failed commit is the only fault injected at the store.
+- [ready-after-first-step](../decisions/ready-after-first-step.md): readiness once the engine has committed a step, and a daemon that exits when its engine cannot start.
+- [default-relay](../decisions/default-relay.md): the default relay, kept only without a hostname, and `DASSIE_RELAY=` to keep none.

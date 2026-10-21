@@ -72,18 +72,20 @@ pub(crate) struct Endpoint {
     pub next_request_id: u32,
     /// Packets from it in flight.
     pub pending_from: usize,
-    /// If a peer, the money its packets in flight carry to us (D24).
+    /// If a peer, the money its packets in flight carry to us
+    /// (spec/decisions/packets-in-flight.md).
     pub money_from: u64,
     /// If a peer, the money our packets in flight carry to it.
     pub money_to: u64,
     /// It takes no new Prepares, either way: its peering is ending.
     pub draining: bool,
     /// It takes no new Prepares from it, but still goes to it: we are
-    /// ending its peering, and have not told it yet (D28).
+    /// ending its peering, and have not told it yet
+    /// (spec/decisions/ending-a-peering.md).
     pub refusing: bool,
     /// It takes no new Prepares from it, but still goes to it: our
     /// messages to it surely do not arrive, so a Fulfill of ours could not
-    /// count in its books (D41).
+    /// count in its books (spec/decisions/unreachable-peers.md).
     pub unreached: bool,
     /// Its address lies below the node's own, which routes to it: a child
     /// of the node, or a peer that is our downlink

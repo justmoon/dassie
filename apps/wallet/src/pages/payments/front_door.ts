@@ -2,7 +2,8 @@
  * The node's name at the default front door, `<label>.dassiepay.net`, as a
  * node without a hostname is named (spec/areas/payments.md#the-nodes-names).
  * The front door reaches the node only while the node holds its connection
- * to it, as its relay, which it keeps by default (D40).
+ * to it, as its relay, which it keeps by default
+ * (spec/decisions/default-relay.md).
  */
 
 import { RelayConnection } from "@dassie/rpc/proto";

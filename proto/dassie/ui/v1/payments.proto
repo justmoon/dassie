@@ -2,9 +2,10 @@ syntax = "proto3";
 
 package dassie.ui.v1;
 
-// Open Payments (D9): the node's wallet addresses, one per active ledger,
-// their incoming and outgoing payments, and the grants the owner decides.
-// FAILED_PRECONDITION until the node has a hostname, which every URL names.
+// Open Payments (spec/decisions/open-payments.md): the node's wallet
+// addresses, one per active ledger, their incoming and outgoing payments, and
+// the grants the owner decides. FAILED_PRECONDITION until the node has a
+// hostname, which every URL names.
 
 // A wallet address.
 message WalletAddress {

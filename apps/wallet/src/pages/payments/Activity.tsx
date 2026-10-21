@@ -1,7 +1,8 @@
 /**
  * Activity: the incoming and outgoing payments, newest first, as they
- * receive and send money (D9). Outgoing payments are the owner's Sends and
- * those of apps the owner approved; each leads to its own page.
+ * receive and send money (spec/decisions/open-payments.md). Outgoing payments
+ * are the owner's Sends and those of apps the owner approved; each leads to
+ * its own page.
  */
 
 import type { JSX } from "@solidjs/web";

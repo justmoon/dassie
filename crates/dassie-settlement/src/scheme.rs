@@ -199,8 +199,8 @@ pub trait SettlementScheme: Send {
     /// what arrives from now on is told apart, a peer's settlement from a
     /// deposit. It is kept with the scheme's state, so it holds across
     /// restarts whether or not the ledger can be reached. The node peers on
-    /// the scheme only once it has (D31). A scheme without a ledger to
-    /// follow has seen it from the start.
+    /// the scheme only once it has (spec/decisions/synced-before-peering.md).
+    /// A scheme without a ledger to follow has seen it from the start.
     fn has_synced(&self) -> bool {
         true
     }
@@ -375,7 +375,8 @@ pub trait SettlementScheme: Send {
     fn deposit(&mut self, amount: u64, effects: &mut Vec<Effect>) -> Result<(), SchemeError>;
 
     /// Asserts what holds between calls: its bounds, and how its parts
-    /// relate (D16). Tests, simulations and the node's checks run it.
+    /// relate (spec/decisions/tigerstyle.md). Tests, simulations and the
+    /// node's checks run it.
     ///
     /// # Panics
     ///

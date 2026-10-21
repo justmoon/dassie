@@ -1,7 +1,7 @@
 [package]
 name = "dassie-sim"
 version = "0.2.1"
-description = "Runs Dassie's simulations from seeds, to replay, explain and search for failures (D27). A developer tool; never released."
+description = "Runs Dassie's simulations from seeds, to replay, explain and search for failures (spec/decisions/random-seed-simulations.md). A developer tool; never released."
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

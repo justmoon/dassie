@@ -2,9 +2,10 @@
 //!
 //! One tokio task owns the ledger, the connector, the STREAM receiver and
 //! the settlement schemes ([`Core`]), so none of them needs a lock and their
-//! steps happen in one order, as in a simulation (D16). Everything else
-//! talks to it through an [`Engine`] handle: BTP connections send packets,
-//! RPC calls send closures that run on the core.
+//! steps happen in one order, as in a simulation
+//! (spec/decisions/tigerstyle.md). Everything else talks to it through an
+//! [`Engine`] handle: BTP connections send packets, RPC calls send closures
+//! that run on the core.
 //!
 //! The core itself does no IO. The task here drives it: it takes every queued
 //! command, lets the core persist what the batch changed in one transaction,
@@ -352,8 +353,9 @@ impl Engine {
 
     /// Measures what the path from `ledger`'s payer to the receiver at
     /// `destination` delivers per unit sent, with packets the receiver
-    /// cannot fulfill (D9), for `by`, whose share of the probes it takes.
-    /// Nothing when it could not be measured in time.
+    /// cannot fulfill (spec/decisions/open-payments.md), for `by`, whose
+    /// share of the probes it takes. Nothing when it could not be measured in
+    /// time.
     pub async fn probe(
         &self,
         ledger: dassie_ledger::LedgerId,

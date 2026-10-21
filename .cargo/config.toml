@@ -1,8 +1,8 @@
 # The property tests' seed. proptest draws a random one by default, which
 # would fail a pull request on a bug it did not touch; CI runs fixed seeds
-# only (spec/engineering.md#no-fuzzing-or-random-seeds-in-ci, D27). Set here,
-# so that a local `cargo test` runs what CI runs. A seed in the environment
-# takes precedence: `PROPTEST_RNG_SEED=<u64> cargo test` explores another,
-# outside CI.
+# only (spec/engineering.md#no-fuzzing-or-random-seeds-in-ci,
+# spec/decisions/random-seed-simulations.md). Set here, so that a local `cargo
+# test` runs what CI runs. A seed in the environment takes precedence:
+# `PROPTEST_RNG_SEED=<u64> cargo test` explores another, outside CI.
 [env]
 PROPTEST_RNG_SEED = "0"

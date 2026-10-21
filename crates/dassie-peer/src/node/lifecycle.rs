@@ -1,7 +1,8 @@
-//! The peering lifecycle (D12, spec/areas/network.md#lifecycle): the
-//! advertise flag and its damping, termination, bans, peers that went
-//! silent, and peerings only one side still holds. The original had none
-//! of it: a peering lasted as long as the process (NET-13).
+//! The peering lifecycle (spec/decisions/peering-lifecycle.md,
+//! spec/areas/network.md#lifecycle): the advertise flag and its damping,
+//! termination, bans, peers that went silent, and peerings only one side
+//! still holds. The original had none of it: a peering lasted as long as the
+//! process (NET-13).
 
 use alloc::vec::Vec;
 
@@ -26,16 +27,18 @@ pub enum BanError {
 impl PeerNode {
     /// Ends the peering with `peer` (spec/areas/network.md#termination):
     /// first privately, collecting what it owes, then by telling it; once
-    /// the packets in flight are done, the peering is over (D28).
-    /// Returns whether a peering was there to end.
+    /// the packets in flight are done, the peering is over
+    /// (spec/decisions/ending-a-peering.md). Returns whether a peering was
+    /// there to end.
     pub fn terminate(&mut self, now_ms: u64, peer: &NodeId, reason: TerminationReason) -> bool {
         self.advance(now_ms);
         self.begin_depeering(*peer, reason)
     }
 
-    /// Decides to end an active peering, telling no one yet (D28): it
-    /// takes nothing new from the peer, which still sees it as before.
-    /// Returns whether a peering was there to end.
+    /// Decides to end an active peering, telling no one yet
+    /// (spec/decisions/ending-a-peering.md): it takes nothing new from the
+    /// peer, which still sees it as before. Returns whether a peering was
+    /// there to end.
     pub(crate) fn begin_depeering(&mut self, peer: NodeId, reason: TerminationReason) -> bool {
         let now = self.now_ms;
         let Some(entry) = self.table.get_mut(&peer) else {
@@ -72,10 +75,11 @@ impl PeerNode {
         true
     }
 
-    /// Takes the next step of each peering we are ending privately (D28):
-    /// once our own settlements to the peer are done, or we waited long
-    /// enough, ask it to settle once; once what it said is on its way is
-    /// booked, or we waited long enough, tell it.
+    /// Takes the next step of each peering we are ending privately
+    /// (spec/decisions/ending-a-peering.md): once our own settlements to the
+    /// peer are done, or we waited long enough, ask it to settle once; once
+    /// what it said is on its way is booked, or we waited long enough, tell
+    /// it.
     fn advance_depeerings(&mut self, hooks: &dyn PeeringHooks) {
         let (now, wait) = (self.now_ms, self.config.depeer_wait_ms);
         let depeering: Vec<(NodeId, SchemeId, Depeering)> = self
@@ -141,7 +145,8 @@ impl PeerNode {
     }
 
     /// Our books took `amount` from `peer` in a settlement: what it said
-    /// was on its way, if we are ending the peering, comes closer (D28).
+    /// was on its way, if we are ending the peering, comes closer
+    /// (spec/decisions/ending-a-peering.md).
     pub fn settlement_booked(&mut self, now_ms: u64, peer: &NodeId, amount: u64) {
         self.advance(now_ms);
         if let Some(depeering) = self.depeering_mut(peer)
@@ -257,7 +262,9 @@ impl PeerNode {
         match state {
             Some(PeerState::Peered(peering)) => {
                 // Told while we collect for our owner, or for room, the end
-                // is still ours: its cooldown holds (D28, D33).
+                // is still ours: its cooldown holds
+                // (spec/decisions/ending-a-peering.md,
+                // spec/decisions/ended-for-room.md).
                 let reason = match peering.depeering {
                     Some(depeering) if keeps_away(depeering.reason) => depeering.reason,
                     _ => reason,
@@ -286,9 +293,9 @@ impl PeerNode {
 
     /// Bans `node`: it is never asked, is refused, and a peering with it is
     /// ended at once. A ban is the owner's emphatic word, often about
-    /// misbehaviour, so the node collects nothing first (D28): the peer is
-    /// withdrawn from our link state and told now, and what it owes stays
-    /// on our books.
+    /// misbehaviour, so the node collects nothing first
+    /// (spec/decisions/ending-a-peering.md): the peer is withdrawn from our
+    /// link state and told now, and what it owes stays on our books.
     ///
     /// # Errors
     ///
@@ -343,7 +350,7 @@ impl PeerNode {
 
     /// The peers listed as our neighbors, in order. Downlinks never are:
     /// their child addresses lie beneath ours, so the rest of the network
-    /// needs no route to them (D26).
+    /// needs no route to them (spec/decisions/core-and-periphery.md).
     pub(crate) fn advertised(&self) -> Vec<NodeId> {
         self.table
             .iter()
@@ -396,7 +403,8 @@ impl PeerNode {
             .filter_map(|(id, entry)| match &entry.peer {
                 PeerState::Peered(peering) => {
                     // Silent or short for good, it is ended: not again
-                    // once we decided to (D28).
+                    // once we decided to
+                    // (spec/decisions/ending-a-peering.md).
                     let ending = peering.depeering.is_some();
                     let silent = if ending {
                         u64::MAX
@@ -517,10 +525,11 @@ impl PeerNode {
 
     /// Terminates peers whose room in our books has been short of a packet,
     /// without a settlement, for as long as a silent peer is kept: a link
-    /// that stuck, or drifted past what it survives, is not saved (D12).
-    /// Only the time it could be reached counts: a peer our requests to
-    /// settle surely never reached had no chance to settle, and is ended
-    /// for its silence if it is also silent, never for room.
+    /// that stuck, or drifted past what it survives, is not saved
+    /// (spec/decisions/peering-lifecycle.md). Only the time it could be
+    /// reached counts: a peer our requests to settle surely never reached had
+    /// no chance to settle, and is ended for its silence if it is also
+    /// silent, never for room.
     fn terminate_short(&mut self) {
         let dead = self.config.peer_dead_ms;
         let short: Vec<NodeId> = self
@@ -540,7 +549,8 @@ impl PeerNode {
 
     /// A peer is advertised while it is confirmed, has had room for a
     /// packet within the grace, and is not held down; each withdrawal holds
-    /// it down longer, until it has been stable a while (D12).
+    /// it down longer, until it has been stable a while
+    /// (spec/decisions/peering-lifecycle.md).
     fn update_advertised(&mut self) {
         let config = self.config;
         let now = self.now_ms;
@@ -613,7 +623,8 @@ impl PeerNode {
         entry.advertise = Advertise::default();
         let wait = if keeps_away(termination.reason) {
             // Nor does it take the peer's requests: the owner meant it, and
-            // a link that stayed short is not formed again at once (D33).
+            // a link that stayed short is not formed again at once
+            // (spec/decisions/ended-for-room.md).
             entry.refuse_until_ms = now.saturating_add(cooldown);
             cooldown
         } else {
@@ -627,7 +638,7 @@ impl PeerNode {
         self.gossip.routes_dirty = true;
         self.stats.terminations += 1;
         // Nothing is settled at the end: what the accounts show carries
-        // into a later peering (D28).
+        // into a later peering (spec/decisions/ending-a-peering.md).
         self.event(Event::PeeringEnded { peer });
     }
 
@@ -660,7 +671,8 @@ impl PeerNode {
 
 /// Whether an end for `reason` keeps the two nodes apart for the owner's
 /// cooldown, both ways: one the owner chose, and one for want of room,
-/// which formed again at once would only stick again (D33).
+/// which formed again at once would only stick again
+/// (spec/decisions/ended-for-room.md).
 const fn keeps_away(reason: TerminationReason) -> bool {
     matches!(
         reason,

@@ -1,6 +1,6 @@
 //! Exchange rates and amount conversion
-//! (spec/areas/connector.md#amounts-and-conversion, D7), in exact integer
-//! arithmetic.
+//! (spec/areas/connector.md#amounts-and-conversion,
+//! spec/decisions/exchange-rates.md), in exact integer arithmetic.
 
 use alloc::vec::Vec;
 

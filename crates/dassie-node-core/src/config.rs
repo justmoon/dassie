@@ -43,7 +43,8 @@ pub enum ConfigError {
     InvalidDirectoryUrl,
     /// Not `test` or `live`.
     InvalidRealm,
-    /// The live realm is refused until decision D8's conditions are met.
+    /// The live realm is refused until the conditions of
+    /// spec/decisions/real-money.md are met.
     LiveRealmDisabled,
 }
 
@@ -119,7 +120,8 @@ pub enum Realm {
     /// The test network, with test assets. The only realm enabled.
     #[default]
     Test,
-    /// The real network. Refused by [`Realm::parse_settable`] (D8).
+    /// The real network. Refused by [`Realm::parse_settable`]
+    /// (spec/decisions/real-money.md).
     Live,
 }
 

@@ -1,7 +1,8 @@
 //! The connector's bounds and timing.
 
 /// The connector's bounds and timing rules. Every table has a limit
-/// (D16), and the timing constants are the original's
+/// (spec/decisions/tigerstyle.md), and the timing constants are the
+/// original's
 /// (spec/original/04-interledger.md#12-constants-complete-list-for-this-area).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Config {
@@ -32,23 +33,25 @@ pub struct Config {
     /// The longest the next hop gets (`MAXIMUM_HOLD_TIME`).
     pub max_hold_ms: u64,
     /// The largest incoming amount, in the source ledger's units; more gets
-    /// F08. Per ledger later (D6). It also sets how much
-    /// money may be in flight with a peer: [`IN_FLIGHT_PACKETS`] of it, and
-    /// half of it more.
+    /// F08. Per ledger later (spec/decisions/owner-ledger.md). It also sets
+    /// how much money may be in flight with a peer: [`IN_FLIGHT_PACKETS`] of
+    /// it, and half of it more.
     pub max_packet_amount: u64,
-    /// Rates older than this refuse cross-currency packets with T00 (D7).
+    /// Rates older than this refuse cross-currency packets with T00
+    /// (spec/decisions/exchange-rates.md).
     pub max_rate_age_ms: u64,
     /// Most accounts with a spending cap.
     pub max_caps: usize,
 }
 
 /// How much money may be in flight with one peer each way, in packets of
-/// [`Config::max_packet_amount`] (D24, D25), and half a packet more: two
-/// of the largest fit, a third does not, so half a packet stays free for
-/// smaller ones, such as a quote's probes while a payment fills the link.
-/// A crash loses the Fulfills of what was in flight, and that is how far
-/// two peers' books drift apart for it. Both numbers say how much the
-/// owner is prepared to lose on a link, so one follows from the other.
+/// [`Config::max_packet_amount`] (spec/decisions/packets-in-flight.md,
+/// spec/decisions/thresholds-in-packets.md), and half a packet more: two of
+/// the largest fit, a third does not, so half a packet stays free for smaller
+/// ones, such as a quote's probes while a payment fills the link. A crash
+/// loses the Fulfills of what was in flight, and that is how far two peers'
+/// books drift apart for it. Both numbers say how much the owner is prepared
+/// to lose on a link, so one follows from the other.
 pub const IN_FLIGHT_PACKETS: u64 = 2;
 
 impl Config {
@@ -91,7 +94,8 @@ impl Config {
         assert!(u32::try_from(self.max_pending).is_ok());
     }
 
-    /// The most money in flight with one peer each way (D24).
+    /// The most money in flight with one peer each way
+    /// (spec/decisions/packets-in-flight.md).
     #[must_use]
     pub const fn max_in_flight(&self) -> u64 {
         self.max_packet_amount * IN_FLIGHT_PACKETS + self.max_packet_amount / 2

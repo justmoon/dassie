@@ -70,7 +70,8 @@ impl Connection {
         }
         if !self.has_event_room() {
             // The application is not polling; refuse until it does, so that
-            // the remote cannot overflow the queue (D16). Senders retry.
+            // the remote cannot overflow the queue
+            // (spec/decisions/tigerstyle.md). Senders retry.
             return self.write_plain_reject(IlpErrorCode::T05_RATE_LIMITED, out);
         }
         self.last_activity = Some(now);

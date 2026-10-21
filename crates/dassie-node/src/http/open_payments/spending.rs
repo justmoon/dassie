@@ -1,5 +1,5 @@
 //! The resource server's spending: quotes, outgoing payments, and what a
-//! grant spent (D9).
+//! grant spent (spec/decisions/open-payments.md).
 //!
 //! The quote and payment logic is shared with the owner's Send, in
 //! [`crate::open_payments::spending`]; here are the grant's checks around
@@ -65,10 +65,10 @@ fn authorize(node: &Node, read: &ReadRequest) -> Result<Authorized, OpError> {
     auth::authorize(node, &read.urls, &read.signed(&fields))
 }
 
-/// Whom a request's rate probe counts against (D34): an app the owner
-/// approved, under this grant or another, shares the clients' slots
-/// without a share of its own or its network's; a stranger is held to
-/// its own share and its network's.
+/// Whom a request's rate probe counts against
+/// (spec/decisions/owners-share.md): an app the owner approved, under this
+/// grant or another, shares the clients' slots without a share of its own or
+/// its network's; a stranger is held to its own share and its network's.
 fn prober(node: &Node, peer: SocketAddr, authorized: &Authorized) -> Result<Prober, OpError> {
     let grant = &authorized.grant;
     if grant.needs_owner || node.store().client_approved(&grant.client)? {

@@ -17,10 +17,10 @@
 //! login proof is compared in constant time, the public-key DER has its
 //! unused-bits byte, and non-contributory X25519 results are rejected.
 //!
-//! The crate is deterministic (D16): it never reads a clock or the OS RNG,
-//! and randomness comes from an RNG the caller passes in. It does not
-//! allocate. Secrets are wiped on drop, are not `Copy`, and print as
-//! `<redacted>`.
+//! The crate is deterministic (spec/decisions/tigerstyle.md): it never reads
+//! a clock or the OS RNG, and randomness comes from an RNG the caller passes
+//! in. It does not allocate. Secrets are wiped on drop, are not `Copy`, and
+//! print as `<redacted>`.
 
 #![no_std]
 

@@ -1,8 +1,9 @@
 //! The peer network's random run (spec/areas/testing.md#the-simulations,
-//! D27): random sizes and bootstrap lists, a rough network, crashes,
-//! restarts and partitions, owners ending peerings and banning nodes,
-//! settlements, then a calm in which the network must converge, every
-//! termination finish and every settlement arrive exactly once.
+//! spec/decisions/random-seed-simulations.md): random sizes and bootstrap
+//! lists, a rough network, crashes, restarts and partitions, owners ending
+//! peerings and banning nodes, settlements, then a calm in which the network
+//! must converge, every termination finish and every settlement arrive
+//! exactly once.
 
 use alloc::format;
 use alloc::string::String;
@@ -38,7 +39,7 @@ const CALM_MS: u64 = CONFIG.owner_termination_cooldown_ms
     + CONFIG.advertise_hold_max_ms
     + 10 * 60_000;
 // Long enough, too, for a node ending a peering to wait out both its
-// steps and tell the peer (D28).
+// steps and tell the peer (spec/decisions/ending-a-peering.md).
 const _: () = assert!(CALM_MS > 2 * CONFIG.depeer_wait_ms + CONFIG.termination_timeout_ms);
 
 /// The seed's generator for the run, and what it draws first: how many

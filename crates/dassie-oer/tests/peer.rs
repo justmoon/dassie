@@ -227,8 +227,9 @@ fn node_lists_match_the_original() {
 fn peer_message_envelopes_decode() {
     // The v0 envelopes of the original's test vectors
     // (spec/original/03-peer-network.md#55-test-vectors). The rewrite's v1
-    // changes the authentication (D2), but the OER layout is the same, so
-    // these still test CHOICE and nested CONTAINING decoding.
+    // changes the authentication (spec/decisions/peer-protocol-v1.md), but
+    // the OER layout is the same, so these still test CHOICE and nested
+    // CONTAINING decoding.
     let vectors = vectors("vectors.json");
     let peer = &vectors["peer"];
 

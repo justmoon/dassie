@@ -1,6 +1,7 @@
-//! v1 message authentication (D2, spec/areas/peer-protocol.md#keys-and-macs).
-//! Each test is a way the original's scheme could be fooled (NET-8) or a
-//! property the amended scheme promises.
+//! v1 message authentication (spec/decisions/peer-protocol-v1.md,
+//! spec/areas/peer-protocol.md#keys-and-macs). Each test is a way the
+//! original's scheme could be fooled (NET-8) or a property the amended scheme
+//! promises.
 
 #![allow(
     clippy::unwrap_used,

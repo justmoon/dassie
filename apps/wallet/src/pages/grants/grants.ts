@@ -1,6 +1,6 @@
 /**
- * Grants as the owner reads them (D9): who asks, and what for, in plain
- * words: "Send payments of up to $ 10.00 a day".
+ * Grants as the owner reads them (spec/decisions/open-payments.md): who asks,
+ * and what for, in plain words: "Send payments of up to $ 10.00 a day".
  */
 
 import { currencyOf, formatAmount } from "@dassie/ui/currency";
@@ -218,9 +218,10 @@ export function spentText(limits: LimitFields): string | undefined {
 /*
  * The consent page's facts about an item that sends payments: what the
  * owner sends, what the receiver gets, to whom, and for how long. A grant
- * caps what is debited or what is delivered, never both (D9), so one side
- * is firm and the other is said as far as it is known: fees and exchange
- * along the way are only known once a payment is quoted.
+ * caps what is debited or what is delivered, never both
+ * (spec/decisions/open-payments.md), so one side is firm and the other is
+ * said as far as it is known: fees and exchange along the way are only known
+ * once a payment is quoted.
  */
 
 /** "a day", or "in total" for a limit over all time. */

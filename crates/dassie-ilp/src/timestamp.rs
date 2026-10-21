@@ -11,7 +11,8 @@ const LAST_YEAR: u64 = 9999;
 /// A point in time in milliseconds since the Unix epoch, UTC.
 ///
 /// This is the time type of all Dassie protocol code. Nothing in the core
-/// crates reads a clock: callers pass the current time in (D16).
+/// crates reads a clock: callers pass the current time in
+/// (spec/decisions/tigerstyle.md).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Timestamp {
     /// Milliseconds since 1970-01-01T00:00:00Z.

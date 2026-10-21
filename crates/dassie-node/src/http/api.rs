@@ -214,7 +214,8 @@ mod tests {
         #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
 
         // Anyone may post to the setup and login endpoints: their media
-        // type is read, or refused, without a panic (D16).
+        // type is read, or refused, without a panic
+        // (spec/decisions/tigerstyle.md).
         #[test]
         fn any_media_type_is_read(headers in headers(NAMES)) {
             if is_json(&headers) {

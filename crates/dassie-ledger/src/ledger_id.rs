@@ -7,7 +7,8 @@ use core::fmt;
 pub enum Realm {
     /// Test money.
     Test,
-    /// Real money; refused until D8's criteria are met.
+    /// Real money; refused until the criteria of spec/decisions/real-money.md
+    /// are met.
     Live,
 }
 
