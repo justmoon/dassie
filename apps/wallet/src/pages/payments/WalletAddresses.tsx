@@ -6,10 +6,11 @@
 
 import type { JSX } from "@solidjs/web";
 import type { WalletAddress } from "@dassie/rpc/proto";
-import { createSignal, For, onCleanup, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { describe, useClient } from "@dassie/ui/rpc";
 import { Alert, Badge, CopyButton, ErrorText } from "@dassie/ui/ui";
 import { schemeName } from "../schemes.ts";
+import { useStatus } from "../../status.ts";
 import { atFrontDoor, frontDoorState, type Relay } from "./front_door.ts";
 
 /** Loads the wallet addresses once; `reload` asks again. */
@@ -34,9 +35,6 @@ export function useWalletAddresses(): {
   void reload();
   return { addresses, error, reload, set: setAddresses };
 }
-
-/** How often the note asks the node again whether it is connected. */
-const RELAY_POLL_MS = 15_000;
 
 /**
  * Says that a pointer at the default front door reaches the node through
@@ -97,20 +95,11 @@ function FrontDoorStatus(props: { pointer?: string }): JSX.Element {
  * it keeps none, `undefined` until known.
  */
 function useRelay(): () => Relay | null | undefined {
-  const client = useClient();
-  const [relay, setRelay] = createSignal<Relay | null>();
-  const ask = async () => {
-    try {
-      const status = await client.call("getStatus", {});
-      setRelay(status.relay ?? null);
-    } catch {
-      // Keep what is known; the next poll asks again.
-    }
+  const status = useStatus();
+  return () => {
+    const known = status();
+    return known === undefined ? undefined : (known.relay ?? null);
   };
-  void ask();
-  const timer = setInterval(() => void ask(), RELAY_POLL_MS);
-  onCleanup(() => clearInterval(timer));
-  return relay;
 }
 
 /** The ledger's name in the wallet: its scheme's, from the ledger ID. */

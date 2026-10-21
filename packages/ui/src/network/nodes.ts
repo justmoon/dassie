@@ -71,13 +71,31 @@ export interface RoutingGraph {
 }
 
 /**
+ * A periphery node's uplinks: the core nodes it is peered with, through
+ * which it reaches the network (spec/areas/network.md#periphery-nodes).
+ */
+export function uplinks(nodes: readonly NetworkNode[]): NetworkNode[] {
+  return sortNodes(
+    nodes.filter((node) => !node.isSelf && node.peerState === PeerState.PEERED),
+  );
+}
+
+/**
  * The routing table as a graph: this node and every node a route reaches,
  * and between them the edges routing runs over, those both ends list.
  * Each reached node's link state is fresh, as routing needs it to be, so
  * these are exactly its edges. Our peering with a node draws nothing: a
  * peer that is offline, or not listed back, has no route and no line.
+ *
+ * A periphery node's uplinks do not list it in their link states, so no
+ * edge names it. On one, this node is drawn with a line to each uplink that
+ * is a first hop, one hop away: where its packets go. An uplink it lost is
+ * no first hop, even while a route reaches it through another uplink.
  */
-export function routingGraph(nodes: readonly NetworkNode[]): RoutingGraph {
+export function routingGraph(
+  nodes: readonly NetworkNode[],
+  periphery = false,
+): RoutingGraph {
   const reached = nodes.filter((node) => node.distance !== undefined);
   const byId = new Map(reached.map((node) => [node.id, node]));
   const links = new Map<string, Link>();
@@ -88,6 +106,15 @@ export function routingGraph(nodes: readonly NetworkNode[]): RoutingGraph {
       const [a, b] = node.id < neighbor
         ? [node.id, neighbor]
         : [neighbor, node.id];
+      links.set(`${a} ${b}`, { a, b });
+    }
+  }
+  const self = reached.find((node) => node.isSelf);
+  if (periphery && self) {
+    for (const uplink of uplinks(reached).filter((n) => n.distance === 1)) {
+      const [a, b] = self.id < uplink.id
+        ? [self.id, uplink.id]
+        : [uplink.id, self.id];
       links.set(`${a} ${b}`, { a, b });
     }
   }
