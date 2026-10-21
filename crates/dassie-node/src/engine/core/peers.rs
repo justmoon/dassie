@@ -551,9 +551,13 @@ impl Core {
 
     /// Tells the peer node which schemes it may peer on, in a fixed order:
     /// the active ones that have seen their ledger
-    /// (spec/decisions/synced-before-peering.md) and have not stopped. Before
-    /// a scheme first synced, a peer's settlement would be booked as the
-    /// owner's deposit; once it stopped, it would be refused. So the node
+    /// (spec/decisions/synced-before-peering.md), have not stopped, and can
+    /// receive a peer's settlement. Before a scheme first synced, a peer's
+    /// settlement would be booked as the owner's deposit; once it stopped,
+    /// it would be refused; while it cannot receive, as while an issuer
+    /// froze our line deep, it would fail and cost the peer a fee
+    /// (spec/areas/settlement.md#when-peers-cannot-pay-us). A scheme that
+    /// only lost its ledger stays, once it has synced. So the node
     /// neither offers, asks for nor accepts a peering on it; peerings already
     /// made stay. The list is made from the schemes active now, each time:
     /// the original's started from those active at its start, so of two
@@ -562,7 +566,9 @@ impl Core {
         let schemes: Vec<SchemeId> = self
             .schemes
             .iter()
-            .filter(|(_, active)| active.failed.is_none() && active.scheme.has_synced())
+            .filter(|(_, active)| {
+                active.failed.is_none() && active.scheme.has_synced() && active.scheme.can_receive()
+            })
             .filter_map(|(name, _)| SchemeId::parse(name.as_str()))
             .collect();
         let now = self.now_ms;

@@ -24,7 +24,9 @@ A scheme is sans-IO: its methods return effects (`Effect` in `scheme.rs`) for th
 - **Peering keeps nothing until it is made.** Creating, accepting and finalizing a peering request only check the other side's data; the scheme keeps what it needs of a peer when the node tells it the peering is made (`on_peered`), after the peer's accounts are open. So attempts that fail cost the scheme no room.
 - **Peering waits for the first sync.** A scheme's first sync books what its account holds as the owner's deposit; only after it can the scheme tell a peer's settlement from a deposit (`has_synced`). Until then the node neither offers, asks for nor accepts a peering on the scheme: it leaves the scheme out of its link state, picks no candidate on it, and refuses requests on it as for a scheme not active here ([Network](network.md#asking-and-answering), [synced-before-peering](../decisions/synced-before-peering.md)). The first sync is kept with the scheme's state, so a restart with the ledger out of reach peers as before, and peerings already made stay. A scheme without a ledger to follow has synced from the start.
 - **Reports** (deposits, withdrawals, ledger fees, reconciliations) are recorded even past the owner's limit ([Ledger](ledger.md#what-the-ledger-refuses-and-what-it-records)). An incoming settlement is booked Dr `assets/settlement`, Cr `assets/interledger/<peer>`.
-- **`Unavailable`** means not now (its ledger not seen, no funds to spare, too much in flight). It is asked again at the next check as if nothing happened.
+- **`Unavailable`** means not now (its ledger not seen, no funds to spare, too much in flight, an issuer's freeze). It is asked again at the next check as if nothing happened.
+- **Whether peers can pay us** (`can_receive`): a scheme whose ledger stops what peers pay us, such as RLUSD while the issuer froze our line deep, says so, and stays synced meanwhile ([below](#when-peers-cannot-pay-us)).
+- **The settlement check** (`on_check`) lets a scheme read what it needs of its ledger at every check, through its asset, such as an issuer's account ([XRPL](xrpl.md#rlusd)); what it learns comes as news.
 - **The scheme's reserve** is what its ledger holds back from the balance: never booked, so never spendable.
 - **Its status,** as the owner sees it, is its asset's until the asset is synced, then its own.
 
@@ -41,6 +43,7 @@ An external asset is something the node holds outside its books, of a type: an a
 - **A scheme that joins an asset that has heard from its ledger** has the node connect the asset anew, so it reads again from the earliest place of its schemes, the new one's included, and tells them all it has synced; one whose connection was closed is connected again.
 - **The ledger is authoritative for what it holds.** The node shows each holding as the ledger last said (`asset_views`), never as the books add it up. The books keep `assets/settlement` only to book against, in step with the holding the ledger's scheme settles in ([Ledger](ledger.md#chart-of-accounts)).
 - **It is active while a scheme settles through it:** made with the first, from its checkpoint, and let go with the last.
+- **A holding is on the books only on the ledger whose scheme settles in it.** Another scheme on the asset may spend it as gas, such as the XRP an RLUSD scheme pays fees and reserves with: where a scheme on the asset settles in that holding, the gas is booked on that scheme's ledger, as a ledger fee or a reconciliation, and spent only within the owner's funds there, which the node tells the asset before each call that may sign (`owner_funds`); where none does, the gas is off the books, and the asset only keeps it above its ledger's reserve ([external-assets](../decisions/external-assets.md)).
 
 ### Assets that follow a ledger
 
@@ -108,6 +111,17 @@ At every settlement check the node asks each peer whose position has fallen to i
 
 - **It asks again** at the next check once its books show a settlement from that peer, not on the `settlement` message alone: on the XRP Ledger the message books nothing, so asking on it would make the peer pay twice. It also asks again at the next check after a 409, since our acceptance may not have reached the peer yet, and after a request that surely never reached the peer (not delivered, [Peer protocol](peer-protocol.md#outbound-requests)), which costs the peer nothing and must not use up its grace before it is withdrawn ([Network](network.md#advertised-peers)). Otherwise it asks at most once a minute, so a peer that does not answer, refuses (400, 401) or is overloaded (503) is not flooded.
 - **Only while its scheme is synced.** Until then, what the peer pays is not booked, and the node cannot tell whether it paid. An honest peer settles only when asked, and no peering is made before the scheme's first sync ([above](#the-scheme-interface)), so what a peer settles, asked routinely or by a node ending the peering, reaches the ledger after that sync booked what the account held as the owner's deposit, and is booked as the peer's settlement.
+- **Only while the peer's settlement can reach us** ([below](#when-peers-cannot-pay-us)).
+
+### When peers cannot pay us
+
+A scheme's ledger can stop what peers pay us while the scheme still sees it: an issuer that froze our line deep, or froze its token for every holder, lets no peer's payment reach the line, and a peer's settlement would only fail and cost it a fee ([issued-assets](../decisions/issued-assets.md)). The scheme says so (`can_receive`) for as long as it lasts, which may be for good, and stays synced. Meanwhile:
+
+- **The node asks no peer on it to settle,** as while the scheme does not see its ledger.
+- **A peer's time short of room withdraws it but never ends it** ([Network](network.md#advertised-peers)). It grows as usual, so a peer short of room past the grace is withdrawn, since no settlement can restore its room while it lasts; but it does not count toward ending the peering for room, so no peer is ended for what it could not pay ([ended-for-room](../decisions/ended-for-room.md)). The grace stays, so our own packets toward a peer that dips below its room only briefly can restore it before it is withdrawn.
+- **The link state leaves the scheme out,** so no new peering is made on it ([Network](network.md#asking-and-answering)). This is a rule of its own: a scheme that only lost its ledger stays in the link state once it has synced.
+
+Peerings already made stay, and our own settlements on the scheme go on while the scheme can make them.
 - With no credit extended, it asks at once, and asks again once what the peer paid in advance is down to the trigger.
 - **A peering the node is ending** is asked once more, by the peer node itself, before the peer is told, whatever its position; then no more ([Network](network.md#termination)).
 

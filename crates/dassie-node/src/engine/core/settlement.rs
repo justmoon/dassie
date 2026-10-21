@@ -140,6 +140,7 @@ impl Core {
         }
         self.settle.at_ms = now.saturating_add(self.settle.interval_ms);
         self.grow_credit();
+        self.check_schemes();
         self.report_room();
         self.ask_peers();
         if self.settle.never_settles {
@@ -156,8 +157,9 @@ impl Core {
     /// starts the grace again. While our scheme does not see its ledger, we
     /// cannot ask: nothing is judged, and the time short neither grows nor
     /// starts again. While our requests to settle surely never reach the
-    /// peer, the peer protocol counts the time toward withdrawing it, not
-    /// toward ending the peering for room.
+    /// peer, or no settlement from it can reach us, the peer protocol counts
+    /// the time toward withdrawing it, not toward ending the peering for
+    /// room.
     fn report_room(&mut self) {
         let now = self.now_ms;
         let peers: Vec<(NodeId, SchemeId)> = self
@@ -183,8 +185,14 @@ impl Core {
                 .is_some_and(|at| at.position < u128::from(self.settle.minimum))
             {
                 // Two checks' worth at most: more is a stall of ours.
-                Room::Short {
-                    most_ms: self.settle.interval_ms.saturating_mul(2),
+                let most_ms = self.settle.interval_ms.saturating_mul(2);
+                // While no settlement from the peer can reach us, it is
+                // withdrawn in time, but never ended for room it could not
+                // restore (spec/decisions/ended-for-room.md).
+                if self.can_receive(scheme) {
+                    Room::Short { most_ms }
+                } else {
+                    Room::ShortUnpayable { most_ms }
                 }
             } else {
                 Room::Enough
@@ -201,6 +209,33 @@ impl Core {
                 .get(&name)
                 .is_some_and(|active| self.scheme_status(active) == LedgerStatus::Synced)
         })
+    }
+
+    /// Whether a peer's settlement on `scheme` can reach us now: not while
+    /// our line cannot receive (spec/areas/settlement.md#when-peers-cannot-pay-us).
+    fn can_receive(&self, scheme: SchemeId) -> bool {
+        Name::new(scheme.as_str()).ok().is_some_and(|name| {
+            self.schemes
+                .get(&name)
+                .is_some_and(|active| active.scheme.can_receive())
+        })
+    }
+
+    /// The settlement check of each scheme that settles through an asset:
+    /// what it reads of its ledger each time, such as an issuer's account,
+    /// is asked for now, and comes as news.
+    fn check_schemes(&mut self) {
+        let now = self.now_ms;
+        let schemes: Vec<Name> = self.schemes.keys().copied().collect();
+        for scheme in schemes {
+            let Some((active, Some(asset))) = self.scheme_and_asset(scheme) else {
+                continue;
+            };
+            active.scheme.on_check(now, asset);
+            if let Some(asset) = self.schemes.get(&scheme).and_then(|active| active.asset) {
+                self.carry_out(asset);
+            }
+        }
     }
 
     /// Asks each peer that is close to the credit we extend to settle:
@@ -228,7 +263,9 @@ impl Core {
             .asked
             .retain(|node, _| peers.iter().any(|(peer, _)| peer == node));
         for (node, scheme) in peers {
-            if !self.sees_ledger(scheme) {
+            // Nor while its settlement cannot reach us: it would only fail,
+            // and cost the peer a fee.
+            if !self.sees_ledger(scheme) || !self.can_receive(scheme) {
                 continue;
             }
             let due = self
@@ -477,6 +514,9 @@ impl Core {
     ) -> Option<dassie_settlement::PreparedSettlement> {
         let name = Name::new(node.as_str()).ok()?;
         let now = self.now_ms;
+        if let Some(asset) = self.schemes.get(&scheme).and_then(|active| active.asset) {
+            self.tell_owner_funds(asset);
+        }
         let Self {
             schemes,
             assets,

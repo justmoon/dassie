@@ -195,6 +195,15 @@ pub trait ExternalAsset: Send + Any {
         Err(SchemeError::Unsupported)
     }
 
+    /// What the owner may spend now on the ledger of `scheme`, a scheme on
+    /// it, by the books: the owner's funds there, less what is pending. The
+    /// node says it before each call that may sign, so a holding one scheme
+    /// settles in and another spends as gas is spent only within the
+    /// owner's funds (spec/decisions/external-assets.md).
+    fn owner_funds(&mut self, scheme: Name, funds: u64) {
+        let _ = (scheme, funds);
+    }
+
     /// Every scheme on it has been handed what it learnt: it is forgotten.
     fn told(&mut self);
 

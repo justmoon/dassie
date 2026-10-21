@@ -339,13 +339,16 @@
       "x": 20,
       "y": 576,
       "w": 184,
-      "desc": "The node's XRP Ledger testnet account and the settlement scheme on it: the wallet, the transaction codec, the rippled API, the account that connects, signs and follows the ledger, and the scheme that books what the account tells it. A fake ledger serves the tests and the dev network, with test RLUSD from an issuer of its own.",
+      "desc": "The node's XRP Ledger testnet account and the two settlement schemes on it, one in XRP and one in RLUSD, Ripple's dollar token: the wallet, the transaction codec, the rippled API, the account that connects, signs and follows the ledger, and the schemes that book what the account tells them. A fake ledger serves the tests and the dev network, with test RLUSD from an issuer of its own.",
       "does": [
         "Derives the node's XRP Ledger wallet from its key, so the same phrase finds the same funds",
         "Keeps one connection per account, and hands out its sequences so schemes on it never take the same one",
         "Signs Payments byte for byte as `xrpl.js` does, and writes token Payments and TrustSets the same way",
         "Reads token amounts exactly, and a trust line, its flags and its issuer from either side",
         "Books every validated transaction once: settlements, deposits, withdrawals and fees",
+        "Settles in RLUSD on a trust line it sets up itself, booked in dollars by what reaches the line, the issuer's clawbacks included",
+        "Pays the RLUSD scheme's fees in XRP: booked on the XRP ledger when both schemes share the account, off the books otherwise",
+        "Stops settling while the issuer freezes the line, and stops asking peers to pay while the line cannot receive",
         "Never books the reserve, and catches up after a restart",
         "Asks the testnet faucet when the account is new, or when the owner wants more test XRP",
         "Fakes the ledger for tests: XRP, trust lines, token payments through the issuer and their failures, and an issuer that mints, freezes and claws back"
@@ -363,6 +366,7 @@
       "does": [
         "The scheme interface, and when a scheme is active",
         "External assets: what the node holds outside its books, as the ledger says, apart from the schemes that settle through it",
+        "Gas: a holding one scheme spends and another settles in is spent only within the owner's funds",
         "The stub scheme: 100 test USD, so everything works without a real ledger",
         "The settlement policy: when a creditor asks a peer to settle, and how much the debtor pays, counted in the largest packet",
         "Reconciling settlements still pending after a restart"
@@ -382,7 +386,7 @@
         "The node table, link-state flooding, membership by majority and registration",
         "Peering on its own, and routing",
         "Periphery nodes without a URL, which peer only with core nodes as their downlinks",
-        "Advertising only peers that are alive and not stuck short of room",
+        "Advertising only peers that are alive and not stuck short of room, never ending one for room it could not pay",
         "Delivering settlements and requests to settle, ending peerings, bans"
       ]
     },

@@ -883,6 +883,31 @@ fn an_outage_of_the_ledger_pauses_the_time_short() {
     assert_eq!(short(&network), 0);
 }
 
+// spec/areas/settlement.md#when-peers-cannot-pay-us: while no settlement
+// from a peer can reach us (our line frozen deep), its time short grows
+// toward withdrawing it, past the grace, but never toward ending the
+// peering for room, however long it lasts.
+#[test]
+fn a_peer_that_cannot_pay_us_is_withdrawn_but_never_ended_for_room() {
+    let (mut network, _, b) = peered(51);
+    let frozen = Room::ShortUnpayable { most_ms: 2_000 };
+    let peering = |network: &Network| {
+        let peering = network.node(0).peering_of(&b).unwrap();
+        (peering.short_for_ms, peering.short_reached_ms)
+    };
+    report(&mut network, &b, SHORT, 3_000);
+    assert_eq!(peering(&network), (3_000, 3_000));
+    report(&mut network, &b, frozen, CONFIG.peer_dead_ms + 2_000);
+    let (short, reached) = peering(&network);
+    assert!(short > CONFIG.advertise_short_grace_ms, "{short}");
+    assert_eq!(reached, 3_000, "the freeze counted toward ending it");
+    assert!(!network.node(0).is_advertised(&b), "still advertised");
+    assert_eq!(ended(&network, 0, &b), 0, "ended for room it could not pay");
+    assert!(network.node(0).peering_of(&b).unwrap().depeering.is_none());
+    report(&mut network, &b, Room::Enough, 0);
+    assert_eq!(peering(&network), (0, 0));
+}
+
 // A restart does not drop the peers we advertise: the flag starts from
 // when they were last heard from.
 #[test]

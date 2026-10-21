@@ -307,7 +307,8 @@ impl PeerNode {
     /// while the last request to settle may have reached the peer counts
     /// toward ending the peering: one that cannot be reached is asked at
     /// every check, and each attempt fails before it reaches the peer, so it
-    /// costs the peer nothing.
+    /// costs the peer nothing; nor does any time while no settlement from
+    /// the peer could reach us ([`Room::ShortUnpayable`]).
     pub fn room(&mut self, now_ms: u64, peer: &NodeId, room: Room) {
         self.advance(now_ms);
         let now = self.now_ms;
@@ -320,12 +321,15 @@ impl PeerNode {
         let advertise = &mut entry.advertise;
         let before = (peering.short_for_ms, peering.short_reached_ms);
         match room {
-            Room::Short { most_ms } => {
+            Room::Short { most_ms } | Room::ShortUnpayable { most_ms } => {
                 let since = advertise
                     .short_checked_ms
                     .map_or(0, |at| now.saturating_sub(at).min(most_ms));
                 peering.short_for_ms = peering.short_for_ms.saturating_add(since);
-                if !advertise.settle_unreached {
+                // Only time the peer could have restored its room counts
+                // toward ending the peering for it.
+                let payable = matches!(room, Room::Short { .. });
+                if payable && !advertise.settle_unreached {
                     peering.short_reached_ms = peering.short_reached_ms.saturating_add(since);
                 }
                 advertise.short_checked_ms = Some(now);

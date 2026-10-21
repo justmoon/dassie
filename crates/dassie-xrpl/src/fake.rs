@@ -57,16 +57,11 @@ const MAX_TX_RANGE_LEDGERS: u64 = 1_000;
 /// The ledgers an issuer's or genesis's own transaction may wait.
 const OWN_TX_LEDGERS: u32 = 20;
 
-/// RLUSD's issuer on the XRPL testnet, `rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV`:
-/// the fake ledger issues its test RLUSD at the same address.
-pub const RLUSD_ISSUER: AccountId = AccountId([
-    0xFC, 0xF4, 0xDD, 0x8C, 0x64, 0x63, 0x6B, 0xC5, 0x03, 0xF4, 0xA5, 0x8D, 0xC6, 0xC6, 0x84, 0xD2,
-    0xC7, 0xC3, 0xC2, 0x4F,
-]);
+/// RLUSD's issuer on the XRPL testnet: the fake ledger issues its test
+/// RLUSD at the same address, so the scheme runs on it unchanged.
+pub const RLUSD_ISSUER: AccountId = crate::rlusd::ISSUER;
 /// RLUSD's currency code: "RLUSD" in 40 hex digits.
-pub const RLUSD_CURRENCY: Currency = Currency([
-    0x52, 0x4C, 0x55, 0x53, 0x44, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-]);
+pub const RLUSD_CURRENCY: Currency = crate::rlusd::CURRENCY;
 /// What an issuer is given from genesis, in drops, to pay its fees.
 pub const ISSUER_DROPS: u64 = 1_000 * DROPS_PER_XRP;
 /// An issuer's flags, as RLUSD's on the testnet: lines ripple through it,

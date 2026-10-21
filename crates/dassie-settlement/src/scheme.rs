@@ -183,6 +183,24 @@ pub trait SettlementScheme: Send {
         true
     }
 
+    /// Whether a peer's settlement can reach us on the underlying ledger
+    /// now. While it cannot, as while an issuer has frozen our line deep or
+    /// frozen its token globally, the node asks no peer on the scheme to
+    /// settle, counts a peer's time short of room toward withdrawing it but
+    /// never toward ending the peering, and leaves the scheme out of its
+    /// link state (spec/areas/settlement.md#when-peers-cannot-pay-us). The
+    /// scheme stays synced meanwhile: it still sees its ledger.
+    fn can_receive(&self) -> bool {
+        true
+    }
+
+    /// The node's settlement check: what the scheme reads of its ledger at
+    /// each one, through its asset, such as an issuer's account. What it
+    /// learns comes as news ([`on_asset`](Self::on_asset)).
+    fn on_check(&mut self, now_ms: u64, asset: &mut dyn ExternalAsset) {
+        let _ = (now_ms, asset);
+    }
+
     /// The least amount the underlying ledger can move, in internal units:
     /// settlements are whole multiples of it. Less than it is owed until
     /// there is more, or for good at the end of a peering.

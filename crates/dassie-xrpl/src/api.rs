@@ -159,6 +159,29 @@ pub fn ripple_state(id: u64, account: AccountId, issuer: AccountId, currency: Cu
     )
 }
 
+/// The trust line between `account` and `issuer` in `currency`, as of
+/// validated ledger `ledger`: the one `account` was read at.
+#[must_use]
+pub fn ripple_state_at(
+    id: u64,
+    account: AccountId,
+    issuer: AccountId,
+    currency: Currency,
+    ledger: u32,
+) -> Vec<u8> {
+    request(
+        id,
+        "ledger_entry",
+        json!({
+            "ripple_state": {
+                "accounts": [account.to_address(), issuer.to_address()],
+                "currency": currency.to_string(),
+            },
+            "ledger_index": ledger,
+        }),
+    )
+}
+
 /// Submits a signed transaction.
 #[must_use]
 pub fn submit(id: u64, blob: &[u8]) -> Vec<u8> {

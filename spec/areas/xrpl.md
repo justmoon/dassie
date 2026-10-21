@@ -1,13 +1,13 @@
 # XRPL
 
-The node's account on the XRP Ledger testnet and the `xrpl-testnet` settlement scheme on it: the wallet, derived from the owner's passphrase; the account as an external asset, which connects, signs and follows the ledger for the schemes on it; the Payments the scheme signs to settle; how every transaction that touches the account is booked once; how both survive restarts; and the gates that keep real money out.
+The node's account on the XRP Ledger testnet and the two settlement schemes on it, `xrpl-testnet` in its XRP and `xrpl-testnet-rlusd` in RLUSD on its trust line: the wallet, derived from the owner's passphrase; the account as an external asset, which connects, signs and follows the ledger for the schemes on it; the Payments the schemes sign to settle; how every transaction that touches the account is booked once; how they survive restarts; and the gates that keep real money out.
 
 **Paths:** `crates/dassie-xrpl/`, `crates/dassie-node/src/fake_ledger.rs`, `testdata/xrpl/`
 **Read with:** [Settlement](settlement.md), [Ledger](ledger.md), [Identity](identity.md)
 
-The crate does no IO and reads no clock. The account says what to send its ledger and the node feeds it what comes back, over the one connection it keeps for the account; the account tells the schemes on it what the ledger said, and they book it, through the node ([Settlement](settlement.md#external-assets)). Its constants are in `lib.rs`, `account.rs` and `scheme.rs`.
+The crate does no IO and reads no clock. The account says what to send its ledger and the node feeds it what comes back, over the one connection it keeps for the account; the account tells the schemes on it what the ledger said, and they book it, through the node ([Settlement](settlement.md#external-assets)). Its constants are in `lib.rs`, `account.rs`, `scheme.rs` and `rlusd.rs`.
 
-The account is an external asset (`account.rs`), and `xrpl-testnet` is a scheme on it that settles in its XRP (`scheme.rs`). The crate reads and writes tokens too ([Tokens](#tokens)), but nothing signs or books one yet: RLUSD, as a second scheme on the same account, is [not built](../roadmap.md#external-assets-and-rlusd).
+The account is an external asset (`account.rs`). `xrpl-testnet` is a scheme on it that settles in its XRP (`scheme.rs`), and `xrpl-testnet-rlusd` one that settles in RLUSD on its trust line to RLUSD's issuer, with its XRP as gas (`rlusd.rs`, [RLUSD](#rlusd)). Either runs alone, or both on the one account.
 
 ## Real money
 
@@ -27,31 +27,59 @@ The wallet is the original's, byte for byte, so the same passphrase finds the sa
 The account owns what the schemes that settle through it would otherwise race for ([external-assets](../decisions/external-assets.md)):
 
 - **The connection:** the network check, the newest ledger seen, testnet resets and the faucet ([below](#following-the-account)). The server and the faucet are the account's config, which the scheme that activates it names; a scheme that names others while the account is active is refused.
-- **What it signs:** the next sequence and the transactions in flight. A scheme asks the account to sign; the account hands out sequences in order, so two schemes on one account never take the same one, and keeps each transaction with the scheme that signed it. It signs nothing unless it is synced and knows its sequence, has room for another transaction in flight, the amount is at least a drop, the network fee is at most its ceiling (while it is higher, it waits), and the amount and the fee fit above the reserve after what is in flight.
-- **What it holds,** as the ledger last said: its XRP and the reserve, which the node shows from the account, never from the books ([Settlement](settlement.md#external-assets)).
-- **What it learnt,** which it tells every scheme on it, in order: each validated transaction that touches the account, with the scheme that signed it if it was in flight; that it is synced; that a transaction can never apply; that the account is gone; each ledger that closes; and each transaction a scheme looked up, under the hash the scheme asked for. A transaction that names more XRP than the books can hold for the account, from the stream, the history or a lookup, stops the account before any scheme books it.
+- **What it signs:** the next sequence and the transactions in flight: Payments of XRP or of a token, and `TrustSet`s. A scheme asks the account to sign; the account hands out sequences in order, so two schemes on one account never take the same one, and keeps each transaction with the scheme that signed it. It signs nothing unless it is synced and knows its sequence, has room for another transaction in flight, the amount is above zero, the network fee is at most its ceiling (while it is higher, it waits), and what it pays in XRP, its fee and any reserve it takes fit above the reserve after what is in flight.
+- **What it spends as gas:** the XRP a scheme that does not settle in it spends, a token Payment's fee or a `TrustSet`'s fee and its line's reserve. While `xrpl-testnet` settles from the account, that XRP is on its books, so the account signs for another scheme only while the owner's funds on `xrpl-testnet+xrp`, which the node tells it before each call that may sign, cover the gas, with the gas already in flight ([external-assets](../decisions/external-assets.md)). Otherwise the XRP is off the books, and only the reserve bounds it.
+- **What it holds,** as the ledger last said: its XRP and the reserve, and the balance of each trust line a scheme on it follows, which the node shows from the account, never from the books ([Settlement](settlement.md#external-assets)).
+- **What it learnt,** which it tells every scheme on it, in order: each validated transaction that touches the account, with the scheme that signed it if it was in flight; each line its schemes follow, and that it is synced; that a transaction can never apply; that the account is gone; each ledger that closes; each transaction a scheme looked up, under the hash the scheme asked for; and an issuer's account a scheme asked for. A transaction that names more XRP than the books can hold for the account, from the stream, the history or a lookup, stops the account before any scheme books it.
 - **What a scheme not on it misses of its own.** While a scheme is stopped or removed, a transaction of its that can never apply is remembered as never sent, and one the ledger validates is kept with the scheme that signed it, both written with the account's state. So is what the account told a scheme of its own in the input whose bookings the books refused, which stopped it: the node lets the scheme go before the account forgets what it told, the scheme's checkpoint stays from before that input, and the account's state is written on while another scheme on it runs. Back on the account, the scheme cancels the first when it reconciles its settlements, and books the second as its own when it reads it again from its cursor, never as a withdrawal. What it does not read again (a history that does not reach back), the account tells it with the sync, which made its books match the balance through suspense; it looks that up by its hash, and books it as its own once found, as one read behind its cursor is, so what suspense booked comes back out. It books it by what the books hold pending for it, which is what it signed, never by what a server says it delivered. It keeps that it never read it with its state, since a restart before the lookup would otherwise take it for one booked already. Until then it signs nothing more, so it never has more of its own in flight and kept than it can have in flight.
 
-**Each scheme keeps its own cursor** into the account's transactions, and tells the account where it is. On each connection the account reads its history from the earliest cursor of its schemes, and each scheme books only what is past its own, so a scheme that stopped reads again what it missed, and the others are not held back. A scheme that joins the account once it has read its ledger is read for on a new connection ([Settlement](settlement.md#external-assets)).
+**Each scheme keeps its own cursor** into the account's transactions, and tells the account where it is. On each connection the account reads its history from the earliest cursor of its schemes, and each scheme books only what is past its own, so a scheme that stopped reads again what it missed, and the others are not held back. A scheme that joins the account once it has read its ledger is read for on a new connection, which reads the lines it follows too ([Settlement](settlement.md#external-assets)).
 
 ## The Payment it signs
 
-A settlement is a direct XRP `Payment` to the address the peer gave when peering, with one memo of the scheme's memo type naming our node ID: the only transaction the account signs (`codec.rs`).
+A settlement is a direct `Payment` to the address the peer gave when peering, with one memo of the scheme's memo type naming our node ID: of XRP for `xrpl-testnet`, of RLUSD for `xrpl-testnet-rlusd` ([RLUSD](#rlusd)), which also signs a `TrustSet` for its line (`codec.rs`).
 
 - **Byte for byte as xrpl.js, which the original used, signs it.** Golden vectors (`crates/dassie-xrpl/tests/data/vectors.json`, made by `testdata/xrpl/generate-vectors.mjs`) pin the codec.
 - **The settlement's ID is the transaction hash.** The message for the peer is the hash, so it can always be made again from the ID.
-- **The memo type and what a `settlement` message means are a contract between peers.** Both sides of a peering must agree, so they change only with the peer protocol version.
+- **The memo type and what a `settlement` message means are a contract between peers.** Both sides of a peering must agree, so they change only with the peer protocol version. Each scheme has its own memo type, so a Payment is never taken for a settlement of the other.
 
 ## Tokens
 
-The codec and the API's parser also cover tokens on trust lines, such as RLUSD (`amount.rs`, `codec.rs`, `api.rs`), for the RLUSD scheme to come ([designs/external-assets.md](../designs/external-assets.md#4-rlusd-on-the-xrpl-testnet)).
+The codec and the API's parser also cover tokens on trust lines, such as RLUSD (`amount.rs`, `codec.rs`, `api.rs`), for the [RLUSD scheme](#rlusd).
 
 - **Amounts are exact.** A token's value is decimal, a mantissa of sixteen digits and an exponent, held in the ledger's one canonical form and never as a float. A value the ledger cannot express exactly, in text or in bytes, is refused rather than rounded, so what the node reads is what the ledger holds.
 - **Whole units convert exactly.** A value becomes the whole units of a ledger rounded down, toward minus infinity, so the books never hold more than the line. Units become a value only when the ledger can express it exactly (sixteen significant digits), so the node never signs an amount other than the one it booked.
 - **The transactions** are a token `Payment`, without paths or `SendMax`, and a `TrustSet`, which sets a line's limit and flags. A Payment is never partial: the encoder asserts it and the decoder refuses it, so a payment delivers its whole amount or fails. Golden vectors from xrpl.js pin both, and token amounts at the edges (the least and the largest value, sixteen digits, zero), byte for byte.
 - **A line reads the same from either side.** The ledger keeps a line's balance from the side of the account whose ID is the lower number, and its flags in a low and a high half. The parser gives the balance, the limits and the flags (NoRipple, freeze and deep freeze, as each side set them) from the side asked for, so no caller depends on which number is lower; a line whose limits name its accounts out of order is refused.
 - **What a transaction did to a line,** from its metadata: the line before and after, created from zero or deleted to zero. A settlement, a deposit, a withdrawal and an issuer's clawback, which is no Payment, all show as a change of the line's balance. A Payment's delivered amount is read when it is a token.
-- **Reading the ledger:** the line itself (`ledger_entry`), and the issuer's account (`account_info`): its global freeze and its transfer rate. Each answer names the ledger it is as of, so a scheme can take only what is [newer](#following-the-account).
+- **Reading the ledger:** the line itself (`ledger_entry`), as of the ledger the account was read at, and the issuer's account (`account_info`): its global freeze and its transfer rate. Each answer names the ledger it is as of, so a scheme can take only what is [newer](#following-the-account).
+
+## RLUSD
+
+`xrpl-testnet-rlusd` settles in RLUSD, Ripple's dollar token, on the account's trust line to RLUSD's testnet issuer, and books on `xrpl-testnet-rlusd+usd` (`rlusd.rs`, [designs/external-assets.md](../designs/external-assets.md#4-rlusd-on-the-xrpl-testnet)). The issuer and the currency code are constants of the scheme. The ledger's asset is `USD`, at par, so it converts one to one with every other dollar ledger ([issued-assets](../decisions/issued-assets.md)); its unit is a millionth of a dollar, which a token's sixteen digits hold exactly for any balance a node could hold. It pays its fees and its line's reserve in the account's XRP, as gas ([above](#the-account)).
+
+**The line comes first.** The scheme counts as synced, and the node peers on it, only once the ledger shows the account's line to the issuer with rippling disabled on our side and the largest limit the ledger can express, so no one moves our RLUSD through our account and no settlement fails for reaching the limit ([synced-before-peering](../decisions/synced-before-peering.md)). A line missing, or made outside the node otherwise, is set so with a `TrustSet`, signed once the account holds the XRP for its fee and its reserve and the issuer is known to exist, to which a `TrustSet` would only fail. It books nothing on the scheme's ledger, so the account submits it at once. One that fails waits for the next twice as long as the last, as each costs a fee. The first sync with the line as it needs it books what the line holds as the owner's deposit, and sets the cursor.
+
+**Settling.** A settlement is a Payment of RLUSD of the issuer, without paths and never partial, with one memo of the scheme's own memo type naming our node ID; its ID and message are the hash, as for XRP. It settles whole millionths. `prepare_settlement` is also `Unavailable` while the issuer froze our line, while the issuer froze its token for every holder, while it charges a transfer fee (which a Payment without `SendMax` cannot pay; not provided for yet), until the issuer's account was read, and while the gas cannot pay the fee.
+
+**Booking a validated transaction** by what it did to the line, read from its metadata:
+
+- **One of ours:** posted when it succeeded, voided when it failed. Its fee is gas: on `xrpl-testnet+xrp` if that scheme runs on the account, otherwise on no books.
+- **A settlement from a peer:** a successful Payment to us that delivered RLUSD of our issuer, whose memo has our memo type and names a peer, from the address that peer gave when peering. It is booked by what it delivered, in whole units, never by what it stated.
+- **Anything else that raises the line** is a deposit; **anything that lowers it** a withdrawal, an issuer's clawback included, which lowers the line without a Payment.
+- **Other currencies, other issuers and XRP** move nothing on this ledger.
+
+After each, the books hold the line's balance in whole units; a remainder below a unit, which anyone can send, stays on the line and is booked once it adds up to one.
+
+**The issuer's acts,** read from the ledger, each shown in what the account holds:
+
+- **Our line's flags** at each sync, with the line itself, so a freeze from before the node first saw the line is known; then with every transaction that touches the line, the issuer's freezes included, which the account's stream carries. A line set otherwise since, such as rippling enabled outside the node, is set again.
+- **The issuer's account,** for a global freeze and a transfer fee, at every settlement check, taking only an answer as of a ledger at or past the newest the account has seen ([ledger-resets](../decisions/ledger-resets.md)). Both change only the issuer's account, which our account's stream never carries.
+- **A frozen line** settles nothing, and still receives. **A line that cannot receive,** deep-frozen or under a global freeze, stops what peers pay us too: the scheme says so (`can_receive`), and the node asks no peer on it to settle, counts a peer's time short toward withdrawing it but never toward ending it, and leaves the scheme out of its link state ([Settlement](settlement.md#when-peers-cannot-pay-us)). The scheme stays synced throughout: it still sees its ledger.
+
+**A testnet reset** takes the line and what it held, which is written off through suspense with the account, and the issuer's account with them. The scheme makes the line again once the account and the issuer are back. An issuer that does not come back at its address leaves the scheme unsynced until a release names the new one.
+
+**Funding.** The owner sends the account XRP for gas, from the faucet as for `xrpl-testnet`, and RLUSD, which Ripple hands out only by hand. Dev, the end-to-end tests and the simulations use the fake ledger's issuer ([below](#tokens-in-the-fake-ledger)).
 
 ## Following the account
 
@@ -61,11 +89,12 @@ The scheme books **every validated transaction that touches its account once, in
 
 **The server is trusted.** The account takes its server's word on which ledgers are validated and what they hold: it checks no validator's signature. Only what is newer protects against a server that lags, not one that lies, which can have a scheme book anything, or claim a testnet reset. Checking the validators against a UNL of the node's own is [not built](../roadmap.md#checking-xrp-ledger-validators).
 
-**Connecting.** On each connection: check the network, read the server's fees and reserves, and tell from its validated ledger whether it is behind or on a chain started again; subscribe to the account and the ledger stream; only then read the account at the validated ledger, so nothing falls between what it says and what the stream says next; catch up from the earliest cursor with the account's history, holding the stream's transactions meanwhile; then the schemes make their books match the balance and book what was held, and the account submits what waits. A server whose history does not reach back leaves the balance to say what changed, through suspense, without who it was.
+**Connecting.** On each connection: check the network, read the server's fees and reserves, and tell from its validated ledger whether it is behind or on a chain started again; subscribe to the account and the ledger stream; only then read the account at the validated ledger, so nothing falls between what it says and what the stream says next, and each line a scheme follows as of that same ledger, so what the line says and what the transactions after it say add up; catch up from the earliest cursor with the account's history, holding the stream's transactions meanwhile; then the schemes make their books match the balance and the lines and book what was held, and the account submits what waits. A server whose history does not reach back leaves the balance and the lines to say what changed, through suspense, without who it was.
 
-**Booking a validated transaction** by what it did to the account:
+**Booking a validated transaction** by what it did to the account's XRP, for `xrpl-testnet`:
 
 - **One of ours:** posted when it succeeded, voided when it failed, and its fee booked either way.
+- **One another scheme on the account signed,** such as an RLUSD settlement or a `TrustSet`: its fee is a ledger fee here, since this is the ledger whose scheme settles in the account's XRP, and a line's reserve is reconciled as any reserve change is ([external-assets](../decisions/external-assets.md)). Whatever else it did to the XRP is a deposit or a withdrawal.
 - **A settlement from a peer:** a successful Payment of XRP to us, whose memo has our memo type and names a peer, from the address that peer gave when peering. It is booked by `delivered_amount`, with its hash as the journal reference.
 - **Anything else** that adds XRP, the account's creation included, is a deposit; anything that takes XRP, a withdrawal.
 
@@ -79,7 +108,7 @@ After each, the books must hold the balance less the reserve; any difference, su
 
 ## Settling
 
-`prepare_settlement` is `Unavailable` ([Settlement](settlement.md#the-scheme-interface)) unless the account signs the Payment now ([above](#the-account)). It settles whole drops, and the transaction it signs is kept in flight, not yet executed.
+`prepare_settlement` is `Unavailable` ([Settlement](settlement.md#the-scheme-interface)) unless the account signs the Payment now ([above](#the-account)). `xrpl-testnet` settles whole drops, `xrpl-testnet-rlusd` whole millionths ([RLUSD](#rlusd)), and the transaction signed is kept in flight, not yet executed.
 
 - **Nothing is sent before it is booked.** A transaction is submitted only once the node executed its settlement, its pending transfer on disk. One never executed is never sent: past its last ledger it is dropped, the sequence read again, and the account remembers it as never sent until its scheme has reconciled it ([below](#state-and-restarts)). Its sequence goes to the next transaction, whichever scheme asked.
 - **Cancelled only when it can never apply.** A malformed transaction (`tem…` on submit) is cancelled at once. Past its last ledger, a transaction is looked for over the ledgers it could have applied in; only when the server has searched all of them and it is not there is it cancelled. Anything less certain waits, since cancelling a transaction that applied would pay the peer twice.
@@ -98,7 +127,7 @@ The account takes payments with or without a destination tag: it is the node's a
 
 ## State and restarts
 
-Each keeps its own state, written with its checkpoint in the batch it explains ([Settlement](settlement.md#checkpoints-and-activation)): the account its next sequence, its transactions in flight (each with the scheme that signed it), those it remembers as never sent, those it keeps for a scheme not on it, and the newest ledger seen; the scheme its cursor, its peers' addresses and the settlements it looks up, with those of them it never read. A state either could not have written is refused as it loads, rather than stopping the node later: an account state that names a scheme that cannot settle through the account, or a scheme state that looks up a transaction the account has in flight or remembers as never sent. So is a scheme state that still holds the account's: the database migrates one written before the account kept its own into the two (`store/schema.rs`), and a node that restarts on it books nothing anew.
+Each keeps its own state, written with its checkpoint in the batch it explains ([Settlement](settlement.md#checkpoints-and-activation)): the account its next sequence, its transactions in flight (each with the scheme that signed it), those it remembers as never sent, those it keeps for a scheme not on it, and the newest ledger seen; each scheme its cursor, its peers' addresses and the settlements it looks up, with those of them it never read. What the ledger says of the lines and the issuer is read again on each connection, never kept. A state either could not have written is refused as it loads, rather than stopping the node later: an account state that names a scheme that cannot settle through the account, or a scheme state that looks up a transaction the account has in flight or remembers as never sent. So is a scheme state that still holds the account's: the database migrates one written before the account kept its own into the two (`store/schema.rs`), and a node that restarts on it books nothing anew.
 
 After a restart, executed transactions in flight are submitted again once synced. Each settlement the node still holds pending is handed to its scheme:
 
@@ -122,7 +151,8 @@ The fake ledger is the only source of test RLUSD for dev, the end-to-end tests a
 
 ## Decisions
 
-- [external-assets](../decisions/external-assets.md): the account apart from the schemes that settle through it.
+- [external-assets](../decisions/external-assets.md): the account apart from the schemes that settle through it, and gas on or off the books.
+- [issued-assets](../decisions/issued-assets.md): RLUSD's issuer as the owner's counterparty, and a dollar token at par.
 - [real-money](../decisions/real-money.md): the gates before real money, and the testnet-only network check.
 - [tigerstyle](../decisions/tigerstyle.md): sans-IO, so the fake ledger can stand in for the network.
 - [synced-before-peering](../decisions/synced-before-peering.md): no peering on the scheme before its first sync.

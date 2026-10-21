@@ -370,6 +370,15 @@ pub enum Room {
         /// The most this check adds.
         most_ms: u64,
     },
+    /// Short of a packet while no settlement from the peer can reach us,
+    /// as while our line on the ledger cannot receive: the time counts
+    /// toward withdrawing the peer, up to `most_ms`, as for
+    /// [`Short`](Self::Short), but never toward ending the peering for room,
+    /// which the peer had no way to restore.
+    ShortUnpayable {
+        /// The most this check adds.
+        most_ms: u64,
+    },
     /// Room for a packet, or a settlement from the peer just booked: the
     /// time short starts again from nothing.
     Enough,

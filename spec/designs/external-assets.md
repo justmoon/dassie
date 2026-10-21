@@ -4,7 +4,7 @@ A settlement scheme that is also the node's wallet on its ledger works while it 
 
 This design separates the two. An **external asset** is something the node holds outside its books, such as an XRPL account; a **settlement scheme** settles with peers through the external assets it requires. Its first use is RLUSD on the XRPL testnet, as the scheme `xrpl-testnet-rlusd`.
 
-This is a design ([external-assets](../decisions/external-assets.md), [issued-assets](../decisions/issued-assets.md)). Built: its wire format, the codec and reading the ledger for tokens ([XRPL](../areas/xrpl.md#tokens)); the fake ledger's tokens and issuer ([XRPL](../areas/xrpl.md#tokens-in-the-fake-ledger)); and the XRPL account as an external asset, with `xrpl-testnet` a scheme on it ([§2](#2-the-external-asset), [§6](#6-migration)), described in [Settlement](../areas/settlement.md#external-assets) and [XRPL](../areas/xrpl.md#the-account). The rest is not built yet ([roadmap](../roadmap.md#external-assets-and-rlusd)).
+This is a design ([external-assets](../decisions/external-assets.md), [issued-assets](../decisions/issued-assets.md)). Built: its wire format, the codec and reading the ledger for tokens ([XRPL](../areas/xrpl.md#tokens)); the fake ledger's tokens and issuer ([XRPL](../areas/xrpl.md#tokens-in-the-fake-ledger)); the XRPL account as an external asset, with `xrpl-testnet` a scheme on it ([§2](#2-the-external-asset), [§6](#6-migration)), described in [Settlement](../areas/settlement.md#external-assets) and [XRPL](../areas/xrpl.md#the-account); and the `xrpl-testnet-rlusd` scheme on the same account, with gas on or off the books ([§3](#3-accounting), [§4](#4-rlusd-on-the-xrpl-testnet)), described in [XRPL](../areas/xrpl.md#rlusd) and [Settlement](../areas/settlement.md#when-peers-cannot-pay-us). The rest is not built yet ([roadmap](../roadmap.md#external-assets-and-rlusd)).
 
 ## 1. Concepts
 
@@ -31,57 +31,11 @@ Sharing has one cost. Until a stopped scheme's transaction that was never sent i
 
 ## 3. Accounting
 
-**The ledger is authoritative for what an external asset holds.** The wallet shows the holdings as the ledger reports them, through the node, never as the books add them up.
-
-**The books keep an account to book against.** On each internal ledger, `assets/settlement` stands for the holding the ledger's scheme settles in. It is not a second record of the holding: it is kept in step with it, as the XRPL scheme keeps it today, by booking every change of the holding (settlements, deposits, withdrawals, fees) and reconciling any remainder through `equity/suspense` ([Settlement](../areas/settlement.md#checkpoints-and-activation)). It has to stay in step: the node decides from its own books ([own-books](../decisions/own-books.md)), and the owner's spending limit and the check before each settlement both read it. An account that drifted from the holding would let the owner spend money already gone, withdrawn outside the node, clawed back or spent as gas, and the node would owe its peers more than it can settle.
-
-**A holding is on the books only on the ledger whose scheme settles in it.**
-
-- The XRP of an account `xrpl-testnet` settles from is on the books of `xrpl-testnet+xrp`. Every change of it is booked there, whichever scheme caused it: the fee of an RLUSD settlement from that account is a ledger fee on `xrpl-testnet+xrp`, and the reserve of its trust line is reconciled there as any reserve change is.
-- A holding no scheme settles in is gas, and is off the books. On a node that runs only `xrpl-testnet-rlusd`, the account's XRP is not booked anywhere: its fees and reserve leave no entry, and the wallet shows what is left from the ledger.
-
-**Gas off the books holds for real money too,** on two conditions, both in the scheme: it settles nothing (`Unavailable`) while the gas cannot pay the fee above the reserve, and the owner sees the gas, from the ledger. What it leaves out is reporting: the owner's revenue and expenses show no fees paid in gas. A report can read them from the ledger.
-
-**On a shared account the gas is booked XRP.** There the RLUSD scheme's fees and its line's reserve come out of what `xrpl-testnet+xrp` holds for the owner, and XRP the books owe to that ledger's peers is not the owner's to spend. So on a shared account the RLUSD scheme settles only while the owner's funds on `xrpl-testnet+xrp` cover the fee, and signs its `TrustSet` only while they cover the line's reserve; what it spends is booked there as a ledger fee and a reconciliation, like any other.
+Built ([Settlement](../areas/settlement.md#external-assets), [XRPL](../areas/xrpl.md#the-account)): the ledger is authoritative for what an external asset holds, and the books keep `assets/settlement` only to book against, in step with the holding the ledger's scheme settles in. A holding is on the books only on the ledger whose scheme settles in it. On an account `xrpl-testnet` settles from, the RLUSD scheme's fees are ledger fees on `xrpl-testnet+xrp` and its line's reserve is reconciled there, and the account signs for it only while the owner's funds there cover the gas; on any other, the gas is off the books, and only the reserve bounds it, which holds for real money too ([external-assets](../decisions/external-assets.md)).
 
 ## 4. RLUSD on the XRPL testnet
 
-RLUSD is a token on trust lines, issued by one account per network; its issuer and currency code are constants of the scheme (`dassie-xrpl`). The issuer requires no authorization to hold it, charges no transfer fee, and keeps the right to freeze and to claw back.
-
-**The ledger** is `xrpl-testnet-rlusd+usd`. Its slug differs from `xrpl-testnet`'s, since a ledger's slug names its receiver, its seed path and its wallet address ([Payments](../areas/payments.md#wallet-addresses)). Its asset is `USD`, at par ([issued-assets](../decisions/issued-assets.md)), at scale 9 like every ledger, and its unit is a millionth of a dollar: the token's amounts are decimal, with about fifteen significant digits, so a millionth stays exact for any balance a node could hold.
-
-**The trust line.** Before the scheme counts as synced, the account has a line to the issuer, with rippling disabled on our side (`tfSetNoRipple`), so no one can move our RLUSD through our account. If the line is missing, the scheme signs a `TrustSet` once the account holds XRP for it, and peers only once the ledger shows the line ([synced-before-peering](../decisions/synced-before-peering.md)). A peer's settlement into a missing line would fail, so no peer pays before it exists.
-
-- **Its limit** is the largest amount the ledger can express, so no settlement fails for reaching it.
-- **A line made outside the node,** with rippling enabled on our side or a lower limit, is corrected: the scheme signs a `TrustSet` that sets NoRipple and the limit, and syncs only once the ledger shows them.
-
-**Settling.** A settlement is a `Payment` of RLUSD of the issuer, without paths and never a partial payment, with one memo of the scheme's own memo type naming our node ID. Its ID and message are the transaction's hash, as for XRP ([XRPL](../areas/xrpl.md#the-payment-it-signs)). `prepare_settlement` is `Unavailable` also while our line is frozen, while the issuer charges a transfer fee (not provided for yet), or while the gas cannot pay the fee.
-
-**Booking a validated transaction** by what it did to the line, read from the transaction's metadata:
-
-- **One of ours:** posted when it succeeded, voided when it failed. Its XRP fee is booked by §3.
-- **A settlement from a peer:** a successful Payment to us, whose delivered amount is RLUSD of our issuer, whose memo has our memo type and names a peer, from the address that peer gave when peering. It is booked by the delivered amount, never the stated one.
-- **Anything else that raises the line** is a deposit; **anything that lowers it** a withdrawal. The issuer's clawback, which lowers the line without a Payment, is a withdrawal.
-- **Other currencies, other issuers and XRP** move nothing on this ledger.
-
-After each, the books hold the line's balance in whole units; a remainder below a unit, which anyone can send, stays in the holding and is reconciled once it adds up.
-
-**Freezes.** The scheme reads them from the ledger, and reports each in the wallet:
-
-- **Our line's flags** at each sync, with the read of the line that checks NoRipple and the limit, so a line frozen before the node first saw it is known; then with every transaction that touches the line, an issuer's freeze included, which the account's stream carries.
-- **The issuer's account,** for a global freeze and a transfer fee, at every settlement check, taking only an answer as of a ledger at or past the newest seen ([ledger-resets](../decisions/ledger-resets.md)). Both change only the issuer's account, which the stream of ours never carries, and following the issuer's stream would bring every payment of the token. Read only on connecting, a global freeze would go unnoticed for as long as the connection holds.
-
-What each freeze stops:
-
-- **A frozen line** (ours, by the issuer) stops our settlements: `prepare_settlement` is `Unavailable`. Peerings stay; a peer that asks us to settle gets nothing, and stops advertising us once its room is gone ([Network](../areas/network.md#advertised-peers)).
-- **A line that cannot receive** (ours deep-frozen, or the issuer's global freeze, which stops every holder's payments but to the issuer) also stops what peers pay us, and a peer's settlement would only fail and cost it a fee. While it lasts:
-  - **The node asks no peer on it to settle,** as while the scheme does not see its ledger.
-  - **A peer's time short withdraws it but never ends it,** as for a peer that could not be reached ([Network](../areas/network.md#advertised-peers)): it grows as usual, so a peer short of room past the grace is withdrawn, since no settlement can restore its room while the freeze lasts, which may be for good; but it does not count toward ending the peering for room, so no peer is ended for what it could not pay ([ended-for-room](../decisions/ended-for-room.md)). The grace stays, so our own packets toward a peer that dips below its room only briefly can restore it before it is withdrawn.
-  - **The link state leaves the scheme out,** so no new peering is made on it. This is a rule of its own: a scheme that only lost its ledger stays in the link state once it has synced.
-
-**Testnet resets** take the line, its balance and the issuer's account with them. The scheme follows the account's reset as today, and makes the line again once the issuer exists. An issuer that does not come back at the same address leaves the scheme unsynced until a release names the new one.
-
-**Funding.** The owner sends the account XRP for gas, from the testnet faucet as for `xrpl-testnet`, and RLUSD, which Ripple hands out only by hand and in small amounts. Dev, end-to-end tests and simulations use the fake ledger's issuer of test RLUSD, which mints, freezes and claws back on request ([XRPL](../areas/xrpl.md#tokens-in-the-fake-ledger)).
+Built: the scheme `xrpl-testnet-rlusd` and its ledger `xrpl-testnet-rlusd+usd`, with the line set before it syncs, settling, booking by the line, and the issuer's freezes and clawbacks ([XRPL](../areas/xrpl.md#rlusd)); and what the node does while peers cannot pay us ([Settlement](../areas/settlement.md#when-peers-cannot-pay-us)).
 
 ## 5. The wallet
 

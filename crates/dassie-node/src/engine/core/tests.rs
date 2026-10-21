@@ -1645,3 +1645,109 @@ fn a_scheme_activated_on_a_closed_account_connects_it_again() {
     assert!(core.schemes[&xrpl].scheme.has_synced());
     assert_eq!(core.asset_views()[0].status, LedgerStatus::Synced);
 }
+
+// spec/designs/external-assets.md#3-accounting: the RLUSD scheme added
+// beside the XRP scheme settles through the same account. The account is
+// connected anew and reads the line, which is set with a TrustSet whose fee
+// is a ledger fee on `xrpl-testnet+xrp` and whose reserve is reconciled
+// there, and the wallet sees both holdings as the ledger says.
+// spec/areas/settlement.md#when-peers-cannot-pay-us: while the issuer froze
+// the line deep, or froze its token for every holder (read at the
+// settlement check), the link state leaves the scheme out; it stays synced.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn rlusd_beside_xrp_on_one_account() {
+    use dassie_ledger::{LedgerId, Reference};
+    use dassie_settlement::LedgerStatus;
+    use dassie_xrpl::Wallet;
+    use dassie_xrpl::codec::TokenValue;
+    use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, FakeLedger, RESERVE_BASE, RESERVE_INC, Token};
+
+    let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
+    let entropy = NodeKey::from_bytes(&[7; 32])
+        .settlement_entropy("xrpl-testnet", "seed-testnet")
+        .unwrap();
+    let address = Wallet::from_entropy(entropy.as_bytes()).account();
+    let mut ledger = FakeLedger::new();
+    ledger.fund(address);
+    ledger.close();
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_on(Arc::clone(&store), 12);
+    core.add_scheme("xrpl-testnet", config.into()).unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    core.add_scheme("xrpl-testnet-rlusd", config.into())
+        .unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    close_xrpl(&mut core, &mut ledger);
+    let view = |core: &Core, ledger: LedgerId| {
+        core.ledger_views()
+            .into_iter()
+            .find(|view| view.id == ledger)
+            .unwrap()
+    };
+    assert_eq!(
+        view(&core, LedgerId::XrplTestnetRlusdUsd).status,
+        LedgerStatus::Synced
+    );
+    let xrp = view(&core, LedgerId::XrplTestnetXrp);
+    assert_eq!(xrp.status, LedgerStatus::Synced);
+    let units = |drops: u64| drops * 1_000;
+    assert_eq!(
+        xrp.on_ledger_balance,
+        units(FAUCET_DROPS - FEE_BASE - RESERVE_BASE - RESERVE_INC)
+    );
+    core.flush();
+    let rows = store.transfers_after(None, 100, None).unwrap();
+    let fees = rows
+        .iter()
+        .filter(|row| matches!(row.transfer.reference, Reference::Fee { .. }))
+        .count();
+    assert_eq!(fees, 1, "the TrustSet's fee, once");
+    let views = core.asset_views();
+    assert_eq!(views[0].schemes.len(), 2);
+    let codes: Vec<&str> = views[0]
+        .holdings
+        .iter()
+        .map(|holding| holding.code.as_str())
+        .collect();
+    assert_eq!(codes, ["XRP", "RLUSD"]);
+    let advertised = |core: &Core| {
+        core.peer
+            .schemes()
+            .iter()
+            .any(|scheme| scheme.as_str() == "xrpl-testnet-rlusd")
+    };
+    assert!(advertised(&core));
+
+    ledger
+        .issue(
+            address,
+            Token::RLUSD.amount(TokenValue::parse("10").unwrap()),
+        )
+        .unwrap();
+    close_xrpl(&mut core, &mut ledger);
+    let usd = view(&core, LedgerId::XrplTestnetRlusdUsd);
+    assert_eq!(usd.owner_balance, 10_000_000_000);
+
+    ledger.deep_freeze(address, Token::RLUSD, true).unwrap();
+    close_xrpl(&mut core, &mut ledger);
+    assert!(!advertised(&core), "advertised while it cannot receive");
+    assert_eq!(
+        view(&core, LedgerId::XrplTestnetRlusdUsd).status,
+        LedgerStatus::Synced
+    );
+    ledger.freeze(address, Token::RLUSD, false).unwrap();
+    close_xrpl(&mut core, &mut ledger);
+    assert!(advertised(&core));
+
+    // A global freeze changes only the issuer's account: read at the
+    // settlement check.
+    ledger
+        .global_freeze(dassie_xrpl::rlusd::ISSUER, true)
+        .unwrap();
+    close_xrpl(&mut core, &mut ledger);
+    assert!(advertised(&core));
+    core.begin_step(NOW + 60_000);
+    follow_xrpl(&mut core, &mut ledger);
+    assert!(!advertised(&core), "advertised during a global freeze");
+}

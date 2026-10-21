@@ -12,12 +12,12 @@
 //! every ledger and a module's failure reached them all (ACC-26).
 
 use dassie_identity::NodeKey;
-use dassie_ledger::{LedgerId, Name};
+use dassie_ledger::{AccountName, LedgerId, Name};
 use dassie_settlement::{
     AssetEffect, AssetId, AssetKind, Effect, ExternalAsset, Holding, LedgerInput, LedgerStatus,
     SchemeError, SchemeInfo, SettlementScheme, Stub,
 };
-use dassie_xrpl::{XrplAccount, XrplScheme};
+use dassie_xrpl::{RlusdScheme, XrplAccount, XrplScheme};
 
 use super::events::SettlementEvent;
 use super::ledgers::ActiveScheme;
@@ -36,17 +36,29 @@ pub const SCHEMES: &[SchemeInfo] = &[
         name: "XRP Ledger Testnet",
         ledger: LedgerId::XrplTestnetXrp,
     },
+    SchemeInfo {
+        id: dassie_xrpl::rlusd::SCHEME_ID,
+        name: "RLUSD on the XRP Ledger Testnet",
+        ledger: LedgerId::XrplTestnetRlusdUsd,
+    },
 ];
 
 /// The external asset scheme `id` settles through, if any, and the config
-/// the asset is made with: for the XRPL scheme, the server and the faucet
-/// its config names, which are the account's.
+/// the asset is made with: for the XRPL schemes, the server and the faucet
+/// their config names, which are the account's. Both settle through the
+/// node's first XRPL testnet account, so one address holds the XRP of one
+/// and the gas of the other (spec/designs/external-assets.md#2-the-external-asset).
 fn asset_of(id: &str) -> Option<AssetId> {
     #[cfg(test)]
     if id == super::tests::WITNESS {
         return Some(dassie_xrpl::account::FIRST);
     }
-    (id == dassie_xrpl::scheme::SCHEME_ID).then_some(dassie_xrpl::account::FIRST)
+    [
+        dassie_xrpl::scheme::SCHEME_ID,
+        dassie_xrpl::rlusd::SCHEME_ID,
+    ]
+    .contains(&id)
+    .then_some(dassie_xrpl::account::FIRST)
 }
 
 /// The schemes that may settle through `asset`.
@@ -106,17 +118,27 @@ fn create(
     asset: Option<&dyn ExternalAsset>,
 ) -> Result<Box<dyn SettlementScheme>, SchemeError> {
     let balance = checkpoint.map(|c| c.balance);
+    let account = || {
+        let any: Option<&dyn core::any::Any> = asset.map(|asset| asset as _);
+        any.and_then(|asset| asset.downcast_ref::<XrplAccount>())
+            .ok_or(SchemeError::InvalidConfig)
+    };
+    let node = || Name::new(key.node_id().as_str()).map_err(|_| SchemeError::InvalidData);
+    let state = checkpoint.map_or(&[][..], |c| c.state.as_slice());
     match id {
         "stub" => Ok(Box::new(Stub::new(config, balance)?)),
-        dassie_xrpl::scheme::SCHEME_ID => {
-            let any: Option<&dyn core::any::Any> = asset.map(|asset| asset as _);
-            let account = any
-                .and_then(|asset| asset.downcast_ref::<XrplAccount>())
-                .ok_or(SchemeError::InvalidConfig)?;
-            let node = Name::new(key.node_id().as_str()).map_err(|_| SchemeError::InvalidData)?;
-            let state = checkpoint.map_or(&[][..], |c| c.state.as_slice());
-            Ok(Box::new(XrplScheme::new(account, node, balance, state)?))
-        }
+        dassie_xrpl::scheme::SCHEME_ID => Ok(Box::new(XrplScheme::new(
+            account()?,
+            node()?,
+            balance,
+            state,
+        )?)),
+        dassie_xrpl::rlusd::SCHEME_ID => Ok(Box::new(RlusdScheme::new(
+            account()?,
+            node()?,
+            balance,
+            state,
+        )?)),
         #[cfg(test)]
         super::tests::WITNESS => Ok(Box::new(super::tests::Witness)),
         _ => Err(SchemeError::UnknownScheme),
@@ -304,6 +326,7 @@ impl Core {
     /// Tells `scheme` what `asset` learnt, and books what it says. A
     /// refusal has stopped the scheme, and told the owner.
     pub(super) fn tell_scheme(&mut self, scheme: Name, asset: AssetId) {
+        self.tell_owner_funds(asset);
         let now = self.now_ms;
         let (Some(active), Some(on)) = (self.schemes.get_mut(&scheme), self.assets.get_mut(&asset))
         else {
@@ -316,6 +339,41 @@ impl Core {
         active.scheme.on_asset(now, on.asset.as_mut(), &mut effects);
         let ledger = active.scheme.ledger();
         let _stopped = self.apply_effects(scheme, ledger, &effects);
+    }
+
+    /// Tells `asset` what the owner may spend on the ledger of each scheme
+    /// on it, by the books, before a call that may sign: what one scheme
+    /// spends as gas of a holding another settles in is the owner's there
+    /// (spec/decisions/external-assets.md).
+    pub(super) fn tell_owner_funds(&mut self, asset: AssetId) {
+        let funds: Vec<(Name, u64)> = self
+            .live_schemes_on(asset)
+            .into_iter()
+            .filter_map(|scheme| {
+                let ledger = self.schemes.get(&scheme)?.scheme.ledger();
+                Some((scheme, self.owner_available(ledger)))
+            })
+            .collect();
+        if let Some(active) = self.assets.get_mut(&asset) {
+            for (scheme, available) in funds {
+                active.asset.owner_funds(scheme, available);
+            }
+        }
+    }
+
+    /// What the owner may spend on `ledger` now: the owner's group's posted
+    /// credits less its debits, posted and pending.
+    fn owner_available(&self, ledger: LedgerId) -> u64 {
+        self.account(ledger, AccountName::EquityOwner)
+            .ok()
+            .and_then(|owner| self.ledger.group_balance(owner))
+            .map_or(0, |balance| {
+                let available = balance
+                    .credits_posted
+                    .saturating_sub(balance.debits_posted)
+                    .saturating_sub(balance.debits_pending);
+                u64::try_from(available).unwrap_or(u64::MAX)
+            })
     }
 
     /// Carries out what `asset` asks of its ledger, in order: a message
