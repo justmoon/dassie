@@ -21,7 +21,7 @@
 
 ## Accepted
 
-- **Nix does not check the signature.** It trusts the mirror's TLS certificate when it first locks the flake, and the lock's hash after that. What the lock holds is what the release key signed only if the owner checks once: `minisign -Vm SHA256SUMS -P <key>` with the key from `resources/minisign.pub`, then `sha256sum -c --ignore-missing SHA256SUMS` over the downloaded `flake.tar.gz`. The flake's sums of the bundles then hold the binaries to the signed ones.
+- **Nix does not check the signature.** It trusts the mirror's TLS certificate when it first locks the flake, and the lock's hash after that. What the lock holds is what the release key signed only if the owner checks once: `minisign -Vm SHA256SUMS -P <key>` with the key from `resources/minisign.pub`, checking that the trusted comment it prints is `dassie <version>`, then `sha256sum -c --ignore-missing SHA256SUMS` over the downloaded `flake.tar.gz`. The flake's sums of the bundles then hold the binaries to the signed ones.
 - **A rollback across a migration stops the node.** A version refuses a database newer than it knows ([Node](../areas/node.md#database)). Going back to an older NixOS generation runs the older version on the newer database, and only the updater puts the copy from before the migration back. The owner does it by hand: stop the node, and put `dassie.sqlite3.pre-migration` in place of `dassie.sqlite3` and its `-wal` and `-shm`. The copy is one step deep.
 - **`dassie status` says the binary is not updated,** which is true: Nix updates it.
 - **A flake per version, and none for a release published before it.**

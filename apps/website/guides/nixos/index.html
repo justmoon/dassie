@@ -85,8 +85,12 @@ curl -sSO https://get.dassie.land/VERSION/SHA256SUMS.minisig
 minisign -Vm SHA256SUMS -P %RELEASE_KEY%
 sha256sum -c --ignore-missing SHA256SUMS</code></pre>
       <p>
-        The flake names each platform's download by the sum the release key
-        signed, so from there on, Nix installs only the signed binary.
+        <code>minisign</code> prints the signature's trusted comment, but
+        does not compare it: check that it says
+        <code>dassie VERSION</code>, for the version you locked. Otherwise
+        another release's signed sums would pass. The flake names each
+        platform's download by the sum the release key signed, so from there
+        on, Nix installs only the signed binary.
       </p>
 
       <h2 id="configuration">Configuration</h2>
@@ -119,15 +123,17 @@ sudo nixos-rebuild switch</code></pre>
         you put back the copy of the database it kept from before the change:
       </p>
       <pre><code>sudo systemctl stop dassie
-cd /var/lib/private/dassie
-sudo mkdir newer
-sudo mv dassie.sqlite3 dassie.sqlite3-wal dassie.sqlite3-shm newer/
-sudo cp -p dassie.sqlite3.pre-migration dassie.sqlite3
+sudo sh -c 'cd /var/lib/private/dassie &amp;&amp; mkdir newer &amp;&amp;
+  for file in dassie.sqlite3 dassie.sqlite3-wal dassie.sqlite3-shm; do
+    [ ! -e "$file" ] || mv "$file" newer/
+  done &amp;&amp;
+  cp -p dassie.sqlite3.pre-migration dassie.sqlite3'
 sudo systemctl start dassie</code></pre>
       <p>
-        The copy is from just before the newer version changed the database,
-        so it goes back one version only. Some of the files may not be there;
-        <code>mv</code> then says so, which is fine.
+        Only root may enter the node's data directory, so the commands run
+        in one root shell. The newer database stays in
+        <code>newer/</code>. The copy is from just before the newer version
+        changed the database, so it goes back one version only.
       </p>
 
       <h2 id="uninstallation">Uninstallation</h2>
