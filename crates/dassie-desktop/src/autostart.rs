@@ -48,13 +48,13 @@ pub fn refresh(data_dir: &Path) -> io::Result<()> {
     let entry = entry_path()?;
     match (choice(data_dir), state(&entry)) {
         (None, _) => choose(data_dir, on_path()),
-        (Some(true), Entry::On) => write_entry(&entry),
+        (Some(true), Entry::On | Entry::Unreadable) => write_entry(&entry),
         (Some(true), Entry::Missing | Entry::Off) => keep(data_dir, false),
         (Some(false), Entry::On) => {
             keep(data_dir, true)?;
             write_entry(&entry)
         }
-        (Some(false), Entry::Missing | Entry::Off) => Ok(()),
+        (Some(false), Entry::Missing | Entry::Off | Entry::Unreadable) => Ok(()),
     }
 }
 
@@ -65,9 +65,11 @@ enum Entry {
     Missing,
     /// It is there, turned off in place.
     Off,
-    /// It is there, and not turned off: or it cannot be read, and is written
-    /// again, so that it does not go stale.
+    /// It is there, and not turned off.
     On,
+    /// It is there, but cannot be read: written again while the owner wants
+    /// it, so that it does not go stale, and left alone otherwise.
+    Unreadable,
 }
 
 fn state(path: &Path) -> Entry {
@@ -76,7 +78,7 @@ fn state(path: &Path) -> Entry {
         Ok(bytes) if turned_off(&String::from_utf8_lossy(&bytes)) => Entry::Off,
         Ok(_) => Entry::On,
         Err(error) if error.kind() == io::ErrorKind::NotFound => Entry::Missing,
-        Err(_) => Entry::On,
+        Err(_) => Entry::Unreadable,
     }
 }
 
@@ -269,10 +271,10 @@ mod tests {
         assert_eq!(state(&path), Entry::On);
         fs::write(&path, b"[Desktop Entry]\nName=Dass\xefe\nHidden=true\n").unwrap();
         assert_eq!(state(&path), Entry::Off);
-        // A directory where the entry should be cannot be read: written again.
+        // A directory where the entry should be cannot be read.
         fs::remove_file(&path).unwrap();
         fs::create_dir(&path).unwrap();
-        assert_eq!(state(&path), Entry::On);
+        assert_eq!(state(&path), Entry::Unreadable);
     }
 
     #[test]
