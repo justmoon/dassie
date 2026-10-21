@@ -435,6 +435,16 @@ impl Quic {
         *lock(&self.chosen_relay) = Some((relay, url, resolver));
     }
 
+    /// The relay the node chose, its URL, and whether the node holds its
+    /// connection to it now ([`keep_relay`](Self::keep_relay)).
+    #[must_use]
+    pub fn chosen_relay(&self) -> Option<(NodeId, String, bool)> {
+        let connected = self.relay_connected.load(Ordering::Relaxed);
+        lock(&self.chosen_relay)
+            .as_ref()
+            .map(|(relay, url, _)| (*relay, url.clone(), connected))
+    }
+
     /// Keeps the chosen relay's connection on `tasks`, if a relay was
     /// chosen, until `shutdown` or the returned token is cancelled.
     pub(super) fn keep_chosen_relay(
@@ -482,10 +492,15 @@ impl Quic {
                     if let Some(connection) = dialled {
                         tracing::info!(target: target::PEER, %relay, "connected to the chosen relay");
                         let since = tokio::time::Instant::now();
+                        self.relay_connected.store(true, Ordering::Relaxed);
                         tokio::select! {
                             () = self.hold_relay(relay, &connection) => {}
-                            () = shutdown.cancelled() => return,
+                            () = shutdown.cancelled() => {
+                                self.relay_connected.store(false, Ordering::Relaxed);
+                                return;
+                            }
                         }
+                        self.relay_connected.store(false, Ordering::Relaxed);
                         if since.elapsed() >= RELAY_HELD_FOR {
                             backoff = RELAY_BACKOFF_MIN;
                         }

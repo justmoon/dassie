@@ -31,6 +31,7 @@ use dassie_node::node::Policies;
 use dassie_node::peer_client::PeerClient;
 use dassie_node::quic::relay::{Purpose, RelayError, ServedStream};
 use dassie_node::quic::{Body, Handler, Quic};
+use dassie_node::rpc::proto::{self, request::Method, response};
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
 use dassie_payments::httpsig;
@@ -215,6 +216,14 @@ fn signer(target: &str, reply: &Reply, now_s: u64) -> Result<NodeId, httpsig::No
     httpsig::check_node_response(&request, &answer, &reply.body, None, now_s)
 }
 
+async fn status_of(node: &TestNode) -> proto::GetStatusResponse {
+    let request = Method::GetStatus(proto::GetStatusRequest {});
+    match node.ipc().await.call(request).await {
+        Ok(response::Method::GetStatus(status)) => status,
+        other => panic!("{other:?}"),
+    }
+}
+
 fn json_of(reply: &Reply) -> Value {
     serde_json::from_slice(&reply.body).unwrap_or_else(|_| panic!("not JSON: {}", reply.text()))
 }
@@ -298,6 +307,19 @@ async fn a_periphery_node_with_an_uplink_is_reached_through_its_front_door() {
     assert_eq!(signer(&target, &reply, now_s), Ok(key_p.node_id()));
     // Still its uplink's downlink, beside the front door.
     assert!(pair::peered(&p, &key_a).await);
+    // What `dassie status` reads: a periphery node, its relay connected, and
+    // its name at the front door; a core node, at its hostname, without one.
+    let status = status_of(&p).await;
+    assert!(status.periphery);
+    let relay = status.relay.unwrap();
+    assert_eq!(relay.node, door.id.as_str());
+    assert_eq!(relay.url, door.url);
+    assert!(relay.connected);
+    assert_eq!(status.open_payments_origins, [format!("https://{name}")]);
+    let status = status_of(&a).await;
+    assert!(!status.periphery);
+    assert_eq!(status.relay, None);
+    assert_eq!(status.open_payments_origins, [a.origin()]);
     a.stop().await;
     p.stop().await;
     shutdown.cancel();

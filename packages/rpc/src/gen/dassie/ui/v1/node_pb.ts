@@ -12,7 +12,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/ui/v1/node.proto.
  */
 export const file_dassie_ui_v1_node: GenFile = /*@__PURE__*/
-  fileDesc("ChdkYXNzaWUvdWkvdjEvbm9kZS5wcm90bxIMZGFzc2llLnVpLnYxIhYKFEdldEJhc2ljU3RhdGVSZXF1ZXN0IrUBChVHZXRCYXNpY1N0YXRlUmVzcG9uc2USJgoFc3RhdGUYASABKA4yFy5kYXNzaWUudWkudjEuTm9kZVN0YXRlEg8KB25vZGVfaWQYAiABKAkSEAoIaG9zdG5hbWUYAyABKAkSHQoVaWxwX2FsbG9jYXRpb25fc2NoZW1lGAQgASgJEg8KB3ZlcnNpb24YBSABKAkSIQoZYWN0aXZlX3NldHRsZW1lbnRfc2NoZW1lcxgGIAMoCSISChBHZXRTdGF0dXNSZXF1ZXN0IucBChFHZXRTdGF0dXNSZXNwb25zZRIPCgd2ZXJzaW9uGAEgASgJEiYKB3J1bnRpbWUYAiABKA4yFS5kYXNzaWUudWkudjEuUnVudGltZRIaChJzdGFydGVkX2F0X3VuaXhfbXMYAyABKAMSLgoLY2VydGlmaWNhdGUYBCABKAsyGS5kYXNzaWUudWkudjEuQ2VydGlmaWNhdGUSJgoEYWNtZRgFIAEoCzIYLmRhc3NpZS51aS52MS5BY21lU3RhdHVzEhEKCWh0dHBfcG9ydBgGIAEoDRISCgpodHRwc19wb3J0GAcgASgNIlEKCkFjbWVTdGF0dXMSEwoLaGFzX2FjY291bnQYASABKAgSGgoSbmV4dF9jaGVja191bml4X21zGAIgASgDEhIKCmxhc3RfZXJyb3IYAyABKAkqfQoJTm9kZVN0YXRlEhoKFk5PREVfU1RBVEVfVU5TUEVDSUZJRUQQABIcChhOT0RFX1NUQVRFX1VOSU5JVElBTElaRUQQARIYChROT0RFX1NUQVRFX0FOT05ZTU9VUxACEhwKGE5PREVfU1RBVEVfQVVUSEVOVElDQVRFRBADKk8KB1J1bnRpbWUSFwoTUlVOVElNRV9VTlNQRUNJRklFRBAAEhYKElJVTlRJTUVfU1RBTkRBTE9ORRABEhMKD1JVTlRJTUVfU1lTVEVNRBACYgZwcm90bzM", [file_dassie_ui_v1_tls]);
+  fileDesc("ChdkYXNzaWUvdWkvdjEvbm9kZS5wcm90bxIMZGFzc2llLnVpLnYxIhYKFEdldEJhc2ljU3RhdGVSZXF1ZXN0IrUBChVHZXRCYXNpY1N0YXRlUmVzcG9uc2USJgoFc3RhdGUYASABKA4yFy5kYXNzaWUudWkudjEuTm9kZVN0YXRlEg8KB25vZGVfaWQYAiABKAkSEAoIaG9zdG5hbWUYAyABKAkSHQoVaWxwX2FsbG9jYXRpb25fc2NoZW1lGAQgASgJEg8KB3ZlcnNpb24YBSABKAkSIQoZYWN0aXZlX3NldHRsZW1lbnRfc2NoZW1lcxgGIAMoCSISChBHZXRTdGF0dXNSZXF1ZXN0IsMCChFHZXRTdGF0dXNSZXNwb25zZRIPCgd2ZXJzaW9uGAEgASgJEiYKB3J1bnRpbWUYAiABKA4yFS5kYXNzaWUudWkudjEuUnVudGltZRIaChJzdGFydGVkX2F0X3VuaXhfbXMYAyABKAMSLgoLY2VydGlmaWNhdGUYBCABKAsyGS5kYXNzaWUudWkudjEuQ2VydGlmaWNhdGUSJgoEYWNtZRgFIAEoCzIYLmRhc3NpZS51aS52MS5BY21lU3RhdHVzEhEKCWh0dHBfcG9ydBgGIAEoDRISCgpodHRwc19wb3J0GAcgASgNEhEKCXBlcmlwaGVyeRgIIAEoCBIoCgVyZWxheRgJIAEoCzIZLmRhc3NpZS51aS52MS5DaG9zZW5SZWxheRIdChVvcGVuX3BheW1lbnRzX29yaWdpbnMYCiADKAkiOwoLQ2hvc2VuUmVsYXkSDAoEbm9kZRgBIAEoCRILCgN1cmwYAiABKAkSEQoJY29ubmVjdGVkGAMgASgIIlEKCkFjbWVTdGF0dXMSEwoLaGFzX2FjY291bnQYASABKAgSGgoSbmV4dF9jaGVja191bml4X21zGAIgASgDEhIKCmxhc3RfZXJyb3IYAyABKAkqfQoJTm9kZVN0YXRlEhoKFk5PREVfU1RBVEVfVU5TUEVDSUZJRUQQABIcChhOT0RFX1NUQVRFX1VOSU5JVElBTElaRUQQARIYChROT0RFX1NUQVRFX0FOT05ZTU9VUxACEhwKGE5PREVfU1RBVEVfQVVUSEVOVElDQVRFRBADKk8KB1J1bnRpbWUSFwoTUlVOVElNRV9VTlNQRUNJRklFRBAAEhYKElJVTlRJTUVfU1RBTkRBTE9ORRABEhMKD1JVTlRJTUVfU1lTVEVNRBACYgZwcm90bzM", [file_dassie_ui_v1_tls]);
 
 /**
  * @generated from message dassie.ui.v1.GetBasicStateRequest
@@ -136,6 +136,33 @@ export type GetStatusResponse = Message<"dassie.ui.v1.GetStatusResponse"> & {
    * @generated from field: uint32 https_port = 7;
    */
   httpsPort: number;
+
+  /**
+   * Whether the node runs as a periphery node
+   * (spec/areas/network.md#periphery-nodes): it has a QUIC endpoint and no
+   * hostname, so it registers nowhere, and its peers are its uplinks.
+   *
+   * @generated from field: bool periphery = 8;
+   */
+  periphery: boolean;
+
+  /**
+   * The relay the node chose (spec/areas/node.md#a-chosen-relay); unset if
+   * none.
+   *
+   * @generated from field: dassie.ui.v1.ChosenRelay relay = 9;
+   */
+  relay?: ChosenRelay | undefined;
+
+  /**
+   * The origins it answers Open Payments under, the main one first
+   * (spec/areas/payments.md#the-nodes-names): its hostname's, or else its
+   * name at the default front door and the names its owner added. Empty
+   * before setup on a node without a hostname.
+   *
+   * @generated from field: repeated string open_payments_origins = 10;
+   */
+  openPaymentsOrigins: string[];
 };
 
 /**
@@ -144,6 +171,35 @@ export type GetStatusResponse = Message<"dassie.ui.v1.GetStatusResponse"> & {
  */
 export const GetStatusResponseSchema: GenMessage<GetStatusResponse> = /*@__PURE__*/
   messageDesc(file_dassie_ui_v1_node, 3);
+
+/**
+ * @generated from message dassie.ui.v1.ChosenRelay
+ */
+export type ChosenRelay = Message<"dassie.ui.v1.ChosenRelay"> & {
+  /**
+   * @generated from field: string node = 1;
+   */
+  node: string;
+
+  /**
+   * @generated from field: string url = 2;
+   */
+  url: string;
+
+  /**
+   * Whether the node holds its connection to the relay now.
+   *
+   * @generated from field: bool connected = 3;
+   */
+  connected: boolean;
+};
+
+/**
+ * Describes the message dassie.ui.v1.ChosenRelay.
+ * Use `create(ChosenRelaySchema)` to create a new message.
+ */
+export const ChosenRelaySchema: GenMessage<ChosenRelay> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_node, 4);
 
 /**
  * @generated from message dassie.ui.v1.AcmeStatus
@@ -176,7 +232,7 @@ export type AcmeStatus = Message<"dassie.ui.v1.AcmeStatus"> & {
  * Use `create(AcmeStatusSchema)` to create a new message.
  */
 export const AcmeStatusSchema: GenMessage<AcmeStatus> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_node, 4);
+  messageDesc(file_dassie_ui_v1_node, 5);
 
 /**
  * @generated from enum dassie.ui.v1.NodeState

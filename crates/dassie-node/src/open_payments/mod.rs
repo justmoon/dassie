@@ -188,8 +188,9 @@ impl Names {
         (!names.is_empty()).then_some(Self::List(names))
     }
 
-    /// Every origin of the node's.
-    fn origins(&self) -> Vec<String> {
+    /// Every origin of the node's, the main one first.
+    #[must_use]
+    pub fn origins(&self) -> Vec<String> {
         match self {
             Self::Hostname(origin) => vec![origin.clone()],
             Self::List(names) => names.iter().map(|name| format!("https://{name}")).collect(),

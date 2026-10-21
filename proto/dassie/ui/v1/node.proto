@@ -44,6 +44,25 @@ message GetStatusResponse {
   // ones under systemd.
   uint32 http_port = 6;
   uint32 https_port = 7;
+  // Whether the node runs as a periphery node
+  // (spec/areas/network.md#periphery-nodes): it has a QUIC endpoint and no
+  // hostname, so it registers nowhere, and its peers are its uplinks.
+  bool periphery = 8;
+  // The relay the node chose (spec/areas/node.md#a-chosen-relay); unset if
+  // none.
+  ChosenRelay relay = 9;
+  // The origins it answers Open Payments under, the main one first
+  // (spec/areas/payments.md#the-nodes-names): its hostname's, or else its
+  // name at the default front door and the names its owner added. Empty
+  // before setup on a node without a hostname.
+  repeated string open_payments_origins = 10;
+}
+
+message ChosenRelay {
+  string node = 1;
+  string url = 2;
+  // Whether the node holds its connection to the relay now.
+  bool connected = 3;
 }
 
 enum Runtime {
