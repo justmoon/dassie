@@ -21,6 +21,21 @@ export interface LimitFields {
   receiveAmount?: AmountFields;
   spentDebit: bigint;
   spentReceive: bigint;
+  /** When the interval's windows start and end, as the node reads it. */
+  startsAtMs?: bigint;
+  endsAtMs?: bigint;
+  /** The receiver as read while the owner is asked. */
+  receiverPayment?: ReceiverFields;
+}
+
+/** The receiver a grant may only pay, as the node read it. */
+export interface ReceiverFields {
+  assetCode: string;
+  assetScale: number;
+  remaining?: bigint;
+  expiresAtMs?: bigint;
+  closed: boolean;
+  error: string;
 }
 
 /** An amount in an asset. */
@@ -64,10 +79,27 @@ const UNITS: Record<string, [string, string]> = {
  */
 export function intervalText(interval: string): string | undefined {
   if (interval === "") return undefined;
-  const parts = interval.split("/");
-  const duration = parts.find((part) => part.startsWith("P"));
-  if (duration === undefined) return "each period";
-  const pieces: string[] = [];
+  const parts = durationParts(interval);
+  if (parts === undefined || parts.length === 0) return "each period";
+  if (parts.length === 1 && parts[0].count === 1) return `a ${parts[0].one}`;
+  return `every ${parts.map(partText).join(" and ")}`;
+}
+
+/** One part of a duration: `2 weeks`. */
+interface DurationPart {
+  count: number;
+  one: string;
+  many: string;
+}
+
+const partText = (part: DurationPart) =>
+  `${part.count} ${part.count === 1 ? part.one : part.many}`;
+
+/** The parts of an interval's duration; none between two dates. */
+function durationParts(interval: string): DurationPart[] | undefined {
+  const duration = interval.split("/").find((part) => part.startsWith("P"));
+  if (duration === undefined) return undefined;
+  const parts: DurationPart[] = [];
   let time = false;
   for (
     const match of duration.slice(1).matchAll(/(T)|(\d+(?:\.\d+)?)([YMWDHS])/g)
@@ -76,16 +108,23 @@ export function intervalText(interval: string): string | undefined {
       time = true;
       continue;
     }
-    const count = Number(match[2]);
     const unit = time && match[3] === "M" ? "MIN" : match[3];
     const names = unit === "MIN" ? ["minute", "minutes"] : UNITS[unit];
     if (names === undefined) continue;
-    pieces.push(`${count} ${count === 1 ? names[0] : names[1]}`);
+    parts.push({ count: Number(match[2]), one: names[0], many: names[1] });
   }
-  if (pieces.length === 1 && pieces[0].startsWith("1 ")) {
-    return `a ${pieces[0].slice(2)}`;
-  }
-  return pieces.length > 0 ? `every ${pieces.join(" and ")}` : "each period";
+  return parts;
+}
+
+/**
+ * How long all the windows of a counted interval last, if its duration
+ * has one part: "12 months" for `R11/…/P1M`.
+ */
+function totalText(interval: string): string | undefined {
+  const count = /^R(\d+)\//.exec(interval)?.[1];
+  const parts = durationParts(interval);
+  if (count === undefined || parts?.length !== 1) return undefined;
+  return partText({ ...parts[0], count: parts[0].count * (Number(count) + 1) });
 }
 
 const ACTIONS: Record<string, string> = {
@@ -96,9 +135,6 @@ const ACTIONS: Record<string, string> = {
 
 /** What an access item lets the client do, in a sentence. */
 export function accessText(access: AccessFields): string {
-  const reads = access.actions.some((action) =>
-    action === "read-all" || action === "list-all"
-  );
   const creates = access.actions.includes("create");
   const base = ACTIONS[access.type] ?? access.type;
   const what = creates ? base : `See ${access.type.replace("-", " ")}s`;
@@ -108,8 +144,24 @@ export function accessText(access: AccessFields): string {
     : creates
     ? limitText(access.limits)
     : receiverText(access.limits);
-  const scope = reads ? ", and see all of them, not only its own" : "";
-  return `${what}${limits}${walletText(access)}${scope}`;
+  return `${what}${limits}${walletText(access)}${scopeText(access)}`;
+}
+
+/**
+ * Whether the item reaches others' resources too: one that reads or lists
+ * all of a kind sees the owner's own and other apps', and the owner must
+ * be told.
+ */
+function scopeText(access: AccessFields): string {
+  const all = access.actions.some((action) =>
+    action === "read-all" || action === "list-all"
+  );
+  return all ? ", and see all of them, not only its own" : "";
+}
+
+/** The heading of an item that sends payments, with what else it sees. */
+export function paymentsTitle(access: AccessFields): string {
+  return `Send payments${scopeText(access)}`;
 }
 
 /** Which of the owner's wallets it reaches: by the ledger's currency. */
@@ -159,4 +211,166 @@ export function spentText(limits: LimitFields): string | undefined {
     return `${delivered} of ${of} delivered${period}`;
   }
   return undefined;
+}
+
+/*
+ * The consent page's facts about an item that sends payments: what the
+ * owner sends, what the receiver gets, to whom, and for how long. A grant
+ * caps what is debited or what is delivered, never both (D9), so one side
+ * is firm and the other is said as far as it is known: fees and exchange
+ * along the way are only known once a payment is quoted.
+ */
+
+/** "a day", or "in total" for a limit over all time. */
+function perText(limits: LimitFields): string {
+  return intervalText(limits.interval) ?? "in total";
+}
+
+/** "every day" for "a day". */
+function renewText(interval: string): string {
+  const every = intervalText(interval) ?? "each period";
+  return every.startsWith("a ") ? `every ${every.slice(2)}` : every;
+}
+
+const code = (asset: { assetCode: string }) => asset.assetCode.toUpperCase();
+
+/** What the owner sends. */
+export function sendText(access: AccessFields): string {
+  const limits = access.limits;
+  const wallet = walletText(access);
+  if (limits?.debitAmount) {
+    return `Up to ${amountText(limits.debitAmount)} ${
+      perText(limits)
+    }${wallet}, fees and currency exchange included`;
+  }
+  if (limits?.receiveAmount) {
+    const from = wallet === "" ? "" : `,${wallet}`;
+    return `No set limit: whatever it costs to deliver the amount below${from}, including fees and currency exchange`;
+  }
+  return `Any amount${wallet}. The app sets no limit.`;
+}
+
+/** What the receiver gets, as far as the grant and its receiver say. */
+export function receiveText(limits: LimitFields | undefined): string {
+  const capped = limits?.receiveAmount &&
+    `Up to ${amountText(limits.receiveAmount)} ${perText(limits)}, in ${
+      code(limits.receiveAmount)
+    }`;
+  const read = limits?.receiverPayment;
+  if (read === undefined) {
+    return capped ??
+      "Depends on who the app pays. Fees and currency exchange along the way come out of what you send.";
+  }
+  if (read.error !== "") {
+    return `Unknown: the payment request could not be read (${read.error})`;
+  }
+  if (read.closed) {
+    return "Nothing: this payment request accepts no more money";
+  }
+  const owed = read.remaining === undefined
+    ? undefined
+    : amountText({ ...read, value: read.remaining });
+  if (capped !== undefined) {
+    return owed === undefined
+      ? `${capped}. This payment request has no set amount.`
+      : `${capped}. This payment request still asks for ${owed}.`;
+  }
+  return owed === undefined
+    ? `Any amount, in ${code(read)}: this payment request has no set amount`
+    : `${owed}, in ${code(read)}: what this payment request still asks for`;
+}
+
+/** To whom: anyone, or the one payment request. */
+export function toText(
+  limits: LimitFields | undefined,
+  timeZone?: string,
+): string {
+  if (limits === undefined || limits.receiver === "") {
+    return "Anyone the app chooses";
+  }
+  const read = limits.receiverPayment;
+  const open = read?.expiresAtMs !== undefined && read.error === "" &&
+      !read.closed
+    ? `, open until ${dateText(read.expiresAtMs, timeZone)}`
+    : "";
+  return `One payment request at ${hostOf(limits.receiver)}${open}`;
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+/** How long the grant lasts, from the span the node read of its interval. */
+export function spanText(
+  limits: LimitFields | undefined,
+  nowMs: bigint,
+  timeZone?: string,
+): string {
+  const date = (ms: bigint) => dateText(ms, timeZone);
+  if (limits === undefined || limits.interval === "") {
+    const total = limits?.debitAmount ?? limits?.receiveAmount;
+    const once = total && ` The ${amountText(total)} is a total, not renewed.`;
+    if (limits !== undefined && limits.receiver !== "") {
+      return `Until the payment request is paid or closes.${once ?? ""}`;
+    }
+    return total === undefined
+      ? "No end date, until you revoke access."
+      : `No end date. The ${
+        amountText(total)
+      } is a total for all payments, not renewed, until you revoke access.`;
+  }
+  const renews = `The limit renews ${renewText(limits.interval)}`;
+  const { startsAtMs: start, endsAtMs: end } = limits;
+  if (end !== undefined && end <= nowMs) {
+    return `Ended on ${date(end)}: no payment can be made.`;
+  }
+  const later = start !== undefined && start > nowMs;
+  const before = later ? "; nothing can be sent before then" : "";
+  if (end === undefined) {
+    const from = later ? `Starts ${date(start)}${before}. ` : "";
+    return `${from}No end date. ${renews} until you revoke access.`;
+  }
+  const total = totalText(limits.interval);
+  // `R0` is the first window only: nothing renews.
+  const after = /^R0\//.test(limits.interval) ? "" : ` ${renews}.`;
+  if (later) {
+    const length = total === undefined ? "" : ` (${total})`;
+    return `From ${date(start)} until ${date(end)}${length}${before}.${after}`;
+  }
+  const since = start === undefined
+    ? ""
+    : ` (${total === undefined ? "" : `${total} `}from ${date(start)})`;
+  return `Until ${date(end)}${since}.${after}`;
+}
+
+/**
+ * A date for people, in English like the rest of the wallet, with the time
+ * only when it is not midnight: "Oct 16, 2026, 6:30 PM". In the owner's
+ * time zone, unless one is given.
+ */
+export function dateText(ms: bigint, timeZone?: string): string {
+  const date = new Date(Number(ms));
+  const day = date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone,
+  });
+  const clock = (options: Intl.DateTimeFormatOptions) =>
+    date.toLocaleTimeString("en-US", { ...options, timeZone })
+      // ICU puts a narrow space before "PM".
+      .replace(/\s/gu, " ");
+  const midnight = clock({
+    hourCycle: "h23",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }) === "00:00:00";
+  return midnight
+    ? day
+    : `${day}, ${clock({ hour: "numeric", minute: "2-digit" })}`;
 }

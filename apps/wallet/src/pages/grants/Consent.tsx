@@ -1,17 +1,26 @@
 /**
  * The consent page (D9): an app asks to act for the owner, for example to
- * send payments up to a limit. The owner reads who asks and what for, and
- * approves or denies; the wallet then sends them back to the app, which
- * learns the answer from the node.
+ * send payments up to a limit. The owner reads who asks and what for:
+ * for payments, what they send, what the receiver gets, to whom and for
+ * how long. They approve or deny; the wallet then sends them back to the
+ * app, which learns the answer from the node.
  */
 
 import type { JSX } from "@solidjs/web";
-import type { Grant } from "@dassie/rpc/proto";
+import type { Grant, GrantAccess } from "@dassie/rpc/proto";
 import { createSignal, For, Show } from "solid-js";
 import { describe, useClient } from "@dassie/ui/rpc";
-import { type RouteProps, useSearchParam } from "@dassie/ui/router";
+import { Link, type RouteProps, useSearchParam } from "@dassie/ui/router";
 import { Alert, Card, ErrorText, PageTitle, Spinner } from "@dassie/ui/ui";
-import { accessText, clientName } from "./grants.ts";
+import {
+  accessText,
+  clientName,
+  paymentsTitle,
+  receiveText,
+  sendText,
+  spanText,
+  toText,
+} from "./grants.ts";
 
 type Page =
   | { kind: "loading" }
@@ -84,9 +93,13 @@ export function Consent(props: RouteProps): JSX.Element {
         {(approved) => (
           <Alert title={approved() ? "Approved" : "Denied"}>
             <p data-testid="consent-decided">
-              {approved()
-                ? "The app may now do what it asked. You can revoke it under Connected Apps."
-                : "The app gets nothing."} You can close this page.
+              <Show when={approved()} fallback="The app gets nothing.">
+                The app may now do what it asked. To revoke it, go to{" "}
+                <Link href="/grants" testid="consent-revoke">
+                  Connected Apps
+                </Link>.
+              </Show>{" "}
+              You can close this page.
             </p>
           </Alert>
         )}
@@ -102,6 +115,36 @@ const pageGrant = (page: Page) =>
   page.kind === "asking" ? page.grant : undefined;
 const pageDecided = (page: Page) =>
   page.kind === "decided" ? page.approved : undefined;
+
+/** Whether an item lets the app send the owner's money. */
+const sends = (access: GrantAccess) =>
+  access.type === "outgoing-payment" && access.actions.includes("create");
+
+/**
+ * What sending payments means for the owner: what they send, what the
+ * receiver gets, to whom, and for how long. Each as far as the grant, and
+ * the receiver it names, say: fees and exchange are known only per quote.
+ */
+function Payments(props: { access: GrantAccess }): JSX.Element {
+  const limits = () => props.access.limits;
+  return (
+    <>
+      <span data-testid="consent-payments">{paymentsTitle(props.access)}</span>
+      <dl class="facts consent-facts">
+        <dt>You send</dt>
+        <dd data-testid="consent-send">{sendText(props.access)}</dd>
+        <dt>They receive</dt>
+        <dd data-testid="consent-receive">{receiveText(limits())}</dd>
+        <dt>To</dt>
+        <dd data-testid="consent-to">{toText(limits())}</dd>
+        <dt>Lasts</dt>
+        <dd data-testid="consent-span">
+          {spanText(limits(), BigInt(Date.now()))}
+        </dd>
+      </dl>
+    </>
+  );
+}
 
 /** Who asks, what for, and the two answers. */
 function Request(props: {
@@ -123,7 +166,11 @@ function Request(props: {
       <ul class="consent-access">
         <For each={props.grant.access}>
           {(access) => (
-            <li data-testid="consent-access">{accessText(access)}</li>
+            <li data-testid="consent-access">
+              <Show when={sends(access)} fallback={accessText(access)}>
+                <Payments access={access} />
+              </Show>
+            </li>
           )}
         </For>
         <Show when={props.grant.subject !== ""}>
@@ -131,7 +178,8 @@ function Request(props: {
         </Show>
       </ul>
       <p class="muted">
-        Only approve apps you trust. You can revoke access at any time.
+        Only approve apps you trust. You can revoke access at any time under
+        Connected Apps in the top menu.
       </p>
       <div class="actions">
         <button

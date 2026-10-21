@@ -191,6 +191,15 @@ impl Limits {
         }
     }
 
+    /// When the limits' interval starts and ends, as [`Interval::span`]
+    /// has it: `None` without an interval, which is all time.
+    #[must_use]
+    pub fn span(&self) -> Option<(Option<u64>, Option<u64>)> {
+        Interval::parse(self.interval.as_deref()?)
+            .ok()
+            .map(|interval| interval.span())
+    }
+
     /// Whether a payment debiting `debit` and delivering `receive` fits,
     /// on top of what the window has spent: `spent` as `(debit, receive)`.
     /// The asset of each limit is the caller's to check, with

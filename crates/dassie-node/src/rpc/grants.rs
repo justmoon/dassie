@@ -2,9 +2,12 @@
 //! decision on it, and the grants approved, with what each spent.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use dassie_payments::amount::Amount;
 use dassie_payments::gnap::{Access, AccessType, Action};
+use dassie_payments::time;
+use futures_util::future::join_all;
 
 use super::RpcError;
 use super::handlers::{Items, Reply};
@@ -13,8 +16,13 @@ use super::proto::{self, request::Method, response, stream_item};
 use crate::engine::Engine;
 use crate::node::Node;
 use crate::open_payments::auth::OpError;
-use crate::open_payments::{Urls, WalletAddresses, consent};
+use crate::open_payments::{Urls, WalletAddresses, consent, spending};
 use crate::store::{GrantRow, GrantState, PaymentId};
+
+/// The longest the consent page waits for the receivers a request names,
+/// however many steps a read of another node takes. Shorter than one of
+/// the client's timeouts, so a node that never answers reads as late.
+const RECEIVERS_READ_MS: u64 = 5_000;
 
 /// Most approved grants listed.
 const MAX_LISTED: u32 = 256;
@@ -34,6 +42,7 @@ pub async fn dispatch(
             let mut grant = grant(node, &urls, &view.grant, &view.access).await?;
             grant.subject = view.subject.unwrap_or_default();
             grant.client_name = view.public_name.unwrap_or_default();
+            read_receivers(node, &urls, &mut grant).await;
             response::Method::GetGrantRequest(proto::GetGrantRequestResponse { grant: Some(grant) })
         }
         Method::DecideGrant(request) => {
@@ -183,6 +192,7 @@ fn spent(
     };
     // Without an interval, the window is all time: no ends to show.
     let bounded = window.filter(|_| limits.interval.is_some());
+    let span = limits.span();
     Ok(proto::GrantLimits {
         receiver: limits.receiver.clone().unwrap_or_default(),
         interval: limits.interval.clone().unwrap_or_default(),
@@ -192,7 +202,108 @@ fn spent(
         window_end_ms: bounded.map(|(_, end)| end),
         spent_debit: debit,
         spent_receive: receive,
+        starts_at_ms: span.and_then(|(start, _)| start),
+        ends_at_ms: span.and_then(|(_, end)| end),
+        receiver_payment: None,
     })
+}
+
+/// Reads the receiver each item that creates payments may only pay, so
+/// the owner sees what it is paid in and still asks for. Only while the
+/// owner is asked: the list of approved grants reads no other node.
+///
+/// The reads go at once, and all of them together take at most
+/// [`RECEIVERS_READ_MS`]: a receiver's node that never answers would
+/// otherwise hold the page through each of the client's timeouts.
+async fn read_receivers(node: &Node, urls: &Urls, grant: &mut proto::Grant) {
+    let wanted: Vec<(usize, String)> = grant
+        .access
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.actions.iter().any(|action| action == "create"))
+        .filter_map(|(index, item)| {
+            let receiver = &item.limits.as_ref()?.receiver;
+            (!receiver.is_empty()).then(|| (index, receiver.clone()))
+        })
+        .collect();
+    if wanted.is_empty() {
+        return;
+    }
+    let reads = join_all(
+        wanted
+            .iter()
+            .map(|(_, url)| receiver_payment(node, urls, url)),
+    );
+    let read = tokio::time::timeout(Duration::from_millis(RECEIVERS_READ_MS), reads)
+        .await
+        .unwrap_or_else(|_| vec![unreadable("its node did not answer in time"); wanted.len()]);
+    for ((index, _), payment) in wanted.into_iter().zip(read) {
+        if let Some(limits) = grant
+            .access
+            .get_mut(index)
+            .and_then(|item| item.limits.as_mut())
+        {
+            limits.receiver_payment = Some(payment);
+        }
+    }
+}
+
+/// Why a receiver could not be read, by the status of the failure. The
+/// description may quote what the receiver's node sent, so the page shows
+/// only what this node says, and the log has the rest.
+const fn unreadable_reason(status: u16) -> &'static str {
+    match status {
+        502 => "its node could not be reached",
+        503 => "this node is not ready",
+        // This node's own failure, such as its store's.
+        500..=599 => "this node could not read it",
+        _ => "it is not a payment request that can be read",
+    }
+}
+
+/// A receiver that could not be read, and why, in the node's own words.
+fn unreadable(why: &str) -> proto::GrantReceiver {
+    proto::GrantReceiver {
+        error: why.into(),
+        ..proto::GrantReceiver::default()
+    }
+}
+
+/// The receiver at `url`, as it reads now. One that cannot be read is
+/// shown as such rather than refusing the request: the owner may still
+/// deny it, and the client learns why its payments fail when it pays.
+async fn receiver_payment(node: &Node, urls: &Urls, url: &str) -> proto::GrantReceiver {
+    let payment = match spending::incoming_payment(node, urls, url).await {
+        Ok(payment) => payment,
+        Err(failure) => {
+            tracing::info!(
+                target: crate::log::target::PAYMENT,
+                receiver = url,
+                error = %failure.description,
+                "a pending grant's receiver could not be read"
+            );
+            return unreadable(unreadable_reason(failure.status));
+        }
+    };
+    let received = &payment.received_amount;
+    // An expiry that is not a date-time reads as none: paying it refuses
+    // it then, as it does any receiver that cannot be paid.
+    let expires_at_ms = payment
+        .expires_at
+        .as_deref()
+        .and_then(|expires| time::parse_rfc3339(expires).ok());
+    let expired = expires_at_ms.is_some_and(|expires| expires <= node.now_ms());
+    proto::GrantReceiver {
+        asset_code: received.asset_code.clone(),
+        asset_scale: received.asset_scale.into(),
+        remaining: payment
+            .incoming_amount
+            .as_ref()
+            .map(|incoming| incoming.value.saturating_sub(received.value)),
+        expires_at_ms,
+        closed: payment.completed || expired,
+        error: String::new(),
+    }
 }
 
 fn amount(amount: &Amount) -> proto::OpenPaymentsAmount {
@@ -249,4 +360,24 @@ async fn subscribe(
         stream_item::Method::SubscribeGrants,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Found in review: a failure of this node's own, such as its store's,
+    // does not read as the receiver's fault.
+    #[test]
+    fn unreadable_receivers_say_whose_failure_it_is() {
+        assert_eq!(unreadable_reason(502), "its node could not be reached");
+        assert_eq!(unreadable_reason(503), "this node is not ready");
+        assert_eq!(unreadable_reason(500), "this node could not read it");
+        for status in [400, 403, 404] {
+            assert_eq!(
+                unreadable_reason(status),
+                "it is not a payment request that can be read"
+            );
+        }
+    }
 }

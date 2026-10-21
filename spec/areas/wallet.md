@@ -58,7 +58,7 @@ The pages are in `apps/wallet/src/pages/`, and their routes in `apps/wallet/src/
 - What blocks removing a ledger, the total in the display currency, whether a rate is stale, what a quote costs and how long it holds, and what a grant asks for all come from the node ([Ledger](ledger.md), [Connector](connector.md), [Payments](payments.md)).
 - The network page draws the routing table, not the peerings: an edge only where both ends list it, so a peer that is offline or does not list us back has no line. The layout is deterministic: a node starts where its ID puts it and keeps its place as the table changes.
 - A BTP token's secret is shown once, when it is made; the node keeps only its hash ([Connector](connector.md#btp-tokens), [D10](../decisions/D10-secrets-at-rest.md)).
-- The consent page is where the node sends the owner when a third-party app asks for access ([Payments](payments.md#the-owners-consent)).
+- The consent page is where the node sends the owner when a third-party app asks for access ([Payments](payments.md#the-owners-consent)). It names Connected Apps, where access is revoked, but links there only once the owner has decided, so that no one leaves a request half-read.
 
 ## Amounts and currencies
 
