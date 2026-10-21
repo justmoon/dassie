@@ -1225,29 +1225,17 @@ fn close_xrpl(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger) {
     follow_xrpl(core, ledger);
 }
 
-// spec/areas/xrpl.md#state-and-restarts: a database the node wrote before
-// external assets, with the XRP Ledger scheme's state in one blob, is split
-// between the account and the scheme when it migrates, and the node restarts
-// on it booking nothing anew. What was in flight is submitted again and
-// posted once, with its fee; what was looked up by its hash is still looked
-// up; the balance, the owner's funds and suspense stay as they were.
-#[test]
-fn a_database_from_before_external_assets_restarts_and_books_nothing_anew() {
-    use dassie_ledger::{Reference, TransferState};
-    use dassie_settlement::LedgerStatus;
-    use dassie_xrpl::Wallet;
-    use dassie_xrpl::fake::FakeLedger;
-
-    const XRP: u64 = 1_000_000_000;
-    let temp = tempfile::tempdir().unwrap();
-    let database = temp.path().join(crate::store::DATABASE_FILE);
+/// A store on the database the node wrote before external assets, migrated:
+/// the XRP Ledger scheme's state split between the account and the scheme.
+fn store_from_before_external_assets(dir: &std::path::Path) -> Arc<Store> {
+    let database = dir.join(crate::store::DATABASE_FILE);
     rusqlite::Connection::open(&database)
         .unwrap()
         .execute_batch(include_str!("../../store/testdata/xrpl-scheme-v25.sql"))
         .unwrap();
-    let store = Arc::new(Store::open(temp.path()).unwrap());
+    let store = Arc::new(Store::open(dir).unwrap());
     let checkpoint = store.checkpoints().unwrap().remove(0).1;
-    assert_eq!(checkpoint.balance, 999 * XRP);
+    assert_eq!(checkpoint.balance, 999_000_000_000);
     let scheme: serde_json::Value = serde_json::from_slice(&checkpoint.state).unwrap();
     let keys: Vec<&String> = scheme.as_object().unwrap().keys().collect();
     assert_eq!(keys, ["cursor", "peers", "recovering"]);
@@ -1264,24 +1252,18 @@ fn a_database_from_before_external_assets_restarts_and_books_nothing_anew() {
     assert_eq!(in_flight.len(), 2);
     assert!(in_flight.iter().all(|t| t["scheme"] == "xrpl-testnet"));
     assert_eq!(in_flight[1]["executed"], false);
-    let rows = |store: &Store| store.transfers_after(None, 100, None).unwrap();
-    let before = rows(&store);
-    assert_eq!(before.len(), 5);
+    store
+}
 
-    // The ledger as the node left it: the account funded, nothing sent.
-    let entropy = NodeKey::from_bytes(&[7; 32])
-        .settlement_entropy("xrpl-testnet", "seed-testnet")
-        .unwrap();
-    let address = Wallet::from_entropy(entropy.as_bytes()).account();
-    let mut ledger = FakeLedger::new();
-    ledger.fund(address);
-    ledger.close();
-    let mut core = core_on(Arc::clone(&store), 10);
-    follow_xrpl(&mut core, &mut ledger);
-    assert_eq!(core.ledger_views()[0].status, LedgerStatus::Synced);
-    close_xrpl(&mut core, &mut ledger);
-    core.flush();
-    // What the account holds is what the ledger says.
+/// What the core shows `address`, its only external asset, to hold: what
+/// `ledger` says.
+fn assert_holds_what_the_ledger_says(
+    core: &Core,
+    ledger: &dassie_xrpl::fake::FakeLedger,
+    address: dassie_xrpl::AccountId,
+) {
+    use dassie_settlement::LedgerStatus;
+
     let views = core.asset_views();
     let [view] = views.as_slice() else {
         panic!("{views:?}");
@@ -1305,6 +1287,42 @@ fn a_database_from_before_external_assets_restarts_and_books_nothing_anew() {
     assert_eq!(holding.scale, 6);
     assert_eq!(holding.amount, u128::from(ledger.balance(address).unwrap()));
     assert_eq!(holding.reserve, u128::from(dassie_xrpl::fake::RESERVE_BASE));
+}
+
+// spec/areas/xrpl.md#state-and-restarts: a database the node wrote before
+// external assets, with the XRP Ledger scheme's state in one blob, is split
+// between the account and the scheme when it migrates, and the node restarts
+// on it booking nothing anew. What was in flight is submitted again and
+// posted once, with its fee; what was looked up by its hash is still looked
+// up; the balance, the owner's funds and suspense stay as they were. What
+// the account holds, the node shows as the ledger says.
+#[test]
+fn a_database_from_before_external_assets_restarts_and_books_nothing_anew() {
+    use dassie_ledger::{Reference, TransferState};
+    use dassie_settlement::LedgerStatus;
+    use dassie_xrpl::Wallet;
+    use dassie_xrpl::fake::FakeLedger;
+
+    const XRP: u64 = 1_000_000_000;
+    let temp = tempfile::tempdir().unwrap();
+    let store = store_from_before_external_assets(temp.path());
+    let rows = |store: &Store| store.transfers_after(None, 100, None).unwrap();
+    assert_eq!(rows(&store).len(), 5);
+
+    // The ledger as the node left it: the account funded, nothing sent.
+    let entropy = NodeKey::from_bytes(&[7; 32])
+        .settlement_entropy("xrpl-testnet", "seed-testnet")
+        .unwrap();
+    let address = Wallet::from_entropy(entropy.as_bytes()).account();
+    let mut ledger = FakeLedger::new();
+    ledger.fund(address);
+    ledger.close();
+    let mut core = core_on(Arc::clone(&store), 10);
+    follow_xrpl(&mut core, &mut ledger);
+    assert_eq!(core.ledger_views()[0].status, LedgerStatus::Synced);
+    close_xrpl(&mut core, &mut ledger);
+    core.flush();
+    assert_holds_what_the_ledger_says(&core, &ledger, address);
 
     let after = rows(&store);
     let state = |id: u64| {
