@@ -54,7 +54,8 @@ use crate::codec::{Memo, TF_SET_NO_RIPPLE};
 use crate::keys::AccountId;
 use crate::scheme::{
     MAX_PEERS, MAX_RECOVER_WAIT_LEDGERS, MAX_RECOVERING, Recovering, account_of, address_bytes,
-    hash_name, missed_write_off, name_hash, narrow, parse_address, restore_write_offs,
+    hash_name, missed_write_off, name_hash, narrow, parse_address, restore_unread,
+    restore_write_offs, unread_value,
 };
 use crate::{from_hex, hex_upper};
 
@@ -281,6 +282,7 @@ impl RlusdScheme {
                 self.correct_line(account);
                 self.ask_recover(account);
             }
+            News::Unread { hash, ours } if ours.scheme == id => self.unread(*hash),
             News::Unread { .. } => {}
             News::Found { hash, record } => self.recovered(*hash, record, effects),
             News::Issuer { issuer, settings } if *issuer == ISSUER => {
@@ -523,15 +525,44 @@ impl RlusdScheme {
         }
     }
 
+    /// A settlement of ours that validated while the scheme was not on the
+    /// account, and that it did not read again: booked as one never read
+    /// once found, as the XRP scheme does.
+    fn unread(&mut self, hash: [u8; 32]) {
+        if let Some(recovering) = self.recovering.iter_mut().find(|r| r.hash == hash) {
+            recovering.unread = true;
+        }
+    }
+
     /// The outcome of a settlement of ours that a restart left pending,
     /// posted or voided now (spec/areas/xrpl.md#state-and-restarts). `hash`
-    /// is what was looked up.
+    /// is what was looked up. One the scheme read before the restart, it
+    /// booked then, with what it did to the line. One it never read is
+    /// booked now as one of ours read behind the cursor is: what the line
+    /// booked through suspense at the sync comes back out.
     fn recovered(&mut self, hash: [u8; 32], record: &TxRecord, effects: &mut Vec<Effect>) {
         let Some(position) = self.recovering.iter().position(|r| r.hash == hash) else {
             return;
         };
-        self.recovering.remove(position);
+        let recovering = self.recovering.remove(position);
         let settlement = hash_name(&hash);
+        if recovering.unread {
+            let token = record
+                .delivered_token
+                .filter(|paid| paid.currency == CURRENCY && paid.issuer == ISSUER)
+                .map(|paid| paid.value);
+            let ours = Ours {
+                scheme: self.id(),
+                drops: 0,
+                token,
+                settles: true,
+                again: true,
+            };
+            let booked = self.resolve(record, ours, effects);
+            self.hold(booked, effects);
+            self.match_line(effects);
+            return;
+        }
         effects.push(if record.succeeded() {
             Effect::Finalize { settlement }
         } else {
@@ -540,8 +571,13 @@ impl RlusdScheme {
     }
 
     /// Asks for the outcome of a restart's settlements, as the XRP scheme
-    /// does: each again only once its wait is over, twice as long each time.
+    /// does: each again only once its wait is over, twice as long each time,
+    /// and only once the account synced, which tells first what the scheme
+    /// did not read again.
     fn ask_recover(&mut self, account: &mut XrplAccount) {
+        if !self.account_synced {
+            return;
+        }
         let validated = self.validated;
         for recovering in &mut self.recovering {
             if !account.can_look_up() {
@@ -613,8 +649,8 @@ impl RlusdScheme {
         let (ledger, index) = self.cursor.unwrap_or((u32::MAX, u32::MAX));
         add(u64::from(ledger) << 32 | u64::from(index));
         add(self.next_learnt);
-        for Recovering { hash, .. } in &self.recovering {
-            add(u64::from(hash[0]) << 8 | u64::from(hash[1]));
+        for Recovering { hash, unread, .. } in &self.recovering {
+            add(u64::from(hash[0]) << 8 | u64::from(hash[1]) | u64::from(*unread) << 16);
         }
         add(self.recovering.len() as u64);
         add(self.write_offs);
@@ -637,6 +673,7 @@ impl RlusdScheme {
             "peers": peers,
             "recovering": recovering,
             "write_offs": self.write_offs,
+            "unread": unread_value(&self.recovering),
         })
     }
 
@@ -670,7 +707,7 @@ impl RlusdScheme {
             }
             self.recovering.push(Recovering::new(hash));
         }
-        Some(())
+        restore_unread(&value, &mut self.recovering)
     }
 }
 

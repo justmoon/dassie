@@ -189,6 +189,8 @@ struct World {
     nodes: Vec<Node>,
     now: u64,
     next_connection: u64,
+    /// Whether the server answers no lookup of a transaction.
+    drop_lookups: bool,
 }
 
 fn name(text: &str) -> Name {
@@ -225,6 +227,7 @@ impl World {
             nodes: Vec::new(),
             now: 1_000,
             next_connection: 1,
+            drop_lookups: false,
         };
         for (index, with_xrp) in xrp.iter().enumerate() {
             let seed = u8::try_from(index).unwrap() + 1;
@@ -340,6 +343,10 @@ impl World {
 
     fn request(&mut self, index: usize, message: &[u8]) {
         if !self.nodes[index].online {
+            return;
+        }
+        let request: serde_json::Value = serde_json::from_slice(message).unwrap();
+        if self.drop_lookups && request["command"] == "tx" {
             return;
         }
         let reply = self.ledger.request(self.nodes[index].connection, message);
@@ -703,6 +710,7 @@ fn no_line_without_xrp_for_it() {
         nodes: Vec::new(),
         now: 1_000,
         next_connection: 1,
+        drop_lookups: false,
     };
     let seed = 9;
     let address = Wallet::from_entropy(&entropy(seed)).account();
@@ -785,6 +793,7 @@ fn a_line_made_outside_the_node_is_corrected() {
         nodes: Vec::new(),
         now: 1_000,
         next_connection: 1,
+        drop_lookups: false,
     };
     let node = name("outside");
     world.nodes.push(Node {
@@ -1058,6 +1067,7 @@ fn gas_on_a_shared_account_is_the_owners_to_spend() {
         nodes: Vec::new(),
         now: 1_000,
         next_connection: 1,
+        drop_lookups: false,
     };
     world.add_with(1, true, Some(0));
     world.closes(3);
@@ -1304,6 +1314,67 @@ fn the_fee_of_a_scheme_away_is_booked_once() {
         assert_eq!(books[XRP].fee_ids, fees);
         assert_eq!(books[USD].fees, 0);
     }
+}
+
+// Found in review: as above, with a server whose account history no longer
+// reaches back to the settlement once its scheme is back. The sync books
+// what the line lost through suspense; the settlement, looked up by its
+// hash, is posted once, and what the line booked comes back out of
+// suspense, so the books hold the line once, not the settlement twice.
+#[test]
+fn a_settlement_of_a_scheme_away_is_booked_once_without_its_history() {
+    for why in [Detach::Stopped, Detach::Removed] {
+        let mut world = World::new(&[true, false]);
+        world.closes(3);
+        let (usd_a, _) = world.peer(USD, 0, 1);
+        world.mint(0, "10");
+        world.close();
+        let id = world.settle(USD, 0, 1, usd(2_000_000), &usd_a);
+        world.leave(0, USD, why);
+        world.closes(2);
+        world.ledger.shorten_account_history();
+        if why == Detach::Stopped {
+            world.restart(0);
+        } else {
+            world.add_again(0, USD);
+        }
+        world.closes(2);
+        let books = &world.nodes[0].books[USD];
+        assert_eq!(books.finalized, [id], "{why:?}");
+        assert!(books.pending.is_empty(), "{why:?}");
+        assert_eq!(
+            books.suspense, 0,
+            "{why:?}: what suspense booked came back out"
+        );
+        assert_eq!(books.settlement, i128::from(usd(8_000_000)), "{why:?}");
+    }
+}
+
+// As above, with the node restarting again after the sync and before the
+// lookup: the scheme keeps that it never read the settlement with its
+// state, so it still books it as one it never read.
+#[test]
+fn a_settlement_never_read_is_booked_once_across_a_restart() {
+    let mut world = World::new(&[true, false]);
+    world.closes(3);
+    let (usd_a, _) = world.peer(USD, 0, 1);
+    world.mint(0, "10");
+    world.close();
+    let id = world.settle(USD, 0, 1, usd(2_000_000), &usd_a);
+    world.leave(0, USD, Detach::Stopped);
+    world.closes(2);
+    world.ledger.shorten_account_history();
+    world.drop_lookups = true;
+    world.restart(0);
+    assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
+    assert!(world.nodes[0].books[USD].finalized.is_empty());
+    world.drop_lookups = false;
+    world.restart(0);
+    world.closes(2);
+    let books = &world.nodes[0].books[USD];
+    assert_eq!(books.finalized, [id]);
+    assert_eq!(books.suspense, 0, "what suspense booked came back out");
+    assert_eq!(books.settlement, i128::from(usd(8_000_000)));
 }
 
 // spec/designs/external-assets.md#3-accounting: while the books stopped
