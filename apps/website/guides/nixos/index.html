@@ -27,19 +27,11 @@
       </p>
 
       <h2 id="installation">Installation</h2>
-      <p>
-        Add the flake of a release to your system's flake. The newest release
-        is the version <code>get.dassie.land/meta/latest</code> names:
-      </p>
-      <pre><code>curl -sS https://get.dassie.land/meta/latest</code></pre>
-      <p>
-        Put that version in place of <code>VERSION</code> below, and enable
-        the node:
-      </p>
+      <p>Add Dassie's flake to your system's flake, and enable the node:</p>
       <pre><code>{
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    dassie.url = "https://get.dassie.land/VERSION/flake.tar.gz";
+    dassie.url = "https://get.dassie.land/flake/latest.tar.gz";
     dassie.inputs.nixpkgs.follows = "nixpkgs";
   };
 
@@ -66,6 +58,12 @@
         <code>dassie</code> command is on everyone's path.
       </p>
       <p>
+        <code>flake/latest.tar.gz</code> is the newest release's flake, and
+        your <code>flake.lock</code> records the release it was, such as
+        <code>https://get.dassie.land/0.2.2/flake.tar.gz</code>. To stay on
+        one release, use that URL instead.
+      </p>
+      <p>
         The module has a few more options:
         <code>services.dassie.logLevel</code>, and
         <code>services.dassie.environment</code> for the node's environment
@@ -77,7 +75,8 @@
         Nix checks the flake by the hash in your <code>flake.lock</code>, not
         by the Dassie release key. To check once that what you locked is what
         the release key signed, download the flake and the release's signed
-        sums, and check both:
+        sums, with <code>VERSION</code> the release your lock names, and check
+        both:
       </p>
       <pre><code>curl -sSO https://get.dassie.land/VERSION/flake.tar.gz
 curl -sSO https://get.dassie.land/VERSION/SHA256SUMS
@@ -104,9 +103,8 @@ sha256sum -c --ignore-missing SHA256SUMS</code></pre>
 
       <h2 id="updating">Updating Dassie</h2>
       <p>
-        On NixOS, Dassie does not update itself: the version is the one in
-        your flake. To update, change the version in the flake's URL, then
-        run:
+        On NixOS, Dassie does not update itself: the version is the one your
+        flake locks. To update to the newest release, run:
       </p>
       <pre><code>nix flake update dassie
 sudo nixos-rebuild switch</code></pre>
