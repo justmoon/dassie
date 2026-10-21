@@ -28,6 +28,20 @@ exceptions = [
   # that the license text go with the data. A license for data, not code,
   # so it is allowed for this crate alone.
   { crate = "webpki-root-certs", allow = ["CDLA-Permissive-2.0"] },
+  # The desktop app's Tauri (crates/dassie-desktop). MPL-2.0's copyleft is
+  # per file: it asks only that these crates' own files, which Dassie does
+  # not change, stay available as source, which crates.io has them. So it
+  # is allowed for these crates alone, not as a license any crate may use.
+  # The first four parse HTML for Tauri's build step; option-ext is in the
+  # app, through `dirs`.
+  { crate = "cssparser", allow = ["MPL-2.0"] },
+  { crate = "cssparser-macros", allow = ["MPL-2.0"] },
+  { crate = "dtoa-short", allow = ["MPL-2.0"] },
+  { crate = "selectors", allow = ["MPL-2.0"] },
+  { crate = "option-ext", allow = ["MPL-2.0"] },
+  # Apache-2.0 with LLVM's exception, which only waives attribution for
+  # compiled output: as permissive as Apache-2.0. A build dependency.
+  { crate = "target-lexicon", allow = ["Apache-2.0 WITH LLVM-exception"] },
 ]
 
 # Duplicate versions are common and harmless enough to only warn about.

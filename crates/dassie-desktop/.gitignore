@@ -1,0 +1,2 @@
+# What tauri-build writes beside the crate at every build.
+/gen/

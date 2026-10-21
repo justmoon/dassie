@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Dassie",
+  "identifier": "land.dassie.desktop",
+  "build": {
+    "frontendDist": "ui"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": "default-src 'none'; style-src 'self'; img-src 'self'; script-src 'self'",
+      "capabilities": []
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": ["icons/32.png", "icons/128.png", "icons/512.png"]
+  }
+}

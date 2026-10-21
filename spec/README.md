@@ -27,6 +27,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | `crates/dassie-node-core` | [Node](areas/node.md), [HTTP](areas/http.md) |
 | `crates/dassie-node` | [Node](areas/node.md), and by module: `engine/` [Connector](areas/connector.md), [Settlement](areas/settlement.md), [Ledger](areas/ledger.md); `http/` [HTTP](areas/http.md), with `http/peer.rs` [Peer protocol](areas/peer-protocol.md), `http/btp.rs` [Connector](areas/connector.md) and `http/open_payments/` [Payments](areas/payments.md); `open_payments/` [Payments](areas/payments.md); `rpc/` [RPC](areas/rpc.md); `store/` [Node](areas/node.md#persistence) and the area of the table; `rates.rs`, `node/rates.rs` [Connector](areas/connector.md#exchange-rates); `peer_client.rs` [Peer protocol](areas/peer-protocol.md); `quic/` [Peer protocol](areas/peer-protocol.md#quic), with `quic/relay.rs` [relayed streams](areas/peer-protocol.md#relayed-streams); `acme.rs`, `tls.rs` [HTTP](areas/http.md); `front_door/` [front doors](areas/http.md#front-doors), with [relayed streams](areas/peer-protocol.md#relayed-streams); `fake_ledger.rs` [XRPL](areas/xrpl.md); `sim/` [Testing](areas/testing.md#deterministic-simulation) |
 | `crates/dassie-cli` | [Node](areas/node.md), [Release](areas/release.md) (`dassie update`) |
+| `crates/dassie-desktop`, `nix/desktop.nix`, `nix/desktop-libs.nix` | [Desktop](areas/desktop.md), [Node](areas/node.md), [HTTP](areas/http.md) |
 | `crates/dassie-release` | [Release](areas/release.md) |
 | `crates/dassie-sim` | [Testing](areas/testing.md) |
 | `proto/dassie/ui/v1` | [RPC](areas/rpc.md) |
@@ -67,6 +68,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [Release](areas/release.md) | Builds, versions and channels, the mirror, signing, the installer and the updater |
 | [Wallet](areas/wallet.md) | The owner's web app and the shared UI package |
 | [Website](areas/website.md) | dassie.land, the STREAM toy and the architecture page |
+| [Desktop](areas/desktop.md) | The desktop app: the owner's node in its process, the wallet's window, the tray and starting at login |
 | [Dev](areas/dev.md) | The local dev network and its dashboard |
 | [Testing](areas/testing.md) | Test levels, golden vectors, simulations and the simulation runner |
 
