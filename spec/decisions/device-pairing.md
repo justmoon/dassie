@@ -23,7 +23,7 @@
 - **A core node's owner who only uses the wallet remotely pairs through the CLI,** or the wallet over an SSH tunnel to `localhost`.
 - **A malicious process on the node's machine that can open a loopback connection and holds a session cookie can pair a device.** Such a process could read the IPC socket's owner's files anyway.
 - **A pairing started and not claimed is lost on restart,** and the owner starts another.
-- **The rule rests on the node seeing each client's own address.** A proxy on the node's machine that passes browsers' connections on from loopback would make every logged-in browser local, so that any session could pair a device. Nothing supports such a setup, and [HTTP](../areas/http.md#security-model) says the node must not have one; a session can already act as the owner, so a proxy would widen what a stolen session gains, not make one.
+- **The rule rests on a connection from loopback coming from a client on the node's machine.** A proxy there that accepts connections from elsewhere and passes them on from loopback would make every logged-in browser local, so that any session could pair a device. One that listens only on loopback, as the dev environment's SNI proxy does, keeps the rule ([HTTP](../areas/http.md#security-model)). A session can already act as the owner, so such a proxy would widen what a stolen session gains, not make one.
 
 ## Rejected
 

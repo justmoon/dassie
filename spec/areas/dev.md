@@ -17,7 +17,7 @@ The dev nodes' keys are public: they are derived from the [vanity table](#vanity
 
 ### SNI proxy
 
-One port, 443, serves the dashboard and every node under its own name (`https://dN.localhost`), so each node's wallet has an origin of its own, as in production. The proxy reads the server name from the TLS ClientHello and passes the connection on still encrypted, so each node serves its own certificate and the proxy holds no key. Anything it cannot parse goes to the dashboard. When it cannot bind 443, the dev server goes on without it and prints how to reach the pages at their own ports.
+One port, 443, serves the dashboard and every node under its own name (`https://dN.localhost`), so each node's wallet has an origin of its own, as in production. The proxy reads the server name from the TLS ClientHello and passes the connection on still encrypted, so each node serves its own certificate and the proxy holds no key. Anything it cannot parse goes to the dashboard. It listens on loopback only, like every dev listener, which is also what lets a node trust that a browser it carries is on the machine when it starts a pairing ([HTTP](http.md#security-model)). When it cannot bind 443, the dev server goes on without it and prints how to reach the pages at their own ports.
 
 ### Certificates
 
