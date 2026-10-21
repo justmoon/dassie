@@ -82,6 +82,8 @@ A node can keep a QUIC connection open to a relay it chooses, so that clients re
 
 One SQLite file, `dassie.sqlite3`, in the data directory (`env.rs` has where). `store/`.
 
+- **One node per data directory.** The store holds an exclusive lock on `dassie.lock` in the data directory for as long as it is open, and a second daemon on the same directory stops at startup, saying so. Two nodes on one database would each sign, settle and book as if the other did not exist; SQLite's own locks keep only their transactions apart, and two daemons on different ports never meet at a socket. The lock goes with the process, so a crash leaves none behind.
+
 - **The application ID** claims a new file and refuses another application's. A file with the v0 node's ID is refused with a message to set the node up again from the passphrase, since the node ID and ledger accounts follow from it ([database-continuity](../decisions/database-continuity.md)).
 - **Migrations** are numbered by `user_version`, each in its own transaction. A shipped migration is never edited; a change adds another. A database from a newer version is refused, which is why a rollback needs the copy below.
 - **The copy before a migration.** Before migrating an existing database, the daemon writes a consistent copy (`VACUUM INTO`) to `dassie.sqlite3.pre-migration`. It does so before serving anything, so nothing the copy lacks has reached a peer, and a rollback of an update may put it back ([Release](release.md#rolling-back)).

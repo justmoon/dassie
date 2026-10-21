@@ -48,6 +48,19 @@ fn tightens_loose_permissions() {
 }
 
 #[test]
+fn one_store_at_a_time_opens_a_data_directory() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = Store::open(temp.path()).unwrap();
+    assert!(matches!(Store::open(temp.path()), Err(StoreError::InUse)));
+    assert_eq!(mode(&temp.path().join(LOCK_FILE)), 0o600);
+    drop(store);
+    drop(Store::open(temp.path()).unwrap());
+    // Stores in memory share nothing.
+    let _one = Store::open_in_memory().unwrap();
+    let _two = Store::open_in_memory().unwrap();
+}
+
+#[test]
 fn keeps_its_data_across_opens() {
     let temp = tempfile::tempdir().unwrap();
     let store = Store::open(temp.path()).unwrap();
