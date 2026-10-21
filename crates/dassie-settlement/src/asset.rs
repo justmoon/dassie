@@ -133,6 +133,18 @@ pub enum AssetEffect {
     },
 }
 
+/// Why a scheme no longer settles through an external asset
+/// ([`ExternalAsset::detach`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Detach {
+    /// The owner removed it: what it settles in is no scheme's until it is
+    /// added again.
+    Removed,
+    /// The books stopped it, until the node restarts: what it settles in is
+    /// still on its books, and no other scheme spends it meanwhile.
+    Stopped,
+}
+
 /// An external asset (spec/areas/settlement.md#external-assets), sans-IO.
 ///
 /// The node keeps one connection per asset, feeds it what comes over it,
@@ -213,8 +225,10 @@ pub trait ExternalAsset: Send + Any {
     /// `scheme` no longer settles through it: removed, or stopped. What it
     /// learns of the scheme's own meanwhile, such as the outcome of a
     /// transaction the scheme had it sign, it keeps for the scheme, which
-    /// reads it once back.
-    fn detach(&mut self, scheme: Name);
+    /// reads it once back. While a scheme is stopped, what it settles in is
+    /// still on its books, and no other scheme on the asset spends it as
+    /// gas.
+    fn detach(&mut self, scheme: Name, why: Detach);
 
     /// What it must keep across restarts, such as the transactions it
     /// signed. The node writes it in the batch with what it explains, and

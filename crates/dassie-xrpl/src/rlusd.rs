@@ -54,7 +54,7 @@ use crate::codec::{Memo, TF_SET_NO_RIPPLE};
 use crate::keys::AccountId;
 use crate::scheme::{
     MAX_PEERS, MAX_RECOVER_WAIT_LEDGERS, MAX_RECOVERING, Recovering, account_of, address_bytes,
-    hash_name, name_hash, narrow, parse_address,
+    hash_name, missed_write_off, name_hash, narrow, parse_address, restore_write_offs,
 };
 use crate::{from_hex, hex_upper};
 
@@ -126,6 +126,9 @@ pub struct RlusdScheme {
     peers: BTreeMap<Name, (AccountId, u64)>,
     next_learnt: u64,
     recovering: Vec<Recovering>,
+    /// How many times the account was written off, as the scheme last saw
+    /// it ([`XrplAccount::write_offs`]).
+    write_offs: u64,
     // Learnt from the account, as it told the scheme.
     /// Our line, as the ledger last said: `None` until it said, then the
     /// line from our side, or `None` if there is none.
@@ -166,6 +169,7 @@ impl RlusdScheme {
             peers: BTreeMap::new(),
             next_learnt: 0,
             recovering: Vec::new(),
+            write_offs: 0,
             line: None,
             issuer: None,
             account_synced: false,
@@ -448,7 +452,10 @@ impl RlusdScheme {
             Some(_) => {}
         }
         self.cursor = Some(at);
-        let before = self.line.flatten();
+        // What the transaction did to the line is what its metadata says,
+        // before and after, never what the scheme last saw: after a
+        // restart it saw nothing, and the line may have moved since.
+        let before = change.map(|change| change.before().and_then(|line| line.view(self.account)));
         if let Some(after) = after {
             self.line = Some(after);
         }
@@ -457,7 +464,7 @@ impl RlusdScheme {
             if ours.settles {
                 booked = self.resolve(record, ours, effects);
             }
-        } else if let Some(after) = after {
+        } else if let (Some(before), Some(after)) = (before, after) {
             if let Some((peer, amount)) = self.settled_by(record) {
                 effects.push(Effect::IncomingSettlement {
                     peer,
@@ -610,6 +617,7 @@ impl RlusdScheme {
             add(u64::from(hash[0]) << 8 | u64::from(hash[1]));
         }
         add(self.recovering.len() as u64);
+        add(self.write_offs);
         mix
     }
 
@@ -628,6 +636,7 @@ impl RlusdScheme {
             "cursor": self.cursor.map(|(ledger, index)| json!([ledger, index])),
             "peers": peers,
             "recovering": recovering,
+            "write_offs": self.write_offs,
         })
     }
 
@@ -645,6 +654,7 @@ impl RlusdScheme {
             Value::Null => None,
             cursor => Some((number(cursor.get(0)?)?, number(cursor.get(1)?)?)),
         };
+        self.write_offs = restore_write_offs(&value)?;
         let peers = value.get("peers")?.as_object()?;
         let recovering = value.get("recovering")?.as_array()?;
         if peers.len() > MAX_PEERS || recovering.len() > MAX_RECOVERING {
@@ -744,6 +754,10 @@ impl SettlementScheme for RlusdScheme {
         account.follow_line(LINE);
         self.validated = account.validated();
         let news = account.news().to_vec();
+        if missed_write_off(self.write_offs, account, &news) {
+            self.written_off(true, effects);
+        }
+        self.write_offs = account.write_offs();
         for item in &news {
             self.tell(account, item, effects);
         }

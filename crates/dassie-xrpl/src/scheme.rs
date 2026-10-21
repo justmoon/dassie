@@ -70,6 +70,19 @@ pub(crate) fn account_of(asset: &mut dyn ExternalAsset) -> Option<&mut XrplAccou
     any.downcast_mut()
 }
 
+/// Whether a scheme that last saw `write_offs` missed a write-off of
+/// `account` while it was not on it (stopped, or removed): the account
+/// counts another, and is not telling one now, which the scheme writes off
+/// in order. What it held went with the account, and its cursor is on a
+/// chain gone, which would hold the account back
+/// (spec/areas/xrpl.md#following-the-account).
+pub(crate) fn missed_write_off(write_offs: u64, account: &XrplAccount, news: &[News]) -> bool {
+    let telling = news
+        .iter()
+        .any(|news| matches!(news, News::WrittenOff { .. }));
+    write_offs != account.write_offs() && !telling
+}
+
 /// A settlement of ours a restart left pending, though the account no
 /// longer has it in flight: its outcome is looked up by its hash. Only the
 /// hash, and whether it is unread, are kept with the books; a restart asks
@@ -121,6 +134,9 @@ pub struct XrplScheme {
     peers: BTreeMap<Name, (AccountId, u64)>,
     next_learnt: u64,
     recovering: Vec<Recovering>,
+    /// How many times the account was written off, as the scheme last saw
+    /// it ([`XrplAccount::write_offs`]).
+    write_offs: u64,
     // Learnt from the account, as it told the scheme.
     /// The account's balance after the last transaction booked, in drops.
     balance: Option<u64>,
@@ -154,6 +170,7 @@ impl XrplScheme {
             peers: BTreeMap::new(),
             next_learnt: 0,
             recovering: Vec::new(),
+            write_offs: 0,
             balance: None,
             owner_count: 0,
             reserve: (0, 0),
@@ -205,7 +222,7 @@ impl XrplScheme {
             News::Synced(info) => self.synced(account, info, effects),
             News::Transaction { record, ours } => {
                 let mine = ours.filter(|ours| ours.scheme == id);
-                let other = ours.is_some_and(|ours| ours.scheme != id);
+                let other = ours.filter(|ours| ours.scheme != id);
                 self.transaction(record, mine, other, effects);
             }
             News::Cancelled { scheme, hash, .. } if *scheme == id => {
@@ -288,7 +305,9 @@ impl XrplScheme {
     /// is settled whenever the ledger shows it, even behind the cursor:
     /// what the balance booked through suspense meanwhile comes back out.
     /// So is the fee of one another scheme on the account signed (`other`),
-    /// once the scheme has synced. Before its first sync, a scheme books
+    /// once the scheme has synced, unless the account tells it again for
+    /// the scheme that signed it: this scheme was told it, and booked it,
+    /// when the ledger validated it. Before its first sync, a scheme books
     /// no other: the sync books what the account holds then as the
     /// owner's, which a scheme that joins an account other schemes read
     /// from earlier is told after their history.
@@ -296,7 +315,7 @@ impl XrplScheme {
         &mut self,
         record: &TxRecord,
         mine: Option<Ours>,
-        other: bool,
+        other: Option<Ours>,
         effects: &mut Vec<Effect>,
     ) {
         let at = (record.ledger_index, record.index);
@@ -305,7 +324,7 @@ impl XrplScheme {
                 let booked = self.resolve(record, units(ours.drops), effects);
                 self.hold(booked, effects);
                 self.match_balance(effects);
-            } else if other && self.cursor.is_some() {
+            } else if other.is_some_and(|other| !other.again) && self.cursor.is_some() {
                 let booked = self.gas(record, effects);
                 self.hold(booked, effects);
                 self.match_balance(effects);
@@ -323,7 +342,7 @@ impl XrplScheme {
         let mut booked = i128::from(self.booked);
         if let Some(ours) = mine {
             booked = self.resolve(record, units(ours.drops), effects);
-        } else if other {
+        } else if other.is_some() {
             // Its fee is ours to book; anything else it did to the XRP is
             // a deposit or a withdrawal, as from anyone.
             booked = self.gas(record, effects);
@@ -522,6 +541,7 @@ impl XrplScheme {
             add(u64::from(hash[0]) << 8 | u64::from(hash[1]) | u64::from(*unread) << 16);
         }
         add(self.recovering.len() as u64);
+        add(self.write_offs);
         mix
     }
 
@@ -540,6 +560,7 @@ impl XrplScheme {
             "cursor": self.cursor.map(|(ledger, index)| json!([ledger, index])),
             "peers": peers,
             "recovering": recovering,
+            "write_offs": self.write_offs,
             "unread": unread_value(&self.recovering),
         })
     }
@@ -561,6 +582,7 @@ impl XrplScheme {
             Value::Null => None,
             cursor => Some((number(cursor.get(0)?)?, number(cursor.get(1)?)?)),
         };
+        self.write_offs = restore_write_offs(&value)?;
         // More than the scheme keeps is a state it did not write: refused,
         // rather than orphaning a settlement by dropping it.
         let peers = value.get("peers")?.as_object()?;
@@ -605,7 +627,7 @@ fn recover(recovering: &mut Vec<Recovering>, hash: [u8; 32], amount: u64) {
 
 /// Which of the settlements looked up the scheme never read, as its state
 /// keeps them.
-fn unread_value(recovering: &[Recovering]) -> Value {
+pub(crate) fn unread_value(recovering: &[Recovering]) -> Value {
     recovering
         .iter()
         .filter(|r| r.unread)
@@ -615,7 +637,7 @@ fn unread_value(recovering: &[Recovering]) -> Value {
 
 /// Marks the settlements a state keeps as unread: each one looked up, and
 /// once. A state written before the scheme kept them has none.
-fn restore_unread(state: &Value, recovering: &mut [Recovering]) -> Option<()> {
+pub(crate) fn restore_unread(state: &Value, recovering: &mut [Recovering]) -> Option<()> {
     let unread = match state.get("unread") {
         None => return Some(()),
         Some(unread) => unread.as_array()?,
@@ -629,6 +651,15 @@ fn restore_unread(state: &Value, recovering: &mut [Recovering]) -> Option<()> {
         recovering.unread = true;
     }
     Some(())
+}
+
+/// The count of write-offs a scheme's state keeps: written only since the
+/// account counts them, before which none was missed.
+pub(crate) fn restore_write_offs(state: &Value) -> Option<u64> {
+    match state.get("write_offs") {
+        None => Some(0),
+        Some(count) => count.as_u64(),
+    }
 }
 
 /// Drops in internal units. Only amounts checked against
@@ -739,6 +770,10 @@ impl SettlementScheme for XrplScheme {
         assert_eq!(account.account(), self.account, "the scheme's own account");
         self.validated = account.validated();
         let news = account.news().to_vec();
+        if missed_write_off(self.write_offs, account, &news) {
+            self.written_off(true, effects);
+        }
+        self.write_offs = account.write_offs();
         // The reserve the books are matched to is the one the account had
         // when it last told something: a reserve it read meanwhile, before
         // it is synced again, is matched when it is.

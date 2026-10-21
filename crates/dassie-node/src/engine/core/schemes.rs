@@ -14,8 +14,8 @@
 use dassie_identity::NodeKey;
 use dassie_ledger::{AccountName, LedgerId, Name};
 use dassie_settlement::{
-    AssetEffect, AssetId, AssetKind, Effect, ExternalAsset, Holding, LedgerInput, LedgerStatus,
-    SchemeError, SchemeInfo, SettlementScheme, Stub,
+    AssetEffect, AssetId, AssetKind, Detach, Effect, ExternalAsset, Holding, LedgerInput,
+    LedgerStatus, SchemeError, SchemeInfo, SettlementScheme, Stub,
 };
 use dassie_xrpl::{RlusdScheme, XrplAccount, XrplScheme};
 
@@ -446,7 +446,7 @@ impl Core {
         }
         if let Some(asset) = asset {
             if let Some(active) = self.assets.get_mut(&asset) {
-                active.asset.detach(scheme);
+                active.asset.detach(scheme, Detach::Stopped);
             }
             self.close_if_stopped(asset);
         }

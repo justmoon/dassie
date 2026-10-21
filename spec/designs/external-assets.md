@@ -31,7 +31,7 @@ Sharing has one cost. Until a stopped scheme's transaction that was never sent i
 
 ## 3. Accounting
 
-Built ([Settlement](../areas/settlement.md#external-assets), [XRPL](../areas/xrpl.md#the-account)): the ledger is authoritative for what an external asset holds, and the books keep `assets/settlement` only to book against, in step with the holding the ledger's scheme settles in. A holding is on the books only on the ledger whose scheme settles in it. On an account `xrpl-testnet` settles from, the RLUSD scheme's fees are ledger fees on `xrpl-testnet+xrp` and its line's reserve is reconciled there, and the account signs for it only while the owner's funds there cover the gas; on any other, the gas is off the books, and only the reserve bounds it, which holds for real money too ([external-assets](../decisions/external-assets.md)).
+Built ([Settlement](../areas/settlement.md#external-assets), [XRPL](../areas/xrpl.md#the-account)): the ledger is authoritative for what an external asset holds, and the books keep `assets/settlement` only to book against, in step with the holding the ledger's scheme settles in. A holding is on the books only on the ledger whose scheme settles in it. On an account `xrpl-testnet` settles from, the RLUSD scheme's fees are ledger fees on `xrpl-testnet+xrp` and its line's reserve is reconciled there, and the account signs for it only while the owner's funds there cover the gas, and not at all while the books stopped `xrpl-testnet`; on any other, the gas is off the books, and only the reserve bounds it, which holds for real money too ([external-assets](../decisions/external-assets.md)).
 
 ## 4. RLUSD on the XRPL testnet
 

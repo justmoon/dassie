@@ -4,7 +4,7 @@ use dassie_ledger::{
     AccountId, AccountName, AccountPath, LedgerId, Name, Realm, Reference, TransferSpec,
 };
 use dassie_settlement::{
-    Activation, AssetId, Effect, LedgerStatus, SchemeError, SettlementScheme, activation,
+    Activation, AssetId, Detach, Effect, LedgerStatus, SchemeError, SettlementScheme, activation,
 };
 
 use super::Core;
@@ -237,7 +237,7 @@ impl Core {
         }
         if let Some(asset) = self.schemes.remove(&id).and_then(|active| active.asset) {
             if let Some(active) = self.assets.get_mut(&asset) {
-                active.asset.detach(id);
+                active.asset.detach(id, Detach::Removed);
             }
             self.release_asset(asset);
         }

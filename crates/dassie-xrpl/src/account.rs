@@ -42,7 +42,8 @@ use alloc::vec::Vec;
 
 use dassie_ledger::{MAX_TOTAL, Name};
 use dassie_settlement::{
-    AssetEffect, AssetId, AssetKind, ExternalAsset, Holding, LedgerInput, LedgerStatus, SchemeError,
+    AssetEffect, AssetId, AssetKind, Detach, ExternalAsset, Holding, LedgerInput, LedgerStatus,
+    SchemeError,
 };
 use serde_json::{Value, json};
 
@@ -264,6 +265,10 @@ pub struct Ours {
     pub token: Option<TokenValue>,
     /// Whether it settles with a peer: a Payment. A `TrustSet` does not.
     pub settles: bool,
+    /// Whether it was kept for its scheme while the scheme was not on the
+    /// account, and is told again for it alone: the schemes that were on
+    /// the account were told it when the ledger validated it.
+    pub again: bool,
 }
 
 /// What the account learnt for the schemes on it, in the order it did.
@@ -467,6 +472,9 @@ pub struct XrplAccount {
     in_flight: Vec<InFlight>,
     never_sent: Vec<NeverSent>,
     parked: Vec<Parked>,
+    /// How many times the account was written off: a scheme that kept
+    /// another count missed a write-off while it was not on the account.
+    write_offs: u64,
     /// The newest validated ledger seen, by its server's state or the
     /// ledger stream. Kept with the books whenever the rest is: any ledger
     /// of the chain tells a server behind from a chain started again.
@@ -499,6 +507,9 @@ pub struct XrplAccount {
     /// When the connection last said anything.
     heard_ms: u64,
     followers: BTreeMap<Name, Follower>,
+    /// The schemes the books stopped, until the node restarts: what they
+    /// settle in is still on their books.
+    stopped: BTreeSet<Name>,
     /// The trust lines its schemes follow, as the ledger last said: `None`
     /// until it said, then the line, or `None` if there is none.
     lines: BTreeMap<LineKey, Option<Option<TrustLine>>>,
@@ -545,6 +556,7 @@ impl XrplAccount {
             in_flight: Vec::new(),
             never_sent: Vec::new(),
             parked: Vec::new(),
+            write_offs: 0,
             newest: None,
             phase: Phase::Disconnected,
             network_id: None,
@@ -566,6 +578,7 @@ impl XrplAccount {
             now_ms: 0,
             heard_ms: 0,
             followers: BTreeMap::new(),
+            stopped: BTreeSet::new(),
             lines: BTreeMap::new(),
             reads: BTreeMap::new(),
             reads_at: 0,
@@ -618,7 +631,10 @@ impl XrplAccount {
     /// `scheme` settles through the account, and is at `cursor`; `holds`
     /// whether its books hold anything of it. The account reads its history
     /// from the earliest cursor of its schemes, and an account gone from a
-    /// network that never resets stops it if any of them held anything.
+    /// network that never resets stops it if any of them held anything. A
+    /// scheme follows only once it has written off what it held through a
+    /// write-off it missed ([`write_offs`](Self::write_offs)), so no cursor
+    /// of a chain gone holds the account back.
     ///
     /// # Panics
     ///
@@ -628,7 +644,19 @@ impl XrplAccount {
             self.schemes.contains(&scheme),
             "a scheme that may settle through the account"
         );
+        self.stopped.remove(&scheme);
         self.followers.insert(scheme, Follower { cursor, holds });
+    }
+
+    /// How many times the account was written off, with everything the
+    /// books held of it (a testnet reset, or the account gone), kept with
+    /// its state. A scheme keeps the count it last saw with its own state:
+    /// one that sees another missed a write-off while it was not on the
+    /// account (stopped, or removed), and writes off what it held before it
+    /// follows the account again.
+    #[must_use]
+    pub const fn write_offs(&self) -> u64 {
+        self.write_offs
     }
 
     /// Follows the trust line `key` for a scheme on the account: it is read
@@ -727,11 +755,18 @@ impl XrplAccount {
 
     /// Whether `scheme` may spend `gas` drops of XRP it does not settle in:
     /// on an account the XRP scheme settles from, only within the owner's
-    /// funds on its ledger, after the gas in flight; on any other, the XRP
-    /// is off the books, and only the reserve bounds it.
+    /// funds on its ledger, after the gas in flight, and none while the
+    /// books stopped that scheme, whose books still hold the XRP; on any
+    /// other, the XRP is off the books, and only the reserve bounds it.
     fn gas_allows(&self, scheme: Name, gas: u64) -> bool {
         let xrp = dassie_ledger::name!(XRP_SCHEME);
-        if scheme == xrp || !self.followers.contains_key(&xrp) {
+        if scheme == xrp {
+            return true;
+        }
+        if self.stopped.contains(&xrp) {
+            return false;
+        }
+        if !self.followers.contains_key(&xrp) {
             return true;
         }
         let funds = self.funds.get(&xrp).copied().unwrap_or(0) / UNITS_PER_DROP;
@@ -814,7 +849,8 @@ impl XrplAccount {
     /// # Errors
     ///
     /// [`SchemeError::Unavailable`] unless the account could sign a Payment
-    /// of XRP now, the amount is above zero, and the fee fits the gas
+    /// of XRP now, the amount is above zero, the line holds it after what
+    /// the scheme has in flight, and the fee fits the gas
     /// ([`gas_allows`](Self::gas_allows)).
     pub fn sign_token_payment(
         &mut self,
@@ -825,7 +861,11 @@ impl XrplAccount {
     ) -> Result<[u8; 32], SchemeError> {
         let fee = self.fee();
         let positive = !amount.value.is_zero() && !amount.value.is_negative();
-        if !positive || !amount.is_valid() || !self.can_sign(scheme, 0, fee, 0) {
+        if !positive
+            || !amount.is_valid()
+            || !self.line_holds(scheme, &amount)
+            || !self.can_sign(scheme, 0, fee, 0)
+        {
             return Err(SchemeError::Unavailable);
         }
         let payment = Payment {
@@ -851,6 +891,31 @@ impl XrplAccount {
             Some(amount.value),
             0,
         ))
+    }
+
+    /// Whether the line of `amount`'s issuer and currency holds `amount`,
+    /// as the ledger last said, after the token `scheme` has in flight: a
+    /// scheme follows one line, so all it has in flight is on it.
+    fn line_holds(&self, scheme: Name, amount: &TokenAmount) -> bool {
+        let key = LineKey {
+            issuer: amount.issuer,
+            currency: amount.currency,
+        };
+        let Some(balance) = self
+            .line(&key)
+            .flatten()
+            .and_then(|line| line.view(self.account()))
+            .map(|view| view.balance)
+        else {
+            return false;
+        };
+        let spent = self
+            .in_flight
+            .iter()
+            .filter(|t| t.scheme == scheme)
+            .filter_map(|t| t.token)
+            .try_fold(amount.value, TokenValue::checked_add);
+        spent.is_some_and(|spent| spent <= balance)
     }
 
     /// Signs a `TrustSet` for `scheme` that sets the account's `limit` on
@@ -1391,7 +1456,11 @@ impl XrplAccount {
 
     /// What the books hold of the account is gone (a testnet reset): what
     /// was in flight can never apply now, since an account made again
-    /// starts its sequence anew. Its schemes write off what they held.
+    /// starts its sequence anew. Its schemes write off what they held; one
+    /// not on the account does when it is back, as the count of write-offs
+    /// tells it ([`write_offs`](Self::write_offs)), and what was kept for
+    /// it went with the chain: a settlement is cancelled, as one in flight
+    /// is.
     fn write_off(&mut self, restarted: bool) {
         assert!(
             !self.holds_anything() || self.network_id.is_some_and(resets),
@@ -1404,6 +1473,12 @@ impl XrplAccount {
                 self.never_sent(transaction.scheme, transaction.hash);
             }
         }
+        for parked in core::mem::take(&mut self.parked) {
+            if !parked.trust_set {
+                self.cancelled(parked.scheme, parked.hash, true);
+            }
+        }
+        self.write_offs = self.write_offs.wrapping_add(1);
         self.tell(News::WrittenOff { restarted });
         for follower in self.followers.values_mut() {
             *follower = Follower {
@@ -1574,6 +1649,7 @@ impl XrplAccount {
                     drops: parked.drops,
                     token: parked.token,
                     settles: !parked.trust_set,
+                    again: true,
                 },
             });
         }
@@ -1849,7 +1925,8 @@ impl XrplAccount {
     /// Which scheme validated transaction `hash` is of, if it is ours. One
     /// in flight is no longer, and is kept for its scheme while the scheme
     /// is not on the account to be told; one kept so is its scheme's again
-    /// once the scheme is back and reads it.
+    /// once the scheme is back and reads it, told as `again`, so that no
+    /// other scheme books it twice.
     fn ours(&mut self, hash: [u8; 32]) -> Option<Ours> {
         if let Some(position) = self.in_flight.iter().position(|t| t.hash == hash) {
             let transaction = self.in_flight.remove(position);
@@ -1868,6 +1945,7 @@ impl XrplAccount {
                 drops: transaction.drops,
                 token: transaction.token,
                 settles: !transaction.trust_set,
+                again: false,
             });
         }
         let followers = &self.followers;
@@ -1881,6 +1959,7 @@ impl XrplAccount {
             drops: parked.drops,
             token: parked.token,
             settles: !parked.trust_set,
+            again: true,
         })
     }
 
@@ -1930,6 +2009,7 @@ impl XrplAccount {
             add(head(&parked.hash));
         }
         add(self.parked.len() as u64);
+        add(self.write_offs);
         mix
     }
 
@@ -1991,6 +2071,7 @@ impl XrplAccount {
             "in_flight": in_flight,
             "never_sent": never_sent,
             "parked": parked,
+            "write_offs": self.write_offs,
             "newest": self.newest.map(|newest| json!([newest.index, newest.close_time])),
         })
     }
@@ -1999,6 +2080,12 @@ impl XrplAccount {
         let value: Value = serde_json::from_slice(state).ok()?;
         let number = |value: &Value| u32::try_from(value.as_u64()?).ok();
         self.sequence = number(value.get("sequence")?)?;
+        // Written only since schemes keep the count too: before, none
+        // missed a write-off.
+        self.write_offs = match value.get("write_offs") {
+            None => 0,
+            Some(count) => count.as_u64()?,
+        };
         self.newest = match value.get("newest") {
             None | Some(Value::Null) => None,
             Some(newest) => Some(Validated {
@@ -2335,10 +2422,18 @@ impl ExternalAsset for XrplAccount {
         out.append(&mut self.effects);
     }
 
-    fn detach(&mut self, scheme: Name) {
+    fn detach(&mut self, scheme: Name, why: Detach) {
         self.followers.remove(&scheme);
         self.keep_untaken(scheme);
         self.funds.remove(&scheme);
+        match why {
+            Detach::Stopped if self.schemes.contains(&scheme) => {
+                self.stopped.insert(scheme);
+            }
+            Detach::Stopped | Detach::Removed => {
+                self.stopped.remove(&scheme);
+            }
+        }
     }
 
     fn owner_funds(&mut self, scheme: Name, funds: u64) {
@@ -2362,6 +2457,11 @@ impl ExternalAsset for XrplAccount {
         assert!(self.pending.len() <= MAX_PENDING);
         assert!(self.buffer.len() <= MAX_BUFFERED);
         assert!(self.followers.len() <= MAX_SCHEMES);
+        assert!(
+            self.stopped.iter().all(|scheme| self.schemes.contains(scheme)
+                && !self.followers.contains_key(scheme)),
+            "a scheme stopped is one of the account's, and not on it"
+        );
         assert!(self.lines.len() <= MAX_SCHEMES);
         assert!(self.funds.len() <= MAX_SCHEMES);
         assert!(

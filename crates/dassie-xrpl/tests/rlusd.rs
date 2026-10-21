@@ -18,8 +18,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use dassie_ledger::Name;
 use dassie_node_core::testing::SeededRng;
 use dassie_settlement::{
-    AssetEffect, Effect, ExternalAsset, LedgerInput, LedgerStatus, PreparedSettlement, SchemeError,
-    SettlementScheme,
+    AssetEffect, Detach, Effect, ExternalAsset, LedgerInput, LedgerStatus, PreparedSettlement,
+    SchemeError, SettlementScheme,
 };
 use dassie_xrpl::account::{self, XrplAccount};
 use dassie_xrpl::codec::{Amount, Payment, TokenValue, TrustSet};
@@ -40,6 +40,11 @@ struct Books {
     owner: i128,
     suspense: i128,
     fees: i128,
+    /// Every deposit and withdrawal booked, in order.
+    deposits: Vec<u64>,
+    withdrawals: Vec<u64>,
+    /// Every loss reconciled through suspense, in order.
+    losses: Vec<u64>,
     peers: BTreeMap<Name, i128>,
     pending: BTreeMap<Name, (Name, u64)>,
     credited: BTreeSet<Name>,
@@ -55,12 +60,17 @@ impl Books {
             Effect::Deposit { amount } => {
                 self.settlement += i128::from(amount);
                 self.owner += i128::from(amount);
+                self.deposits.push(amount);
             }
             Effect::Withdrawal { amount } => {
                 self.settlement -= i128::from(amount);
                 self.owner -= i128::from(amount);
+                self.withdrawals.push(amount);
             }
             Effect::Reconcile { amount, gain } => {
+                if !gain {
+                    self.losses.push(amount);
+                }
                 let amount = if gain {
                     i128::from(amount)
                 } else {
@@ -112,6 +122,9 @@ struct Node {
     /// What the owner may spend on the XRP ledger, as the node says it;
     /// the books' own figure unless a test sets it.
     xrp_funds: Option<u64>,
+    /// Each scheme the books stopped, or the owner removed: told nothing,
+    /// its state as it was then.
+    away: [bool; 2],
 }
 
 impl Node {
@@ -125,6 +138,16 @@ impl Node {
 
     fn rlusd(&self) -> &RlusdScheme {
         self.rlusd.as_ref().unwrap()
+    }
+
+    /// Whether the scheme of `ledger` runs on the account.
+    fn runs(&self, ledger: usize) -> bool {
+        let made = if ledger == XRP {
+            self.xrp.is_some()
+        } else {
+            self.rlusd.is_some()
+        };
+        made && !self.away[ledger]
     }
 
     fn check_invariants(&self) {
@@ -234,6 +257,7 @@ impl World {
             connection: 0,
             online: false,
             xrp_funds,
+            away: [false; 2],
         });
         let index = self.nodes.len() - 1;
         self.tell(index);
@@ -272,16 +296,18 @@ impl World {
         let node = &mut self.nodes[index];
         let funds = [node.books[XRP].funds(), node.books[USD].funds()];
         let xrp_funds = node.xrp_funds.unwrap_or(funds[XRP]);
-        if node.xrp.is_some() {
+        if node.runs(XRP) {
             node.account
                 .owner_funds(name(dassie_xrpl::scheme::SCHEME_ID), xrp_funds);
         }
-        node.account.owner_funds(name(rlusd::SCHEME_ID), funds[USD]);
+        if node.runs(USD) {
+            node.account.owner_funds(name(rlusd::SCHEME_ID), funds[USD]);
+        }
         let mut booked: [Vec<Effect>; 2] = [Vec::new(), Vec::new()];
-        if let Some(xrp) = &mut node.xrp {
+        if let (Some(xrp), false) = (&mut node.xrp, node.away[XRP]) {
             xrp.on_asset(now, &mut node.account, &mut booked[XRP]);
         }
-        if let Some(rlusd) = &mut node.rlusd {
+        if let (Some(rlusd), false) = (&mut node.rlusd, node.away[USD]) {
             rlusd.on_asset(now, &mut node.account, &mut booked[USD]);
         }
         node.account.told();
@@ -357,7 +383,7 @@ impl World {
     fn check(&self) {
         for node in &self.nodes {
             let address = node.account.account();
-            if let Some(rlusd) = &node.rlusd {
+            if let (Some(rlusd), false) = (&node.rlusd, node.away[USD]) {
                 assert_eq!(
                     node.books[USD].settlement,
                     i128::from(rlusd.balance()),
@@ -377,7 +403,7 @@ impl World {
                     );
                 }
             }
-            if let Some(xrp) = &node.xrp {
+            if let (Some(xrp), false) = (&node.xrp, node.away[XRP]) {
                 assert_eq!(
                     node.books[XRP].settlement,
                     i128::from(xrp.balance()),
@@ -433,7 +459,7 @@ impl World {
         let peer = self.nodes[to].name;
         let funds = self.nodes[from].books[XRP].funds();
         let node = &mut self.nodes[from];
-        if node.xrp.is_some() {
+        if node.runs(XRP) {
             let funds = node.xrp_funds.unwrap_or(funds);
             node.account
                 .owner_funds(name(dassie_xrpl::scheme::SCHEME_ID), funds);
@@ -509,6 +535,7 @@ impl World {
         let (account_state, schemes) = self.nodes[index].states();
         let node = &mut self.nodes[index];
         node.online = false;
+        node.away = [false; 2];
         node.account = new_account(node.seed, &account_state);
         if let Some((balance, state)) = &schemes[XRP] {
             node.xrp =
@@ -548,6 +575,63 @@ impl World {
             }
         }
         self.connect(index);
+    }
+
+    /// Node `index` goes down: its connection drops, and it hears nothing
+    /// until it restarts.
+    fn down(&mut self, index: usize) {
+        let connection = self.nodes[index].connection;
+        self.ledger.disconnect(connection);
+        self.nodes[index].online = false;
+        self.input(index, LedgerInput::Disconnected);
+    }
+
+    /// The scheme of `ledger` leaves node `index`'s account, as the books
+    /// stopping it or the owner removing it does: it is told nothing more,
+    /// and its state stays as it was, as its checkpoint does.
+    fn leave(&mut self, index: usize, ledger: usize, why: Detach) {
+        let scheme = if ledger == XRP {
+            name(dassie_xrpl::scheme::SCHEME_ID)
+        } else {
+            name(rlusd::SCHEME_ID)
+        };
+        let node = &mut self.nodes[index];
+        node.away[ledger] = true;
+        node.account.detach(scheme, why);
+    }
+
+    /// The owner adds the scheme of `ledger` to node `index` again: made
+    /// from what its books kept, it hands back what it holds pending, and
+    /// the account connects anew, so that it reads from the scheme's place.
+    fn add_again(&mut self, index: usize, ledger: usize) {
+        let node = &mut self.nodes[index];
+        node.away[ledger] = false;
+        let mut effects = Vec::new();
+        let pending: Vec<(Name, u64)> = node.books[ledger]
+            .pending
+            .iter()
+            .map(|(id, (_, amount))| (*id, *amount))
+            .collect();
+        if ledger == XRP {
+            let (balance, state) = {
+                let xrp = node.xrp.as_ref().unwrap();
+                (xrp.balance(), xrp.state())
+            };
+            let mut xrp = XrplScheme::new(&node.account, node.name, Some(balance), &state).unwrap();
+            xrp.reconcile(Some(&mut node.account), &pending, &mut effects);
+            node.xrp = Some(xrp);
+        } else {
+            let (balance, state) = (node.rlusd().balance(), node.rlusd().state());
+            let mut rlusd =
+                RlusdScheme::new(&node.account, node.name, Some(balance), &state).unwrap();
+            rlusd.reconcile(Some(&mut node.account), &pending, &mut effects);
+            node.rlusd = Some(rlusd);
+        }
+        for effect in effects {
+            node.books[ledger].apply(effect);
+        }
+        self.tell(index);
+        self.reconnect(index);
     }
 }
 
@@ -635,6 +719,7 @@ fn no_line_without_xrp_for_it() {
         connection: 0,
         online: false,
         xrp_funds: None,
+        away: [false; 2],
     });
     world.tell(0);
     world.connect(0);
@@ -712,6 +797,7 @@ fn a_line_made_outside_the_node_is_corrected() {
         connection: 0,
         online: false,
         xrp_funds: None,
+        away: [false; 2],
     });
     world.tell(0);
     world.connect(0);
@@ -1106,6 +1192,215 @@ fn xrp_paid_by_hand_is_a_withdrawal_and_moves_no_rlusd() {
     assert_eq!(world.nodes[0].books[USD].owner, 0);
 }
 
+// spec/areas/xrpl.md#rlusd: what moved the line while the node was down is
+// booked after the restart by what each transaction did to the line, as
+// its metadata says, never against a line the scheme has not seen since it
+// started: the issuer's mint is a deposit of what it minted, its clawback a
+// withdrawal of what it took, and nothing goes through suspense; what is
+// left below a unit adds up with what comes next.
+#[test]
+fn what_moved_the_line_while_down_is_booked_by_the_line() {
+    let (mut world, _, _) = synced(2);
+    world.mint(0, "10");
+    world.close();
+    world.down(0);
+    world.mint(0, "5.0000003");
+    world.close();
+    let address = world.address(0);
+    world
+        .ledger
+        .claw_back(address, Token::RLUSD.amount(value("2")))
+        .unwrap();
+    world.close();
+    world.restart(0);
+    world.closes(2);
+    let books = &world.nodes[0].books[USD];
+    assert_eq!(books.deposits, [usd(10_000_000), usd(5_000_000)]);
+    assert_eq!(books.withdrawals, [usd(2_000_000)]);
+    assert_eq!(books.owner, i128::from(usd(13_000_000)));
+    assert_eq!(books.suspense, 0);
+    world.down(0);
+    world.mint(0, "0.0000007");
+    world.close();
+    world.restart(0);
+    world.closes(2);
+    let books = &world.nodes[0].books[USD];
+    assert_eq!(books.deposits, [usd(10_000_000), usd(5_000_000), usd(1)]);
+    assert_eq!(books.suspense, 0);
+}
+
+// spec/areas/xrpl.md#following-the-account: a testnet reset while one
+// scheme on the account is away, stopped or removed, and the other runs on
+// and is told. The one away missed the write-off: back, after a restart or
+// added again, it writes off what it held through suspense and drops its
+// cursor on the chain gone, and the account syncs on the new chain for
+// both; the RLUSD scheme makes its line again.
+#[test]
+fn a_scheme_away_through_a_reset_writes_it_off_once_back() {
+    for away in [USD, XRP] {
+        for why in [Detach::Stopped, Detach::Removed] {
+            let mut world = World::new(&[true]);
+            world.closes(3);
+            world.mint(0, "4");
+            world.closes(3);
+            for ledger in [XRP, USD] {
+                assert_eq!(world.nodes[0].status(ledger), LedgerStatus::Synced);
+            }
+            let held = world.nodes[0].scheme(away).balance();
+            assert!(held > 0);
+            world.leave(0, away, why);
+            world.ledger.reset();
+            world.closes(6);
+            if why == Detach::Stopped {
+                world.restart(0);
+            } else {
+                world.add_again(0, away);
+            }
+            world.closes(6);
+            let node = &world.nodes[0];
+            for ledger in [XRP, USD] {
+                assert_eq!(node.status(ledger), LedgerStatus::Synced, "{away} {why:?}");
+            }
+            assert!(node.rlusd().has_synced());
+            assert!(node.books[away].losses.contains(&held), "{away} {why:?}");
+            assert_eq!(node.books[USD].suspense, -i128::from(usd(4_000_000)));
+            let address = world.address(0);
+            assert!(
+                world
+                    .ledger
+                    .line(address, rlusd::ISSUER, rlusd::CURRENCY)
+                    .is_some()
+            );
+        }
+    }
+}
+
+// spec/designs/external-assets.md#3-accounting: every XRP fee is booked
+// once. An RLUSD settlement that validates while its scheme is away has
+// its fee booked by the XRP scheme then; back, after a restart or added
+// again, the RLUSD scheme reads it again as its own and posts it, and the
+// XRP scheme does not book its fee again.
+#[test]
+fn the_fee_of_a_scheme_away_is_booked_once() {
+    for why in [Detach::Stopped, Detach::Removed] {
+        let mut world = World::new(&[true, false]);
+        world.closes(3);
+        let (usd_a, _) = world.peer(USD, 0, 1);
+        world.mint(0, "10");
+        world.close();
+        let id = world.settle(USD, 0, 1, usd(1_000_000), &usd_a);
+        world.leave(0, USD, why);
+        world.closes(2);
+        let fees = world.nodes[0].books[XRP].fee_ids.clone();
+        assert!(fees.contains(&id));
+        if why == Detach::Stopped {
+            world.restart(0);
+        } else {
+            world.add_again(0, USD);
+        }
+        world.closes(2);
+        let books = &world.nodes[0].books;
+        assert_eq!(books[USD].finalized, [id]);
+        assert_eq!(books[XRP].fee_ids, fees);
+        assert_eq!(books[USD].fees, 0);
+    }
+}
+
+// spec/designs/external-assets.md#3-accounting: while the books stopped
+// `xrpl-testnet`, the account's XRP is still on its books: the RLUSD scheme
+// spends none of it as gas, and settles nothing, until the XRP scheme is
+// back after a restart. Removed by the owner, it leaves the XRP off the
+// books, and only the reserve bounds the gas.
+#[test]
+fn no_gas_while_the_xrp_scheme_is_stopped() {
+    let mut world = World::new(&[true, false]);
+    world.closes(3);
+    let (usd_a, _) = world.peer(USD, 0, 1);
+    world.mint(0, "10");
+    world.close();
+    world.leave(0, XRP, Detach::Stopped);
+    assert_eq!(
+        world
+            .prepare(USD, 0, 1, usd(1_000_000), &usd_a)
+            .unwrap_err(),
+        SchemeError::Unavailable
+    );
+    world.closes(2);
+    world.restart(0);
+    world.closes(2);
+    let id = world.settle(USD, 0, 1, usd(1_000_000), &usd_a);
+    world.close();
+    assert_eq!(world.nodes[0].books[USD].finalized, [id]);
+    world.leave(0, XRP, Detach::Removed);
+    let id = world.settle(USD, 0, 1, usd(1_000_000), &usd_a);
+    world.close();
+    assert_eq!(world.nodes[0].books[USD].finalized.last(), Some(&id));
+}
+
+// spec/areas/xrpl.md#the-account: the account signs a Payment of a token
+// only while the line holds it, after what the scheme has in flight, as it
+// signs one of XRP only while the account holds it.
+#[test]
+fn a_token_payment_is_signed_only_within_the_line() {
+    let (mut world, state_a, _) = synced(2);
+    world.mint(0, "5");
+    world.close();
+    let unavailable = |world: &mut World, amount: u64| {
+        world.prepare(USD, 0, 1, amount, &state_a).unwrap_err() == SchemeError::Unavailable
+    };
+    assert!(unavailable(&mut world, usd(5_000_001)));
+    let first = world.prepare(USD, 0, 1, usd(3_000_000), &state_a).unwrap();
+    assert!(unavailable(&mut world, usd(2_000_001)));
+    let second = world.prepare(USD, 0, 1, usd(2_000_000), &state_a).unwrap();
+    world.execute(USD, 0, first.id);
+    world.execute(USD, 0, second.id);
+    world.close();
+    assert_eq!(world.nodes[0].books[USD].finalized, [first.id, second.id]);
+}
+
+// A Payment whose Amount names the payee as its issuer, any issuer the
+// payee trusts, may report what it delivered with the payee's account as
+// the issuer. That is no settlement in RLUSD: the line it raised is the
+// owner's deposit, and the peer is credited nothing. It is safe: the payee
+// credits less than arrived, never more, and its books still hold the line.
+#[test]
+fn a_payment_naming_us_as_its_issuer_is_no_settlement() {
+    let (mut world, state_a, _) = synced(2);
+    world.mint(0, "10");
+    world.close();
+    let id = world.settle(USD, 0, 1, usd(4_000_000), &state_a);
+    let payee = world.address(1).to_address();
+    world.now += 4_000;
+    for (connection, message) in world.ledger.close() {
+        let Some(index) = world
+            .nodes
+            .iter()
+            .position(|n| n.online && n.connection == connection)
+        else {
+            continue;
+        };
+        let mut message: serde_json::Value = serde_json::from_slice(&message).unwrap();
+        if index == 1 && message["type"] == "transaction" {
+            for (outer, field) in [("meta", "delivered_amount"), ("transaction", "Amount")] {
+                let amount = &mut message[outer][field];
+                if amount.is_object() {
+                    amount["issuer"] = payee.clone().into();
+                }
+            }
+        }
+        let message = serde_json::to_vec(&message).unwrap();
+        world.input(index, LedgerInput::Message(&message));
+    }
+    world.check();
+    let payer = world.nodes[0].name;
+    let books = &world.nodes[1].books[USD];
+    assert!(books.credited.is_empty());
+    assert_eq!(books.peers.get(&payer), None);
+    assert_eq!(books.deposits, [usd(4_000_000)]);
+    assert_eq!(books.owner, i128::from(usd(4_000_000)));
+    assert_eq!(world.nodes[0].books[USD].finalized, [id]);
+}
+
 /// What the issuer, the owners and the nodes do, in a property test.
 #[derive(Clone, Debug)]
 enum Op {
@@ -1117,7 +1412,8 @@ enum Op {
     GlobalFreeze(bool),
     TransferFee(bool),
     Check(usize),
-    Restart(usize),
+    /// Node `n` stops, and starts again after `closes` ledgers.
+    Restart(usize, usize),
     Close,
 }
 
@@ -1134,7 +1430,7 @@ fn ops() -> impl Strategy<Value = Vec<Op>> {
         1 => any::<bool>().prop_map(Op::GlobalFreeze),
         1 => any::<bool>().prop_map(Op::TransferFee),
         1 => node.clone().prop_map(Op::Check),
-        1 => node.prop_map(Op::Restart),
+        1 => (node, 0..3_usize).prop_map(|(n, closes)| Op::Restart(n, closes)),
         4 => Just(Op::Close),
     ];
     prop::collection::vec(op, 1..48)
@@ -1149,7 +1445,8 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(32))]
 
     /// Whatever the issuer does to the lines, and whatever the nodes settle
-    /// and however often they restart, each node's books hold its line in
+    /// and however often they restart, with ledgers closing while they are
+    /// down, each node's books hold its line in
     /// whole millionths and, beside it on one account, its XRP less the
     /// reserve, at every ledger; every settlement is posted or voided once,
     /// and every fee its account paid is booked once, on the XRP ledger.
@@ -1189,7 +1486,11 @@ proptest! {
                     world.ledger.set_transfer_rate(rlusd::ISSUER, rate).unwrap();
                 }
                 Op::Check(n) => world.settlement_check(n),
-                Op::Restart(n) => world.restart(n),
+                Op::Restart(n, closes) => {
+                    world.down(n);
+                    world.closes(closes);
+                    world.restart(n);
+                }
                 Op::Close => world.close(),
             }
         }
