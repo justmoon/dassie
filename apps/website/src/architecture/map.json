@@ -1291,6 +1291,17 @@
   ],
   "releases": [
     {
+      "version": "0.2.1",
+      "date": "2026-10-21",
+      "changes": [
+        "A node without a hostname keeps a connection to the dassiepay.net front door by default, so Open Payments clients reach it at `<label>.dassiepay.net` with no setup. Set `DASSIE_RELAY` to another relay, or to nothing to keep none.",
+        "`dassie status` describes a periphery node as one: its uplinks, its relay and whether it is connected, and the names it answers to. The wallet says whether its front door can reach the node right now.",
+        "The log says at startup whether the node has QUIC, and which transport each peer is reached over.",
+        "Downlinks and core peers have QUIC connection places of their own, so a crowd of periphery nodes or strangers cannot crowd out a node's core links. A node with no room left says so, and the asking node turns to HTTPS.",
+        "The consent page says what is sent, what is received and for how long, and warns of a receive limit no payment can fit. A payer tells a receiver that stopped a payment early from one that received all of it."
+      ]
+    },
+    {
       "version": "0.2.0",
       "date": "2026-10-20",
       "changes": [
