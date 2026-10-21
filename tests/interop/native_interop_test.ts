@@ -5,6 +5,7 @@
 import { test } from "node:test";
 import { Buffer } from "node:buffer";
 import { type ChildProcess, spawn } from "node:child_process";
+import process from "node:process";
 
 import { assert, assertEquals } from "@std/assert";
 import {
@@ -29,7 +30,13 @@ function exited(child: ChildProcess): Promise<number | null> {
   });
 }
 
+/**
+ * The peer, built here, or the one `DASSIE_INTEROP_PEER` names: the Nix
+ * check builds it beforehand, and runs without cargo.
+ */
 async function buildPeer(): Promise<string> {
+  const built = process.env.DASSIE_INTEROP_PEER;
+  if (built) return built;
   const code = await exited(
     spawn(
       "cargo",

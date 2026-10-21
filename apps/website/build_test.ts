@@ -158,6 +158,30 @@ async function workspaceMembers(): Promise<string[]> {
   return members;
 }
 
+/**
+ * What a checkout leaves out of a member (.gitignore): its installed
+ * packages and its built output.
+ */
+const UNTRACKED = new Set(["node_modules", "dist", "dist-dev"]);
+
+/**
+ * The `@dassie/` packages the files under `dir` name. It reads the files
+ * rather than asking git, since the Nix check runs without a checkout.
+ */
+async function named(dir: string): Promise<Set<string>> {
+  const names = new Set<string>();
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const path = `${dir}/${entry.name}`;
+    if (entry.isDirectory() && !UNTRACKED.has(entry.name)) {
+      for (const name of await named(path)) names.add(name);
+    } else if (entry.isFile()) {
+      const text = await readFile(path, "utf8");
+      for (const [name] of text.matchAll(/@dassie\/[a-z-]+/g)) names.add(name);
+    }
+  }
+  return names;
+}
+
 /** The workspace packages the site imports, and those they import. */
 async function sitePackages(): Promise<Set<string>> {
   const byName = new Map<string, string>();
@@ -173,16 +197,7 @@ async function sitePackages(): Promise<Set<string>> {
     const dir = queue.pop()!;
     if (packages.has(dir)) continue;
     packages.add(dir);
-    const sources = await output("git", [
-      "grep",
-      "-h",
-      "-o",
-      "-E",
-      "@dassie/[a-z-]+",
-      "--",
-      dir,
-    ]);
-    for (const name of new Set(sources.split("\n").filter(Boolean))) {
+    for (const name of await named(`${root}${dir}`)) {
       const imported = byName.get(name);
       if (imported) queue.push(imported);
     }

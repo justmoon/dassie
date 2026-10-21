@@ -30,9 +30,9 @@
     "apps/website/dist/"
   ],
   "plugins": [
-    "https://plugins.dprint.dev/typescript-0.96.1.wasm",
-    "https://plugins.dprint.dev/json-0.21.3.wasm",
-    "https://plugins.dprint.dev/bartlomieju/lax-css-0.3.0.wasm",
-    "https://plugins.dprint.dev/bartlomieju/lax-markup-0.3.2.wasm"
+    "https://plugins.dprint.dev/typescript-0.96.1.wasm@9c52244de2c25a33addc7ddacff4443234a2dc4b5d3f34131262d1e0df35007c",
+    "https://plugins.dprint.dev/json-0.21.3.wasm@f34c8fbaeda1f42c479d4a5fa2c86f93d105c2d527ec61fffe912e4d9dc5cc77",
+    "https://plugins.dprint.dev/bartlomieju/lax-css-0.3.0.wasm@18947bad6b22116318719f61bd842d7b88e52de86a22a1144908922adb860588",
+    "https://plugins.dprint.dev/bartlomieju/lax-markup-0.3.2.wasm@0f98d8034f86ecf56d2a50f99189d201caa5bf84f75d514723737bcf6fcadec1"
   ]
 }
