@@ -223,6 +223,19 @@ impl CertificateSlot {
             .clone()
     }
 
+    /// The chain being served, as PEM: for a host that embeds the daemon
+    /// and trusts exactly this certificate, as the desktop app's window
+    /// does (spec/areas/desktop.md#the-window).
+    #[must_use]
+    pub fn chain_pem(&self) -> String {
+        self.current
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .stored
+            .chain_pem
+            .clone()
+    }
+
     fn key(&self) -> Arc<CertifiedKey> {
         Arc::clone(
             &self

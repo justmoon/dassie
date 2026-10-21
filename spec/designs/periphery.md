@@ -109,7 +109,7 @@ A record lasts 30 minutes and is renewed every 10, and whenever it changes.
 
 ## 6. Owner apps
 
-The wallet is never served through a relay or a front door. The owner enters the passphrase into the wallet's page to log in ([Wallet](../areas/wallet.md#key-derivation)), so a page served by anyone else could keep it, and a passphrase cannot be revoked. A periphery node's owner uses the wallet on `localhost`, or an app: a desktop app built with Tauri, or a mobile app.
+The wallet is never served through a relay or a front door. The owner enters the passphrase into the wallet's page to log in ([Wallet](../areas/wallet.md#key-derivation)), so a page served by anyone else could keep it, and a passphrase cannot be revoked. A periphery node's owner uses the wallet on `localhost`, as the [desktop app](../areas/desktop.md) does for the node it runs, or an app paired with a node on another machine: a desktop or a mobile app.
 
 - **The node serves the wallet, `/api/*` and `/rpc` only on its own listeners.** On a relayed stream it speaks only the owner protocol below, or Open Payments. The Open Payments side of that is built, and a node refuses the `owner` purpose until the owner protocol is ([HTTP](../areas/http.md#relayed-streams)).
 - **Pairing.** On `localhost`, the wallet shows a code, as a QR code, with the node ID and a one-time pairing secret that expires in minutes. The app makes a device key (Ed25519) and sends its public key with the secret. The node keeps a bounded list of devices, which the owner can revoke one by one.
@@ -184,7 +184,7 @@ A browser node is a short-lived periphery node, for demos: it lets someone join 
 - **`dassie-connector`** routes beneath a downlink's child address, and a periphery node's STREAM receiver takes its child addresses.
 - **The XRPL scheme** gains its table of peers' addresses and the two rules of §8.
 - **The RPC contract** (`proto/dassie/ui/v1`) gains pairing and devices.
-- **The apps** are a desktop app built with Tauri and a mobile app, both over the RPC contract.
+- **The apps** paired with a node are a desktop app and a mobile app, both over the RPC contract. The [desktop app](../areas/desktop.md) that runs its own node is built.
 - **The simulations** ([Testing](../areas/testing.md#the-simulations)) run periphery nodes that lose their uplinks, relays and home nodes that withhold, ground core keys that capture home slots, free receivers whose first settlement creates their account, free receivers evicted while owed, and downlinks over the limits.
 
 ## 11. Open questions

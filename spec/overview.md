@@ -58,7 +58,7 @@ Dassie works with test money only: the `live` realm is refused until the conditi
 
 ## Life of a node
 
-1. **Install.** On a Linux server with systemd, `curl … | sh` fetches the newest release, verifies its signature before unpacking anything, installs it and starts the systemd units ([Release](areas/release.md)).
+1. **Install.** On a Linux server with systemd, `curl … | sh` fetches the newest release, verifies its signature before unpacking anything, installs it and starts the systemd units ([Release](areas/release.md)). On a Linux desktop, the desktop app runs the node in its own process as a periphery node, with no hostname, and opens the setup page in its window instead of steps 2 and 3's browser ([Desktop](areas/desktop.md)).
 2. **Configure.** `dassie init` asks for the hostname and an email address. The daemon obtains a certificate through ACME, and `dassie init` prints a one-time **setup URL** ([HTTP](areas/http.md)).
 3. **Set up the wallet.** In the browser, the owner creates or enters a passphrase. The browser derives the node key with the same code the node uses (WASM), and posts it with a proof of the login secret. The node's identity-dependent services start: the ledger, the connector, Open Payments, the peer protocol and routing.
 4. **Choose a ledger.** The wallet asks for a first settlement scheme.
@@ -75,7 +75,7 @@ Dassie works with test money only: the `live` realm is refused until the conditi
 
 The node is Rust, the browser is Solid 2, and the tooling is Node ([rust-and-typescript](decisions/rust-and-typescript.md), [node-and-pnpm](decisions/node-and-pnpm.md)).
 
-- **Rust:** the daemon, the CLI and every protocol, in one static binary per platform, with no bundled interpreter or native add-on.
+- **Rust:** the daemon, the CLI and every protocol, in one static binary per platform, with no bundled interpreter or native add-on. The desktop app is the one exception: a window needs the system's GTK and WebKitGTK, so it links them and glibc ([desktop-app](decisions/desktop-app.md)).
 - **WASM:** the cryptographic and protocol cores are also built to WASM, so the wallet derives keys with exactly the code the node uses, and the website's STREAM toy runs the real STREAM implementation.
 - **Solid 2:** the wallet, which the node serves, and the dev dashboard.
 - **Node:** everything that orchestrates or builds: the dev environment, the Vite builds, the website, the release scripts, and the interop and end-to-end tests. No release contains Node.

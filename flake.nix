@@ -98,6 +98,12 @@
             ];
           };
 
+          # The desktop app's libraries (crates/dassie-desktop): GTK and
+          # WebKitGTK for its window, libsoup for WebKit's network, and the
+          # tray icon's AppIndicator. Every build of the whole workspace
+          # compiles their -sys crates, so they are in `common`.
+          desktop = import ./nix/desktop-libs.nix { inherit pkgs; };
+
           # The checks build with the ci profile (Cargo.toml), as a local
           # `cargo test` does. crane's default, release, gives every test
           # binary fat LTO and one codegen unit, which took the tests minutes
@@ -109,6 +115,7 @@
             strictDeps = true;
             cargoExtraArgs = "--locked";
             CARGO_PROFILE = "ci";
+            inherit (desktop) nativeBuildInputs buildInputs;
           };
           cargoArtifacts = craneLib.buildDepsOnly common;
           wasmArtifacts = craneLib.buildDepsOnly (
@@ -176,6 +183,20 @@
             }
           );
 
+          # The desktop app (nix/desktop.nix), with the wallet built in, on
+          # x86_64-linux, where the wallet is built: `nix run .#desktop`.
+          desktop-app = lib.optionalAttrs (system == "x86_64-linux") {
+            desktop = import ./nix/desktop.nix {
+              inherit
+                lib
+                pkgs
+                craneLib
+                src
+                ;
+              inherit (release.packages) wallet;
+            };
+          };
+
           # The TypeScript side's checks (nix/ts.nix), on x86_64-linux too,
           # where the wallet they test is built.
           ts = lib.optionalAttrs (system == "x86_64-linux") (
@@ -198,7 +219,8 @@
             default = identity-wasm;
           }
           // (release.packages or { })
-          // (ts.packages or { });
+          // (ts.packages or { })
+          // desktop-app;
 
           checks = {
             cargo-fmt = craneLib.cargoFmt {
@@ -251,7 +273,10 @@
             inherit identity-wasm;
           }
           // (release.checks or { })
-          // (ts.checks or { });
+          // (ts.checks or { })
+          # The packaged app builds and is wrapped, which clippy and the
+          # tests do not show.
+          // desktop-app;
 
           # The simulation campaign's VMs (scripts/sim-campaign.ts): CI's
           # toolchain, and Node for the supervisor, without the rest of the
@@ -287,7 +312,10 @@
               pkgs.mkcert
               # Signing releases (scripts/release.ts).
               pkgs.minisign
-            ];
+            ]
+            # The desktop app (crates/dassie-desktop).
+            ++ desktop.nativeBuildInputs
+            ++ desktop.buildInputs;
             CHROME_BIN = lib.getExe pkgs.chromium;
             # Node keeps what it compiles between runs, which starts the
             # tests, scripts and the dev environment faster. It does only

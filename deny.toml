@@ -10,7 +10,17 @@ all-features = true
 # yanked crate: its author withdrew it, and the fix is a `cargo update`.
 [advisories]
 yanked = "deny"
-ignore = []
+# Unmaintained crates in the desktop app's Tauri (crates/dassie-desktop),
+# with no fix to take: each is pinned by the GTK 3 stack Tauri's Linux
+# backend is built on, or by zbus 5, which its plugins use. None has a
+# known vulnerability; an advisory against one of them that is not about
+# maintenance still fails. They go when Tauri moves on.
+ignore = [
+  { id = "RUSTSEC-2024-0370", reason = "proc-macro-error, unmaintained: a build-time macro of glib-macros 0.18, which Tauri's GTK 3 stack pins" },
+  { id = "RUSTSEC-2026-0370", reason = "zvariant, unmaintained: merged into zbus 6; Tauri's plugins are on zbus 5" },
+  { id = "RUSTSEC-2026-0371", reason = "zbus_names, unmaintained: merged into zbus 6; Tauri's plugins are on zbus 5" },
+  { id = "RUSTSEC-2026-0372", reason = "zvariant_derive, unmaintained: merged into zbus 6; Tauri's plugins are on zbus 5" },
+]
 
 # The licenses the dependencies use that allow shipping them in Dassie's
 # Apache-2.0 binaries: permissive ones only, no copyleft.
@@ -28,6 +38,20 @@ exceptions = [
   # that the license text go with the data. A license for data, not code,
   # so it is allowed for this crate alone.
   { crate = "webpki-root-certs", allow = ["CDLA-Permissive-2.0"] },
+  # The desktop app's Tauri (crates/dassie-desktop). MPL-2.0's copyleft is
+  # per file: it asks only that these crates' own files, which Dassie does
+  # not change, stay available as source, which crates.io has them. So it
+  # is allowed for these crates alone, not as a license any crate may use.
+  # The first four parse HTML for Tauri's build step; option-ext is in the
+  # app, through `dirs`.
+  { crate = "cssparser", allow = ["MPL-2.0"] },
+  { crate = "cssparser-macros", allow = ["MPL-2.0"] },
+  { crate = "dtoa-short", allow = ["MPL-2.0"] },
+  { crate = "selectors", allow = ["MPL-2.0"] },
+  { crate = "option-ext", allow = ["MPL-2.0"] },
+  # Apache-2.0 with LLVM's exception, which only waives attribution for
+  # compiled output: as permissive as Apache-2.0. A build dependency.
+  { crate = "target-lexicon", allow = ["Apache-2.0 WITH LLVM-exception"] },
 ]
 
 # Duplicate versions are common and harmless enough to only warn about.

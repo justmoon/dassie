@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Dassie
+GenericName=Payment node
+Comment=Your Dassie node and its wallet
+Exec=dassie-desktop
+Icon=land.dassie.desktop
+Terminal=false
+Categories=Office;Finance;Network;
+StartupWMClass=dassie-desktop

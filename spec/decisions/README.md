@@ -10,6 +10,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [core-and-periphery](core-and-periphery.md) | Core and periphery (design, partly built) | designs/periphery |
 | [database-continuity](database-continuity.md) | Database continuity | node |
 | [default-relay](default-relay.md) | A node without a hostname keeps the default front door as its relay | node, http, payments, wallet |
+| [desktop-app](desktop-app.md) | The desktop app runs the node in its process and shows the wallet from the node's origin | desktop, node, http, overview |
 | [earned-trust](earned-trust.md) | Trust follows what a peer earned us | settlement, network |
 | [ended-for-room](ended-for-room.md) | A peering ended for room stays apart, and earns no credit back | network, settlement |
 | [ending-a-peering](ending-a-peering.md) | A node that ends a peering collects first, and pays nothing | network, settlement, peer-protocol, connector |
