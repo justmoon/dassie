@@ -9,9 +9,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use dassie_ledger::Name;
 use dassie_node_core::testing::SeededRng;
-use dassie_settlement::{Effect, LedgerInput, LedgerStatus, SchemeError, SettlementScheme};
+use dassie_settlement::{LedgerInput, LedgerStatus, SchemeError};
 use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, RESERVE_BASE};
-use dassie_xrpl::scheme::{MEMO_TYPE, XrplScheme};
+use dassie_xrpl::scheme::MEMO_TYPE;
+use support::{Effect, XrplScheme};
+
+mod support;
 use dassie_xrpl::{AccountId, UNITS_PER_DROP};
 
 /// What the node would book for a scheme, in internal units.
@@ -880,6 +883,54 @@ fn a_settlement_never_executed_is_never_sent() {
     let id = world.settle(0, 1, 1_000_000_000, &state_a);
     world.close();
     assert_eq!(world.nodes[0].books.finalized, [id]);
+}
+
+// spec/areas/xrpl.md#state-and-restarts: a settlement signed and booked,
+// but never executed (the node stopped first), is dropped past its last
+// ledger, and the account remembers it as never sent. The scheme that
+// reconciles it after a restart cancels it, rather than looking for a hash
+// no ledger will ever hold and leaving it pending for good.
+#[test]
+fn a_settlement_never_sent_is_cancelled_after_a_restart() {
+    let (mut world, state_a, _) = funded_pair();
+    let peer = world.nodes[1].name;
+    let mut rng = SeededRng::new(1);
+    let prepared = world.nodes[0]
+        .scheme
+        .prepare_settlement(&mut rng, peer, 3_000_000_000, &state_a)
+        .unwrap();
+    world.nodes[0]
+        .books
+        .pending
+        .insert(prepared.id, (peer, prepared.amount));
+    world.closes(25);
+    let state = world.nodes[0].scheme.state();
+    let checkpoint = world.nodes[0].scheme.balance();
+    world.disconnect(0);
+    let node = world.nodes[0].name;
+    world.nodes[0].scheme =
+        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
+    let mut effects = Vec::new();
+    world.nodes[0]
+        .scheme
+        .reconcile(&[(prepared.id, prepared.amount)], &mut effects);
+    assert_eq!(
+        effects,
+        [Effect::Cancel {
+            settlement: prepared.id
+        }]
+    );
+    world.apply(0, effects);
+    world.nodes[0].asked.clear();
+    world.connect(0);
+    world.closes(2);
+    let books = &world.nodes[0].books;
+    assert_eq!(books.cancelled, [prepared.id]);
+    assert!(books.pending.is_empty());
+    assert!(
+        !world.nodes[0].asked.iter().any(|command| command == "tx"),
+        "looked for a transaction never sent"
+    );
 }
 
 // Found in review: a connection that goes quiet is made anew, rather than

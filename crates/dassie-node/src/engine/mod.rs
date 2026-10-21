@@ -867,34 +867,34 @@ impl Driver<'_> {
 }
 
 impl Driver<'_> {
-    /// Carries out what concerns a settlement scheme's ledger.
+    /// Carries out what concerns an external asset's ledger.
     fn ledger_output(&mut self, output: Output) {
         match output {
-            Output::LedgerConnect { scheme, epoch, url } => {
+            Output::LedgerConnect { asset, epoch, url } => {
                 let client = self.node.peer_client().cloned();
                 self.ledgers.connect(
                     client,
                     self.commands.clone(),
                     &self.generation,
-                    scheme,
+                    asset,
                     epoch,
                     url,
                 );
             }
-            Output::LedgerClose { scheme, epoch } => self.ledgers.close(&scheme, Some(epoch)),
+            Output::LedgerClose { asset, epoch } => self.ledgers.close(&asset, Some(epoch)),
             Output::LedgerSend {
-                scheme,
+                asset,
                 epoch,
                 message,
-            } => self.ledgers.send(&scheme, epoch, message),
+            } => self.ledgers.send(&asset, epoch, message),
             Output::Fund {
-                scheme,
+                asset,
                 epoch,
                 url,
                 body,
             } => {
                 let client = self.node.peer_client().cloned();
-                links::fund(client, self.commands.clone(), scheme, epoch, url, body);
+                links::fund(client, self.commands.clone(), asset, epoch, url, body);
             }
             _ => {}
         }

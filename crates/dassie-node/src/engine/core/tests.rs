@@ -14,6 +14,10 @@ use crate::store::Store;
 
 const NOW: u64 = 1_800_000_000_000;
 
+/// The node's first XRPL testnet account, which the XRP Ledger scheme
+/// settles through: its connection is the account's.
+const XRPL_ACCOUNT: &str = "xrpl-testnet-account/0";
+
 fn core(seed: u64) -> Core {
     core_on(Arc::new(Store::open_in_memory().unwrap()), seed)
 }
@@ -217,7 +221,7 @@ fn follow_xrpl(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger) {
             return;
         }
         for (epoch, event) in &events {
-            core.ledger_event("xrpl-testnet", *epoch, event);
+            core.ledger_event(XRPL_ACCOUNT, *epoch, event);
         }
     }
     panic!("the scheme kept talking");
@@ -759,14 +763,14 @@ fn a_stopped_scheme_closes_its_connection() {
     let epoch = connected(&outputs).unwrap();
     let mut ledger = FakeLedger::new();
     ledger.set_network_id(Some(0));
-    core.ledger_event(SCHEME, epoch, &LedgerEvent::Connected);
+    core.ledger_event(XRPL_ACCOUNT, epoch, &LedgerEvent::Connected);
     outputs.clear();
     core.finish_step(&mut outputs);
     let [Output::LedgerSend { message, .. }] = outputs.as_slice() else {
         panic!("{outputs:?}");
     };
     let reply = ledger.request(1, message);
-    core.ledger_event(SCHEME, epoch, &LedgerEvent::Message(reply));
+    core.ledger_event(XRPL_ACCOUNT, epoch, &LedgerEvent::Message(reply));
     outputs.clear();
     core.finish_step(&mut outputs);
     assert!(
@@ -780,8 +784,8 @@ fn a_stopped_scheme_closes_its_connection() {
         LedgerStatus::Failed(_)
     ));
     // What the closed connection still says is dropped.
-    core.ledger_event(SCHEME, epoch, &LedgerEvent::Disconnected);
-    core.ledger_event(SCHEME, epoch, &LedgerEvent::Connected);
+    core.ledger_event(XRPL_ACCOUNT, epoch, &LedgerEvent::Disconnected);
+    core.ledger_event(XRPL_ACCOUNT, epoch, &LedgerEvent::Connected);
     outputs.clear();
     core.finish_step(&mut outputs);
     assert!(
@@ -1207,4 +1211,129 @@ fn a_downlink_that_owes_nothing_is_never_short_of_room() {
         core.finish_step(&mut outputs);
     }
     assert_eq!(core.peer.peering_of(&id).unwrap().short_for_ms, 0);
+}
+
+/// Closes a ledger of `ledger`, and hands the XRP Ledger account what its
+/// streams say.
+fn close_xrpl(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger) {
+    use super::LedgerEvent;
+
+    let epoch = core.assets[&dassie_xrpl::account::FIRST].epoch;
+    for (_, message) in ledger.close() {
+        core.ledger_event(XRPL_ACCOUNT, epoch, &LedgerEvent::Message(message));
+    }
+    follow_xrpl(core, ledger);
+}
+
+// spec/areas/xrpl.md#state-and-restarts: a database the node wrote before
+// external assets, with the XRP Ledger scheme's state in one blob, is split
+// between the account and the scheme when it migrates, and the node restarts
+// on it booking nothing anew. What was in flight is submitted again and
+// posted once, with its fee; what was looked up by its hash is still looked
+// up; the balance, the owner's funds and suspense stay as they were.
+#[test]
+fn a_database_from_before_external_assets_restarts_and_books_nothing_anew() {
+    use dassie_ledger::{Reference, TransferState};
+    use dassie_settlement::LedgerStatus;
+    use dassie_xrpl::Wallet;
+    use dassie_xrpl::fake::FakeLedger;
+
+    const XRP: u64 = 1_000_000_000;
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join(crate::store::DATABASE_FILE);
+    rusqlite::Connection::open(&database)
+        .unwrap()
+        .execute_batch(include_str!("../../store/testdata/xrpl-scheme-v25.sql"))
+        .unwrap();
+    let store = Arc::new(Store::open(temp.path()).unwrap());
+    let checkpoint = store.checkpoints().unwrap().remove(0).1;
+    assert_eq!(checkpoint.balance, 999 * XRP);
+    let scheme: serde_json::Value = serde_json::from_slice(&checkpoint.state).unwrap();
+    let keys: Vec<&String> = scheme.as_object().unwrap().keys().collect();
+    assert_eq!(keys, ["cursor", "peers", "recovering"]);
+    let (id, state) = store.asset_checkpoints().unwrap().remove(0);
+    assert_eq!(id, XRPL_ACCOUNT);
+    let account: serde_json::Value = serde_json::from_slice(&state).unwrap();
+    assert_eq!(account["sequence"], 5_000_003);
+    assert_eq!(
+        account["newest"],
+        serde_json::json!([5_000_001, 800_000_004])
+    );
+    assert_eq!(account["never_sent"], serde_json::json!([]));
+    let in_flight = account["in_flight"].as_array().unwrap();
+    assert_eq!(in_flight.len(), 2);
+    assert!(in_flight.iter().all(|t| t["scheme"] == "xrpl-testnet"));
+    assert_eq!(in_flight[1]["executed"], false);
+    let rows = |store: &Store| store.transfers_after(None, 100, None).unwrap();
+    let before = rows(&store);
+    assert_eq!(before.len(), 5);
+
+    // The ledger as the node left it: the account funded, nothing sent.
+    let entropy = NodeKey::from_bytes(&[7; 32])
+        .settlement_entropy("xrpl-testnet", "seed-testnet")
+        .unwrap();
+    let address = Wallet::from_entropy(entropy.as_bytes()).account();
+    let mut ledger = FakeLedger::new();
+    ledger.fund(address);
+    ledger.close();
+    let mut core = core_on(Arc::clone(&store), 10);
+    follow_xrpl(&mut core, &mut ledger);
+    assert_eq!(core.ledger_views()[0].status, LedgerStatus::Synced);
+    close_xrpl(&mut core, &mut ledger);
+    core.flush();
+    // What the account holds is what the ledger says.
+    let views = core.asset_views();
+    let [view] = views.as_slice() else {
+        panic!("{views:?}");
+    };
+    assert_eq!(
+        (view.id.as_str(), view.status, view.schemes.as_slice()),
+        (
+            XRPL_ACCOUNT,
+            LedgerStatus::Synced,
+            &["xrpl-testnet".to_string()][..]
+        )
+    );
+    assert_eq!(view.address, Some(address.to_address()));
+    let [holding] = view.holdings.as_slice() else {
+        panic!("{views:?}");
+    };
+    assert_eq!(
+        (holding.code.as_str(), holding.issuer.as_deref()),
+        ("XRP", None)
+    );
+    assert_eq!(holding.scale, 6);
+    assert_eq!(holding.amount, u128::from(ledger.balance(address).unwrap()));
+    assert_eq!(holding.reserve, u128::from(dassie_xrpl::fake::RESERVE_BASE));
+
+    let after = rows(&store);
+    let state = |id: u64| {
+        after
+            .iter()
+            .rev()
+            .find(|row| row.transfer.id.0 == id)
+            .map(|row| row.state)
+    };
+    assert_eq!(state(2), Some(TransferState::Posted), "in flight");
+    assert_eq!(state(3), Some(TransferState::Posted), "not yet executed");
+    assert_eq!(state(4), Some(TransferState::Pending), "looked up");
+    let new: Vec<&Reference> = after
+        .iter()
+        .filter(|row| row.transfer.id.0 >= 5)
+        .map(|row| &row.transfer.reference)
+        .collect();
+    assert_eq!(new.len(), 2, "{new:?}");
+    assert!(
+        new.iter()
+            .all(|reference| matches!(reference, Reference::Fee { .. })),
+        "{new:?}"
+    );
+    assert_eq!(
+        store.checkpoints().unwrap()[0].1.balance,
+        999 * XRP - 50 * XRP - 20_000
+    );
+    let account = store.asset_checkpoints().unwrap().remove(0).1;
+    let account: serde_json::Value = serde_json::from_slice(&account).unwrap();
+    assert_eq!(account["in_flight"], serde_json::json!([]));
+    assert_eq!(account["sequence"], 5_000_003);
 }

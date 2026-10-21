@@ -339,9 +339,10 @@
       "x": 20,
       "y": 576,
       "w": 184,
-      "desc": "The XRP Ledger testnet as a settlement scheme: the wallet, the transaction codec, the rippled API, and the scheme that books what the ledger says. A fake ledger serves the tests and the dev network, with test RLUSD from an issuer of its own.",
+      "desc": "The node's XRP Ledger testnet account and the settlement scheme on it: the wallet, the transaction codec, the rippled API, the account that connects, signs and follows the ledger, and the scheme that books what the account tells it. A fake ledger serves the tests and the dev network, with test RLUSD from an issuer of its own.",
       "does": [
         "Derives the node's XRP Ledger wallet from its key, so the same phrase finds the same funds",
+        "Keeps one connection per account, and hands out its sequences so schemes on it never take the same one",
         "Signs Payments byte for byte as `xrpl.js` does, and writes token Payments and TrustSets the same way",
         "Reads token amounts exactly, and a trust line, its flags and its issuer from either side",
         "Books every validated transaction once: settlements, deposits, withdrawals and fees",
@@ -358,9 +359,10 @@
       "x": 214,
       "y": 576,
       "w": 184,
-      "desc": "Where real-world ledgers plug in. A settlement scheme moves actual money, and this crate decides when that is due.",
+      "desc": "Where real-world ledgers plug in. A settlement scheme moves actual money through an external asset the node holds, such as an account on a ledger, and this crate decides when that is due.",
       "does": [
         "The scheme interface, and when a scheme is active",
+        "External assets: what the node holds outside its books, as the ledger says, apart from the schemes that settle through it",
         "The stub scheme: 100 test USD, so everything works without a real ledger",
         "The settlement policy: when a creditor asks a peer to settle, and how much the debtor pays, counted in the largest packet",
         "Reconciling settlements still pending after a restart"

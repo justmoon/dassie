@@ -16,6 +16,22 @@ impl Core {
         self.peer.check_invariants();
         for active in self.schemes.values() {
             active.scheme.check_invariants();
+            assert!(
+                active
+                    .asset
+                    .is_none_or(|asset| self.assets.contains_key(&asset)),
+                "a scheme's asset is active"
+            );
+        }
+        for (id, active) in &self.assets {
+            active.asset.check_invariants();
+            assert_eq!(active.asset.id(), *id, "an asset under its own ID");
+            assert!(
+                self.schemes
+                    .values()
+                    .any(|scheme| scheme.asset == Some(*id)),
+                "an asset is active only while a scheme settles through it"
+            );
         }
         self.check_receivers();
         self.check_peer_endpoints();

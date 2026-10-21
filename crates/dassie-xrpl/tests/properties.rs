@@ -12,19 +12,21 @@
 
 use dassie_ledger::{MAX_TOTAL, Name};
 use dassie_node_core::testing::SeededRng;
-use dassie_settlement::{Effect, LedgerInput, LedgerStatus, SettlementScheme};
+use dassie_settlement::{LedgerInput, LedgerStatus};
+use dassie_xrpl::Config;
 use dassie_xrpl::amount::{MAX_DECIMALS, MAX_EXPONENT, MAX_MANTISSA, MIN_EXPONENT, MIN_MANTISSA};
 use dassie_xrpl::api::line_flags;
 use dassie_xrpl::codec::{
     self, Amount, Currency, MAX_MEMO_BYTES, MAX_MEMOS, Memo, Payment, TF_PARTIAL_PAYMENT,
     TokenAmount, TokenValue, Transaction, TrustSet,
 };
-use dassie_xrpl::scheme::{Config, MEMO_TYPE};
-use dassie_xrpl::{
-    AccountId, MAX_DROPS, UNITS_PER_DROP, Wallet, XrplScheme, api, base58, from_hex, hex_upper,
-};
+use dassie_xrpl::scheme::MEMO_TYPE;
+use dassie_xrpl::{AccountId, MAX_DROPS, UNITS_PER_DROP, Wallet, api, base58, from_hex, hex_upper};
 use proptest::prelude::*;
 use serde_json::{Map, Value, json};
+use support::{Effect, XrplScheme};
+
+mod support;
 
 const ENTROPY: [u8; 32] = [5; 32];
 
@@ -1774,7 +1776,7 @@ proptest! {
         let pending: Vec<(Name, u64)> =
             recovering.iter().map(|hash| (Name::hex(hash, true), 1)).collect();
         let mut effects = Vec::new();
-        SettlementScheme::reconcile(&mut run.scheme, &pending, &mut effects);
+        run.scheme.reconcile(&pending, &mut effects);
         run.hashes.extend(recovering);
         run.apply(effects);
         run.input(LedgerInput::Connected);

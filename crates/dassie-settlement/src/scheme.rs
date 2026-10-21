@@ -1,11 +1,12 @@
 //! The interface every settlement scheme implements.
 
-use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
 
 use dassie_ledger::{LedgerId, Name};
 use rand_core::CryptoRng;
+
+use crate::asset::{AssetId, ExternalAsset};
 
 /// Something the node must book or do because of a scheme.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,38 +70,6 @@ pub enum Effect {
         /// Whether the ledger holds more than the books.
         gain: bool,
     },
-    /// Send a message to the underlying ledger, over the scheme's
-    /// connection ([`SettlementScheme::connection`]).
-    LedgerSend {
-        /// The message.
-        message: Vec<u8>,
-    },
-    /// Connect to the underlying ledger anew: the connection stopped
-    /// answering.
-    Reconnect,
-    /// Ask a faucet to fund the scheme's account on a test ledger, by an
-    /// HTTPS POST of `body` to `url`. The answer comes as
-    /// [`LedgerInput::Funded`].
-    Fund {
-        /// The faucet.
-        url: String,
-        /// What to post.
-        body: Vec<u8>,
-    },
-}
-
-/// What the node passes a scheme from its connection to the underlying
-/// ledger, and from the faucet.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LedgerInput<'a> {
-    /// The connection is up.
-    Connected,
-    /// A message came.
-    Message(&'a [u8]),
-    /// The connection went down; it is tried again.
-    Disconnected,
-    /// The faucet answered, or did not.
-    Funded(bool),
 }
 
 /// How a scheme stands with its underlying ledger, for the owner.
@@ -172,14 +141,22 @@ impl fmt::Display for SchemeError {
 /// A settlement scheme (spec/areas/settlement.md#the-scheme-interface),
 /// sans-IO.
 ///
-/// Peering hooks and settlement are used from M4, when nodes peer; M3 runs
-/// the stub's deposits.
+/// A scheme that settles through an [`ExternalAsset`] names it
+/// ([`asset`](Self::asset)), and the node hands it that asset whenever it
+/// may sign, submit or look up through it, and after the asset heard from
+/// its ledger ([`on_asset`](Self::on_asset)). It reaches its own kind of
+/// asset by downcasting. A scheme without one gets `None`.
 pub trait SettlementScheme: Send {
     /// The scheme's ID, as advertised to peers, for example `stub`.
     fn id(&self) -> Name;
 
     /// The internal ledger the scheme's money is on.
     fn ledger(&self) -> LedgerId;
+
+    /// The external asset it settles through, if any. It never changes.
+    fn asset(&self) -> Option<AssetId> {
+        None
+    }
 
     /// The scheme protocol versions it speaks, negotiated when peering
     /// (ACC-14).
@@ -189,7 +166,8 @@ pub trait SettlementScheme: Send {
     /// node checkpoints.
     fn balance(&self) -> u64;
 
-    /// How the scheme stands with its underlying ledger.
+    /// How the scheme stands, once its asset is synced: the node shows the
+    /// asset's status until then.
     fn status(&self) -> LedgerStatus {
         LedgerStatus::Synced
     }
@@ -205,19 +183,6 @@ pub trait SettlementScheme: Send {
         true
     }
 
-    /// Where the node connects for the scheme's underlying ledger, if it
-    /// has one: a WebSocket URL. Messages go both ways as
-    /// [`Effect::LedgerSend`] and [`LedgerInput::Message`].
-    fn connection(&self) -> Option<&str> {
-        None
-    }
-
-    /// Where the owner sends money to fund the scheme, if anywhere: an
-    /// address on the underlying ledger.
-    fn deposit_address(&self) -> Option<String> {
-        None
-    }
-
     /// The least amount the underlying ledger can move, in internal units:
     /// settlements are whole multiples of it. Less than it is owed until
     /// there is more, or for good at the end of a peering.
@@ -225,16 +190,16 @@ pub trait SettlementScheme: Send {
         1
     }
 
-    /// What the underlying ledger holds back from the scheme's balance, in
-    /// internal units: never spendable, and never booked.
+    /// What the underlying ledger holds back of what the scheme settles
+    /// in, in internal units: never spendable, and never booked.
     fn reserve(&self) -> u64 {
         0
     }
 
     /// What the scheme must keep across restarts beyond its balance, such
-    /// as transactions in flight. The node persists it with every batch
-    /// that changes the books for the scheme, and hands it back when it
-    /// makes the scheme again.
+    /// as where it is in its asset's transactions. The node persists it with
+    /// every batch that changes the books for the scheme, and hands it back
+    /// when it makes the scheme again.
     fn state(&self) -> Vec<u8> {
         Vec::new()
     }
@@ -245,19 +210,12 @@ pub trait SettlementScheme: Send {
         0
     }
 
-    /// Takes in what came from the underlying ledger, or the faucet.
-    fn on_ledger(&mut self, now_ms: u64, input: LedgerInput<'_>, effects: &mut Vec<Effect>) {
-        let _ = (now_ms, input, effects);
-    }
-
-    /// When [`on_timer`](Self::on_timer) is due next, if ever.
-    fn deadline(&self) -> Option<u64> {
-        None
-    }
-
-    /// Runs the scheme's timers that are due.
-    fn on_timer(&mut self, now_ms: u64, effects: &mut Vec<Effect>) {
-        let _ = (now_ms, effects);
+    /// Takes in what its external asset learnt from its ledger, and tells
+    /// the asset what it needs of it. The node calls it once the scheme is
+    /// made, and after each time the asset heard from its ledger, its
+    /// timers or its faucet, before the asset forgets what it learnt.
+    fn on_asset(&mut self, now_ms: u64, asset: &mut dyn ExternalAsset, effects: &mut Vec<Effect>) {
+        let _ = (now_ms, asset, effects);
     }
 
     /// What a node that wants to peer with us needs to know.
@@ -313,7 +271,8 @@ pub trait SettlementScheme: Send {
         let _ = (peer, state);
     }
 
-    /// Prepares a settlement of `amount` to `peer`. Submits nothing.
+    /// Prepares a settlement of `amount` to `peer`, signing through
+    /// `asset` where it settles through one. Submits nothing.
     ///
     /// # Errors
     ///
@@ -321,6 +280,7 @@ pub trait SettlementScheme: Send {
     fn prepare_settlement(
         &mut self,
         rng: &mut dyn CryptoRng,
+        asset: Option<&mut dyn ExternalAsset>,
         peer: Name,
         amount: u64,
         peer_state: &[u8],
@@ -328,8 +288,8 @@ pub trait SettlementScheme: Send {
 
     /// Forgets a settlement prepared and never executed: the node could
     /// not book it. It is never sent.
-    fn discard_settlement(&mut self, settlement: Name) {
-        let _ = settlement;
+    fn discard_settlement(&mut self, asset: Option<&mut dyn ExternalAsset>, settlement: Name) {
+        let _ = (asset, settlement);
     }
 
     /// The message for the peer for a settlement of ours, made again from
@@ -342,12 +302,22 @@ pub trait SettlementScheme: Send {
     /// Executes a prepared settlement. Reports the outcome as
     /// [`Effect::Finalize`] or [`Effect::Cancel`], now or later. The node
     /// calls it only once the settlement's pending transfer is on disk.
-    fn execute_settlement(&mut self, settlement: Name, effects: &mut Vec<Effect>);
+    fn execute_settlement(
+        &mut self,
+        asset: Option<&mut dyn ExternalAsset>,
+        settlement: Name,
+        effects: &mut Vec<Effect>,
+    );
 
     /// Settles the outcome of settlements whose pending transfers survived
     /// a restart, given by ID and amount, at activation (ACC-16): each gets
     /// [`Effect::Finalize`] or [`Effect::Cancel`], now or later.
-    fn reconcile(&mut self, pending: &[(Name, u64)], effects: &mut Vec<Effect>);
+    fn reconcile(
+        &mut self,
+        asset: Option<&mut dyn ExternalAsset>,
+        pending: &[(Name, u64)],
+        effects: &mut Vec<Effect>,
+    );
 
     /// Handles a peer's settlement message.
     ///
@@ -373,26 +343,6 @@ pub trait SettlementScheme: Send {
     /// [`SchemeError::Unsupported`] where the owner deposits on the
     /// underlying ledger itself.
     fn deposit(&mut self, amount: u64, effects: &mut Vec<Effect>) -> Result<(), SchemeError>;
-
-    /// Whether the scheme can ask a faucet for test money on its
-    /// underlying ledger.
-    fn has_faucet(&self) -> bool {
-        false
-    }
-
-    /// Asks the faucet of a test ledger for money on the owner's behalf, as
-    /// [`Effect::Fund`]. Nothing is booked now: what the faucet sends is a
-    /// deposit once the ledger shows it.
-    ///
-    /// # Errors
-    ///
-    /// [`SchemeError::Unsupported`] where the scheme has no faucet;
-    /// [`SchemeError::Unavailable`] while the faucet was asked too recently,
-    /// or while the scheme has no connection to take its answer on.
-    fn ask_faucet(&mut self, effects: &mut Vec<Effect>) -> Result<(), SchemeError> {
-        let _ = effects;
-        Err(SchemeError::Unsupported)
-    }
 
     /// Asserts what holds between calls: its bounds, and how its parts
     /// relate (spec/decisions/tigerstyle.md). Tests, simulations and the

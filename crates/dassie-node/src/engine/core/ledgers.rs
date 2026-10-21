@@ -4,7 +4,7 @@ use dassie_ledger::{
     AccountId, AccountName, AccountPath, LedgerId, Name, Realm, Reference, TransferSpec,
 };
 use dassie_settlement::{
-    Activation, Effect, LedgerStatus, SchemeError, SettlementScheme, activation,
+    Activation, AssetId, Effect, LedgerStatus, SchemeError, SettlementScheme, activation,
 };
 
 use super::Core;
@@ -16,9 +16,8 @@ use crate::store::{Checkpoint, Store};
 /// An active scheme.
 pub(super) struct ActiveScheme {
     pub scheme: Box<dyn SettlementScheme>,
-    /// Its connection to its ledger, if it follows one; 0 before the
-    /// first.
-    pub epoch: u64,
+    /// The external asset it settles through, if any.
+    pub asset: Option<AssetId>,
     /// The state version last written with a checkpoint.
     pub version: u64,
     /// Why it stopped, if the books could not take what it said: it is fed
@@ -42,9 +41,10 @@ pub struct LedgerView {
     pub on_ledger_balance: u64,
     /// What the underlying ledger holds back, never spendable.
     pub reserve: u64,
-    /// Where the owner sends money to fund it, if anywhere.
+    /// Where the owner sends money to fund it, if anywhere: its asset's
+    /// address.
     pub deposit_address: Option<String>,
-    /// Whether the node can ask a faucet for test money on it.
+    /// Whether the node can ask a faucet for test money on its asset.
     pub faucet: bool,
     /// How the scheme stands with its ledger.
     pub status: LedgerStatus,
@@ -120,8 +120,9 @@ impl Core {
             .ok_or_else(|| EngineError::Internal("the ledger vanished".into()))
     }
 
-    /// Starts a scheme: opens its ledger's accounts, books the difference
-    /// to its checkpoint (ACC-6), and makes sure the receiver has a ledger.
+    /// Starts a scheme: makes it and the external asset it settles through,
+    /// opens its ledger's accounts, books the difference to its checkpoint
+    /// (ACC-6), and makes sure the receiver has a ledger.
     fn activate(
         &mut self,
         id: Name,
@@ -129,8 +130,50 @@ impl Core {
         checkpoint: Option<Checkpoint>,
         new: bool,
     ) -> Result<LedgerId, EngineError> {
-        let scheme = super::schemes::create(id.as_str(), &config, checkpoint.as_ref(), &self.key)
-            .map_err(|e| EngineError::Invalid(e.to_string()))?;
+        let (scheme, asset) = self.make_scheme(id, &config, checkpoint.as_ref())?;
+        let ledger = scheme.ledger();
+        if let Err(error) = self.open_ledger(id, scheme.as_ref(), checkpoint.as_ref()) {
+            if let Some((asset, _)) = asset {
+                self.release_asset(asset);
+            }
+            return Err(error);
+        }
+        if new {
+            self.batch.schemes_added.push((id, config));
+        }
+        self.schemes.insert(
+            id,
+            ActiveScheme {
+                scheme,
+                asset: asset.map(|(asset, _)| asset),
+                version: 0,
+                failed: None,
+            },
+        );
+        if let Some((asset, made)) = asset {
+            // The scheme tells its asset where it is, before the asset reads
+            // its ledger.
+            self.tell_scheme(id, asset);
+            if made {
+                self.connect_asset(asset);
+            }
+        }
+        self.checkpoint(id);
+        self.update_peer_schemes();
+        self.add_receiver(ledger)?;
+        self.add_payer(ledger)?;
+        Ok(ledger)
+    }
+
+    /// Opens the accounts of `scheme`'s ledger and books the difference
+    /// between its balance and its checkpoint (ACC-6): only a ledger of the
+    /// test realm, and one no other scheme serves.
+    fn open_ledger(
+        &mut self,
+        id: Name,
+        scheme: &dyn SettlementScheme,
+        checkpoint: Option<&Checkpoint>,
+    ) -> Result<(), EngineError> {
         let ledger = scheme.ledger();
         if ledger.realm() != Realm::Test {
             return Err(EngineError::Precondition(
@@ -151,11 +194,10 @@ impl Core {
                 .open(AccountPath::new(ledger, name))
                 .map_err(|e| EngineError::Internal(e.to_string()))?;
         }
-        let balance = scheme.balance();
         let settlement = self.account(ledger, AccountName::AssetsSettlement)?;
         let owner = self.account(ledger, AccountName::EquityOwner)?;
         let suspense = self.account(ledger, AccountName::EquitySuspense)?;
-        let booking = match activation(checkpoint.map(|c| c.balance), balance) {
+        let booking = match activation(checkpoint.map(|c| c.balance), scheme.balance()) {
             Activation::InStep => None,
             Activation::FirstDeposit(amount) => {
                 Some((settlement, owner, amount, Reference::Deposit))
@@ -175,24 +217,7 @@ impl Core {
                 amount,
             });
         }
-        if new {
-            self.batch.schemes_added.push((id, config));
-        }
-        self.schemes.insert(
-            id,
-            ActiveScheme {
-                scheme,
-                epoch: 0,
-                version: 0,
-                failed: None,
-            },
-        );
-        self.checkpoint(id);
-        self.connect_scheme(id);
-        self.update_peer_schemes();
-        self.add_receiver(ledger)?;
-        self.add_payer(ledger)?;
-        Ok(ledger)
+        Ok(())
     }
 
     /// Deactivates a settlement scheme, and only it: the original's removal
@@ -211,8 +236,11 @@ impl Core {
         if let Some(blocker) = self.removal_blockers(id, ledger).first() {
             return Err(EngineError::Precondition(blocker.message().into()));
         }
-        if let Some(active) = self.schemes.remove(&id) {
-            self.disconnect_scheme(id, active.epoch);
+        if let Some(asset) = self.schemes.remove(&id).and_then(|active| active.asset) {
+            if let Some(active) = self.assets.get_mut(&asset) {
+                active.asset.detach(id);
+            }
+            self.release_asset(asset);
         }
         self.update_peer_schemes();
         self.batch.schemes_added.retain(|(added, _)| *added != id);
@@ -279,28 +307,23 @@ impl Core {
     pub fn ask_faucet(&mut self, id: &str) -> Result<LedgerView, EngineError> {
         let inactive = || EngineError::NotFound("the scheme is not active".into());
         let id = Name::new(id).map_err(|_| inactive())?;
-        let active = self.schemes.get_mut(&id).ok_or_else(inactive)?;
+        let active = self.schemes.get(&id).ok_or_else(inactive)?;
         if active.failed.is_some() {
             return Err(EngineError::Precondition(
                 "the scheme has stopped; restart the node".into(),
             ));
         }
         let ledger = active.scheme.ledger();
-        let mut effects = Vec::new();
-        active
-            .scheme
-            .ask_faucet(&mut effects)
-            .map_err(|error| match error {
-                SchemeError::Unsupported => {
-                    EngineError::Precondition("the ledger has no faucet".into())
-                }
-                SchemeError::Unavailable => EngineError::Exhausted(
-                    "the faucet was asked less than a minute ago, or the ledger cannot be reached"
-                        .into(),
-                ),
-                other => EngineError::Internal(other.to_string()),
-            })?;
-        self.apply_effects(id, ledger, &effects)?;
+        self.asset_faucet(id).map_err(|error| match error {
+            SchemeError::Unsupported => {
+                EngineError::Precondition("the ledger has no faucet".into())
+            }
+            SchemeError::Unavailable => EngineError::Exhausted(
+                "the faucet was asked less than a minute ago, or the ledger cannot be reached"
+                    .into(),
+            ),
+            other => EngineError::Internal(other.to_string()),
+        })?;
         self.ledger_view(ledger)
             .ok_or_else(|| EngineError::Internal("the ledger vanished".into()))
     }
@@ -344,9 +367,6 @@ impl Core {
                         self.settlement_in(scheme, *peer, *amount, *id, spec);
                     }
                 }
-                Effect::LedgerSend { message } => self.ledger_send(scheme, message.clone()),
-                Effect::Reconnect => self.connect_scheme(scheme),
-                Effect::Fund { url, body } => self.ledger_fund(scheme, url.clone(), body.clone()),
                 Effect::Finalize { settlement: id } => self.settlement_done(scheme, *id),
                 Effect::Cancel { settlement: id } => self.settlement_cancelled(scheme, *id),
                 Effect::SendMessage { peer, message } => {
@@ -424,12 +444,7 @@ impl Core {
                         None => (settlement, owner, *amount, Reference::Deposit),
                     }
                 }
-                Effect::LedgerSend { .. }
-                | Effect::Reconnect
-                | Effect::Fund { .. }
-                | Effect::Finalize { .. }
-                | Effect::Cancel { .. }
-                | Effect::SendMessage { .. } => {
+                Effect::Finalize { .. } | Effect::Cancel { .. } | Effect::SendMessage { .. } => {
                     bookings.push(None);
                     continue;
                 }
@@ -656,6 +671,7 @@ impl Core {
             .find(|(_, active)| active.scheme.ledger() == ledger)?;
         let owner = self.account(ledger, AccountName::EquityOwner).ok()?;
         let group = self.ledger.group_balance(owner)?;
+        let asset = active.asset.and_then(|asset| self.assets.get(&asset));
         Some(LedgerView {
             id: ledger,
             scheme: id.as_str().to_string(),
@@ -663,13 +679,13 @@ impl Core {
             owner_pending: group.debits_pending,
             on_ledger_balance: active.scheme.balance(),
             reserve: active.scheme.reserve(),
-            deposit_address: active.scheme.deposit_address(),
-            faucet: active.scheme.has_faucet(),
+            deposit_address: asset.and_then(|asset| asset.asset.address()),
+            faucet: asset.is_some_and(|asset| asset.asset.has_faucet()),
             status: match active.failed {
-                Some(_) => dassie_settlement::LedgerStatus::Failed(
+                Some(_) => LedgerStatus::Failed(
                     "the books could not take what the ledger said; restart the node",
                 ),
-                None => active.scheme.status(),
+                None => self.scheme_status(active),
             },
             removal_blockers: self.removal_blockers(*id, ledger),
         })

@@ -88,6 +88,10 @@ use crate::engine::{
 use crate::node::Policies;
 use crate::store::{Aim, FailedCommit, ForeignAmount, Holds, PaymentId, PeerSettings, Store};
 
+/// The node's first XRPL testnet account, which the XRP Ledger scheme
+/// settles through: the connection to the fake ledger is the account's.
+const XRPL_ACCOUNT: &str = "xrpl-testnet-account/0";
+
 /// When every simulation starts.
 pub const START: u64 = 1_800_000_000_000;
 /// The credit a node extends by default.
@@ -998,7 +1002,7 @@ impl Sim {
         self.ledger.disconnect(link.connection);
         let generation = self.nodes[index].generation;
         let stepped = self.step(index, |core| {
-            core.ledger_event("xrpl-testnet", link.epoch, &LedgerEvent::Disconnected);
+            core.ledger_event(XRPL_ACCOUNT, link.epoch, &LedgerEvent::Disconnected);
         });
         if !stepped {
             return;
@@ -1153,7 +1157,7 @@ impl Sim {
                 event,
             } => {
                 if self.nodes[to].generation == generation {
-                    self.step(to, |core| core.ledger_event("xrpl-testnet", epoch, &event));
+                    self.step(to, |core| core.ledger_event(XRPL_ACCOUNT, epoch, &event));
                 }
             }
             Delivery::Result {

@@ -18,7 +18,7 @@ Every amount is an unsigned integer at scale 9 for every asset, and ILP packet a
 The account kinds, their path grammar and their limits are in `path.rs`. What the code does not say is how they fit:
 
 - **A peer** has two accounts on its scheme's ledger. `assets/interledger/<peer>` carries both directions of debt, so its balance has either sign. `contra/trust/<peer>` holds the credit we extend: a `trust` transfer debits it and credits the interledger account, and the interledger account's limit (debits ≤ credits) then lets the peer run up debt to us up to that credit and no further. Raising the credit is another `trust` transfer ([Settlement](settlement.md#credit)); opening a peer's accounts again posts nothing.
-- **`assets/settlement`** is what the node holds on the underlying ledger, as its scheme reports it ([Settlement](settlement.md#the-scheme-interface)).
+- **`assets/settlement`** stands for the holding the ledger's scheme settles in. It is not a second record of the holding, which only the ledger says ([Settlement](settlement.md#external-assets)): it is kept in step with it, every change of the holding booked and any remainder reconciled through `equity/suspense`, since the owner's spending limit and the check before each settlement read it ([own-books](../decisions/own-books.md)).
 - **The owner's accounts** (`equity/…`, `revenue/…`, `expenses/…`) form one group per ledger ([below](#limits-and-groups)).
 
 ## Limits and groups
@@ -53,7 +53,7 @@ Each transfer carries a reference saying what it is for (`reference.rs`). A pack
 
 - **Packets and settlements are refused** when they would break a limit.
 - **Reports are recorded** even when they take the owner's group below zero: deposits, withdrawals, reconciliations and ledger fees say what already happened on the underlying ledger, and refusing them would only make the books wrong. Spending is then refused until the group recovers. So limits are not invariants: reports may break them.
-- **Scheme balances are reconciled by difference.** A settlement scheme reports its on-ledger balance as a checkpoint, written in the same transaction as the transfers it explains, and activation books only the difference to the last checkpoint, through `equity/suspense` ([Settlement](settlement.md#checkpoints-and-activation)). So a restart never books a balance twice.
+- **Scheme balances are reconciled by difference.** A settlement scheme reports its on-ledger balance as a checkpoint, written in the same transaction as the transfers it explains, with its external asset's state, and activation books only the difference to the last checkpoint, through `equity/suspense` ([Settlement](settlement.md#checkpoints-and-activation)). So a restart never books a balance twice.
 
 ## The journal
 
