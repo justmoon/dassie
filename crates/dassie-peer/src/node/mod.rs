@@ -611,8 +611,10 @@ impl PeerNode {
                 // else is tried again, and a copy that arrives twice is
                 // dropped by the peer's connector. A 401 is tried again
                 // too: a node that just started refuses messages dated
-                // before its start, and the copy sent again is dated anew
-                // (spec/areas/peer-protocol.md#message-set).
+                // before its start, and the copy sent again is dated anew.
+                // Each refusal is charged at the peer's rate limit, which
+                // costs a short spell of 429s at worst, not a Fulfill lost
+                // though booked (spec/areas/peer-protocol.md#message-set).
                 let refused = matches!(result, Err(Problem::Status(400 | 409)));
                 if result.is_err() && !refused {
                     self.retry_answer(*answer);
