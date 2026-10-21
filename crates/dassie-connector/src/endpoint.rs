@@ -81,6 +81,10 @@ pub(crate) struct Endpoint {
     /// It takes no new Prepares from it, but still goes to it: we are
     /// ending its peering, and have not told it yet (D28).
     pub refusing: bool,
+    /// It takes no new Prepares from it, but still goes to it: our
+    /// messages to it surely do not arrive, so a Fulfill of ours could not
+    /// count in its books (D41).
+    pub unreached: bool,
     /// Its address lies below the node's own, which routes to it: a child
     /// of the node, or a peer that is our downlink
     /// (spec/areas/connector.md#addresses-and-endpoints). Set when added.

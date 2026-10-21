@@ -131,6 +131,45 @@ fn responses_to_peers_are_retried_until_they_arrive() {
     assert_eq!(network.packets, [(1, own, 7)]);
 }
 
+// D41: a peer our ILP packets surely do not reach is reported as such, so
+// the node takes no new Prepare from it; heartbeats that fail say nothing,
+// since the bounds on requests in flight may refuse them here. Once the
+// cut is gone, the next request it answers, a heartbeat or the Reject sent
+// again, reports it reached.
+#[test]
+fn a_peer_our_packets_do_not_reach_is_reported_until_it_answers() {
+    let mut network = Network::new(16, 2, 1, Config::DEV);
+    settle(&mut network, 30_000);
+    let peer = *network.node(1).own();
+    assert!(network.node(0).peering_of(&peer).is_some(), "not peered");
+    let reports = |network: &Network| -> Vec<bool> {
+        network
+            .events
+            .iter()
+            .filter_map(|(index, event)| match event {
+                dassie_peer::Event::Reachable { peer: p, reachable }
+                    if *index == 0 && *p == peer =>
+                {
+                    Some(*reachable)
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    network.cut_one_way.insert((0, 1));
+    settle(&mut network, 30_000);
+    assert!(reports(&network).is_empty(), "failed heartbeats reported");
+    assert!(network.node(0).reachable(&peer));
+    network.act(0, |node, now| node.send_response(now, &peer, 7, &[13, 1]));
+    settle(&mut network, 3_000);
+    assert_eq!(reports(&network), [false]);
+    assert!(!network.node(0).reachable(&peer));
+    network.cut_one_way.clear();
+    settle(&mut network, 30_000);
+    assert_eq!(reports(&network), [false, true]);
+    assert!(network.node(0).reachable(&peer));
+}
+
 // Every node accepted registrations, so any could be filled up.
 #[test]
 fn only_bootstrap_nodes_take_registrations() {

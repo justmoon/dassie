@@ -49,7 +49,7 @@ Activation books only the difference between the scheme's balance and the last c
 - **Peering again** keeps the trust account and its credit. A junior still extends at least the default line: a node that was the senior before, or that accepted a request only one side recorded, raises the account to it. Not when it once ended a peering with that node for want of room: then it keeps the lower credit, so a peer that never settled gets no new line by being asked again ([D33](../decisions/D33-a-peering-ended-for-room-stays-apart-and-earns-no-credit-back.md)).
 - **Nothing is announced.** The credit a node extends is its own business: the peer protocol's `credit` fields are sent as 0 and ignored ([Peer protocol](peer-protocol.md)). More credit only means the creditor asks later.
 
-**The least credit.** Asked at the asker's trigger, a debtor settles only if its own books leave it its trigger plus twice the least settlement ([below](#settling-on-request)). So a link survives drift of up to its credit less two triggers and twice the least settlement, and the node refuses to start with a default credit (or a senior credit other than 0) below that plus one crash's drift at the cap on money in flight (`policy::least_credit`):
+**The least credit.** Asked at the asker's trigger, a debtor settles only if its own books leave it its trigger plus twice the least settlement ([below](#settling-on-request)). So a link survives drift of up to its credit less two triggers and twice the least settlement, and the node refuses to start with a default credit (or a senior credit other than 0) below that plus one crash's drift at the cap on money in flight (`policy::least_credit`). A link cut one way drifts no more than a crash: a node takes no new Prepare from a peer its messages surely do not reach, so its Fulfills that cannot arrive are only those in flight when the cut began ([D41](../decisions/D41-a-node-takes-no-prepare-from-a-peer-it-cannot-reach.md)).
 
 ```
 least_credit = 2 · trigger + 2 · least settlement + max_in_flight = 3P + 2P + 2.5P = 7.5 P
@@ -159,3 +159,4 @@ A peer's settlement is believed as stated. Anyone peered over the stub can mint 
 - [D33](../decisions/D33-a-peering-ended-for-room-stays-apart-and-earns-no-credit-back.md): no credit back for a peer once ended for room.
 - [D23](../decisions/D23-each-node-books-its-own-fulfills.md): the creditor asks, the debtor decides how much.
 - [D24](../decisions/D24-money-in-flight-with-a-peer-stays-within-a-few-packets.md), [D25](../decisions/D25-a-links-thresholds-are-counted-in-its-largest-packet.md): thresholds in the largest packet, and the least credit.
+- [D41](../decisions/D41-a-node-takes-no-prepare-from-a-peer-it-cannot-reach.md): a link cut one way drifts no more than a crash.

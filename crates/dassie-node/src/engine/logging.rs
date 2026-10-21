@@ -96,6 +96,9 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
                 emit!(severity, target: target::PEER, %peer, on, "advertised");
             }
         }
+        Event::Reachable { peer, reachable } => {
+            emit!(severity, target: target::PEER, %peer, reachable, "whether our packets reach the peer: while they do not, its Prepares are refused");
+        }
         Event::SettlementDelivered { peer, sequence } => {
             emit!(severity, target: target::SETTLEMENT, %peer, sequence, "the peer has our settlement");
         }

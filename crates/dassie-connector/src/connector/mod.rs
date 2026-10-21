@@ -289,6 +289,7 @@ impl Connector {
             money_to: 0,
             draining: false,
             refusing: false,
+            unreached: false,
             child: false,
         };
         self.endpoints.insert(id, endpoint, own)
@@ -328,6 +329,7 @@ impl Connector {
             money_to: 0,
             draining: false,
             refusing: false,
+            unreached: false,
             child: false,
         };
         self.endpoints.insert(id, endpoint, own)
@@ -445,6 +447,19 @@ impl Connector {
         self.endpoints
             .get_mut(id)
             .map(|endpoint| endpoint.refusing = refusing)
+            .is_some()
+    }
+
+    /// Stops, or resumes, new Prepares from a peer that our messages
+    /// surely do not reach, while Prepares to it still go (D41): a Fulfill
+    /// of ours could not count in its books, and would only drift ours
+    /// from its. Its Prepares are refused as for want of liquidity, which
+    /// is temporary. Independent of [`set_refusing`](Self::set_refusing):
+    /// either refuses. Returns whether the endpoint exists.
+    pub fn set_unreached(&mut self, id: EndpointId, unreached: bool) -> bool {
+        self.endpoints
+            .get_mut(id)
+            .map(|endpoint| endpoint.unreached = unreached)
             .is_some()
     }
 

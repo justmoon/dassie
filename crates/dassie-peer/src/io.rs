@@ -249,6 +249,17 @@ pub enum Event {
         /// it stayed short of a packet: it is heard from, and not banned.
         short: bool,
     },
+    /// Whether our messages reach a peer changed: they stopped once a
+    /// Prepare, Fulfill or Reject of ours surely did not arrive, and reach
+    /// it again once it answers any request of ours. While they do not, a
+    /// Fulfill of ours could not count in the peer's books, so the node
+    /// takes no new Prepare from it (D41).
+    Reachable {
+        /// The peer.
+        peer: NodeId,
+        /// Whether our messages reach it now.
+        reachable: bool,
+    },
     /// A settlement message arrived.
     SettlementDelivered {
         /// The node.

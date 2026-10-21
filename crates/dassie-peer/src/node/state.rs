@@ -596,6 +596,14 @@ impl PeerNode {
             peers <= self.config.max_peers && all - peers <= self.config.max_downlinks,
             "peers within bounds"
         );
+        // A peering that ends forgets the mark (D41); one that is left
+        // behind would refuse a later peering's first Prepares.
+        assert!(
+            self.unreached
+                .iter()
+                .all(|node| self.peering_of(node).is_some()),
+            "only peers are marked unreached"
+        );
         self.check_periphery();
         self.check_channels();
         self.check_pins();

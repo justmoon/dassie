@@ -86,7 +86,9 @@ impl Connector {
         let trace = self.next_trace();
         // A peering that ends takes no new Prepares; one we end and have
         // not told the peer of yet refuses them as for want of liquidity
-        // (D28).
+        // (D28), and so does one our messages surely do not reach, since
+        // a Fulfill of ours would count only in our books (D41). Our
+        // Reject is the first message to try it again.
         let closed = self.endpoints.get(source).and_then(|endpoint| {
             if endpoint.draining {
                 Some(refuse(
@@ -97,6 +99,11 @@ impl Connector {
                 Some(refuse(
                     ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
                     "insufficient liquidity",
+                ))
+            } else if endpoint.unreached {
+                Some(refuse(
+                    ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
+                    "cannot answer the peer",
                 ))
             } else {
                 None
