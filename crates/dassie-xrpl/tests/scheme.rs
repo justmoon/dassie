@@ -519,6 +519,53 @@ fn a_testnet_reset_is_a_loss_and_a_new_deposit() {
     assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
 }
 
+// The owner may ask the faucet for more, at its pace: what it sends is a
+// deposit once the ledger shows it, never booked at the asking.
+#[test]
+fn the_owner_asks_the_faucet_for_more() {
+    let (mut world, _, _) = funded_pair();
+    assert!(world.nodes[0].scheme.has_faucet());
+    let ask = |world: &mut World| {
+        let mut effects = Vec::new();
+        let asked = world.nodes[0].scheme.ask_faucet(&mut effects);
+        world.nodes[0].scheme.check_invariants();
+        (asked, effects)
+    };
+    // Asked when the account was made, less than a minute ago.
+    assert_eq!(ask(&mut world), (Err(SchemeError::Unavailable), Vec::new()));
+    world.closes(15);
+    let (asked, effects) = ask(&mut world);
+    assert_eq!(asked, Ok(()));
+    assert!(matches!(effects.as_slice(), [Effect::Fund { .. }]));
+    assert_eq!(world.nodes[0].books.owner, i128::from(FUNDED));
+    world.apply(0, effects);
+    assert_eq!(ask(&mut world).0, Err(SchemeError::Unavailable));
+    world.closes(2);
+    let books = &world.nodes[0].books;
+    assert_eq!(
+        books.owner,
+        i128::from(FUNDED) + i128::from(FAUCET_DROPS * UNITS_PER_DROP)
+    );
+    assert_eq!(books.suspense, 0);
+    // Not while there is no connection to take its answer on.
+    world.closes(15);
+    world.disconnect(0);
+    assert_eq!(ask(&mut world).0, Err(SchemeError::Unavailable));
+}
+
+#[test]
+fn a_ledger_without_a_faucet_is_never_asked() {
+    let mut scheme =
+        XrplScheme::new(r#"{"faucet":null}"#, &entropy(1), name("node0"), None, &[]).unwrap();
+    assert!(!scheme.has_faucet());
+    let mut effects = Vec::new();
+    assert_eq!(
+        scheme.ask_faucet(&mut effects),
+        Err(SchemeError::Unsupported)
+    );
+    assert!(effects.is_empty());
+}
+
 // spec/decisions/synced-before-peering.md: the scheme has synced once its
 // first sync booked what the account held as the owner's, and the node peers
 // on it only from then. That is kept with its state, so a restart that cannot

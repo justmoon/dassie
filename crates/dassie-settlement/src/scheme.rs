@@ -374,6 +374,25 @@ pub trait SettlementScheme: Send {
     /// underlying ledger itself.
     fn deposit(&mut self, amount: u64, effects: &mut Vec<Effect>) -> Result<(), SchemeError>;
 
+    /// Whether the scheme can ask a faucet for test money on its
+    /// underlying ledger.
+    fn has_faucet(&self) -> bool {
+        false
+    }
+
+    /// Asks the faucet of a test ledger for money on the owner's behalf, as
+    /// [`Effect::Fund`]. Nothing is booked now: what the faucet sends is a
+    /// deposit once the ledger shows it.
+    ///
+    /// # Errors
+    ///
+    /// [`SchemeError::Unsupported`] where the scheme has no faucet;
+    /// [`SchemeError::Unavailable`] while the faucet was asked too recently.
+    fn ask_faucet(&mut self, effects: &mut Vec<Effect>) -> Result<(), SchemeError> {
+        let _ = effects;
+        Err(SchemeError::Unsupported)
+    }
+
     /// Asserts what holds between calls: its bounds, and how its parts
     /// relate (spec/decisions/tigerstyle.md). Tests, simulations and the
     /// node's checks run it.

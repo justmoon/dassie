@@ -106,6 +106,7 @@ message Request {
     ListSettlementSchemesRequest list_settlement_schemes = 54;
     // Streaming.
     SubscribeLedgersRequest subscribe_ledgers = 55;
+    AskFaucetRequest ask_faucet = 56;
 
     CreateBtpTokenRequest create_btp_token = 60;
     ListBtpTokensRequest list_btp_tokens = 61;
@@ -215,6 +216,7 @@ message Response {
     RemoveSettlementSchemeResponse remove_settlement_scheme = 52;
     StubDepositResponse stub_deposit = 53;
     ListSettlementSchemesResponse list_settlement_schemes = 54;
+    AskFaucetResponse ask_faucet = 56;
 
     CreateBtpTokenResponse create_btp_token = 60;
     ListBtpTokensResponse list_btp_tokens = 61;

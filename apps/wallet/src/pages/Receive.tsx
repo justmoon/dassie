@@ -1,7 +1,8 @@
 /**
  * Receive (spec/areas/wallet.md#pages): the wallet addresses other wallets
  * pay through Open Payments, a request for a payment, and a tab per ledger with
- * a deposit method: the stub's test money.
+ * its deposit method: the stub's test money, or the address the owner sends
+ * to, with the testnet faucet where the node has one.
  */
 
 import type { JSX } from "@solidjs/web";
@@ -17,6 +18,7 @@ import { Card, ErrorText, PageTitle, Tabs } from "@dassie/ui/ui";
 import { schemeName } from "./schemes.ts";
 import { RequestPayment } from "./payments/RequestPayment.tsx";
 import { WalletAddresses } from "./payments/WalletAddresses.tsx";
+import { LedgerDeposit } from "./ledgers/LedgerDeposit.tsx";
 
 export function Receive(): JSX.Element {
   const data = useNodeData();
@@ -36,7 +38,7 @@ export function Receive(): JSX.Element {
     ...(data.ledgers() ?? []).map((ledger) => ({
       id: ledger.settlementScheme,
       title: schemeName(ledger.settlementScheme),
-      panel: () => <Deposit ledger={ledger} />,
+      panel: () => <Deposit id={ledger.id} />,
     })),
   ];
   return (
@@ -57,13 +59,32 @@ export function Receive(): JSX.Element {
   );
 }
 
-function Deposit(props: { ledger: Ledger }): JSX.Element {
+/** The panel stays while its tab does: it follows the ledger as it changes,
+ * funded or topped up. */
+function Deposit(props: { id: string }): JSX.Element {
+  const data = useNodeData();
+  const live = () => data.ledgers()?.find((ledger) => ledger.id === props.id);
   return (
-    <Show
-      when={props.ledger.settlementScheme === "stub"}
-      fallback={<p class="muted">No deposit method for this ledger yet.</p>}
-    >
-      <StubDeposit ledger={props.ledger} />
+    <Show when={live()}>
+      {(ledger) => (
+        <Show
+          when={ledger().settlementScheme === "stub"}
+          fallback={
+            <Show
+              when={ledger().depositAddress}
+              fallback={
+                <p class="muted">No deposit method for this ledger yet.</p>
+              }
+            >
+              {(address) => (
+                <LedgerDeposit ledger={ledger()} address={address()} />
+              )}
+            </Show>
+          }
+        >
+          <StubDeposit ledger={ledger()} />
+        </Show>
+      )}
     </Show>
   );
 }

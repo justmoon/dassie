@@ -311,3 +311,58 @@ async fn a_new_fake_ledger_is_a_testnet_reset() {
     a.stop().await;
     server.stop();
 }
+
+/// What the fake faucet gives, in internal units.
+const FAUCET: i64 = 1_000_000_000_000;
+
+/// The owner asks the faucet for more through the RPC, at its pace: what
+/// it sends is a deposit once the ledger shows it.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_owner_asks_the_faucet_for_more() {
+    let server = fake_ledger().await;
+    let config = serde_json::json!({
+        "server": server.url,
+        "faucet": server.faucet_url,
+    })
+    .to_string();
+    let key_a = key(34);
+    let bound = Bound::new();
+    let nodes = bootstrap(&key_a, bound.https_port());
+    let env = [
+        ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
+        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+    ];
+    let clock = ManualClock::new(START_MS);
+    let a = bound.start(clock.clone(), 1, Policies::DEV, &env).await;
+    prepare_with(&a, &key_a, "xrpl-testnet", &config).await;
+    until(&clock, async || in_step(&a, &key_a, &server).await).await;
+    assert!(ledger_of(&a).await.unwrap().faucet);
+    let ask = async |scheme: &str| {
+        a.ipc()
+            .await
+            .call(Method::AskFaucet(proto::AskFaucetRequest {
+                settlement_scheme: scheme.into(),
+            }))
+            .await
+    };
+    // The faucet made the account less than a minute ago.
+    let early = ask("xrpl-testnet").await.unwrap_err();
+    assert_eq!(early.code(), proto::ErrorCode::ResourceExhausted);
+    let missing = ask("stub").await.unwrap_err();
+    assert_eq!(missing.code(), proto::ErrorCode::NotFound);
+    let mut asked = false;
+    until(&clock, async || {
+        asked = asked || ask("xrpl-testnet").await.is_ok();
+        asked
+    })
+    .await;
+    until(&clock, async || {
+        in_step(&a, &key_a, &server).await && deposits(&a).await.len() == 2
+    })
+    .await;
+    assert_eq!(deposits(&a).await, [FUNDED as u64, FAUCET as u64]);
+    assert_eq!(ledger_of(&a).await.unwrap().owner_balance, FUNDED + FAUCET);
+    a.stop().await;
+    server.stop();
+}

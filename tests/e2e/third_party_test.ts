@@ -23,16 +23,14 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getCACertificates, setDefaultCACertificates } from "node:tls";
-import { loginSecret } from "@dassie/identity-wasm";
 import {
   createAuthenticatedClient,
   isFinalizedGrantWithAccessToken,
   isPendingGrant,
 } from "@interledger/open-payments";
 import { serve } from "@dassie/dev/serve";
-import { certificate, Scenario, type ScenarioNode } from "@dassie/dev/scenario";
-import type { Page } from "puppeteer-core";
-import { click, text, until } from "./browser.ts";
+import { certificate, Scenario } from "@dassie/dev/scenario";
+import { click, signIn, text, until } from "./browser.ts";
 import {
   DASSIE,
   missingTools,
@@ -132,24 +130,6 @@ async function status(call: Promise<unknown>): Promise<number | undefined> {
     return (error as { status?: number }).status;
   }
   throw new Error("the call succeeded");
-}
-
-/** Signs the browser in to `node`'s wallet at `origin`. */
-async function signIn(page: Page, node: ScenarioNode, origin: string) {
-  await page.goto(origin, { waitUntil: "load" });
-  const proof = loginSecret(node.key).toHex();
-  const status = await page.evaluate(
-    async (proof: string) => {
-      const response = await fetch("/api/login", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ loginAuthorizationSignature: proof }),
-      });
-      return response.status;
-    },
-    proof,
-  );
-  assertEquals(status, 200);
 }
 
 test("a third-party client pays from one node to another with consent", {

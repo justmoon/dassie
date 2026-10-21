@@ -568,6 +568,9 @@ fn ledgers() -> BoxedStrategy<Method> {
             Method::RemoveSettlementScheme(proto::RemoveSettlementSchemeRequest { id })
         }),
         number().prop_map(|amount| Method::StubDeposit(proto::StubDepositRequest { amount })),
+        scheme_id().prop_map(|settlement_scheme| {
+            Method::AskFaucet(proto::AskFaucetRequest { settlement_scheme })
+        }),
         (text(), field(LEDGERS), cap()).prop_map(|(label, ledger, cap)| {
             Method::CreateBtpToken(proto::CreateBtpTokenRequest { label, ledger, cap })
         }),

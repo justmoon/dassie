@@ -34,6 +34,8 @@ message Ledger {
   LedgerConnection connection = 11;
   // Why, when it is FAILED.
   string connection_problem = 12;
+  // Whether the node can ask a faucet for test money on it: AskFaucet.
+  bool faucet = 13;
 }
 
 enum LedgerConnection {
@@ -193,5 +195,19 @@ message StubDepositRequest {
 }
 
 message StubDepositResponse {
+  Ledger ledger = 1;
+}
+
+// Asks the faucet of a test ledger for money. Nothing is booked at once:
+// what the faucet sends is a deposit once the ledger shows it. NOT_FOUND if
+// the scheme is not active, FAILED_PRECONDITION if its ledger has no faucet,
+// RESOURCE_EXHAUSTED if the faucet was asked less than a minute ago or the
+// ledger cannot be reached.
+message AskFaucetRequest {
+  // The settlement scheme's ID, for example "xrpl-testnet".
+  string settlement_scheme = 1;
+}
+
+message AskFaucetResponse {
   Ledger ledger = 1;
 }

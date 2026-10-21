@@ -59,6 +59,12 @@ pub async fn dispatch(node: &Arc<Node>, method: Method, items: &Items) -> Result
                 ledger: Some(ledger(&view)),
             })
         }
+        Method::AskFaucet(request) => {
+            let view = engine.ask_faucet(request.settlement_scheme).await?;
+            response::Method::AskFaucet(proto::AskFaucetResponse {
+                ledger: Some(ledger(&view)),
+            })
+        }
         other => return dispatch_more(node, &engine, other, items).await,
     };
     Ok(Reply::Unary(reply))
@@ -418,6 +424,7 @@ pub(super) fn ledger(view: &LedgerView) -> proto::Ledger {
         removal_blockers: view.removal_blockers.iter().map(blocker).collect(),
         reserve: view.reserve,
         deposit_address: view.deposit_address.clone().unwrap_or_default(),
+        faucet: view.faucet,
         connection: connection(view.status).into(),
         connection_problem: match view.status {
             LedgerStatus::Failed(why) => why.into(),

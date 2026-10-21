@@ -5,7 +5,33 @@
  * not survive.
  */
 
+import { assertEquals } from "@std/assert";
+import { loginSecret } from "@dassie/identity-wasm";
+import type { ScenarioNode } from "@dassie/dev/scenario";
 import type { ElementHandle, Page } from "puppeteer-core";
+
+/** Signs the browser in to `node`'s wallet at `origin` as its owner, with
+ * the node's key. */
+export async function signIn(
+  page: Page,
+  node: ScenarioNode,
+  origin = node.url,
+): Promise<void> {
+  await page.goto(origin, { waitUntil: "load" });
+  const proof = loginSecret(node.key).toHex();
+  const status = await page.evaluate(
+    async (proof: string) => {
+      const response = await fetch("/api/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ loginAuthorizationSignature: proof }),
+      });
+      return response.status;
+    },
+    proof,
+  );
+  assertEquals(status, 200);
+}
 
 /** How long to wait for an element, in ms. */
 const WAIT_MS = 20_000;
