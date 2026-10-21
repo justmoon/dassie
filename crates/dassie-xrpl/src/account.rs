@@ -21,7 +21,9 @@
 //! a scheme not on the account (stopped, or removed) misses of its own
 //! transactions, the account keeps for it until it is back: one that can
 //! never apply as never sent, one the ledger validated as kept, so that the
-//! scheme books it as its own when it reads it again.
+//! scheme books it as its own when it reads it again, or, when the history
+//! no longer reaches back to it, is told it did not, and books it as its
+//! own once it has looked it up.
 //!
 //! It runs only on the testnet: a server that reports another network, or
 //! none, stops it before the account is read, so mainnet XRP is never
@@ -90,10 +92,11 @@ const MAX_NEVER_SENT: usize = 2 * MAX_IN_FLIGHT;
 /// it signs nothing more until it has read them again.
 const MAX_PARKED: usize = MAX_IN_FLIGHT * MAX_SCHEMES;
 /// Most news kept between two tellings: one message's worth, at most a page
-/// of history, what was held while catching up, and what was in flight.
+/// of history, what was held while catching up, what was in flight, and
+/// what was kept for schemes and not read again.
 // PAGE is a few hundred: no truncation.
 #[allow(clippy::cast_possible_truncation)]
-const MAX_NEWS: usize = api::PAGE as usize + MAX_BUFFERED + MAX_IN_FLIGHT + 4;
+const MAX_NEWS: usize = api::PAGE as usize + MAX_BUFFERED + MAX_IN_FLIGHT + MAX_PARKED + 4;
 /// Most effects between two takings: one message's worth.
 const MAX_EFFECTS: usize = MAX_PENDING + MAX_IN_FLIGHT + 4;
 /// Most bytes of config.
@@ -268,6 +271,17 @@ pub enum News {
         /// Whether the reserve changed with it.
         reserve_changed: bool,
     },
+    /// A transaction of `scheme`'s, kept for it while it was not on the
+    /// account, that it did not read again once back: the server's history
+    /// no longer reaches back to it. What it did is in the balance the
+    /// scheme synced to; the scheme looks it up by its hash, and books it
+    /// as one it never read.
+    Unread {
+        /// The scheme that signed it.
+        scheme: Name,
+        /// The transaction.
+        hash: [u8; 32],
+    },
     /// A transaction a scheme looked up, validated.
     Found {
         /// The hash the scheme looked up.
@@ -323,7 +337,8 @@ struct NeverSent {
 /// A transaction of a scheme that was not on the account when the ledger
 /// validated it, because it stopped or was removed: kept until the scheme
 /// is back and the account has synced, so that the scheme books it as its
-/// own when it reads it again, never as a withdrawal.
+/// own when it reads it again, never as a withdrawal. One it did not read
+/// again it is told of ([`News::Unread`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Parked {
     scheme: Name,
@@ -1142,9 +1157,19 @@ impl XrplAccount {
             self.transaction(&record);
         }
         // What was kept for a scheme back on the account, it has now read
-        // again from its cursor, or looks up by its hash.
+        // again from its cursor; what it has not, it is told, and looks up
+        // by its hash.
         let followers = &self.followers;
-        self.parked.retain(|p| !followers.contains_key(&p.scheme));
+        let (unread, kept): (Vec<Parked>, Vec<Parked>) = core::mem::take(&mut self.parked)
+            .into_iter()
+            .partition(|p| followers.contains_key(&p.scheme));
+        self.parked = kept;
+        for parked in unread {
+            self.tell(News::Unread {
+                scheme: parked.scheme,
+                hash: parked.hash,
+            });
+        }
         let waiting: Vec<[u8; 32]> = self
             .in_flight
             .iter()
@@ -1971,5 +1996,30 @@ mod tests {
         scheme.on_asset(0, &mut account, &mut effects);
         let settlement = Name::hex(&asked, true);
         assert_eq!(effects, [Effect::Finalize { settlement }]);
+    }
+
+    // A scheme's state keeps which settlements it looks up it never read,
+    // each one it looks up, once: any other is a state it never wrote.
+    #[test]
+    fn a_scheme_state_keeps_what_it_never_read() {
+        use dassie_settlement::SettlementScheme;
+
+        let id = dassie_ledger::name!(crate::scheme::SCHEME_ID);
+        let account = synced_account(&[id]);
+        let node = dassie_ledger::name!("node");
+        let (asked, other) = (hex_upper(&[1; 32]), hex_upper(&[2; 32]));
+        let state = |unread: Value| {
+            let state = json!({
+                "cursor": [10, u32::MAX], "peers": {}, "recovering": [asked], "unread": unread,
+            });
+            serde_json::to_vec(&state).unwrap()
+        };
+        let scheme = crate::XrplScheme::new(&account, node, Some(0), &state(json!([asked])));
+        let kept: Value = serde_json::from_slice(&scheme.unwrap().state()).unwrap();
+        assert_eq!(kept["unread"], json!([asked]));
+        for unread in [json!([other]), json!([asked, asked]), json!(asked)] {
+            let scheme = crate::XrplScheme::new(&account, node, Some(0), &state(unread));
+            assert!(scheme.is_err());
+        }
     }
 }

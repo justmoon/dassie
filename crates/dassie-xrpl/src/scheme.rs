@@ -68,10 +68,17 @@ fn account_of(asset: &mut dyn ExternalAsset) -> Option<&mut XrplAccount> {
 
 /// A settlement of ours a restart left pending, though the account no
 /// longer has it in flight: its outcome is looked up by its hash. Only the
-/// hash is kept with the books; a restart asks at once.
+/// hash, and whether it is unread, are kept with the books; a restart asks
+/// at once.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Recovering {
     hash: [u8; 32],
+    /// Whether the scheme never read it: it validated while the scheme was
+    /// not on the account, and the history no longer reached back to it
+    /// once it was ([`News::Unread`]). What it did is in the balance the
+    /// scheme synced to, booked through suspense; otherwise, the scheme
+    /// read it before a restart, and booked it then.
+    unread: bool,
     /// The validated ledger from which it may be asked again.
     ask_at: u32,
     /// How many ledgers the next lookup waits for the one after it: it
@@ -83,6 +90,7 @@ impl Recovering {
     const fn new(hash: [u8; 32]) -> Self {
         Self {
             hash,
+            unread: false,
             ask_at: 0,
             wait: 1,
         }
@@ -203,6 +211,8 @@ impl XrplScheme {
                 }
                 self.ask_recover(account);
             }
+            News::Unread { scheme, hash } if *scheme == id => self.unread(*hash),
+            News::Unread { .. } => {}
             News::Found { hash, record } => self.recovered(*hash, record, effects),
         }
     }
@@ -346,16 +356,39 @@ impl XrplScheme {
         booked - i128::from(units(record.fee))
     }
 
-    /// The outcome of a settlement of ours that a restart left pending in
-    /// the books, its fee and the balance booked already: posted or
-    /// voided now (spec/areas/xrpl.md#state-and-restarts). `hash` is what
-    /// was looked up.
+    /// A settlement of ours that validated while the scheme was not on the
+    /// account, and that it did not read again: it is booked as one never
+    /// read once found. One not looked up (past [`MAX_RECOVERING`]) stays
+    /// pending, as any is.
+    fn unread(&mut self, hash: [u8; 32]) {
+        if let Some(recovering) = self.recovering.iter_mut().find(|r| r.hash == hash) {
+            recovering.unread = true;
+        }
+    }
+
+    /// The outcome of a settlement of ours that a restart left pending,
+    /// posted or voided now (spec/areas/xrpl.md#state-and-restarts). `hash`
+    /// is what was looked up. One the scheme read before the restart, it
+    /// booked then, with its fee and what it did to the balance. One it
+    /// never read is booked now as one of ours read behind the cursor is:
+    /// with its fee, and what the balance booked through suspense at the
+    /// sync comes back out.
     fn recovered(&mut self, hash: [u8; 32], record: &TxRecord, effects: &mut Vec<Effect>) {
         let Some(position) = self.recovering.iter().position(|r| r.hash == hash) else {
             return;
         };
-        self.recovering.remove(position);
+        let recovering = self.recovering.remove(position);
         let settlement = hash_name(&hash);
+        if recovering.unread {
+            let ours = Ours {
+                scheme: self.id(),
+                drops: record.delivered.unwrap_or(0),
+            };
+            let booked = self.resolve(record, ours, effects);
+            self.hold(booked, effects);
+            self.match_balance(effects);
+            return;
+        }
         effects.push(if record.succeeded() {
             Effect::Finalize { settlement }
         } else {
@@ -367,7 +400,12 @@ impl XrplScheme {
     /// as many at a time as the account looks up. Each is asked again only
     /// once its wait is over, and waits twice as long after each lookup,
     /// so one never found is not asked at every ledger.
+    /// Only once synced: what the scheme did not read again, the account
+    /// tells with the sync, before any lookup can be answered.
     fn ask_recover(&mut self, account: &mut XrplAccount) {
+        if !self.synced {
+            return;
+        }
         let validated = self.validated;
         for recovering in &mut self.recovering {
             if !account.can_look_up() {
@@ -432,8 +470,8 @@ impl XrplScheme {
         let (ledger, index) = self.cursor.unwrap_or((u32::MAX, u32::MAX));
         add(u64::from(ledger) << 32 | u64::from(index));
         add(self.next_learnt);
-        for Recovering { hash, .. } in &self.recovering {
-            add(u64::from(hash[0]) << 8 | u64::from(hash[1]));
+        for Recovering { hash, unread, .. } in &self.recovering {
+            add(u64::from(hash[0]) << 8 | u64::from(hash[1]) | u64::from(*unread) << 16);
         }
         add(self.recovering.len() as u64);
         mix
@@ -454,6 +492,7 @@ impl XrplScheme {
             "cursor": self.cursor.map(|(ledger, index)| json!([ledger, index])),
             "peers": peers,
             "recovering": recovering,
+            "unread": unread_value(&self.recovering),
         })
     }
 
@@ -495,8 +534,36 @@ impl XrplScheme {
             }
             self.recovering.push(Recovering::new(hash));
         }
-        Some(())
+        restore_unread(&value, &mut self.recovering)
     }
+}
+
+/// Which of the settlements looked up the scheme never read, as its state
+/// keeps them.
+fn unread_value(recovering: &[Recovering]) -> Value {
+    recovering
+        .iter()
+        .filter(|r| r.unread)
+        .map(|r| Value::from(hex_upper(&r.hash)))
+        .collect()
+}
+
+/// Marks the settlements a state keeps as unread: each one looked up, and
+/// once. A state written before the scheme kept them has none.
+fn restore_unread(state: &Value, recovering: &mut [Recovering]) -> Option<()> {
+    let unread = match state.get("unread") {
+        None => return Some(()),
+        Some(unread) => unread.as_array()?,
+    };
+    for hash in unread {
+        let hash: [u8; 32] = from_hex(hash.as_str()?)?.try_into().ok()?;
+        let recovering = recovering.iter_mut().find(|r| r.hash == hash)?;
+        if recovering.unread {
+            return None;
+        }
+        recovering.unread = true;
+    }
+    Some(())
 }
 
 /// Drops in internal units. Only amounts checked against

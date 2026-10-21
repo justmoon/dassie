@@ -37,11 +37,16 @@ struct Shared {
     stopped: bool,
     /// Where the witness reads from.
     witness: Option<(u32, u32)>,
-    /// What the `xrpl-testnet` scheme booked, in order.
+    /// What the books held for the `xrpl-testnet` scheme when it was last
+    /// activated.
+    checkpoint: u64,
+    /// What the `xrpl-testnet` scheme booked since, in order.
     booked: Vec<Effect>,
     connection: u64,
     /// Whether the network loses submissions.
     drop_submits: bool,
+    /// Whether the server answers no lookup of a transaction.
+    drop_lookups: bool,
     now: u64,
 }
 
@@ -55,9 +60,11 @@ impl Shared {
             scheme: None,
             stopped: false,
             witness,
+            checkpoint: 0,
             booked: Vec::new(),
             connection: 1,
             drop_submits: false,
+            drop_lookups: false,
             now: 1_000,
         }
     }
@@ -75,6 +82,7 @@ impl Shared {
         let node = Name::new("node").unwrap();
         let scheme = XrplScheme::new(&self.account, node, checkpoint, state).unwrap();
         self.scheme = Some(scheme);
+        self.checkpoint = checkpoint.unwrap_or(0);
         self.stopped = false;
         self.tell();
     }
@@ -115,6 +123,9 @@ impl Shared {
     fn request(&mut self, message: &[u8]) {
         let request: serde_json::Value = serde_json::from_slice(message).unwrap();
         if self.drop_submits && request["command"] == "submit" {
+            return;
+        }
+        if self.drop_lookups && request["command"] == "tx" {
             return;
         }
         let reply = self.ledger.request(self.connection, message);
@@ -169,6 +180,25 @@ impl Shared {
         (self.ledger.balance(self.address()).unwrap() - RESERVE_BASE) * UNITS_PER_DROP
     }
 
+    /// What the books hold now, as the node books what the scheme said
+    /// since it was activated: a settlement of ours posted takes
+    /// [`AMOUNT`] off them.
+    fn books(&self) -> i128 {
+        let moved = |effect: &Effect| -> i128 {
+            match *effect {
+                Effect::Deposit { amount } | Effect::IncomingSettlement { amount, .. } => {
+                    i128::from(amount)
+                }
+                Effect::Withdrawal { amount } | Effect::Fee { amount, .. } => -i128::from(amount),
+                Effect::Reconcile { amount, gain } if gain => i128::from(amount),
+                Effect::Reconcile { amount, .. } => -i128::from(amount),
+                Effect::Finalize { .. } => -i128::from(AMOUNT),
+                _ => 0,
+            }
+        };
+        i128::from(self.checkpoint) + self.booked.iter().map(moved).sum::<i128>()
+    }
+
     fn count(&self, matches: impl Fn(&Effect) -> bool) -> usize {
         self.booked.iter().filter(|effect| matches(effect)).count()
     }
@@ -194,8 +224,13 @@ fn synced() -> (Shared, AccountId) {
 /// on its way; what happens to it then, `meanwhile` makes. The node then
 /// restarts: the account from what the witness had it write, the scheme
 /// from what it wrote before it stopped, with its settlement still pending
-/// in the books.
-fn stopped_while_settling(drop_submits: bool, meanwhile: usize) -> (Shared, Name) {
+/// in the books. With `short_history`, the server's account history no
+/// longer reaches back to the settlement when it does.
+fn stopped_while_settling(
+    drop_submits: bool,
+    meanwhile: usize,
+    short_history: bool,
+) -> (Shared, Name) {
     let (mut shared, theirs) = synced();
     shared.drop_submits = drop_submits;
     let id = shared.settle(theirs);
@@ -203,6 +238,9 @@ fn stopped_while_settling(drop_submits: bool, meanwhile: usize) -> (Shared, Name
     shared.stop();
     for _ in 0..meanwhile {
         shared.close();
+    }
+    if short_history {
+        shared.ledger.shorten_account_history();
     }
     let kept = shared.account.state();
     let mut restarted = Shared::new(shared.ledger, &kept, None);
@@ -248,7 +286,7 @@ fn a_scheme_that_joins_books_its_first_sync_alone() {
 // never also as a withdrawal.
 #[test]
 fn a_settlement_validated_while_its_scheme_stopped_is_booked_once() {
-    let (shared, id) = stopped_while_settling(false, 2);
+    let (shared, id) = stopped_while_settling(false, 2, false);
     let finalized = shared.count(|e| *e == Effect::Finalize { settlement: id });
     let fees = shared.count(|e| matches!(e, Effect::Fee { id: fee, .. } if *fee == id));
     let withdrawals = shared.count(|e| matches!(e, Effect::Withdrawal { .. }));
@@ -260,7 +298,85 @@ fn a_settlement_validated_while_its_scheme_stopped_is_booked_once() {
         shared.booked
     );
     assert_eq!(shared.scheme().balance(), shared.bookable());
+    assert_eq!(shared.books(), i128::from(shared.bookable()));
     assert_eq!(shared.scheme().status(), LedgerStatus::Synced);
+}
+
+// Found in review: as above, with a server whose account history no longer
+// reaches back to the settlement. The sync books what the balance lost
+// through suspense; the settlement, looked up by its hash, is posted with
+// its fee, and what the balance booked comes back out of suspense, so the
+// books hold the balance once, not the settlement twice.
+#[test]
+fn a_settlement_validated_while_its_scheme_stopped_is_booked_once_without_its_history() {
+    let (shared, id) = stopped_while_settling(false, 2, true);
+    let finalized = shared.count(|e| *e == Effect::Finalize { settlement: id });
+    let fees = shared.count(|e| matches!(e, Effect::Fee { id: fee, .. } if *fee == id));
+    let withdrawals = shared.count(|e| matches!(e, Effect::Withdrawal { .. }));
+    assert_eq!(
+        (finalized, fees, withdrawals),
+        (1, 1, 0),
+        "{:?}",
+        shared.booked
+    );
+    let suspense: i128 = shared
+        .booked
+        .iter()
+        .map(|effect| match *effect {
+            Effect::Reconcile { amount, gain } if gain => i128::from(amount),
+            Effect::Reconcile { amount, .. } => -i128::from(amount),
+            _ => 0,
+        })
+        .sum();
+    assert_eq!(suspense, 0, "what suspense booked came back out");
+    assert_eq!(shared.scheme().balance(), shared.bookable());
+    assert_eq!(
+        shared.books(),
+        i128::from(shared.bookable()),
+        "{:?}",
+        shared.booked
+    );
+    assert_eq!(shared.scheme().status(), LedgerStatus::Synced);
+}
+
+// As above, with the node restarting again after the sync and before the
+// lookup: the scheme keeps that it never read the settlement with its
+// state, so it still books it as one it never read.
+#[test]
+fn a_settlement_never_read_is_booked_once_across_a_restart() {
+    let (mut shared, theirs) = synced();
+    let id = shared.settle(theirs);
+    let (state, checkpoint) = (shared.scheme().state(), shared.scheme().balance());
+    shared.stop();
+    shared.close();
+    shared.close();
+    shared.ledger.shorten_account_history();
+    let kept = shared.account.state();
+    let mut restarted = Shared::new(shared.ledger, &kept, None);
+    restarted.activate(Some(checkpoint), &state);
+    restarted.reconcile(&[(id, AMOUNT)]);
+    // Synced, and told what it did not read, but not yet looked up.
+    restarted.drop_lookups = true;
+    restarted.connect();
+    let synced_books = restarted.books();
+    let (state, checkpoint) = (restarted.scheme().state(), restarted.scheme().balance());
+    assert_eq!(synced_books, i128::from(checkpoint));
+    let kept = restarted.account.state();
+    let mut again = Shared::new(restarted.ledger, &kept, None);
+    again.activate(Some(checkpoint), &state);
+    again.reconcile(&[(id, AMOUNT)]);
+    again.connect();
+    again.close();
+    again.close();
+    let finalized = again.count(|e| *e == Effect::Finalize { settlement: id });
+    assert_eq!(finalized, 1, "{:?}", again.booked);
+    assert_eq!(again.scheme().balance(), again.bookable());
+    assert_eq!(
+        again.books(),
+        i128::from(again.bookable()),
+        "{:?}",
+        again.booked
+    );
 }
 
 // spec/areas/settlement.md#external-assets: a settlement that can never
@@ -268,7 +384,7 @@ fn a_settlement_validated_while_its_scheme_stopped_is_booked_once() {
 // restart, rather than left pending for good.
 #[test]
 fn a_settlement_given_up_while_its_scheme_stopped_is_cancelled() {
-    let (shared, id) = stopped_while_settling(true, 25);
+    let (shared, id) = stopped_while_settling(true, 25, false);
     let cancelled = shared.count(|e| *e == Effect::Cancel { settlement: id });
     let finalized = shared.count(|e| matches!(e, Effect::Finalize { .. }));
     assert_eq!((cancelled, finalized), (1, 0), "{:?}", shared.booked);
