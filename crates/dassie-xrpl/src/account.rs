@@ -23,7 +23,8 @@
 //! never apply as never sent, one the ledger validated as kept, so that the
 //! scheme books it as its own when it reads it again, or, when the history
 //! no longer reaches back to it, is told it did not, and books it as its
-//! own once it has looked it up.
+//! own once it has looked it up. So is what it was told of its own in the
+//! input whose bookings the books refused, which stopped it.
 //!
 //! It runs only on the testnet: a server that reports another network, or
 //! none, stops it before the account is read, so mainnet XRP is never
@@ -271,16 +272,16 @@ pub enum News {
         /// Whether the reserve changed with it.
         reserve_changed: bool,
     },
-    /// A transaction of `scheme`'s, kept for it while it was not on the
+    /// A transaction of a scheme's, kept for it while it was not on the
     /// account, that it did not read again once back: the server's history
     /// no longer reaches back to it. What it did is in the balance the
     /// scheme synced to; the scheme looks it up by its hash, and books it
-    /// as one it never read.
+    /// as one it never read, by the amount it settled.
     Unread {
-        /// The scheme that signed it.
-        scheme: Name,
         /// The transaction.
         hash: [u8; 32],
+        /// What it was, as the scheme signed it.
+        ours: Ours,
     },
     /// A transaction a scheme looked up, validated.
     Found {
@@ -1166,8 +1167,11 @@ impl XrplAccount {
         self.parked = kept;
         for parked in unread {
             self.tell(News::Unread {
-                scheme: parked.scheme,
                 hash: parked.hash,
+                ours: Ours {
+                    scheme: parked.scheme,
+                    drops: parked.drops,
+                },
             });
         }
         let waiting: Vec<[u8; 32]> = self
@@ -1327,16 +1331,69 @@ impl XrplAccount {
         }
     }
 
+    /// What the account told `scheme` of its own since its schemes were
+    /// last told, the scheme did not take: the node lets go of a scheme
+    /// before the account forgets what it told ([`told`](ExternalAsset::told))
+    /// only when the books refused what it was told, and stopped it. Its
+    /// checkpoint stays as it was, so after a restart it reads that again
+    /// from its cursor, while the account's state, written on for the other
+    /// schemes, no longer has it in flight or kept. So it is kept for the
+    /// scheme, as for one not on the account: a transaction the ledger
+    /// validated, or one it was told it did not read again, as kept; one
+    /// that can never apply as never sent. Otherwise the scheme would read
+    /// its own settlement again as a withdrawal, and post it once found.
+    fn keep_untaken(&mut self, scheme: Name) {
+        let mut parked = Vec::new();
+        let mut never_sent = Vec::new();
+        for news in &self.news {
+            match news {
+                News::Transaction {
+                    record,
+                    ours: Some(ours),
+                } if ours.scheme == scheme => parked.push(Parked {
+                    scheme,
+                    hash: record.hash,
+                    drops: ours.drops,
+                }),
+                News::Unread { hash, ours } if ours.scheme == scheme => parked.push(Parked {
+                    scheme,
+                    hash: *hash,
+                    drops: ours.drops,
+                }),
+                News::Cancelled { scheme: of, hash } if *of == scheme => never_sent.push(*hash),
+                _ => {}
+            }
+        }
+        for kept in parked {
+            if !self.parked.iter().any(|p| p.hash == kept.hash) {
+                assert!(self.parked.len() < MAX_PARKED, "kept past its bound");
+                self.parked.push(kept);
+            }
+        }
+        for hash in never_sent {
+            if !self.never_sent.iter().any(|n| n.hash == hash) {
+                self.never_sent(scheme, hash);
+            }
+        }
+    }
+
     /// A scheme's lookup of `hash`, answered: only a transaction found
     /// validated is news, told under the hash asked for. Not found, or not
-    /// validated yet, it waits, to be asked again.
+    /// validated yet, it waits, to be asked again. One that names more XRP
+    /// than the books can hold stops the account, as one from the stream
+    /// does, before any scheme books it.
     fn found(&mut self, hash: [u8; 32], outcome: Result<Value, ApiError>) {
         let Ok(result) = outcome else {
             return;
         };
-        if let Some(record) = api::tx_result(&result).filter(|r| r.validated) {
-            self.tell(News::Found { hash, record });
+        let Some(record) = api::tx_result(&result).filter(|r| r.validated) else {
+            return;
+        };
+        if !self.bookable_record(&record) {
+            self.failed = Some(TOO_MUCH_XRP);
+            return;
         }
+        self.tell(News::Found { hash, record });
     }
 
     /// A validated transaction that touches the account: it moves the
@@ -1783,6 +1840,7 @@ impl ExternalAsset for XrplAccount {
 
     fn detach(&mut self, scheme: Name) {
         self.followers.remove(&scheme);
+        self.keep_untaken(scheme);
     }
 
     fn state(&self) -> Vec<u8> {

@@ -73,6 +73,10 @@ fn account_of(asset: &mut dyn ExternalAsset) -> Option<&mut XrplAccount> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Recovering {
     hash: [u8; 32],
+    /// What the books hold pending for it, in internal units: what we
+    /// signed, as the node hands it at each reconcile. A settlement never
+    /// read is booked by it, never by what a server says it delivered.
+    amount: Option<u64>,
     /// Whether the scheme never read it: it validated while the scheme was
     /// not on the account, and the history no longer reached back to it
     /// once it was ([`News::Unread`]). What it did is in the balance the
@@ -90,6 +94,7 @@ impl Recovering {
     const fn new(hash: [u8; 32]) -> Self {
         Self {
             hash,
+            amount: None,
             unread: false,
             ask_at: 0,
             wait: 1,
@@ -211,7 +216,7 @@ impl XrplScheme {
                 }
                 self.ask_recover(account);
             }
-            News::Unread { scheme, hash } if *scheme == id => self.unread(*hash),
+            News::Unread { hash, ours } if ours.scheme == id => self.unread(*hash),
             News::Unread { .. } => {}
             News::Found { hash, record } => self.recovered(*hash, record, effects),
         }
@@ -283,7 +288,7 @@ impl XrplScheme {
         let at = (record.ledger_index, record.index);
         if self.cursor.is_none_or(|cursor| at <= cursor) {
             if let Some(ours) = mine {
-                let booked = self.resolve(record, ours, effects);
+                let booked = self.resolve(record, units(ours.drops), effects);
                 self.hold(booked, effects);
                 self.match_balance(effects);
             }
@@ -299,7 +304,7 @@ impl XrplScheme {
         }
         let mut booked = i128::from(self.booked);
         if let Some(ours) = mine {
-            booked = self.resolve(record, ours, effects);
+            booked = self.resolve(record, units(ours.drops), effects);
         } else if let Some(change) = change {
             if let Some(peer) = self.settled_by(record) {
                 let amount = units(record.delivered.unwrap_or(0));
@@ -336,16 +341,16 @@ impl XrplScheme {
         }
     }
 
-    /// Settles one of our transactions the ledger validated: posted or
-    /// voided, and its fee booked either way, and no longer looked up.
-    /// Returns what the books then hold.
-    fn resolve(&mut self, record: &TxRecord, ours: Ours, effects: &mut Vec<Effect>) -> i128 {
+    /// Settles one of our transactions the ledger validated, which paid
+    /// `paid` in internal units: posted or voided, and its fee booked either
+    /// way, and no longer looked up. Returns what the books then hold.
+    fn resolve(&mut self, record: &TxRecord, paid: u64, effects: &mut Vec<Effect>) -> i128 {
         self.recovering.retain(|r| r.hash != record.hash);
         let mut booked = i128::from(self.booked);
         let settlement = hash_name(&record.hash);
         if record.succeeded() {
             effects.push(Effect::Finalize { settlement });
-            booked -= i128::from(units(ours.drops));
+            booked -= i128::from(paid);
         } else {
             effects.push(Effect::Cancel { settlement });
         }
@@ -371,20 +376,17 @@ impl XrplScheme {
     /// is what was looked up. One the scheme read before the restart, it
     /// booked then, with its fee and what it did to the balance. One it
     /// never read is booked now as one of ours read behind the cursor is:
-    /// with its fee, and what the balance booked through suspense at the
-    /// sync comes back out.
+    /// by what the books hold pending for it, which is what we signed, with
+    /// its fee, and what the balance booked through suspense at the sync
+    /// comes back out. The account checked the fee before it told it.
     fn recovered(&mut self, hash: [u8; 32], record: &TxRecord, effects: &mut Vec<Effect>) {
         let Some(position) = self.recovering.iter().position(|r| r.hash == hash) else {
             return;
         };
         let recovering = self.recovering.remove(position);
         let settlement = hash_name(&hash);
-        if recovering.unread {
-            let ours = Ours {
-                scheme: self.id(),
-                drops: record.delivered.unwrap_or(0),
-            };
-            let booked = self.resolve(record, ours, effects);
+        if let (true, Some(amount)) = (recovering.unread, recovering.amount) {
+            let booked = self.resolve(record, amount, effects);
             self.hold(booked, effects);
             self.match_balance(effects);
             return;
@@ -535,6 +537,23 @@ impl XrplScheme {
             self.recovering.push(Recovering::new(hash));
         }
         restore_unread(&value, &mut self.recovering)
+    }
+}
+
+/// Looks up settlement `hash`, pending in the books for `amount`, unless it
+/// is already, or [`MAX_RECOVERING`] are: one restored from the state is
+/// told its amount.
+fn recover(recovering: &mut Vec<Recovering>, hash: [u8; 32], amount: u64) {
+    assert!(
+        amount <= MAX_TOTAL,
+        "the books hold at most a total pending"
+    );
+    if let Some(known) = recovering.iter_mut().find(|r| r.hash == hash) {
+        known.amount = Some(amount);
+    } else if recovering.len() < MAX_RECOVERING {
+        let mut new = Recovering::new(hash);
+        new.amount = Some(amount);
+        recovering.push(new);
     }
 }
 
@@ -814,20 +833,14 @@ impl SettlementScheme for XrplScheme {
         // the node could post it (its posting waited for an earlier
         // announcement) is looked for by its hash, and posted or voided by
         // what the ledger says.
-        for (id, _) in pending {
+        for (id, amount) in pending {
             let Some(hash) = name_hash(*id) else {
                 continue;
             };
             match account.resume(self.id(), hash) {
                 Resumed::InFlight => {}
                 Resumed::NeverSent => effects.push(Effect::Cancel { settlement: *id }),
-                Resumed::Unknown => {
-                    if !self.recovering.iter().any(|r| r.hash == hash)
-                        && self.recovering.len() < MAX_RECOVERING
-                    {
-                        self.recovering.push(Recovering::new(hash));
-                    }
-                }
+                Resumed::Unknown => recover(&mut self.recovering, hash, *amount),
             }
         }
     }
@@ -866,6 +879,7 @@ impl SettlementScheme for XrplScheme {
         );
         for recovering in &self.recovering {
             assert!((1..=MAX_RECOVER_WAIT_LEDGERS).contains(&recovering.wait));
+            assert!(recovering.amount.is_none_or(|amount| amount <= MAX_TOTAL));
             assert!(
                 recovering.ask_at <= self.validated.saturating_add(MAX_RECOVER_WAIT_LEDGERS),
                 "a lookup waits at most its longest wait"

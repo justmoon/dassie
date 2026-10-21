@@ -17,7 +17,7 @@ use dassie_node_core::testing::SeededRng;
 use dassie_settlement::{
     AssetEffect, Effect, ExternalAsset, LedgerInput, LedgerStatus, SettlementScheme,
 };
-use dassie_xrpl::account::{self, XrplAccount};
+use dassie_xrpl::account::{self, News, XrplAccount};
 use dassie_xrpl::fake::{FIRST_LEDGER, FakeLedger, RESERVE_BASE};
 use dassie_xrpl::{AccountId, UNITS_PER_DROP, Wallet, XrplScheme};
 
@@ -47,6 +47,11 @@ struct Shared {
     drop_submits: bool,
     /// Whether the server answers no lookup of a transaction.
     drop_lookups: bool,
+    /// Whether the books refuse what the `xrpl-testnet` scheme is next told
+    /// of its own, which stops it.
+    refuse_own: bool,
+    /// What a server's answer to a lookup is changed to say.
+    tamper_lookup: Option<fn(&mut serde_json::Value)>,
     now: u64,
 }
 
@@ -65,6 +70,8 @@ impl Shared {
             connection: 1,
             drop_submits: false,
             drop_lookups: false,
+            refuse_own: false,
+            tamper_lookup: None,
             now: 1_000,
         }
     }
@@ -96,10 +103,29 @@ impl Shared {
 
     /// Tells every scheme on the account what it learnt, as the node does,
     /// and carries out what the account asks.
+    /// With [`refuse_own`](Self::refuse_own), the books refuse what it
+    /// says when it is told anything of its own, and the node stops it
+    /// before the account forgets what it told, as it does on a refusal.
     fn tell(&mut self) {
+        let own = self.account.news().iter().any(|news| match news {
+            News::Transaction {
+                ours: Some(ours), ..
+            }
+            | News::Unread { ours, .. } => ours.scheme == XRPL,
+            News::Cancelled { scheme, .. } => *scheme == XRPL,
+            _ => false,
+        });
         if let (Some(scheme), false) = (&mut self.scheme, self.stopped) {
-            scheme.on_asset(self.now, &mut self.account, &mut self.booked);
-            scheme.check_invariants();
+            let mut effects = Vec::new();
+            scheme.on_asset(self.now, &mut self.account, &mut effects);
+            if self.refuse_own && own {
+                self.refuse_own = false;
+                self.stopped = true;
+                self.account.detach(XRPL);
+            } else {
+                scheme.check_invariants();
+                self.booked.append(&mut effects);
+            }
         }
         self.account.follow(WITNESS, self.witness, false);
         self.account.told();
@@ -128,7 +154,12 @@ impl Shared {
         if self.drop_lookups && request["command"] == "tx" {
             return;
         }
-        let reply = self.ledger.request(self.connection, message);
+        let mut reply = self.ledger.request(self.connection, message);
+        if let (Some(tamper), true) = (self.tamper_lookup, request["command"] == "tx") {
+            let mut answer: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+            tamper(&mut answer);
+            reply = serde_json::to_vec(&answer).unwrap();
+        }
         self.input(LedgerInput::Message(&reply));
     }
 
@@ -242,14 +273,83 @@ fn stopped_while_settling(
     if short_history {
         shared.ledger.shorten_account_history();
     }
+    (restart(shared, checkpoint, &state, id), id)
+}
+
+/// The node restarts: the account from what the witness had it write, the
+/// `xrpl-testnet` scheme from `checkpoint` and `state`, with settlement
+/// `id` still pending in the books.
+fn restart(shared: Shared, checkpoint: u64, state: &[u8], id: Name) -> Shared {
     let kept = shared.account.state();
     let mut restarted = Shared::new(shared.ledger, &kept, None);
-    restarted.activate(Some(checkpoint), &state);
+    restarted.tamper_lookup = shared.tamper_lookup;
+    restarted.activate(Some(checkpoint), state);
     restarted.reconcile(&[(id, AMOUNT)]);
     restarted.connect();
     restarted.close();
     restarted.close();
-    (restarted, id)
+    restarted
+}
+
+/// The `xrpl-testnet` scheme settles, and the books refuse what it is told
+/// when the ledger validates the settlement, or, with `drop_submits`, when
+/// the account gives it up: its checkpoint stays as it was, while the
+/// witness keeps the account's written. The node then restarts, as after
+/// [`stopped_while_settling`].
+fn refused_while_settling(drop_submits: bool, short_history: bool) -> (Shared, Name) {
+    let (mut shared, theirs) = synced();
+    shared.drop_submits = drop_submits;
+    let id = shared.settle(theirs);
+    let (state, checkpoint) = (shared.scheme().state(), shared.scheme().balance());
+    shared.refuse_own = true;
+    for _ in 0..25 {
+        if shared.stopped {
+            break;
+        }
+        shared.close();
+    }
+    assert!(shared.stopped, "the books refused what the scheme was told");
+    shared.close();
+    if short_history {
+        shared.ledger.shorten_account_history();
+    }
+    (restart(shared, checkpoint, &state, id), id)
+}
+
+/// What suspense booked, net.
+fn suspense(booked: &[Effect]) -> i128 {
+    booked
+        .iter()
+        .map(|effect| match *effect {
+            Effect::Reconcile { amount, gain } if gain => i128::from(amount),
+            Effect::Reconcile { amount, .. } => -i128::from(amount),
+            _ => 0,
+        })
+        .sum()
+}
+
+/// Asserts that settlement `id` was booked once, posted with its fee and
+/// never as a withdrawal, and that the books hold the balance.
+fn booked_once(shared: &Shared, id: Name) {
+    let finalized = shared.count(|e| *e == Effect::Finalize { settlement: id });
+    let fees = shared.count(|e| matches!(e, Effect::Fee { id: fee, .. } if *fee == id));
+    let withdrawals = shared.count(|e| matches!(e, Effect::Withdrawal { .. }));
+    let cancelled = shared.count(|e| matches!(e, Effect::Cancel { .. }));
+    assert_eq!(
+        (finalized, fees, withdrawals, cancelled),
+        (1, 1, 0, 0),
+        "{:?}",
+        shared.booked
+    );
+    assert_eq!(suspense(&shared.booked), 0, "{:?}", shared.booked);
+    assert_eq!(shared.scheme().balance(), shared.bookable());
+    assert_eq!(
+        shared.books(),
+        i128::from(shared.bookable()),
+        "{:?}",
+        shared.booked
+    );
+    assert_eq!(shared.scheme().status(), LedgerStatus::Synced);
 }
 
 // spec/areas/settlement.md#external-assets: a scheme that joins an account
@@ -389,4 +489,102 @@ fn a_settlement_given_up_while_its_scheme_stopped_is_cancelled() {
     let finalized = shared.count(|e| matches!(e, Effect::Finalize { .. }));
     assert_eq!((cancelled, finalized), (1, 0), "{:?}", shared.booked);
     assert_eq!(shared.scheme().balance(), shared.bookable());
+}
+
+// Found in review: the books refuse what a scheme is told with its own
+// settlement, validated, and stop it. The account no longer has it in
+// flight, and its state is written on for the other scheme on it, while the
+// scheme's checkpoint stays from before. The account keeps the settlement
+// for the scheme, as for one not on the account, so after a restart the
+// scheme reads it again as its own: posted once with its fee, never also
+// booked as a withdrawal.
+#[test]
+fn a_settlement_told_in_a_refused_batch_is_booked_once() {
+    let (shared, id) = refused_while_settling(false, false);
+    booked_once(&shared, id);
+}
+
+// As above, with a server whose account history no longer reaches back to
+// the settlement: the scheme is told it did not read it again, and books it
+// once found.
+#[test]
+fn a_settlement_told_in_a_refused_batch_is_booked_once_without_its_history() {
+    let (shared, id) = refused_while_settling(false, true);
+    booked_once(&shared, id);
+}
+
+// As above, with the books refusing what the scheme is told after the
+// restart, that it did not read its settlement again: told again after the
+// next restart, it still books the settlement once.
+#[test]
+fn a_settlement_unread_in_a_refused_batch_is_booked_once() {
+    let (mut shared, theirs) = synced();
+    let id = shared.settle(theirs);
+    let (state, checkpoint) = (shared.scheme().state(), shared.scheme().balance());
+    shared.stop();
+    shared.close();
+    shared.close();
+    shared.ledger.shorten_account_history();
+    let kept = shared.account.state();
+    let mut restarted = Shared::new(shared.ledger, &kept, None);
+    restarted.activate(Some(checkpoint), &state);
+    restarted.reconcile(&[(id, AMOUNT)]);
+    restarted.refuse_own = true;
+    restarted.connect();
+    assert!(
+        restarted.stopped,
+        "the books refused what the scheme was told"
+    );
+    restarted.close();
+    let again = restart(restarted, checkpoint, &state, id);
+    booked_once(&again, id);
+}
+
+// A settlement given up while the books refuse what its scheme is told of
+// it is cancelled after a restart, rather than looked up for good.
+#[test]
+fn a_settlement_given_up_in_a_refused_batch_is_cancelled() {
+    let (shared, id) = refused_while_settling(true, false);
+    let cancelled = shared.count(|e| *e == Effect::Cancel { settlement: id });
+    let finalized = shared.count(|e| matches!(e, Effect::Finalize { .. }));
+    assert_eq!((cancelled, finalized), (1, 0), "{:?}", shared.booked);
+    assert_eq!(shared.scheme().balance(), shared.bookable());
+}
+
+/// Past what the books can hold for the account, within what the parser
+/// takes.
+const TOO_MANY_DROPS: &str = "99999999999999999";
+
+// Found in review: a server's answer to a lookup names more XRP than the
+// books can hold, for its fee or for what it delivered. The account stops,
+// as it does for such a transaction from the stream, and the scheme books
+// nothing of it, rather than the node panicking.
+#[test]
+fn a_lookup_past_what_the_books_hold_stops_the_account() {
+    let tampers: [fn(&mut serde_json::Value); 2] = [
+        |answer| answer["result"]["Fee"] = TOO_MANY_DROPS.into(),
+        |answer| answer["result"]["meta"]["delivered_amount"] = TOO_MANY_DROPS.into(),
+    ];
+    for tamper in tampers {
+        let (mut shared, theirs) = synced();
+        let id = shared.settle(theirs);
+        let (state, checkpoint) = (shared.scheme().state(), shared.scheme().balance());
+        shared.stop();
+        shared.close();
+        shared.close();
+        shared.ledger.shorten_account_history();
+        shared.tamper_lookup = Some(tamper);
+        let restarted = restart(shared, checkpoint, &state, id);
+        assert!(
+            matches!(restarted.account.status(), LedgerStatus::Failed(_)),
+            "{:?}",
+            restarted.account.status()
+        );
+        let settled = restarted.count(|e| match e {
+            Effect::Finalize { settlement } | Effect::Cancel { settlement } => *settlement == id,
+            Effect::Fee { id: fee, .. } => *fee == id,
+            _ => false,
+        });
+        assert_eq!(settled, 0, "{:?}", restarted.booked);
+    }
 }
