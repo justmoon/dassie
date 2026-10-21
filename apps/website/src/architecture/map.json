@@ -108,6 +108,7 @@
         "Wallet addresses and payment requests for Open Payments",
         "The consent page for apps, the apps it has let in, and their grants",
         "The network as the node routes over it, its peers online and offline, bans, and the node's settings",
+        "The owner's sessions and paired devices, and on the node's own machine a QR code that pairs a new app",
         "Debug pages, and live data over RPC streams everywhere"
       ]
     },

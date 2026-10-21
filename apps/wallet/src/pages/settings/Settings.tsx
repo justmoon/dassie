@@ -1,7 +1,8 @@
 /**
  * Settings (spec/areas/wallet.md#pages): the wallet and logging out, the
  * theme, the node's alias, what transit is charged, exchange rates and the
- * display currency, the owner's sessions, and the BTP tokens with their caps.
+ * display currency, the owner's sessions and paired devices, and the BTP
+ * tokens with their caps.
  */
 
 import type { JSX } from "@solidjs/web";
@@ -23,6 +24,7 @@ import {
 } from "@dassie/ui/ui";
 import type { ThemeSetting } from "@dassie/ui/theme";
 import { ApiKeys } from "./ApiKeys.tsx";
+import { Devices } from "./Devices.tsx";
 import { RateSettings } from "./RateSettings.tsx";
 import { chargeText, parseCharge } from "./rates.ts";
 
@@ -40,6 +42,7 @@ export function Settings(): JSX.Element {
         </div>
         <div class="stack">
           <Sessions />
+          <Devices />
           <ApiKeys />
         </div>
       </div>
