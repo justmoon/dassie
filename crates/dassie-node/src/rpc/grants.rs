@@ -248,6 +248,19 @@ async fn read_receivers(node: &Node, urls: &Urls, grant: &mut proto::Grant) {
     }
 }
 
+/// Why a receiver could not be read, by the status of the failure. The
+/// description may quote what the receiver's node sent, so the page shows
+/// only what this node says, and the log has the rest.
+const fn unreadable_reason(status: u16) -> &'static str {
+    match status {
+        502 => "its node could not be reached",
+        503 => "this node is not ready",
+        // This node's own failure, such as its store's.
+        500..=599 => "this node could not read it",
+        _ => "it is not a payment request that can be read",
+    }
+}
+
 /// A receiver that could not be read, and why, in the node's own words.
 fn unreadable(why: &str) -> proto::GrantReceiver {
     proto::GrantReceiver {
@@ -269,13 +282,7 @@ async fn receiver_payment(node: &Node, urls: &Urls, url: &str) -> proto::GrantRe
                 error = %failure.description,
                 "a pending grant's receiver could not be read"
             );
-            // The description may quote what the receiver's node sent;
-            // the page shows only what this node says.
-            return unreadable(match failure.status {
-                502 => "its node could not be reached",
-                503 => "this node is not ready",
-                _ => "it is not a payment request that can be read",
-            });
+            return unreadable(unreadable_reason(failure.status));
         }
     };
     let received = &payment.received_amount;
@@ -353,4 +360,24 @@ async fn subscribe(
         stream_item::Method::SubscribeGrants,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Found in review: a failure of this node's own, such as its store's,
+    // does not read as the receiver's fault.
+    #[test]
+    fn unreadable_receivers_say_whose_failure_it_is() {
+        assert_eq!(unreadable_reason(502), "its node could not be reached");
+        assert_eq!(unreadable_reason(503), "this node is not ready");
+        assert_eq!(unreadable_reason(500), "this node could not read it");
+        for status in [400, 403, 404] {
+            assert_eq!(
+                unreadable_reason(status),
+                "it is not a payment request that can be read"
+            );
+        }
+    }
 }
