@@ -9,12 +9,13 @@ A front door lets ordinary Open Payments clients reach Dassie nodes that have no
 - **A certificate for `*.<domain>`.** A wildcard needs the DNS-01 challenge, for example with certbot and its plugin for the DNS provider (on Google Cloud DNS, `python3-certbot-dns-google`, with a service account that may edit that one zone, [below](#a-dns-credential-for-one-zone-alone)):
 
   ```sh
-  certbot certonly --dns-google --dns-google-credentials /etc/letsencrypt/dns.json \
+  certbot certonly --non-interactive --agree-tos --register-unsafely-without-email \
+    --dns-google --dns-google-credentials /etc/letsencrypt/dns.json \
     -d '*.dassiepay.net' \
     --deploy-hook /etc/letsencrypt/renewal-hooks/deploy/dassie-front-door.sh
   ```
 
-  `deploy-certificate.sh` is that hook: it copies the certificate where the front door reads it, readable by its user. The front door reads the files again every minute, so a renewal takes effect without a restart.
+  `deploy-certificate.sh` is that hook: it copies the certificate where the front door reads it, readable by its user, so that user must exist before the first certificate. certbot runs the hook at the first issuance too, and at every renewal. The front door reads the files again every minute, so a renewal takes effect without a restart. Without an email address Let's Encrypt has no one to write to, which it no longer does about expiry anyway; give one with `-m` if you want its notices.
 - **Its own key,** an Ed25519 key in `/var/lib/dassie-front-door/front-door.key`, as 32 bytes of seed or PKCS#8. The unit makes one on its first start (`dassie front-door --make-key`). Keep it: nodes name the front door by it, and a new key means every node must be told again. Back it up like any secret.
 
 ## A DNS credential for one zone alone
@@ -32,9 +33,13 @@ gcloud iam service-accounts create dassiepay-certbot --project "$PROJECT" \
 
 # Record changes in this one managed zone only: roles/dns.admin bound to
 # the zone, not the project (or a custom role with dns.changes.* and
-# dns.resourceRecordSets.*).
-gcloud dns managed-zones add-iam-policy-binding "$ZONE" --project "$PROJECT" \
-  --member "serviceAccount:$SA" --role roles/dns.admin
+# dns.resourceRecordSets.*). gcloud has no add-iam-policy-binding for a
+# zone: read its policy, add the binding, and set it back.
+gcloud dns managed-zones get-iam-policy "$ZONE" --project "$PROJECT" \
+  --format json > zone-policy.json
+# Add to zone-policy.json's "bindings" (create the list if it is missing):
+#   {"role": "roles/dns.admin", "members": ["serviceAccount:<SA>"]}
+gcloud dns managed-zones set-iam-policy "$ZONE" zone-policy.json --project "$PROJECT"
 
 # Reading at the project, which certbot-dns-google needs to list the zones
 # and find this one (dns.managedZones.list). It reads what DNS publishes
@@ -42,18 +47,21 @@ gcloud dns managed-zones add-iam-policy-binding "$ZONE" --project "$PROJECT" \
 gcloud projects add-iam-policy-binding "$PROJECT" \
   --member "serviceAccount:$SA" --role roles/dns.reader
 
-# Its key, for certbot only: root's, mode 0600.
-gcloud iam service-accounts keys create /etc/letsencrypt/dns.json --iam-account "$SA"
-chmod 0600 /etc/letsencrypt/dns.json
+# Its key, for certbot only: root's, mode 0600. Made where an administrator
+# is logged in to gcloud, since the front door's host holds no credential,
+# and piped straight to the host, so it is written to no other disk.
+gcloud iam service-accounts keys create - --iam-account "$SA" |
+  ssh root@<host> 'install -d -m 0700 /etc/letsencrypt &&
+    install -m 0600 -o root -g root /dev/stdin /etc/letsencrypt/dns.json'
 ```
 
 Run the VM without the default compute service account and its scopes (`gcloud compute instances create … --no-service-account --no-scopes`), so the metadata server hands out no other credential; certbot's key is then the only one on the host.
 
 ## Setting it up
 
-1. Install `dassie` as `/usr/local/bin/dassie`, from a release bundle whose signature you checked (the installer's way, `install.sh`, also sets up a node, which a front door's host does not want).
-2. Make its user: `useradd --system --no-create-home --shell /usr/sbin/nologin dassie-front-door`.
-3. Get the certificate as above, and run the hook once: `RENEWED_LINEAGE=/etc/letsencrypt/live/dassiepay.net sh deploy-certificate.sh`.
+1. Make its user, before anything that needs its group: `useradd --system --no-create-home --shell /usr/sbin/nologin dassie-front-door`.
+2. Get the certificate as above. certbot runs the hook itself, so the front door's copy is in place at once.
+3. Install `dassie` as `/usr/local/bin/dassie`, from a release bundle whose signature you checked (the installer's way, `install.sh`, also sets up a node, which a front door's host does not want).
 4. Install `dassie-front-door.service` in `/etc/systemd/system/`, set `DASSIE_FRONT_DOOR_DOMAIN` in it if the domain is not `dassiepay.net`, and `systemctl enable --now dassie-front-door`.
 5. Read the entry that names it: `journalctl -u dassie-front-door | grep DASSIE_RELAY`.
 
