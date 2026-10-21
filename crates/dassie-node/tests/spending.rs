@@ -1110,25 +1110,27 @@ async fn an_interaction_too_long_to_keep_is_refused() {
     node.stop().await;
 }
 
-/// The request the consent page reads for `grant`.
+/// The request the consent page reads for `grant`, which the owner then
+/// denies: a client has only a few requests pending at once.
 async fn asked(node: &TestNode, grant: &Value) -> proto::Grant {
     let (id, key) = consent_page(node, grant).await;
     let Ok(response::Method::GetGrantRequest(asked)) = node
         .ipc()
         .await
         .call(Method::GetGrantRequest(proto::GetGrantRequestRequest {
-            id,
-            key,
+            id: id.clone(),
+            key: key.clone(),
         }))
         .await
     else {
         panic!("no request")
     };
+    decide(node, &id, &key, false).await;
     asked.grant.unwrap()
 }
 
 /// Asks to pay only `receiver`, over `interval` if given; returns the
-/// limits as the owner reads them.
+/// limits as the owner read them.
 async fn asked_limits(
     node: &TestNode,
     client: &Client,
