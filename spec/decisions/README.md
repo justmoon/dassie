@@ -33,6 +33,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [ready-after-first-step](ready-after-first-step.md) | A node is up once its engine has committed a step | node, release |
 | [real-money](real-money.md) | Real money | xrpl, roadmap |
 | [release-integrity](release-integrity.md) | Release integrity | release |
+| [resolving-by-family](resolving-by-family.md) | Names resolve one address family at a time, through the system's resolver | peer-protocol, node |
 | [rpc-contract](rpc-contract.md) | UI and CLI RPC contract | rpc, wallet |
 | [rust-and-typescript](rust-and-typescript.md) | What runs in Rust and what in TypeScript | overview, engineering |
 | [secrets-at-rest](secrets-at-rest.md) | Secrets at rest | node, http |

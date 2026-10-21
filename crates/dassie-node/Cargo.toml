@@ -67,6 +67,11 @@ rustls-platform-verifier = "0.7.1"
 # The resolver interface of hyper-util's connector, for filtering
 # addresses (spec/areas/peer-protocol.md#outbound-requests).
 tower-service = "0.3"
+# getaddrinfo for one address family at a time, so that a resolver that
+# fails one family does not hide the other's addresses
+# (spec/decisions/resolving-by-family.md). It holds the unsafe FFI this
+# crate forbids.
+dns-lookup = "4.0.2"
 hyper-rustls = { version = "0.27.10", default-features = false, features = ["ring", "http1", "tls12", "rustls-platform-verifier"] }
 http = "1"
 # The peer protocol over QUIC (spec/areas/peer-protocol.md#transport), on

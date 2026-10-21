@@ -11,7 +11,8 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::future::Future;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::io;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::pin::Pin;
 use std::str::FromStr;
@@ -44,6 +45,19 @@ const MAX_RESPONSE_BYTES: usize = 256 * 1024;
 /// Most requests in flight, in total and to one host.
 const MAX_IN_FLIGHT: usize = 128;
 const MAX_PER_HOST: usize = 16;
+
+/// Most entries of a name's lookup read, per address family: whoever runs
+/// the name chooses how many records it has.
+const MAX_RECORDS_READ: usize = 64;
+
+/// Most addresses of a name kept, per address family.
+const MAX_ADDRESSES_PER_FAMILY: usize = 8;
+
+/// How long the other family's lookup is waited for once one family has
+/// given addresses. A resolver that never answers one family would
+/// otherwise hold the lookup until its own timeout, which can be longer
+/// than the time to connect.
+const OTHER_FAMILY_GRACE: Duration = Duration::from_millis(250);
 
 /// A request to another server, for Open Payments.
 #[derive(Clone, Debug)]
@@ -120,16 +134,146 @@ impl tower_service::Service<Name> for GuardedResolver {
             if allow_private && is_localhost(name.as_str()) {
                 return Ok(vec![SocketAddr::from((Ipv4Addr::LOCALHOST, 0))].into_iter());
             }
-            let found = tokio::net::lookup_host((name.as_str(), 0)).await?;
-            let allowed: Vec<SocketAddr> = found
-                .filter(|address| allow_private || is_public(address.ip()))
-                .collect();
-            if allowed.is_empty() {
-                return Err(std::io::Error::other("no public address"));
-            }
-            Ok(allowed.into_iter())
+            let (four, six) = both_families(
+                lookup(name.as_str(), Family::V4),
+                lookup(name.as_str(), Family::V6),
+                OTHER_FAMILY_GRACE,
+            )
+            .await;
+            let allowed = merge(four, six, allow_private)?;
+            Ok(allowed
+                .into_iter()
+                .map(|address| SocketAddr::new(address, 0))
+                .collect::<Vec<_>>()
+                .into_iter())
         })
     }
+}
+
+/// An address family, looked up on its own.
+#[derive(Clone, Copy, Debug)]
+enum Family {
+    V4,
+    V6,
+}
+
+/// The addresses of `name` in one family, from the system's resolver.
+///
+/// Each family is asked for on its own, never both in one call
+/// (spec/areas/peer-protocol.md#outbound-requests): musl's `getaddrinfo`
+/// fails the whole name when either answer is an error, and some home
+/// routers answer one family with NXDOMAIN while the other resolves. The
+/// system's resolver, not a DNS client of our own, so that `/etc/hosts`
+/// and nsswitch still apply (spec/decisions/resolving-by-family.md).
+async fn lookup(name: &str, family: Family) -> io::Result<Vec<IpAddr>> {
+    let name = name.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let hints = dns_lookup::AddrInfoHints {
+            address: match family {
+                Family::V4 => dns_lookup::AddrFamily::Inet,
+                Family::V6 => dns_lookup::AddrFamily::Inet6,
+            }
+            .into(),
+            // One entry per address, not one per socket type.
+            socktype: dns_lookup::SockType::Stream.into(),
+            ..dns_lookup::AddrInfoHints::default()
+        };
+        let mut found = Vec::new();
+        for entry in dns_lookup::getaddrinfo(Some(&name), None, Some(hints))?.take(MAX_RECORDS_READ)
+        {
+            let address = entry?.sockaddr.ip();
+            if matches!(
+                (family, address),
+                (Family::V4, IpAddr::V4(_)) | (Family::V6, IpAddr::V6(_))
+            ) {
+                found.push(address);
+            }
+        }
+        Ok(found)
+    })
+    .await
+    .map_err(io::Error::other)?
+}
+
+/// Runs both families' lookups at once, and gives both results. Once one
+/// has given addresses, the other has `grace` left to answer, and counts
+/// as failed if it does not; while neither has, both are waited for.
+async fn both_families<F4, F6>(
+    four: F4,
+    six: F6,
+    grace: Duration,
+) -> (io::Result<Vec<IpAddr>>, io::Result<Vec<IpAddr>>)
+where
+    F4: Future<Output = io::Result<Vec<IpAddr>>>,
+    F6: Future<Output = io::Result<Vec<IpAddr>>>,
+{
+    let (mut four, mut six) = (std::pin::pin!(four), std::pin::pin!(six));
+    tokio::select! {
+        found = &mut four => {
+            let other = rest(&found, six, grace).await;
+            (found, other)
+        }
+        found = &mut six => {
+            let other = rest(&found, four, grace).await;
+            (other, found)
+        }
+    }
+}
+
+/// The other family's result, given the first one's.
+async fn rest<F>(
+    first: &io::Result<Vec<IpAddr>>,
+    other: F,
+    grace: Duration,
+) -> io::Result<Vec<IpAddr>>
+where
+    F: Future<Output = io::Result<Vec<IpAddr>>>,
+{
+    if first.as_ref().is_ok_and(|found| !found.is_empty()) {
+        tokio::time::timeout(grace, other)
+            .await
+            .unwrap_or_else(|_| Err(io::Error::new(io::ErrorKind::TimedOut, "no answer in time")))
+    } else {
+        other.await
+    }
+}
+
+/// The addresses the node may use, from both families' lookups: the
+/// allowed ones of each, at most [`MAX_ADDRESSES_PER_FAMILY`] of each,
+/// alternating and IPv4 first. IPv4 first because a home network that
+/// has IPv4 always reaches out over it, and sorting the families against
+/// each other by the routes the machine has (RFC 6724) is lost when they
+/// are looked up apart.
+///
+/// # Errors
+///
+/// Both lookups failed, with the IPv4 lookup's error; or neither found an
+/// address the node may use.
+fn merge(
+    four: io::Result<Vec<IpAddr>>,
+    six: io::Result<Vec<IpAddr>>,
+    allow_private: bool,
+) -> io::Result<Vec<IpAddr>> {
+    let (four, six) = match (four, six) {
+        (Err(error), Err(_)) => return Err(error),
+        (four, six) => (four.unwrap_or_default(), six.unwrap_or_default()),
+    };
+    let allowed = |found: Vec<IpAddr>| -> Vec<IpAddr> {
+        found
+            .into_iter()
+            .filter(|address| allow_private || is_public(*address))
+            .take(MAX_ADDRESSES_PER_FAMILY)
+            .collect()
+    };
+    let (four, six) = (allowed(four), allowed(six));
+    let mut merged = Vec::with_capacity(four.len() + six.len());
+    for index in 0..MAX_ADDRESSES_PER_FAMILY {
+        merged.extend(four.get(index).into_iter().chain(six.get(index)));
+    }
+    if merged.is_empty() {
+        return Err(io::Error::other("no address the node may use"));
+    }
+    Ok(merged)
 }
 
 type Https = HyperClient<HttpsConnector<HttpConnector<GuardedResolver>>, Full<Bytes>>;
@@ -547,6 +691,122 @@ mod tests {
             allow_private: false,
         };
         assert!(guarded.call(name).await.is_err());
+    }
+
+    fn nxdomain() -> io::Error {
+        io::Error::new(io::ErrorKind::NotFound, "Name does not resolve")
+    }
+
+    fn public_v4(last: u8) -> IpAddr {
+        IpAddr::from([1, 1, 1, last])
+    }
+
+    fn public_v6(last: u16) -> IpAddr {
+        IpAddr::from([0x2606, 0x4700, 0, 0, 0, 0, 0, last])
+    }
+
+    // Seen on a home router: the AAAA query answered NXDOMAIN while the A
+    // query resolved, and musl's getaddrinfo gave up on the whole name.
+    #[test]
+    fn one_family_failing_leaves_the_other() {
+        let four = vec![public_v4(1), public_v4(2)];
+        assert_eq!(
+            merge(Ok(four.clone()), Err(nxdomain()), false).unwrap(),
+            four
+        );
+        let six = vec![public_v6(1)];
+        assert_eq!(merge(Err(nxdomain()), Ok(six.clone()), false).unwrap(), six);
+    }
+
+    #[test]
+    fn both_families_failing_fails_with_the_ipv4_error() {
+        let four = io::Error::new(io::ErrorKind::TimedOut, "A timed out");
+        let error = merge(Err(four), Err(nxdomain()), false).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert_eq!(error.to_string(), "A timed out");
+    }
+
+    #[test]
+    fn no_address_in_either_family_fails() {
+        assert!(merge(Ok(Vec::new()), Ok(Vec::new()), true).is_err());
+        assert!(merge(Ok(Vec::new()), Err(nxdomain()), true).is_err());
+    }
+
+    #[test]
+    fn private_addresses_are_refused_in_both_families() {
+        let four = vec![IpAddr::from([10, 0, 0, 1]), public_v4(1)];
+        let six = vec![IpAddr::from(std::net::Ipv6Addr::LOCALHOST), public_v6(1)];
+        assert_eq!(
+            merge(Ok(four.clone()), Ok(six.clone()), false).unwrap(),
+            [public_v4(1), public_v6(1)]
+        );
+        assert_eq!(
+            merge(Ok(four.clone()), Ok(six.clone()), true).unwrap(),
+            [four[0], six[0], four[1], six[1]]
+        );
+        // Only refused addresses, and the other family failed: nothing.
+        let only_private = vec![IpAddr::from(Ipv4Addr::LOCALHOST)];
+        assert!(merge(Ok(only_private), Err(nxdomain()), false).is_err());
+    }
+
+    #[test]
+    fn each_family_keeps_a_bounded_number_alternating_ipv4_first() {
+        let many = u8::try_from(MAX_ADDRESSES_PER_FAMILY * 3).unwrap();
+        let four: Vec<IpAddr> = (1..=many).map(public_v4).collect();
+        let six: Vec<IpAddr> = (1..=u16::from(many)).map(public_v6).collect();
+        let merged = merge(Ok(four.clone()), Ok(six.clone()), false).unwrap();
+        assert_eq!(merged.len(), 2 * MAX_ADDRESSES_PER_FAMILY);
+        for (index, pair) in merged.chunks(2).enumerate() {
+            assert_eq!(pair, [four[index], six[index]]);
+        }
+        // Uneven: the longer family's rest follows, still bounded.
+        let merged = merge(Ok(four[..1].to_vec()), Ok(six.clone()), false).unwrap();
+        assert_eq!(merged.len(), 1 + MAX_ADDRESSES_PER_FAMILY);
+        assert_eq!(merged[..3], [four[0], six[0], six[1]]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_family_that_never_answers_is_waited_for_only_briefly() {
+        let start = tokio::time::Instant::now();
+        let (four, six) = both_families(
+            async { Ok(vec![public_v4(1)]) },
+            std::future::pending(),
+            OTHER_FAMILY_GRACE,
+        )
+        .await;
+        assert_eq!(start.elapsed(), OTHER_FAMILY_GRACE);
+        assert_eq!(four.unwrap(), [public_v4(1)]);
+        assert_eq!(six.unwrap_err().kind(), io::ErrorKind::TimedOut);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_family_waits_for_the_other() {
+        let slow = 20 * OTHER_FAMILY_GRACE;
+        let start = tokio::time::Instant::now();
+        let (four, six) = both_families(
+            async {
+                tokio::time::sleep(slow).await;
+                Ok(vec![public_v4(1)])
+            },
+            async { Err(nxdomain()) },
+            OTHER_FAMILY_GRACE,
+        )
+        .await;
+        assert_eq!(start.elapsed(), slow);
+        assert_eq!(merge(four, six, false).unwrap(), [public_v4(1)]);
+    }
+
+    // The FFI path, without the network: literals resolve in their own
+    // family only, and a name the C side cannot take is an error.
+    #[tokio::test]
+    async fn the_system_resolver_is_asked_per_family() {
+        let v4 = IpAddr::from(Ipv4Addr::LOCALHOST);
+        let v6 = IpAddr::from(std::net::Ipv6Addr::LOCALHOST);
+        assert_eq!(lookup("127.0.0.1", Family::V4).await.unwrap(), [v4]);
+        assert!(lookup("127.0.0.1", Family::V6).await.is_err());
+        assert_eq!(lookup("::1", Family::V6).await.unwrap(), [v6]);
+        assert!(lookup("::1", Family::V4).await.is_err());
+        assert!(lookup("bad\0name", Family::V4).await.is_err());
     }
 
     // The HTTP client reads `[::1]a` as the IPv6 literal `::1`, and

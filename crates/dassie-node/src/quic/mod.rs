@@ -684,11 +684,20 @@ impl Quic {
         {
             return None;
         }
+        // A dial that fails before sending anything says why, once: the
+        // caller only learns that the node cannot be reached.
         let resolving = resolver.resolve(host, port);
-        let addresses = tokio::time::timeout_at(deadline, resolving)
-            .await
-            .ok()?
-            .ok()?;
+        let addresses = match tokio::time::timeout_at(deadline, resolving).await {
+            Ok(Ok(addresses)) => addresses,
+            Ok(Err(error)) => {
+                tracing::debug!(target: target::PEER, %to, host, %error, "resolving the node's host failed");
+                return None;
+            }
+            Err(_) => {
+                tracing::debug!(target: target::PEER, %to, host, "resolving the node's host timed out");
+                return None;
+            }
+        };
         // An endpoint on IPv4 alone cannot reach an IPv6 address.
         let ipv6 = self
             .endpoint
@@ -699,6 +708,10 @@ impl Quic {
             .filter(|address| ipv6 || address.is_ipv4())
             .take(MAX_ADDRESSES)
             .collect();
+        if addresses.is_empty() {
+            tracing::debug!(target: target::PEER, %to, host, "the node's host has no IPv4 address, and this endpoint has no IPv6");
+            return None;
+        }
         let config = client_config(&self.keys, to, self.idle, keep_alive).ok()?;
         for (index, address) in addresses.iter().enumerate() {
             let left = deadline.saturating_duration_since(tokio::time::Instant::now());

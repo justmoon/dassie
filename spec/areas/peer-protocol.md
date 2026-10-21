@@ -141,6 +141,7 @@ Peer requests, and the node's other outbound requests (Open Payments to other wa
 
 - Requests go only to `https` URLs, and redirects are never followed. A QUIC connection goes to the host and port of such a URL.
 - Private, loopback, link-local and similar addresses are refused, both as IP literals and after DNS resolution (`crates/dassie-node-core/src/address.rs`). An IPv6 literal is read as the HTTP client reads it, and one the guard cannot read counts as private, so the guard and the client cannot disagree. `DASSIE_PEER_ALLOW_PRIVATE` lifts this for dev and tests.
+- **Names resolve one address family at a time.** IPv4 and IPv6 are looked up apart, through the system's resolver, and merged, so that one family's failure never hides the other's addresses: musl's `getaddrinfo`, which the static release binaries use, fails a whole name when either family's answer is an error, and some home routers answer one family with NXDOMAIN while the other resolves. A name fails to resolve only when both families fail ([resolving-by-family](../decisions/resolving-by-family.md)).
 - In-flight requests are bounded, in total and per host, whichever transport carries them. ILP packets do not count, so their responses always get through.
 - **Failures** are of two kinds: *not delivered* (refused before sending, or the connection failed) and *unknown* (a timeout after sending, or a broken response). Only the first, or a status that means not acted upon ([Statuses](#statuses)), says a request surely had no effect.
 
@@ -158,3 +159,4 @@ Peer requests, and the node's other outbound requests (Open Payments to other wa
 - [own-fulfills](../decisions/own-fulfills.md): `settlementRequest`, `credit` sent as 0, the Fulfill reply always "accepted".
 - [places-by-proved-key](../decisions/places-by-proved-key.md): QUIC connections hold places by the key they proved: core peers, downlinks and anyone else apart.
 - [unreachable-peers](../decisions/unreachable-peers.md): no Prepare taken from a peer our packets surely do not reach.
+- [resolving-by-family](../decisions/resolving-by-family.md): names resolve one address family at a time, through the system's resolver.
