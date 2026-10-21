@@ -11,7 +11,8 @@
 //! - an HTTPS listener ([`https`]) with a wildcard certificate, which
 //!   passes Open Payments requests to the node a name's label names, over
 //!   relayed streams it opens on that node's connection ([`nodes`]), with
-//!   TLS inside pinned to the node's key.
+//!   TLS inside pinned to the node's key, and answers the root of a name
+//!   with a static page of its own about the node ([`page`]).
 //!
 //! `dassie front-door` runs it.
 
@@ -19,6 +20,7 @@ pub mod certificate;
 pub mod https;
 pub mod key;
 pub mod nodes;
+pub mod page;
 pub mod relay;
 pub mod settings;
 

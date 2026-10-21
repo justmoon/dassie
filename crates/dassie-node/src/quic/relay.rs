@@ -749,6 +749,12 @@ impl Quic {
         *lock(&self.relaying.tap) = Some(Arc::new(tap));
     }
 
+    /// Whether this endpoint holds an open connection to `node` now, which
+    /// [`open_held`](Self::open_held) would open streams on.
+    pub async fn holds_connection(&self, node: NodeId) -> bool {
+        self.held(node).await.is_some()
+    }
+
     /// The open connection to `node` this endpoint holds, whoever dialled
     /// it, if any. A relay never dials: it reaches only nodes connected to
     /// it.
