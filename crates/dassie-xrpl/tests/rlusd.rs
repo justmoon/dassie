@@ -1388,7 +1388,7 @@ fn a_scheme_away_through_a_reset_writes_it_off_once_back() {
     }
 }
 
-// spec/designs/external-assets.md#3-accounting: every XRP fee is booked
+// spec/areas/xrpl.md#the-account: every XRP fee is booked
 // once. An RLUSD settlement that validates while its scheme is away has
 // its fee booked by the XRP scheme then; back, after a restart or added
 // again, the RLUSD scheme reads it again as its own and posts it, and the
@@ -1543,7 +1543,7 @@ fn a_settlement_never_read_is_booked_by_what_was_signed() {
     assert_eq!(books.settlement, i128::from(usd(8_000_000)));
 }
 
-// spec/designs/external-assets.md#3-accounting: while the books stopped
+// spec/areas/xrpl.md#the-account: while the books stopped
 // `xrpl-testnet`, the account's XRP is still on its books: the RLUSD scheme
 // spends none of it as gas, and settles nothing, until the XRP scheme is
 // back after a restart. Removed by the owner, it leaves the XRP off the

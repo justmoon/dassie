@@ -43,8 +43,7 @@ use alloc::vec::Vec;
 use dassie_ledger::{MAX_TOTAL, Name};
 use dassie_settlement::{
     AssetEffect, AssetId, AssetKind, Detach, ExternalAsset, Freeze, Holding, LedgerInput,
-    LedgerStatus,
-    SchemeError,
+    LedgerStatus, SchemeError,
 };
 use serde_json::{Value, json};
 
@@ -2672,6 +2671,56 @@ mod tests {
         for state in [in_flight, never_sent, parked] {
             assert!(XrplAccount::new(FIRST, &[a, b], "", &[1; 32], &state).is_ok());
             assert!(XrplAccount::new(FIRST, &[a], "", &[1; 32], &state).is_err());
+        }
+    }
+
+    // spec/areas/xrpl.md#the-account: what the owner sees of an issuer's
+    // freeze is of the chain the account follows. A write-off, at a testnet
+    // reset or with the account gone, forgets the issuers' accounts with
+    // the lines, so a global freeze of a chain gone is never shown with a
+    // line of the new one; the issuer read again on it says what holds.
+    #[test]
+    fn a_write_off_forgets_the_issuers_with_the_chain() {
+        let rlusd = dassie_ledger::name!(crate::rlusd::SCHEME_ID);
+        let issuer = crate::rlusd::ISSUER;
+        let answer = |flags: u32, ledger: u32| {
+            Ok(json!({
+                "account_data": { "Flags": flags },
+                "ledger_index": ledger,
+                "validated": true,
+            }))
+        };
+        for restarted in [true, false] {
+            let mut account = synced_account(&[rlusd]);
+            account.network_id = Some(TESTNET_NETWORK_ID);
+            account.newest = Some(NEWEST);
+            account.follow_line(crate::rlusd::LINE);
+            account.issuer_read(
+                issuer,
+                answer(api::account_flags::GLOBAL_FREEZE, NEWEST.index),
+            );
+            assert!(account.issuers[&issuer].global_freeze());
+            account.check_invariants();
+            if restarted {
+                // Told by the server's state, the first answer on a
+                // connection.
+                account.phase = Phase::Starting {
+                    subscribed: false,
+                    state: false,
+                    info: None,
+                };
+                account.restarted(Validated {
+                    index: 2_000,
+                    close_time: NEWEST.close_time + 4,
+                });
+            } else {
+                account.absent();
+            }
+            assert!(account.issuers.is_empty(), "restarted: {restarted}");
+            account.check_invariants();
+            account.told();
+            account.issuer_read(issuer, answer(0, NEWEST.index));
+            assert!(!account.issuers[&issuer].global_freeze());
         }
     }
 
