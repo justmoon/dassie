@@ -17,7 +17,9 @@ Each node books the Fulfills it sends as final, and only its owner bans.
 
 ## Accepted
 
-After a crash, two honest peers' books can drift apart. Asked, the peer settles within its own limits, which restores what drift took from either side's liquidity as far as both sides' credit allows. Past that, the creditor's room for the debtor stays short with nothing settled, and the link is withdrawn and ended ([peering-lifecycle](peering-lifecycle.md)): a link that lost most of its liquidity is not saved. What one crash drifts is at most what was in flight, which [packets-in-flight](packets-in-flight.md) caps. The simulation rules out a run that crashes drifted that far ([crash-drift](crash-drift.md)).
+After a crash, or a Fulfill lost or late on its way, two honest peers' books can drift apart. Asked, the peer settles within its own limits, which restores what drift took from either side's liquidity as far as both sides' credit allows. Past that, the creditor's room for the debtor stays short with nothing settled, and the link is withdrawn and ended ([peering-lifecycle](peering-lifecycle.md)): a link that lost most of its liquidity is not saved. What one crash drifts is at most what was in flight, which [packets-in-flight](packets-in-flight.md) caps, and so is what a run of responses that surely did not arrive drifts: the node takes no more Prepares from that peer until it answers ([unreachable-peers](unreachable-peers.md)). A response that may have arrived, was refused with an error status, or arrived late does not stop the node taking the peer's Prepares. While such a run lasts, the books drift by about what was in flight each time those Prepares expire and are sent again, bounded only by the credit the node extends plus what is in flight; past that, the peer is withdrawn.
+
+The simulation is stricter on purpose. It rules out a run that crashes drifted that far, and drift from anything else excuses nothing ([crash-drift](crash-drift.md)): the design bounds what such drift costs, but forgiving it would hide the bugs and faults behind it.
 
 ## Rejected
 
