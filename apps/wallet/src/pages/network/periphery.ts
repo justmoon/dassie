@@ -1,7 +1,7 @@
 /**
  * What the network page says of a periphery node
  * (spec/areas/network.md#periphery-nodes): a node without a public address
- * registers with no bootstrap node and publishes no link state; it reaches
+ * registers with no bootstrap node, and its uplinks do not list it; it reaches
  * the network through its uplinks, and Open Payments clients reach it
  * through its relay (spec/areas/node.md#a-chosen-relay).
  */

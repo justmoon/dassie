@@ -87,9 +87,10 @@ export function uplinks(nodes: readonly NetworkNode[]): NetworkNode[] {
  * these are exactly its edges. Our peering with a node draws nothing: a
  * peer that is offline, or not listed back, has no route and no line.
  *
- * A periphery node publishes no link state, so no edge names it. On one,
- * this node is drawn with a line to each uplink a route reaches, which is
- * where its packets go.
+ * A periphery node's uplinks do not list it in their link states, so no
+ * edge names it. On one, this node is drawn with a line to each uplink that
+ * is a first hop, one hop away: where its packets go. An uplink it lost is
+ * no first hop, even while a route reaches it through another uplink.
  */
 export function routingGraph(
   nodes: readonly NetworkNode[],
@@ -110,7 +111,7 @@ export function routingGraph(
   }
   const self = reached.find((node) => node.isSelf);
   if (periphery && self) {
-    for (const uplink of uplinks(reached)) {
+    for (const uplink of uplinks(reached).filter((n) => n.distance === 1)) {
       const [a, b] = self.id < uplink.id
         ? [self.id, uplink.id]
         : [uplink.id, self.id];

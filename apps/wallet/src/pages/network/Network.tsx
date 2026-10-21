@@ -11,7 +11,14 @@ import {
   type NetworkNode,
   PeerState,
 } from "@dassie/rpc/proto";
-import { createMemo, For, Show } from "solid-js";
+import {
+  type Accessor,
+  createMemo,
+  createSignal,
+  For,
+  onCleanup,
+  Show,
+} from "solid-js";
 import { Amount, ledgerCurrency } from "@dassie/ui/amount";
 import { currencyOf } from "@dassie/ui/currency";
 import { dateTime, shortId } from "@dassie/ui/format";
@@ -66,12 +73,16 @@ export function Network(props: RouteProps): JSX.Element {
         <Show
           when={node() && node()!.id !== data.selfId}
           fallback={
-            <Show
-              when={periphery()}
-              fallback={<OwnNode />}
-            >
-              <PeripheryNode nodes={nodes()} status={status()} />
-            </Show>
+            // Nothing until the status says which card fits, so that a
+            // periphery node never shows a core node's registration.
+
+
+              <Show when={status()}>
+                <Show when={periphery()} fallback={<OwnNode />}>
+                  <PeripheryNode nodes={nodes()} status={status()} />
+                </Show>
+              </Show>
+
           }
         >
           <NodeDetail node={node()!} />
@@ -176,7 +187,7 @@ function PeripheryNode(props: {
   nodes: readonly NetworkNode[];
   status: GetStatusResponse | undefined;
 }): JSX.Element {
-  const now = () => Date.now();
+  const now = useNow();
   const relay = () => props.status?.relay ?? null;
   return (
     <Card title="Details for Your Node" testid="own-node">
@@ -220,6 +231,17 @@ function PeripheryNode(props: {
       </Show>
     </Card>
   );
+}
+
+/** How often "last heard from …" is brought up to date. */
+const CLOCK_MS = 10_000;
+
+/** The time, ticking every [`CLOCK_MS`]. */
+function useNow(): Accessor<number> {
+  const [now, setNow] = createSignal(Date.now());
+  const timer = setInterval(() => setNow(Date.now()), CLOCK_MS);
+  onCleanup(() => clearInterval(timer));
+  return now;
 }
 
 /** Another node: what the table knows, and the peering with it. */

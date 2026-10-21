@@ -96,25 +96,29 @@ test("the graph keeps this node when nothing is reached", () => {
   assertEquals(graph.links, []);
 });
 
-// A periphery node publishes no link state, so its uplinks do not list it,
-// and only its own peerings say where its packets go.
+// A periphery node's uplinks do not list it, so only its own peerings say
+// where its packets go.
 const periphery = [
   node("dm", 0),
-  node("db", 1, ["dc", "dd"], PeerState.PEERED),
+  node("db", 1, ["dc", "dd", "dl"], PeerState.PEERED),
   node("dc", 1, ["db", "dd"], PeerState.PEERED),
   node("dd", 2, ["db", "dc"]),
-  // An uplink gone offline: no route reaches it.
+  // An uplink gone offline: no route reaches it...
   node("do", undefined, [], PeerState.PEERED, false),
+  // ...and one gone offline that another uplink still reaches: no first
+  // hop, so no line from this node.
+  node("dl", 2, ["db"], PeerState.PEERED, false),
   // A peering still being asked for is no uplink yet.
   node("dr", undefined, [], PeerState.REQUESTING),
 ];
 
 test("a periphery node is drawn with a line to each uplink a route reaches", () => {
   const graph = routingGraph(periphery, true);
-  assertEquals(graph.nodes.map((n) => n.id), ["dm", "db", "dc", "dd"]);
+  assertEquals(graph.nodes.map((n) => n.id), ["dm", "db", "dc", "dd", "dl"]);
   assertEquals(graph.links, [
     { a: "db", b: "dc" },
     { a: "db", b: "dd" },
+    { a: "db", b: "dl" },
     { a: "db", b: "dm" },
     { a: "dc", b: "dd" },
     { a: "dc", b: "dm" },
@@ -127,7 +131,14 @@ test("a periphery node is drawn with a line to each uplink a route reaches", () 
 });
 
 test("a periphery node's uplinks are its peers, online or not", () => {
-  assertEquals(uplinks(periphery).map((n) => n.id), ["db", "dc", "do"]);
+  // In the listing's order: a peer no route reaches sorts just after the
+  // first hops.
+  assertEquals(uplinks(periphery).map((n) => n.id), [
+    "db",
+    "dc",
+    "do",
+    "dl",
+  ]);
 });
 
 test("colors are stable per ID", () => {
