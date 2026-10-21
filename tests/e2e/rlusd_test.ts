@@ -167,6 +167,11 @@ test(
       await scenario.until("funded", () => funded(scenario), 120_000);
       await scenario.until("peered", () => scenario.converged(), 120_000);
       const [d1, d2] = scenario.nodes;
+      // The ledger names the issuer whose RLUSD to send: its line's.
+      for (const node of scenario.nodes) {
+        const { holding } = await line(node);
+        assertEquals((await ledger(node)).issuer, holding.issuer);
+      }
       // The junior pays its senior in advance before it can send through
       // it (spec/decisions/earned-trust.md).
       await scenario.until("paid in advance", () => settled(scenario), 120_000);

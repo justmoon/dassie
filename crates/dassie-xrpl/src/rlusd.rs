@@ -726,6 +726,10 @@ impl SettlementScheme for RlusdScheme {
         Some(account::FIRST)
     }
 
+    fn issuer(&self) -> Option<String> {
+        Some(ISSUER.to_address())
+    }
+
     fn supported_versions(&self) -> &'static [u16] {
         &[1]
     }

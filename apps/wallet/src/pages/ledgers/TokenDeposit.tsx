@@ -70,9 +70,17 @@ export function TokenDeposit(props: {
       <dl class="facts">
         <dt>{props.token.token}</dt>
         <dd data-testid={`deposit-token-${id()}`}>
-          Send {props.token.token} of{" "}
-          {props.token.issuerName}'s issuer to this address. It arrives on the
-          account's trust line to the issuer, which the node sets up itself.
+          Send {props.token.token} of {props.token.issuerName}'s issuer
+          <Show when={props.ledger.issuer}>
+            {(issuer) => (
+              <>
+                ,{" "}
+                <code data-testid={`deposit-issuer-${id()}`}>{issuer()}</code>,
+              </>
+            )}
+          </Show>{" "}
+          to this address. It arrives on the account's trust line to the issuer,
+          which the node sets up itself.
           <Show
             when={line()}
             fallback={` The ledger does not show the line yet: until it does, no ${props.token.token} can arrive.`}
@@ -84,8 +92,7 @@ export function TokenDeposit(props: {
                   value={held().amount}
                   currency={holdingCurrency(held())}
                   testid={`deposit-token-held-${id()}`}
-                />{" "}
-                of the issuer <code>{held().issuer}</code>.
+                />.
               </>
             )}
           </Show>

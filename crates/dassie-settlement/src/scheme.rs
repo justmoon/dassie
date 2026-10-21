@@ -1,5 +1,6 @@
 //! The interface every settlement scheme implements.
 
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
 
@@ -155,6 +156,13 @@ pub trait SettlementScheme: Send {
 
     /// The external asset it settles through, if any. It never changes.
     fn asset(&self) -> Option<AssetId> {
+        None
+    }
+
+    /// Who issues what it settles in, for a token: the issuer's address on
+    /// the underlying ledger, which what the owner deposits must name.
+    /// `None` for the ledger's own asset. It never changes.
+    fn issuer(&self) -> Option<String> {
         None
     }
 

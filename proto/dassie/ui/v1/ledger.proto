@@ -38,6 +38,10 @@ message Ledger {
   bool faucet = 13;
   // The realm its money belongs to: TEST money has no value.
   Realm realm = 14;
+  // Who issues what it settles in, for a token: an address on its
+  // underlying ledger, which what the owner deposits must name. Empty for
+  // the ledger's own asset.
+  string issuer = 15;
 }
 
 enum LedgerConnection {
