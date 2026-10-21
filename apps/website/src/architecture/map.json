@@ -103,7 +103,8 @@
       "does": [
         "Setup and login",
         "Accounts and ledgers, sending and receiving, payment status and activity",
-        "Deposit pages like an exchange's: the address as a QR code, what to send, and a button for testnet XRP from the faucet",
+        "Deposit pages like an exchange's: the address as a QR code, what to send, and a button for testnet XRP from the faucet; for RLUSD, both the token and the XRP its fees need, at the same address",
+        "A page of what the node holds outside its books, as the ledger reports it: its XRP and reserve, its RLUSD line, and whether the issuer froze it",
         "Wallet addresses and payment requests for Open Payments",
         "The consent page for apps, the apps it has let in, and their grants",
         "The network as the node routes over it, its peers online and offline, bans, and the node's settings",
@@ -203,7 +204,7 @@
         "Builds the binary, starts the nodes on `dN.localhost` and restarts them when the Rust code changes",
         "An SNI proxy on port 443, local certificates, vanity node identities, a rates server",
         "Sets nodes up through their own RPC, the same way the end-to-end tests do",
-        "The scenario library: one node, two, six, and the XRP Ledger ones"
+        "The scenario library: one node, two, six, the XRP Ledger ones, and RLUSD that the fake ledger's issuer mints each node"
       ]
     },
     "e2e": {
@@ -219,7 +220,7 @@
         "A fresh install through `dassie init` and browser setup, with Pebble as the certificate authority",
         "BTP payments, and the two-node and six-node scenarios settling every hop",
         "Open Payments, including a third party's full flow with consent in the wallet",
-        "XRP Ledger settlement and payments across currencies",
+        "XRP Ledger settlement in XRP and in RLUSD, with the issuer freezing a line and clawing back, and payments across currencies",
         "The wallet, the dev dashboard and dassie.land in a browser",
         "The installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers"
       ]
@@ -351,6 +352,7 @@
         "Stops settling while the issuer freezes the line, and stops asking peers to pay while the line cannot receive",
         "Never books the reserve, and catches up after a restart",
         "Asks the testnet faucet when the account is new, or when the owner wants more test XRP",
+        "Reports what the account holds, as the ledger says, for the wallet: XRP and its reserve, and each line with its freezes",
         "Fakes the ledger for tests: XRP, trust lines, token payments through the issuer and their failures, and an issuer that mints, freezes and claws back"
       ]
     },
@@ -1146,7 +1148,7 @@
             "settlement",
             "xrpl"
           ],
-          "text": "Once a peer comes close to the credit a node extends to it, the node asks it to settle, and the peer pays through a scheme they share, such as the XRP Ledger testnet."
+          "text": "Once a peer comes close to the credit a node extends to it, the node asks it to settle, and the peer pays through a scheme they share, such as XRP or RLUSD on the XRP Ledger testnet."
         },
         {
           "ids": [
@@ -1271,7 +1273,7 @@
   "tests": [
     {
       "t": "Deterministic simulation",
-      "p": "Whole networks run in one process with a fake clock and a seeded random generator, at the timings of a real node: a simulated day takes seconds. Faults are injected: latency, loss, replayed messages, clocks that are off, crashes, mid-payment too, commits that fail, restarts, and partitions, some longer than a day, and owners end peerings and ban peers. Every state machine checks its invariants after each step, and a failure prints the seed that reproduces it. A node run draws its whole network, its faults and its payments from the seed, and once healed must settle down. Tests run fixed seeds, and check that between them they reach every kind of fault; `dassie-sim` runs any other seed.",
+      "p": "Whole networks run in one process with a fake clock and a seeded random generator, at the timings of a real node: a simulated day takes seconds. Faults are injected: latency, loss, replayed messages, clocks that are off, crashes, mid-payment too, commits that fail, restarts, and partitions, some longer than a day, and owners end peerings and ban peers. Every state machine checks its invariants after each step, and a failure prints the seed that reproduces it. A node run draws its whole network, its faults and its payments from the seed, and once healed must settle down. Scripted node runs settle in XRP and in RLUSD on a fake XRP Ledger whose issuer freezes lines and claws back, and each node is judged by its own books. Tests run fixed seeds, and check that between them they reach every kind of fault; `dassie-sim` runs any other seed.",
       "ev": "src/sim in dassie-stream, dassie-connector, dassie-peer and dassie-node, run by their tests and by dassie-sim"
     },
     {

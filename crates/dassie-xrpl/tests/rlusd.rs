@@ -1071,7 +1071,7 @@ fn an_old_answer_of_the_issuer_is_not_taken() {
     std::mem::swap(&mut world.ledger, &mut current);
 }
 
-// spec/designs/external-assets.md#3-accounting: on an account the XRP
+// spec/decisions/external-assets.md: on an account the XRP
 // scheme settles from too, the two never take the same sequence, and every
 // XRP fee is booked once, on the XRP ledger: the RLUSD scheme's as gas,
 // its line's reserve reconciled there. Its books match the account's XRP
@@ -1129,7 +1129,7 @@ fn both_xrpl_schemes_share_one_account() {
     assert_eq!(world.nodes[0].books[USD].finalized.len(), 4);
 }
 
-// spec/designs/external-assets.md#3-accounting: on a shared account the
+// spec/decisions/external-assets.md: on a shared account the
 // gas is the owner's XRP on the XRP ledger: without funds there the RLUSD
 // scheme signs no TrustSet and settles nothing, though the account holds
 // XRP.

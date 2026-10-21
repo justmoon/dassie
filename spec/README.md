@@ -70,7 +70,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [Dev](areas/dev.md) | The local dev network and its dashboard |
 | [Testing](areas/testing.md) | Test levels, golden vectors, simulations and the simulation runner |
 
-Not built yet: the [roadmap](roadmap.md), and the designs in `designs/`: [settlement hubs](designs/settlement-hubs.md), what is not built of the [periphery](designs/periphery.md), and what is not built of [external assets](designs/external-assets.md).
+Not built yet: the [roadmap](roadmap.md), and the designs in `designs/`: [settlement hubs](designs/settlement-hubs.md), and what is not built of the [periphery](designs/periphery.md).
 
 ## What belongs here
 

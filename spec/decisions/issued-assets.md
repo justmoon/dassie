@@ -1,6 +1,6 @@
 # An issued asset's issuer is the owner's counterparty
 
-**Areas:** [External assets](../designs/external-assets.md), [Settlement](../areas/settlement.md), [Connector](../areas/connector.md). Built in the RLUSD scheme ([XRPL](../areas/xrpl.md#rlusd)).
+**Areas:** [XRPL](../areas/xrpl.md#rlusd), [Settlement](../areas/settlement.md#when-peers-cannot-pay-us), [Connector](../areas/connector.md). Built in the RLUSD scheme; transfer fees are not ([roadmap](../roadmap.md#not-built-yet)).
 
 ## Facts
 

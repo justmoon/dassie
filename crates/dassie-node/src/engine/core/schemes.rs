@@ -47,7 +47,7 @@ pub const SCHEMES: &[SchemeInfo] = &[
 /// the asset is made with: for the XRPL schemes, the server and the faucet
 /// their config names, which are the account's. Both settle through the
 /// node's first XRPL testnet account, so one address holds the XRP of one
-/// and the gas of the other (spec/designs/external-assets.md#2-the-external-asset).
+/// and the gas of the other (spec/areas/xrpl.md#the-account).
 fn asset_of(id: &str) -> Option<AssetId> {
     #[cfg(test)]
     if id == super::tests::WITNESS {

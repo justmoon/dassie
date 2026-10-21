@@ -616,10 +616,17 @@ async fn two_daemons_settle_rlusd_across_restarts() {
         panic!("{asset:?}")
     };
     assert_eq!(
-        (xrp.asset_code.as_str(), xrp.asset_scale, xrp.issuer.as_str()),
+        (
+            xrp.asset_code.as_str(),
+            xrp.asset_scale,
+            xrp.issuer.as_str()
+        ),
         ("XRP", 6, "")
     );
-    assert_eq!(Some(xrp.amount), server.ledger().balance(account_of(&key_a)));
+    assert_eq!(
+        Some(xrp.amount),
+        server.ledger().balance(account_of(&key_a))
+    );
     assert_eq!(
         xrp.reserve,
         dassie_xrpl::fake::RESERVE_BASE + dassie_xrpl::fake::RESERVE_INC

@@ -1375,7 +1375,7 @@ fn a_database_from_before_external_assets_restarts_and_books_nothing_anew() {
 }
 
 /// A second scheme on the node's first XRPL testnet account, for the tests,
-/// as RLUSD will be: it serves the stub's ledger, follows the account from
+/// as RLUSD is one: it serves the stub's ledger, follows the account from
 /// nowhere, and books and signs nothing.
 pub(super) const WITNESS: &str = "witness";
 
@@ -1657,7 +1657,7 @@ fn a_scheme_activated_on_a_closed_account_connects_it_again() {
     assert_eq!(core.asset_views()[0].status, LedgerStatus::Synced);
 }
 
-// spec/designs/external-assets.md#3-accounting: the RLUSD scheme added
+// spec/decisions/external-assets.md: the RLUSD scheme added
 // beside the XRP scheme settles through the same account. The account is
 // connected anew and reads the line, which is set with a TrustSet whose fee
 // is a ledger fee on `xrpl-testnet+xrp` and whose reserve is reconciled
