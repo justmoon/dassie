@@ -8,8 +8,9 @@
 //!   an installed app is; an entry naming a path that an upgrade or a
 //!   garbage collection removes, as `nix run` gives, would only go stale.
 //! - **The owner's choice is kept** in the app's data directory, whether
-//!   made in the tray or by removing the entry in the desktop's own
-//!   settings: an entry the owner removed is not written again.
+//!   made in the tray or in the desktop's own settings, which remove the
+//!   entry or turn it off in place (`Hidden=true`,
+//!   `X-GNOME-Autostart-enabled=false`): such an entry is not written again.
 //! - **An entry that is wanted is written again at every start,** so that it
 //!   names the binary as it is now.
 
@@ -39,15 +40,42 @@ pub fn wanted(data_dir: &Path) -> bool {
 }
 
 /// At each start: makes the default choice on the first, keeps an entry the
-/// owner removed removed, and writes a wanted entry again.
+/// owner removed or turned off as it is, and writes a wanted entry again.
 pub fn refresh(data_dir: &Path) -> io::Result<()> {
     let entry = entry_path()?;
     match choice(data_dir) {
         None => choose(data_dir, on_path()),
-        Some(true) if !entry.exists() => keep(data_dir, false),
-        Some(true) => write_entry(&entry),
+        Some(true) => match fs::read_to_string(&entry) {
+            Ok(text) if !turned_off(&text) => write_entry(&entry),
+            Ok(_) => keep(data_dir, false),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => keep(data_dir, false),
+            Err(error) => Err(error),
+        },
         Some(false) => Ok(()),
     }
+}
+
+/// Whether the entry `text` was turned off in place, as GNOME's and KDE's
+/// startup settings do rather than remove it.
+fn turned_off(text: &str) -> bool {
+    let mut in_entry = false;
+    for line in text.lines().map(str::trim) {
+        if line.starts_with('[') {
+            in_entry = line == "[Desktop Entry]";
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let (key, value) = (key.trim(), value.trim());
+        if in_entry
+            && ((key == "Hidden" && value == "true")
+                || (key == "X-GNOME-Autostart-enabled" && value == "false"))
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// Keeps the owner's choice, and writes or removes the entry to match.
@@ -180,6 +208,25 @@ mod tests {
     #[test]
     fn paths_with_control_characters_are_refused() {
         assert_eq!(command(false, Path::new("/home/a\nb/dassie-desktop")), None);
+    }
+
+    #[test]
+    fn an_entry_turned_off_in_place_is_off() {
+        assert!(!turned_off(&entry("dassie-desktop")));
+        let gnome = entry("dassie-desktop").replace(
+            "X-GNOME-Autostart-enabled=true",
+            "X-GNOME-Autostart-enabled=false",
+        );
+        assert!(turned_off(&gnome));
+        assert!(turned_off(&format!(
+            "{}Hidden=true\n",
+            entry("dassie-desktop")
+        )));
+        assert!(turned_off("[Desktop Entry]\nHidden = true\n"));
+        // Only the entry's own group counts.
+        assert!(!turned_off(
+            "[Desktop Entry]\nName=Dassie\n[Desktop Action x]\nHidden=true\n"
+        ));
     }
 
     #[test]
