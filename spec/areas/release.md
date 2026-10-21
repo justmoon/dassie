@@ -2,7 +2,7 @@
 
 How Dassie is built, signed, published, installed and updated. A release is one static binary per platform with the wallet built in, packed in bundles whose sums are signed with the release key; the installer and the updater trust nothing they cannot verify with that key.
 
-**Paths:** `crates/dassie-release/`, `crates/dassie-cli/src/update.rs`, `crates/dassie-cli/build.rs`, `resources/` (`minisign.pub`, `systemd/`, `installer/install.sh`), `nix/release.nix`, `nix/pnpm.nix`, `nix/flake/`, `scripts/release.ts`, `.github/workflows/release.yml`
+**Paths:** `crates/dassie-release/`, `crates/dassie-cli/src/update.rs`, `crates/dassie-cli/build.rs`, `resources/` (`minisign.pub`, `systemd/`, `installer/install.sh`), `nix/release.nix`, `nix/pnpm.nix`, `nix/flake/`, `scripts/release.ts`, `scripts/flake-latest.ts`, `scripts/flake-latest/`, `.github/workflows/release.yml`
 **Read with:** [Node](node.md), [Testing](testing.md)
 
 ## Versions and channels
@@ -43,7 +43,7 @@ How Dassie is built, signed, published, installed and updated. A release is one 
 
 ## The mirror
 
-`get.dassie.land` keeps the original's paths (`meta/<channel>`, `<version>/dassie-<version>-linux-<arch>.tar.{gz,xz}`), so its installer and updater URLs keep working, and adds `<version>/flake.tar.gz` ([NixOS](#nixos)), `<version>/SHA256SUMS`, which lists the bundles and the flake, and its `.minisig`. `sh.dassie.land` serves `install.sh`. The mirror's load balancer also serves dassie.land, from a bucket of its own ([Website](website.md#deployment), [website-hosting](../decisions/website-hosting.md)).
+`get.dassie.land` keeps the original's paths (`meta/<channel>`, `<version>/dassie-<version>-linux-<arch>.tar.{gz,xz}`), so its installer and updater URLs keep working, and adds `<version>/flake.tar.gz` ([NixOS](#nixos)), `<version>/SHA256SUMS`, which lists the bundles and the flake, and its `.minisig`. `get.dassie.land/flake/latest.tar.gz` is the newest release's flake ([NixOS](#nixos)), and `sh.dassie.land` serves `install.sh`. The mirror's load balancer also serves dassie.land, from a bucket of its own ([Website](website.md#deployment), [website-hosting](../decisions/website-hosting.md)).
 
 ## Publishing
 
@@ -53,6 +53,7 @@ How Dassie is built, signed, published, installed and updated. A release is one 
 - **What is signed is verified before it is uploaded,** with `dassie-release verify`, the code the updater trusts, against `resources/minisign.pub`. So a release signed with another key, or in a way the updater refuses, never reaches the mirror.
 - **A version's files are immutable once published.** Each upload is read back and must be the signed tree's bytes, so a rerun completes an interrupted publish and refuses to overwrite a file published with other bytes. The signature goes last.
 - **`meta/latest` moves last and never backwards:** it names the new version only once the version's files are all up, and only if `dassie-release supersedes` says it supersedes the published one.
+- **`/flake/latest.tar.gz` follows `meta/latest`** ([NixOS](#nixos)): once `meta/latest` names the release, `scripts/flake-latest.ts` points the route at its flake. The rewrite and the `Link` header change together, in one update of the URL map, validated for the load balancer's scheme and refused if the map changed since it was read.
 - The workflow does not consult the simulation campaign; that check is [not built](../roadmap.md#continuous-simulation).
 
 ## Install layout
@@ -100,7 +101,9 @@ If the node does not come up after the switch, the update disables and removes t
 
 ## NixOS
 
-`nix/flake/`, published as `<version>/flake.tar.gz` ([nix-flake-on-the-mirror](../decisions/nix-flake-on-the-mirror.md)). An owner points a flake input at it and enables `services.dassie`.
+`nix/flake/`, published as `<version>/flake.tar.gz` ([nix-flake-on-the-mirror](../decisions/nix-flake-on-the-mirror.md)). An owner points a flake input at it, or at `https://get.dassie.land/flake/latest.tar.gz` to follow releases, and enables `services.dassie`.
+
+- **`/flake/latest.tar.gz` locks as the version it names.** The mirror's load balancer serves it as the newest release's flake, with `Link: <https://get.dassie.land/<version>/flake.tar.gz>; rel="immutable"`, which Nix locks in its place, so a lock stays good when the release after it is out. The header needs the load balancer's `EXTERNAL_MANAGED` scheme, and the backend must stay without Cloud CDN, which would keep the old flake under the same URL. The release workflow moves it ([Publishing](#publishing)).
 
 - **The package is the release's own bundle,** fetched by the sum `SHA256SUMS` lists, which `nix build .#release` writes into the flake's `release.json`. Nothing is compiled or patched.
 - **The units are the bundle's,** with `ExecStart` naming the package's binary, enabled as `install.sh` enables them. The module sets environment variables and opens the firewall in drop-ins, and makes the group `dassie-users`. The socket units keep their names, which the node takes its sockets by ([Node](node.md#runtimes)).
@@ -112,7 +115,7 @@ If the node does not come up after the switch, the update disables and removes t
 - `crates/dassie-cli/tests/update.rs` runs the updater against a TLS mirror signed with the test key, including tampered and mis-signed releases.
 - The store's tests check the copy before a migration, and when a rollback puts it back.
 - `tests/e2e/install_test.ts` installs, updates, rolls back, passes over the version it rolled back, and uninstalls on several distributions against `nix build .#install-test-mirror`, whose newest release's node fails to start on purpose, so the rollback runs for real ([Testing](testing.md#installer-and-updater)). It runs in the release workflow before signing, not in CI.
-- `scripts/release_test.ts` tests the signing script; the installer's ShellCheck runs with `nix flake check`.
+- `scripts/release_test.ts` tests the signing script, and `scripts/flake-latest_test.ts` the change of the URL map that routes the flake; the installer's ShellCheck runs with `nix flake check`.
 - `nixos-units`, with `nix flake check`, builds the units a NixOS system with the module would have, around a stand-in binary. `nixos-test` boots the module in a VM with the install tests' 1.0.0, and checks that the node answers, that only root and `dassie-users` reach its IPC socket, and that there is no updater. It needs KVM, so it runs in the release workflow before signing.
 
 ## Decisions

@@ -18,7 +18,8 @@ name: Release
 # - vars.GCP_WORKLOAD_IDENTITY_PROVIDER and vars.GCP_SERVICE_ACCOUNT: a
 #   service account with roles/storage.objectUser on the bucket
 #   (vars.MIRROR_BUCKET, by default get.dassie.land), through workload
-#   identity federation.
+#   identity federation, and, for get.dassie.land, the role that routes
+#   /flake/latest.tar.gz (scripts/flake-latest/provision.sh).
 # Keep the key and the GCP variables in the environment, not the
 # repository: with deployment rules that admit only v* tags, no branch's
 # workflow can read them. Limit who may push v* tags with a ruleset, and
@@ -264,5 +265,12 @@ jobs:
             gcloud storage cp --cache-control="no-cache, max-age=0" \
               --content-type="text/plain; charset=utf-8" \
               signed/install.sh "gs://$BUCKET/install.sh"
+          fi
+          # get.dassie.land/flake/latest.tar.gz follows meta/latest, in the
+          # mirror's URL map (scripts/flake-latest.ts). A run again does it
+          # if this one failed, and nothing if it is done.
+          if [ "$BUCKET" = get.dassie.land ]; then
+            nix shell --inputs-from . nixpkgs#nodejs_26 --command \
+              node scripts/flake-latest.ts "$version"
           fi
           echo "::notice::Published dassie $version"

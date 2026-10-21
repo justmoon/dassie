@@ -26,7 +26,7 @@ Dassie updates itself: once a day, a systemd timer checks for a newer release, v
 
 The [Quick Start](https://dassie.land/guides/quick-start/) on dassie.land walks through the same steps.
 
-On NixOS, each release publishes a flake instead, `https://get.dassie.land/<version>/flake.tar.gz`, with a module that runs the release's signed binary under its own systemd units, without the updater. [Dassie on NixOS](https://dassie.land/guides/nixos/) shows how to use it.
+On NixOS, each release publishes a flake instead, `https://get.dassie.land/<version>/flake.tar.gz`, and `https://get.dassie.land/flake/latest.tar.gz` is the newest one, which `nix flake update` follows. It holds a module that runs the release's signed binary under its own systemd units, without the updater. [Dassie on NixOS](https://dassie.land/guides/nixos/) shows how to use it.
 
 ## Using your node
 
