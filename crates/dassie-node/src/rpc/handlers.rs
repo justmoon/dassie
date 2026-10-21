@@ -292,6 +292,18 @@ fn status(node: &Node) -> proto::GetStatusResponse {
         }),
         http_port: http_port.into(),
         https_port: https_port.into(),
+        periphery: node.own_info().is_periphery(),
+        relay: node
+            .quic()
+            .and_then(|quic| quic.chosen_relay())
+            .map(|(relay, url, connected)| proto::ChosenRelay {
+                node: relay.as_str().to_string(),
+                url,
+                connected,
+            }),
+        open_payments_origins: crate::open_payments::Names::of(node)
+            .map(|names| names.origins())
+            .unwrap_or_default(),
     }
 }
 

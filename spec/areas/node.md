@@ -125,6 +125,8 @@ The CLI talks to the daemon over the IPC socket with the same RPC contract as th
 
 - **`dassie init`** is the original's wizard. The daemon runs the ACME order and the wizard shows its progress, so there is one ACME client, not two. Every prompt has a flag, so scripts and tests can run it unattended.
 - **`dassie status`** names no secret, so its output can be pasted where the owner asks for help; that is why the setup URL has a command of its own, `dassie setup-url`. It also reports the last update ([Release](release.md#dassie-update)).
+  - It gives a hint only where something is wrong, so the normal state of a node never reads as a fault. A periphery node ([Network](network.md#periphery-nodes)) registers nowhere and needs no domain name, so status does not report its membership or send its owner to `dassie init`. It names the node's uplinks and whether each is connected, its [chosen relay](#a-chosen-relay) and whether the node holds its connection to it, and the names the node answers Open Payments to ([Payments](payments.md#the-nodes-names)) as its addresses. A periphery node without an uplink, or with a relay it cannot connect to, is unreachable, and those get a hint.
+  - A node that is not a periphery node reports how many bootstrap nodes list it, and a relay if it chose one.
 - **`dassie verify-install`** checks that this binary works on this host (SQLite, TLS, the embedded wallet, a version the updater can parse) and names the release key it trusts. The installer and the updater run it before switching to a binary.
 - **`dassie update`** is [Release](release.md#dassie-update)'s.
 

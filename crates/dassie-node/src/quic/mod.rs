@@ -342,6 +342,8 @@ pub struct Quic {
     relaying: Relaying,
     /// The relay the node keeps a connection to while it serves.
     chosen_relay: Mutex<Option<(NodeId, String, PeerClient)>>,
+    /// Whether the connection to the chosen relay is open now.
+    relay_connected: AtomicBool,
     allow_private: bool,
     /// How long a connection lasts without traffic: [`IDLE_TIMEOUT`],
     /// except in tests.
@@ -385,6 +387,7 @@ impl Quic {
             serving: Mutex::new(None),
             relaying: Relaying::new(),
             chosen_relay: Mutex::new(None),
+            relay_connected: AtomicBool::new(false),
             allow_private,
             idle: IDLE_TIMEOUT,
             keep_alive: AtomicBool::new(false),

@@ -301,6 +301,13 @@ fn status_and_the_setup_url_before_setup() {
     let text = String::from_utf8_lossy(&status.stdout);
     assert!(text.contains(" is running, for "), "{text}");
     assert!(text.contains("Setup        not done yet"), "{text}");
+    // Without a hostname it runs as a periphery node, which needs no domain
+    // name: status does not send its owner to `dassie init`.
+    assert!(
+        text.contains("Address      none yet: a periphery node is named once it is set up"),
+        "{text}"
+    );
+    assert!(!text.contains("dassie init"), "{text}");
     // It names no secret, so it can be pasted where help is asked for.
     assert!(!text.contains(token), "{text}");
     // Nor does the daemon's log, which the journal keeps for groups that do
