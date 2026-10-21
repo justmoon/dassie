@@ -7,20 +7,20 @@
  */
 
 import type { JSX } from "@solidjs/web";
-import { type Ledger, LedgerConnection } from "@dassie/rpc/proto";
+import { type Ledger, LedgerConnection, Realm } from "@dassie/rpc/proto";
 import { createSignal, Show } from "solid-js";
 import { Amount, ledgerCurrency } from "@dassie/ui/amount";
 import { describe, useClient } from "@dassie/ui/rpc";
 import { useToast } from "@dassie/ui/toast";
 import { Alert, Badge, ErrorText } from "@dassie/ui/ui";
-import { isTestnet, schemeName } from "../schemes.ts";
+import { schemeName } from "../schemes.ts";
 import { DepositAddress } from "./DepositAddress.tsx";
 
 export function LedgerDeposit(
   props: { ledger: Ledger; address: string },
 ): JSX.Element {
   const network = () => schemeName(props.ledger.settlementScheme);
-  const testnet = () => isTestnet(props.ledger.settlementScheme);
+  const testnet = () => props.ledger.realm === Realm.TEST;
   const reserve = () => (
     <Amount
       value={props.ledger.reserve}

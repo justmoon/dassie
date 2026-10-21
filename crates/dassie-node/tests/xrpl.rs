@@ -337,7 +337,9 @@ async fn the_owner_asks_the_faucet_for_more() {
     let a = bound.start(clock.clone(), 1, Policies::DEV, &env).await;
     prepare_with(&a, &key_a, "xrpl-testnet", &config).await;
     until(&clock, async || in_step(&a, &key_a, &server).await).await;
-    assert!(ledger_of(&a).await.unwrap().faucet);
+    let ledger = ledger_of(&a).await.unwrap();
+    assert!(ledger.faucet);
+    assert_eq!(ledger.realm(), proto::Realm::Test);
     let ask = async |scheme: &str| {
         a.ipc()
             .await

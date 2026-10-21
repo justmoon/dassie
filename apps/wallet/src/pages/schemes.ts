@@ -22,10 +22,3 @@ export function schemeName(id: string, fallback?: string): string {
 export function schemeDescription(id: string): string | undefined {
   return DESCRIPTIONS[id];
 }
-
-const TESTNETS = new Set(["stub", "xrpl-testnet"]);
-
-/** Whether a scheme settles in test money, never real. */
-export function isTestnet(id: string): boolean {
-  return TESTNETS.has(id);
-}

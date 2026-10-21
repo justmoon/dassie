@@ -312,17 +312,13 @@ fn list_schemes(node: &Node) -> Result<Reply, RpcError> {
         .iter()
         .map(|info| {
             let asset = info.ledger.asset();
-            let realm = match info.ledger.realm() {
-                dassie_ledger::Realm::Test => proto::Realm::Test,
-                dassie_ledger::Realm::Live => proto::Realm::Live,
-            };
             proto::SettlementSchemeInfo {
                 id: info.id.into(),
                 name: info.name.into(),
                 ledger: info.ledger.as_str().into(),
                 asset_code: asset.code.into(),
                 asset_scale: asset.scale.into(),
-                realm: realm.into(),
+                realm: realm(info.ledger.realm()).into(),
                 active: active.iter().any(|(id, _)| id.as_str() == info.id),
             }
         })
@@ -425,11 +421,19 @@ pub(super) fn ledger(view: &LedgerView) -> proto::Ledger {
         reserve: view.reserve,
         deposit_address: view.deposit_address.clone().unwrap_or_default(),
         faucet: view.faucet,
+        realm: realm(view.id.realm()).into(),
         connection: connection(view.status).into(),
         connection_problem: match view.status {
             LedgerStatus::Failed(why) => why.into(),
             _ => String::new(),
         },
+    }
+}
+
+const fn realm(realm: dassie_ledger::Realm) -> proto::Realm {
+    match realm {
+        dassie_ledger::Realm::Test => proto::Realm::Test,
+        dassie_ledger::Realm::Live => proto::Realm::Live,
     }
 }
 

@@ -36,6 +36,8 @@ message Ledger {
   string connection_problem = 12;
   // Whether the node can ask a faucet for test money on it: AskFaucet.
   bool faucet = 13;
+  // The realm its money belongs to: TEST money has no value.
+  Realm realm = 14;
 }
 
 enum LedgerConnection {
