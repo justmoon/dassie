@@ -303,8 +303,8 @@ fn relay(relay: Option<&proto::ChosenRelay>, periphery: bool) -> Option<String> 
     } else {
         format!(
             "{who}, not connected, so Open Payments clients cannot reach the node through it: \
-             check that DASSIE_RELAY is the entry the relay logs, and that the node can reach \
-             it over UDP"
+             check that DASSIE_RELAY is the entry the front door logs, or the relay's ID, URL \
+             and key, and that the node can reach it over UDP"
         )
     })
 }
@@ -623,7 +623,15 @@ mod tests {
             lost.starts_with("dRelay at https://relay.dassiepay.net, not connected, so "),
             "{lost}"
         );
-        assert!(lost.contains("check that DASSIE_RELAY"), "{lost}");
+        // A front door logs the entry that names it; a plain node chosen as
+        // a relay logs none, so the hint names what the entry holds too.
+        assert!(
+            lost.ends_with(
+                ": check that DASSIE_RELAY is the entry the front door logs, or the relay's ID, \
+                 URL and key, and that the node can reach it over UDP"
+            ),
+            "{lost}"
+        );
         // A core node without one is reached at its hostname: no line.
         assert_eq!(relay(None, false), None);
         assert_eq!(
