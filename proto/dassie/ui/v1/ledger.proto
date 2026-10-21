@@ -109,6 +109,57 @@ message ListLedgersResponse {
   // at the current rates. Absent without a display currency, or while a
   // rate it needs is missing or stale.
   DisplayTotal total = 4;
+  // What the ledgers settle through, in a fixed order: each external asset
+  // with what it holds as its ledger says, never as the books add it up.
+  repeated ExternalAsset external_assets = 5;
+}
+
+// Something the node holds outside its books, which settlement schemes
+// settle through (spec/areas/settlement.md#external-assets): its account
+// on the XRP Ledger testnet.
+message ExternalAsset {
+  // Its kind and number, for example "xrpl-testnet-account/0".
+  string id = 1;
+  // Where the owner sends money to fund it: an XRPL address. Empty for
+  // none.
+  string address = 2;
+  // What it holds, each asset as its ledger last said: none until the
+  // ledger has said.
+  repeated Holding holdings = 3;
+  // How it stands with its ledger.
+  LedgerConnection connection = 4;
+  // Why, when it is FAILED.
+  string connection_problem = 5;
+  // The settlement schemes that settle through it, for example
+  // "xrpl-testnet" and "xrpl-testnet-rlusd".
+  repeated string settlement_schemes = 6;
+  // Whether the node can ask a faucet for test money on it: AskFaucet
+  // with any of its schemes.
+  bool faucet = 7;
+}
+
+// What an external asset holds of one asset, as its ledger last said.
+message Holding {
+  // For example "XRP", or a token's code, "RLUSD".
+  string asset_code = 1;
+  // Who issued it, for a token: an address on the ledger. Empty for the
+  // ledger's own asset.
+  string issuer = 2;
+  // An amount of 1 is 10^-asset_scale units of the asset, rounded down.
+  uint64 amount = 3;
+  // The ledger's own precision where the amount fits in at it, else a
+  // smaller one: a token's fifteen decimals hold a few thousand units only.
+  uint32 asset_scale = 4;
+  // What the ledger holds back of it, in the same units, never
+  // spendable: XRPL's reserve, which the account's trust lines raise.
+  uint64 reserve = 5;
+  // Its issuer froze this line: it pays only the issuer, and still
+  // receives.
+  bool frozen = 6;
+  // Its issuer deep-froze this line: it neither pays nor receives.
+  bool deep_frozen = 7;
+  // Its issuer froze the token for every holder: no holder pays another.
+  bool global_freeze = 8;
 }
 
 // How many units of a currency one US dollar buys.

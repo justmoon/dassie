@@ -8,13 +8,12 @@
 
 import type { JSX } from "@solidjs/web";
 import { type Ledger, LedgerConnection, Realm } from "@dassie/rpc/proto";
-import { createSignal, Show } from "solid-js";
+import { Show } from "solid-js";
 import { Amount, ledgerCurrency } from "@dassie/ui/amount";
-import { describe, useClient } from "@dassie/ui/rpc";
-import { useToast } from "@dassie/ui/toast";
-import { Alert, Badge, ErrorText } from "@dassie/ui/ui";
+import { Alert, Badge } from "@dassie/ui/ui";
 import { schemeName } from "../schemes.ts";
 import { DepositAddress } from "./DepositAddress.tsx";
+import { Faucet } from "./Faucet.tsx";
 
 export function LedgerDeposit(
   props: { ledger: Ledger; address: string },
@@ -92,56 +91,11 @@ export function LedgerDeposit(
         </Show>
       </Alert>
       <Show when={props.ledger.faucet}>
-        <Faucet ledger={props.ledger} />
+        <Faucet
+          scheme={props.ledger.settlementScheme}
+          assetCode={props.ledger.assetCode}
+        />
       </Show>
     </div>
-  );
-}
-
-/** Test money from the ledger's faucet, which the node asks. */
-function Faucet(props: { ledger: Ledger }): JSX.Element {
-  const client = useClient();
-  const toast = useToast();
-  const [pending, setPending] = createSignal(false);
-  const [error, setError] = createSignal<string>();
-  const ask = async () => {
-    setPending(true);
-    setError(undefined);
-    try {
-      await client.call("askFaucet", {
-        settlementScheme: props.ledger.settlementScheme,
-      });
-      toast({
-        title: "Asked the testnet faucet",
-        description:
-          `The test ${props.ledger.assetCode} shows up in your balance once the ledger validates it.`,
-      });
-    } catch (failure) {
-      setError(describe(failure));
-    }
-    setPending(false);
-  };
-  return (
-    <section class="stack">
-      <div>
-        <h3>Testnet faucet</h3>
-        <p class="muted">
-          Get free test {props.ledger.assetCode}{" "}
-          from the testnet faucet, once a minute at most.
-        </p>
-      </div>
-      <div class="actions">
-        <button
-          type="button"
-          class="primary"
-          data-testid="faucet"
-          disabled={pending()}
-          onClick={ask}
-        >
-          Get test {props.ledger.assetCode}
-        </button>
-      </div>
-      <ErrorText message={error()} />
-    </section>
   );
 }

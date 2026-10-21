@@ -174,6 +174,8 @@ pub struct AssetView {
     pub status: LedgerStatus,
     /// The schemes that settle through it.
     pub schemes: Vec<String>,
+    /// Whether the node can ask a faucet for test money on it.
+    pub faucet: bool,
 }
 
 /// What comes for an asset from its connection or its faucet.
@@ -595,6 +597,7 @@ impl Core {
                     .filter(|(_, scheme)| scheme.asset == Some(*id))
                     .map(|(name, _)| name.as_str().to_string())
                     .collect(),
+                faucet: active.asset.has_faucet(),
             })
             .collect()
     }

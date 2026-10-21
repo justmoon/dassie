@@ -33,7 +33,7 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 pub use self::core::{
-    BtpEvent, BtpSession, Changes, Core, CoreParts, CreatedOutgoing, EngineError, EngineEvent,
+    AssetView, BtpEvent, BtpSession, Changes, Core, CoreParts, CreatedOutgoing, EngineError, EngineEvent,
     Event, IncomingPolicy, LedgerEvent, LedgerView, Lie, NetworkView, NewIncoming, NewOutgoing,
     NewToken, Outbound, Output, PaymentEvent, PeerEvent, PeerView, Prober, RemovalBlocker, SCHEMES,
     SettlementEvent, Severity, TokenView, ledger_slug,
@@ -174,6 +174,15 @@ impl Engine {
     /// The ledgers of active schemes.
     pub async fn ledgers(&self) -> Result<Vec<LedgerView>, EngineError> {
         self.call(|core| Ok(core.ledger_views())).await
+    }
+
+    /// The ledgers of active schemes, and the external assets they settle
+    /// through, as their ledgers say, at one moment.
+    pub async fn ledgers_and_assets(
+        &self,
+    ) -> Result<(Vec<LedgerView>, Vec<AssetView>), EngineError> {
+        self.call(|core| Ok((core.ledger_views(), core.asset_views())))
+            .await
     }
 
     /// Activates a settlement scheme.

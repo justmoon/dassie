@@ -9,6 +9,7 @@ import { useNodeData } from "@dassie/ui/node-data";
 import { Link } from "@dassie/ui/router";
 import { Card, LiveNote, PageTitle } from "@dassie/ui/ui";
 import { schemeName } from "../schemes.ts";
+import { assetName, assetOf } from "../assets/assets.ts";
 import { ageText, rateText } from "../settings/rates.ts";
 import { connectionText } from "./connection.ts";
 import { DepositAddress } from "./DepositAddress.tsx";
@@ -50,6 +51,22 @@ export function Ledgers(): JSX.Element {
               {(text) => (
                 <p data-testid={`ledger-connection-${ledger().id}`}>
                   {text()}
+                </p>
+              )}
+            </Show>
+            <Show
+              when={assetOf(ledger().settlementScheme, data.externalAssets())}
+            >
+              {(asset) => (
+                <p class="muted">
+                  Settles through your{" "}
+                  <Link
+                    href="/assets"
+                    testid={`ledger-asset-${ledger().id}`}
+                  >
+                    {assetName(asset().id)}
+                  </Link>
+                  , which holds what the ledger reports.
                 </p>
               )}
             </Show>

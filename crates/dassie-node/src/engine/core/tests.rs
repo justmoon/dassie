@@ -1661,7 +1661,8 @@ fn a_scheme_activated_on_a_closed_account_connects_it_again() {
 // beside the XRP scheme settles through the same account. The account is
 // connected anew and reads the line, which is set with a TrustSet whose fee
 // is a ledger fee on `xrpl-testnet+xrp` and whose reserve is reconciled
-// there, and the wallet sees both holdings as the ledger says.
+// there, and the wallet sees both holdings as the ledger says, a freeze
+// included.
 // spec/areas/settlement.md#when-peers-cannot-pay-us: while the issuer froze
 // the line deep, or froze its token for every holder (read at the
 // settlement check), the link state leaves the scheme out; it stays synced.
@@ -1740,9 +1741,21 @@ fn rlusd_beside_xrp_on_one_account() {
     let usd = view(&core, LedgerId::XrplTestnetRlusdUsd);
     assert_eq!(usd.owner_balance, 10_000_000_000);
 
+    let freeze = |core: &Core| {
+        let views = core.asset_views();
+        views[0]
+            .holdings
+            .iter()
+            .find(|holding| holding.code == "RLUSD")
+            .unwrap()
+            .freeze
+    };
+    assert_eq!(freeze(&core), dassie_settlement::Freeze::default());
     ledger.deep_freeze(address, Token::RLUSD, true).unwrap();
     close_xrpl(&mut core, &mut ledger);
     assert!(!advertised(&core), "advertised while it cannot receive");
+    let frozen = freeze(&core);
+    assert!(frozen.line && frozen.deep && !frozen.global, "{frozen:?}");
     assert_eq!(
         view(&core, LedgerId::XrplTestnetRlusdUsd).status,
         LedgerStatus::Synced
@@ -1761,6 +1774,8 @@ fn rlusd_beside_xrp_on_one_account() {
     core.begin_step(NOW + 60_000);
     follow_xrpl(&mut core, &mut ledger);
     assert!(!advertised(&core), "advertised during a global freeze");
+    let frozen = freeze(&core);
+    assert!(!frozen.line && frozen.global, "{frozen:?}");
 }
 
 /// A core node that takes downlinks, on RLUSD alone, synced and holding $10

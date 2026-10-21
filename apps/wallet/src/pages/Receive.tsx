@@ -2,7 +2,9 @@
  * Receive (spec/areas/wallet.md#pages): the wallet addresses other wallets
  * pay through Open Payments, a request for a payment, and a tab per ledger with
  * its deposit method: the stub's test money, or the address the owner sends
- * to, with the testnet faucet where the node has one.
+ * to, with the testnet faucet where the node has one. A ledger that settles
+ * in a token names both what its account needs there: the token, and the
+ * ledger's own asset for fees.
  */
 
 import type { JSX } from "@solidjs/web";
@@ -15,10 +17,12 @@ import { describe, useClient } from "@dassie/ui/rpc";
 import { Link, useRouter, useSearchParam } from "@dassie/ui/router";
 import { useToast } from "@dassie/ui/toast";
 import { Card, ErrorText, PageTitle, Tabs } from "@dassie/ui/ui";
-import { schemeName } from "./schemes.ts";
+import { schemeName, tokenScheme } from "./schemes.ts";
+import { assetOf } from "./assets/assets.ts";
 import { RequestPayment } from "./payments/RequestPayment.tsx";
 import { WalletAddresses } from "./payments/WalletAddresses.tsx";
 import { LedgerDeposit } from "./ledgers/LedgerDeposit.tsx";
+import { TokenDeposit } from "./ledgers/TokenDeposit.tsx";
 
 export function Receive(): JSX.Element {
   const data = useNodeData();
@@ -77,7 +81,24 @@ function Deposit(props: { id: string }): JSX.Element {
               }
             >
               {(address) => (
-                <LedgerDeposit ledger={ledger()} address={address()} />
+                <Show
+                  when={tokenScheme(ledger().settlementScheme)}
+                  fallback={
+                    <LedgerDeposit ledger={ledger()} address={address()} />
+                  }
+                >
+                  {(token) => (
+                    <TokenDeposit
+                      ledger={ledger()}
+                      address={address()}
+                      token={token()}
+                      asset={assetOf(
+                        ledger().settlementScheme,
+                        data.externalAssets(),
+                      )}
+                    />
+                  )}
+                </Show>
               )}
             </Show>
           }
