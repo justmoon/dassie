@@ -21,7 +21,20 @@ export interface ScenarioDef {
   readonly bootstrap: readonly number[];
   /** Why it cannot run yet, if it cannot. */
   readonly unavailable?: string;
+  /**
+   * The test RLUSD, in dollars such as `"100"`, that the fake ledger's
+   * issuer mints each node once its trust line exists. Only the fake
+   * ledger mints on demand, so such a scenario needs it.
+   */
+  readonly rlusd?: string;
 }
+
+/** The settlement schemes on the XRP Ledger: their nodes' account is on
+ * the testnet, or on the fake ledger. */
+export const XRPL_SCHEMES: readonly string[] = [
+  "xrpl-testnet",
+  "xrpl-testnet-rlusd",
+];
 
 export const SCENARIOS: readonly ScenarioDef[] = [
   {
@@ -51,6 +64,16 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     bootstrap: [0, 1],
   },
   {
+    id: "rlusd-settlement",
+    name: "RLUSD Settlement",
+    description:
+      "Network with two nodes settling in test RLUSD on the XRP Ledger, minted by the fake ledger's issuer",
+    schemes: [["xrpl-testnet-rlusd"], ["xrpl-testnet-rlusd"]],
+    addedSchemes: ["xrpl-testnet-rlusd"],
+    bootstrap: [0, 1],
+    rlusd: "100",
+  },
+  {
     id: "cross-currency",
     name: "Cross-currency Settlement",
     description:
@@ -75,4 +98,23 @@ export const DEFAULT_SCENARIO = "two-nodes";
 /** The scenario `id`, if there is one. */
 export function findScenario(id: string): ScenarioDef | undefined {
   return SCENARIOS.find((scenario) => scenario.id === id);
+}
+
+/** Whether `def` settles on the XRP Ledger, with any of its nodes. */
+export function settlesOnXrpl(def: ScenarioDef): boolean {
+  return [...def.schemes, def.addedSchemes].some((schemes) =>
+    schemes.some((scheme) => XRPL_SCHEMES.includes(scheme))
+  );
+}
+
+/** Why `def` cannot run, with the fake XRP Ledger or without it. */
+export function unavailable(
+  def: ScenarioDef,
+  fakeLedger: boolean,
+): string | undefined {
+  if (def.unavailable) return def.unavailable;
+  if (def.rlusd !== undefined && !fakeLedger) {
+    return "needs --xrpl fake: only the fake ledger's issuer mints test RLUSD on demand";
+  }
+  return undefined;
 }

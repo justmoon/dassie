@@ -96,7 +96,7 @@ pub(super) async fn ledgers(
     node: &Node,
     engine: &Engine,
 ) -> Result<proto::ListLedgersResponse, RpcError> {
-    let views = engine.ledgers().await?;
+    let (views, assets) = engine.ledgers_and_assets().await?;
     let rates = engine.rates().await?;
     let display = node
         .store()
@@ -116,6 +116,7 @@ pub(super) async fn ledgers(
             .collect(),
         display_currency: display.unwrap_or_default().into(),
         total: display.and_then(|code| total(&views, &rates, code, now)),
+        external_assets: assets.iter().map(super::ledger::external_asset).collect(),
     })
 }
 
@@ -171,6 +172,7 @@ mod tests {
             on_ledger_balance: 0,
             reserve: 0,
             deposit_address: None,
+            issuer: None,
             faucet: false,
             status: LedgerStatus::Synced,
             removal_blockers: Vec::new(),

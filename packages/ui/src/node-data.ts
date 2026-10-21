@@ -1,13 +1,14 @@
 /**
  * What the whole wallet follows while the owner is signed in: the ledgers,
- * with their balances, the exchange rates and the owner's total, and the
- * node table. The gate, the navigation and most pages read them; the dev
+ * with their balances, the exchange rates and the owner's total, the
+ * external assets they settle through, and the node table. The gate, the navigation and most pages read them; the dev
  * dashboard keeps one per node.
  */
 
 import type {
   DisplayTotal,
   ExchangeRate,
+  ExternalAsset,
   Ledger,
   NetworkNode,
 } from "@dassie/rpc/proto";
@@ -37,6 +38,9 @@ export interface NodeData {
   /** What the owner has on every ledger, in that currency, while the
    * rates allow. */
   total: Accessor<DisplayTotal | undefined>;
+  /** What the ledgers settle through, each with what it holds as its
+   * ledger says, never as the books add it up. */
+  externalAssets: Accessor<readonly ExternalAsset[]>;
   nodes: Store<Keyed<NetworkNode>>;
   nodesStatus: Accessor<LiveStatus>;
   /** This node's ID. */
@@ -95,6 +99,7 @@ export function createNodeData(basic: {
     rates: () => live.value()?.rates ?? [],
     displayCurrency: () => live.value()?.displayCurrency ?? "",
     total: () => live.value()?.total,
+    externalAssets: () => live.value()?.externalAssets ?? [],
     nodes: table.state,
     nodesStatus: table.status,
     selfId: basic.nodeId,

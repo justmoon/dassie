@@ -44,6 +44,9 @@ pub struct LedgerView {
     /// Where the owner sends money to fund it, if anywhere: its asset's
     /// address.
     pub deposit_address: Option<String>,
+    /// Who issues what it settles in, for a token: an address on its
+    /// underlying ledger.
+    pub issuer: Option<String>,
     /// Whether the node can ask a faucet for test money on its asset.
     pub faucet: bool,
     /// How the scheme stands with its ledger.
@@ -679,6 +682,7 @@ impl Core {
             on_ledger_balance: active.scheme.balance(),
             reserve: active.scheme.reserve(),
             deposit_address: asset.and_then(|asset| asset.asset.address()),
+            issuer: active.scheme.issuer(),
             faucet: asset.is_some_and(|asset| asset.asset.has_faucet()),
             status: match active.failed {
                 Some(_) => LedgerStatus::Failed(

@@ -484,6 +484,19 @@ async fn ledger_named(node: &TestNode, id: &str) -> Option<proto::Ledger> {
     }
 }
 
+/// The node's external asset, as the owner sees it.
+async fn external_asset(node: &TestNode) -> Option<proto::ExternalAsset> {
+    let reply = node
+        .ipc()
+        .await
+        .call(Method::ListLedgers(proto::ListLedgersRequest {}))
+        .await;
+    match reply {
+        Ok(response::Method::ListLedgers(list)) => list.external_assets.into_iter().next(),
+        _ => None,
+    }
+}
+
 /// What `key`'s account holds of RLUSD, in the ledger's internal units:
 /// whole millionths.
 fn rlusd_held(key: &NodeKey, server: &Server) -> Option<u64> {
@@ -594,6 +607,39 @@ async fn two_daemons_settle_rlusd_across_restarts() {
     let owner_b = ledger_named(&b, RLUSD_LEDGER).await.unwrap().owner_balance;
     // The fees were gas: no fee on the RLUSD ledger.
     assert_eq!(fees(&a).await, 0);
+    // The owner sees what the account holds as the ledger says: its XRP,
+    // with the reserve its line raises, and its RLUSD in millionths.
+    let asset = external_asset(&a).await.unwrap();
+    assert_eq!(asset.address, account_of(&key_a).to_address());
+    assert_eq!(asset.settlement_schemes, ["xrpl-testnet-rlusd"]);
+    let [xrp, rlusd] = asset.holdings.as_slice() else {
+        panic!("{asset:?}")
+    };
+    assert_eq!(
+        (
+            xrp.asset_code.as_str(),
+            xrp.asset_scale,
+            xrp.issuer.as_str()
+        ),
+        ("XRP", 6, "")
+    );
+    assert_eq!(
+        Some(xrp.amount),
+        server.ledger().balance(account_of(&key_a))
+    );
+    assert_eq!(
+        xrp.reserve,
+        dassie_xrpl::fake::RESERVE_BASE + dassie_xrpl::fake::RESERVE_INC
+    );
+    assert_eq!(
+        (rlusd.asset_code.as_str(), rlusd.asset_scale, rlusd.frozen),
+        ("RLUSD", 15, false)
+    );
+    assert_eq!(rlusd.issuer, dassie_xrpl::rlusd::ISSUER.to_address());
+    assert_eq!(
+        Some(rlusd.amount / 1_000_000_000 * 1_000),
+        rlusd_held(&key_a, &server)
+    );
 
     let (dir_a, _) = a.stop().await;
     let (dir_b, _) = b.stop().await;

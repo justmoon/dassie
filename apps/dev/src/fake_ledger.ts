@@ -1,14 +1,19 @@
 /**
- * The fake XRP Ledger (M7b): the node's own model of the ledger, served
- * over WebSocket with a faucet over HTTPS, for scenarios that settle on
- * the XRP Ledger without the public testnet. CI's end-to-end tests run
- * against it, and `node --run dev -- --xrpl fake`.
+ * The fake XRP Ledger: the node's own model of the ledger, served over
+ * WebSocket with a faucet over HTTPS, for scenarios that settle on the XRP
+ * Ledger without the public testnet. CI's end-to-end tests run against it,
+ * and `node --run dev -- --xrpl fake`. Next to its faucet, the issuer of
+ * its test RLUSD mints, freezes and claws back on request
+ * (spec/areas/xrpl.md#tokens-in-the-fake-ledger): the only source of test
+ * RLUSD a scenario has.
  *
  * @module
  */
 
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
+import { Agent, fetch } from "undici";
 import { ROOT } from "./paths.ts";
 import { run } from "./process.ts";
 
@@ -33,6 +38,8 @@ export interface FakeLedger {
   readonly url: string;
   /** Its faucet's URL. */
   readonly faucet: string | null;
+  /** Where the issuer of its test RLUSD takes requests, with the faucet. */
+  readonly tokens: string | null;
   /** The process, for the PID file. */
   readonly pid: number;
   /** Stops it. */
@@ -109,13 +116,15 @@ export async function startFakeLedger(
     await status;
     throw new Error("the fake ledger did not start");
   }
-  const { url, faucet } = JSON.parse(first) as {
+  const { url, faucet, tokens } = JSON.parse(first) as {
     url: string;
     faucet: string | null;
+    tokens: string | null;
   };
   return {
     url,
     faucet,
+    tokens,
     pid,
     async stop() {
       // Closing stdin stops it; a kill if it does not.
@@ -133,4 +142,49 @@ export async function startFakeLedger(
       }
     },
   };
+}
+
+/** What the fake ledger's issuer of test RLUSD can be asked to do, each in
+ * the next ledger: mint to an address, freeze or deep-freeze a line or
+ * lift that, freeze every line, set a transfer fee in billionths, or claw
+ * back. Values are decimal dollars, such as `"12.5"`. */
+export type IssuerRequest =
+  | { action: "mint"; destination: string; value: string }
+  | { action: "freeze" | "deep-freeze"; account: string; on: boolean }
+  | { action: "global-freeze"; on: boolean }
+  | { action: "transfer-rate"; rate: number }
+  | { action: "clawback"; account: string; value: string };
+
+/**
+ * Asks the issuer of `ledger`'s test RLUSD, whose certificate comes from
+ * the CA in `caFile`. It is queued once this returns, and applies in the
+ * next ledger; one the ledger refuses, such as a mint to an account
+ * without a line, changes nothing.
+ */
+export async function askIssuer(
+  ledger: Pick<FakeLedger, "tokens">,
+  caFile: string,
+  request: IssuerRequest,
+): Promise<void> {
+  if (!ledger.tokens) throw new Error("the fake ledger has no issuer");
+  const { action, ...body } = request;
+  const agent = new Agent({
+    connect: { ca: await readFile(caFile, "utf8") },
+  });
+  try {
+    const response = await fetch(`${ledger.tokens}/${action}`, {
+      method: "POST",
+      dispatcher: agent,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const text = await response.text();
+    if (response.status !== 200) {
+      throw new Error(
+        `the issuer refused ${action} (${response.status}) ${text}`,
+      );
+    }
+  } finally {
+    await agent.close();
+  }
 }

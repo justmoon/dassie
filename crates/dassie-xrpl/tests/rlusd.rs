@@ -1071,7 +1071,7 @@ fn an_old_answer_of_the_issuer_is_not_taken() {
     std::mem::swap(&mut world.ledger, &mut current);
 }
 
-// spec/designs/external-assets.md#3-accounting: on an account the XRP
+// spec/decisions/external-assets.md: on an account the XRP
 // scheme settles from too, the two never take the same sequence, and every
 // XRP fee is booked once, on the XRP ledger: the RLUSD scheme's as gas,
 // its line's reserve reconciled there. Its books match the account's XRP
@@ -1129,7 +1129,7 @@ fn both_xrpl_schemes_share_one_account() {
     assert_eq!(world.nodes[0].books[USD].finalized.len(), 4);
 }
 
-// spec/designs/external-assets.md#3-accounting: on a shared account the
+// spec/decisions/external-assets.md: on a shared account the
 // gas is the owner's XRP on the XRP ledger: without funds there the RLUSD
 // scheme signs no TrustSet and settles nothing, though the account holds
 // XRP.
@@ -1207,6 +1207,34 @@ fn a_restart_mid_settlement_posts_it_once() {
         books.peers[&world.nodes[0].name],
         i128::from(usd(3_000_000))
     );
+}
+
+// spec/areas/xrpl.md#rlusd: a transaction read again after a restart, from
+// the cursor on, is booked by what it did to the line, from its own
+// metadata: one that moved no RLUSD, such as the issuer's freeze while the
+// node was down, books nothing, though the scheme has not been told the
+// line yet. The node simulation found a restart that booked the whole line
+// as a deposit here, and took it back through suspense.
+#[test]
+fn a_restart_books_what_a_transaction_did_to_the_line_by_its_metadata() {
+    let (mut world, _, _) = synced(2);
+    world.mint(0, "10");
+    world.closes(2);
+    let held = i128::from(usd(10_000_000));
+    assert_eq!(world.nodes[0].books[USD].owner, held);
+    let connection = world.nodes[0].connection;
+    world.ledger.disconnect(connection);
+    world.nodes[0].online = false;
+    world.input(0, LedgerInput::Disconnected);
+    let address = world.address(0);
+    world.ledger.freeze(address, Token::RLUSD, true).unwrap();
+    world.closes(2);
+    world.restart(0);
+    world.closes(3);
+    let books = &world.nodes[0].books[USD];
+    assert_eq!((books.owner, books.suspense), (held, 0));
+    assert_eq!(books.settlement, held);
+    assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
 }
 
 // spec/areas/xrpl.md#rlusd: a testnet reset takes the line and what it
@@ -1360,7 +1388,7 @@ fn a_scheme_away_through_a_reset_writes_it_off_once_back() {
     }
 }
 
-// spec/designs/external-assets.md#3-accounting: every XRP fee is booked
+// spec/areas/xrpl.md#the-account: every XRP fee is booked
 // once. An RLUSD settlement that validates while its scheme is away has
 // its fee booked by the XRP scheme then; back, after a restart or added
 // again, the RLUSD scheme reads it again as its own and posts it, and the
@@ -1515,7 +1543,7 @@ fn a_settlement_never_read_is_booked_by_what_was_signed() {
     assert_eq!(books.settlement, i128::from(usd(8_000_000)));
 }
 
-// spec/designs/external-assets.md#3-accounting: while the books stopped
+// spec/areas/xrpl.md#the-account: while the books stopped
 // `xrpl-testnet`, the account's XRP is still on its books: the RLUSD scheme
 // spends none of it as gas, and settles nothing, until the XRP scheme is
 // back after a restart. Removed by the owner, it leaves the XRP off the

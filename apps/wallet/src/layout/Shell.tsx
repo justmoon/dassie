@@ -14,6 +14,7 @@ import {
   Show,
 } from "solid-js";
 import { Account } from "../pages/Account.tsx";
+import { Assets } from "../pages/assets/Assets.tsx";
 import { CreateLedger } from "../pages/ledgers/CreateLedger.tsx";
 import { DeleteLedger } from "../pages/ledgers/DeleteLedger.tsx";
 import { Ledgers } from "../pages/ledgers/Ledgers.tsx";
@@ -59,6 +60,7 @@ const ROUTES = [
   { path: "/ledgers/create", component: CreateLedger },
   { path: "/ledgers/delete/:scheme", component: DeleteLedger },
   { path: "/ledgers", component: Ledgers },
+  { path: "/assets", component: Assets },
   { path: "/receive", component: Receive },
   { path: "/send", component: Send },
   { path: "/payments/:id", component: PaymentStatus },

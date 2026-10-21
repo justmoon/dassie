@@ -1,6 +1,6 @@
 # External assets apart from settlement schemes
 
-**Areas:** [Settlement](../areas/settlement.md#external-assets), [XRPL](../areas/xrpl.md#the-account), [Ledger](../areas/ledger.md), [External assets](../designs/external-assets.md). Built, with the XRPL account as an external asset and RLUSD a second scheme on it ([XRPL](../areas/xrpl.md#rlusd)); the wallet's page is not yet ([roadmap](../roadmap.md#external-assets-and-rlusd)).
+**Areas:** [Settlement](../areas/settlement.md#external-assets), [XRPL](../areas/xrpl.md#the-account), [Ledger](../areas/ledger.md), [Wallet](../areas/wallet.md#pages). Built, with the XRPL account as an external asset, RLUSD a second scheme on it ([XRPL](../areas/xrpl.md#rlusd)), and its holdings on a page of the wallet.
 
 ## Facts
 
@@ -12,7 +12,7 @@
 
 ## Decision
 
-Separate what the node holds from how it settles ([the design](../designs/external-assets.md)):
+Separate what the node holds from how it settles ([Settlement](../areas/settlement.md#external-assets)):
 
 - **An external asset** is something the node holds outside its books, of a type; the node may hold none or several of each. It derives its keys, keeps the connection to its ledger, signs, hands out sequences, and reports its holdings as the ledger says.
 - **A settlement scheme requires** external assets of certain types and holdings, and settles in one holding through them. Several schemes may share an external asset, which orders their transactions; each scheme keeps its own cursor into the asset's transactions.

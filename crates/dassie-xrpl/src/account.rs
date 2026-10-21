@@ -42,8 +42,8 @@ use alloc::vec::Vec;
 
 use dassie_ledger::{MAX_TOTAL, Name};
 use dassie_settlement::{
-    AssetEffect, AssetId, AssetKind, Detach, ExternalAsset, Holding, LedgerInput, LedgerStatus,
-    SchemeError,
+    AssetEffect, AssetId, AssetKind, Detach, ExternalAsset, Freeze, Holding, LedgerInput,
+    LedgerStatus, SchemeError,
 };
 use serde_json::{Value, json};
 
@@ -517,6 +517,9 @@ pub struct XrplAccount {
     /// account was read at.
     reads: BTreeMap<LineKey, Option<TrustLine>>,
     reads_at: u32,
+    /// The account of each issuer of a line its schemes follow, as last
+    /// read for a scheme: shown with the line, never kept.
+    issuers: BTreeMap<AccountId, AccountSettings>,
     /// What the owner may spend on each scheme's ledger, by the books.
     funds: BTreeMap<Name, u64>,
     news: Vec<News>,
@@ -582,6 +585,7 @@ impl XrplAccount {
             lines: BTreeMap::new(),
             reads: BTreeMap::new(),
             reads_at: 0,
+            issuers: BTreeMap::new(),
             funds: BTreeMap::new(),
             news: Vec::new(),
             effects: Vec::new(),
@@ -1304,6 +1308,13 @@ impl XrplAccount {
             }
             Err(_) => return,
         };
+        // What the owner sees of the lines it issues.
+        if self.lines.keys().any(|key| key.issuer == issuer) {
+            match settings {
+                Some(settings) => self.issuers.insert(issuer, settings),
+                None => self.issuers.remove(&issuer),
+            };
+        }
         self.tell(News::Issuer { issuer, settings });
     }
 
@@ -1492,10 +1503,12 @@ impl XrplAccount {
         }
         self.at = None;
         self.balance = None;
-        // The lines went with the account: read again once it is back.
+        // The lines went with the account, and the issuers' accounts with
+        // the chain: read again once it is back.
         for state in self.lines.values_mut() {
             *state = None;
         }
+        self.issuers.clear();
     }
 
     /// Remembers `scheme`'s transaction `hash` as never sent; past
@@ -2321,18 +2334,28 @@ impl ExternalAsset for XrplAccount {
             amount: u128::from(balance),
             scale: 6,
             reserve: u128::from(self.reserve_drops(self.owner_count)),
+            freeze: Freeze::default(),
         });
         let tokens = self.lines.iter().filter_map(move |(key, state)| {
             let line = state.as_ref()?.as_ref()?;
-            let balance = line.view(account)?.balance;
+            let view = line.view(account)?;
             Some(Holding {
                 code: key.currency.code(),
                 issuer: Some(key.issuer.to_address()),
-                amount: balance
+                amount: view
+                    .balance
                     .floor_units(TOKEN_SCALE)
                     .map_or(u128::MAX, |units| u128::try_from(units).unwrap_or(0)),
                 scale: TOKEN_SCALE,
                 reserve: 0,
+                freeze: Freeze {
+                    line: view.theirs.freeze,
+                    deep: view.theirs.deep_freeze,
+                    global: self
+                        .issuers
+                        .get(&key.issuer)
+                        .is_some_and(AccountSettings::global_freeze),
+                },
             })
         });
         xrp.into_iter().chain(tokens).collect()
@@ -2484,6 +2507,12 @@ impl ExternalAsset for XrplAccount {
         assert!(
             self.reads.keys().all(|key| self.lines.contains_key(key)),
             "only followed lines are read"
+        );
+        assert!(
+            self.issuers
+                .keys()
+                .all(|issuer| self.lines.keys().any(|key| key.issuer == *issuer)),
+            "only the issuers of followed lines are shown"
         );
         assert!(self.news.len() <= MAX_NEWS);
         assert!(self.effects.len() <= MAX_EFFECTS);
@@ -2642,6 +2671,56 @@ mod tests {
         for state in [in_flight, never_sent, parked] {
             assert!(XrplAccount::new(FIRST, &[a, b], "", &[1; 32], &state).is_ok());
             assert!(XrplAccount::new(FIRST, &[a], "", &[1; 32], &state).is_err());
+        }
+    }
+
+    // spec/areas/xrpl.md#the-account: what the owner sees of an issuer's
+    // freeze is of the chain the account follows. A write-off, at a testnet
+    // reset or with the account gone, forgets the issuers' accounts with
+    // the lines, so a global freeze of a chain gone is never shown with a
+    // line of the new one; the issuer read again on it says what holds.
+    #[test]
+    fn a_write_off_forgets_the_issuers_with_the_chain() {
+        let rlusd = dassie_ledger::name!(crate::rlusd::SCHEME_ID);
+        let issuer = crate::rlusd::ISSUER;
+        let answer = |flags: u32, ledger: u32| {
+            Ok(json!({
+                "account_data": { "Flags": flags },
+                "ledger_index": ledger,
+                "validated": true,
+            }))
+        };
+        for restarted in [true, false] {
+            let mut account = synced_account(&[rlusd]);
+            account.network_id = Some(TESTNET_NETWORK_ID);
+            account.newest = Some(NEWEST);
+            account.follow_line(crate::rlusd::LINE);
+            account.issuer_read(
+                issuer,
+                answer(api::account_flags::GLOBAL_FREEZE, NEWEST.index),
+            );
+            assert!(account.issuers[&issuer].global_freeze());
+            account.check_invariants();
+            if restarted {
+                // Told by the server's state, the first answer on a
+                // connection.
+                account.phase = Phase::Starting {
+                    subscribed: false,
+                    state: false,
+                    info: None,
+                };
+                account.restarted(Validated {
+                    index: 2_000,
+                    close_time: NEWEST.close_time + 4,
+                });
+            } else {
+                account.absent();
+            }
+            assert!(account.issuers.is_empty(), "restarted: {restarted}");
+            account.check_invariants();
+            account.told();
+            account.issuer_read(issuer, answer(0, NEWEST.index));
+            assert!(!account.issuers[&issuer].global_freeze());
         }
     }
 

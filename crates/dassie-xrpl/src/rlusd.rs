@@ -219,7 +219,7 @@ impl RlusdScheme {
     /// Whether the scheme may settle now, as far as the line and the
     /// issuer go: synced, the line not frozen, the issuer read, no global
     /// freeze and no transfer fee, which a Payment without `SendMax` cannot
-    /// pay (spec/designs/external-assets.md#7-open-points).
+    /// pay (spec/roadmap.md#not-built-yet).
     fn can_settle(&self) -> bool {
         self.synced()
             && !self.frozen()
@@ -724,6 +724,10 @@ impl SettlementScheme for RlusdScheme {
 
     fn asset(&self) -> Option<AssetId> {
         Some(account::FIRST)
+    }
+
+    fn issuer(&self) -> Option<String> {
+        Some(ISSUER.to_address())
     }
 
     fn supported_versions(&self) -> &'static [u16] {

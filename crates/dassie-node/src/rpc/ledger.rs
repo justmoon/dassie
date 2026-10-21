@@ -5,14 +5,14 @@ use std::sync::Arc;
 
 use dassie_connector::{EndpointId, PacketRecord, PacketState, TraceEvent};
 use dassie_ledger::{Reference, TraceId, TransferState};
-use dassie_settlement::LedgerStatus;
+use dassie_settlement::{Holding, LedgerStatus};
 use tokio::sync::broadcast::error::RecvError;
 
 use super::handlers::{Items, Reply};
 use super::live::{self, Follow, KEEPALIVE, Source};
 use super::proto::{self, request::Method, response, stream_item};
 use super::{RpcError, convert};
-use crate::engine::{Engine, EngineError, LedgerView, RemovalBlocker, TokenView};
+use crate::engine::{AssetView, Engine, EngineError, LedgerView, RemovalBlocker, TokenView};
 use crate::node::Node;
 use crate::open_payments::auth::OpError;
 use crate::store::JournalRow;
@@ -420,6 +420,7 @@ pub(super) fn ledger(view: &LedgerView) -> proto::Ledger {
         removal_blockers: view.removal_blockers.iter().map(blocker).collect(),
         reserve: view.reserve,
         deposit_address: view.deposit_address.clone().unwrap_or_default(),
+        issuer: view.issuer.clone().unwrap_or_default(),
         faucet: view.faucet,
         realm: realm(view.id.realm()).into(),
         connection: connection(view.status).into(),
@@ -427,6 +428,47 @@ pub(super) fn ledger(view: &LedgerView) -> proto::Ledger {
             LedgerStatus::Failed(why) => why.into(),
             _ => String::new(),
         },
+    }
+}
+
+/// An external asset, with what it holds as its ledger says
+/// (spec/decisions/external-assets.md).
+pub(super) fn external_asset(view: &AssetView) -> proto::ExternalAsset {
+    proto::ExternalAsset {
+        id: view.id.clone(),
+        address: view.address.clone().unwrap_or_default(),
+        holdings: view.holdings.iter().map(holding).collect(),
+        connection: connection(view.status).into(),
+        connection_problem: match view.status {
+            LedgerStatus::Failed(why) => why.into(),
+            _ => String::new(),
+        },
+        settlement_schemes: view.schemes.clone(),
+        faucet: view.faucet,
+    }
+}
+
+/// A holding, at its own scale, or at the largest smaller one that its
+/// amount and reserve fit in at, rounded down: an account reports a token
+/// at fifteen decimals, which fit a few thousand dollars only.
+fn holding(holding: &Holding) -> proto::Holding {
+    let mut scale = holding.scale;
+    let (mut amount, mut reserve) = (holding.amount, holding.reserve);
+    while scale > 0 && (u64::try_from(amount).is_err() || u64::try_from(reserve).is_err()) {
+        scale -= 1;
+        amount /= 10;
+        reserve /= 10;
+    }
+    let saturate = |value: u128| u64::try_from(value).unwrap_or(u64::MAX);
+    proto::Holding {
+        asset_code: holding.code.clone(),
+        issuer: holding.issuer.clone().unwrap_or_default(),
+        amount: saturate(amount),
+        asset_scale: scale.into(),
+        reserve: saturate(reserve),
+        frozen: holding.freeze.line,
+        deep_frozen: holding.freeze.deep,
+        global_freeze: holding.freeze.global,
     }
 }
 
@@ -556,5 +598,50 @@ fn packet(record: &PacketRecord) -> proto::Packet {
         state: state.into(),
         reject_code: code,
         transfers: record.transfers.iter().flatten().map(|id| id.0).collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use dassie_settlement::Freeze;
+
+    use super::*;
+
+    fn token(amount: u128) -> Holding {
+        Holding {
+            code: "RLUSD".into(),
+            issuer: Some("rIssuer".into()),
+            amount,
+            scale: 15,
+            reserve: 0,
+            freeze: Freeze {
+                line: true,
+                deep: false,
+                global: false,
+            },
+        }
+    }
+
+    #[test]
+    fn a_holding_keeps_its_scale_while_its_amount_fits() {
+        let shown = holding(&token(12_500_000_000_000_000));
+        assert_eq!(
+            (shown.amount, shown.asset_scale),
+            (12_500_000_000_000_000, 15)
+        );
+        assert_eq!(shown.issuer, "rIssuer");
+        assert!(shown.frozen && !shown.deep_frozen && !shown.global_freeze);
+    }
+
+    #[test]
+    fn a_holding_too_large_for_its_scale_is_shown_at_a_smaller_one_rounded_down() {
+        // A million dollars and a little, at fifteen decimals.
+        let shown = holding(&token(1_000_000_123_456_789_000_000_000));
+        assert_eq!(
+            (shown.amount, shown.asset_scale),
+            (10_000_001_234_567_890_000, 10)
+        );
+        let largest = holding(&token(u128::MAX));
+        assert_eq!((largest.amount, largest.asset_scale), (u64::MAX, 0));
     }
 }

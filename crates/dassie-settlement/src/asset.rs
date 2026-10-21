@@ -95,6 +95,22 @@ pub struct Holding {
     /// What the ledger holds back of it, in the same units: never
     /// spendable.
     pub reserve: u128,
+    /// What its issuer stops, for an issued asset; nothing otherwise.
+    pub freeze: Freeze,
+}
+
+/// What an issued asset's issuer stops of a holding, as the ledger last
+/// said (spec/decisions/issued-assets.md).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Freeze {
+    /// The issuer froze this line: it pays only the issuer, and still
+    /// receives.
+    pub line: bool,
+    /// The issuer deep-froze this line: it neither pays nor receives, but
+    /// to and from the issuer.
+    pub deep: bool,
+    /// The issuer froze its asset for every holder: no holder pays another.
+    pub global: bool,
 }
 
 /// What the node passes an external asset from its connection to its

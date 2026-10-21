@@ -1,7 +1,9 @@
 //! The node simulation's scripted runs: the network forms, a node crashes
 //! and comes back, payments cross it while another node crashes, an owner
 //! ends a peering, and the books are checked. Over the stub, over the XRP
-//! Ledger, and across currencies (M7c).
+//! Ledger, over RLUSD, and across currencies: dollars and XRP, or RLUSD and
+//! XRP on one account. On RLUSD the issuer claws back and freezes while
+//! payments are under way.
 
 use std::collections::BTreeMap;
 
@@ -9,7 +11,7 @@ use dassie_connector::SpendingCap;
 use dassie_node_core::testing::{Outcome, Run, SeededRng};
 
 use super::checks::{check, check_across, check_events, check_settled, check_withdrawn};
-use super::{START, Settling, Sim, key};
+use super::{IssuerFreeze, START, Settling, Sim, key};
 use crate::node::Policies;
 use crate::store::OutgoingState;
 
@@ -85,6 +87,13 @@ pub fn describe_across(seed: u64) -> String {
     format!("{count} nodes, 2 bootstrap, dollars and XRP")
 }
 
+/// What a seed draws for a run across RLUSD and XRP, before it starts.
+#[must_use]
+pub fn describe_xrp_rlusd(seed: u64) -> String {
+    let (_, count) = size_across(seed);
+    format!("{count} nodes, 2 bootstrap, RLUSD and XRP")
+}
+
 /// A run over the stub.
 #[must_use]
 pub fn run(seed: u64) -> Run {
@@ -95,6 +104,13 @@ pub fn run(seed: u64) -> Run {
 #[must_use]
 pub fn run_xrpl(seed: u64) -> Run {
     run_on(seed, Settling::Xrpl)
+}
+
+/// A run over the RLUSD scheme alone, against the fake ledger, whose
+/// issuer claws back and freezes while payments are under way.
+#[must_use]
+pub fn run_rlusd(seed: u64) -> Run {
+    run_on(seed, Settling::Rlusd)
 }
 
 /// A run settling over `settling`, which holds one ledger.
@@ -116,8 +132,21 @@ pub fn run_on(seed: u64, settling: Settling) -> Run {
 /// crashes mid-payment.
 #[must_use]
 pub fn run_across(seed: u64) -> Run {
+    run_across_on(seed, Settling::Cross)
+}
+
+/// A run across RLUSD and XRP: node 0 has RLUSD, node 2 XRP, nodes 1 and 3
+/// both on one account, node 1 charging for what passes, so a node signs
+/// for both schemes and books every XRP fee once. Clients pay receivers in
+/// the other currency, and the issuer claws back and freezes meanwhile.
+#[must_use]
+pub fn run_xrp_rlusd(seed: u64) -> Run {
+    run_across_on(seed, Settling::XrpRlusd)
+}
+
+fn run_across_on(seed: u64, settling: Settling) -> Run {
     let (mut rng, count) = size_across(seed);
-    let mut sim = Sim::with(seed, count, 2, BTreeMap::new(), Settling::Cross);
+    let mut sim = Sim::with(seed, count, 2, BTreeMap::new(), settling);
     script_across(&mut sim, &mut rng);
     let result = check_across(&sim).and_then(|()| {
         check_withdrawn(&sim).map_err(|problem| Outcome::liveness("withdrawn", problem))
@@ -186,13 +215,51 @@ fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     }
     pay(sim, rng);
     // A node's connection to its ledger drops while it settles.
-    if sim.settling == Settling::Xrpl {
+    if sim.settling.on_xrpl() {
         sim.run_until(sim.now + rng.next_u64() % 4_000);
         let dropped = usize::try_from(rng.next_u64() % count as u64).unwrap();
         sim.drop_ledger_link(dropped);
     }
+    issuer_acts(sim, rng);
     crash_mid_payment(sim, rng, 120_000);
     terminate(sim, rng)
+}
+
+/// The most the issuer claws back at once, in dollars: a few payments'
+/// worth, well within what it minted, so that every node's owner can still
+/// pay.
+const MOST_CLAWED_DOLLARS: u64 = 5;
+
+/// On RLUSD, while payments are under way, the issuer claws some of a
+/// holder's RLUSD back, then freezes a holder's line, deep or not, or every
+/// line, and lifts it again. A freeze lasts up to the grace a peer short of
+/// room has before it is withdrawn, drawn from the production timings: one
+/// that outlasts it withdraws the pairs it stops, as it should
+/// ([`check_withdrawn`]).
+fn issuer_acts(sim: &mut Sim, rng: &mut SeededRng) {
+    if !sim.settling.issued() {
+        return;
+    }
+    let holders: Vec<usize> = (0..sim.nodes.len())
+        .filter(|index| sim.settling.ledgers(*index).contains(&super::RLUSD))
+        .collect();
+    let pick = |rng: &mut SeededRng| {
+        holders[usize::try_from(rng.next_u64() % holders.len() as u64).unwrap()]
+    };
+    sim.run_until(sim.now + rng.next_u64() % 4_000);
+    let clawed = pick(rng);
+    let dollars = 1 + rng.next_u64() % MOST_CLAWED_DOLLARS;
+    sim.claw_back(clawed, i128::from(dollars) * 1_000_000_000);
+    sim.run_until(sim.now + rng.next_u64() % 4_000);
+    let frozen = pick(rng);
+    let freeze = match rng.next_u64() % 3 {
+        0 => IssuerFreeze::Line(frozen),
+        1 => IssuerFreeze::Deep(frozen),
+        _ => IssuerFreeze::Global,
+    };
+    sim.issuer_freeze(freeze, true);
+    sim.run_until(sim.now + rng.next_u64() % sim.peer.advertise_short_grace_ms);
+    sim.issuer_freeze(freeze, false);
 }
 
 /// Payments of up to three times the credit, one with a capped token, and
@@ -461,5 +528,6 @@ fn script_across(sim: &mut Sim, rng: &mut SeededRng) {
     sim.pay(0, 1, own, None, None);
     let debit = 50_000_000 + rng.next_u64() % 1_000_000_000;
     sim.pay_outgoing_across(2, 0, debit);
+    issuer_acts(sim, rng);
     crash_mid_payment(sim, rng, 180_000);
 }
