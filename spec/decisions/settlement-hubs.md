@@ -36,7 +36,7 @@ It will affect: the `hub` settlement scheme, commitments and claims in the peer 
 - *Payments without consensus* (FastPay, Astro): a hold is spent by two parties, its payee before the expiry and its payer after, and near the expiry neither may get a quorum.
 - *A setup fee paid atomically against the validator's keys:* a validator that takes the fee and makes no keys has shown early that it is not one to trust; the sponsor loses one fee and picks another.
 - *Acceptances over rules that name the validators:* replacing one validator would void every other acceptance, and the setup fees paid for them.
-- *An idle fee without reserves:* filling the bounded tables would cost only what a new account must be paid, and an account's payment in the payout set could cost more than it holds.
+- *An idle fee without reserves:* a place in the bounded tables would cost only a balance its owner can spend again, and an account's payment in the payout set could cost more than it holds.
 - *An exposure limit per hub only:* hubs that share validators fail together.
 - *A threshold key (FROST) for the escrow:* its signing is interactive within a fixed group, so a validator that returns later cannot add its share.
 - *A recovery signer* that can move the escrow without the validators: without a time lock, it weakens the escrow at all times.
