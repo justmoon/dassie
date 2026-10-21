@@ -104,6 +104,11 @@ pub struct DaemonOptions {
     /// the development environment keeps its nodes, whose keys are public,
     /// on loopback.
     pub listen: Option<IpAddr>,
+    /// Where the standalone runtime binds its UDP socket for QUIC, instead
+    /// of the HTTPS listener's address and port: a node whose owner keeps
+    /// its listeners on loopback still dials its relay and its uplinks from
+    /// every address.
+    pub quic: Option<SocketAddr>,
 }
 
 /// Everything the daemon needs before the async runtime starts.
@@ -131,8 +136,8 @@ struct Extras {
     quic: Option<UdpSocket>,
     /// For tests: where the QUIC endpoint goes once it is made.
     hand_out: Option<tokio::sync::oneshot::Sender<Arc<crate::quic::Quic>>>,
-    /// For tests: where the node goes once it is made, held weakly so the
-    /// daemon still ends with its node.
+    /// Where the node goes once it is made, held weakly so the daemon still
+    /// ends with its node.
     node_out: Option<tokio::sync::oneshot::Sender<std::sync::Weak<Node>>>,
 }
 
@@ -162,7 +167,10 @@ impl Prepared {
                     None => store.config().map_err(DaemonError::Store)?.ports,
                 };
                 let (http, https) = bind_ports(ports, options.listen)?;
-                let quic = bind_quic(&https);
+                let quic = match options.quic {
+                    Some(address) => bind_quic(address),
+                    None => https.local_addr().ok().and_then(bind_quic),
+                };
                 let path = standalone_ipc_path(&settings, env);
                 let (ipc, unpublished) = ipc::bind_unpublished(&path)
                     .map_err(|e| DaemonError::Bind(path.display().to_string(), e))?;
@@ -215,7 +223,9 @@ impl Prepared {
         self
     }
 
-    /// For tests: the node, once it is made, goes to `to`.
+    /// The node, once it is made, goes to `to`: for tests, and for a host
+    /// that embeds the daemon and reads the node's state. The daemon still
+    /// ends with its node, since `to` holds it weakly.
     #[must_use]
     pub fn handing_out_node(
         mut self,
@@ -268,10 +278,10 @@ fn bind_ports(
     Ok((bind(ports.http())?, bind(ports.https())?))
 }
 
-/// The UDP socket for QUIC, on the HTTPS listener's address and port. A node
-/// that cannot have one takes the peer protocol over HTTPS only.
-fn bind_quic(https: &TcpListener) -> Option<UdpSocket> {
-    let address = https.local_addr().ok()?;
+/// The UDP socket for QUIC on `address`: the HTTPS listener's address and
+/// port, unless the options name another. A node that cannot have one takes
+/// the peer protocol over HTTPS only.
+fn bind_quic(address: SocketAddr) -> Option<UdpSocket> {
     match UdpSocket::bind(address) {
         Ok(socket) => Some(socket),
         Err(error) => {
@@ -423,13 +433,21 @@ fn make_node(
     if let Some(to) = extras.node_out {
         let _ = to.send(Arc::downgrade(&node));
     }
+    // Peers reach the node at its QUIC socket too, which may listen apart
+    // from the HTTPS listener.
+    let quic_ip = extras
+        .quic
+        .as_ref()
+        .and_then(|socket| socket.local_addr().ok())
+        .map(|address| address.ip());
     if let Some(socket) = extras.quic {
         attach_quic(&node, socket, extras.hand_out, settings.relay.as_ref());
     }
     if let Some(dir) = &settings.dev_wallet_dir {
         tracing::warn!(target: target::HTTP, dir = %dir.display(), "serving a development build of the wallet");
     }
-    let bound = [bound_ip(&listeners.0), bound_ip(&listeners.1)];
+    let mut bound = vec![bound_ip(&listeners.0), bound_ip(&listeners.1)];
+    bound.extend(quic_ip);
     for flag in exposed_dev_flags(settings, &bound) {
         tracing::warn!(target: target::DAEMON, "{} is set: {}. It is for development; unset it on a public node", flag.variable, flag.effect);
     }
@@ -790,5 +808,55 @@ mod tests {
                 field("quic", "none"),
             ]
         );
+    }
+
+    /// Two free ports on loopback.
+    fn free_ports() -> Ports {
+        let a = TcpListener::bind("127.0.0.1:0").unwrap();
+        let b = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = |listener: &TcpListener| u32::from(listener.local_addr().unwrap().port());
+        Ports::new(port(&a), port(&b)).unwrap()
+    }
+
+    /// The daemon prepared in `dir` with `options`.
+    fn prepare(dir: &std::path::Path, options: DaemonOptions) -> Prepared {
+        let state = dir.join("state");
+        let socket = dir.join("dassie.sock");
+        let env = Env::from_pairs([
+            ("DASSIE_STATE_DIRECTORY", state.to_str().unwrap()),
+            ("DASSIE_IPC_SOCKET_PATH", socket.to_str().unwrap()),
+        ]);
+        Prepared::new(&env, options).unwrap()
+    }
+
+    #[test]
+    fn quic_listens_on_the_https_address_by_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let ports = free_ports();
+        let options = DaemonOptions {
+            runtime: Some(Runtime::Standalone),
+            ports: Some(ports),
+            listen: Some(Ipv4Addr::LOCALHOST.into()),
+            quic: None,
+        };
+        let prepared = prepare(dir.path(), options);
+        let quic = prepared.extras.quic.as_ref().unwrap().local_addr().unwrap();
+        assert_eq!(quic, prepared.https.local_addr().unwrap());
+    }
+
+    #[test]
+    fn quic_listens_apart_when_asked() {
+        let dir = tempfile::tempdir().unwrap();
+        let options = DaemonOptions {
+            runtime: Some(Runtime::Standalone),
+            ports: Some(free_ports()),
+            listen: Some(Ipv4Addr::LOCALHOST.into()),
+            quic: Some(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))),
+        };
+        let prepared = prepare(dir.path(), options);
+        let quic = prepared.extras.quic.as_ref().unwrap().local_addr().unwrap();
+        assert_eq!(quic.ip(), IpAddr::from(Ipv4Addr::UNSPECIFIED));
+        assert_ne!(quic.port(), 0);
+        assert!(prepared.https.local_addr().unwrap().ip().is_loopback());
     }
 }
