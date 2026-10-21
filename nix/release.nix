@@ -163,8 +163,67 @@ let
       chmod 755 $out
     '';
 
+  # The flake NixOS takes a release from (nix/flake,
+  # spec/decisions/nix-flake-on-the-mirror.md), as
+  # `<version>/flake.tar.gz`: its files, a lock of the nixpkgs this
+  # repository locks, and release.json, which names the version and each
+  # platform's .tar.xz bundle with its sum. `bundles` maps x64 and arm64 to
+  # the directory of that platform's bundles. The archive is the same bytes
+  # for the same input, as the bundles are.
+  nixSystems = {
+    x64 = "x86_64-linux";
+    arm64 = "aarch64-linux";
+  };
+  flakeLock = pkgs.writeText "flake.lock" (
+    builtins.toJSON {
+      nodes = {
+        nixpkgs = { inherit ((lib.importJSON ../flake.lock).nodes.nixpkgs) locked original; };
+        root.inputs.nixpkgs = "nixpkgs";
+      };
+      root = "root";
+      version = 7;
+    }
+  );
+  flakeFor =
+    version: bundles:
+    pkgs.runCommand "dassie-${version}-flake"
+      {
+        nativeBuildInputs = [
+          pkgs.gnutar
+          pkgs.gzip
+          pkgs.jq
+        ];
+      }
+      (
+        ''
+          mkdir dassie-flake $out
+          cp ${./flake/flake.nix} dassie-flake/flake.nix
+          cp ${./flake/package.nix} dassie-flake/package.nix
+          cp ${./flake/module.nix} dassie-flake/module.nix
+          cp ${flakeLock} dassie-flake/flake.lock
+          jq -n --arg version ${version} --arg mirror https://get.dassie.land \
+            '{version: $version, mirror: $mirror, bundles: {}}' > release.json
+        ''
+        + lib.concatStrings (
+          lib.mapAttrsToList (arch: dir: ''
+            file=dassie-${version}-linux-${arch}.tar.xz
+            sum=$(sha256sum ${dir}/$file | cut -d " " -f 1)
+            jq --arg system ${nixSystems.${arch}} --arg file $file --arg sha256 $sum \
+              '.bundles[$system] = {file: $file, sha256: $sha256}' release.json > next.json
+            mv next.json release.json
+          '') bundles
+        )
+        + ''
+          mv release.json dassie-flake/
+          chmod 644 dassie-flake/*
+          tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+            --format=gnu -cf - dassie-flake | gzip -9 --no-name > $out/flake.tar.gz
+        ''
+      );
+
   # What a release uploads to the mirror, but for the signature:
   #   <version>/dassie-<version>-linux-{x64,arm64}.tar.{gz,xz}
+  #   <version>/flake.tar.gz, the flake for NixOS
   #   <version>/SHA256SUMS
   #   meta/<channel>, which holds the version
   #   install.sh, once there is a release key
@@ -173,15 +232,16 @@ let
   mirror =
     version: channel:
     let
-      bundles = lib.mapAttrsToList (bundle version) (binaries version);
+      bundles = lib.mapAttrs (bundle version) (binaries version);
     in
     pkgs.runCommand "dassie-mirror-${version}" { } (
       ''
         mkdir -p $out/${version} $out/meta
-        for bundle in ${lib.concatStringsSep " " bundles}; do
+        for bundle in ${lib.concatStringsSep " " (lib.attrValues bundles)}; do
           cp $bundle/* $out/${version}/
         done
-        (cd $out/${version} && sha256sum dassie-* > SHA256SUMS)
+        cp ${flakeFor version bundles}/flake.tar.gz $out/${version}/
+        (cd $out/${version} && sha256sum dassie-* flake.tar.gz > SHA256SUMS)
         printf '%s' ${version} > $out/meta/${channel}
       ''
       + lib.optionalString (releaseKey != null) ''
@@ -200,17 +260,20 @@ let
     substituteInPlace $out/dassie.service \
       --replace-fail "--runtime=systemd" "--runtime=systemd --no-such-option"
   '';
+  testBinary =
+    version:
+    dassieFor (
+      platforms.x64
+      // {
+        inherit version;
+        key = testKey;
+        profile = "install-test";
+      }
+    );
   testRelease =
     version: units:
     let
-      dassie = dassieFor (
-        platforms.x64
-        // {
-          inherit version;
-          key = testKey;
-          profile = "install-test";
-        }
-      );
+      dassie = testBinary version;
     in
     pkgs.runCommand "dassie-test-release-${version}" { nativeBuildInputs = [ pkgs.minisign ]; } ''
       mkdir $out
@@ -229,6 +292,102 @@ let
     cp ${installer testKey} $out/install.sh
   '';
   released = binaries releaseVersion;
+
+  # The flake's package over a bundle of this tree, rather than the
+  # mirror's: what the NixOS checks install.
+  flakePackageFor =
+    version: dassie:
+    pkgs.callPackage ./flake/package.nix {
+      release = {
+        inherit version;
+        mirror = "https://get.dassie.land";
+        bundles.x86_64-linux = {
+          file = "dassie-${version}-linux-x64.tar.xz";
+          sha256 = lib.fakeSha256;
+        };
+      };
+      src = "${bundle version "x64" dassie}/dassie-${version}-linux-x64.tar.xz";
+    };
+
+  # The flake's module on NixOS, in a VM, with 1.0.0 of the install tests
+  # as its package: the node comes up from the release's units, socket
+  # activated, without the updater, and only root and the group
+  # dassie-users reach its IPC socket. Built by the release workflow, on a
+  # runner with KVM.
+  nixos-test = pkgs.testers.runNixOSTest {
+    name = "dassie-nixos";
+    nodes.machine = {
+      imports = [ ./flake/module.nix ];
+      services.dassie = {
+        enable = true;
+        package = flakePackageFor "1.0.0" (testBinary "1.0.0");
+      };
+      users.users.owner = {
+        isNormalUser = true;
+        extraGroups = [ "dassie-users" ];
+      };
+      users.users.other.isNormalUser = true;
+      environment.systemPackages = [ pkgs.curl ];
+    };
+    testScript = ''
+      machine.wait_for_unit("dassie.service")
+      machine.succeed(
+          "systemctl is-active dassie-http.socket dassie-https.socket dassie-ipc.socket dassie-quic.socket"
+      )
+      machine.wait_until_succeeds(
+          "[ $(curl -sk -o /dev/null -w '%{http_code}' https://localhost/) = 200 ]"
+      )
+      assert machine.succeed("stat -c '%U:%G %a' /run/dassie.sock").strip() == "root:dassie-users 660"
+      assert "/nix/store/" in machine.succeed("systemctl show -p ExecStart --value dassie.service")
+      assert machine.succeed("systemctl show -p DynamicUser --value dassie.service").strip() == "yes"
+      machine.fail("systemctl cat dassie-update.service")
+      machine.fail("systemctl cat dassie-update.timer")
+      machine.succeed("su - owner -c 'dassie status'")
+      machine.fail("su - other -c 'dassie status'")
+      assert machine.succeed("dassie --version").strip() == "dassie 1.0.0"
+    '';
+  };
+
+  # The flake's units as NixOS writes them, for every PR: a stand-in
+  # binary, so that nothing is compiled, and no VM.
+  nixos-units =
+    let
+      stub = pkgs.writeShellScriptBin "dassie" "exit 0";
+      system = import "${nixpkgs}/nixos/lib/eval-config.nix" {
+        system = "x86_64-linux";
+        modules = [
+          ./flake/module.nix
+          {
+            services.dassie = {
+              enable = true;
+              package = flakePackageFor releaseVersion stub;
+              logLevel = "debug";
+              environment.DASSIE_RELAY = "";
+            };
+            boot.isContainer = true;
+            system.stateVersion = lib.trivial.release;
+          }
+        ];
+      };
+      units = system.config.environment.etc."systemd/system".source;
+      package = system.config.services.dassie.package;
+    in
+    pkgs.runCommand "dassie-nixos-units" { } ''
+      cd ${units}
+      [ "$(readlink -f dassie.service)" = ${package}/lib/systemd/system/dassie.service ]
+      grep -qx 'ExecStart=${package}/bin/dassie daemon --runtime=systemd' dassie.service
+      grep -q 'DASSIE_LOG_LEVEL=debug' dassie.service.d/overrides.conf
+      grep -q 'DASSIE_RELAY=' dassie.service.d/overrides.conf
+      [ -e multi-user.target.wants/dassie.service ]
+      for socket in http https ipc quic; do
+        [ -e sockets.target.wants/dassie-$socket.socket ]
+      done
+      if ls | grep -q dassie-update; then
+        echo "the updater's units are installed" >&2
+        exit 1
+      fi
+      touch $out
+    '';
 
   # The release binaries are static, name their version, and pass
   # `verify-install`, the arm64 one under qemu.
@@ -265,9 +424,10 @@ in
     canary = mirror canaryVersion "canary";
     # Built by the release workflow, not `nix flake check`: what only a
     # release needs stays out of every PR's CI.
-    inherit install-test-mirror static-binaries;
+    inherit install-test-mirror static-binaries nixos-test;
   };
   checks = {
+    inherit nixos-units;
     # The installer is POSIX sh, as ShellCheck reads it.
     installer = pkgs.runCommand "dassie-installer-shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; } ''
       shellcheck --shell=sh ${../resources/installer/install.sh}

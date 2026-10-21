@@ -11,7 +11,7 @@ import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
-import { bundles, release } from "./release.ts";
+import { files, release } from "./release.ts";
 
 const testdata = new URL("../testdata/release/", import.meta.url).pathname;
 const secretKey = `${testdata}test.key`;
@@ -45,14 +45,14 @@ if ((!hasMinisign || !verifier) && process.env.CI) {
   );
 }
 
-/** A built tree as `nix build .#release` makes it, with stand-in bundles. */
+/** A built tree as `nix build .#release` makes it, with stand-in files. */
 async function builtTree(version: string, channel = "latest"): Promise<string> {
   const tree = await mkdtemp(join(tmpdir(), "dassie-release-"));
   await mkdir(`${tree}/meta`);
   await mkdir(`${tree}/${version}`);
   await writeFile(`${tree}/meta/${channel}`, version);
   const lines = [];
-  for (const name of bundles(version)) {
+  for (const name of files(version)) {
     const bytes = new TextEncoder().encode(`stand-in for ${name}`);
     await writeFile(`${tree}/${version}/${name}`, bytes);
     const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
@@ -85,7 +85,7 @@ test(
     assertEquals(signature.split("\n")[2], "trusted comment: dassie 0.1.0");
     assertEquals(
       (await readdir(`${out}/0.1.0`)).sort(),
-      [...bundles("0.1.0"), "SHA256SUMS", "SHA256SUMS.minisig"].sort(),
+      [...files("0.1.0"), "SHA256SUMS", "SHA256SUMS.minisig"].sort(),
     );
   },
 );

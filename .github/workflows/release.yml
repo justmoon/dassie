@@ -4,9 +4,9 @@ name: Release
 # get.dassie.land (spec/decisions/release-integrity.md,
 # spec/decisions/build-system.md): every tag v<version> as a release
 # (meta/latest). The checks only a release needs run here, not in CI: the
-# install tests on each distribution, and the static release binaries. The
-# original's releases were uploaded by hand, and nothing in its repository
-# published the installer (UI-12).
+# install tests on each distribution, the NixOS module in a VM, and the
+# static release binaries. The original's releases were uploaded by hand,
+# and nothing in its repository published the installer (UI-12).
 #
 # It runs in the `Release` environment. What it needs:
 # - secrets.NIX_CLOUD_TOKEN: the builds run on the Vorstand Nix cloud
@@ -111,8 +111,39 @@ jobs:
             nix shell --inputs-from . nixpkgs#nodejs_26 nixpkgs#pnpm_11 nixpkgs#mkcert --command \
             sh -c 'pnpm install --frozen-lockfile --filter @dassie/tests-e2e... && node --test tests/e2e/install_test.ts'
 
+  # The flake's NixOS module, in a VM (nix/release.nix, nixos-test), with
+  # the install tests' 1.0.0, which the build job made. The runner has KVM;
+  # the VM test is built here, the rest comes from the cache.
+  nixos:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm.rules > /dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31
+        with:
+          extra_nix_config: |
+            extra-substituters = https://nix.vorstand.app/cache/dassie
+            extra-trusted-public-keys = nix-cloud-1:9HgKchsAo5NaX4Zbk7kxJ1r/U/4Zg4pqIif1c021AKE=
+            netrc-file = /etc/nix/netrc
+            system-features = nixos-test benchmark big-parallel kvm
+      - name: Nix cloud token
+        env:
+          NIX_CLOUD_TOKEN: ${{ secrets.NIX_CLOUD_TOKEN }}
+        run: printf 'machine nix.vorstand.app login nix password %s\n' "$NIX_CLOUD_TOKEN" | sudo tee /etc/nix/netrc > /dev/null
+      - name: NixOS test
+        run: nix build .#nixos-test -L
+
   release:
-    needs: install
+    needs: [install, nixos]
     runs-on: ubuntu-latest
     environment: Release
     timeout-minutes: 90
@@ -139,8 +170,9 @@ jobs:
 
       # What the build job made, from the cache (--max-jobs 0: a miss fails
       # rather than building on the runner). The tree of nix/release.nix:
-      # the bundles for x64 and arm64, SHA256SUMS and meta/latest; and
-      # dassie-release, which checks the tree as the updater would.
+      # the bundles for x64 and arm64, the flake for NixOS, SHA256SUMS and
+      # meta/latest; and dassie-release, which checks the tree as the
+      # updater would.
       - name: Fetch
         run: |
           nix build .#release --out-link built --max-jobs 0
@@ -204,7 +236,7 @@ jobs:
           set -euo pipefail
           version=$(cat signed/meta/latest)
           remote="gs://$BUCKET/$version"
-          files=$(cd "signed/$version" && ls dassie-*)
+          files=$(cd "signed/$version" && ls dassie-* flake.tar.gz)
           for file in $files SHA256SUMS SHA256SUMS.minisig; do
             if ! gcloud storage ls "$remote/$file" > /dev/null 2>&1; then
               gcloud storage cp --cache-control="public, max-age=31536000, immutable" \

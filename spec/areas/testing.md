@@ -20,7 +20,7 @@ Rules for every test:
 - **CI runs fixed seeds only, and no fuzzing** ([Engineering](../engineering.md#no-fuzzing-or-random-seeds-in-ci)).
 - **The end-to-end tests skip what they lack outside CI, and fail on it in CI** (`CI=true`), so a missing tool never passes CI silently.
 
-The install tests and the static-binary check run only in the release workflow, before anything is signed ([Release](release.md)).
+The install tests, the NixOS VM test and the static-binary check run only in the release workflow, before anything is signed ([Release](release.md#tests)).
 
 ## Golden vectors
 

@@ -135,7 +135,7 @@
       "w": 176,
       "desc": "This website: static pages built by Vite and published from main to a bucket behind the release mirror's load balancer, under a strict content security policy.",
       "does": [
-        "The home page and the Quick Start",
+        "The home page, the Quick Start and the NixOS guide",
         "This architecture page, drawn from one data file",
         "The STREAM toy: Dassie's own STREAM code, compiled to WebAssembly, sends a payment over a simulated network",
         "Its packet log decrypts every STREAM packet"
@@ -320,13 +320,14 @@
       "x": 796,
       "y": 426,
       "w": 184,
-      "desc": "How Dassie ships: Nix builds static binaries for x64 and arm64 with the wallet inside, CI signs and publishes them to get.dassie.land, and systemd runs the node and updates it every day.",
+      "desc": "How Dassie ships: Nix builds static binaries for x64 and arm64 with the wallet inside, CI signs and publishes them to get.dassie.land, and systemd runs the node and updates it every day. On NixOS, a flake from the mirror runs the same binary.",
       "does": [
         "Static musl binaries, deterministic bundles and the mirror tree, built by Nix",
         "`SHA256SUMS`, signed with minisign; the signature names the version",
         "A release for each version tag, checked by dassie-release before it is published",
         "`install.sh`, and systemd units for the node, its sockets and the daily update",
-        "Installs, updates and uninstalls, tested on four Linux distributions"
+        "Installs, updates and uninstalls, tested on four Linux distributions",
+        "A flake for NixOS with each release: a module and the signed binary, without the updater, tested in a VM"
       ]
     },
     "xrpl": {
