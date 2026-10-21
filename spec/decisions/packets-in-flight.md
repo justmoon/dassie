@@ -18,7 +18,7 @@ A node caps the money in flight with each peer, each way, at two and a half of i
 ## Accepted
 
 - *Less throughput per peer:* two of the largest packets per round trip. The credit and the settlements bound a link long before the cap does.
-- *Drift still adds up* over many crashes; the cap bounds what each one costs.
+- *Drift still adds up* over many crashes, or runs of lost responses; the cap bounds what each one costs.
 
 ## Rejected
 

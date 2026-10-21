@@ -17,7 +17,7 @@ Each node books the Fulfills it sends as final, and only its owner bans.
 
 ## Accepted
 
-After a crash, two honest peers' books can drift apart. Asked, the peer settles within its own limits, which restores what drift took from either side's liquidity as far as both sides' credit allows. Past that, the creditor's room for the debtor stays short with nothing settled, and the link is withdrawn and ended ([peering-lifecycle](peering-lifecycle.md)): a link that lost most of its liquidity is not saved. What one crash drifts is at most what was in flight, which [packets-in-flight](packets-in-flight.md) caps. The simulation rules out a run that crashes drifted that far ([crash-drift](crash-drift.md)).
+After a crash, or a Fulfill lost or late on its way, two honest peers' books can drift apart. Asked, the peer settles within its own limits, which restores what drift took from either side's liquidity as far as both sides' credit allows. Past that, the creditor's room for the debtor stays short with nothing settled, and the link is withdrawn and ended ([peering-lifecycle](peering-lifecycle.md)): a link that lost most of its liquidity is not saved. What a crash, or a run of lost responses, drifts is at most what was in flight each time, which [packets-in-flight](packets-in-flight.md) caps, since a node takes no Prepare from a peer its responses do not reach ([unreachable-peers](unreachable-peers.md)); past what the link's credit allows, the peer is withdrawn. The simulation rules out a run that crashes drifted that far ([crash-drift](crash-drift.md)).
 
 ## Rejected
 
