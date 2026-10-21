@@ -484,10 +484,17 @@ pub fn check_books(sim: &Sim) -> Result<(), Outcome> {
 /// issuer minted to every node: an owner's books that match a deposit of
 /// nothing would pass the other checks.
 pub fn check_funded(sim: &Sim) -> Result<(), String> {
-    if !sim.settling.on_xrpl() {
-        return Ok(());
-    }
-    if let Some(index) = (0..sim.nodes.len()).find(|index| !sim.fundings.contains_key(index)) {
+    // A node on either XRPL scheme has an account the faucet funds.
+    let on_xrpl = |index: &usize| {
+        sim.settling
+            .ledgers(*index)
+            .iter()
+            .any(|ledger| [XRP, RLUSD].contains(ledger))
+    };
+    if let Some(index) = (0..sim.nodes.len())
+        .filter(on_xrpl)
+        .find(|index| !sim.fundings.contains_key(index))
+    {
         return Err(format!("node {index} was never funded"));
     }
     let minted = |index: &usize| sim.issued.get(index).is_some_and(|(minted, _)| *minted > 0);
