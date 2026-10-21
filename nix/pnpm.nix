@@ -177,18 +177,16 @@ let
       ) [ ] (lib.splitString "/" "${dir}/${link}")
     );
 
-  # The packages that `pnpm install --filter <dir's package>...` installs:
-  # those of the importer, of the importers it links and of the root (which
-  # a filtered install includes too), and theirs, for this platform.
+  # The packages that `pnpm install --filter <dir's package>...` installs
+  # for each of `dirs`: those of the importers, of the importers they link
+  # and of the root (which a filtered install includes too), and theirs,
+  # for this platform.
   packagesFor =
-    dir:
+    dirs:
     let
       members = map (m: m.key) (
         builtins.genericClosure {
-          startSet = [
-            { key = dir; }
-            { key = "."; }
-          ];
+          startSet = map (key: { inherit key; }) (dirs ++ [ "." ]);
           operator =
             m:
             map (d: { key = resolve m.key (lib.removePrefix "link:" d.version); }) (
@@ -212,7 +210,7 @@ let
   # http://<mirror>/registry.npmjs.org/ stands for the npm registry and
   # http://<mirror>/npm.jsr.io/ for JSR's.
   treeFor =
-    dir:
+    dirs:
     pkgs.linkFarm "pnpm-packages" (
       map (
         key:
@@ -223,7 +221,7 @@ let
           name = lib.removePrefix "https://" p.url;
           path = pkgs.fetchurl { inherit (p) url hash; };
         }
-      ) (packagesFor dir)
+      ) (packagesFor dirs)
     );
 in
 {
@@ -240,32 +238,39 @@ in
 
   # Installs the dependencies of the workspace member in `dir` (and of the
   # members it depends on) into node_modules, offline: run from the
-  # workspace's root, with Node and pnpm on PATH.
+  # workspace's root, with Node and pnpm on PATH. With `dir` null, those of
+  # every member, as a plain `pnpm install` does.
   #
-  # The lockfile's recorded URLs are pointed at the mirror. pnpm verifies a
-  # lockfile against the release-age rule and registry metadata unless it
-  # trusts it, and there is no metadata here; every tarball is checked
-  # against the lockfile's integrity, by Nix and again by pnpm.
+  # The lockfile's recorded URLs are pointed at the mirror for the install,
+  # and restored after it. pnpm verifies a lockfile against the release-age
+  # rule and registry metadata unless it trusts it, and there is no metadata
+  # here; every tarball is checked against the lockfile's integrity, by Nix
+  # and again by pnpm. The release-age rule is CI's `lockfile` job's.
   install =
     dir:
     let
-      name = (lib.importJSON (root + "/${dir}/package.json")).name;
+      dirs = if dir == null then lib.attrNames importers else [ dir ];
+      filter = lib.optionalString (dir != null) (
+        "--filter '${(lib.importJSON (root + "/${dir}/package.json")).name}...'"
+      );
     in
     ''
-      node ${./registry-mirror.mjs} ${treeFor dir} "$TMPDIR/mirror-port" &
+      node ${./registry-mirror.mjs} ${treeFor dirs} "$TMPDIR/mirror-port" &
       mirror=$!
       while [ ! -s "$TMPDIR/mirror-port" ]; do
         kill -0 $mirror
         sleep 0.1
       done
       mirror_url=http://127.0.0.1:$(cat "$TMPDIR/mirror-port")
+      cp pnpm-lock.yaml "$TMPDIR/pnpm-lock.yaml"
       sed -i "s|tarball: https://|tarball: $mirror_url/|" pnpm-lock.yaml
-      pnpm install --frozen-lockfile --filter '${name}...' \
+      pnpm install --frozen-lockfile ${filter} \
         --config.update-notifier=false \
         --config.registry=$mirror_url/registry.npmjs.org/ \
         --config.@jsr:registry=$mirror_url/npm.jsr.io/ \
         --config.trust-lockfile=true \
         --store-dir "$TMPDIR/pnpm-store"
       kill $mirror
+      cp "$TMPDIR/pnpm-lock.yaml" pnpm-lock.yaml
     '';
 }

@@ -175,13 +175,30 @@
                 ;
             }
           );
+
+          # The TypeScript side's checks (nix/ts.nix), on x86_64-linux too,
+          # where the wallet they test is built.
+          ts = lib.optionalAttrs (system == "x86_64-linux") (
+            import ./nix/ts.nix {
+              inherit
+                lib
+                pkgs
+                craneLib
+                common
+                toolchain
+                identity-wasm
+                ;
+              inherit (release.packages) wallet;
+            }
+          );
         in
         {
           packages = {
             inherit identity-wasm wasm-bindgen release-tool;
             default = identity-wasm;
           }
-          // (release.packages or { });
+          // (release.packages or { })
+          // (ts.packages or { });
 
           checks = {
             cargo-fmt = craneLib.cargoFmt {
@@ -233,7 +250,8 @@
             };
             inherit identity-wasm;
           }
-          // (release.checks or { });
+          // (release.checks or { })
+          // (ts.checks or { });
 
           # The simulation campaign's VMs (scripts/sim-campaign.ts): CI's
           # toolchain, and Node for the supervisor, without the rest of the
