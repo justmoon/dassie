@@ -12,10 +12,11 @@
 //! longer fit, is disconnected. A browser's connection with nothing in
 //! flight closes after a while without messages
 //! (spec/decisions/tigerstyle.md: an idle socket is memory and a file
-//! descriptor held for nothing). A browser's connection without a session
-//! also closes after a fixed lifetime, whatever it sends, so that no one can
-//! hold the places for such sockets for ever; like an ending session, it lets
-//! the calls in flight answer first.
+//! descriptor held for nothing). A browser's connection without a session,
+//! and a device's that was not paired when it connected, also close after a
+//! fixed lifetime, whatever they send, so that no one can hold the places for
+//! them for ever; like an ending session, the lifetime lets the calls in
+//! flight answer first.
 
 use std::collections::BTreeMap;
 use std::panic::AssertUnwindSafe;
@@ -58,7 +59,8 @@ pub enum Closed {
     SessionEnded,
     /// Nothing happened for the idle timeout.
     Idle,
-    /// A connection without a session reached its lifetime.
+    /// A connection without a session, or of a device not paired when it
+    /// connected, reached its lifetime.
     Expired,
     /// The node is shutting down.
     Shutdown,
@@ -156,8 +158,10 @@ where
 const FAR: Duration = Duration::from_secs(86_400 * 365);
 
 /// The idle timeout and the lifetime of `caller`'s connection, if it has
-/// them: a browser's or a device's connection goes idle, and a browser's
-/// without a session also has a lifetime; a device's stream has the relayed
+/// them: a browser's or a device's connection goes idle, and one that is not
+/// authenticated when it connects (a browser without a session, a device not
+/// paired) also has a lifetime, so that it cannot hold its place for ever: a
+/// device that pairs connects again. A device's stream also has the relayed
 /// streams' own. The owner's IPC connection has neither.
 fn timeouts(node: &Node, caller: Caller) -> (Option<Duration>, Option<Duration>) {
     let policies = node.policies();
@@ -166,9 +170,11 @@ fn timeouts(node: &Node, caller: Caller) -> (Option<Duration>, Option<Duration>)
     match caller {
         Caller::Browser {
             session: Some(_), ..
+        } => (Some(idle), None),
+        Caller::Device(device) if matches!(node.check_device(&device), Ok(true)) => {
+            (Some(idle), None)
         }
-        | Caller::Device(_) => (Some(idle), None),
-        Caller::Browser { session: None, .. } => (Some(idle), Some(lifetime)),
+        Caller::Browser { session: None, .. } | Caller::Device(_) => (Some(idle), Some(lifetime)),
         Caller::Owner => (None, None),
     }
 }

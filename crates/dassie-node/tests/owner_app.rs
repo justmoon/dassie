@@ -113,8 +113,12 @@ fn resolver() -> PeerClient {
 
 /// A node that is set up, and its node ID.
 async fn node(env: &[(&str, &str)]) -> (TestNode, NodeId) {
+    node_with(Policies::DEV, env).await
+}
+
+async fn node_with(policies: Policies, env: &[(&str, &str)]) -> (TestNode, NodeId) {
     let node = Bound::new()
-        .start(ManualClock::new(START_MS), 5, Policies::DEV, env)
+        .start(ManualClock::new(START_MS), 5, policies, env)
         .await;
     let key = NodeKey::from_bytes(&[50; 32]);
     set_up(&node, &key).await;
@@ -414,4 +418,33 @@ async fn only_the_owner_on_this_machine_starts_a_pairing() {
         code(claim(&mut browser, &secret_of(&started.code), "Tab").await),
         ErrorCode::FailedPrecondition
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_not_paired_cannot_hold_its_stream_for_ever() {
+    let shutdown = CancellationToken::new();
+    let policies = Policies {
+        anonymous_socket_lifetime_ms: 300,
+        ..Policies::DEV
+    };
+    let (node, id) = node_with(policies, &[]).await;
+    let (quic, _) = device(65, &shutdown);
+    // Not paired: the stream ends after the lifetime, whatever it sends.
+    let mut app = connect_direct(&quic, &node, id).await;
+    assert_eq!(app.state().await, proto::NodeState::Anonymous);
+    let closed = tokio::time::timeout(Duration::from_secs(5), app.receive()).await;
+    assert!(
+        matches!(closed, Ok(None)),
+        "the stream stayed open: {closed:?}"
+    );
+
+    // Paired within it, the app connects again, and keeps that stream. The
+    // pairing starts first, so that the claim alone races the lifetime.
+    let (_, secret) = start_pairing(&node).await;
+    let mut app = connect_direct(&quic, &node, id).await;
+    claim(&mut app, &secret, "Phone").await.unwrap();
+    let mut app = connect_direct(&quic, &node, id).await;
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    assert_eq!(app.state().await, proto::NodeState::Authenticated);
+    shutdown.cancel();
 }

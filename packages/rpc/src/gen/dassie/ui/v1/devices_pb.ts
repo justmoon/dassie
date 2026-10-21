@@ -95,7 +95,9 @@ export const StartPairingResponseSchema: GenMessage<StartPairingResponse> = /*@_
  * The one call a device that is not paired may make, on a stream with
  * purpose `owner`. NOT_FOUND if the secret is not the pairing's, or it
  * expired or was claimed; RESOURCE_EXHAUSTED if the node keeps as many
- * devices as it may.
+ * devices as it may. A stream that was not paired when it opened ends after
+ * a short lifetime even once the claim succeeds: the app opens another,
+ * which is the paired device's.
  *
  * @generated from message dassie.ui.v1.ClaimPairingRequest
  */
