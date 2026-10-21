@@ -43,7 +43,7 @@ How Dassie is built, signed, published, installed and updated. A release is one 
 
 ## The mirror
 
-`get.dassie.land` keeps the original's paths (`meta/<channel>`, `<version>/dassie-<version>-linux-<arch>.tar.{gz,xz}`), so its installer and updater URLs keep working, and adds `<version>/flake.tar.gz` ([NixOS](#nixos)), `<version>/SHA256SUMS`, which lists the bundles and the flake, and its `.minisig`. `sh.dassie.land` serves `install.sh`, and `/flake/latest.tar.gz` the newest release's flake ([NixOS](#nixos)). The mirror's load balancer also serves dassie.land, from a bucket of its own ([Website](website.md#deployment), [website-hosting](../decisions/website-hosting.md)).
+`get.dassie.land` keeps the original's paths (`meta/<channel>`, `<version>/dassie-<version>-linux-<arch>.tar.{gz,xz}`), so its installer and updater URLs keep working, and adds `<version>/flake.tar.gz` ([NixOS](#nixos)), `<version>/SHA256SUMS`, which lists the bundles and the flake, and its `.minisig`. `get.dassie.land/flake/latest.tar.gz` is the newest release's flake ([NixOS](#nixos)), and `sh.dassie.land` serves `install.sh`. The mirror's load balancer also serves dassie.land, from a bucket of its own ([Website](website.md#deployment), [website-hosting](../decisions/website-hosting.md)).
 
 ## Publishing
 
@@ -53,7 +53,7 @@ How Dassie is built, signed, published, installed and updated. A release is one 
 - **What is signed is verified before it is uploaded,** with `dassie-release verify`, the code the updater trusts, against `resources/minisign.pub`. So a release signed with another key, or in a way the updater refuses, never reaches the mirror.
 - **A version's files are immutable once published.** Each upload is read back and must be the signed tree's bytes, so a rerun completes an interrupted publish and refuses to overwrite a file published with other bytes. The signature goes last.
 - **`meta/latest` moves last and never backwards:** it names the new version only once the version's files are all up, and only if `dassie-release supersedes` says it supersedes the published one.
-- **`/flake/latest.tar.gz` follows `meta/latest`** ([NixOS](#nixos)): once `meta/latest` names the release, `scripts/flake-latest.ts` points the route at its flake. The rewrite and the `Link` header change together, in one update of the URL map.
+- **`/flake/latest.tar.gz` follows `meta/latest`** ([NixOS](#nixos)): once `meta/latest` names the release, `scripts/flake-latest.ts` points the route at its flake. The rewrite and the `Link` header change together, in one update of the URL map, validated for the load balancer's scheme and refused if the map changed since it was read.
 - The workflow does not consult the simulation campaign; that check is [not built](../roadmap.md#continuous-simulation).
 
 ## Install layout
@@ -103,7 +103,7 @@ If the node does not come up after the switch, the update disables and removes t
 
 `nix/flake/`, published as `<version>/flake.tar.gz` ([nix-flake-on-the-mirror](../decisions/nix-flake-on-the-mirror.md)). An owner points a flake input at it, or at `https://get.dassie.land/flake/latest.tar.gz` to follow releases, and enables `services.dassie`.
 
-- **`/flake/latest.tar.gz` locks as the version it names.** The mirror's load balancer serves it as the newest release's flake, with `Link: <https://get.dassie.land/<version>/flake.tar.gz>; rel="immutable"`, which Nix locks in its place, so a lock stays good when the release after it is out. It is served without Cloud CDN, and the release workflow moves it ([Publishing](#publishing)).
+- **`/flake/latest.tar.gz` locks as the version it names.** The mirror's load balancer serves it as the newest release's flake, with `Link: <https://get.dassie.land/<version>/flake.tar.gz>; rel="immutable"`, which Nix locks in its place, so a lock stays good when the release after it is out. The header needs the load balancer's `EXTERNAL_MANAGED` scheme, and the backend must stay without Cloud CDN, which would keep the old flake under the same URL. The release workflow moves it ([Publishing](#publishing)).
 
 - **The package is the release's own bundle,** fetched by the sum `SHA256SUMS` lists, which `nix build .#release` writes into the flake's `release.json`. Nothing is compiled or patched.
 - **The units are the bundle's,** with `ExecStart` naming the package's binary, enabled as `install.sh` enables them. The module sets environment variables and opens the firewall in drop-ins, and makes the group `dassie-users`. The socket units keep their names, which the node takes its sockets by ([Node](node.md#runtimes)).

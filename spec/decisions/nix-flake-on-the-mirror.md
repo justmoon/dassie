@@ -9,7 +9,7 @@
 - A release's units hold the node's sandbox, and NixOS installs a package's own units (`systemd.packages`), with what the configuration sets in drop-ins.
 - Building Dassie from source takes the Rust workspace and the wallet's npm packages, which is many minutes even on a large machine. Only the project's Nix cloud caches it, and that cache is not public.
 - A flake input can be a tarball's URL. Nix locks it by the URL and the hash of what it unpacked, and with the lock, fetches the same URL again on another machine. A URL whose contents change thus breaks every lock of it, unless its answer carries `Link: <url>; rel="immutable"` (or `x-amz-meta-link`): Nix then locks that URL in its place.
-- A bucket cannot send that header for one object: its own headers are fixed, and custom metadata comes back as `x-goog-meta-*`. The mirror's load balancer can, for one route of its URL map, together with a rewrite of the route's path. Cloud CDN, which the mirror's backend has, would cache the answer under the URL the client asked for.
+- A bucket cannot send that header for one object: its own headers are fixed, and custom metadata comes back as `x-goog-meta-*`. The mirror's load balancer can, for one route of its URL map, together with a rewrite of the route's path, because its scheme is `EXTERNAL_MANAGED`; a classic load balancer cannot add headers on a route. Its backend for `get.dassie.land` has no Cloud CDN, which would cache the answer under the URL the client asked for.
 - The mirror's files under `<version>/` never change once published ([Release](../areas/release.md#publishing)).
 
 ## Decision
@@ -19,7 +19,7 @@
 - **The module installs the bundle's own units,** with `ExecStart` pointed at the package, and enables them as `install.sh` does. Options set environment variables and open the firewall, in drop-ins. The sandbox stays in one place, `resources/systemd`.
 - **There is no updater on NixOS.** The updater's units are left out of the package, and the flake's version is the node's. Updating is changing the flake input.
 - **`SHA256SUMS` lists the flake,** so the release key signs it with the bundles.
-- **`/flake/latest.tar.gz` follows releases, and locks as the version it names.** A route of the mirror's URL map rewrites it to the newest release's flake and adds the `Link` header naming that flake's own URL, in one update, so the two never name different versions. It goes to a backend over the same bucket without Cloud CDN. The release workflow moves it once `meta/latest` names the release, so it never goes back either.
+- **`/flake/latest.tar.gz` follows releases, and locks as the version it names.** A route of the mirror's URL map rewrites it to the newest release's flake and adds the `Link` header naming that flake's own URL, in one update, so the two never name different versions. The update is validated for the load balancer's scheme, and carries the fingerprint the map was read with, so it never overwrites a change made in between. The release workflow moves it once `meta/latest` names the release, so it never goes back either.
 
 ## Accepted
 
