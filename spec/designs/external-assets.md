@@ -36,6 +36,8 @@ It stays sans-IO, like the scheme today: it says what to send its ledger, and th
 
 **Several schemes may share one external asset.** By default `xrpl-testnet-rlusd` uses the node's first XRPL testnet account, the one `xrpl-testnet` uses: one address for the owner to fund, and one supply of XRP for both. Each validated transaction is handed to every scheme on the account; each scheme keeps its own cursor into them, written with what it books, so a scheme that stopped ([Settlement](../areas/settlement.md#the-scheme-interface)) reads again what it missed, and the other is not held back.
 
+Sharing has one cost. Until a stopped scheme's transaction that was never sent is dropped, the other scheme's transactions with later sequences cannot apply: they are looked up and cancelled past their last ledger, and that scheme backs off settling, as after any cancelled settlement ([Settlement](../areas/settlement.md#outgoing-settlements)). It costs one window of ledgers and a backoff, and nothing is paid twice.
+
 ## 3. Accounting
 
 **The ledger is authoritative for what an external asset holds.** The wallet shows the holdings as the ledger reports them, through the node, never as the books add them up.
@@ -73,10 +75,18 @@ RLUSD is a token on trust lines, issued by one account per network; its issuer a
 
 After each, the books hold the line's balance in whole units; a remainder below a unit, which anyone can send, stays in the holding and is reconciled once it adds up.
 
-**Freezes.** The scheme reads them from the ledger: our line's flags, and the issuer's account for a global freeze and a transfer fee. It reports each in the wallet.
+**Freezes.** The scheme reads them from the ledger, and reports each in the wallet:
+
+- **Our line's flags** with every transaction that touches the line, an issuer's freeze included, which the account's stream carries.
+- **The issuer's account,** for a global freeze and a transfer fee, at every settlement check, taking only an answer as of a ledger at or past the newest seen ([ledger-resets](../decisions/ledger-resets.md)). Both change only the issuer's account, which the stream of ours never carries, and following the issuer's stream would bring every payment of the token. Read only on connecting, a global freeze would go unnoticed for as long as the connection holds.
+
+What each freeze stops:
 
 - **A frozen line** (ours, by the issuer) stops our settlements: `prepare_settlement` is `Unavailable`. Peerings stay; a peer that asks us to settle gets nothing, and stops advertising us once its room is gone ([Network](../areas/network.md#advertised-peers)).
-- **A line that cannot receive** (ours deep-frozen, or the issuer's global freeze, which stops every holder's payments but to the issuer) also stops what peers pay us, and a peer's settlement would only fail and cost it a fee. While it lasts the node treats the scheme as it treats one that does not see its ledger: it asks no peer on it to settle, a peer's time short does not grow, so no peer is withdrawn or ended for room for what it could not pay ([Network](../areas/network.md#advertised-peers), [ended-for-room](../decisions/ended-for-room.md)), and its link state leaves the scheme out, so no new peering is made on it.
+- **A line that cannot receive** (ours deep-frozen, or the issuer's global freeze, which stops every holder's payments but to the issuer) also stops what peers pay us, and a peer's settlement would only fail and cost it a fee. While it lasts:
+  - **The node asks no peer on it to settle,** as while the scheme does not see its ledger, and a peer's time short does not grow, so no peer is ended for room for what it could not pay ([Network](../areas/network.md#advertised-peers), [ended-for-room](../decisions/ended-for-room.md)).
+  - **A peer short of room is withdrawn at once,** without waiting for the grace, since no settlement can restore its room while the freeze lasts, which may be for good. Its packets toward us would only fail at the edge. It stays peered, and is advertised again once the line receives and the peer has settled, as a peer that could not be reached is ([Network](../areas/network.md#advertised-peers)).
+  - **The link state leaves the scheme out,** so no new peering is made on it. This is a rule of its own: a scheme that only lost its ledger stays in the link state once it has synced.
 
 **Testnet resets** take the line, its balance and the issuer's account with them. The scheme follows the account's reset as today, and makes the line again once the issuer exists. An issuer that does not come back at the same address leaves the scheme unsynced until a release names the new one.
 
