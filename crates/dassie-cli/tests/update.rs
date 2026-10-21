@@ -929,6 +929,70 @@ fn a_rollback_takes_out_the_units_the_new_version_added() {
     );
 }
 
+/// When the new node does not start, `current` goes back to what it named,
+/// with that version's units, even where the updater that ran is another
+/// version the owner kept, as it does when a unit cannot be installed.
+#[test]
+fn a_rollback_puts_back_what_current_named() {
+    let (mirror, install) = (MirrorServer::start(), Install::new());
+    // The binary that runs is a kept version; `current` names a later one.
+    install.with_unit(b"[Service]\n# the kept version's\n");
+    let later = install.base().join("9.0.0");
+    fs::create_dir_all(later.join("bin")).unwrap();
+    fs::create_dir_all(later.join("share/systemd")).unwrap();
+    fs::write(later.join("share/systemd/dassie.service"), OLD_UNIT).unwrap();
+    fs::write(install.dir.path().join("units/dassie.service"), OLD_UNIT).unwrap();
+    fs::remove_file(install.base().join("current")).unwrap();
+    symlink("9.0.0", install.base().join("current")).unwrap();
+    publish(&mirror, "9.9.9", &release("9.9.9"), None);
+    let systemctl = systemctl_failing_restart(install.dir.path());
+    let binary = install.base().join(&install.version).join("bin/dassie");
+    let output = install
+        .updater(&binary, &mirror)
+        .env("DASSIE_SYSTEMCTL", &systemctl)
+        .env("DASSIE_STATE_DIRECTORY", install.dir.path().join("state"))
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "{}", text(&output));
+    let record = install.last_update();
+    assert!(record.contains("\noutcome=rolled-back\n"), "{record}");
+    assert_eq!(install.current(), "9.0.0", "{}", text(&output));
+    assert_eq!(install.unit("dassie.service").as_deref(), Some(OLD_UNIT));
+    assert!(
+        text(&output).contains("dassie 9.9.9 did not start, and 9.0.0 runs again"),
+        "{}",
+        text(&output)
+    );
+}
+
+/// An update keeps the version `current` named, for the owner to go back
+/// to, as well as the one the owner kept that ran it.
+#[test]
+fn keeps_the_version_current_named() {
+    let (mirror, install) = (MirrorServer::start(), Install::new());
+    fs::create_dir_all(install.base().join("9.0.0/bin")).unwrap();
+    fs::create_dir_all(install.base().join("8.0.0/bin")).unwrap();
+    fs::remove_file(install.base().join("current")).unwrap();
+    symlink("9.0.0", install.base().join("current")).unwrap();
+    publish(&mirror, "9.9.9", &release("9.9.9"), None);
+    let binary = install.base().join(&install.version).join("bin/dassie");
+    let output = install
+        .updater(&binary, &mirror)
+        .arg("--no-restart")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", text(&output));
+    assert_eq!(install.current(), "9.9.9");
+    let mut kept = vec![
+        install.version.clone(),
+        "9.0.0".into(),
+        "9.9.9".into(),
+        "current".into(),
+    ];
+    kept.sort();
+    assert_eq!(install.entries(), kept);
+}
+
 /// The script the tests stand in for the binary runs, which needs a shell.
 #[test]
 fn stand_in_runs() {
