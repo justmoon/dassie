@@ -7,6 +7,8 @@ The `xrpl-testnet` settlement scheme: the node's wallet on the XRP Ledger testne
 
 The crate does no IO and reads no clock. The scheme says what to send its ledger (`LedgerSend`) and books what the ledger says, through the node, over the connection the node keeps for it ([Settlement](settlement.md#schemes-that-follow-a-ledger)). Its constants are in `lib.rs` and `scheme.rs`.
 
+The scheme owns its account and settles only in XRP. An XRPL account kept apart from the schemes that settle through it, and RLUSD as a second scheme on it, are [not built](../roadmap.md#external-assets-and-rlusd).
+
 ## Real money
 
 Real money is refused at every level until the conditions of [real-money](../decisions/real-money.md) hold, which the [roadmap](../roadmap.md#real-money) lists. This scheme meets the XRP Ledger's part of them (the reserve is never booked, an account's creation is a deposit, it settles whole drops, books fees and checks results and senders); mainnet also needs a memo type of its own. Until then:

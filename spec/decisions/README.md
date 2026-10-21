@@ -14,7 +14,9 @@ Each file records one choice between real alternatives: the facts that forced it
 | [ended-for-room](ended-for-room.md) | A peering ended for room stays apart, and earns no credit back | network, settlement |
 | [ending-a-peering](ending-a-peering.md) | A node that ends a peering collects first, and pays nothing | network, settlement, peer-protocol, connector |
 | [exchange-rates](exchange-rates.md) | Exchange rates, fees and spread | connector |
+| [external-assets](external-assets.md) | External assets apart from settlement schemes (design, not built) | designs/external-assets, settlement, xrpl, ledger |
 | [full-or-stopped-short](full-or-stopped-short.md) | A receiver says whether it is full or stopped short | payments, stream |
+| [issued-assets](issued-assets.md) | An issued asset's issuer is the owner's counterparty (design, not built) | designs/external-assets, settlement, connector |
 | [ledger-resets](ledger-resets.md) | A ledger below the newest seen is a reset only on the testnet | xrpl |
 | [membership-economics](membership-economics.md) | Network membership economics (fee not built) | network |
 | [named-decisions](named-decisions.md) | Decisions are named, not numbered | engineering |
