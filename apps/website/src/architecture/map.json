@@ -1333,6 +1333,18 @@
   ],
   "releases": [
     {
+      "version": "0.2.2",
+      "date": "2026-10-21",
+      "changes": [
+        "A node can settle in RLUSD, Ripple's dollar token, on the XRP Ledger testnet, with the `xrpl-testnet-rlusd` scheme. It shares the node's XRPL account with `xrpl-testnet`: the node sets up its RLUSD trust line itself, pays the fees in XRP, and books RLUSD as dollars. Test RLUSD comes from Ripple's faucet at tryrlusd.com.",
+        "The wallet has a page of external assets, showing what the node's XRPL account holds as the ledger reports it: XRP, RLUSD, the reserve, and whether the issuer has frozen the line. Receive says where to send XRP, with the testnet faucet, and RLUSD.",
+        "While RLUSD's issuer freezes the node's line, the node settles nothing on it. While the issuer deep-freezes the line, freezes RLUSD for every holder, or charges a transfer fee, the node also asks no peer to pay into it, and no peer is cut off for what it could not pay.",
+        "On NixOS, each release comes as a flake: point a flake input at `https://get.dassie.land/flake/latest.tar.gz` and enable `services.dassie`. It runs the release's signed binary, with no updater.",
+        "A node holds a lock on its data directory, so a second daemon on the same directory refuses to start.",
+        "A node whose Fulfill is refused because its clock is behind a peer that just restarted sends it again, so the two nodes' books no longer drift apart from this and stall payments between them."
+      ]
+    },
+    {
       "version": "0.2.1",
       "date": "2026-10-21",
       "changes": [
