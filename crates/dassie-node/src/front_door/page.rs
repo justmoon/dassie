@@ -72,13 +72,13 @@ pub fn render(domain: &str, label: &NodeLabel, node: &NodeId, connected: bool) -
         Part::Html(
             "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
              <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
-             <meta name=\"robots\" content=\"noindex\">\n<title>A Dassie node</title>\n<style>",
+             <meta name=\"robots\" content=\"noindex\">\n<title>A Dassie node's address</title>\n<style>",
         ),
         Part::Html(STYLE),
         Part::Html(
-            "</style>\n</head>\n<body>\n<main>\n<h1>A Dassie node</h1>\n\
-             <p>This is the address of a Dassie node, named by its node ID, and reached \
-             through the ",
+            "</style>\n</head>\n<body>\n<main>\n<h1>A Dassie node's address</h1>\n\
+             <p>This is the address of the Dassie node with the ID below, reached through \
+             the ",
         ),
         Part::Text(domain),
         Part::Html(" front door.</p>\n<dl>\n<dt>Name</dt>\n<dd><code>"),
@@ -198,6 +198,12 @@ mod tests {
             let address = format!("https://{name}/.well-known/pay");
             assert!(page.contains(&format!("<a href=\"{address}\">{address}</a>")));
             assert!(page.contains("<a href=\"https://dassie.land\">"));
+            // Any valid label has a page, even one no key gives: the page
+            // claims only that the address is that ID's.
+            assert!(page.contains(
+                "<p>This is the address of the Dassie node with the ID below, reached \
+                 through the dassiepay.net front door.</p>"
+            ));
             assert_eq!(page.contains("class=\"on\""), connected);
             assert_eq!(page.contains("Not connected"), !connected);
             let absent = [

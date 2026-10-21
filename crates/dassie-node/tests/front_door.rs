@@ -467,6 +467,7 @@ fn page_of(reply: &Reply, id: &NodeId, connected: bool) -> String {
     let address = format!("https://{name}/.well-known/pay");
     assert!(page.contains(&format!("<a href=\"{address}\">{address}</a>")));
     assert!(page.contains("<a href=\"https://dassie.land\">"));
+    assert!(page.contains("address of the Dassie node with the ID below"));
     assert!(page.contains("Open Payments only"));
     assert!(page.contains("own wallet, not here"));
     let state = if connected {
