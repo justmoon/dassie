@@ -42,7 +42,21 @@ pub const SCHEMES: &[SchemeInfo] = &[
 /// the asset is made with: for the XRPL scheme, the server and the faucet
 /// its config names, which are the account's.
 fn asset_of(id: &str) -> Option<AssetId> {
+    #[cfg(test)]
+    if id == super::tests::WITNESS {
+        return Some(dassie_xrpl::account::FIRST);
+    }
     (id == dassie_xrpl::scheme::SCHEME_ID).then_some(dassie_xrpl::account::FIRST)
+}
+
+/// The schemes that may settle through `asset`.
+fn schemes_on(asset: AssetId) -> Vec<Name> {
+    let ids = SCHEMES.iter().map(|info| info.id);
+    #[cfg(test)]
+    let ids = ids.chain([super::tests::WITNESS]);
+    ids.filter(|id| asset_of(id) == Some(asset))
+        .filter_map(|id| Name::new(id).ok())
+        .collect()
 }
 
 /// Makes the external asset `id` with its config, and the state the books
@@ -67,6 +81,7 @@ fn create_asset(
                 .map_err(|_| SchemeError::InvalidConfig)?;
             Ok(Box::new(XrplAccount::new(
                 id,
+                &schemes_on(id),
                 config,
                 entropy.as_bytes(),
                 state,
@@ -100,20 +115,16 @@ fn create(
                 .ok_or(SchemeError::InvalidConfig)?;
             let node = Name::new(key.node_id().as_str()).map_err(|_| SchemeError::InvalidData)?;
             let state = checkpoint.map_or(&[][..], |c| c.state.as_slice());
-            Ok(Box::new(XrplScheme::new(
-                account.account(),
-                node,
-                balance,
-                state,
-            )?))
+            Ok(Box::new(XrplScheme::new(account, node, balance, state)?))
         }
+        #[cfg(test)]
+        super::tests::WITNESS => Ok(Box::new(super::tests::Witness)),
         _ => Err(SchemeError::UnknownScheme),
     }
 }
 
-/// A scheme just made, and the asset it settles through, with whether the
-/// asset was made with it.
-pub(super) type MadeScheme = (Box<dyn SettlementScheme>, Option<(AssetId, bool)>);
+/// A scheme just made, and the asset it settles through.
+pub(super) type MadeScheme = (Box<dyn SettlementScheme>, Option<AssetId>);
 
 /// An active external asset.
 pub(super) struct ActiveAsset {
@@ -167,8 +178,8 @@ pub(super) fn merged_status(asset: Option<LedgerStatus>, scheme: LedgerStatus) -
 
 impl Core {
     /// Makes scheme `id` from its config and checkpoint, with the asset it
-    /// settles through, made first if it is not active. Returns the scheme,
-    /// and its asset with whether it was made now.
+    /// settles through, made first if it is not active. Returns the scheme
+    /// and its asset.
     ///
     /// # Errors
     ///
@@ -218,7 +229,7 @@ impl Core {
             )),
         };
         match made {
-            Ok(scheme) => Ok((scheme, Some((asset, new)))),
+            Ok(scheme) => Ok((scheme, Some(asset))),
             Err(error) => {
                 self.release_asset(asset);
                 Err(error)
@@ -275,8 +286,9 @@ impl Core {
 
     /// After `asset` heard from its ledger, its timers or its faucet: every
     /// scheme on it is told what it learnt, each booked all or none, and
-    /// what the asset asks is carried out. A scheme that has just synced for
-    /// the first time can be peered on from now
+    /// what the asset asks is carried out, unless no scheme on it took what
+    /// it was told ([`carry_out`](Self::carry_out)). A scheme that has just
+    /// synced for the first time can be peered on from now
     /// (spec/decisions/synced-before-peering.md).
     fn asset_heard(&mut self, asset: AssetId) {
         for scheme in self.live_schemes_on(asset) {
@@ -286,7 +298,6 @@ impl Core {
             active.asset.told();
         }
         self.carry_out(asset);
-        self.close_if_stopped(asset);
         self.update_peer_schemes();
     }
 
@@ -308,11 +319,20 @@ impl Core {
     }
 
     /// Carries out what `asset` asks of its ledger, in order: a message
-    /// after a reconnection goes on the new connection.
+    /// after a reconnection goes on the new connection. All or none with
+    /// what its schemes booked: once the books refused what the last scheme
+    /// running on it was told, its connection is closed, and nothing the
+    /// asset asked meanwhile goes out, no message, connection or request to
+    /// a faucet (spec/areas/settlement.md#the-scheme-interface).
     pub(super) fn carry_out(&mut self, asset: AssetId) {
+        self.close_if_stopped(asset);
         let mut effects = Vec::new();
-        if let Some(active) = self.assets.get_mut(&asset) {
-            active.asset.take_effects(&mut effects);
+        let Some(active) = self.assets.get_mut(&asset) else {
+            return;
+        };
+        active.asset.take_effects(&mut effects);
+        if active.epoch == 0 {
+            return;
         }
         for effect in effects {
             let Some(epoch) = self.assets.get(&asset).map(|active| active.epoch) else {
@@ -344,7 +364,6 @@ impl Core {
         let booked = self.apply_effects(scheme, ledger, effects);
         if let Some(asset) = asset {
             self.carry_out(asset);
-            self.close_if_stopped(asset);
         }
         if booked.is_ok() {
             self.update_peer_schemes();
@@ -379,17 +398,39 @@ impl Core {
     /// Closes the connection of an asset that stopped by itself, or on
     /// which no scheme runs any more (spec/areas/settlement.md#the-scheme-interface):
     /// the driver would otherwise make it again for ever, to a ledger no
-    /// one reads. Removing the schemes and adding them again, or a
-    /// restart, connects anew.
+    /// one reads. The asset is told, so it asks nothing of it. A scheme
+    /// activated on it, or a restart, connects anew.
     fn close_if_stopped(&mut self, asset: AssetId) {
         let idle = self.live_schemes_on(asset).is_empty();
+        let now = self.now_ms;
         let Some(active) = self.assets.get_mut(&asset) else {
             return;
         };
         let stopped = idle || matches!(active.asset.status(), LedgerStatus::Failed(_));
         if stopped && active.epoch != 0 {
             let epoch = std::mem::replace(&mut active.epoch, 0);
+            active.asset.on_ledger(now, LedgerInput::Disconnected);
             self.disconnect_asset(asset, epoch);
+        }
+    }
+
+    /// Connects `asset` for a scheme just activated on it: once its
+    /// connection was closed, or before it was made; and anew once it has
+    /// heard from its ledger, so that it reads again from the earliest
+    /// place of its schemes, the new one's included, and tells them all it
+    /// has synced. Not while it waits to connect, which it does for them
+    /// all, nor once it stopped by itself.
+    pub(super) fn connect_for_scheme(&mut self, asset: AssetId) {
+        let Some(active) = self.assets.get(&asset) else {
+            return;
+        };
+        let connect = match active.asset.status() {
+            LedgerStatus::Failed(_) => false,
+            LedgerStatus::Connecting => active.epoch == 0,
+            _ => true,
+        };
+        if connect {
+            self.connect_asset(asset);
         }
     }
 
@@ -422,10 +463,12 @@ impl Core {
             .min()
     }
 
-    /// Opens an asset's connection, anew if it had one.
+    /// Opens an asset's connection, anew if it had one: the asset is told
+    /// the old one is gone.
     pub(super) fn connect_asset(&mut self, asset: AssetId) {
         self.next_epoch = self.next_epoch.wrapping_add(1);
         let epoch = self.next_epoch;
+        let now = self.now_ms;
         let Some(active) = self.assets.get_mut(&asset) else {
             return;
         };
@@ -434,6 +477,7 @@ impl Core {
             return;
         };
         if old != 0 {
+            active.asset.on_ledger(now, LedgerInput::Disconnected);
             self.outputs_peer.push(Output::LedgerClose {
                 asset: asset.to_string(),
                 epoch: old,

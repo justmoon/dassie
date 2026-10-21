@@ -105,7 +105,8 @@ pub enum LedgerInput<'a> {
     Connected,
     /// A message came.
     Message(&'a [u8]),
-    /// The connection went down; it is tried again.
+    /// The connection went down, and is tried again; or the node closed
+    /// it, or made it anew.
     Disconnected,
     /// The faucet answered, or did not.
     Funded(bool),
@@ -200,7 +201,10 @@ pub trait ExternalAsset: Send + Any {
     /// Moves what it asks the node to do into `out`, in order.
     fn take_effects(&mut self, out: &mut Vec<AssetEffect>);
 
-    /// `scheme` no longer settles through it: removed, or stopped.
+    /// `scheme` no longer settles through it: removed, or stopped. What it
+    /// learns of the scheme's own meanwhile, such as the outcome of a
+    /// transaction the scheme had it sign, it keeps for the scheme, which
+    /// reads it once back.
     fn detach(&mut self, scheme: Name);
 
     /// What it must keep across restarts, such as the transactions it

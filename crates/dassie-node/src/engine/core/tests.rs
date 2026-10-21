@@ -202,8 +202,14 @@ fn a_stopped_scheme_is_not_peered_on() {
 /// Carries the XRP Ledger scheme's requests to `ledger` and the answers
 /// back, until it has nothing more to say.
 fn follow_xrpl(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger) {
+    follow_xrpl_outputs(core, ledger);
+}
+
+/// [`follow_xrpl`], returning every output of the steps.
+fn follow_xrpl_outputs(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger) -> Vec<Output> {
     use super::LedgerEvent;
 
+    let mut all = Vec::new();
     for _ in 0..50 {
         let mut outputs = Vec::new();
         core.finish_step(&mut outputs);
@@ -217,8 +223,9 @@ fn follow_xrpl(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger) {
                 _ => None,
             })
             .collect();
+        all.extend(outputs);
         if events.is_empty() {
-            return;
+            return all;
         }
         for (epoch, event) in &events {
             core.ledger_event(XRPL_ACCOUNT, *epoch, event);
@@ -1354,4 +1361,287 @@ fn a_database_from_before_external_assets_restarts_and_books_nothing_anew() {
     let account: serde_json::Value = serde_json::from_slice(&account).unwrap();
     assert_eq!(account["in_flight"], serde_json::json!([]));
     assert_eq!(account["sequence"], 5_000_003);
+}
+
+/// A second scheme on the node's first XRPL testnet account, for the tests,
+/// as RLUSD will be: it serves the stub's ledger, follows the account from
+/// nowhere, and books and signs nothing.
+pub(super) const WITNESS: &str = "witness";
+
+/// The scheme [`WITNESS`] names.
+pub(super) struct Witness;
+
+impl dassie_settlement::SettlementScheme for Witness {
+    fn id(&self) -> dassie_ledger::Name {
+        dassie_ledger::name!(WITNESS)
+    }
+
+    fn ledger(&self) -> dassie_ledger::LedgerId {
+        dassie_ledger::LedgerId::StubUsd
+    }
+
+    fn asset(&self) -> Option<dassie_settlement::AssetId> {
+        Some(dassie_xrpl::account::FIRST)
+    }
+
+    fn supported_versions(&self) -> &'static [u16] {
+        &[1]
+    }
+
+    fn balance(&self) -> u64 {
+        0
+    }
+
+    fn on_asset(
+        &mut self,
+        _now_ms: u64,
+        asset: &mut dyn dassie_settlement::ExternalAsset,
+        _effects: &mut Vec<dassie_settlement::Effect>,
+    ) {
+        let any: &mut dyn std::any::Any = asset;
+        let account = any.downcast_mut::<dassie_xrpl::XrplAccount>().unwrap();
+        account.follow(self.id(), None, false);
+    }
+
+    fn peering_info(&self, out: &mut Vec<u8>) {
+        out.clear();
+    }
+
+    fn create_peering_request(
+        &mut self,
+        _peer: dassie_ledger::Name,
+        _info: &[u8],
+        _out: &mut Vec<u8>,
+    ) -> Result<(), dassie_settlement::SchemeError> {
+        Err(dassie_settlement::SchemeError::Unsupported)
+    }
+
+    fn accept_peering_request(
+        &mut self,
+        _peer: dassie_ledger::Name,
+        _data: &[u8],
+        _response: &mut Vec<u8>,
+    ) -> Result<Vec<u8>, dassie_settlement::SchemeError> {
+        Err(dassie_settlement::SchemeError::Unsupported)
+    }
+
+    fn finalize_peering_request(
+        &mut self,
+        _peer: dassie_ledger::Name,
+        _info: &[u8],
+        _data: &[u8],
+    ) -> Result<Vec<u8>, dassie_settlement::SchemeError> {
+        Err(dassie_settlement::SchemeError::Unsupported)
+    }
+
+    fn prepare_settlement(
+        &mut self,
+        _rng: &mut dyn rand_core::CryptoRng,
+        _asset: Option<&mut dyn dassie_settlement::ExternalAsset>,
+        _peer: dassie_ledger::Name,
+        _amount: u64,
+        _state: &[u8],
+    ) -> Result<dassie_settlement::PreparedSettlement, dassie_settlement::SchemeError> {
+        Err(dassie_settlement::SchemeError::Unavailable)
+    }
+
+    fn execute_settlement(
+        &mut self,
+        _asset: Option<&mut dyn dassie_settlement::ExternalAsset>,
+        _settlement: dassie_ledger::Name,
+        _effects: &mut Vec<dassie_settlement::Effect>,
+    ) {
+    }
+
+    fn reconcile(
+        &mut self,
+        _asset: Option<&mut dyn dassie_settlement::ExternalAsset>,
+        _pending: &[(dassie_ledger::Name, u64)],
+        _effects: &mut Vec<dassie_settlement::Effect>,
+    ) {
+    }
+
+    fn handle_settlement(
+        &mut self,
+        _peer: dassie_ledger::Name,
+        _amount: u64,
+        _data: &[u8],
+        _state: &[u8],
+        _effects: &mut Vec<dassie_settlement::Effect>,
+    ) -> Result<(), dassie_settlement::SchemeError> {
+        Err(dassie_settlement::SchemeError::InvalidData)
+    }
+
+    fn handle_message(
+        &mut self,
+        _peer: dassie_ledger::Name,
+        _message: &[u8],
+        _effects: &mut Vec<dassie_settlement::Effect>,
+    ) {
+    }
+
+    fn deposit(
+        &mut self,
+        _amount: u64,
+        _effects: &mut Vec<dassie_settlement::Effect>,
+    ) -> Result<(), dassie_settlement::SchemeError> {
+        Err(dassie_settlement::SchemeError::Unsupported)
+    }
+
+    fn check_invariants(&self) {}
+}
+
+/// The config both schemes on the XRPL account name: its server and its
+/// faucet.
+const SHARED_CONFIG: &str = r#"{"server":"ws://ledger.test","faucet":null}"#;
+
+/// The ledger with the node's first XRPL testnet account funded, and the
+/// account's address.
+fn funded_ledger() -> (dassie_xrpl::fake::FakeLedger, dassie_xrpl::AccountId) {
+    let entropy = NodeKey::from_bytes(&[7; 32])
+        .settlement_entropy("xrpl-testnet", "seed-testnet")
+        .unwrap();
+    let account = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account();
+    let mut ledger = dassie_xrpl::fake::FakeLedger::new();
+    ledger.fund(account);
+    ledger.close();
+    (ledger, account)
+}
+
+/// The connection numbers of the connections `outputs` open.
+fn connects(outputs: &[Output]) -> Vec<u64> {
+    outputs
+        .iter()
+        .filter_map(|output| match output {
+            Output::LedgerConnect { epoch, .. } => Some(*epoch),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether `outputs` close connection `epoch`.
+fn closes(outputs: &[Output], epoch: u64) -> bool {
+    outputs
+        .iter()
+        .any(|output| matches!(output, Output::LedgerClose { epoch: e, .. } if *e == epoch))
+}
+
+// spec/areas/settlement.md#the-scheme-interface: what an input asks of the
+// ledger goes out only if the books took what it booked. Here the testnet
+// account is absent, as of a ledger it has seen nothing past: its scheme
+// writes off what it held, which the books refuse, so the scheme stops, and
+// the faucet the account would ask to make it again is not asked, nor is
+// its connection made anew.
+#[test]
+fn a_refused_write_off_asks_the_ledger_nothing() {
+    use super::LedgerEvent;
+    use dassie_ledger::{AccountName, LedgerId, MAX_TOTAL, Reference, TransferSpec};
+    use dassie_settlement::LedgerStatus;
+
+    let config = r#"{"server":"ws://ledger.test","faucet":"https://faucet.test/accounts"}"#;
+    let (mut ledger, account) = funded_ledger();
+    let mut core = core(9);
+    core.add_scheme("xrpl-testnet", config.into()).unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    assert_eq!(core.ledger_views()[0].status, LedgerStatus::Synced);
+    // Through suspense and back, leaving it room for less to be lost
+    // than the scheme holds.
+    let ledger_id = LedgerId::XrplTestnetXrp;
+    let suspense = core
+        .account(ledger_id, AccountName::EquitySuspense)
+        .unwrap();
+    let losses = core
+        .account(ledger_id, AccountName::ExpensesLosses)
+        .unwrap();
+    let filler = MAX_TOTAL - 1;
+    for (debit, credit) in [(suspense, losses), (losses, suspense)] {
+        let spec = TransferSpec {
+            debit,
+            credit,
+            amount: filler,
+            pending: false,
+            reference: Reference::Reconciliation,
+        };
+        core.ledger.create(NOW, &spec).unwrap();
+    }
+    ledger.remove_account(account);
+    ledger.close();
+    let epoch = core.assets[&dassie_xrpl::account::FIRST].epoch;
+    core.ledger_event(XRPL_ACCOUNT, epoch, &LedgerEvent::Disconnected);
+    core.ledger_event(XRPL_ACCOUNT, epoch, &LedgerEvent::Connected);
+    let outputs = follow_xrpl_outputs(&mut core, &mut ledger);
+    assert!(matches!(
+        core.ledger_views()[0].status,
+        LedgerStatus::Failed(_)
+    ));
+    assert!(closes(&outputs, epoch), "{outputs:?}");
+    assert!(
+        !outputs
+            .iter()
+            .any(|output| matches!(output, Output::Fund { .. } | Output::LedgerConnect { .. })),
+        "{outputs:?}"
+    );
+}
+
+// spec/areas/settlement.md#external-assets: a scheme activated on an account
+// that has read its ledger already is told it has synced, and is peered on
+// from then: the account connects anew, and reads again from the earliest
+// place of its schemes.
+#[test]
+fn a_scheme_activated_on_a_synced_account_is_told_it_has_synced() {
+    use dassie_ledger::Name;
+    use dassie_peer::wire::SchemeId;
+    use dassie_settlement::LedgerStatus;
+
+    let (mut ledger, _) = funded_ledger();
+    let mut core = core(9);
+    core.add_scheme(WITNESS, SHARED_CONFIG.into()).unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    assert_eq!(core.asset_views()[0].status, LedgerStatus::Synced);
+    let before = core.assets[&dassie_xrpl::account::FIRST].epoch;
+    core.add_scheme("xrpl-testnet", SHARED_CONFIG.into())
+        .unwrap();
+    let outputs = follow_xrpl_outputs(&mut core, &mut ledger);
+    assert!(closes(&outputs, before), "{outputs:?}");
+    assert!(!connects(&outputs).is_empty(), "{outputs:?}");
+    let xrpl = Name::new("xrpl-testnet").unwrap();
+    assert!(core.schemes[&xrpl].scheme.has_synced());
+    let view = core
+        .ledger_views()
+        .into_iter()
+        .find(|view| view.scheme == "xrpl-testnet")
+        .unwrap();
+    assert_eq!(view.status, LedgerStatus::Synced);
+    let id = SchemeId::parse("xrpl-testnet").unwrap();
+    assert!(core.peer.schemes().contains(&id));
+}
+
+// spec/areas/settlement.md#external-assets: an account whose connection was
+// closed, every scheme on it stopped, is connected again when a scheme
+// activates on it.
+#[test]
+fn a_scheme_activated_on_a_closed_account_connects_it_again() {
+    use dassie_ledger::{LedgerId, MAX_TOTAL, Name};
+    use dassie_settlement::{Effect, LedgerStatus};
+
+    let (mut ledger, _) = funded_ledger();
+    let mut core = core(9);
+    core.add_scheme(WITNESS, SHARED_CONFIG.into()).unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    let epoch = core.assets[&dassie_xrpl::account::FIRST].epoch;
+    let deposit = Effect::Deposit { amount: MAX_TOTAL };
+    let effects = [deposit.clone(), deposit];
+    let witness = Name::new(WITNESS).unwrap();
+    let stopped = core.apply_effects(witness, LedgerId::StubUsd, &effects);
+    assert!(stopped.is_err(), "the deposits overflow the account");
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    assert!(closes(&outputs, epoch), "{outputs:?}");
+    core.add_scheme("xrpl-testnet", SHARED_CONFIG.into())
+        .unwrap();
+    let outputs = follow_xrpl_outputs(&mut core, &mut ledger);
+    assert!(!connects(&outputs).is_empty(), "{outputs:?}");
+    let xrpl = Name::new("xrpl-testnet").unwrap();
+    assert!(core.schemes[&xrpl].scheme.has_synced());
+    assert_eq!(core.asset_views()[0].status, LedgerStatus::Synced);
 }

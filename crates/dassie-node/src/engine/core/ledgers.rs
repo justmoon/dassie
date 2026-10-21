@@ -133,7 +133,7 @@ impl Core {
         let (scheme, asset) = self.make_scheme(id, &config, checkpoint.as_ref())?;
         let ledger = scheme.ledger();
         if let Err(error) = self.open_ledger(id, scheme.as_ref(), checkpoint.as_ref()) {
-            if let Some((asset, _)) = asset {
+            if let Some(asset) = asset {
                 self.release_asset(asset);
             }
             return Err(error);
@@ -145,18 +145,17 @@ impl Core {
             id,
             ActiveScheme {
                 scheme,
-                asset: asset.map(|(asset, _)| asset),
+                asset,
                 version: 0,
                 failed: None,
             },
         );
-        if let Some((asset, made)) = asset {
+        if let Some(asset) = asset {
             // The scheme tells its asset where it is, before the asset reads
-            // its ledger.
+            // its ledger for it.
             self.tell_scheme(id, asset);
-            if made {
-                self.connect_asset(asset);
-            }
+            self.carry_out(asset);
+            self.connect_for_scheme(asset);
         }
         self.checkpoint(id);
         self.update_peer_schemes();

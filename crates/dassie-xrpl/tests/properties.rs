@@ -1230,6 +1230,52 @@ fn kept_state() -> impl Strategy<Value = Vec<u8>> {
         })
 }
 
+/// The hashes of what `state` has in flight, and of what it looks up.
+fn in_flight_and_looked_up(state: &Value) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+    let list = |key: &str| {
+        state
+            .get(key)
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+    };
+    let in_flight = list("in_flight")
+        .iter()
+        .filter_map(|t| from_hex(t.get("blob")?.as_str()?))
+        .map(|blob| codec::hash(&blob).to_vec())
+        .collect();
+    let looked_up = list("recovering")
+        .iter()
+        .filter_map(|hash| from_hex(hash.as_str()?))
+        .collect();
+    (in_flight, looked_up)
+}
+
+/// `state`, looking up what it has in flight first, if it has any: a state
+/// neither the account nor the scheme wrote.
+fn looked_up_in_flight(state: &[u8]) -> Vec<u8> {
+    let Ok(mut value) = serde_json::from_slice::<Value>(state) else {
+        return state.to_vec();
+    };
+    let Some(hash) = in_flight_and_looked_up(&value).0.first().cloned() else {
+        return state.to_vec();
+    };
+    match value.get_mut("recovering") {
+        Some(Value::Array(recovering)) => recovering.push(hex_upper(&hash).into()),
+        _ => value["recovering"] = json!([hex_upper(&hash)]),
+    }
+    serde_json::to_vec(&value).unwrap()
+}
+
+/// Whether `state` looks up something it has in flight.
+fn looks_up_in_flight(state: &[u8]) -> bool {
+    let Ok(value) = serde_json::from_slice::<Value>(state) else {
+        return false;
+    };
+    let (in_flight, looked_up) = in_flight_and_looked_up(&value);
+    looked_up.iter().any(|hash| in_flight.contains(hash))
+}
+
 /// Drops as a JSON number, as the state keeps them.
 fn drops_number() -> BoxedStrategy<Leaf> {
     field(prop_oneof![4 => 0u64..10_000_000, 1 => any::<u64>()].prop_map(Leaf::Index))
@@ -1704,10 +1750,16 @@ proptest! {
         ],
         mutations in mutations(),
         checkpoint in prop::option::of(0..=MAX_TOTAL),
+        look_up_in_flight in any::<bool>(),
     ) {
-        let state = mutate(state, &mutations);
+        let mut state = mutate(state, &mutations);
+        if look_up_in_flight {
+            state = looked_up_in_flight(&state);
+        }
         if let Ok(scheme) = XrplScheme::new("", &ENTROPY, node(), checkpoint, &state) {
             scheme.check_invariants();
+            // The scheme never looks up what the account has in flight.
+            prop_assert!(!looks_up_in_flight(&state));
             // What it keeps of it, it can start from again.
             let kept = scheme.state();
             let again = XrplScheme::new("", &ENTROPY, node(), checkpoint, &kept).unwrap();

@@ -16,8 +16,8 @@ use dassie_settlement::{
     AssetEffect, ExternalAsset, LedgerInput, LedgerStatus, PreparedSettlement, SchemeError,
     SettlementScheme,
 };
+use dassie_xrpl::AccountId;
 use dassie_xrpl::account::{self, Config, XrplAccount};
-use dassie_xrpl::{AccountId, codec, from_hex};
 use serde_json::{Map, Value};
 
 /// What the scheme and its account ask, in the order they ask it.
@@ -91,7 +91,7 @@ impl From<AssetEffect> for Effect {
 }
 
 /// Keys of the joined state that are the account's.
-const ACCOUNT_KEYS: [&str; 4] = ["sequence", "in_flight", "never_sent", "newest"];
+const ACCOUNT_KEYS: [&str; 5] = ["sequence", "in_flight", "never_sent", "parked", "newest"];
 
 /// The account and its scheme.
 pub struct XrplScheme {
@@ -109,9 +109,9 @@ impl XrplScheme {
         state: &[u8],
     ) -> Result<Self, SchemeError> {
         let (account_state, scheme_state) = split(state).ok_or(SchemeError::InvalidData)?;
-        let account = XrplAccount::new(account::FIRST, config, entropy, &account_state)?;
-        let scheme =
-            dassie_xrpl::XrplScheme::new(account.account(), node, checkpoint, &scheme_state)?;
+        let schemes = [dassie_ledger::name!(dassie_xrpl::scheme::SCHEME_ID)];
+        let account = XrplAccount::new(account::FIRST, &schemes, config, entropy, &account_state)?;
+        let scheme = dassie_xrpl::XrplScheme::new(&account, node, checkpoint, &scheme_state)?;
         let mut both = Self { account, scheme };
         let mut effects = Vec::new();
         both.tell(0, &mut effects);
@@ -291,8 +291,8 @@ impl XrplScheme {
 
 /// The joined state, split as the migration splits it: the account takes
 /// the sequence, what is in flight (each the scheme's) and the newest
-/// ledger seen, and the scheme the rest. A settlement both in flight and
-/// looked up is a state the scheme never wrote: refused.
+/// ledger seen, and the scheme the rest. What neither could have written,
+/// they refuse themselves.
 fn split(state: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
     if state.is_empty() {
         return Some((Vec::new(), Vec::new()));
@@ -316,32 +316,10 @@ fn split(state: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
             }
         }
     }
-    if !distinct(&account, &scheme) {
-        return None;
-    }
     Some((
         serde_json::to_vec(&account).ok()?,
         serde_json::to_vec(&scheme).ok()?,
     ))
-}
-
-/// Whether no settlement is both in flight and looked up.
-fn distinct(account: &Map<String, Value>, scheme: &Map<String, Value>) -> bool {
-    let list = |map: &Map<String, Value>, key: &str| {
-        map.get(key)
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default()
-    };
-    let in_flight: Vec<Vec<u8>> = list(account, "in_flight")
-        .iter()
-        .filter_map(|t| from_hex(t.get("blob")?.as_str()?))
-        .map(|blob| codec::hash(&blob).to_vec())
-        .collect();
-    !list(scheme, "recovering")
-        .iter()
-        .filter_map(|hash| from_hex(hash.as_str()?))
-        .any(|hash| in_flight.contains(&hash))
 }
 
 /// The account's and the scheme's states, as one.

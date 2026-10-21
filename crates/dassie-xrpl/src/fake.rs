@@ -377,6 +377,15 @@ impl FakeLedger {
         self.queued_hashes.clear();
     }
 
+    /// Removes `account` and wipes its XRP, while the chain goes on: an
+    /// account absent as of the ledgers its node reads next, which no
+    /// transaction in its history explains.
+    pub fn remove_account(&mut self, account: AccountId) {
+        if let Some(removed) = self.accounts.remove(&account) {
+            self.wiped = self.wiped.saturating_add(removed.balance);
+        }
+    }
+
     /// A connection went away.
     pub fn disconnect(&mut self, connection: ConnectionId) {
         self.accounts_of.remove(&connection);

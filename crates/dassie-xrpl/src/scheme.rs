@@ -121,15 +121,16 @@ impl XrplScheme {
     ///
     /// # Errors
     ///
-    /// If the state is invalid.
+    /// If the state is invalid, or looks up a transaction the account has
+    /// in flight or remembers as never sent: a state the two never wrote.
     pub fn new(
-        account: AccountId,
+        account: &XrplAccount,
         node: Name,
         checkpoint: Option<u64>,
         state: &[u8],
     ) -> Result<Self, SchemeError> {
         let mut scheme = Self {
-            account,
+            account: account.account(),
             node,
             booked: checkpoint.unwrap_or(0),
             cursor: None,
@@ -144,6 +145,15 @@ impl XrplScheme {
         };
         if !state.is_empty() {
             scheme.restore(state).ok_or(SchemeError::InvalidData)?;
+        }
+        // A settlement is looked up only when the account has it neither in
+        // flight nor as never sent, and it never has it so again.
+        if scheme
+            .recovering
+            .iter()
+            .any(|r| account.holds_transaction(&r.hash))
+        {
+            return Err(SchemeError::InvalidData);
         }
         Ok(scheme)
     }
@@ -193,7 +203,7 @@ impl XrplScheme {
                 }
                 self.ask_recover(account);
             }
-            News::Found(record) => self.recovered(record, effects),
+            News::Found { hash, record } => self.recovered(*hash, record, effects),
         }
     }
 
@@ -256,9 +266,12 @@ impl XrplScheme {
     /// Books one validated transaction, once, in ledger order. One of ours
     /// is settled whenever the ledger shows it, even behind the cursor:
     /// what the balance booked through suspense meanwhile comes back out.
+    /// Before its first sync, a scheme books no other: the sync books what
+    /// the account holds then as the owner's, which a scheme that joins an
+    /// account other schemes read from earlier is told after their history.
     fn transaction(&mut self, record: &TxRecord, mine: Option<Ours>, effects: &mut Vec<Effect>) {
         let at = (record.ledger_index, record.index);
-        if self.cursor.is_some_and(|cursor| at <= cursor) {
+        if self.cursor.is_none_or(|cursor| at <= cursor) {
             if let Some(ours) = mine {
                 let booked = self.resolve(record, ours, effects);
                 self.hold(booked, effects);
@@ -314,9 +327,10 @@ impl XrplScheme {
     }
 
     /// Settles one of our transactions the ledger validated: posted or
-    /// voided, and its fee booked either way. Returns what the books then
-    /// hold.
-    fn resolve(&self, record: &TxRecord, ours: Ours, effects: &mut Vec<Effect>) -> i128 {
+    /// voided, and its fee booked either way, and no longer looked up.
+    /// Returns what the books then hold.
+    fn resolve(&mut self, record: &TxRecord, ours: Ours, effects: &mut Vec<Effect>) -> i128 {
+        self.recovering.retain(|r| r.hash != record.hash);
         let mut booked = i128::from(self.booked);
         let settlement = hash_name(&record.hash);
         if record.succeeded() {
@@ -334,13 +348,14 @@ impl XrplScheme {
 
     /// The outcome of a settlement of ours that a restart left pending in
     /// the books, its fee and the balance booked already: posted or
-    /// voided now (spec/areas/xrpl.md#state-and-restarts).
-    fn recovered(&mut self, record: &TxRecord, effects: &mut Vec<Effect>) {
-        let Some(position) = self.recovering.iter().position(|r| r.hash == record.hash) else {
+    /// voided now (spec/areas/xrpl.md#state-and-restarts). `hash` is what
+    /// was looked up.
+    fn recovered(&mut self, hash: [u8; 32], record: &TxRecord, effects: &mut Vec<Effect>) {
+        let Some(position) = self.recovering.iter().position(|r| r.hash == hash) else {
             return;
         };
         self.recovering.remove(position);
-        let settlement = hash_name(&record.hash);
+        let settlement = hash_name(&hash);
         effects.push(if record.succeeded() {
             Effect::Finalize { settlement }
         } else {

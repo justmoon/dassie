@@ -17,7 +17,11 @@
 //!
 //! Each scheme keeps its own cursor into the transactions, and tells the
 //! account where it is ([`XrplAccount::follow`]): on each connection the
-//! account reads its history from the earliest cursor of its schemes.
+//! account reads its history from the earliest cursor of its schemes. What
+//! a scheme not on the account (stopped, or removed) misses of its own
+//! transactions, the account keeps for it until it is back: one that can
+//! never apply as never sent, one the ledger validated as kept, so that the
+//! scheme books it as its own when it reads it again.
 //!
 //! It runs only on the testnet: a server that reports another network, or
 //! none, stops it before the account is read, so mainnet XRP is never
@@ -81,6 +85,10 @@ const MAX_BUFFERED: usize = 256;
 /// reconciled them. Past it, the oldest is forgotten, and its scheme
 /// looks it up by its hash, which finds nothing and leaves it pending.
 const MAX_NEVER_SENT: usize = 2 * MAX_IN_FLIGHT;
+/// Most transactions kept for schemes that stopped, or were removed, after
+/// the ledger validated them: each scheme's are what it had in flight, and
+/// it signs nothing more until it has read them again.
+const MAX_PARKED: usize = MAX_IN_FLIGHT * MAX_SCHEMES;
 /// Most news kept between two tellings: one message's worth, at most a page
 /// of history, what was held while catching up, and what was in flight.
 // PAGE is a few hundred: no truncation.
@@ -261,7 +269,12 @@ pub enum News {
         reserve_changed: bool,
     },
     /// A transaction a scheme looked up, validated.
-    Found(TxRecord),
+    Found {
+        /// The hash the scheme looked up.
+        hash: [u8; 32],
+        /// What the ledger holds under it.
+        record: TxRecord,
+    },
 }
 
 /// What became of a settlement a scheme still holds pending after a
@@ -299,11 +312,23 @@ struct InFlight {
 
 /// A transaction signed and never sent, dropped past its last ledger: kept
 /// until its scheme has reconciled it, so that it is cancelled rather than
-/// looked for.
+/// looked for. So is one that can never apply while its scheme is not on
+/// the account to be told so.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct NeverSent {
     scheme: Name,
     hash: [u8; 32],
+}
+
+/// A transaction of a scheme that was not on the account when the ledger
+/// validated it, because it stopped or was removed: kept until the scheme
+/// is back and the account has synced, so that the scheme books it as its
+/// own when it reads it again, never as a withdrawal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Parked {
+    scheme: Name,
+    hash: [u8; 32],
+    drops: u64,
 }
 
 /// Where a scheme on the account is: its cursor, and whether its books
@@ -353,12 +378,15 @@ enum Phase {
 /// An XRPL testnet account.
 pub struct XrplAccount {
     id: AssetId,
+    /// The schemes that may settle through it.
+    schemes: Vec<Name>,
     config: Config,
     wallet: Wallet,
     // Kept with the books.
     sequence: u32,
     in_flight: Vec<InFlight>,
     never_sent: Vec<NeverSent>,
+    parked: Vec<Parked>,
     /// The newest validated ledger seen, by its server's state or the
     /// ledger stream. Kept with the books whenever the rest is: any ledger
     /// of the chain tells a server behind from a chain started again.
@@ -396,25 +424,38 @@ pub struct XrplAccount {
 }
 
 impl XrplAccount {
-    /// The account `id`, with the wallet of `entropy`, connecting as
-    /// `config` says, from the state the books kept.
+    /// The account `id`, through which `schemes` may settle, with the
+    /// wallet of `entropy`, connecting as `config` says, from the state the
+    /// books kept.
     ///
     /// # Errors
     ///
-    /// If the config or the state is invalid.
+    /// If the config or the state is invalid: a state that names a scheme
+    /// not among `schemes` is one the account did not write.
+    ///
+    /// # Panics
+    ///
+    /// With more than [`MAX_SCHEMES`] schemes.
     pub fn new(
         id: AssetId,
+        schemes: &[Name],
         config: &str,
         entropy: &[u8; 32],
         state: &[u8],
     ) -> Result<Self, SchemeError> {
+        assert!(
+            schemes.len() <= MAX_SCHEMES,
+            "more schemes on an account than there may be"
+        );
         let mut account = Self {
             id,
+            schemes: schemes.to_vec(),
             config: Config::parse(config)?,
             wallet: Wallet::from_entropy(entropy),
             sequence: 0,
             in_flight: Vec::new(),
             never_sent: Vec::new(),
+            parked: Vec::new(),
             newest: None,
             phase: Phase::Disconnected,
             network_id: None,
@@ -488,13 +529,21 @@ impl XrplAccount {
     ///
     /// # Panics
     ///
-    /// Past [`MAX_SCHEMES`]: the node makes no more.
+    /// For a scheme that may not settle through it.
     pub fn follow(&mut self, scheme: Name, cursor: Option<(u32, u32)>, holds: bool) {
         assert!(
-            self.followers.contains_key(&scheme) || self.followers.len() < MAX_SCHEMES,
-            "more schemes on an account than there may be"
+            self.schemes.contains(&scheme),
+            "a scheme that may settle through the account"
         );
         self.followers.insert(scheme, Follower { cursor, holds });
+    }
+
+    /// Whether transaction `hash` is in flight, or remembered as never
+    /// sent: a scheme never looks such a one up.
+    #[must_use]
+    pub fn holds_transaction(&self, hash: &[u8; 32]) -> bool {
+        self.in_flight.iter().any(|t| t.hash == *hash)
+            || self.never_sent.iter().any(|n| n.hash == *hash)
     }
 
     /// The reserve the account holds back now, in drops.
@@ -558,7 +607,11 @@ impl XrplAccount {
             .map(|balance| balance.saturating_sub(self.reserve_drops(self.owner_count)))
             .unwrap_or(0)
             .saturating_sub(in_flight);
+        // A scheme back on the account reads its own transactions again
+        // before it signs more.
+        let reading = self.parked.iter().any(|p| p.scheme == scheme);
         let ready = self.is_synced()
+            && !reading
             && self.sequence < u32::MAX
             && self.in_flight.len() < MAX_IN_FLIGHT
             && self.sequence > 0
@@ -805,7 +858,7 @@ impl XrplAccount {
             Request::AccountTx => self.account_tx(outcome),
             Request::Tx(hash) => self.looked_up(hash, outcome),
             Request::Submit(hash) => self.submitted(hash, outcome.ok().as_ref()),
-            Request::LookUp(_) => self.found(outcome),
+            Request::LookUp(hash) => self.found(hash, outcome),
         }
     }
 
@@ -970,10 +1023,7 @@ impl XrplAccount {
         );
         for transaction in core::mem::take(&mut self.in_flight) {
             if transaction.executed {
-                self.tell(News::Cancelled {
-                    scheme: transaction.scheme,
-                    hash: transaction.hash,
-                });
+                self.cancelled(transaction.scheme, transaction.hash);
             } else {
                 self.never_sent(transaction.scheme, transaction.hash);
             }
@@ -1091,6 +1141,10 @@ impl XrplAccount {
         for record in core::mem::take(&mut self.buffer) {
             self.transaction(&record);
         }
+        // What was kept for a scheme back on the account, it has now read
+        // again from its cursor, or looks up by its hash.
+        let followers = &self.followers;
+        self.parked.retain(|p| !followers.contains_key(&p.scheme));
         let waiting: Vec<[u8; 32]> = self
             .in_flight
             .iter()
@@ -1233,21 +1287,30 @@ impl XrplAccount {
             return;
         };
         let transaction = self.in_flight.remove(position);
-        self.tell(News::Cancelled {
-            scheme: transaction.scheme,
-            hash: transaction.hash,
-        });
+        self.cancelled(transaction.scheme, transaction.hash);
         self.send(Request::AccountInfo);
     }
 
-    /// A scheme's lookup, answered: only a transaction found validated is
-    /// news. Not found, or not validated yet, it waits, to be asked again.
-    fn found(&mut self, outcome: Result<Value, ApiError>) {
+    /// `scheme`'s transaction `hash` can never apply: the scheme is told,
+    /// or, while it is not on the account, it is remembered as never sent
+    /// until the scheme reconciles it.
+    fn cancelled(&mut self, scheme: Name, hash: [u8; 32]) {
+        if self.followers.contains_key(&scheme) {
+            self.tell(News::Cancelled { scheme, hash });
+        } else {
+            self.never_sent(scheme, hash);
+        }
+    }
+
+    /// A scheme's lookup of `hash`, answered: only a transaction found
+    /// validated is news, told under the hash asked for. Not found, or not
+    /// validated yet, it waits, to be asked again.
+    fn found(&mut self, hash: [u8; 32], outcome: Result<Value, ApiError>) {
         let Ok(result) = outcome else {
             return;
         };
         if let Some(record) = api::tx_result(&result).filter(|r| r.validated) {
-            self.tell(News::Found(record));
+            self.tell(News::Found { hash, record });
         }
     }
 
@@ -1276,21 +1339,43 @@ impl XrplAccount {
                 }
             }
         }
-        let ours = self
-            .in_flight
-            .iter()
-            .position(|t| t.hash == record.hash)
-            .map(|position| {
-                let transaction = self.in_flight.remove(position);
-                Ours {
-                    scheme: transaction.scheme,
-                    drops: transaction.drops,
-                }
-            });
+        let ours = self.ours(record.hash);
         self.tell(News::Transaction {
             record: record.clone(),
             ours,
         });
+    }
+
+    /// Which scheme validated transaction `hash` is of, if it is ours. One
+    /// in flight is no longer, and is kept for its scheme while the scheme
+    /// is not on the account to be told; one kept so is its scheme's again
+    /// once the scheme is back and reads it.
+    fn ours(&mut self, hash: [u8; 32]) -> Option<Ours> {
+        if let Some(position) = self.in_flight.iter().position(|t| t.hash == hash) {
+            let transaction = self.in_flight.remove(position);
+            if !self.followers.contains_key(&transaction.scheme) {
+                assert!(self.parked.len() < MAX_PARKED, "kept past its bound");
+                self.parked.push(Parked {
+                    scheme: transaction.scheme,
+                    hash,
+                    drops: transaction.drops,
+                });
+            }
+            return Some(Ours {
+                scheme: transaction.scheme,
+                drops: transaction.drops,
+            });
+        }
+        let followers = &self.followers;
+        let position = self
+            .parked
+            .iter()
+            .position(|p| p.hash == hash && followers.contains_key(&p.scheme))?;
+        let parked = self.parked.remove(position);
+        Some(Ours {
+            scheme: parked.scheme,
+            drops: parked.drops,
+        })
     }
 
     /// Whether the amounts `record` names for the account fit the books.
@@ -1335,6 +1420,10 @@ impl XrplAccount {
             add(head(&never_sent.hash));
         }
         add(self.never_sent.len() as u64);
+        for parked in &self.parked {
+            add(head(&parked.hash));
+        }
+        add(self.parked.len() as u64);
         mix
     }
 
@@ -1360,10 +1449,22 @@ impl XrplAccount {
             .iter()
             .map(|n| json!({ "scheme": n.scheme.as_str(), "hash": hex_upper(&n.hash) }))
             .collect();
+        let parked: Vec<Value> = self
+            .parked
+            .iter()
+            .map(|p| {
+                json!({
+                    "scheme": p.scheme.as_str(),
+                    "hash": hex_upper(&p.hash),
+                    "drops": p.drops,
+                })
+            })
+            .collect();
         json!({
             "sequence": self.sequence,
             "in_flight": in_flight,
             "never_sent": never_sent,
+            "parked": parked,
             "newest": self.newest.map(|newest| json!([newest.index, newest.close_time])),
         })
     }
@@ -1383,7 +1484,16 @@ impl XrplAccount {
         // rather than orphaning a settlement by dropping it.
         let in_flight = value.get("in_flight")?.as_array()?;
         let never_sent = value.get("never_sent")?.as_array()?;
-        if in_flight.len() > MAX_IN_FLIGHT || never_sent.len() > MAX_NEVER_SENT {
+        // Written only since the account kept transactions for schemes not
+        // on it.
+        let parked = match value.get("parked") {
+            None => &[][..],
+            Some(parked) => parked.as_array()?.as_slice(),
+        };
+        if in_flight.len() > MAX_IN_FLIGHT
+            || never_sent.len() > MAX_NEVER_SENT
+            || parked.len() > MAX_PARKED
+        {
             return None;
         }
         for entry in in_flight {
@@ -1395,14 +1505,49 @@ impl XrplAccount {
                 hash: from_hex(entry.get("hash")?.as_str()?)?.try_into().ok()?,
             });
         }
-        // Each transaction once, in flight or never sent, and every one in
-        // flight below the next sequence: what the account writes.
+        for entry in parked {
+            self.parked.push(Parked {
+                scheme: Name::new(entry.get("scheme")?.as_str()?).ok()?,
+                hash: from_hex(entry.get("hash")?.as_str()?)?.try_into().ok()?,
+                drops: entry
+                    .get("drops")?
+                    .as_u64()
+                    .filter(|&drops| drops <= MAX_ACCOUNT_DROPS)?,
+            });
+        }
+        // Each transaction once, in flight, never sent or kept, of a scheme
+        // that may settle through the account, no more of a scheme's in
+        // flight and kept than it can have in flight, and every one in
+        // flight below the next sequence: what the account writes. A scheme
+        // the account does not know would otherwise stop the node at every
+        // start, as the scheme executes or resumes its settlement.
         let mut seen = BTreeSet::new();
-        let distinct = (self.in_flight.iter().map(|t| t.hash))
-            .chain(self.never_sent.iter().map(|n| n.hash))
-            .all(|hash| seen.insert(hash));
+        let distinct = self.hashes().all(|hash| seen.insert(hash));
+        let known = self.named().all(|scheme| self.schemes.contains(&scheme));
+        let bounded = (self.schemes.iter()).all(|s| self.in_flight_and_parked(*s) <= MAX_IN_FLIGHT);
         let ordered = self.in_flight.iter().all(|t| t.sequence < self.sequence);
-        (distinct && ordered).then_some(())
+        (distinct && known && bounded && ordered).then_some(())
+    }
+
+    /// Every transaction the account keeps: in flight, never sent, kept.
+    fn hashes(&self) -> impl Iterator<Item = [u8; 32]> + '_ {
+        (self.in_flight.iter().map(|t| t.hash))
+            .chain(self.never_sent.iter().map(|n| n.hash))
+            .chain(self.parked.iter().map(|p| p.hash))
+    }
+
+    /// The scheme of every transaction the account keeps.
+    fn named(&self) -> impl Iterator<Item = Name> + '_ {
+        (self.in_flight.iter().map(|t| t.scheme))
+            .chain(self.never_sent.iter().map(|n| n.scheme))
+            .chain(self.parked.iter().map(|p| p.scheme))
+    }
+
+    /// How many of `scheme`'s transactions are in flight or kept.
+    fn in_flight_and_parked(&self, scheme: Name) -> usize {
+        let in_flight = self.in_flight.iter().filter(|t| t.scheme == scheme);
+        let parked = self.parked.iter().filter(|p| p.scheme == scheme);
+        in_flight.count() + parked.count()
     }
 }
 
@@ -1439,10 +1584,20 @@ fn restore_in_flight(entry: &Value) -> Option<InFlight> {
 impl XrplAccount {
     fn check_in_flight(&self) {
         let mut seen = BTreeSet::new();
-        let distinct = (self.in_flight.iter().map(|t| t.hash))
-            .chain(self.never_sent.iter().map(|n| n.hash))
-            .all(|hash| seen.insert(hash));
-        assert!(distinct, "each transaction once, in flight or never sent");
+        let distinct = self.hashes().all(|hash| seen.insert(hash));
+        assert!(
+            distinct,
+            "each transaction once, in flight, never sent or kept"
+        );
+        for scheme in self.named().chain(self.followers.keys().copied()) {
+            assert!(self.schemes.contains(&scheme), "a scheme of the account");
+        }
+        for scheme in &self.schemes {
+            assert!(
+                self.in_flight_and_parked(*scheme) <= MAX_IN_FLIGHT,
+                "a scheme reads its own again before it signs more"
+            );
+        }
         for transaction in &self.in_flight {
             assert!(
                 transaction.sequence < self.sequence,
@@ -1616,6 +1771,7 @@ impl ExternalAsset for XrplAccount {
     fn check_invariants(&self) {
         assert!(self.in_flight.len() <= MAX_IN_FLIGHT);
         assert!(self.never_sent.len() <= MAX_NEVER_SENT);
+        assert!(self.parked.len() <= MAX_PARKED);
         assert!(self.pending.len() <= MAX_PENDING);
         assert!(self.buffer.len() <= MAX_BUFFERED);
         assert!(self.followers.len() <= MAX_SCHEMES);
@@ -1675,7 +1831,7 @@ mod tests {
     #[test]
     fn schemes_on_one_account_never_share_a_sequence() {
         let (a, b) = (dassie_ledger::name!("a"), dassie_ledger::name!("b"));
-        let mut account = XrplAccount::new(FIRST, "", &[1; 32], &[]).unwrap();
+        let mut account = XrplAccount::new(FIRST, &[a, b], "", &[1; 32], &[]).unwrap();
         account.phase = Phase::Synced;
         account.at = Some((10, u32::MAX));
         account.sequence = 5;
@@ -1709,9 +1865,15 @@ mod tests {
 
         for (network, stops) in [(0, true), (2, true), (1, false)] {
             let node = dassie_ledger::name!("node");
-            let mut account = XrplAccount::new(FIRST, "", &[1; 32], &[]).unwrap();
-            let mut scheme =
-                crate::XrplScheme::new(account.account(), node, Some(5_000), &[]).unwrap();
+            let mut account = XrplAccount::new(
+                FIRST,
+                &[dassie_ledger::name!(crate::scheme::SCHEME_ID)],
+                "",
+                &[1; 32],
+                &[],
+            )
+            .unwrap();
+            let mut scheme = crate::XrplScheme::new(&account, node, Some(5_000), &[]).unwrap();
             account.phase = Phase::Synced;
             account.at = Some((NEWEST.index, u32::MAX));
             account.follow(scheme.id(), Some((NEWEST.index, u32::MAX)), true);
@@ -1734,5 +1896,80 @@ mod tests {
             account.check_invariants();
             scheme.check_invariants();
         }
+    }
+
+    /// An account through which `schemes` settle, synced at ledger 10.
+    fn synced_account(schemes: &[Name]) -> XrplAccount {
+        let mut account = XrplAccount::new(FIRST, schemes, "", &[1; 32], &[]).unwrap();
+        account.phase = Phase::Synced;
+        account.at = Some((10, u32::MAX));
+        account.sequence = 5;
+        account.balance = Some(1_000_000_000);
+        account.validated = 10;
+        account
+    }
+
+    // A state that names a scheme that may not settle through the account
+    // is one it never wrote: refused as it loads, rather than stopping the
+    // node at every start, as the scheme executes or resumes its settlement.
+    #[test]
+    fn a_state_naming_a_scheme_not_on_the_account_is_refused() {
+        let (a, b) = (dassie_ledger::name!("a"), dassie_ledger::name!("b"));
+        let mut account = synced_account(&[a, b]);
+        let to = Wallet::from_entropy(&[2; 32]).account();
+        let first = account.sign_payment(a, to, 1_000, Vec::new()).unwrap();
+        assert!(account.execute(a, first));
+        account.sign_payment(b, to, 1_000, Vec::new()).unwrap();
+        let in_flight = account.state();
+        // Past its last ledger, b's, never executed, is never sent.
+        account.validated = 11 + LEDGER_WINDOW;
+        account.expire();
+        let never_sent = account.state();
+        let mut parked: Value = serde_json::from_slice(&never_sent).unwrap();
+        parked["never_sent"] = json!([]);
+        parked["parked"] = json!([{ "scheme": "b", "hash": hex_upper(&[3; 32]), "drops": 1 }]);
+        let parked = serde_json::to_vec(&parked).unwrap();
+        for state in [in_flight, never_sent, parked] {
+            assert!(XrplAccount::new(FIRST, &[a, b], "", &[1; 32], &state).is_ok());
+            assert!(XrplAccount::new(FIRST, &[a], "", &[1; 32], &state).is_err());
+        }
+    }
+
+    // A lookup is told under the hash the scheme asked for, whatever hash
+    // the server's answer names, and the scheme settles that settlement.
+    #[test]
+    fn a_lookup_is_told_under_the_hash_asked_for() {
+        use dassie_settlement::{Effect, SettlementScheme};
+
+        let id = dassie_ledger::name!(crate::scheme::SCHEME_ID);
+        let mut account = synced_account(&[id]);
+        let (asked, answered) = ([1; 32], [2; 32]);
+        let state =
+            json!({ "cursor": [10, u32::MAX], "peers": {}, "recovering": [hex_upper(&asked)] });
+        let state = serde_json::to_vec(&state).unwrap();
+        let node = dassie_ledger::name!("node");
+        let mut scheme = crate::XrplScheme::new(&account, node, Some(0), &state).unwrap();
+        account.look_up(asked);
+        let request = *account.pending.keys().next().unwrap();
+        let answer = json!({
+            "type": "response", "id": request, "status": "success",
+            "result": {
+                "hash": hex_upper(&answered), "ledger_index": 9, "validated": true,
+                "Account": account.account().to_address(), "TransactionType": "Payment",
+                "Sequence": 4, "Fee": "10",
+                "meta": { "TransactionIndex": 0, "TransactionResult": "tesSUCCESS" },
+            },
+        });
+        let answer = serde_json::to_vec(&answer).unwrap();
+        account.on_ledger(0, LedgerInput::Message(&answer));
+        assert!(
+            matches!(account.news(), [News::Found { hash, record }] if *hash == asked && record.hash == answered),
+            "{:?}",
+            account.news()
+        );
+        let mut effects = Vec::new();
+        scheme.on_asset(0, &mut account, &mut effects);
+        let settlement = Name::hex(&asked, true);
+        assert_eq!(effects, [Effect::Finalize { settlement }]);
     }
 }
