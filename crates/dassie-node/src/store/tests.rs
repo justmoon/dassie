@@ -744,3 +744,42 @@ fn a_peers_replay_floor_survives_the_upgrade() {
         }]
     );
 }
+
+// spec/areas/rpc.md#paired-devices: a database from before devices gains
+// their table, which keeps a bounded list and never drops a device to make
+// room.
+#[test]
+fn devices_are_kept_after_the_upgrade_up_to_their_bound() {
+    let temp = tempfile::tempdir().unwrap();
+    database_at(temp.path(), 26);
+    let store = Store::open(temp.path()).unwrap();
+    let device = |seed: u8, paired_at_ms: u64| DeviceRow {
+        id: dassie_identity::NodeKey::from_bytes(&[seed; 32]).node_id(),
+        name: format!("device {seed}"),
+        paired_at_ms,
+        last_seen_at_ms: paired_at_ms,
+    };
+    for seed in 0..u8::try_from(MAX_DEVICES).unwrap() {
+        store.add_device(&device(seed, u64::from(seed))).unwrap();
+    }
+    assert!(matches!(
+        store.add_device(&device(200, 1_000)),
+        Err(AddDevice::Full)
+    ));
+    // Pairing a device again is no new device.
+    store.add_device(&device(0, 2_000)).unwrap();
+    let listed = store.devices().unwrap();
+    assert_eq!(listed.len(), usize::try_from(MAX_DEVICES).unwrap());
+    assert_eq!(listed[0], device(0, 2_000));
+    let first = device(0, 0).id;
+    store.touch_device(&first, 5_000).unwrap();
+    store.touch_device(&first, 4_000).unwrap();
+    assert_eq!(
+        store.device(&first).unwrap().unwrap().last_seen_at_ms,
+        5_000
+    );
+    assert!(store.delete_device(&first).unwrap());
+    assert!(!store.delete_device(&first).unwrap());
+    assert_eq!(store.device(&first).unwrap(), None);
+    store.add_device(&device(200, 3_000)).unwrap();
+}

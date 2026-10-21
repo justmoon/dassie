@@ -220,7 +220,7 @@ impl Node {
         Ok(pruned)
     }
 
-    fn revoke(&self, revocation: Revocation) {
+    pub(super) fn revoke(&self, revocation: Revocation) {
         // No receivers just means no socket is open.
         let _ = self.revocations.send(revocation);
     }

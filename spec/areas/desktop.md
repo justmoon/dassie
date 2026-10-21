@@ -5,7 +5,7 @@
 **Paths:** `crates/dassie-desktop/`, `nix/desktop.nix`, `nix/desktop-libs.nix`
 **Read with:** [Node](node.md), [HTTP](http.md), [Wallet](wallet.md), [designs/periphery](../designs/periphery.md)
 
-It is not the paired owner app of the [periphery design](../designs/periphery.md#6-owner-apps), which reaches a node on another machine; pairing is [not built](../roadmap.md#periphery).
+It is not the paired owner app of the [periphery design](../designs/periphery.md#6-owner-apps), which reaches a node on another machine: the node pairs apps ([RPC](rpc.md#paired-devices)), but the apps are [not built](../roadmap.md#periphery).
 
 ## The node
 

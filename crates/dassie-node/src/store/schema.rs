@@ -48,6 +48,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_24,
     MIGRATION_25,
     MIGRATION_26,
+    MIGRATION_27,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -860,6 +861,18 @@ UPDATE settlement_checkpoints
   WHERE scheme = 'xrpl-testnet' AND state IS NOT NULL;
 ";
 
+/// Paired devices (spec/areas/rpc.md#paired-devices): owner apps, each
+/// named by the node ID of its device key, which proves itself on every
+/// connection. The key is public, so nothing here is a secret.
+const MIGRATION_27: &str = "
+CREATE TABLE devices (
+  id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 2 AND 45),
+  name TEXT NOT NULL CHECK (length(CAST(name AS BLOB)) BETWEEN 1 AND 64),
+  paired_at_ms INTEGER NOT NULL,
+  last_seen_at_ms INTEGER NOT NULL CHECK (last_seen_at_ms >= paired_at_ms)
+) STRICT, WITHOUT ROWID;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -943,6 +956,16 @@ pub const TABLES: &[Table] = &[
             ("created_at_ms", "INTEGER", true, false),
             ("last_used_at_ms", "INTEGER", true, false),
             ("user_agent", "TEXT", true, false),
+        ],
+    },
+    Table {
+        name: "devices",
+        without_rowid: true,
+        columns: &[
+            ("id", "TEXT", true, true),
+            ("name", "TEXT", true, false),
+            ("paired_at_ms", "INTEGER", true, false),
+            ("last_seen_at_ms", "INTEGER", true, false),
         ],
     },
     Table {

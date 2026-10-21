@@ -134,7 +134,10 @@ pub fn upgrade(
             Ok(upgraded) => {
                 serve(
                     node,
-                    Caller::Browser(session),
+                    Caller::Browser {
+                        session,
+                        loopback: peer.ip().to_canonical().is_loopback(),
+                    },
                     TokioIo::new(upgraded),
                     shutdown,
                 )

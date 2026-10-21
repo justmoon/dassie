@@ -61,7 +61,10 @@ fn serve(node: &Arc<Node>, runtime: &tokio::runtime::Runtime, frames: Vec<Vec<u8
             .map(|frame| Ok::<_, Infallible>(Bytes::from(frame))),
     );
     let outgoing = futures_util::sink::drain();
-    let caller = Caller::Browser(None);
+    let caller = Caller::Browser {
+        session: None,
+        loopback: false,
+    };
     runtime.block_on(connection::serve(
         Arc::clone(node),
         caller,
@@ -119,7 +122,10 @@ fn a_flood_of_refused_calls_ends_the_connection() {
     });
     let serve = connection::serve(
         Arc::clone(&node),
-        Caller::Browser(None),
+        Caller::Browser {
+            session: None,
+            loopback: false,
+        },
         incoming,
         Box::pin(outgoing),
         CancellationToken::new(),
@@ -485,6 +491,8 @@ fn bare() -> BoxedStrategy<Method> {
         Method::GetConfig(proto::GetConfigRequest {}),
         Method::GetSetupUrl(proto::GetSetupUrlRequest {}),
         Method::ListSessions(proto::ListSessionsRequest {}),
+        Method::StartPairing(proto::StartPairingRequest {}),
+        Method::ListDevices(proto::ListDevicesRequest {}),
         Method::ListLedgers(proto::ListLedgersRequest {}),
         Method::ListSettlementSchemes(proto::ListSettlementSchemesRequest {}),
         Method::SubscribeLedgers(proto::SubscribeLedgersRequest {}),
@@ -650,6 +658,10 @@ fn payments() -> BoxedStrategy<Method> {
             Method::DecideGrant(proto::DecideGrantRequest { id, key, approve })
         }),
         payment_id().prop_map(|id| Method::RevokeGrant(proto::RevokeGrantRequest { id })),
+        (text(), text()).prop_map(|(secret, name)| Method::ClaimPairing(
+            proto::ClaimPairingRequest { secret, name }
+        )),
+        text().prop_map(|id| Method::RevokeDevice(proto::RevokeDeviceRequest { id })),
     ]
     .boxed()
 }

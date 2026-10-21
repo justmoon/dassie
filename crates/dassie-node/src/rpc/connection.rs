@@ -156,15 +156,19 @@ where
 const FAR: Duration = Duration::from_secs(86_400 * 365);
 
 /// The idle timeout and the lifetime of `caller`'s connection, if it has
-/// them: a browser's connection goes idle, and one without a session also
-/// has a lifetime. The owner's IPC connection has neither.
+/// them: a browser's or a device's connection goes idle, and a browser's
+/// without a session also has a lifetime; a device's stream has the relayed
+/// streams' own. The owner's IPC connection has neither.
 fn timeouts(node: &Node, caller: Caller) -> (Option<Duration>, Option<Duration>) {
     let policies = node.policies();
     let idle = Duration::from_millis(policies.socket_idle_ms);
     let lifetime = Duration::from_millis(policies.anonymous_socket_lifetime_ms);
     match caller {
-        Caller::Browser(Some(_)) => (Some(idle), None),
-        Caller::Browser(None) => (Some(idle), Some(lifetime)),
+        Caller::Browser {
+            session: Some(_), ..
+        }
+        | Caller::Device(_) => (Some(idle), None),
+        Caller::Browser { session: None, .. } => (Some(idle), Some(lifetime)),
         Caller::Owner => (None, None),
     }
 }
@@ -306,8 +310,13 @@ impl Connection {
     }
 
     fn session_ended(&self, revocation: Result<Revocation, broadcast::error::RecvError>) -> bool {
-        let Caller::Browser(Some(session)) = self.caller else {
-            return false;
+        let session = match self.caller {
+            Caller::Browser {
+                session: Some(session),
+                ..
+            } => session,
+            Caller::Device(device) => return self.device_revoked(device, revocation),
+            Caller::Browser { session: None, .. } | Caller::Owner => return false,
         };
         match revocation {
             Ok(Revocation::Recheck) | Err(broadcast::error::RecvError::Lagged(_)) => {
@@ -317,6 +326,22 @@ impl Connection {
             }
             Ok(revocation) => revocation.ends(&session),
             Err(broadcast::error::RecvError::Closed) => false,
+        }
+    }
+
+    /// Whether `device` was revoked. A device that has not paired yet ends
+    /// only if notices were missed, and connects again.
+    fn device_revoked(
+        &self,
+        device: dassie_identity::NodeId,
+        revocation: Result<Revocation, broadcast::error::RecvError>,
+    ) -> bool {
+        match revocation {
+            Ok(Revocation::Device(revoked)) => revoked == device,
+            Ok(_) | Err(broadcast::error::RecvError::Closed) => false,
+            Err(broadcast::error::RecvError::Lagged(_)) => {
+                !matches!(self.node.check_device(&device), Ok(true))
+            }
         }
     }
 }

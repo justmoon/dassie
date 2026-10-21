@@ -153,11 +153,11 @@ impl crate::quic::Handler for QuicHandler {
         Box::pin(answer(&self.0, client, body))
     }
 
-    /// Open Payments only. Owner apps are not built, so the owner's purpose
-    /// is refused (spec/decisions/core-and-periphery.md: the wallet, `/api/*`
-    /// and `/rpc` are never relayed).
+    /// Open Payments, and owner apps' RPC. The wallet, `/api/*` and `/rpc`
+    /// are never relayed (spec/decisions/core-and-periphery.md): an owner
+    /// app proves its device key instead of carrying a browser's cookie.
     fn serves(&self, purpose: Purpose) -> bool {
-        purpose == Purpose::Payments
+        matches!(purpose, Purpose::Payments | Purpose::Owner)
     }
 
     fn serve_relayed<'a>(
@@ -170,8 +170,11 @@ impl crate::quic::Handler for QuicHandler {
     ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
         let node = Arc::clone(&self.0);
         Box::pin(async move {
-            if purpose == Purpose::Payments {
-                super::serve_relayed(node, stream, client, relay, shutdown).await;
+            match purpose {
+                Purpose::Payments => {
+                    super::serve_relayed(node, stream, client, relay, shutdown).await;
+                }
+                Purpose::Owner => crate::owner_app::serve(node, stream, client, shutdown).await,
             }
         })
     }

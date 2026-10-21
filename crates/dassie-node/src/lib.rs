@@ -13,6 +13,7 @@ pub mod env;
 pub mod log;
 pub mod node;
 pub mod open_payments;
+pub mod owner_app;
 pub mod peer_client;
 pub mod rates;
 pub mod rpc;

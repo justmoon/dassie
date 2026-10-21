@@ -22,6 +22,7 @@ mod send;
 
 use std::fmt;
 
+use dassie_identity::NodeId;
 use dassie_node_core::session::SessionId;
 
 /// The generated messages.
@@ -68,7 +69,16 @@ pub enum Caller {
     /// The IPC socket: whoever can open it is the owner.
     Owner,
     /// A browser, with the session its cookie named when it connected.
-    Browser(Option<SessionId>),
+    Browser {
+        /// The session.
+        session: Option<SessionId>,
+        /// Whether it connected from a loopback address: only then may it
+        /// start a pairing (spec/areas/rpc.md#paired-devices).
+        loopback: bool,
+    },
+    /// An owner app on a stream with purpose `owner`, with the device key
+    /// its TLS proved. Authenticated while the device is paired.
+    Device(NodeId),
 }
 
 /// A call failed.
