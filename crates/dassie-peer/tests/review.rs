@@ -131,6 +131,29 @@ fn responses_to_peers_are_retried_until_they_arrive() {
     assert_eq!(network.packets, [(1, own, 7)]);
 }
 
+// A node that just started refuses messages dated before its start
+// (spec/areas/peer-protocol.md#replay-protection). A Fulfill from a peer whose
+// clock is behind was refused with 401 and given up, though the peer had
+// booked it, so each restart drifted the two books apart (#234). Now a 401
+// keeps it, and the copy sent again is dated anew.
+#[test]
+fn a_response_a_node_that_just_started_refused_is_sent_again() {
+    let mut network = Network::new(12, 2, 1, Config::DEV);
+    network.nodes[0].skew_ms = 5_000;
+    network.nodes[1].skew_ms = 0;
+    settle(&mut network, 30_000);
+    let restarted = *network.node(0).own();
+    let peer = *network.node(1).own();
+    assert!(network.node(0).peering_of(&peer).is_some(), "not peered");
+    network.crash(0);
+    network.start(0);
+    network.act(1, |node, now| {
+        node.send_response(now, &restarted, 7, &[13, 1])
+    });
+    settle(&mut network, 10_000);
+    assert_eq!(network.packets, [(0, peer, 7)]);
+}
+
 // spec/decisions/unreachable-peers.md: a peer our ILP packets surely do not
 // reach is reported as such, so the node takes no new Prepare from it;
 // heartbeats that fail say nothing, since the bounds on requests in flight

@@ -609,8 +609,11 @@ impl PeerNode {
             Purpose::Response(answer) => {
                 // A refusal after reading it will not change; anything
                 // else is tried again, and a copy that arrives twice is
-                // dropped by the peer's connector.
-                let refused = matches!(result, Err(Problem::Status(400 | 401 | 409)));
+                // dropped by the peer's connector. A 401 is tried again
+                // too: a node that just started refuses messages dated
+                // before its start, and the copy sent again is dated anew
+                // (spec/areas/peer-protocol.md#message-set).
+                let refused = matches!(result, Err(Problem::Status(400 | 409)));
                 if result.is_err() && !refused {
                     self.retry_answer(*answer);
                 } else if refused {

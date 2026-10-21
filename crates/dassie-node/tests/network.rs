@@ -179,6 +179,39 @@ fn a_peer_that_cannot_hear_us_drifts_by_at_most_what_was_in_flight() {
     check(&sim).unwrap();
 }
 
+// spec/areas/peer-protocol.md#replay-protection: a node that just started
+// refuses messages dated before its start. Node 0's clock is ahead of node
+// 1's. Its outgoing payment cannot reach node 1, and it restarts: its payer
+// goes on as it starts, and node 1's Fulfills are dated before that. Refused
+// with 401, they were given up although node 1 had booked them, and the
+// books drifted by a packet each restart, until the link no longer settled
+// (#234). Now they are sent again, dated anew, and the books do not drift.
+#[test]
+fn fulfills_to_a_node_that_just_started_still_arrive() {
+    let mut sim = Sim::with_skews(
+        77,
+        1,
+        BTreeMap::new(),
+        Settling::Stub,
+        Policies::DEFAULT.peer,
+        &[5_000, 0],
+    );
+    sim.loss_per_mille = 0;
+    sim.run_until(START + 60_000);
+    assert!(!sim.peers(0).is_empty(), "the nodes did not peer");
+    sim.cut.extend([(0, 1), (1, 0)]);
+    sim.pay_outgoing(0, 1, 500_000_000).unwrap();
+    sim.run_until(sim.now + 1_000);
+    sim.crash(0);
+    sim.cut.clear();
+    sim.start(0);
+    sim.run_until(sim.now + 120_000);
+    let (payer, payee) = (key(0).node_id(), key(1).node_id());
+    let drift = -(sim.owes(0, &payee) + sim.owes(1, &payer));
+    assert_eq!(drift, 0, "the books drifted");
+    check(&sim).unwrap();
+}
+
 /// Whether node `index` stopped.
 fn stopped(index: usize) -> impl Fn(&Sim) -> bool {
     move |sim: &Sim| sim.nodes[index].core.is_none()
