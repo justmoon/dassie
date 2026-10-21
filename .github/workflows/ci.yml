@@ -24,10 +24,10 @@ jobs:
   # Everything but the lockfile's check, in the Nix sandbox: for Rust, fmt,
   # clippy (native and wasm32), tests and the WASM bindings, with the
   # toolchain pinned by the flake; for TypeScript, what `node --run ci`
-  # runs (nix/ts.nix). The checks build
-  # on the Vorstand Nix cloud (builds.vorstand.app, project dassie), which
-  # keeps what it built: dependencies that have not changed are not built
-  # again. The runner only sends the commit and follows the log.
+  # runs (nix/ts.nix). The checks build on the Vorstand Nix cloud
+  # (builds.vorstand.app, project dassie), which keeps what it built:
+  # dependencies that have not changed are not built again. The runner only
+  # sends the commit and follows the log.
   nix:
     runs-on: ubuntu-latest
     timeout-minutes: 60
