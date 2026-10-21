@@ -12,10 +12,15 @@ use dassie_settlement::policy;
 use dassie_ledger::LedgerId;
 
 use super::{
-    Payment, RLUSD, START, Settling, Sim, TRIGGER, USD, Withdrawal, XRP, key, received, sent,
-    xrpl_account,
+    Drift, Payment, RLUSD, START, Settling, Sim, TRIGGER, USD, Withdrawal, XRP, key, received,
+    sent, xrpl_account,
 };
+use crate::node::Policies;
 use crate::store::{OutgoingState, PaymentId};
+
+/// Every link's largest packet, which its thresholds are counted in
+/// (spec/decisions/thresholds-in-packets.md).
+const MAX_PACKET: u64 = Policies::DEFAULT.connector.max_packet_amount;
 
 /// A capped token spent at most its cap plus what refilled, over every
 /// period the journal shows, and its checkpoint is the journal's replay.
@@ -220,6 +225,113 @@ pub fn check_settled(sim: &Sim) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// A link whose books drifted, by what the simulation saw: its two nodes,
+/// how far, and how far it survives.
+struct Drifted {
+    nodes: (usize, usize),
+    drift: Drift,
+    survives: u128,
+    /// Whether one side's room for the other is at its trigger.
+    short: bool,
+}
+
+impl Drifted {
+    fn describe(&self) -> String {
+        let (a, b) = self.nodes;
+        format!(
+            "crashes drifted the books of nodes {a} and {b} apart by {}, and other lost \
+             Fulfills by {}; their credit survives {}",
+            self.drift.crashes, self.drift.others, self.survives
+        )
+    }
+}
+
+/// Every pair of peered nodes whose books drifted at all.
+fn drifted(sim: &mut Sim) -> Vec<Drifted> {
+    let count = sim.nodes.len();
+    let mut links = Vec::new();
+    for a in 0..count {
+        for b in a + 1..count {
+            let drift = sim.drift(a, b);
+            if drift == Drift::default() {
+                continue;
+            }
+            let (Some((credit_a, room_a)), Some((credit_b, room_b))) =
+                (room(sim, a, b), room(sim, b, a))
+            else {
+                continue;
+            };
+            let survives = (u128::from(credit_a) + u128::from(credit_b))
+                .saturating_sub(u128::from(policy::least_credit(MAX_PACKET, 0)));
+            links.push(Drifted {
+                nodes: (a, b),
+                drift,
+                survives,
+                short: policy::ask(room_a, TRIGGER) || policy::ask(room_b, TRIGGER),
+            });
+        }
+    }
+    links
+}
+
+/// A link that crashes drifted past what it survives, stuck as the
+/// decisions accept it: one side's room for the other is at its trigger,
+/// and the other's books leave it nothing to settle
+/// (spec/decisions/crash-drift.md). Only drift the simulation saw counts,
+/// and only what crashes lost: a link that refused, late or cut-off
+/// Fulfills drifted is never excused (spec/decisions/unreachable-peers.md).
+pub fn drifted_past(sim: &mut Sim) -> Option<String> {
+    drifted(sim)
+        .into_iter()
+        .find(|link| link.short && link.drift.crashes > link.survives)
+        .map(|link| link.describe())
+}
+
+/// The credit node `index` extends node `other`, and its room for it, while
+/// they are peered.
+fn room(sim: &Sim, index: usize, other: usize) -> Option<(u64, u128)> {
+    let id = key(other).node_id();
+    let peer = sim.nodes[index]
+        .core
+        .as_ref()?
+        .network()
+        .peers
+        .into_iter()
+        .find(|peer| peer.id == id)?;
+    let owed = peer.owed?;
+    let credit = peer.peering.credit_out;
+    Some((
+        credit,
+        u128::try_from(owed + i128::from(credit)).unwrap_or(0),
+    ))
+}
+
+/// What a healed network that did not settle down within `seconds` found
+/// (spec/areas/testing.md#outcomes): a run whose crashes drifted a link
+/// past what it survives drew what the design gives up on, which no code
+/// recovers from; anything else is a liveness failure, which names any
+/// link that drifted past what it survives for other reasons.
+pub fn not_settled_down(sim: &mut Sim, seconds: u64, what: &str) -> Outcome {
+    let stuck = format!("healed, the network did not settle down in {seconds} s: {what}");
+    if let Some(drifted) = drifted_past(sim) {
+        sim.count("links drifted past what they survive");
+        return Outcome::unsupported(
+            "drifted-past-what-it-survives",
+            format!("{stuck}; {drifted}"),
+        );
+    }
+    let past: Vec<String> = drifted(sim)
+        .iter()
+        .filter(|link| link.drift.crashes + link.drift.others > link.survives)
+        .map(Drifted::describe)
+        .collect();
+    if past.is_empty() {
+        Outcome::liveness("settle-down", stuck)
+    } else {
+        Outcome::liveness("settle-down", format!("{stuck}; {}", past.join("; ")))
+    }
 }
 
 /// Routine settlement never withdraws an honest peer for room: only a peer

@@ -20,7 +20,9 @@
 //! its clients and receivers really moved, it takes every settlement its
 //! peers send, and it settles whatever its books say it owes past its
 //! threshold. No check compares two nodes' books, or adds them up: each keeps
-//! its own, and they may drift.
+//! its own, and they may drift. How far they drifted, the simulation tells
+//! from the Fulfills it saw cross the network and never taken, and what
+//! lost each (spec/decisions/crash-drift.md).
 //!
 //! A node also crashes mid-payment: a sender, a hop or a receiver. Each
 //! node books the Fulfills it sent as final, whether or not its upstream
@@ -272,6 +274,21 @@ pub fn key(index: usize) -> Arc<NodeKey> {
     ))
 }
 
+/// The ILP packet a peer message carries, with its request ID, if it
+/// carries one.
+fn ilp_packet(body: &[u8]) -> Option<(u32, dassie_ilp::Packet<'_>)> {
+    if dassie_peer::wire::peek_kind(body) != Some(dassie_peer::wire::Kind::InterledgerPacket) {
+        return None;
+    }
+    let envelope = dassie_peer::wire::Envelope::decode(body).ok()?;
+    let dassie_peer::wire::Content::InterledgerPacket { request_id, packet } =
+        dassie_peer::wire::Content::decode_exact(envelope.content).ok()?
+    else {
+        return None;
+    };
+    Some((request_id, dassie_ilp::Packet::decode_exact(packet).ok()?))
+}
+
 /// Node `index`'s URL.
 pub fn url(index: usize) -> String {
     format!("https://n{index}.test")
@@ -366,6 +383,54 @@ pub struct Payment {
     rate_retry_at: Option<u64>,
 }
 
+/// An ILP Prepare by its sender, its peer, its request ID and its
+/// condition.
+type PacketKey = (usize, usize, u32, [u8; 32]);
+
+/// An ILP Prepare a node sent a peer, until it is known whether a Fulfill
+/// the peer booked for it reached the sender's books
+/// (spec/decisions/crash-drift.md).
+struct Sent {
+    amount: u64,
+    /// Its expiry, on the sender's clock.
+    expires_at_ms: u64,
+    /// The sender's generation when it sent it: a sender that restarted
+    /// since lost it.
+    generation: u64,
+    /// Whether the peer sent a Fulfill for it, which it booked first.
+    fulfilled: bool,
+    /// What lost it for good, first, if anything did yet.
+    lost: Option<Lost>,
+}
+
+/// What lost a Prepare's Fulfill for good, before it was past being taken.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Lost {
+    /// A crash or a failed commit: of the sender, while it could still
+    /// take the Fulfill, or of the peer, while its Fulfill could still
+    /// have arrived.
+    Crash,
+    /// The sender refused the peer's Fulfill with 400, 401 or 409.
+    Refused,
+}
+
+/// How far two peers' books drifted apart, by what really happened: the
+/// Fulfills one booked that never reached the other's books
+/// (spec/decisions/own-fulfills.md), with what crashes lost apart from the
+/// rest (spec/decisions/crash-drift.md).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Drift {
+    /// What crashes and failed commits lost.
+    pub crashes: u128,
+    /// What else was lost: Fulfills that were refused, arrived late, or
+    /// never got across a cut.
+    pub others: u128,
+}
+
+/// The most Prepares the simulation follows at once, more than the
+/// network ever has in flight.
+const MAX_SENT: usize = 1 << 20;
+
 /// A node: its database, and its core while it runs.
 pub struct SimNode {
     /// Its database, which outlives a crash.
@@ -386,6 +451,8 @@ pub struct SimNode {
     replays: BTreeMap<InboundId, (usize, bool)>,
     /// The commit it is to fail, while it has one.
     failing: Option<FailedCommit>,
+    /// Inbound Fulfills of Prepares it sent, waiting for the core's reply.
+    fulfills: BTreeMap<InboundId, PacketKey>,
 }
 
 /// The simulated network: its nodes, its clock, its messages, the fake
@@ -468,6 +535,17 @@ pub struct Sim {
     anywhere: BTreeSet<usize>,
     /// The node and the copy of a request it takes in the step under way.
     replaying: Option<(usize, InboundId)>,
+    /// The Prepares on their way, until their sender took the Fulfill, or
+    /// was refused, or could no longer take it.
+    sent: BTreeMap<PacketKey, Sent>,
+    /// When each Prepare in [`Sim::sent`] is past being taken, on the
+    /// network's clock.
+    finals: BTreeSet<(u64, PacketKey)>,
+    /// The requests that carry a Fulfill, by their sender and ID, until
+    /// their result arrives: a refusal loses it.
+    fulfills_sent: BTreeMap<(usize, RequestId), PacketKey>,
+    /// How far each pair of nodes' books drifted, the lower index first.
+    drift: BTreeMap<(usize, usize), Drift>,
 }
 
 // Every run, whatever it checks besides, ends without an error event: a
@@ -576,6 +654,10 @@ impl Sim {
             given_up: BTreeSet::new(),
             anywhere: BTreeSet::new(),
             replaying: None,
+            sent: BTreeMap::new(),
+            finals: BTreeSet::new(),
+            fulfills_sent: BTreeMap::new(),
+            drift: BTreeMap::new(),
         };
         for &skew_ms in skews_ms {
             sim.nodes.push(SimNode {
@@ -588,6 +670,7 @@ impl Sim {
                 copied: BTreeMap::new(),
                 replays: BTreeMap::new(),
                 failing: None,
+                fulfills: BTreeMap::new(),
             });
         }
         for index in 0..count {
@@ -614,6 +697,7 @@ impl Sim {
         node.inbound.clear();
         node.copied.clear();
         node.replays.clear();
+        node.fulfills.clear();
         let parts = CoreParts {
             store: Arc::clone(&node.store),
             key: key(index),
@@ -758,6 +842,15 @@ impl Sim {
     fn stop(&mut self, index: usize) {
         self.nodes[index].core = None;
         self.let_through(index);
+        // What it sent, it can no longer take a Fulfill for; what it
+        // fulfilled and its sender has not taken, it no longer sends again.
+        for (&(from, to, ..), sent) in &mut self.sent {
+            let open =
+                self.now.saturating_add_signed(self.nodes[from].skew_ms) < sent.expires_at_ms;
+            if open && (from == index || (to == index && sent.fulfilled)) {
+                sent.lost.get_or_insert(Lost::Crash);
+            }
+        }
         // A copy it was still working on passed the replay check. The copy
         // whose own step failed a commit may not have: what it did was
         // lost with its answer.
@@ -955,6 +1048,7 @@ impl Sim {
                 let to = self.nodes.len();
                 let to = (0..to).find(|i| url(*i) == request.url).unwrap();
                 let generation = self.nodes[index].generation;
+                self.watch_sent(index, to, request.id, &request.body);
                 // When a node asks a peer to settle, so that the checks can
                 // tell how long it waited for the answer
                 // (spec/decisions/ending-a-peering.md).
@@ -1001,6 +1095,11 @@ impl Sim {
                 }
                 if let Some(original) = self.nodes[index].copied.remove(&inbound) {
                     self.originals[original] = Original::Answered(reply.status);
+                }
+                if let Some(key) = self.nodes[index].fulfills.remove(&inbound)
+                    && reply.status == 200
+                {
+                    self.took_fulfill(index, key);
                 }
                 let Some((to, generation, id)) = self.nodes[index].inbound.remove(&inbound) else {
                     return;
@@ -1289,10 +1388,21 @@ impl Sim {
                     };
                     self.schedule(later, replay);
                 }
+                let fulfill = match ilp_packet(&body) {
+                    Some((request_id, dassie_ilp::Packet::Fulfill(fulfill))) => {
+                        let condition = dassie_ilp::condition_for(&fulfill.fulfillment);
+                        Some((to, from, request_id, condition))
+                    }
+                    _ => None,
+                };
+                let fulfill = fulfill.filter(|key| self.sent.contains_key(key));
                 let node = &mut self.nodes[to];
                 let inbound = InboundId(node.next_inbound);
                 node.next_inbound += 1;
                 node.inbound.insert(inbound, (from, generation, id));
+                if let Some(key) = fulfill {
+                    node.fulfills.insert(inbound, key);
+                }
                 self.step(to, |core| core.peer_inbound(inbound, &body, None));
             }
             Delivery::Replay {
@@ -1360,11 +1470,145 @@ impl Sim {
                 id,
                 result,
             } => {
+                if let Some(key) = self.fulfills_sent.remove(&(to, id))
+                    && matches!(&result, Ok(response) if matches!(response.status, 400 | 401 | 409))
+                    && let Some(sent) = self.sent.get_mut(&key)
+                {
+                    sent.lost.get_or_insert(Lost::Refused);
+                }
                 if self.nodes[to].generation == generation {
                     self.step(to, |core| core.peer_response(id, result));
                 }
             }
         }
+    }
+
+    /// Follows an ILP packet node `from` sends node `to`: a Prepare until
+    /// it is known whether its Fulfill reached `from`'s books, and the
+    /// Fulfill or Reject `from` answers one of `to`'s with. It watches
+    /// what crosses the network, never the books
+    /// (spec/decisions/own-books.md).
+    fn watch_sent(&mut self, from: usize, to: usize, id: RequestId, body: &[u8]) {
+        let Some((request_id, packet)) = ilp_packet(body) else {
+            return;
+        };
+        match packet {
+            dassie_ilp::Packet::Prepare(prepare) if prepare.amount > 0 => {
+                let key = (from, to, request_id, prepare.execution_condition);
+                let expires_at_ms = prepare.expires_at.unix_ms;
+                // The sender takes a Fulfill while its clock is before the
+                // expiry; the peer books one while its own is, and sends it
+                // again for as long as a request may take.
+                let taken_by = expires_at_ms.saturating_add_signed(-self.nodes[from].skew_ms);
+                let sent_by = expires_at_ms
+                    .saturating_add_signed(-self.nodes[to].skew_ms)
+                    .saturating_add(self.peer.request_timeout_ms);
+                let at = taken_by.max(sent_by).max(self.now) + 1;
+                let sent = Sent {
+                    amount: prepare.amount,
+                    expires_at_ms,
+                    generation: self.nodes[from].generation,
+                    fulfilled: false,
+                    lost: None,
+                };
+                if self.sent.insert(key, sent).is_none() {
+                    self.finals.insert((at, key));
+                }
+                assert!(self.sent.len() <= MAX_SENT, "too many Prepares to follow");
+                assert!(self.finals.len() <= MAX_SENT, "too many Prepares to follow");
+            }
+            dassie_ilp::Packet::Fulfill(fulfill) => {
+                let condition = dassie_ilp::condition_for(&fulfill.fulfillment);
+                let key = (to, from, request_id, condition);
+                if let Some(sent) = self.sent.get_mut(&key) {
+                    sent.fulfilled = true;
+                    self.fulfills_sent.insert((from, id), key);
+                    assert!(
+                        self.fulfills_sent.len() <= MAX_SENT,
+                        "too many Fulfills to follow"
+                    );
+                }
+            }
+            dassie_ilp::Packet::Reject(_) => {
+                // Refused, it was booked by neither.
+                let first = (to, from, request_id, [0; 32]);
+                let last = (to, from, request_id, [u8::MAX; 32]);
+                let refused: Vec<PacketKey> =
+                    self.sent.range(first..=last).map(|(key, _)| *key).collect();
+                for key in refused {
+                    self.sent.remove(&key);
+                }
+            }
+            dassie_ilp::Packet::Prepare(_) => {}
+        }
+    }
+
+    /// Node `index` answered 200 to a Fulfill of the Prepare `key`: its
+    /// connector took it if it still had the packet, before its expiry.
+    fn took_fulfill(&mut self, index: usize, key: PacketKey) {
+        let now = self.local_now(index);
+        let generation = self.nodes[index].generation;
+        if self
+            .sent
+            .get(&key)
+            .is_some_and(|sent| sent.generation == generation && now < sent.expires_at_ms)
+        {
+            self.sent.remove(&key);
+        }
+    }
+
+    /// Books, as drift, each Prepare past being taken whose Fulfill its
+    /// peer booked and its sender never took.
+    fn finalise_sent(&mut self) {
+        while let Some(&(at, key)) = self.finals.first() {
+            if at > self.now {
+                return;
+            }
+            self.finals.pop_first();
+            let Some(sent) = self.sent.remove(&key) else {
+                continue;
+            };
+            if !sent.fulfilled {
+                continue;
+            }
+            // A request whose result never came, as when its recipient
+            // crashed answering it, goes with its Prepare.
+            self.fulfills_sent.retain(|_, sent| *sent != key);
+            let (from, to, ..) = key;
+            let drift = self.drift.entry((from.min(to), from.max(to))).or_default();
+            let amount = u128::from(sent.amount);
+            let (how, why) = match sent.lost {
+                Some(Lost::Crash) => {
+                    drift.crashes += amount;
+                    ("fulfills lost to crashes", "a crash")
+                }
+                Some(Lost::Refused) => {
+                    drift.others += amount;
+                    ("fulfills refused", "refused")
+                }
+                None => {
+                    drift.others += amount;
+                    ("fulfills lost late", "late")
+                }
+            };
+            self.count(how);
+            self.trace.push(format!(
+                "{} {to}'s Fulfill of {amount} never reached {from}'s books: {why}",
+                self.now
+            ));
+        }
+    }
+
+    /// How far the books of nodes `a` and `b` drifted, by what really
+    /// happened: the Fulfills one booked and the other never did
+    /// (spec/decisions/crash-drift.md). It counts only what surely drifted,
+    /// so it may fall short of the drift, and never exceeds it.
+    pub fn drift(&mut self, a: usize, b: usize) -> Drift {
+        self.finalise_sent();
+        self.drift
+            .get(&(a.min(b), a.max(b)))
+            .copied()
+            .unwrap_or_default()
     }
 
     /// Runs until `until`, also steering the payments.
@@ -1379,6 +1623,7 @@ impl Sim {
         loop {
             steps += 1;
             assert!(steps < 5_000_000, "no progress");
+            self.finalise_sent();
             if stop(self) {
                 return true;
             }

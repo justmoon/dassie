@@ -8,6 +8,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [build-system](build-system.md) | Build system | engineering, release |
 | [connector-timing](connector-timing.md) | Connector timing and packet limits | connector, ilp |
 | [core-and-periphery](core-and-periphery.md) | Core and periphery (design, partly built) | designs/periphery |
+| [crash-drift](crash-drift.md) | The simulation rules out a link that crashes drifted past what it survives | testing, settlement |
 | [database-continuity](database-continuity.md) | Database continuity | node |
 | [default-relay](default-relay.md) | A node without a hostname keeps the default front door as its relay | node, http, payments, wallet |
 | [desktop-app](desktop-app.md) | The desktop app runs the node in its process and shows the wallet from the node's origin | desktop, node, http, overview |
