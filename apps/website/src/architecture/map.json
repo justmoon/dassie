@@ -1335,6 +1335,16 @@
   ],
   "releases": [
     {
+      "version": "0.2.3",
+      "date": "2026-10-22",
+      "changes": [
+        "Opening a node's front door name, `https://<label>.dassiepay.net/`, in a browser shows a short page the front door writes itself: the node ID the name stands for, whether that node is connected now, and its wallet address. The page runs no script and sets no cookie.",
+        "The wallet's Settings lists paired devices, with a Revoke for each, and pairs a new one with a QR code. It also shows which version of Dassie the node runs.",
+        "A new node with a single bootstrap node always finds its first peers: while it has none, it also asks the bootstrap node for its own link state.",
+        "Payments finish more reliably when a peer has less room than a packet: the sender sends what fits, a receiver without room is asked again, and a closed connection keeps saying why it closed."
+      ]
+    },
+    {
       "version": "0.2.2",
       "date": "2026-10-21",
       "changes": [
