@@ -1942,6 +1942,91 @@ fn rlusd_beside_xrp_on_one_account() {
     assert!(!frozen.line && frozen.global, "{frozen:?}");
 }
 
+// spec/areas/xrpl.md#dsusd: the XRP, RLUSD and DSUSD schemes all settle
+// through the node's one XRPL account: each token scheme sets its own
+// line, whose TrustSet's fee is a ledger fee on `xrpl-testnet+xrp` and whose
+// reserve is held back there; each books only its own token, on a dollar
+// ledger of its own; the wallet sees the three holdings, and the link state
+// offers the three schemes.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn all_three_xrpl_schemes_on_one_account() {
+    use dassie_ledger::{LedgerId, Reference};
+    use dassie_settlement::LedgerStatus;
+    use dassie_xrpl::Wallet;
+    use dassie_xrpl::codec::TokenValue;
+    use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, FakeLedger, RESERVE_BASE, RESERVE_INC, Token};
+
+    let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
+    let entropy = NodeKey::from_bytes(&[7; 32])
+        .settlement_entropy("xrpl-testnet", "seed-testnet")
+        .unwrap();
+    let address = Wallet::from_entropy(entropy.as_bytes()).account();
+    let mut ledger = FakeLedger::new();
+    ledger.fund(address);
+    ledger.close();
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_on(Arc::clone(&store), 12);
+    for scheme in ["xrpl-testnet", "xrpl-testnet-rlusd", "xrpl-testnet-dsusd"] {
+        core.add_scheme(scheme, config.into()).unwrap();
+        follow_xrpl(&mut core, &mut ledger);
+    }
+    close_xrpl(&mut core, &mut ledger);
+    close_xrpl(&mut core, &mut ledger);
+    let view = |core: &Core, ledger: LedgerId| {
+        core.ledger_views()
+            .into_iter()
+            .find(|view| view.id == ledger)
+            .unwrap()
+    };
+    for id in [
+        LedgerId::XrplTestnetXrp,
+        LedgerId::XrplTestnetRlusdUsd,
+        LedgerId::XrplTestnetDsusdUsd,
+    ] {
+        assert_eq!(view(&core, id).status, LedgerStatus::Synced, "{id}");
+    }
+    let units = |drops: u64| drops * 1_000;
+    assert_eq!(
+        view(&core, LedgerId::XrplTestnetXrp).on_ledger_balance,
+        units(FAUCET_DROPS - 2 * FEE_BASE - RESERVE_BASE - 2 * RESERVE_INC)
+    );
+    core.flush();
+    let rows = store.transfers_after(None, 100, None).unwrap();
+    let fees = rows
+        .iter()
+        .filter(|row| matches!(row.transfer.reference, Reference::Fee { .. }))
+        .count();
+    assert_eq!(fees, 2, "each TrustSet's fee, once");
+    let views = core.asset_views();
+    assert_eq!(views.len(), 1, "one account");
+    assert_eq!(views[0].schemes.len(), 3);
+    let mut codes: Vec<&str> = views[0]
+        .holdings
+        .iter()
+        .map(|holding| holding.code.as_str())
+        .collect();
+    codes.sort_unstable();
+    assert_eq!(codes, ["DSUSD", "RLUSD", "XRP"]);
+    let advertised: Vec<&str> = core.peer.schemes().iter().map(|s| s.as_str()).collect();
+    for scheme in ["xrpl-testnet", "xrpl-testnet-rlusd", "xrpl-testnet-dsusd"] {
+        assert!(advertised.contains(&scheme), "{scheme}: {advertised:?}");
+    }
+
+    ledger
+        .issue(
+            address,
+            Token::DSUSD.amount(TokenValue::parse("10").unwrap()),
+        )
+        .unwrap();
+    close_xrpl(&mut core, &mut ledger);
+    assert_eq!(
+        view(&core, LedgerId::XrplTestnetDsusdUsd).owner_balance,
+        10_000_000_000
+    );
+    assert_eq!(view(&core, LedgerId::XrplTestnetRlusdUsd).owner_balance, 0);
+}
+
 /// A core node that takes downlinks, on RLUSD alone, synced and holding $10
 /// on `ledger`.
 fn rlusd_core(ledger: &mut dassie_xrpl::fake::FakeLedger) -> Core {

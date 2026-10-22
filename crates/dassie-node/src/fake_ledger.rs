@@ -3,10 +3,10 @@
 //! closed every so often. For tests and dev environments only (feature
 //! `testing`): CI and `node --run dev -- --xrpl fake` settle against it.
 //!
-//! Next to the faucet, under `/tokens/`, the issuer of its test RLUSD takes
-//! requests: it mints to an address, freezes, deep-freezes and globally
-//! freezes, sets a transfer fee and claws back, each in the next ledger
-//! (spec/areas/xrpl.md#the-fake-ledger).
+//! Next to the faucet, under `/tokens/`, the issuers of its test RLUSD and
+//! DSUSD take requests: each mints to an address, freezes, deep-freezes and
+//! globally freezes, sets a transfer fee and claws back, each in the next
+//! ledger (spec/areas/xrpl.md#the-fake-ledger).
 
 use std::collections::BTreeMap;
 use std::convert::Infallible;
@@ -324,10 +324,11 @@ fn answer(ledger: &mut FakeLedger, path: &str, body: &[u8]) -> (StatusCode, Stri
     }
 }
 
-/// The issuer of the fake's test RLUSD does `action`, in the next ledger;
-/// `None` if there is no such action.
+/// The issuer of the fake's test RLUSD, or of the token `"token"` names
+/// (`"RLUSD"` or `"DSUSD"`), does `action`, in the next ledger; `None` if
+/// there is no such action.
 ///
-/// - `mint`, `{"destination": "r…", "value": "12.5"}`: pays it RLUSD.
+/// - `mint`, `{"destination": "r…", "value": "12.5"}`: pays it the token.
 /// - `freeze` and `deep-freeze`, `{"account": "r…", "on": true}`: freezes
 ///   its line or deep-freezes it; `false` lifts the freeze (and any deep
 ///   freeze), or the deep freeze alone.
@@ -340,7 +341,13 @@ fn issuer_request(
     action: &str,
     body: &serde_json::Value,
 ) -> Option<Result<(), &'static str>> {
-    let token = Token::RLUSD;
+    let token = match body.get("token") {
+        None => Token::RLUSD,
+        Some(code) => match code.as_str().and_then(Token::by_code) {
+            Some(token) => token,
+            None => return Some(Err("no such token")),
+        },
+    };
     let account = |key: &str| {
         body.get(key)
             .and_then(serde_json::Value::as_str)
@@ -385,7 +392,7 @@ mod tests {
     use dassie_xrpl::Wallet;
     use dassie_xrpl::api::account_flags;
     use dassie_xrpl::codec::{TF_SET_NO_RIPPLE, TrustSet};
-    use dassie_xrpl::fake::{FEE_BASE, RLUSD_ISSUER};
+    use dassie_xrpl::fake::{DSUSD_ISSUER, FEE_BASE, RLUSD_ISSUER};
     use serde_json::json;
 
     use super::*;
@@ -466,6 +473,51 @@ mod tests {
         let claw = json!({ "account": address, "value": "5" });
         assert_eq!(ask(&mut ledger, "/tokens/clawback", &claw), StatusCode::OK);
         assert_eq!(held(&ledger), Some(value("20.5")));
+        assert!(ledger.tokens_conserved());
+    }
+
+    #[test]
+    fn the_dsusd_issuer_mints_and_freezes_on_request() {
+        let mut ledger = FakeLedger::new();
+        let wallet = Wallet::from_seed([2; 16]);
+        ledger.deposit(wallet.account(), 100_000_000);
+        ledger.close();
+        let signed = TrustSet {
+            account: wallet.account(),
+            limit: Token::DSUSD.amount(TokenValue::MAX),
+            fee: FEE_BASE,
+            sequence: ledger.ledger(),
+            last_ledger_sequence: ledger.ledger() + 5,
+            flags: TF_SET_NO_RIPPLE,
+            network_id: None,
+            memos: Vec::new(),
+            signing_pub_key: *wallet.public_key(),
+            signature: None,
+        }
+        .sign(&wallet);
+        let submit =
+            json!({ "command": "submit", "tx_blob": dassie_xrpl::hex_upper(&signed.blob) });
+        ledger.request(1, &serde_json::to_vec(&submit).unwrap());
+        ledger.close();
+        let address = wallet.account().to_address();
+        let mint = json!({ "token": "DSUSD", "destination": address, "value": "7" });
+        assert_eq!(ask(&mut ledger, "/tokens/mint", &mint), StatusCode::OK);
+        assert_eq!(
+            ledger.token_balance(wallet.account(), Token::DSUSD),
+            Some(value("7"))
+        );
+        assert_eq!(ledger.token_balance(wallet.account(), Token::RLUSD), None);
+        let on = json!({ "token": "DSUSD", "account": address, "on": true });
+        assert_eq!(ask(&mut ledger, "/tokens/freeze", &on), StatusCode::OK);
+        let line = ledger
+            .line(wallet.account(), DSUSD_ISSUER, Token::DSUSD.currency)
+            .unwrap();
+        assert!(line.view(wallet.account()).unwrap().theirs.freeze);
+        let unknown = json!({ "token": "EUR", "destination": address, "value": "7" });
+        assert_eq!(
+            ask(&mut ledger, "/tokens/mint", &unknown),
+            StatusCode::BAD_REQUEST
+        );
         assert!(ledger.tokens_conserved());
     }
 
