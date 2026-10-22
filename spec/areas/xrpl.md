@@ -85,7 +85,7 @@ After each, the books hold the line's balance in whole units; a remainder below 
 
 **Funding.** The owner sends the account XRP for gas, from the faucet as for `xrpl-testnet`, and RLUSD, which Ripple hands out only by hand; the wallet's Receive names both ([Wallet](wallet.md#pages)). Dev (`rlusd-settlement`, on the fake ledger only), the end-to-end tests and the simulations use the fake ledger's issuer ([below](#tokens-in-the-fake-ledger), [Dev](dev.md#scenarios)).
 
-**Whom it peers with.** A peering is on one scheme ([Network](network.md#peering)), so two nodes that both run both XRPL schemes settle in one of them. An RLUSD node peers only with nodes that run the scheme; the bootstrap nodes run only `xrpl-testnet` ([bootstrap-network](../decisions/bootstrap-network.md)).
+**Whom it peers with.** A peering is on one scheme ([Network](network.md#peering)), so two nodes that both run both XRPL schemes settle in one of them. An RLUSD node peers only with nodes that run the scheme; the testnet's bootstrap nodes run both XRPL schemes ([bootstrap-network](../decisions/bootstrap-network.md)), so a node that runs only RLUSD peers with them on it, and one that runs both settles with them in XRP.
 
 ## Following the account
 
