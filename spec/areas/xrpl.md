@@ -95,7 +95,7 @@ After each, the books hold the line's balance in whole units; a remainder below 
 
 ## DSUSD
 
-`xrpl-testnet-dsusd` is the [token scheme](#the-token-scheme) in DSUSD, a testnet dollar token of Dassie's own, on the account's trust line to DSUSD's issuer, an account of Dassie's on the testnet, and books on `xrpl-testnet-dsusd+usd` (`dsusd.rs`). Its issuer, its currency code and its memo type are constants of the scheme; the memo type is a contract between peers, as every XRPL scheme's is ([above](#the-payment-it-signs)). It runs beside RLUSD, not in its place: test RLUSD trades far from a dollar against XRP on the testnet's AMM, while DSUSD's XRP/DSUSD pool there is kept near an exchange's XRP/USD price, so a dollar booked at par is worth about a dollar in XRP.
+`xrpl-testnet-dsusd` is the [token scheme](#the-token-scheme) in DSUSD, a testnet dollar token of Dassie's own, on the account's trust line to DSUSD's issuer, an account of Dassie's on the testnet, and books on `xrpl-testnet-dsusd+usd` (`dsusd.rs`). Its issuer, its currency code and its memo type are constants of the scheme; the memo type is a contract between peers, as every XRPL scheme's is ([above](#the-payment-it-signs)). It runs beside RLUSD, not in its place: test RLUSD trades far from a dollar against XRP on the testnet's AMM, while DSUSD's XRP/DSUSD pool there is kept near an exchange's XRP/USD price, so a dollar booked at par is worth about a dollar in XRP ([dsusd](../decisions/dsusd.md)).
 
 **Funding.** DSUSD has no faucet. The owner sends the account XRP for gas, from the faucet as for `xrpl-testnet`, and gets DSUSD only by paying XRP for it on the testnet's XRP/DSUSD AMM pool: from any XRPL wallet, a Payment to the account whose amount is DSUSD and which spends XRP crosses the pool, and the scheme books what arrives as a deposit, as anything else that raises the line. The issuer mints DSUSD only into the pool, never to a person, so no one takes the pool's XRP with DSUSD they did not pay for. The node buys none itself. The wallet's Receive says so ([Wallet](wallet.md#pages)). Dev (`dsusd-settlement`, on the fake ledger only), the end-to-end tests and the simulations use the fake ledger's DSUSD issuer ([below](#tokens-in-the-fake-ledger), [Dev](dev.md#scenarios)).
 
@@ -171,6 +171,7 @@ The fake ledger is the only source of test RLUSD and DSUSD on demand for dev, th
 
 - [external-assets](../decisions/external-assets.md): the account apart from the schemes that settle through it, and gas on or off the books.
 - [issued-assets](../decisions/issued-assets.md): a token's issuer as the owner's counterparty, and a dollar token at par.
+- [dsusd](../decisions/dsusd.md): a testnet dollar of Dassie's own beside RLUSD, bought only with XRP through a pool kept at the market.
 - [real-money](../decisions/real-money.md): the gates before real money, and the testnet-only network check.
 - [tigerstyle](../decisions/tigerstyle.md): sans-IO, so the fake ledger can stand in for the network.
 - [synced-before-peering](../decisions/synced-before-peering.md): no peering on the scheme before its first sync.
