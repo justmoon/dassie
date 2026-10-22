@@ -249,9 +249,9 @@ message StreamCredentials {
   string destination_account = 1;
   // The 32-byte shared secret.
   bytes shared_secret = 2;
-  // The asset the receiver is paid in, as its incoming payment says; empty
-  // when unknown. Needed for a receive amount. The receiver must say the
-  // same, if it says one.
+  // The asset the receiver is paid in, as its incoming payment says; an
+  // empty code and a scale of 0 when unknown. Needed for a receive amount.
+  // The receiver must say the same, if it says one.
   string asset_code = 3;
   uint32 asset_scale = 4;
 }

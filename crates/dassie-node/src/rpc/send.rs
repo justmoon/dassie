@@ -407,6 +407,10 @@ async fn quote_credentials(
     let shared_secret =
         spending::check_credentials(&credentials.destination_account, &credentials.shared_secret)?;
     let named = if credentials.asset_code.is_empty() {
+        // A scale alone names nothing, and is a mistake to say.
+        if credentials.asset_scale != 0 {
+            return Err(RpcError::invalid("an asset scale needs its asset code"));
+        }
         None
     } else {
         let scale = u8::try_from(credentials.asset_scale)

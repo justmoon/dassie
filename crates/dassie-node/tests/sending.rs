@@ -925,10 +925,11 @@ async fn the_owner_pays_stream_credentials_on_a_peer() {
     assert!(error.message.contains("USD"), "{}", error.message);
 }
 
-// spec/areas/payments.md#paying-stream-credentials: credentials are bounded and
-// checked before anything is measured: an ILP address, a 32-byte secret,
-// an asset scale that fits, an amount, and neither a recipient nor a note
-// beside them. A valid address nothing routes to is no route.
+// spec/areas/payments.md#paying-stream-credentials: credentials are bounded
+// and checked before anything is measured: an ILP address, a 32-byte
+// secret, an asset scale that fits and comes with its code, an amount, and
+// neither a recipient nor a note beside them. A valid address nothing
+// routes to is no route.
 #[tokio::test(flavor = "multi_thread")]
 async fn malformed_stream_credentials_are_refused() {
     use proto::quote_send_request::Amount;
@@ -963,6 +964,11 @@ async fn malformed_stream_credentials_are_refused() {
         },
         proto::StreamCredentials {
             asset_code: "U SD".into(),
+            ..good.clone()
+        },
+        proto::StreamCredentials {
+            asset_code: String::new(),
+            asset_scale: 9,
             ..good.clone()
         },
     ];

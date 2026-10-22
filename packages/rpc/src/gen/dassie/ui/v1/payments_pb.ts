@@ -859,9 +859,9 @@ export type StreamCredentials = Message<"dassie.ui.v1.StreamCredentials"> & {
   sharedSecret: Uint8Array;
 
   /**
-   * The asset the receiver is paid in, as its incoming payment says; empty
-   * when unknown. Needed for a receive amount. The receiver must say the
-   * same, if it says one.
+   * The asset the receiver is paid in, as its incoming payment says; an
+   * empty code and a scale of 0 when unknown. Needed for a receive amount.
+   * The receiver must say the same, if it says one.
    *
    * @generated from field: string asset_code = 3;
    */
