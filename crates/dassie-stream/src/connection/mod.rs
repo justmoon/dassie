@@ -229,6 +229,9 @@ pub struct Connection {
     money_exhausted: ErrorCode,
 
     state: State,
+    /// The code the connection closed with, if it closed itself: what it
+    /// answers every later packet with.
+    closed_with: Option<ErrorCode>,
     close_attempts: u32,
     close_acknowledged: bool,
     remote_knows_us: bool,
@@ -323,6 +326,7 @@ impl Connection {
             money_tolerance: 0,
             money_exhausted: ErrorCode::NO_ERROR,
             state: State::Open,
+            closed_with: None,
             close_attempts: 0,
             close_acknowledged: false,
             // A server's address is how the client found it.
@@ -658,6 +662,9 @@ impl Connection {
             return;
         }
         self.state = State::Closed;
+        if !by_remote {
+            self.closed_with = Some(code);
+        }
         self.retry_at = None;
         self.probing = None;
         self.push_event(Event::ConnectionClosed { code, by_remote });

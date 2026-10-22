@@ -490,7 +490,11 @@ impl Connection {
         }
         let closing = match (decision.close, self.state) {
             (Some((code, false)), _) | (None, State::Closing { code, .. }) => Some(code),
-            (None, State::Closed) => Some(ErrorCode::NO_ERROR),
+            // Closed by now, it says again why it closed, so a sender
+            // that hears this reply first learns the same as from the
+            // first (spec/decisions/full-or-stopped-short.md); one the
+            // remote closed says no more than that.
+            (None, State::Closed) => Some(self.closed_with.unwrap_or(ErrorCode::NO_ERROR)),
             _ => None,
         };
         if let Some(code) = closing {
