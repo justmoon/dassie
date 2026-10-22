@@ -365,6 +365,12 @@ impl Engine {
         self.call(|core| Ok(core.rates().clone())).await
     }
 
+    /// What the connector charges transit and converts at: the price table
+    /// as of the engine's last commit (spec/decisions/passive-rebalancing.md).
+    pub async fn price_table(&self) -> Result<dassie_connector::PriceTable, EngineError> {
+        self.call(|core| Ok(*core.price_table())).await
+    }
+
     /// Measures what the path from `ledger`'s payer to the receiver at
     /// `destination` delivers per unit sent, with packets the receiver
     /// cannot fulfill (spec/decisions/open-payments.md), for `by`, whose

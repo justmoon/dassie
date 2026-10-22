@@ -985,6 +985,7 @@ dependencies = [
  "dassie-ledger",
  "dassie-node-core",
  "dassie-oer",
+ "num-bigint",
  "proptest",
  "rand_core",
 ]

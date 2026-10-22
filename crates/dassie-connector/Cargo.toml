@@ -27,5 +27,6 @@ dassie-oer = { path = "../dassie-oer", default-features = false }
 dassie-connector = { path = ".", features = ["sim"] }
 dassie-node-core = { path = "../dassie-node-core", features = ["testing"] }
 dassie-oer = { path = "../dassie-oer" }
+num-bigint = "0.4"
 proptest = "1.12"
 rand_core = { version = "0.10", default-features = false }

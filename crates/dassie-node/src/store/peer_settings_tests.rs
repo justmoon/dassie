@@ -10,6 +10,7 @@ fn the_peer_settings_start_at_the_default_and_change() {
     let settings = PeerSettings {
         connector_fee_ppm: 100_000,
         fx_spread_ppm: 1,
+        rebalance_ppm: 0,
     };
     store
         .commit_ledger(&LedgerBatch {
@@ -22,6 +23,14 @@ fn the_peer_settings_start_at_the_default_and_change() {
     let refused = store.commit_ledger(&LedgerBatch {
         peer_settings: Some(PeerSettings {
             connector_fee_ppm: 100_001,
+            ..PeerSettings::DEFAULT
+        }),
+        ..LedgerBatch::default()
+    });
+    assert!(refused.is_err());
+    let refused = store.commit_ledger(&LedgerBatch {
+        peer_settings: Some(PeerSettings {
+            rebalance_ppm: 100_001,
             ..PeerSettings::DEFAULT
         }),
         ..LedgerBatch::default()

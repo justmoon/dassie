@@ -100,10 +100,16 @@ async fn set_peer_settings(
     let settings = request
         .settings
         .ok_or_else(|| RpcError::invalid("settings are required"))?;
+    // Without `k`, the node keeps the one it has.
+    let rebalance_ppm = match settings.rebalance_ppm {
+        Some(rebalance_ppm) => rebalance_ppm,
+        None => engine.peer_settings().await?.rebalance_ppm,
+    };
     engine
         .set_peer_settings(PeerSettings {
             connector_fee_ppm: settings.connector_fee_ppm,
             fx_spread_ppm: settings.fx_spread_ppm,
+            rebalance_ppm,
         })
         .await?;
     Ok(response::Method::SetPeerSettings(
@@ -241,6 +247,7 @@ const fn peer_settings(settings: PeerSettings) -> proto::PeerSettings {
     proto::PeerSettings {
         connector_fee_ppm: settings.connector_fee_ppm,
         fx_spread_ppm: settings.fx_spread_ppm,
+        rebalance_ppm: Some(settings.rebalance_ppm),
     }
 }
 

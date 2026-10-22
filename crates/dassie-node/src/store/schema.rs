@@ -50,6 +50,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_26,
     MIGRATION_27,
     MIGRATION_28,
+    MIGRATION_29,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -928,6 +929,14 @@ INSERT INTO incoming_connections SELECT * FROM incoming_connections_kept;
 DROP TABLE incoming_connections_kept;
 ";
 
+/// Conversions between peers are priced by the owner's inventory
+/// (spec/decisions/passive-rebalancing.md): the owner sets the curve's `k`,
+/// which every node starts with, an upgraded one too.
+const MIGRATION_29: &str = "
+ALTER TABLE peer_settings ADD COLUMN rebalance_ppm INTEGER NOT NULL DEFAULT 50000
+  CHECK (rebalance_ppm BETWEEN 0 AND 100000);
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1313,6 +1322,7 @@ pub const TABLES: &[Table] = &[
             ("id", "INTEGER", false, true),
             ("connector_fee_ppm", "INTEGER", true, false),
             ("fx_spread_ppm", "INTEGER", true, false),
+            ("rebalance_ppm", "INTEGER", true, false),
         ],
     },
     Table {

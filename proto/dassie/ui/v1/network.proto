@@ -219,7 +219,8 @@ message ListBansResponse {
   reserved "bans";
 }
 
-// The owner's settings for peers (spec/decisions/exchange-rates.md).
+// The owner's settings for peers (spec/decisions/exchange-rates.md,
+// spec/decisions/passive-rebalancing.md).
 message PeerSettings {
   reserved 1;
   reserved "grace_share_ppm";
@@ -229,6 +230,10 @@ message PeerSettings {
   // The spread on what such a packet converts, in parts per million of
   // what goes out: 0 to 100 000.
   uint32 fx_spread_ppm = 3;
+  // k, how far the owner's inventory moves the rate such a packet converts
+  // at from spot, in parts per million: 0 (spot) to 100 000. Always set in
+  // answers; a SetPeerSettings without it keeps the node's.
+  optional uint32 rebalance_ppm = 4;
 }
 
 message GetPeerSettingsRequest {}

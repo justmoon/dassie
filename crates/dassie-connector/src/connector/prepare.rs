@@ -15,7 +15,7 @@ use crate::PacketTransfers;
 use crate::cap::CapRefusal;
 use crate::charges::Charges;
 use crate::endpoint::EndpointId;
-use crate::fx::{Rates, convert};
+use crate::pricing::{PriceError, PriceTable};
 use crate::trace::{PacketRecord, PacketState};
 
 /// Room for an ILDCP response: the longest address, a scale and the
@@ -54,7 +54,9 @@ struct Booked {
 }
 
 impl Connector {
-    /// Handles a Prepare from `source` with the request ID it used.
+    /// Handles a Prepare from `source` with the request ID it used, at
+    /// `prices`: what transit is charged and converts at, and the spot
+    /// rates a packet into the owner's own endpoints converts at.
     ///
     /// # Panics
     ///
@@ -68,7 +70,7 @@ impl Connector {
         request_id: u32,
         packet: &[u8],
         ledger: &mut Ledger,
-        rates: &Rates,
+        prices: &PriceTable,
         out: &mut [u8],
     ) -> Outcome {
         assert!(
@@ -136,7 +138,7 @@ impl Connector {
         if prepare.destination.has_prefix(ildcp::ADDRESS) {
             return self.ildcp(now_ms, trace, source, &prepare, out);
         }
-        let route = match self.route(now_ms, source, &prepare, rates) {
+        let route = match self.route(now_ms, source, &prepare, prices) {
             Ok(route) => route,
             Err(refusal) => return self.answer(now_ms, trace, &refusal, out),
         };
@@ -224,7 +226,7 @@ impl Connector {
         now_ms: u64,
         source: EndpointId,
         prepare: &Prepare<'_>,
-        rates: &Rates,
+        prices: &PriceTable,
     ) -> Result<Route, Refusal> {
         let config = &self.config;
         let from = self
@@ -264,7 +266,7 @@ impl Connector {
                 }),
             });
         }
-        let (fee, amount_out) = self.amounts(now_ms, source, to, prepare.amount, rates)?;
+        let (fee, amount_out) = self.amounts(now_ms, source, to, prepare.amount, prices)?;
         self.admits_in_flight(source, to, prepare.amount, amount_out)?;
         Ok(Route {
             to,
@@ -305,26 +307,29 @@ impl Connector {
     }
 
     /// Our fee on a packet from `source` to `to`, and what goes on: only
-    /// transit from one peer to another is charged, and the owner's own
-    /// endpoints never convert, so what the owner holds on one ledger is
-    /// never spent on another by a packet
-    /// (spec/areas/ledger.md#the-owners-accounts). The first hop that
-    /// charges for it converts.
+    /// transit from one peer to another is charged, and converts at the
+    /// table's price, which the owner's inventory moves from spot
+    /// (spec/decisions/passive-rebalancing.md); a peer's packet into the
+    /// owner's own endpoints converts at spot. The owner's own endpoints
+    /// never convert, so what the owner holds on one ledger is never spent on
+    /// another by a packet (spec/areas/ledger.md#the-owners-accounts). The
+    /// first hop that charges for it converts.
     fn amounts(
         &self,
         now_ms: u64,
         source: EndpointId,
         to: EndpointId,
         amount: u64,
-        rates: &Rates,
+        prices: &PriceTable,
     ) -> Result<(u64, u64), Refusal> {
         let internal = refuse(ErrorCode::T00_INTERNAL_ERROR, "internal error");
         let (Some(from), Some(destination)) = (self.endpoints.get(source), self.endpoints.get(to))
         else {
             return Err(internal);
         };
-        let charges = if source.is_peer() && to.is_peer() {
-            self.charges
+        let transit = source.is_peer() && to.is_peer();
+        let charges = if transit {
+            prices.charges()
         } else {
             Charges::NONE
         };
@@ -337,26 +342,17 @@ impl Connector {
                 "pay from the route's ledger",
             ));
         }
-        let (from_asset, to_asset) = (from.ledger.asset(), destination.ledger.asset());
-        if converts
-            && !rates.fresh(
-                from_asset.code,
-                to_asset.code,
-                now_ms,
-                self.config.max_rate_age_ms,
-            )
-        {
-            return Err(refuse(
-                ErrorCode::T00_INTERNAL_ERROR,
-                "exchange rates are stale",
-            ));
-        }
-        let amount_out = if converts {
-            let converted = convert(rates, from_asset, to_asset, net)
-                .ok_or(refuse(ErrorCode::T00_INTERNAL_ERROR, "no exchange rate"))?;
-            charges.after_spread(converted)
-        } else {
+        let max_age_ms = self.config.max_rate_age_ms;
+        let amount_out = if !converts {
             net
+        } else if transit {
+            prices
+                .convert(from.ledger, destination.ledger, net, now_ms, max_age_ms)
+                .map_err(price_refusal)?
+        } else {
+            prices
+                .convert_at_spot(from.ledger, destination.ledger, net, now_ms, max_age_ms)
+                .map_err(price_refusal)?
         };
         if amount > 0 && amount_out == 0 {
             return Err(refuse(ErrorCode::F02_UNREACHABLE, "amount too small"));
@@ -582,6 +578,19 @@ const fn cap_refusal(refusal: CapRefusal, amount: u64) -> Refusal {
             ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
             "the spending cap is reached",
         ),
+    }
+}
+
+/// What a conversion's refusal means to the sender: rates come back, and
+/// funds on the way out, so both are temporary.
+const fn price_refusal(error: PriceError) -> Refusal {
+    match error {
+        PriceError::Stale => refuse(ErrorCode::T00_INTERNAL_ERROR, "exchange rates are stale"),
+        PriceError::NoFunds => refuse(
+            ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
+            "insufficient liquidity",
+        ),
+        PriceError::TooLarge => refuse(ErrorCode::T00_INTERNAL_ERROR, "no exchange rate"),
     }
 }
 

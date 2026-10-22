@@ -227,7 +227,7 @@ mod tests {
         drop(connection);
         let store = Store::open(temp.path()).unwrap();
         let settings = store.peer_settings().unwrap();
-        assert_eq!((settings.connector_fee_ppm, settings.fx_spread_ppm), (0, 0));
+        assert_eq!(settings, crate::store::PeerSettings::DEFAULT);
         assert_eq!(store.rate_sources().unwrap(), RateSource::defaults());
     }
 

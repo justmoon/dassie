@@ -601,7 +601,7 @@ impl Core {
             local,
             self.scratch.get(..length).unwrap_or_default(),
             &mut self.ledger,
-            &self.rates,
+            &self.prices.table,
             &mut self.out,
         );
         self.sent_out(now, outcome)

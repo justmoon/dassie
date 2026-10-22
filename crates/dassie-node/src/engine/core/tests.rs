@@ -546,7 +546,7 @@ fn steps_report_what_they_changed() {
     assert!(core.take_changes().ledger);
 }
 
-// The owner's fee and spread are checked and persisted.
+// The owner's fee, spread and rebalancing are checked and persisted.
 #[test]
 fn peer_settings_are_checked_and_kept() {
     use crate::store::PeerSettings;
@@ -563,21 +563,26 @@ fn peer_settings_are_checked_and_kept() {
             fx_spread_ppm: 100_001,
             ..PeerSettings::DEFAULT
         },
+        PeerSettings {
+            rebalance_ppm: 100_001,
+            ..PeerSettings::DEFAULT
+        },
     ] {
         assert!(core.set_peer_settings(refused).is_err(), "{refused:?}");
     }
     let settings = PeerSettings {
         connector_fee_ppm: 1_000,
         fx_spread_ppm: 2_000,
+        rebalance_ppm: 30_000,
     };
     core.set_peer_settings(settings).unwrap();
-    assert_eq!(core.connector.charges(), settings.charges());
     core.flush();
+    assert_eq!(core.price_table().pricing(), settings.pricing());
     drop(core);
     // The connector charges what was kept.
     let core = core_on(store, 13);
     assert_eq!(core.peer_settings(), settings);
-    assert_eq!(core.connector.charges(), settings.charges());
+    assert_eq!(core.price_table().pricing(), settings.pricing());
 }
 
 // spec/decisions/random-seed-simulations.md: a commit that fails stops the

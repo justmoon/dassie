@@ -707,14 +707,19 @@ fn sending() -> BoxedStrategy<Method> {
             .prop_map(|node| Method::TerminatePeering(proto::TerminatePeeringRequest { node })),
         node_id().prop_map(|node| Method::BanNode(proto::BanNodeRequest { node })),
         node_id().prop_map(|node| Method::UnbanNode(proto::UnbanNodeRequest { node })),
-        proptest::option::of((small(), small())).prop_map(|settings| {
-            Method::SetPeerSettings(proto::SetPeerSettingsRequest {
-                settings: settings.map(|(connector_fee_ppm, fx_spread_ppm)| proto::PeerSettings {
-                    connector_fee_ppm,
-                    fx_spread_ppm,
-                }),
-            })
-        }),
+        proptest::option::of((small(), small(), proptest::option::of(small()))).prop_map(
+            |settings| {
+                Method::SetPeerSettings(proto::SetPeerSettingsRequest {
+                    settings: settings.map(|(connector_fee_ppm, fx_spread_ppm, rebalance_ppm)| {
+                        proto::PeerSettings {
+                            connector_fee_ppm,
+                            fx_spread_ppm,
+                            rebalance_ppm,
+                        }
+                    }),
+                })
+            }
+        ),
         rate_sources.prop_map(|sources| {
             Method::SetRateSources(proto::SetRateSourcesRequest {
                 sources: sources
