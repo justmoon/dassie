@@ -1,8 +1,8 @@
 /**
  * Settings (spec/areas/wallet.md#pages): the wallet, the node's version and
- * logging out, the theme, the node's alias, what transit is charged, exchange rates and the
- * display currency, the owner's sessions and paired devices, and the BTP
- * tokens with their caps.
+ * logging out, the theme, the node's alias, what transit is charged,
+ * exchange rates and the display currency, the owner's sessions and paired
+ * devices, and the BTP tokens with their caps.
  */
 
 import type { JSX } from "@solidjs/web";
