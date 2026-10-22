@@ -1,0 +1,29 @@
+# One run of the DSUSD keeper (spec/areas/dsusd-keeper.md#its-vm), which
+# dassie-dsusd-keeper.timer starts; startup.sh installs both. Each run
+# checks out the newest `main`, so a change there reaches the keeper at its
+# next run.
+#
+# It runs as root, as the simulation campaign's supervisor does: the VM
+# runs nothing else, and any process on it could ask the metadata server
+# for the account's token.
+[Unit]
+Description=Dassie DSUSD keeper, one run
+Wants=network-online.target
+After=network-online.target nix-daemon.service
+
+[Service]
+Type=oneshot
+# systemd sets no home for a unit without User=, and Nix wants one for its
+# caches.
+Environment=HOME=/root
+WorkingDirectory=/var/lib/dsusd-keeper/repo
+ExecStartPre=/usr/bin/git fetch --quiet origin main
+ExecStartPre=/usr/bin/git checkout --quiet --force --detach origin/main
+ExecStart=/bin/sh apps/dsusd-keeper/vm/run.sh
+# The keeper bounds its own run well within this; this bounds the fetch,
+# the install and the toolchain too. A run that fails shows as a failed
+# unit, and the timer's next run starts all the same.
+TimeoutStartSec=10min
+# Each run's one line, on the serial console too, which needs no SSH.
+StandardOutput=journal+console
+StandardError=journal+console
