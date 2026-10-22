@@ -170,17 +170,21 @@ impl Connection {
             let unsent = stream.unsent_amount();
             let mut sendable = unsent.min(room);
             let no_room = stream.remote_room() == 0;
-            if no_room && unsent > 0 && stream.held == 0 && stream.remote_max_fell {
+            let short = stream.remote_received < stream.expected_delivery;
+            let ask = stream.remote_max_fell || short;
+            if no_room && unsent > 0 && stream.held == 0 && ask {
                 // No room for what is left, after the receiver lowered its
-                // maximum: something else takes from what it pays into.
+                // maximum, or while it took less than the application
+                // expects it to, as when another payment took from what it
+                // pays into before this stream first heard its maximum.
                 // Offer it the least that delivers a unit anyway, once per
                 // back-off, so that it can say why: a reply with the room
                 // it has now, or a close with the reason it takes no more
                 // (spec/areas/stream.md#money-limit). Waiting instead
                 // would wait for a word it may never send. A receiver that
-                // never lowered its maximum is simply full. One that still
-                // has room, less than a source unit delivers, is not
-                // offered more than it takes.
+                // never lowered its maximum and took what it was expected
+                // to is simply full. One that still has room, less than a
+                // source unit delivers, is not offered more than it takes.
                 sendable = rate
                     .min_source_for_one_unit()
                     .filter(|&least| least <= unsent)

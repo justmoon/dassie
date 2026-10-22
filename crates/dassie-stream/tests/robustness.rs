@@ -1181,6 +1181,65 @@ fn a_payment_within_the_tolerance_under_takes_no_more() {
     assert_eq!(payment.remaining, 7);
 }
 
+#[test]
+fn a_sender_short_of_what_it_expects_asks_a_receiver_without_room() {
+    // B pays 400 of 1 000 before A first hears the payment's maximum, so A
+    // never sees it fall. A was told the receiver takes 1 000 from it, and
+    // fills the payment with 600: short of that, it offers a unit, and the
+    // receiver closes its connection with why it takes no more.
+    let mut rng = SeededRng::new(6);
+    let mut server = server(PAYEE);
+    let mut payment = Payment::new(1_000, 0);
+    let (mut a, a_stream, _) = payer(&server, &mut rng, b"payment/a");
+    let (mut b, b_stream, _) = payer(&server, &mut rng, b"payment/b");
+    b.set_send_max(b_stream, 400).unwrap();
+    assert_eq!(
+        pay(NOW, &mut rng, &mut server, &mut payment, &mut b),
+        (1, 0)
+    );
+    a.set_send_max(a_stream, 1_000).unwrap();
+    a.set_expected_delivery(a_stream, 1_000).unwrap();
+    let mut now = NOW;
+    for _ in 0..20 {
+        pay(now, &mut rng, &mut server, &mut payment, &mut a);
+        if a.is_closed() {
+            break;
+        }
+        now = now.saturating_add_ms(31_000);
+    }
+    assert_eq!(payment.remaining, 0);
+    assert_eq!(a.stream(a_stream).unwrap().remote_received(), 600);
+    assert_eq!(closed_by_remote(&mut a), Some(ErrorCode::NO_ERROR));
+}
+
+#[test]
+fn a_sender_that_got_what_it_expects_does_not_ask() {
+    // An installment: B paid 400 of 1 000, and A is to pay the 600 left.
+    // Once the receiver took them, A is done; it has nothing to ask.
+    let mut rng = SeededRng::new(7);
+    let mut server = server(PAYEE);
+    let mut payment = Payment::new(1_000, 0);
+    let (mut a, a_stream, _) = payer(&server, &mut rng, b"payment/a");
+    let (mut b, b_stream, _) = payer(&server, &mut rng, b"payment/b");
+    b.set_send_max(b_stream, 400).unwrap();
+    assert_eq!(
+        pay(NOW, &mut rng, &mut server, &mut payment, &mut b),
+        (1, 0)
+    );
+    // A could send more than it expects to deliver; it waits all the same.
+    a.set_send_max(a_stream, 1_000).unwrap();
+    a.set_expected_delivery(a_stream, 600).unwrap();
+    let mut now = NOW;
+    for _ in 0..20 {
+        pay(now, &mut rng, &mut server, &mut payment, &mut a);
+        now = now.saturating_add_ms(31_000);
+    }
+    assert_eq!(payment.remaining, 0);
+    assert_eq!(a.stream(a_stream).unwrap().remote_received(), 600);
+    assert_eq!(closed_by_remote(&mut a), None);
+    assert!(!a.is_closed());
+}
+
 /// The code the remote closed `connection` with, if it did.
 fn closed_by_remote(connection: &mut Connection) -> Option<ErrorCode> {
     let mut closed = None;

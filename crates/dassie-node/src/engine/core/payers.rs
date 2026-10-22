@@ -522,10 +522,15 @@ impl Core {
             .unwrap_or(Rate::ONE);
         connection.set_exchange_rate(rate);
         let left = payment.row.debit_amount - payment.row.sent_amount;
-        payment.stream = connection
-            .open_stream()
-            .ok()
-            .filter(|stream| connection.set_send_max(*stream, left).is_ok());
+        // The receiver agreed to take the receive amount. One that reports
+        // no room before it took that is asked why, even when another
+        // payment took from it before this connection first heard its
+        // maximum, rather than waited on until the idle timeout.
+        let expected = payment.row.receive_amount.value;
+        payment.stream = connection.open_stream().ok().filter(|stream| {
+            connection.set_send_max(*stream, left).is_ok()
+                && connection.set_expected_delivery(*stream, expected).is_ok()
+        });
         payment.base_sent = payment.row.sent_amount;
         payment.connection = Some(connection);
         self.report(PaymentEvent::OutgoingSending {

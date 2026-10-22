@@ -22,6 +22,10 @@ pub struct Stream {
     /// Whether the remote ever lowered its maximum: what it pays into is
     /// shared, or was cut short.
     pub(crate) remote_max_fell: bool,
+    /// What the application says the remote agreed to take in total, as
+    /// an incoming payment's amount: while it took less, a stream left
+    /// without room asks it again, as if its maximum fell.
+    pub(crate) expected_delivery: u64,
 
     // Money in, in our units.
     pub(crate) receive_max: u64,
@@ -56,6 +60,7 @@ impl Stream {
             remote_receive_max: u64::MAX,
             remote_received: 0,
             remote_max_fell: false,
+            expected_delivery: 0,
             receive_max: 0,
             received: 0,
             send: SendBuffer::new(send_buffer),
