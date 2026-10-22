@@ -41,6 +41,7 @@ import {
 } from "./scenario/mod.ts";
 import {
   MAX_NODES,
+  peripheryOf,
   type ScenarioDef,
   unavailable,
 } from "./scenario/scenarios.ts";
@@ -193,15 +194,18 @@ export class Environment {
     });
   }
 
-  /** Where a node's wallet is: through the proxy, if it runs. */
+  /**
+   * Where a node's wallet is: through the proxy, if it runs. A periphery
+   * node has no hostname, so it answers its owner only at `localhost`, on
+   * its own port (spec/areas/http.md#same-origin-rule).
+   */
   walletUrl(name: string): string {
     const index = Number(name.slice(1)) - 1;
+    const port = 5001 + index + this.options.portOffset;
+    const def = findScenario(this.#scenarioId);
+    if (def && peripheryOf(def, index)) return `https://localhost:${port}`;
     const proxy = this.options.proxyPort;
-    if (proxy === undefined) {
-      return `https://${name}.localhost:${
-        5001 + index + this.options.portOffset
-      }`;
-    }
+    if (proxy === undefined) return `https://${name}.localhost:${port}`;
     return `https://${name}.localhost${proxy === 443 ? "" : `:${proxy}`}`;
   }
 

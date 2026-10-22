@@ -8,6 +8,10 @@
  * Setting up can run again on a node that is set up already: it then
  * checks that the data is this node's, and adds only what is missing.
  *
+ * A periphery node is set up without its hostname, so it has no URL
+ * (spec/areas/network.md#periphery-nodes); it still serves its owner over
+ * HTTPS at its ports, and the dev environment reaches it as any other.
+ *
  * @module
  */
 
@@ -66,15 +70,19 @@ export class ScenarioNode {
   readonly environment: NodeEnvironment;
   /** Environment for this node only, such as the bootstrap nodes. */
   readonly env: Readonly<Record<string, string>>;
+  /** Whether it is set up without its hostname, as a periphery node. */
+  readonly periphery: boolean;
 
   constructor(
     identity: Identity,
     environment: NodeEnvironment,
     env: Readonly<Record<string, string>> = {},
+    periphery = false,
   ) {
     this.identity = identity;
     this.environment = environment;
     this.env = env;
+    this.periphery = periphery;
     this.name = identity.name;
     this.id = identity.id;
     this.key = identity.key;
@@ -209,7 +217,10 @@ export class ScenarioNode {
       certificateChainPem: certificate.certificatePem,
       privateKeyPem: certificate.keyPem,
     });
-    await owner.call("setHostname", { hostname: this.hostname });
+    // A periphery node has no hostname, so no URL: it only dials out.
+    if (!this.periphery) {
+      await owner.call("setHostname", { hostname: this.hostname });
+    }
     const basic = await owner.call("getBasicState", {});
     if (basic.state === NodeState.UNINITIALIZED) {
       await this.#claim();
