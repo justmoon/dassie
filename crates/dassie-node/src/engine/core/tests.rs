@@ -36,6 +36,7 @@ fn core_on(store: Arc<Store>, seed: u64) -> Core {
             quic: false,
         },
         bootstrap: Vec::new(),
+        uplinks: Vec::new(),
     };
     Core::start(parts, NOW).unwrap()
 }
@@ -1365,6 +1366,7 @@ fn a_downlink_that_owes_nothing_is_never_short_of_room() {
                 quic: true,
             },
             bootstrap: Vec::new(),
+            uplinks: Vec::new(),
         },
         NOW,
     )
@@ -1968,6 +1970,7 @@ fn rlusd_core(ledger: &mut dassie_xrpl::fake::FakeLedger) -> Core {
                 quic: true,
             },
             bootstrap: Vec::new(),
+            uplinks: Vec::new(),
         },
         NOW,
     )

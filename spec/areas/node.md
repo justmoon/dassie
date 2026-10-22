@@ -35,6 +35,7 @@ In tests and simulations a commit never holds a broken invariant, so what stops 
 `daemon.rs`. The rules that the order serves:
 
 - **Everything is checked before anything starts.** Every environment variable is read once, from a snapshot (`env.rs`), and a bad value stops the daemon with a message that names it. A daemon that cannot start exits 1 rather than running half-started, and leaves no IPC socket behind.
+- **A setting the node's kind ignores is said at start.** A core node given [pinned uplinks](network.md#pinned-uplinks) warns that it ignores them: they are not wrong, since the node may turn periphery, but an owner who set them meant something the node does not do now.
 - **The database opens, and migrates, before anything is served,** so the copy taken before a migration holds everything a peer has seen ([Database](#database)).
 - **systemd's sockets are taken before the async runtime exists,** while the process has one thread.
 - **The listeners come up first,** before anything that waits for the network, so ACME's HTTP challenge works at the first start.
@@ -75,7 +76,7 @@ A node can keep a QUIC connection open to a relay it chooses, so that clients re
 - The relay keeps the connection as it keeps any it is given, and reaches the node over it. Either node may hold other connections to the other beside it, when it is a peer or a bootstrap node, say: whichever is used, the kept connection stands by and takes over once the others close ([Peer protocol](peer-protocol.md#quic)), so the relay never loses the node while it stays connected.
 - A node never dials itself: one whose `DASSIE_RELAY` names its own node ID keeps no relay connection and says so in its log. The check waits for the node's key, which may come after startup.
 - A node without a QUIC endpoint cannot keep one.
-- A periphery node may keep one beside its uplinks ([Network](network.md#periphery-nodes)), and the relay is not one of them: its connection carries relayed streams, and only a peering makes an uplink. One whose relay is also an uplink holds two connections to it, both kept alive alike, one of them standing by.
+- A periphery node may keep one beside its uplinks ([Network](network.md#periphery-nodes)), whether it finds them itself or its owner [pins them](network.md#pinned-uplinks), and the relay is not one of them: its connection carries relayed streams, and only a peering makes an uplink. One whose relay is also an uplink holds two connections to it, both kept alive alike, one of them standing by.
 - A [front door](http.md#front-doors) is a relay a node chooses so that Open Payments clients reach it at its name under the front door's domain. The front door logs the entry that names it, its key and a URL for its QUIC endpoint (`resources/front-door/`); another front door than the default is named with that entry.
 
 ## Database

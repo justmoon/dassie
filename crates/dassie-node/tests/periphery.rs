@@ -21,7 +21,7 @@ use dassie_node::engine::NewIncoming;
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, request::Method, response};
 use support::btp_client::{BtpClient, pay_stream};
-use support::pair::{CA, bootstrap, key, peered, prepare, until};
+use support::pair::{CA, bootstrap, key, peered, prepare, settle, until};
 use support::{Bound, START_MS, TestNode, set_up};
 
 /// What the uplink's client pays the downlink: within the credit the
@@ -173,6 +173,50 @@ async fn a_periphery_node_is_paid_beneath_its_uplink() {
     // back.
     assert_eq!(owes(&p, &key_a).await, -i128::from(PAYMENT - BACK));
     a.stop().await;
+    p.stop().await;
+}
+
+// spec/areas/network.md#pinned-uplinks: a periphery daemon with
+// `DASSIE_UPLINKS` asks only the node it names, and looks for no other
+// uplink, though it knows the bootstrap node and would ask it too.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pinned_periphery_node_asks_only_its_uplink() {
+    let (key_a, key_b, key_p) = (key(43), key(44), key(45));
+    let (bound_a, bound_b, bound_p) = (Bound::new(), Bound::new(), Bound::new());
+    let nodes = bootstrap(&key_a, bound_a.https_port());
+    let env = [
+        ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
+        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+    ];
+    let pinned = key_b.node_id().to_string();
+    let mut env_p = env.to_vec();
+    env_p.push(("DASSIE_UPLINKS", pinned.as_str()));
+    let clock = ManualClock::new(START_MS);
+    let a = bound_a.start(clock.clone(), 3, Policies::DEV, &env).await;
+    let b = bound_b.start(clock.clone(), 4, Policies::DEV, &env).await;
+    let p = bound_p.start(clock.clone(), 5, Policies::DEV, &env_p).await;
+    prepare(&a, &key_a).await;
+    prepare(&b, &key_b).await;
+    prepare_periphery(&p, &key_p).await;
+    until(&clock, async || {
+        peered(&a, &key_b).await && peered(&b, &key_p).await && peered(&p, &key_b).await
+    })
+    .await;
+    // Time to ask for a second uplink, as an unpinned node would.
+    settle(&clock).await;
+    settle(&clock).await;
+    let at_p = peers(&p).await;
+    assert_eq!(at_p.len(), 1, "{at_p:?}");
+    assert_eq!(at_p[0].node, key_b.node_id().to_string());
+    assert!(
+        !peers(&a)
+            .await
+            .iter()
+            .any(|peer| peer.node == key_p.node_id().to_string())
+    );
+    a.stop().await;
+    b.stop().await;
     p.stop().await;
 }
 

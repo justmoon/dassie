@@ -38,6 +38,12 @@ use membership::Lists;
 /// Most events kept for the driver to poll.
 const MAX_EVENTS: usize = 1024;
 
+/// Most uplinks a periphery node can be pinned to: no more than the
+/// peerings any valid configuration lets it start, since `peer_target` is
+/// at least one and a node starts two more than its target
+/// ([`Config::max_outbound`]).
+pub const MAX_PINNED_UPLINKS: usize = 3;
+
 /// What this node says about itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OwnInfo {
@@ -223,6 +229,9 @@ pub struct PeerNode {
     /// answered (spec/decisions/unreachable-peers.md). Only peers are kept,
     /// so it holds at most one per peering.
     pub(crate) unreached: BTreeSet<NodeId>,
+    /// The only nodes a periphery node asks to be its uplinks, sorted;
+    /// empty for any (spec/areas/network.md#pinned-uplinks).
+    pub(crate) pinned: Vec<NodeId>,
 }
 
 impl PeerNode {
@@ -280,6 +289,7 @@ impl PeerNode {
             unbanned: Vec::new(),
             telling: BTreeMap::new(),
             unreached: BTreeSet::new(),
+            pinned: Vec::new(),
             config,
         };
         node.restore(stored);
@@ -353,6 +363,32 @@ impl PeerNode {
     #[must_use]
     pub fn schemes(&self) -> &[SchemeId] {
         &self.schemes
+    }
+
+    /// Pins the uplinks: while it runs as a periphery node, the node asks
+    /// only these nodes to peer, and looks for as many uplinks as it
+    /// names. Empty for any core node, as usual. A core node does not use
+    /// the list (spec/areas/network.md#pinned-uplinks).
+    ///
+    /// # Panics
+    ///
+    /// With more than [`MAX_PINNED_UPLINKS`], or more than the node may
+    /// start peerings (configuration, not input).
+    pub fn pin_uplinks(&mut self, mut uplinks: Vec<NodeId>) {
+        assert!(
+            uplinks.len() <= MAX_PINNED_UPLINKS && uplinks.len() <= self.config.max_outbound(),
+            "too many pinned uplinks"
+        );
+        uplinks.sort_unstable();
+        uplinks.dedup();
+        self.pinned = uplinks;
+    }
+
+    /// The uplinks the node is pinned to, if it runs as a periphery node
+    /// and has any.
+    #[must_use]
+    pub fn pinned_uplinks(&self) -> Option<&[NodeId]> {
+        (self.is_periphery() && !self.pinned.is_empty()).then_some(self.pinned.as_slice())
     }
 
     /// Moves time on; it never goes back.

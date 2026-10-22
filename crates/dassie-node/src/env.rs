@@ -169,6 +169,10 @@ pub struct Settings {
     /// its default front door name (`DASSIE_PUBLIC_NAMES`, comma-separated;
     /// spec/areas/payments.md#the-nodes-names).
     pub public_names: Vec<Hostname>,
+    /// The only nodes a periphery node asks to be its uplinks, as many as
+    /// it then looks for (`DASSIE_UPLINKS`, node IDs, comma-separated;
+    /// spec/areas/network.md#pinned-uplinks). Empty for any.
+    pub uplinks: Vec<NodeId>,
 }
 
 impl Settings {
@@ -186,6 +190,7 @@ impl Settings {
             peer_allow_private: flag(env, "DASSIE_PEER_ALLOW_PRIVATE")?,
             dev_timings: flag(env, "DASSIE_DEV_TIMINGS")?,
             public_names: public_names(env)?,
+            uplinks: uplinks(env)?,
         })
     }
 }
@@ -286,6 +291,38 @@ fn public_names(env: &Env) -> Result<Vec<Hostname>, EnvError> {
         names.push(name);
     }
     Ok(names)
+}
+
+/// Node IDs, comma-separated, each once, at most
+/// [`dassie_peer::MAX_PINNED_UPLINKS`] of them.
+fn uplinks(env: &Env) -> Result<Vec<NodeId>, EnvError> {
+    let error = |problem: String| EnvError {
+        variable: "DASSIE_UPLINKS",
+        problem,
+    };
+    let Some(text) = env.get("DASSIE_UPLINKS")? else {
+        return Ok(Vec::new());
+    };
+    let mut uplinks: Vec<NodeId> = Vec::new();
+    for entry in text
+        .split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+    {
+        if uplinks.len() == dassie_peer::MAX_PINNED_UPLINKS {
+            return Err(error(format!(
+                "lists more than {} nodes",
+                dassie_peer::MAX_PINNED_UPLINKS
+            )));
+        }
+        let id =
+            NodeId::parse(entry).map_err(|_| error(format!("has an invalid node ID {entry:?}")))?;
+        if uplinks.contains(&id) {
+            return Err(error(format!("lists {id} more than once")));
+        }
+        uplinks.push(id);
+    }
+    Ok(uplinks)
 }
 
 #[derive(Deserialize)]
@@ -444,6 +481,11 @@ mod tests {
             ("DASSIE_PUBLIC_NAMES", "pay.example.com,not a name"),
             ("DASSIE_PUBLIC_NAMES", "pay.example.com,PAY.example.com"),
             ("DASSIE_PUBLIC_NAMES", "192.0.2.1"),
+            ("DASSIE_UPLINKS", "boot1.dassie.xyz"),
+            (
+                "DASSIE_UPLINKS",
+                "dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk,dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk",
+            ),
             ("DASSIE_BOOTSTRAP_NODES", "{"),
             (
                 "DASSIE_BOOTSTRAP_NODES",
@@ -477,6 +519,40 @@ mod tests {
             .join(",");
         assert!(names(&many).is_err());
         let unset = settings(&[("HOME", "/h")]).map(|s| s.public_names.len());
+        assert_eq!(unset, Ok(0));
+    }
+
+    // spec/areas/network.md#pinned-uplinks: node IDs, in their order, at
+    // most as many as a node may be pinned to.
+    #[test]
+    fn uplinks_are_node_ids() {
+        let uplinks = |value: &str| {
+            settings(&[("HOME", "/h"), ("DASSIE_UPLINKS", value)]).map(|s| {
+                s.uplinks
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+            })
+        };
+        let (boot1, boot2) = (
+            "dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk",
+            "dE0GE90-9QCQI78S2_h5QaG81oo_cVKz1",
+        );
+        assert_eq!(uplinks(""), Ok(vec![]));
+        assert_eq!(
+            uplinks(&format!(" {boot2} , {boot1},")),
+            Ok(vec![boot2.to_string(), boot1.to_string()])
+        );
+        let many = [
+            boot1,
+            boot2,
+            "dtTay2e6AV4J940nFJ6_WPkVL-TyrVKGW",
+            "ddTEO6qzWIorLvNGybj0uyK-mhlVJNa-q",
+        ];
+        assert_eq!(many.len(), dassie_peer::MAX_PINNED_UPLINKS + 1);
+        assert!(uplinks(&many.join(",")).is_err());
+        assert!(uplinks(&many[1..].join(",")).is_ok());
+        let unset = settings(&[("HOME", "/h")]).map(|s| s.uplinks.len());
         assert_eq!(unset, Ok(0));
     }
 

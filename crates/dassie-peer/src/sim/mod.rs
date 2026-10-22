@@ -282,6 +282,9 @@ pub struct Network {
     /// Whether the nodes have a QUIC endpoint: core nodes then take
     /// downlinks.
     pub quic: bool,
+    /// The uplinks each node is pinned to, kept across restarts
+    /// (spec/areas/network.md#pinned-uplinks).
+    pub pinned: BTreeMap<usize, Vec<NodeId>>,
 }
 
 impl Network {
@@ -346,6 +349,7 @@ impl Network {
             macs: BTreeMap::new(),
             periphery: (count..count + periphery).collect(),
             quic,
+            pinned: BTreeMap::new(),
         };
         for index in 0..count + periphery {
             let skew = i64::try_from(rng.next_u64() % 20_001).unwrap() - 10_000;
@@ -407,6 +411,9 @@ impl Network {
             now,
         );
         node.set_schemes(now, vec![SchemeId::parse("stub").unwrap()]);
+        if let Some(uplinks) = self.pinned.get(&index) {
+            node.pin_uplinks(uplinks.clone());
+        }
         sim.node = Some(node);
         self.trace.push(format!("{} start {index}", self.now));
     }
@@ -856,6 +863,12 @@ pub fn connected(graph: &BTreeMap<NodeId, Vec<NodeId>>) -> bool {
 }
 
 impl Network {
+    /// Pins node `index` to `uplinks`, now and after each restart.
+    pub fn pin_uplinks(&mut self, index: usize, uplinks: Vec<NodeId>) {
+        self.node_mut(index).pin_uplinks(uplinks.clone());
+        self.pinned.insert(index, uplinks);
+    }
+
     /// Node `index`, which must be running.
     pub fn node_mut(&mut self, index: usize) -> &mut PeerNode {
         self.nodes[index].node.as_mut().unwrap()

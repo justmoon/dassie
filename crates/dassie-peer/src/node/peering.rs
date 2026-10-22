@@ -70,7 +70,7 @@ impl PeerNode {
         let now = self.now_ms;
         if self.peering.check_at_ms <= now {
             self.peering.check_at_ms = now.saturating_add(self.config.peering_check_ms);
-            let wanted = self.confirmed_peers() < self.config.peer_target;
+            let wanted = self.confirmed_peers() < self.peer_target();
             if wanted
                 && self.can_start()
                 && let Some((node, scheme)) = self.pick_candidate(false)
@@ -97,7 +97,7 @@ impl PeerNode {
     /// an attempt answered come with an input, after which the node is
     /// polled again; nothing needs a check every second.
     pub(super) fn next_peer_check(&self) -> Option<u64> {
-        if self.confirmed_peers() >= self.config.peer_target || !self.can_start() {
+        if self.confirmed_peers() >= self.peer_target() || !self.can_start() {
             return None;
         }
         let (now, stale, future) = (self.now_ms, self.config.stale_ms, self.config.max_future_ms);
@@ -110,7 +110,7 @@ impl PeerNode {
                     && self.channel_room(id)
                     && entry.link.as_ref().is_some_and(|link| {
                         link.is_fresh(now, stale, future)
-                            && self.may_ask(link)
+                            && self.may_ask(id, link)
                             && link.schemes.iter().any(|s| self.schemes.contains(s))
                     })
             })
@@ -130,23 +130,40 @@ impl PeerNode {
             && self.core_peers().count() < self.config.max_peers
     }
 
-    /// Whether a node with `link` may be asked to peer: never a periphery
-    /// node; and by a periphery node, only a core node that takes QUIC, on
-    /// which it then reaches its downlink
-    /// (spec/areas/network.md#periphery-nodes).
-    fn may_ask(&self, link: &LinkState) -> bool {
-        !link.periphery && (link.quic || !self.is_periphery())
+    /// Whether `node`, with `link`, may be asked to peer: never a
+    /// periphery node; and by a periphery node, only a core node that
+    /// takes QUIC, on which it then reaches its downlink
+    /// (spec/areas/network.md#periphery-nodes), and one it is pinned to if
+    /// it is pinned to any (spec/areas/network.md#pinned-uplinks).
+    fn may_ask(&self, node: &NodeId, link: &LinkState) -> bool {
+        !link.periphery
+            && (link.quic || !self.is_periphery())
+            && self
+                .pinned_uplinks()
+                .is_none_or(|pinned| pinned.binary_search(node).is_ok())
+    }
+
+    /// How many peers the node looks for: as many as it is pinned to, if
+    /// it is, else the configured target.
+    fn peer_target(&self) -> usize {
+        self.pinned_uplinks()
+            .map_or(self.config.peer_target, <[NodeId]>::len)
     }
 
     /// Peers that count toward the target: advertised ones, confirmed by
     /// a recent message and not held down. A node whose peers went silent,
     /// or flap, looks for others (spec/decisions/peering-lifecycle.md).
     /// Downlinks do not count: they are apart from the core peering slots.
+    /// A node pinned to its uplinks counts only those.
     pub(crate) fn confirmed_peers(&self) -> usize {
+        let pinned = self.pinned_uplinks();
         self.table
-            .values()
-            .filter(|entry| {
-                !entry.is_downlink() && entry.active_peering().is_some() && entry.advertise.on
+            .iter()
+            .filter(|(id, entry)| {
+                !entry.is_downlink()
+                    && entry.active_peering().is_some()
+                    && entry.advertise.on
+                    && pinned.is_none_or(|pinned| pinned.binary_search(id).is_ok())
             })
             .count()
     }
@@ -167,7 +184,7 @@ impl PeerNode {
                 || entry.peer != PeerState::None
                 || entry.peering_at_ms > now
                 || !link.is_fresh(now, stale, future)
-                || !self.may_ask(link)
+                || !self.may_ask(id, link)
                 || self.bans.contains(id)
                 || !self.channel_room(id)
             {

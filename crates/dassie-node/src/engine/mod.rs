@@ -546,6 +546,7 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         peer_rng: node.shared_rng(),
         own_info: own_info(&node),
         bootstrap: node.bootstrap(),
+        uplinks: node.pinned_uplinks(),
     };
     let core = match Core::start(parts, node.now_ms()) {
         Ok(core) => core,
