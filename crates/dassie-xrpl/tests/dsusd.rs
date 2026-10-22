@@ -532,6 +532,7 @@ fn a_payment_with_another_schemes_memo_is_no_settlement() {
         account: address,
         destination: world.address(1),
         amount: Amount::Token(Token::DSUSD.amount(value("4"))),
+        send_max: None,
         fee: FEE_BASE,
         sequence,
         last_ledger_sequence: world.ledger.ledger() + 10,
