@@ -13,7 +13,7 @@ The nodes' IPC sockets live outside the state directory, under `$XDG_RUNTIME_DIR
 
 ## Everything stays on loopback
 
-The dev nodes' keys are public: they are derived from the [vanity table](#vanity-identities) in the repository. So every listener of the dev environment binds loopback only, and nodes run with `--listen 127.0.0.1`. A node's QUIC endpoint has its HTTPS port's number on UDP, so nodes reach each other over QUIC directly; the SNI proxy is for browsers. Nodes reach each other on loopback through `DASSIE_PEER_ALLOW_PRIVATE` ([Peer protocol](peer-protocol.md#outbound-requests)); browsers and the node's peer client map `*.localhost` to loopback, so `dN.localhost` needs no name resolution.
+The dev nodes' keys are public: they are derived from the [vanity table](#vanity-identities) in the repository. So every listener of the dev environment binds loopback only, and nodes run with `--listen 127.0.0.1`. A node's QUIC endpoint has its HTTPS port's number on UDP, so nodes reach each other over QUIC directly; the SNI proxy is for browsers. Each node's [rate feed](rate-feed.md#the-socket) has a UDP port of its own on loopback, `6000+N` (`--feed-listen`), since the default port takes one node per host. Nodes reach each other on loopback through `DASSIE_PEER_ALLOW_PRIVATE` ([Peer protocol](peer-protocol.md#outbound-requests)); browsers and the node's peer client map `*.localhost` to loopback, so `dN.localhost` needs no name resolution.
 
 ### SNI proxy
 

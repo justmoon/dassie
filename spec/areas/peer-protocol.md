@@ -108,7 +108,7 @@ A sender keeps one session per destination, with a random ID and a counter, and 
 
 A node's link state ("node info") is its signed description of itself: its URL, alias, key, the peers it advertises and the schemes it settles with. How it is issued, spread and refreshed is in [Network](network.md#link-states). The signature is pure Ed25519 over the signed bytes as received.
 
-- **Extensions** of unknown type are kept, since the signature covers them, and otherwise ignored. That is how later versions add fields. Type 2, with an empty value, says the node takes QUIC ([Transport](#quic)); type 3, with an empty value, says it is a periphery node, which has no URL ([Network](network.md#periphery-nodes)); type 1 is kept for a post-quantum key ([Versions](#versions)).
+- **Extensions** of unknown type are kept, since the signature covers them, and otherwise ignored. That is how later versions add fields. Type 2, with an empty value, says the node takes QUIC ([Transport](#quic)); type 3, with an empty value, says it is a periphery node, which has no URL ([Network](network.md#periphery-nodes)); type 4, a `UInt16` that is not 0, is the UDP port of the node's [rate feed](rate-feed.md#finding-a-feed) at its URL's host, which only a node with a URL names; type 1 is kept for a post-quantum key ([Versions](#versions)). A node that reads an extension of a known type that breaks its rule, a feed port of another length, say, takes it as absent and still keeps and forwards the link state, as it would one of an unknown type; so adding a type never needs a new protocol version.
 - The alias is an unverified display name.
 
 ### Verification

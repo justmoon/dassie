@@ -64,7 +64,7 @@ The original's layout, kept for operators' habits and docs. Each version is unpa
 
 `resources/systemd`, carried in each bundle, so a version installs its own units. The unit files explain their options.
 
-- `dassie.service` is socket-activated ([Node](node.md#runtimes)) and sandboxed. It requires the HTTP, HTTPS and IPC sockets, and only wants the QUIC socket (UDP 443), which it can go without: an update that brings that unit enables it, and restarting the node starts it. The node reports readiness once its engine works ([Node](node.md#readiness)), and exits if it cannot start the engine. Its readiness timeout bounds how long an update waits for the new node before rolling back.
+- `dassie.service` is socket-activated ([Node](node.md#runtimes)) and sandboxed. It requires the HTTP, HTTPS and IPC sockets, and only wants the QUIC socket (UDP 443) and the rate feed's (UDP 7768, [Rate feed](rate-feed.md#the-socket)), which it can go without: an update that brings such a unit enables it, and restarting the node starts it. The node reports readiness once its engine works ([Node](node.md#readiness)), and exits if it cannot start the engine. Its readiness timeout bounds how long an update waits for the new node before rolling back.
 - `dassie-update.timer` runs `dassie update` daily. An owner who went back to an older version and wants to stay there stops it, since it would move the node forward again.
 - The owner's changes belong in drop-ins, which updates leave alone.
 

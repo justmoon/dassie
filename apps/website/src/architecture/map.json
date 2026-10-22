@@ -330,6 +330,7 @@
         "Owner apps paired by the owner on the node's own machine: each proves a device key on a relayed stream and calls the RPC as the owner until it is revoked",
         "Open Payments over HTTPS and relayed streams: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments, each answer signed with the node key and written under the name the request came through",
         "Exchange rates, fetched from several sources, the fee and spread on what passes between peers, and the price table rebuilt from them and the owner's funds whenever either changes",
+        "A core node's rate feed: the price table, signed once and sent over UDP to every subscriber that proved its address, at most once a second while it changes, with the feed's port in `GET /stats` and the node's link state",
         "Credit to each peer that grows with the fees it earned the node, read from the journal",
         "Simulated as a network of real engine cores, in tests and by `dassie-sim`: each seed draws its nodes, faults and payments, runs them through chaos, then heals the network, which must settle down"
       ]
@@ -424,6 +425,7 @@
       "does": [
         "The wire format and message authentication",
         "The node table, link-state flooding, membership by majority and registration",
+        "Link states that say whether a node takes QUIC, and where a core node's rate feed is",
         "Peering on its own, and routing",
         "Periphery nodes without a URL, which peer only with core nodes as their downlinks, and only with those their owner pinned when it pinned any",
         "Advertising only peers that are alive and not stuck short of room, never ending one for room it could not pay",
@@ -847,6 +849,12 @@
     {
       "f": "node",
       "t": "peer",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "node",
+      "t": "feed",
       "k": "uses",
       "h": true
     },
