@@ -180,7 +180,9 @@ function NodeSettings(): JSX.Element {
   );
 }
 
-/** What passing a packet from one peer to another is charged (spec/decisions/exchange-rates.md). */
+/** What passing a packet from one peer to another is charged
+ * (spec/decisions/exchange-rates.md), and how far the owner's inventory
+ * moves what it converts at (spec/decisions/passive-rebalancing.md). */
 function PeerSettings(): JSX.Element {
   const client = useClient();
   const toast = useToast();
@@ -192,20 +194,28 @@ function PeerSettings(): JSX.Element {
   });
   const [fee, setFee] = createSignal<string>();
   const [spread, setSpread] = createSignal<string>();
+  const [rebalance, setRebalance] = createSignal<string>();
   const [error, setError] = createSignal<string>();
   const shownFee = () =>
     fee() ?? (settings() ? chargeText(settings()!.connectorFeePpm) : "");
   const shownSpread = () =>
     spread() ?? (settings() ? chargeText(settings()!.fxSpreadPpm) : "");
+  const shownRebalance = () =>
+    rebalance() ??
+      (settings() ? chargeText(settings()!.rebalancePpm ?? 0) : "");
   const save = async (event: SubmitEvent) => {
     event.preventDefault();
     setError(undefined);
-    const [feePpm, spreadPpm] = [
+    const [feePpm, spreadPpm, rebalancePpm] = [
       parseCharge(shownFee()),
       parseCharge(shownSpread()),
+      parseCharge(shownRebalance()),
     ];
-    if (feePpm === undefined || spreadPpm === undefined) {
-      setError("A fee or a spread is at most 10%.");
+    if (
+      feePpm === undefined || spreadPpm === undefined ||
+      rebalancePpm === undefined
+    ) {
+      setError("A fee, a spread or a rebalancing is at most 10%.");
       return;
     }
     try {
@@ -213,11 +223,13 @@ function PeerSettings(): JSX.Element {
         settings: {
           connectorFeePpm: feePpm,
           fxSpreadPpm: spreadPpm,
+          rebalancePpm,
         },
       });
       toast({ title: "Peer settings saved" });
       setFee(undefined);
       setSpread(undefined);
+      setRebalance(undefined);
       setVersion((n) => n + 1);
     } catch (failure) {
       setError(describe(failure));
@@ -250,6 +262,19 @@ function PeerSettings(): JSX.Element {
             inputmode="decimal"
             value={shownSpread()}
             onInput={(event) => setSpread(event.currentTarget.value)}
+          />
+        </Field>
+        <Field
+          label="Rebalancing (%)"
+          for={`${id}-rebalance`}
+          hint="How far your holdings move the rate you convert at for peers: up to this much better for what you are short of, and worse for taking it out. 0 converts at the market rate."
+        >
+          <input
+            id={`${id}-rebalance`}
+            data-testid="rebalance-input"
+            inputmode="decimal"
+            value={shownRebalance()}
+            onInput={(event) => setRebalance(event.currentTarget.value)}
           />
         </Field>
         <div class="actions">

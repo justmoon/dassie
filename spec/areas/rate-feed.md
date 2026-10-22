@@ -12,9 +12,9 @@ A core node's public, cheap statement of what it converts at: for each ordered p
 - **Who and when.** The node's ID and public key, a sequence in milliseconds that grows with every feed the node makes, even across a clock that went back, and a time after which the feed no longer counts.
 - **The fee,** in parts per million, as the connector takes it ([Connector](connector.md#fees-and-spread)).
 - **The ledgers,** by ID string, each with its largest packet, in that ledger's units. The IDs are strings rather than the node's closed list of ledgers, so a subscriber reads a feed that names a ledger it does not know, and a new ledger needs no new feed version. The largest packet is per ledger although the node has one value today ([roadmap](../roadmap.md#not-built-yet)), so that per-ledger values need no new version either.
-- **A rate per ordered pair** the node converts between: what one unit in gets out, scaled by 10^15, spread included. A packet that comes in with `amount` goes out with `floor((amount − fee) × rate / 10^15)`. A pair the node does not convert, for want of a fresh rate or an active scheme, is left out; a rate is never zero.
+- **A rate per ordered pair** the node converts between: what one unit in gets out, scaled by 10^15, spread included. A packet of any size that comes in with `amount` goes out with at most `floor((amount − fee) × rate / 10^15)`: each packet pays its own impact on the node's inventory, so how much less it gets depends on its size against the node's value: near target, about `4k` times its share of that value. A pair the node does not convert, for want of a fresh rate, an active scheme or the owner's funds on the way out, is left out; a rate is never zero.
 
-The node is to publish exactly the rates its connector applies, so that a feed says what a packet gets; that is the node service's to keep.
+The node is to publish the rates its connector's price table holds: what a vanishingly small packet gets, at the worst state the packets in flight could leave ([Connector](connector.md#inventory-pricing)). That is the node service's to keep.
 
 ## Wire format
 
@@ -100,4 +100,5 @@ Each node has a band of what it holds, in its ledger's units. A trade never send
 
 ## Decisions
 
+- [passive-rebalancing](../decisions/passive-rebalancing.md): a signed UDP feed with proof of address, rather than rates over HTTPS on request; market makers as periphery nodes.
 - [tigerstyle](../decisions/tigerstyle.md): deterministic, bounded, every decision a value.

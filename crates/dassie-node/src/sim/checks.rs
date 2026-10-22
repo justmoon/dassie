@@ -762,6 +762,7 @@ pub fn check_across(sim: &Sim) -> Result<(), Outcome> {
             check_events(sim).map_err(|problem| Outcome::safety("events", problem)),
             check_received_across(sim)
                 .map_err(|problem| Outcome::safety("received-across", problem)),
+            check_prices(sim).map_err(|problem| Outcome::safety("prices", problem)),
             check_assets(sim).map_err(|problem| Outcome::safety("assets", problem)),
             check_funded(sim).map_err(|problem| Outcome::liveness("funded", problem)),
             check_finished(sim).map_err(|problem| Outcome::liveness("finished", problem)),
@@ -773,8 +774,9 @@ pub fn check_across(sim: &Sim) -> Result<(), Outcome> {
     )
 }
 
-/// What arrived is what was sent at the rates, less what the hops charged;
-/// more only if a hop lost a Fulfill to a crash.
+/// What arrived is what was sent at the rates, moved by the converting
+/// node's curve, less what the hops charged; more only if a hop lost a
+/// Fulfill to a crash.
 fn check_received_across(sim: &Sim) -> Result<(), String> {
     for payment in &sim.payments {
         let into = *sim.settling.ledgers(payment.to).last().unwrap();
@@ -782,11 +784,11 @@ fn check_received_across(sim: &Sim) -> Result<(), String> {
             u128::from(received(sim, payment)),
             u128::from(sent(payment)),
         );
-        let least = match (payment.ledger.asset().code, into.asset().code) {
-            ("USD", "XRP") => sent * 19 / 10,
-            ("XRP", "USD") => sent * 45 / 100,
-            _ => sent * 95 / 100,
-        };
+        let least = u128::from(super::least_across(
+            payment.ledger,
+            into,
+            u64::try_from(sent).unwrap(),
+        ));
         if got < least {
             return Err(format!(
                 "node {} received {got} of node {}'s {sent}, {:?} to {into:?}",
@@ -795,6 +797,21 @@ fn check_received_across(sim: &Sim) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// No node priced a conversion above spot by more than its curve allows,
+/// out of a ledger its owner held nothing on, or better than at what its
+/// owner had posted alone, after any step
+/// (spec/decisions/passive-rebalancing.md).
+fn check_prices(sim: &Sim) -> Result<(), String> {
+    match sim.priced.as_slice() {
+        [] => Ok(()),
+        breaches => Err(format!(
+            "{} prices beyond the curve, the first: {}",
+            breaches.len(),
+            breaches[0]
+        )),
+    }
 }
 
 /// No ledger made or lost an asset, each node's books on the fake ledger

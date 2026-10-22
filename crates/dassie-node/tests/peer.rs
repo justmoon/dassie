@@ -310,28 +310,46 @@ async fn the_peer_settings_are_the_owners() {
     };
     let get = || Method::GetPeerSettings(proto::GetPeerSettingsRequest {});
     assert_eq!(read(owner.call(get()).await), 0);
-    let set = |connector_fee_ppm, fx_spread_ppm| {
+    let set = |connector_fee_ppm, fx_spread_ppm, rebalance_ppm| {
         Method::SetPeerSettings(proto::SetPeerSettingsRequest {
             settings: Some(proto::PeerSettings {
                 connector_fee_ppm,
                 fx_spread_ppm,
+                rebalance_ppm,
             }),
         })
     };
-    assert_eq!(read(owner.call(set(1_000, 2_000)).await), 1_000);
-    for (fee, spread) in [(100_001, 0), (0, 100_001)] {
+    let settings = || async {
+        let Ok(response::Method::GetPeerSettings(reply)) = node.ipc().await.call(get()).await
+        else {
+            panic!("no settings");
+        };
+        let settings = reply.settings.unwrap();
+        (
+            settings.connector_fee_ppm,
+            settings.fx_spread_ppm,
+            settings.rebalance_ppm,
+        )
+    };
+    // The curve is on from the start (spec/decisions/passive-rebalancing.md).
+    assert_eq!(settings().await, (0, 0, Some(50_000)));
+    assert_eq!(
+        read(owner.call(set(1_000, 2_000, Some(30_000))).await),
+        1_000
+    );
+    for (fee, spread, rebalance) in [
+        (100_001, 0, None),
+        (0, 100_001, None),
+        (0, 0, Some(100_001)),
+    ] {
         assert!(
-            owner.call(set(fee, spread)).await.is_err(),
-            "{fee} {spread}"
+            owner.call(set(fee, spread, rebalance)).await.is_err(),
+            "{fee} {spread} {rebalance:?}"
         );
     }
-    let Ok(response::Method::GetPeerSettings(reply)) = owner.call(get()).await else {
-        panic!("no settings");
-    };
-    let settings = reply.settings.unwrap();
-    assert_eq!(
-        (settings.connector_fee_ppm, settings.fx_spread_ppm),
-        (1_000, 2_000)
-    );
+    assert_eq!(settings().await, (1_000, 2_000, Some(30_000)));
+    // Without `k`, the node keeps its own.
+    assert_eq!(read(owner.call(set(3_000, 2_000, None)).await), 3_000);
+    assert_eq!(settings().await, (3_000, 2_000, Some(30_000)));
     node.stop().await;
 }

@@ -49,8 +49,9 @@ export function chargeText(ppm: number): string {
   return `${(ppm / 10_000).toFixed(4).replace(/\.?0+$/, "")}`;
 }
 
-/** A percentage the owner typed for a fee or a spread, in parts per
- * million; `undefined` if it is not one the node takes (0 to 10%). */
+/** A percentage the owner typed for a fee, a spread or the rebalancing, in
+ * parts per million; `undefined` if it is not one the node takes (0 to
+ * 10%). */
 export function parseCharge(text: string): number | undefined {
   const trimmed = text.trim().replace(/%$/, "").trim();
   if (trimmed === "") return 0;

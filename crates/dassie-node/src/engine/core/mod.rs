@@ -31,10 +31,14 @@ mod tests;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use dassie_connector::{Config as ConnectorConfig, Connector, PacketRecord, Rates, TraceEvent};
+use dassie_connector::pricing::MAX_PRICED_LEDGERS;
+use dassie_connector::{
+    Config as ConnectorConfig, Connector, Holding, Inventory, PacketRecord, PriceTable, Rates,
+    TraceEvent,
+};
 use dassie_identity::NodeKey;
 use dassie_ilp::MAX_PACKET_LENGTH;
-use dassie_ledger::{Account, AccountId, Ledger, Name, TraceId};
+use dassie_ledger::{Account, AccountId, AccountName, Ledger, Name, TraceId};
 use dassie_node_core::config::Realm;
 use dassie_stream::BUFFER_LENGTH;
 
@@ -240,7 +244,8 @@ pub struct Core {
     key: Arc<NodeKey>,
     ledger: Ledger,
     connector: Connector,
-    rates: Rates,
+    /// The exchange rates, and what the connector converts at.
+    prices: Prices,
     schemes: BTreeMap<Name, ActiveScheme>,
     /// What the books last kept for each scheme.
     checkpoints: BTreeMap<Name, Checkpoint>,
@@ -310,6 +315,18 @@ pub struct Core {
     sweeps: Sweeps,
     /// What the core reports, until it is handed over.
     events: Events,
+}
+
+/// The exchange rates, and the price table the connector charges transit and
+/// converts at, built from them, the owner's funds on each ledger and the
+/// peer settings (spec/decisions/passive-rebalancing.md).
+#[derive(Debug, Default)]
+struct Prices {
+    rates: Rates,
+    /// Built at the last commit; a table never built is due at once.
+    table: PriceTable,
+    /// Whether what the table is built from changed since.
+    due: bool,
 }
 
 /// When the invariants are swept (spec/decisions/tigerstyle.md).
@@ -396,7 +413,7 @@ impl Core {
             key,
             ledger,
             connector,
-            rates: Rates::new(0),
+            prices: Prices::default(),
             schemes: BTreeMap::new(),
             checkpoints,
             assets: BTreeMap::new(),
@@ -444,10 +461,9 @@ impl Core {
     fn restore(&mut self) -> Result<(), String> {
         let store = Arc::clone(&self.store);
         for (code, rate, as_of_ms) in store.exchange_rates().map_err(text)? {
-            self.rates.set_at(code, rate, as_of_ms);
+            self.prices.rates.set_at(code, rate, as_of_ms);
         }
         self.peer_settings = store.peer_settings().map_err(text)?;
-        self.connector.set_charges(self.peer_settings.charges());
         self.load_tokens(&store).map_err(text)?;
         self.load_schemes(&store)?;
         self.load_incoming()?;
@@ -640,7 +656,8 @@ impl Core {
         }
     }
 
-    /// Moves what changed in memory into the batch.
+    /// Moves what changed in memory into the batch, and builds the prices
+    /// again if what they are built from changed.
     fn stage(&mut self) {
         self.checkpoint_schemes();
         self.take_journal();
@@ -650,7 +667,61 @@ impl Core {
         if stats != self.ledger_stats {
             self.ledger_stats = stats;
             self.changes.ledger = true;
+            self.prices.due = true;
         }
+        let batch = &self.batch;
+        if !(batch.journal.is_empty()
+            && batch.schemes_added.is_empty()
+            && batch.schemes_removed.is_empty())
+        {
+            self.prices.due = true;
+        }
+        self.price_if_due();
+    }
+
+    /// Builds the prices again, if what they are built from changed or a
+    /// rate they use aged out or came of age: the rates, the owner's funds
+    /// on each active ledger, or the peer settings
+    /// (spec/decisions/passive-rebalancing.md).
+    fn price_if_due(&mut self) {
+        if !self.prices.due && self.now_ms < self.prices.table.valid_until_ms() {
+            return;
+        }
+        self.prices.due = false;
+        // What the owner's group holds on each active ledger, posted and in
+        // flight: the table prices each pair at the worst state the packets
+        // in flight can leave.
+        let none = Inventory {
+            ledger: dassie_ledger::LedgerId::StubUsd,
+            owner: AccountId(0),
+            holding: Holding::NONE,
+        };
+        let mut inventories = [none; MAX_PRICED_LEDGERS];
+        let mut count = 0;
+        let ledgers = self.schemes.values().map(|active| active.scheme.ledger());
+        for ledger in ledgers {
+            let Ok(owner) = self.account(ledger, AccountName::EquityOwner) else {
+                continue;
+            };
+            let Some(balance) = self.ledger.group_balance(owner) else {
+                continue;
+            };
+            if let Some(slot) = inventories.get_mut(count) {
+                *slot = Inventory {
+                    ledger,
+                    owner,
+                    holding: Holding::of(&balance),
+                };
+                count += 1;
+            }
+        }
+        self.prices.table = PriceTable::build(
+            &self.prices.rates,
+            inventories.get(..count).unwrap_or_default(),
+            self.peer_settings.pricing(),
+            self.now_ms,
+            self.connector.config().max_rate_age_ms,
+        );
     }
 
     /// Checks the invariants, when a sweep is due: at every commit where
@@ -704,11 +775,12 @@ impl Core {
     /// Takes exchange rates just fetched; live views show them.
     pub fn set_rates(&mut self, rates: &[crate::store::StoredRate]) {
         for &(code, rate, as_of_ms) in rates {
-            if !self.rates.set_at(code, rate, as_of_ms) {
+            if !self.prices.rates.set_at(code, rate, as_of_ms) {
                 self.report(EngineEvent::RateTableFull { code });
             }
         }
         self.changes.ledger = true;
+        self.prices.due = true;
     }
 
     /// Marks the ledgers changed, for what live views show beside them.
@@ -718,7 +790,13 @@ impl Core {
 
     /// The exchange rates the connector converts at.
     pub const fn rates(&self) -> &Rates {
-        &self.rates
+        &self.prices.rates
+    }
+
+    /// What the connector charges transit and converts at, as of the last
+    /// commit (spec/decisions/passive-rebalancing.md).
+    pub const fn price_table(&self) -> &PriceTable {
+        &self.prices.table
     }
 
     /// One ledger account.

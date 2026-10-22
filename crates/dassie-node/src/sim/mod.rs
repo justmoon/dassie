@@ -41,7 +41,11 @@
 //! Runs across currencies (M7c) give some nodes dollars, some XRP and
 //! some both, at a fixed snapshot of rates, one charging a fee and a
 //! spread: BTP clients pay receivers in the other currency, through the
-//! nodes that convert. No ledger makes or loses any asset.
+//! nodes that convert, which price what they convert by their inventory
+//! (spec/decisions/passive-rebalancing.md). No ledger makes or loses any
+//! asset, and after every step no node's price is above spot by more than
+//! its curve allows, takes anything out of a ledger it holds nothing on, or
+//! is better than at what its owner has posted alone.
 //!
 //! Runs on RLUSD settle in the fake ledger's test RLUSD
 //! (spec/areas/xrpl.md#rlusd), alone or across XRP and RLUSD, with both
@@ -273,11 +277,56 @@ pub const RATES: [(&str, u128); 2] = [
 ];
 
 /// What node 1 charges for what passes between its peers, in runs across
-/// currencies: a 1% fee and a 0.5% spread.
+/// currencies: a 1% fee and a 0.5% spread, with the curve every node starts
+/// with.
 pub const CHARGES: PeerSettings = PeerSettings {
     connector_fee_ppm: 10_000,
     fx_spread_ppm: 5_000,
+    rebalance_ppm: dassie_connector::pricing::DEFAULT_REBALANCE_PPM,
 };
+
+/// How far a run across currencies moves a converting node's funds at
+/// most, in tenths of what it started with on each ledger: the payments
+/// carry a few dollars, and the issuer claws back a few, of a hundred.
+const MOST_MOVED_TENTHS: i128 = 1;
+
+/// The least a payment across currencies delivers into `into` for `sent`
+/// from `ledger`: what node 1, which charges, gives with its funds moved
+/// against the payment as far as a run moves them, and the whole payment
+/// priced as one packet there, paying its own impact
+/// (spec/decisions/passive-rebalancing.md), less its fee, and 5% for
+/// packets' rounding and a second hop's fee. The same currency loses only
+/// the 5%.
+pub fn least_across(ledger: LedgerId, into: LedgerId, sent: u64) -> u64 {
+    use dassie_connector::{Holding, Inventory};
+    if ledger.asset().code == into.asset().code {
+        return sent / 100 * 95;
+    }
+    let mut rates = dassie_connector::Rates::new(START);
+    for (code, rate) in RATES {
+        rates.set(code, rate);
+    }
+    let held = |ledger, tenths| Inventory {
+        ledger,
+        owner: dassie_ledger::AccountId(0),
+        holding: Holding {
+            posted: u128::try_from(Settling::deposit(ledger) * tenths / 10).unwrap(),
+            ..Holding::NONE
+        },
+    };
+    let inventories = [
+        held(ledger, 10 + MOST_MOVED_TENTHS),
+        held(into, 10 - MOST_MOVED_TENTHS),
+    ];
+    let pricing = CHARGES.pricing();
+    let max_age_ms = Policies::DEFAULT.connector.max_rate_age_ms;
+    let table =
+        dassie_connector::PriceTable::build(&rates, &inventories, pricing, START, max_age_ms);
+    let net = sent - pricing.charges.fee(sent);
+    let holdings = table.holdings();
+    let delivered = table.convert(ledger, into, sent, net, &holdings, START, max_age_ms);
+    delivered.unwrap() / 100 * 95
+}
 
 /// A node's connection to the fake ledger.
 #[derive(Clone, Copy, Debug)]
@@ -552,6 +601,9 @@ pub struct Sim {
     pub errors: Vec<String>,
     /// Outgoing payments a node refused although its owner could pay them.
     pub refused: Vec<String>,
+    /// Prices a node set beyond what its curve allows
+    /// (spec/decisions/passive-rebalancing.md).
+    pub priced: Vec<String>,
     /// Nodes whose connection to the ledger carries nothing.
     pub ledger_down: BTreeSet<usize>,
     /// The peer protocol's settings.
@@ -690,6 +742,7 @@ impl Sim {
             trace: Vec::new(),
             errors: Vec::new(),
             refused: Vec::new(),
+            priced: Vec::new(),
             ledger_down: BTreeSet::new(),
             peer,
             withdrawn: Vec::new(),
@@ -1037,10 +1090,63 @@ impl Sim {
                 }
             }
         }
+        if self.settling.across() {
+            self.watch_prices(index);
+        }
         for output in outputs {
             self.carry(index, output);
         }
         true
+    }
+
+    /// Checks node `index`'s prices after a step against its own rates and
+    /// books (spec/decisions/passive-rebalancing.md): none above spot by
+    /// more than its `k`, less its spread; none that takes anything out of
+    /// a ledger its owner holds nothing on; and none better than at what is
+    /// posted alone, since no packet in flight may improve a price.
+    fn watch_prices(&mut self, index: usize) {
+        let Some(core) = self.nodes[index].core.as_ref() else {
+            return;
+        };
+        let table = *core.price_table();
+        let pricing = table.pricing();
+        let million = 1_000_000u128;
+        let mut breaches = Vec::new();
+        let mut posted = table.holdings();
+        for holding in &mut posted {
+            holding.debits_pending = 0;
+            holding.credits_pending = 0;
+        }
+        for price in table.prices() {
+            match table.rate(price.from, price.to, 0, 0, &posted) {
+                Ok(rate_e15) if rate_e15 >= price.rate_e15 => {}
+                at_posted => {
+                    breaches.push(format!(
+                        "{price:?} is above {at_posted:?} at what is posted"
+                    ));
+                }
+            }
+            let rate = |ledger: LedgerId| core.rates().get(ledger.asset().code).unwrap();
+            // rate ≤ spot · (1 + k) · (1 − spread) · 10^15, all scale 9,
+            // within the unit the bound loses rounding down twice.
+            let bonus = rate(price.to)
+                * 1_000_000_000_000_000
+                * (million + u128::from(pricing.rebalance_ppm))
+                / rate(price.from);
+            let most =
+                bonus * (million - u128::from(pricing.charges.spread_ppm)) / (million * million);
+            if u128::from(price.rate_e15) > most + 1 {
+                breaches.push(format!("{price:?} is above {most}"));
+            }
+            if core.owner_available(price.to) == 0 {
+                breaches.push(format!("{price:?} takes out of an empty ledger"));
+            }
+        }
+        self.count("price tables checked");
+        for breach in breaches {
+            self.priced
+                .push(format!("{} node {index}: {breach}", self.now));
+        }
     }
 
     /// Keeps what a node reported in the trace, which a replay compares,
@@ -2194,7 +2300,7 @@ pub fn xrpl_account(index: usize) -> dassie_xrpl::AccountId {
 impl Sim {
     /// An outgoing payment across currencies, of a fixed `debit` from
     /// `from`'s first ledger to a receiver on `to`'s last, at no worse than
-    /// 1.9 XRP a dollar, or 0.45 dollars an XRP, or 0.95 dollars a dollar.
+    /// [`least_across`].
     pub fn pay_outgoing_across(&mut self, from: usize, to: usize, debit: u64) {
         let ledger = self.settling.ledgers(from)[0];
         let into = *self.settling.ledgers(to).last().unwrap();
@@ -2213,11 +2319,7 @@ impl Sim {
             incoming = Some(payment);
         });
         let incoming = incoming.unwrap();
-        let receive = match (ledger.asset().code, into.asset().code) {
-            ("USD", "XRP") => debit / 10 * 19,
-            ("XRP", "USD") => debit / 100 * 45,
-            _ => debit / 100 * 95,
-        };
+        let receive = least_across(ledger, into, debit);
         let mut outgoing = None;
         self.step(from, |core| {
             let created = core

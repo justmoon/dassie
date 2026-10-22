@@ -84,9 +84,9 @@ A new owner opens a setup URL, enters a passphrase and chooses a first ledger ([
 
 ### Rate feed and market makers
 
-A core node that converts between ledgers fills up with one asset and runs out of the other, and nothing moves it back. Rebalancing is to be passive: the node publishes what it converts at, and market makers trade through it when that pays. The feed's contract and its sans-IO core are built ([Rate feed](areas/rate-feed.md)), and so is the market maker, `dassie market-maker`, which subscribes to a node's feed, verifies it, pays through the node when its rate and an AMM pool on the XRP Ledger leave a margin, and moves its own funds back through the pool ([Rate feed](areas/rate-feed.md#market-maker)). Not built, in parts that can be built side by side:
+A core node that converts between ledgers fills up with one asset and runs out of the other. Rebalancing is passive ([passive-rebalancing](decisions/passive-rebalancing.md)): the node prices transit by its inventory ([Connector](areas/connector.md#inventory-pricing)), publishes what it converts at, and market makers trade through it when that pays, which moves it back toward its targets. Inventory pricing, the feed's contract and its sans-IO core are built ([Rate feed](areas/rate-feed.md)), and so is the market maker, `dassie market-maker`, which subscribes to a node's feed, verifies it, pays through the node when its rate and an AMM pool on the XRP Ledger leave a margin, and moves its own funds back through the pool ([Rate feed](areas/rate-feed.md#market-maker)). Not built, in parts that can be built side by side:
 
-- **The node's feed service:** a core node publishing its feed from the rates its connector applies, signed with its node key, on a UDP socket of its own (an optional systemd socket, handled as QUIC's is, and its own port when standalone), with the subscriber table and the publish schedule of `dassie-feed`.
+- **The node's feed service:** a core node publishing its feed from its connector's price table, signed with its node key, on a UDP socket of its own (an optional systemd socket, handled as QUIC's is, and its own port when standalone), with the subscriber table and the publish schedule of `dassie-feed`.
 - **Finding a feed:** a link-state extension that names the feed's port, and the port in `GET /stats`, which the market maker reads; until then its config names the port.
 - **The whole loop, end to end:** a core node with XRP and DSUSD skewed to one side, the market maker's two nodes pinned to it, and the fake ledger's pool, run until the core node's holdings move toward balance and the market maker's value at the pool's price grows.
 
@@ -134,7 +134,7 @@ The first four are on `main`; the external review has not happened. Mainnet also
 
 - **A later peer-protocol version** drops the `credit` field of `peeringRequest` and of its response (sent as 0 and ignored), and the one-byte body of the reply to a Fulfill (always `accepted`, kept for older nodes) ([own-fulfills](decisions/own-fulfills.md)).
 - **A post-quantum peer-protocol scheme.** The authentication choice reserves a tag for a scheme on the X-Wing hybrid KEM, and a link-state extension type for its key; neither is built ([Peer protocol](areas/peer-protocol.md#versions), [peer-protocol-v1](decisions/peer-protocol-v1.md)). Signatures and node IDs stay Ed25519.
-- **Credit growth** ([earned-trust](decisions/earned-trust.md)): its share and cap are node constants; owner settings may follow. The spread's gain is not booked per packet and does not count toward growth yet.
+- **Credit growth** ([earned-trust](decisions/earned-trust.md)): its share and cap are node constants; owner settings may follow. What a conversion gains or loses, the spread and the curve's move from spot, is not booked per packet and does not count toward growth yet.
 - **Importing a v0 node's config and BTP tokens** is not planned; it is cheap to add if anyone asks ([database-continuity](decisions/database-continuity.md)).
 - **RLUSD on the public testnet.** The end-to-end tests and the simulations settle in the fake ledger's test RLUSD, whose issuer mints, freezes and claws back on request ([XRPL](areas/xrpl.md#tokens-in-the-fake-ledger)). Two nodes funded by hand, with RLUSD from Ripple, are still to settle on the public testnet, as `xrpl_test.ts` lets XRP be checked there by hand.
 
@@ -163,3 +163,4 @@ Designs that stay future work. The architecture must not preclude them.
 - [ledger-resets](decisions/ledger-resets.md): a lagging server is handled; one that lies needs the validators checked.
 - [default-relay](decisions/default-relay.md): the default relay, until an onboarding asks.
 - [issued-assets](decisions/issued-assets.md): an issued asset on mainnet needs the issuer's conditions decided again; transfer fees.
+- [passive-rebalancing](decisions/passive-rebalancing.md): the rate feed and the market makers.

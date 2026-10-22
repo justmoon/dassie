@@ -107,6 +107,20 @@ pub fn convert(rates: &Rates, from: Asset, to: Asset, amount: u64) -> Option<u64
     } else {
         (rates.get(from.code)?, rates.get(to.code)?)
     };
+    convert_at(from_rate, to_rate, from, to, amount)
+}
+
+/// Converts `amount` of `from` into `to`, rounding down, where the common
+/// base buys `from_rate` of `from` and `to_rate` of `to`. Returns `None` for
+/// a zero rate or a result that does not fit.
+#[must_use]
+pub fn convert_at(
+    from_rate: u128,
+    to_rate: u128,
+    from: Asset,
+    to: Asset,
+    amount: u64,
+) -> Option<u64> {
     // amount / 10^from.scale units of `from` are worth
     // amount * to_rate / from_rate / 10^from.scale units of `to`, which is
     // that times 10^to.scale in `to`'s smallest unit.
@@ -118,7 +132,7 @@ pub fn convert(rates: &Rates, from: Asset, to: Asset, amount: u64) -> Option<u64
         denominator =
             denominator.checked_mul(10u128.checked_pow(u32::from(from.scale - to.scale))?)?;
     }
-    u64::try_from(numerator / denominator).ok()
+    u64::try_from(numerator.checked_div(denominator)?).ok()
 }
 
 #[cfg(test)]

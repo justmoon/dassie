@@ -2,7 +2,8 @@
 //! passes from one peer to another, a spread on what it converts, and nothing
 //! on the owner's own packets. The original charged neither (ACC-3);
 //! registration fees, the gap's other part, are not built
-//! (spec/roadmap.md#registration-fees).
+//! (spec/roadmap.md#registration-fees). What transit converts at is spot,
+//! moved by the owner's inventory (spec/decisions/passive-rebalancing.md).
 
 #![allow(
     clippy::unwrap_used,
@@ -11,9 +12,10 @@
     clippy::panic
 )]
 
+use dassie_connector::pricing::{DEFAULT_REBALANCE_PPM, MAX_REBALANCE_PPM};
 use dassie_connector::sim::*;
 use dassie_connector::{
-    Charges, Config, EndpointId, Forwarded, Outcome, RATE_PRECISION, Responded, convert,
+    Charges, Config, EndpointId, Forwarded, Outcome, Pricing, RATE_PRECISION, Responded, convert,
 };
 use dassie_ilp::ErrorCode;
 use dassie_ledger::{AccountName, LedgerId};
@@ -27,13 +29,19 @@ const USD: LedgerId = LedgerId::StubUsd;
 const XRP: LedgerId = LedgerId::XrplTestnetXrp;
 
 /// Two peers, `done` on USD and `dtwo` on `two`, routed to at
-/// `test.das.done` and `test.das.dtwo`; 1 USD buys 2 XRP.
+/// `test.das.done` and `test.das.dtwo`; 1 USD buys 2 XRP. The owner holds
+/// 10 dollars, and far more in XRP, so dollars are scarce.
 fn harness(two: LedgerId, charges: Charges) -> Harness {
+    harness_holding(two, charges, 1_000_000_000_000_000)
+}
+
+/// As [`harness`], with the owner holding `held` on `two`.
+fn harness_holding(two: LedgerId, charges: Charges, held: u64) -> Harness {
     let mut h = Harness::new(Config::DEFAULT, TRUST);
     h.open_books(USD);
     if two != USD {
         // What it pays out in XRP is the owner's.
-        h.fund(two, 1_000_000_000_000_000);
+        h.fund(two, held);
         h.open_books(two);
     }
     h.add_peer(1, "done", TRUST, 0);
@@ -43,7 +51,7 @@ fn harness(two: LedgerId, charges: Charges) -> Harness {
         .unwrap();
     h.rates.set("USD", 10u128.pow(RATE_PRECISION));
     h.rates.set("XRP", 2 * 10u128.pow(RATE_PRECISION));
-    assert!(h.connector.set_charges(charges));
+    h.pricing.charges = charges;
     h
 }
 
@@ -110,17 +118,94 @@ fn a_rejected_packet_pays_no_fee() {
 
 #[test]
 fn transit_across_ledgers_pays_the_fee_and_the_spread() {
-    let mut h = harness(XRP, FEE);
+    // The owner holds 10 dollars and 20 XRP, worth as much: on target.
+    let mut h = harness_holding(XRP, FEE, 2 * TRUST);
     let packet = prepare("test.das.dtwo.x", 100_000, NOW + 20_000, [1; 32]);
     let sent = forwarded(h.prepare(NOW, ONE, 1, &packet));
-    // 99,000 USD after the fee is 198,000 XRP, less 0.5%.
-    assert_eq!(amount_sent(&h, sent), 197_010);
+    // 99,000 USD after the fee is 198,000 XRP, less 0.5%: 197,010, less a
+    // unit for the packet's own move, a two-hundred-thousandth of the
+    // node's value.
+    assert_eq!(amount_sent(&h, sent), 197_009);
     assert_eq!(h.ledger.pending_transfers().count(), 3);
     h.respond(NOW + 1, TWO, sent.request_id, &fulfill([1; 32]))
         .unwrap();
     assert_eq!(h.net_at(USD, AccountName::RevenueFees), 1_000);
     assert_eq!(h.net_at(USD, AccountName::RevenueFx), 99_000);
-    assert_eq!(h.net_at(XRP, AccountName::ExpensesFx), -197_010);
+    assert_eq!(h.net_at(XRP, AccountName::ExpensesFx), -197_009);
+}
+
+// spec/decisions/passive-rebalancing.md: dollars are scarce, so bringing them
+// in gets the most the curve gives, k above spot; taking them out costs more
+// than spot.
+#[test]
+fn transit_is_priced_by_the_inventory() {
+    // 10 dollars and 60 XRP, worth 30: a quarter in dollars.
+    let mut h = harness_holding(XRP, FEE, 6 * TRUST);
+    let packet = prepare("test.das.dtwo.x", 100_000, NOW + 20_000, [1; 32]);
+    let price = *h.prices(NOW).price(USD, XRP).unwrap();
+    let sent = forwarded(h.prepare(NOW, ONE, 1, &packet));
+    // 99,000 dollar units at 2 XRP, 5% above spot, less 0.5%.
+    assert_eq!(amount_sent(&h, sent), 206_860);
+    assert_eq!(price.convert(99_000), Some(206_860));
+    // The other way, 1,000 XRP units in buy 59/63 of spot, less the fee
+    // and the spread.
+    let packet = prepare("test.das.done.x", 1_000, NOW + 20_000, [2; 32]);
+    let sent = forwarded(h.prepare(NOW, TWO, 2, &packet));
+    let back = amount_sent(&h, sent);
+    assert_eq!(back, 461);
+    let price = *h.prices(NOW).price(XRP, USD).unwrap();
+    assert_eq!(price.convert(990), Some(back));
+}
+
+// spec/decisions/passive-rebalancing.md: a packet is priced at the worst state
+// the packets in flight can leave. One held the other way, out of the
+// ledger this one comes in on, does not make that ledger look scarce, so
+// holding it and rejecting it later gains nothing; one held the same way
+// counts against this one, as if it were fulfilled.
+#[test]
+fn a_held_prepare_never_improves_another_packets_price() {
+    // On target, with no charges.
+    let fresh = || harness_holding(XRP, Charges::NONE, 2 * TRUST);
+    let dollars_in = prepare("test.das.dtwo.x", 1_000_000, NOW + 20_000, [1; 32]);
+    let mut alone = fresh();
+    let sent = forwarded(alone.prepare(NOW, ONE, 1, &dollars_in));
+    let alone_out = amount_sent(&alone, sent);
+    // XRP in and dollars out, held by the next hop.
+    let mut h = fresh();
+    let xrp_in = prepare("test.das.done.x", 10_000_000, NOW + 20_000, [2; 32]);
+    let held = forwarded(h.prepare(NOW, TWO, 1, &xrp_in));
+    let sent = forwarded(h.prepare(NOW, ONE, 2, &dollars_in));
+    let out = amount_sent(&h, sent);
+    assert_eq!(out, alone_out);
+    h.respond(
+        NOW + 1,
+        ONE,
+        held.request_id,
+        &reject(ErrorCode::T04_INSUFFICIENT_LIQUIDITY),
+    )
+    .unwrap();
+    // Dollars in, held: the next dollars in get less.
+    let mut h = fresh();
+    forwarded(h.prepare(NOW, ONE, 1, &dollars_in));
+    let second = prepare("test.das.dtwo.x", 1_000_000, NOW + 20_000, [3; 32]);
+    let sent = forwarded(h.prepare(NOW, ONE, 2, &second));
+    let out = amount_sent(&h, sent);
+    assert!(out < alone_out, "{out} of {alone_out}");
+}
+
+// Nothing converts out of a ledger the owner holds nothing on: the packet
+// may try again once there is some.
+#[test]
+fn nothing_converts_out_of_an_empty_ledger() {
+    let mut h = harness_holding(XRP, FEE, 0);
+    let packet = prepare("test.das.dtwo.x", 100_000, NOW + 20_000, [1; 32]);
+    let Outcome::Respond(length) = h.prepare(NOW, ONE, 1, &packet) else {
+        panic!("forwarded");
+    };
+    assert_eq!(
+        h.reject_written(length).0,
+        ErrorCode::T04_INSUFFICIENT_LIQUIDITY
+    );
 }
 
 #[test]
@@ -169,29 +254,43 @@ fn what_converts_to_nothing_is_refused() {
 }
 
 #[test]
-fn charges_beyond_the_maximum_are_refused() {
-    let mut h = harness(USD, Charges::NONE);
-    let too_much = Charges {
-        fee_ppm: Charges::MAX_PPM + 1,
-        spread_ppm: 0,
+fn pricing_beyond_the_maximum_is_invalid() {
+    let pricing = |fee_ppm, spread_ppm, rebalance_ppm| Pricing {
+        charges: Charges {
+            fee_ppm,
+            spread_ppm,
+        },
+        rebalance_ppm,
     };
-    assert!(!h.connector.set_charges(too_much));
-    assert_eq!(h.connector.charges(), Charges::NONE);
+    let most = Charges::MAX_PPM;
+    assert!(pricing(most, most, MAX_REBALANCE_PPM).is_valid());
+    assert!(!pricing(most + 1, 0, 0).is_valid());
+    assert!(!pricing(0, most + 1, 0).is_valid());
+    assert!(!pricing(0, 0, MAX_REBALANCE_PPM + 1).is_valid());
+    assert!(pricing(0, 0, DEFAULT_REBALANCE_PPM).is_valid());
 }
 
 proptest! {
-    // What the next hop gets is never more than what came in, at the mid
-    // rate, less the fee; the source pays exactly what came in.
+    // What the next hop gets is exactly the curve's rate for the packet,
+    // at most the table's, never more than what came in at the mid rate,
+    // less the fee, and k above it; the source pays exactly what came in.
     #[test]
     fn charges_never_give_away_money(
         amount in 1u64..=Config::DEFAULT.max_packet_amount,
         fee_ppm in 0..=Charges::MAX_PPM,
         spread_ppm in 0..=Charges::MAX_PPM,
+        rebalance_ppm in 0..=MAX_REBALANCE_PPM,
         xrp_rate in 1u128..=1_000 * 10u128.pow(RATE_PRECISION),
+        dollars in 0u64..=1_000_000_000_000,
     ) {
         let charges = Charges { fee_ppm, spread_ppm };
         let mut h = harness(XRP, charges);
+        h.pricing.rebalance_ppm = rebalance_ppm;
+        h.fund(USD, dollars);
         h.rates.set("XRP", xrp_rate);
+        let table = h.prices(NOW);
+        let price = table.price(USD, XRP).copied();
+        let holdings = table.live_holdings(&h.ledger);
         let source = h.ledger.find(&dassie_ledger::AccountPath::new(
             USD,
             AccountName::AssetsInterledger(dassie_ledger::Name::new("done").unwrap()),
@@ -209,8 +308,19 @@ proptest! {
         };
         let out = amount_sent(&h, sent);
         let fee = charges.fee(amount);
-        let mid = convert(&h.rates, USD.asset(), XRP.asset(), amount - fee).unwrap();
-        prop_assert!(out <= mid);
+        let net = amount - fee;
+        let max_age_ms = Config::DEFAULT.max_rate_age_ms;
+        let expected = table.convert(USD, XRP, amount, net, &holdings, NOW, max_age_ms);
+        prop_assert_eq!(expected, Ok(out));
+        prop_assert!(price.and_then(|price| price.convert(net)) >= Some(out));
+        // Spot, k above it: net · xrp_rate / 10^15 · (1 + k).
+        let most = u128::from(net) * xrp_rate * u128::from(1_000_000 + rebalance_ppm)
+            / (10u128.pow(RATE_PRECISION) * 1_000_000);
+        prop_assert!(u128::from(out) <= most);
+        if rebalance_ppm == 0 {
+            let mid = convert(&h.rates, USD.asset(), XRP.asset(), net).unwrap();
+            prop_assert!(out <= mid);
+        }
         prop_assert!(out > 0);
         h.respond(NOW + 1, TWO, sent.request_id, &fulfill([1; 32])).unwrap();
         prop_assert_eq!(before - h.net(source), i128::from(amount));

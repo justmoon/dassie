@@ -17,7 +17,11 @@ use alloc::format;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::{Config, Connector, EndpointId, Outcome, Rates, Responded, Upstream};
+use crate::pricing::DEFAULT_REBALANCE_PPM;
+use crate::{
+    Charges, Config, Connector, EndpointId, Holding, Inventory, Outcome, PriceTable, Pricing,
+    Rates, Responded, Upstream,
+};
 use dassie_ilp::{
     Address, ErrorCode, Fulfill, MAX_PACKET_LENGTH, Prepare, Reject, Response, Timestamp,
     condition_for,
@@ -43,6 +47,9 @@ pub struct Harness {
     pub ledger: Ledger,
     /// Its exchange rates.
     pub rates: Rates,
+    /// What the owner set for transit: no charges, and the curve a new
+    /// node starts with.
+    pub pricing: Pricing,
     /// Where it writes packets.
     pub buffer: Vec<u8>,
     /// The owner's pool.
@@ -78,6 +85,10 @@ impl Harness {
             connector: Connector::new(config, OWN),
             ledger,
             rates: Rates::new(NOW),
+            pricing: Pricing {
+                charges: Charges::NONE,
+                rebalance_ppm: DEFAULT_REBALANCE_PPM,
+            },
             buffer: vec![0; MAX_PACKET_LENGTH],
             owner,
             journal: Vec::new(),
@@ -120,17 +131,44 @@ impl Harness {
         request_id: u32,
         packet: &[u8],
     ) -> Outcome {
+        let prices = self.prices(now);
         let outcome = self.connector.handle_prepare(
             now,
             from,
             request_id,
             packet,
             &mut self.ledger,
-            &self.rates,
+            &prices,
             &mut self.buffer,
         );
         self.check();
         outcome
+    }
+
+    /// The price table at `now`, from the rates, the pricing and what the
+    /// owner's group holds on each ledger whose books are open, as the node
+    /// builds it.
+    pub fn prices(&self, now: u64) -> PriceTable {
+        let inventories: Vec<Inventory> = LedgerId::ALL
+            .into_iter()
+            .filter_map(|ledger| self.inventory(ledger))
+            .collect();
+        let max_age_ms = self.connector.config().max_rate_age_ms;
+        PriceTable::build(&self.rates, &inventories, self.pricing, now, max_age_ms)
+    }
+
+    /// The owner's group on `ledger`, if its books are open, and what it
+    /// holds.
+    pub fn inventory(&self, ledger: LedgerId) -> Option<Inventory> {
+        let owner = self
+            .ledger
+            .find(&AccountPath::new(ledger, AccountName::EquityOwner))?;
+        let balance = self.ledger.group_balance(owner)?;
+        Some(Inventory {
+            ledger,
+            owner,
+            holding: Holding::of(&balance),
+        })
     }
 
     /// Handles a response, and says where it goes on.

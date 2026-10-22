@@ -12,7 +12,7 @@ The node that asked to peer takes the risk at first, and trust grows only from w
 
 - **Roles.** The node whose request was accepted is the **junior**, the node that accepted it the **senior**. The junior extends the default credit line; the senior extends nothing, so the junior pays in advance and can still be paid at once.
 - **Growth by a share k of what a peer earned us.** A packet comes in through one peer and leaves through another, so it counts toward both: k must stay at most 50% so that the credit a node hands out never exceeds what it earned. k is 10%, for a margin.
-- **What counts is the fee,** toward each peer of the packet on whose ledger the fee was booked. A packet that converts counts toward the peer it came from only: counting its fee toward the other would need our exchange rates. The spread's gain is not booked per packet, and does not count.
+- **What counts is the fee,** toward each peer of the packet on whose ledger the fee was booked. A packet that converts counts toward the peer it came from only: counting its fee toward the other would need our exchange rates. What a conversion gains or loses, the spread and the curve's move from spot ([passive-rebalancing](passive-rebalancing.md)), is not booked per packet, and does not count.
 - **A cap,** counted in the largest packet like every threshold of a link ([thresholds-in-packets](thresholds-in-packets.md)).
 - **Measured from the books,** never kept in counters, so a crash can forget fees not read yet but credits none twice.
 - **Nothing is announced** ([own-fulfills](own-fulfills.md)): more credit only means the creditor asks later.

@@ -2,7 +2,9 @@
  * End to end (spec/areas/testing.md#end-to-end): the `cross-currency`
  * scenario settles and reconciles across restarts. d1 has dollars (stub),
  * d3 has XRP (the fake ledger), and d2 has both, charging a fee and a
- * spread on what it passes between them. The rates are the scenario's own.
+ * spread on what it passes between them, and pricing it by what it holds
+ * (spec/decisions/passive-rebalancing.md). The rates are the scenario's
+ * own.
  *
  * d1 pays d3's payment pointer, whose ledger is XRP: the quote measures
  * the path's rate, d1 pays from its dollars, d2 converts them, and d3
@@ -38,6 +40,8 @@ const TOLERANCE = 100_000n;
 /** d2's fee, 1%, and spread, 0.5%. */
 const FEE_PPM = 10_000;
 const SPREAD_PPM = 5_000;
+/** d2's k, 5%, the curve every node starts with. */
+const REBALANCE_PPM = 50_000;
 const PORT_OFFSET = SCENARIO_PORT_OFFSET + 500;
 
 const missing = await missingScenarioTools();
@@ -157,6 +161,7 @@ test("cross-currency pays across assets, and reconciles across restarts", {
       settings: {
         connectorFeePpm: FEE_PPM,
         fxSpreadPpm: SPREAD_PPM,
+        rebalancePpm: REBALANCE_PPM,
       },
     });
 
@@ -181,11 +186,15 @@ test("cross-currency pays across assets, and reconciles across restarts", {
     assertEquals(quote.ledger, USD);
     assertEquals(quote.receiveAmount?.assetCode, "XRP");
     assertEquals(quote.receiveAmount?.value, RECEIVE);
-    // 2 XRP a dollar, less d2's 1% and 0.5%, and STREAM's 1%: a little
-    // over 2.05 dollars.
+    // d2 holds 100 dollars and 999 XRP, worth 499.5: dollars are a sixth
+    // of what it holds, far short of half, so it takes them in at the most
+    // the curve gives, 5% above spot. 2 XRP a dollar, 5% more, less d2's
+    // 1% and 0.5%, and STREAM's 1%: a little over 1.95 dollars. The
+    // payment moves d2's holdings by a few dollars, which keeps the bonus
+    // at its cap.
     assert(
-      quote.debitAmount > 2_050_000_000n &&
-        quote.debitAmount < 2_060_000_000n,
+      quote.debitAmount > 1_950_000_000n &&
+        quote.debitAmount < 1_960_000_000n,
       `${quote.debitAmount}`,
     );
 

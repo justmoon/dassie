@@ -377,7 +377,7 @@ impl Core {
 
     /// What the owner may spend on `ledger` now: the owner's group's posted
     /// credits less its debits, posted and pending.
-    fn owner_available(&self, ledger: LedgerId) -> u64 {
+    pub fn owner_available(&self, ledger: LedgerId) -> u64 {
         self.account(ledger, AccountName::EquityOwner)
             .ok()
             .and_then(|owner| self.ledger.group_balance(owner))

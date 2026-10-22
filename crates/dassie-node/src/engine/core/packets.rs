@@ -183,7 +183,7 @@ impl Core {
             request_id,
             packet,
             &mut self.ledger,
-            &self.rates,
+            &self.prices.table,
             &mut self.out,
         );
         match outcome {
@@ -571,7 +571,7 @@ impl Core {
                 local,
                 self.scratch.get(..transmit.length).unwrap_or_default(),
                 &mut self.ledger,
-                &self.rates,
+                &self.prices.table,
                 &mut self.out,
             );
             self.transmitted(now, ledger, outcome, local, transmit.request_id, id);

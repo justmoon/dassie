@@ -21,7 +21,8 @@
 //! - linked transfers are all or none (ILP-5, through the ledger);
 //! - the owner's own endpoints never convert, and only transit from one
 //!   peer to another is charged a fee and a spread
-//!   (spec/decisions/exchange-rates.md);
+//!   (spec/decisions/exchange-rates.md), and priced by the owner's
+//!   inventory (spec/decisions/passive-rebalancing.md);
 //! - ILDCP answers the address that is routed and the endpoint's asset
 //!   (ILP-7, NET-24, NET-25);
 //! - outgoing request IDs are unique per endpoint (ILP-8);
@@ -44,6 +45,7 @@ mod config;
 mod connector;
 mod endpoint;
 mod fx;
+pub mod pricing;
 #[cfg(feature = "sim")]
 pub mod sim;
 mod trace;
@@ -56,7 +58,8 @@ pub use connector::{
     RoutesError, Stats, Upstream,
 };
 pub use endpoint::{EndpointError, EndpointId};
-pub use fx::{RATE_PRECISION, Rates, convert};
+pub use fx::{RATE_PRECISION, Rates, convert, convert_at};
+pub use pricing::{Holding, Holdings, Inventory, Price, PriceError, PriceTable, Pricing};
 pub use trace::{MAX_TRACED_ADDRESS, PacketRecord, PacketState, TraceEvent};
 
 /// A packet's pending transfers: the first debits the source's account;
