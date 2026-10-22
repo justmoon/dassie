@@ -34,6 +34,7 @@ Once set up, the wallet asks you for a first ledger:
 
 - **Stub** settles nothing, but gives you 100 test USD to play with.
 - **XRP Ledger Testnet** settles in test XRP. The testnet faucet funds the node's account. Over RPC, it is `addSettlementScheme` with `xrpl-testnet`, and an optional JSON config naming another `server` or `faucet`.
+- **RLUSD** and **DSUSD on the XRP Ledger Testnet** settle in a test dollar token from the same account, which pays their fees in XRP: `xrpl-testnet-rlusd` in Ripple's RLUSD, and `xrpl-testnet-dsusd` in DSUSD, Dassie's own testnet dollar, which you buy with test XRP on the testnet's XRP/DSUSD pool.
 
 From there, the wallet sends and receives payments, shows their status and your activity, and manages everything below.
 

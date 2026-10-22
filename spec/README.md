@@ -62,7 +62,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [Peer protocol](areas/peer-protocol.md) | The wire protocol between nodes: transport, envelope, messages, authentication, replay, link states |
 | [Network](areas/network.md) | The node table, flooding, membership and registration, bootstrap nodes, peering and its lifecycle, routing |
 | [Settlement](areas/settlement.md) | Settlement schemes, external assets, credit and its growth, thresholds, settling on request, settlement channels |
-| [XRPL](areas/xrpl.md) | The XRP Ledger testnet account, the XRP and RLUSD schemes on it, and the fake ledger |
+| [XRPL](areas/xrpl.md) | The XRP Ledger testnet account, the XRP scheme and the token scheme (RLUSD, DSUSD) on it, and the fake ledger |
 | [Payments](areas/payments.md) | Open Payments: wallet addresses, GNAP, incoming and outgoing payments, quotes, the owner's Send |
 | [Rate feed](areas/rate-feed.md) | A core node's signed UDP feed of the rates it converts at: wire format, signing, the subscriber table and its cookies, when to publish |
 | [Node](areas/node.md) | The daemon: runtime, startup, configuration, environment, CLI, persistence, secrets, logging |

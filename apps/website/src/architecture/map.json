@@ -103,8 +103,8 @@
       "does": [
         "Setup and login",
         "Accounts and ledgers, sending and receiving, payment status and activity",
-        "Deposit pages like an exchange's: the address as a QR code, what to send, and a button for testnet XRP from the faucet; for RLUSD, both the token and the XRP its fees need, at the same address",
-        "A page of what the node holds outside its books, as the ledger reports it: its XRP and reserve, its RLUSD line, and whether the issuer froze it",
+        "Deposit pages like an exchange's: the address as a QR code, what to send, and a button for testnet XRP from the faucet; for RLUSD and DSUSD, both the token and the XRP its fees need, at the same address, and that DSUSD is bought with XRP on the testnet's pool",
+        "A page of what the node holds outside its books, as the ledger reports it: its XRP and reserve, its token lines, and whether an issuer froze one",
         "Wallet addresses and payment requests for Open Payments",
         "The consent page for apps, the apps it has let in, and their grants",
         "The network as the node routes over it, its peers online and offline, bans, and the node's settings",
@@ -205,7 +205,7 @@
         "Builds the binary, starts the nodes on `dN.localhost` and restarts them when the Rust code changes",
         "An SNI proxy on port 443, local certificates, vanity node identities, a rates server",
         "Sets nodes up through their own RPC, the same way the end-to-end tests do",
-        "The scenario library: one node, two, six, the XRP Ledger ones, and RLUSD that the fake ledger's issuer mints each node"
+        "The scenario library: one node, two, six, the XRP Ledger ones, and RLUSD or DSUSD that the fake ledger's issuers mint each node"
       ]
     },
     "e2e": {
@@ -376,20 +376,20 @@
       "x": 20,
       "y": 576,
       "w": 184,
-      "desc": "The node's XRP Ledger testnet account and the two settlement schemes on it, one in XRP and one in RLUSD, Ripple's dollar token: the wallet, the transaction codec, the rippled API, the account that connects, signs and follows the ledger, and the schemes that book what the account tells them. A fake ledger serves the tests and the dev network, with test RLUSD from an issuer of its own.",
+      "desc": "The node's XRP Ledger testnet account and the settlement schemes on it: one in XRP, and a token scheme in a dollar token, run in RLUSD, Ripple's, and in DSUSD, Dassie's own testnet dollar. Also the wallet, the transaction codec, the rippled API, the account that connects, signs and follows the ledger, and the schemes that book what the account tells them. A fake ledger serves the tests and the dev network, with test RLUSD and DSUSD from issuers of its own.",
       "does": [
         "Derives the node's XRP Ledger wallet from its key, so the same phrase finds the same funds",
         "Keeps one connection per account, and hands out its sequences so schemes on it never take the same one",
         "Signs Payments byte for byte as `xrpl.js` does, and writes token Payments and TrustSets the same way",
         "Reads token amounts exactly, and a trust line, its flags and its issuer from either side",
         "Books every validated transaction once: settlements, deposits, withdrawals and fees",
-        "Settles in RLUSD on a trust line it sets up itself, booked in dollars by what reaches the line, the issuer's clawbacks included",
-        "Pays the RLUSD scheme's fees in XRP: booked on the XRP ledger when both schemes share the account, off the books otherwise",
+        "Settles in a dollar token, RLUSD or DSUSD, on a trust line it sets up itself, booked in dollars by what reaches the line, the issuer's clawbacks included",
+        "Pays a token scheme's fees in XRP: booked on the XRP ledger when the XRP scheme shares the account, off the books otherwise",
         "Stops settling while the issuer freezes the line, and stops asking peers to pay while the line cannot receive",
         "Never books the reserve, and catches up after a restart",
         "Asks the testnet faucet when the account is new, or when the owner wants more test XRP",
         "Reports what the account holds, as the ledger says, for the wallet: XRP and its reserve, and each line with its freezes",
-        "Fakes the ledger for tests: XRP, trust lines, token payments through the issuer and their failures, and an issuer that mints, freezes and claws back"
+        "Fakes the ledger for tests: XRP, trust lines, token payments through the issuer and their failures, and issuers of RLUSD and DSUSD that mint, freeze and claw back"
       ]
     },
     "settlement": {
