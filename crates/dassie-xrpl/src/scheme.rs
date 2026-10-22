@@ -17,8 +17,9 @@
 //!
 //! After each, what the books hold must be the account's balance less its
 //! reserve; any difference (a reserve change, a balance below the reserve)
-//! is reconciled through `equity/suspense`. The reserve itself is never
-//! booked, so it is never spent (ACC-19). Settlements are whole drops
+//! is reconciled through `equity/suspense`, the part a change of the
+//! reserve explains as the reserve's. The reserve itself is never booked,
+//! so it is never spent (ACC-19). Settlements are whole drops
 //! (ACC-21), failures are checked (ACC-22), and an account created by a
 //! payment is a deposit like any other (ACC-20).
 //!
@@ -35,7 +36,8 @@ use core::any::Any;
 
 use dassie_ledger::{LedgerId, MAX_TOTAL, Name};
 use dassie_settlement::{
-    AssetId, Effect, ExternalAsset, LedgerStatus, PreparedSettlement, SchemeError, SettlementScheme,
+    AssetId, Effect, ExternalAsset, LedgerStatus, PreparedSettlement, ReconcileCause, SchemeError,
+    SettlementScheme,
 };
 use rand_core::CryptoRng;
 use serde_json::{Value, json};
@@ -143,6 +145,11 @@ pub struct XrplScheme {
     owner_count: u32,
     /// The reserve, base and per owned object, in drops.
     reserve: (u64, u64),
+    /// The reserve the books were last matched to, in drops: at the next
+    /// match, what a change from it makes is the reserve's. Unknown until
+    /// the first match after a start or a write-off, which explains
+    /// nothing.
+    matched_reserve: Option<u64>,
     validated: u32,
     /// Told that the account is synced, since it was last written off.
     synced: bool,
@@ -174,6 +181,7 @@ impl XrplScheme {
             balance: None,
             owner_count: 0,
             reserve: (0, 0),
+            matched_reserve: None,
             validated: 0,
             synced: false,
         };
@@ -278,24 +286,42 @@ impl XrplScheme {
             effects.push(Effect::Reconcile {
                 amount: self.booked,
                 gain: false,
+                cause: ReconcileCause::Unexplained,
             });
             self.booked = 0;
         }
         self.cursor = None;
         self.balance = None;
+        self.matched_reserve = None;
         self.synced = false;
     }
 
-    /// Makes the books match the balance less the reserve.
+    /// Makes the books match the balance less the reserve. What the books
+    /// would hold had the reserve not changed since the last match, and
+    /// they do not, is unexplained; the rest, from there to the balance
+    /// less the reserve now, is the reserve's change, which explains no
+    /// more than the books hold above zero.
     fn match_balance(&mut self, effects: &mut Vec<Effect>) {
         let Some(balance) = self.balance else {
             return;
         };
-        let target = self.bookable(balance, self.owner_count);
+        let reserve = self.reserve_drops(self.owner_count);
+        let target = units(balance.saturating_sub(reserve));
+        let unchanged = self
+            .matched_reserve
+            .map_or(target, |matched| units(balance.saturating_sub(matched)));
+        self.reconcile_to(unchanged, ReconcileCause::Unexplained, effects);
+        self.reconcile_to(target, ReconcileCause::Reserve, effects);
+        self.matched_reserve = Some(reserve);
+    }
+
+    /// Makes the books hold `target`, through suspense, for `cause`.
+    fn reconcile_to(&mut self, target: u64, cause: ReconcileCause, effects: &mut Vec<Effect>) {
         if target != self.booked {
             effects.push(Effect::Reconcile {
                 amount: target.abs_diff(self.booked),
                 gain: target > self.booked,
+                cause,
             });
             self.booked = target;
         }
@@ -390,6 +416,7 @@ impl XrplScheme {
             effects.push(Effect::Reconcile {
                 amount: narrow(-booked),
                 gain: true,
+                cause: ReconcileCause::Unexplained,
             });
         }
     }

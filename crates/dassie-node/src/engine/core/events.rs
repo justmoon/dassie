@@ -8,7 +8,7 @@ use dassie_connector::{EndpointId, SpendingCap};
 use dassie_identity::NodeId;
 use dassie_ledger::{LedgerId, Name, Reference, TransferError};
 use dassie_peer::SendError;
-use dassie_settlement::{LedgerStatus, SchemeError};
+use dassie_settlement::{LedgerStatus, ReconcileCause, SchemeError};
 
 use super::EngineError;
 use crate::store::{OutgoingState, PaymentId};
@@ -210,6 +210,7 @@ pub enum SettlementEvent {
         amount: u64,
     },
     /// The underlying ledger differed from the books, which now follow it.
+    /// Expected when its reserve changed, and a warning otherwise.
     Reconciled {
         /// The scheme.
         scheme: Name,
@@ -217,6 +218,8 @@ pub enum SettlementEvent {
         amount: u64,
         /// Whether the books gained.
         gain: bool,
+        /// What the scheme takes the difference to come from.
+        cause: ReconcileCause,
     },
     /// A scheme's message to a peer could not be sent.
     MessageNotSent {
@@ -423,8 +426,17 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
         SettlementEvent::BalanceBooked { .. }
         | SettlementEvent::Settling { .. }
         | SettlementEvent::Reconciling { .. }
-        | SettlementEvent::PeerSettled { .. } => Severity::Info,
-        SettlementEvent::Reconciled { .. }
+        | SettlementEvent::PeerSettled { .. }
+        // The books follow what is above the reserve: a change of it is
+        // expected.
+        | SettlementEvent::Reconciled {
+            cause: ReconcileCause::Reserve,
+            ..
+        } => Severity::Info,
+        SettlementEvent::Reconciled {
+            cause: ReconcileCause::Unexplained,
+            ..
+        }
         | SettlementEvent::DepositFromStranger { .. }
         | SettlementEvent::BooksCannotSettle { .. }
         | SettlementEvent::SchemeUnavailable { .. }

@@ -2629,7 +2629,8 @@ mod tests {
                 assert_eq!(account.status(), LedgerStatus::Unfunded);
                 assert!(effects.contains(&Effect::Reconcile {
                     amount: 5_000,
-                    gain: false
+                    gain: false,
+                    cause: dassie_settlement::ReconcileCause::Unexplained,
                 }));
             }
             account.check_invariants();

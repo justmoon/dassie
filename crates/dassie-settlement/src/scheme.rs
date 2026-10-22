@@ -61,16 +61,30 @@ pub enum Effect {
         /// The transaction.
         id: Name,
     },
-    /// The underlying ledger holds more or less than the books say, for
-    /// no reason the scheme can name, such as a change of reserve: the
+    /// The underlying ledger holds more or less than the books say, for a
+    /// reason they have no entry for, such as a change of reserve: the
     /// difference goes through `equity/suspense`, recorded whatever the
-    /// owner's funds.
+    /// owner's funds. Its cause changes only how it is reported.
     Reconcile {
         /// How much, in internal units.
         amount: u64,
         /// Whether the ledger holds more than the books.
         gain: bool,
+        /// What the scheme takes the difference to come from.
+        cause: ReconcileCause,
     },
+}
+
+/// What a scheme takes a reconciliation to come from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReconcileCause {
+    /// The ledger's reserve changed: what it holds back per account or per
+    /// object, or how many objects the account owns, such as a trust line
+    /// opened. Expected: the books follow what is above the reserve.
+    Reserve,
+    /// Anything else: a difference the scheme cannot explain, books short
+    /// of what a transaction took, or an account written off.
+    Unexplained,
 }
 
 /// How a scheme stands with its underlying ledger, for the owner.

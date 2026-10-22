@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use dassie_ledger::Name;
 use dassie_node_core::testing::SeededRng;
-use dassie_settlement::{LedgerInput, LedgerStatus, SchemeError};
+use dassie_settlement::{LedgerInput, LedgerStatus, ReconcileCause, SchemeError};
 use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, RESERVE_BASE};
 use dassie_xrpl::scheme::MEMO_TYPE;
 use support::{Effect, XrplScheme};
@@ -33,6 +33,8 @@ struct Books {
     credited: BTreeSet<Name>,
     finalized: Vec<Name>,
     cancelled: Vec<Name>,
+    /// Each reconciliation, in order: what the books gained, and why.
+    reconciled: Vec<(i128, ReconcileCause)>,
 }
 
 struct Node {
@@ -176,7 +178,11 @@ impl World {
                     books.settlement -= i128::from(amount);
                     books.owner -= i128::from(amount);
                 }
-                Effect::Reconcile { amount, gain } => {
+                Effect::Reconcile {
+                    amount,
+                    gain,
+                    cause,
+                } => {
                     let amount = if gain {
                         i128::from(amount)
                     } else {
@@ -184,6 +190,7 @@ impl World {
                     };
                     books.settlement += amount;
                     books.suspense += amount;
+                    books.reconciled.push((amount, cause));
                 }
                 Effect::Fee { amount, .. } => {
                     books.settlement -= i128::from(amount);
@@ -494,16 +501,76 @@ fn a_short_history_reconciles_by_the_balance() {
     world.closes(1);
     assert_eq!(world.nodes[0].books.suspense, 4_000_000_000);
     assert!(world.nodes[0].books.credited.is_empty());
+    // Nothing the scheme can name: a warning.
+    assert_eq!(
+        world.nodes[0].books.reconciled,
+        [(4_000_000_000, ReconcileCause::Unexplained)]
+    );
 }
 
-// A reserve change moves what is spendable: reconciled at once.
+// A reserve change moves what is spendable: reconciled at once, as the
+// reserve's, which is expected.
 #[test]
 fn a_new_reserve_is_reconciled() {
     let (mut world, _, _) = funded_pair();
+    assert!(world.nodes[0].books.reconciled.is_empty());
     world.ledger.set_reserve(2 * RESERVE_BASE, 0);
     world.close();
     let reserve = i128::from(RESERVE_BASE * UNITS_PER_DROP);
     assert_eq!(world.nodes[0].books.suspense, -reserve);
+    assert_eq!(
+        world.nodes[0].books.reconciled,
+        [(-reserve, ReconcileCause::Reserve)]
+    );
+}
+
+// A reserve above the balance explains what the books hold, and no more:
+// they never hold less than nothing. Lowered again, it explains what comes
+// back.
+#[test]
+fn a_reserve_above_the_balance_explains_down_to_nothing() {
+    let (mut world, _, _) = funded_pair();
+    let held = i128::from(world.nodes[0].scheme.balance());
+    assert!(held > 0);
+    world.ledger.set_reserve(2 * FAUCET_DROPS, 0);
+    world.close();
+    assert_eq!(world.nodes[0].scheme.balance(), 0);
+    world.ledger.set_reserve(RESERVE_BASE, 0);
+    world.close();
+    assert_eq!(
+        world.nodes[0].books.reconciled,
+        [
+            (-held, ReconcileCause::Reserve),
+            (held, ReconcileCause::Reserve)
+        ]
+    );
+}
+
+// A reserve change and a difference the scheme cannot name, met in one
+// match: each is reconciled for its own part, and together they make the
+// books match the balance.
+#[test]
+fn a_reserve_change_is_told_from_an_unexplained_difference() {
+    let (mut world, _, state_b) = funded_pair();
+    world.disconnect(0);
+    world.settle(1, 0, 4_000_000_000, &state_b);
+    world.closes(3);
+    world.ledger.forget_history();
+    world.ledger.set_reserve(2 * RESERVE_BASE, 0);
+    world.connect(0);
+    world.closes(1);
+    let reserve = i128::from(RESERVE_BASE * UNITS_PER_DROP);
+    let books = &world.nodes[0].books;
+    assert_eq!(books.suspense, 4_000_000_000 - reserve);
+    let mut reconciled = books.reconciled.clone();
+    reconciled.sort_by_key(|(amount, _)| *amount);
+    assert_eq!(
+        reconciled,
+        [
+            (-reserve, ReconcileCause::Reserve),
+            (4_000_000_000, ReconcileCause::Unexplained)
+        ]
+    );
 }
 
 // A testnet reset takes the funds: booked as a loss, and the faucet asked
@@ -518,6 +585,10 @@ fn a_testnet_reset_is_a_loss_and_a_new_deposit() {
     world.closes(20);
     let books = &world.nodes[0].books;
     assert_eq!(books.suspense, -i128::from(FUNDED));
+    assert_eq!(
+        books.reconciled,
+        [(-i128::from(FUNDED), ReconcileCause::Unexplained)]
+    );
     assert_eq!(books.owner, 2 * i128::from(FUNDED));
     assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
 }

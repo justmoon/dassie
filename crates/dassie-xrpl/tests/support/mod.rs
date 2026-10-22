@@ -13,8 +13,8 @@
 use dassie_ledger::Name;
 use dassie_node_core::testing::SeededRng;
 use dassie_settlement::{
-    AssetEffect, ExternalAsset, LedgerInput, LedgerStatus, PreparedSettlement, SchemeError,
-    SettlementScheme,
+    AssetEffect, ExternalAsset, LedgerInput, LedgerStatus, PreparedSettlement, ReconcileCause,
+    SchemeError, SettlementScheme,
 };
 use dassie_xrpl::AccountId;
 use dassie_xrpl::account::{self, Config, XrplAccount};
@@ -51,6 +51,7 @@ pub enum Effect {
     Reconcile {
         amount: u64,
         gain: bool,
+        cause: ReconcileCause,
     },
     LedgerSend {
         message: Vec<u8>,
@@ -75,7 +76,15 @@ impl From<dassie_settlement::Effect> for Effect {
             E::Withdrawal { amount } => Self::Withdrawal { amount },
             E::SendMessage { peer, message } => Self::SendMessage { peer, message },
             E::Fee { amount, id } => Self::Fee { amount, id },
-            E::Reconcile { amount, gain } => Self::Reconcile { amount, gain },
+            E::Reconcile {
+                amount,
+                gain,
+                cause,
+            } => Self::Reconcile {
+                amount,
+                gain,
+                cause,
+            },
         }
     }
 }
