@@ -5,6 +5,7 @@ const NAMES: Record<string, string> = {
   xrpl: "XRP Ledger",
   "xrpl-testnet": "XRP Ledger Testnet",
   "xrpl-testnet-rlusd": "RLUSD on the XRP Ledger Testnet",
+  "xrpl-testnet-dsusd": "DSUSD on the XRP Ledger Testnet",
 };
 
 const DESCRIPTIONS: Record<string, string> = {
@@ -14,6 +15,8 @@ const DESCRIPTIONS: Record<string, string> = {
     "Settles in test XRP on the XRP Ledger testnet. The testnet faucet funds the account; the ledger holds back a reserve.",
   "xrpl-testnet-rlusd":
     "Settles in test RLUSD, Ripple's dollar token, on the XRP Ledger testnet, from the same account as XRP. The account pays its fees and its reserve in XRP, from the testnet faucet; RLUSD is sent to it.",
+  "xrpl-testnet-dsusd":
+    "Settles in test DSUSD, Dassie's testnet dollar token, on the XRP Ledger testnet, from the same account as XRP. The account pays its fees and its reserve in XRP, from the testnet faucet; DSUSD is bought with XRP on the testnet's XRP/DSUSD AMM pool, as there is no faucet for it.",
 };
 
 /**
@@ -27,10 +30,20 @@ export interface TokenScheme {
   readonly issuerName: string;
   /** The ledger's own asset, which pays the fees: "XRP". */
   readonly gas: string;
+  /** How the owner gets the token, when it is not simply sent: for
+   * people, a sentence or two. */
+  readonly obtain?: string;
 }
 
 const TOKENS: Record<string, TokenScheme> = {
   "xrpl-testnet-rlusd": { token: "RLUSD", issuerName: "Ripple", gas: "XRP" },
+  "xrpl-testnet-dsusd": {
+    token: "DSUSD",
+    issuerName: "Dassie",
+    gas: "XRP",
+    obtain:
+      "DSUSD has no faucet: buy it with XRP on the testnet's XRP/DSUSD AMM pool, from any XRP Ledger wallet. A payment to this address whose amount is DSUSD, paid for with XRP, swaps through the pool and arrives here as DSUSD.",
+  },
 };
 
 /** A scheme's name for people. */
