@@ -183,6 +183,17 @@ pub(super) struct Clawback {
     pub last_ledger_sequence: u32,
 }
 
+/// A token's move between two accounts, checked and not yet made.
+pub(super) struct TokenMove {
+    from: AccountId,
+    to: AccountId,
+    amount: TokenAmount,
+    /// The lines it goes over, after it.
+    after: Vec<TrustLine>,
+    /// Whether it goes through the issuer, which neither account is.
+    through: bool,
+}
+
 /// The key of the line between `a` and `b` in `currency`.
 pub(super) fn line_key(a: AccountId, b: AccountId, currency: Currency) -> LineKey {
     if a < b {
@@ -320,6 +331,7 @@ impl FakeLedger {
             account: amount.issuer,
             destination: to,
             amount: Amount::Token(amount),
+            send_max: None,
             fee: FEE_BASE,
             sequence,
             last_ledger_sequence,
@@ -490,6 +502,27 @@ impl FakeLedger {
         if !self.accounts.contains_key(&to) {
             return Outcome::code("tecNO_DST");
         }
+        match self.plan_token(from, to, amount) {
+            Ok(planned) => {
+                self.move_token(touched, planned);
+                Outcome {
+                    code: "tesSUCCESS",
+                    delivered: Some(Amount::Token(amount)),
+                }
+            }
+            Err(code) => Outcome::code(code),
+        }
+    }
+
+    /// How `amount` would go from `from` to `to`, over the line between
+    /// them if either issues it, else through its issuer, checked as the
+    /// ledger checks it; or the code it fails with. Nothing changes.
+    pub(super) fn plan_token(
+        &self,
+        from: AccountId,
+        to: AccountId,
+        amount: TokenAmount,
+    ) -> Result<TokenMove, &'static str> {
         let issuer = amount.issuer;
         let hops: Vec<(AccountId, AccountId)> = if issuer == from || issuer == to {
             alloc::vec![(from, to)]
@@ -500,12 +533,12 @@ impl FakeLedger {
         for (payer, payee) in hops {
             match self.line(payer, payee, amount.currency) {
                 Some(line) => lines.push((payer, line)),
-                None => return Outcome::code("tecPATH_DRY"),
+                None => return Err("tecPATH_DRY"),
             }
         }
         let through = lines.len() == 2;
         if through && self.closed_through(issuer, &lines) {
-            return Outcome::code("tecPATH_DRY");
+            return Err("tecPATH_DRY");
         }
         let (mut dry, mut short) = (false, false);
         for (payer, line) in &lines {
@@ -514,30 +547,36 @@ impl FakeLedger {
             room.sub(amount.value);
             short |= room.signum() == Ordering::Less;
         }
-        // Without `SendMax`, a Payment cannot pay the issuer's fee on top.
+        // The fake takes no issuer's fee on top, `SendMax` or not.
         let fee = through && self.charges_transfer_fee(issuer);
         if dry {
-            return Outcome::code("tecPATH_DRY");
+            return Err("tecPATH_DRY");
         }
         if short || fee {
-            return Outcome::code("tecPATH_PARTIAL");
+            return Err("tecPATH_PARTIAL");
         }
-        let Some(after) = lines
+        let after = lines
             .iter()
             .map(|(payer, line)| moved(line, *payer, amount.value))
             .collect::<Option<Vec<_>>>()
-        else {
-            return Outcome::code("tecPRECISION_LOSS");
-        };
-        for line in after {
+            .ok_or("tecPRECISION_LOSS")?;
+        Ok(TokenMove {
+            from,
+            to,
+            amount,
+            after,
+            through,
+        })
+    }
+
+    /// Makes a move [planned](Self::plan_token) on the ledger as it still
+    /// is.
+    pub(super) fn move_token(&mut self, touched: &mut Touched, planned: TokenMove) {
+        for line in planned.after {
             self.store_line(touched, line);
         }
-        if !through {
-            self.count_supply(from, to, amount);
-        }
-        Outcome {
-            code: "tesSUCCESS",
-            delivered: Some(Amount::Token(amount)),
+        if !planned.through {
+            self.count_supply(planned.from, planned.to, planned.amount);
         }
     }
 
@@ -604,7 +643,7 @@ impl FakeLedger {
     /// Writes a line: each side's reserve follows its state, with its
     /// account's owner count, and a line in its default state on both
     /// sides is deleted.
-    fn store_line(&mut self, touched: &mut Touched, line: TrustLine) {
+    pub(super) fn store_line(&mut self, touched: &mut Touched, line: TrustLine) {
         let key = (line.low, line.high, line.currency);
         let before = self.lines.get(&key).copied();
         let mut line = line;
@@ -763,7 +802,12 @@ impl FakeLedger {
 /// A line `account` is about to make to `peer`: nothing on it, and
 /// rippling disabled on the peer's side unless the peer ripples by
 /// default.
-fn new_line(account: AccountId, peer: AccountId, currency: Currency, other: &Account) -> TrustLine {
+pub(super) fn new_line(
+    account: AccountId,
+    peer: AccountId,
+    currency: Currency,
+    other: &Account,
+) -> TrustLine {
     let (low, high) = if account < peer {
         (account, peer)
     } else {

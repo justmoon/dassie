@@ -177,7 +177,10 @@ fn amount_json(amount: &Amount) -> Value {
 
 /// The transaction's own fields, by kind.
 fn transaction_json(tx: &Tx, tx_hash: &[u8; 32]) -> Value {
-    let mut fields = Map::new();
+    let mut fields = match tx {
+        Tx::PoolSet(set) => set.json().as_object().cloned().unwrap_or_default(),
+        _ => Map::new(),
+    };
     let mut put = |key: &str, value: Value| {
         fields.insert(key.into(), value);
     };
@@ -191,6 +194,9 @@ fn transaction_json(tx: &Tx, tx_hash: &[u8; 32]) -> Value {
             put("TransactionType", "Payment".into());
             put("Destination", payment.destination.to_address().into());
             put("Amount", amount_json(&payment.amount));
+            if let Some(send_max) = &payment.send_max {
+                put("SendMax", amount_json(send_max));
+            }
             put("Flags", payment.flags.into());
             if !payment.memos.is_empty() {
                 put("Memos", memos_json(&payment.memos));
@@ -222,6 +228,8 @@ fn transaction_json(tx: &Tx, tx_hash: &[u8; 32]) -> Value {
             put("Amount", token_json(&clawback.amount));
             put("Flags", 0.into());
         }
+        // Its own fields came first.
+        Tx::PoolSet(_) => {}
     }
     Value::Object(fields)
 }

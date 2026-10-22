@@ -6,10 +6,12 @@
 //! - [`amount`]: amounts of XRP and of tokens, exact, and their
 //!   conversion to and from whole units.
 //! - [`codec`]: the binary form of the transactions the node sends, a
-//!   `Payment` of XRP or of a token with memos and a `TrustSet`, their
-//!   signing and their hash.
+//!   `Payment` of XRP or of a token with memos, perhaps with a `SendMax`
+//!   in another asset, and a `TrustSet`, their signing and their hash.
 //! - [`api`]: the rippled WebSocket JSON the node speaks: requests, and
 //!   what comes back, parsed and bounded.
+//! - [`amm`]: an AMM pool's price, exact, for a client that swaps through
+//!   one; no scheme does.
 //! - [`account`]: the node's XRPL testnet account, an external asset: it
 //!   says what to send its ledger, signs, keeps the sequence and what is in
 //!   flight, and tells the schemes on it what the ledger says.
@@ -19,8 +21,8 @@
 //!   account's trust line to its issuer, with the account's XRP as gas;
 //!   [`rlusd`] is it in RLUSD (`xrpl-testnet-rlusd`), [`dsusd`] in DSUSD
 //!   (`xrpl-testnet-dsusd`).
-//! - `fake` (feature `fake`): a model of the ledger, for simulations and
-//!   tests.
+//! - `fake` (feature `fake`): a model of the ledger, with tokens and AMM
+//!   pools, for simulations and tests.
 //!
 //! Nothing here reads a clock or touches the network
 //! (spec/decisions/tigerstyle.md).
@@ -32,6 +34,7 @@ extern crate alloc;
 extern crate std;
 
 pub mod account;
+pub mod amm;
 pub mod amount;
 pub mod api;
 pub mod base58;

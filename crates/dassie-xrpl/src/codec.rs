@@ -3,7 +3,10 @@
 //! line to a token's issuer. Fields go in the ledger's canonical order, by
 //! type code and then field code; the decoder takes only that order and
 //! only these fields, which is all the fake ledger needs to check what it
-//! is sent. A Payment has no paths and no `SendMax`, and is never partial.
+//! is sent. A Payment has no paths and is never partial. It may name a
+//! `SendMax`, the most it spends of another asset than it delivers, which
+//! the ledger then converts through its default paths, such as an AMM
+//! pool ([`sign_send_max`]).
 
 use alloc::vec::Vec;
 
@@ -27,8 +30,8 @@ const PAYMENT: u16 = 0;
 /// The `TrustSet` transaction type.
 const TRUST_SET: u16 = 20;
 
-/// A Payment's flag that lets it deliver less than its amount; the node
-/// never sets it, and the decoder refuses it.
+/// A Payment's flag that lets it deliver less than its amount; nothing
+/// here sets it, and the decoder refuses it.
 pub const TF_PARTIAL_PAYMENT: u32 = 0x0002_0000;
 /// A TrustSet's flag that disables rippling on the sender's side.
 pub const TF_SET_NO_RIPPLE: u32 = 0x0002_0000;
@@ -64,6 +67,7 @@ const LAST_LEDGER_SEQUENCE: (u8, u8) = (UINT32, 27);
 const AMOUNT_FIELD: (u8, u8) = (AMOUNT, 1);
 const LIMIT_AMOUNT: (u8, u8) = (AMOUNT, 3);
 const FEE: (u8, u8) = (AMOUNT, 8);
+const SEND_MAX: (u8, u8) = (AMOUNT, 9);
 const SIGNING_PUB_KEY: (u8, u8) = (BLOB, 3);
 const TXN_SIGNATURE: (u8, u8) = (BLOB, 4);
 const MEMO_TYPE: (u8, u8) = (BLOB, 12);
@@ -84,16 +88,21 @@ pub struct Memo {
     pub memo_data: Vec<u8>,
 }
 
-/// A Payment of XRP or of a token: no paths, no `SendMax`, never
-/// partial.
+/// A Payment of XRP or of a token: no paths, never partial.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Payment {
     /// Who pays.
     pub account: AccountId,
     /// Who is paid.
     pub destination: AccountId,
-    /// How much: drops, or a token amount not below zero.
+    /// How much it delivers, all of it or nothing: drops, or a token
+    /// amount not below zero.
     pub amount: Amount,
+    /// The most it spends, through the ledger's default paths: of another
+    /// asset than `amount`, which the ledger converts, or of the same
+    /// token, to pay its issuer's transfer fee. Never XRP for XRP. `None`
+    /// spends `amount` itself, as the settlement schemes' Payments do.
+    pub send_max: Option<Amount>,
     /// The fee, in drops.
     pub fee: u64,
     /// The payer's sequence number.
@@ -244,12 +253,13 @@ struct Common<'a> {
 }
 
 impl Common<'_> {
-    /// Writes the fields, with the kind's one amount and its destination,
-    /// if it has one, in their places.
+    /// Writes the fields, with the kind's one amount, its `SendMax` and
+    /// its destination, if it has them, in their places.
     fn encode(
         &self,
         out: &mut Vec<u8>,
         (amount_field, amount): ((u8, u8), &Amount),
+        send_max: Option<&Amount>,
         destination: Option<AccountId>,
         with_signature: bool,
     ) {
@@ -272,6 +282,11 @@ impl Common<'_> {
         write_amount(out, amount);
         field(out, FEE);
         out.extend_from_slice(&xrp(self.fee));
+        // SendMax (9) goes after the Fee (8), before the blobs.
+        if let Some(send_max) = send_max {
+            field(out, SEND_MAX);
+            write_amount(out, send_max);
+        }
         field(out, SIGNING_PUB_KEY);
         blob(out, self.signing_pub_key);
         if let (true, Some(signature)) = (with_signature, self.signature) {
@@ -312,6 +327,7 @@ struct Decoded {
     last_ledger_sequence: u32,
     amount: Amount,
     fee: u64,
+    send_max: Option<Amount>,
     signing_pub_key: [u8; 33],
     signature: Option<[u8; 64]>,
     account: AccountId,
@@ -320,13 +336,13 @@ struct Decoded {
 }
 
 /// Reads a transaction of `kind`, whose one amount is `amount_field`, with
-/// a `Destination` if `with_destination`: these fields, in this order,
-/// nothing else.
+/// a `Destination` and perhaps a `SendMax` if it is a Payment: these
+/// fields, in this order, nothing else.
 fn decode_fields(
     bytes: &[u8],
     kind: u16,
     amount_field: (u8, u8),
-    with_destination: bool,
+    is_payment: bool,
 ) -> Result<Decoded, DecodeError> {
     let mut reader = Reader { bytes };
     reader.expect(TRANSACTION_TYPE)?;
@@ -349,6 +365,12 @@ fn decode_fields(
     let amount = reader.amount()?;
     reader.expect(FEE)?;
     let fee = from_xrp(reader.take()?)?;
+    let send_max = if is_payment && reader.peek(SEND_MAX) {
+        reader.expect(SEND_MAX)?;
+        Some(reader.amount()?)
+    } else {
+        None
+    };
     reader.expect(SIGNING_PUB_KEY)?;
     let signing_pub_key = reader.blob()?.try_into().map_err(|_| DecodeError::Value)?;
     let signature = if reader.peek(TXN_SIGNATURE) {
@@ -359,7 +381,7 @@ fn decode_fields(
     };
     reader.expect(ACCOUNT)?;
     let account = AccountId(reader.blob()?.try_into().map_err(|_| DecodeError::Value)?);
-    let destination = if with_destination {
+    let destination = if is_payment {
         reader.expect(DESTINATION)?;
         Some(AccountId(
             reader.blob()?.try_into().map_err(|_| DecodeError::Value)?,
@@ -378,6 +400,7 @@ fn decode_fields(
         last_ledger_sequence,
         amount,
         fee,
+        send_max,
         signing_pub_key,
         signature,
         account,
@@ -386,14 +409,20 @@ fn decode_fields(
     })
 }
 
+/// Whether `send_max` may go with `amount`: an amount the ledger takes,
+/// and never XRP for XRP, which the ledger refuses
+/// (`temBAD_SEND_XRP_MAX`).
+fn send_max_fits(amount: &Amount, send_max: &Amount) -> bool {
+    send_max.is_payable() && !matches!((amount, send_max), (Amount::Xrp(_), Amount::Xrp(_)))
+}
+
 impl Fields for Payment {
     fn encode(&self, out: &mut Vec<u8>, with_signature: bool) {
+        assert!(self.amount.is_payable(), "amounts within the ledger's");
         assert!(
-            match &self.amount {
-                Amount::Xrp(drops) => *drops <= MAX_DROPS,
-                Amount::Token(token) => token.is_valid() && !token.value.is_negative(),
-            },
-            "amounts within the ledger's"
+            self.send_max
+                .is_none_or(|send_max| send_max_fits(&self.amount, &send_max)),
+            "a SendMax the ledger takes"
         );
         assert_eq!(
             self.flags & TF_PARTIAL_PAYMENT,
@@ -415,6 +444,7 @@ impl Fields for Payment {
         .encode(
             out,
             (AMOUNT_FIELD, &self.amount),
+            self.send_max.as_ref(),
             Some(self.destination),
             with_signature,
         );
@@ -451,6 +481,7 @@ impl Fields for TrustSet {
             out,
             (LIMIT_AMOUNT, &Amount::Token(self.limit)),
             None,
+            None,
             with_signature,
         );
     }
@@ -476,8 +507,9 @@ impl Payment {
     /// # Panics
     ///
     /// If `wallet` is not the payer's, an amount is beyond the ledger's or
-    /// below zero, or it is partial (bugs: the scheme builds every Payment
-    /// it signs).
+    /// below zero, `SendMax` is XRP for XRP, or it is partial (bugs: the
+    /// scheme builds every Payment it signs, and [`sign_send_max`] checks
+    /// what it is given).
     #[must_use]
     pub fn sign(self, wallet: &Wallet) -> Signed<Self> {
         sign(self, wallet)
@@ -491,19 +523,20 @@ impl Payment {
     }
 
     /// The Payment in `bytes`, signed or not, if it is one the node would
-    /// send: these fields, in this order, nothing else, an amount not
-    /// below zero, and not partial.
+    /// send: these fields, in this order, nothing else, amounts not below
+    /// zero, a `SendMax` that is not XRP for XRP, and not partial.
     ///
     /// # Errors
     ///
     /// Why it is not.
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let decoded = decode_fields(bytes, PAYMENT, AMOUNT_FIELD, true)?;
+        let negative = |amount: &Amount| amount.token().is_some_and(|t| t.value.is_negative());
         if decoded.flags & TF_PARTIAL_PAYMENT != 0
+            || negative(&decoded.amount)
             || decoded
-                .amount
-                .token()
-                .is_some_and(|token| token.value.is_negative())
+                .send_max
+                .is_some_and(|send_max| !send_max_fits(&decoded.amount, &send_max))
         {
             return Err(DecodeError::Value);
         }
@@ -511,6 +544,7 @@ impl Payment {
             account: decoded.account,
             destination: decoded.destination.ok_or(DecodeError::Field)?,
             amount: decoded.amount,
+            send_max: decoded.send_max,
             fee: decoded.fee,
             sequence: decoded.sequence,
             last_ledger_sequence: decoded.last_ledger_sequence,
@@ -576,6 +610,92 @@ impl TrustSet {
             signature: decoded.signature,
         })
     }
+}
+
+/// A Payment that delivers exactly `amount` and spends at most `send_max`,
+/// through the ledger's default paths: a swap through an AMM pool, when
+/// the two are XRP and a token ([`sign_send_max`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SendMaxTerms {
+    /// Who is paid: another account, or the payer itself for a swap.
+    pub destination: AccountId,
+    /// What it delivers, all of it or nothing.
+    pub amount: Amount,
+    /// The most it spends.
+    pub send_max: Amount,
+    /// The fee, in drops.
+    pub fee: u64,
+    /// The payer's sequence number.
+    pub sequence: u32,
+    /// The last ledger the transaction may be in.
+    pub last_ledger_sequence: u32,
+    /// The network, required above 1024 and left out below.
+    pub network_id: Option<u32>,
+    /// Memos.
+    pub memos: Vec<Memo>,
+}
+
+/// Why terms are no Payment the ledger would take.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TermsError {
+    /// The amount is zero, below zero or beyond the ledger's.
+    Amount,
+    /// `SendMax` is zero, below zero or beyond the ledger's, or XRP for
+    /// XRP.
+    SendMax,
+    /// The fee is beyond all the XRP there is.
+    Fee,
+    /// More memos than [`MAX_MEMOS`], or one longer than
+    /// [`MAX_MEMO_BYTES`].
+    Memos,
+    /// It pays the payer the same asset it spends.
+    Redundant,
+}
+
+/// Signs, with `wallet`, a Payment from its account on `terms`: one that
+/// delivers all of `terms.amount` or fails, spending at most
+/// `terms.send_max`, with no paths and no flags, so the ledger converts
+/// through its default paths and never pays part of it. Who calls it
+/// keeps the sequence: this signs, and sends nothing.
+///
+/// # Errors
+///
+/// Why `terms` are no Payment the ledger would take ([`TermsError`]).
+pub fn sign_send_max(wallet: &Wallet, terms: SendMaxTerms) -> Result<Signed<Payment>, TermsError> {
+    if terms.amount.is_zero() || !terms.amount.is_payable() {
+        return Err(TermsError::Amount);
+    }
+    if terms.send_max.is_zero() || !send_max_fits(&terms.amount, &terms.send_max) {
+        return Err(TermsError::SendMax);
+    }
+    if terms.fee > MAX_DROPS {
+        return Err(TermsError::Fee);
+    }
+    let long = |memo: &Memo| {
+        memo.memo_type.len() > MAX_MEMO_BYTES || memo.memo_data.len() > MAX_MEMO_BYTES
+    };
+    if terms.memos.len() > MAX_MEMOS || terms.memos.iter().any(long) {
+        return Err(TermsError::Memos);
+    }
+    let account = wallet.account();
+    if terms.destination == account && terms.amount.asset() == terms.send_max.asset() {
+        return Err(TermsError::Redundant);
+    }
+    let payment = Payment {
+        account,
+        destination: terms.destination,
+        amount: terms.amount,
+        send_max: Some(terms.send_max),
+        fee: terms.fee,
+        sequence: terms.sequence,
+        last_ledger_sequence: terms.last_ledger_sequence,
+        flags: 0,
+        network_id: terms.network_id,
+        memos: terms.memos,
+        signing_pub_key: *wallet.public_key(),
+        signature: None,
+    };
+    Ok(payment.sign(wallet))
 }
 
 impl Transaction {
@@ -763,6 +883,7 @@ mod tests {
             account: wallet.account(),
             destination: AccountId([9; 20]),
             amount: Amount::Xrp(1_000),
+            send_max: None,
             fee: 12,
             sequence: 5,
             last_ledger_sequence: 25,
@@ -897,5 +1018,156 @@ mod tests {
             ..payment(&wallet)
         };
         let _ = partial.sign(&wallet);
+    }
+
+    fn terms(amount: Amount, send_max: Amount) -> SendMaxTerms {
+        SendMaxTerms {
+            destination: AccountId([9; 20]),
+            amount,
+            send_max,
+            fee: 12,
+            sequence: 5,
+            last_ledger_sequence: 25,
+            network_id: None,
+            memos: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn send_max_payments_decode_to_themselves_either_way() {
+        let wallet = Wallet::from_seed([1; 16]);
+        for (amount, send_max) in [
+            (Amount::Token(rlusd("25")), Amount::Xrp(30_000_000)),
+            (Amount::Xrp(1_000_000), Amount::Token(rlusd("0.75"))),
+            (Amount::Token(rlusd("1")), Amount::Token(rlusd("1.002"))),
+        ] {
+            let signed = sign_send_max(&wallet, terms(amount, send_max)).unwrap();
+            assert_eq!(signed.tx.send_max, Some(send_max));
+            assert_eq!(Payment::decode(&signed.blob), Ok(signed.tx.clone()));
+            assert_eq!(
+                Transaction::decode(&signed.blob).unwrap().blob(),
+                signed.blob
+            );
+            assert_eq!(hash(&signed.blob), signed.hash);
+        }
+    }
+
+    #[test]
+    fn send_max_is_refused_where_the_ledger_refuses_it() {
+        let wallet = Wallet::from_seed([1; 16]);
+        let xrp = |drops| Amount::Xrp(drops);
+        let refused = [
+            (terms(xrp(1), xrp(2)), TermsError::SendMax),
+            (terms(xrp(0), Amount::Token(rlusd("1"))), TermsError::Amount),
+            (
+                terms(xrp(1), Amount::Token(rlusd("0"))),
+                TermsError::SendMax,
+            ),
+            (
+                terms(xrp(MAX_DROPS + 1), Amount::Token(rlusd("1"))),
+                TermsError::Amount,
+            ),
+            (
+                terms(Amount::Token(rlusd("1")), xrp(MAX_DROPS + 1)),
+                TermsError::SendMax,
+            ),
+            (
+                terms(Amount::Token(rlusd("-1")), xrp(1)),
+                TermsError::Amount,
+            ),
+            (
+                SendMaxTerms {
+                    fee: MAX_DROPS + 1,
+                    ..terms(xrp(1), Amount::Token(rlusd("1")))
+                },
+                TermsError::Fee,
+            ),
+            (
+                SendMaxTerms {
+                    memos: alloc::vec![
+                        Memo {
+                            memo_type: Vec::new(),
+                            memo_data: Vec::new(),
+                        };
+                        MAX_MEMOS + 1
+                    ],
+                    ..terms(xrp(1), Amount::Token(rlusd("1")))
+                },
+                TermsError::Memos,
+            ),
+            (
+                SendMaxTerms {
+                    destination: wallet.account(),
+                    ..terms(Amount::Token(rlusd("1")), Amount::Token(rlusd("2")))
+                },
+                TermsError::Redundant,
+            ),
+        ];
+        for (terms, error) in refused {
+            assert_eq!(
+                sign_send_max(&wallet, terms.clone()),
+                Err(error),
+                "{terms:?}"
+            );
+        }
+        // A swap to oneself is no redundant Payment.
+        let swap = SendMaxTerms {
+            destination: wallet.account(),
+            ..terms(xrp(1), Amount::Token(rlusd("1")))
+        };
+        assert!(sign_send_max(&wallet, swap).is_ok());
+    }
+
+    #[test]
+    fn the_decoder_refuses_what_the_encoder_never_writes() {
+        let wallet = Wallet::from_seed([1; 16]);
+        let token = Amount::Token(rlusd("1"));
+        let blob = sign_send_max(&wallet, terms(token, Amount::Xrp(5)))
+            .unwrap()
+            .blob;
+        // XRP for XRP: the Amount's eight bytes after its header, 0x61.
+        let at = blob.iter().position(|b| *b == 0x61).unwrap() + 1;
+        let mut xrp_for_xrp = blob[..at].to_vec();
+        xrp_for_xrp.extend_from_slice(&xrp(7));
+        xrp_for_xrp.extend_from_slice(&blob[at + 48..]);
+        assert_eq!(Payment::decode(&xrp_for_xrp), Err(DecodeError::Value));
+        // A negative SendMax.
+        let mut negative = sign_send_max(&wallet, terms(Amount::Xrp(5), token))
+            .unwrap()
+            .blob;
+        let at = negative.iter().position(|b| *b == 0x69).unwrap() + 1;
+        negative[at] &= !0x40;
+        assert_eq!(Payment::decode(&negative), Err(DecodeError::Value));
+        // A TrustSet has no SendMax.
+        let trust_set = TrustSet {
+            account: wallet.account(),
+            limit: rlusd("1"),
+            fee: 12,
+            sequence: 6,
+            last_ledger_sequence: 26,
+            flags: 0,
+            network_id: None,
+            memos: Vec::new(),
+            signing_pub_key: *wallet.public_key(),
+            signature: None,
+        }
+        .blob();
+        let at = trust_set.iter().position(|b| *b == 0x68).unwrap() + 9;
+        let mut with_send_max = trust_set[..at].to_vec();
+        with_send_max.push(0x69);
+        with_send_max.extend_from_slice(&xrp(5));
+        with_send_max.extend_from_slice(&trust_set[at..]);
+        assert_eq!(TrustSet::decode(&with_send_max), Err(DecodeError::Field));
+    }
+
+    #[test]
+    #[should_panic(expected = "a SendMax the ledger takes")]
+    fn the_node_never_signs_xrp_for_xrp() {
+        let wallet = Wallet::from_seed([1; 16]);
+        let payment = Payment {
+            send_max: Some(Amount::Xrp(2_000)),
+            ..payment(&wallet)
+        };
+        let _ = payment.sign(&wallet);
     }
 }

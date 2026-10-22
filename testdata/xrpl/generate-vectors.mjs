@@ -5,7 +5,9 @@
 // the blob it submits and the hash it reports. Then the token wire format
 // (spec/areas/xrpl.md#tokens): token amounts on their own, at the edges of
 // what the ledger can express, and token Payments and TrustSets as xrpl.js
-// signs them, with RLUSD of its testnet issuer.
+// signs them, with RLUSD of its testnet issuer. Last, cross-currency
+// Payments with `SendMax` (spec/areas/xrpl.md#tokens): one asset delivered,
+// at most `SendMax` of the other spent, through the ledger's default paths.
 //
 // Run from the repository root, with xrpl@3.1.0 installed somewhere:
 //
@@ -170,10 +172,53 @@ for (const [index, shape] of trustShapes.entries()) {
   trustSets.push(signedVector(from, tx, wallet));
 }
 
+// Payments with `SendMax` in the other asset, XRP to a token and a token to
+// XRP, as a swap through an AMM pool is sent: no paths, not partial, with
+// and without a memo, at every width the codec has.
+const sendMaxShapes = [
+  { amount: { value: "25" }, sendMax: "30000000", fee: "12", sequence: 5, last: 25 },
+  { amount: "1000000", sendMax: { value: "0.75" }, fee: "15", sequence: 4_000_000, last: 4_000_020, memo: true },
+  { amount: { value: "1e-81", currency: "USD" }, sendMax: "100000000000", fee: "1000", sequence: 0xffff_ffff, last: 0xffff_ffff, network: 21_338, memo: true },
+  { amount: "1", sendMax: { value: "9999999999999999e80" }, fee: "10", sequence: 1, last: 21 },
+];
+const sendMaxAmount = (amount) =>
+  typeof amount === "string"
+    ? amount
+    : { currency: amount.currency ?? RLUSD, issuer: RLUSD_ISSUER, value: amount.value };
+
+const sendMaxPayments = [];
+for (const [index, shape] of sendMaxShapes.entries()) {
+  const from = chain[52 + index * 3];
+  const to = chain[52 + index * 3 + 1];
+  const wallet = Wallet.fromSeed(from.xrplTestnetWallet.familySeed);
+  const tx = {
+    TransactionType: "Payment",
+    Account: wallet.address,
+    Amount: sendMaxAmount(shape.amount),
+    SendMax: sendMaxAmount(shape.sendMax),
+    Destination: to.xrplTestnetWallet.address,
+    Fee: shape.fee,
+    Flags: 0,
+    Sequence: shape.sequence,
+    LastLedgerSequence: shape.last,
+    ...(shape.memo ? { Memos: [{ Memo: { MemoType: MEMO_TYPE, MemoData: hex(from.nodeId) } }] } : {}),
+    ...network(shape),
+  };
+  sendMaxPayments.push(signedVector(from, tx, wallet));
+}
+
 writeFileSync(
   "crates/dassie-xrpl/tests/data/vectors.json",
   `${JSON.stringify(
-    { source: "xrpl@3.1.0", memoType: MEMO_TYPE, payments, amounts, tokenPayments, trustSets },
+    {
+      source: "xrpl@3.1.0",
+      memoType: MEMO_TYPE,
+      payments,
+      amounts,
+      tokenPayments,
+      trustSets,
+      sendMaxPayments,
+    },
     null,
     2,
   )}\n`,

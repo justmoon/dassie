@@ -526,6 +526,31 @@ impl TokenAmount {
     }
 }
 
+/// What an amount is of: XRP, or a token of an issuer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Asset {
+    /// XRP.
+    Xrp,
+    /// A token of an issuer.
+    Token {
+        /// Its currency code.
+        currency: Currency,
+        /// Who issues it.
+        issuer: AccountId,
+    },
+}
+
+impl Asset {
+    /// Its currency's 160 bits: all zeros for XRP.
+    #[must_use]
+    pub const fn currency_bits(&self) -> [u8; 20] {
+        match self {
+            Self::Xrp => [0; 20],
+            Self::Token { currency, .. } => currency.0,
+        }
+    }
+}
+
 /// An amount: XRP in drops, or a token.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Amount {
@@ -551,6 +576,37 @@ impl Amount {
         match self {
             Self::Xrp(_) => None,
             Self::Token(token) => Some(token),
+        }
+    }
+
+    /// What it is of.
+    #[must_use]
+    pub const fn asset(&self) -> Asset {
+        match self {
+            Self::Xrp(_) => Asset::Xrp,
+            Self::Token(token) => Asset::Token {
+                currency: token.currency,
+                issuer: token.issuer,
+            },
+        }
+    }
+
+    /// Whether the ledger can hold it as an amount to pay: drops within
+    /// all there are, or a valid token not below zero.
+    #[must_use]
+    pub fn is_payable(&self) -> bool {
+        match self {
+            Self::Xrp(drops) => *drops <= crate::MAX_DROPS,
+            Self::Token(token) => token.is_valid() && !token.value.is_negative(),
+        }
+    }
+
+    /// Whether it is zero.
+    #[must_use]
+    pub const fn is_zero(&self) -> bool {
+        match self {
+            Self::Xrp(drops) => *drops == 0,
+            Self::Token(token) => token.value.is_zero(),
         }
     }
 }
