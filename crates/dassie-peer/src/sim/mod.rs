@@ -404,6 +404,7 @@ impl Network {
                 url: (!periphery).then(|| url(index)),
                 alias: format!("n{index}"),
                 quic: self.quic,
+                feed_port: None,
             },
             self.bootstrap.clone(),
             sim.stored.clone(),

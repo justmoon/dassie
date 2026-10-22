@@ -76,7 +76,7 @@ Every HTTPS response but a WebSocket upgrade carries a strict Content Security P
 
 ## `GET /stats`
 
-Who the node is, for anyone, without authentication: its version, ID, URL and key, and its peers. It lists only the peers the node advertises, which its signed link state publishes anyway ([network.md](network.md)). The answer is cached briefly and made by one request at a time, so unauthenticated requests queue at most one call to the engine.
+Who the node is, for anyone, without authentication: its version, ID, URL and key, the port of its [rate feed](rate-feed.md#finding-a-feed) on a core node that has one, and its peers. It lists only the peers the node advertises, which its signed link state publishes anyway ([network.md](network.md)). The answer is cached briefly and made by one request at a time, so unauthenticated requests queue at most one call to the engine.
 
 ## Setup
 

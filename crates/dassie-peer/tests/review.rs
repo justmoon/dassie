@@ -349,6 +349,7 @@ fn an_own_url_too_long_is_no_url() {
             url: Some(url),
             alias: String::new(),
             quic: false,
+            feed_port: None,
         },
         Vec::new(),
         Stored::default(),

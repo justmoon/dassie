@@ -2,7 +2,7 @@
 
 The `dassie` binary: the daemon that composes every protocol crate into a running node, and the command-line tools that configure, inspect and update it.
 
-**Paths:** `crates/dassie-node/src/` (`daemon.rs`, `supervisor.rs`, `engine/`, `store/`, `env.rs`, `systemd.rs`, `ipc.rs`, `log.rs`, `clock.rs`, `node/`), `crates/dassie-node-core/src/`, `crates/dassie-cli/src/`
+**Paths:** `crates/dassie-node/src/` (`daemon.rs`, `supervisor.rs`, `engine/`, `store/`, `env.rs`, `systemd.rs`, `ipc.rs`, `log.rs`, `clock.rs`, `node/`, `feed.rs`), `crates/dassie-node-core/src/`, `crates/dassie-cli/src/`
 **Read with:** [Release](release.md), [HTTP](http.md), [RPC](rpc.md), [Ledger](ledger.md), [Connector](connector.md), [Network](network.md), [Identity](identity.md)
 
 ## Runtime model
@@ -60,9 +60,10 @@ On SIGTERM or SIGINT the daemon stops accepting, gives requests in progress a bo
 
 `--runtime standalone|systemd` chooses how the daemon gets its sockets; without it, `systemd` when `LISTEN_PID` is the daemon's own PID.
 
-- **standalone** binds the configured ports (or `--http-port`/`--https-port` for one run), a UDP socket for QUIC on the HTTPS listener's address and port, and an IPC socket path of its own. A host that embeds the daemon may bind QUIC on an address of its own (`DaemonOptions::quic`), so that a node whose listeners stay on loopback, where only its owner reaches the wallet, still dials its relay and uplinks from every address, as the [desktop app](desktop.md#sockets) does.
+- **standalone** binds the configured ports (or `--http-port`/`--https-port` for one run), a UDP socket for QUIC on the HTTPS listener's address and port, a UDP socket for the [rate feed](rate-feed.md#the-socket) on the HTTPS listener's address at the feed's port (or `--feed-listen`), and an IPC socket path of its own. A host that embeds the daemon may bind QUIC on an address of its own (`DaemonOptions::quic`), so that a node whose listeners stay on loopback, where only its owner reaches the wallet, still dials its relay and uplinks from every address, as the [desktop app](desktop.md#sockets) does.
 - **systemd** takes its sockets by name from the socket units ([Release](release.md#systemd-units)), and reports readiness to `NOTIFY_SOCKET` itself. Sockets that are not this process's, or a missing name of the three it needs, stop the daemon rather than letting it bind its own.
 - **QUIC is optional.** Without its UDP socket (units from before QUIC, or a port taken), the node runs as before and says so in its log: its link state does not say it takes QUIC, so peers ask it over HTTPS ([Peer protocol](peer-protocol.md#transport)).
+- **So is the rate feed.** Without its UDP socket (`dassie-feed.socket`, units from before the feed, or a port taken), the node runs, says so in its log, and publishes no feed: neither `GET /stats` nor its link state names a feed port ([Rate feed](rate-feed.md#the-socket)).
 - **Either way,** URLs the node prints or redirects to use the ports it actually listens on, which under systemd need not be the configured ones.
 
 ## A chosen relay
@@ -120,13 +121,13 @@ The owner's configuration is one row, read into a validated `NodeConfig` (`dassi
 
 ## Dev switches warn on a public node
 
-`DASSIE_PEER_ALLOW_PRIVATE` (peers on private and loopback addresses) and `DASSIE_DEV_TIMINGS` (the dev timers) are plain environment variables that make a node unsafe on the internet. If either is set while any listener, the QUIC socket among them, is bound beyond loopback, the daemon warns at startup, naming the variable and what it does. The address checked is the one actually bound, and an unspecified address counts as beyond loopback. Dev and the tests listen on loopback, so they stay quiet.
+`DASSIE_PEER_ALLOW_PRIVATE` (peers on private and loopback addresses) and `DASSIE_DEV_TIMINGS` (the dev timers) are plain environment variables that make a node unsafe on the internet. If either is set while any listener, the QUIC and rate-feed sockets among them, is bound beyond loopback, the daemon warns at startup, naming the variable and what it does. The address checked is the one actually bound, and an unspecified address counts as beyond loopback. Dev and the tests listen on loopback, so they stay quiet.
 
 ## Logging
 
 Events go through `tracing` (`log.rs`). Core crates do not log; the node maps their events ([engineering](../engineering.md)). Besides standard output, the node keeps a bounded ring of its last lines for the wallet's logs page, whatever the log level says, with fields named like secrets redacted.
 
-Which transport the peer protocol uses can be read from the journal at the default level, under either runtime, without watching the network: the line that says the node listens names its QUIC endpoint, or says it has none, and each peer's transport ([Peer protocol](peer-protocol.md#transport)) is logged when its first answer in a peering, or since the engine started, arrives and whenever it changes. Never once per request, so the volume stays that of the peerings.
+Which transport the peer protocol uses can be read from the journal at the default level, under either runtime, without watching the network: the line that says the node listens names its QUIC endpoint and its rate feed's socket, or says it has none, and each peer's transport ([Peer protocol](peer-protocol.md#transport)) is logged when its first answer in a peering, or since the engine started, arrives and whenever it changes. Never once per request, so the volume stays that of the peerings.
 
 ## The `dassie` command
 

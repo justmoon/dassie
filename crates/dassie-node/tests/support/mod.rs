@@ -59,6 +59,8 @@ pub struct Bound {
     ipc_path: PathBuf,
     ipc: std::os::unix::net::UnixListener,
     quic: std::net::UdpSocket,
+    /// The rate feed's socket, as systemd would pass it.
+    feed: std::net::UdpSocket,
     notify: Option<PathBuf>,
 }
 
@@ -87,15 +89,22 @@ impl Bound {
         let (https, quic) = https_and_quic();
         let ipc_path = dir.path().join("ipc.sock");
         let ipc = ipc::bind(&ipc_path).unwrap();
+        let feed = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         Self {
             dir,
             http,
             https,
             quic,
+            feed,
             ipc_path,
             ipc,
             notify: None,
         }
+    }
+
+    /// Where the daemon's rate feed will take datagrams.
+    pub fn feed_address(&self) -> SocketAddr {
+        self.feed.local_addr().unwrap()
     }
 
     /// The daemon reports readiness to the datagram socket at `path`, as to
@@ -123,10 +132,12 @@ impl Bound {
             http,
             https,
             quic,
+            feed,
             ipc_path,
             ipc,
             notify,
         } = self;
+        let feed_address = feed.local_addr().unwrap();
         let state = dir.path().join("state");
         let state_text = state.to_str().unwrap().to_owned();
         // No bootstrap nodes and no relay unless the test names some: the
@@ -144,6 +155,7 @@ impl Bound {
         let (node_out, node_handed) = tokio::sync::oneshot::channel();
         let mut prepared = Prepared::from_parts(settings, store, http, https, ipc)
             .with_quic(quic)
+            .with_feed(feed)
             .handing_out(hand_out)
             .handing_out_node(node_out);
         if let Some(path) = notify {
@@ -161,6 +173,7 @@ impl Bound {
             dir,
             http: http_address,
             https: https_address,
+            feed: feed_address,
             ipc: ipc_path,
             clock,
             quic: None,
@@ -180,6 +193,8 @@ pub struct TestNode {
     pub dir: tempfile::TempDir,
     pub http: SocketAddr,
     pub https: SocketAddr,
+    /// Where the rate feed takes datagrams.
+    pub feed: SocketAddr,
     pub ipc: PathBuf,
     pub clock: ManualClock,
     /// The QUIC endpoint, once the daemon made it.

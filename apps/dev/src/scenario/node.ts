@@ -1,6 +1,7 @@
 /**
  * A node of a scenario: the real `dassie` binary, with a vanity identity,
- * named `dN.localhost` on ports `4000+N` (HTTP) and `5000+N` (HTTPS), and
+ * named `dN.localhost` on ports `4000+N` (HTTP), `5000+N` (HTTPS, and QUIC
+ * on UDP) and `6000+N` (its rate feed, on UDP), and
  * set up the way its owner would set it up: over IPC and the HTTPS API,
  * never by writing its database (spec/areas/dev.md#setting-nodes-up).
  *
@@ -22,9 +23,10 @@ import { ChildProcess, type Exit, type Stream } from "../process.ts";
 import type { Identity } from "../vanity.ts";
 import { waitForPort, waitForSocket } from "../wait.ts";
 
-/** The first node's ports, less one: d1 has 4001 and 5001. */
+/** The first node's ports, less one: d1 has 4001, 5001 and 6001. */
 export const HTTP_PORT_BASE = 4000;
 export const HTTPS_PORT_BASE = 5000;
+export const FEED_PORT_BASE = 6000;
 
 /** How long a node has to come up, and its engine to start. */
 const START_TIMEOUT_MS = 30_000;
@@ -54,6 +56,8 @@ export class ScenarioNode {
   readonly hostname: string;
   readonly httpPort: number;
   readonly httpsPort: number;
+  /** Its rate feed's UDP port, on loopback. */
+  readonly feedPort: number;
   readonly dir: string;
   readonly socket: string;
   daemon?: ChildProcess;
@@ -78,6 +82,8 @@ export class ScenarioNode {
     this.httpPort = HTTP_PORT_BASE + identity.index + 1 +
       environment.portOffset;
     this.httpsPort = HTTPS_PORT_BASE + identity.index + 1 +
+      environment.portOffset;
+    this.feedPort = FEED_PORT_BASE + identity.index + 1 +
       environment.portOffset;
     this.dir = dataDir(environment.layout, this.name);
     this.socket = socketPath(environment.layout, this.name);
@@ -133,6 +139,9 @@ export class ScenarioNode {
         // Its key is public (the vanity table): loopback only.
         "--listen",
         "127.0.0.1",
+        // Every node's feed on a port of its own, not the default one.
+        "--feed-listen",
+        `127.0.0.1:${this.feedPort}`,
       ],
       env: {
         // No relay unless the scenario names one: the default is the

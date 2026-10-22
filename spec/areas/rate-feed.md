@@ -2,10 +2,10 @@
 
 A core node's public, cheap statement of what it converts at: for each ordered pair of its ledgers, the rate a packet gets, with its fee and each ledger's largest packet. It is a signed UDP datagram that the node makes once and sends to every subscriber, with no retries and no state beyond the subscriber list. Market makers watch feeds and trade through nodes whose rates make it worth it, which moves those nodes' holdings back toward balance.
 
-`dassie-feed` holds the contract without IO: the wire format and its signature, the subscriber table and its cookies, when to publish, and a subscriber's side. `dassie market-maker` is a subscriber that trades on what it reads ([below](#market-maker)). The node service that publishes a feed, its socket and how a feed is found are not built yet ([roadmap](../roadmap.md#rate-feed-and-market-makers)).
+`dassie-feed` holds the contract without IO: the wire format and its signature, the subscriber table and its cookies, when to publish, and a subscriber's side. A core node publishes its feed on a UDP socket of its own and names the socket's port where subscribers look ([the node side](#the-node-side)). `dassie market-maker` is a subscriber that trades on what it reads ([below](#market-maker)).
 
-**Paths:** `crates/dassie-feed/`, `testdata/feed/`, `crates/dassie-cli/src/market_maker/`
-**Read with:** [Connector](connector.md#exchange-rates), [Identity](identity.md), [Encoding](encoding.md), [Node](node.md), [Payments](payments.md#paying-stream-credentials), [XRPL](xrpl.md#amm-pools)
+**Paths:** `crates/dassie-feed/`, `testdata/feed/`, `crates/dassie-node/src/feed.rs`, `resources/systemd/dassie-feed.socket`, `crates/dassie-cli/src/market_maker/`
+**Read with:** [Connector](connector.md#exchange-rates), [Identity](identity.md), [Encoding](encoding.md), [Node](node.md#runtimes), [Peer protocol](peer-protocol.md#link-states), [Payments](payments.md#paying-stream-credentials), [XRPL](xrpl.md#amm-pools)
 
 ## What a feed says
 
@@ -14,7 +14,7 @@ A core node's public, cheap statement of what it converts at: for each ordered p
 - **The ledgers,** by ID string, each with its largest packet, in that ledger's units. The IDs are strings rather than the node's closed list of ledgers, so a subscriber reads a feed that names a ledger it does not know, and a new ledger needs no new feed version. The largest packet is per ledger although the node has one value today ([roadmap](../roadmap.md#not-built-yet)), so that per-ledger values need no new version either.
 - **A rate per ordered pair** the node converts between: what one unit in gets out, scaled by 10^15, spread included. A packet of any size that comes in with `amount` goes out with at most `floor((amount − fee) × rate / 10^15)`: each packet pays its own impact on the node's inventory, so how much less it gets depends on its size against the node's value: near target, about `4k` times its share of that value. A pair the node does not convert, for want of a fresh rate, an active scheme or the owner's funds on the way out, is left out; a rate is never zero.
 
-The node is to publish the rates its connector's price table holds: what a vanishingly small packet gets, at the worst state the packets in flight could leave ([Connector](connector.md#inventory-pricing)). That is the node service's to keep.
+A node publishes the rates its connector's price table holds: what a vanishingly small packet gets, at the worst state the packets in flight could leave ([Connector](connector.md#inventory-pricing)). So a feed promises nothing a packet does not get ([What it publishes](#what-it-publishes)).
 
 ## Wire format
 
@@ -67,6 +67,42 @@ A subscriber sends a Subscribe to the node at a fixed interval, well within an e
 
 A node's rates move with every conversion, but a feed costs a signature and a datagram per subscriber. So a node publishes at most once per `FEED_MIN_INTERVAL_MS` while its rates change, and otherwise a heartbeat every `FEED_HEARTBEAT_MS`, so subscribers know the node is alive and its rates still hold. A change within the interval is published when the interval ends, never lost. A feed counts for a few heartbeats, so that one or two lost on the way do not leave a subscriber without rates (`src/schedule.rs`).
 
+## The node side
+
+`crates/dassie-node/src/feed.rs` is a supervised service, as the rate fetcher is. What a feed says is a pure function of the price table, and the publisher around the table and the schedule decides from its inputs and the node's clock alone; the service carries the decisions out against the socket.
+
+- **Only a core node publishes.** A feed is found at the node's URL's host ([Finding a feed](#finding-a-feed)), so a node without a URL, a periphery node, answers no datagram, publishes nothing and never asks the engine for its table, and neither does a node without its key. A node that gets a hostname starts at once; one that loses it stops.
+- **The cookie's secret** is drawn from the node's RNG each time the service starts, and kept in memory only, so a restart voids every cookie, as [The cookie](#the-cookie) says.
+- **Counted, not logged.** Every datagram taken, answer sent, subscriber refused and send that failed is counted (`FeedStats`), never logged: a flood of Subscribes costs the node its bytes and a MAC each, and no journal lines. The node logs only whether it has a feed, in the line that says it listens ([Node](node.md#logging)).
+
+### What it publishes
+
+- **The price table, as the connector converts at.** The engine counts each rebuild of its price table that changed what a feed says: the charges, the ledgers it prices or the prices ([Connector](connector.md#inventory-pricing)). The service follows that count and fetches the table, at most once per `FEED_MIN_INTERVAL_MS` however busy the node, so that the schedule publishes a change after the least interval at most, and never asks the engine more often than it publishes.
+- **What a feed says:** the node's ID and key; the fee the connector takes on transit; each ledger the table prices, by its ID, with the connector's largest packet, which is one value for every ledger today; and each price the table has as a rate, so a pair without one is left out. Rates are the table's exactly, since a feed that promised more than packets get would send market makers into trades that fail.
+- **Its validity** is the schedule's, or the moment a rate the table uses ages out, whichever comes first. A feed made after that names no ledgers until the engine builds the table again. While the engine is down, nothing is published, and a subscriber's last feed runs out.
+- **The sequence** is the node's clock in milliseconds, made to grow ([Publishing](#publishing)). The service keeps its schedule across its own restarts; across a restart of the node, the clock has moved on. A clock set back across a restart holds a subscriber's next feed back until the clock passes the last sequence it took; nothing persists the sequence, since a feed lost is replaced within a heartbeat.
+- **Each publish** encodes and signs once, then sends to each subscriber once, without retries, within half the least interval: a send the socket refuses or that does not fit the time is counted and dropped. A newly subscribed address gets the latest feed at once, if it still counts, so a subscriber need not wait for the heartbeat.
+
+### Bounds
+
+Everything the service holds is bounded by a named limit: a datagram it reads by `MAX_DATAGRAM_BYTES` (a longer one is read one byte over and refused); the table by `MAX_SUBSCRIBERS` in all and `MAX_SUBSCRIBERS_PER_CLIENT` per client, both in `Policies` so tests can shrink them; the sends of one publish by the table's size; the time a publish sends for; and the time it waits for the engine's table. The ledgers of a feed fit its bound by construction: the connector prices at most as many ledgers as a feed may name (a constant assertion).
+
+### The socket
+
+The feed has a UDP socket of its own, apart from QUIC's: its datagrams are not QUIC, and a socket of its own keeps the two from ever reading each other's traffic. Its default port is `DEFAULT_FEED_PORT`, 7768: a fixed port, so that owners open one rule in their firewalls and subscribers find a node that names no port at all; above 1024, so that a node without privileges binds it; and one no service is registered for.
+
+- **Under systemd** it comes from `dassie-feed.socket` (`ListenDatagram=7768`), taken by name like the others ([Node](node.md#runtimes)). It is optional, as QUIC's is: `dassie.service` only wants it, a node without it warns and runs, and an update that brings the unit enables it.
+- **Standalone,** the node binds the HTTPS listener's address at that port, or where `--feed-listen` says: the dev environment and its tests give each node a port of its own (`6000+N`, moved by the port offset), since many nodes share one host.
+- A socket that cannot be bound leaves the node without a feed, and running.
+
+### Finding a feed
+
+A subscriber needs the feed's port and the node's key; it takes the host from the node's URL.
+
+- **`GET /stats`** names the port, as `feedPort`, on a core node with a feed ([HTTP](http.md#get-stats)), beside the node's ID and key. `dassie market-maker` reads it there.
+- **The link state** names it too, in extension type 4 ([Peer protocol](peer-protocol.md#link-states)), so a node or tool that reads link states finds every core node's feed without asking each one. Only a node with a URL names one, at its URL's host.
+- Neither names a port the node does not serve: a node without the socket, or without a URL, leaves `feedPort` out and issues its link state without the extension.
+
 ## Market maker
 
 `dassie market-maker` trades through one core node, the target, when the rates its feed publishes and an AMM pool on the XRP Ledger disagree by more than a margin, and so moves the target's holdings back toward balance, as passive rebalancing intends ([roadmap](../roadmap.md#rate-feed-and-market-makers)). It is a client of nodes, not one: it holds no books, and every amount it moves is moved by a node or by the ledger. It reads one JSON config, checked whole before anything connects (`config.rs`); the decision is a pure function of the feed, the pool and the holdings (`strategy.rs`), and everything around it is bounded in time and size.
@@ -79,7 +115,7 @@ Each node's passphrase is in a file the config names. The market maker derives f
 
 ### The loop
 
-- **The feed.** It reads the target's node ID and key from its `GET /stats`, refuses an ID that is not the key's, and takes the feed's port from there, or from the config while `/stats` names none. It subscribes as [Subscribing](#subscribing) says, takes datagrams only from the target's address, and takes a feed only verified under that key, newer than the last and unexpired (`feed.rs`). A feed counts until its validity ends; with none, it holds.
+- **The feed.** It reads the target's node ID and key from its `GET /stats`, refuses an ID that is not the key's, and takes the feed's port from there, or from the config for a target that names none. It subscribes as [Subscribing](#subscribing) says, takes datagrams only from the target's address, and takes a feed only verified under that key, newer than the last and unexpired (`feed.rs`). A feed counts until its validity ends; with none, it holds.
 - **The pool and the holdings.** Each tick it reads the pool with `amm_info` at a validated ledger, over a WebSocket of its own, and both nodes' holdings with `ListLedgers`: what each owner's books hold, and what its account holds on the ledger.
 - **One decision a tick,** logged in one line, and at most one action.
 

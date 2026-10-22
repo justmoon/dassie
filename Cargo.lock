@@ -1069,6 +1069,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "dassie-connector",
+ "dassie-feed",
  "dassie-identity",
  "dassie-ilp",
  "dassie-ledger",

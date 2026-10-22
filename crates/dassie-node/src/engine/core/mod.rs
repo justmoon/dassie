@@ -211,6 +211,9 @@ pub struct Changes {
     pub network: bool,
     /// Open Payments resources.
     pub payments: bool,
+    /// The price table: what the connector converts transit at, which the
+    /// rate feed publishes (spec/areas/rate-feed.md#the-node-side).
+    pub prices: bool,
 }
 
 /// What the core is made from.
@@ -715,13 +718,22 @@ impl Core {
                 count += 1;
             }
         }
-        self.prices.table = PriceTable::build(
+        let table = PriceTable::build(
             &self.prices.rates,
             inventories.get(..count).unwrap_or_default(),
             self.peer_settings.pricing(),
             self.now_ms,
             self.connector.config().max_rate_age_ms,
         );
+        // What a feed says: the charges, the ledgers and the prices. The
+        // holdings move with every packet, and only move the prices.
+        let old = &self.prices.table;
+        let ledger = |entry: &dassie_connector::pricing::LedgerPrice| entry.ledger;
+        self.changes.prices |= old.pricing() != table.pricing()
+            || old.valid_until_ms() != table.valid_until_ms()
+            || !old.ledgers().map(ledger).eq(table.ledgers().map(ledger))
+            || !old.prices().eq(table.prices());
+        self.prices.table = table;
     }
 
     /// Checks the invariants, when a sweep is due: at every commit where

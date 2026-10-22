@@ -11,8 +11,8 @@ use super::{PeerNode, Problem, Purpose};
 use crate::config::Config;
 use crate::table::{LinkState, Sources, backoff};
 use crate::wire::{
-    Content, EXTENSION_PERIPHERY, EXTENSION_QUIC, Entry, InvalidNodeInfo, LinkStateResponse,
-    NodeInfo, SignedNodeInfo, TerminationReason, sign_node_info,
+    Content, EXTENSION_FEED, EXTENSION_PERIPHERY, EXTENSION_QUIC, Entry, InvalidNodeInfo,
+    LinkStateResponse, NodeInfo, SignedNodeInfo, TerminationReason, sign_node_info,
 };
 
 /// The routes are recomputed at least this often, as link states go stale.
@@ -270,11 +270,23 @@ impl PeerNode {
             self.own_info.quic.then_some(EXTENSION_QUIC)
         };
         let extension = extension.map(|kind| Entry::Extension { kind, value: &[] });
+        // A core node's rate feed, at its URL's host; a periphery node has
+        // no URL to name one at.
+        let feed_port = self
+            .own_info
+            .feed_port
+            .filter(|_| !periphery)
+            .map(u16::to_be_bytes);
+        let feed = feed_port.as_ref().map(|port| Entry::Extension {
+            kind: EXTENSION_FEED,
+            value: port,
+        });
         let entries = neighbors
             .iter()
             .map(|id| Entry::Neighbor(*id))
             .chain(self.schemes.iter().map(|id| Entry::Scheme(*id)))
             .chain(extension)
+            .chain(feed)
             .collect();
         let info = NodeInfo {
             node_id: self.own,

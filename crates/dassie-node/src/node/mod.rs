@@ -117,6 +117,8 @@ pub struct Policies {
     /// How often exchange rates are fetched
     /// (spec/decisions/exchange-rates.md).
     pub rates_every_ms: u64,
+    /// The rate feed's subscriber table (spec/areas/rate-feed.md#the-table).
+    pub feed: dassie_feed::Limits,
 }
 
 impl Policies {
@@ -159,6 +161,7 @@ impl Policies {
         settlement_request_every_ms: 60_000,
         incoming: crate::engine::IncomingPolicy::DEFAULT,
         rates_every_ms: 60_000,
+        feed: dassie_feed::Limits::DEFAULT,
     };
 
     /// The production values with the peer protocol's dev timers, for what
@@ -415,6 +418,8 @@ pub struct Node {
     rates_wake: Notify,
     /// The QUIC endpoint, where the node has a UDP socket.
     quic: std::sync::OnceLock<Arc<crate::quic::Quic>>,
+    /// The rate feed's socket, where the node has one.
+    feed: std::sync::OnceLock<Arc<crate::feed::FeedEndpoint>>,
 }
 
 impl std::fmt::Debug for Node {
@@ -521,6 +526,7 @@ impl Node {
             open_payments: crate::open_payments::State::new(public_names),
             rates_wake: Notify::new(),
             quic: std::sync::OnceLock::new(),
+            feed: std::sync::OnceLock::new(),
         }))
     }
 
@@ -640,11 +646,31 @@ impl Node {
                     .local_addr()
                     .is_ok_and(|address| address.port() == self.ports().1)
         });
+        // Subscribers find the feed at the URL's host, so only a node with
+        // a URL names its port (spec/areas/rate-feed.md#finding-a-feed).
+        let feed_port = self
+            .feed()
+            .and_then(|feed| feed.local_addr().ok())
+            .map(|address| address.port())
+            .filter(|_| url.is_some());
         dassie_peer::OwnInfo {
             url,
             alias: config.alias.as_str().to_owned(),
             quic,
+            feed_port,
         }
+    }
+
+    /// The rate feed's socket, where the node has one.
+    #[must_use]
+    pub fn feed(&self) -> Option<&Arc<crate::feed::FeedEndpoint>> {
+        self.feed.get()
+    }
+
+    /// Gives the node its rate feed's socket, before its engine starts: the
+    /// link state it issues then names the feed's port.
+    pub fn attach_feed(&self, feed: Arc<crate::feed::FeedEndpoint>) {
+        let _ = self.feed.set(feed);
     }
 
     /// The QUIC endpoint, where the node has one.
@@ -693,6 +719,12 @@ impl Node {
     #[must_use]
     pub fn engine(&self) -> Option<Engine> {
         self.engine.borrow().clone()
+    }
+
+    /// The ledger's engine as it starts and stops.
+    #[must_use]
+    pub fn engines(&self) -> watch::Receiver<Option<Engine>> {
+        self.engine.subscribe()
     }
 
     pub(crate) fn publish_engine(&self, engine: Option<Engine>) {

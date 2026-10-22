@@ -1,5 +1,5 @@
-//! `GET /stats` (spec/areas/http.md#get-stats): who the node is, and its
-//! peers, for anyone.
+//! `GET /stats` (spec/areas/http.md#get-stats): who the node is, where its
+//! rate feed is, and its peers, for anyone.
 //!
 //! As in the original it needs no authentication: it shows the version,
 //! the node and its peers. Only the peers the node advertises are listed,
@@ -38,6 +38,10 @@ struct NodeStats {
     id: String,
     url: Option<String>,
     public_key: String,
+    /// The UDP port of its rate feed, at its URL's host, on a core node
+    /// that has one (spec/areas/rate-feed.md#finding-a-feed).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    feed_port: Option<u16>,
 }
 
 #[derive(Serialize)]
@@ -81,6 +85,7 @@ pub async fn serve(node: &Node) -> hyper::Response<Body> {
                     id: key.node_id().to_string(),
                     url: own.and_then(|view| view.url.clone()),
                     public_key: encode(key.public_key().as_bytes()),
+                    feed_port: node.own_info().checked().feed_port,
                 },
                 peers: network
                     .nodes

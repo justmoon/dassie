@@ -815,6 +815,7 @@ impl Sim {
                 url: Some(url(index)),
                 alias: format!("n{index}"),
                 quic: false,
+                feed_port: None,
             },
             bootstrap: self.bootstrap.clone(),
             uplinks: Vec::new(),

@@ -31,6 +31,7 @@ pub mod daemon;
 pub mod engine;
 #[cfg(feature = "testing")]
 pub mod fake_ledger;
+pub mod feed;
 pub mod front_door;
 pub mod http;
 pub mod ipc;

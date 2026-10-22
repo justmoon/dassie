@@ -109,6 +109,11 @@ pub struct DaemonOptions {
     /// its listeners on loopback still dials its relay and its uplinks from
     /// every address.
     pub quic: Option<SocketAddr>,
+    /// Where the standalone runtime binds the rate feed's UDP socket,
+    /// instead of the HTTPS listener's address at
+    /// [`DEFAULT_FEED_PORT`](crate::feed::DEFAULT_FEED_PORT): for the
+    /// development environment's many nodes on one host.
+    pub feed: Option<SocketAddr>,
 }
 
 /// Everything the daemon needs before the async runtime starts.
@@ -134,6 +139,8 @@ pub struct Prepared {
 struct Extras {
     /// The UDP socket for QUIC, where there is one.
     quic: Option<UdpSocket>,
+    /// The UDP socket for the rate feed, where there is one.
+    feed: Option<UdpSocket>,
     /// For tests: where the QUIC endpoint goes once it is made.
     hand_out: Option<tokio::sync::oneshot::Sender<Arc<crate::quic::Quic>>>,
     /// Where the node goes once it is made, held weakly so the daemon still
@@ -153,13 +160,17 @@ impl Prepared {
             Runtime::Standalone
         });
         let store = Store::open(&settings.data_dir).map_err(DaemonError::Store)?;
-        let (http, https, ipc, quic, ipc_socket) = match runtime {
+        let (http, https, ipc, (quic, feed), ipc_socket) = match runtime {
             Runtime::Systemd => {
                 let sockets = systemd::take_sockets(env).map_err(DaemonError::Activation)?;
                 if sockets.quic.is_none() {
                     tracing::warn!(target: target::DAEMON, socket = systemd::QUIC_SOCKET, "systemd passed no UDP socket for QUIC: peers reach this node over HTTPS only");
                 }
-                (sockets.http, sockets.https, sockets.ipc, sockets.quic, None)
+                if sockets.feed.is_none() {
+                    tracing::warn!(target: target::DAEMON, socket = systemd::FEED_SOCKET, "systemd passed no UDP socket for the rate feed: the node publishes no feed");
+                }
+                let udp = (sockets.quic, sockets.feed);
+                (sockets.http, sockets.https, sockets.ipc, udp, None)
             }
             Runtime::Standalone => {
                 let ports = match options.ports {
@@ -171,10 +182,16 @@ impl Prepared {
                     Some(address) => bind_quic(address),
                     None => https.local_addr().ok().and_then(bind_quic),
                 };
+                let feed = match options.feed {
+                    Some(address) => bind_feed(address),
+                    None => https.local_addr().ok().and_then(|https| {
+                        bind_feed(SocketAddr::new(https.ip(), crate::feed::DEFAULT_FEED_PORT))
+                    }),
+                };
                 let path = standalone_ipc_path(&settings, env);
                 let (ipc, unpublished) = ipc::bind_unpublished(&path)
                     .map_err(|e| DaemonError::Bind(path.display().to_string(), e))?;
-                (http, https, ipc, quic, Some(unpublished))
+                (http, https, ipc, (quic, feed), Some(unpublished))
             }
         };
         Ok(Self {
@@ -186,6 +203,7 @@ impl Prepared {
             ipc,
             extras: Extras {
                 quic,
+                feed,
                 hand_out: None,
                 node_out: None,
             },
@@ -242,6 +260,13 @@ impl Prepared {
         self
     }
 
+    /// For tests: the rate feed on `socket`, as if systemd had passed it.
+    #[must_use]
+    pub fn with_feed(mut self, socket: UdpSocket) -> Self {
+        self.extras.feed = Some(socket);
+        self
+    }
+
     /// For tests: readiness goes to `notifier`, as to systemd's.
     #[must_use]
     pub fn notifying(mut self, notifier: Notifier) -> Self {
@@ -286,6 +311,19 @@ fn bind_quic(address: SocketAddr) -> Option<UdpSocket> {
         Ok(socket) => Some(socket),
         Err(error) => {
             tracing::warn!(target: target::DAEMON, %address, %error, "no UDP socket for QUIC: peers reach this node over HTTPS only");
+            None
+        }
+    }
+}
+
+/// The UDP socket for the rate feed on `address`: the HTTPS listener's
+/// address at the feed's port, unless the options name another. A node
+/// that cannot have one publishes no feed.
+fn bind_feed(address: SocketAddr) -> Option<UdpSocket> {
+    match UdpSocket::bind(address) {
+        Ok(socket) => Some(socket),
+        Err(error) => {
+            tracing::warn!(target: target::DAEMON, %address, %error, "no UDP socket for the rate feed: the node publishes no feed");
             None
         }
     }
@@ -443,11 +481,13 @@ fn make_node(
     if let Some(socket) = extras.quic {
         attach_quic(&node, socket, extras.hand_out, settings.relay.as_ref());
     }
+    let feed_ip = extras.feed.and_then(|socket| attach_feed(&node, socket));
     if let Some(dir) = &settings.dev_wallet_dir {
         tracing::warn!(target: target::HTTP, dir = %dir.display(), "serving a development build of the wallet");
     }
     let mut bound = vec![bound_ip(&listeners.0), bound_ip(&listeners.1)];
     bound.extend(quic_ip);
+    bound.extend(feed_ip);
     for flag in exposed_dev_flags(settings, &bound) {
         tracing::warn!(target: target::DAEMON, "{} is set: {}. It is for development; unset it on a public node", flag.variable, flag.effect);
     }
@@ -492,6 +532,22 @@ fn attach_quic(
     node.attach_quic(Arc::clone(&quic));
     if let Some(to) = hand_out {
         let _ = to.send(quic);
+    }
+}
+
+/// Gives the node its rate feed on `socket`; the address it is bound to,
+/// unless the runtime cannot take the socket.
+fn attach_feed(node: &Node, socket: UdpSocket) -> Option<IpAddr> {
+    let address = socket.local_addr().ok();
+    match crate::feed::FeedEndpoint::new(socket) {
+        Ok(feed) => {
+            node.attach_feed(Arc::new(feed));
+            address.map(|address| address.ip())
+        }
+        Err(error) => {
+            tracing::warn!(target: target::DAEMON, ?address, %error, "no rate feed: the node publishes none");
+            None
+        }
     }
 }
 
@@ -644,6 +700,12 @@ fn start_services(
         "rates",
         Box::new(|node, shutdown| Box::pin(node.run_rates(shutdown))),
     );
+    if node.feed().is_some() {
+        spawn(
+            "feed",
+            Box::new(|node, shutdown| Box::pin(crate::feed::run(node, shutdown))),
+        );
+    }
 }
 
 /// A service: started again, with the node and the shutdown token, after
@@ -695,7 +757,8 @@ async fn prune_sessions(node: Arc<Node>, shutdown: CancellationToken) {
 
 fn report_ready(node: &Node, notifier: Option<&Notifier>) {
     let quic = node.quic().and_then(|quic| quic.local_addr().ok());
-    log_listening(node.runtime(), node.ports(), quic);
+    let feed = node.feed().and_then(|feed| feed.local_addr().ok());
+    log_listening(node.runtime(), node.ports(), quic, feed);
     if !node.is_set_up() {
         // Not the URL itself: whoever opens it first claims the node, and the
         // journal is readable by groups that do not administer it (adm,
@@ -710,12 +773,20 @@ fn report_ready(node: &Node, notifier: Option<&Notifier>) {
     }
 }
 
-/// The line that says the node serves, and on what: the TCP ports, and
-/// the QUIC endpoint's address, or `none` when peers reach the node over
-/// HTTPS only (spec/areas/node.md#logging).
-fn log_listening(runtime: Runtime, (http_port, https_port): (u16, u16), quic: Option<SocketAddr>) {
-    let quic = quic.map_or_else(|| "none".to_owned(), |address| address.to_string());
-    tracing::info!(target: target::DAEMON, version = crate::VERSION, ?runtime, http_port, https_port, %quic, "listening");
+/// The line that says the node serves, and on what: the TCP ports, the
+/// QUIC endpoint's address, or `none` when peers reach the node over HTTPS
+/// only, and the rate feed's, or `none` (spec/areas/node.md#logging).
+fn log_listening(
+    runtime: Runtime,
+    (http_port, https_port): (u16, u16),
+    quic: Option<SocketAddr>,
+    feed: Option<SocketAddr>,
+) {
+    let named = |address: Option<SocketAddr>| {
+        address.map_or_else(|| "none".to_owned(), |address| address.to_string())
+    };
+    let (quic, feed) = (named(quic), named(feed));
+    tracing::info!(target: target::DAEMON, version = crate::VERSION, ?runtime, http_port, https_port, %quic, %feed, "listening");
 }
 
 #[cfg(test)]
@@ -775,8 +846,12 @@ mod tests {
     }
 
     /// The `listening` line's fields, by name.
-    fn listening(runtime: Runtime, quic: Option<SocketAddr>) -> Vec<(String, String)> {
-        let lines = crate::log::capture(|| log_listening(runtime, (80, 443), quic));
+    fn listening(
+        runtime: Runtime,
+        quic: Option<SocketAddr>,
+        feed: Option<SocketAddr>,
+    ) -> Vec<(String, String)> {
+        let lines = crate::log::capture(|| log_listening(runtime, (80, 443), quic, feed));
         let [line] = lines.as_slice() else {
             panic!("one line, not {lines:?}");
         };
@@ -791,27 +866,34 @@ mod tests {
             .collect()
     }
 
-    // Whether a node takes QUIC is in its journal at info level, under
-    // either runtime, so nobody needs to watch UDP to find out.
+    // Whether a node takes QUIC and has a rate feed is in its journal at
+    // info level, under either runtime, so nobody needs to watch UDP to
+    // find out.
     #[test]
-    fn the_listening_line_names_the_quic_endpoint_or_none() {
+    fn the_listening_line_names_the_quic_endpoint_and_the_feed_or_none() {
         let field = |name: &str, value: &str| (name.to_owned(), value.to_owned());
         assert_eq!(
-            listening(Runtime::Systemd, Some("[::]:443".parse().unwrap())),
+            listening(
+                Runtime::Systemd,
+                Some("[::]:443".parse().unwrap()),
+                Some("[::]:7768".parse().unwrap())
+            ),
             [
                 field("runtime", "Systemd"),
                 field("http_port", "80"),
                 field("https_port", "443"),
                 field("quic", "[::]:443"),
+                field("feed", "[::]:7768"),
             ]
         );
         assert_eq!(
-            listening(Runtime::Standalone, None),
+            listening(Runtime::Standalone, None, None),
             [
                 field("runtime", "Standalone"),
                 field("http_port", "80"),
                 field("https_port", "443"),
                 field("quic", "none"),
+                field("feed", "none"),
             ]
         );
     }
@@ -844,10 +926,58 @@ mod tests {
             ports: Some(ports),
             listen: Some(Ipv4Addr::LOCALHOST.into()),
             quic: None,
+            feed: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
         };
         let prepared = prepare(dir.path(), options);
         let quic = prepared.extras.quic.as_ref().unwrap().local_addr().unwrap();
         assert_eq!(quic, prepared.https.local_addr().unwrap());
+    }
+
+    #[test]
+    fn the_feed_listens_where_it_is_told() {
+        let dir = tempfile::tempdir().unwrap();
+        let options = DaemonOptions {
+            runtime: Some(Runtime::Standalone),
+            ports: Some(free_ports()),
+            listen: Some(Ipv4Addr::LOCALHOST.into()),
+            quic: None,
+            feed: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
+        };
+        let prepared = prepare(dir.path(), options);
+        let feed = prepared.extras.feed.as_ref().unwrap().local_addr().unwrap();
+        assert!(feed.ip().is_loopback());
+        assert_ne!(feed.port(), 0);
+    }
+
+    // By default the feed listens beside the HTTPS listener, at its own
+    // port; a port that is taken leaves the node without a feed, and
+    // starting.
+    #[test]
+    fn the_feed_listens_beside_https_by_default_or_goes_without() {
+        let address = SocketAddr::from((Ipv4Addr::LOCALHOST, crate::feed::DEFAULT_FEED_PORT));
+        let dir = tempfile::tempdir().unwrap();
+        let options = DaemonOptions {
+            runtime: Some(Runtime::Standalone),
+            ports: Some(free_ports()),
+            listen: Some(Ipv4Addr::LOCALHOST.into()),
+            quic: None,
+            feed: None,
+        };
+        // Whoever holds the port, this test or another process, the node
+        // starts; with it free, the node takes it.
+        let taken = UdpSocket::bind(address);
+        let prepared = prepare(dir.path(), options);
+        assert!(prepared.extras.feed.is_none());
+        drop((taken, prepared));
+        let dir = tempfile::tempdir().unwrap();
+        let options = DaemonOptions {
+            ports: Some(free_ports()),
+            ..options
+        };
+        let prepared = prepare(dir.path(), options);
+        if let Some(feed) = &prepared.extras.feed {
+            assert_eq!(feed.local_addr().unwrap(), address);
+        }
     }
 
     #[test]
@@ -858,6 +988,7 @@ mod tests {
             ports: Some(free_ports()),
             listen: Some(Ipv4Addr::LOCALHOST.into()),
             quic: Some(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))),
+            feed: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
         };
         let prepared = prepare(dir.path(), options);
         let quic = prepared.extras.quic.as_ref().unwrap().local_addr().unwrap();

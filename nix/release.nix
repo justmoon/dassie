@@ -333,7 +333,7 @@ let
     testScript = ''
       machine.wait_for_unit("dassie.service")
       machine.succeed(
-          "systemctl is-active dassie-http.socket dassie-https.socket dassie-ipc.socket dassie-quic.socket"
+          "systemctl is-active dassie-http.socket dassie-https.socket dassie-ipc.socket dassie-quic.socket dassie-feed.socket"
       )
       machine.wait_until_succeeds(
           "[ $(curl -sk -o /dev/null -w '%{http_code}' https://localhost/) = 200 ]"
@@ -384,7 +384,7 @@ let
       grep -q 'DASSIE_LOG_LEVEL=debug' dassie.service.d/overrides.conf
       grep -q 'DASSIE_RELAY=' dassie.service.d/overrides.conf
       [ -e multi-user.target.wants/dassie.service ]
-      for socket in http https ipc quic; do
+      for socket in http https ipc quic feed; do
         [ -e sockets.target.wants/dassie-$socket.socket ]
       done
       if ls | grep -q dassie-update; then

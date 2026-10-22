@@ -34,6 +34,7 @@ fn core_on(store: Arc<Store>, seed: u64) -> Core {
             url: None,
             alias: String::new(),
             quic: false,
+            feed_port: None,
         },
         bootstrap: Vec::new(),
         uplinks: Vec::new(),
@@ -544,6 +545,18 @@ fn steps_report_what_they_changed() {
     core.add_scheme("stub", String::new()).unwrap();
     core.finish_step(&mut outputs);
     assert!(core.take_changes().ledger);
+    // The rate feed follows the prices: new charges move them, and a table
+    // built again that says the same moves nothing.
+    let settings = crate::store::PeerSettings {
+        connector_fee_ppm: 1_000,
+        ..crate::store::PeerSettings::DEFAULT
+    };
+    core.set_peer_settings(settings).unwrap();
+    core.finish_step(&mut outputs);
+    assert!(core.take_changes().prices);
+    core.set_peer_settings(settings).unwrap();
+    core.finish_step(&mut outputs);
+    assert!(!core.take_changes().prices);
 }
 
 // The owner's fee, spread and rebalancing are checked and persisted.
@@ -1373,6 +1386,7 @@ fn a_downlink_that_owes_nothing_is_never_short_of_room() {
                 url: Some("https://core.test".into()),
                 alias: String::new(),
                 quic: true,
+                feed_port: None,
             },
             bootstrap: Vec::new(),
             uplinks: Vec::new(),
@@ -2062,6 +2076,7 @@ fn rlusd_core(ledger: &mut dassie_xrpl::fake::FakeLedger) -> Core {
                 url: Some("https://core.test".into()),
                 alias: String::new(),
                 quic: true,
+                feed_port: None,
             },
             bootstrap: Vec::new(),
             uplinks: Vec::new(),
