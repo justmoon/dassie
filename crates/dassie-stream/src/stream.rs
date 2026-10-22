@@ -19,6 +19,12 @@ pub struct Stream {
     // The remote's limits, in destination units. `u64::MAX` until it says.
     pub(crate) remote_receive_max: u64,
     pub(crate) remote_received: u64,
+    /// The total the remote's latest reply reported, and the sequence
+    /// the next request had when it was heard: a reply that reports less
+    /// is stale unless its request was sent after
+    /// (spec/areas/stream.md#responses).
+    pub(crate) remote_reported: u64,
+    pub(crate) remote_reported_at: u64,
     /// Whether the remote ever lowered its maximum: what it pays into is
     /// shared, or was cut short.
     pub(crate) remote_max_fell: bool,
@@ -59,6 +65,8 @@ impl Stream {
             held: 0,
             remote_receive_max: u64::MAX,
             remote_received: 0,
+            remote_reported: 0,
+            remote_reported_at: 0,
             remote_max_fell: false,
             expected_delivery: 0,
             receive_max: 0,

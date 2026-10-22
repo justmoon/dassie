@@ -1332,3 +1332,70 @@ fn a_reply_the_receiver_wrote_earlier_does_not_restore_its_room() {
     // The current reply, to the older request, arrives last.
     assert_eq!(fill_out_of_order(11, [1, 0]), (0, 9_993));
 }
+
+// Found in review: a node's receiver drops the count of a connection that
+// gave its place in its incoming payment to a new payer, so if its sender
+// comes back, every reply reports less received than the sender heard
+// before (spec/areas/payments.md#receiving). Those replies answer requests
+// sent after the higher total was heard, so the receiver wrote them later,
+// and the room they report is what it takes now. Taken as stale, the
+// sender kept the room it heard first and offered packets the receiver
+// refused until its deadline.
+#[test]
+fn a_reply_after_the_receiver_dropped_its_count_is_taken() {
+    let mut rng = SeededRng::new(12);
+    let mut server = server(PAYEE);
+    let mut payment = Payment::new(10_000, 10);
+    let (mut a, a_stream, keys) = payer(&server, &mut rng, b"payment/a");
+    let (mut b, b_stream, _) = payer(&server, &mut rng, b"payment/b");
+    a.set_send_max(a_stream, 500).unwrap();
+    assert_eq!(
+        pay(NOW, &mut rng, &mut server, &mut payment, &mut a),
+        (1, 0)
+    );
+    assert_eq!(a.stream(a_stream).unwrap().remote_room(), 9_500);
+
+    // A's place goes to another payer, and its count with it; B pays all
+    // but 500.
+    payment.paid.remove(b"payment/a".as_slice());
+    b.set_send_max(b_stream, 9_000).unwrap();
+    assert_eq!(
+        pay(NOW, &mut rng, &mut server, &mut payment, &mut b),
+        (1, 0)
+    );
+    assert_eq!(payment.remaining, 500);
+
+    // A comes back and offers what it was told fits. The refusal says the
+    // receiver counts nothing from A, and takes 500.
+    a.set_send_max(a_stream, 10_000).unwrap();
+    let mut out = vec![0; BUFFER_LENGTH];
+    let mut answer = vec![0; BUFFER_LENGTH];
+    let transmit = a.poll_transmit(NOW, &mut rng, &mut out).unwrap();
+    let prepare = Prepare::decode_exact(&out[..transmit.length]).unwrap();
+    assert_eq!(prepare.amount, 9_500);
+    let admit = |tag: &[u8]| payment.admit(tag);
+    let handled = server.handle_prepare_admitted(NOW, &mut rng, &prepare, admit, &mut answer);
+    assert_eq!(handled.received, 0);
+    let answer = &answer[..handled.length];
+    check_refusal(&keys, answer, |_, frames| {
+        let room = Frame::StreamMaxMoney {
+            stream_id: a_stream,
+            receive_max: 500,
+            total_received: 0,
+        };
+        assert!(frames.contains(&room), "{frames:?}");
+    });
+    let mut work = vec![0; BUFFER_LENGTH];
+    a.handle_response(NOW, transmit.request_id, answer, &mut work);
+    a.check_invariants();
+    // A takes the room, sends the 500 once it retries, and offers a unit
+    // of what it has left, which closes its connection.
+    assert_eq!(a.stream(a_stream).unwrap().remote_room(), 500);
+    let later = NOW.saturating_add_ms(1_000);
+    assert_eq!(
+        pay(later, &mut rng, &mut server, &mut payment, &mut a),
+        (1, 1)
+    );
+    assert_eq!(payment.remaining, 0);
+    assert_eq!(closed_by_remote(&mut a), Some(ErrorCode::NO_ERROR));
+}

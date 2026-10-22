@@ -1,5 +1,7 @@
 //! Settling sent packets: responses, timeouts, and what follows from them.
 
+use core::cmp::Ordering;
+
 use dassie_ilp::{
     AmountTooLarge, ErrorClass, ErrorCode as IlpErrorCode, Reject, Response, Timestamp,
 };
@@ -144,10 +146,9 @@ impl Connection {
             self.push_event(Event::Connected);
         }
         // Replies may arrive out of order, and the receiver may take
-        // packets in another order than they were sent. Of replies that
-        // report the same received total, only the one to the newest
-        // request says what the receiver takes now; an older one may only
-        // raise its limits.
+        // packets in another order than they were sent: which reply says
+        // what the receiver takes now is read from the totals they report
+        // (`take_remote_maximum`).
         let newest = self
             .newest_reply
             .is_none_or(|newest| slot.sequence > newest);
@@ -159,7 +160,12 @@ impl Connection {
             if let Frame::ConnectionClose { code, .. } = frame {
                 remote_close = Some(code);
             }
-            self.apply_reply_frame(&frame, expected == PacketType::Fulfill, newest);
+            self.apply_reply_frame(
+                &frame,
+                expected == PacketType::Fulfill,
+                slot.sequence,
+                newest,
+            );
         }
         if let Some(code) = remote_close {
             self.finish_close(code, true);
@@ -167,47 +173,19 @@ impl Connection {
         Some(packet.prepare_amount)
     }
 
-    fn apply_reply_frame(&mut self, frame: &Frame<'_>, fulfilled: bool, newest: bool) {
+    fn apply_reply_frame(
+        &mut self,
+        frame: &Frame<'_>,
+        fulfilled: bool,
+        sequence: u64,
+        newest: bool,
+    ) {
         match *frame {
-            Frame::StreamMaxMoney {
-                stream_id,
-                total_received,
-                ..
-            } if self
-                .stream(stream_id)
-                .is_some_and(|stream| total_received < stream.remote_received) =>
-            {
-                // A stream's received total only grows, so the receiver
-                // wrote this reply before one already heard, though it may
-                // answer a newer request: a receiver can take packets in
-                // another order than they were sent. Its maximum is stale.
-                // Taken, it would undo a maximum that fell since, as when
-                // the receiver came within its tolerance of the total, and
-                // report room the receiver no longer has
-                // (spec/areas/stream.md#responses).
-            }
             Frame::StreamMaxMoney {
                 stream_id,
                 receive_max,
                 total_received,
-            } if newest
-                || self
-                    .stream(stream_id)
-                    .is_some_and(|stream| total_received > stream.remote_received) =>
-            {
-                // What the receiver takes now, even when it fell, as when
-                // another payment took from what it pays into: sent what
-                // it no longer takes, every packet would be refused
-                // (spec/areas/stream.md#money-limit). A reply that reports
-                // more received than any heard before was written after
-                // them all, whichever request it answers.
-                if let Some(stream) = self.stream_mut(stream_id) {
-                    stream.remote_received = stream.remote_received.max(total_received);
-                    let known = stream.remote_receive_max != u64::MAX;
-                    stream.remote_max_fell |= known && receive_max < stream.remote_receive_max;
-                    stream.remote_receive_max = receive_max;
-                }
-            }
+            } => self.take_remote_maximum(stream_id, receive_max, total_received, sequence, newest),
             Frame::StreamReceipt { stream_id, receipt } if fulfilled => {
                 if let (Some(stream), Ok(receipt)) = (
                     self.stream_mut(stream_id),
@@ -216,8 +194,7 @@ impl Connection {
                     stream.last_receipt = Some(receipt);
                 }
             }
-            Frame::StreamMaxMoney { stream_id, .. }
-            | Frame::StreamMaxData { stream_id, .. }
+            Frame::StreamMaxData { stream_id, .. }
                 // Replies update limits of known streams but never open one.
                 if self.stream(stream_id).is_some() =>
             {
@@ -230,6 +207,70 @@ impl Connection {
                 let _ = self.apply_control_frame(frame);
             }
             _ => {}
+        }
+    }
+
+    /// Takes the receive maximum a reply to request `sequence` reports for
+    /// a known stream, with the total the receiver counts as received,
+    /// if the reply says what the receiver takes now
+    /// (spec/areas/stream.md#responses).
+    ///
+    /// A receiver's total grows, so a reply that reports more than any
+    /// heard before was written after them all, whichever request it
+    /// answers, and one that reports less was written before one already
+    /// heard: a receiver can take packets in another order than they were
+    /// sent. Taken, its maximum would undo one that fell since, as when
+    /// the receiver came within its tolerance of the total, and report
+    /// room the receiver no longer has. Unless its request was sent after
+    /// the higher total was heard: then the receiver wrote it later, and
+    /// its count fell, as when it dropped a connection's count for a new
+    /// payer (spec/areas/stream.md#money-limit). Of replies that report the
+    /// same, the one to the newest request says what the receiver takes;
+    /// an older one may only raise it.
+    ///
+    /// The room a reply reports, its maximum less its total, is what the
+    /// receiver takes now; it is added to what the stream is known to have
+    /// delivered, which never falls.
+    fn take_remote_maximum(
+        &mut self,
+        stream_id: u64,
+        receive_max: u64,
+        total_received: u64,
+        sequence: u64,
+        newest: bool,
+    ) {
+        let next_sequence = self.next_sequence;
+        let Some(stream) = self.stream_mut(stream_id) else {
+            // Replies never open a stream.
+            return;
+        };
+        let current = match total_received.cmp(&stream.remote_reported) {
+            Ordering::Greater => true,
+            Ordering::Equal => newest,
+            Ordering::Less => sequence >= stream.remote_reported_at,
+        };
+        let same = total_received == stream.remote_reported;
+        if current && !same {
+            stream.remote_reported = total_received;
+            stream.remote_reported_at = next_sequence;
+        }
+        stream.remote_received = stream.remote_received.max(total_received);
+        let room = receive_max.saturating_sub(total_received);
+        let maximum = stream.remote_received.saturating_add(room);
+        let known = stream.remote_receive_max != u64::MAX;
+        if current {
+            // What the receiver takes now, even when it fell, as when
+            // another payment took from what it pays into: sent what it
+            // no longer takes, every packet would be refused
+            // (spec/areas/stream.md#money-limit).
+            stream.remote_max_fell |= known && maximum < stream.remote_receive_max;
+            stream.remote_receive_max = maximum;
+        } else if same {
+            stream.remote_receive_max = if known {
+                stream.remote_receive_max.max(maximum)
+            } else {
+                maximum
+            };
         }
     }
 

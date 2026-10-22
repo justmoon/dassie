@@ -243,8 +243,9 @@ pub struct Connection {
     window_update_sequence: u64,
     /// Last sign of life from the remote, for the idle timeout.
     last_activity: Option<Timestamp>,
-    /// The sequence of the newest request whose reply was taken: only
-    /// its reply may lower the remote's receive maxima.
+    /// The sequence of the newest request whose reply was taken: of
+    /// replies that report the same received total, only its reply may
+    /// lower the remote's receive maxima.
     newest_reply: Option<u64>,
 
     next_sequence: u64,
