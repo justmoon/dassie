@@ -3,7 +3,7 @@
 //! Who gets the feed: proven addresses, each until its entry expires
 //! unless a Subscribe with a valid cookie renews it. The table is bounded
 //! in all and per client (an IPv4 address, or an IPv6 /56, as the node's
-//! other per-client limits), so one party cannot take every place. A full
+//! other per-client limits), so one host cannot take every place. A full
 //! table refuses newcomers rather than evicting anyone: an entry is only
 //! ever a proven address that asked within its lifetime, and evicting one
 //! for a newcomer would let a party with many addresses push the others
@@ -14,7 +14,7 @@
 //! datagram says can make the table panic or grow past its bounds.
 
 use alloc::vec::Vec;
-use core::net::SocketAddr;
+use core::net::{IpAddr, SocketAddr, SocketAddrV6};
 
 use dassie_node_core::MINUTE_MS;
 use dassie_node_core::rate_limit::ClientKey;
@@ -90,6 +90,9 @@ pub enum Ignored {
     Malformed(WireError),
     /// It is a message only a node sends.
     NotSubscribe,
+    /// It comes from an address a feed cannot go to: port 0, or an IP that
+    /// is unspecified, multicast or broadcast.
+    NotUnicast,
 }
 
 /// What the table has done, for the node's counters.
@@ -164,6 +167,10 @@ impl SubscriberTable {
         cookie: Option<&Cookie>,
         now_ms: u64,
     ) -> Decision {
+        if !is_unicast(from) {
+            self.stats.ignored = self.stats.ignored.saturating_add(1);
+            return Decision::Ignored(Ignored::NotUnicast);
+        }
         let from = normalize(from);
         let check = cookie.map_or(CookieCheck::Invalid, |cookie| {
             self.secret.check(from, cookie, now_ms)
@@ -177,16 +184,21 @@ impl SubscriberTable {
             CookieCheck::Previous => Some(self.secret.issue(from, now_ms)),
         };
         let expires_at_ms = now_ms.saturating_add(self.limits.ttl_ms);
-        if let Ok(index) = self.find(from) {
-            if let Some(entry) = self.entries.get_mut(index) {
-                entry.expires_at_ms = entry.expires_at_ms.max(expires_at_ms);
+        if let Ok(index) = self.find(from)
+            && let Some(entry) = self.entries.get_mut(index)
+        {
+            // An entry that expired but was not dropped yet got no feeds
+            // since, so it comes back as new, and gets the latest at once.
+            // Only its expiry changes, which no invariant covers, so a
+            // renewal costs a lookup and a MAC, however full the table.
+            let new = entry.expires_at_ms <= now_ms;
+            entry.expires_at_ms = entry.expires_at_ms.max(expires_at_ms);
+            if new {
+                self.stats.subscribed = self.stats.subscribed.saturating_add(1);
+            } else {
+                self.stats.renewed = self.stats.renewed.saturating_add(1);
             }
-            self.stats.renewed = self.stats.renewed.saturating_add(1);
-            self.check_invariants();
-            return Decision::Subscribed {
-                new: false,
-                refresh,
-            };
+            return Decision::Subscribed { new, refresh };
         }
         let decision = match self.admit(from, expires_at_ms, now_ms) {
             Ok(()) => {
@@ -274,8 +286,10 @@ impl SubscriberTable {
             false
         });
         let expired = before - self.entries.len();
-        self.stats.expired = self.stats.expired.saturating_add(expired as u64);
-        self.check_invariants();
+        if expired > 0 {
+            self.stats.expired = self.stats.expired.saturating_add(expired as u64);
+            self.check_invariants();
+        }
         expired
     }
 
@@ -341,7 +355,8 @@ impl SubscriberTable {
     /// Panics if the table is inconsistent: more entries than it holds, an
     /// address twice or out of order, an entry whose client is not its
     /// address's or is not counted, a count out of its range, or counts
-    /// that do not add up to the entries. Runs after every change.
+    /// that do not add up to the entries. Runs after every change to the
+    /// entries or the counts.
     pub fn check_invariants(&self) {
         assert!(self.entries.len() <= self.limits.max_subscribers);
         let sorted = self.entries.windows(2).all(|pair| match pair {
@@ -377,8 +392,27 @@ impl SubscriberTable {
     }
 }
 
-/// The address a feed goes to: its IP and port, without an IPv6 flow label
-/// or scope, which would otherwise make one address several entries.
+/// The address a feed goes to: as received, without an IPv6 flow label,
+/// which the sender picks and which would otherwise make one address
+/// several entries. The scope stays: the receiving host sets it, and a
+/// link-local address cannot be sent to without it.
 fn normalize(address: SocketAddr) -> SocketAddr {
-    SocketAddr::new(address.ip(), address.port())
+    match address {
+        SocketAddr::V4(_) => address,
+        SocketAddr::V6(v6) => {
+            SocketAddr::V6(SocketAddrV6::new(*v6.ip(), v6.port(), 0, v6.scope_id()))
+        }
+    }
+}
+
+/// Whether a feed can go to `address`: a port, and an IP that is one host's.
+/// A source that is not one is forged or broken, and a feed sent there
+/// would go to no one, or to many.
+fn is_unicast(address: SocketAddr) -> bool {
+    let ip = address.ip().to_canonical();
+    let one_host = match ip {
+        IpAddr::V4(v4) => !v4.is_broadcast(),
+        IpAddr::V6(_) => true,
+    };
+    address.port() != 0 && !ip.is_unspecified() && !ip.is_multicast() && one_host
 }

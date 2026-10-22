@@ -175,6 +175,31 @@ fn entries_expire_without_a_renewal() {
 }
 
 #[test]
+fn a_lapsed_entry_that_renews_before_it_is_dropped_comes_back_as_new() {
+    let mut table = table(8, 2);
+    let address = v4(1, 4000);
+    join(&mut table, address, NOW);
+    let lapsed = NOW + TTL;
+    assert!(!table.contains(address, lapsed));
+    assert_eq!(table.len(), 1, "not dropped yet");
+    let Decision::Challenge(cookie) = table.handle(address, &encode_subscribe(None), lapsed) else {
+        panic!("challenged");
+    };
+    // It got no feeds since it lapsed, so the caller sends it the latest.
+    assert_eq!(
+        table.handle(address, &encode_subscribe(Some(&cookie)), lapsed),
+        Decision::Subscribed {
+            new: true,
+            refresh: None
+        }
+    );
+    assert!(table.contains(address, lapsed));
+    assert_eq!(table.stats().subscribed, 2);
+    assert_eq!(table.stats().renewed, 0);
+    table.check_invariants();
+}
+
+#[test]
 fn a_client_has_a_share_of_the_table() {
     let mut table = table(8, 2);
     assert!(matches!(
@@ -243,11 +268,11 @@ fn a_full_table_refuses_newcomers_until_an_entry_expires() {
 }
 
 #[test]
-fn a_flow_label_or_scope_does_not_make_another_entry() {
+fn a_flow_label_does_not_make_another_entry() {
     let mut table = table(8, 4);
     let ip = Ipv6Addr::new(0x2001, 0xdb8, 0, 1, 0, 0, 0, 1);
     let plain = SocketAddr::V6(SocketAddrV6::new(ip, 4000, 0, 0));
-    let labelled = SocketAddr::V6(SocketAddrV6::new(ip, 4000, 77, 3));
+    let labelled = SocketAddr::V6(SocketAddrV6::new(ip, 4000, 77, 0));
     join(&mut table, plain, NOW);
     assert!(matches!(
         join(&mut table, labelled, NOW),
@@ -255,6 +280,41 @@ fn a_flow_label_or_scope_does_not_make_another_entry() {
     ));
     assert_eq!(table.len(), 1);
     assert!(table.contains(labelled, NOW));
+    assert_eq!(table.recipients(NOW).collect::<Vec<_>>(), [plain]);
+}
+
+#[test]
+fn a_link_local_subscriber_keeps_its_scope() {
+    let mut table = table(8, 4);
+    let ip = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+    let scoped = SocketAddr::V6(SocketAddrV6::new(ip, 4000, 77, 3));
+    join(&mut table, scoped, NOW);
+    assert_eq!(
+        table.recipients(NOW).collect::<Vec<_>>(),
+        [SocketAddr::V6(SocketAddrV6::new(ip, 4000, 0, 3))]
+    );
+}
+
+#[test]
+fn an_address_a_feed_cannot_go_to_gets_no_answer() {
+    let mut table = table(8, 4);
+    let sources = [
+        v4(1, 0),
+        SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 4000),
+        SocketAddr::new(Ipv4Addr::BROADCAST.into(), 4000),
+        SocketAddr::new(Ipv4Addr::new(224, 0, 0, 1).into(), 4000),
+        SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 4000),
+        SocketAddr::new(Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 1).into(), 4000),
+        SocketAddr::new(Ipv4Addr::BROADCAST.to_ipv6_mapped().into(), 4000),
+    ];
+    for from in sources {
+        assert_eq!(
+            table.handle(from, &encode_subscribe(None), NOW),
+            Decision::Ignored(Ignored::NotUnicast),
+            "{from}"
+        );
+    }
+    assert_eq!(table.stats().challenged, 0);
 }
 
 #[test]
