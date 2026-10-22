@@ -419,8 +419,13 @@ fn rebalance(inputs: &Inputs<'_>, from: Side) -> Result<Rebalance, Hold> {
         return Err(Hold::Full);
     }
     let pool = &inputs.pool;
-    let deliver = amm::swap_out(pool.holds(from), pool.holds(to), pool.trading_fee, paid)
+    let out = amm::swap_out(pool.holds(from), pool.holds(to), pool.trading_fee, paid)
         .map_err(Hold::Pool)?;
+    // Whole drops or millionths, as the other node books them: a token's
+    // exact price can take every digit a value has, and an amount that
+    // leaves the line or the pool more digits than the ledger holds is
+    // rounded by the ledger, or refused by the fake.
+    let deliver = to_amount(to, to_units(out).ok_or(Hold::Range)?, token).ok_or(Hold::Range)?;
     if deliver.is_zero() {
         return Err(Hold::Dust);
     }
@@ -795,7 +800,28 @@ mod tests {
         };
         assert_eq!(rebalance.from, Side::Xrp);
         assert_eq!(rebalance.send_max, Amount::Xrp(65_000_000));
-        assert!(matches!(rebalance.deliver, Amount::Token(_)));
+        // In whole millionths, as the token node books it, rounded down
+        // from what the pool's exact price would give.
+        let Amount::Token(delivered) = rebalance.deliver else {
+            panic!("the token delivered");
+        };
+        let micros = delivered.value.floor_units(MICRO_DECIMALS).unwrap();
+        assert_eq!(
+            TokenValue::from_units(u64::try_from(micros).unwrap(), MICRO_DECIMALS),
+            Some(delivered.value)
+        );
+        let exact = amm::swap_out(
+            pool().holds(Side::Xrp),
+            pool().holds(Side::Token),
+            0,
+            to_amount(Side::Xrp, 65 * ONE * 100 / 101, token()).unwrap(),
+        )
+        .unwrap();
+        let Amount::Token(exact) = exact else {
+            panic!("the token out");
+        };
+        assert_ne!(exact.value, delivered.value, "a price of more digits");
+        assert_eq!(to_units(rebalance.deliver), to_units(Amount::Token(exact)));
     }
 
     #[test]
