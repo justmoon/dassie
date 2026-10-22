@@ -158,6 +158,8 @@ A pull request can still waste its own loop, fill the disk for the rest of it, a
 
 The dev environment's scenarios run headless in CI on real binaries with the wallet built in: start several nodes, set them up through the HTTP API, add ledgers, peer, pay, settle, restart, and check that the balances are unchanged. They also cover what only real IO shows: a fresh install, socket-activated, getting its certificate from an ACME test server; reference clients paying through BTP and Open Payments; the wallet in a headless browser; settling on the fake XRP Ledger, which a test can switch to the public testnet by hand, in XRP and in RLUSD, whose issuer there freezes a line and claws back.
 
+**Passive rebalancing, the whole loop** (`market_maker_test.ts`, on the `market-maker` scenario): a core node short of DSUSD publishes its feed, and `dassie market-maker`, run from the same build for a bounded time, trades through it with its two pinned nodes and swaps back through the fake ledger's pool ([Rate feed](rate-feed.md#market-maker)). It reads what each party holds from its own books and the ledger: the core node's share of its value in DSUSD rose, toward its target; the market maker's value, at the pool's price after the run, grew; and every node's books are unchanged across a restart. It waits on what the books and the pool show, each wait bounded, never on the market maker's log; the decisions themselves are the strategy's unit tests.
+
 ## Installer and updater
 
 The install tests run the installer and the updater in containers with systemd as PID 1, against a mirror of signed test releases; [Release](release.md#tests) states what they check. Two rules for changing them:

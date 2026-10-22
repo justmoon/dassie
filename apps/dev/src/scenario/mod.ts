@@ -19,15 +19,19 @@ import {
   xrplConfig,
 } from "../fake_ledger.ts";
 import { type Layout, layout as defaultLayout } from "../paths.ts";
-import { type RateServer, startRates } from "../rates.ts";
+import { DEV_RATES, type RateServer, startRates } from "../rates.ts";
 import type { Stream } from "../process.ts";
 import { identity, loadTable, type Table } from "../vanity.ts";
 import { until } from "../wait.ts";
 import { type NodeEnvironment, ScenarioNode } from "./node.ts";
 import {
   findScenario,
+  invalid,
   type IssuedToken,
   MAX_NODES,
+  minted,
+  peripheryOf,
+  poolDrops,
   type ScenarioDef,
   settlesOnXrpl,
   unavailable,
@@ -40,8 +44,12 @@ export {
   findScenario,
   type IssuedToken,
   MAX_NODES,
+  type Periphery,
+  type PoolDef,
+  poolDrops,
   type ScenarioDef,
   SCENARIOS,
+  TOKEN_SCHEMES,
   unavailable,
   XRPL_SCHEMES,
 } from "./scenarios.ts";
@@ -149,8 +157,9 @@ export class Scenario {
   ): Promise<Scenario> {
     const def = findScenario(id);
     if (!def) throw new Error(`no scenario ${id}`);
-    const why = unavailable(def, options.fakeLedger !== undefined);
-    if (why) throw new Error(`${id} ${why}`);
+    const why = unavailable(def, options.fakeLedger !== undefined) ??
+      invalid(def);
+    if (why) throw new Error(`${id}: ${why}`);
     const ca = await caFile(options.layout.tls, options.layout.caRoot);
     const environment: NodeEnvironment = {
       dassie: options.dassie,
@@ -186,16 +195,28 @@ export class Scenario {
         for (const scheme of XRPL_SCHEMES) {
           scenario.#configs[scheme] = xrplConfig(scenario.ledger);
         }
+        const pool = def.pool;
+        if (pool !== undefined) {
+          // At the rates the nodes start with, so that the pool and the
+          // nodes agree on the price until something trades.
+          await scenario.askIssuer({
+            action: "amm",
+            token: pool.token,
+            drops: `${poolDrops(pool.value, DEV_RATES.XRP)}`,
+            value: pool.value,
+            fee: pool.tradingFee,
+          });
+        }
       }
       for (let index = 0; index < def.schemes.length; index++) {
-        await scenario.#startNode(index, def.schemes[index]);
+        await scenario.#startNode(index);
       }
       const mint = def.mint;
       if (mint !== undefined) {
         await Promise.all(
-          scenario.nodes.map((node) =>
-            scenario.mintToken(node, mint.token, mint.value)
-          ),
+          scenario.nodes
+            .filter((node) => scenario.#minted(node.index))
+            .map((node) => scenario.mintToken(node, mint.token, mint.value)),
         );
       }
     } catch (error) {
@@ -223,15 +244,41 @@ export class Scenario {
     );
   }
 
-  async #startNode(
-    index: number,
-    schemes: readonly string[],
-  ): Promise<ScenarioNode> {
+  /** The schemes node `index` runs: the scenario's, or an added node's. */
+  #schemes(index: number): readonly string[] {
+    if (this.options.withoutLedger?.includes(index)) return [];
+    return this.def.schemes[index] ?? this.def.addedSchemes;
+  }
+
+  /** Whether node `index` is minted the scenario's token. */
+  #minted(index: number): boolean {
+    return minted(this.def, this.#schemes(index));
+  }
+
+  /**
+   * The environment of node `index`: the bootstrap nodes, and for a
+   * periphery node the IDs of the nodes it is pinned to.
+   */
+  #nodeEnv(index: number): Record<string, string> {
+    const env: Record<string, string> = {
+      DASSIE_BOOTSTRAP_NODES: this.#bootstrapNodes(),
+    };
+    const periphery = peripheryOf(this.def, index);
+    if (periphery !== undefined) {
+      env.DASSIE_UPLINKS = periphery.uplinks
+        .map((uplink) => identity(this.#table, uplink).id)
+        .join(",");
+    }
+    return env;
+  }
+
+  async #startNode(index: number): Promise<ScenarioNode> {
     if (index >= MAX_NODES) throw new Error(`at most ${MAX_NODES} nodes`);
     const node = new ScenarioNode(
       identity(this.#table, index),
       this.#environment,
-      { DASSIE_BOOTSTRAP_NODES: this.#bootstrapNodes() },
+      this.#nodeEnv(index),
+      peripheryOf(this.def, index) !== undefined,
     );
     this.nodes.push(node);
     const report = this.options.onNode ?? (() => {});
@@ -239,12 +286,7 @@ export class Scenario {
       report(node, "starting");
       await node.start();
       report(node, "setting-up");
-      const withoutLedger = this.options.withoutLedger?.includes(index);
-      await node.setUp(
-        withoutLedger ? [] : schemes,
-        this.#configs,
-        this.rates?.url,
-      );
+      await node.setUp(this.#schemes(index), this.#configs, this.rates?.url);
     } catch (error) {
       // A node that failed is stopped and dropped, so its index is free.
       const exit = await node.stop();
@@ -259,11 +301,8 @@ export class Scenario {
 
   /** Starts one more node, with the scenario's schemes for added nodes. */
   async addNode(): Promise<ScenarioNode> {
-    const node = await this.#startNode(
-      this.nodes.length,
-      this.def.addedSchemes,
-    );
-    if (this.def.mint !== undefined) {
+    const node = await this.#startNode(this.nodes.length);
+    if (this.def.mint !== undefined && this.#minted(node.index)) {
       await this.mintToken(node, this.def.mint.token, this.def.mint.value);
     }
     return node;
@@ -339,7 +378,8 @@ export class Scenario {
 
   /**
    * Whether the network has converged: every node knows every other's link
-   * state, has a route to each, and as many peers as it looks for.
+   * state, has a route to each, and as many peers as it looks for. Not for
+   * a scenario with periphery nodes, to which no other node routes.
    */
   async converged(): Promise<boolean> {
     const count = this.nodes.length;

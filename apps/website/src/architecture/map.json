@@ -205,7 +205,7 @@
         "Builds the binary, starts the nodes on `dN.localhost` and restarts them when the Rust code changes",
         "An SNI proxy on port 443, local certificates, vanity node identities, a rates server",
         "Sets nodes up through their own RPC, the same way the end-to-end tests do",
-        "The scenario library: one node, two, six, the XRP Ledger ones, and RLUSD or DSUSD that the fake ledger's issuers mint each node"
+        "The scenario library: one node, two, six, the XRP Ledger ones, RLUSD or DSUSD that the fake ledger's issuers mint each node, and a core node with a market maker's two periphery nodes pinned to it, beside a pool"
       ]
     },
     "e2e": {
@@ -222,6 +222,7 @@
         "BTP payments, and the two-node and six-node scenarios settling every hop",
         "Open Payments, including a third party's full flow with consent in the wallet",
         "XRP Ledger settlement in XRP and in RLUSD, with the issuer freezing a line and clawing back, and payments across currencies",
+        "Passive rebalancing end to end: a market maker trades through a core node short of dollars and swaps back through the fake ledger's pool, which moves the node toward balance and earns the market maker",
         "The wallet, the dev dashboard and dassie.land in a browser",
         "The installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers"
       ]
@@ -1376,6 +1377,57 @@
             "identity"
           ],
           "text": "The front door passes the JSON back unchanged. A Dassie-aware client checks the signature against the node the label names; any other client trusts the front door."
+        }
+      ]
+    },
+    {
+      "id": "market-maker",
+      "button": "A market maker rebalances a node",
+      "title": "A market maker brings a core node back toward balance",
+      "steps": [
+        {
+          "ids": [
+            "connector",
+            "ledger"
+          ],
+          "text": "A core node that converts between XRP and a dollar token prices each conversion by what it holds: short of dollars, it takes them in at better than its spot rate, and gives them out at worse."
+        },
+        {
+          "ids": [
+            "node",
+            "feed"
+          ],
+          "text": "It publishes those rates as one signed UDP datagram, sent to every subscriber that proved its address with a cookie."
+        },
+        {
+          "ids": [
+            "cli",
+            "feed",
+            "xrpl"
+          ],
+          "text": "`dassie market-maker` verifies the feed against the node's key from its `/stats`, and reads the XRP Ledger's AMM pool with `amm_info`. The node pays more for dollars than the pool does, by more than the market maker's margin."
+        },
+        {
+          "ids": [
+            "proto-ui",
+            "payments"
+          ],
+          "text": "The market maker runs two periphery nodes pinned to the core node, one in each asset. Over their IPC sockets, one creates an incoming payment and the other quotes paying it a fixed amount, and pays only if the quote still clears the margin."
+        },
+        {
+          "ids": [
+            "stream",
+            "connector",
+            "settlement"
+          ],
+          "text": "STREAM carries the dollars to the core node, which converts them to XRP at its curve's rate and passes them on. Each pair of nodes settles on its own ledger."
+        },
+        {
+          "ids": [
+            "cli",
+            "xrpl"
+          ],
+          "text": "Once the XRP node holds more than its band, the market maker swaps the surplus back into dollars through the pool: one Payment from that node's account to the other's, whose `SendMax` bounds the price. The core node holds more dollars than before, and the market maker more value."
         }
       ]
     }

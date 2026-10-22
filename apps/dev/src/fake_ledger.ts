@@ -147,8 +147,10 @@ export async function startFakeLedger(
 /** What the fake ledger's issuer of test RLUSD, or of the test token
  * `token` names, can be asked to do, each in the next ledger: mint to an
  * address, freeze or deep-freeze a line or lift that, freeze every line,
- * set a transfer fee in billionths, or claw back. Values are decimal
- * dollars, such as `"12.5"`. */
+ * set a transfer fee in billionths, claw back, or make or set the token's
+ * pool with XRP (spec/areas/xrpl.md#pools-in-the-fake-ledger), its
+ * trading fee in hundred-thousandths. Values are decimal dollars, such as
+ * `"12.5"`. */
 export type IssuerRequest =
   & { token?: "RLUSD" | "DSUSD" }
   & (
@@ -157,6 +159,7 @@ export type IssuerRequest =
     | { action: "global-freeze"; on: boolean }
     | { action: "transfer-rate"; rate: number }
     | { action: "clawback"; account: string; value: string }
+    | { action: "amm"; drops: string; value: string; fee: number }
   );
 
 /**

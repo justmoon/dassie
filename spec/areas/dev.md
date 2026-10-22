@@ -29,7 +29,7 @@ Each node is the real binary with its own data directory, socket and ports, and 
 
 ### Setting nodes up
 
-Nodes are set up through their own RPC over IPC and their HTTPS setup route, the way an owner would, never by writing the database: the schema stays private to the node. The end-to-end tests use the same code (`apps/dev/src/scenario/node.ts`). Setting up runs on every start and is idempotent: on a node already set up it checks that the data is this node's and adds only what is missing. The certificate and the rate source are set again each time, since the CA or the ports may have changed.
+Nodes are set up through their own RPC over IPC and their HTTPS setup route, the way an owner would, never by writing the database: the schema stays private to the node. The end-to-end tests use the same code (`apps/dev/src/scenario/node.ts`). A periphery node is set up the same way, but without a hostname ([below](#scenarios)). Setting up runs on every start and is idempotent: on a node already set up it checks that the data is this node's and adds only what is missing. The certificate and the rate source are set again each time, since the CA or the ports may have changed.
 
 ### Restarts and resets
 
@@ -37,10 +37,12 @@ A restart (a new node build, or asked for) keeps the nodes' data, and each node 
 
 ## Scenarios
 
-`apps/dev/src/scenario/scenarios.ts` defines them: how many nodes, which are bootstrap nodes, and which settlement schemes they and added nodes use. The end-to-end tests run them through `Scenario.temporary`, in a temporary directory with a CA of their own.
+`apps/dev/src/scenario/scenarios.ts` defines them: how many nodes, which are bootstrap nodes and which periphery nodes, and which settlement schemes they and added nodes use. The end-to-end tests run them through `Scenario.temporary`, in a temporary directory with a CA of their own.
 
 - The XRPL scenarios settle on the public XRP Ledger testnet, or with `--xrpl fake` on the node's own model of the XRP Ledger (the `fake_ledger` example of `dassie-node`), which tests use. It is a new ledger on every run, which nodes treat as a testnet reset ([XRPL](xrpl.md)).
-- `rlusd-settlement` and `dsusd-settlement` settle in test RLUSD and test DSUSD, which only the fake ledger's issuers hand out on demand, so they run only with `--xrpl fake`, and the dashboard says so otherwise. Once each node shows its trust line, which its scheme sets up itself, the scenario has the token's issuer mint it the token; it does so again on every run, since the fake ledger is new each time. Tests ask the same issuers to freeze lines and claw back (`Scenario.askIssuer`, [XRPL](xrpl.md#tokens-in-the-fake-ledger)).
+- `rlusd-settlement` and `dsusd-settlement` settle in test RLUSD and test DSUSD, which only the fake ledger's issuers hand out on demand, so they run only with `--xrpl fake`, and the dashboard says so otherwise. Once each node that runs the token's scheme shows its trust line, which its scheme sets up itself, the scenario has the token's issuer mint it the token; it does so again on every run, since the fake ledger is new each time. Tests ask the same issuers to freeze lines and claw back (`Scenario.askIssuer`, [XRPL](xrpl.md#tokens-in-the-fake-ledger)).
+- `market-maker` is passive rebalancing on one machine ([Rate feed](rate-feed.md#market-maker)): a core node with XRP and DSUSD, most of its value in XRP, and two periphery nodes pinned to it, one with XRP and one with DSUSD, for `dassie market-maker` to trade with. The fake ledger's issuer makes an XRP/DSUSD pool at the scenario's start, priced at the dev rates, so the pool and the nodes agree until something trades ([XRPL](xrpl.md#pools-in-the-fake-ledger)). It runs only with `--xrpl fake`.
+- **Periphery nodes.** A scenario may set nodes up without a hostname, so they have no URL and are periphery nodes, each pinned to core nodes of the scenario through `DASSIE_UPLINKS` ([Network](network.md#pinned-uplinks)). A node list is served only by core nodes, so none is a bootstrap node; the scenario checks this before it starts. Without a hostname a node answers its owner only at `localhost` ([HTTP](http.md#same-origin-rule)), so the dashboard opens its wallet there, at the node's own port, rather than through the SNI proxy.
 - Each scenario serves its own exchange rates, which the setup makes every node's only rate source, so no run depends on an outside rate service and tests can move the rates or make the source fail ([Exchange rates](connector.md#exchange-rates)).
 
 ## Vanity identities
