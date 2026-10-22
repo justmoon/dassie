@@ -11,12 +11,16 @@
 //! and DSUSD on demand: [`FakeLedger::new`] makes RLUSD's and DSUSD's
 //! testnet issuers, at their addresses.
 //!
+//! AMM pools ([`pools`]): a constant-product pool of XRP and a token with a
+//! trading fee, `amm_info`, and Payments with `SendMax` that cross it.
+//!
 //! It answers the subset of the rippled WebSocket API in [`crate::api`],
 //! at API version 1, as rippled does. It checks what it is sent with the
 //! node's own codec, so the codec is pinned by the xrpl.js vectors, not by
 //! this.
 
 mod meta;
+pub mod pools;
 pub mod tokens;
 
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -30,9 +34,11 @@ use crate::codec::{Amount, Currency, Payment, TokenAmount, Transaction, TrustSet
 use crate::keys::{AccountId, verify};
 use crate::{DROPS_PER_XRP, from_hex, hex_upper};
 
+pub use pools::{POOL_ACCOUNT_FLAGS, PoolState, pool_account};
 pub use tokens::{ExactSum, Token};
 
 use meta::{Applied, Touched};
+use pools::{Pool, PoolSet};
 use tokens::{Clawback, IssuerSet, LineKey};
 
 /// The reference fee, in drops.
@@ -111,6 +117,8 @@ enum Tx {
     AccountSet(IssuerSet),
     /// An issuer's own.
     Clawback(Clawback),
+    /// An issuer's own: makes its token's pool, or sets it.
+    PoolSet(PoolSet),
 }
 
 impl Tx {
@@ -120,6 +128,7 @@ impl Tx {
             Self::TrustSet(tx) => tx.account,
             Self::AccountSet(tx) => tx.account,
             Self::Clawback(tx) => tx.account,
+            Self::PoolSet(tx) => tx.account,
         }
     }
 
@@ -129,6 +138,7 @@ impl Tx {
             Self::TrustSet(tx) => tx.sequence,
             Self::AccountSet(tx) => tx.sequence,
             Self::Clawback(tx) => tx.sequence,
+            Self::PoolSet(tx) => tx.sequence,
         }
     }
 
@@ -138,6 +148,7 @@ impl Tx {
             Self::TrustSet(tx) => tx.last_ledger_sequence,
             Self::AccountSet(tx) => tx.last_ledger_sequence,
             Self::Clawback(tx) => tx.last_ledger_sequence,
+            Self::PoolSet(tx) => tx.last_ledger_sequence,
         }
     }
 
@@ -145,7 +156,7 @@ impl Tx {
         match self {
             Self::Payment(tx) => tx.fee,
             Self::TrustSet(tx) => tx.fee,
-            Self::AccountSet(_) | Self::Clawback(_) => FEE_BASE,
+            Self::AccountSet(_) | Self::Clawback(_) | Self::PoolSet(_) => FEE_BASE,
         }
     }
 
@@ -154,7 +165,7 @@ impl Tx {
         match self {
             Self::Payment(tx) => tx.signature.map(|_| tx.blob()),
             Self::TrustSet(tx) => tx.signature.map(|_| tx.blob()),
-            Self::AccountSet(_) | Self::Clawback(_) => None,
+            Self::AccountSet(_) | Self::Clawback(_) | Self::PoolSet(_) => None,
         }
     }
 }
@@ -187,6 +198,8 @@ pub struct FakeLedger {
     /// What each issuer's holders hold of each of its currencies, by
     /// what it minted less what came back to it, was clawed back or wiped.
     supply: BTreeMap<Token, ExactSum>,
+    /// The pools of XRP and a token, by the token.
+    pools: BTreeMap<Token, Pool>,
     /// The last validated ledger.
     ledger: u32,
     /// When it closed, in seconds since the XRP Ledger's epoch.
@@ -233,6 +246,7 @@ impl FakeLedger {
             lines: BTreeMap::new(),
             issuers: BTreeSet::new(),
             supply: BTreeMap::new(),
+            pools: BTreeMap::new(),
             ledger: FIRST_LEDGER,
             close_time: FIRST_CLOSE_TIME,
             history_from: FIRST_LEDGER,
@@ -352,8 +366,8 @@ impl FakeLedger {
     }
 
     /// Starts the chain again, as a testnet reset does: every account but
-    /// genesis and the issuers, every trust line and all history wiped,
-    /// from a ledger below the last, which closes later.
+    /// genesis and the issuers, every trust line and pool, and all history
+    /// wiped, from a ledger below the last, which closes later.
     pub fn reset(&mut self) {
         self.ledger = RESTART_LEDGER.min(self.ledger.saturating_sub(1));
         self.close_time = self.close_time.saturating_add(CLOSE_INTERVAL_S);
@@ -376,6 +390,7 @@ impl FakeLedger {
         }
         self.lines.clear();
         self.supply.clear();
+        self.pools.clear();
         self.queued.clear();
         self.queued_hashes.clear();
     }
@@ -442,6 +457,7 @@ impl FakeLedger {
             "account_info" => self.account_info(&request),
             "account_tx" => self.account_tx(&request),
             "ledger_entry" => self.ledger_entry(&request),
+            "amm_info" => self.amm_info(&request),
             "tx" => self.tx(&request),
             "submit" => self.submit(&request),
             _ => Err(json!({ "error": "unknownCmd" })),
@@ -742,7 +758,8 @@ impl FakeLedger {
             .ok_or_else(|| json!({ "error": "invalidTransaction" }))?;
         let result = |code: &str| Ok(json!({ "engine_result": code, "tx_blob": hex_upper(&blob) }));
         // What the codec cannot read, the node would never send: a partial
-        // Payment, paths, `SendMax`, or any other transaction.
+        // Payment, paths, `SendMax` of XRP for XRP, or any other
+        // transaction.
         let Ok(tx) = Transaction::decode(&blob) else {
             return result("temMALFORMED");
         };
@@ -799,19 +816,47 @@ impl FakeLedger {
         };
         self.put_account(&mut touched, tx.account(), after_fee);
         let outcome = match tx {
-            Tx::Payment(payment) => match payment.amount {
-                Amount::Xrp(drops) => self.pay_xrp(&mut touched, payment, drops),
-                Amount::Token(amount) => {
-                    self.pay_token(&mut touched, payment.account, payment.destination, amount)
-                }
-            },
+            Tx::Payment(payment) => self.pay(&mut touched, payment),
             Tx::TrustSet(trust_set) => {
                 Outcome::code(self.trust_set(&mut touched, trust_set, sender.balance))
             }
             Tx::AccountSet(set) => Outcome::code(self.issuer_set(&mut touched, set)),
             Tx::Clawback(clawback) => Outcome::code(self.claw(&mut touched, clawback)),
+            Tx::PoolSet(set) => Outcome::code(self.apply_pool_set(&mut touched, set)),
         };
         Some(self.applied(tx, index, &outcome, &touched))
+    }
+
+    /// A Payment, after its fee: of what it names, or across a pool when
+    /// its `SendMax` is in the other asset of one.
+    fn pay(&mut self, touched: &mut Touched, payment: &Payment) -> Outcome {
+        if self.is_pool_account(payment.destination) {
+            return Outcome::code("tecNO_PERMISSION");
+        }
+        let (from, to) = (payment.account, payment.destination);
+        match (payment.amount, payment.send_max) {
+            (Amount::Xrp(drops), None) => self.pay_xrp(touched, payment, drops),
+            (Amount::Token(amount), None) => self.pay_token(touched, from, to, amount),
+            (Amount::Token(amount), Some(Amount::Token(max)))
+                if (max.issuer, max.currency) == (amount.issuer, amount.currency) =>
+            {
+                if max.value < amount.value {
+                    Outcome::code("tecPATH_PARTIAL")
+                } else {
+                    self.pay_token(touched, from, to, amount)
+                }
+            }
+            (Amount::Token(amount), Some(Amount::Xrp(max))) => {
+                self.swap_xrp_for_token(touched, payment, amount, max)
+            }
+            (Amount::Xrp(drops), Some(Amount::Token(max))) => {
+                self.swap_token_for_xrp(touched, payment, drops, max)
+            }
+            // No pool holds two tokens, and no path goes through XRP.
+            (Amount::Token(_), Some(Amount::Token(_))) => Outcome::code("tecPATH_DRY"),
+            // The codec reads no such Payment.
+            (Amount::Xrp(_), Some(Amount::Xrp(_))) => Outcome::code("temBAD_SEND_XRP_MAX"),
+        }
     }
 
     /// A Payment of XRP, after its fee.
@@ -918,24 +963,18 @@ fn preflight(tx: &Tx) -> Result<(), &'static str> {
             if payment.flags & !PAYMENT_FLAGS != 0 {
                 return Err("temINVALID_FLAG");
             }
-            // Not modelled yet: no path converts one asset to another.
-            if payment.send_max.is_some() {
-                return Err("temMALFORMED");
-            }
-            let zero = match &payment.amount {
-                Amount::Xrp(drops) => *drops == 0,
-                Amount::Token(token) => token.value.is_zero(),
-            };
-            if zero {
+            if payment.amount.is_zero() || payment.send_max.is_some_and(|max| max.is_zero()) {
                 return Err("temBAD_AMOUNT");
             }
-            if payment.account == payment.destination {
+            // To oneself only across assets: a swap.
+            let spent = payment.send_max.unwrap_or(payment.amount).asset();
+            if payment.account == payment.destination && spent == payment.amount.asset() {
                 return Err("temREDUNDANT");
             }
             Ok(())
         }
         Tx::TrustSet(trust_set) => tokens::preflight_trust_set(trust_set),
-        Tx::AccountSet(_) | Tx::Clawback(_) => Ok(()),
+        Tx::AccountSet(_) | Tx::Clawback(_) | Tx::PoolSet(_) => Ok(()),
     }
 }
 

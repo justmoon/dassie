@@ -5,8 +5,9 @@
 //!
 //! Next to the faucet, under `/tokens/`, the issuers of its test RLUSD and
 //! DSUSD take requests: each mints to an address, freezes, deep-freezes and
-//! globally freezes, sets a transfer fee and claws back, each in the next
-//! ledger (spec/areas/xrpl.md#the-fake-ledger).
+//! globally freezes, sets a transfer fee and claws back, and makes or sets
+//! an AMM pool of XRP and its token, each in the next ledger
+//! (spec/areas/xrpl.md#the-fake-ledger).
 
 use std::collections::BTreeMap;
 use std::convert::Infallible;
@@ -17,7 +18,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use dassie_xrpl::AccountId;
-use dassie_xrpl::codec::TokenValue;
+use dassie_xrpl::codec::{Currency, TokenValue};
 use dassie_xrpl::fake::{FakeLedger, Token};
 use futures_util::{SinkExt, StreamExt};
 use http_body_util::{BodyExt, Full, Limited};
@@ -336,6 +337,11 @@ fn answer(ledger: &mut FakeLedger, path: &str, body: &[u8]) -> (StatusCode, Stri
 /// - `transfer-rate`, `{"rate": 1002000000}`: a fee on transfers between
 ///   holders, in billionths; 0 for none.
 /// - `clawback`, `{"account": "r…", "value": "2"}`: takes it back.
+/// - `amm`, `{"drops": "1000000000", "value": "500", "fee": 500}`: makes
+///   the pool of XRP and the token, or sets it, to hold these drops and
+///   this value and charge this trading fee, in hundred-thousandths. With
+///   `"currency"` and `"issuer"`, the pool of that token, of one of the
+///   fake's issuers.
 fn issuer_request(
     ledger: &mut FakeLedger,
     action: &str,
@@ -371,6 +377,29 @@ fn issuer_request(
             .and_then(|rate| u32::try_from(rate).ok())
             .ok_or("no rate")
     };
+    let pool = |ledger: &mut FakeLedger| {
+        let token = match (body.get("currency"), body.get("issuer")) {
+            (None, None) => token,
+            (currency, _) => Token {
+                currency: currency
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(Currency::parse)
+                    .ok_or("no currency")?,
+                issuer: account("issuer")?,
+            },
+        };
+        let drops = body
+            .get("drops")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|drops| drops.parse::<u64>().ok())
+            .ok_or("no drops")?;
+        let fee = body
+            .get("fee")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|fee| u32::try_from(fee).ok())
+            .ok_or("no fee")?;
+        ledger.set_pool(token, drops, value()?, fee)
+    };
     Some(match action {
         "mint" => account("destination").and_then(|to| ledger.issue(to, token.amount(value()?))),
         "freeze" => account("account").and_then(|holder| ledger.freeze(holder, token, on()?)),
@@ -382,6 +411,7 @@ fn issuer_request(
         "clawback" => {
             account("account").and_then(|holder| ledger.claw_back(holder, token.amount(value()?)))
         }
+        "amm" => pool(ledger),
         _ => return None,
     })
 }
@@ -519,6 +549,60 @@ mod tests {
             StatusCode::BAD_REQUEST
         );
         assert!(ledger.tokens_conserved());
+    }
+
+    #[test]
+    fn the_issuer_makes_and_sets_a_pool_on_request() {
+        let mut ledger = FakeLedger::new();
+        let pool = json!({ "drops": "1000000000", "value": "500", "fee": 500 });
+        assert_eq!(ask(&mut ledger, "/tokens/amm", &pool), StatusCode::OK);
+        let state = ledger.pool(Token::RLUSD).unwrap();
+        assert_eq!(
+            (state.drops, state.value, state.trading_fee),
+            (1_000_000_000, value("500"), 500)
+        );
+        // Set again, naming the token.
+        let again = json!({
+            "drops": "2000000000",
+            "value": "250.5",
+            "fee": 0,
+            "currency": Token::RLUSD.currency.to_string(),
+            "issuer": RLUSD_ISSUER.to_address(),
+        });
+        assert_eq!(ask(&mut ledger, "/tokens/amm", &again), StatusCode::OK);
+        let state = ledger.pool(Token::RLUSD).unwrap();
+        assert_eq!(
+            (state.drops, state.value, state.trading_fee),
+            (2_000_000_000, value("250.5"), 0)
+        );
+        // The DSUSD issuer's pool, named by its code.
+        let dsusd = json!({ "token": "DSUSD", "drops": "3000000000", "value": "4", "fee": 300 });
+        assert_eq!(ask(&mut ledger, "/tokens/amm", &dsusd), StatusCode::OK);
+        let state = ledger.pool(Token::DSUSD).unwrap();
+        assert_eq!(
+            (state.drops, state.value, state.trading_fee),
+            (3_000_000_000, value("4"), 300)
+        );
+        assert!(ledger.tokens_conserved());
+        // Amounts and fees the ledger refuses, and issuers the fake is not.
+        for refused in [
+            json!({ "drops": "1000", "value": "1" }),
+            json!({ "drops": 1000, "value": "1", "fee": 0 }),
+            json!({ "drops": "0", "value": "1", "fee": 0 }),
+            json!({ "drops": "1000", "value": "0", "fee": 0 }),
+            json!({ "drops": "1000", "value": "1", "fee": 1001 }),
+            json!({ "drops": "1000", "value": "1", "fee": 0, "currency": "USD" }),
+            json!({
+                "drops": "1000", "value": "1", "fee": 0,
+                "currency": "USD", "issuer": AccountId([7; 20]).to_address(),
+            }),
+        ] {
+            assert_eq!(
+                ask(&mut ledger, "/tokens/amm", &refused),
+                StatusCode::BAD_REQUEST,
+                "{refused}"
+            );
+        }
     }
 
     #[test]
