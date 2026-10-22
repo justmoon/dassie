@@ -2,10 +2,10 @@
  * The fake XRP Ledger: the node's own model of the ledger, served over
  * WebSocket with a faucet over HTTPS, for scenarios that settle on the XRP
  * Ledger without the public testnet. CI's end-to-end tests run against it,
- * and `node --run dev -- --xrpl fake`. Next to its faucet, the issuer of
- * its test RLUSD mints, freezes and claws back on request
+ * and `node --run dev -- --xrpl fake`. Next to its faucet, the issuers of
+ * its test RLUSD and DSUSD mint, freeze and claw back on request
  * (spec/areas/xrpl.md#tokens-in-the-fake-ledger): the only source of test
- * RLUSD a scenario has.
+ * tokens a scenario has.
  *
  * @module
  */
@@ -38,7 +38,7 @@ export interface FakeLedger {
   readonly url: string;
   /** Its faucet's URL. */
   readonly faucet: string | null;
-  /** Where the issuer of its test RLUSD takes requests, with the faucet. */
+  /** Where the issuers of its test tokens take requests, with the faucet. */
   readonly tokens: string | null;
   /** The process, for the PID file. */
   readonly pid: number;
