@@ -1254,3 +1254,225 @@ fn closed_by_remote(connection: &mut Connection) -> Option<ErrorCode> {
     }
     closed
 }
+
+/// A client that pays the connection `payment/a` of `server` at one to
+/// one, two packets at a time, of at most 5 000 each, as [`payer`] does.
+fn concurrent_payer(server: &Server, rng: &mut SeededRng) -> (Connection, u64, Keys) {
+    let credentials = server.generate_credentials(rng, b"payment/a", None);
+    let mut connection = Connection::new(&Config {
+        role: Role::Client,
+        shared_secret: &credentials.shared_secret,
+        local_address: Address::parse("test.client").ok(),
+        remote_address: Address::parse(&credentials.destination).ok(),
+        local_asset: None,
+        receipt: None,
+        policy: Policy {
+            min_concurrency: 2,
+            max_packet_amount: 5_000,
+            ..Policy::DEFAULT
+        },
+    });
+    connection.set_exchange_rate(Rate::ONE);
+    let stream = connection.open_stream().unwrap();
+    (connection, stream, Keys::derive(&credentials.shared_secret))
+}
+
+/// Two packets that fill a payment of 10 000 to within its tolerance of
+/// ten, sent together and taken by the receiver in the other order than
+/// they were sent, with their replies delivered in the order `replies`
+/// gives (0 for the first packet sent). Returns the room the sender sees
+/// at the end, and what it was told it delivered.
+fn fill_out_of_order(seed: u64, replies: [usize; 2]) -> (u64, u64) {
+    let mut rng = SeededRng::new(seed);
+    let mut server = server(PAYEE);
+    let mut payment = Payment::new(10_000, 10);
+    let (mut client, stream, _) = concurrent_payer(&server, &mut rng);
+    client.set_send_max(stream, 9_993).unwrap();
+    let mut sent = Vec::new();
+    for _ in 0..2 {
+        let mut out = vec![0; BUFFER_LENGTH];
+        let transmit = client.poll_transmit(NOW, &mut rng, &mut out).unwrap();
+        out.truncate(transmit.length);
+        sent.push((transmit.request_id, out));
+    }
+    // The receiver takes the second packet first.
+    let mut answers = [Vec::new(), Vec::new()];
+    for index in [1, 0] {
+        let prepare = Prepare::decode_exact(&sent[index].1).unwrap();
+        let mut answer = vec![0; BUFFER_LENGTH];
+        let admit = |tag: &[u8]| payment.admit(tag);
+        let handled = server.handle_prepare_admitted(NOW, &mut rng, &prepare, admit, &mut answer);
+        assert_eq!(handled.received, prepare.amount, "a packet was refused");
+        let tag = server
+            .connection_tag(handled.connection.unwrap())
+            .unwrap()
+            .to_vec();
+        payment.take(tag, handled.received);
+        answer.truncate(handled.length);
+        answers[index] = answer;
+    }
+    // All but 7 arrived: within the tolerance, the payment is full.
+    assert_eq!(payment.remaining, 7);
+    let mut work = vec![0; BUFFER_LENGTH];
+    for index in replies {
+        client.handle_response(NOW, sent[index].0, &answers[index], &mut work);
+        client.check_invariants();
+    }
+    let stream = client.stream(stream).unwrap();
+    (stream.remote_room(), stream.remote_received())
+}
+
+// Found by the simulation campaign (issue #300): a payer's packets
+// reached the receiver out of order, and the reply to its newest packet,
+// which the receiver took before the others, arrived last. The sender
+// took that reply's maximum as the receiver's latest word and saw room the
+// receiver no longer had, as it was within its tolerance of the total.
+// The payer, short by less than the tolerance but seeing room, failed a
+// payment its receiver had completed
+// (spec/decisions/paid-within-a-tolerance.md). A reply that reports less
+// received than one already heard is stale, and one that reports more is
+// current, whichever request it answers.
+#[test]
+fn a_reply_the_receiver_wrote_earlier_does_not_restore_its_room() {
+    // The stale reply, to the newer request, arrives last.
+    assert_eq!(fill_out_of_order(10, [0, 1]), (0, 9_993));
+    // The current reply, to the older request, arrives last.
+    assert_eq!(fill_out_of_order(11, [1, 0]), (0, 9_993));
+}
+
+// Found in review: a node's receiver drops the count of a connection that
+// gave its place in its incoming payment to a new payer, so if its sender
+// comes back, every reply reports less received than the sender heard
+// before (spec/areas/payments.md#receiving). Those replies answer requests
+// sent after the higher total was heard, so the receiver wrote them later,
+// and the room they report is what it takes now. Taken as stale, the
+// sender kept the room it heard first and offered packets the receiver
+// refused until its deadline.
+#[test]
+fn a_reply_after_the_receiver_dropped_its_count_is_taken() {
+    let mut rng = SeededRng::new(12);
+    let mut server = server(PAYEE);
+    let mut payment = Payment::new(10_000, 10);
+    let (mut a, a_stream, keys) = payer(&server, &mut rng, b"payment/a");
+    let (mut b, b_stream, _) = payer(&server, &mut rng, b"payment/b");
+    a.set_send_max(a_stream, 500).unwrap();
+    assert_eq!(
+        pay(NOW, &mut rng, &mut server, &mut payment, &mut a),
+        (1, 0)
+    );
+    assert_eq!(a.stream(a_stream).unwrap().remote_room(), 9_500);
+
+    // A's place goes to another payer, and its count with it; B pays all
+    // but 500.
+    payment.paid.remove(b"payment/a".as_slice());
+    b.set_send_max(b_stream, 9_000).unwrap();
+    assert_eq!(
+        pay(NOW, &mut rng, &mut server, &mut payment, &mut b),
+        (1, 0)
+    );
+    assert_eq!(payment.remaining, 500);
+
+    // A comes back and offers what it was told fits. The refusal says the
+    // receiver counts nothing from A, and takes 500.
+    a.set_send_max(a_stream, 10_000).unwrap();
+    let mut out = vec![0; BUFFER_LENGTH];
+    let mut answer = vec![0; BUFFER_LENGTH];
+    let transmit = a.poll_transmit(NOW, &mut rng, &mut out).unwrap();
+    let prepare = Prepare::decode_exact(&out[..transmit.length]).unwrap();
+    assert_eq!(prepare.amount, 9_500);
+    let admit = |tag: &[u8]| payment.admit(tag);
+    let handled = server.handle_prepare_admitted(NOW, &mut rng, &prepare, admit, &mut answer);
+    assert_eq!(handled.received, 0);
+    let answer = &answer[..handled.length];
+    check_refusal(&keys, answer, |_, frames| {
+        let room = Frame::StreamMaxMoney {
+            stream_id: a_stream,
+            receive_max: 500,
+            total_received: 0,
+        };
+        assert!(frames.contains(&room), "{frames:?}");
+    });
+    let mut work = vec![0; BUFFER_LENGTH];
+    a.handle_response(NOW, transmit.request_id, answer, &mut work);
+    a.check_invariants();
+    // A takes the room, sends the 500 once it retries, and offers a unit
+    // of what it has left, which closes its connection.
+    assert_eq!(a.stream(a_stream).unwrap().remote_room(), 500);
+    let later = NOW.saturating_add_ms(1_000);
+    assert_eq!(
+        pay(later, &mut rng, &mut server, &mut payment, &mut a),
+        (1, 1)
+    );
+    assert_eq!(payment.remaining, 0);
+    assert_eq!(closed_by_remote(&mut a), Some(ErrorCode::NO_ERROR));
+}
+
+// Found in review: the remote's own packets report its limits too. One
+// that reports more received than the replies heard so far is its latest
+// word, and a reply it wrote before, delayed, reports less. Taken as
+// current, the delayed reply's room was counted on top of the total the
+// remote's packet reported, and the sender saw more room than there was.
+#[test]
+fn a_reply_written_before_the_remotes_own_packet_is_stale() {
+    let mut rng = SeededRng::new(13);
+    let mut server = server(PAYEE);
+    let mut payment = Payment::new(10_000, 10);
+    let (mut client, stream, keys) = concurrent_payer(&server, &mut rng);
+    client.set_send_max(stream, 8_000).unwrap();
+    let mut sent = Vec::new();
+    for _ in 0..2 {
+        let mut out = vec![0; BUFFER_LENGTH];
+        let transmit = client.poll_transmit(NOW, &mut rng, &mut out).unwrap();
+        out.truncate(transmit.length);
+        sent.push((transmit.request_id, out));
+    }
+    // The receiver takes both, 5 000 and 3 000, in the order sent.
+    let mut answers = Vec::new();
+    for (_, request) in &sent {
+        let prepare = Prepare::decode_exact(request).unwrap();
+        let mut answer = vec![0; BUFFER_LENGTH];
+        let admit = |tag: &[u8]| payment.admit(tag);
+        let handled = server.handle_prepare_admitted(NOW, &mut rng, &prepare, admit, &mut answer);
+        assert_eq!(handled.received, prepare.amount, "a packet was refused");
+        let tag = server
+            .connection_tag(handled.connection.unwrap())
+            .unwrap()
+            .to_vec();
+        payment.take(tag, handled.received);
+        answer.truncate(handled.length);
+        answers.push(answer);
+    }
+    assert_eq!(payment.remaining, 2_000);
+
+    // A packet of the receiver's own says it received 8 000 of 10 000,
+    // before either reply arrives.
+    let own = hostile_prepare(
+        &keys,
+        "test.client",
+        1,
+        0,
+        &[Frame::StreamMaxMoney {
+            stream_id: stream,
+            receive_max: 10_000,
+            total_received: 8_000,
+        }],
+    );
+    let mut buffer = vec![0; BUFFER_LENGTH];
+    client.handle_prepare(
+        NOW,
+        &mut rng,
+        &Prepare::decode_exact(&own).unwrap(),
+        &mut buffer,
+    );
+    assert_eq!(client.stream(stream).unwrap().remote_room(), 2_000);
+
+    // The reply written after 5 000 arrives, then the one after 8 000.
+    let mut work = vec![0; BUFFER_LENGTH];
+    for ((request, _), answer) in sent.iter().zip(&answers) {
+        client.handle_response(NOW, *request, answer, &mut work);
+        client.check_invariants();
+        let stream = client.stream(stream).unwrap();
+        assert_eq!(stream.remote_room(), 2_000);
+        assert_eq!(stream.remote_received(), 8_000);
+    }
+}

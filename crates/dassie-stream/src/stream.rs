@@ -1,3 +1,5 @@
+use core::cmp::Ordering;
+
 use crate::buffers::{ReceiveBuffer, SendBuffer};
 use crate::frame::ErrorCode;
 use crate::receipt::RECEIPT_LENGTH;
@@ -17,8 +19,17 @@ pub struct Stream {
     pub(crate) sent: u64,
     pub(crate) held: u64,
     // The remote's limits, in destination units. `u64::MAX` until it says.
+    // `remote_receive_max` and `remote_reported` come from the remote's
+    // latest word, and the room is one less the other; `remote_received`
+    // is the most it ever said it received.
     pub(crate) remote_receive_max: u64,
     pub(crate) remote_received: u64,
+    /// The total the remote's latest word reported, and the sequence the
+    /// next request had when it was heard: a reply that reports less is
+    /// stale unless its request was sent after
+    /// (spec/areas/stream.md#responses).
+    pub(crate) remote_reported: u64,
+    pub(crate) remote_reported_at: u64,
     /// Whether the remote ever lowered its maximum: what it pays into is
     /// shared, or was cut short.
     pub(crate) remote_max_fell: bool,
@@ -59,6 +70,8 @@ impl Stream {
             held: 0,
             remote_receive_max: u64::MAX,
             remote_received: 0,
+            remote_reported: 0,
+            remote_reported_at: 0,
             remote_max_fell: false,
             expected_delivery: 0,
             receive_max: 0,
@@ -162,7 +175,64 @@ impl Stream {
     /// says, and nothing once it has all it takes.
     #[must_use]
     pub const fn remote_room(&self) -> u64 {
-        self.remote_receive_max.saturating_sub(self.remote_received)
+        self.remote_receive_max.saturating_sub(self.remote_reported)
+    }
+
+    /// Takes a receive maximum and received total the remote reported,
+    /// in a reply to request `request` or, with `None`, in a packet of
+    /// its own, if they are its latest word: what it takes now
+    /// (spec/areas/stream.md#responses). `newest` says the reply answers
+    /// the newest request heard back on; `next_sequence` is the sequence
+    /// the next request will have.
+    ///
+    /// A remote's total grows, so one that reports more than its latest
+    /// word was written after it, whichever request it answers, and one
+    /// that reports less was written before: a receiver can take packets
+    /// in another order than they were sent. Taken, its maximum would undo
+    /// one that fell since, as when the receiver came within its tolerance
+    /// of the total, and report room the receiver no longer has. Unless it
+    /// answers a request sent after the latest word was heard: then the
+    /// receiver wrote it later, and its count fell, as when it dropped a
+    /// connection's count for a new payer
+    /// (spec/areas/stream.md#money-limit). Of replies that report the
+    /// same, the one to the newest request says what the receiver takes;
+    /// another may only raise it.
+    pub(crate) fn hear_remote_limit(
+        &mut self,
+        receive_max: u64,
+        total_received: u64,
+        request: Option<u64>,
+        newest: bool,
+        next_sequence: u64,
+    ) {
+        self.remote_received = self.remote_received.max(total_received);
+        let same = total_received == self.remote_reported;
+        let current = match total_received.cmp(&self.remote_reported) {
+            Ordering::Greater => true,
+            Ordering::Equal => newest,
+            Ordering::Less => request.is_some_and(|request| request >= self.remote_reported_at),
+        };
+        let known = self.remote_receive_max != u64::MAX;
+        if current {
+            if !same {
+                self.remote_reported = total_received;
+                self.remote_reported_at = next_sequence;
+            }
+            // What the receiver takes now, even when it fell, as when
+            // another payment took from what it pays into: sent what it
+            // no longer takes, every packet would be refused
+            // (spec/areas/stream.md#money-limit).
+            self.remote_max_fell |= known && receive_max < self.remote_receive_max;
+            self.remote_receive_max = receive_max;
+        } else if same {
+            // An unknown limit is the maximum, so the first value always
+            // counts.
+            self.remote_receive_max = if known {
+                self.remote_receive_max.max(receive_max)
+            } else {
+                receive_max
+            };
+        }
     }
 
     /// How much more it accepts.

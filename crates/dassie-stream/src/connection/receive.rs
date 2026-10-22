@@ -242,6 +242,7 @@ impl Connection {
             }
             Resolved::Open => {}
         }
+        let next_sequence = self.next_sequence;
         let Some(stream) = self.stream_mut(stream_id) else {
             return Ok(true);
         };
@@ -251,14 +252,10 @@ impl Connection {
                 total_received,
                 ..
             } => {
-                stream.remote_received = stream.remote_received.max(total_received);
-                // An unknown limit is the maximum, so the first value always
-                // counts; later ones may only raise it.
-                stream.remote_receive_max = if stream.remote_receive_max == u64::MAX {
-                    receive_max
-                } else {
-                    stream.remote_receive_max.max(receive_max)
-                };
+                // A packet the remote sent, not a reply to one of ours: it
+                // says what the remote takes now only if it reports more
+                // received than any reply heard.
+                stream.hear_remote_limit(receive_max, total_received, None, false, next_sequence);
             }
             Frame::StreamMaxData { max_offset, .. } => {
                 stream.remote_max_data = stream.remote_max_data.max(max_offset);
