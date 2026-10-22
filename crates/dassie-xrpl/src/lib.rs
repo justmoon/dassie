@@ -32,6 +32,7 @@ extern crate alloc;
 extern crate std;
 
 pub mod account;
+pub mod amm;
 pub mod amount;
 pub mod api;
 pub mod base58;

@@ -6,13 +6,17 @@
 //! Tokens (spec/areas/xrpl.md#tokens): the token a Payment delivered, what
 //! a transaction did to trust lines, a line as the ledger holds it, with
 //! its flags and limits read from either side, and an issuer's account.
+//!
+//! AMM pools (spec/areas/xrpl.md#amm-pools): what a pool of two assets
+//! holds and charges, from `amm_info`.
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use serde_json::{Map, Value, json};
 
-use crate::amount::{Currency, TokenAmount, TokenValue};
+use crate::amm::MAX_TRADING_FEE;
+use crate::amount::{Amount, Asset, Currency, TokenAmount, TokenValue};
 use crate::keys::AccountId;
 use crate::{MAX_DROPS, from_hex, hex_upper};
 
@@ -186,6 +190,32 @@ pub fn ripple_state_at(
 #[must_use]
 pub fn submit(id: u64, blob: &[u8]) -> Vec<u8> {
     request(id, "submit", json!({ "tx_blob": hex_upper(blob) }))
+}
+
+/// The AMM pool of `asset` and `asset2` as of the last validated ledger;
+/// `actNotFound` if there is none. The answer names the two in this order.
+#[must_use]
+pub fn amm_info(id: u64, asset: Asset, asset2: Asset) -> Vec<u8> {
+    request(
+        id,
+        "amm_info",
+        json!({
+            "asset": asset_json(asset),
+            "asset2": asset_json(asset2),
+            "ledger_index": "validated",
+        }),
+    )
+}
+
+/// An asset as a request names it: `{"currency": "XRP"}`, or a currency
+/// and its issuer.
+fn asset_json(asset: Asset) -> Value {
+    match asset {
+        Asset::Xrp => json!({ "currency": "XRP" }),
+        Asset::Token { currency, issuer } => {
+            json!({ "currency": currency.to_string(), "issuer": issuer.to_address() })
+        }
+    }
 }
 
 /// What came over the connection.
@@ -898,6 +928,93 @@ pub fn account_settings_result(result: &Value) -> Option<AccountSettings> {
     })
 }
 
+/// An AMM pool of two assets, as of a validated ledger, from `amm_info`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AmmInfo {
+    /// The pool's account, which holds both assets and issues its LP
+    /// token.
+    pub account: AccountId,
+    /// What it holds of the first asset asked for.
+    pub amount: Amount,
+    /// What it holds of the second.
+    pub amount2: Amount,
+    /// Its LP tokens outstanding.
+    pub lp_token: TokenAmount,
+    /// Its trading fee, in
+    /// [`TRADING_FEE_DENOMINATOR`](crate::amm::TRADING_FEE_DENOMINATOR)ths,
+    /// at most [`MAX_TRADING_FEE`].
+    pub trading_fee: u32,
+    /// Whether the first asset is frozen in the pool: never for XRP.
+    pub asset_frozen: bool,
+    /// Whether the second is.
+    pub asset2_frozen: bool,
+    /// The ledger this is as of.
+    pub ledger_index: u32,
+    /// Whether that ledger is validated.
+    pub validated: bool,
+}
+
+impl AmmInfo {
+    /// What the pool holds of the asset a swap pays in, `paid`, and of
+    /// the other, which it takes out: the pool's two sides for
+    /// [`crate::amm::swap_in`] and [`crate::amm::swap_out`]. `None` if
+    /// `paid` is neither of its assets.
+    #[must_use]
+    pub fn sides(&self, paid: Asset) -> Option<(Amount, Amount)> {
+        if self.amount.asset() == paid {
+            Some((self.amount, self.amount2))
+        } else if self.amount2.asset() == paid {
+            Some((self.amount2, self.amount))
+        } else {
+            None
+        }
+    }
+}
+
+/// Reads `amm_info`'s result: two amounts of two assets, not below zero,
+/// an LP token of the pool's account, and a fee the ledger takes. `None`
+/// if any of it is not so, or the answer names no ledger.
+#[must_use]
+pub fn amm_info_result(result: &Value) -> Option<AmmInfo> {
+    let amm = result.get("amm")?;
+    let account = AccountId::parse(amm.get("account")?.as_str()?)?;
+    let amount = pool_amount(amm.get("amount"))?;
+    let amount2 = pool_amount(amm.get("amount2"))?;
+    let lp_token = token_amount(amm.get("lp_token"))?;
+    let trading_fee = number(amm.get("trading_fee"))?;
+    let frozen = |key: &str| match amm.get(key) {
+        None => Some(false),
+        Some(flag) => flag.as_bool(),
+    };
+    let info = AmmInfo {
+        account,
+        amount,
+        amount2,
+        lp_token,
+        trading_fee,
+        asset_frozen: frozen("asset_frozen")?,
+        asset2_frozen: frozen("asset2_frozen")?,
+        ledger_index: number(result.get("ledger_index"))?,
+        validated: result.get("validated").and_then(Value::as_bool) == Some(true),
+    };
+    let fits = amount.asset() != amount2.asset()
+        && lp_token.issuer == account
+        && !lp_token.value.is_negative()
+        && trading_fee <= MAX_TRADING_FEE;
+    fits.then_some(info)
+}
+
+/// What a pool holds of one asset: drops, or a token not below zero.
+fn pool_amount(value: Option<&Value>) -> Option<Amount> {
+    let value = value?;
+    if value.is_string() {
+        return drops(Some(value)).map(Amount::Xrp);
+    }
+    token_amount(Some(value))
+        .filter(|token| !token.value.is_negative())
+        .map(Amount::Token)
+}
+
 /// A page of `account_tx`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AccountTx {
@@ -1060,5 +1177,98 @@ mod tests {
         assert!(view.ours.no_ripple && view.ours.reserve && !view.ours.freeze);
         assert!(view.theirs.freeze && !view.theirs.deep_freeze);
         assert_eq!(record.delivered_token, None);
+    }
+
+    /// An `amm_info` result as rippled's documentation shows one, as of a
+    /// validated ledger.
+    fn amm_result() -> Value {
+        json!({
+            "amm": {
+                "account": "rp9E3FN3gNmvePGhYnf414T2TkUuoxu8vM",
+                "amount": "248606",
+                "amount2": {
+                    "currency": "TST",
+                    "issuer": "rP9jPyP5kyvFRb6ZiRghAGw5u8SGAmU4bd",
+                    "value": "104.3451326160501",
+                },
+                "asset2_frozen": false,
+                "lp_token": {
+                    "currency": "039C99CD9AB0B70B32ECDA51EAAE471625608EA2",
+                    "issuer": "rp9E3FN3gNmvePGhYnf414T2TkUuoxu8vM",
+                    "value": "5089.991526721425",
+                },
+                "trading_fee": 500,
+                "vote_slots": [],
+            },
+            "ledger_index": 316_745,
+            "validated": true,
+        })
+    }
+
+    #[test]
+    fn a_pool_is_read_exactly() {
+        let tst = Asset::Token {
+            currency: Currency::parse("TST").unwrap(),
+            issuer: AccountId::parse("rP9jPyP5kyvFRb6ZiRghAGw5u8SGAmU4bd").unwrap(),
+        };
+        let request: Value = serde_json::from_slice(&amm_info(9, Asset::Xrp, tst)).unwrap();
+        assert_eq!(request["command"], "amm_info");
+        assert_eq!(request["asset"], json!({ "currency": "XRP" }));
+        assert_eq!(request["asset2"]["currency"], "TST");
+        let info = amm_info_result(&amm_result()).unwrap();
+        assert_eq!(info.amount, Amount::Xrp(248_606));
+        assert_eq!(
+            info.amount2.token().unwrap().value,
+            TokenValue::parse("104.3451326160501").unwrap()
+        );
+        assert_eq!((info.trading_fee, info.ledger_index), (500, 316_745));
+        assert!(info.validated && !info.asset_frozen && !info.asset2_frozen);
+        // The LP token's currency is the ledger's, from the two assets.
+        assert_eq!(
+            info.lp_token.currency,
+            crate::amm::lp_token_currency(Asset::Xrp, tst)
+        );
+        assert_eq!(info.sides(tst), Some((info.amount2, info.amount)));
+        assert_eq!(info.sides(Asset::Xrp), Some((info.amount, info.amount2)));
+        let other = Asset::Token {
+            currency: Currency::parse("USD").unwrap(),
+            issuer: info.account,
+        };
+        assert_eq!(info.sides(other), None);
+    }
+
+    #[test]
+    fn a_pool_that_is_not_one_is_refused() {
+        let refused = |change: &dyn Fn(&mut Value)| {
+            let mut result = amm_result();
+            change(&mut result);
+            amm_info_result(&result)
+        };
+        assert!(refused(&|_| {}).is_some());
+        // A fee above the ledger's, or written otherwise.
+        assert!(refused(&|r| r["amm"]["trading_fee"] = 1_001.into()).is_none());
+        assert!(refused(&|r| r["amm"]["trading_fee"] = "500".into()).is_none());
+        // Two of one asset.
+        assert!(refused(&|r| r["amm"]["amount2"] = "5".into()).is_none());
+        // Below zero, or an amount the ledger cannot express.
+        assert!(refused(&|r| r["amm"]["amount2"]["value"] = "-1".into()).is_none());
+        assert!(
+            refused(&|r| r["amm"]["amount2"]["value"] = "1.23456789012345678".into()).is_none()
+        );
+        assert!(refused(&|r| r["amm"]["amount"] = "-5".into()).is_none());
+        assert!(refused(&|r| r["amm"]["amount"] = 5.into()).is_none());
+        // An LP token another account issues.
+        assert!(
+            refused(
+                &|r| r["amm"]["lp_token"]["issuer"] = "rP9jPyP5kyvFRb6ZiRghAGw5u8SGAmU4bd".into()
+            )
+            .is_none()
+        );
+        // A freeze that is no flag, and an answer as of no ledger.
+        assert!(refused(&|r| r["amm"]["asset2_frozen"] = "yes".into()).is_none());
+        assert!(refused(&|r| r["ledger_index"] = Value::Null).is_none());
+        assert!(
+            refused(&|r| r["amm"]["asset2_frozen"] = true.into()).is_some_and(|i| i.asset2_frozen)
+        );
     }
 }
