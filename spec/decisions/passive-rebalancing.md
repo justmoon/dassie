@@ -1,6 +1,6 @@
 # Nodes rebalance passively: inventory pricing, a rate feed and market makers
 
-**Areas:** [Connector](../areas/connector.md#inventory-pricing), [Settlement](../areas/settlement.md#credit). Inventory pricing is built; the rate feed and the market makers are not ([roadmap](../roadmap.md#rate-feed-and-market-makers)).
+**Areas:** [Connector](../areas/connector.md#inventory-pricing), [Rate feed](../areas/rate-feed.md), [Settlement](../areas/settlement.md#credit). Inventory pricing and the feed's sans-IO core are built; the node's feed service and the market makers are not ([roadmap](../roadmap.md#rate-feed-and-market-makers)).
 
 ## Facts
 
@@ -26,6 +26,7 @@
 - **A node may pay up to `k` above spot** for what it lacks, which an arbitrageur takes when the market is that far from the oracle. That is the price of rebalancing, bounded by `k` per unit.
 - **The oracle's errors pass through.** A spot rate off by less than `k` from the market leaves a node's curve exploitable by that much; the median of three sources keeps it close.
 - **A table, not a curve per packet.** Within one engine step, packets convert at the table of the last commit, so a burst sees the inventory as it was at the step's start. The group limit still refuses what the owner does not have.
+- **A round trip across two tables can gain.** A packet converts at the price before its own move, so one who brings an asset in and takes it straight back out after the table is rebuilt gains the price's move in between: for two ledgers at target, about `4k` times the share of the node's value moved, on what was moved. The spread takes that back once it is larger, for a node holding thousands of largest packets a few hundred parts per million; at the default spread of 0 a round-tripper drains the node slowly. Pricing each packet after its own move would close this, but then no table says what a packet gets.
 - **A ledger whose rate is stale is left out**, so its pairs convert nothing, as before; a pair of ledgers in the same currency now needs that currency's rate too, since the curve values holdings across all of them.
 
 ## Rejected
