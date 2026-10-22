@@ -19,6 +19,9 @@ pub struct Stream {
     // The remote's limits, in destination units. `u64::MAX` until it says.
     pub(crate) remote_receive_max: u64,
     pub(crate) remote_received: u64,
+    /// Whether the remote ever lowered its maximum: what it pays into is
+    /// shared, or was cut short.
+    pub(crate) remote_max_fell: bool,
 
     // Money in, in our units.
     pub(crate) receive_max: u64,
@@ -52,6 +55,7 @@ impl Stream {
             held: 0,
             remote_receive_max: u64::MAX,
             remote_received: 0,
+            remote_max_fell: false,
             receive_max: 0,
             received: 0,
             send: SendBuffer::new(send_buffer),

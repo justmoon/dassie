@@ -4,6 +4,7 @@
 use std::fmt;
 
 use dassie_ledger::LedgerId;
+use dassie_payments::amount::paid_in_full;
 use rusqlite::{OptionalExtension, Row, ToSql, Transaction, params, params_from_iter};
 
 use super::{Store, StoreError, from_sql_time, to_sql_time};
@@ -32,7 +33,9 @@ pub struct FinishedIncoming {
     pub id: PaymentId,
     /// The ledger it was paid into.
     pub ledger: LedgerId,
-    /// Whether it received all it asked for: it had an amount, and got it.
+    /// Whether it received all it asked for: it had an amount, and got it,
+    /// or all but less than the tolerance
+    /// (spec/decisions/paid-within-a-tolerance.md).
     pub full: bool,
     /// What each connection received.
     pub received: Vec<(ConnectionKey, u64)>,
@@ -321,7 +324,11 @@ impl Store {
             let corrupt = || StoreError::Corrupt("finished incoming payment");
             let id = PaymentId(<[u8; 16]>::try_from(id.as_slice()).map_err(|_| corrupt())?);
             let ledger = LedgerId::parse(&ledger).ok_or_else(corrupt)?;
-            let full = incoming.is_some_and(|amount| paid >= amount);
+            let amount = incoming
+                .map(|amount| u64::try_from(amount).map_err(|_| corrupt()))
+                .transpose()?;
+            let paid = u64::try_from(paid).map_err(|_| corrupt())?;
+            let full = paid_in_full(amount, paid, ledger.asset().scale);
             let received = connections
                 .query_map([id.0.as_slice()], |row| {
                     Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, i64>(1)?))

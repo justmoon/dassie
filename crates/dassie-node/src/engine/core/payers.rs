@@ -21,7 +21,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use dassie_connector::{EndpointId, Forwarded, Outcome};
 use dassie_ilp::{Address, Timestamp};
 use dassie_ledger::{AccountName, LedgerId, OwnerSub};
-use dassie_payments::amount::asset_name;
+use dassie_payments::amount::{asset_name, payment_tolerance};
 use dassie_payments::gnap::Limits;
 use dassie_stream::{AssetDetails, Config, Connection, ErrorCode, Event, Policy, Rate, Role};
 
@@ -719,15 +719,22 @@ impl Core {
         // sent is worth: no packet can be sized to deliver that, as the hops
         // round down. One of a fixed amount to send ends once it delivered
         // what its quote said, and the receiver takes no more: a request it
-        // filled.
-        let receive = u128::from(payment.row.receive_amount.value);
+        // filled. Either is delivered too once it is short by no more than
+        // the payment's tolerance and the receiver takes no more, as a
+        // receiver counts a payment within it as paid in full
+        // (spec/decisions/paid-within-a-tolerance.md).
+        let receive_amount = &payment.row.receive_amount;
+        let tolerance = payment_tolerance(Some(receive_amount.value), receive_amount.asset_scale);
+        let receive = u128::from(receive_amount.value);
         let debit = u128::from(payment.row.debit_amount.max(1));
         let short = receive.saturating_sub(u128::from(delivered));
-        let delivered_enough = short == 0 || (delivered > 0 && short * debit < receive);
         let full = stream.is_some_and(|stream| stream.remote_room() == 0);
+        let within_tolerance = short <= u128::from(tolerance) && full;
+        let delivered_enough =
+            short == 0 || (delivered > 0 && short * debit < receive) || within_tolerance;
         let done = sent == payment.row.debit_amount
             || if payment.row.fixed_debit {
-                short == 0 && full
+                within_tolerance
             } else {
                 delivered_enough
             };

@@ -944,6 +944,7 @@ fn a_restarted_receiver_tells_a_reconnecting_sender_what_got_there() {
         Admission::Accept {
             money_limit: 0,
             received: 100,
+            tolerance: 0,
             exhausted: dassie_stream::ErrorCode::NO_ERROR,
         }
     );
@@ -1003,6 +1004,7 @@ fn a_payment_completed_short_tells_its_senders_so() {
                 Admission::Accept {
                     money_limit: 0,
                     received: 30,
+                    tolerance: 0,
                     exhausted: ErrorCode::APPLICATION_ERROR,
                 }
             );
@@ -1016,9 +1018,89 @@ fn a_payment_completed_short_tells_its_senders_so() {
             Admission::Accept {
                 money_limit: 0,
                 received: 30,
+                tolerance: 0,
                 exhausted: ErrorCode::APPLICATION_ERROR,
             }
         );
+    }
+}
+
+/// What the receiver on `stub+usd` admits for the connection `key` of the
+/// incoming payment `id`.
+fn admitted(
+    core: &Core,
+    id: crate::store::PaymentId,
+    key: crate::store::ConnectionKey,
+) -> dassie_stream::Admission {
+    let tag = super::incoming::connection_tag(id, key);
+    let ledger = dassie_ledger::LedgerId::StubUsd;
+    super::incoming::admission(&core.incoming, &core.finished_incoming, ledger, NOW, &tag).0
+}
+
+// An incoming payment counts as paid in full within its tolerance, under
+// its amount or over it (spec/decisions/paid-within-a-tolerance.md): it
+// completes, tells its senders it is full, says so again after a restart,
+// and shows what it really received.
+#[test]
+fn a_payment_within_its_tolerance_is_paid_in_full() {
+    use dassie_ledger::LedgerId;
+    use dassie_stream::{Admission, ErrorCode};
+
+    use super::incoming::NewIncoming;
+    use crate::store::{ConnectionKey, IncomingPaid};
+
+    // A dollar, in billionths: a ten-thousandth of a dollar either way.
+    const DOLLAR: u64 = 1_000_000_000;
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let key = ConnectionKey([8; 16]);
+    let full = |received| Admission::Accept {
+        money_limit: 0,
+        received,
+        tolerance: 0,
+        exhausted: ErrorCode::NO_ERROR,
+    };
+    let paid = [DOLLAR - 100_000, DOLLAR + 100_000];
+    let ids = {
+        let mut core = core_on(Arc::clone(&store), 5);
+        core.add_scheme("stub", String::new()).unwrap();
+        let ids = paid.map(|amount| {
+            let payment = core
+                .create_incoming_payment(NewIncoming {
+                    ledger: LedgerId::StubUsd,
+                    wallet_address: "https://a.example/pay".into(),
+                    client: None,
+                    incoming_amount: Some(DOLLAR),
+                    expires_at_ms: None,
+                    metadata: None,
+                })
+                .unwrap();
+            let open = Admission::Accept {
+                money_limit: DOLLAR,
+                received: 0,
+                tolerance: 100_000,
+                exhausted: ErrorCode::NO_ERROR,
+            };
+            assert_eq!(admitted(&core, payment.id, key), open);
+            core.incoming_received(IncomingPaid {
+                payment: payment.id,
+                connection: key,
+                amount,
+            });
+            core.check_invariants();
+            payment.id
+        });
+        core.flush();
+        for (id, amount) in ids.into_iter().zip(paid) {
+            assert_eq!(admitted(&core, id, key), full(amount));
+        }
+        ids
+    };
+    let core = core_on(Arc::clone(&store), 6);
+    for (id, amount) in ids.into_iter().zip(paid) {
+        assert_eq!(admitted(&core, id, key), full(amount));
+        let row = store.incoming_payment(id).unwrap().unwrap();
+        assert_eq!(row.received_amount, amount);
+        assert!(row.completed_at_ms.is_some());
     }
 }
 
@@ -1110,6 +1192,7 @@ fn a_replaced_connection_is_forgotten_across_a_restart() {
         Admission::Accept {
             money_limit: 1_000_000 - 37,
             received: 5,
+            tolerance: 1_000,
             exhausted: dassie_stream::ErrorCode::NO_ERROR,
         }
     );
@@ -1118,6 +1201,7 @@ fn a_replaced_connection_is_forgotten_across_a_restart() {
         Admission::Accept {
             money_limit: 1_000_000 - 37,
             received: 1,
+            tolerance: 1_000,
             exhausted: dassie_stream::ErrorCode::NO_ERROR,
         }
     );

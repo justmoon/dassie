@@ -49,6 +49,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_25,
     MIGRATION_26,
     MIGRATION_27,
+    MIGRATION_28,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -871,6 +872,60 @@ CREATE TABLE devices (
   paired_at_ms INTEGER NOT NULL,
   last_seen_at_ms INTEGER NOT NULL CHECK (last_seen_at_ms >= paired_at_ms)
 ) STRICT, WITHOUT ROWID;
+";
+
+/// An incoming payment counts as paid in full within a tolerance, over or
+/// under its amount (spec/decisions/paid-within-a-tolerance.md), so what it
+/// received may exceed its amount, by at most the tolerance, which the
+/// engine checks. SQLite changes a check only by building the table anew;
+/// its connections are set aside meanwhile, since dropping the payments
+/// would delete them.
+const MIGRATION_28: &str = "
+CREATE TABLE incoming_connections_kept AS SELECT * FROM incoming_connections;
+DROP TABLE incoming_connections;
+
+CREATE TABLE incoming_payments_new (
+  id BLOB PRIMARY KEY CHECK (length(id) = 16),
+  ledger TEXT NOT NULL,
+  wallet_address TEXT NOT NULL CHECK (length(wallet_address) BETWEEN 1 AND 2048),
+  -- The client that created it, as grants name clients; NULL for the owner.
+  client TEXT CHECK (client IS NULL OR length(client) BETWEEN 1 AND 2048),
+  incoming_amount INTEGER CHECK (incoming_amount IS NULL OR incoming_amount > 0),
+  -- At most the tolerance over its amount, which the engine checks.
+  received_amount INTEGER NOT NULL CHECK (received_amount >= 0),
+  -- STREAM credentials, the same on every read.
+  ilp_address TEXT NOT NULL CHECK (length(ilp_address) BETWEEN 1 AND 1023),
+  shared_secret BLOB NOT NULL CHECK (length(shared_secret) = 32),
+  metadata TEXT CHECK (metadata IS NULL OR length(CAST(metadata AS BLOB)) <= 4096),
+  created_at_ms INTEGER NOT NULL,
+  expires_at_ms INTEGER NOT NULL CHECK (expires_at_ms > created_at_ms),
+  completed_at_ms INTEGER CHECK (completed_at_ms IS NULL OR completed_at_ms >= created_at_ms),
+  -- The order rows were written or last changed in, for live views.
+  revision INTEGER NOT NULL UNIQUE CHECK (revision > 0)
+) STRICT, WITHOUT ROWID;
+
+INSERT INTO incoming_payments_new SELECT * FROM incoming_payments;
+DROP TABLE incoming_payments;
+ALTER TABLE incoming_payments_new RENAME TO incoming_payments;
+
+CREATE INDEX incoming_payments_by_ledger ON incoming_payments (ledger, created_at_ms, id);
+CREATE INDEX incoming_payments_by_client ON incoming_payments (ledger, client, created_at_ms, id);
+CREATE INDEX incoming_payments_by_time ON incoming_payments (created_at_ms, id);
+CREATE INDEX incoming_payments_open ON incoming_payments (expires_at_ms) WHERE completed_at_ms IS NULL;
+CREATE INDEX incoming_payments_unpaid ON incoming_payments (coalesce(completed_at_ms, expires_at_ms))
+  WHERE received_amount = 0;
+
+CREATE TABLE incoming_connections (
+  incoming_payment BLOB NOT NULL REFERENCES incoming_payments (id) ON DELETE CASCADE,
+  -- Which credentials of the payment the connection uses; zeros for those
+  -- issued with the payment before connections had keys.
+  connection BLOB NOT NULL CHECK (length(connection) = 16),
+  received INTEGER NOT NULL CHECK (received > 0),
+  PRIMARY KEY (incoming_payment, connection)
+) STRICT, WITHOUT ROWID;
+
+INSERT INTO incoming_connections SELECT * FROM incoming_connections_kept;
+DROP TABLE incoming_connections_kept;
 ";
 
 /// Columns that hold secrets: the database inspector never reads them.

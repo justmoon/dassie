@@ -57,6 +57,53 @@ fn asset_code<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::E
     Ok(code)
 }
 
+/// Decimal places of an asset's unit below which a payment is paid exactly
+/// (spec/decisions/paid-within-a-tolerance.md).
+const TOLERANCE_PLACES: u8 = 4;
+
+/// The share of a payment's amount its tolerance never exceeds: a
+/// thousandth.
+const TOLERANCE_SHARE: u64 = 1_000;
+
+/// How far a payment may land from its amount, over or under, and still
+/// count as paid exactly, in the smallest unit of an asset at
+/// `asset_scale`: a ten-thousandth of the asset's unit, nothing for an
+/// asset with fewer than four decimal places
+/// (spec/decisions/paid-within-a-tolerance.md).
+#[must_use]
+pub const fn tolerance(asset_scale: u8) -> u64 {
+    if asset_scale < TOLERANCE_PLACES {
+        return 0;
+    }
+    let mut tolerance: u64 = 1;
+    let mut place = TOLERANCE_PLACES;
+    while place < asset_scale {
+        tolerance = tolerance.saturating_mul(10);
+        place += 1;
+    }
+    tolerance
+}
+
+/// The tolerance of a payment of `amount` in an asset at `asset_scale`:
+/// the asset's [`tolerance`], but never more than a thousandth of the
+/// amount, so that a small payment is paid exactly and none counts as paid
+/// before it received anything. A payment without an amount has none.
+#[must_use]
+pub fn payment_tolerance(amount: Option<u64>, asset_scale: u8) -> u64 {
+    amount.map_or(0, |amount| {
+        tolerance(asset_scale).min(amount / TOLERANCE_SHARE)
+    })
+}
+
+/// Whether `received` pays an incoming payment of `amount`, in an asset at
+/// `asset_scale`, in full: all of it, or all but less than its
+/// [`payment_tolerance`]. One without an amount never is.
+#[must_use]
+pub fn paid_in_full(amount: Option<u64>, received: u64, asset_scale: u8) -> bool {
+    let tolerance = payment_tolerance(amount, asset_scale);
+    amount.is_some_and(|amount| received.saturating_add(tolerance) >= amount)
+}
+
 /// Parses an unsigned decimal: digits only, without a sign or leading
 /// zeros, at most `u64::MAX`.
 #[must_use]
@@ -115,6 +162,37 @@ mod tests {
         let amount: Amount = serde_json::from_str(json).unwrap();
         assert_eq!(amount, Amount::new(u64::MAX, "USD", 2));
         assert_eq!(serde_json::to_string(&amount).unwrap(), json);
+    }
+
+    #[test]
+    fn a_payment_is_paid_in_full_within_its_tolerance() {
+        // A dollar at scale 9: a ten-thousandth of a dollar either way.
+        assert_eq!(payment_tolerance(Some(1_000_000_000), 9), 100_000);
+        assert!(!paid_in_full(Some(1_000_000_000), 999_899_999, 9));
+        assert!(paid_in_full(Some(1_000_000_000), 999_900_000, 9));
+        assert!(paid_in_full(Some(1_000_000_000), 1_000_100_000, 9));
+        // A tenth of a cent: a thousandth of it.
+        assert_eq!(payment_tolerance(Some(1_000_000), 9), 1_000);
+        assert!(!paid_in_full(Some(1_000_000), 998_999, 9));
+        assert!(paid_in_full(Some(1_000_000), 999_000, 9));
+        // Below a thousand units, exactly.
+        assert_eq!(payment_tolerance(Some(999), 9), 0);
+        assert!(!paid_in_full(Some(100), 99, 9));
+        assert!(paid_in_full(Some(100), 100, 9));
+        // Without an amount, never.
+        assert_eq!(payment_tolerance(None, 9), 0);
+        assert!(!paid_in_full(None, u64::MAX, 9));
+    }
+
+    #[test]
+    fn the_tolerance_is_a_ten_thousandth_of_the_unit() {
+        assert_eq!(tolerance(9), 100_000);
+        assert_eq!(tolerance(6), 100);
+        assert_eq!(tolerance(4), 1);
+        assert_eq!(tolerance(2), 0);
+        assert_eq!(tolerance(0), 0);
+        assert_eq!(tolerance(23), 10_000_000_000_000_000_000);
+        assert_eq!(tolerance(u8::MAX), u64::MAX);
     }
 
     #[test]

@@ -114,17 +114,27 @@ pub(super) struct OpenIncoming {
 }
 
 impl OpenIncoming {
-    /// What it may still receive. The books keep totals below `i64::MAX`.
+    /// What it is still to receive. The books keep totals below
+    /// `i64::MAX`.
     fn remaining(&self) -> u64 {
         let ceiling = self.incoming_amount.unwrap_or(dassie_ledger::MAX_TOTAL);
         ceiling.saturating_sub(self.received)
     }
 
-    /// Whether it received all it asked for: one without an amount never
-    /// does.
+    /// Whether it received all it asked for, or all but less than the
+    /// tolerance: one without an amount never does.
     fn full(&self) -> bool {
-        self.incoming_amount
-            .is_some_and(|amount| self.received >= amount)
+        let scale = self.ledger.asset().scale;
+        dassie_payments::amount::paid_in_full(self.incoming_amount, self.received, scale)
+    }
+
+    /// How far it may land from its amount, over or under, and count as
+    /// paid in full (spec/decisions/paid-within-a-tolerance.md): nothing
+    /// for one without an amount, which is bounded only by what the books
+    /// hold.
+    fn tolerance(&self) -> u64 {
+        let scale = self.ledger.asset().scale;
+        dassie_payments::amount::payment_tolerance(self.incoming_amount, scale)
     }
 
     /// The connection a new payer may take the place of, when all places
@@ -275,12 +285,14 @@ pub(super) fn admission(
             {
                 return refused;
             }
-            // Open, it has room unless it is full: the step that fills it
-            // completes it.
+            // Open, it has room unless it is full: the step that fills it,
+            // to within the tolerance, completes it. A packet may overshoot
+            // what is left by the tolerance.
             (
                 Admission::Accept {
                     money_limit: payment.remaining(),
                     received: counted.map_or(0, |paid| paid.received),
+                    tolerance: payment.tolerance(),
                     exhausted: StreamErrorCode::NO_ERROR,
                 },
                 Some((id, key)),
@@ -291,6 +303,7 @@ pub(super) fn admission(
                 Admission::Accept {
                     money_limit: 0,
                     received: ended.received.get(&key).copied().unwrap_or(0),
+                    tolerance: 0,
                     exhausted: if ended.full {
                         StreamErrorCode::NO_ERROR
                     } else {
@@ -621,7 +634,7 @@ impl Core {
             panic!("money admitted for a payment that is not open");
         };
         assert!(
-            amount <= payment.remaining(),
+            amount <= payment.remaining() + payment.tolerance(),
             "a payment took more than it may"
         );
         let mut replaced = false;
@@ -649,7 +662,7 @@ impl Core {
         self.batch
             .incoming_connections_gone
             .remove(&(id, connection));
-        let complete = payment.incoming_amount == Some(payment.received);
+        let complete = payment.full();
         let progress = IncomingProgress {
             received_amount: payment.received,
             completed_at_ms: complete.then_some(now.max(payment.created_at_ms)),
@@ -678,13 +691,10 @@ impl Core {
             assert!(
                 payment
                     .incoming_amount
-                    .is_none_or(|amount| payment.received <= amount),
+                    .is_none_or(|amount| payment.received <= amount + payment.tolerance()),
                 "a payment took more than it may"
             );
-            assert!(
-                payment.incoming_amount != Some(payment.received),
-                "a completed payment is open"
-            );
+            assert!(!payment.full(), "a completed payment is open");
             assert!(
                 payment.connections.len() <= MAX_CONNECTIONS_PER_PAYMENT,
                 "a payment has too many connections"
@@ -779,6 +789,7 @@ mod tests {
             Admission::Accept {
                 money_limit: 1_000_000_000_000 - 32,
                 received: 0,
+                tolerance: 100_000,
                 exhausted: StreamErrorCode::NO_ERROR,
             }
         );
@@ -806,6 +817,31 @@ mod tests {
             Admission::Refuse(ErrorCode::F99_APPLICATION_ERROR)
         );
         assert_eq!(paid, None);
+    }
+
+    #[test]
+    fn a_payment_is_full_within_its_tolerance() {
+        // A tenth of a dollar, in billionths: a ten-thousandth of a dollar.
+        let payment = |received| OpenIncoming {
+            ledger: LedgerId::StubUsd,
+            incoming_amount: Some(100_000_000),
+            received,
+            connections: BTreeMap::new(),
+            created_at_ms: 0,
+            expires_at_ms: 1,
+            client: None,
+        };
+        assert_eq!(payment(0).tolerance(), 100_000);
+        assert!(!payment(99_899_999).full());
+        assert!(payment(99_900_000).full());
+        assert!(payment(100_000_000).full());
+        assert!(payment(100_100_000).full());
+        let open = OpenIncoming {
+            incoming_amount: None,
+            ..payment(u64::MAX)
+        };
+        assert!(!open.full());
+        assert_eq!(open.tolerance(), 0);
     }
 
     #[test]

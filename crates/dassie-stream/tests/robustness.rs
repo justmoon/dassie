@@ -22,6 +22,7 @@ use dassie_node_core::testing::SeededRng;
 use dassie_oer::{Decode, Encode, Writer};
 use dassie_stream::crypto::{Keys, OVERHEAD};
 use dassie_stream::packet::{Frames, Packet, PacketType};
+use dassie_stream::sim::payment::STEPS;
 use dassie_stream::sim::{Path, Simulation};
 use dassie_stream::{
     Admission, AssetDetails, BUFFER_LENGTH, Config, Connection, ErrorCode, Event, Frame, Policy,
@@ -652,13 +653,64 @@ fn a_burst_of_rejects_backs_off_once() {
 }
 
 /// An incoming payment several connections pay: what it still takes,
-/// what each connection's tag paid, and the code that closes a connection
-/// once it takes nothing more.
+/// what each connection's tag paid, how far it may land from its amount,
+/// and the code that closes a connection once it takes nothing more.
 struct Payment {
     remaining: u64,
     paid: BTreeMap<Vec<u8>, u64>,
+    tolerance: u64,
     exhausted: ErrorCode,
 }
+
+impl Payment {
+    fn new(amount: u64, tolerance: u64) -> Self {
+        Self {
+            remaining: amount,
+            paid: BTreeMap::new(),
+            tolerance,
+            exhausted: ErrorCode::NO_ERROR,
+        }
+    }
+
+    fn admit(&self, tag: &[u8]) -> Admission {
+        Admission::Accept {
+            money_limit: self.remaining,
+            received: self.paid.get(tag).copied().unwrap_or(0),
+            tolerance: self.tolerance,
+            exhausted: self.exhausted,
+        }
+    }
+
+    fn take(&mut self, tag: Vec<u8>, amount: u64) {
+        self.remaining = self.remaining.saturating_sub(amount);
+        *self.paid.entry(tag).or_default() += amount;
+    }
+}
+
+/// A client that pays the connection `tag` of `server`, at one to one, on
+/// a stream it opened, and the keys to read the replies it gets.
+fn payer(server: &Server, rng: &mut SeededRng, tag: &[u8]) -> (Connection, u64, Keys) {
+    let credentials = server.generate_credentials(rng, tag, None);
+    let mut connection = Connection::new(&Config {
+        role: Role::Client,
+        shared_secret: &credentials.shared_secret,
+        local_address: Address::parse("test.client").ok(),
+        remote_address: Address::parse(&credentials.destination).ok(),
+        local_asset: None,
+        receipt: None,
+        policy: Policy::DEFAULT,
+    });
+    connection.set_exchange_rate(Rate::ONE);
+    let stream = connection.open_stream().unwrap();
+    (connection, stream, Keys::derive(&credentials.shared_secret))
+}
+
+/// The policy of a receiver that pays into something with a total: its
+/// streams take money from the first packet, the total bounds them.
+const PAYEE: Policy = Policy {
+    remote_stream_receive_max: u64::MAX,
+    ..Policy::DEFAULT
+};
 
 /// Exchanges what `client` has to send now with `server`, admitting each
 /// packet against `payment` as the node's receivers do. Returns how many
@@ -676,16 +728,11 @@ fn pay(
     let mut work = vec![0; BUFFER_LENGTH];
     while let Some(transmit) = client.poll_transmit(now, rng, &mut out) {
         let prepare = Prepare::decode_exact(&out[..transmit.length]).unwrap();
-        let admit = |tag: &[u8]| Admission::Accept {
-            money_limit: payment.remaining,
-            received: payment.paid.get(tag).copied().unwrap_or(0),
-            exhausted: payment.exhausted,
-        };
+        let admit = |tag: &[u8]| payment.admit(tag);
         let handled = server.handle_prepare_admitted(now, rng, &prepare, admit, &mut answer);
         if let Some(id) = handled.connection {
             let tag = server.connection_tag(id).unwrap().to_vec();
-            payment.remaining -= handled.received;
-            *payment.paid.entry(tag).or_default() += handled.received;
+            payment.take(tag, handled.received);
         }
         match Response::decode_exact(&answer[..handled.length]).unwrap() {
             Response::Fulfill(_) => fulfilled += 1,
@@ -717,11 +764,7 @@ fn a_sender_whose_room_another_connection_took_stops_at_once() {
     };
     let mut server = server(policy);
     let mut rng = SeededRng::new(5);
-    let mut payment = Payment {
-        remaining: 1_000,
-        paid: BTreeMap::new(),
-        exhausted: ErrorCode::NO_ERROR,
-    };
+    let mut payment = Payment::new(1_000, 0);
     let connect = |server: &Server, rng: &mut SeededRng, tag: &[u8]| {
         let credentials = server.generate_credentials(rng, tag, None);
         let mut connection = Connection::new(&Config {
@@ -794,9 +837,8 @@ fn a_receiver_that_stops_short_closes_with_the_code_it_gives() {
     let mut server = server(policy);
     let mut rng = SeededRng::new(6);
     let mut payment = Payment {
-        remaining: 1_000,
-        paid: BTreeMap::new(),
         exhausted: ErrorCode::APPLICATION_ERROR,
+        ..Payment::new(1_000, 0)
     };
     let credentials = server.generate_credentials(&mut rng, b"payment/a", None);
     let mut client = Connection::new(&Config {
@@ -831,4 +873,281 @@ fn a_receiver_that_stops_short_closes_with_the_code_it_gives() {
     }
     assert_eq!(closed, Some((ErrorCode::APPLICATION_ERROR, true)));
     assert_eq!(client.stream(stream).unwrap().remote_received(), 100);
+}
+
+/// Checks the STREAM reply a refused packet carried: what arrived, and
+/// its frames.
+fn check_refusal(keys: &Keys, answer: &[u8], check: impl FnOnce(u64, &[Frame<'_>])) {
+    let Response::Reject(reject) = Response::decode_exact(answer).unwrap() else {
+        panic!("the packet was fulfilled");
+    };
+    assert_eq!(reject.code, IlpErrorCode::F99_APPLICATION_ERROR);
+    let mut scratch = vec![0; BUFFER_LENGTH];
+    let plaintext = keys.cipher.decrypt(reject.data, &mut scratch).unwrap();
+    let packet = Packet::parse(plaintext).unwrap();
+    assert_eq!(packet.packet_type, PacketType::Reject);
+    let frames: Vec<Frame<'_>> = packet.frames.iter().collect();
+    check(packet.prepare_amount, &frames);
+}
+
+#[test]
+fn a_sender_left_less_room_than_its_packet_sends_what_is_left() {
+    // Two connections pay one incoming payment of 1 000. A pays 100, B
+    // pays 850, and 50 are left, less than what A offers next. A's packet
+    // was refused, and A, keeping the higher maximum it saw first, offered
+    // it again and again until its deadline. Now the refusal tells A the
+    // room, A takes the lower maximum, and sends what is left.
+    let mut rng = SeededRng::new(5);
+    let mut server = server(PAYEE);
+    let mut payment = Payment::new(1_000, 0);
+    let (mut a, a_stream, _) = payer(&server, &mut rng, b"payment/connection-a");
+    let (mut b, b_stream, _) = payer(&server, &mut rng, b"payment/connection-b");
+
+    a.set_send_max(a_stream, 100).unwrap();
+    let mut now = NOW;
+    assert_eq!(
+        pay(now, &mut rng, &mut server, &mut payment, &mut a),
+        (1, 0)
+    );
+    b.set_send_max(b_stream, 850).unwrap();
+    assert_eq!(
+        pay(now, &mut rng, &mut server, &mut payment, &mut b),
+        (1, 0)
+    );
+    assert_eq!(payment.remaining, 50);
+
+    a.set_send_max(a_stream, 1_000).unwrap();
+    let mut refused = 0;
+    for _ in 0..20 {
+        now = now.saturating_add_ms(31_000);
+        let (_, rejected) = pay(now, &mut rng, &mut server, &mut payment, &mut a);
+        refused += rejected;
+        if a.is_closed() || payment.remaining == 0 {
+            break;
+        }
+    }
+    assert!(
+        a.is_closed() || payment.remaining == 0,
+        "refused {refused} times; {} still left",
+        payment.remaining
+    );
+    // Told once, A filled the payment exactly. It still had money to send,
+    // so it offered a unit, and the receiver closed its connection: the
+    // payment has all it asked for.
+    assert_eq!(payment.remaining, 0);
+    assert_eq!(refused, 2);
+    assert_eq!(a.stats().amount_sent, 150);
+    assert_eq!(a.stream(a_stream).unwrap().remote_room(), 0);
+    assert_eq!(payment.paid.values().sum::<u64>(), 1_000);
+    assert_eq!(closed_by_remote(&mut a), Some(ErrorCode::NO_ERROR));
+}
+
+#[test]
+fn a_sender_fills_what_another_payer_left_across_a_rate() {
+    // Another payer takes most of what a sender is paying, while it has
+    // packets in flight at three units for two: the sender's next packets
+    // are refused, it takes the room their replies report, and sends what
+    // is left, which no packet at this rate fills to the unit. What it
+    // cannot fill is within the receiver's tolerance, so the receiver
+    // counts the total as reached and reports no more room.
+    let path = Path {
+        rate: (3, 2),
+        max_packet_amount: 100,
+        ..Path::default()
+    };
+    let mut sim = Simulation::new(15, path, PAYEE);
+    sim.money_limit = Some(3_000);
+    sim.money_tolerance = 2;
+    sim.client.set_exchange_rate(Rate::new(3, 2).unwrap());
+    let stream = sim.client.open_stream().unwrap();
+    sim.client.set_send_max(stream, 10_000).unwrap();
+    sim.run_until(STEPS, |sim| sim.money_received >= 600);
+    // Another payer pays all but 101.
+    sim.money_limit = Some(101);
+    for _ in 0..2_000 {
+        if !sim.step() {
+            break;
+        }
+    }
+    let left = sim.money_limit.unwrap();
+    assert!(left <= 2, "{left} left\n{}", sim.trace);
+    assert_eq!(sim.client.stream(stream).unwrap().remote_room(), 0);
+    let refused = sim.client.stats().packets_rejected;
+    assert!(
+        (1..=4).contains(&refused),
+        "refused {refused} times\n{}",
+        sim.trace
+    );
+}
+
+#[test]
+fn a_sender_never_offers_more_than_a_lowered_room_takes() {
+    // At ten units for one, a room of five is less than one source unit
+    // delivers. A sender told so after the receiver lowered its maximum
+    // has nothing it can send that fits, and sends nothing: offered a
+    // unit anyway, it was refused once per back-off until its deadline.
+    let path = Path {
+        rate: (10, 1),
+        max_packet_amount: 50,
+        ..Path::default()
+    };
+    let mut sim = Simulation::new(16, path, PAYEE);
+    sim.money_limit = Some(3_000);
+    sim.client.set_exchange_rate(Rate::new(10, 1).unwrap());
+    let stream = sim.client.open_stream().unwrap();
+    sim.client.set_send_max(stream, 10_000).unwrap();
+    sim.run_until(STEPS, |sim| sim.money_received >= 1_000);
+    // Another payer pays all but 5.
+    sim.money_limit = Some(5);
+    sim.run_until(STEPS, |sim| {
+        sim.client.stream(stream).unwrap().remote_room() == 5
+    });
+    let refused = sim.client.stats().packets_rejected;
+    for _ in 0..2_000 {
+        if !sim.step() {
+            break;
+        }
+    }
+    assert_eq!(sim.money_limit, Some(5));
+    assert_eq!(
+        sim.client.stats().packets_rejected,
+        refused,
+        "{}",
+        sim.trace
+    );
+}
+
+#[test]
+fn a_packet_over_by_at_most_the_tolerance_fills_the_payment() {
+    // Rounding on the way can put a packet a little over what is left. A
+    // receiver takes it, so that the payment is filled rather than left
+    // short by a packet no sender can size exactly.
+    let mut rng = SeededRng::new(7);
+    let mut server = server(PAYEE);
+    let mut payment = Payment::new(1_000, 10);
+    let (mut a, a_stream, _) = payer(&server, &mut rng, b"payment/a");
+    let (mut b, b_stream, _) = payer(&server, &mut rng, b"payment/b");
+    a.set_send_max(a_stream, 100).unwrap();
+    assert_eq!(
+        pay(NOW, &mut rng, &mut server, &mut payment, &mut a),
+        (1, 0)
+    );
+    b.set_send_max(b_stream, 850).unwrap();
+    assert_eq!(
+        pay(NOW, &mut rng, &mut server, &mut payment, &mut b),
+        (1, 0)
+    );
+    assert_eq!(payment.remaining, 50);
+
+    // A still sees room for 900 and sends 58: eight over, within ten.
+    a.set_send_max(a_stream, 158).unwrap();
+    assert_eq!(
+        pay(NOW, &mut rng, &mut server, &mut payment, &mut a),
+        (1, 0)
+    );
+    assert_eq!(payment.remaining, 0);
+    assert_eq!(payment.paid.values().sum::<u64>(), 1_008);
+    assert_eq!(a.stream(a_stream).unwrap().remote_room(), 0);
+    assert_eq!(a.stream(a_stream).unwrap().remote_received(), 158);
+}
+
+#[test]
+fn a_packet_over_by_more_than_the_tolerance_is_told_the_room() {
+    // A packet further over than the tolerance is refused with F99, whose
+    // reply says what arrived and what the receiver still takes: the
+    // stream's maximum, what it received plus the room, and its total.
+    let mut rng = SeededRng::new(8);
+    let mut server = server(PAYEE);
+    let mut payment = Payment::new(1_000, 10);
+    let (mut a, a_stream, keys) = payer(&server, &mut rng, b"payment/a");
+    let (mut b, b_stream, _) = payer(&server, &mut rng, b"payment/b");
+    a.set_send_max(a_stream, 100).unwrap();
+    assert_eq!(
+        pay(NOW, &mut rng, &mut server, &mut payment, &mut a),
+        (1, 0)
+    );
+    b.set_send_max(b_stream, 850).unwrap();
+    assert_eq!(
+        pay(NOW, &mut rng, &mut server, &mut payment, &mut b),
+        (1, 0)
+    );
+
+    // A sends 70 where 50 are left: twenty over, more than ten.
+    a.set_send_max(a_stream, 170).unwrap();
+    let mut out = vec![0; BUFFER_LENGTH];
+    let mut answer = vec![0; BUFFER_LENGTH];
+    let transmit = a.poll_transmit(NOW, &mut rng, &mut out).unwrap();
+    let prepare = Prepare::decode_exact(&out[..transmit.length]).unwrap();
+    assert_eq!(prepare.amount, 70);
+    let admit = |tag: &[u8]| payment.admit(tag);
+    let handled = server.handle_prepare_admitted(NOW, &mut rng, &prepare, admit, &mut answer);
+    assert_eq!(handled.received, 0);
+    let answer = &answer[..handled.length];
+    check_refusal(&keys, answer, |arrived, frames| {
+        assert_eq!(arrived, 70);
+        let room = Frame::StreamMaxMoney {
+            stream_id: a_stream,
+            receive_max: 150,
+            total_received: 100,
+        };
+        assert!(frames.contains(&room), "{frames:?}");
+        let closes = |frame: &Frame<'_>| matches!(frame, Frame::ConnectionClose { .. });
+        assert!(!frames.iter().any(closes), "{frames:?}");
+    });
+    let mut work = vec![0; BUFFER_LENGTH];
+    a.handle_response(NOW, transmit.request_id, answer, &mut work);
+    a.check_invariants();
+    // A takes the lower maximum, sends the 50 once it retries, and offers
+    // a unit of the 20 it has left, which closes its connection.
+    assert_eq!(a.stream(a_stream).unwrap().remote_room(), 50);
+    let later = NOW.saturating_add_ms(1_000);
+    assert_eq!(
+        pay(later, &mut rng, &mut server, &mut payment, &mut a),
+        (1, 1)
+    );
+    assert_eq!(payment.remaining, 0);
+    assert_eq!(payment.paid.values().sum::<u64>(), 1_000);
+    assert_eq!(closed_by_remote(&mut a), Some(ErrorCode::NO_ERROR));
+}
+
+#[test]
+fn a_payment_within_the_tolerance_under_takes_no_more() {
+    // A payment that has all but less than the tolerance counts as full:
+    // its streams report no more room, and a packet that offers money
+    // closes the connection as for a payment that has it all.
+    let mut rng = SeededRng::new(9);
+    let mut server = server(PAYEE);
+    let mut payment = Payment::new(1_000, 10);
+    let (mut a, a_stream, _) = payer(&server, &mut rng, b"payment/a");
+    a.set_send_max(a_stream, 993).unwrap();
+    assert_eq!(
+        pay(NOW, &mut rng, &mut server, &mut payment, &mut a),
+        (1, 0)
+    );
+    assert_eq!(payment.remaining, 7);
+    assert_eq!(a.stream(a_stream).unwrap().remote_room(), 0);
+    // A sender that sends anyway is closed with the payment's code.
+    let (mut b, b_stream, _) = payer(&server, &mut rng, b"payment/b");
+    b.set_send_max(b_stream, 7).unwrap();
+    assert_eq!(
+        pay(NOW, &mut rng, &mut server, &mut payment, &mut b),
+        (0, 1)
+    );
+    assert_eq!(closed_by_remote(&mut b), Some(ErrorCode::NO_ERROR));
+    assert_eq!(payment.remaining, 7);
+}
+
+/// The code the remote closed `connection` with, if it did.
+fn closed_by_remote(connection: &mut Connection) -> Option<ErrorCode> {
+    let mut closed = None;
+    while let Some(event) = connection.poll_event() {
+        if let Event::ConnectionClosed {
+            code,
+            by_remote: true,
+        } = event
+        {
+            closed = Some(code);
+        }
+    }
+    closed
 }
