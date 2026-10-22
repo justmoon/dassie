@@ -49,6 +49,8 @@ export interface NodeData {
   allocationScheme: string;
   /** The node's hostname; empty until configured. */
   hostname: string;
+  /** The Dassie version the node runs. */
+  version: string;
 }
 
 export const NodeDataContext: Context<NodeData> = createContext<NodeData>();
@@ -63,6 +65,7 @@ export function createNodeData(basic: {
   nodeId: string;
   ilpAllocationScheme: string;
   hostname: string;
+  version: string;
 }): NodeData {
   // A ledger just added shows at once, before the stream has it, and for
   // a few seconds at most: by then the stream says whether it is there.
@@ -105,5 +108,6 @@ export function createNodeData(basic: {
     selfId: basic.nodeId,
     allocationScheme: basic.ilpAllocationScheme,
     hostname: basic.hostname,
+    version: basic.version,
   };
 }

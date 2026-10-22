@@ -139,6 +139,7 @@ function WithData(
     nodeId: props.basic.nodeId,
     ilpAllocationScheme: props.basic.ilpAllocationScheme,
     hostname: props.basic.hostname,
+    version: props.basic.version,
   });
   return (
     <NodeDataContext value={data}>

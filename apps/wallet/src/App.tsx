@@ -99,6 +99,7 @@ function Owner(props: { basic: GetBasicStateResponse }): JSX.Element {
     nodeId: props.basic.nodeId,
     ilpAllocationScheme: props.basic.ilpAllocationScheme,
     hostname: props.basic.hostname,
+    version: props.basic.version,
   });
   const screen = () => ownerScreen(data.ledgers());
   return (
