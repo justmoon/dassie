@@ -1,0 +1,13 @@
+# UDP port 7768 for the node, IPv4 and IPv6: the rate feed, which a core
+# node publishes to the market makers that subscribe to it
+# (spec/areas/rate-feed.md#the-socket). The node runs without it, and
+# publishes no feed, where it is missing or its port is taken.
+[Unit]
+Description=Dassie node, rate feed
+
+[Socket]
+ListenDatagram=7768
+Service=dassie.service
+
+[Install]
+WantedBy=sockets.target

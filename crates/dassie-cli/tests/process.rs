@@ -123,6 +123,12 @@ fn socket_activated_daemon_reports_ready_and_stopping() {
     assert_eq!(receive(&notify, &mut child), "STOPPING=1");
     let output = child.take().unwrap().wait_with_output().unwrap();
     assert!(output.status.success(), "{}", describe(&output));
+    // Without the optional UDP sockets, the node runs, and says so.
+    let log = String::from_utf8_lossy(&output.stdout);
+    for socket in ["dassie-quic.socket", "dassie-feed.socket"] {
+        assert!(log.contains(socket), "{log}");
+    }
+    assert!(log.contains("feed=none"), "{log}");
 }
 
 fn run(args: &[&str], env: &[(&str, &str)]) -> Output {

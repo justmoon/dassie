@@ -70,6 +70,10 @@ pub fn start(
         ports: Some(ports),
         listen: Some(Ipv4Addr::LOCALHOST.into()),
         quic: Some(quic_address()),
+        // A periphery node publishes no rate feed. A port the system picks
+        // on loopback never takes the one a node on this machine serves
+        // its feed at.
+        feed: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
     };
     let (to, from) = tokio::sync::oneshot::channel();
     let prepared = Prepared::new(env, options)

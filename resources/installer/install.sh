@@ -31,7 +31,7 @@ main() {
   TARGETED="${DASSIE_VERSION:+1}"
   COMMAND=install
   BASE=/opt/dassie
-  UNITS="dassie.service dassie-http.socket dassie-https.socket dassie-ipc.socket dassie-quic.socket dassie-update.service dassie-update.timer"
+  UNITS="dassie.service dassie-http.socket dassie-https.socket dassie-ipc.socket dassie-quic.socket dassie-feed.socket dassie-update.service dassie-update.timer"
   parse_arguments "$@"
   case "$RELEASE_KEY" in
     @*) fail E_NO_RELEASE_KEY "this installer was built without a release key" ;;
@@ -391,13 +391,16 @@ install_units() {
   step "Setting up systemd"
   as_root cp "$1"/share/systemd/* /etc/systemd/system/ || fail E_SYSTEMD_SERVICE_INSTALL_FAILED "cannot install the units"
   as_root systemctl daemon-reload || fail E_SYSTEMD_DAEMON_RELOAD_FAILED "systemctl daemon-reload failed"
-  as_root systemctl enable dassie-http.socket dassie-https.socket dassie-ipc.socket dassie-quic.socket dassie.service dassie-update.timer ||
+  as_root systemctl enable dassie-http.socket dassie-https.socket dassie-ipc.socket dassie-quic.socket dassie-feed.socket dassie.service dassie-update.timer ||
     fail E_SYSTEMD_SERVICE_ENABLE_FAILED "cannot enable the units"
   as_root systemctl start dassie-http.socket dassie-https.socket dassie-ipc.socket ||
     fail E_SYSTEMD_SERVICE_START_FAILED "cannot start the sockets"
   # The node can do without QUIC: peers then reach it over HTTPS.
   as_root systemctl start dassie-quic.socket ||
     note "UDP port 443 is taken: peers reach this node over HTTPS only"
+  # Nor does it need its rate feed: it then publishes none.
+  as_root systemctl start dassie-feed.socket ||
+    note "UDP port 7768 is taken: the node publishes no rate feed"
   as_root systemctl restart dassie.service dassie-update.timer ||
     fail E_SYSTEMD_SERVICE_START_FAILED "cannot start dassie.service"
 }

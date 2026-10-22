@@ -132,6 +132,8 @@ pub struct Versions {
     pub network: u64,
     /// Open Payments resources.
     pub payments: u64,
+    /// The price table, which the rate feed publishes.
+    pub prices: u64,
 }
 
 /// A handle to the running engine. Cheap to clone; stale once its
@@ -785,6 +787,7 @@ impl Driver<'_> {
                 versions.ledger += u64::from(changes.ledger);
                 versions.network += u64::from(changes.network);
                 versions.payments += u64::from(changes.payments);
+                versions.prices += u64::from(changes.prices);
             });
         }
         // After the step's events, so a peering is logged before the

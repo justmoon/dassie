@@ -459,6 +459,18 @@ async function steps(t: TestContext, machine: Machine, mirror: Mirror) {
       "active",
     ]);
     await answers(machine);
+    // Its rate feed's socket is up, and the node took it.
+    assertEquals(
+      await machine.must("systemctl is-active dassie-feed.socket"),
+      "active",
+    );
+    assert(
+      /feed=\S+:7768/.test(
+        await machine.must(
+          "journalctl -u dassie.service --no-pager -o cat | grep listening",
+        ),
+      ),
+    );
     // The node keeps its data where systemd gives it a directory.
     await machine.must("test -s /var/lib/private/dassie/dassie.sqlite3");
     // The updater looks at the test mirror, as an owner may set it to.
@@ -721,6 +733,7 @@ async function steps(t: TestContext, machine: Machine, mirror: Mirror) {
         "dassie-https.socket",
         "dassie-ipc.socket",
         "dassie-quic.socket",
+        "dassie-feed.socket",
         "dassie-update.service",
         "dassie-update.timer",
       ]

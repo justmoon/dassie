@@ -15,6 +15,7 @@ let
     "dassie-https"
     "dassie-ipc"
     "dassie-quic"
+    "dassie-feed"
   ];
 in
 {
@@ -50,7 +51,7 @@ in
     openFirewall = lib.mkOption {
       type = lib.types.bool;
       default = false;
-      description = "Open TCP ports 80 and 443, and UDP port 443 (QUIC), in the firewall.";
+      description = "Open TCP ports 80 and 443, and UDP ports 443 (QUIC) and 7768 (the rate feed), in the firewall.";
     };
   };
 
@@ -77,7 +78,10 @@ in
         80
         443
       ];
-      allowedUDPPorts = [ 443 ];
+      allowedUDPPorts = [
+        443
+        7768
+      ];
     };
   };
 }
