@@ -96,6 +96,46 @@ fn two_nodes_register_peer_and_route() {
     assert_eq!(peer.schemes, vec![SchemeId::parse("stub").unwrap()]);
 }
 
+// spec/areas/network.md#how-link-states-spread: a newcomer that registered
+// with the only bootstrap node before its scheme synced, and whose new link
+// state then got lost on its way there, still peers with it. The bootstrap
+// node holds the newcomer's state without the scheme, and asks it for
+// nothing; the newcomer's sweeps ask the bootstrap node for its own state,
+// which nothing else brings, and the newcomer asks to peer.
+#[test]
+fn a_newcomer_learns_the_only_bootstrap_nodes_link_state() {
+    let stub = SchemeId::parse("stub").unwrap();
+    let mut network = Network::new(1, 2, 1, Config::DEFAULT);
+    network.act(1, |node, now| node.set_schemes(now, Vec::new()));
+    while network.node(1).registration_status()[0]
+        .registered_ms
+        .is_none()
+    {
+        settle(&mut network, 1_000);
+        assert!(network.now < START + 120_000, "node 1 registers");
+    }
+    let newcomer = *network.node(1).own();
+    let held = |network: &Network| {
+        let view = network.node(0).nodes();
+        view.into_iter().find(|v| v.id == newcomer).unwrap().schemes
+    };
+    assert!(held(&network).is_empty(), "registered before its scheme");
+
+    // Its scheme syncs, and its new link state is lost on the way to the
+    // bootstrap node.
+    network.cut_one_way.insert((1, 0));
+    network.act(1, |node, now| node.set_schemes(now, vec![stub]));
+    settle(&mut network, Config::DEFAULT.issue_debounce_ms + 1_000);
+    network.cut_one_way.clear();
+    assert!(held(&network).is_empty(), "the push was lost");
+
+    // Well before a renewal or a re-issue would bring it.
+    settle(&mut network, 60_000);
+    let (bootstrap, newcomer) = (network.node(0), network.node(1));
+    assert!(newcomer.peering_of(bootstrap.own()).is_some());
+    assert!(bootstrap.peering_of(newcomer.own()).is_some());
+}
+
 // NET-3, NET-4: a peering request whose link state is not the sender's is
 // refused; one with a forged sender does not authenticate.
 #[test]
