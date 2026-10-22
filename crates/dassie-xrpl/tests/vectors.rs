@@ -1,6 +1,6 @@
 //! Golden vectors: the original's wallets, from `dassie-identity`'s chain,
 //! and Payments, token amounts and TrustSets as xrpl.js 3.1.0 writes and
-//! signs them (testdata/xrpl).
+//! signs them, with Payments that name a `SendMax` (testdata/xrpl).
 
 #![allow(
     clippy::unwrap_used,
@@ -11,7 +11,8 @@
 
 use dassie_identity::NodeKey;
 use dassie_xrpl::codec::{
-    Amount, Currency, Memo, Payment, Signed, TokenAmount, TokenValue, Transaction, TrustSet, hash,
+    Amount, Currency, Memo, Payment, SendMaxTerms, Signed, TokenAmount, TokenValue, Transaction,
+    TrustSet, hash, sign_send_max,
 };
 use dassie_xrpl::{AccountId, Wallet, from_hex, hex_upper};
 use serde_json::Value;
@@ -63,6 +64,7 @@ fn payment(vector: &Value) -> (Wallet, Payment) {
         account: AccountId::parse(text(tx, "Account")).unwrap(),
         destination: AccountId::parse(text(tx, "Destination")).unwrap(),
         amount: Amount::Xrp(drops("Amount")),
+        send_max: None,
         fee: drops("Fee"),
         sequence: number("Sequence"),
         last_ledger_sequence: number("LastLedgerSequence"),
@@ -166,6 +168,7 @@ fn token_payments_sign_and_hash_as_xrpl_js_does() {
             account: AccountId::parse(text(tx, "Account")).unwrap(),
             destination: AccountId::parse(text(tx, "Destination")).unwrap(),
             amount: Amount::Token(token(&tx["Amount"])),
+            send_max: None,
             fee: text(tx, "Fee").parse().unwrap(),
             sequence: number(tx, "Sequence"),
             last_ledger_sequence: number(tx, "LastLedgerSequence"),
@@ -228,5 +231,71 @@ fn trust_sets_sign_and_hash_as_xrpl_js_does() {
             Transaction::TrustSet(signed.tx.clone()),
         );
         assert_eq!(token(&vector["decoded"]["LimitAmount"]), signed.tx.limit);
+    }
+}
+
+/// An amount as the vectors write it: drops in a string, or a token.
+fn amount(value: &Value) -> Amount {
+    match value.as_str() {
+        Some(drops) => Amount::Xrp(drops.parse().unwrap()),
+        None => Amount::Token(token(value)),
+    }
+}
+
+// Payments with `SendMax` (spec/areas/xrpl.md#tokens): XRP for a token and
+// a token for XRP, as a swap through an AMM pool is sent, with and without
+// a memo, signed by the codec's own helper.
+#[test]
+fn send_max_payments_sign_and_hash_as_xrpl_js_does() {
+    let vectors = read("tests/data/vectors.json");
+    let payments = vectors["sendMaxPayments"].as_array().unwrap();
+    assert_eq!(payments.len(), 4);
+    let kinds: Vec<(bool, bool)> = payments
+        .iter()
+        .map(|vector| {
+            let tx = &vector["tx"];
+            (tx["Amount"].is_string(), tx["SendMax"].is_string())
+        })
+        .collect();
+    assert!(kinds.contains(&(true, false)) && kinds.contains(&(false, true)));
+    for vector in payments {
+        let (wallet, tx) = common(vector);
+        let memos = tx
+            .get("Memos")
+            .map(|memos| {
+                let memo = &memos[0]["Memo"];
+                vec![Memo {
+                    memo_type: from_hex(text(memo, "MemoType")).unwrap(),
+                    memo_data: from_hex(text(memo, "MemoData")).unwrap(),
+                }]
+            })
+            .unwrap_or_default();
+        assert_eq!(number(tx, "Flags"), 0);
+        let terms = SendMaxTerms {
+            destination: AccountId::parse(text(tx, "Destination")).unwrap(),
+            amount: amount(&tx["Amount"]),
+            send_max: amount(&tx["SendMax"]),
+            fee: text(tx, "Fee").parse().unwrap(),
+            sequence: number(tx, "Sequence"),
+            last_ledger_sequence: number(tx, "LastLedgerSequence"),
+            network_id: tx.get("NetworkID").map(|_| number(tx, "NetworkID")),
+            memos,
+        };
+        let signed = sign_send_max(&wallet, terms).unwrap();
+        assert_eq!(signed.tx.account.to_address(), text(tx, "Account"));
+        let unsigned = Payment {
+            signature: None,
+            ..signed.tx.clone()
+        };
+        check(
+            vector,
+            &unsigned.signing_payload(),
+            &signed,
+            Transaction::Payment(signed.tx.clone()),
+        );
+        assert_eq!(
+            amount(&vector["decoded"]["SendMax"]),
+            signed.tx.send_max.unwrap()
+        );
     }
 }

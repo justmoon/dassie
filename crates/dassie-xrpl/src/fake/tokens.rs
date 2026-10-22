@@ -320,6 +320,7 @@ impl FakeLedger {
             account: amount.issuer,
             destination: to,
             amount: Amount::Token(amount),
+            send_max: None,
             fee: FEE_BASE,
             sequence,
             last_ledger_sequence,

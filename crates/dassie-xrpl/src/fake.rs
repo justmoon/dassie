@@ -403,6 +403,7 @@ impl FakeLedger {
             account: self.genesis,
             destination: to,
             amount: Amount::Xrp(drops),
+            send_max: None,
             fee: FEE_BASE,
             sequence,
             last_ledger_sequence: self.ledger.saturating_add(OWN_TX_LEDGERS),
@@ -916,6 +917,10 @@ fn preflight(tx: &Tx) -> Result<(), &'static str> {
         Tx::Payment(payment) => {
             if payment.flags & !PAYMENT_FLAGS != 0 {
                 return Err("temINVALID_FLAG");
+            }
+            // Not modelled yet: no path converts one asset to another.
+            if payment.send_max.is_some() {
+                return Err("temMALFORMED");
             }
             let zero = match &payment.amount {
                 Amount::Xrp(drops) => *drops == 0,

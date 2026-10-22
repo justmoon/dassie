@@ -1304,6 +1304,7 @@ fn xrp_paid_by_hand_is_a_withdrawal_and_moves_no_rlusd() {
         account: address,
         destination: world.address(1),
         amount: Amount::Xrp(3_000_000),
+        send_max: None,
         fee: FEE_BASE,
         sequence,
         last_ledger_sequence: world.ledger.ledger() + 10,

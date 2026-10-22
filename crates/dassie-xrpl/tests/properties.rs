@@ -107,19 +107,21 @@ fn mutate(mut bytes: Vec<u8>, mutations: &[Mutation]) -> Vec<u8> {
 }
 
 /// A Payment the codec can write: any fields within the ledger's bounds.
+/// An amount a Payment can name: drops, or a token not below zero.
+fn payable() -> impl Strategy<Value = Amount> {
+    prop_oneof![
+        (0..=MAX_DROPS).prop_map(Amount::Xrp),
+        token_amount().prop_map(|token| Amount::Token(TokenAmount {
+            value: positive(token.value),
+            ..token
+        })),
+    ]
+}
+
 fn payment() -> impl Strategy<Value = Payment> {
     (
         (any::<[u8; 20]>(), any::<[u8; 20]>()),
-        (
-            prop_oneof![
-                (0..=MAX_DROPS).prop_map(Amount::Xrp),
-                token_amount().prop_map(|token| Amount::Token(TokenAmount {
-                    value: positive(token.value),
-                    ..token
-                })),
-            ],
-            0..=MAX_DROPS,
-        ),
+        (payable(), proptest::option::of(payable()), 0..=MAX_DROPS),
         (
             any::<u32>(),
             any::<u32>(),
@@ -132,7 +134,7 @@ fn payment() -> impl Strategy<Value = Payment> {
         .prop_map(
             |(
                 (account, destination),
-                (amount, fee),
+                (amount, send_max, fee),
                 (sequence, last_ledger_sequence, flags, network_id),
                 memos,
                 (signing_pub_key, signature),
@@ -140,6 +142,10 @@ fn payment() -> impl Strategy<Value = Payment> {
                 account: AccountId(account),
                 destination: AccountId(destination),
                 amount,
+                // Never XRP for XRP, which the ledger refuses.
+                send_max: send_max.filter(|send_max| {
+                    !matches!((amount, send_max), (Amount::Xrp(_), Amount::Xrp(_)))
+                }),
                 fee,
                 sequence,
                 last_ledger_sequence,
