@@ -105,6 +105,27 @@ proptest! {
     }
 
     #[test]
+    fn decoding_a_message_past_its_header_never_panics(
+        tag in 0..4u8,
+        cookie in 0..3u8,
+        body in proptest::collection::vec(any::<u8>(), 0..=MAX_DATAGRAM_BYTES),
+        subscribe_sized in any::<bool>(),
+    ) {
+        // Past the version and the tag, so that the bodies are read.
+        let mut bytes = vec![dassie_feed::VERSION, 0x80 | tag];
+        if tag == 0 {
+            bytes.push(0x80 | cookie);
+        }
+        bytes.extend_from_slice(&body);
+        if subscribe_sized {
+            bytes.resize(dassie_feed::SUBSCRIBE_BYTES, 0);
+        }
+        if let Ok(message) = decode(&bytes) {
+            prop_assert_eq!(&encode(&message), &bytes);
+        }
+    }
+
+    #[test]
     fn a_changed_feed_never_passes_for_the_original(
         edits in proptest::collection::vec((any::<prop::sample::Index>(), any::<u8>(), 0..3u8), 1..4),
     ) {
