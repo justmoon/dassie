@@ -560,7 +560,11 @@ fn check_outgoing_payment(
             ),
         ));
     }
-    if received > row.receive_amount.value {
+    // A receiver may take up to the tolerance more, as when a Fulfill lost
+    // to a crash is sent again (spec/decisions/paid-within-a-tolerance.md).
+    let asked = &row.receive_amount;
+    let tolerance = payment_tolerance(Some(asked.value), asked.asset_scale);
+    if received > asked.value + tolerance {
         return Err(Outcome::safety(
             "outgoing",
             format!(
@@ -584,7 +588,8 @@ fn check_outgoing_payment(
             ),
         ));
     }
-    if received != row.receive_amount.value {
+    // Completed, it has all it asked for, to within the tolerance.
+    if !paid_in_full(Some(asked.value), received, asked.asset_scale) {
         return Err(Outcome::liveness(
             "outgoing",
             format!(

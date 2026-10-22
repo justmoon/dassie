@@ -981,6 +981,43 @@ fn a_sender_fills_what_another_payer_left_across_a_rate() {
 }
 
 #[test]
+fn a_sender_never_offers_more_than_a_lowered_room_takes() {
+    // At ten units for one, a room of five is less than one source unit
+    // delivers. A sender told so after the receiver lowered its maximum
+    // has nothing it can send that fits, and sends nothing: offered a
+    // unit anyway, it was refused once per back-off until its deadline.
+    let path = Path {
+        rate: (10, 1),
+        max_packet_amount: 50,
+        ..Path::default()
+    };
+    let mut sim = Simulation::new(16, path, PAYEE);
+    sim.money_limit = Some(3_000);
+    sim.client.set_exchange_rate(Rate::new(10, 1).unwrap());
+    let stream = sim.client.open_stream().unwrap();
+    sim.client.set_send_max(stream, 10_000).unwrap();
+    sim.run_until(STEPS, |sim| sim.money_received >= 1_000);
+    // Another payer pays all but 5.
+    sim.money_limit = Some(5);
+    sim.run_until(STEPS, |sim| {
+        sim.client.stream(stream).unwrap().remote_room() == 5
+    });
+    let refused = sim.client.stats().packets_rejected;
+    for _ in 0..2_000 {
+        if !sim.step() {
+            break;
+        }
+    }
+    assert_eq!(sim.money_limit, Some(5));
+    assert_eq!(
+        sim.client.stats().packets_rejected,
+        refused,
+        "{}",
+        sim.trace
+    );
+}
+
+#[test]
 fn a_packet_over_by_at_most_the_tolerance_fills_the_payment() {
     // Rounding on the way can put a packet a little over what is left. A
     // receiver takes it, so that the payment is filled rather than left

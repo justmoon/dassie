@@ -1045,3 +1045,27 @@ fn a_link_crashes_drifted_past_what_it_survives_is_ruled_out() {
         outcome => panic!("{outcome}"),
     }
 }
+
+// spec/decisions/paid-within-a-tolerance.md: a payment whose last packet
+// would carry less than its tolerance is paid in full by the packets
+// before it. Its incoming payment completes that much short, its outgoing
+// payment completes, and its client counts it done, rather than the checks
+// calling it unpaid, or the client reconnecting to a payment that takes no
+// more until it runs out of time.
+#[test]
+fn a_payment_short_by_less_than_its_tolerance_is_paid_in_full() {
+    let mut sim = Sim::new(76, 2, 1);
+    sim.loss_per_mille = 0;
+    sim.run_until(START + 60_000);
+    assert!(!sim.peers(0).is_empty(), "the nodes did not peer");
+    // Three of the largest packets and fifty thousand units, less than
+    // the tolerance of a hundred thousand.
+    let amount = 3 * Policies::DEFAULT.connector.max_packet_amount + 50_000;
+    assert!(sim.pay(0, 1, amount, None, Some(amount)));
+    sim.pay_outgoing(0, 1, amount).unwrap();
+    sim.run_until(sim.now + 300_000);
+    let paid = received(&sim, &sim.payments[0]);
+    assert!(paid < amount, "received {paid} of {amount}: no remainder");
+    assert!(sim.payments[0].done, "{}", sim.trace.join("\n"));
+    check(&sim).unwrap();
+}

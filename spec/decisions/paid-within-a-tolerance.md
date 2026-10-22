@@ -5,7 +5,7 @@
 ## Facts
 
 - A STREAM sender sizes its last packet from the room the receiver reports, converted at the rate it saw the path deliver. Every hop converts and rounds down in its own units, so what arrives can land a little under or over what is left, by up to a unit of the coarsest asset on the path. No sender can size its last packet to the unit.
-- A receiver that takes only exact amounts refuses a last packet a little over what is left, and is never offered one that fills it to the unit: the payment ends a little short, or not at all. `ilp-protocol-stream`'s receivers take up to 1% more than a stream's maximum for this reason, and Rafiki completes an incoming payment once it received its amount or more.
+- A receiver that takes only exact amounts refuses a last packet a little over what is left, and is never offered one that fills it to the unit: the payment ends a little short, or not at all. `ilp-protocol-stream`'s receivers take up to 1% more than a stream's maximum for this reason.
 - Open Payments calls `incomingAmount` the most that should be paid into an incoming payment, and `receivedAmount` what has been paid. Neither says that one bounds the other.
 - Dassie's ledgers count US dollars and XRP, both at scale 9, and a new ledger comes with the settlement module that serves it. Other wallets' assets have any code and scale.
 - The node has exchange rates to a common base, refreshed every minute, and may lack a fresh one for a while.
@@ -17,7 +17,7 @@ A payment counts as paid in full once what it received lands within its toleranc
 
 - **The receiver** takes a packet that overshoots what is left by at most the tolerance, and completes the payment. It counts a payment within the tolerance under its amount as complete: its streams report no more room, and a sender that offers more is closed with `NoError` ([full-or-stopped-short](full-or-stopped-short.md)). A packet further over is refused with F99, and its reply tells the sender the room.
 - **Senders aim at the amount itself.** The room a receiver reports is exact; the tolerance only absorbs what rounding on the way puts over or under it.
-- **What an incoming payment received is reported as it is.** Its `receivedAmount` can exceed its `incomingAmount` by up to the tolerance, as Rafiki's can.
+- **What an incoming payment received is reported as it is.** Its `receivedAmount` can exceed its `incomingAmount` by up to the tolerance; the specs call `incomingAmount` only the most that should be paid.
 - **Dassie's payer** counts its payment delivered once it is short of its receive amount by no more than that amount's tolerance and the receiver takes no more.
 
 ## Accepted
