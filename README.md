@@ -77,6 +77,7 @@ The node that asks to peer extends the other 1.1 units of credit; the node that 
 | `crates/dassie-connector` | The ILP connector: endpoints, peers and the route table, ILDCP, amounts, exchange, fees and spread, spending caps, the packet trace |
 | `crates/dassie-peer` | Peer protocol v1: wire format, authentication, node table, link state, membership, registration, peering and its lifecycle, settlement delivery, routing |
 | `crates/dassie-payments` | Open Payments without IO: resources, GNAP grants, HTTP message signatures, payment pointers, intervals, quote math |
+| `crates/dassie-feed` | The public rate feed without IO: signed UDP datagrams, the subscriber table and its address cookies, when to publish, a subscriber's side; the node does not publish one yet |
 | `crates/dassie-node-core` | The node's decisions without IO: config, setup, sessions, origins, rate limits, ACME and TLS policy |
 | `crates/dassie-node` | The daemon: database, HTTP(S) and IPC listeners, TLS, ACME, owner login, RPC with its live streams, the engine (ledger, peer protocol, Open Payments, bans), `/peer` and the peer client, the BTP server, the STREAM receiver, the rate fetcher, `/stats`, the log ring, and a fake XRP Ledger for tests |
 | `crates/dassie-cli` | The `dassie` binary: `daemon`, `init`, `update`, `verify-install` |
@@ -98,6 +99,7 @@ The node that asks to peer extends the other 1.1 units of credit; the node that 
 | `tests/interop` | STREAM interop with `ilp-protocol-stream`, natively and in WASM; WASM vectors; the browser test |
 | `tests/e2e` | End-to-end tests on real binaries: a fresh install through `dassie init` and browser setup, with Pebble as the ACME CA; a BTP client paying the node's STREAM receiver; the `two-nodes` and `six-nodes` scenarios; Open Payments, including a third party's full flow with consent in the wallet; XRPL settlement and cross-currency payments; the wallet's pages in a browser; `node --run dev` and its dashboard; the installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers; dassie.land and its STREAM toy in a browser, under the site's CSP |
 | `testdata/original` | Generator for the golden vectors, run against the original |
+| `testdata/feed` | The rate feed's golden vectors, from `cargo run -p dassie-feed --example feed_vectors` |
 | `testdata/xrpl` | Generator for the XRPL golden vectors, run against xrpl.js |
 | `testdata/pebble` | Configuration and API certificate for Pebble, Let's Encrypt's test server, also served by the nodes in the BTP and peer tests |
 | `testdata/release` | The release test key and what minisign signs with it |

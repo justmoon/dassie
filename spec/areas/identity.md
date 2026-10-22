@@ -30,7 +30,7 @@ Users of the tree: the login secret ([HTTP](http.md)), settlement entropy at `no
 
 Signing is pure Ed25519. **Verification follows ZIP-215** (`ed25519-zebra`), not `ed25519-dalek`'s cofactorless `verify`: ZIP-215's rules are exact, so every implementation agrees on every signature, edge cases included, and being stricter than the original could split the network on edge-case signatures.
 
-The price is **small-order keys**: under ZIP-215 a signature with `s = 0` and a small-order `R` verifies every message under a small-order public key. So every place where a key must prove something refuses weak keys (`PublicKey::is_weak`): link states and the senders of authenticated peer messages ([Peer protocol](peer-protocol.md)), Open Payments client keys ([Payments](payments.md)) and the release key ([Release](release.md)). Keys derived from a seed are never weak.
+The price is **small-order keys**: under ZIP-215 a signature with `s = 0` and a small-order `R` verifies every message under a small-order public key. So every place where a key must prove something refuses weak keys (`PublicKey::is_weak`): link states and the senders of authenticated peer messages ([Peer protocol](peer-protocol.md)), rate feeds ([Rate feed](rate-feed.md#signing)), Open Payments client keys ([Payments](payments.md)) and the release key ([Release](release.md)). Keys derived from a seed are never weak.
 
 Node keys, signatures and node IDs stay Ed25519 for good, since the chain to the node ID is fixed; post-quantum protection would cover only the peer protocol's key agreement ([roadmap](../roadmap.md#smaller-open-points)).
 
@@ -48,7 +48,7 @@ The mapping is one to one. A label is read in either case, but its unused last b
 
 ## Object identifiers
 
-Dassie's OIDs sit under the private arc `1.3.6.1.4.1.54392.5.1399`: `.1` for the peer protocol, `.2` for node fingerprints. They are hashed into node IDs and signed into link states, so an arc is never reassigned, including `.1.1`, which the original defined and nothing uses. A new version of a signed structure takes a new OID, so a signature over the old one cannot pass as the new ([Peer protocol](peer-protocol.md)).
+Dassie's OIDs sit under the private arc `1.3.6.1.4.1.54392.5.1399`: `.1` for the peer protocol, `.2` for node fingerprints, `.3` for the [rate feed](rate-feed.md#signing). They are hashed into node IDs and signed into link states and feeds, so an arc is never reassigned, including `.1.1`, which the original defined and nothing uses. A new version of a signed structure takes a new OID, so a signature over the old one cannot pass as the new ([Peer protocol](peer-protocol.md)).
 
 ## X25519 key
 
