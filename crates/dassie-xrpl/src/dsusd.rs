@@ -81,7 +81,11 @@ mod tests {
             assert_ne!(token.memo_type, crate::scheme::MEMO_TYPE);
             assert_eq!(token.scheme.as_str(), token.scheme_id);
             let slug = token.ledger.as_str().split('+').next();
-            assert_eq!(slug, Some(token.scheme_id), "the ledger's slug is the scheme's");
+            assert_eq!(
+                slug,
+                Some(token.scheme_id),
+                "the ledger's slug is the scheme's"
+            );
         }
     }
 }
