@@ -143,7 +143,9 @@ impl Connection {
             self.connected = true;
             self.push_event(Event::Connected);
         }
-        // Replies may arrive out of order. Only the reply to the newest
+        // Replies may arrive out of order, and the receiver may take
+        // packets in another order than they were sent. Of replies that
+        // report the same received total, only the one to the newest
         // request says what the receiver takes now; an older one may only
         // raise its limits.
         let newest = self
@@ -169,13 +171,36 @@ impl Connection {
         match *frame {
             Frame::StreamMaxMoney {
                 stream_id,
+                total_received,
+                ..
+            } if self
+                .stream(stream_id)
+                .is_some_and(|stream| total_received < stream.remote_received) =>
+            {
+                // A stream's received total only grows, so the receiver
+                // wrote this reply before one already heard, though it may
+                // answer a newer request: a receiver can take packets in
+                // another order than they were sent. Its maximum is stale.
+                // Taken, it would undo a maximum that fell since, as when
+                // the receiver came within its tolerance of the total, and
+                // report room the receiver no longer has
+                // (spec/areas/stream.md#responses).
+            }
+            Frame::StreamMaxMoney {
+                stream_id,
                 receive_max,
                 total_received,
-            } if newest => {
+            } if newest
+                || self
+                    .stream(stream_id)
+                    .is_some_and(|stream| total_received > stream.remote_received) =>
+            {
                 // What the receiver takes now, even when it fell, as when
                 // another payment took from what it pays into: sent what
                 // it no longer takes, every packet would be refused
-                // (spec/areas/stream.md#money-limit).
+                // (spec/areas/stream.md#money-limit). A reply that reports
+                // more received than any heard before was written after
+                // them all, whichever request it answers.
                 if let Some(stream) = self.stream_mut(stream_id) {
                     stream.remote_received = stream.remote_received.max(total_received);
                     let known = stream.remote_receive_max != u64::MAX;
