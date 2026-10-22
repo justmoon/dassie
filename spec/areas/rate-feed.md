@@ -71,7 +71,7 @@ A node's rates move with every conversion, but a feed costs a signature and a da
 
 `crates/dassie-node/src/feed.rs` is a supervised service, as the rate fetcher is. What a feed says is a pure function of the price table, and the publisher around the table and the schedule decides from its inputs and the node's clock alone; the service carries the decisions out against the socket.
 
-- **Only a core node publishes.** A feed is found at the node's URL's host ([Finding a feed](#finding-a-feed)), so a node without a URL, a periphery node, answers no datagram and publishes nothing, and neither does a node without its key. A node that gets a hostname starts at once; one that loses it stops.
+- **Only a core node publishes.** A feed is found at the node's URL's host ([Finding a feed](#finding-a-feed)), so a node without a URL, a periphery node, answers no datagram, publishes nothing and never asks the engine for its table, and neither does a node without its key. A node that gets a hostname starts at once; one that loses it stops.
 - **The cookie's secret** is drawn from the node's RNG each time the service starts, and kept in memory only, so a restart voids every cookie, as [The cookie](#the-cookie) says.
 - **Counted, not logged.** Every datagram taken, answer sent, subscriber refused and send that failed is counted (`FeedStats`), never logged: a flood of Subscribes costs the node its bytes and a MAC each, and no journal lines. The node logs only whether it has a feed, in the line that says it listens ([Node](node.md#logging)).
 

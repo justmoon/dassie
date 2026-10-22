@@ -444,22 +444,32 @@ impl Service {
         // as too long rather than cut to size.
         let mut buffer = vec![0u8; MAX_DATAGRAM_BYTES + 1];
         self.take_engine(engines.borrow_and_update().clone());
+        // Whether the node serves changes only with its config or its key,
+        // so it is looked at then, not once per datagram.
+        let mut key = self.serving_key();
         loop {
-            let key = self.serving_key();
             self.step(key.as_deref()).await;
-            let sleep = self.sleep();
+            let sleep = self.sleep(key.is_some());
+            // The socket comes last: under a flood it is always ready, and
+            // must not keep the timer and the node's changes from being
+            // heard.
             tokio::select! {
                 biased;
                 () = shutdown.cancelled() => return,
-                received = socket.recv_from(&mut buffer), if key.is_some() => {
-                    if !self.received(received, &buffer) {
-                        return;
-                    }
-                }
                 () = sleep => {}
                 () = clock_moved(&mut wake) => {}
-                changed = config.changed() => if changed.is_err() { return },
-                changed = identity.changed() => if changed.is_err() { return },
+                changed = config.changed() => {
+                    if changed.is_err() {
+                        return;
+                    }
+                    key = self.serving_key();
+                }
+                changed = identity.changed() => {
+                    if changed.is_err() {
+                        return;
+                    }
+                    key = self.serving_key();
+                }
                 changed = engines.changed() => {
                     if changed.is_err() {
                         return;
@@ -467,6 +477,11 @@ impl Service {
                     self.take_engine(engines.borrow_and_update().clone());
                 }
                 () = versions_changed(&mut self.versions) => self.note_versions(),
+                received = socket.recv_from(&mut buffer), if key.is_some() => {
+                    if !self.received(received, &buffer) {
+                        return;
+                    }
+                }
             }
         }
     }
@@ -506,19 +521,19 @@ impl Service {
         }
     }
 
-    /// Fetches the price table if it changed and may be fetched, then
-    /// publishes if a feed is due, and keeps the schedule.
+    /// While the node serves: fetches the price table if it changed and may
+    /// be fetched, then publishes if a feed is due, and keeps the schedule.
+    /// A node that does not serve never asks the engine; the table is
+    /// fetched once it does.
     async fn step(&mut self, key: Option<&NodeKey>) {
-        // A busy socket may keep the select from hearing the engine.
-        self.note_versions();
-        let now_ms = self.node.now_ms();
-        if self.dirty && now_ms >= self.fetch_after_ms {
-            self.fetch(now_ms).await;
-        }
         let Some(key) = key else {
             self.next_poll_ms = None;
             return;
         };
+        let now_ms = self.node.now_ms();
+        if self.dirty && now_ms >= self.fetch_after_ms {
+            self.fetch(now_ms).await;
+        }
         let now_ms = self.node.now_ms();
         let polled = self.publisher.poll(now_ms, key);
         *lock(&self.endpoint.schedule) = self.publisher.schedule();
@@ -615,9 +630,10 @@ impl Service {
         true
     }
 
-    /// Until the next poll is due, or the table may be fetched again.
-    fn sleep(&self) -> impl std::future::Future<Output = ()> + use<> {
-        let fetch = self.dirty.then_some(self.fetch_after_ms);
+    /// Until the next poll is due, or, while the node `serving`, the table
+    /// may be fetched again.
+    fn sleep(&self, serving: bool) -> impl std::future::Future<Output = ()> + use<> {
+        let fetch = (serving && self.dirty).then_some(self.fetch_after_ms);
         let deadline = [self.next_poll_ms, fetch].into_iter().flatten().min();
         let delay = deadline.map(|deadline| deadline.saturating_sub(self.node.now_ms()).max(1));
         async move {
