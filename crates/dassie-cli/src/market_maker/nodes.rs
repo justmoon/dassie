@@ -47,6 +47,8 @@ pub struct LedgerState {
     pub holding: Holding,
     /// Its XRPL account's address.
     pub deposit_address: String,
+    /// Who issues what it settles in, for a token; empty for XRP.
+    pub issuer: String,
 }
 
 /// How a trade ended.
@@ -159,6 +161,7 @@ impl Node {
                 on_ledger: ledger.on_ledger_balance,
             },
             deposit_address: ledger.deposit_address,
+            issuer: ledger.issuer,
         })
     }
 }

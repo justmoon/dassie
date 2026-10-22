@@ -75,7 +75,7 @@ A node's rates move with every conversion, but a feed costs a signature and a da
 
 The market maker owns two periphery nodes, each running one scheme, the asset of the pair it holds: XRP on one, the pool's token on the other. Both pin the target as their only uplink ([Network](network.md#pinned-uplinks)). A peering is on one scheme, and a node's own endpoints never convert, so one node could not pay in one asset and be paid in the other through the target; two nodes, each peered with the target on its own ledger, make the target do the conversion its feed prices. Pinned, they reach the network only through the target, so a payment between them is converted by the target and no one else.
 
-Each node's passphrase is in a file the config names. The market maker derives from it the node's XRPL account exactly as the node derives it ([XRPL](xrpl.md#the-wallet)), refuses to start unless that is the account the node reports for its ledger, and keeps nothing of it but the signing key in memory: no log line or error names a phrase.
+Each node's passphrase is in a file the config names. The market maker derives from it the node's XRPL account exactly as the node derives it ([XRPL](xrpl.md#the-wallet)), refuses to start unless that is the account the node reports for its ledger and the token node's ledger one of the pool's token's issuer, so that what a rebalance delivers is booked there. It keeps nothing of the phrase but the signing key in memory: no log line or error names a phrase.
 
 ### The loop
 

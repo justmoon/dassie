@@ -40,8 +40,8 @@ use tokio_util::sync::CancellationToken;
 
 use self::config::Config;
 use self::feed::{FeedClient, FeedView};
-use self::nodes::{Node, TradeOutcome};
-use self::strategy::{Decision, Holdings, Inputs, Rates, Side};
+use self::nodes::{LedgerState, Node, TradeOutcome};
+use self::strategy::{Decision, Holdings, Inputs, Rates, Side, Token};
 use self::xrpl::Xrpl;
 
 /// What its log lines are under.
@@ -181,8 +181,8 @@ impl MarketMaker {
             config.token_node.socket.clone(),
             config.token_node.ledger.clone(),
         );
-        check_node(&mut xrp, wallets.xrp.account(), Some("XRP")).await?;
-        check_node(&mut token, wallets.token.account(), None).await?;
+        check_node(&mut xrp, wallets.xrp.account(), &config.token).await?;
+        check_node(&mut token, wallets.token.account(), &config.token).await?;
         let client = PeerClient::new(config.ca_file.as_deref(), config.allow_private)?;
         let mut xrpl = Xrpl::new(config.xrpl_server.clone(), client.clone());
         xrpl.testnet_state().await?;
@@ -364,27 +364,39 @@ impl MarketMaker {
 
 /// Checks that `node` runs its ledger on the account `account`, the one
 /// its passphrase opens, so a rebalance pays from and to the nodes'
-/// accounts: the XRP node's in XRP.
-async fn check_node(
-    node: &mut Node,
-    account: AccountId,
-    asset: Option<&str>,
-) -> Result<(), String> {
+/// accounts: the XRP node's in XRP, and the token node's in the pool's
+/// token, of the issuer its ledger settles in, so what a rebalance
+/// delivers to it is booked on that ledger.
+async fn check_node(node: &mut Node, account: AccountId, token: &Token) -> Result<(), String> {
     let state = node.ledger_state().await?;
+    check_ledger(node.side, &node.ledger, &state, account, token)?;
+    tracing::info!(target: TARGET, side = node.side.name(), socket = %node.socket().display(), "node ready");
+    Ok(())
+}
+
+/// What [`check_node`] checks of what the node of `side` says of its
+/// ledger `ledger`.
+fn check_ledger(
+    side: Side,
+    ledger: &str,
+    state: &LedgerState,
+    account: AccountId,
+    token: &Token,
+) -> Result<(), String> {
     if state.deposit_address != account.to_address() {
         return Err(format!(
             "the {} node's account is not the one its passphrase opens",
-            node.side.name()
+            side.name()
         ));
     }
-    if asset.is_some_and(|asset| asset != state.asset_code) {
-        return Err(format!("{} is not a ledger of XRP", node.ledger));
+    let of_xrp = state.asset_code == "XRP" && state.issuer.is_empty();
+    match side {
+        Side::Xrp if !of_xrp => Err(format!("{ledger} is not a ledger of XRP")),
+        Side::Token if of_xrp || state.issuer != token.issuer.to_address() => Err(format!(
+            "{ledger} is not a ledger of the pool's token's issuer"
+        )),
+        Side::Xrp | Side::Token => Ok(()),
     }
-    if node.side == Side::Token && state.asset_code == "XRP" {
-        return Err(format!("{} is not a ledger of the token", node.ledger));
-    }
-    tracing::info!(target: TARGET, side = node.side.name(), socket = %node.socket().display(), "node ready");
-    Ok(())
 }
 
 /// The unspecified address of `address`'s family, on any port.
@@ -394,4 +406,45 @@ const fn unspecified(address: SocketAddr) -> SocketAddr {
         SocketAddr::V6(_) => IpAddr::V6(Ipv6Addr::UNSPECIFIED),
     };
     SocketAddr::new(ip, 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use dassie_xrpl::amount::Currency;
+
+    use super::*;
+    use crate::market_maker::strategy::Holding;
+
+    #[test]
+    fn each_node_runs_its_asset_on_the_account_its_passphrase_opens() {
+        let account = AccountId([1; 20]);
+        let token = Token {
+            currency: Currency::parse("USD").unwrap(),
+            issuer: AccountId([2; 20]),
+        };
+        let state = |asset: &str, issuer: String| LedgerState {
+            asset_code: asset.into(),
+            holding: Holding {
+                books: 0,
+                on_ledger: 0,
+            },
+            deposit_address: account.to_address(),
+            issuer,
+        };
+        let xrp = state("XRP", String::new());
+        let usd = state("USD", token.issuer.to_address());
+        let check = |side, state: &LedgerState| check_ledger(side, "l", state, account, &token);
+        assert!(check(Side::Xrp, &xrp).is_ok());
+        assert!(check(Side::Token, &usd).is_ok());
+        assert!(check(Side::Xrp, &usd).is_err());
+        assert!(check(Side::Token, &xrp).is_err());
+        // Another issuer's token: what the pool delivers would not be
+        // booked on the node's ledger.
+        let other = state("USD", AccountId([3; 20]).to_address());
+        assert!(check(Side::Token, &other).is_err());
+        // Another account than the passphrase opens.
+        let mut elsewhere = usd.clone();
+        elsewhere.deposit_address = AccountId([4; 20]).to_address();
+        assert!(check(Side::Token, &elsewhere).is_err());
+    }
 }
