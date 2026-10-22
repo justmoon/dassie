@@ -52,11 +52,16 @@ export class Ledger {
     });
     await client.connect();
     const ledger = new Ledger(client);
-    const info = await client.request({ command: "server_info" });
-    const network = (info.result.info as { network_id?: unknown }).network_id;
-    if (network !== TESTNET_NETWORK_ID) {
+    try {
+      const info = await client.request({ command: "server_info" });
+      const network = (info.result.info as { network_id?: unknown })
+        .network_id;
+      if (network !== TESTNET_NETWORK_ID) {
+        throw new Error(`${server} serves network ${network}, not the testnet`);
+      }
+    } catch (error) {
       await ledger.close();
-      throw new Error(`${server} serves network ${network}, not the testnet`);
+      throw error;
     }
     return ledger;
   }

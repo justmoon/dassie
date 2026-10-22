@@ -24,7 +24,7 @@ import { getJson, Ledger } from "./src/ledger.ts";
 import { BUDGET, describe, nextStep, spend } from "./src/plan.ts";
 import { targetPrice, TICKER_URL } from "./src/price.ts";
 import { transactionOf } from "./src/transactions.ts";
-import { DROPS_PER_XRP, formatUnits } from "./src/units.ts";
+import { DROPS_PER_XRP, formatUnits, type Result } from "./src/units.ts";
 
 /** A run's bounds: the steps it takes, and its time, within the timer's
  * period, so that runs never overlap. */
@@ -34,10 +34,11 @@ const RUN_TIMEOUT_MS = 4 * 60_000;
 async function run(dryRun: boolean): Promise<{ line: string; ok: boolean }> {
   const settings = settingsFrom(process.env);
   if (!settings.ok) return { line: settings.error, ok: false };
-  const wallets = {
-    issuer: Wallet.fromSeed(settings.value.issuerSeed),
-    keeper: Wallet.fromSeed(settings.value.keeperSeed),
-  };
+  const issuer = walletOf(settings.value.issuerSeed, "DSUSD_ISSUER_SEED");
+  if (!issuer.ok) return { line: issuer.error, ok: false };
+  const keeper = walletOf(settings.value.keeperSeed, "DSUSD_KEEPER_SEED");
+  if (!keeper.ok) return { line: keeper.error, ok: false };
+  const wallets = { issuer: issuer.value, keeper: keeper.value };
   const addresses = {
     issuer: wallets.issuer.classicAddress,
     keeper: wallets.keeper.classicAddress,
@@ -106,6 +107,17 @@ async function run(dryRun: boolean): Promise<{ line: string; ok: boolean }> {
   }
 }
 
+/** The wallet of `seed`. A seed that is none is refused by its setting's
+ * name alone: xrpl.js's message can quote the seed's letters, which must
+ * not reach the log. */
+function walletOf(seed: string, name: string): Result<Wallet> {
+  try {
+    return { ok: true, value: Wallet.fromSeed(seed) };
+  } catch (_error) {
+    return { ok: false, error: `${name}: not a seed` };
+  }
+}
+
 /** The pool as the run left it: its two sides, its mid price, and what
  * one XRP buys, after the trading fee. */
 function poolLine(pool: Pool | null): string {
@@ -139,3 +151,7 @@ try {
 } finally {
   clearTimeout(watchdog);
 }
+// A run that failed early can leave a connection or a request open, which
+// would keep Node running after its line until systemd stops it, and hold
+// back the timer's next run.
+process.exit();
