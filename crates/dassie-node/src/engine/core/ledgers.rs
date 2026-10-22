@@ -355,11 +355,16 @@ impl Core {
                 Effect::Deposit { .. } | Effect::Withdrawal { .. } | Effect::Fee { .. } => {
                     self.book(booking);
                 }
-                Effect::Reconcile { amount, gain } => {
+                Effect::Reconcile {
+                    amount,
+                    gain,
+                    cause,
+                } => {
                     self.report(SettlementEvent::Reconciled {
                         scheme,
                         amount: *amount,
                         gain: *gain,
+                        cause: *cause,
                     });
                     self.book(booking);
                 }
@@ -411,12 +416,13 @@ impl Core {
                 Effect::Withdrawal { amount } => {
                     (owner, settlement, *amount, Reference::Withdrawal)
                 }
-                Effect::Reconcile { amount, gain: true } => {
-                    (settlement, suspense, *amount, Reference::Reconciliation)
-                }
+                Effect::Reconcile {
+                    amount, gain: true, ..
+                } => (settlement, suspense, *amount, Reference::Reconciliation),
                 Effect::Reconcile {
                     amount,
                     gain: false,
+                    ..
                 } => (suspense, settlement, *amount, Reference::Reconciliation),
                 Effect::Fee { amount, id } => {
                     let fees = self.account(ledger, AccountName::ExpensesFees)?;

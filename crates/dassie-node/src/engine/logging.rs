@@ -3,6 +3,8 @@
 //! logged them with when it logged for itself, so filters and the log's
 //! redaction work as before.
 
+use dassie_settlement::ReconcileCause;
+
 use super::core::{
     BtpEvent, EngineEvent, Event, PaymentEvent, PeerEvent, SettlementEvent, Severity,
 };
@@ -212,6 +214,15 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
             scheme,
             amount,
             gain,
+            cause: ReconcileCause::Reserve,
+        } => {
+            emit!(severity, target: target::SETTLEMENT, %scheme, amount, gain, "the underlying ledger's reserve changed: reconciled");
+        }
+        SettlementEvent::Reconciled {
+            scheme,
+            amount,
+            gain,
+            cause: ReconcileCause::Unexplained,
         } => {
             emit!(severity, target: target::SETTLEMENT, %scheme, amount, gain, "the underlying ledger differs from the books: reconciled");
         }

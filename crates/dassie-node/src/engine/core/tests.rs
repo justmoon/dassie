@@ -312,6 +312,80 @@ fn a_refused_batch_read_again_is_never_booked_twice() {
     }
 }
 
+// A change of the XRP Ledger's reserve is reconciled as the reserve's, and
+// reported as information: the books follow what is above the reserve. Any
+// other reconciliation stays a warning.
+#[test]
+fn a_reserve_change_is_reconciled_as_information() {
+    use dassie_ledger::{AccountName, LedgerId, Name};
+    use dassie_settlement::ReconcileCause;
+    use dassie_xrpl::UNITS_PER_DROP;
+    use dassie_xrpl::fake::{FakeLedger, RESERVE_BASE, RESERVE_INC};
+
+    use super::{Event, LedgerEvent, SettlementEvent, Severity};
+
+    const SCHEME: &str = "xrpl-testnet";
+    let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
+    let entropy = NodeKey::from_bytes(&[7; 32])
+        .settlement_entropy(SCHEME, "seed-testnet")
+        .unwrap();
+    let account = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account();
+    let mut ledger = FakeLedger::new();
+    ledger.fund(account);
+    ledger.close();
+    let mut core = core(9);
+    core.add_scheme(SCHEME, config.into()).unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    let suspense = core
+        .account(LedgerId::XrplTestnetXrp, AccountName::EquitySuspense)
+        .unwrap();
+    let held = |core: &Core| {
+        core.ledger
+            .account(suspense)
+            .unwrap()
+            .balance()
+            .debits_posted
+    };
+    let before = held(&core);
+    ledger.set_reserve(2 * RESERVE_BASE, RESERVE_INC);
+    let epoch = core.assets[&dassie_xrpl::account::FIRST].epoch;
+    for (_, message) in ledger.close() {
+        core.ledger_event(XRPL_ACCOUNT, epoch, &LedgerEvent::Message(message));
+    }
+    let reconciled: Vec<(Event, Severity)> = follow_xrpl_outputs(&mut core, &mut ledger)
+        .into_iter()
+        .filter_map(|output| match output {
+            Output::Event(event @ Event::Settlement(SettlementEvent::Reconciled { .. })) => {
+                let severity = event.severity();
+                Some((event, severity))
+            }
+            _ => None,
+        })
+        .collect();
+    let amount = RESERVE_BASE * UNITS_PER_DROP;
+    assert_eq!(
+        reconciled,
+        [(
+            Event::Settlement(SettlementEvent::Reconciled {
+                scheme: Name::new(SCHEME).unwrap(),
+                amount,
+                gain: false,
+                cause: ReconcileCause::Reserve,
+            }),
+            Severity::Info
+        )]
+    );
+    // Booked as any reconciliation: through suspense.
+    assert_eq!(held(&core), before + u128::from(amount));
+    let unexplained = Event::Settlement(SettlementEvent::Reconciled {
+        scheme: Name::new(SCHEME).unwrap(),
+        amount,
+        gain: true,
+        cause: ReconcileCause::Unexplained,
+    });
+    assert_eq!(unexplained.severity(), Severity::Warn);
+}
+
 // What keeps a ledger from being removed is what the wallet shows, and
 // what removing it refuses with.
 #[test]

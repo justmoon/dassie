@@ -43,7 +43,8 @@ use alloc::vec::Vec;
 
 use dassie_ledger::{LedgerId, MAX_TOTAL, Name};
 use dassie_settlement::{
-    AssetId, Effect, ExternalAsset, LedgerStatus, PreparedSettlement, SchemeError, SettlementScheme,
+    AssetId, Effect, ExternalAsset, LedgerStatus, PreparedSettlement, ReconcileCause, SchemeError,
+    SettlementScheme,
 };
 use rand_core::CryptoRng;
 use serde_json::{Value, json};
@@ -386,6 +387,7 @@ impl RlusdScheme {
             effects.push(Effect::Reconcile {
                 amount: self.booked,
                 gain: false,
+                cause: ReconcileCause::Unexplained,
             });
             self.booked = 0;
         }
@@ -408,6 +410,7 @@ impl RlusdScheme {
             effects.push(Effect::Reconcile {
                 amount: target.abs_diff(self.booked),
                 gain: target > self.booked,
+                cause: ReconcileCause::Unexplained,
             });
             self.booked = target;
         }
@@ -505,6 +508,7 @@ impl RlusdScheme {
             effects.push(Effect::Reconcile {
                 amount: narrow(-booked),
                 gain: true,
+                cause: ReconcileCause::Unexplained,
             });
         }
     }

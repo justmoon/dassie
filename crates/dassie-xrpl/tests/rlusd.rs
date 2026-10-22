@@ -19,7 +19,7 @@ use dassie_ledger::Name;
 use dassie_node_core::testing::SeededRng;
 use dassie_settlement::{
     AssetEffect, Detach, Effect, ExternalAsset, LedgerInput, LedgerStatus, PreparedSettlement,
-    SchemeError, SettlementScheme,
+    ReconcileCause, SchemeError, SettlementScheme,
 };
 use dassie_xrpl::account::{self, News, XrplAccount};
 use dassie_xrpl::codec::{Amount, Payment, TokenValue, TrustSet};
@@ -45,6 +45,8 @@ struct Books {
     withdrawals: Vec<u64>,
     /// Every loss reconciled through suspense, in order.
     losses: Vec<u64>,
+    /// Each reconciliation, in order: what the books gained, and why.
+    reconciled: Vec<(i128, ReconcileCause)>,
     peers: BTreeMap<Name, i128>,
     pending: BTreeMap<Name, (Name, u64)>,
     credited: BTreeSet<Name>,
@@ -67,7 +69,11 @@ impl Books {
                 self.owner -= i128::from(amount);
                 self.withdrawals.push(amount);
             }
-            Effect::Reconcile { amount, gain } => {
+            Effect::Reconcile {
+                amount,
+                gain,
+                cause,
+            } => {
                 if !gain {
                     self.losses.push(amount);
                 }
@@ -78,6 +84,7 @@ impl Books {
                 };
                 self.settlement += amount;
                 self.suspense += amount;
+                self.reconciled.push((amount, cause));
             }
             Effect::Fee { amount, id } => {
                 assert!(self.fee_ids.insert(id), "a fee booked twice");
@@ -375,6 +382,18 @@ impl World {
         node.account.told();
         for (ledger, effects) in booked.into_iter().enumerate() {
             for effect in effects {
+                // The line's reserve is XRP, off the RLUSD books.
+                assert!(
+                    ledger == XRP
+                        || !matches!(
+                            effect,
+                            Effect::Reconcile {
+                                cause: ReconcileCause::Reserve,
+                                ..
+                            }
+                        ),
+                    "{effect:?}"
+                );
                 node.books[ledger].apply(effect);
             }
         }
@@ -1122,8 +1141,11 @@ fn both_xrpl_schemes_share_one_account() {
     assert_eq!(books.fees, i128::from(paid * UNITS_PER_DROP));
     assert_eq!(books.fee_ids.len(), 9);
     assert_eq!(world.nodes[0].books[USD].fees, 0);
-    // The line's reserve went out through suspense; nothing else did.
-    assert_eq!(books.suspense, -i128::from(RESERVE_INC * UNITS_PER_DROP));
+    // The line's reserve went out through suspense, as the reserve's, which
+    // is expected; nothing else did.
+    let reserve = -i128::from(RESERVE_INC * UNITS_PER_DROP);
+    assert_eq!(books.suspense, reserve);
+    assert_eq!(books.reconciled, [(reserve, ReconcileCause::Reserve)]);
     assert_eq!(books.owner, FUNDED);
     assert_eq!(world.nodes[0].books[XRP].finalized.len(), 4);
     assert_eq!(world.nodes[0].books[USD].finalized.len(), 4);

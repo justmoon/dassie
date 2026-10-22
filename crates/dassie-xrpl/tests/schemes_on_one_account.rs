@@ -221,7 +221,7 @@ impl Shared {
                     i128::from(amount)
                 }
                 Effect::Withdrawal { amount } | Effect::Fee { amount, .. } => -i128::from(amount),
-                Effect::Reconcile { amount, gain } if gain => i128::from(amount),
+                Effect::Reconcile { amount, gain, .. } if gain => i128::from(amount),
                 Effect::Reconcile { amount, .. } => -i128::from(amount),
                 Effect::Finalize { .. } => -i128::from(AMOUNT),
                 _ => 0,
@@ -321,7 +321,7 @@ fn suspense(booked: &[Effect]) -> i128 {
     booked
         .iter()
         .map(|effect| match *effect {
-            Effect::Reconcile { amount, gain } if gain => i128::from(amount),
+            Effect::Reconcile { amount, gain, .. } if gain => i128::from(amount),
             Effect::Reconcile { amount, .. } => -i128::from(amount),
             _ => 0,
         })
@@ -423,7 +423,7 @@ fn a_settlement_validated_while_its_scheme_stopped_is_booked_once_without_its_hi
         .booked
         .iter()
         .map(|effect| match *effect {
-            Effect::Reconcile { amount, gain } if gain => i128::from(amount),
+            Effect::Reconcile { amount, gain, .. } if gain => i128::from(amount),
             Effect::Reconcile { amount, .. } => -i128::from(amount),
             _ => 0,
         })
