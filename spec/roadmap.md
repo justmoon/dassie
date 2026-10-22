@@ -75,6 +75,16 @@ Nodes without a public IP join as periphery nodes: they connect only to core nod
 - **It needs** [the channel limit](#not-built-yet) lifted, so that a core node keeps few relationships with core nodes.
 - **Done when:** a periphery node behind a NAT peers with two core nodes, gets an address beneath each, pays and is paid through them, and keeps working when it loses one. Its owner's paired app reaches it through a relay, and a third-party Open Payments client pays it through a front door, whose response a Dassie client checks against the node ID. A free receiver is paid, spends through its uplink, and has its account created by the first settlement. In the simulation, home nodes that withhold, and ground core keys, hide no node from a relay it chose.
 
+### Rate feed and market makers
+
+Core nodes price transit by their inventory ([Connector](areas/connector.md#inventory-pricing)), so that market makers bring them back toward their targets ([passive-rebalancing](decisions/passive-rebalancing.md)). Nothing publishes the prices yet, and no market maker exists. Not built, in parts that can be built side by side:
+
+- **The feed:** a sans-IO crate for the wire format (versioned, each message within one datagram), a subscriber's proof of address by a cookie, a bounded subscriber table and the publishing schedule, with golden vectors; and the node's service, which publishes its price table, signed by the node key, on a UDP socket of its own, socket-activated like QUIC, and names its port in its link state and its stats.
+- **What a market maker needs of a node:** a periphery node asking only uplinks its owner pins, and the owner's Send to STREAM credentials it was given.
+- **The market maker,** `dassie market-maker`: two periphery nodes pinned to one core node, one per scheme, that pay through it whenever its feed beats a ledger's exchange by a margin, and rebalance their own side on that exchange.
+- **A testnet dollar** that trades at par on the testnet's exchange, as RLUSD there does not, so that market makers do not drain nodes' dollars.
+- **Done when:** a core node whose inventory a payment skewed publishes its prices, and a market maker trading through it alone, against the fake ledger's exchange in the end-to-end tests, brings its shares back toward their targets and gains doing it.
+
 ### Onboarding
 
 A new owner opens a setup URL, enters a passphrase and chooses a first ledger ([Overview](overview.md#life-of-a-node)); every other choice is a default in the node's environment. An onboarding in the wallet is to walk the owner through the choices that matter, explaining each. It is not designed yet; what it must hold so far:
@@ -134,7 +144,7 @@ The first four are on `main`; the external review has not happened. Mainnet also
 
 - **A later peer-protocol version** drops the `credit` field of `peeringRequest` and of its response (sent as 0 and ignored), and the one-byte body of the reply to a Fulfill (always `accepted`, kept for older nodes) ([own-fulfills](decisions/own-fulfills.md)).
 - **A post-quantum peer-protocol scheme.** The authentication choice reserves a tag for a scheme on the X-Wing hybrid KEM, and a link-state extension type for its key; neither is built ([Peer protocol](areas/peer-protocol.md#versions), [peer-protocol-v1](decisions/peer-protocol-v1.md)). Signatures and node IDs stay Ed25519.
-- **Credit growth** ([earned-trust](decisions/earned-trust.md)): its share and cap are node constants; owner settings may follow. The spread's gain is not booked per packet and does not count toward growth yet.
+- **Credit growth** ([earned-trust](decisions/earned-trust.md)): its share and cap are node constants; owner settings may follow. What a conversion gains or loses, the spread and the curve's move from spot, is not booked per packet and does not count toward growth yet.
 - **Importing a v0 node's config and BTP tokens** is not planned; it is cheap to add if anyone asks ([database-continuity](decisions/database-continuity.md)).
 - **RLUSD on the public testnet.** The end-to-end tests and the simulations settle in the fake ledger's test RLUSD, whose issuer mints, freezes and claws back on request ([XRPL](areas/xrpl.md#tokens-in-the-fake-ledger)). Two nodes funded by hand, with RLUSD from Ripple, are still to settle on the public testnet, as `xrpl_test.ts` lets XRP be checked there by hand.
 
@@ -163,3 +173,4 @@ Designs that stay future work. The architecture must not preclude them.
 - [ledger-resets](decisions/ledger-resets.md): a lagging server is handled; one that lies needs the validators checked.
 - [default-relay](decisions/default-relay.md): the default relay, until an onboarding asks.
 - [issued-assets](decisions/issued-assets.md): an issued asset on mainnet needs the issuer's conditions decided again; transfer fees.
+- [passive-rebalancing](decisions/passive-rebalancing.md): the rate feed and the market makers.

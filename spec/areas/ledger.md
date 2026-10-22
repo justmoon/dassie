@@ -40,7 +40,7 @@ Each ledger has one pool of owner funds, `equity/owner`. Every endpoint that spe
 
 - A BTP client paying the node's own receiver moves money within the group: the total is unchanged, and the journal still has a transfer per packet.
 - A packet from a peer on another ledger into the node's receiver converts at the node's rates: the receiver's account shows what arrived, `expenses/fx` takes it back out on that ledger, and `revenue/fx` keeps it on the ledger it came from.
-- A conversion between two peers pays out of the owner's funds on the outgoing ledger, so it needs them.
+- A conversion between two peers pays out of the owner's funds on the outgoing ledger, so it needs them, and is priced by what the owner holds on each ledger ([Connector](connector.md#inventory-pricing)).
 - Per-token spending caps are limits, not allocations, so they may add up to more than the funds ([Connector](connector.md#spending-caps)).
 
 ## Transfers

@@ -88,6 +88,7 @@ The wallet, the dev dashboard and the website share them: amounts, live data, th
 - [external-assets](../decisions/external-assets.md): holdings as the ledger reports them, never as the books add them up.
 - [owner-ledger](../decisions/owner-ledger.md): every amount carries its currency; the display currency and its total.
 - [exchange-rates](../decisions/exchange-rates.md): rate sources, fees and spread, as the Settings page edits them.
+- [passive-rebalancing](../decisions/passive-rebalancing.md): the curve's `k`, edited beside the spread.
 - [open-payments](../decisions/open-payments.md): Open Payments in full, which the wallet's payment, consent and connected-app pages front ([Payments](payments.md)).
 - [secrets-at-rest](../decisions/secrets-at-rest.md): BTP tokens shown once, secret columns never shown.
 - [peering-lifecycle](../decisions/peering-lifecycle.md): terminating peerings and bans.

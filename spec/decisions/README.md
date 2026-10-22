@@ -33,6 +33,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [owners-share](owners-share.md) | Strangers never take the owner's share of a pool | payments, stream |
 | [packets-in-flight](packets-in-flight.md) | Money in flight with a peer stays within a few packets | connector, settlement |
 | [paid-within-a-tolerance](paid-within-a-tolerance.md) | A payment within a tolerance of its amount is paid in full | payments, stream |
+| [passive-rebalancing](passive-rebalancing.md) | Nodes rebalance passively: inventory pricing, a rate feed and market makers (feed and market makers not built) | connector, settlement |
 | [peer-protocol-v1](peer-protocol-v1.md) | Peer protocol: v0 or v1 | peer-protocol, identity |
 | [peering-lifecycle](peering-lifecycle.md) | Peering lifecycle and liveness | network |
 | [places-by-proved-key](places-by-proved-key.md) | A connection holds a place by the key it proved | peer-protocol, network, designs/periphery |

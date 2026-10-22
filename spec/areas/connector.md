@@ -1,6 +1,6 @@
 # Connector
 
-The node's ILP connector: it knows the node's endpoints (BTP clients, local endpoints, peers), routes each Prepare, answers ILDCP, books the packet's transfers in the [ledger](ledger.md), charges transit, limits what may be in flight, and resolves the transfers when the response comes back or the packet expires. This doc also covers the exchange rates it converts at, the BTP server and its tokens.
+The node's ILP connector: it knows the node's endpoints (BTP clients, local endpoints, peers), routes each Prepare, answers ILDCP, books the packet's transfers in the [ledger](ledger.md), charges transit, limits what may be in flight, and resolves the transfers when the response comes back or the packet expires. This doc also covers the exchange rates it converts at, how the owner's inventory prices them, the BTP server and its tokens.
 
 **Paths:** `crates/dassie-connector/`, `crates/dassie-node/src/engine/core/packets.rs`, `crates/dassie-node/src/engine/core/tokens.rs`, `crates/dassie-node/src/http/btp.rs`, `crates/dassie-node/src/store/peer_settings.rs`, `crates/dassie-node/src/rates.rs`, `crates/dassie-node/src/node/rates.rs`, `crates/dassie-node/src/store/rates.rs`, `crates/dassie-node/src/rpc/rates.rs`
 **Read with:** [Ledger](ledger.md), [ILP](ilp.md), [Peer protocol](peer-protocol.md), [Network](network.md), [Payments](payments.md), [Settlement](settlement.md)
@@ -32,16 +32,17 @@ A periphery node ([Network](network.md#periphery-nodes)) has an address beneath 
 
 ## Handling a Prepare
 
-The checks run in the order of `connector/prepare.rs`; the first that fails answers the source at once with a Reject from this node. A packet that would convert is refused unless it comes from a peer, has fresh rates, and still carries money after conversion. The money checks come last: the cap on money in flight with the peer, then a token's spending cap, then the ledger.
+The checks run in the order of `connector/prepare.rs`; the first that fails answers the source at once with a Reject from this node. A packet that would convert is refused unless it comes from a peer, has fresh rates, and still carries money after conversion; transit into a ledger the owner holds nothing on gets T04. The money checks come last: the cap on money in flight with the peer, then a token's spending cap, then the ledger.
 
 **Expiry.** The outgoing packet expires one message window before the incoming one, and at most the longest hold time from now: the window leaves time for the response to travel back, and the hold bounds how long the next hop holds it. A packet that leaves too little time is refused (R02).
 
 ## Amounts and conversion
 
 - **Same ledger:** what goes on is what came, less our fee.
-- **Across ledgers:** the conversion of what came less our fee, less the spread ([below](#fees-and-spread)). Only a packet from a peer converts.
+- **Across ledgers, from one peer to another:** what came less our fee, at the price table's rate for the pair: spot, moved by the owner's inventory, less the spread ([below](#inventory-pricing)).
+- **Across ledgers, from a peer into the owner's own endpoints:** what came, at spot, uncharged. Only a packet from a peer converts.
 
-Conversion (`fx.rs`) is exact integer arithmetic on rates relative to the dollar, rounding down, never floating point. It uses only rates learned at most an hour before `now` and not after it, so a clock that went back cannot make a rate young; without them the packet gets T00.
+Conversion is exact integer arithmetic, rounding down, never floating point: at spot on rates relative to the dollar (`fx.rs`), on transit at the table's rate (`pricing.rs`). It uses only rates learned at most an hour before `now` and not after it, so a clock that went back cannot make a rate young; without them the packet gets T00.
 
 ## Exchange rates
 
@@ -59,6 +60,15 @@ The owner keeps an ordered list of sources of four kinds: Coinbase's format, whi
 The ECB publishes once a business day, so its rates are up to a day behind the markets; as one of three, a rate of its outside the two live ones leaves the rate at the nearer of them. Its answer is taken only while its newest day is no older than its calendar allows (`MAX_ECB_AGE_DAYS` in `rates.rs`, the gap at Easter), and never one of a day to come: a daily source that stopped reads as silent rather than as a wrong rate.
 
 Sources are asked through the node's outbound client, under its rules for outbound requests ([Peer protocol](peer-protocol.md)).
+
+### Inventory pricing
+
+Transit from one peer to another converts at a rate the owner's inventory moves from spot, so that what flows through a node brings its holdings back toward their targets without the node trading ([passive-rebalancing](../decisions/passive-rebalancing.md)). The curve and the table are in `pricing.rs`.
+
+- **The curve.** Each ledger that converts (an active scheme and a fresh rate) is valued at spot, from what the owner may spend on it; its share of the total against an equal target gives it a weight `w = (1 − k) + k · target / share`, and a pair converts at spot times `w_in / w_out`, less the spread. At target the rate is spot less the spread. The bonus for bringing in what the node lacks is capped at `1 + k`; the penalty for taking it out is not, and out of a ledger the owner holds nothing on, nothing converts (T04). A round trip at one state never gains.
+- **`k` is the owner's,** beside the fee and the spread, bounded as they are, and on by default (`DEFAULT_REBALANCE_PPM`).
+- **The price table.** The engine builds a table whenever the rates, the owner's funds on a ledger or the peer settings change, and when a rate in it ages out: for each ordered pair of ledgers with fresh rates, a rate out per in and when its older rate was learned. A packet converts exactly `floor(net × rate / 10^15)`, so the table is what a published price would be. A ledger without a fresh rate is left out, so its pairs get T00; two ledgers in the same currency need its rate too, since the curve values every holding.
+- **Exact and bounded.** Shares are known to twelve decimals, rounded down, and every product stays within 128 bits or goes through a 256-bit intermediate: a rate is never better for the sender than the curve, and none overflows.
 
 ### The owner's total
 
@@ -110,12 +120,12 @@ A Prepare above the largest packet `P` gets F08, with the amounts. `P` is how mu
 
 ## Fees and spread
 
-Only what passes from one peer to another is charged: the owner's fee, and on a conversion the owner's spread, both in parts per million (`charges.rs`). Packets to or from the node's own endpoints are never charged.
+Only what passes from one peer to another is charged: the owner's fee, and on a conversion the owner's spread, both in parts per million (`charges.rs`), and priced by the [curve](#inventory-pricing). Packets to or from the node's own endpoints are never charged.
 
 - **The fee rounds down,** so a packet too small to carry one passes free. Rounded up, it would take a payment's last packets whole, and strand the payment short.
-- **The spread is not booked per packet:** its gain is the net of the FX accounts.
+- **The spread and the curve are not booked per packet:** their gain is the net of the FX accounts, and negative when the node pays above spot for what it lacks.
 - **The fee is what a peer earns us,** and the credit we extend it grows from it ([Settlement](settlement.md#credit)). Fees default to 0.
-- New charges apply from the next packet.
+- New charges apply from the engine's next step.
 
 ## Spending caps
 
@@ -155,6 +165,7 @@ ILP-over-HTTP (RFC 35) is not built: the connector has no HTTP endpoint ([roadma
 
 - [owner-ledger](../decisions/owner-ledger.md): each endpoint has a ledger, and ILDCP answers its asset; the owner's own endpoints never convert; the display currency.
 - [exchange-rates](../decisions/exchange-rates.md): refreshed rates, staleness, exact math, the median of three sources per currency from three upstreams; fees and spread, and why the fee rounds down.
+- [passive-rebalancing](../decisions/passive-rebalancing.md): transit priced by the owner's inventory, anchored at spot, rather than the node trading.
 - [secrets-at-rest](../decisions/secrets-at-rest.md): BTP tokens are kept hashed.
 - [connector-timing](../decisions/connector-timing.md): timing at the packet's expiry, F05 at once, F08 data, F01 and F02, segment-aware prefixes, unique request IDs.
 - [own-fulfills](../decisions/own-fulfills.md): Fulfills booked as final; a stale resend from a peer is dropped.
