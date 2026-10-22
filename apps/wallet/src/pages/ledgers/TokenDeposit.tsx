@@ -1,6 +1,6 @@
 /**
  * Depositing on a ledger that settles in a token (spec/areas/wallet.md#pages),
- * such as RLUSD on the XRP Ledger testnet: the account needs both the
+ * such as RLUSD or DSUSD on the XRP Ledger testnet: the account needs both the
  * token and the ledger's own asset, which pays its fees and its reserve as
  * gas, at the same address. The reserve is shown in that asset, as the
  * ledger holds it, never in the token
@@ -81,6 +81,14 @@ export function TokenDeposit(props: {
           </Show>{" "}
           to this address. It arrives on the account's trust line to the issuer,
           which the node sets up itself.
+          <Show when={props.token.obtain}>
+            {(obtain) => (
+              <span data-testid={`deposit-obtain-${id()}`}>
+                {" "}
+                {obtain()}
+              </span>
+            )}
+          </Show>
           <Show
             when={line()}
             fallback={` The ledger does not show the line yet: until it does, no ${props.token.token} can arrive.`}

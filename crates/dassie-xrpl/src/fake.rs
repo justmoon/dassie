@@ -7,8 +7,9 @@
 //! Tokens on trust lines ([`tokens`]): lines as `RippleState` entries with
 //! their owner reserve, `TrustSet`, token Payments that ripple through the
 //! issuer with the ledger's failures, and issuers that mint, freeze, set a
-//! transfer fee and claw back. The fake is the only source of test RLUSD:
-//! [`FakeLedger::new`] makes RLUSD's testnet issuer, at its address.
+//! transfer fee and claw back. The fake is the only source of test RLUSD
+//! and DSUSD on demand: [`FakeLedger::new`] makes RLUSD's and DSUSD's
+//! testnet issuers, at their addresses.
 //!
 //! It answers the subset of the rippled WebSocket API in [`crate::api`],
 //! at API version 1, as rippled does. It checks what it is sent with the
@@ -62,6 +63,11 @@ const OWN_TX_LEDGERS: u32 = 20;
 pub const RLUSD_ISSUER: AccountId = crate::rlusd::ISSUER;
 /// RLUSD's currency code: "RLUSD" in 40 hex digits.
 pub const RLUSD_CURRENCY: Currency = crate::rlusd::CURRENCY;
+/// DSUSD's issuer on the XRPL testnet: the fake ledger issues its test
+/// DSUSD at the same address, so the scheme runs on it unchanged.
+pub const DSUSD_ISSUER: AccountId = crate::dsusd::ISSUER;
+/// DSUSD's currency code: "DSUSD" in 40 hex digits.
+pub const DSUSD_CURRENCY: Currency = crate::dsusd::CURRENCY;
 /// What an issuer is given from genesis, in drops, to pay its fees.
 pub const ISSUER_DROPS: u64 = 1_000 * DROPS_PER_XRP;
 /// An issuer's flags, as RLUSD's on the testnet: lines ripple through it,
@@ -215,7 +221,8 @@ impl Default for FakeLedger {
 }
 
 impl FakeLedger {
-    /// A ledger with only the genesis account and RLUSD's issuer.
+    /// A ledger with only the genesis account and the issuers of RLUSD and
+    /// DSUSD.
     #[must_use]
     pub fn new() -> Self {
         let genesis = AccountId([0xAB; 20]);
@@ -242,6 +249,7 @@ impl FakeLedger {
             network_id: Some(1),
         };
         ledger.add_issuer(RLUSD_ISSUER);
+        ledger.add_issuer(DSUSD_ISSUER);
         ledger
     }
 

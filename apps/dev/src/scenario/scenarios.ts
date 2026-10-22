@@ -22,18 +22,22 @@ export interface ScenarioDef {
   /** Why it cannot run yet, if it cannot. */
   readonly unavailable?: string;
   /**
-   * The test RLUSD, in dollars such as `"100"`, that the fake ledger's
-   * issuer mints each node once its trust line exists. Only the fake
-   * ledger mints on demand, so such a scenario needs it.
+   * What the fake ledger's issuers mint each node once its trust line
+   * exists: a token and its value in dollars, such as RLUSD `"100"`. Only
+   * the fake ledger mints on demand, so such a scenario needs it.
    */
-  readonly rlusd?: string;
+  readonly mint?: { readonly token: IssuedToken; readonly value: string };
 }
+
+/** The dollar tokens the fake ledger issues, by their currency codes. */
+export type IssuedToken = "RLUSD" | "DSUSD";
 
 /** The settlement schemes on the XRP Ledger: their nodes' account is on
  * the testnet, or on the fake ledger. */
 export const XRPL_SCHEMES: readonly string[] = [
   "xrpl-testnet",
   "xrpl-testnet-rlusd",
+  "xrpl-testnet-dsusd",
 ];
 
 export const SCENARIOS: readonly ScenarioDef[] = [
@@ -71,7 +75,17 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     schemes: [["xrpl-testnet-rlusd"], ["xrpl-testnet-rlusd"]],
     addedSchemes: ["xrpl-testnet-rlusd"],
     bootstrap: [0, 1],
-    rlusd: "100",
+    mint: { token: "RLUSD", value: "100" },
+  },
+  {
+    id: "dsusd-settlement",
+    name: "DSUSD Settlement",
+    description:
+      "Network with two nodes settling in test DSUSD on the XRP Ledger, minted by the fake ledger's issuer",
+    schemes: [["xrpl-testnet-dsusd"], ["xrpl-testnet-dsusd"]],
+    addedSchemes: ["xrpl-testnet-dsusd"],
+    bootstrap: [0, 1],
+    mint: { token: "DSUSD", value: "100" },
   },
   {
     id: "cross-currency",
@@ -113,8 +127,8 @@ export function unavailable(
   fakeLedger: boolean,
 ): string | undefined {
   if (def.unavailable) return def.unavailable;
-  if (def.rlusd !== undefined && !fakeLedger) {
-    return "needs --xrpl fake: only the fake ledger's issuer mints test RLUSD on demand";
+  if (def.mint !== undefined && !fakeLedger) {
+    return `needs --xrpl fake: only the fake ledger's issuer mints test ${def.mint.token} on demand`;
   }
   return undefined;
 }

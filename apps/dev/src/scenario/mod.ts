@@ -26,6 +26,7 @@ import { until } from "../wait.ts";
 import { type NodeEnvironment, ScenarioNode } from "./node.ts";
 import {
   findScenario,
+  type IssuedToken,
   MAX_NODES,
   type ScenarioDef,
   settlesOnXrpl,
@@ -37,6 +38,7 @@ export { ScenarioNode } from "./node.ts";
 export {
   DEFAULT_SCENARIO,
   findScenario,
+  type IssuedToken,
   MAX_NODES,
   type ScenarioDef,
   SCENARIOS,
@@ -51,7 +53,7 @@ export { until, waitForPort, waitForSocket } from "../wait.ts";
 export type { Exit } from "../process.ts";
 
 /**
- * How long a node may take to show its RLUSD line: the faucet funds its
+ * How long a node may take to show its token's line: the faucet funds its
  * account in the next ledger, and its `TrustSet` applies in the one after.
  */
 const LINE_WITHIN_MS = 60_000;
@@ -179,8 +181,8 @@ export class Scenario {
           faucet,
           options.portOffset ?? 0,
         );
-        // Both schemes settle through the node's one account, which they
-        // set up alike.
+        // Every XRPL scheme settles through the node's one account, which
+        // they set up alike.
         for (const scheme of XRPL_SCHEMES) {
           scenario.#configs[scheme] = xrplConfig(scenario.ledger);
         }
@@ -188,10 +190,12 @@ export class Scenario {
       for (let index = 0; index < def.schemes.length; index++) {
         await scenario.#startNode(index, def.schemes[index]);
       }
-      if (def.rlusd !== undefined) {
-        const value = def.rlusd;
+      const mint = def.mint;
+      if (mint !== undefined) {
         await Promise.all(
-          scenario.nodes.map((node) => scenario.mintRlusd(node, value)),
+          scenario.nodes.map((node) =>
+            scenario.mintToken(node, mint.token, mint.value)
+          ),
         );
       }
     } catch (error) {
@@ -259,34 +263,45 @@ export class Scenario {
       this.nodes.length,
       this.def.addedSchemes,
     );
-    if (this.def.rlusd !== undefined) {
-      await this.mintRlusd(node, this.def.rlusd);
+    if (this.def.mint !== undefined) {
+      await this.mintToken(node, this.def.mint.token, this.def.mint.value);
     }
     return node;
   }
 
-  /** Asks the fake ledger's issuer of test RLUSD to act. */
+  /** Asks the fake ledger's issuer of test RLUSD, or of the request's
+   * token, to act. */
   async askIssuer(request: IssuerRequest): Promise<void> {
     if (!this.ledger) throw new Error("the scenario runs no fake ledger");
     await askIssuer(this.ledger, this.caFile, request);
   }
 
   /**
-   * Has the fake ledger's issuer mint `value` test RLUSD, in dollars, to
-   * `node`'s account, once the node shows its trust line: the issuer can
-   * pay only over a line, which the node's RLUSD scheme sets up itself.
+   * Has the fake ledger's issuer of `token` mint `value` of it, in dollars,
+   * to `node`'s account, once the node shows its trust line: the issuer
+   * can pay only over a line, which the node's token scheme sets up
+   * itself.
    */
-  async mintRlusd(node: ScenarioNode, value: string): Promise<void> {
+  async mintToken(
+    node: ScenarioNode,
+    token: IssuedToken,
+    value: string,
+  ): Promise<void> {
     let address = "";
-    await until(`${node.name}'s RLUSD line`, async () => {
+    await until(`${node.name}'s ${token} line`, async () => {
       const { externalAssets } = await node.rpc.call("listLedgers", {});
       const account = externalAssets.find((asset) =>
-        asset.holdings.some((holding) => holding.assetCode === "RLUSD")
+        asset.holdings.some((holding) => holding.assetCode === token)
       );
       address = account?.address ?? "";
       return address !== "";
     }, LINE_WITHIN_MS);
-    await this.askIssuer({ action: "mint", destination: address, value });
+    await this.askIssuer({
+      action: "mint",
+      token,
+      destination: address,
+      value,
+    });
   }
 
   /**

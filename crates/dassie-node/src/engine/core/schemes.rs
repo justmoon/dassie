@@ -17,7 +17,7 @@ use dassie_settlement::{
     AssetEffect, AssetId, AssetKind, Detach, Effect, ExternalAsset, Holding, LedgerInput,
     LedgerStatus, SchemeError, SchemeInfo, SettlementScheme, Stub,
 };
-use dassie_xrpl::{RlusdScheme, XrplAccount, XrplScheme};
+use dassie_xrpl::{DsusdScheme, RlusdScheme, XrplAccount, XrplScheme};
 
 use super::events::SettlementEvent;
 use super::ledgers::ActiveScheme;
@@ -41,13 +41,18 @@ pub const SCHEMES: &[SchemeInfo] = &[
         name: "RLUSD on the XRP Ledger Testnet",
         ledger: LedgerId::XrplTestnetRlusdUsd,
     },
+    SchemeInfo {
+        id: dassie_xrpl::dsusd::SCHEME_ID,
+        name: "DSUSD on the XRP Ledger Testnet",
+        ledger: LedgerId::XrplTestnetDsusdUsd,
+    },
 ];
 
 /// The external asset scheme `id` settles through, if any, and the config
 /// the asset is made with: for the XRPL schemes, the server and the faucet
-/// their config names, which are the account's. Both settle through the
+/// their config names, which are the account's. All settle through the
 /// node's first XRPL testnet account, so one address holds the XRP of one
-/// and the gas of the other (spec/areas/xrpl.md#the-account).
+/// and the gas of the others (spec/areas/xrpl.md#the-account).
 fn asset_of(id: &str) -> Option<AssetId> {
     #[cfg(test)]
     if id == super::tests::WITNESS {
@@ -56,6 +61,7 @@ fn asset_of(id: &str) -> Option<AssetId> {
     [
         dassie_xrpl::scheme::SCHEME_ID,
         dassie_xrpl::rlusd::SCHEME_ID,
+        dassie_xrpl::dsusd::SCHEME_ID,
     ]
     .contains(&id)
     .then_some(dassie_xrpl::account::FIRST)
@@ -134,6 +140,12 @@ fn create(
             state,
         )?)),
         dassie_xrpl::rlusd::SCHEME_ID => Ok(Box::new(RlusdScheme::new(
+            account()?,
+            node()?,
+            balance,
+            state,
+        )?)),
+        dassie_xrpl::dsusd::SCHEME_ID => Ok(Box::new(DsusdScheme::new(
             account()?,
             node()?,
             balance,

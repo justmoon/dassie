@@ -2,10 +2,10 @@
  * The fake XRP Ledger: the node's own model of the ledger, served over
  * WebSocket with a faucet over HTTPS, for scenarios that settle on the XRP
  * Ledger without the public testnet. CI's end-to-end tests run against it,
- * and `node --run dev -- --xrpl fake`. Next to its faucet, the issuer of
- * its test RLUSD mints, freezes and claws back on request
+ * and `node --run dev -- --xrpl fake`. Next to its faucet, the issuers of
+ * its test RLUSD and DSUSD mint, freeze and claw back on request
  * (spec/areas/xrpl.md#tokens-in-the-fake-ledger): the only source of test
- * RLUSD a scenario has.
+ * tokens a scenario has.
  *
  * @module
  */
@@ -38,7 +38,7 @@ export interface FakeLedger {
   readonly url: string;
   /** Its faucet's URL. */
   readonly faucet: string | null;
-  /** Where the issuer of its test RLUSD takes requests, with the faucet. */
+  /** Where the issuers of its test tokens take requests, with the faucet. */
   readonly tokens: string | null;
   /** The process, for the PID file. */
   readonly pid: number;
@@ -144,19 +144,24 @@ export async function startFakeLedger(
   };
 }
 
-/** What the fake ledger's issuer of test RLUSD can be asked to do, each in
- * the next ledger: mint to an address, freeze or deep-freeze a line or
- * lift that, freeze every line, set a transfer fee in billionths, or claw
- * back. Values are decimal dollars, such as `"12.5"`. */
+/** What the fake ledger's issuer of test RLUSD, or of the test token
+ * `token` names, can be asked to do, each in the next ledger: mint to an
+ * address, freeze or deep-freeze a line or lift that, freeze every line,
+ * set a transfer fee in billionths, or claw back. Values are decimal
+ * dollars, such as `"12.5"`. */
 export type IssuerRequest =
-  | { action: "mint"; destination: string; value: string }
-  | { action: "freeze" | "deep-freeze"; account: string; on: boolean }
-  | { action: "global-freeze"; on: boolean }
-  | { action: "transfer-rate"; rate: number }
-  | { action: "clawback"; account: string; value: string };
+  & { token?: "RLUSD" | "DSUSD" }
+  & (
+    | { action: "mint"; destination: string; value: string }
+    | { action: "freeze" | "deep-freeze"; account: string; on: boolean }
+    | { action: "global-freeze"; on: boolean }
+    | { action: "transfer-rate"; rate: number }
+    | { action: "clawback"; account: string; value: string }
+  );
 
 /**
- * Asks the issuer of `ledger`'s test RLUSD, whose certificate comes from
+ * Asks the issuer of `ledger`'s test RLUSD (or of `request.token`), whose
+ * certificate comes from
  * the CA in `caFile`. It is queued once this returns, and applies in the
  * next ledger; one the ledger refuses, such as a mint to an account
  * without a line, changes nothing.

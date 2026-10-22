@@ -68,6 +68,13 @@ fn simulated_networks_pay_across_rlusd_and_xrp() {
     assert_seeds_pass(0..6, scripted::run_xrp_rlusd);
 }
 
+// spec/areas/xrpl.md#dsusd: the same across DSUSD and XRP: the token scheme
+// in DSUSD, through the issuer's acts, on the account XRP settles from.
+#[test]
+fn simulated_networks_pay_across_dsusd_and_xrp() {
+    assert_seeds_pass(0..6, scripted::run_xrp_dsusd);
+}
+
 // On this seed, a node ends a peering just after its books took the peer's
 // settlement from the XRP Ledger, before the settlement's message arrived.
 // The peer's last answer names that settlement, which the node does not

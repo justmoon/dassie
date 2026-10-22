@@ -94,6 +94,13 @@ pub fn describe_xrp_rlusd(seed: u64) -> String {
     format!("{count} nodes, 2 bootstrap, RLUSD and XRP")
 }
 
+/// What a seed draws for a run across DSUSD and XRP, before it starts.
+#[must_use]
+pub fn describe_xrp_dsusd(seed: u64) -> String {
+    let (_, count) = size_across(seed);
+    format!("{count} nodes, 2 bootstrap, DSUSD and XRP")
+}
+
 /// A run over the stub.
 #[must_use]
 pub fn run(seed: u64) -> Run {
@@ -142,6 +149,13 @@ pub fn run_across(seed: u64) -> Run {
 #[must_use]
 pub fn run_xrp_rlusd(seed: u64) -> Run {
     run_across_on(seed, Settling::XrpRlusd)
+}
+
+/// A run across DSUSD and XRP, as [`run_xrp_rlusd`] with the token scheme
+/// in DSUSD, whose issuer claws back and freezes meanwhile.
+#[must_use]
+pub fn run_xrp_dsusd(seed: u64) -> Run {
+    run_across_on(seed, Settling::XrpDsusd)
 }
 
 fn run_across_on(seed: u64, settling: Settling) -> Run {
@@ -230,18 +244,18 @@ fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
 /// pay.
 const MOST_CLAWED_DOLLARS: u64 = 5;
 
-/// On RLUSD, while payments are under way, the issuer claws some of a
-/// holder's RLUSD back, then freezes a holder's line, deep or not, or every
+/// On a token, while payments are under way, the issuer claws some of a
+/// holder's token back, then freezes a holder's line, deep or not, or every
 /// line, and lifts it again. A freeze lasts up to the grace a peer short of
 /// room has before it is withdrawn, drawn from the production timings: one
 /// that outlasts it withdraws the pairs it stops, as it should
 /// ([`check_withdrawn`]).
 fn issuer_acts(sim: &mut Sim, rng: &mut SeededRng) {
-    if !sim.settling.issued() {
+    let Some((token, _)) = sim.settling.token() else {
         return;
-    }
+    };
     let holders: Vec<usize> = (0..sim.nodes.len())
-        .filter(|index| sim.settling.ledgers(*index).contains(&super::RLUSD))
+        .filter(|index| sim.settling.ledgers(*index).contains(&token))
         .collect();
     let pick = |rng: &mut SeededRng| {
         holders[usize::try_from(rng.next_u64() % holders.len() as u64).unwrap()]
