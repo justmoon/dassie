@@ -21,9 +21,11 @@ ExecStartPre=/usr/bin/git fetch --quiet origin main
 ExecStartPre=/usr/bin/git checkout --quiet --force --detach origin/main
 ExecStart=/bin/sh apps/dsusd-keeper/vm/run.sh
 # The keeper bounds its own run well within this; this bounds the fetch,
-# the install and the toolchain too. A run that fails shows as a failed
-# unit, and the timer's next run starts all the same.
-TimeoutStartSec=10min
+# the install and the toolchain too. The first run after the flake's
+# nixpkgs changes fetches a new Node and pnpm, which took about nine minutes
+# on the e2-micro, so this leaves it room. A run that fails shows as a
+# failed unit, and the timer's next run starts all the same.
+TimeoutStartSec=30min
 # Each run's one line, on the serial console too, which needs no SSH.
 StandardOutput=journal+console
 StandardError=journal+console
