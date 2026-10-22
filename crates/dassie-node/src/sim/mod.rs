@@ -45,10 +45,12 @@
 //!
 //! Runs on RLUSD settle in the fake ledger's test RLUSD
 //! (spec/areas/xrpl.md#rlusd), alone or across XRP and RLUSD, with both
-//! schemes on one account. The issuer mints each node RLUSD once its line
-//! exists, then claws some back and freezes lines, deep or for every
-//! holder; each node's books count what the issuer did as its owner's
-//! deposits and withdrawals, and hold its line.
+//! schemes on one account; runs across XRP and DSUSD do the same in the
+//! fake ledger's test DSUSD (spec/areas/xrpl.md#dsusd). The issuer mints
+//! each node its token once its line exists, then claws some back and
+//! freezes lines, deep or for every holder; each node's books count what
+//! the issuer did as its owner's deposits and withdrawals, and hold its
+//! line.
 //!
 //! A node that never settles, or spends the credit it was given and
 //! vanishes, costs its peer no more than that credit
@@ -137,6 +139,8 @@ pub enum Settling {
     /// Node 0 on RLUSD, 2 on XRP, 1 and 3 on both, through one account:
     /// the RLUSD scheme's gas is on the XRP ledger's books there.
     XrpRlusd,
+    /// As [`Self::XrpRlusd`], in DSUSD.
+    XrpDsusd,
 }
 
 /// The stub ledger, in dollars.
@@ -145,14 +149,16 @@ pub const USD: LedgerId = LedgerId::StubUsd;
 pub const XRP: LedgerId = LedgerId::XrplTestnetXrp;
 /// RLUSD on the XRP Ledger testnet, in dollars.
 pub const RLUSD: LedgerId = LedgerId::XrplTestnetRlusdUsd;
+/// DSUSD on the XRP Ledger testnet, in dollars.
+pub const DSUSD: LedgerId = LedgerId::XrplTestnetDsusdUsd;
 
 /// The ledger's config of both XRPL schemes: the same, since they settle
 /// through one account.
 const XRPL_CONFIG: &str =
     r#"{"server":"ws://ledger.test","faucet":"https://faucet.test/accounts"}"#;
 
-/// What the fake ledger's issuer mints each node on RLUSD once its line
-/// exists, in millionths of a dollar: as much as the stub gives.
+/// What the fake ledger's issuer mints each node on its token's ledger once
+/// its line exists, in millionths of a dollar: as much as the stub gives.
 pub const MINT_MICROS: u64 = 100_000_000;
 
 impl Settling {
@@ -162,7 +168,9 @@ impl Settling {
             Self::Stub => USD,
             Self::Xrpl => XRP,
             Self::Rlusd => RLUSD,
-            Self::Cross | Self::XrpRlusd => panic!("a run across currencies has two ledgers"),
+            Self::Cross | Self::XrpRlusd | Self::XrpDsusd => {
+                panic!("a run across currencies has two ledgers")
+            }
         }
     }
 
@@ -170,10 +178,12 @@ impl Settling {
     pub fn ledgers(self, index: usize) -> &'static [LedgerId] {
         match (self, index % 4) {
             (Self::Stub, _) | (Self::Cross, 0) => &[USD],
-            (Self::Xrpl, _) | (Self::Cross | Self::XrpRlusd, 2) => &[XRP],
+            (Self::Xrpl, _) | (Self::Cross | Self::XrpRlusd | Self::XrpDsusd, 2) => &[XRP],
             (Self::Cross, _) => &[USD, XRP],
             (Self::Rlusd, _) | (Self::XrpRlusd, 0) => &[RLUSD],
             (Self::XrpRlusd, _) => &[RLUSD, XRP],
+            (Self::XrpDsusd, 0) => &[DSUSD],
+            (Self::XrpDsusd, _) => &[DSUSD, XRP],
         }
     }
 
@@ -182,14 +192,19 @@ impl Settling {
         !matches!(self, Self::Stub)
     }
 
-    /// Whether some of its nodes settle in RLUSD, which the issuer mints.
-    pub const fn issued(self) -> bool {
-        matches!(self, Self::Rlusd | Self::XrpRlusd)
+    /// The ledger of the token some of its nodes settle in, and the token,
+    /// which the fake ledger's issuer mints.
+    pub const fn token(self) -> Option<(LedgerId, Token)> {
+        match self {
+            Self::Rlusd | Self::XrpRlusd => Some((RLUSD, Token::RLUSD)),
+            Self::XrpDsusd => Some((DSUSD, Token::DSUSD)),
+            Self::Stub | Self::Xrpl | Self::Cross => None,
+        }
     }
 
     /// Whether it runs across currencies, checked by [`checks::check_across`].
     pub const fn across(self) -> bool {
-        matches!(self, Self::Cross | Self::XrpRlusd)
+        matches!(self, Self::Cross | Self::XrpRlusd | Self::XrpDsusd)
     }
 
     /// What each node's owner starts with on `ledger`: the stub's balance,
@@ -197,7 +212,9 @@ impl Settling {
     pub const fn deposit(ledger: LedgerId) -> i128 {
         match ledger {
             LedgerId::XrplTestnetXrp => (FAUCET_DROPS as i128 - 1_000_000) * 1_000,
-            LedgerId::XrplTestnetRlusdUsd => MINT_MICROS as i128 * 1_000,
+            LedgerId::XrplTestnetRlusdUsd | LedgerId::XrplTestnetDsusdUsd => {
+                MINT_MICROS as i128 * 1_000
+            }
             _ => 100_000_000_000,
         }
     }
@@ -207,6 +224,7 @@ impl Settling {
         match ledger {
             LedgerId::XrplTestnetXrp => ("xrpl-testnet", XRPL_CONFIG),
             LedgerId::XrplTestnetRlusdUsd => ("xrpl-testnet-rlusd", XRPL_CONFIG),
+            LedgerId::XrplTestnetDsusdUsd => ("xrpl-testnet-dsusd", XRPL_CONFIG),
             _ => ("stub", ""),
         }
     }
@@ -226,7 +244,7 @@ pub struct Withdrawal {
     pub scheme: Option<SchemeId>,
 }
 
-/// What the issuer of RLUSD stops, in a run on RLUSD.
+/// What the issuer of the run's token stops, in a run on a token.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IssuerFreeze {
     /// Node `0`'s line: it pays only the issuer.
@@ -493,9 +511,11 @@ pub struct Sim {
     pub replay_per_mille: u64,
     /// What became of each replayed request's original.
     originals: Vec<Original>,
-    /// The nodes the issuer is to mint RLUSD once their line exists.
+    /// The nodes the issuer is to mint the run's token once their line
+    /// exists.
     to_mint: BTreeSet<usize>,
-    /// What the issuer minted each node on RLUSD, and what it clawed back,
+    /// What the issuer minted each node of its token, and what it clawed
+    /// back,
     /// in the ledger's internal units: the owner's deposits and
     /// withdrawals there.
     pub issued: BTreeMap<usize, (i128, i128)>,
@@ -647,7 +667,11 @@ impl Sim {
             replay_per_mille: 0,
             originals: Vec::new(),
             to_mint: (0..skews_ms.len())
-                .filter(|index| settling.ledgers(*index).contains(&RLUSD))
+                .filter(|index| {
+                    settling
+                        .token()
+                        .is_some_and(|(ledger, _)| settling.ledgers(*index).contains(&ledger))
+                })
                 .collect(),
             issued: BTreeMap::new(),
             freezes: Vec::new(),
@@ -1222,8 +1246,16 @@ impl Sim {
         );
     }
 
-    /// The issuer mints [`MINT_MICROS`] of RLUSD to each node it has not
-    /// yet minted to whose line exists, in the ledger about to close.
+    /// The token the run's issuer issues: RLUSD unless the run is on
+    /// another.
+    fn token(&self) -> Token {
+        self.settling
+            .token()
+            .map_or(Token::RLUSD, |(_, token)| token)
+    }
+
+    /// The issuer mints [`MINT_MICROS`] of its token to each node it has
+    /// not yet minted to whose line exists, in the ledger about to close.
     fn mint(&mut self) {
         let lined: Vec<usize> = self
             .to_mint
@@ -1231,49 +1263,55 @@ impl Sim {
             .copied()
             .filter(|index| self.line(*index).is_some())
             .collect();
+        let token = self.token();
         for index in lined {
             let value = TokenValue::from_units(MINT_MICROS, 6).unwrap();
             self.ledger
-                .issue(xrpl_account(index), Token::RLUSD.amount(value))
+                .issue(xrpl_account(index), token.amount(value))
                 .unwrap();
             self.to_mint.remove(&index);
-            self.issued.entry(index).or_default().0 += Settling::deposit(RLUSD);
-            self.count("rlusd minted");
-            self.trace
-                .push(format!("{} the issuer mints {index} RLUSD", self.now));
+            self.issued.entry(index).or_default().0 += MINT_MICROS as i128 * 1_000;
+            self.count("issuer mints");
+            self.trace.push(format!(
+                "{} the issuer mints {index} {}",
+                self.now,
+                token.currency.code()
+            ));
         }
     }
 
-    /// What node `index`'s line holds of RLUSD, if it has one, in the RLUSD
-    /// ledger's internal units: whole millionths, rounded down.
+    /// What node `index`'s line holds of the run's token, if it has one, in
+    /// its ledger's internal units: whole millionths, rounded down.
     pub fn line(&self, index: usize) -> Option<i128> {
         let held = self
             .ledger
-            .token_balance(xrpl_account(index), Token::RLUSD)?;
+            .token_balance(xrpl_account(index), self.token())?;
         Some(held.floor_units(6)? * 1_000)
     }
 
-    /// The issuer claws `units` of RLUSD back from node `index`, in the next
+    /// The issuer claws `units` of its token back from node `index`, in the next
     /// ledger: well within its line, so all of it.
     pub fn claw_back(&mut self, index: usize, units: i128) {
         let line = self.line(index).unwrap_or(0);
         assert!(units > 0 && units * 2 <= line, "a clawback within the line");
         let micros = u64::try_from(units / 1_000).unwrap();
         let value = TokenValue::from_units(micros, 6).unwrap();
+        let token = self.token();
         self.ledger
-            .claw_back(xrpl_account(index), Token::RLUSD.amount(value))
+            .claw_back(xrpl_account(index), token.amount(value))
             .unwrap();
         self.issued.entry(index).or_default().1 += units;
-        self.count("rlusd clawbacks");
+        self.count("issuer clawbacks");
         self.trace.push(format!(
-            "{} the issuer claws back {units} of {index}'s RLUSD",
-            self.now
+            "{} the issuer claws back {units} of {index}'s {}",
+            self.now,
+            token.currency.code()
         ));
     }
 
     /// The issuer freezes, in the next ledger, or lifts what it froze.
     pub fn issuer_freeze(&mut self, freeze: IssuerFreeze, on: bool) {
-        let token = Token::RLUSD;
+        let token = self.token();
         match freeze {
             IssuerFreeze::Line(index) => self.ledger.freeze(xrpl_account(index), token, on),
             IssuerFreeze::Deep(index) if on => {
@@ -1289,9 +1327,9 @@ impl Sim {
         if on {
             self.freezes.push((freeze, at, None));
             self.count(match freeze {
-                IssuerFreeze::Line(_) => "rlusd freezes",
-                IssuerFreeze::Deep(_) => "rlusd deep freezes",
-                IssuerFreeze::Global => "rlusd global freezes",
+                IssuerFreeze::Line(_) => "issuer freezes",
+                IssuerFreeze::Deep(_) => "issuer deep freezes",
+                IssuerFreeze::Global => "issuer global freezes",
             });
         } else if let Some(held) = self
             .freezes
@@ -2031,7 +2069,7 @@ impl Sim {
                 let fundings = i128::from(self.fundings.get(&index).copied().unwrap_or(0));
                 (fundings * i128::from(FAUCET_DROPS) - 1_000_000).max(0) * 1_000
             }
-            LedgerId::XrplTestnetRlusdUsd => {
+            LedgerId::XrplTestnetRlusdUsd | LedgerId::XrplTestnetDsusdUsd => {
                 let (minted, clawed) = self.issued.get(&index).copied().unwrap_or((0, 0));
                 minted - clawed
             }

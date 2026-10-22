@@ -32,7 +32,7 @@ pub struct Sim {
 /// run that takes a millisecond costs a campaign almost nothing, so the
 /// time goes to the simulations whose runs take seconds, and most of it to
 /// the `node` simulation.
-pub static SIMS: [Sim; 10] = [
+pub static SIMS: [Sim; 11] = [
     Sim {
         name: "node",
         about: "whole nodes' engine cores, with a network, faults and payments drawn per seed, \
@@ -79,6 +79,13 @@ pub static SIMS: [Sim; 10] = [
         about: "the same across RLUSD and XRP, both schemes on one account at the nodes that run both",
         describe: dassie_node::sim::scripted::describe_xrp_rlusd,
         run: dassie_node::sim::scripted::run_xrp_rlusd,
+        weight: 5,
+    },
+    Sim {
+        name: "node-xrp-dsusd",
+        about: "the same across DSUSD and XRP, the token scheme in DSUSD while its issuer acts",
+        describe: dassie_node::sim::scripted::describe_xrp_dsusd,
+        run: dassie_node::sim::scripted::run_xrp_dsusd,
         weight: 5,
     },
     Sim {

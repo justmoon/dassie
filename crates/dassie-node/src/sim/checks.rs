@@ -13,8 +13,8 @@ use dassie_settlement::policy;
 use dassie_ledger::LedgerId;
 
 use super::{
-    Drift, Payment, RLUSD, START, Settling, Sim, TRIGGER, USD, Withdrawal, XRP, key, received,
-    sent, xrpl_account,
+    DSUSD, Drift, Payment, RLUSD, START, Settling, Sim, TRIGGER, USD, Withdrawal, XRP, key,
+    received, sent, xrpl_account,
 };
 use crate::node::Policies;
 use crate::store::{OutgoingState, PaymentId};
@@ -344,20 +344,23 @@ pub fn not_settled_down(sim: &mut Sim, seconds: u64, what: &str) -> Outcome {
 
 /// Routine settlement never withdraws an honest peer for room: only a peer
 /// that stays short, settling nothing, past the grace
-/// (spec/decisions/peering-lifecycle.md). An issuer's freeze of RLUSD
-/// stops what the nodes it touches pay or are paid in RLUSD, so while it
+/// (spec/decisions/peering-lifecycle.md). An issuer's freeze of its token
+/// stops what the nodes it touches pay or are paid in it, so while it
 /// holds, and for a grace after it is lifted, a pair it touches that
-/// settles in RLUSD may be withdrawn; a pair that settles in XRP may not
+/// settles in the token may be withdrawn; a pair that settles in XRP may not
 /// (spec/areas/settlement.md#when-peers-cannot-pay-us).
 pub fn check_withdrawn(sim: &Sim) -> Result<(), String> {
     let grace = sim.peer.advertise_short_grace_ms;
-    let rlusd = Settling::scheme(RLUSD).0;
+    let token = sim
+        .settling
+        .token()
+        .map(|(ledger, _)| Settling::scheme(ledger).0);
     let id = |index: usize| key(index).node_id();
     let frozen = |withdrawal: &Withdrawal| {
-        let on_rlusd = withdrawal
+        let on_token = withdrawal
             .scheme
-            .is_some_and(|scheme| scheme.as_str() == rlusd);
-        on_rlusd
+            .is_some_and(|scheme| Some(scheme.as_str()) == token);
+        on_token
             && sim.freezes.iter().any(|&(freeze, from, until)| {
                 let touched = (0..sim.nodes.len()).any(|index| {
                     freeze.stops(index) && (index == withdrawal.by || id(index) == withdrawal.peer)
@@ -615,7 +618,7 @@ pub fn check_books(sim: &Sim) -> Result<(), Outcome> {
     ])
 }
 
-/// On the XRP Ledger, the faucet funded every node, and on RLUSD the
+/// On the XRP Ledger, the faucet funded every node, and on a token the
 /// issuer minted to every node: an owner's books that match a deposit of
 /// nothing would pass the other checks.
 pub fn check_funded(sim: &Sim) -> Result<(), String> {
@@ -624,7 +627,7 @@ pub fn check_funded(sim: &Sim) -> Result<(), String> {
         sim.settling
             .ledgers(*index)
             .iter()
-            .any(|ledger| [XRP, RLUSD].contains(ledger))
+            .any(|ledger| [XRP, RLUSD, DSUSD].contains(ledger))
     };
     if let Some(index) = (0..sim.nodes.len())
         .filter(on_xrpl)
@@ -632,12 +635,15 @@ pub fn check_funded(sim: &Sim) -> Result<(), String> {
     {
         return Err(format!("node {index} was never funded"));
     }
+    let Some((token, _)) = sim.settling.token() else {
+        return Ok(());
+    };
     let minted = |index: &usize| sim.issued.get(index).is_some_and(|(minted, _)| *minted > 0);
     match (0..sim.nodes.len())
-        .filter(|index| sim.settling.ledgers(*index).contains(&RLUSD))
+        .filter(|index| sim.settling.ledgers(*index).contains(&token))
         .find(|index| !minted(index))
     {
-        Some(index) => Err(format!("node {index} was never minted RLUSD")),
+        Some(index) => Err(format!("node {index} was never minted on {token}")),
         None => Ok(()),
     }
 }
@@ -660,7 +666,7 @@ pub fn check_delivered(sim: &Sim) -> Result<(), String> {
 }
 
 /// Node `index`'s books on `ledger` hold what its scheme holds, on the XRP
-/// Ledger exactly its account's balance less the reserve, and on RLUSD
+/// Ledger exactly its account's balance less the reserve, and on a token
 /// exactly its line in whole units; returns what they hold.
 fn check_held(sim: &Sim, index: usize, ledger: LedgerId) -> Result<i128, String> {
     // The books follow the scheme's balance: what settled was posted.
@@ -687,11 +693,11 @@ fn check_held(sim: &Sim, index: usize, ledger: LedgerId) -> Result<i128, String>
                 ));
             }
         }
-        RLUSD => {
+        RLUSD | DSUSD => {
             let line = sim.line(index).unwrap_or(0).max(0);
             if booked != line {
                 return Err(format!(
-                    "node {index} books {booked} of RLUSD; its line holds {line}"
+                    "node {index} books {booked} on {ledger}; its line holds {line}"
                 ));
             }
         }
@@ -701,20 +707,20 @@ fn check_held(sim: &Sim, index: usize, ledger: LedgerId) -> Result<i128, String>
 }
 
 /// Neither XRP nor a token was made or lost on the fake ledger: its XRP
-/// is all there is, and RLUSD's holders hold what the issuer minted, less
+/// is all there is, and a token's holders hold what its issuer minted, less
 /// what came back to it.
 fn check_fake_ledger(sim: &Sim) -> Result<(), String> {
     if sim.ledger.total() != dassie_xrpl::MAX_DROPS {
         return Err("the ledger made or lost XRP".into());
     }
     if !sim.ledger.tokens_conserved() {
-        return Err("the ledger made or lost RLUSD".into());
+        return Err("the ledger made or lost a token".into());
     }
     Ok(())
 }
 
 /// Each node books in settlement what its scheme holds, on the XRP Ledger
-/// exactly its account's balance less the reserve, on RLUSD exactly its
+/// exactly its account's balance less the reserve, on a token exactly its
 /// line, and the underlying ledger neither made nor lost money.
 pub fn check_ledgers(sim: &Sim) -> Result<(), String> {
     let count = sim.nodes.len();
@@ -798,6 +804,7 @@ fn check_assets(sim: &Sim) -> Result<(), String> {
     let count = sim.nodes.len();
     let ledgers: &[LedgerId] = match sim.settling {
         Settling::XrpRlusd => &[RLUSD, XRP],
+        Settling::XrpDsusd => &[DSUSD, XRP],
         _ => &[USD, XRP],
     };
     for &ledger in ledgers {
