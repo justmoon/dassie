@@ -82,6 +82,16 @@ A new owner opens a setup URL, enters a passphrase and chooses a first ledger ([
 - **Choosing a relay** is one of its steps. A node without a hostname keeps a connection to the `dassiepay.net` front door by default, so that it is reached at its default name ([default-relay](decisions/default-relay.md)). The step explains what that costs: a machine the project runs learns when the node is online, and reads the Open Payments requests it passes on, as any front door does. The owner keeps it, names another relay, or keeps none and is not reached at that name.
 - **Done when:** an owner sets a node up in the wallet without the command line, and makes each choice the node otherwise defaults, the relay among them, knowing what it costs.
 
+### Rate feed and market makers
+
+A core node that converts between ledgers fills up with one asset and runs out of the other, and nothing moves it back. Rebalancing is to be passive: the node publishes what it converts at, and market makers trade through it when that pays. The feed's contract and its sans-IO core are built ([Rate feed](areas/rate-feed.md)). Not built, in parts that can be built side by side:
+
+- **The node's feed service:** a core node publishing its feed from the rates its connector applies, signed with its node key, on a UDP socket of its own (an optional systemd socket, handled as QUIC's is, and its own port when standalone), with the subscriber table and the publish schedule of `dassie-feed`.
+- **Finding a feed:** a link-state extension that names the feed's port, and the port in `GET /stats`.
+- **The market maker:** a client that subscribes to a node's feed, verifies it, and pays through the node when its rate and a ledger's own market leave a margin, then moves its own funds back on the ledger.
+
+**Done when:** a core node publishes its feed to subscribers who proved their address, and a market maker that watches it trades through the node, moving the node's holdings toward balance.
+
 ### Checking XRP Ledger validators
 
 The XRPL scheme takes its server's word on which ledgers are validated and what they hold ([XRPL](areas/xrpl.md#following-the-account)). Acting only on ledgers past the newest seen ([ledger-resets](decisions/ledger-resets.md)) protects against a server that lags, not one that lies. A dishonest server can make the scheme book a settlement that never arrived, cancel one that applied by calling the account absent, or, on the testnet, claim a reset by reporting a lower ledger that closed later, so that the node writes off its balance. The node is to check the validators' signatures itself, so that no server can fake validated state or a reset.

@@ -535,6 +535,23 @@
         "Builds to WebAssembly"
       ]
     },
+    "feed": {
+      "name": "dassie-feed",
+      "path": "crates/dassie-feed",
+      "label": "the signed rate feed",
+      "sub": "protocols",
+      "x": 214,
+      "y": 748,
+      "w": 184,
+      "desc": "The public feed in which a core node says what it converts at, so that market makers can trade through it. A feed is one signed UDP datagram, made once and sent to every subscriber.",
+      "does": [
+        "The datagrams: subscribe, challenge and the signed feed, each within one packet",
+        "Cookies that prove a subscriber receives at its address, so a forged address never gets a feed",
+        "A subscriber table bounded in all and per client",
+        "When to publish: soon after the rates change, but never too often, and a heartbeat otherwise",
+        "A subscriber's side: verifies each feed and keeps only newer ones"
+      ]
+    },
     "identity": {
       "name": "dassie-identity",
       "path": "crates/dassie-identity",
@@ -945,6 +962,24 @@
       "t": "oer",
       "k": "uses",
       "h": false
+    },
+    {
+      "f": "feed",
+      "t": "identity",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "feed",
+      "t": "oer",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "feed",
+      "t": "node-core",
+      "k": "uses",
+      "h": true
     },
     {
       "f": "identity",

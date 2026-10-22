@@ -78,11 +78,12 @@
             };
 
           # The Rust workspace, with Cargo's configuration (the property
-          # tests' fixed seed), the golden vectors the tests read, the
-          # RPC contract dassie-node generates its messages from, the test
-          # certificates two in-process daemons peer with, minisign's
-          # signatures with the release test key, and the release's
-          # resources: its key, once made, the systemd units and install.sh.
+          # tests' fixed seed), the golden vectors the tests read (the rate
+          # feed's are in testdata/feed), the RPC contract dassie-node
+          # generates its messages from, the test certificates two
+          # in-process daemons peer with, minisign's signatures with the
+          # release test key, and the release's resources: its key, once
+          # made, the systemd units and install.sh.
           src = lib.fileset.toSource {
             root = ./.;
             fileset = lib.fileset.unions [
@@ -93,6 +94,7 @@
               ./crates
               ./proto
               ./resources
+              ./testdata/feed
               ./testdata/pebble
               ./testdata/release
             ];

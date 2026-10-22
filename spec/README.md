@@ -24,6 +24,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | `crates/dassie-xrpl` | [XRPL](areas/xrpl.md), [Settlement](areas/settlement.md) |
 | `crates/dassie-peer` | [Peer protocol](areas/peer-protocol.md), [Network](areas/network.md), [Settlement](areas/settlement.md) |
 | `crates/dassie-payments` | [Payments](areas/payments.md) |
+| `crates/dassie-feed` | [Rate feed](areas/rate-feed.md), [Identity](areas/identity.md), [Encoding](areas/encoding.md) |
 | `crates/dassie-node-core` | [Node](areas/node.md), [HTTP](areas/http.md) |
 | `crates/dassie-node` | [Node](areas/node.md), and by module: `engine/` [Connector](areas/connector.md), [Settlement](areas/settlement.md), [Ledger](areas/ledger.md); `http/` [HTTP](areas/http.md), with `http/peer.rs` [Peer protocol](areas/peer-protocol.md), `http/btp.rs` [Connector](areas/connector.md) and `http/open_payments/` [Payments](areas/payments.md); `open_payments/` [Payments](areas/payments.md); `rpc/` [RPC](areas/rpc.md); `store/` [Node](areas/node.md#persistence) and the area of the table; `rates.rs`, `node/rates.rs` [Connector](areas/connector.md#exchange-rates); `peer_client.rs` [Peer protocol](areas/peer-protocol.md); `quic/` [Peer protocol](areas/peer-protocol.md#quic), with `quic/relay.rs` [relayed streams](areas/peer-protocol.md#relayed-streams); `acme.rs`, `tls.rs` [HTTP](areas/http.md); `front_door/` [front doors](areas/http.md#front-doors), with [relayed streams](areas/peer-protocol.md#relayed-streams); `fake_ledger.rs` [XRPL](areas/xrpl.md); `sim/` [Testing](areas/testing.md#deterministic-simulation) |
 | `crates/dassie-cli` | [Node](areas/node.md), [Release](areas/release.md) (`dassie update`) |
@@ -62,6 +63,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [Settlement](areas/settlement.md) | Settlement schemes, external assets, credit and its growth, thresholds, settling on request, settlement channels |
 | [XRPL](areas/xrpl.md) | The XRP Ledger testnet account, the XRP and RLUSD schemes on it, and the fake ledger |
 | [Payments](areas/payments.md) | Open Payments: wallet addresses, GNAP, incoming and outgoing payments, quotes, the owner's Send |
+| [Rate feed](areas/rate-feed.md) | A core node's signed UDP feed of the rates it converts at: wire format, signing, the subscriber table and its cookies, when to publish |
 | [Node](areas/node.md) | The daemon: runtime, startup, configuration, environment, CLI, persistence, secrets, logging |
 | [HTTP](areas/http.md) | Listeners, routes, security headers, ACME and TLS, setup, login and sessions, front doors |
 | [RPC](areas/rpc.md) | The owner's RPC contract, its transports and live streams |

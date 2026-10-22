@@ -1003,6 +1003,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "dassie-feed"
+version = "0.2.3"
+dependencies = [
+ "dassie-identity",
+ "dassie-node-core",
+ "dassie-oer",
+ "hmac",
+ "proptest",
+ "serde_json",
+ "sha2 0.11.0",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
 name = "dassie-identity"
 version = "0.2.3"
 dependencies = [
