@@ -875,6 +875,50 @@ fn a_receiver_that_stops_short_closes_with_the_code_it_gives() {
     assert_eq!(client.stream(stream).unwrap().remote_received(), 100);
 }
 
+// Found in review: a receiver that closed a connection answered every
+// later packet with `NoError`, whatever it closed with. A sender with two
+// packets in flight, whose second reply arrived first, then heard that the
+// receiver takes no more, although it had stopped short
+// (spec/decisions/full-or-stopped-short.md). A closed connection says
+// again what it closed with.
+#[test]
+fn a_closed_receiver_repeats_the_code_it_closed_with() {
+    let mut rng = SeededRng::new(7);
+    let mut server = server(PAYEE);
+    let mut payment = Payment {
+        exhausted: ErrorCode::APPLICATION_ERROR,
+        ..Payment::new(1_000, 0)
+    };
+    let (mut client, stream, keys) = payer(&server, &mut rng, b"payment/a");
+    client.set_send_max(stream, 100).unwrap();
+    assert_eq!(
+        pay(NOW, &mut rng, &mut server, &mut payment, &mut client),
+        (1, 0)
+    );
+
+    // Stopped short. The packet that finds nothing left closes the
+    // connection; another one in the same step, before the server forgets
+    // it, here the same one again, finds it closed.
+    payment.remaining = 0;
+    client.set_send_max(stream, 500).unwrap();
+    let mut out = vec![0; BUFFER_LENGTH];
+    let transmit = client.poll_transmit(NOW, &mut rng, &mut out).unwrap();
+    let prepare = Prepare::decode_exact(&out[..transmit.length]).unwrap();
+    for _ in 0..2 {
+        let mut answer = vec![0; BUFFER_LENGTH];
+        let admit = |tag: &[u8]| payment.admit(tag);
+        let handled = server.handle_prepare_admitted(NOW, &mut rng, &prepare, admit, &mut answer);
+        assert_eq!(handled.received, 0);
+        check_refusal(&keys, &answer[..handled.length], |_, frames| {
+            let close = Frame::ConnectionClose {
+                code: ErrorCode::APPLICATION_ERROR,
+                message: "",
+            };
+            assert!(frames.contains(&close), "{frames:?}");
+        });
+    }
+}
+
 /// Checks the STREAM reply a refused packet carried: what arrived, and
 /// its frames.
 fn check_refusal(keys: &Keys, answer: &[u8], check: impl FnOnce(u64, &[Frame<'_>])) {

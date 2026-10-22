@@ -108,7 +108,7 @@ A connection whose credentials carry receipt keys issues RFC 39 receipts. Its fo
 
 ## Closing
 
-Closing a connection sends close packets that the remote can fulfill, a bounded number of times, and gives up after a timeout; with nobody to tell, it closes at once. A connection also closes when the remote closes it, breaks a rule, the path rejects with a final error, or nothing is heard for the idle timeout, which bounds how long an abandoned connection holds a server's table.
+Closing a connection sends close packets that the remote can fulfill, a bounded number of times, and gives up after a timeout; with nobody to tell, it closes at once. A connection also closes when the remote closes it, breaks a rule, the path rejects with a final error, or nothing is heard for the idle timeout, which bounds how long an abandoned connection holds a server's table. A connection that closed itself answers every later packet with the code it closed with, so a sender that hears a later reply first learns the same as from the first ([full-or-stopped-short](../decisions/full-or-stopped-short.md)); one the remote closed answers `NoError`.
 
 ## Policy
 

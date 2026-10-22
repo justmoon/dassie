@@ -12,10 +12,10 @@
 //! connection takes no more. One that pays a payment with nothing left is
 //! closed, with `NoError` if the payment received all it asked for, and
 //! `ApplicationError` if it was completed or closed short of that, so that
-//! its sender can tell the two apart. What it took is added to the payment and the
-//! connection in the step that books the packet, and written with its
-//! journal row, so the payment never shows money the books lack, nor the
-//! other way round.
+//! its sender can tell the two apart. What it took is added to the payment
+//! and the connection in the step that books the packet, and written with
+//! its journal row, so the payment never shows money the books lack, nor
+//! the other way round.
 //!
 //! The owner's payments and clients' are bounded apart, so that clients,
 //! whom anyone can be, never crowd out the owner's own requests. When the
