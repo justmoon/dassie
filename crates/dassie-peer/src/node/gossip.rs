@@ -434,8 +434,8 @@ impl PeerNode {
         // With nobody else to ask, a periphery node asks a bootstrap node at
         // the URL the configuration gives it: no node asks it to peer, so it
         // learns its first uplink's link state no other way. A core node
-        // learns it from its sweeps, which ask a bootstrap node it is not
-        // peered with for its own link state too.
+        // learns it from its sweeps, which ask a bootstrap node for its own
+        // link state too while the node has no peers.
         let oracle = if indirect {
             self.pick_oracle(&target)
         } else {
@@ -517,9 +517,10 @@ impl PeerNode {
         let Some(&oracle) = peers.get(pick) else {
             return;
         };
-        // A peer's own state comes with its heartbeats. A bootstrap node
-        // we are not peered with sends us none, and with no other node to
-        // ask, nothing else would bring it: it is asked for its own too.
+        // A peer's own state comes with its heartbeats. While we have no
+        // peers, the bootstrap node asked sends us none, and with no other
+        // node to ask, nothing else would bring it: it is asked for its own
+        // too, in the sweep whose window holds its ID, once a pass.
         if peered {
             ids.retain(|id| *id != oracle);
         }
