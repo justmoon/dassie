@@ -8,10 +8,13 @@
 //! - `dassie update` installs a newer release from the mirror.
 //! - `dassie verify-install` checks that this binary works here.
 //! - `dassie front-door` runs a front door, which is no node.
+//! - `dassie market-maker` trades through a core node with two nodes of
+//!   its own, from the node's rate feed.
 
 mod client;
 mod front_door;
 mod init;
+mod market_maker;
 mod status;
 mod update;
 
@@ -79,6 +82,10 @@ Commands:
                       --make-key                make the key file if there
                                                 is none, print the entry for
                                                 DASSIE_RELAY, and exit
+  market-maker      Trade through a core node with two nodes of your own
+                    when its rate feed and an AMM pool on the XRP Ledger
+                    leave a margin, and move your funds back on the ledger.
+                      --config <file>           the JSON config
 
 Options:
   -h, --help        Show this help.
@@ -134,6 +141,7 @@ fn run() -> Result<ExitCode, lexopt::Error> {
                 Ok(verify_install())
             }
             "front-door" => Ok(front_door::run(front_door::args(&mut parser)?)),
+            "market-maker" => Ok(market_maker::run(&market_maker::args(&mut parser)?)),
             other => Err(format!("unknown command {other:?}").into()),
         },
         other => Err(other.unexpected()),

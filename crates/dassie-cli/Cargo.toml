@@ -1,7 +1,7 @@
 [package]
 name = "dassie-cli"
 version = "0.2.3"
-description = "The dassie binary: daemon, init, update and verify-install"
+description = "The dassie binary: daemon, init, update, verify-install and the market maker"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -24,7 +24,12 @@ test-key = []
 dassie-node = { path = "../dassie-node" }
 dassie-node-core = { path = "../dassie-node-core" }
 dassie-release = { path = "../dassie-release" }
-tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
+# `dassie market-maker`: the target's feed, the market maker's XRPL keys
+# from its nodes' passphrases, and the AMM pool it swaps through.
+dassie-feed = { path = "../dassie-feed" }
+dassie-identity = { path = "../dassie-identity" }
+dassie-xrpl = { path = "../dassie-xrpl" }
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net", "signal", "time", "sync"] }
 tokio-util = { version = "0.7.20", features = ["codec"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 bytes = "1"
@@ -42,12 +47,22 @@ flate2 = "1"
 tar = { version = "0.4", default-features = false }
 # `dassie status` shows dates.
 time = "0.3.55"
+# `dassie market-maker`: its config and the rippled API are JSON, and it
+# speaks to the XRPL server over a WebSocket, as the node does.
+serde_json = "1.0.154"
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+# Wipes a passphrase read from its file once the keys are derived.
+zeroize = "1.9"
 
 [build-dependencies]
 dassie-release = { path = "../dassie-release" }
 
 [dev-dependencies]
 tempfile = "3"
+# The fake XRP Ledger the market maker's XRPL side is tested against.
+dassie-node = { path = "../dassie-node", features = ["testing"] }
 tokio = { version = "1.53.2", features = ["io-util"] }
 dassie-release = { path = "../dassie-release", features = ["testing"] }
 # The mirror the update tests serve, over TLS with testdata/pebble's

@@ -84,11 +84,11 @@ A new owner opens a setup URL, enters a passphrase and chooses a first ledger ([
 
 ### Rate feed and market makers
 
-A core node that converts between ledgers fills up with one asset and runs out of the other, and nothing moves it back. Rebalancing is to be passive: the node publishes what it converts at, and market makers trade through it when that pays. The feed's contract and its sans-IO core are built ([Rate feed](areas/rate-feed.md)). Not built, in parts that can be built side by side:
+A core node that converts between ledgers fills up with one asset and runs out of the other, and nothing moves it back. Rebalancing is to be passive: the node publishes what it converts at, and market makers trade through it when that pays. The feed's contract and its sans-IO core are built ([Rate feed](areas/rate-feed.md)), and so is the market maker, `dassie market-maker`, which subscribes to a node's feed, verifies it, pays through the node when its rate and an AMM pool on the XRP Ledger leave a margin, and moves its own funds back through the pool ([Rate feed](areas/rate-feed.md#market-maker)). Not built, in parts that can be built side by side:
 
 - **The node's feed service:** a core node publishing its feed from the rates its connector applies, signed with its node key, on a UDP socket of its own (an optional systemd socket, handled as QUIC's is, and its own port when standalone), with the subscriber table and the publish schedule of `dassie-feed`.
-- **Finding a feed:** a link-state extension that names the feed's port, and the port in `GET /stats`.
-- **The market maker:** a client that subscribes to a node's feed, verifies it, and pays through the node when its rate and a ledger's own market leave a margin, then moves its own funds back on the ledger.
+- **Finding a feed:** a link-state extension that names the feed's port, and the port in `GET /stats`, which the market maker reads; until then its config names the port.
+- **The whole loop, end to end:** a core node with XRP and DSUSD skewed to one side, the market maker's two nodes pinned to it, and the fake ledger's pool, run until the core node's holdings move toward balance and the market maker's value at the pool's price grows.
 
 **Done when:** a core node publishes its feed to subscribers who proved their address, and a market maker that watches it trades through the node, moving the node's holdings toward balance.
 
