@@ -92,7 +92,7 @@ Each node's passphrase is in a file the config names. The market maker derives f
 
 ### Bands
 
-Each node has a band of what it holds, in its ledger's units. A trade never sends a node below the bottom of its band, and is made smaller to stay above it. A node above the top of its band is rebalanced to the band's middle before any trade, spending at most what its account holds on the ledger now, less the fee's headroom for XRP: the books count what the target owes before it settled, which the account cannot spend yet. The two nodes' signing keys are the market maker's, so the account that withdraws is the one receiving through the target, and its node rarely signs anything itself; a sequence the two both took is rare, and the node recovers from one ([XRPL](xrpl.md#settling)).
+Each node has a band of what it holds, in its ledger's units. A trade never sends a node below the bottom of its band, and is made smaller to stay above it. A node above the top of its band is rebalanced to the band's middle before any trade, spending at most what its account holds on the ledger now, less the fee's headroom for XRP: the books count what the target owes before it settled, which the account cannot spend yet. It delivers no more than the other node's band has room for, so the two never swap the same funds back and forth, paying the pool's fee each way; with both above their bands, it holds. The two nodes' signing keys are the market maker's, so the account that withdraws is the one receiving through the target, and its node rarely signs anything itself; a sequence the two both took is rare, and the node recovers from one ([XRPL](xrpl.md#settling)).
 
 ## Test vectors
 

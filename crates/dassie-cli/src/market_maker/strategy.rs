@@ -7,8 +7,9 @@
 //! the `b` it delivers, swapped back to `a` on the XRP Ledger's AMM pool,
 //! comes to more than it cost by the margin. A rebalance moves a node's
 //! holding back into its band: one Payment from its XRPL account to the
-//! other node's, which delivers the other asset and spends at most what
-//! is above the band's middle, through the pool.
+//! other node's, which delivers the other asset, no more than the other
+//! node's band has room for, and spends at most what is above the band's
+//! middle, through the pool.
 //!
 //! Every amount is in the nodes' ledger units: both books count at scale 9
 //! (spec/areas/ledger.md#ledgers-and-amounts), so a drop is
@@ -273,6 +274,9 @@ pub enum Hold {
     Margin,
     /// A rebalance would deliver nothing.
     Dust,
+    /// A rebalance would take the other node above its band, which would
+    /// then be rebalanced back: both hold more than their bands allow.
+    Full,
     /// The pool cannot price it.
     Pool(SwapError),
     /// An amount does not fit the ledger's units.
@@ -381,7 +385,10 @@ pub fn check_quote(
 /// The rebalance of `from`'s node, which is above its band: it spends what
 /// is above the band's middle, at most what its account holds now (less
 /// the fee's headroom, for XRP), and asks the pool for what a slippage's
-/// share less buys, so the price may move by that before it fails.
+/// share less buys, so the price may move by that before it fails. It
+/// delivers no more than the other node's band has room for, so that node
+/// is not then above its band and rebalanced back, paying the pool's fee
+/// each way.
 fn rebalance(inputs: &Inputs<'_>, from: Side) -> Result<Rebalance, Hold> {
     let band = inputs.params.node(from).band;
     let holding = inputs.holdings.of(from);
@@ -400,21 +407,41 @@ fn rebalance(inputs: &Inputs<'_>, from: Side) -> Result<Rebalance, Hold> {
     if paid.is_zero() {
         return Err(Hold::Dust);
     }
+    let to = from.other();
+    let room = inputs
+        .params
+        .node(to)
+        .band
+        .high
+        .saturating_sub(inputs.holdings.of(to).books);
+    let fits = to_amount(to, room, token).ok_or(Hold::Range)?;
+    if fits.is_zero() {
+        return Err(Hold::Full);
+    }
     let pool = &inputs.pool;
-    let deliver = amm::swap_out(
-        pool.holds(from),
-        pool.holds(from.other()),
-        pool.trading_fee,
-        paid,
-    )
-    .map_err(Hold::Pool)?;
+    let deliver = amm::swap_out(pool.holds(from), pool.holds(to), pool.trading_fee, paid)
+        .map_err(Hold::Pool)?;
     if deliver.is_zero() {
         return Err(Hold::Dust);
     }
+    if to_units(deliver).ok_or(Hold::Range)? <= room {
+        return Ok(Rebalance {
+            from,
+            deliver,
+            send_max,
+        });
+    }
+    // Only what fits, spending at most a slippage's share more than it
+    // costs at the price read: less than the excess it would have spent.
+    let cost = amm::swap_in(pool.holds(from), pool.holds(to), pool.trading_fee, fits)
+        .map_err(Hold::Pool)?;
+    let cost = to_units_up(cost).ok_or(Hold::Range)?;
+    let most = u64::try_from(u128::from(cost) * slippage / u128::from(MILLION))
+        .map_or(excess, |most| most.min(excess));
     Ok(Rebalance {
         from,
-        deliver,
-        send_max,
+        deliver: fits,
+        send_max: to_amount(from, most, token).ok_or(Hold::Range)?,
     })
 }
 
@@ -476,6 +503,24 @@ pub fn to_units(amount: Amount) -> Option<u64> {
         Amount::Token(token) => {
             let micros = u64::try_from(token.value.floor_units(MICRO_DECIMALS)?).ok()?;
             micros.checked_mul(UNITS_PER_MICRO)
+        }
+    }
+}
+
+/// An amount on the XRP Ledger in its ledger's units, a token rounded up
+/// to a millionth: what paying it takes. `None` below zero or beyond a
+/// `u64`.
+fn to_units_up(amount: Amount) -> Option<u64> {
+    let down = to_units(amount)?;
+    match amount {
+        Amount::Xrp(_) => Some(down),
+        Amount::Token(token) => {
+            let exact = TokenValue::from_units(down / UNITS_PER_MICRO, MICRO_DECIMALS)?;
+            if exact == token.value {
+                Some(down)
+            } else {
+                down.checked_add(UNITS_PER_MICRO)
+            }
         }
     }
 }
@@ -708,8 +753,8 @@ mod tests {
         let rate = POOL_XRP_TO_TOKEN / 100 * 102;
         // The token node received above its band: it pays XRP to the XRP
         // node, spending what is above its band's middle, 60 − 27.5 = 32.5
-        // of the token at most.
-        let full = held(50 * ONE, 60 * ONE);
+        // of the token at most. The XRP node has room for what that buys.
+        let full = held(20 * ONE, 60 * ONE);
         let Decision::Rebalance(rebalance) =
             decide(&inputs(rates(rate, POOL_TOKEN_TO_XRP), full, &params))
         else {
@@ -742,7 +787,7 @@ mod tests {
         assert!(clears(cost, most, params.slippage_ppm - 1));
 
         // The XRP node above its band pays the token to the token node.
-        let full = held(120 * ONE, 25 * ONE);
+        let full = held(120 * ONE, 5 * ONE);
         let Decision::Rebalance(rebalance) =
             decide(&inputs(rates(rate, POOL_TOKEN_TO_XRP), full, &params))
         else {
@@ -787,6 +832,63 @@ mod tests {
                 Decision::Trade(_) => panic!("a node above its band rebalances first"),
             }
         }
+    }
+
+    #[test]
+    fn a_rebalance_never_takes_the_other_node_above_its_band() {
+        let mut params = params();
+        params.slippage_ppm = 0;
+        // The token node is 10 above its band, and the XRP node has room
+        // for only 5 XRP: it delivers 5, spending what they cost, not the
+        // 32.5 of the token above its middle, which would buy about 61 XRP
+        // and send the XRP node above its band, to be rebalanced back.
+        let holdings = held(95 * ONE, 60 * ONE);
+        let Decision::Rebalance(rebalance) = decide(&inputs(rates(1, 1), holdings, &params)) else {
+            panic!("a rebalance");
+        };
+        assert_eq!(rebalance.from, Side::Token);
+        assert_eq!(rebalance.deliver, Amount::Xrp(5_000_000));
+        let cost = amm::swap_in(
+            pool().holds(Side::Token),
+            pool().holds(Side::Xrp),
+            0,
+            rebalance.deliver,
+        )
+        .unwrap();
+        // SendMax pays what the pool asks, and no more than that rounded
+        // up to a millionth.
+        let Amount::Token(cost) = cost else {
+            panic!("a token cost");
+        };
+        let Amount::Token(most) = rebalance.send_max else {
+            panic!("a token SendMax");
+        };
+        assert!(cost.value <= most.value);
+        assert_eq!(
+            to_units(rebalance.send_max),
+            to_units_up(Amount::Token(cost))
+        );
+        // With slippage, a share more, and never more than the excess.
+        params.slippage_ppm = 10_000;
+        let Decision::Rebalance(slipping) = decide(&inputs(rates(1, 1), holdings, &params)) else {
+            panic!("a rebalance");
+        };
+        assert_eq!(slipping.deliver, Amount::Xrp(5_000_000));
+        let (most, slipped) = (
+            to_units(rebalance.send_max).unwrap(),
+            to_units(slipping.send_max).unwrap(),
+        );
+        assert_eq!(
+            slipped,
+            most + most / 100 / UNITS_PER_MICRO * UNITS_PER_MICRO
+        );
+
+        // Both above their bands: nothing to rebalance into.
+        let full = held(100 * ONE, 60 * ONE);
+        assert_eq!(
+            decide(&inputs(rates(1, 1), full, &params)),
+            Decision::Hold(Hold::Full)
+        );
     }
 
     #[test]
