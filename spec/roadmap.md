@@ -82,14 +82,6 @@ A new owner opens a setup URL, enters a passphrase and chooses a first ledger ([
 - **Choosing a relay** is one of its steps. A node without a hostname keeps a connection to the `dassiepay.net` front door by default, so that it is reached at its default name ([default-relay](decisions/default-relay.md)). The step explains what that costs: a machine the project runs learns when the node is online, and reads the Open Payments requests it passes on, as any front door does. The owner keeps it, names another relay, or keeps none and is not reached at that name.
 - **Done when:** an owner sets a node up in the wallet without the command line, and makes each choice the node otherwise defaults, the relay among them, knowing what it costs.
 
-### Rate feed and market makers
-
-A core node that converts between ledgers fills up with one asset and runs out of the other. Rebalancing is passive ([passive-rebalancing](decisions/passive-rebalancing.md)): the node prices transit by its inventory ([Connector](areas/connector.md#inventory-pricing)), publishes what it converts at, and market makers trade through it when that pays, which moves it back toward its targets. Inventory pricing, the feed's contract and its sans-IO core, the node's feed service, which a core node runs on a UDP socket of its own and names in its link state and `GET /stats`, are built ([Rate feed](areas/rate-feed.md#the-node-side)), and so is the market maker, `dassie market-maker`, which subscribes to a node's feed, verifies it, pays through the node when its rate and an AMM pool on the XRP Ledger leave a margin, and moves its own funds back through the pool ([Rate feed](areas/rate-feed.md#market-maker)). Not built:
-
-- **The whole loop, end to end:** a core node with XRP and DSUSD skewed to one side, the market maker's two nodes pinned to it, and the fake ledger's pool, run until the core node's holdings move toward balance and the market maker's value at the pool's price grows.
-
-**Done when:** a core node publishes its feed to subscribers who proved their address, and a market maker that watches it trades through the node, moving the node's holdings toward balance.
-
 ### Checking XRP Ledger validators
 
 The XRPL scheme takes its server's word on which ledgers are validated and what they hold ([XRPL](areas/xrpl.md#following-the-account)). Acting only on ledgers past the newest seen ([ledger-resets](decisions/ledger-resets.md)) protects against a server that lags, not one that lies. A dishonest server can make the scheme book a settlement that never arrived, cancel one that applied by calling the account absent, or, on the testnet, claim a reset by reporting a lower ledger that closed later, so that the node writes off its balance. The node is to check the validators' signatures itself, so that no server can fake validated state or a reset.
@@ -161,4 +153,3 @@ Designs that stay future work. The architecture must not preclude them.
 - [ledger-resets](decisions/ledger-resets.md): a lagging server is handled; one that lies needs the validators checked.
 - [default-relay](decisions/default-relay.md): the default relay, until an onboarding asks.
 - [issued-assets](decisions/issued-assets.md): an issued asset on mainnet needs the issuer's conditions decided again; transfer fees.
-- [passive-rebalancing](decisions/passive-rebalancing.md): the rate feed and the market makers.

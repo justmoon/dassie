@@ -1,6 +1,6 @@
 # Nodes rebalance passively: inventory pricing, a rate feed and market makers
 
-**Areas:** [Connector](../areas/connector.md#inventory-pricing), [Rate feed](../areas/rate-feed.md), [Settlement](../areas/settlement.md#credit). Inventory pricing and the feed's sans-IO core are built; the node's feed service and the market makers are not ([roadmap](../roadmap.md#rate-feed-and-market-makers)).
+**Areas:** [Connector](../areas/connector.md#inventory-pricing), [Rate feed](../areas/rate-feed.md), [Settlement](../areas/settlement.md#credit).
 
 ## Facts
 
