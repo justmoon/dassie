@@ -444,7 +444,7 @@
         "Peers and the route table",
         "Downlinks at child addresses below the node's own; a periphery node's addresses beneath its uplinks, forwarding nothing",
         "A cap on money in flight with each peer, which bounds what a crash loses, and no new packets from a peer it cannot answer",
-        "Exchange between currencies, with fees and a spread, at a price table that moves the rate from spot by what the owner holds on each ledger, so that payments bring a skewed node back toward balance",
+        "Exchange between currencies, with fees and a spread, at a rate moved from spot by what the owner holds on each ledger once the packet and those in flight have moved it, so that payments bring a skewed node back toward balance and no round trip gains",
         "A spending cap per BTP token",
         "A packet trace for the debug pages"
       ]
