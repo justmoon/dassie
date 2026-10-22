@@ -25,12 +25,12 @@ use dassie_ledger::LedgerId;
 use dassie_node::engine::{EngineEvent, Lie, NewIncoming, NewOutgoing};
 use dassie_node::node::Policies;
 use dassie_node::sim::checks::{
-    check, check_across, check_books, check_events, drifted_past, not_settled_down,
+    check, check_across, check_books, check_events, check_ledgers, drifted_past, not_settled_down,
 };
 use dassie_node::sim::{
     CHARGES, CREDIT, START, Settling, Sim, USD, XRP, key, received, scripted, sent, xrpl_account,
 };
-use dassie_node::store::{Aim, ForeignAmount, PeerSettings};
+use dassie_node::store::{Aim, ForeignAmount, OutgoingRow, OutgoingState, PaymentId, PeerSettings};
 use dassie_node_core::testing::{Outcome, assert_seeds_pass};
 use dassie_settlement::LedgerStatus;
 
@@ -486,6 +486,128 @@ fn outgoing_payments_never_share_credentials() {
             core.create_outgoing_payment(pay(&incoming.ilp_address, incoming.shared_secret));
         assert!(again.is_err());
     });
+}
+
+// Two outgoing payments race into one incoming payment, each on a
+// connection of its own, each to deliver all it asks for: the receiver takes
+// what it asked for, split between them. Both end at once rather than at
+// their deadline, since a receiver that takes no more closes the connections
+// that offer it money (spec/decisions/full-or-stopped-short.md), and a payer
+// left without room before it delivered its receive amount offers a unit to
+// hear why (spec/areas/stream.md#sending). One that delivered less fails,
+// saying so, and what they sent is what the receiver took. The payer whose
+// packet filled it had never seen its room fall when another payer took its
+// share first: until it asked, it waited for its idle timeout, and heard why
+// on a new connection a minute later.
+#[test]
+fn payments_racing_into_one_incoming_payment_end_at_once() {
+    for seed in 0..6 {
+        let (sim, received, rows) = race_into_one_incoming_payment(82 + seed);
+        let sent: u64 = rows.iter().map(|row| row.sent_amount).sum();
+        assert_eq!(sent, received, "seed {seed}: {rows:?}");
+        assert_eq!(received, RACED, "seed {seed}");
+        for row in &rows {
+            if row.sent_amount < RACED {
+                assert_eq!(row.state, OutgoingState::Failed, "seed {seed}");
+                assert_eq!(
+                    row.failure.as_deref(),
+                    Some("the receiver takes no more"),
+                    "seed {seed}"
+                );
+            } else {
+                assert_eq!(row.state, OutgoingState::Completed, "seed {seed}");
+            }
+        }
+        // The harness's checks pair each outgoing payment with an incoming
+        // payment of its own, so the books are checked here: the receiver's
+        // owner gained what its payment received, and the payer paid what
+        // both sent.
+        let gained = sim.balances(1)["equity/owner"] - sim.deposit(1);
+        assert_eq!(gained, i128::from(received), "seed {seed}");
+        let paid = -sim.balances(0)["equity/owner/local/pay"];
+        assert_eq!(paid, i128::from(sent), "seed {seed}");
+        check_events(&sim).unwrap_or_else(|problem| panic!("seed {seed}: {problem}"));
+        check_ledgers(&sim).unwrap_or_else(|problem| panic!("seed {seed}: {problem}"));
+    }
+}
+
+/// What the incoming payment asks for, and each payment racing into it
+/// sends: three of the largest packets.
+const RACED: u64 = 3 * Policies::DEFAULT.connector.max_packet_amount;
+
+/// Node 0 pays an incoming payment of node 1 twice at once, each payment
+/// with credentials of its own, and runs until both ended, for at most ten
+/// seconds: a packet's round trip and a back-off or two. Returns the
+/// network, what the incoming payment received, and the outgoing payments.
+fn race_into_one_incoming_payment(seed: u64) -> (Sim, u64, Vec<OutgoingRow>) {
+    let mut sim = Sim::new(seed, 2, 1);
+    sim.run_until(START + 60_000);
+    assert!(
+        !sim.peers(0).is_empty(),
+        "seed {seed}: the nodes did not peer"
+    );
+    let ledger = sim.settling.ledger();
+    let mut incoming = None;
+    sim.step(1, |core| {
+        let payment = core
+            .create_incoming_payment(NewIncoming {
+                ledger,
+                wallet_address: "https://sim.example/.well-known/pay".into(),
+                client: None,
+                incoming_amount: Some(RACED),
+                expires_at_ms: None,
+                metadata: None,
+            })
+            .unwrap();
+        let other = core.incoming_credentials(payment.id, ledger).unwrap();
+        incoming = Some((payment, other));
+    });
+    let (incoming, other) = incoming.unwrap();
+    let pay = |destination: &str, shared_secret| NewOutgoing {
+        ledger,
+        wallet_address: "https://sim.example/.well-known/pay".into(),
+        client: None,
+        grant: None,
+        quote_id: None,
+        receiver: format!("https://n1.test/incoming-payments/{}", incoming.id),
+        destination: destination.to_string(),
+        shared_secret,
+        debit_amount: RACED,
+        receive_amount: ForeignAmount {
+            value: RACED,
+            asset_code: ledger.asset().code.into(),
+            asset_scale: 9,
+        },
+        metadata: None,
+        recipient: None,
+        fixed_debit: false,
+    };
+    let mut ids: Vec<PaymentId> = Vec::new();
+    sim.step(0, |core| {
+        for (destination, secret) in [
+            (incoming.ilp_address.as_str(), incoming.shared_secret),
+            (other.destination.as_str(), other.shared_secret),
+        ] {
+            let created = core.create_outgoing_payment(pay(destination, secret));
+            ids.push(created.unwrap().row.id);
+        }
+    });
+    let rows = |sim: &Sim| {
+        ids.iter()
+            .map(|id| sim.nodes[0].store.outgoing_payment(*id).unwrap().unwrap())
+            .collect::<Vec<_>>()
+    };
+    let ended = |sim: &Sim| {
+        rows(sim)
+            .iter()
+            .all(|row| row.state != OutgoingState::Sending)
+    };
+    let ended = sim.run_until_or(sim.now + 10_000, ended);
+    assert!(ended, "seed {seed}: still sending: {:?}", rows(&sim));
+    let paid_in = sim.nodes[1].store.incoming_payment(incoming.id).unwrap();
+    let received = paid_in.unwrap().received_amount;
+    let rows = rows(&sim);
+    (sim, received, rows)
 }
 
 /// Three nodes where the liar, node 1, reaches node 2 only through node

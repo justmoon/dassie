@@ -497,6 +497,19 @@ impl Connection {
         Ok(())
     }
 
+    /// Sets what the remote agreed to take on a stream in total, in its
+    /// units, when the application knows, as from an incoming payment's
+    /// amount. While the remote reports less received, a stream it leaves
+    /// without room asks it again once per back-off, as one whose maximum
+    /// fell does: something else may have taken from what it pays into
+    /// before the stream first heard its maximum, and the remote may close
+    /// with why it takes no more.
+    pub fn set_expected_delivery(&mut self, id: u64, amount: u64) -> Result<(), StreamError> {
+        let stream = self.open_stream_mut(id)?;
+        stream.expected_delivery = amount;
+        Ok(())
+    }
+
     /// Sets how much a stream accepts in total. Never below what it
     /// received.
     pub fn set_receive_max(&mut self, id: u64, amount: u64) -> Result<(), StreamError> {
