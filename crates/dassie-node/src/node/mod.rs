@@ -223,6 +223,9 @@ pub struct PeerOptions {
     pub ca_file: Option<PathBuf>,
     /// Whether peers may be at private addresses (dev and tests).
     pub allow_private: bool,
+    /// The only nodes the node asks to be its uplinks while it runs as a
+    /// periphery node; empty for any (spec/areas/network.md#pinned-uplinks).
+    pub uplinks: Vec<dassie_identity::NodeId>,
 }
 
 /// Most inbound peer requests waiting on the engine at once.
@@ -270,6 +273,7 @@ const PEER_ANONYMOUS: RateLimitPolicy = RateLimitPolicy {
 /// The node's side of the peer protocol, beside the engine.
 struct PeerSide {
     bootstrap: Vec<dassie_peer::Bootstrap>,
+    uplinks: Vec<dassie_identity::NodeId>,
     /// Made on first use, as the ACME client is: a machine without the
     /// system's roots still serves, and says why its peer requests fail.
     client: std::sync::OnceLock<Result<PeerClient, String>>,
@@ -295,6 +299,7 @@ impl PeerSide {
         }
         Ok(Self {
             bootstrap: options.bootstrap,
+            uplinks: options.uplinks,
             client,
             allow_private: options.allow_private,
             permits: Arc::new(Semaphore::new(MAX_PEER_REQUESTS)),
@@ -529,6 +534,13 @@ impl Node {
     #[must_use]
     pub fn bootstrap(&self) -> Vec<dassie_peer::Bootstrap> {
         self.peer.bootstrap.clone()
+    }
+
+    /// The uplinks the node is pinned to while it runs as a periphery
+    /// node; empty for any.
+    #[must_use]
+    pub fn pinned_uplinks(&self) -> Vec<dassie_identity::NodeId> {
+        self.peer.uplinks.clone()
     }
 
     /// The client for peer requests, made on first use; `None` when it

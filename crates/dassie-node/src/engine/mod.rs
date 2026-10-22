@@ -34,9 +34,9 @@ use tokio_util::sync::CancellationToken;
 
 pub use self::core::{
     AssetView, BtpEvent, BtpSession, Changes, Core, CoreParts, CreatedOutgoing, EngineError,
-    EngineEvent, Event, IncomingPolicy, LedgerEvent, LedgerView, Lie, NetworkView, NewIncoming,
-    NewOutgoing, NewToken, Outbound, Output, PaymentEvent, PeerEvent, PeerView, Prober,
-    RemovalBlocker, SCHEMES, SettlementEvent, Severity, TokenView, ledger_slug,
+    EngineEvent, Event, IncomingPolicy, LedgerEvent, LedgerView, Lie, Measured, NetworkView,
+    NewIncoming, NewOutgoing, NewToken, Outbound, Output, PaymentEvent, PeerEvent, PeerView,
+    Prober, RemovalBlocker, SCHEMES, SettlementEvent, Severity, TokenView, ledger_slug,
 };
 
 use crate::log::target;
@@ -105,8 +105,8 @@ enum Command {
     Call(Call),
 }
 
-/// What a probe measured: a rate, or nothing.
-type ProbeResult = Result<Option<dassie_stream::Rate>, EngineError>;
+/// What a probe measured: a rate and the receiver's asset, or nothing.
+type ProbeResult = Result<Option<Measured>, EngineError>;
 
 impl std::fmt::Debug for Command {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -368,15 +368,15 @@ impl Engine {
     /// Measures what the path from `ledger`'s payer to the receiver at
     /// `destination` delivers per unit sent, with packets the receiver
     /// cannot fulfill (spec/decisions/open-payments.md), for `by`, whose
-    /// share of the probes it takes. Nothing when it could not be measured in
-    /// time.
+    /// share of the probes it takes, and the asset the receiver says it is
+    /// paid in. Nothing when it could not be measured in time.
     pub async fn probe(
         &self,
         ledger: dassie_ledger::LedgerId,
         destination: String,
         shared_secret: [u8; 32],
         by: Prober,
-    ) -> Result<Option<dassie_stream::Rate>, EngineError> {
+    ) -> Result<Option<Measured>, EngineError> {
         let (reply, receiver) = oneshot::channel();
         self.commands
             .send(Command::Probe {
@@ -546,6 +546,7 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         peer_rng: node.shared_rng(),
         own_info: own_info(&node),
         bootstrap: node.bootstrap(),
+        uplinks: node.pinned_uplinks(),
     };
     let core = match Core::start(parts, node.now_ms()) {
         Ok(core) => core,
@@ -834,9 +835,9 @@ impl Driver<'_> {
                     }
                     continue;
                 }
-                Output::ProbeDone { id, rate } => {
+                Output::ProbeDone { id, measured } => {
                     if let Some(sender) = self.probe_replies.remove(&id) {
-                        let _ = sender.send(Ok(rate));
+                        let _ = sender.send(Ok(measured));
                     }
                     continue;
                 }

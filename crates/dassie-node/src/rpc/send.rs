@@ -1,13 +1,15 @@
-//! The owner's Send (spec/decisions/open-payments.md, M6c): to a payment
-//! pointer, a wallet address URL, or a payment request, on this node or
+//! The owner's Send (spec/decisions/open-payments.md,
+//! spec/areas/payments.md#the-owners-send): to a payment pointer, a wallet
+//! address URL, a payment request, or STREAM credentials, on this node or
 //! another.
 //!
 //! The owner needs no grant: the node quotes and pays as the owner, with
 //! the same quote and payment logic as third-party clients. For a wallet
 //! address, the quote creates the incoming payment there first, with a
 //! non-interactive grant as the node's `$host` client, expecting what the
-//! owner sends; a payment request is paid as it is. Each lookup may fetch
-//! from other wallets as the node, so few run at once.
+//! owner sends; a payment request is paid as it is, and so are STREAM
+//! credentials. Each lookup may fetch from other wallets as the node, so few
+//! run at once.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -31,7 +33,7 @@ use crate::open_payments::client::{self, ClientError};
 use crate::open_payments::spending::{self, NewQuote, Receiver};
 use crate::open_payments::{Urls, WELL_KNOWN_PATH, WalletAddresses};
 
-use crate::store::PaymentId;
+use crate::store::{PaymentId, QuoteRow};
 
 /// How long the incoming payment a Send creates accepts money: the quote's
 /// five minutes, the payment's ten, and room to spare.
@@ -256,15 +258,12 @@ async fn wallet(node: &Node, urls: &Urls, url: &str) -> Result<Wallet, RpcError>
     })
 }
 
-/// The ledger to pay `receiver` from: the one the route to it starts on,
-/// since the node's own endpoints never convert. One named must be it.
-async fn ledger_for(
-    engine: &Engine,
-    named: &str,
-    receiver: &Receiver,
-) -> Result<LedgerId, RpcError> {
+/// The ledger to pay the receiver at `destination` from: the one the route
+/// to it starts on, since the node's own endpoints never convert. One
+/// named must be it.
+async fn ledger_for(engine: &Engine, named: &str, destination: &str) -> Result<LedgerId, RpcError> {
     let (ledger, _) = engine
-        .route_of(receiver.destination.clone())
+        .route_of(destination.to_string())
         .await?
         .ok_or_else(|| RpcError::precondition("there is no route to the recipient"))?;
     if !named.is_empty() && named != ledger.as_str() {
@@ -281,8 +280,11 @@ async fn quote(
     node: &Node,
     engine: &Engine,
     urls: &Urls,
-    request: proto::QuoteSendRequest,
+    mut request: proto::QuoteSendRequest,
 ) -> Result<proto::SendQuote, RpcError> {
+    if let Some(credentials) = request.credentials.take() {
+        return quote_credentials(node, engine, urls, request, credentials).await;
+    }
     if request.note.chars().count() > MAX_NOTE_CHARS {
         return Err(RpcError::invalid("the note is too long"));
     }
@@ -353,7 +355,7 @@ async fn price(
     receiver_url: String,
     receiver: Receiver,
 ) -> Result<proto::SendQuote, RpcError> {
-    let ledger = ledger_for(engine, named, &receiver).await?;
+    let ledger = ledger_for(engine, named, &receiver.destination).await?;
     let rate = spending::quote_rate(node, ledger, &receiver, Prober::Owner).await?;
     let wallet = &found.wallet;
     let asset = ledger.asset();
@@ -376,21 +378,106 @@ async fn price(
             fixed_debit: debit_amount.is_some(),
         },
     )?;
-    Ok(proto::SendQuote {
+    Ok(send_quote(row, Some(found.recipient())))
+}
+
+/// Quotes a payment to STREAM credentials
+/// (spec/areas/payments.md#paying-stream-credentials): there is no
+/// incoming payment to read, or to create with a note, so
+/// nothing says what it accepts, and its asset is the one the owner names
+/// or the receiver says in the probe. An amount to send is always taken;
+/// one to deliver only in an asset the owner named, as the incoming payment
+/// the credentials came with says, since the owner cannot know what the
+/// receiver will say.
+async fn quote_credentials(
+    node: &Node,
+    engine: &Engine,
+    urls: &Urls,
+    request: proto::QuoteSendRequest,
+    credentials: proto::StreamCredentials,
+) -> Result<proto::SendQuote, RpcError> {
+    if !request.recipient.is_empty() {
+        return Err(RpcError::invalid(
+            "name a recipient or STREAM credentials, not both",
+        ));
+    }
+    if !request.note.is_empty() {
+        return Err(RpcError::invalid("STREAM credentials take no note"));
+    }
+    let shared_secret =
+        spending::check_credentials(&credentials.destination_account, &credentials.shared_secret)?;
+    let named = if credentials.asset_code.is_empty() {
+        // A scale alone names nothing, and is a mistake to say.
+        if credentials.asset_scale != 0 {
+            return Err(RpcError::invalid("an asset scale needs its asset code"));
+        }
+        None
+    } else {
+        let scale = u8::try_from(credentials.asset_scale)
+            .map_err(|_| RpcError::invalid("the asset scale is out of range"))?;
+        if !spending::is_asset_code(&credentials.asset_code) {
+            return Err(RpcError::invalid("the asset code is invalid"));
+        }
+        Some((credentials.asset_code, scale))
+    };
+    let (debit_amount, receive_amount) = fixed_amounts(request.amount)?;
+    match (debit_amount, receive_amount) {
+        (None, None) => return Err(RpcError::invalid("name an amount")),
+        (None, Some(_)) if named.is_none() => {
+            return Err(RpcError::invalid(
+                "name the receiver's asset to fix what it receives",
+            ));
+        }
+        _ => {}
+    }
+    let destination = credentials.destination_account;
+    let ledger = ledger_for(engine, &request.ledger, &destination).await?;
+    let (rate, said) =
+        spending::measure(node, ledger, (&destination, shared_secret), Prober::Owner).await?;
+    let receiver = spending::credentials_receiver(destination, shared_secret, named, said)?;
+    let asset = ledger.asset();
+    let debit = debit_amount.map(|value| Amount::new(value, asset.code, asset.scale));
+    let receive =
+        receive_amount.map(|value| Amount::new(value, &receiver.asset_code, receiver.asset_scale));
+    let (debit, receive) =
+        spending::amounts(ledger, &receiver, rate, debit.as_ref(), receive.as_ref())?;
+    let row = spending::insert_quote(
+        node,
+        urls,
+        NewQuote {
+            ledger,
+            client: None,
+            // No incoming payment's URL: the address stands for it, which
+            // marks the quote as one to credentials.
+            receiver_url: receiver.destination.clone(),
+            receiver,
+            debit,
+            receive,
+            recipient: None,
+            fixed_debit: debit_amount.is_some(),
+        },
+    )?;
+    Ok(send_quote(row, None))
+}
+
+/// A quote as the owner reads it.
+fn send_quote(row: QuoteRow, recipient: Option<proto::Recipient>) -> proto::SendQuote {
+    let asset = row.ledger.asset();
+    proto::SendQuote {
         id: row.id.to_string(),
-        ledger: ledger.as_str().into(),
+        ledger: row.ledger.as_str().into(),
         asset_code: asset.code.into(),
         asset_scale: asset.scale.into(),
         debit_amount: row.debit_amount,
         receive_amount: Some(proto::OpenPaymentsAmount {
             value: row.receive_amount.value,
-            asset_code: row.receive_amount.asset_code.clone(),
+            asset_code: row.receive_amount.asset_code,
             asset_scale: row.receive_amount.asset_scale.into(),
         }),
         receiver: row.receiver,
         expires_at_ms: row.expires_at_ms,
-        recipient: Some(found.recipient()),
-    })
+        recipient,
+    }
 }
 
 /// The amount to send and the amount to deliver, at most one of them.

@@ -38,8 +38,8 @@ pub use io::{
     SettlementAnswer, Stats, VERDICT_ACCEPTED,
 };
 pub use node::{
-    BanError, Bootstrap, NodeView, OwnInfo, PeerNode, PeerStatus, RegisterError,
-    RegistrationStatus, SendError,
+    BanError, Bootstrap, MAX_PINNED_UPLINKS, NodeView, OwnInfo, PeerNode, PeerStatus,
+    RegisterError, RegistrationStatus, SendError,
 };
 pub use persist::{PeerBatch, Stored, StoredChannel, StoredFloor, StoredNode};
 pub use table::{Advertise, Depeering, Network, Peering, Registration, Room, Sources, Termination};

@@ -740,6 +740,7 @@ impl Sim {
                 quic: false,
             },
             bootstrap: self.bootstrap.clone(),
+            uplinks: Vec::new(),
         };
         node.core = Some(Core::start(parts, now).unwrap());
         self.trace.push(format!("{} start {index}", self.now));

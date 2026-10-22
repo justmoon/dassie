@@ -176,7 +176,13 @@ async fn get_quote(
     let authorized = authorize(node, read)?;
     let not_found = || OpError::not_found("no such quote");
     let id = PaymentId::parse(id).ok_or_else(not_found)?;
-    let row = node.store().quote(id)?.ok_or_else(not_found)?;
+    // One of the owner's to STREAM credentials names no incoming payment,
+    // so it is no resource (spec/areas/payments.md#paying-stream-credentials).
+    let row = node
+        .store()
+        .quote(id)?
+        .filter(|row| !row.pays_credentials())
+        .ok_or_else(not_found)?;
     let scope = authorized.permits(urls, AccessType::Quote, Action::Read, row.ledger);
     if !reaches(scope, &authorized, row.client.as_deref()) {
         return Err(OpError::forbidden("the grant does not reach this quote"));
@@ -291,7 +297,12 @@ async fn get_outgoing(
     let authorized = authorize(node, read)?;
     let not_found = || OpError::not_found("no such outgoing payment");
     let id = PaymentId::parse(id).ok_or_else(not_found)?;
-    let row = node.store().outgoing_payment(id)?.ok_or_else(not_found)?;
+    // As a quote to STREAM credentials, no resource.
+    let row = node
+        .store()
+        .outgoing_payment(id)?
+        .filter(|row| !row.pays_credentials())
+        .ok_or_else(not_found)?;
     if !authorized.covers(
         urls,
         AccessType::OutgoingPayment,

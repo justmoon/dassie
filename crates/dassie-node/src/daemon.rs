@@ -451,6 +451,11 @@ fn make_node(
     for flag in exposed_dev_flags(settings, &bound) {
         tracing::warn!(target: target::DAEMON, "{} is set: {}. It is for development; unset it on a public node", flag.variable, flag.effect);
     }
+    // Only a periphery node has uplinks: a core node peers on its own, and
+    // one that becomes periphery later uses the list then.
+    if !settings.uplinks.is_empty() && !node.own_info().is_periphery() {
+        tracing::warn!(target: target::PEER, "DASSIE_UPLINKS is set, but the node is a core node: it peers on its own, and uses the list only while it runs as a periphery node");
+    }
     if settings.bootstrap_nodes.is_empty() {
         tracing::warn!(target: target::PEER, "no bootstrap nodes: the node runs alone (set DASSIE_BOOTSTRAP_NODES)");
     }
@@ -547,6 +552,7 @@ fn peer_options(settings: &Settings) -> PeerOptions {
             .collect(),
         ca_file: settings.peer_ca_file.clone(),
         allow_private: settings.peer_allow_private,
+        uplinks: settings.uplinks.clone(),
     }
 }
 

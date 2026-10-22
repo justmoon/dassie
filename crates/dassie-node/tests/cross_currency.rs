@@ -123,6 +123,7 @@ async fn dollars_arrive_as_xrp() {
             ledger: String::new(),
             amount: Some(proto::quote_send_request::Amount::ReceiveAmount(RECEIVE)),
             note: "for XRP".into(),
+            credentials: None,
         }))
         .await
     {
@@ -239,6 +240,7 @@ async fn dollars_arrive_as_xrp() {
                     ledger: String::new(),
                     amount: Some(proto::quote_send_request::Amount::ReceiveAmount(RECEIVE)),
                     note: String::new(),
+                    credentials: None,
                 }))
                 .await
         })

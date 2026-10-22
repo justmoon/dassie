@@ -142,7 +142,8 @@ message OutgoingPayment {
   string ledger = 4;
   string asset_code = 5;
   uint32 asset_scale = 6;
-  // The incoming payment it pays.
+  // The incoming payment it pays, or the ILP address it pays when the
+  // owner paid STREAM credentials.
   string receiver = 7;
   // What it debits at most, in the ledger's units.
   uint64 debit_amount = 8;
@@ -196,8 +197,9 @@ message OutgoingPaymentEvent {
   repeated string removed = 3;
 }
 
-// The owner's Send (M6c): to a payment pointer, a wallet address URL, or
-// a payment request (an incoming payment's URL), on this node or another.
+// The owner's Send: to a payment pointer, a wallet address URL, a payment
+// request (an incoming payment's URL), or STREAM credentials, on this node
+// or another.
 
 // Whom a payment goes to.
 message Recipient {
@@ -239,13 +241,32 @@ message ResolveRecipientResponse {
   Recipient recipient = 1;
 }
 
+// STREAM credentials, as CreateIncomingPayment returns them here or on
+// another node: a payment to them pays the receiver at them, without an
+// incoming payment's URL to read.
+message StreamCredentials {
+  // The ILP address to pay.
+  string destination_account = 1;
+  // The 32-byte shared secret.
+  bytes shared_secret = 2;
+  // The asset the receiver is paid in, as its incoming payment says; an
+  // empty code and a scale of 0 when unknown. Needed for a receive amount.
+  // The receiver must say the same, if it says one.
+  string asset_code = 3;
+  uint32 asset_scale = 4;
+}
+
 // Quotes a payment. For a wallet address it creates the incoming payment
-// there first; a payment request is paid as it is. Until M7 the debit
-// equals what the recipient gets, and a recipient in another asset is
-// refused.
+// there first; a payment request, or STREAM credentials, are paid as they
+// are. A probe measures the rate of the route, in any asset: what the
+// recipient gets is what the debit buys at that rate, which is the least
+// the payment then delivers per unit sent.
 message QuoteSendRequest {
-  // As ResolveRecipientRequest.
+  // As ResolveRecipientRequest; empty when credentials are given.
   string recipient = 1;
+  // Instead of a recipient: STREAM credentials to pay. Takes a debit
+  // amount, or a receive amount when they name the asset; no note.
+  optional StreamCredentials credentials = 6;
   // The ledger to pay from: the one the route to the recipient starts on,
   // since the node's own endpoints never convert. Empty for that one;
   // another is refused.
@@ -275,9 +296,11 @@ message SendQuote {
   uint64 debit_amount = 5;
   // What the recipient gets, in its asset.
   OpenPaymentsAmount receive_amount = 6;
-  // The incoming payment it pays.
+  // The incoming payment it pays, or the ILP address it pays when it pays
+  // STREAM credentials.
   string receiver = 7;
   uint64 expires_at_ms = 8;
+  // Absent when it pays STREAM credentials.
   Recipient recipient = 9;
 }
 

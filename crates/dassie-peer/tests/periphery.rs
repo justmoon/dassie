@@ -295,6 +295,98 @@ fn periphery_nodes_peer_with_uplinks_and_stay_out_of_the_core() {
     }
 }
 
+/// The nodes `index` peers with, sorted.
+fn peers_of(network: &Network, index: usize) -> Vec<NodeId> {
+    let mut peers: Vec<NodeId> = network.node(index).peers().map(|(id, _)| *id).collect();
+    peers.sort_unstable();
+    peers
+}
+
+// spec/areas/network.md#pinned-uplinks: a periphery node pinned to its
+// uplinks asks only them, as many as it names, across a restart too; it
+// never asks the others, which it would have asked otherwise. A core node
+// does not use the list.
+#[test]
+fn a_pinned_periphery_node_asks_only_its_uplinks() {
+    let (core, periphery) = (4, 2);
+    let mut network = Network::with_periphery(23, core, 1, periphery, Config::DEV);
+    network.pin_uplinks(core, vec![id(2)]);
+    network.pin_uplinks(core + 1, vec![id(3), id(1)]);
+    network.pin_uplinks(1, vec![id(0)]);
+    assert_eq!(network.node(core).pinned_uplinks(), Some(&[id(2)][..]));
+    assert_eq!(network.node(1).pinned_uplinks(), None);
+    settle(&mut network, 90_000);
+    assert_eq!(peers_of(&network, core), vec![id(2)]);
+    let mut both = vec![id(1), id(3)];
+    both.sort_unstable();
+    assert_eq!(peers_of(&network, core + 1), both);
+    // The core node pinned to one node still meets the usual target.
+    assert!(network.node(1).core_peers().count() >= 2);
+    network.crash(core);
+    network.start(core);
+    settle(&mut network, 90_000);
+    assert_eq!(peers_of(&network, core), vec![id(2)]);
+    // No other node was ever asked by them: only their pinned uplinks
+    // took them as downlinks.
+    for index in 0..core {
+        let node = network.node(index);
+        assert_eq!(node.is_downlink(&id(core)), index == 2, "node {index}");
+        assert_eq!(
+            node.is_downlink(&id(core + 1)),
+            index == 1 || index == 3,
+            "node {index}"
+        );
+    }
+    for (index, event) in &network.events {
+        if let Event::Peered { node, .. } = event
+            && *index >= core
+        {
+            assert!(
+                network.pinned[index].contains(node),
+                "{index} peered with {node}"
+            );
+        }
+    }
+}
+
+// spec/areas/network.md#pinned-uplinks: a node pinned after it found
+// uplinks of its own keeps them, but they take none of the places for
+// peerings it starts, so it still reaches every node it is pinned to.
+#[test]
+fn earlier_uplinks_leave_room_for_the_pinned_ones() {
+    let (core, periphery) = (8, 1);
+    let mut network = Network::with_periphery(25, core, 1, periphery, Config::DEV);
+    settle(&mut network, 90_000);
+    let before = peers_of(&network, core);
+    assert!(before.len() >= Config::DEV.peer_target, "{before:?}");
+    let mut pinned: Vec<NodeId> = (0..core)
+        .map(id)
+        .filter(|node| !before.contains(node))
+        .take(dassie_peer::MAX_PINNED_UPLINKS)
+        .collect();
+    assert_eq!(pinned.len(), dassie_peer::MAX_PINNED_UPLINKS);
+    network.pin_uplinks(core, pinned.clone());
+    settle(&mut network, 120_000);
+    let after = peers_of(&network, core);
+    pinned.sort_unstable();
+    for node in before.iter().chain(&pinned) {
+        assert!(after.contains(node), "{node} not in {after:?}");
+    }
+}
+
+// spec/areas/network.md#pinned-uplinks: a pinned uplink that is not there
+// is waited for; the node asks no other meanwhile.
+#[test]
+fn a_periphery_node_pinned_to_an_unknown_node_asks_nobody() {
+    let (core, periphery) = (3, 1);
+    let mut network = Network::with_periphery(24, core, 1, periphery, Config::DEV);
+    let nobody = NodeKey::from_bytes(&[95; 32]).node_id();
+    network.pin_uplinks(core, vec![nobody]);
+    settle(&mut network, 90_000);
+    assert!(peers_of(&network, core).is_empty());
+    assert!((0..core).all(|index| !network.node(index).is_downlink(&id(core))));
+}
+
 // spec/areas/network.md#periphery-nodes: an uplink serves its downlink's
 // link state to nobody, and floods it nowhere.
 #[test]

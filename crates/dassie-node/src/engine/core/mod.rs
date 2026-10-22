@@ -46,7 +46,9 @@ pub use ledgers::{LedgerView, RemovalBlocker};
 pub use packets::ledger_slug;
 pub use payers::{CreatedOutgoing, NewOutgoing};
 pub use peers::{NetworkView, PeerView};
-pub use probes::{MAX_PROBES, MAX_PROBES_PER_CLIENT, OWNER_PROBES, PROBE_TIMEOUT_MS, Prober};
+pub use probes::{
+    MAX_PROBES, MAX_PROBES_PER_CLIENT, Measured, OWNER_PROBES, PROBE_TIMEOUT_MS, Prober,
+};
 pub use schemes::{AssetView, LedgerEvent, SCHEMES};
 pub use settlement::Lie;
 pub use tokens::{BtpSession, NewToken, TokenView, token_hash};
@@ -147,13 +149,13 @@ pub enum Output {
         /// The reply.
         reply: dassie_peer::Reply,
     },
-    /// A rate probe is done: what the path delivers per unit sent, or
-    /// nothing, when it could not be measured.
+    /// A rate probe is done: what the path delivers per unit sent, and
+    /// the receiver's asset, or nothing, when it could not be measured.
     ProbeDone {
         /// The probe.
         id: u64,
         /// What it measured.
-        rate: Option<dassie_stream::Rate>,
+        measured: Option<Measured>,
     },
     /// Open an external asset's connection to its ledger, numbered
     /// `epoch`; what comes over it is fed back with the same epoch.
@@ -225,6 +227,8 @@ pub struct CoreParts {
     pub own_info: dassie_peer::OwnInfo,
     /// The bootstrap nodes.
     pub bootstrap: Vec<dassie_peer::Bootstrap>,
+    /// The uplinks a periphery node asks only; empty for any.
+    pub uplinks: Vec<dassie_identity::NodeId>,
 }
 
 /// The engine's state.
@@ -365,25 +369,23 @@ impl Core {
     ///
     /// The database is unreadable or inconsistent.
     pub fn start(parts: CoreParts, now_ms: u64) -> Result<Self, String> {
+        check_bounds(&parts.policies);
+        let peer = new_peer(
+            &parts.store,
+            &parts.key,
+            &parts.policies,
+            (parts.own_info, parts.bootstrap, parts.uplinks),
+            parts.peer_rng,
+            now_ms,
+        )?;
         let CoreParts {
             store,
             key,
             realm,
             policies,
             rng,
-            peer_rng,
-            own_info,
-            bootstrap,
+            ..
         } = parts;
-        check_bounds(&policies);
-        let peer = new_peer(
-            &store,
-            &key,
-            &policies,
-            (own_info, bootstrap),
-            peer_rng,
-            now_ms,
-        )?;
         let ledger = restore_ledger(&store, policies.ledger)?;
         let connector = new_connector(&store, &key, realm, &policies)?;
         let (checkpoints, asset_checkpoints) = checkpoints(&store)?;
@@ -821,16 +823,21 @@ fn check_bounds(policies: &Policies) {
 /// there is.
 pub const MAX_LOCAL_ENDPOINTS: usize = 8;
 
-/// The peer protocol's state machine, from what the store kept of it.
+/// The peer protocol's state machine, from what the store kept of it,
+/// pinned to `uplinks` while it runs as a periphery node.
 fn new_peer(
     store: &Store,
     key: &Arc<NodeKey>,
     policies: &Policies,
-    (own_info, bootstrap): (dassie_peer::OwnInfo, Vec<dassie_peer::Bootstrap>),
+    (own_info, bootstrap, uplinks): (
+        dassie_peer::OwnInfo,
+        Vec<dassie_peer::Bootstrap>,
+        Vec<dassie_identity::NodeId>,
+    ),
     peer_rng: Box<dyn SharedRng>,
     now_ms: u64,
 ) -> Result<dassie_peer::PeerNode, String> {
-    Ok(dassie_peer::PeerNode::new(
+    let mut peer = dassie_peer::PeerNode::new(
         policies.peer,
         Arc::clone(key),
         own_info,
@@ -838,7 +845,9 @@ fn new_peer(
         store.load_peer().map_err(text)?,
         Box::new(peer_rng),
         now_ms,
-    ))
+    );
+    peer.pin_uplinks(uplinks);
+    Ok(peer)
 }
 
 /// The connector, at the node's address, with this boot's epoch.

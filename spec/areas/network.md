@@ -176,9 +176,18 @@ A node without a public address joins as a periphery node ([core-and-periphery](
 - **Who is one.** A node with a QUIC endpoint and no hostname, so no URL. A node with a URL is a core node, and a core node that takes QUIC takes downlinks. The owner's hostname must make a URL peers take, with any port, so a node never turns periphery by a hostname too long ([Node](node.md#configuration)).
 - **Changing kind.** A core node that loses its URL ends the peerings with its downlinks, since a periphery node takes none, and asks for uplinks. A peer whose link state turns from core to periphery, or back, is a peer of the other kind, with another address and other bounds: the peering made as the old kind ends, and it may ask anew.
 - **Its link state** has no URL and the periphery extension ([Peer protocol](peer-protocol.md#link-states)), and lists its uplinks as its neighbors. Only its uplinks see it, in its peering requests and heartbeats: it is never forwarded or served, nor registered, so it is in no node list, and in no table but its uplinks'.
-- **Peering.** It asks core nodes from the node list whose link states say they take QUIC, as junior ([Roles](#roles)), until it has the usual target of confirmed peers. It accepts no peering request, and is never asked: no core node asks a periphery node. It seeks no bridge.
+- **Peering.** It asks core nodes from the node list whose link states say they take QUIC, as junior ([Roles](#roles)), until it has the usual target of confirmed peers, or only the nodes it is pinned to ([below](#pinned-uplinks)). It accepts no peering request, and is never asked: no core node asks a periphery node. It seeks no bridge.
 - **Routes** go through its uplinks, which never list it: it reaches whatever they reach.
 - **Its addresses** lie beneath its uplinks', and it forwards nothing ([Connector](connector.md#a-periphery-node)).
+
+### Pinned uplinks
+
+An owner may pin a periphery node's uplinks, by node ID (`env.rs`), when it must reach the network through particular core nodes: a market maker's nodes trade through the core node whose rates they watch, and a node that peered with any other would route some of its payments elsewhere.
+
+- **Only those are asked,** each still under every rule of [Looking for peers](#looking-for-peers): fresh, taking QUIC, not banned, not in backoff. A pinned node the node does not know, or cannot ask, is waited for; no other is asked meanwhile, so a pin that names no reachable core node leaves the node without an uplink rather than with one the owner did not choose.
+- **The target is as many as it names,** and only peerings with them count toward it. A peering made before with another node stays, as one on a scheme left out does, until the owner ends it: it is not counted, and takes none of the places for peerings the node starts, so it never keeps a pinned node from being asked. Its routes still serve, so an owner who wants every payment through the pinned nodes ends it.
+- **Bounded** by `MAX_PINNED_UPLINKS` in `crates/dassie-peer/src/node/mod.rs`, no more than the peerings any configuration lets a node start, so every pinned node can be asked.
+- **Only a periphery node uses the list.** A core node finds its peers itself, and warns at start that it ignores the list; one that turns periphery later uses it from then on, as a periphery node that turns core stops.
 
 ### Downlinks
 
@@ -209,7 +218,7 @@ What is lost is either fetched again (bootstrap lists) or only paces the node's 
 
 The `peer` simulation (`dassie_peer::sim::chaos`) runs this protocol on a rough network with crashes, partitions, terminations and bans, and checks that link states and routes converge, peerings are two-sided, every termination finishes, and each settlement is applied exactly once ([Testing](testing.md#the-simulations)).
 
-Periphery nodes peer with their uplinks on the same simulated network in `crates/dassie-peer/tests/periphery.rs`; `crates/dassie-node/tests/periphery.rs` has a periphery daemon peer with a core daemon over QUIC and get paid beneath it.
+Periphery nodes peer with their uplinks on the same simulated network in `crates/dassie-peer/tests/periphery.rs`, pinned ones too; `crates/dassie-node/tests/periphery.rs` has a periphery daemon peer with a core daemon over QUIC and get paid beneath it, and one pinned to a core node ask only that one.
 
 ## Decisions
 

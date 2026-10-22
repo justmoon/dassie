@@ -272,7 +272,7 @@
         "Config, TLS, certificates and sessions",
         "Ledgers, BTP tokens, payments and debug data",
         "Nodes, peers, routes, settlements and bans",
-        "Wallet addresses, payments, grants and Send",
+        "Wallet addresses, payments, grants and Send, to a wallet, a payment request or STREAM credentials",
         "`Subscribe*` streams: a snapshot, then changes, at most 4 a second",
         "Carried over a WebSocket (browsers) or the IPC socket (the CLI and Node), at most 1 MiB a message"
       ]
@@ -423,7 +423,7 @@
         "The wire format and message authentication",
         "The node table, link-state flooding, membership by majority and registration",
         "Peering on its own, and routing",
-        "Periphery nodes without a URL, which peer only with core nodes as their downlinks",
+        "Periphery nodes without a URL, which peer only with core nodes as their downlinks, and only with those their owner pinned when it pinned any",
         "Advertising only peers that are alive and not stuck short of room, never ending one for room it could not pay",
         "Delivering settlements and requests to settle, ending peerings, bans"
       ]

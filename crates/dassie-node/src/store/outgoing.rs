@@ -46,7 +46,8 @@ pub struct QuoteRow {
     pub wallet_address: String,
     /// The client that made it; none for the owner.
     pub client: Option<String>,
-    /// The incoming payment it pays.
+    /// The incoming payment it pays, or the destination when it pays STREAM
+    /// credentials ([`QuoteRow::pays_credentials`]).
     pub receiver: String,
     /// The receiver's STREAM destination.
     pub destination: String,
@@ -64,6 +65,18 @@ pub struct QuoteRow {
     pub recipient: Option<String>,
     /// Whether it fixes what is sent, rather than what is delivered.
     pub fixed_debit: bool,
+}
+
+impl QuoteRow {
+    /// Whether it pays STREAM credentials the owner named, which no
+    /// incoming payment's URL names: its receiver is then its destination,
+    /// an ILP address, which is never a URL
+    /// (spec/areas/payments.md#paying-stream-credentials). It is no Open Payments
+    /// resource.
+    #[must_use]
+    pub fn pays_credentials(&self) -> bool {
+        self.receiver == self.destination
+    }
 }
 
 /// Where an outgoing payment is.
@@ -113,7 +126,8 @@ pub struct OutgoingRow {
     pub grant: Option<(PaymentId, u64)>,
     /// The quote it pays, if any.
     pub quote_id: Option<PaymentId>,
-    /// The incoming payment it pays.
+    /// The incoming payment it pays, or the destination when it pays STREAM
+    /// credentials ([`OutgoingRow::pays_credentials`]).
     pub receiver: String,
     /// The receiver's STREAM destination.
     pub destination: String,
@@ -142,6 +156,14 @@ pub struct OutgoingRow {
     /// Whether it sends all its debit amount, rather than stopping once
     /// the receiver has its receive amount.
     pub fixed_debit: bool,
+}
+
+impl OutgoingRow {
+    /// Whether it pays STREAM credentials, as [`QuoteRow::pays_credentials`].
+    #[must_use]
+    pub fn pays_credentials(&self) -> bool {
+        self.receiver == self.destination
+    }
 }
 
 /// What a step changed of an outgoing payment.
@@ -304,14 +326,16 @@ impl Store {
     }
 
     /// A page of outgoing payments (Open Payments pagination), or `None`
-    /// when the cursor is not an item the query could list.
+    /// when the cursor is not an item the query could list. Payments to
+    /// STREAM credentials, which no incoming payment names, are no Open
+    /// Payments resources (spec/areas/payments.md#paying-stream-credentials).
     pub fn outgoing_page(
         &self,
         query: &IncomingQuery<'_>,
     ) -> Result<Option<Page<OutgoingRow>>, StoreError> {
         page(
             &self.lock(),
-            "outgoing_payments",
+            ("outgoing_payments", "receiver <> destination"),
             OUTGOING_COLUMNS,
             read_outgoing,
             query,

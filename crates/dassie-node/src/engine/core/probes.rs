@@ -89,6 +89,17 @@ fn probe_room<'a>(
     Ok(())
 }
 
+/// What a probe measured: what the path delivers per unit sent, and the
+/// asset the receiver said it is paid in, if it said one (STREAM's
+/// `ConnectionAssetDetails`). The asset is the receiver's word, unchecked.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Measured {
+    /// The rate.
+    pub rate: Rate,
+    /// The receiver's asset code and scale.
+    pub asset: Option<(String, u8)>,
+}
+
 /// A probe in progress.
 pub(super) struct Probe {
     ledger: LedgerId,
@@ -215,9 +226,14 @@ impl Core {
         let Some(rate) = probe.done else {
             return;
         };
+        let asset = probe
+            .connection
+            .remote_asset()
+            .map(|asset| (asset.code.to_string(), asset.scale));
+        let measured = rate.map(|rate| Measured { rate, asset });
         // Its packets still in flight settle without it.
         self.spending.probes.remove(&id);
-        self.outputs_peer.push(Output::ProbeDone { id, rate });
+        self.outputs_peer.push(Output::ProbeDone { id, measured });
     }
 
     /// Runs the probes' timers.
