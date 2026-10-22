@@ -87,7 +87,7 @@ Each simulation lives in its crate's `src/sim/`, and `dassie-sim list` names the
 
 An issuer's freeze stops what the nodes it touches pay or are paid, and lasts up to the grace a peer short of room has, drawn from the production timings. So while it holds, and for a grace after it is lifted, the check that routine settlement withdraws no honest peer accepts that the pairs it touches are withdrawn: that is the production rule at work ([Settlement](settlement.md#when-peers-cannot-pay-us)).
 
-The `node` simulation counts what it reached (crashes mid-payment, cuts, settlements, withdrawals, …), and a test asserts that its fixed seeds between them reach every kind of fault and payment, so that a generator cannot quietly stop reaching a case.
+The `node` simulation counts what it reached (crashes mid-payment, cuts, settlements, withdrawals, …), and a test asserts that its fixed seeds between them reach every kind of fault and payment, so that a generator cannot quietly stop reaching a case. An outcome too rare for a few fixed seeds to be sure to reach, such as a settlement booked after its peering ended, has a targeted test instead: a minimum on it would fail whenever an unrelated change moved the seeds' runs.
 
 ### Outcomes
 

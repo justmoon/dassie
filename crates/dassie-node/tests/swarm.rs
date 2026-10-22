@@ -18,8 +18,12 @@ use dassie_node_core::testing::caught;
 /// The seeds CI runs.
 const SEEDS: Range<u64> = 0..16;
 
-/// What the seeds must reach between them, at least.
-const LEAST: [(&str, u64); 25] = [
+/// What the seeds must reach between them, at least. A settlement booked
+/// after the end of its peering is too rare in the drawn runs, a seed in
+/// forty or so, for a fixed handful to be sure to reach it:
+/// `a_settlement_that_lands_after_the_end_is_credited_once` in
+/// `tests/network.rs` reaches it every time.
+const LEAST: [(&str, u64); 24] = [
     ("payments", 10),
     ("capped payments", 1),
     ("outgoing payments", 1),
@@ -37,7 +41,6 @@ const LEAST: [(&str, u64); 25] = [
     ("peerings ended", 10),
     ("bans", 10),
     ("ends that collected a settlement on its way", 5),
-    ("settlements booked after the end", 1),
     ("replays", 20),
     ("replays refused", 20),
     ("clocks off", 10),

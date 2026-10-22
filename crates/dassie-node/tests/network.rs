@@ -1018,6 +1018,69 @@ fn a_node_peers_only_once_it_has_seen_its_ledger() {
     check_books(&sim).unwrap();
 }
 
+// spec/decisions/ending-a-peering.md: a settlement that lands after the
+// peering ended is credited to the peer's account, once. The junior's owner
+// ends the peering, and the senior answers the last request with a
+// settlement on its way. The junior's ledger link drops then, and stays
+// down: the junior waits out its bound and ends the peering, and books the
+// settlement only once its ledger is back. The node simulation's drawn runs
+// reach this only now and then.
+#[test]
+fn a_settlement_that_lands_after_the_end_is_credited_once() {
+    let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::Xrpl);
+    sim.loss_per_mille = 0;
+    let peered = |sim: &Sim| !sim.peers(0).is_empty() && !sim.peers(1).is_empty();
+    assert!(
+        sim.run_until_or(START + 5 * 60_000, peered),
+        "the nodes did not peer"
+    );
+    let junior = usize::from(sim.core(0).network().peers[0].peering.inbound);
+    let senior = 1 - junior;
+    let senior_id = key(senior).node_id();
+    sim.pay(senior, junior, 3_000_000_000, None, None);
+    sim.run_until(sim.now + 60_000);
+    assert!(
+        -sim.owes(junior, &senior_id) > 0,
+        "the senior owes the junior nothing"
+    );
+    let mark = sim.trace.len();
+    sim.step(junior, |core| core.terminate_peering(senior_id).unwrap());
+    let answered = format!(
+        " {junior} PeerNode(SettlementRequestAnswered {{ peer: {senior_id:?}, settling: Some("
+    );
+    let found = |sim: &Sim, from: usize, text: &str| {
+        sim.trace[from..]
+            .iter()
+            .position(|line| line.contains(text))
+            .map(|at| from + at)
+    };
+    assert!(
+        sim.run_until_or(sim.now + 60_000, |sim| found(sim, mark, &answered)
+            .is_some()),
+        "the senior answered the last request with nothing on its way"
+    );
+    sim.ledger_down.insert(junior);
+    sim.drop_ledger_link(junior);
+    let ended = format!(" {junior} PeerNode(PeeringEnded {{ peer: {senior_id:?}");
+    assert!(
+        sim.run_until_or(sim.now + 600_000, |sim| found(sim, mark, &ended).is_some()),
+        "the peering did not end"
+    );
+    let end = found(&sim, mark, &ended).unwrap();
+    let booked = format!(" {junior} Settlement(SettlementBooked {{ from: {senior_id:?}");
+    assert!(
+        found(&sim, mark, &booked).is_none(),
+        "booked before the end"
+    );
+    sim.ledger_down.clear();
+    sim.run_until(sim.now + 120_000);
+    assert!(
+        found(&sim, end, &booked).is_some(),
+        "the settlement was not booked after the end"
+    );
+    check_books(&sim).unwrap();
+}
+
 // spec/decisions/synced-before-peering.md: having seen its ledger once, a
 // node peers on the scheme after a restart while its ledger is out of reach,
 // and keeps the peerings it has: the first sync is kept with the scheme's
