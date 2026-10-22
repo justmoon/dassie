@@ -112,8 +112,8 @@ pub const CREDIT: i128 = 1_100_000_000;
 /// (spec/decisions/thresholds-in-packets.md).
 pub const TRIGGER: u64 = policy::trigger(Policies::DEFAULT.connector.max_packet_amount);
 /// How long a payment's client waits to measure the exchange rate again,
-/// after a measurement failed, or to connect again, after its connection
-/// closed.
+/// after a measurement failed or a rate too low stopped its money, or to
+/// connect again, after its connection closed.
 pub const RATE_RETRY_MS: u64 = 5_000;
 /// How often the fake ledger closes a ledger.
 pub const LEDGER_CLOSE_MS: u64 = 3_500;
@@ -380,7 +380,8 @@ pub struct Payment {
     /// for, so that its client stopped there.
     pub expired: bool,
     /// When its client measures the exchange rate again, after a
-    /// measurement failed, or connects again, after its connection closed.
+    /// measurement failed or a rate too low stopped its money, or connects
+    /// again, after its connection closed.
     rate_retry_at: Option<u64>,
 }
 
@@ -1866,11 +1867,20 @@ impl Sim {
                     .get_or_insert(self.now + RATE_RETRY_MS);
             }
             // A measurement of the rate fails when no probe gets through,
-            // as across a cut link. The library reports it and leaves the
-            // rest to its user: a sender tries again a while later.
+            // as across a cut link. And money stops once the receiver got
+            // less than the rate promises: the path got dearer, as when a
+            // route through a hop that charges less is withdrawn and the
+            // packets go through one that charges more. The library reports
+            // either and leaves the rest to its user: this sender, which
+            // pays an amount whatever the path delivers, measures the rate
+            // again a while later, and sends at what the path delivers now.
             let mut taken_all = false;
             while let Some(event) = payment.connection.poll_event() {
-                if event == dassie_stream::Event::ExchangeRateMeasurementFailed {
+                if matches!(
+                    event,
+                    dassie_stream::Event::ExchangeRateMeasurementFailed
+                        | dassie_stream::Event::ExchangeRateTooLow { .. }
+                ) {
                     payment.rate_retry_at = Some(self.now + RATE_RETRY_MS);
                 }
                 // Its receiver says it has all it asked for.
