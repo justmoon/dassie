@@ -16,7 +16,8 @@ use sha2::{Digest, Sha512};
 
 use crate::MAX_DROPS;
 use crate::amount::{
-    Amount, Asset, Currency, MAX_EXPONENT, MAX_MANTISSA, MIN_MANTISSA, TokenAmount, TokenValue,
+    Amount, Asset, Currency, MAX_EXPONENT, MAX_MANTISSA, MIN_EXPONENT, MIN_MANTISSA, TokenAmount,
+    TokenValue,
 };
 
 /// What a trading fee is counted in: a fee of 1 is a hundred-thousandth.
@@ -68,7 +69,7 @@ pub fn swap_in(
     if out_dec.mantissa == 0 {
         return Ok(zero(pool_in.asset()));
     }
-    let left = sub(pool_out_dec, out_dec).ok_or(SwapError::Dry)?;
+    let left = sub(pool_out_dec, out_dec)?;
     if left.mantissa == 0 {
         return Err(SwapError::Dry);
     }
@@ -268,11 +269,12 @@ fn add(a: Decimal, b: Decimal) -> Result<Decimal, SwapError> {
     })
 }
 
-/// `a − b`; `None` if it is below zero or not exact in 128 bits.
-fn sub(a: Decimal, b: Decimal) -> Option<Decimal> {
-    let (a, b, exponent) = aligned(a, b)?;
-    Some(Decimal {
-        mantissa: a.checked_sub(b)?,
+/// `a − b`, what is left of a pool's `a` once `b` is taken: dry if that
+/// is below zero, inexact if the two do not align in 128 bits.
+fn sub(a: Decimal, b: Decimal) -> Result<Decimal, SwapError> {
+    let (a, b, exponent) = aligned(a, b).ok_or(SwapError::Inexact)?;
+    Ok(Decimal {
+        mantissa: a.checked_sub(b).ok_or(SwapError::Dry)?,
         exponent,
     })
 }
@@ -409,6 +411,16 @@ fn token_value(n: u128, d: u128, exponent: i32, round: Round) -> Result<TokenVal
     if exponent > MAX_EXPONENT {
         return Err(SwapError::TooLarge);
     }
+    if exponent < MIN_EXPONENT {
+        // Below the least value the ledger holds: nothing, rounded down,
+        // and that least value, rounded up.
+        return Ok(match round {
+            Round::Down => TokenValue::ZERO,
+            Round::Up => {
+                TokenValue::new(false, MIN_MANTISSA, MIN_EXPONENT).ok_or(SwapError::Inexact)?
+            }
+        });
+    }
     let mantissa = u64::try_from(quotient).map_err(|_| SwapError::TooLarge)?;
     TokenValue::new(false, mantissa, exponent).ok_or(SwapError::Inexact)
 }
@@ -482,6 +494,27 @@ mod tests {
             Err(SwapError::TooLarge)
         );
         assert_eq!(swap_in(xrp, dollars, 0, usd("0")), Ok(Amount::Xrp(0)));
+        // A tiny amount out of a large pool is no dry pool: the two do not
+        // align in 128 bits.
+        assert_eq!(
+            swap_in(xrp, usd("500"), 0, usd("1e-80")),
+            Err(SwapError::Inexact)
+        );
+    }
+
+    #[test]
+    fn prices_below_the_least_value_round_to_zero_or_to_it() {
+        let least = Amount::Token(TokenAmount {
+            value: TokenValue::new(false, MIN_MANTISSA, MIN_EXPONENT).unwrap(),
+            ..usd("1").token().copied().unwrap()
+        });
+        // A drop into a pool of 10^17 drops and 10^-80 USD yields
+        // 10^-97 USD: nothing the ledger holds.
+        let (xrp, dollars) = (Amount::Xrp(MAX_DROPS), usd("1e-80"));
+        assert_eq!(swap_out(xrp, dollars, 0, Amount::Xrp(1)), Ok(usd("0")));
+        // A drop out of a pool of 10^-80 USD and 10^17 drops costs about
+        // 10^-97 USD: up to the least value there is.
+        assert_eq!(swap_in(dollars, xrp, 0, Amount::Xrp(1)), Ok(least));
     }
 
     #[test]
