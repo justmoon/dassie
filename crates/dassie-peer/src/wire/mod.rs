@@ -68,6 +68,12 @@ pub const EXTENSION_QUIC: u16 = 2;
 /// value is empty. Only with it may a link state's URL be empty.
 pub const EXTENSION_PERIPHERY: u16 = 3;
 
+/// The link-state extension that names the UDP port of a core node's rate
+/// feed, at its URL's host (spec/areas/rate-feed.md#finding-a-feed). Its
+/// value is the port, a `UInt16`, never 0. A node without a feed, and a
+/// periphery node, which has no URL, leave it out.
+pub const EXTENSION_FEED: u16 = 4;
+
 /// Most scheme versions in a peering request.
 pub const MAX_VERSIONS: usize = 16;
 

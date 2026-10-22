@@ -56,6 +56,10 @@ pub struct OwnInfo {
     /// dials out from, which makes it a periphery node
     /// (spec/areas/network.md#periphery-nodes).
     pub quic: bool,
+    /// The UDP port of its rate feed, at its URL's host, if it publishes
+    /// one (spec/areas/rate-feed.md#finding-a-feed). Only a node with a URL
+    /// names it.
+    pub feed_port: Option<u16>,
 }
 
 impl OwnInfo {
@@ -77,10 +81,14 @@ impl OwnInfo {
         } else {
             String::new()
         };
+        // A feed is at the URL's host: without a URL, there is none to
+        // name, and port 0 is none.
+        let feed_port = self.feed_port.filter(|port| *port != 0 && url.is_some());
         Self {
             url,
             alias,
             quic: self.quic,
+            feed_port,
         }
     }
 }

@@ -273,6 +273,7 @@ fn our_sequence_survives_restarts_and_clock_rollback() {
                 url: Some(url(0)),
                 alias: String::new(),
                 quic: false,
+                feed_port: None,
             },
             Vec::new(),
             Stored {
@@ -671,6 +672,7 @@ fn taking_quic(own: &Arc<NodeKey>, boot: &NodeKey) -> PeerNode {
             url: Some(url(0)),
             alias: String::new(),
             quic: true,
+            feed_port: None,
         },
         vec![dassie_peer::Bootstrap {
             id: boot.node_id(),
@@ -777,4 +779,116 @@ fn link_states_say_who_takes_quic_and_requests_follow_them() {
     }
     assert!(!after.is_empty());
     assert!(after.iter().all(|request| request.quic));
+}
+
+/// The link state `node` issues first, as it goes to its bootstrap node.
+fn own_link_state(mut node: PeerNode) -> Vec<u8> {
+    node.handle_timeout(START, &mut dassie_peer::sim::StubHooks::default());
+    sent(&mut node)
+        .iter()
+        .find_map(|request| {
+            let envelope = dassie_peer::wire::Envelope::decode(&request.body).ok()?;
+            match Content::decode_exact(envelope.content).ok()? {
+                Content::LinkStateUpdate(state) => Some(state.bytes.to_vec()),
+                _ => None,
+            }
+        })
+        .unwrap()
+}
+
+/// A core node at `url(0)` whose rate feed is at `feed_port`, if any.
+fn with_feed(own: &Arc<NodeKey>, boot: &NodeKey, feed_port: Option<u16>) -> PeerNode {
+    PeerNode::new(
+        Config::DEV,
+        Arc::clone(own),
+        OwnInfo {
+            url: Some(url(0)),
+            alias: String::new(),
+            quic: true,
+            feed_port,
+        },
+        vec![dassie_peer::Bootstrap {
+            id: boot.node_id(),
+            url: url(1),
+            key: boot.public_key(),
+        }],
+        Stored::default(),
+        Box::new(SeededRng::new(1)),
+        START,
+    )
+}
+
+// A core node with a rate feed names its port in its link state, beside
+// QUIC's; one without names none (spec/areas/rate-feed.md#finding-a-feed).
+#[test]
+fn a_core_node_names_its_feed_port_in_its_link_state() {
+    let (own, boot) = (key(0), key(1));
+    let bytes = own_link_state(with_feed(&own, &boot, Some(7768)));
+    let state = SignedNodeInfo::decode_exact(&bytes).unwrap();
+    assert!(state.verify().is_ok());
+    assert_eq!(state.info.feed_port(), Some(7768));
+    assert!(state.info.speaks_quic());
+    let bytes = own_link_state(with_feed(&own, &boot, None));
+    let state = SignedNodeInfo::decode_exact(&bytes).unwrap();
+    assert_eq!(state.info.feed_port(), None);
+}
+
+// A feed is at the URL's host: a node without a URL, a periphery node,
+// names no port, and port 0 is none.
+#[test]
+fn only_a_node_with_a_url_names_a_feed_port() {
+    let info = |url: Option<String>, feed_port| {
+        OwnInfo {
+            url,
+            alias: String::new(),
+            quic: true,
+            feed_port,
+        }
+        .checked()
+        .feed_port
+    };
+    assert_eq!(info(Some(url(0)), Some(7768)), Some(7768));
+    assert_eq!(info(None, Some(7768)), None);
+    assert_eq!(info(Some(url(0)), Some(0)), None);
+}
+
+/// A signed link state of `key` at `url(0)` with a feed extension of
+/// `value`.
+fn feed_link_state(key: &NodeKey, value: &[u8]) -> Vec<u8> {
+    let url = url(0);
+    let info = NodeInfo {
+        node_id: key.node_id(),
+        sequence: START,
+        url: &url,
+        alias: "",
+        public_key: *key.public_key().as_bytes(),
+        entries: vec![Entry::Extension {
+            kind: dassie_peer::wire::EXTENSION_FEED,
+            value,
+        }],
+    };
+    sign_node_info(key, &info)
+}
+
+// The extension is a port, two octets, never 0. One that is not names no
+// port, but still verifies and re-encodes to its bytes, so a node that
+// reads it keeps and forwards it as it came, as one that does not know the
+// kind does.
+#[test]
+fn the_feed_extension_round_trips_and_a_bad_one_names_no_port() {
+    let key = key(3);
+    for (value, port) in [
+        (&[0x1e, 0x58][..], Some(7768)),
+        (&[0x00, 0x00][..], None),
+        (&[0x1e][..], None),
+        (&[0x1e, 0x58, 0x00][..], None),
+        (&[][..], None),
+    ] {
+        let bytes = feed_link_state(&key, value);
+        let state = SignedNodeInfo::decode_exact(&bytes).unwrap();
+        assert!(state.verify().is_ok(), "{value:?}");
+        assert_eq!(state.info.feed_port(), port, "{value:?}");
+        assert_eq!(state.bytes, &bytes[..]);
+        assert_eq!(state.info.to_vec(), state.signed);
+    }
 }
