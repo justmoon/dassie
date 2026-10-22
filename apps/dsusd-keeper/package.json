@@ -1,0 +1,16 @@
+{
+  "name": "@dassie/dsusd-keeper",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node main.ts"
+  },
+  "dependencies": {
+    "xrpl": "5.3.0"
+  },
+  "devDependencies": {
+    "@std/assert": "jsr:^1.0.19",
+    "@types/node": "^26.6.5"
+  }
+}

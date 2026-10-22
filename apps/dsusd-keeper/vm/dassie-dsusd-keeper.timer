@@ -1,0 +1,11 @@
+# Runs the DSUSD keeper (dassie-dsusd-keeper.service) every few minutes,
+# counted from the end of the last run, so runs never overlap.
+[Unit]
+Description=Dassie DSUSD keeper, every few minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+
+[Install]
+WantedBy=timers.target
