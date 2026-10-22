@@ -118,10 +118,18 @@ impl PeerNode {
             .min()
     }
 
+    /// Whether the node may start a peering now. A node pinned to its
+    /// uplinks counts only peerings with them among those it started, so
+    /// that ones made before the pin never keep it from asking them
+    /// (spec/areas/network.md#pinned-uplinks); `max_peers` still bounds
+    /// them all.
     fn can_start(&self) -> bool {
+        let pinned = self.pinned_uplinks();
         let outbound = self
             .core_peers()
-            .filter(|(_, peering)| !peering.inbound)
+            .filter(|(id, peering)| {
+                !peering.inbound && pinned.is_none_or(|pinned| pinned.binary_search(id).is_ok())
+            })
             .count();
         self.peering.attempt.is_none()
             && !self.schemes.is_empty()

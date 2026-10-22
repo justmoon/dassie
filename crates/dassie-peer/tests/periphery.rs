@@ -349,6 +349,31 @@ fn a_pinned_periphery_node_asks_only_its_uplinks() {
     }
 }
 
+// spec/areas/network.md#pinned-uplinks: a node pinned after it found
+// uplinks of its own keeps them, but they take none of the places for
+// peerings it starts, so it still reaches every node it is pinned to.
+#[test]
+fn earlier_uplinks_leave_room_for_the_pinned_ones() {
+    let (core, periphery) = (8, 1);
+    let mut network = Network::with_periphery(25, core, 1, periphery, Config::DEV);
+    settle(&mut network, 90_000);
+    let before = peers_of(&network, core);
+    assert!(before.len() >= Config::DEV.peer_target, "{before:?}");
+    let mut pinned: Vec<NodeId> = (0..core)
+        .map(id)
+        .filter(|node| !before.contains(node))
+        .take(dassie_peer::MAX_PINNED_UPLINKS)
+        .collect();
+    assert_eq!(pinned.len(), dassie_peer::MAX_PINNED_UPLINKS);
+    network.pin_uplinks(core, pinned.clone());
+    settle(&mut network, 120_000);
+    let after = peers_of(&network, core);
+    pinned.sort_unstable();
+    for node in before.iter().chain(&pinned) {
+        assert!(after.contains(node), "{node} not in {after:?}");
+    }
+}
+
 // spec/areas/network.md#pinned-uplinks: a pinned uplink that is not there
 // is waited for; the node asks no other meanwhile.
 #[test]

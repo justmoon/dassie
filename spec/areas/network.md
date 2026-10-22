@@ -185,7 +185,7 @@ A node without a public address joins as a periphery node ([core-and-periphery](
 An owner may pin a periphery node's uplinks, by node ID (`env.rs`), when it must reach the network through particular core nodes: a market maker's nodes trade through the core node whose rates they watch, and a node that peered with any other would route some of its payments elsewhere.
 
 - **Only those are asked,** each still under every rule of [Looking for peers](#looking-for-peers): fresh, taking QUIC, not banned, not in backoff. A pinned node the node does not know, or cannot ask, is waited for; no other is asked meanwhile, so a pin that names no reachable core node leaves the node without an uplink rather than with one the owner did not choose.
-- **The target is as many as it names,** and only peerings with them count toward it. A peering made before with another node stays, as one on a scheme left out does, but is not counted.
+- **The target is as many as it names,** and only peerings with them count toward it. A peering made before with another node stays, as one on a scheme left out does, until the owner ends it: it is not counted, and takes none of the places for peerings the node starts, so it never keeps a pinned node from being asked. Its routes still serve, so an owner who wants every payment through the pinned nodes ends it.
 - **Bounded** by `MAX_PINNED_UPLINKS` in `crates/dassie-peer/src/node/mod.rs`, no more than the peerings any configuration lets a node start, so every pinned node can be asked.
 - **Only a periphery node uses the list.** A core node finds its peers itself, and warns at start that it ignores the list; one that turns periphery later uses it from then on, as a periphery node that turns core stops.
 
