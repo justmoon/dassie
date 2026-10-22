@@ -15,9 +15,9 @@
 //!   flight, and tells the schemes on it what the ledger says.
 //! - [`scheme`]: the `xrpl-testnet` settlement scheme, which settles in the
 //!   account's XRP and books what the account tells it.
-//! - [`rlusd`]: the `xrpl-testnet-rlusd` settlement scheme, which settles in
-//!   RLUSD on the account's trust line to its issuer, with the account's
-//!   XRP as gas.
+//! - [`token`]: the token scheme, which settles in a dollar token on the
+//!   account's trust line to its issuer, with the account's XRP as gas;
+//!   [`rlusd`] is it in RLUSD (`xrpl-testnet-rlusd`).
 //! - `fake` (feature `fake`): a model of the ledger, for simulations and
 //!   tests.
 //!
@@ -40,11 +40,13 @@ pub mod fake;
 pub mod keys;
 pub mod rlusd;
 pub mod scheme;
+pub mod token;
 
 pub use account::{Config, XrplAccount};
 pub use keys::{AccountId, Wallet};
 pub use rlusd::RlusdScheme;
 pub use scheme::XrplScheme;
+pub use token::{IssuedToken, Token, TokenScheme};
 
 /// Drops per XRP. The ledger counts in drops, at scale 6.
 pub const DROPS_PER_XRP: u64 = 1_000_000;
