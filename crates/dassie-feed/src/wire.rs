@@ -221,8 +221,9 @@ pub struct Rate {
     pub to: u8,
     /// What one unit in gets out, × 10^[`RATE_PRECISION`], in each ledger's
     /// own units, the node's spread included: a packet that comes in with
-    /// `amount` goes out with `floor((amount − fee) × rate_e15 / 10^15)`,
-    /// the fee taken from `amount` at [`Feed::fee_ppm`].
+    /// `amount` goes out with at most `floor((amount − fee) × rate_e15 /
+    /// 10^15)`, the fee taken from `amount` at [`Feed::fee_ppm`], and less
+    /// by its own impact on the node's inventory (spec/areas/rate-feed.md).
     pub rate_e15: u64,
 }
 

@@ -19,8 +19,8 @@ use alloc::vec::Vec;
 
 use crate::pricing::DEFAULT_REBALANCE_PPM;
 use crate::{
-    Charges, Config, Connector, EndpointId, Outcome, PriceTable, Pricing, Rates, Responded,
-    Upstream,
+    Charges, Config, Connector, EndpointId, Holding, Inventory, Outcome, PriceTable, Pricing,
+    Rates, Responded, Upstream,
 };
 use dassie_ilp::{
     Address, ErrorCode, Fulfill, MAX_PACKET_LENGTH, Prepare, Reject, Response, Timestamp,
@@ -146,28 +146,29 @@ impl Harness {
     }
 
     /// The price table at `now`, from the rates, the pricing and what the
-    /// owner holds on each ledger it has funds on, as the node builds it.
+    /// owner's group holds on each ledger whose books are open, as the node
+    /// builds it.
     pub fn prices(&self, now: u64) -> PriceTable {
-        let inventories: Vec<(LedgerId, u64)> = LedgerId::ALL
+        let inventories: Vec<Inventory> = LedgerId::ALL
             .into_iter()
-            .filter_map(|ledger| Some((ledger, self.available(ledger)?)))
+            .filter_map(|ledger| self.inventory(ledger))
             .collect();
         let max_age_ms = self.connector.config().max_rate_age_ms;
         PriceTable::build(&self.rates, &inventories, self.pricing, now, max_age_ms)
     }
 
-    /// What the owner may spend on `ledger`, if it has funds there: its
-    /// group's posted credits less its debits, posted and pending.
-    pub fn available(&self, ledger: LedgerId) -> Option<u64> {
+    /// The owner's group on `ledger`, if its books are open, and what it
+    /// holds.
+    pub fn inventory(&self, ledger: LedgerId) -> Option<Inventory> {
         let owner = self
             .ledger
             .find(&AccountPath::new(ledger, AccountName::EquityOwner))?;
         let balance = self.ledger.group_balance(owner)?;
-        let available = balance
-            .credits_posted
-            .saturating_sub(balance.debits_posted)
-            .saturating_sub(balance.debits_pending);
-        Some(u64::try_from(available).unwrap_or(u64::MAX))
+        Some(Inventory {
+            ledger,
+            owner,
+            holding: Holding::of(&balance),
+        })
     }
 
     /// Handles a response, and says where it goes on.

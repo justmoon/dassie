@@ -138,7 +138,7 @@ impl Connector {
         if prepare.destination.has_prefix(ildcp::ADDRESS) {
             return self.ildcp(now_ms, trace, source, &prepare, out);
         }
-        let route = match self.route(now_ms, source, &prepare, prices) {
+        let route = match self.route(now_ms, source, &prepare, prices, ledger) {
             Ok(route) => route,
             Err(refusal) => return self.answer(now_ms, trace, &refusal, out),
         };
@@ -227,6 +227,7 @@ impl Connector {
         source: EndpointId,
         prepare: &Prepare<'_>,
         prices: &PriceTable,
+        ledger: &Ledger,
     ) -> Result<Route, Refusal> {
         let config = &self.config;
         let from = self
@@ -266,7 +267,7 @@ impl Connector {
                 }),
             });
         }
-        let (fee, amount_out) = self.amounts(now_ms, source, to, prepare.amount, prices)?;
+        let (fee, amount_out) = self.amounts(now_ms, source, to, prepare.amount, prices, ledger)?;
         self.admits_in_flight(source, to, prepare.amount, amount_out)?;
         Ok(Route {
             to,
@@ -308,8 +309,9 @@ impl Connector {
 
     /// Our fee on a packet from `source` to `to`, and what goes on: only
     /// transit from one peer to another is charged, and converts at the
-    /// table's price, which the owner's inventory moves from spot
-    /// (spec/decisions/passive-rebalancing.md); a peer's packet into the
+    /// curve, at what the owner holds on each ledger by `ledger`'s books
+    /// now, the packets in flight and the packet's own move counted against
+    /// it (spec/decisions/passive-rebalancing.md); a peer's packet into the
     /// owner's own endpoints converts at spot. The owner's own endpoints
     /// never convert, so what the owner holds on one ledger is never spent on
     /// another by a packet (spec/areas/ledger.md#the-owners-accounts). The
@@ -321,6 +323,7 @@ impl Connector {
         to: EndpointId,
         amount: u64,
         prices: &PriceTable,
+        ledger: &Ledger,
     ) -> Result<(u64, u64), Refusal> {
         let internal = refuse(ErrorCode::T00_INTERNAL_ERROR, "internal error");
         let (Some(from), Some(destination)) = (self.endpoints.get(source), self.endpoints.get(to))
@@ -346,8 +349,17 @@ impl Connector {
         let amount_out = if !converts {
             net
         } else if transit {
+            let holdings = prices.live_holdings(ledger);
             prices
-                .convert(from.ledger, destination.ledger, net, now_ms, max_age_ms)
+                .convert(
+                    from.ledger,
+                    destination.ledger,
+                    amount,
+                    net,
+                    &holdings,
+                    now_ms,
+                    max_age_ms,
+                )
                 .map_err(price_refusal)?
         } else {
             prices
@@ -582,7 +594,9 @@ const fn cap_refusal(refusal: CapRefusal, amount: u64) -> Refusal {
 }
 
 /// What a conversion's refusal means to the sender: rates come back, and
-/// funds on the way out, so both are temporary.
+/// funds on the way out, so both are temporary. A pair without a rate, or
+/// whose result does not fit, is as a missing rate (T00); only a want of
+/// funds on the way out is T04.
 const fn price_refusal(error: PriceError) -> Refusal {
     match error {
         PriceError::Stale => refuse(ErrorCode::T00_INTERNAL_ERROR, "exchange rates are stale"),
@@ -590,7 +604,9 @@ const fn price_refusal(error: PriceError) -> Refusal {
             ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
             "insufficient liquidity",
         ),
-        PriceError::TooLarge => refuse(ErrorCode::T00_INTERNAL_ERROR, "no exchange rate"),
+        PriceError::NoRate | PriceError::TooLarge => {
+            refuse(ErrorCode::T00_INTERNAL_ERROR, "no exchange rate")
+        }
     }
 }
 

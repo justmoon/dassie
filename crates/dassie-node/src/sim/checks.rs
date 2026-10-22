@@ -800,7 +800,8 @@ fn check_received_across(sim: &Sim) -> Result<(), String> {
 }
 
 /// No node priced a conversion above spot by more than its curve allows,
-/// or out of a ledger its owner held nothing on, after any step
+/// out of a ledger its owner held nothing on, or better than at what its
+/// owner had posted alone, after any step
 /// (spec/decisions/passive-rebalancing.md).
 fn check_prices(sim: &Sim) -> Result<(), String> {
     match sim.priced.as_slice() {

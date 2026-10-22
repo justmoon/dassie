@@ -31,12 +31,14 @@ mod tests;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use dassie_connector::pricing::MAX_PRICED_LEDGERS;
 use dassie_connector::{
-    Config as ConnectorConfig, Connector, PacketRecord, PriceTable, Rates, TraceEvent,
+    Config as ConnectorConfig, Connector, Holding, Inventory, PacketRecord, PriceTable, Rates,
+    TraceEvent,
 };
 use dassie_identity::NodeKey;
 use dassie_ilp::MAX_PACKET_LENGTH;
-use dassie_ledger::{Account, AccountId, Ledger, Name, TraceId};
+use dassie_ledger::{Account, AccountId, AccountName, Ledger, Name, TraceId};
 use dassie_node_core::config::Realm;
 use dassie_stream::BUFFER_LENGTH;
 
@@ -686,17 +688,36 @@ impl Core {
             return;
         }
         self.prices.due = false;
-        let inventories: Vec<(dassie_ledger::LedgerId, u64)> = self
-            .schemes
-            .values()
-            .map(|active| {
-                let ledger = active.scheme.ledger();
-                (ledger, self.owner_available(ledger))
-            })
-            .collect();
+        // What the owner's group holds on each active ledger, posted and in
+        // flight: the table prices each pair at the worst state the packets
+        // in flight can leave.
+        let none = Inventory {
+            ledger: dassie_ledger::LedgerId::StubUsd,
+            owner: AccountId(0),
+            holding: Holding::NONE,
+        };
+        let mut inventories = [none; MAX_PRICED_LEDGERS];
+        let mut count = 0;
+        let ledgers = self.schemes.values().map(|active| active.scheme.ledger());
+        for ledger in ledgers {
+            let Ok(owner) = self.account(ledger, AccountName::EquityOwner) else {
+                continue;
+            };
+            let Some(balance) = self.ledger.group_balance(owner) else {
+                continue;
+            };
+            if let Some(slot) = inventories.get_mut(count) {
+                *slot = Inventory {
+                    ledger,
+                    owner,
+                    holding: Holding::of(&balance),
+                };
+                count += 1;
+            }
+        }
         self.prices.table = PriceTable::build(
             &self.prices.rates,
-            &inventories,
+            inventories.get(..count).unwrap_or_default(),
             self.peer_settings.pricing(),
             self.now_ms,
             self.connector.config().max_rate_age_ms,

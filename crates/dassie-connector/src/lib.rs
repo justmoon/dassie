@@ -59,7 +59,7 @@ pub use connector::{
 };
 pub use endpoint::{EndpointError, EndpointId};
 pub use fx::{RATE_PRECISION, Rates, convert, convert_at};
-pub use pricing::{Price, PriceError, PriceTable, Pricing};
+pub use pricing::{Holding, Holdings, Inventory, Price, PriceError, PriceTable, Pricing};
 pub use trace::{MAX_TRACED_ADDRESS, PacketRecord, PacketState, TraceEvent};
 
 /// A packet's pending transfers: the first debits the source's account;

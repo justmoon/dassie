@@ -44,7 +44,8 @@
 //! nodes that convert, which price what they convert by their inventory
 //! (spec/decisions/passive-rebalancing.md). No ledger makes or loses any
 //! asset, and after every step no node's price is above spot by more than
-//! its curve allows, or takes anything out of a ledger it holds nothing on.
+//! its curve allows, takes anything out of a ledger it holds nothing on, or
+//! is better than at what its owner has posted alone.
 //!
 //! Runs on RLUSD settle in the fake ledger's test RLUSD
 //! (spec/areas/xrpl.md#rlusd), alone or across XRP and RLUSD, with both
@@ -291,10 +292,13 @@ const MOST_MOVED_TENTHS: i128 = 1;
 
 /// The least a payment across currencies delivers into `into` for `sent`
 /// from `ledger`: what node 1, which charges, gives with its funds moved
-/// against the payment as far as a run moves them, less its fee, and 5%
-/// for packets' rounding and a second hop's fee. The same currency loses
-/// only the 5%.
+/// against the payment as far as a run moves them, and the whole payment
+/// priced as one packet there, paying its own impact
+/// (spec/decisions/passive-rebalancing.md), less its fee, and 5% for
+/// packets' rounding and a second hop's fee. The same currency loses only
+/// the 5%.
 pub fn least_across(ledger: LedgerId, into: LedgerId, sent: u64) -> u64 {
+    use dassie_connector::{Holding, Inventory};
     if ledger.asset().code == into.asset().code {
         return sent / 100 * 95;
     }
@@ -302,19 +306,25 @@ pub fn least_across(ledger: LedgerId, into: LedgerId, sent: u64) -> u64 {
     for (code, rate) in RATES {
         rates.set(code, rate);
     }
-    let held = |ledger, tenths| u64::try_from(Settling::deposit(ledger) * tenths / 10).unwrap();
+    let held = |ledger, tenths| Inventory {
+        ledger,
+        owner: dassie_ledger::AccountId(0),
+        holding: Holding {
+            posted: u128::try_from(Settling::deposit(ledger) * tenths / 10).unwrap(),
+            ..Holding::NONE
+        },
+    };
     let inventories = [
-        (ledger, held(ledger, 10 + MOST_MOVED_TENTHS)),
-        (into, held(into, 10 - MOST_MOVED_TENTHS)),
+        held(ledger, 10 + MOST_MOVED_TENTHS),
+        held(into, 10 - MOST_MOVED_TENTHS),
     ];
     let pricing = CHARGES.pricing();
     let max_age_ms = Policies::DEFAULT.connector.max_rate_age_ms;
     let table =
         dassie_connector::PriceTable::build(&rates, &inventories, pricing, START, max_age_ms);
     let net = sent - pricing.charges.fee(sent);
-    let delivered = table
-        .price(ledger, into)
-        .and_then(|price| price.convert(net));
+    let holdings = table.holdings();
+    let delivered = table.convert(ledger, into, sent, net, &holdings, START, max_age_ms);
     delivered.unwrap() / 100 * 95
 }
 
@@ -1091,8 +1101,9 @@ impl Sim {
 
     /// Checks node `index`'s prices after a step against its own rates and
     /// books (spec/decisions/passive-rebalancing.md): none above spot by
-    /// more than its `k`, less its spread, and none that takes anything out
-    /// of a ledger its owner holds nothing on.
+    /// more than its `k`, less its spread; none that takes anything out of
+    /// a ledger its owner holds nothing on; and none better than at what is
+    /// posted alone, since no packet in flight may improve a price.
     fn watch_prices(&mut self, index: usize) {
         let Some(core) = self.nodes[index].core.as_ref() else {
             return;
@@ -1101,7 +1112,20 @@ impl Sim {
         let pricing = table.pricing();
         let million = 1_000_000u128;
         let mut breaches = Vec::new();
+        let mut posted = table.holdings();
+        for holding in &mut posted {
+            holding.debits_pending = 0;
+            holding.credits_pending = 0;
+        }
         for price in table.prices() {
+            match table.rate(price.from, price.to, 0, 0, &posted) {
+                Ok(rate_e15) if rate_e15 >= price.rate_e15 => {}
+                at_posted => {
+                    breaches.push(format!(
+                        "{price:?} is above {at_posted:?} at what is posted"
+                    ));
+                }
+            }
             let rate = |ledger: LedgerId| core.rates().get(ledger.asset().code).unwrap();
             // rate ≤ spot · (1 + k) · (1 − spread) · 10^15, all scale 9,
             // within the unit the bound loses rounding down twice.
