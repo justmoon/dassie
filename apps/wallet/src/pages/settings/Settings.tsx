@@ -1,6 +1,6 @@
 /**
- * Settings (spec/areas/wallet.md#pages): the wallet and logging out, the
- * theme, the node's alias, what transit is charged, exchange rates and the
+ * Settings (spec/areas/wallet.md#pages): the wallet, the node's version and
+ * logging out, the theme, the node's alias, what transit is charged, exchange rates and the
  * display currency, the owner's sessions and paired devices, and the BTP
  * tokens with their caps.
  */
@@ -68,6 +68,10 @@ function Wallet(): JSX.Element {
         </dd>
         <dt>Payment Pointer</dt>
         <dd>{data.hostname ? `$${data.hostname}` : "???"}</dd>
+        <dt>Dassie version</dt>
+        <dd>
+          <code data-testid="settings-version">{data.version}</code>
+        </dd>
       </dl>
       <div class="actions">
         <button

@@ -348,6 +348,10 @@ test("every page of the wallet works against two nodes", {
       async () => {
         await visit(page, d1, "/settings");
         assertEquals(await text(page, "settings-node-id"), d1.id);
+        assertEquals(
+          await text(page, "settings-version"),
+          (await d1.rpc.call("getStatus", {})).version,
+        );
         await text(page, "session-current");
         // The browser is on loopback, so it may pair a device.
         await text(page, "devices-none");
