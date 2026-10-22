@@ -26,6 +26,15 @@ const USD = "stub+usd";
 const XRP = "xrpl-testnet+xrp";
 /** 4 XRP: more than a peer's credit, so every node must settle. */
 const RECEIVE = 4_000_000_000n;
+/**
+ * How far from 4 XRP d3's incoming payment may land and be paid in full: a
+ * ten-thousandth of an XRP, at scale 9
+ * (spec/decisions/paid-within-a-tolerance.md). The hops round down on
+ * every packet, and packets in flight together race: when one that leaves
+ * d3 short by less than this lands before the last, d3 completes the
+ * payment there and refuses the last.
+ */
+const TOLERANCE = 100_000n;
 /** d2's fee, 1%, and spread, 0.5%. */
 const FEE_PPM = 10_000;
 const SPREAD_PPM = 5_000;
@@ -195,26 +204,27 @@ test("cross-currency pays across assets, and reconciles across restarts", {
     const { payments } = await d1.rpc.call("listOutgoingPayments", {});
     const sent = payments.find((entry) => entry.id === payment.id)!;
     // d3 counted each packet received as it posted it, before its Fulfill
-    // went back (spec/decisions/own-fulfills.md).
+    // went back (spec/decisions/own-fulfills.md). The one the payment paid
+    // is its receiver: a quote tried before d3 was routed to leaves an
+    // incoming payment of its own, with the same note and nothing in it.
     const arrived = async () => {
       const { payments: received } = await d3.rpc.call(
         "listIncomingPayments",
         {},
       );
-      return received.find((entry) =>
-        entry.metadataJson.includes("e2e across")
-      );
+      return received.find((entry) => entry.url === sent.receiver);
     };
     await scenario.until(
       "d3 has it all",
-      async () => ((await arrived())?.receivedAmount ?? 0n) >= RECEIVE - 2n,
+      async () => (await arrived())?.completedAtMs !== undefined,
     );
     const incoming = await arrived();
     assert(incoming, "d3 has the payment");
-    // All of it, but what less than a dollar unit is worth: no packet
-    // can be sized to deliver that, as the hops round down.
+    // All of it, within the tolerance: d3 completed it, so it counts it
+    // paid in full.
     assert(
-      incoming.receivedAmount >= RECEIVE - 2n,
+      incoming.receivedAmount >= RECEIVE - TOLERANCE &&
+        incoming.receivedAmount <= RECEIVE + TOLERANCE,
       `${incoming.receivedAmount}`,
     );
     assertEquals(incoming.assetCode, "XRP");

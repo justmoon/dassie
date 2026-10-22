@@ -1088,20 +1088,30 @@ fn a_peer_asked_to_settle_tells_what_it_has_on_its_way() {
 // as the owner's deposit, so a peer's settlement that reached the ledger
 // before it, such as one a node ending the peering asks for
 // (spec/decisions/ending-a-peering.md), would be taken for that deposit while
-// the peer still owed it on our books. Node 0's ledger is down from its first
-// start, its account funded: it does not peer, and node 1 does not peer with
-// it. Once the ledger is back, they peer; node 1 pays node 0 past the credit
-// node 0 extends, and node 0's owner ends the peering. What node 1 settles is
-// booked as its settlement.
+// the peer still owed it on our books. Both nodes' ledgers are down from
+// their first start, their accounts funded, and node 1's comes back first:
+// node 0 does not peer, and node 1 does not peer with it. Once node 0's
+// ledger is back too, they peer; the senior pays the junior past the credit
+// the junior extends, and the junior's owner ends the peering. What the
+// senior settles is booked as its settlement. Which of the two asks first is
+// a race, and either way the junior saw its ledger late.
 #[test]
 fn a_node_peers_only_once_it_has_seen_its_ledger() {
     let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::Xrpl);
     sim.loss_per_mille = 0;
-    sim.ledger_down.insert(0);
-    sim.ledger.fund(xrpl_account(0));
-    *sim.fundings.entry(0).or_default() += 1;
+    for index in 0..2 {
+        sim.ledger_down.insert(index);
+        sim.ledger.fund(xrpl_account(index));
+        *sim.fundings.entry(index).or_default() += 1;
+    }
     sim.run_until(START + 5 * 60_000);
     let (zero, one) = (key(0).node_id(), key(1).node_id());
+    assert!(
+        sim.peers(1).is_empty(),
+        "node 1 peered before it saw its ledger"
+    );
+    sim.ledger_down.remove(&1);
+    sim.run_until(sim.now + 5 * 60_000);
     assert!(
         sim.peers(0).is_empty(),
         "node 0 peered before it saw its ledger"
@@ -1113,13 +1123,83 @@ fn a_node_peers_only_once_it_has_seen_its_ledger() {
         sim.run_until_or(sim.now + 5 * 60_000, peered),
         "the nodes did not peer once node 0 saw its ledger"
     );
-    sim.pay(1, 0, 3_000_000_000, None, None);
+    // The junior is the node whose request was accepted.
+    let junior = usize::from(sim.core(0).network().peers[0].peering.inbound);
+    let senior = 1 - junior;
+    let senior_id = key(senior).node_id();
+    sim.pay(senior, junior, 3_000_000_000, None, None);
     sim.run_until(sim.now + 60_000);
-    let owes = -sim.owes(0, &one);
-    assert!(owes > 0, "node 1 owes node 0 nothing");
-    sim.step(0, |core| core.terminate_peering(one).unwrap());
+    let owes = -sim.owes(junior, &senior_id);
+    assert!(owes > 0, "the senior owes the junior nothing");
+    sim.step(junior, |core| core.terminate_peering(senior_id).unwrap());
     sim.run_until(sim.now + 180_000);
-    assert!(!sim.peers(0).contains(&one), "the peering did not end");
+    assert!(
+        !sim.peers(junior).contains(&senior_id),
+        "the peering did not end"
+    );
+    check_books(&sim).unwrap();
+}
+
+// spec/decisions/ending-a-peering.md: a settlement that lands after the
+// peering ended is credited to the peer's account, once. The junior's owner
+// ends the peering, and the senior answers the last request with a
+// settlement on its way. The junior's ledger link drops then, and stays
+// down: the junior waits out its bound and ends the peering, and books the
+// settlement only once its ledger is back. The node simulation's drawn runs
+// reach this only now and then.
+#[test]
+fn a_settlement_that_lands_after_the_end_is_credited_once() {
+    let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::Xrpl);
+    sim.loss_per_mille = 0;
+    let peered = |sim: &Sim| !sim.peers(0).is_empty() && !sim.peers(1).is_empty();
+    assert!(
+        sim.run_until_or(START + 5 * 60_000, peered),
+        "the nodes did not peer"
+    );
+    let junior = usize::from(sim.core(0).network().peers[0].peering.inbound);
+    let senior = 1 - junior;
+    let senior_id = key(senior).node_id();
+    sim.pay(senior, junior, 3_000_000_000, None, None);
+    sim.run_until(sim.now + 60_000);
+    assert!(
+        -sim.owes(junior, &senior_id) > 0,
+        "the senior owes the junior nothing"
+    );
+    let mark = sim.trace.len();
+    sim.step(junior, |core| core.terminate_peering(senior_id).unwrap());
+    let answered = format!(
+        " {junior} PeerNode(SettlementRequestAnswered {{ peer: {senior_id:?}, settling: Some("
+    );
+    let found = |sim: &Sim, from: usize, text: &str| {
+        sim.trace[from..]
+            .iter()
+            .position(|line| line.contains(text))
+            .map(|at| from + at)
+    };
+    assert!(
+        sim.run_until_or(sim.now + 60_000, |sim| found(sim, mark, &answered)
+            .is_some()),
+        "the senior answered the last request with nothing on its way"
+    );
+    sim.ledger_down.insert(junior);
+    sim.drop_ledger_link(junior);
+    let ended = format!(" {junior} PeerNode(PeeringEnded {{ peer: {senior_id:?}");
+    assert!(
+        sim.run_until_or(sim.now + 600_000, |sim| found(sim, mark, &ended).is_some()),
+        "the peering did not end"
+    );
+    let end = found(&sim, mark, &ended).unwrap();
+    let booked = format!(" {junior} Settlement(SettlementBooked {{ from: {senior_id:?}");
+    assert!(
+        found(&sim, mark, &booked).is_none(),
+        "booked before the end"
+    );
+    sim.ledger_down.clear();
+    sim.run_until(sim.now + 120_000);
+    assert!(
+        found(&sim, end, &booked).is_some(),
+        "the settlement was not booked after the end"
+    );
     check_books(&sim).unwrap();
 }
 
