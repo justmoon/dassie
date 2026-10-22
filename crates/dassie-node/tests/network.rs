@@ -28,9 +28,9 @@ use dassie_node::sim::checks::{
     check, check_across, check_books, check_events, drifted_past, not_settled_down,
 };
 use dassie_node::sim::{
-    CREDIT, START, Settling, Sim, USD, XRP, key, received, scripted, sent, xrpl_account,
+    CHARGES, CREDIT, START, Settling, Sim, USD, XRP, key, received, scripted, sent, xrpl_account,
 };
-use dassie_node::store::{Aim, ForeignAmount};
+use dassie_node::store::{Aim, ForeignAmount, PeerSettings};
 use dassie_node_core::testing::{Outcome, assert_seeds_pass};
 use dassie_settlement::LedgerStatus;
 
@@ -846,6 +846,40 @@ fn credit_grows_with_the_fees_a_peer_earned() {
     sim.start(1);
     sim.run_until(sim.now + 60_000);
     assert_eq!(trust(&sim, USD, &zero), raised, "fees credited twice");
+    check_across(&sim).unwrap();
+}
+
+// A path that gets dearer mid-payment stops a client's money, and the
+// client measures the rate again (spec/areas/stream.md#responses): the
+// receiver got less than the rate promises, so the library stops sending
+// until its user sets a rate. Here node 1, the only hop between XRP and
+// dollars, charges three times as much once the client knows its rate; in
+// node-xrp-rlusd a withdrawn route sent the packets through node 1 instead
+// of a hop that charged nothing. A client that never measured again waited
+// for ever.
+#[test]
+fn a_payment_whose_path_got_dearer_measures_its_rate_again() {
+    let mut sim = Sim::with(9, 3, 2, BTreeMap::new(), Settling::Cross);
+    sim.loss_per_mille = 0;
+    sim.run_until(START + 120_000);
+    assert!(sim.pay(2, 0, 2_000_000_000, None, None));
+    let took = |sim: &Sim| received(sim, &sim.payments[0]) > 0;
+    assert!(sim.run_until_or(sim.now + 60_000, took), "nothing received");
+    let measured = sim.payments[0].connection.exchange_rate();
+    sim.step(1, |core| {
+        core.set_peer_settings(PeerSettings {
+            connector_fee_ppm: 3 * CHARGES.connector_fee_ppm,
+            ..CHARGES
+        })
+        .unwrap();
+    });
+    sim.run_until(sim.now + 300_000);
+    assert!(sim.payments[0].done, "{}", sim.trace.join("\n"));
+    assert_ne!(
+        sim.payments[0].connection.exchange_rate(),
+        measured,
+        "the client never measured again"
+    );
     check_across(&sim).unwrap();
 }
 
