@@ -2,10 +2,10 @@
 
 A core node's public, cheap statement of what it converts at: for each ordered pair of its ledgers, the rate a packet gets, with its fee and each ledger's largest packet. It is a signed UDP datagram that the node makes once and sends to every subscriber, with no retries and no state beyond the subscriber list. Market makers watch feeds and trade through nodes whose rates make it worth it, which moves those nodes' holdings back toward balance.
 
-`dassie-feed` holds the contract without IO: the wire format and its signature, the subscriber table and its cookies, when to publish, and a subscriber's side. The node service that publishes a feed, its socket and how a feed is found, and the market maker are not built yet ([roadmap](../roadmap.md#rate-feed-and-market-makers)).
+`dassie-feed` holds the contract without IO: the wire format and its signature, the subscriber table and its cookies, when to publish, and a subscriber's side. `dassie market-maker` is a subscriber that trades on what it reads ([below](#market-maker)). The node service that publishes a feed, its socket and how a feed is found are not built yet ([roadmap](../roadmap.md#rate-feed-and-market-makers)).
 
-**Paths:** `crates/dassie-feed/`, `testdata/feed/`
-**Read with:** [Connector](connector.md#exchange-rates), [Identity](identity.md), [Encoding](encoding.md), [Node](node.md)
+**Paths:** `crates/dassie-feed/`, `testdata/feed/`, `crates/dassie-cli/src/market_maker/`
+**Read with:** [Connector](connector.md#exchange-rates), [Identity](identity.md), [Encoding](encoding.md), [Node](node.md), [Payments](payments.md#paying-stream-credentials), [XRPL](xrpl.md#amm-pools)
 
 ## What a feed says
 
@@ -66,6 +66,33 @@ A subscriber sends a Subscribe to the node at a fixed interval, well within an e
 ## Publishing
 
 A node's rates move with every conversion, but a feed costs a signature and a datagram per subscriber. So a node publishes at most once per `FEED_MIN_INTERVAL_MS` while its rates change, and otherwise a heartbeat every `FEED_HEARTBEAT_MS`, so subscribers know the node is alive and its rates still hold. A change within the interval is published when the interval ends, never lost. A feed counts for a few heartbeats, so that one or two lost on the way do not leave a subscriber without rates (`src/schedule.rs`).
+
+## Market maker
+
+`dassie market-maker` trades through one core node, the target, when the rates its feed publishes and an AMM pool on the XRP Ledger disagree by more than a margin, and so moves the target's holdings back toward balance, as passive rebalancing intends ([roadmap](../roadmap.md#rate-feed-and-market-makers)). It is a client of nodes, not one: it holds no books, and every amount it moves is moved by a node or by the ledger. It reads one JSON config, checked whole before anything connects (`config.rs`); the decision is a pure function of the feed, the pool and the holdings (`strategy.rs`), and everything around it is bounded in time and size.
+
+### Two nodes, pinned to the target
+
+The market maker owns two periphery nodes, each running one scheme, the asset of the pair it holds: XRP on one, the pool's token on the other. Both pin the target as their only uplink ([Network](network.md#pinned-uplinks)). A peering is on one scheme, and a node's own endpoints never convert, so one node could not pay in one asset and be paid in the other through the target; two nodes, each peered with the target on its own ledger, make the target do the conversion its feed prices. Pinned, they reach the network only through the target, so a payment between them is converted by the target and no one else.
+
+Each node's passphrase is in a file the config names. The market maker derives from it the node's XRPL account exactly as the node derives it ([XRPL](xrpl.md#the-wallet)), refuses to start unless that is the account the node reports for its ledger, and keeps nothing of it but the signing key in memory: no log line or error names a phrase.
+
+### The loop
+
+- **The feed.** It reads the target's node ID and key from its `GET /stats`, refuses an ID that is not the key's, and takes the feed's port from there, or from the config while `/stats` names none. It subscribes as [Subscribing](#subscribing) says, takes datagrams only from the target's address, and takes a feed only verified under that key, newer than the last and unexpired (`feed.rs`). A feed counts until its validity ends; with none, it holds.
+- **The pool and the holdings.** Each tick it reads the pool with `amm_info` at a validated ledger, over a WebSocket of its own, and both nodes' holdings with `ListLedgers`: what each owner's books hold, and what its account holds on the ledger.
+- **One decision a tick,** logged in one line, and at most one action.
+
+### What it trusts
+
+- **The feed, only to decide to quote.** A feed says what a vanishingly small packet gets; a real payment gets at most that, since the target prices by its inventory, and fees and rounding fall per packet. So a trade that clears the margin at the feed's rate is only quoted.
+- **The quote, to decide to pay.** The receiving node creates an incoming payment; the paying node quotes its STREAM credentials with a fixed debit ([Payments](payments.md#paying-stream-credentials)); and the market maker pays only if what the quote delivers, swapped back on the pool, still clears the margin. The quote's rate is the least every packet must deliver, so the payment cannot do worse than the quote it was paid on. It follows the payment to its end, within a bound, and completes the incoming payment either way.
+- **`SendMax`, to bound a swap.** A rebalance is one Payment from the full node's account to the other's, delivering the other asset with a `SendMax` of its own ([XRPL](xrpl.md#amm-pools)): it delivers all or nothing, and never spends more than `SendMax`, however the pool moved. What it asks the pool for is what a slippage's share less than `SendMax` buys at the price read, so it fails rather than pays a worse price.
+- **The pool's price, exactly.** Both checks price the swap back with `dassie-xrpl`'s exact pool arithmetic, its trading fee included, and round every conversion to the ledger's units down, so the market maker never counts on more than it gets.
+
+### Bands
+
+Each node has a band of what it holds, in its ledger's units. A trade never sends a node below the bottom of its band, and is made smaller to stay above it. A node above the top of its band is rebalanced to the band's middle before any trade, spending at most what its account holds on the ledger now, less the fee's headroom for XRP: the books count what the target owes before it settled, which the account cannot spend yet. The two nodes' signing keys are the market maker's, so the account that withdraws is the one receiving through the target, and its node rarely signs anything itself; a sequence the two both took is rare, and the node recovers from one ([XRPL](xrpl.md#settling)).
 
 ## Test vectors
 

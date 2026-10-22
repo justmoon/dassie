@@ -139,6 +139,7 @@ The CLI talks to the daemon over the IPC socket with the same RPC contract as th
 - **`dassie pair`** prints a code that pairs an owner app, as the wallet does on `localhost` ([RPC](rpc.md#paired-devices)): the IPC socket is the owner on this machine, so a node whose wallet is reached only remotely still pairs apps.
 - **`dassie verify-install`** checks that this binary works on this host (SQLite, TLS, the embedded wallet, a version the updater can parse) and names the release key it trusts. The installer and the updater run it before switching to a binary.
 - **`dassie update`** is [Release](release.md#dassie-update)'s.
+- **`dassie market-maker`** is no node, nor a part of one: it is a client of two nodes of its owner's, over their IPC sockets, as the CLI is of one, and of a core node's public feed ([Rate feed](rate-feed.md#market-maker)). It ships in the binary because it speaks the node's RPC and reads its feed with the node's own code, so the two never disagree on a version. Its config names the nodes' passphrase files, the only command that reads one: the keys of their XRPL accounts, which it signs swaps with, stay in its memory.
 
 ## Decisions
 

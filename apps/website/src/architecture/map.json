@@ -299,14 +299,15 @@
       "x": 20,
       "y": 426,
       "w": 184,
-      "desc": "The binary a server runs, with the wallet built in. Everything a node owner runs is a subcommand of it, and so is a front door.",
+      "desc": "The binary a server runs, with the wallet built in. Everything a node owner runs is a subcommand of it, and so are a front door and a market maker.",
       "does": [
         "`dassie daemon`: standalone, or socket-activated by systemd",
         "`dassie init`: the domain name and the certificate, then a URL to finish setup in the browser",
         "`dassie status`, `dassie setup-url` to print that URL again, and `dassie pair` for a code that pairs an owner app",
         "`dassie update`: fetches, verifies and switches to a newer release, and goes back if it does not start",
         "`dassie verify-install`, which also names the release key",
-        "`dassie front-door`: runs a front door, which is no node, and `--make-key` makes its key and prints the entry a node names it by"
+        "`dassie front-door`: runs a front door, which is no node, and `--make-key` makes its key and prints the entry a node names it by",
+        "`dassie market-maker`: watches a core node's signed rate feed and, with two nodes of its own, pays through the core node when its rates and an AMM pool on the XRP Ledger leave a margin, after a quote confirms it; then swaps its funds back through the pool with a `SendMax` that bounds the price"
       ]
     },
     "node": {
@@ -798,6 +799,24 @@
     {
       "f": "cli",
       "t": "release-crate",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "cli",
+      "t": "xrpl",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "cli",
+      "t": "feed",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "cli",
+      "t": "identity",
       "k": "uses",
       "h": true
     },
