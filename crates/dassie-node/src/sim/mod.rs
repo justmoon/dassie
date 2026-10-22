@@ -1114,7 +1114,7 @@ impl Sim {
             if u128::from(price.rate_e15) > most + 1 {
                 breaches.push(format!("{price:?} is above {most}"));
             }
-            if price.rate_e15 > 0 && core.owner_available(price.to) == 0 {
+            if core.owner_available(price.to) == 0 {
                 breaches.push(format!("{price:?} takes out of an empty ledger"));
             }
         }

@@ -119,7 +119,8 @@ pub struct Price {
     /// The ledger it goes out on.
     pub to: LedgerId,
     /// Out per in, times [`RATE_ONE_E15`]: spot, moved by the curve, less
-    /// the spread, rounded down. Zero when the owner holds nothing on `to`.
+    /// the spread, rounded down. Never zero: a pair out of a ledger the
+    /// owner holds nothing on has no price.
     pub rate_e15: u64,
     /// When the older of its two rates was learned: it is good while that is.
     pub as_of_ms: u64,
@@ -189,7 +190,10 @@ impl PriceTable {
 
     /// Prices every ordered pair of the ledgers in `inventories` that have
     /// a rate learned at most `max_rate_age_ms` before `now_ms`, and not
-    /// after: the others are absent, and their packets get T00. Each
+    /// after: the others are absent, and their packets get T00. A pair out
+    /// of a ledger the owner holds nothing on is absent too, and its
+    /// packets get T04, as do a pair's whose rate rounds to nothing or
+    /// does not fit. Each
     /// inventory is what the owner may spend on that ledger now. A ledger
     /// named twice counts once, at its first.
     ///
@@ -257,16 +261,13 @@ impl PriceTable {
                 if from.ledger == to.ledger {
                     continue;
                 }
-                let multiplier = factor(share_in, share_out, count, self.pricing).map_or(
-                    Some(0),
-                    |(num, den)| {
-                        let spread = MILLION - u128::from(self.pricing.charges.spread_ppm);
-                        mul_div(num, spread * 10u128.pow(12), den)
-                    },
-                );
-                // A rate that does not fit leaves the pair out.
-                let Some(rate_e15) =
-                    multiplier.and_then(|multiplier| spot_times(from, to, multiplier))
+                // Nothing out of a ledger with nothing, and a rate that does
+                // not fit or rounds to nothing, leave the pair out.
+                let spread = MILLION - u128::from(self.pricing.charges.spread_ppm);
+                let Some(rate_e15) = factor(share_in, share_out, count, self.pricing)
+                    .and_then(|(num, den)| mul_div(num, spread * 10u128.pow(12), den))
+                    .and_then(|multiplier| spot_times(from, to, multiplier))
+                    .filter(|&rate_e15| rate_e15 > 0)
                 else {
                     continue;
                 };
@@ -338,8 +339,9 @@ impl PriceTable {
     ///
     /// # Errors
     ///
-    /// No price, or one whose rates are older than `max_rate_age_ms`; no
-    /// funds on `to`; or a result that does not fit.
+    /// A ledger without a price, or one whose rate is older than
+    /// `max_rate_age_ms`; two priced ledgers without a price between them,
+    /// for want of funds on `to`; or a result that does not fit.
     pub fn convert(
         &self,
         from: LedgerId,
@@ -348,13 +350,14 @@ impl PriceTable {
         now_ms: u64,
         max_rate_age_ms: u64,
     ) -> Result<u64, PriceError> {
-        let price = self
-            .price(from, to)
-            .filter(|price| fresh(price.as_of_ms, now_ms, max_rate_age_ms))
-            .ok_or(PriceError::Stale)?;
-        if price.rate_e15 == 0 {
-            return Err(PriceError::NoFunds);
+        let priced = |ledger| {
+            self.ledger(ledger)
+                .is_some_and(|entry| fresh(entry.as_of_ms, now_ms, max_rate_age_ms))
+        };
+        if !(priced(from) && priced(to)) {
+            return Err(PriceError::Stale);
         }
+        let price = self.price(from, to).ok_or(PriceError::NoFunds)?;
         price.convert(net).ok_or(PriceError::TooLarge)
     }
 
@@ -580,16 +583,21 @@ mod tests {
     fn nothing_converts_out_of_a_ledger_with_nothing() {
         let inventories = [(USD, 0), (XRP, 2 * DOLLAR)];
         let table = PriceTable::build(&rates(), &inventories, pricing(50_000, 0), NOW, AGE);
-        assert_eq!(rate(&table, XRP, USD), 0);
+        assert!(table.price(XRP, USD).is_none());
         assert_eq!(
             table.convert(XRP, USD, 1_000, NOW, AGE),
             Err(PriceError::NoFunds)
         );
         assert_eq!(rate(&table, USD, XRP), 2_100_000_000_000_000);
+        // Once the rates are stale, that is what the packet hears.
+        assert_eq!(
+            table.convert(XRP, USD, 1_000, NOW + AGE + 1, AGE),
+            Err(PriceError::Stale)
+        );
         // With nothing anywhere, nothing converts either way.
         let empty = PriceTable::build(&rates(), &[(USD, 0), (XRP, 0)], pricing(0, 0), NOW, AGE);
-        assert_eq!(rate(&empty, USD, XRP), 0);
-        assert_eq!(rate(&empty, XRP, USD), 0);
+        assert_eq!(empty.ledgers().count(), 2);
+        assert_eq!(empty.prices().count(), 0);
     }
 
     #[test]

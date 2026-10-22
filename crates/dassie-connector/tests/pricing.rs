@@ -50,8 +50,9 @@ fn table(xrp_rate: u128, usd: u64, xrp: u64, pricing: Pricing) -> PriceTable {
     )
 }
 
+/// The rate from `from` to `to`, or 0 for a pair without a price.
 fn rate(table: &PriceTable, from: LedgerId, to: LedgerId) -> u64 {
-    table.price(from, to).unwrap().rate_e15
+    table.price(from, to).map_or(0, |price| price.rate_e15)
 }
 
 /// The most a price may be: spot from `from_rate` to `to_rate`, times
@@ -116,7 +117,7 @@ proptest! {
         let pricing = pricing(rebalance_ppm, spread_ppm);
         let less = table(xrp_rate, usd, xrp, pricing);
         let richer = table(xrp_rate, usd + more, xrp, pricing);
-        prop_assume!(less.price(USD, XRP).is_some() && richer.price(USD, XRP).is_some());
+        prop_assume!(less.ledgers().count() == 2 && richer.ledgers().count() == 2);
         prop_assert!(rate(&richer, USD, XRP) <= rate(&less, USD, XRP));
         prop_assert!(rate(&richer, XRP, USD) >= rate(&less, XRP, USD));
     }
