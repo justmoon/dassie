@@ -255,7 +255,7 @@
         "Config, TLS, certificates and sessions",
         "Ledgers, BTP tokens, payments and debug data",
         "Nodes, peers, routes, settlements and bans",
-        "Wallet addresses, payments, grants and Send",
+        "Wallet addresses, payments, grants and Send, to a wallet, a payment request or STREAM credentials",
         "`Subscribe*` streams: a snapshot, then changes, at most 4 a second",
         "Carried over a WebSocket (browsers) or the IPC socket (the CLI and Node), at most 1 MiB a message"
       ]

@@ -372,7 +372,7 @@ impl Store {
     ) -> Result<Option<IncomingPage>, StoreError> {
         page(
             &self.lock(),
-            "incoming_payments",
+            ("incoming_payments", "1"),
             COLUMNS,
             read_incoming,
             query,
@@ -449,10 +449,12 @@ impl Store {
 pub type IncomingPage = Page<IncomingRow>;
 
 /// A page of `table`'s rows by `(created_at_ms, id)`, newest first, or
-/// `None` when the cursor is not an item the query could list.
+/// `None` when the cursor is not an item the query could list. Only rows
+/// that `resources`, a fixed SQL condition, keeps are Open Payments
+/// resources at all.
 pub(super) fn page<T>(
     connection: &rusqlite::Connection,
-    table: &str,
+    (table, resources): (&str, &str),
     columns: &str,
     read: fn(&Row<'_>) -> rusqlite::Result<Result<T, StoreError>>,
     query: &IncomingQuery<'_>,
@@ -467,7 +469,7 @@ pub(super) fn page<T>(
                 .query_row(
                     &format!(
                         "SELECT created_at_ms, id FROM {table} \
-                         WHERE id = ?1 AND ledger = ?2 AND {reached}"
+                         WHERE id = ?1 AND ledger = ?2 AND {resources} AND {reached}"
                     ),
                     params_from_iter(bound),
                     |row| Ok((row.get(0)?, row.get(1)?)),
@@ -487,7 +489,7 @@ pub(super) fn page<T>(
     };
     let (reached, values) = listed_filter(query.reach, 5);
     let filter = format!(
-        "ledger = ?1 AND {reached} \
+        "ledger = ?1 AND {resources} AND {reached} \
          AND (?2 IS NULL OR (created_at_ms, id) {comparison} (?2, ?3))"
     );
     let mut statement = connection.prepare(&format!(

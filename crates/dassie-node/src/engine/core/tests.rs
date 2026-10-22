@@ -703,9 +703,13 @@ fn a_probe_to_nowhere_ends_at_once() {
     .unwrap();
     core.finish_step(&mut outputs);
     assert!(
-        outputs
-            .iter()
-            .any(|output| matches!(output, Output::ProbeDone { id: 1, rate: None })),
+        outputs.iter().any(|output| matches!(
+            output,
+            Output::ProbeDone {
+                id: 1,
+                measured: None
+            }
+        )),
         "{outputs:?}"
     );
 }

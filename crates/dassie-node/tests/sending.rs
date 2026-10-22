@@ -1,7 +1,8 @@
-//! The owner's Send (spec/decisions/open-payments.md, M6c), over IPC as the
+//! The owner's Send (spec/areas/payments.md#the-owners-send), over IPC as the
 //! wallet calls it: to a payment pointer on a peer, to a payment request, to
-//! the node's own wallet address, and what is refused, with fake wallets for
-//! what real nodes never do.
+//! the node's own wallet address, to STREAM credentials as a market maker
+//! pays them, and what is refused, with fake wallets for what real nodes
+//! never do.
 
 #![allow(
     clippy::unwrap_used,
@@ -68,6 +69,7 @@ async fn quote(
             ledger: String::new(),
             amount: amount.map(proto::quote_send_request::Amount::ReceiveAmount),
             note: note.into(),
+            credentials: None,
         }))
         .await?
     {
@@ -652,6 +654,7 @@ async fn the_owner_sends_a_fixed_amount() {
             ledger: ledger.into(),
             amount: Some(proto::quote_send_request::Amount::DebitAmount(AMOUNT)),
             note: String::new(),
+            credentials: None,
         })
     };
     let quoted = match a.ipc().await.call(fixed("")).await {
@@ -709,6 +712,7 @@ async fn a_fixed_amount_to_send_ends_when_the_request_is_full() {
                 AMOUNT + 10_000_000,
             )),
             note: String::new(),
+            credentials: None,
         }))
         .await
     {
@@ -740,6 +744,7 @@ async fn a_receiver_completed_early_stops_the_payment_and_says_so() {
             ledger: String::new(),
             amount: Some(proto::quote_send_request::Amount::DebitAmount(AMOUNT)),
             note: String::new(),
+            credentials: None,
         }))
         .await
     {
@@ -767,4 +772,230 @@ async fn a_receiver_completed_early_stops_the_payment_and_says_so() {
         "the receiver stopped the payment before it was complete"
     );
     assert_eq!(done.sent_amount, 0);
+}
+
+/// The STREAM credentials of `payment`, naming its asset when `named`.
+fn credentials(payment: &proto::IncomingPayment, named: bool) -> proto::StreamCredentials {
+    proto::StreamCredentials {
+        destination_account: payment.destination_account.clone(),
+        shared_secret: payment.shared_secret.clone(),
+        asset_code: if named {
+            payment.asset_code.clone()
+        } else {
+            String::new()
+        },
+        asset_scale: if named { payment.asset_scale } else { 0 },
+    }
+}
+
+/// Quotes a payment of `amount` to `credentials`, with `recipient` and
+/// `note` beside them.
+async fn quote_credentials(
+    node: &TestNode,
+    credentials: proto::StreamCredentials,
+    amount: Option<proto::quote_send_request::Amount>,
+    (recipient, note): (&str, &str),
+) -> Result<proto::SendQuote, proto::Error> {
+    match node
+        .ipc()
+        .await
+        .call(Method::QuoteSend(proto::QuoteSendRequest {
+            recipient: recipient.into(),
+            credentials: Some(credentials),
+            ledger: String::new(),
+            amount,
+            note: note.into(),
+        }))
+        .await?
+    {
+        response::Method::QuoteSend(quoted) => Ok(quoted.quote.unwrap()),
+        other => panic!("{other:?}"),
+    }
+}
+
+/// An incoming payment the owner of `node` creates, taking `amount`, or
+/// any.
+async fn request(node: &TestNode, amount: Option<u64>) -> proto::IncomingPayment {
+    let Ok(response::Method::CreateIncomingPayment(created)) = node
+        .ipc()
+        .await
+        .call(Method::CreateIncomingPayment(
+            proto::CreateIncomingPaymentRequest {
+                incoming_amount: amount,
+                ..proto::CreateIncomingPaymentRequest::default()
+            },
+        ))
+        .await
+    else {
+        panic!("no incoming payment")
+    };
+    created.payment.unwrap()
+}
+
+// spec/areas/payments.md#paying-stream-credentials: STREAM credentials, as another
+// node's CreateIncomingPayment hands them out, are paid without an
+// incoming payment's URL: a fixed amount to send in the asset the receiver
+// says, or a fixed amount to receive in the asset the owner names, at the
+// quote's rate. Each set is paid once.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_owner_pays_stream_credentials_on_a_peer() {
+    use proto::quote_send_request::Amount;
+    let pair = Pair::start(53, 54).await;
+    let (a, b) = (&pair.a, &pair.b);
+    let first = request(b, None).await;
+    let quoted = quote_credentials(
+        a,
+        credentials(&first, false),
+        Some(Amount::DebitAmount(AMOUNT)),
+        ("", ""),
+    )
+    .await
+    .unwrap();
+    assert_eq!(quoted.debit_amount, AMOUNT);
+    // The asset the receiver said, at the measured one for one less
+    // STREAM's 1% slippage.
+    let receive = quoted.receive_amount.clone().unwrap();
+    assert_eq!(
+        (
+            receive.value,
+            receive.asset_code.as_str(),
+            receive.asset_scale
+        ),
+        (1_485_000_000, "USD", 9)
+    );
+    assert_eq!(quoted.receiver, first.destination_account);
+    assert!(quoted.recipient.is_none());
+    let sent = send(a, &quoted.id).await.unwrap();
+    let done = finished(&pair.clock, a, &sent.id).await;
+    assert_eq!(done.state, "completed", "{}", done.failure);
+    assert_eq!(done.sent_amount, AMOUNT);
+    assert_eq!(done.receiver, first.destination_account);
+    assert!(done.recipient_url.is_empty());
+    let paid = paid_in(&pair.clock, b, AMOUNT, |payment| payment.id == first.id).await;
+    assert_eq!(paid.received_amount, AMOUNT);
+    // The same credentials are paid once.
+    let again = quote_credentials(
+        a,
+        credentials(&first, false),
+        Some(Amount::DebitAmount(AMOUNT)),
+        ("", ""),
+    )
+    .await
+    .unwrap();
+    assert!(send(a, &again.id).await.is_err());
+
+    // A fixed amount to receive, in the asset the owner names, to a
+    // request for as much, which ends it once full.
+    let second = request(b, Some(AMOUNT)).await;
+    let quoted = quote_credentials(
+        a,
+        credentials(&second, true),
+        Some(Amount::ReceiveAmount(AMOUNT)),
+        ("", ""),
+    )
+    .await
+    .unwrap();
+    assert_eq!(quoted.debit_amount, QUOTED);
+    let sent = send(a, &quoted.id).await.unwrap();
+    let done = finished(&pair.clock, a, &sent.id).await;
+    assert_eq!(done.state, "completed", "{}", done.failure);
+    let paid = paid_in(&pair.clock, b, AMOUNT, |payment| payment.id == second.id).await;
+    assert_eq!(paid.received_amount, AMOUNT);
+
+    // Not without the asset, which only the receiver would say; nor in an
+    // asset other than the one the receiver says.
+    let third = request(b, None).await;
+    let unnamed = quote_credentials(
+        a,
+        credentials(&third, false),
+        Some(Amount::ReceiveAmount(AMOUNT)),
+        ("", ""),
+    )
+    .await;
+    assert_eq!(code(unnamed), proto::ErrorCode::InvalidArgument);
+    let other = proto::StreamCredentials {
+        asset_code: "XRP".into(),
+        asset_scale: 6,
+        ..credentials(&third, true)
+    };
+    let error = quote_credentials(a, other, Some(Amount::DebitAmount(AMOUNT)), ("", ""))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), proto::ErrorCode::InvalidArgument);
+    assert!(error.message.contains("USD"), "{}", error.message);
+}
+
+// spec/areas/payments.md#paying-stream-credentials: credentials are bounded and
+// checked before anything is measured: an ILP address, a 32-byte secret,
+// an asset scale that fits, an amount, and neither a recipient nor a note
+// beside them. A valid address nothing routes to is no route.
+#[tokio::test(flavor = "multi_thread")]
+async fn malformed_stream_credentials_are_refused() {
+    use proto::quote_send_request::Amount;
+    let (node, _) = start().await;
+    let own = request(&node, None).await;
+    let good = credentials(&own, true);
+    let debit = Some(Amount::DebitAmount(AMOUNT));
+    let malformed = [
+        proto::StreamCredentials {
+            destination_account: "not an address".into(),
+            ..good.clone()
+        },
+        proto::StreamCredentials {
+            destination_account: format!("test.{}", "a".repeat(1_024)),
+            ..good.clone()
+        },
+        proto::StreamCredentials {
+            destination_account: String::new(),
+            ..good.clone()
+        },
+        proto::StreamCredentials {
+            shared_secret: vec![7; 31],
+            ..good.clone()
+        },
+        proto::StreamCredentials {
+            shared_secret: vec![7; 33],
+            ..good.clone()
+        },
+        proto::StreamCredentials {
+            asset_scale: 256,
+            ..good.clone()
+        },
+        proto::StreamCredentials {
+            asset_code: "U SD".into(),
+            ..good.clone()
+        },
+    ];
+    for credentials in malformed {
+        let result = quote_credentials(&node, credentials.clone(), debit, ("", "")).await;
+        assert_eq!(
+            code(result),
+            proto::ErrorCode::InvalidArgument,
+            "{credentials:?}"
+        );
+    }
+    let own_pointer = format!("${}", node.host());
+    for (amount, beside) in [
+        (None, ("", "")),
+        (debit, (own_pointer.as_str(), "")),
+        (debit, ("", "a note")),
+    ] {
+        let result = quote_credentials(&node, good.clone(), amount, beside).await;
+        assert_eq!(
+            code(result),
+            proto::ErrorCode::InvalidArgument,
+            "{beside:?}"
+        );
+    }
+    let nowhere = proto::StreamCredentials {
+        destination_account: "test.nowhere.receiver".into(),
+        ..good.clone()
+    };
+    let result = quote_credentials(&node, nowhere, debit, ("", "")).await;
+    assert_eq!(code(result), proto::ErrorCode::FailedPrecondition);
+    // The node's own receiver, at one for one in its own asset.
+    let quoted = quote_credentials(&node, good, debit, ("", ""))
+        .await
+        .unwrap();
+    assert_eq!(quoted.receive_amount.unwrap().value, AMOUNT);
 }

@@ -527,6 +527,7 @@ async fn the_owners_quotes_and_a_clients_are_apart() {
             ledger: String::new(),
             amount: Some(proto::quote_send_request::Amount::ReceiveAmount(100)),
             note: String::new(),
+            credentials: None,
         }))
         .await
     else {
@@ -769,6 +770,7 @@ async fn owner_pays(node: &TestNode, target: &str, amount: u64) -> String {
             ledger: String::new(),
             amount: Some(proto::quote_send_request::Amount::ReceiveAmount(amount)),
             note: String::new(),
+            credentials: None,
         }))
         .await
     else {
@@ -874,6 +876,79 @@ async fn each_item_keeps_to_its_own_limits() {
     let mut expected = vec![to_watched, own];
     expected.sort();
     assert_eq!(ids, expected);
+    node.stop().await;
+}
+
+// spec/areas/payments.md#paying-stream-credentials: a payment of the owner's to
+// STREAM credentials names no incoming payment, so it is no Open Payments
+// resource: a client that may read and list all of the owner's payments
+// and quotes sees the others, never it or its quote.
+#[tokio::test(flavor = "multi_thread")]
+async fn payments_to_stream_credentials_are_no_resources() {
+    let (node, key) = start().await;
+    let client = own_client(&node, &key);
+    let to_request = owner_pays(&node, &receiver(&node, 100).await, 100).await;
+    let incoming = node.ipc().await.incoming_payment(None).await;
+    let mut owner = node.ipc().await;
+    let Ok(response::Method::QuoteSend(quoted)) = owner
+        .call(Method::QuoteSend(proto::QuoteSendRequest {
+            recipient: String::new(),
+            ledger: String::new(),
+            amount: Some(proto::quote_send_request::Amount::DebitAmount(100)),
+            note: String::new(),
+            credentials: Some(proto::StreamCredentials {
+                destination_account: incoming.destination_account.clone(),
+                shared_secret: incoming.shared_secret.clone(),
+                asset_code: String::new(),
+                asset_scale: 0,
+            }),
+        }))
+        .await
+    else {
+        panic!("no quote")
+    };
+    let quote = quoted.quote.unwrap();
+    let Ok(response::Method::SendPayment(sent)) = owner
+        .call(Method::SendPayment(proto::SendPaymentRequest {
+            quote_id: quote.id.clone(),
+        }))
+        .await
+    else {
+        panic!("not sent")
+    };
+    let to_credentials = format!("/outgoing-payments/{}", sent.payment.unwrap().id);
+    let access = json!([
+        {
+            "type": "outgoing-payment",
+            "actions": ["read-all", "list-all"],
+            "identifier": host(&node),
+        },
+        { "type": "quote", "actions": ["read-all"] },
+    ]);
+    let grant = ask_for(&node, &client, &access).await;
+    let token = approve(&node, &client, &grant).await;
+    let read = |path: String| {
+        let request = signed(&node, &client, "GET", &path, Some(&token), None);
+        async move { send(node.https, true, request).await.status }
+    };
+    assert_eq!(read(to_request.clone()).await, StatusCode::OK);
+    assert_eq!(read(to_credentials).await, StatusCode::NOT_FOUND);
+    assert_eq!(
+        read(format!("/quotes/{}", quote.id)).await,
+        StatusCode::NOT_FOUND
+    );
+    let list = format!(
+        "/outgoing-payments?wallet-address={}",
+        dassie_payments::uri::percent_encode(&host(&node))
+    );
+    let reply = send(
+        node.https,
+        true,
+        signed(&node, &client, "GET", &list, Some(&token), None),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    assert_eq!(listed_ids(&node, &body(&reply)), vec![to_request]);
     node.stop().await;
 }
 

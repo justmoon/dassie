@@ -30,6 +30,8 @@ pub const QUOTE_LIFETIME_MS: u64 = 5 * 60 * 1_000;
 pub const MAX_URL_BYTES: usize = 2_048;
 /// The longest ILP address kept.
 const MAX_ILP_ADDRESS_BYTES: usize = 1_023;
+/// The longest asset code kept, as a payment's row holds it.
+const MAX_ASSET_CODE_BYTES: usize = 32;
 
 /// What paying an incoming payment needs to know of it.
 #[derive(Clone, Debug)]
@@ -119,11 +121,7 @@ pub fn receiver_of(node: &Node, payment: IncomingPayment) -> Result<Receiver, Op
         .find(|method| method.kind == "ilp")
         .ok_or_else(|| OpError::invalid("the receiver cannot be paid over ILP"))?;
     // Another wallet says what it is: it must be an address.
-    if method.ilp_address.len() > MAX_ILP_ADDRESS_BYTES
-        || dassie_ilp::Address::parse(&method.ilp_address).is_err()
-    {
-        return Err(OpError::invalid("the receiver's ILP address is invalid"));
-    }
+    check_address(&method.ilp_address)?;
     let shared_secret = URL_SAFE_NO_PAD
         .decode(&method.shared_secret)
         .ok()
@@ -141,6 +139,83 @@ pub fn receiver_of(node: &Node, payment: IncomingPayment) -> Result<Receiver, Op
         asset_scale: received.asset_scale,
         remaining,
         expires_at_ms,
+    })
+}
+
+/// An ILP address a payment can be sent to, within the length a row keeps.
+fn check_address(address: &str) -> Result<(), OpError> {
+    if address.len() > MAX_ILP_ADDRESS_BYTES || dassie_ilp::Address::parse(address).is_err() {
+        return Err(OpError::invalid("the receiver's ILP address is invalid"));
+    }
+    Ok(())
+}
+
+/// STREAM credentials as the owner names them, without an incoming
+/// payment: an ILP address, and a shared secret of 32 bytes.
+///
+/// # Errors
+///
+/// If the address is no ILP address, or too long, or the secret is not
+/// 32 bytes.
+pub fn check_credentials(address: &str, shared_secret: &[u8]) -> Result<[u8; 32], OpError> {
+    check_address(address)?;
+    <[u8; 32]>::try_from(shared_secret)
+        .map_err(|_| OpError::invalid("the shared secret is not 32 bytes"))
+}
+
+/// Whether `code` can be a payment's asset code: short, and printable
+/// ASCII, so that a receiver's cannot read as something else to the owner.
+#[must_use]
+pub fn is_asset_code(code: &str) -> bool {
+    (1..=MAX_ASSET_CODE_BYTES).contains(&code.len())
+        && code.bytes().all(|byte| byte.is_ascii_graphic())
+}
+
+/// The receiver at STREAM credentials alone: no incoming payment says what
+/// it accepts or until when, so the asset its amounts are in is the one
+/// the owner `named`, as the incoming payment the credentials came with
+/// says, or else the one the receiver `said` in the probe. Both must agree
+/// when both are known, and one must be, since otherwise nothing would say
+/// what the payment delivers. Either is refused unless its code is short
+/// and printable, before the receiver's is ever shown to the owner.
+///
+/// # Errors
+///
+/// If no usable asset is known, or the two differ.
+pub fn credentials_receiver(
+    destination: String,
+    shared_secret: [u8; 32],
+    named: Option<(String, u8)>,
+    said: Option<(String, u8)>,
+) -> Result<Receiver, OpError> {
+    let usable = |(code, _): &(String, u8)| is_asset_code(code);
+    if !named.as_ref().is_none_or(usable) {
+        return Err(OpError::invalid("the asset code is invalid"));
+    }
+    if !said.as_ref().is_none_or(usable) {
+        return Err(OpError::invalid("the receiver's asset code is invalid"));
+    }
+    let (asset_code, asset_scale) = match (named, said) {
+        (Some(named), Some(said)) if named != said => {
+            return Err(OpError::invalid(format!(
+                "the receiver says it is paid in {} at scale {}",
+                said.0, said.1
+            )));
+        }
+        (Some(asset), _) | (None, Some(asset)) => asset,
+        (None, None) => {
+            return Err(OpError::invalid(
+                "the receiver does not say what asset it is paid in",
+            ));
+        }
+    };
+    Ok(Receiver {
+        destination,
+        shared_secret,
+        asset_code,
+        asset_scale,
+        remaining: None,
+        expires_at_ms: None,
     })
 }
 
@@ -225,9 +300,27 @@ pub async fn quote_rate(
     receiver: &Receiver,
     by: Prober,
 ) -> Result<Rate, OpError> {
+    let credentials = (receiver.destination.as_str(), receiver.shared_secret);
+    let (rate, _) = measure(node, ledger, credentials, by).await?;
+    Ok(rate)
+}
+
+/// The same for the receiver at STREAM credentials, with the asset it
+/// says it is paid in, if it said one: the ledger's own for the node's own
+/// receivers, which are on it.
+///
+/// # Errors
+///
+/// As [`quote_rate`].
+pub async fn measure(
+    node: &Node,
+    ledger: LedgerId,
+    (destination, shared_secret): (&str, [u8; 32]),
+    by: Prober,
+) -> Result<(Rate, Option<(String, u8)>), OpError> {
     let engine = node.engine().ok_or_else(OpError::unavailable)?;
     let route = engine
-        .route_of(receiver.destination.clone())
+        .route_of(destination.to_string())
         .await
         .map_err(|_| OpError::unavailable())?;
     let Some((route_ledger, own)) = route else {
@@ -243,15 +336,11 @@ pub async fn quote_rate(
         )));
     }
     if own {
-        return Ok(Rate::ONE);
+        let asset = ledger.asset();
+        return Ok((Rate::ONE, Some((asset.code.to_string(), asset.scale))));
     }
     let measured = engine
-        .probe(
-            ledger,
-            receiver.destination.clone(),
-            receiver.shared_secret,
-            by,
-        )
+        .probe(ledger, destination.to_string(), shared_secret, by)
         .await
         .map_err(|error| match error {
             crate::engine::EngineError::Exhausted(message) => {
@@ -265,19 +354,22 @@ pub async fn quote_rate(
                 "unreachable",
                 "the rate to the receiver could not be measured",
             )
-        })?
+        })?;
+    let rate = measured
+        .rate
         .with_slippage(dassie_stream::Policy::DEFAULT.slippage_permille);
-    if measured.is_zero() {
+    if rate.is_zero() {
         return Err(OpError::new(
             502,
             "unreachable",
             "the path to the receiver delivers nothing",
         ));
     }
-    Ok(Rate {
-        destination: measured.numerator(),
-        source: measured.denominator(),
-    })
+    let rate = Rate {
+        destination: rate.numerator(),
+        source: rate.denominator(),
+    };
+    Ok((rate, measured.asset))
 }
 
 /// What a payment to `receiver` from `ledger` debits and delivers at
@@ -474,4 +566,64 @@ pub async fn from_incoming(
         recipient: None,
         fixed_debit: true,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn asset(code: &str, scale: u8) -> Option<(String, u8)> {
+        Some((code.into(), scale))
+    }
+
+    fn receiver(
+        named: Option<(String, u8)>,
+        said: Option<(String, u8)>,
+    ) -> Result<(String, u8), String> {
+        credentials_receiver("test.a.b".into(), [7; 32], named, said)
+            .map(|receiver| (receiver.asset_code, receiver.asset_scale))
+            .map_err(|error| error.description)
+    }
+
+    // spec/areas/payments.md#paying-stream-credentials: credentials are an ILP
+    // address a row can keep and a secret of 32 bytes.
+    #[test]
+    fn credentials_are_an_address_and_a_32_byte_secret() {
+        assert_eq!(check_credentials("test.a.b", &[1; 32]), Ok([1; 32]));
+        for secret in [&[1u8; 31][..], &[1; 33], &[]] {
+            assert!(check_credentials("test.a.b", secret).is_err());
+        }
+        let long = format!("test.{}", "a".repeat(MAX_ILP_ADDRESS_BYTES));
+        for address in ["", "test.", "not an address", "test..a", long.as_str()] {
+            assert!(check_credentials(address, &[1; 32]).is_err(), "{address}");
+        }
+    }
+
+    // spec/areas/payments.md#paying-stream-credentials: the asset is the one named,
+    // else the one the receiver said; they must agree, and one must be
+    // known.
+    #[test]
+    fn a_credentials_receiver_has_a_known_asset() {
+        let usd = asset("USD", 9);
+        assert_eq!(receiver(usd.clone(), None), Ok(("USD".into(), 9)));
+        assert_eq!(receiver(None, usd.clone()), Ok(("USD".into(), 9)));
+        assert_eq!(receiver(usd.clone(), usd.clone()), Ok(("USD".into(), 9)));
+        assert!(receiver(usd.clone(), asset("USD", 6)).is_err());
+        assert!(receiver(usd, asset("XRP", 9)).is_err());
+        assert!(receiver(None, None).is_err());
+        // What the receiver says is shown to the owner only once it is a
+        // short printable code.
+        let long = "A".repeat(MAX_ASSET_CODE_BYTES + 1);
+        for code in ["", "U\u{202E}D", "a b", long.as_str()] {
+            assert_eq!(
+                receiver(None, asset(code, 2)),
+                Err("the receiver's asset code is invalid".into()),
+                "{code:?}"
+            );
+            assert!(receiver(asset(code, 2), None).is_err(), "{code:?}");
+        }
+        let receiver = credentials_receiver("test.a.b".into(), [7; 32], asset("XRP", 6), None);
+        let receiver = receiver.unwrap();
+        assert_eq!((receiver.remaining, receiver.expires_at_ms), (None, None));
+    }
 }

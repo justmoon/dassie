@@ -129,12 +129,22 @@ The owner reaches all of this over RPC ([rpc.md](rpc.md)), without a grant, thro
 
 ### The owner's Send
 
-- **The recipient** is a payment pointer, a wallet address URL, or a **payment request** (an incoming payment's URL, as Receive hands out), here or on another node.
+- **The recipient** is a payment pointer, a wallet address URL, a **payment request** (an incoming payment's URL, as Receive hands out), here or on another node, or **STREAM credentials** ([below](#paying-stream-credentials)).
 - **A payment request speaks only for its own wallet:** one here for one of this node's wallet addresses, one elsewhere only for a wallet whose resource server is where the request is, never one elsewhere for this node's. Otherwise a request could name anyone, the owner too, and be paid as them.
 - **Text from other wallets** (public names, descriptions) loses control and direction-changing characters, so it cannot read as something else beside the payment pointer.
 - **Lookups are bounded,** since each fetches from other wallets as the node.
 - **To a wallet address,** quoting first creates an incoming payment there, which outlasts the quote and the payment's deadline. When the amount to send is fixed, the incoming payment takes any amount. If quoting fails, an incoming payment created here is completed; one created elsewhere lapses with its expiry.
 - **A payment request is paid as it is,** what it still accepts or less; it carries its own description, so the owner's note is refused.
+
+#### Paying STREAM credentials
+
+The owner may pay an ILP address and a shared secret, as Receive hands them out here or on another node, without an incoming payment's URL to read. A market maker pays the incoming payment it made on a node of its own this way: that node may have no name another wallet reaches, and the owner holds the credentials already.
+
+- **Checked before anything is measured:** an ILP address no longer than a payment's row keeps, a secret of exactly 32 bytes, and no note, since there is no incoming payment to describe.
+- **Quoted like any recipient,** by a rate probe from the ledger the route starts on, and paid from that ledger. The quote's rate is the least each packet must deliver ([Sending](#outgoing-payments)), which is the owner's guard against a rate that moved.
+- **Nothing says what the receiver accepts or until when,** so an amount is always named. An amount to send is always taken. An amount to deliver is taken only in an asset the owner names, as the incoming payment the credentials came with says, since the owner cannot know what the receiver will say. The payment's asset is the one named, or else the one the receiver says in the probe (STREAM's asset details); both must agree when both are known, and one must be, or the payment would deliver an amount in no known asset. What the receiver says is shown to the owner only once it is a short printable code.
+- **Paid once,** as all credentials are ([Creating a payment](#outgoing-payments)).
+- **No Open Payments resource.** Such a payment and its quote name no incoming payment, so their receiver is the ILP address, which is never a URL. No client reads or lists them, even one that may read all the owner's payments, since the specs' schema wants an incoming payment's URL there; only the owner's RPC shows them. Only the owner can make one: a client always names an incoming payment.
 
 ## Persistence
 

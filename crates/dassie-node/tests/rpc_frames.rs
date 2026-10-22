@@ -691,6 +691,7 @@ fn sending() -> BoxedStrategy<Method> {
                     ledger,
                     amount,
                     note,
+                    credentials: None,
                 })
             }
         ),

@@ -1014,6 +1014,11 @@ fn check_new(new: &NewOutgoing) -> Result<(), EngineError> {
     if !urls_valid {
         return invalid("a URL is too long");
     }
+    // Only the owner pays STREAM credentials, whose receiver is their
+    // address (spec/areas/payments.md#paying-stream-credentials).
+    if new.receiver == new.destination && new.client.is_some() {
+        return invalid("a client pays an incoming payment");
+    }
     let code = &new.receive_amount.asset_code;
     if code.is_empty() || code.len() > 32 {
         return invalid("the receiver's asset code is invalid");
