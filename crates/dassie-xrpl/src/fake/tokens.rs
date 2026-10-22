@@ -14,7 +14,10 @@ use core::cmp::Ordering;
 
 use sha2::{Digest, Sha512};
 
-use super::{Account, FEE_BASE, FakeLedger, Outcome, RLUSD_CURRENCY, RLUSD_ISSUER, Touched, Tx};
+use super::{
+    Account, DSUSD_CURRENCY, DSUSD_ISSUER, FEE_BASE, FakeLedger, Outcome, RLUSD_CURRENCY,
+    RLUSD_ISSUER, Touched, Tx,
+};
 use crate::api::{TRANSFER_RATE_PAR, TrustLine, account_flags, line_flags};
 use crate::codec::{
     Amount, Currency, Payment, TF_CLEAR_DEEP_FREEZE, TF_CLEAR_FREEZE, TF_CLEAR_NO_RIPPLE,
@@ -56,6 +59,21 @@ impl Token {
         issuer: RLUSD_ISSUER,
         currency: RLUSD_CURRENCY,
     };
+
+    /// DSUSD of its testnet issuer, which the fake ledger issues too.
+    pub const DSUSD: Self = Self {
+        issuer: DSUSD_ISSUER,
+        currency: DSUSD_CURRENCY,
+    };
+
+    /// The token of the fake's own issuers whose currency code is `code`,
+    /// such as `"RLUSD"`.
+    #[must_use]
+    pub fn by_code(code: &str) -> Option<Self> {
+        [Self::RLUSD, Self::DSUSD]
+            .into_iter()
+            .find(|token| token.currency.code() == code)
+    }
 
     /// `value` of it.
     #[must_use]

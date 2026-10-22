@@ -37,15 +37,19 @@ pub enum LedgerId {
     /// differs from the XRP ledger's, since a ledger's slug names its
     /// receiver, its seed path and its wallet address.
     XrplTestnetRlusdUsd,
+    /// DSUSD on the XRP Ledger testnet, Dassie's own testnet dollar token,
+    /// booked as `USD` at par as RLUSD is, on a ledger of its own.
+    XrplTestnetDsusdUsd,
 }
 
 impl LedgerId {
     /// Every ledger, in a fixed order.
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::StubUsd,
         Self::XrplTestnetXrp,
         Self::XrplXrp,
         Self::XrplTestnetRlusdUsd,
+        Self::XrplTestnetDsusdUsd,
     ];
 
     /// The ledger's name, for example `stub+usd`.
@@ -56,6 +60,7 @@ impl LedgerId {
             Self::XrplTestnetXrp => "xrpl-testnet+xrp",
             Self::XrplXrp => "xrpl+xrp",
             Self::XrplTestnetRlusdUsd => "xrpl-testnet-rlusd+usd",
+            Self::XrplTestnetDsusdUsd => "xrpl-testnet-dsusd+usd",
         }
     }
 
@@ -70,7 +75,7 @@ impl LedgerId {
     #[must_use]
     pub const fn asset(self) -> Asset {
         match self {
-            Self::StubUsd | Self::XrplTestnetRlusdUsd => Asset {
+            Self::StubUsd | Self::XrplTestnetRlusdUsd | Self::XrplTestnetDsusdUsd => Asset {
                 code: "USD",
                 scale: 9,
             },
@@ -85,7 +90,10 @@ impl LedgerId {
     #[must_use]
     pub const fn realm(self) -> Realm {
         match self {
-            Self::StubUsd | Self::XrplTestnetXrp | Self::XrplTestnetRlusdUsd => Realm::Test,
+            Self::StubUsd
+            | Self::XrplTestnetXrp
+            | Self::XrplTestnetRlusdUsd
+            | Self::XrplTestnetDsusdUsd => Realm::Test,
             Self::XrplXrp => Realm::Live,
         }
     }

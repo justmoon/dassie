@@ -4,7 +4,8 @@
 //! issuer, and books on a dollar ledger of its own, whose unit is a
 //! millionth of a dollar. Each token it settles in is a [`Token`]: its
 //! scheme's ID, its memo type, its issuer, its currency and its ledger;
-//! `xrpl-testnet-rlusd` ([`crate::rlusd`]) is this scheme with its own. It pays its fees and
+//! `xrpl-testnet-rlusd` ([`crate::rlusd`]) and `xrpl-testnet-dsusd`
+//! ([`crate::dsusd`]) are this scheme with their own. It pays its fees and
 //! its line's reserve in the account's XRP, as gas: on the books of
 //! `xrpl-testnet+xrp` when that scheme settles from the same account, and
 //! off the books otherwise (spec/decisions/external-assets.md).
@@ -106,7 +107,7 @@ impl Token {
 }
 
 /// A token a [`TokenScheme`] settles in, as a type, so each token's scheme
-/// is a type of its own ([`crate::RlusdScheme`]).
+/// is a type of its own ([`crate::RlusdScheme`], [`crate::DsusdScheme`]).
 pub trait IssuedToken: 'static {
     /// The token.
     const TOKEN: Token;
