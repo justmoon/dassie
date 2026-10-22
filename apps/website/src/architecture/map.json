@@ -27,7 +27,7 @@
     {
       "id": "tooling",
       "name": "Tooling and tests",
-      "desc": "The local network for development, and the tests that run real binaries."
+      "desc": "The local network for development, the tests that run real binaries, and the keeper of the testnet's dollar pool."
     }
   ],
   "viewBox": {
@@ -240,6 +240,23 @@
         "Golden vectors through the WebAssembly build",
         "The WebAssembly modules in a browser",
         "A stopped peer still answers correctly"
+      ]
+    },
+    "dsusd-keeper": {
+      "name": "apps/dsusd-keeper",
+      "path": "apps/dsusd-keeper",
+      "label": "DSUSD pool keeper",
+      "sub": "tooling",
+      "x": 636,
+      "y": 144,
+      "w": 167,
+      "desc": "Keeps DSUSD, a testnet dollar token of Dassie's own, in place on the XRP Ledger testnet, and holds its XRP/DSUSD pool at an exchange's XRP/USD price. Owners get DSUSD only by paying XRP for it through that pool. It runs every few minutes on a small VM of its own.",
+      "does": [
+        "Reads the exchange's XRP/USD ticker, and refuses one that is stale, crossed or out of bounds",
+        "Makes the token's issuer, its own account, its trust line and the pool, again after a testnet reset, from the faucet",
+        "Moves the pool's price to the target with DSUSD alone: mints and deposits it to raise XRP's price, withdraws it and gives it back to the issuer to lower it; it never buys XRP",
+        "Deepens the pool with faucet XRP and DSUSD beside it, up to a configured depth",
+        "One line per run, and a VM set up by `provision.sh` that reads only the two seeds it needs"
       ]
     },
     "proto-ui": {
