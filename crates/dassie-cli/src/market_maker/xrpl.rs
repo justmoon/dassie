@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use dassie_node::peer_client::PeerClient;
 use dassie_xrpl::Wallet;
+use dassie_xrpl::account::TESTNET_NETWORK_ID;
 use dassie_xrpl::amount::{Amount, Asset};
 use dassie_xrpl::api::{self, ApiError, Message as ApiMessage, ServerState};
 use dassie_xrpl::codec::{self, SendMaxTerms};
@@ -100,6 +101,19 @@ pub enum Outcome {
     Expired,
     /// It was not seen validated in time; it may still apply.
     Unknown,
+}
+
+impl Outcome {
+    /// Whether it paid, or still may: validated with success, or not seen
+    /// either way.
+    #[must_use]
+    pub fn may_have_paid(&self) -> bool {
+        match self {
+            Self::Validated { result, .. } => result == "tesSUCCESS",
+            Self::Unknown => true,
+            Self::Refused(_) | Self::Expired => false,
+        }
+    }
 }
 
 impl Xrpl {
@@ -194,6 +208,30 @@ impl Xrpl {
         }
     }
 
+    /// The server's state, if it is on the testnet. The keys a rebalance
+    /// signs with are the nodes' testnet keys, whose accounts have the
+    /// same addresses on every network: like the node's account, the
+    /// market maker signs nothing for a server of another network, or one
+    /// that names none (spec/decisions/real-money.md).
+    ///
+    /// # Errors
+    ///
+    /// It cannot be read, or the server is on another network.
+    pub async fn testnet_state(&mut self) -> Result<ServerState, String> {
+        let state = self
+            .request(api::server_state)
+            .await
+            .and_then(|result| {
+                api::server_state_result(&result)
+                    .ok_or_else(|| Failure::Transport("a server_state it cannot read".into()))
+            })
+            .map_err(|failure| failure.to_string())?;
+        if state.network_id != Some(TESTNET_NETWORK_ID) {
+            return Err("the XRPL server is not on the XRP Ledger testnet".into());
+        }
+        Ok(state)
+    }
+
     /// The pool of XRP and `token`, as of a validated ledger, with neither
     /// asset frozen.
     ///
@@ -237,22 +275,16 @@ impl Xrpl {
     ///
     /// # Errors
     ///
-    /// It could not be signed or submitted: nothing was sent, or what was
-    /// sent never applies.
+    /// It was not signed, or the server refused it with an error: nothing
+    /// was sent that can apply. A submit whose answer was lost is followed
+    /// as one that was answered.
     pub async fn rebalance(
         &mut self,
         wallet: &Wallet,
         destination: AccountId,
         rebalance: &Rebalance,
     ) -> Result<Outcome, String> {
-        let state = self
-            .request(api::server_state)
-            .await
-            .and_then(|result| {
-                api::server_state_result(&result)
-                    .ok_or_else(|| Failure::Transport("a server_state it cannot read".into()))
-            })
-            .map_err(|failure| failure.to_string())?;
+        let state = self.testnet_state().await?;
         let fee = fee_drops(&state).ok_or("the ledger's fee is above what a rebalance pays")?;
         let account = wallet.account();
         let info = self
@@ -274,11 +306,19 @@ impl Xrpl {
         };
         let signed =
             codec::sign_send_max(wallet, terms).map_err(|e| format!("cannot sign: {e:?}"))?;
-        let submitted = self
-            .request(|id| api::submit(id, &signed.blob))
-            .await
-            .map_err(|failure| failure.to_string())?;
-        let engine = api::submit_result(&submitted).ok_or("a submit answer it cannot read")?;
+        let submitted = match self.request(|id| api::submit(id, &signed.blob)).await {
+            Ok(submitted) => submitted,
+            // The server may have it, though its answer was lost: what
+            // the ledger says of its hash decides.
+            Err(Failure::Transport(problem)) => {
+                tracing::warn!(target: super::TARGET, %problem, "no answer to a rebalance's submit");
+                return Ok(self.follow(&signed.hash, first, last).await);
+            }
+            Err(failure @ Failure::Api(_)) => return Err(failure.to_string()),
+        };
+        let Some(engine) = api::submit_result(&submitted) else {
+            return Ok(self.follow(&signed.hash, first, last).await);
+        };
         // A malformed or failed one (tem…, tef…, tel…) never applies; one
         // that claims a fee (tec…) or waits (ter…) is decided by a
         // validated ledger.
@@ -597,6 +637,54 @@ mod tests {
             Some(left)
         );
         server.stop();
+    }
+
+    #[tokio::test]
+    async fn it_signs_nothing_for_a_server_of_another_network() {
+        let server = fake_ledger().await;
+        let client = client();
+        ask(
+            &client,
+            &server,
+            "amm",
+            &serde_json::json!({ "token": "DSUSD", "drops": "1000000000", "value": "500", "fee": 0 }),
+        )
+        .await;
+        let mut xrpl = Xrpl::new(server.url.clone(), client.clone());
+        assert!(xrpl.testnet_state().await.is_ok());
+        let paying = holder(&server, 1, 100_000_000).await;
+        let paid = holder(&server, 2, 100_000_000).await;
+        mint(&client, &server, paying.account(), "20").await;
+        let rebalance = Rebalance {
+            from: Side::Token,
+            deliver: Amount::Xrp(1_000_000),
+            send_max: to_amount(Side::Token, 10_000_000_000, dsusd()).unwrap(),
+        };
+        let before = server.ledger().balance(paid.account());
+        // Mainnet's ID, and none.
+        for network_id in [Some(0), None] {
+            server.ledger().set_network_id(network_id);
+            assert!(xrpl.testnet_state().await.is_err());
+            let refused = xrpl.rebalance(&paying, paid.account(), &rebalance).await;
+            assert!(refused.is_err(), "{refused:?}");
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(server.ledger().balance(paid.account()), before);
+        server.stop();
+    }
+
+    #[test]
+    fn a_rebalance_may_have_paid_until_the_ledger_says_otherwise() {
+        let validated = |result: &str| Outcome::Validated {
+            result: result.into(),
+            delivered: None,
+            hash: String::new(),
+        };
+        assert!(validated("tesSUCCESS").may_have_paid());
+        assert!(Outcome::Unknown.may_have_paid());
+        assert!(!validated("tecPATH_PARTIAL").may_have_paid());
+        assert!(!Outcome::Expired.may_have_paid());
+        assert!(!Outcome::Refused("tefPAST_SEQ".into()).may_have_paid());
     }
 
     #[test]

@@ -50,6 +50,10 @@ pub const TARGET: &str = "das:market-maker";
 /// How often it decides.
 const TICK: Duration = Duration::from_secs(10);
 
+/// How long it waits, at most, for a node to book a rebalance that paid
+/// from its account, or may have, before it decides again.
+const UNBOOKED_WAIT_MS: u64 = 2 * 60 * 1_000;
+
 /// The flags.
 #[derive(Debug)]
 pub struct Options {
@@ -122,6 +126,22 @@ struct MarketMaker {
     xrp: Node,
     token: Node,
     wallets: Wallets,
+    unbooked: Option<Unbooked>,
+}
+
+/// A rebalance that paid, or may have, from a node's account, which the
+/// node may not have booked yet. Until it has, its holding still counts
+/// what the rebalance spent, and a decision from it would spend that
+/// again: below the node's band.
+#[derive(Clone, Copy, Debug)]
+struct Unbooked {
+    /// The node whose account paid.
+    from: Side,
+    /// What the account held, as its books had it, before.
+    on_ledger: u64,
+    /// When the market maker stops waiting: the rebalance never applied,
+    /// or the node booked it as something else.
+    until_ms: u64,
 }
 
 /// The nodes' XRPL accounts' keys, derived from their passphrases.
@@ -164,6 +184,8 @@ impl MarketMaker {
         check_node(&mut xrp, wallets.xrp.account(), Some("XRP")).await?;
         check_node(&mut token, wallets.token.account(), None).await?;
         let client = PeerClient::new(config.ca_file.as_deref(), config.allow_private)?;
+        let mut xrpl = Xrpl::new(config.xrpl_server.clone(), client.clone());
+        xrpl.testnet_state().await?;
         let info = target::fetch(&client, &config.target.url).await?;
         let port = info
             .feed_port
@@ -196,7 +218,6 @@ impl MarketMaker {
             token = %wallets.token.account(),
             "trading through the target"
         );
-        let xrpl = Xrpl::new(config.xrpl_server.clone(), client);
         Ok(Self {
             config,
             clock,
@@ -205,6 +226,7 @@ impl MarketMaker {
             xrp,
             token,
             wallets,
+            unbooked: None,
         })
     }
 
@@ -220,6 +242,9 @@ impl MarketMaker {
                 () = shutdown.cancelled() => return,
                 () = self.tick() => {}
             }
+            // A full tick after a decision, however long it took: the
+            // nodes book what it did meanwhile.
+            ticks.reset();
         }
     }
 
@@ -260,6 +285,17 @@ impl MarketMaker {
                 return;
             }
         };
+        if let Some(unbooked) = self.unbooked {
+            let booked = holdings.of(unbooked.from).on_ledger < unbooked.on_ledger;
+            if !booked && now_ms < unbooked.until_ms {
+                tracing::info!(
+                    target: TARGET, from = unbooked.from.name(), ?holdings,
+                    "hold: the node has not booked the last rebalance yet"
+                );
+                return;
+            }
+            self.unbooked = None;
+        }
         let params = self.config.params;
         let inputs = Inputs {
             rates,
@@ -306,6 +342,13 @@ impl MarketMaker {
         let wallet = self.wallets.of(rebalance.from);
         let destination: AccountId = self.wallets.of(rebalance.from.other()).account();
         let outcome = self.xrpl.rebalance(wallet, destination, rebalance).await;
+        if outcome.as_ref().is_ok_and(xrpl::Outcome::may_have_paid) {
+            self.unbooked = Some(Unbooked {
+                from: rebalance.from,
+                on_ledger: holdings.of(rebalance.from).on_ledger,
+                until_ms: self.clock.now_ms().saturating_add(UNBOOKED_WAIT_MS),
+            });
+        }
         let from = rebalance.from.name();
         match outcome {
             Ok(outcome) => tracing::info!(

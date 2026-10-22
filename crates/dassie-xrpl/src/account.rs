@@ -122,8 +122,9 @@ pub(crate) const MAX_ACCOUNT_DROPS: u64 = MAX_TOTAL / UNITS_PER_DROP;
 /// Why the account stops when a server reports more than that.
 const TOO_MUCH_XRP: &str = "the server reported more XRP for the account than the books can hold";
 /// The network ID the testnet's servers report: mainnet's is 0, and
-/// devnet's 2.
-const TESTNET_NETWORK_ID: u32 = 1;
+/// devnet's 2. Nothing signs for a server that reports another
+/// (spec/decisions/real-money.md).
+pub const TESTNET_NETWORK_ID: u32 = 1;
 /// Why the account stops when its server reports another network, or none.
 const WRONG_NETWORK: &str = "the server is not on the XRP Ledger testnet; remove the scheme and add it with a testnet server";
 /// Why the account stops when a network that is never reset starts again
