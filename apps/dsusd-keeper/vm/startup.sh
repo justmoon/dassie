@@ -38,11 +38,16 @@ if [ ! -x /nix/var/nix/profiles/default/bin/nix ]; then
   sh /tmp/nix-install --daemon --yes < /dev/null
   rm /tmp/nix-install
 fi
+# Each change of the flake's nixpkgs brings a new Node and pnpm, and
+# nothing roots the old ones: Nix collects them whenever the disk runs
+# low, so the VM never fills its disk.
 cat > /etc/nix/nix.conf <<'EOF'
 build-users-group = nixbld
 experimental-features = nix-command flakes
 allowed-users = root
 trusted-users = root
+min-free = 2147483648
+max-free = 6442450944
 EOF
 systemctl restart nix-daemon.service
 

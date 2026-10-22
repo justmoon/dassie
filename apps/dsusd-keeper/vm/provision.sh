@@ -10,9 +10,9 @@
 # `gcloud compute instances add-metadata … --metadata-from-file`).
 #
 # What it makes:
-# - a service account of the keeper's own, with no role in the project,
-#   which holds the bootstrap nodes' phrases: it can read the two secrets
-#   with the issuer's and the keeper's seeds, and nothing else;
+# - a service account of the keeper's own, with no role in the project
+#   (which also holds the bootstrap nodes' phrases): it can read the two
+#   secrets with the issuer's and the keeper's seeds, and nothing else;
 # - a network of its own with no firewall rule: nothing reaches the VM
 #   (GCP denies ingress by default), and the VM reaches out to the testnet,
 #   its faucet, the exchange and GitHub;
