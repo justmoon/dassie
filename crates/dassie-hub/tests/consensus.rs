@@ -1149,6 +1149,58 @@ fn a_validator_away_while_nothing_is_final_takes_the_chain_from_others() {
 }
 
 #[test]
+fn verifying_again_costs_at_most_the_unfinalized_chain_per_view() {
+    // Faulty leaders propose to too few to notarize: those few verify a
+    // block that is never notarized, and an application that keeps one
+    // state lets go of what the next block builds on, so that block's
+    // ancestors are verified again, from the last final block. With every
+    // finalize lost, that chain is as long as it gets.
+    for count in [4, 7] {
+        let faults = (count - 1) / 3;
+        for keep in [None, Some(1), Some(2)] {
+            let mut network = Network::new(1, &roles(count, &vec![Role::Partial; faults]), CONFIG);
+            for sim in &mut network.validators {
+                sim.app.keep_states = keep;
+            }
+            run_for(&mut network, 1_000);
+            let start: Vec<(u64, u64)> = network
+                .honest()
+                .map(|i| {
+                    (
+                        network.engine(i).view(),
+                        network.validators[i].app.verifications,
+                    )
+                })
+                .collect();
+            network.lose_every_finalize = true;
+            run_for(&mut network, 30_000);
+            network.lose_every_finalize = false;
+            run_for(&mut network, 3_000);
+            assert_safe(&network);
+            let (views, verified) = network.honest().zip(&start).fold(
+                (0, 0),
+                |(views, verified), (i, (view, before))| {
+                    (
+                        views + network.engine(i).view() - view,
+                        verified + network.validators[i].app.verifications - before,
+                    )
+                },
+            );
+            let most = network
+                .honest()
+                .map(|i| network.validators[i].most_verified_in_a_view)
+                .max()
+                .unwrap();
+            eprintln!(
+                "{count} validators, keeping {keep:?}: {verified} verified in {views} views, \
+                 at most {most} in one view"
+            );
+            assert!(most <= dassie_hub::consensus::MAX_UNFINALIZED_HEIGHTS + 2);
+        }
+    }
+}
+
+#[test]
 fn a_repeat_is_valid_only_of_an_epochs_last_block() {
     let (mut engine, mut app, b2, _) = split_at_the_boundary();
     // With a payload, or below the epoch's last height, it is no repeat:

@@ -102,6 +102,11 @@ pub enum Role {
     /// other proposals for every view it leads within reach, of heights no
     /// chain has, to crowd out honest blocks.
     Flood,
+    /// Sends its proposals to only f of the others, too few to notarize
+    /// them: they verify a block that is never notarized, and an
+    /// application that keeps few states lets go of what the next block
+    /// builds on.
+    Partial,
 }
 
 impl Role {
@@ -154,6 +159,8 @@ pub struct SimApp {
     pub keep_states: Option<usize>,
     /// The digest of the last finalized block, whose state it always keeps.
     last_final: Option<Digest>,
+    /// How many times the engine had it verify a block, again or not.
+    pub verifications: u64,
 }
 
 /// Where a payload's state root starts, after its marker, height and
@@ -264,6 +271,7 @@ impl Application for SimApp {
         // A block is checked on the state after its parent, which the
         // engine must make sure is held (genesis's aside): it verifies
         // again what was let go of.
+        self.verifications += 1;
         self.needs(&context.parent);
         let parent = self
             .states
@@ -429,6 +437,12 @@ pub struct SimValidator {
     /// The longest a block took from its stamp to being final here, by
     /// this validator's clock.
     pub slowest_ms: u64,
+    /// The most blocks its application verified while it was in one view,
+    /// again or not: the work a view costs.
+    pub most_verified_in_a_view: u64,
+    /// The view it is in, and how many blocks its application had verified
+    /// when it entered it.
+    view_work: (u64, u64),
 }
 
 #[derive(Debug)]
@@ -529,6 +543,8 @@ impl Network {
                 evidence: Vec::new(),
                 stalled: false,
                 slowest_ms: 0,
+                most_verified_in_a_view: 0,
+                view_work: (0, 0),
             });
             network.start(index);
         }
@@ -629,7 +645,15 @@ impl Network {
         let Some(engine) = sim.engine.as_mut() else {
             return;
         };
+        let before = sim.app.verifications;
         act(engine, &mut sim.app, now);
+        // A step that enters a view checks what it holds for it: what it
+        // verified counts for the view it entered.
+        if engine.view() != sim.view_work.0 {
+            sim.view_work = (engine.view(), before);
+        }
+        let done = sim.app.verifications.saturating_sub(sim.view_work.1);
+        sim.most_verified_in_a_view = sim.most_verified_in_a_view.max(done);
         self.drain(index);
     }
 
@@ -807,7 +831,7 @@ impl Network {
         }
         match self.validators[from].role {
             Role::Silent => {}
-            Role::Withhold | Role::Equivocate | Role::Collude | Role::Flood => {
+            Role::Withhold | Role::Equivocate | Role::Collude | Role::Flood | Role::Partial => {
                 let message = Message::decode_message(&bytes).unwrap();
                 match (self.validators[from].role, message) {
                     (Role::Withhold, Message::Proposal(_)) => {}
@@ -820,6 +844,11 @@ impl Network {
                             .collect();
                         self.forked = true;
                         self.equivocate(from, to, proposal, &colluders);
+                    }
+                    (Role::Partial, Message::Proposal(_)) => {
+                        let few = (self.validators.len() - 1) / 3;
+                        let some: Vec<usize> = to.iter().copied().take(few).collect();
+                        self.send_all(from, &some, &bytes);
                     }
                     (Role::Flood, Message::Proposal(proposal)) => {
                         self.send_all(from, to, &bytes);

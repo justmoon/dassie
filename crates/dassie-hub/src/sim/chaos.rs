@@ -1,6 +1,7 @@
 //! The hub's random run (spec/areas/testing.md#the-simulations): a set of 4
 //! to 7 validators, up to f of them Byzantine (silent, withholding their
-//! proposals, proposing invalid payloads, or equivocating), through a
+//! proposals, proposing invalid payloads, equivocating, flooding proposals,
+//! or proposing to too few to notarize), through a
 //! stretch of chaos (loss, duplication, slow messages, partitions, crashes
 //! and restarts from what each persisted, clocks off within the precision),
 //! then healed. One seed in ten has f + 1 validators collude to fork the
@@ -88,6 +89,7 @@ fn setup(seed: u64) -> (SeededRng, Setup) {
             Role::Invalid,
             Role::Equivocate,
             Role::Flood,
+            Role::Partial,
         ];
         let drawn = usize::try_from(rng.below(faults as u64 + 1)).unwrap_or(0);
         (0..drawn)
