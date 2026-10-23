@@ -70,12 +70,27 @@ pub trait Application {
     /// Whether `payload` is valid on its parent. Every honest validator
     /// must give the same answer for the same block, so it may depend on
     /// nothing but the chain. The application keeps the state after a block
-    /// it found valid, by the block's digest, until the block is final or
-    /// abandoned: [`scheduled_change`](Self::scheduled_change) reads it, and
-    /// later blocks build on it. The engine may ask again about a block it
-    /// asked about before, as after a restart, and about a block a quorum
+    /// it found valid, by the block's digest, for as long as it likes: at
+    /// least until its next call, and it says whether it still does
+    /// ([`holds`](Self::holds)). [`scheduled_change`](Self::scheduled_change)
+    /// reads that state, and later blocks build on it. The state after
+    /// `context.parent` is held when the engine asks: the engine verifies a
+    /// block's ancestors again, in order from the nearest whose state is
+    /// held, when the application let go of theirs. So it may ask again
+    /// about a block it asked about before (as after a restart, or after
+    /// the application let go of its state), and about a block a quorum
     /// notarized that it never saw proposed, before it builds on it.
     fn verify(&mut self, context: &VerifyContext, payload: &[u8]) -> bool;
+
+    /// Whether the application still holds the state after `block`, a block
+    /// it found valid ([`verify`](Self::verify)). The state after the last
+    /// finalized block is always held. An application that keeps the state
+    /// after every block it verified until that block is final or abandoned
+    /// keeps the default.
+    fn holds(&mut self, block: &Digest) -> bool {
+        let _ = block;
+        true
+    }
 
     /// A block is final. Called once per block, in height order; the host
     /// persists what the application did with it in the same batch as the
@@ -99,8 +114,10 @@ pub trait Application {
     /// The change of validators scheduled and not yet made in the state
     /// after block `after`, if any: the height its set takes over at, and
     /// the set. `after` is the last finalized block, or a block the
-    /// application found valid since ([`verify`](Self::verify)), which need
-    /// not be final: the boundary is a property of the chain being
+    /// application found valid ([`verify`](Self::verify)) and still holds
+    /// the state after ([`holds`](Self::holds)): the engine asks about no
+    /// other, so `None` always means no change is pending, never that the
+    /// state is unknown. `after` need not be final: the boundary is a property of the chain being
     /// extended, so that no block of the old set at or above it, and only
     /// repeats of the block before it, are notarized on that chain, whatever
     /// a validator has finalized (spec/decisions/epoch-handover.md). It must

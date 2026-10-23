@@ -19,7 +19,7 @@
 
 ## Accepted
 
-- The application must keep the state after each block it found valid until that block is final or abandoned, and answer what change it names; the engine has it verify a notarized block it never saw proposed before it builds on it.
+- The application keeps the state after blocks it found valid, final or not, and answers what change each names. It may bound how many it keeps, and says which it still holds: the engine has it verify again, from the nearest it holds, what it let go of, and verify a notarized block it never saw proposed before it builds on it. Otherwise a state let go of while its block's votes split would refuse every block after it, at more than f honest validators for good.
 
 - A repeat costs a view, and only at the end of an epoch whose last block's votes split.
 - A chain of repeats longer than a delivery's bound cannot be handed over in one delivery; it takes a run of splits at one boundary that long.
