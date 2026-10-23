@@ -1116,6 +1116,7 @@ dependencies = [
  "bytes",
  "dassie-connector",
  "dassie-feed",
+ "dassie-hub",
  "dassie-identity",
  "dassie-ilp",
  "dassie-ledger",

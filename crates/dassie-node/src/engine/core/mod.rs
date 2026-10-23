@@ -187,6 +187,23 @@ pub enum Output {
         /// The message.
         message: Vec<u8>,
     },
+    /// Send a message to one validator of a settlement hub, for the hub
+    /// account `asset`; its answer comes back as [`LedgerEvent::From`]
+    /// with the same endpoint and epoch (spec/areas/hubs.md#the-members-side).
+    HubSend {
+        /// The asset's ID.
+        asset: String,
+        /// Its connection, which the answer is for.
+        epoch: u64,
+        /// The validator's place in the hub's rules.
+        endpoint: usize,
+        /// The validator's node key, which the connection is pinned to.
+        node: Box<dassie_identity::PublicKey>,
+        /// Where it is reached: `host:port`.
+        address: String,
+        /// The message.
+        message: Vec<u8>,
+    },
     /// Ask a faucet for an asset: an HTTPS POST, whose outcome comes back
     /// as [`LedgerEvent::Funded`].
     Fund {

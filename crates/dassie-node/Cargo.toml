@@ -24,6 +24,7 @@ required-features = ["testing"]
 [dependencies]
 dassie-connector = { path = "../dassie-connector" }
 dassie-feed = { path = "../dassie-feed" }
+dassie-hub = { path = "../dassie-hub" }
 dassie-identity = { path = "../dassie-identity" }
 dassie-ilp = { path = "../dassie-ilp" }
 dassie-ledger = { path = "../dassie-ledger" }

@@ -27,6 +27,15 @@ fn secret(node: &NodeKey, nonce: &[u8; 32], name: &str) -> Option<DerivedSecret>
     node.derive(&path).ok()
 }
 
+/// A member's account key in the hub `hub`, at `node/hub/<hub ID>/account`:
+/// one key per hub, so accounts in two hubs are not linked by their key.
+#[must_use]
+pub fn member_key(node: &NodeKey, hub: &crate::rules::HubId) -> Option<NodeKey> {
+    Some(NodeKey::from_bytes(
+        secret(node, &hub.0.0, "account")?.as_bytes(),
+    ))
+}
+
 /// What a validator makes for a hub: a consensus key, an escrow key on the
 /// escrow's signer list, and a payout key whose children sign payout sets.
 pub struct ValidatorKeys {

@@ -853,6 +853,7 @@ impl Driver<'_> {
                 Output::LedgerConnect { .. }
                 | Output::LedgerClose { .. }
                 | Output::LedgerSend { .. }
+                | Output::HubSend { .. }
                 | Output::Fund { .. } => {
                     self.ledger_output(output);
                     continue;
@@ -915,6 +916,25 @@ impl Driver<'_> {
                 let client = self.node.peer_client().cloned();
                 links::fund(client, self.commands.clone(), asset, epoch, url, body);
             }
+            Output::HubSend {
+                asset,
+                epoch,
+                endpoint,
+                node,
+                address,
+                message,
+            } => links::hub_send(
+                self.node.quic().cloned(),
+                self.commands.clone(),
+                links::HubSend {
+                    asset,
+                    epoch,
+                    endpoint,
+                    node: *node,
+                    address,
+                    message,
+                },
+            ),
             _ => {}
         }
     }

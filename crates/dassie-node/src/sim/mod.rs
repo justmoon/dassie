@@ -1312,6 +1312,8 @@ impl Sim {
                     },
                 );
             }
+            // No simulated node is in a hub yet.
+            Output::HubSend { .. } => {}
             Output::Fund { epoch, body, .. } => {
                 let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
                 let to = dassie_xrpl::AccountId::parse(request["destination"].as_str().unwrap())

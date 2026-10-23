@@ -68,6 +68,8 @@ pub(super) struct Settlements {
     pub unavailable_warned: BTreeMap<Name, u64>,
     /// Whether this node lies that it never settles, in a simulation.
     pub never_settles: bool,
+    /// The largest packet, which schemes that count in packets need.
+    pub max_packet: u64,
 }
 
 impl Settlements {
@@ -79,6 +81,7 @@ impl Settlements {
             trigger: policy::trigger(policies.connector.max_packet_amount),
             minimum: policy::minimum(policies.connector.max_packet_amount),
             credit_cap: policy::credit_cap(policies.connector.max_packet_amount),
+            max_packet: policies.connector.max_packet_amount,
             growth: super::growth::Growth::new(),
             asked: BTreeMap::new(),
             settling: BTreeMap::new(),
