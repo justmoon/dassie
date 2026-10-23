@@ -210,7 +210,7 @@ fn validators_agree_and_tell_the_member() {
     // Alice subscribes and sets her disbursal address.
     net.request(&Request::Since {
         account: number,
-        from: 0,
+        from: 1,
     });
     let hub = *net.validators[0].ledger().hub();
     let disbursal = Operation::Member(SignedMemberOperation::sign(
@@ -250,7 +250,12 @@ fn validators_agree_and_tell_the_member() {
         "validators disagree"
     );
 
-    // What three validators signed, Alice believes.
+    // Alice asks again, as her account polls; what three validators
+    // signed, she believes.
+    net.request(&Request::Since {
+        account: number,
+        from: 1,
+    });
     let set = net.validators[0].ledger().validators().clone();
     let mut agreement = Agreement::new(hub, set, 4096);
     let mut agreed = Vec::new();

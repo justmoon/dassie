@@ -329,18 +329,21 @@ impl Validator {
         });
     }
 
-    /// Pushes to each subscriber what the block did to its account, and the
-    /// newest final block to all.
+    /// Pushes to each subscriber what the block did to its account.
+    ///
+    /// A push is early notice only: it carries no `Final`, since a push that
+    /// is lost would make the validator vouch for blocks it never sent. A
+    /// member learns what is covered from answers to `Since`, which list
+    /// everything up to the `Final` they end with
+    /// (spec/areas/hubs.md#the-members-side).
     fn publish(&mut self, block: &FinalBlock) {
         let subscribers: Vec<(PeerId, AccountNumber)> =
             self.subscribers.iter().map(|(p, a)| (*p, *a)).collect();
         for (peer, account) in subscribers {
-            let mut statements: Vec<Statement> = touching(block, account).collect();
-            statements.push(Statement::Final {
-                height: block.height,
-                timestamp: block.timestamp,
-            });
-            self.send_statements(peer, statements);
+            let statements: Vec<Statement> = touching(block, account).collect();
+            if !statements.is_empty() {
+                self.send_statements(peer, statements);
+            }
         }
     }
 
