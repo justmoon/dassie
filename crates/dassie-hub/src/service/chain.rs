@@ -5,9 +5,9 @@
 //!
 //! Each kept state is a copy of the ledger, as large as the terms' tables
 //! let it grow, so at most [`MAX_EXECUTED`] are kept: while finality
-//! stalls the lowest go first. A block whose state went is executed again
-//! from the final state once it is final, and blocks built on it are not
-//! verified until then, which a stall that long means anyway.
+//! stalls the lowest go first, never the one just verified. The chain says
+//! which it holds (`holds`), and the engine verifies a block whose state
+//! went again, from the nearest state still held, before it relies on it.
 
 use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::vec::Vec;
