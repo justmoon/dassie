@@ -18,6 +18,11 @@ use dassie_settlement::{Commitments, Decided, Promised};
 
 use super::Core;
 
+/// The pretend hub that nodes on the stub with commitments are members of,
+/// in tests and simulations.
+#[cfg(feature = "testing")]
+const STUB_HUB_ID: [u8; 32] = *b"the stub with commitments' hub..";
+
 /// What became of a Prepare to a peer over a hub.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum HubSent {
@@ -40,6 +45,41 @@ fn promised(packet: &[u8]) -> Option<Promised> {
     })
 }
 
+/// What a scheme over a hub holds of the packets between us and one peer,
+/// beside what the connector holds pending with it: for a simulation to
+/// check that the scheme holds no packet the connector let go
+/// (spec/areas/testing.md#the-simulations).
+#[cfg(feature = "testing")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HubPackets {
+    /// The peer.
+    pub peer: Name,
+    /// What the scheme holds.
+    pub held: dassie_settlement::Held,
+    /// The connector's packets to the peer, in flight or waiting for the
+    /// hub.
+    pub pending_to: usize,
+    /// The connector's packets from the peer that it has not answered.
+    pub pending_from: usize,
+}
+
+impl super::ledgers::ActiveScheme {
+    /// Whether its peerings extend no unsecured credit: those over a hub,
+    /// whose hold is all the credit there is
+    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). In tests and
+    /// simulations, the stub with commitments, which has no hold, extends
+    /// credit as the stub does, so that money crosses its peerings: it
+    /// stands in for the packet path over a hub, not for the hold. Built
+    /// only with the `testing` feature.
+    pub(super) fn credit_is_hold(&self) -> bool {
+        #[cfg(feature = "testing")]
+        if self.scheme.id() == dassie_ledger::name!("stub") {
+            return false;
+        }
+        self.over_hub
+    }
+}
+
 impl Core {
     /// The scheme and the peer's name, if the peering with `node` is over a
     /// hub: its scheme signs promises per packet. A peering being ended
@@ -59,6 +99,10 @@ impl Core {
     /// (spec/designs/settlement-hubs.md#11-choosing-a-hub): once our hub
     /// account has its number, and while its scheme runs.
     pub(super) fn hub_membership(&self) -> Option<HubMembership> {
+        #[cfg(feature = "testing")]
+        if let Some(membership) = self.stub_hub_membership() {
+            return Some(membership);
+        }
         let scheme = Name::new(dassie_hub::member::SCHEME_ID).ok()?;
         let running = self
             .schemes
@@ -75,6 +119,54 @@ impl Core {
             account: account.number()?.0,
             takes_peers: true,
         })
+    }
+
+    /// In tests and simulations, the stub with commitments makes its nodes
+    /// members of one pretend hub, so that they peer over it as over a hub
+    /// (spec/areas/settlement.md#the-stub-scheme): a hub's member side
+    /// needs validators, which no simulation runs yet. Built only with the
+    /// `testing` feature.
+    #[cfg(feature = "testing")]
+    fn stub_hub_membership(&self) -> Option<HubMembership> {
+        let stub = self.schemes.get(&dassie_ledger::name!("stub"))?;
+        (stub.over_hub && stub.failed.is_none()).then_some(HubMembership {
+            hub_id: STUB_HUB_ID,
+            account: 0,
+            takes_peers: true,
+        })
+    }
+
+    /// What each scheme over a hub holds of each peer's packets, beside what
+    /// the connector holds pending with that peer, in the order of the
+    /// schemes and then the peers: for a simulation's checks. A scheme that
+    /// does not count what it holds is left out. Built only with the
+    /// `testing` feature.
+    #[cfg(feature = "testing")]
+    pub fn hub_packets(&mut self) -> Vec<HubPackets> {
+        let mut held = Vec::new();
+        for active in self.schemes.values_mut().filter(|active| active.over_hub) {
+            if let Some(commitments) = active.scheme.commitments() {
+                commitments.held(&mut held);
+            }
+        }
+        held.into_iter()
+            .map(|(peer, held)| {
+                let endpoint = NodeId::parse(peer.as_str())
+                    .ok()
+                    .and_then(|node| self.peer_endpoints.get(&node))
+                    .map(|id| EndpointId::Peer(*id));
+                let (pending_to, pending_from) = endpoint.map_or((0, 0), |id| {
+                    let from = self.connector.pending_from(id);
+                    (self.connector.pending_for(id).saturating_sub(from), from)
+                });
+                HubPackets {
+                    peer,
+                    held,
+                    pending_to,
+                    pending_from,
+                }
+            })
+            .collect()
     }
 
     /// Names in our link state the hub we are a member of now, if that

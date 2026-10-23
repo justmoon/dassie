@@ -107,6 +107,31 @@ pub fn run(seed: u64) -> Run {
     run_on(seed, Settling::Stub)
 }
 
+/// The room a run over the stub with commitments draws: 1, 2, 4 or 8
+/// packets in flight per peer each way. Its own generator, so that it
+/// draws nothing else's.
+fn hub_limit(seed: u64) -> usize {
+    1 << SeededRng::new(seed ^ 0x4b0b).below(4)
+}
+
+/// What a seed draws for a run over the stub with commitments, before it
+/// starts.
+#[must_use]
+pub fn describe_stub_hub(seed: u64) -> String {
+    format!(
+        "{}, room for {} packets per peer each way",
+        describe(seed),
+        hub_limit(seed)
+    )
+}
+
+/// A run over the stub with commitments: its packets take the path over a
+/// settlement hub (spec/areas/hubs.md#in-the-node).
+#[must_use]
+pub fn run_stub_hub(seed: u64) -> Run {
+    run_on(seed, Settling::StubHub(hub_limit(seed)))
+}
+
 /// A run over the XRP Ledger testnet scheme, against the fake ledger.
 #[must_use]
 pub fn run_xrpl(seed: u64) -> Run {

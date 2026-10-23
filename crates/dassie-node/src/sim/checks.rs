@@ -403,6 +403,7 @@ pub fn check_events(sim: &Sim) -> Result<(), String> {
 /// payment vanished. A run that did not settle down checks these, and
 /// fails for safety, before it fails for liveness.
 pub fn check_mid_flight(sim: &Sim) -> Result<(), Outcome> {
+    check_hub_packets(sim).map_err(|problem| Outcome::safety("hub-packets", problem))?;
     for payment in &sim.payments {
         check_cap(sim, payment).map_err(|problem| Outcome::safety("cap", problem))?;
         let row = sim.nodes[payment.to]
@@ -448,6 +449,22 @@ pub fn check_mid_flight(sim: &Sim) -> Result<(), Outcome> {
     Ok(())
 }
 
+/// No node's stub with commitments held, after any step, a packet in flight
+/// that its connector no longer held pending with that peer: each packet
+/// it committed to or took a commitment for was resolved in the scheme
+/// when the connector let it go, answered, decided or never sent
+/// (spec/areas/hubs.md#in-the-node).
+pub fn check_hub_packets(sim: &Sim) -> Result<(), String> {
+    match sim.hub_leaks.as_slice() {
+        [] => Ok(()),
+        leaks => Err(format!(
+            "stubs held packets past their connectors with {} peers: {}",
+            leaks.len(),
+            leaks.join("; ")
+        )),
+    }
+}
+
 /// The first safety failure among `results`, or else the first other
 /// failure: a run that broke something that must never happen says so,
 /// whatever else it failed to do.
@@ -479,16 +496,19 @@ pub fn check(sim: &Sim) -> Result<(), Outcome> {
         .iter()
         .map(|payment| check_incoming(sim, payment));
     first_failure(
-        [check_events(sim).map_err(|problem| Outcome::safety("events", problem))]
-            .into_iter()
-            .chain(caps)
-            .chain([
-                check_books(sim),
-                check_finished(sim).map_err(|problem| Outcome::liveness("finished", problem)),
-                check_outgoing(sim),
-            ])
-            .chain(incoming)
-            .collect::<Vec<_>>(),
+        [
+            check_events(sim).map_err(|problem| Outcome::safety("events", problem)),
+            check_hub_packets(sim).map_err(|problem| Outcome::safety("hub-packets", problem)),
+        ]
+        .into_iter()
+        .chain(caps)
+        .chain([
+            check_books(sim),
+            check_finished(sim).map_err(|problem| Outcome::liveness("finished", problem)),
+            check_outgoing(sim),
+        ])
+        .chain(incoming)
+        .collect::<Vec<_>>(),
     )
 }
 
@@ -729,7 +749,7 @@ pub fn check_ledgers(sim: &Sim) -> Result<(), String> {
     for index in 0..count {
         stubs += check_held(sim, index, ledger)?;
     }
-    if sim.settling == Settling::Stub {
+    if sim.settling.on_stub() {
         let total = Settling::deposit(USD) * i128::try_from(count).unwrap();
         if stubs != total {
             return Err(format!("the stubs hold {stubs}, not {total}"));

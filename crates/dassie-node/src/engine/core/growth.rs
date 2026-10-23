@@ -77,7 +77,7 @@ impl Core {
         let ledgers: BTreeSet<LedgerId> = self
             .schemes
             .values()
-            .filter(|active| !active.over_hub)
+            .filter(|active| !active.credit_is_hold())
             .map(|active| active.scheme.ledger())
             .collect();
         let mut earned: BTreeMap<AccountId, u128> = BTreeMap::new();

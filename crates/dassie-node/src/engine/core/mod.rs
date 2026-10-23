@@ -46,6 +46,8 @@ use dassie_stream::BUFFER_LENGTH;
 pub use events::{
     BtpEvent, EngineEvent, Event, MAX_EVENTS, PaymentEvent, PeerEvent, SettlementEvent, Severity,
 };
+#[cfg(feature = "testing")]
+pub use hubs::HubPackets;
 pub use incoming::{IncomingPolicy, NewIncoming};
 pub use ledgers::{LedgerView, RemovalBlocker};
 pub use packets::ledger_slug;

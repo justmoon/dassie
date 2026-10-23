@@ -134,7 +134,7 @@ impl PeeringHooks for Hooks<'_> {
             .scheme(scheme)
             .ok_or(RefusalReason::UnsupportedScheme)?;
         let ledger = active.scheme.ledger();
-        let hub = active.over_hub;
+        let hub = active.credit_is_hold();
         // We accept, so we are the senior: the requester gets our credit
         // only once the peering earned it (spec/decisions/earned-trust.md).
         // Over a hub the hold is all the credit there is.
@@ -174,7 +174,7 @@ impl PeeringHooks for Hooks<'_> {
         // Our request was accepted, so we are the junior, and extend the
         // default credit line (spec/decisions/earned-trust.md). Over a hub
         // the hold is all the credit there is.
-        let hub = active.over_hub;
+        let hub = active.credit_is_hold();
         let start = if hub { 0 } else { self.credit };
         let credit_out = self.credit_for(peer, ledger, start);
         let active = self.scheme(scheme).ok_or(Declined)?;

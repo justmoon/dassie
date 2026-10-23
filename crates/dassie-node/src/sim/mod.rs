@@ -133,6 +133,10 @@ pub const REPLAY_WITHIN_MS: u64 = 90_000;
 pub enum Settling {
     /// The stub scheme, in dollars.
     Stub,
+    /// The stub scheme with commitments, at most this many packets in
+    /// flight per peer each way: the packet path over a settlement hub,
+    /// without a hub (spec/areas/settlement.md#the-stub-scheme).
+    StubHub(usize),
     /// The XRP Ledger testnet scheme, against the fake ledger.
     Xrpl,
     /// Node 0 on the stub, 2 on the XRP Ledger, 1 and 3 on both (M7c).
@@ -169,7 +173,7 @@ impl Settling {
     /// The ledger a run of one ledger settles over.
     pub fn ledger(self) -> LedgerId {
         match self {
-            Self::Stub => USD,
+            Self::Stub | Self::StubHub(_) => USD,
             Self::Xrpl => XRP,
             Self::Rlusd => RLUSD,
             Self::Cross | Self::XrpRlusd | Self::XrpDsusd => {
@@ -181,7 +185,7 @@ impl Settling {
     /// The ledgers of node `index`: the one it pays from first.
     pub fn ledgers(self, index: usize) -> &'static [LedgerId] {
         match (self, index % 4) {
-            (Self::Stub, _) | (Self::Cross, 0) => &[USD],
+            (Self::Stub | Self::StubHub(_), _) | (Self::Cross, 0) => &[USD],
             (Self::Xrpl, _) | (Self::Cross | Self::XrpRlusd | Self::XrpDsusd, 2) => &[XRP],
             (Self::Cross, _) => &[USD, XRP],
             (Self::Rlusd, _) | (Self::XrpRlusd, 0) => &[RLUSD],
@@ -193,7 +197,12 @@ impl Settling {
 
     /// Whether its nodes settle on the fake XRP Ledger.
     pub const fn on_xrpl(self) -> bool {
-        !matches!(self, Self::Stub)
+        !self.on_stub()
+    }
+
+    /// Whether its nodes settle on the stub alone.
+    pub const fn on_stub(self) -> bool {
+        matches!(self, Self::Stub | Self::StubHub(_))
     }
 
     /// The ledger of the token some of its nodes settle in, and the token,
@@ -202,7 +211,7 @@ impl Settling {
         match self {
             Self::Rlusd | Self::XrpRlusd => Some((RLUSD, Token::RLUSD)),
             Self::XrpDsusd => Some((DSUSD, Token::DSUSD)),
-            Self::Stub | Self::Xrpl | Self::Cross => None,
+            Self::Stub | Self::StubHub(_) | Self::Xrpl | Self::Cross => None,
         }
     }
 
@@ -230,6 +239,15 @@ impl Settling {
             LedgerId::XrplTestnetRlusdUsd => ("xrpl-testnet-rlusd", XRPL_CONFIG),
             LedgerId::XrplTestnetDsusdUsd => ("xrpl-testnet-dsusd", XRPL_CONFIG),
             _ => ("stub", ""),
+        }
+    }
+
+    /// The configuration its nodes give the scheme of `ledger`: the stub
+    /// with commitments in a run over it.
+    pub fn config(self, ledger: LedgerId) -> String {
+        match self {
+            Self::StubHub(limit) if ledger == USD => format!(r#"{{"commitments":{limit}}}"#),
+            _ => Self::scheme(ledger).1.into(),
         }
     }
 }
@@ -609,6 +627,9 @@ pub struct Sim {
     /// Prices a node set beyond what its curve allows
     /// (spec/decisions/passive-rebalancing.md).
     pub priced: Vec<String>,
+    /// Packets a node's stub with commitments held past its connector
+    /// ([`Sim::watch_hub`]).
+    pub hub_leaks: Vec<String>,
     /// Nodes whose connection to the ledger carries nothing.
     pub ledger_down: BTreeSet<usize>,
     /// The peer protocol's settings.
@@ -748,6 +769,7 @@ impl Sim {
             errors: Vec::new(),
             refused: Vec::new(),
             priced: Vec::new(),
+            hub_leaks: Vec::new(),
             ledger_down: BTreeSet::new(),
             peer,
             withdrawn: Vec::new(),
@@ -779,9 +801,10 @@ impl Sim {
         for index in 0..count {
             sim.start(index);
             for &ledger in settling.ledgers(index) {
-                let (scheme, config) = Settling::scheme(ledger);
+                let scheme = Settling::scheme(ledger).0;
+                let config = settling.config(ledger);
                 sim.step(index, |core| {
-                    core.add_scheme(scheme, config.into()).unwrap();
+                    core.add_scheme(scheme, config).unwrap();
                 });
             }
             if settling.across() && index == 1 {
@@ -1100,10 +1123,51 @@ impl Sim {
         if self.settling.across() {
             self.watch_prices(index);
         }
+        if matches!(self.settling, Settling::StubHub(_)) {
+            self.watch_hub(index);
+        }
         for output in outputs {
             self.carry(index, output);
         }
         true
+    }
+
+    /// Checks node `index`'s stub with commitments after a step against its
+    /// connector: the stub holds no more of a peer's packets, or of ours to
+    /// it, than the connector holds pending with that peer. A commitment
+    /// the stub still holds for a packet the connector let go would never
+    /// be resolved, and would take a place the stub has for the peer for
+    /// good, as a hub's member would keep a promise for a packet nobody
+    /// answers. A run keeps the first it finds of each node and peer, and
+    /// of the first few.
+    fn watch_hub(&mut self, index: usize) {
+        let Some(core) = self.nodes[index].core.as_mut() else {
+            return;
+        };
+        for packets in core.hub_packets() {
+            let held = packets.held;
+            if held.ours <= packets.pending_to && held.theirs <= packets.pending_from {
+                continue;
+            }
+            let seen = format!(" node {index}'s stub ");
+            let to = format!(" to {} ", packets.peer);
+            let again = self
+                .hub_leaks
+                .iter()
+                .any(|leak| leak.contains(&seen) && leak.contains(&to));
+            if !again && self.hub_leaks.len() < 10 {
+                self.hub_leaks.push(format!(
+                    "{} node {index}'s stub holds {} of its packets to {} and {} of that \
+                     peer's to it, while its connector holds {} and {} pending",
+                    self.now,
+                    held.ours,
+                    packets.peer,
+                    held.theirs,
+                    packets.pending_to,
+                    packets.pending_from,
+                ));
+            }
+        }
     }
 
     /// Checks node `index`'s prices after a step against its own rates and
@@ -1213,11 +1277,13 @@ impl Sim {
                 // When a node asks a peer to settle, so that the checks can
                 // tell how long it waited for the answer
                 // (spec/decisions/ending-a-peering.md).
-                if dassie_peer::wire::peek_kind(&request.body)
-                    == Some(dassie_peer::wire::Kind::SettlementRequest)
-                {
-                    self.trace
-                        .push(format!("{} {index} asks {to} to settle", self.now));
+                match dassie_peer::wire::peek_kind(&request.body) {
+                    Some(dassie_peer::wire::Kind::SettlementRequest) => {
+                        self.trace
+                            .push(format!("{} {index} asks {to} to settle", self.now));
+                    }
+                    Some(dassie_peer::wire::Kind::HubPacket) => self.count("prepares over a hub"),
+                    _ => {}
                 }
                 if self.rng.next_u64() % 1000 < self.loss_per_mille
                     || self.cut.contains(&(index, to))
