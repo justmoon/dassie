@@ -171,7 +171,6 @@ impl Ledger {
         sequence: u32,
         delivered: bool,
     ) -> Attested {
-        let quorum = self.validators.quorum();
         let withdrawal = self
             .withdrawals
             .get_mut(&sequence)
@@ -184,12 +183,32 @@ impl Ledger {
         } else {
             withdrawal.failed = withdrawal.failed.with(index);
         }
-        if withdrawal.delivered.count() >= quorum {
-            self.settle_withdrawal(sequence, true);
-        } else if withdrawal.failed.count() >= quorum {
-            self.settle_withdrawal(sequence, false);
-        }
+        self.settle_withdrawals();
         Ok(Detail::None)
+    }
+
+    /// Settles every withdrawal a quorum agrees on, in escrow sequence
+    /// order. Run after each attestation and at the end of every block,
+    /// since a change of validators can give attestations already made a
+    /// quorum, and those validators may not attest again.
+    pub(super) fn settle_withdrawals(&mut self) {
+        let quorum = self.validators.quorum();
+        let agreed: Vec<(u32, bool)> = self
+            .withdrawals
+            .iter()
+            .filter_map(|(sequence, w)| {
+                if w.delivered.count() >= quorum {
+                    Some((*sequence, true))
+                } else if w.failed.count() >= quorum {
+                    Some((*sequence, false))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for (sequence, delivered) in agreed {
+            self.settle_withdrawal(sequence, delivered);
+        }
     }
 
     /// Settles a withdrawal. Delivered, the hub burns it and its fee; failed

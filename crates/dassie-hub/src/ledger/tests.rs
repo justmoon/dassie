@@ -34,7 +34,12 @@ impl Hub {
 
     /// A hub whose rules `change` changed.
     fn with(change: impl FnOnce(&mut Rules)) -> Self {
-        let (rules, validators) = rules(4);
+        Self::of(4, change)
+    }
+
+    /// A hub of `n` validators whose rules `change` changed.
+    fn of(n: u8, change: impl FnOnce(&mut Rules)) -> Self {
+        let (rules, validators) = rules(n);
         let rules = resigned(rules, change);
         let ledger = Ledger::genesis(rules, START).unwrap();
         let mut hub = Self {
@@ -88,7 +93,9 @@ impl Hub {
     }
 
     fn all_validators(&mut self, operation: impl Fn(usize) -> ValidatorOperation) -> Vec<Outcome> {
-        let ops = (0..4).map(|i| self.validator_op(i, operation(i))).collect();
+        let ops = (0..self.validators.len())
+            .map(|i| self.validator_op(i, operation(i)))
+            .collect();
         self.block(ops)
     }
 
@@ -104,7 +111,7 @@ impl Hub {
             tag,
             key: key.map(NodeKey::public_key),
         };
-        let ops = (0..3)
+        let ops = (0..self.ledger.validators().quorum())
             .map(|i| self.validator_op(i, ValidatorOperation::AttestDeposit(deposit)))
             .collect();
         self.block(ops);
@@ -1131,6 +1138,60 @@ fn new_rules_wait_for_the_old_sets_change_of_signers() {
     let second = resigned(rules, |rules| rules.terms.fees.operation = 20);
     let outcomes = reconfigure(&mut hub, &second);
     assert!(outcomes.iter().all(|o| matches!(o, Outcome::Failed { .. })));
+}
+
+#[test]
+fn a_withdrawal_with_a_quorum_after_a_change_of_set_settles() {
+    let mut hub = Hub::of(7, |_| {});
+    let (alice, key) = hub.join(1, 10_000_000);
+    let to = Destination {
+        account: [7; 20],
+        tag: None,
+    };
+    let outcome = hub.run(
+        alice,
+        &key,
+        MemberOperation::Withdraw {
+            amount: 3_000_000,
+            to,
+        },
+    );
+    let Outcome::Applied {
+        detail: Detail::Withdrawal(sequence),
+        ..
+    } = outcome
+    else {
+        panic!("{outcome:?}");
+    };
+    // Three of seven saw it deliver: short of the quorum of five.
+    let ops: Vec<Operation> = (0..3)
+        .map(|i| {
+            hub.validator_op(
+                i,
+                ValidatorOperation::AttestWithdrawal {
+                    escrow_sequence: sequence,
+                    delivered: true,
+                },
+            )
+        })
+        .collect();
+    hub.block(ops);
+    assert_eq!(hub.ledger.withdrawals().count(), 1);
+    // The first four stay; a quorum of four is three.
+    let (four, _) = rules(4);
+    let four = resigned(four, |_| {});
+    let ops: Vec<Operation> = (0..5)
+        .map(|i| hub.validator_op(i, ValidatorOperation::Reconfigure(four.clone())))
+        .collect();
+    hub.block(ops);
+    let at = hub.ledger.timestamp() + hub.ledger.terms().timers.reconfigure_notice;
+    hub.block_at(at, vec![], &[]);
+    assert_eq!(hub.ledger.validators().len(), 4);
+    assert_eq!(
+        hub.ledger.withdrawals().count(),
+        0,
+        "settled by the attestations it had"
+    );
 }
 
 mod properties {

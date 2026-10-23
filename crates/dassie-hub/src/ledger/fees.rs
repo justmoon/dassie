@@ -103,6 +103,7 @@ impl Ledger {
             self.distribute(pool);
         }
         self.credit_deposits();
+        self.settle_withdrawals();
     }
 
     /// Pays out every pool now, as when the validator set changes.
