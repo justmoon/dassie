@@ -10,13 +10,49 @@
 //! the same transaction as what the application did with the step's
 //! finalized blocks (as `crates/dassie-node/src/engine/mod.rs` does for the
 //! node's ledger), and restarts the engine from the [`Stored`] state the
-//! batches built.
+//! batches built. [`Stored`] encodes in canonical OER, so a host can keep
+//! it as bytes:
+//!
+//! ```text
+//! Stored ::= SEQUENCE {
+//!   tip Finalized,
+//!   epochs SEQUENCE (SIZE(1..3)) OF SEQUENCE {
+//!     number UInt64, fromHeight UInt64, started BOOLEAN,
+//!     set SEQUENCE (SIZE(4..16)) OF OCTET STRING (SIZE(32)) },
+//!   view UInt64, votes SEQUENCE (SIZE(0..1024)) OF Vote, floor UInt64,
+//!   finalizeHeights SEQUENCE (SIZE(0..1024)) OF SEQUENCE {
+//!     height UInt64, block OCTET STRING (SIZE(32)) },
+//!   blocks SEQUENCE (SIZE(0..768)) OF SEQUENCE {
+//!     digest OCTET STRING (SIZE(32)), block Block },
+//!   certificates SEQUENCE (SIZE(0..1024)) OF Certificate,
+//!   boundaries SEQUENCE (SIZE(0..8)) OF Finalized,
+//!   stalled BOOLEAN }
+//! Finalized ::= SEQUENCE { block Block,
+//!   repeats SEQUENCE (SIZE(0..32)) OF Block,
+//!   finalization CHOICE { none [0] NULL, some [1] Certificate } }
+//! ```
+//!
+//! The layout is this file's alone: a change of what the engine persists
+//! changes it here, with nothing to migrate but a host's stored bytes.
+//! ```
 
 use alloc::vec::Vec;
 
+use dassie_identity::PublicKey;
+use dassie_oer::{Decode, DecodeError, Encode, Reader, Writer, size};
+
+use super::engine::MAX_BOUNDARIES;
+use super::epochs::MAX_EPOCHS;
 use super::types::{Block, Certificate, Finalized, Vote, VoteKind};
+use super::wire::MAX_DELIVERED_BLOCKS;
+use super::wire::{optional_len, read_digest, read_optional, unexpected, write_optional};
 use crate::digest::Digest;
-use crate::validators::ValidatorSet;
+use crate::validators::{MAX_VALIDATORS, MIN_VALIDATORS, ValidatorSet};
+
+/// The most votes, heights voted to finalize, and certificates [`Stored`]
+/// holds: each is of a view above the tip that the engine holds, at most
+/// [`MAX_ROUNDS`](super::MAX_ROUNDS), and a view has a few of each.
+pub const MAX_STORED_ITEMS: usize = 4 * super::MAX_ROUNDS;
 
 /// A validator set and when it runs: from block `from_height`, as epoch
 /// `number`, from its view 1 once the block before that height is final.
@@ -205,5 +241,205 @@ impl Stored {
             .rev()
             .find(|epoch| epoch.started)
             .map_or(0, |epoch| epoch.number)
+    }
+}
+
+impl Encode for Epoch {
+    fn encoded_len(&self) -> usize {
+        8 + 8 + 1 + size::quantity(self.set.len()) + 32 * self.set.len()
+    }
+
+    fn encode_to(&self, writer: &mut Writer<'_>) {
+        writer.write_u64(self.number);
+        writer.write_u64(self.from_height);
+        writer.write_bool(self.started);
+        writer.write_quantity(self.set.len());
+        for key in self.set.keys() {
+            writer.write_bytes(key.as_bytes());
+        }
+    }
+}
+
+impl<'a> Decode<'a> for Epoch {
+    type Error = DecodeError;
+
+    fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
+        let number = reader.read_u64()?;
+        let from_height = reader.read_u64()?;
+        let started = reader.read_bool()?;
+        let count = reader.read_quantity(MAX_VALIDATORS)?;
+        if count < MIN_VALIDATORS {
+            return Err(unexpected(reader));
+        }
+        let mut keys = Vec::with_capacity(count);
+        for _ in 0..count {
+            let key = PublicKey::from_bytes(reader.read_array::<32>()?)
+                .ok()
+                .filter(|key| !key.is_weak())
+                .ok_or_else(|| unexpected(reader))?;
+            keys.push(key);
+        }
+        let set = ValidatorSet::new(keys).ok_or_else(|| unexpected(reader))?;
+        Ok(Self {
+            number,
+            from_height,
+            started,
+            set,
+        })
+    }
+}
+
+impl Encode for Finalized {
+    fn encoded_len(&self) -> usize {
+        self.block.encoded_len()
+            + items_len(&self.repeats)
+            + optional_len(self.finalization.as_ref())
+    }
+
+    fn encode_to(&self, writer: &mut Writer<'_>) {
+        self.block.encode_to(writer);
+        write_items(writer, &self.repeats);
+        write_optional(writer, self.finalization.as_ref());
+    }
+}
+
+impl<'a> Decode<'a> for Finalized {
+    type Error = DecodeError;
+
+    fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
+        Ok(Self {
+            block: Block::decode(reader)?,
+            repeats: read_items(reader, MAX_DELIVERED_BLOCKS)?,
+            finalization: read_optional(reader)?,
+        })
+    }
+}
+
+fn items_len<T: Encode>(items: &[T]) -> usize {
+    size::quantity(items.len()) + items.iter().map(Encode::encoded_len).sum::<usize>()
+}
+
+fn write_items<T: Encode>(writer: &mut Writer<'_>, items: &[T]) {
+    writer.write_quantity(items.len());
+    for item in items {
+        item.encode_to(writer);
+    }
+}
+
+fn read_items<'a, T: Decode<'a, Error = DecodeError>>(
+    reader: &mut Reader<'a>,
+    max: usize,
+) -> Result<Vec<T>, DecodeError> {
+    let count = reader.read_quantity(max)?;
+    // Allocates only as it reads: a count is no promise of the items.
+    let mut items = Vec::with_capacity(count.min(64));
+    for _ in 0..count {
+        items.push(T::decode(reader)?);
+    }
+    Ok(items)
+}
+
+/// The blocks of a [`Stored`], each with its digest.
+fn read_blocks(reader: &mut Reader<'_>) -> Result<Vec<(Digest, Block)>, DecodeError> {
+    let count = reader.read_quantity(super::MAX_BLOCKS)?;
+    let mut blocks = Vec::with_capacity(count.min(64));
+    for _ in 0..count {
+        blocks.push((read_digest(reader)?, Block::decode(reader)?));
+    }
+    Ok(blocks)
+}
+
+impl Stored {
+    /// Whether every list fits the bounds its encoding is read with. What
+    /// the engine holds always does; a host that finds otherwise has a
+    /// bug, and does not write what it could not read back.
+    #[must_use]
+    pub fn fits(&self) -> bool {
+        !self.epochs.is_empty()
+            && self.epochs.len() <= MAX_EPOCHS
+            && self.tip.repeats.len() <= MAX_DELIVERED_BLOCKS
+            && self.votes.len() <= MAX_STORED_ITEMS
+            && self.finalize_heights.len() <= MAX_STORED_ITEMS
+            && self.blocks.len() <= super::MAX_BLOCKS
+            && self.certificates.len() <= MAX_STORED_ITEMS
+            && self.boundaries.len() <= MAX_BOUNDARIES
+            && self
+                .boundaries
+                .iter()
+                .all(|b| b.repeats.len() <= MAX_DELIVERED_BLOCKS)
+    }
+}
+
+impl Encode for Stored {
+    fn encoded_len(&self) -> usize {
+        self.tip.encoded_len()
+            + items_len(&self.epochs)
+            + 8
+            + items_len(&self.votes)
+            + 8
+            + size::quantity(self.finalize_heights.len())
+            + 40 * self.finalize_heights.len()
+            + size::quantity(self.blocks.len())
+            + self
+                .blocks
+                .iter()
+                .map(|(_, block)| 32 + block.encoded_len())
+                .sum::<usize>()
+            + items_len(&self.certificates)
+            + items_len(&self.boundaries)
+            + 1
+    }
+
+    fn encode_to(&self, writer: &mut Writer<'_>) {
+        self.tip.encode_to(writer);
+        write_items(writer, &self.epochs);
+        writer.write_u64(self.view);
+        write_items(writer, &self.votes);
+        writer.write_u64(self.floor);
+        writer.write_quantity(self.finalize_heights.len());
+        for (height, block) in &self.finalize_heights {
+            writer.write_u64(*height);
+            writer.write_bytes(block.as_bytes());
+        }
+        writer.write_quantity(self.blocks.len());
+        for (digest, block) in &self.blocks {
+            writer.write_bytes(digest.as_bytes());
+            block.encode_to(writer);
+        }
+        write_items(writer, &self.certificates);
+        write_items(writer, &self.boundaries);
+        writer.write_bool(self.stalled);
+    }
+}
+
+impl<'a> Decode<'a> for Stored {
+    type Error = DecodeError;
+
+    fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
+        let tip = Finalized::decode(reader)?;
+        let epochs: Vec<Epoch> = read_items(reader, MAX_EPOCHS)?;
+        if epochs.is_empty() {
+            return Err(unexpected(reader));
+        }
+        let view = reader.read_u64()?;
+        let votes = read_items(reader, MAX_STORED_ITEMS)?;
+        let floor = reader.read_u64()?;
+        let count = reader.read_quantity(MAX_STORED_ITEMS)?;
+        let mut finalize_heights = Vec::with_capacity(count.min(64));
+        for _ in 0..count {
+            finalize_heights.push((reader.read_u64()?, read_digest(reader)?));
+        }
+        Ok(Self {
+            tip,
+            epochs,
+            view,
+            votes,
+            floor,
+            finalize_heights,
+            blocks: read_blocks(reader)?,
+            certificates: read_items(reader, MAX_STORED_ITEMS)?,
+            boundaries: read_items(reader, MAX_BOUNDARIES)?,
+            stalled: reader.read_bool()?,
+        })
     }
 }

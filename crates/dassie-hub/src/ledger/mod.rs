@@ -396,6 +396,14 @@ impl Ledger {
         Some((pending.from_height?, pending.rules.validator_set()?))
     }
 
+    /// New rules the validators agreed on, waiting for their notice: a host
+    /// reaches the validators they name, which take over later, as well as
+    /// those in force.
+    #[must_use]
+    pub const fn pending_rules(&self) -> Option<&PendingRules> {
+        self.pending_rules.as_ref()
+    }
+
     /// The height from which the validators in force sign blocks.
     #[must_use]
     pub const fn set_since(&self) -> u64 {

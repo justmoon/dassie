@@ -60,7 +60,7 @@ pub use engine::{
 pub use epochs::{Epochs, MAX_EPOCHS, ReconfigureError};
 pub use hooks::{Application, Declined, ProposeContext, VerifyContext};
 pub use io::{Event, Evidence, Output, PeerId, Recipient, Stats};
-pub use persist::{Batch, Epoch, Stored};
+pub use persist::{Batch, Epoch, MAX_STORED_ITEMS, Stored};
 pub use types::{
     Block, Certificate, Finalized, Invalid, MAX_PAYLOAD_BYTES, Vote, VoteKind, verify_certificate,
     vote_digest,
