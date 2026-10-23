@@ -95,7 +95,7 @@ pub struct Ledger {
     pub(crate) rules_votes: Vec<(Digest, Signers)>,
     pub(crate) escrow_votes: Vec<(u32, Signers)>,
     pub(crate) shutdown_votes: Signers,
-    pub(crate) reset_votes: Signers,
+    pub(crate) reset_votes: Vec<(u32, Signers)>,
 }
 
 /// The XRP Ledger testnet's network ID, the one network on which the hub
@@ -121,6 +121,7 @@ impl Ledger {
                 next_sequence: 0,
                 checked: false,
                 deposit_floor: 0,
+                signer_list: None,
             },
             accounts: BTreeMap::new(),
             keys: BTreeMap::new(),
@@ -136,7 +137,7 @@ impl Ledger {
             rules_votes: Vec::new(),
             escrow_votes: Vec::new(),
             shutdown_votes: Signers::NONE,
-            reset_votes: Signers::NONE,
+            reset_votes: Vec::new(),
             rules,
         };
         ledger.open_validator_accounts(timestamp);

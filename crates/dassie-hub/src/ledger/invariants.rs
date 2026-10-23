@@ -78,22 +78,33 @@ impl Ledger {
     fn check_tables(&self) {
         let limits = &self.rules.terms.limits;
         let bound = |limit: u32| usize::try_from(limit).unwrap_or(usize::MAX);
-        // A reconfiguration may lower a bound below what is in a table; the
-        // table then only shrinks.
-        if self.pending_rules.is_none() {
-            assert!(
-                self.holds.len() <= bound(limits.holds),
-                "holds beyond their bound"
-            );
-            assert!(
-                self.pending_deposits.len() <= bound(limits.pending_deposits),
-                "pending deposits beyond their bound"
-            );
-            assert!(
-                self.recent_deposits.len() <= bound(limits.recent_deposits),
-                "recent deposits beyond their bound"
-            );
-        }
+        // New rules never shrink a table (`Terms::keeps_tables_of`).
+        assert!(
+            self.accounts.len() <= bound(limits.accounts),
+            "accounts beyond their bound"
+        );
+        assert!(
+            self.holds.len() <= bound(limits.holds),
+            "holds beyond their bound"
+        );
+        assert!(
+            self.withdrawals.len() <= bound(limits.withdrawals),
+            "withdrawals beyond their bound"
+        );
+        assert!(
+            self.pending_deposits.len() <= bound(limits.pending_deposits),
+            "pending deposits beyond their bound"
+        );
+        assert!(
+            self.recent_deposits.len() <= bound(limits.recent_deposits),
+            "recent deposits beyond their bound"
+        );
+        assert!(
+            self.escrow
+                .signer_list
+                .is_none_or(|s| s < self.escrow.next_sequence),
+            "signer list without an escrow sequence"
+        );
         assert_eq!(
             self.keys.len(),
             self.accounts.len(),
@@ -139,6 +150,16 @@ impl Ledger {
                 .filter(|h| h.payer == *number || h.payee == *number)
                 .count();
             assert_eq!(usize::from(account.holds), holds, "account's hold count");
+            let paying = self.holds.values().filter(|h| h.payer == *number).count();
+            assert_eq!(
+                usize::from(account.paying),
+                paying,
+                "account's holds as payer"
+            );
+            assert!(
+                account.paying <= self.rules.terms.limits.holds_per_account,
+                "holds as payer beyond their bound"
+            );
             let withdrawals = self
                 .withdrawals
                 .values()

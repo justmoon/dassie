@@ -20,26 +20,29 @@ use crate::validators::{Signers, ValidatorIndex};
 type Attested = Result<Detail, Result<Failure, Refusal>>;
 
 impl Ledger {
+    /// Records a validator's attestation of a deposit. A deposit becomes
+    /// pending with its first attestation, and below the floor it does not
+    /// (it may have been credited and forgotten); one already pending is
+    /// attested whatever its ledger, since it was never credited. Each
+    /// validator has its own share of the pending table, so a faulty one
+    /// that attests made-up deposits fills only its own share, and honest
+    /// attestations still fit.
     pub(super) fn attest_deposit(&mut self, index: ValidatorIndex, deposit: &Deposit) -> Attested {
         let hash = deposit.transaction;
         if self.recent_deposits.contains_key(&hash) {
             return Ok(Detail::None);
         }
-        if deposit.ledger < self.escrow.deposit_floor {
+        let pending = self.pending_deposits.get(&hash);
+        if pending.is_some_and(|pending| pending.attested_by(index)) {
+            return Err(Err(Refusal::NotAllowed));
+        }
+        if pending.is_none() && deposit.ledger < self.escrow.deposit_floor {
             return Err(Ok(Failure::Stale));
         }
-        let limit = usize::try_from(self.rules.terms.limits.pending_deposits).unwrap_or(usize::MAX);
-        if !self.pending_deposits.contains_key(&hash) && self.pending_deposits.len() >= limit {
+        if self.attested_pending(index) >= self.deposit_share() {
             return Err(Ok(Failure::Full));
         }
         let pending = self.pending_deposits.entry(hash).or_default();
-        if pending
-            .attestations
-            .iter()
-            .any(|(_, signers)| signers.contains(index))
-        {
-            return Err(Err(Refusal::NotAllowed));
-        }
         // One validator's attestation per transaction; at most n distinct
         // ones.
         match pending.attestations.iter_mut().find(|(d, _)| d == deposit) {
@@ -50,6 +53,21 @@ impl Ledger {
         }
         self.credit_deposits();
         Ok(Detail::None)
+    }
+
+    /// How many pending deposits each validator may have attested: its
+    /// share of the table.
+    fn deposit_share(&self) -> usize {
+        let table = usize::try_from(self.rules.terms.limits.pending_deposits).unwrap_or(usize::MAX);
+        table.checked_div(self.validators.len()).unwrap_or(0)
+    }
+
+    /// How many pending deposits validator `index` attested.
+    fn attested_pending(&self, index: ValidatorIndex) -> usize {
+        self.pending_deposits
+            .values()
+            .filter(|pending| pending.attested_by(index))
+            .count()
     }
 
     /// Credits every deposit a quorum agrees on, once the escrow is
@@ -203,8 +221,14 @@ impl Ledger {
                 account.closing = false;
             }
         }
-        if delivered && withdrawal.closes {
+        // An account that became a validator's while it closed stays.
+        let validator = self.accounts.get(&number).is_some_and(|a| a.validator);
+        if delivered && withdrawal.closes && !validator {
             self.delete_account(number);
+        } else if delivered && withdrawal.closes {
+            if let Some(account) = self.accounts.get_mut(&number) {
+                account.closing = false;
+            }
         } else if !delivered {
             self.credit(number, withdrawal.amount);
         }
@@ -225,6 +249,7 @@ impl Ledger {
             account.balance = 0;
             account.reserve = 0;
             account.holds = 0;
+            account.paying = 0;
             account.withdrawals = 0;
         }
         for number in closing {
@@ -240,7 +265,8 @@ impl Ledger {
         self.escrow.checked = false;
         self.escrow.next_sequence = 0;
         self.escrow.deposit_floor = 0;
-        self.reset_votes = Signers::NONE;
+        self.escrow.signer_list = None;
+        self.reset_votes.clear();
         self.escrow_votes.clear();
     }
 }

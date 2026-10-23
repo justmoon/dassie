@@ -13,6 +13,7 @@ use crate::operation::{
     SignedValidatorOperation, ValidatorOperation,
 };
 use crate::promise::{Claim, Commitment, Fulfilled, Signed};
+use crate::rules::Rules;
 use crate::rules::tests::rules;
 
 const START: Millis = 1_000_000;
@@ -826,6 +827,193 @@ fn the_state_root_follows_the_state() {
     assert_eq!(copy.state_root(), hub.ledger.state_root());
 }
 
+/// `rules`, changed by `change` and signed again by the validators' node
+/// keys (seeds 1..=4), so that they pass `Rules::check`.
+fn resigned(mut rules: Rules, change: impl FnOnce(&mut Rules)) -> Rules {
+    change(&mut rules);
+    let terms = rules.terms.clone();
+    for (i, acceptance) in rules.validators.iter_mut().enumerate() {
+        let seed = u8::try_from(i + 1).unwrap();
+        *acceptance = acceptance
+            .clone()
+            .sign(&NodeKey::from_bytes(&[seed; 32]), &terms);
+    }
+    rules
+}
+
+/// Votes `rules` in with three validators and lets their notice pass.
+fn reconfigure(hub: &mut Hub, rules: &Rules) -> Vec<Outcome> {
+    let ops: Vec<Operation> = (0..3)
+        .map(|i| hub.validator_op(i, ValidatorOperation::Reconfigure(rules.clone())))
+        .collect();
+    let outcomes = hub.block(ops);
+    let at = hub.ledger.timestamp() + hub.ledger.terms().timers.reconfigure_notice;
+    hub.block_at(at, vec![], &[]);
+    outcomes
+}
+
+#[test]
+fn a_claim_through_the_last_sequence_leaves_nothing_behind() {
+    let mut hub = Hub::new();
+    let (_, alice_key, bob, bob_key, hold) = hold_for_bob(&mut hub);
+    let id = *hub.ledger.hub();
+    let expiry = hub.ledger.timestamp() + 10_000;
+    let (last, f) = commitment(hold, u64::MAX, 100, expiry, 1);
+    let claim = MemberOperation::Claim {
+        hold,
+        fulfilled: vec![Fulfilled {
+            commitment: Signed::sign(last, &id, &alice_key),
+            fulfillment: f,
+        }],
+    };
+    assert!(matches!(
+        hub.run(bob, &bob_key, claim),
+        Outcome::Applied { .. }
+    ));
+    let through = Signed::sign(
+        Claim {
+            hold,
+            total: 100,
+            through: u64::MAX,
+        },
+        &id,
+        &alice_key,
+    );
+    assert_eq!(
+        hub.run(bob, &bob_key, MemberOperation::Redeem(through)),
+        Outcome::Applied {
+            fee: OP_FEE,
+            detail: Detail::Paid(0)
+        }
+    );
+    assert!(hub.ledger.hold(hold).unwrap().claimed.is_empty());
+}
+
+#[test]
+fn a_member_account_for_a_new_validators_key_becomes_its_account() {
+    let mut hub = Hub::new();
+    let newcomer = NodeKey::from_bytes(&[77; 32]);
+    let (rules, _) = rules(4);
+    let rules = resigned(rules, |rules| {
+        rules.validators[3].consensus = newcomer.public_key();
+    });
+    // Someone opens a member account for the newcomer's key meanwhile.
+    hub.deposit(0, Some(&newcomer), 5_000_000);
+    let number = hub.ledger.account_of(&newcomer.public_key()).unwrap();
+    reconfigure(&mut hub, &rules);
+    let account = hub.ledger.account(number).unwrap();
+    assert!(account.validator);
+    assert_eq!((account.reserve, account.balance), (0, 5_000_000));
+    // The validator it replaced is a member now.
+    assert!(!hub.ledger.account(AccountNumber(4)).unwrap().validator);
+    // The old set keeps an escrow sequence for its change of signers.
+    assert_eq!(hub.ledger.escrow().signer_list, Some(100));
+    assert_eq!(hub.ledger.escrow().next_sequence, 101);
+}
+
+#[test]
+fn new_rules_may_not_shrink_a_table() {
+    let mut hub = Hub::new();
+    let (rules, _) = rules(4);
+    let smaller = resigned(rules, |rules| rules.terms.limits.holds -= 1);
+    let outcomes = reconfigure(&mut hub, &smaller);
+    assert!(outcomes.iter().all(|o| matches!(o, Outcome::Failed { .. })));
+    assert_eq!(hub.ledger.terms().limits.holds, 4_000);
+}
+
+#[test]
+fn a_closing_account_does_nothing_more() {
+    let mut hub = Hub::new();
+    let (alice, key) = hub.join(1, 10_000_000);
+    let to = Destination {
+        account: [7; 20],
+        tag: None,
+    };
+    hub.run(alice, &key, MemberOperation::Close(CloseTo::Ledger(to)));
+    let open = MemberOperation::HoldOpen {
+        payee: AccountNumber(1),
+        amount: 0,
+    };
+    assert_eq!(
+        hub.run(alice, &key, open),
+        Outcome::Refused(Refusal::Unknown)
+    );
+}
+
+#[test]
+fn one_validators_made_up_deposits_fill_only_its_own_share() {
+    let mut hub = Hub::new();
+    let share = hub.ledger.terms().limits.pending_deposits as usize / 4;
+    let made_up: Vec<Operation> = (0..share + 1)
+        .map(|i| {
+            let mut transaction = [0xfe; 32];
+            transaction[..8].copy_from_slice(&u64::try_from(i).unwrap().to_be_bytes());
+            let deposit = Deposit {
+                transaction: Digest(transaction),
+                ledger: 9_999_999,
+                amount: 1,
+                sender: [1; 20],
+                tag: 1,
+                key: None,
+            };
+            hub.validator_op(3, ValidatorOperation::AttestDeposit(deposit))
+        })
+        .collect();
+    for chunk in made_up.chunks(100) {
+        hub.block(chunk.to_vec());
+    }
+    assert_eq!(hub.ledger.pending_deposits.len(), share);
+    // An honest quorum still credits a real deposit.
+    let (alice, _) = hub.join(1, 10_000_000);
+    assert!(hub.balance(alice) > 0);
+}
+
+#[test]
+fn a_payee_can_release_holds_toward_it() {
+    let mut hub = Hub::new();
+    let (alice, _, bob, bob_key, hold) = hold_for_bob(&mut hub);
+    let before = hub.balance(alice);
+    hub.run(bob, &bob_key, MemberOperation::HoldRelease { hold });
+    assert!(hub.ledger.hold(hold).is_none());
+    assert_eq!(hub.balance(alice), before + 1_000_000 + 200_000);
+    assert_eq!(hub.ledger.account(bob).unwrap().holds, 0);
+    // Only payers count toward the limit per account.
+    assert_eq!(hub.ledger.account(alice).unwrap().paying, 0);
+}
+
+#[test]
+fn reset_votes_for_different_chains_do_not_add_up() {
+    let mut hub = Hub::new();
+    hub.join(1, 10_000_000);
+    let ops: Vec<Operation> = (0..3)
+        .map(|i| {
+            let ledger = u32::try_from(i).unwrap() + 1;
+            hub.validator_op(i, ValidatorOperation::AttestReset { ledger })
+        })
+        .collect();
+    hub.block(ops);
+    assert!(hub.ledger.supply() > 0);
+}
+
+#[test]
+fn terms_that_would_trap_the_ledger_are_refused() {
+    let sponsor = NodeKey::from_bytes(&[1; 32]);
+    let base = crate::rules::tests::terms(&sponsor);
+    let changes: [fn(&mut crate::rules::Terms); 6] = [
+        |t| t.fees.operation = 0,
+        |t| t.fees.hold_reserve = 0,
+        |t| t.limits.recent_deposits = 0,
+        |t| t.limits.deadline_operations = t.limits.block_operations,
+        |t| t.fees.least_payout = 999_999,
+        |t| t.timers.reconfigure_notice = t.timers.hold_notice,
+    ];
+    for change in changes {
+        let mut terms = base.clone();
+        change(&mut terms);
+        assert!(terms.check().is_err(), "{terms:?}");
+    }
+}
+
 mod properties {
     use super::*;
     use proptest::prelude::*;
@@ -841,7 +1029,7 @@ mod properties {
     }
 
     fn step() -> impl Strategy<Value = Step> {
-        (0usize..3, 0usize..3, 0u8..10, 0u64..3_000_000).prop_map(
+        (0usize..3, 0usize..3, 0u8..11, 0u64..3_000_000).prop_map(
             |(actor, other, action, amount)| Step {
                 actor,
                 other,
@@ -938,12 +1126,15 @@ mod properties {
                     },
                 },
                 8 => MemberOperation::Close(CloseTo::Account(other)),
+                9 => MemberOperation::HoldRelease {
+                    hold: self.hold_between(other, me)?,
+                },
                 _ => return None,
             })
         }
 
         fn step(&mut self, step: &Step) {
-            if step.action == 9 {
+            if step.action == 10 {
                 // The escrow settles the oldest withdrawal, one way or the
                 // other.
                 let oldest = self

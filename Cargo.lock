@@ -1031,12 +1031,9 @@ dependencies = [
 name = "dassie-hub"
 version = "0.2.6"
 dependencies = [
- "dassie-hub",
  "dassie-identity",
- "dassie-node-core",
  "dassie-oer",
  "proptest",
- "rand_core",
  "sha2 0.11.0",
 ]
 

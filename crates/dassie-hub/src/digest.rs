@@ -27,8 +27,11 @@ pub enum Domain {
     Block,
     /// A consensus vote.
     Vote,
-    /// A member's operation.
+    /// What a member or a validator signs for an operation.
     Operation,
+    /// An operation as a block holds it, signature included: what its
+    /// receipt names.
+    OperationId,
     /// A leaf of the state's Merkle tree.
     StateLeaf,
     /// An inner node of the state's Merkle tree.
@@ -50,6 +53,7 @@ impl Domain {
             Self::Block => b"dassie-hub/block",
             Self::Vote => b"dassie-hub/vote",
             Self::Operation => b"dassie-hub/operation",
+            Self::OperationId => b"dassie-hub/operation-id",
             Self::StateLeaf => b"dassie-hub/state-leaf",
             Self::StateNode => b"dassie-hub/state-node",
             Self::Commitment => b"dassie-hub/commitment",

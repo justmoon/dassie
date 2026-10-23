@@ -20,7 +20,8 @@ impl Ledger {
     /// executes the operation.
     pub(super) fn apply_member(&mut self, signed: &SignedMemberOperation) -> Outcome {
         let fee = self.rules.terms.fees.operation;
-        let Some(account) = self.accounts.get(&signed.account) else {
+        // A closing account has nothing left to do: it waits for its payout.
+        let Some(account) = self.accounts.get(&signed.account).filter(|a| !a.closing) else {
             return Outcome::Refused(Refusal::Unknown);
         };
         if !signed.verifies(&self.hub, &account.key) {
@@ -69,6 +70,7 @@ impl Ledger {
             MemberOperation::HoldOpen { payee, amount } => self.hold_open(from, *payee, *amount),
             MemberOperation::HoldFund { hold, amount } => self.hold_fund(from, *hold, *amount),
             MemberOperation::HoldReduce { hold, amount } => self.hold_reduce(from, *hold, *amount),
+            MemberOperation::HoldRelease { hold } => self.hold_release(from, *hold),
             MemberOperation::Redeem(claim) => self.redeem(from, claim),
             MemberOperation::Claim { hold, fulfilled } => self.claim(from, *hold, fulfilled),
             MemberOperation::Withdraw { amount, to } => self.withdraw(from, *amount, *to),
@@ -174,6 +176,7 @@ impl Ledger {
                 disbursal: None,
                 closing: false,
                 holds: 0,
+                paying: 0,
                 withdrawals: 0,
                 validator: false,
             },
@@ -202,6 +205,10 @@ impl Ledger {
         Ok(Detail::None)
     }
 
+    /// Opens a hold toward `payee`. Only the holds an account pays into
+    /// count toward its limit: anyone can open one toward it, and it can
+    /// release those ([`MemberOperation::HoldRelease`]), so no one can use
+    /// up its room.
     fn hold_open(
         &mut self,
         from: AccountNumber,
@@ -213,11 +220,15 @@ impl Ledger {
         }
         self.payable(payee)?;
         let limits = &self.rules.terms.limits;
-        let per_account = limits.holds_per_account;
         let full = self.holds.len() >= usize::try_from(limits.holds).unwrap_or(usize::MAX)
-            || [from, payee]
-                .iter()
-                .any(|n| self.accounts.get(n).is_none_or(|a| a.holds >= per_account));
+            || self
+                .accounts
+                .get(&from)
+                .is_none_or(|a| a.paying >= limits.holds_per_account)
+            || self
+                .accounts
+                .get(&payee)
+                .is_none_or(|a| a.holds == u16::MAX);
         if full {
             return Err(Failure::Full);
         }
@@ -242,9 +253,24 @@ impl Ledger {
         for party in [from, payee] {
             if let Some(account) = self.accounts.get_mut(&party) {
                 account.holds = account.holds.saturating_add(1);
+                if party == from {
+                    account.paying = account.paying.saturating_add(1);
+                }
             }
         }
         Ok(Detail::Hold(number))
+    }
+
+    /// The payee gives up a hold toward it: what is left goes back to the
+    /// payer at once, with its reserve. What the payee has not redeemed is
+    /// lost to it.
+    fn hold_release(&mut self, from: AccountNumber, hold: HoldNumber) -> Result<Detail, Failure> {
+        let found = self.holds.get(&hold).ok_or(Failure::Missing)?;
+        if found.payee != from {
+            return Err(Failure::NotYours);
+        }
+        self.close_hold(hold);
+        Ok(Detail::None)
     }
 
     fn own_hold(&self, from: AccountNumber, hold: HoldNumber) -> Result<&Hold, Failure> {

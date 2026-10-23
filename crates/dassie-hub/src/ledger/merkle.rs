@@ -124,7 +124,10 @@ impl Ledger {
         merkle_root(&leaves)
     }
 
-    /// The hub-wide values, in a fixed order.
+    /// The hub-wide values, in a fixed order. Every list has its count
+    /// and every option a presence byte, so no two states write the same
+    /// bytes: a validator that takes the state from someone else checks it
+    /// against the certified root (spec/designs/settlement-hubs.md#9-shutdown).
     fn header(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(self.hub.0.as_bytes());
@@ -146,6 +149,7 @@ impl Ledger {
             bytes.extend_from_slice(&value.to_be_bytes());
         }
         bytes.push(u8::from(self.escrow.checked));
+        push_option(&mut bytes, self.escrow.signer_list.map(u64::from));
         match self.phase {
             Phase::Running => bytes.push(0),
             Phase::ShuttingDown { ends } => {
@@ -154,6 +158,7 @@ impl Ledger {
             }
             Phase::Ended => bytes.push(2),
         }
+        push_count(&mut bytes, self.pools.len());
         for pool in &self.pools {
             bytes.extend_from_slice(&pool.height.to_be_bytes());
             bytes.extend_from_slice(&pool.amount.to_be_bytes());
@@ -164,28 +169,42 @@ impl Ledger {
     }
 
     fn header_votes(&self, bytes: &mut Vec<u8>) {
+        bytes.push(u8::from(self.pending_rules.is_some()));
         if let Some(pending) = &self.pending_rules {
             bytes.extend_from_slice(pending.rules.id().0.as_bytes());
             bytes.extend_from_slice(&pending.at.to_be_bytes());
         }
+        push_count(bytes, self.rules_votes.len());
         for (digest, signers) in &self.rules_votes {
             bytes.extend_from_slice(digest.as_bytes());
             bytes.extend_from_slice(&signers.bits().to_be_bytes());
         }
-        for (sequence, signers) in &self.escrow_votes {
-            bytes.extend_from_slice(&sequence.to_be_bytes());
-            bytes.extend_from_slice(&signers.bits().to_be_bytes());
+        for votes in [&self.escrow_votes, &self.reset_votes] {
+            push_count(bytes, votes.len());
+            for (value, signers) in votes {
+                bytes.extend_from_slice(&value.to_be_bytes());
+                bytes.extend_from_slice(&signers.bits().to_be_bytes());
+            }
         }
         bytes.extend_from_slice(&self.shutdown_votes.bits().to_be_bytes());
-        bytes.extend_from_slice(&self.reset_votes.bits().to_be_bytes());
+        push_count(bytes, self.validator_states.len());
         for state in &self.validator_states {
+            push_count(bytes, state.endpoint.len());
             bytes.extend_from_slice(state.endpoint.as_bytes());
-            bytes.push(0);
             bytes.extend_from_slice(&state.sequence.to_be_bytes());
             bytes.extend_from_slice(&state.last_recorded.to_be_bytes());
             bytes.extend_from_slice(&state.account.0.to_be_bytes());
         }
     }
+}
+
+fn push_count(bytes: &mut Vec<u8>, count: usize) {
+    bytes.extend_from_slice(&u32::try_from(count).unwrap_or(u32::MAX).to_be_bytes());
+}
+
+fn push_option(bytes: &mut Vec<u8>, value: Option<u64>) {
+    bytes.push(u8::from(value.is_some()));
+    bytes.extend_from_slice(&value.unwrap_or(0).to_be_bytes());
 }
 
 #[cfg(test)]

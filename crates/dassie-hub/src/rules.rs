@@ -190,14 +190,30 @@ impl Terms {
         Digest::of(Domain::Terms, &[&self.to_vec()])
     }
 
-    /// Checks the relations the hub's safety rests on.
+    /// Checks the relations the hub's safety rests on: values that would
+    /// let the ledger reach a state it cannot leave are refused here, never
+    /// found in a block.
     pub fn check(&self) -> Result<(), RulesError> {
+        self.check_fees()?;
+        self.check_limits()?;
+        self.check_timers()
+    }
+
+    fn check_fees(&self) -> Result<(), RulesError> {
         let fees = &self.fees;
-        let limits = &self.limits;
-        let timers = &self.timers;
         let fail = |why| Err(RulesError::Terms(why));
         if fees.reserve_share_ppm > 1_000_000 {
             return fail("reserve share above one");
+        }
+        // Free operations, or holds that lock nothing, would cost nothing
+        // to fill the tables with.
+        if fees.operation == 0 || fees.hold_reserve == 0 {
+            return fail("an operation or a hold costs nothing");
+        }
+        // A payout to a new account on the XRP Ledger must create it
+        // (spec/designs/settlement-hubs.md#6-deposits-and-withdrawals).
+        if fees.least_payout < LEDGER_BASE_RESERVE {
+            return fail("least payout below the underlying ledger's base reserve");
         }
         // Every account the hub keeps can be paid out at shutdown
         // (spec/designs/settlement-hubs.md#7-fees).
@@ -207,8 +223,16 @@ impl Terms {
         if fees.starting_balance < fees.operation.saturating_mul(4) {
             return fail("starting balance too small for a new account's first operations");
         }
-        if limits.deadline_operations == 0 || limits.deadline_operations > limits.block_operations {
-            return fail("no room for deadlines, or more than a block");
+        Ok(())
+    }
+
+    fn check_limits(&self) -> Result<(), RulesError> {
+        let limits = &self.limits;
+        let fail = |why| Err(RulesError::Terms(why));
+        // Room for deadlines, and for everything else.
+        if limits.deadline_operations == 0 || limits.deadline_operations >= limits.block_operations
+        {
+            return fail("no room for deadlines, or none for other operations");
         }
         // A payer may leave this many claims missing before its payee stops
         // taking its Prepares (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
@@ -218,17 +242,49 @@ impl Terms {
         if usize::from(limits.vote_window) < MAX_VALIDATORS {
             return fail("vote window shorter than any validator's turn");
         }
-        if limits.accounts == 0 || limits.holds == 0 || limits.withdrawals == 0 {
-            return fail("empty table");
+        let empty = limits.accounts == 0
+            || limits.holds == 0
+            || limits.holds_per_account == 0
+            || limits.withdrawals == 0
+            || limits.recent_deposits == 0
+            || usize::try_from(limits.pending_deposits).unwrap_or(usize::MAX) < MAX_VALIDATORS;
+        if empty {
+            return fail("a table without room, or pending deposits without one per validator");
         }
+        Ok(())
+    }
+
+    fn check_timers(&self) -> Result<(), RulesError> {
+        let timers = &self.timers;
+        let fail = |why| Err(RulesError::Terms(why));
         // A hold cannot shrink before any packet on it expires.
         if timers.hold_notice <= MAX_HOLD_MS || timers.margin == 0 || timers.precision == 0 {
             return fail("hold notice not longer than a packet may be held");
+        }
+        // A member that does not accept new rules can take its holds back
+        // and leave before they apply (spec/designs/settlement-hubs.md#8-changing-the-validators).
+        if timers.reconfigure_notice <= timers.hold_notice {
+            return fail("reconfiguration notice not longer than a hold's");
         }
         if timers.stall <= timers.view_timeout || timers.absence <= timers.stall {
             return fail("stall or absence not longer than a view");
         }
         Ok(())
+    }
+
+    /// Whether these terms keep every table at least as large as
+    /// `current`'s. New rules may not shrink a table: what it holds could
+    /// no longer fit.
+    #[must_use]
+    pub const fn keeps_tables_of(&self, current: &Self) -> bool {
+        let (new, old) = (&self.limits, &current.limits);
+        new.accounts >= old.accounts
+            && new.holds >= old.holds
+            && new.holds_per_account >= old.holds_per_account
+            && new.withdrawals >= old.withdrawals
+            && new.pending_deposits >= old.pending_deposits
+            && new.recent_deposits >= old.recent_deposits
+            && new.claimed_per_hold >= old.claimed_per_hold
     }
 
     /// What a new account is paid at least: its reserve and its starting
@@ -244,6 +300,10 @@ impl Terms {
 /// The longest a connector holds a packet (spec/decisions/connector-timing.md),
 /// which a hold's notice must exceed.
 pub const MAX_HOLD_MS: Millis = 30_000;
+
+/// The XRP Ledger's base reserve, in drops: the least a payment that
+/// creates an account delivers.
+pub const LEDGER_BASE_RESERVE: Amount = 1_000_000;
 
 impl Acceptance {
     /// The digest the validator's node key signs: the nonce, the hash of

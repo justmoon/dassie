@@ -69,6 +69,7 @@ Every table has a limit in the rules; an operation that would exceed one fails, 
 | `set-disbursal` | owner | Sets where the account's funds go at shutdown (§9). |
 | `hold-open`, `hold-fund` | payer | Sets funds aside for a payee, or adds to a hold. Opening one locks a hold reserve (§7). |
 | `hold-reduce` | payer | Takes funds back from a hold, after the hold's notice period. Reducing it to zero closes it and frees its hold reserve. |
+| `hold-release` | payee | Gives a hold toward it back to its payer at once. Only holds an account pays into count toward its limit per account, so no one can use up another's room by opening holds toward it. |
 | `redeem` | payee | Takes from a hold with the payer's latest signed claim (§4). |
 | `claim` | payee | Takes from a hold with the payer's signed commitments and their fulfillments (§4). |
 | `withdraw` | owner | Pays funds out to an address on the underlying ledger (§6). |

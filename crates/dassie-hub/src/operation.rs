@@ -95,6 +95,11 @@ pub enum MemberOperation {
         /// How much.
         amount: Amount,
     },
+    /// The payee gives up a hold toward it, which goes back to its payer.
+    HoldRelease {
+        /// The hold.
+        hold: HoldNumber,
+    },
     /// Takes from a hold with the payer's latest claim.
     Redeem(Signed<Claim>),
     /// Takes from a hold with fulfilled commitments.
@@ -224,7 +229,7 @@ impl Operation {
     /// The operation's hash, which its receipt names.
     #[must_use]
     pub fn hash(&self) -> Digest {
-        Digest::of(Domain::Operation, &[&self.to_vec()])
+        Digest::of(Domain::OperationId, &[&self.to_vec()])
     }
 }
 
@@ -353,6 +358,7 @@ impl Encode for MemberOperation {
             Self::Pay { .. } => KEY_LEN + 8,
             Self::SetDisbursal(_) => DESTINATION_LEN,
             Self::HoldFund { .. } | Self::HoldReduce { .. } => 8 + 8,
+            Self::HoldRelease { .. } => 8,
             Self::Redeem(claim) => claim.encoded_len(),
             Self::Claim { fulfilled, .. } => {
                 8 + dassie_oer::size::quantity(fulfilled.len())
@@ -419,6 +425,10 @@ impl MemberOperation {
                 writer.write_u64(*amount);
                 write_destination(writer, to);
             }
+            Self::HoldRelease { hold } => {
+                writer.write_u8(10);
+                writer.write_u64(hold.0);
+            }
             Self::Close(to) => {
                 writer.write_u8(9);
                 match to {
@@ -480,6 +490,9 @@ impl MemberOperation {
             8 => Self::Withdraw {
                 amount: reader.read_u64()?,
                 to: read_destination(reader)?,
+            },
+            10 => Self::HoldRelease {
+                hold: HoldNumber(reader.read_u64()?),
             },
             9 => Self::Close(match reader.read_u8()? {
                 0 => CloseTo::Account(AccountNumber(reader.read_u32()?)),
@@ -699,14 +712,10 @@ mod tests {
         ))
     }
 
-    #[test]
-    fn every_member_operation_round_trips() {
+    /// The operations that carry a payer's promises.
+    fn promise_operations() -> [MemberOperation; 2] {
         let key = NodeKey::from_bytes(&[4; 32]);
         let hub = HubId(Digest([2; 32]));
-        let to = Destination {
-            account: [5; 20],
-            tag: Some(9),
-        };
         let commitment = Signed::sign(
             Commitment {
                 hold: HoldNumber(1),
@@ -727,6 +736,25 @@ mod tests {
             &hub,
             &key,
         );
+        [
+            MemberOperation::Redeem(claim),
+            MemberOperation::Claim {
+                hold: HoldNumber(1),
+                fulfilled: alloc::vec![Fulfilled {
+                    commitment,
+                    fulfillment: [6; 32]
+                }],
+            },
+        ]
+    }
+
+    #[test]
+    fn every_member_operation_round_trips() {
+        let key = NodeKey::from_bytes(&[4; 32]);
+        let to = Destination {
+            account: [5; 20],
+            tag: Some(9),
+        };
         for operation in [
             MemberOperation::Transfer {
                 to: AccountNumber(2),
@@ -752,13 +780,8 @@ mod tests {
                 hold: HoldNumber(4),
                 amount: 8,
             },
-            MemberOperation::Redeem(claim),
-            MemberOperation::Claim {
-                hold: HoldNumber(1),
-                fulfilled: alloc::vec![Fulfilled {
-                    commitment,
-                    fulfillment: [6; 32]
-                }],
+            MemberOperation::HoldRelease {
+                hold: HoldNumber(4),
             },
             MemberOperation::Withdraw {
                 amount: 1_000_000,
@@ -766,7 +789,10 @@ mod tests {
             },
             MemberOperation::Close(CloseTo::Account(AccountNumber(8))),
             MemberOperation::Close(CloseTo::Ledger(to)),
-        ] {
+        ]
+        .into_iter()
+        .chain(promise_operations())
+        {
             round_trip(&member(operation));
         }
     }

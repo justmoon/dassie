@@ -31,6 +31,10 @@ pub struct Account {
     pub closing: bool,
     /// Holds it pays into or takes from.
     pub holds: u16,
+    /// Of those, the holds it pays into: what the rules' limit per account
+    /// counts. Holds toward it count apart, since anyone can open one, and
+    /// it can release them (spec/designs/settlement-hubs.md#3-the-ledger).
+    pub paying: u16,
     /// Its withdrawals not yet settled.
     pub withdrawals: u16,
     /// Whether it is a validator's: those lock no reserve and need no
@@ -107,9 +111,13 @@ pub struct Escrow {
     pub next_sequence: u32,
     /// Whether the validators checked the escrow, so deposits may come.
     pub checked: bool,
-    /// The lowest ledger whose deposits the hub still remembers; older
-    /// ones it no longer attests.
+    /// The lowest ledger whose deposits the hub still remembers: a deposit
+    /// below it that is not pending already is not taken.
     pub deposit_floor: u32,
+    /// The escrow sequence kept for the old validators' change of the
+    /// escrow's signer list, once a new set took over
+    /// (spec/designs/settlement-hubs.md#8-changing-the-validators).
+    pub signer_list: Option<u32>,
 }
 
 /// Where the hub is in its life (spec/designs/settlement-hubs.md#9-shutdown).
@@ -162,7 +170,7 @@ pub struct ValidatorState {
 
 impl Encode for Account {
     fn encoded_len(&self) -> usize {
-        KEY_LEN + 8 * 3 + 1 + DESTINATION_LEN + 1 + 2 + 2 + 1
+        KEY_LEN + 8 * 3 + 1 + DESTINATION_LEN + 1 + 2 + 2 + 2 + 1
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
@@ -173,6 +181,7 @@ impl Encode for Account {
         write_optional_destination(writer, self.disbursal.as_ref());
         writer.write_bool(self.closing);
         writer.write_u16(self.holds);
+        writer.write_u16(self.paying);
         writer.write_u16(self.withdrawals);
         writer.write_bool(self.validator);
     }

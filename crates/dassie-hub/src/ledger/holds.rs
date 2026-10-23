@@ -60,9 +60,9 @@ impl Ledger {
         hold.amount = hold.amount.saturating_sub(paid);
         hold.total = claim.value.total;
         hold.through = claim.value.through;
-        hold.claimed = hold
-            .claimed
-            .split_off(&claim.value.through.saturating_add(1));
+        // Every sequence up to W is covered now, `u64::MAX` included.
+        let through = claim.value.through;
+        hold.claimed.retain(|sequence, _| *sequence > through);
         self.credit(from, paid);
         Ok(Detail::Paid(paid))
     }
@@ -163,6 +163,9 @@ impl Ledger {
         for party in [hold.payer, hold.payee] {
             if let Some(account) = self.accounts.get_mut(&party) {
                 account.holds = account.holds.saturating_sub(1);
+                if party == hold.payer {
+                    account.paying = account.paying.saturating_sub(1);
+                }
             }
         }
     }

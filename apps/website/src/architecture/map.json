@@ -986,15 +986,9 @@
     },
     {
       "f": "hub",
-      "t": "node-core",
-      "k": "uses",
-      "h": false
-    },
-    {
-      "f": "hub",
       "t": "identity",
       "k": "uses",
-      "h": true
+      "h": false
     },
     {
       "f": "hub",

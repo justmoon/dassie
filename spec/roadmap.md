@@ -19,6 +19,7 @@ Another way to peer, beside bilateral peering: a ledger kept by n = 3f + 1 valid
 - **Later, once hubs run:**
   - fees that follow how full blocks are, so that holding back someone's claim grows dear, and an idle fee that frees the places of abandoned accounts;
   - a setup fee the sponsor pays each validator, in place of the owner's list of sponsors;
+  - caps on what new rules may charge, and leaving free of the withdrawal fee during a reconfiguration's notice ([the design](designs/settlement-hubs.md#8-changing-the-validators));
   - being in several hubs per asset, with a limit per validator operator over all of them;
   - a node putting what it earned into its holds, so a peer's room grows with earnings;
   - hub balances and holds in the wallet and the desktop app.
