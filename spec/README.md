@@ -21,6 +21,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | `crates/dassie-ledger` | [Ledger](areas/ledger.md) |
 | `crates/dassie-connector` | [Connector](areas/connector.md), [Ledger](areas/ledger.md) |
 | `crates/dassie-settlement` | [Settlement](areas/settlement.md), [Ledger](areas/ledger.md) |
+| `crates/dassie-hub` | [Settlement hubs](areas/hubs.md), [Settlement](areas/settlement.md) |
 | `crates/dassie-xrpl` | [XRPL](areas/xrpl.md), [Settlement](areas/settlement.md) |
 | `crates/dassie-peer` | [Peer protocol](areas/peer-protocol.md), [Network](areas/network.md), [Settlement](areas/settlement.md) |
 | `crates/dassie-payments` | [Payments](areas/payments.md) |
@@ -64,6 +65,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [Peer protocol](areas/peer-protocol.md) | The wire protocol between nodes: transport, envelope, messages, authentication, replay, link states |
 | [Network](areas/network.md) | The node table, flooding, membership and registration, bootstrap nodes, peering and its lifecycle, routing |
 | [Settlement](areas/settlement.md) | Settlement schemes, external assets, credit and its growth, thresholds, settling on request, settlement channels |
+| [Settlement hubs](areas/hubs.md) | A hub's rules and its ledger: accounts, holds, what validators attest, and who gets the fees |
 | [XRPL](areas/xrpl.md) | The XRP Ledger testnet account, the XRP scheme and the token scheme (RLUSD, DSUSD) on it, and the fake ledger |
 | [Payments](areas/payments.md) | Open Payments: wallet addresses, GNAP, incoming and outgoing payments, quotes, the owner's Send |
 | [Rate feed](areas/rate-feed.md) | A core node's signed UDP feed of the rates it converts at: wire format, signing, the subscriber table and its cookies, when to publish |
@@ -79,7 +81,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [Market maker VM](areas/market-maker-vm.md) | The VM that runs a market maker and its two nodes against a testnet core node: secrets, releases and updates, settings |
 | [Testing](areas/testing.md) | Test levels, golden vectors, simulations and the simulation runner |
 
-Not built yet: the [roadmap](roadmap.md), and the designs in `designs/`: [settlement hubs](designs/settlement-hubs.md), and what is not built of the [periphery](designs/periphery.md).
+Not built yet: the [roadmap](roadmap.md), and the designs in `designs/`: what is not built of [settlement hubs](designs/settlement-hubs.md), and what is not built of the [periphery](designs/periphery.md).
 
 ## What belongs here
 

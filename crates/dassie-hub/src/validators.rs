@@ -50,7 +50,11 @@ impl ValidatorSet {
             return None;
         }
         for (i, key) in keys.iter().enumerate() {
-            if keys.iter().skip(i.saturating_add(1)).any(|other| other == key) {
+            if keys
+                .iter()
+                .skip(i.saturating_add(1))
+                .any(|other| other == key)
+            {
                 return None;
             }
         }
@@ -150,6 +154,12 @@ impl Signers {
         Self(self.0 | (1 << index.0))
     }
 
+    /// Everyone in either bitmap.
+    #[must_use]
+    pub const fn with_all(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
     /// How many signed.
     #[must_use]
     pub const fn count(self) -> usize {
@@ -176,7 +186,9 @@ mod tests {
     use dassie_identity::NodeKey;
 
     fn keys(n: u8) -> Vec<PublicKey> {
-        (0..n).map(|i| NodeKey::from_bytes(&[i; 32]).public_key()).collect()
+        (0..n)
+            .map(|i| NodeKey::from_bytes(&[i; 32]).public_key())
+            .collect()
     }
 
     #[test]
@@ -184,7 +196,10 @@ mod tests {
         let four = ValidatorSet::new(keys(4)).unwrap();
         assert_eq!((four.faults(), four.quorum(), four.one_honest()), (1, 3, 2));
         let seven = ValidatorSet::new(keys(7)).unwrap();
-        assert_eq!((seven.faults(), seven.quorum(), seven.one_honest()), (2, 5, 3));
+        assert_eq!(
+            (seven.faults(), seven.quorum(), seven.one_honest()),
+            (2, 5, 3)
+        );
     }
 
     #[test]
