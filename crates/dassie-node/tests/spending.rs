@@ -1040,7 +1040,10 @@ async fn a_payment_refused_for_its_limits_asset_names_both() {
         "type": "outgoing-payment",
         "actions": ["create", "read"],
         "identifier": host(&node),
-        "limits": { "receiveAmount": { "value": "500", "assetCode": "USD", "assetScale": 2 } },
+        "limits": {
+            "debitAmount": usd(1_000),
+            "receiveAmount": { "value": "500", "assetCode": "USD", "assetScale": 2 },
+        },
     }]);
     let grant = ask_for(&node, &client, &access).await;
     let token = approve(&node, &client, &grant).await;
@@ -1084,19 +1087,19 @@ async fn an_item_that_only_reads_does_not_lift_the_limit() {
     node.stop().await;
 }
 
-// A grant may limit what its payments deliver instead of what they debit,
-// but not both, as Open Payments has it. The receive limit binds as the
-// debit limit does.
+// A grant may limit what its payments deliver as well as what they debit,
+// but never what they deliver alone, as Open Payments has it. The receive
+// limit binds although the debit limit has room.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_receive_limit_caps_what_is_delivered() {
     let (node, key) = start().await;
     let client = own_client(&node, &key);
-    let both = json!({
+    let alone = json!({
         "access_token": { "access": [{
             "type": "outgoing-payment",
             "actions": ["create"],
             "identifier": host(&node),
-            "limits": { "debitAmount": usd(500), "receiveAmount": usd(500) },
+            "limits": { "receiveAmount": usd(500) },
         }] },
         "client": client.identity,
         "interact": { "start": ["redirect"] },
@@ -1104,7 +1107,7 @@ async fn a_receive_limit_caps_what_is_delivered() {
     let reply = send(
         node.https,
         true,
-        signed(&node, &client, "POST", "/gnap", None, Some(&both)),
+        signed(&node, &client, "POST", "/gnap", None, Some(&alone)),
     )
     .await;
     assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{}", reply.text());
@@ -1113,7 +1116,7 @@ async fn a_receive_limit_caps_what_is_delivered() {
         "type": "outgoing-payment",
         "actions": ["create", "read"],
         "identifier": host(&node),
-        "limits": { "receiveAmount": usd(500) },
+        "limits": { "debitAmount": usd(1_000), "receiveAmount": usd(500) },
     }]);
     let grant = ask_for(&node, &client, &access).await;
     let token = approve(&node, &client, &grant).await;
@@ -1126,16 +1129,15 @@ async fn a_receive_limit_caps_what_is_delivered() {
     assert_eq!(payment["grantSpentReceiveAmount"], usd(300));
     let paid = sent(&node, &client, &token, &path_of(&node, &payment["id"])).await;
     assert_eq!(paid["sentAmount"], usd(300));
-    // 300 more would deliver past 500.
+    // 300 more would deliver past 500, though 600 fits the debit limit.
     let target = receiver(&node, 300).await;
     let more =
         json!({ "walletAddress": host(&node), "incomingPayment": target, "debitAmount": usd(300) });
     let refused = post(&node, &client, "/outgoing-payments", &token, &more).await;
     assert_eq!(refused.status, StatusCode::FORBIDDEN, "{}", refused.text());
-    assert_eq!(
-        spent(&node, &client, &token).await["spentReceiveAmount"],
-        usd(300)
-    );
+    let spent = spent(&node, &client, &token).await;
+    assert_eq!(spent["spentDebitAmount"], usd(300));
+    assert_eq!(spent["spentReceiveAmount"], usd(300));
     node.stop().await;
 }
 
@@ -1330,7 +1332,8 @@ async fn the_owner_sees_a_receive_limit_in_another_asset() {
     let local = receiver(&node, 700).await;
     let flagged = async |receiver: &str, code: &str, scale: u8| {
         let limit = json!({ "value": "500", "assetCode": code, "assetScale": scale });
-        let limits = json!({ "receiver": receiver, "receiveAmount": limit });
+        let limits =
+            json!({ "receiver": receiver, "debitAmount": usd(1_000), "receiveAmount": limit });
         let read = limits_read(&node, &client, limits)
             .await
             .receiver_payment
