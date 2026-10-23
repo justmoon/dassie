@@ -24,6 +24,11 @@
 //!   packet whose commitment expired.
 //! - **What it mirrors:** every hold it pays into or takes from
 //!   ([`HoldMirror`]), from the operations on it.
+//! - **When its history is gone.** Validators keep a bounded history; one
+//!   that no longer keeps what touched the account since its cursor says so
+//!   (`Trimmed`). Once f + 1 agree, the account reads its state and every
+//!   hold it pays into or takes from anew, as of one block f + 1 agree on,
+//!   and reads in order from there ([`News::Resynced`]).
 //! - **What it submits:** the member's operations, one at a time, to every
 //!   validator, again until one executes; signed with the account's next
 //!   sequence once sent, and again with the right one after a refusal for
@@ -77,7 +82,7 @@ const MAX_FINALS: usize = 64;
 /// Most undecided statements the agreement keeps.
 const AGREEMENT_CAPACITY: usize = 4 * MAX_STATEMENTS;
 /// Most news between two tellings: what one advance reads, and the rest.
-const MAX_NEWS: usize = 2 * MAX_BUFFERED + MAX_HOLDS + MAX_QUEUED + 8;
+const MAX_NEWS: usize = 2 * MAX_BUFFERED + MAX_HOLDS + MAX_QUEUED + MAX_LOOKUPS + 8;
 /// Most messages between two takings: a round of requests and a
 /// submission to every validator, a few times over.
 const MAX_EFFECTS: usize = 8 * MAX_VALIDATORS;
@@ -91,6 +96,14 @@ pub const RESUBMIT_MS: u64 = 1_000;
 /// How often it asks for its own state, against which the scheme checks
 /// its books.
 const ACCOUNT_EVERY_MS: u64 = 2_000;
+/// Most keys looked up at once.
+pub const MAX_LOOKUPS: usize = 16;
+/// Most recent states of the account kept, to match the holds read anew
+/// with the account as of the same block.
+const RECENT_VIEWS: usize = 8;
+
+/// The holds of an account as one statement lists them.
+type HoldList = Vec<(HoldNumber, crate::client::HoldView)>;
 
 /// Why an operation is submitted: what the scheme on the account is told
 /// of it once it executed.
@@ -156,6 +169,31 @@ pub enum News {
         /// Why we submitted it.
         purpose: Purpose,
     },
+    /// The validators no longer keep what touched the account since its
+    /// cursor, so it read its holds anew as of the block at `height`, and
+    /// reads in order from there. What happened in between is known only by
+    /// its difference: `before` is what it mirrored then, and the holds now
+    /// are [`HubAccount::holds`]. An [`Account`](Self::Account) as of
+    /// `height` follows, and a [`Final`](Self::Final).
+    Resynced {
+        /// The block's height.
+        height: u64,
+        /// Its timestamp.
+        timestamp: Millis,
+        /// The holds it mirrored before.
+        before: Vec<(HoldNumber, HoldMirror)>,
+        /// The operation of ours that was on its way and used its sequence
+        /// in between: whether it applied is not known.
+        unread: Option<(Purpose, MemberOperation)>,
+    },
+    /// The account of a key the scheme asked about
+    /// ([`HubAccount::look_up`]).
+    Member {
+        /// The key.
+        key: PublicKey,
+        /// Its account, if it has one.
+        account: Option<AccountNumber>,
+    },
 }
 
 /// An operation agreed executed, held until a quorum covered its height.
@@ -209,6 +247,15 @@ pub struct HubAccount {
     waiting_view: Option<(u64, AccountView)>,
     unfunded: bool,
     heard: bool,
+    /// The validators no longer keep what touched the account since its
+    /// cursor: it reads its state anew.
+    resync: bool,
+    /// The holds read anew, waiting for the account as of the same block.
+    resync_holds: Option<(u64, Millis, HoldList)>,
+    /// The account as agreed at recent heights.
+    recent_views: BTreeMap<u64, AccountView>,
+    /// Keys the scheme asked the account of.
+    lookups: BTreeMap<[u8; 32], PublicKey>,
     agreement: Agreement,
     /// Per validator, the newest final block it covered from its own
     /// endpoint.
@@ -275,6 +322,10 @@ impl HubAccount {
             waiting_view: None,
             unfunded: false,
             heard: false,
+            resync: false,
+            resync_holds: None,
+            recent_views: BTreeMap::new(),
+            lookups: BTreeMap::new(),
             covered: alloc::vec![0; n],
             finals: BTreeMap::new(),
             told_final: 0,
@@ -501,6 +552,21 @@ impl HubAccount {
         self.wake_ms = at_ms;
     }
 
+    /// Asks the validators which account `key` has, until f + 1 agree:
+    /// the answer comes as [`News::Member`]. At most [`MAX_LOOKUPS`] at
+    /// once; past them, nothing is asked.
+    pub fn look_up(&mut self, key: PublicKey) {
+        if self.lookups.len() < MAX_LOOKUPS {
+            self.lookups.insert(*key.as_bytes(), key);
+        }
+    }
+
+    /// Whether it is reading its state anew.
+    #[must_use]
+    pub const fn is_resyncing(&self) -> bool {
+        self.resync
+    }
+
     /// Learns every validator's answer to a request: to all of them.
     fn ask(&mut self, request: &Request) {
         let message = request.to_vec();
@@ -526,13 +592,22 @@ impl HubAccount {
             self.last_account_ms = Some(self.now_ms);
             self.ask(&Request::Account(self.key.public_key()));
         }
-        if let Some(account) = self.number {
-            self.ask(&Request::Since {
+        match self.number {
+            Some(account) if self.resync => self.ask(&Request::Holds(account)),
+            Some(account) => self.ask(&Request::Since {
                 account,
                 from: self.cursor.saturating_add(1),
-            });
+            }),
+            None => {}
         }
-        let busy = !self.holds.is_empty() || !self.queue.is_empty();
+        let keys: Vec<PublicKey> = self.lookups.values().copied().collect();
+        for key in keys {
+            self.ask(&Request::Account(key));
+        }
+        let busy = !self.holds.is_empty()
+            || !self.queue.is_empty()
+            || !self.lookups.is_empty()
+            || self.resync;
         let every = if busy { POLL_MS } else { IDLE_POLL_MS };
         self.next_poll_ms = self.now_ms.saturating_add(every);
     }
@@ -642,6 +717,27 @@ impl HubAccount {
                 key,
                 account,
             } if key == self.key.public_key() => self.account_agreed(height, account),
+            Statement::Account { key, account, .. } => {
+                if self.lookups.remove(key.as_bytes()).is_some() {
+                    let account = account.map(|(number, _)| number);
+                    self.push_news(News::Member { key, account });
+                }
+            }
+            // Its history since the cursor is gone: it reads its state anew.
+            Statement::Trimmed { below, .. }
+                if below > self.cursor.saturating_add(1) && self.number.is_some() =>
+            {
+                self.resync = true;
+            }
+            Statement::Holds {
+                height,
+                timestamp,
+                account,
+                holds,
+            } if self.resync && Some(account) == self.number && height > self.cursor => {
+                self.resync_holds = Some((height, timestamp, holds));
+                self.try_resync();
+            }
             // Whether it touches the account is read in order: a hold
             // opened toward it makes the operations on it its own.
             Statement::Executed {
@@ -702,6 +798,10 @@ impl HubAccount {
         if self.view.is_none_or(|(at, _)| at <= height) {
             self.view = Some((height, view));
         }
+        self.recent_views.insert(height, view);
+        while self.recent_views.len() > RECENT_VIEWS {
+            self.recent_views.pop_first();
+        }
         // The hub's word on the sequence, once it is as of the refusal:
         // nothing of ours was sent since. Otherwise only ever up, as ours
         // execute.
@@ -713,6 +813,7 @@ impl HubAccount {
         }
         self.waiting_view = Some((height, view));
         self.tell_view();
+        self.try_resync();
     }
 
     /// Tells the account's state once everything up to it was read, and
@@ -765,7 +866,7 @@ impl HubAccount {
     /// Reads, in order, every operation a quorum covered.
     fn advance(&mut self) {
         let covered = self.quorum_covered();
-        if covered <= self.cursor || self.number.is_none() {
+        if covered <= self.cursor || self.number.is_none() || self.resync {
             return;
         }
         let later = self
@@ -937,6 +1038,78 @@ impl HubAccount {
         }
     }
 
+    /// Reads the account anew once the holds and the account agreed as of
+    /// one block are both in, above the cursor.
+    fn try_resync(&mut self) {
+        let Some((height, timestamp, holds)) = self.resync_holds.take() else {
+            return;
+        };
+        if !self.resync || height <= self.cursor {
+            return;
+        }
+        let Some(view) = self.recent_views.get(&height).copied() else {
+            self.resync_holds = Some((height, timestamp, holds));
+            return;
+        };
+        self.resynced(height, timestamp, view, holds);
+    }
+
+    /// Takes the account and its holds as of the block at `height` for
+    /// what it read up to there. A hold keeps what `claim` took above its
+    /// W as far as the account knew it: the view does not say, and a
+    /// redeem since would have passed it.
+    fn resynced(&mut self, height: u64, timestamp: Millis, view: AccountView, holds: HoldList) {
+        let unread = self.take_unread(view.sequence);
+        let before = core::mem::take(&mut self.holds);
+        for (number, hold) in holds.into_iter().take(MAX_HOLDS) {
+            let mut mirror = HoldMirror::of(&hold);
+            if let Some(old) = before.get(&number) {
+                mirror.claimed = old.claimed.clone();
+                mirror
+                    .claimed
+                    .retain(|sequence, _| *sequence > hold.through);
+            }
+            self.holds.insert(number, mirror);
+        }
+        self.sequence = Some(view.sequence);
+        self.stale_sequence = None;
+        self.view = Some((height, view));
+        self.cursor = height;
+        self.last_touch = height;
+        self.buffer = self
+            .buffer
+            .split_off(&(height.saturating_add(1), Digest::default()));
+        self.agreement.forget_below(height.saturating_add(1));
+        self.resync = false;
+        self.told_final = height;
+        if self.waiting_view.is_some_and(|(at, _)| at <= height) {
+            self.waiting_view = None;
+        }
+        self.push_news(News::Resynced {
+            height,
+            timestamp,
+            before: before.into_iter().collect(),
+            unread,
+        });
+        self.push_news(News::Final { height, timestamp });
+        self.push_news(News::Account { height, view });
+    }
+
+    /// The operation of ours on its way whose sequence the account has used
+    /// by now: it executed while its history was not read.
+    fn take_unread(&mut self, sequence: u64) -> Option<(Purpose, MemberOperation)> {
+        let position = self.queue.iter().position(|q| {
+            q.sent
+                .as_ref()
+                .is_some_and(|(signed, _)| signed.sequence < sequence)
+        })?;
+        let queued = self.queue.remove(position)?;
+        if queued.purpose == Purpose::Disbursal {
+            self.disbursal_set = true;
+        }
+        Some((queued.purpose, queued.operation))
+    }
+
     /// Keeps news for the scheme. The node tells it after every input, and
     /// one input tells at most a buffer's worth and a reduction per hold;
     /// past the bound the account stops rather than forget any.
@@ -1060,6 +1233,14 @@ impl ExternalAsset for HubAccount {
         assert!(self.holds.len() <= MAX_HOLDS);
         assert!(self.buffer.len() <= MAX_BUFFERED);
         assert!(self.finals.len() <= MAX_FINALS);
+        assert!(self.lookups.len() <= MAX_LOOKUPS);
+        assert!(self.recent_views.len() <= RECENT_VIEWS);
+        assert!(
+            self.resync_holds
+                .as_ref()
+                .is_none_or(|(height, _, _)| *height > self.cursor),
+            "holds read anew are above the cursor"
+        );
         assert!(self.news.len() <= MAX_NEWS);
         assert!(self.effects.len() <= MAX_EFFECTS);
         assert_eq!(self.covered.len(), self.set.len());

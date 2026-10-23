@@ -23,6 +23,7 @@ mod mirror;
 mod payee;
 mod payer;
 mod peering;
+mod resync;
 pub mod scheme;
 mod state;
 

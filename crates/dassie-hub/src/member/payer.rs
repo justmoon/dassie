@@ -154,6 +154,15 @@ impl Payer {
         })
     }
 
+    /// Everything we owe on the hold, in internal units: up to W, and the
+    /// packets above it we owe already.
+    pub(super) fn owed_units(&self) -> u128 {
+        self.packets
+            .range(self.through.saturating_add(1)..)
+            .map(|(_, packet)| packet.owed_units())
+            .fold(self.through_units, u128::saturating_add)
+    }
+
     /// What the hold has room for, in internal units: what was put in it
     /// less what we owe on it and what is still on its way. A reduction
     /// waiting shrinks it already.
@@ -165,11 +174,7 @@ impl Payer {
                 .saturating_sub(reduction)
                 .saturating_add(self.snapshot.taken),
         ) * u128::from(UNITS_PER_DROP);
-        let owed = self
-            .packets
-            .range(self.through.saturating_add(1)..)
-            .map(|(_, packet)| packet.owed_units())
-            .fold(self.through_units, u128::saturating_add);
+        let owed = self.owed_units();
         let open = self
             .packets
             .values()

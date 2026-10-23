@@ -93,6 +93,17 @@ A share of every fee goes to the reserve account; the rest waits in the pool of 
 
 **One scheme per account.** The node writes the two in one batch, and the scheme refuses a state that is not in step with its account's. When the scheme stops, the account reads nothing more until a restart, so neither misses what the other read.
 
+### When the history is gone
+
+A validator keeps a bounded history, and answers a `Since` from further back than it keeps with `Trimmed`: it can no longer vouch for what touched the account there. Once f + 1 agree, the account reads its state anew (`Holds`): its own account and every hold it pays into or takes from, each as of one block, which f + 1 sign alike, so the list is complete. It takes them as of that block, moves its cursor there, and reads in order from it. What happened in between is known only by its difference (`member/resync.rs`):
+
+- **A hold toward us from a peer** grows only by its payer's funds, and a take moves what it holds to what was taken, so what the two grew by is the payer's settlements, booked as theirs. A hold a peer opened in between is followed from then on, once an account the validators agree on confirms the key the peer gave at peering.
+- **Our hold toward a peer:** what the payee took in between beyond what we owed it and it had not taken is what the hub paid with claims the account never read: a loss on the peer (`PaidLate`), and part of T from then on, since the hub overrules our books.
+- **Our operation that used its sequence in between:** a settlement is taken as applied when the hold shows its funds, and cancelled otherwise; a claim of ours is made again.
+- **Packets waiting for the hub** are decided by the block read anew as by any final block: without a fulfillment once it is stamped at or after their commitment's expiry and no claim for them was read, since a claim the account never read gives no fulfillment to pass upstream. What the hub paid for them is in the loss above.
+
+The account's state as of the block reconciles the rest, the fees in between among it, through suspense. What `claim` took above a hold's redeemed W does not show in its view, so these differences err toward booking less as a settlement or a loss, and more through suspense.
+
 ### Packets, promises and claims
 
 - **Amounts.** A commitment promises its packet in drops rounded up, so it never covers less than the packet. T is what the packets up to W add up to in internal units, rounded down to drops: what is less than a drop stays owed until there is more.

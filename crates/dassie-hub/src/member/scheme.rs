@@ -180,7 +180,7 @@ impl HubScheme {
     }
 
     /// Takes one piece of news from the account.
-    fn tell(&mut self, account: &HubAccount, news: &News, effects: &mut Vec<Effect>) {
+    fn tell(&mut self, account: &mut HubAccount, news: &News, effects: &mut Vec<Effect>) {
         match news {
             News::Account { height, view } => {
                 self.cursor = self.cursor.max(*height);
@@ -221,6 +221,28 @@ impl HubScheme {
                 }
             }
             News::Dropped { purpose } => self.dropped(*purpose, effects),
+            News::Resynced {
+                height,
+                before,
+                unread,
+                ..
+            } => {
+                self.cursor = self.cursor.max(*height);
+                self.resynced(account, *height, before, unread.as_ref(), effects);
+            }
+            // The hub confirms the key a peer gave us, for a hold toward us
+            // whose operations we never read.
+            News::Member {
+                key,
+                account: Some(number),
+            } => {
+                for peer in self.peers.values_mut() {
+                    if peer.key == *key && peer.account == *number {
+                        peer.payee.key_confirmed = true;
+                    }
+                }
+            }
+            News::Member { account: None, .. } => {}
             News::Reduced { .. } | News::Unfunded => {}
         }
     }
@@ -387,7 +409,7 @@ impl HubScheme {
     }
 
     /// An operation of ours the hub refused for good.
-    fn dropped(&mut self, purpose: Purpose, effects: &mut Vec<Effect>) {
+    pub(super) fn dropped(&mut self, purpose: Purpose, effects: &mut Vec<Effect>) {
         match purpose {
             Purpose::Settle(settlement) => {
                 if self.settling.remove(&settlement).is_some() {
@@ -528,7 +550,7 @@ impl HubScheme {
         }
     }
 
-    fn queue_loss(&mut self, peer: Name, loss: Loss) {
+    pub(super) fn queue_loss(&mut self, peer: Name, loss: Loss) {
         assert!(self.losses.len() < MAX_LOSSES, "losses past their bound");
         self.losses.push_back((peer, loss));
     }
