@@ -4,7 +4,7 @@
 //! on a parent that is not final yet, so the state after each one is kept,
 //! bounded as consensus bounds the blocks it holds.
 
-use alloc::collections::{BTreeMap, VecDeque};
+use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::vec::Vec;
 
 use dassie_oer::Encode;
@@ -97,16 +97,17 @@ pub struct Chain {
 impl Chain {
     /// The chain of `ledger`, the state after the final block `tip`.
     #[must_use]
-    pub fn new(ledger: Ledger, tip: Digest, mempool_capacity: usize) -> Self {
+    pub fn new(ledger: Ledger, tip: Digest) -> Self {
         let mut heights = BTreeMap::new();
         heights.insert(tip, ledger.height());
+        let mempool = Mempool::new(&ledger);
         Self {
             ledger,
             tip,
             executed: BTreeMap::new(),
             proposed: None,
             heights,
-            mempool: Mempool::new(mempool_capacity),
+            mempool,
             finals: VecDeque::new(),
             reported: None,
         }
@@ -234,34 +235,28 @@ impl Application for Chain {
     ) -> Result<(), Declined> {
         let base = self.base(&context.parent).ok_or(Declined)?;
         let votes = self.votes_to_record(base, context.height, context.votes);
-        let limits = base.terms().limits;
-        let candidates = self.mempool.select(
-            base,
-            usize::from(limits.block_operations),
-            usize::from(limits.deadline_operations),
-        );
-        let first = Self::execute(
-            base,
-            context.height,
-            context.timestamp_ms,
-            candidates.clone(),
-            votes.clone(),
-        )
-        .ok_or(Declined)?;
+        let candidates = self.mempool.select(base);
+        let (height, timestamp) = (context.height, context.timestamp_ms);
+        let first = Self::execute(base, height, timestamp, candidates.clone(), votes.clone())
+            .ok_or(Declined)?;
         // Operations refused on this base pay nothing and do nothing: leave
-        // them out, so the block carries only what applies.
-        let kept: Vec<_> = candidates
+        // them out, so the block carries only what applies, and drop them
+        // from the pool, so they never take a place again.
+        let (kept, refused): (Vec<_>, Vec<_>) = candidates
             .into_iter()
-            .zip(&first.outcomes)
-            .filter(|(_, outcome)| outcome.used_sequence())
-            .map(|(operation, _)| operation)
-            .collect();
-        let executed = if kept.len() == first.outcomes.len() {
+            .zip(first.outcomes.iter().map(Outcome::used_sequence))
+            .partition(|(_, used)| *used);
+        let executed = if refused.is_empty() {
             first
         } else {
-            Self::execute(base, context.height, context.timestamp_ms, kept, votes)
-                .ok_or(Declined)?
+            let kept = kept.into_iter().map(|(operation, _)| operation).collect();
+            Self::execute(base, height, timestamp, kept, votes).ok_or(Declined)?
         };
+        let refused = refused
+            .iter()
+            .map(|(operation, _)| operation.hash())
+            .collect();
+        self.mempool.evict(&refused);
         *payload = executed.payload.to_vec();
         self.proposed = Some((context.view, executed));
         Ok(())
@@ -314,11 +309,13 @@ impl Application for Chain {
                 executed
             }
         };
-        let hashes: Vec<Digest> = executed
+        let refused: BTreeSet<Digest> = executed
             .payload
             .operations
             .iter()
-            .map(|o| o.hash())
+            .zip(&executed.outcomes)
+            .filter(|(_, outcome)| !outcome.used_sequence())
+            .map(|(operation, _)| operation.hash())
             .collect();
         let touched = executed
             .payload
@@ -336,7 +333,7 @@ impl Application for Chain {
         let final_height = block.height;
         self.executed
             .retain(|_, e| e.ledger.height() > final_height);
-        self.mempool.prune(&self.ledger, &hashes);
+        self.mempool.prune(&self.ledger, &refused);
         if self.finals.len() >= MAX_BLOCKS {
             self.finals.pop_front();
         }

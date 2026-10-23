@@ -22,7 +22,7 @@ use dassie_oer::Encode;
 use dassie_xrpl::codec::{Signer, Transact};
 
 pub use chain::{Chain, FinalBlock};
-pub use mempool::{Mempool, SEQUENCE_WINDOW};
+pub use mempool::{MAX_GAPPED, Mempool, SEQUENCE_WINDOW, VALIDATOR_WINDOW};
 
 use crate::client::{Request, SignedStatement, Statement};
 use crate::consensus::{Batch, Block, Config, Engine, Event, Output, PeerId, Recipient, Stored};
@@ -121,14 +121,13 @@ impl Validator {
         let consensus_key = Arc::new(NodeKey::from_bytes(keys.consensus.as_bytes()));
         let engine = Engine::new(Config::DEFAULT, hub.0, consensus_key.clone(), stored, now);
         let tip = *engine.tip_digest();
-        let capacity = usize::from(rules.terms.limits.block_operations).saturating_mul(4);
         Ok(Self {
             hub,
             index,
             consensus_key,
             keys,
             engine,
-            chain: Chain::new(ledger, tip, capacity),
+            chain: Chain::new(ledger, tip),
             sequence: now,
             subscribers: BTreeMap::new(),
             history: VecDeque::new(),
@@ -201,7 +200,11 @@ impl Validator {
     /// Signs and passes on one of our own operations: what we saw of the
     /// escrow, or a vote. Its sequence is the time, or one more than the
     /// last, so it grows across restarts.
-    pub fn attest(&mut self, now: Millis, operation: ValidatorOperation) {
+    ///
+    /// Whether it was taken: an operation our own pool has no room for
+    /// ([`mempool::VALIDATOR_WINDOW`]) is not passed on, and the host
+    /// attests it again later.
+    pub fn attest(&mut self, now: Millis, operation: ValidatorOperation) -> bool {
         self.sequence = self.sequence.saturating_add(1).max(now);
         let signed = Operation::Validator(SignedValidatorOperation::sign(
             &self.hub,
@@ -210,11 +213,13 @@ impl Validator {
             operation,
             &self.consensus_key,
         ));
-        self.actions.push_back(Action::Validators(
-            Message::Operation(signed.clone()).to_vec(),
-        ));
-        self.chain.mempool.admit(&self.chain.ledger, signed);
+        let message = Message::Operation(signed.clone()).to_vec();
+        let taken = self.chain.mempool.admit(&self.chain.ledger, signed);
+        if taken {
+            self.actions.push_back(Action::Validators(message));
+        }
         self.after(now);
+        taken
     }
 
     fn answer(&mut self, from: PeerId, request: Request) {
