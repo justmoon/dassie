@@ -1,13 +1,22 @@
 //! The hub's ledger as consensus's application: it builds a leader's
 //! block, checks another leader's by executing it, and keeps the state
 //! after every block it executed until one becomes final. A block may build
-//! on a parent that is not final yet, so the state after each one is kept,
-//! bounded as consensus bounds the blocks it holds.
+//! on a parent that is not final yet, so the state after each one is kept.
+//!
+//! Each kept state is a copy of the ledger, as large as the terms' tables
+//! let it grow, so at most [`MAX_EXECUTED`] are kept: while finality
+//! stalls the lowest go first. A block whose state went is executed again
+//! from the final state once it is final, and blocks built on it are not
+//! verified until then, which a stall that long means anyway.
 
 use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::vec::Vec;
 
 use dassie_oer::Encode;
+
+/// The most executed blocks whose state is kept while they wait to become
+/// final.
+pub const MAX_EXECUTED: usize = 64;
 
 use super::mempool::Mempool;
 use super::payload::Payload;
@@ -43,6 +52,24 @@ pub struct FinalBlock {
     /// payer's and payee's of a hold it acts on, as of before the block,
     /// so a hold the block closes still counts.
     pub touched: Vec<Vec<crate::operation::AccountNumber>>,
+}
+
+impl FinalBlock {
+    /// About what it holds, in bytes: its operations as encoded, and what
+    /// is kept beside each.
+    #[must_use]
+    pub fn bytes(&self) -> usize {
+        self.operations
+            .iter()
+            .zip(&self.touched)
+            .map(|(operation, touched)| {
+                operation
+                    .encoded_len()
+                    .saturating_add(core::mem::size_of::<Outcome>())
+                    .saturating_add(touched.len().saturating_mul(4))
+            })
+            .sum()
+    }
 }
 
 /// The accounts `operation` touches on `before`, the state before its
@@ -94,6 +121,10 @@ pub struct Chain {
     pub(super) finals: VecDeque<FinalBlock>,
     /// The change of validators reported to consensus, by its height.
     reported: Option<u64>,
+    /// A block was final that does not decode or execute as certified.
+    halted: bool,
+    /// The highest final block dropped before the service took it.
+    pub(super) lost: Option<u64>,
 }
 
 impl Chain {
@@ -112,6 +143,8 @@ impl Chain {
             mempool,
             finals: VecDeque::new(),
             reported: None,
+            halted: false,
+            lost: None,
         }
     }
 
@@ -150,7 +183,7 @@ impl Chain {
 
     /// Executes `operations` and `votes` as the block at `height` on
     /// `base`.
-    fn execute(
+    pub(super) fn execute(
         base: &Ledger,
         height: u64,
         timestamp: u64,
@@ -178,6 +211,28 @@ impl Chain {
         })
     }
 
+    /// Executes a block certified while we were behind on the final state,
+    /// if it decodes and executes as certified. One that does not means
+    /// more than f validators are faulty, or a bug.
+    fn execute_certified(&self, block: &Block) -> Option<Executed> {
+        let payload = Payload::decode_exact(&block.payload).ok()?;
+        let executed = Self::execute(
+            &self.ledger,
+            block.height,
+            block.timestamp_ms,
+            payload.operations.clone(),
+            payload.votes.clone(),
+        )?;
+        (executed.payload == payload).then_some(executed)
+    }
+
+    /// Whether a block was final that this ledger cannot follow: the
+    /// validator stops (spec/areas/hubs.md#the-validators-service).
+    #[must_use]
+    pub const fn halted(&self) -> bool {
+        self.halted
+    }
+
     /// Our own proposal got its digest: it is kept as any executed block.
     pub(super) fn adopt_proposal(&mut self, view: u64, digest: Digest) {
         if let Some((proposed_view, executed)) = self.proposed.take()
@@ -188,7 +243,7 @@ impl Chain {
     }
 
     fn keep(&mut self, digest: Digest, executed: Executed) {
-        while self.executed.len() >= MAX_BLOCKS {
+        while self.executed.len() >= MAX_EXECUTED {
             let lowest = self
                 .executed
                 .iter()
@@ -206,7 +261,7 @@ impl Chain {
     /// Asserts what holds between steps.
     pub fn check_invariants(&self) {
         assert!(
-            self.executed.len() <= MAX_BLOCKS,
+            self.executed.len() <= MAX_EXECUTED,
             "executed blocks over their bound"
         );
         assert!(
@@ -235,6 +290,9 @@ impl Application for Chain {
         context: &ProposeContext<'_>,
         payload: &mut Vec<u8>,
     ) -> Result<(), Declined> {
+        if self.halted {
+            return Err(Declined);
+        }
         let base = self.base(&context.parent).ok_or(Declined)?;
         let votes = self.votes_to_record(base, context.height, context.votes);
         let candidates = self.mempool.select(base);
@@ -265,6 +323,9 @@ impl Application for Chain {
     }
 
     fn verify(&mut self, context: &VerifyContext, payload: &[u8]) -> bool {
+        if self.halted {
+            return false;
+        }
         let Ok(proposed) = Payload::decode_exact(payload) else {
             return false;
         };
@@ -288,28 +349,20 @@ impl Application for Chain {
     }
 
     fn finalized(&mut self, block: &Block, digest: &Digest) {
+        if self.halted {
+            return;
+        }
         let executed = match self.executed.remove(digest) {
             Some(executed) => executed,
             // A block certified while we were behind: it is the next one on
             // the final state, and q validators executed it as we will.
-            None => {
-                let payload = Payload::decode_exact(&block.payload);
-                assert!(payload.is_ok(), "a final block's payload does not decode");
-                let Ok(payload) = payload else { return };
-                let executed = Self::execute(
-                    &self.ledger,
-                    block.height,
-                    block.timestamp_ms,
-                    payload.operations.clone(),
-                    payload.votes.clone(),
-                );
-                assert!(
-                    executed.as_ref().is_some_and(|e| e.payload == payload),
-                    "a final block does not execute as certified"
-                );
-                let Some(executed) = executed else { return };
-                executed
-            }
+            None => match self.execute_certified(block) {
+                Some(executed) => executed,
+                None => {
+                    self.halted = true;
+                    return;
+                }
+            },
         };
         let refused: BTreeSet<Digest> = executed
             .payload
@@ -336,8 +389,12 @@ impl Application for Chain {
         self.executed
             .retain(|_, e| e.ledger.height() > final_height);
         self.mempool.prune(&self.ledger, &refused);
-        if self.finals.len() >= MAX_BLOCKS {
-            self.finals.pop_front();
+        // The service takes the final blocks after every step; one it never
+        // took is lost to its history, and it says so.
+        if self.finals.len() >= MAX_BLOCKS
+            && let Some(dropped) = self.finals.pop_front()
+        {
+            self.lost = Some(self.lost.map_or(dropped.height, |h| h.max(dropped.height)));
         }
         self.finals.push_back(FinalBlock {
             height: block.height,
@@ -351,7 +408,7 @@ impl Application for Chain {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::consensus::MAX_PAYLOAD_BYTES;
     use crate::ledger::tests::Hub;
@@ -399,5 +456,50 @@ mod tests {
         let op = signed(&hub, (number, &key), sequence, close);
         let touched = accounts_touched(&hub.ledger, &op);
         assert!(touched.contains(&crate::operation::AccountNumber(1)));
+    }
+
+    /// The next block on `chain`'s final state, with nothing in it, and
+    /// its state.
+    pub(in crate::service) fn empty_block(chain: &Chain) -> (Block, Executed) {
+        let height = chain.ledger.height() + 1;
+        let timestamp = chain.ledger.timestamp() + 10;
+        let executed =
+            Chain::execute(&chain.ledger, height, timestamp, Vec::new(), Vec::new()).unwrap();
+        let block = Block {
+            epoch: 0,
+            view: height,
+            height,
+            parent: chain.tip,
+            parent_view: height - 1,
+            timestamp_ms: timestamp,
+            payload: executed.payload.to_vec(),
+        };
+        (block, executed)
+    }
+
+    #[test]
+    fn a_final_block_that_does_not_execute_halts_the_chain() {
+        let hub = Hub::new();
+        let mut chain = Chain::new(hub.ledger.clone(), Digest::default());
+        let (mut block, _) = empty_block(&chain);
+        block.payload = alloc::vec![1, 2, 3];
+        chain.finalized(&block, &Digest([9; 32]));
+        assert!(chain.halted());
+        assert_eq!(chain.ledger, hub.ledger, "the final state stays");
+        let mut payload = Vec::new();
+        assert!(chain.propose(&next(&chain), &mut payload).is_err());
+    }
+
+    #[test]
+    fn the_states_kept_for_blocks_not_yet_final_are_bounded() {
+        let hub = Hub::new();
+        let mut chain = Chain::new(hub.ledger.clone(), Digest::default());
+        let (_, executed) = empty_block(&chain);
+        for i in 0..=MAX_EXECUTED {
+            let digest = Digest([u8::try_from(i % 256).unwrap(); 32]);
+            chain.keep(digest, executed.clone());
+        }
+        assert_eq!(chain.executed.len(), MAX_EXECUTED);
+        chain.check_invariants();
     }
 }

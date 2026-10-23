@@ -40,6 +40,9 @@ pub const MAX_SUBSCRIBERS: usize = 1024;
 /// `Since`; blocks without any take no room.
 pub const KEPT_BLOCKS: usize = 4096;
 
+/// The most bytes of operations the blocks kept to answer `Since` hold.
+pub const KEPT_BYTES: usize = 64 * 1024 * 1024;
+
 /// The most statements one answer to `Since` carries, over several
 /// messages, but for its first block, which is always whole: a block can
 /// touch an account more often than this.
@@ -76,6 +79,8 @@ pub struct Validator {
     sequence: u64,
     subscribers: BTreeMap<PeerId, AccountNumber>,
     history: VecDeque<FinalBlock>,
+    /// What the blocks in `history` hold, in bytes.
+    history_bytes: usize,
     /// The lowest height from which `history` holds every block with
     /// operations.
     complete_from: u64,
@@ -136,6 +141,7 @@ impl Validator {
             sequence: now,
             subscribers: BTreeMap::new(),
             history: VecDeque::new(),
+            history_bytes: 0,
             complete_from: 1,
             shares: BTreeMap::new(),
             signed: BTreeMap::new(),
@@ -333,6 +339,13 @@ impl Validator {
     /// After every input: the engine's outputs and events, the statements
     /// of blocks that became final, and the escrow signatures they call for.
     fn after(&mut self, now: Millis) {
+        // A block was final that our ledger cannot follow: more than f
+        // validators are faulty, or there is a bug. We stop as at a stall:
+        // never vote again, and sign the payout set of the last block we
+        // executed (spec/designs/settlement-hubs.md#9-shutdown).
+        if self.chain.halted() && !self.engine.is_stalled() {
+            self.engine.declare_stalled(now);
+        }
         while let Some(output) = self.engine.poll_output() {
             self.route(output);
         }
@@ -342,25 +355,46 @@ impl Validator {
             }
         }
         self.batches.push(self.engine.take_batch());
-        while let Some(block) = self.chain.finals.pop_front() {
-            self.publish(&block);
-            if block.operations.is_empty() {
-                continue;
-            }
-            if self.history.len() >= KEPT_BLOCKS
-                && let Some(oldest) = self.history.pop_front()
-            {
-                self.complete_from = oldest.height.saturating_add(1);
-            }
-            self.history.push_back(block);
-        }
+        self.take_finals();
         self.sign_withdrawals();
         let ended = self.chain.ledger.phase() == Phase::Ended || self.engine.is_stalled();
         if ended && !self.payout_signed {
             self.sign_payout();
         }
-        let _ = now;
         self.chain.check_invariants();
+    }
+
+    /// Publishes the blocks that became final, and keeps those with
+    /// operations to answer `Since`.
+    fn take_finals(&mut self) {
+        // Blocks the chain could not hold until now are not in our
+        // history: we no longer vouch for what happened there.
+        if let Some(lost) = self.chain.lost.take() {
+            self.complete_from = self.complete_from.max(lost.saturating_add(1));
+        }
+        while let Some(block) = self.chain.finals.pop_front() {
+            self.publish(&block);
+            if !block.operations.is_empty() {
+                self.keep_history(block);
+            }
+        }
+    }
+
+    /// Keeps `block` in the history, dropping the oldest while it holds
+    /// more than [`KEPT_BLOCKS`] blocks or [`KEPT_BYTES`] bytes.
+    fn keep_history(&mut self, block: FinalBlock) {
+        let bytes = block.bytes();
+        while self.history.len() >= KEPT_BLOCKS
+            || self.history_bytes.saturating_add(bytes) > KEPT_BYTES
+        {
+            let Some(oldest) = self.history.pop_front() else {
+                break;
+            };
+            self.history_bytes = self.history_bytes.saturating_sub(oldest.bytes());
+            self.complete_from = self.complete_from.max(oldest.height.saturating_add(1));
+        }
+        self.history_bytes = self.history_bytes.saturating_add(bytes);
+        self.history.push_back(block);
     }
 
     fn route(&mut self, output: Output) {
@@ -475,7 +509,15 @@ impl Validator {
             self.subscribers.len() <= MAX_SUBSCRIBERS,
             "subscribers over their bound"
         );
-        assert!(self.history.len() <= KEPT_BLOCKS, "history over its bound");
+        assert!(
+            self.history.len() <= KEPT_BLOCKS && self.history_bytes <= KEPT_BYTES,
+            "history over its bound"
+        );
+        assert_eq!(
+            self.history_bytes,
+            self.history.iter().map(FinalBlock::bytes).sum::<usize>(),
+            "history bytes out of step"
+        );
     }
 }
 
@@ -631,5 +673,48 @@ mod tests {
         let statements: Vec<Statement> = sent(&mut v, member).into_iter().flatten().collect();
         assert_eq!(statements.len(), 1);
         assert!(matches!(statements[0], Statement::Executed { .. }));
+    }
+
+    #[test]
+    fn a_final_block_the_ledger_cannot_follow_stops_the_validator() {
+        use crate::consensus::Application;
+        let mut v = validator();
+        let (mut block, _) = chain::tests::empty_block(&v.chain);
+        block.payload = alloc::vec![1, 2, 3];
+        v.chain.finalized(&block, &Digest([9; 32]));
+        v.tick(2_000);
+        assert!(v.engine().is_stalled());
+        let mut payout = false;
+        while let Some(action) = v.poll() {
+            payout |= matches!(action, Action::Payout(..));
+        }
+        assert!(
+            payout,
+            "it signs the payout set of the last block it executed"
+        );
+    }
+
+    #[test]
+    fn final_blocks_never_taken_raise_what_the_history_vouches_for() {
+        use crate::consensus::{Application, MAX_BLOCKS};
+        let mut v = validator();
+        for i in 0..=MAX_BLOCKS {
+            let (block, _) = chain::tests::empty_block(&v.chain);
+            let digest = Digest::of(crate::digest::Domain::Block, &[&i.to_be_bytes()]);
+            v.chain.finalized(&block, &digest);
+        }
+        v.take_finals();
+        assert_eq!(v.complete_from, 2, "block 1 was dropped untaken");
+    }
+
+    #[test]
+    fn the_history_is_bounded_by_bytes() {
+        let mut v = validator();
+        for height in 1..200 {
+            v.keep_history(block_of(height, 4096));
+        }
+        assert!(v.history_bytes <= KEPT_BYTES);
+        assert!(v.complete_from > 1);
+        v.check_invariants();
     }
 }
