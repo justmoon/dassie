@@ -123,8 +123,14 @@ pub struct HubScheme {
     reserve: Amount,
     /// The account reserve as of the last state the books were matched to.
     account_reserve: Option<Amount>,
-    /// What became of the owner's last withdrawal.
-    pub(super) withdrawal: OwnerPaymentState,
+    /// The owner's last withdrawal, by its number, and what became of it.
+    pub(super) withdrawal: Option<(u64, OwnerPaymentState)>,
+    /// How many withdrawals the owner made: the next one's number.
+    pub(super) withdrawals_made: u64,
+    /// The ledger fees of our withdrawals the scheme booked as fees when
+    /// the hub executed them, which the account's withdrawals counter has
+    /// not shown yet: that much of its growth is no withdrawal.
+    pub(super) fees_ahead: Amount,
     strangers: BTreeMap<HoldNumber, SignedMemberOperation>,
     losses: VecDeque<(Name, Loss)>,
     decided: VecDeque<Decided>,
@@ -155,6 +161,22 @@ pub(super) fn loss_id(loss: &Loss) -> Name {
     hash.update(loss.sequence.to_be_bytes());
     let bytes: [u8; 32] = hash.finalize().into();
     Name::hex(&bytes, false)
+}
+
+/// The ID of the ledger fee of our withdrawal `operation`: never a hash,
+/// so never the ID of the operation's own fee.
+fn ledger_fee_id(operation: &Digest) -> Name {
+    let mut bytes = [0; 31];
+    bytes.copy_from_slice(operation.as_bytes().get(..31).unwrap_or(&[0; 31]));
+    let hex = Name::hex(&bytes, false);
+    let mut text = alloc::string::String::from(hex.as_str());
+    text.push_str("lf");
+    Name::new(&text).unwrap_or(hex)
+}
+
+/// The ID of the owner's withdrawal `number`.
+fn withdrawal_name(number: u64) -> Name {
+    Name::hex(&number.to_be_bytes(), false)
 }
 
 /// The hash of a member's operation, as the journal keys what it moved.
@@ -191,7 +213,9 @@ impl HubScheme {
             counters: None,
             reserve: 0,
             account_reserve: None,
-            withdrawal: OwnerPaymentState::Idle,
+            withdrawal: None,
+            withdrawals_made: 0,
+            fees_ahead: 0,
             strangers: BTreeMap::new(),
             losses: VecDeque::new(),
             decided: VecDeque::new(),
@@ -348,10 +372,36 @@ impl HubScheme {
             effects.push(Effect::Deposit { amount: added });
             self.booked = self.booked.saturating_add(added);
         }
-        let taken = units(view.withdrawn.saturating_sub(withdrawn));
+        let grown = view.withdrawn.saturating_sub(withdrawn);
+        let fees = grown.min(self.fees_ahead);
+        self.fees_ahead -= fees;
+        let taken = units(grown - fees);
         if taken > 0 {
             effects.push(Effect::Withdrawal { amount: taken });
             self.booked = self.booked.saturating_sub(taken);
+        }
+    }
+
+    /// What became of the owner's withdrawal on its way.
+    pub(super) fn withdrawal_done(&mut self, outcome: OwnerPaymentState) {
+        if let Some((number, OwnerPaymentState::InFlight)) = self.withdrawal {
+            self.withdrawal = Some((number, outcome));
+        }
+    }
+
+    /// The hub executed our withdrawal: its ledger fee is a fee, booked
+    /// now, and kept back from the growth of the withdrawals counter that
+    /// shows it; what it paid out is the owner's withdrawal from the
+    /// counter.
+    fn withdrew(&mut self, operation: Digest, effects: &mut Vec<Effect>) {
+        let fee = self.terms.fees.ledger;
+        if fee > 0 {
+            effects.push(Effect::Fee {
+                amount: units(fee),
+                id: ledger_fee_id(&operation),
+            });
+            self.booked = self.booked.saturating_sub(units(fee));
+            self.fees_ahead = self.fees_ahead.saturating_add(fee);
         }
     }
 
@@ -390,12 +440,12 @@ impl HubScheme {
                 }
             }
             Purpose::Withdraw => {
-                // What it took is booked from the account's counters.
-                self.withdrawal = if applied {
-                    OwnerPaymentState::Applied
+                if applied {
+                    self.withdrew(id, effects);
+                    self.withdrawal_done(OwnerPaymentState::Applied);
                 } else {
-                    OwnerPaymentState::Failed
-                };
+                    self.withdrawal_done(OwnerPaymentState::Failed);
+                }
             }
             Purpose::Redeem(_) | Purpose::Disbursal => {}
         }
@@ -516,7 +566,7 @@ impl HubScheme {
                     }
                 }
             }
-            Purpose::Withdraw => self.withdrawal = OwnerPaymentState::Failed,
+            Purpose::Withdraw => self.withdrawal_done(OwnerPaymentState::Failed),
             Purpose::Redeem(_) | Purpose::Disbursal => {}
         }
     }
@@ -877,11 +927,9 @@ impl SettlementScheme for HubScheme {
         }
         // Holds toward us are followed from our peers only.
         account.follow(self.peers.values().map(|peer| peer.account));
-        if account.has(Purpose::Withdraw) {
-            self.withdrawal = OwnerPaymentState::InFlight;
-        } else if self.withdrawal == OwnerPaymentState::InFlight {
-            // Its outcome went with a restart: the counters book it.
-            self.withdrawal = OwnerPaymentState::Failed;
+        if !account.has(Purpose::Withdraw) {
+            // Not queued, and not told: only the counters can say.
+            self.withdrawal_done(OwnerPaymentState::Unknown);
         }
         self.refresh(account);
         self.adopt_holds(account, effects);
@@ -1146,7 +1194,7 @@ impl SettlementScheme for HubScheme {
         &mut self,
         asset: Option<&mut dyn ExternalAsset>,
         payment: &OwnerPayment,
-    ) -> Result<(), SchemeError> {
+    ) -> Result<Name, SchemeError> {
         let destination =
             dassie_xrpl::AccountId::parse(&payment.destination).ok_or(SchemeError::InvalidData)?;
         let drops = payment.amount / UNITS_PER_DROP;
@@ -1175,12 +1223,16 @@ impl SettlementScheme for HubScheme {
             Purpose::Withdraw,
             MemberOperation::Withdraw { amount: drops, to },
         )?;
-        self.withdrawal = OwnerPaymentState::InFlight;
-        Ok(())
+        self.withdrawals_made = self.withdrawals_made.saturating_add(1);
+        self.withdrawal = Some((self.withdrawals_made, OwnerPaymentState::InFlight));
+        Ok(withdrawal_name(self.withdrawals_made))
     }
 
-    fn owner_payment(&self) -> OwnerPaymentState {
-        self.withdrawal
+    fn owner_payment(&self, id: Name) -> OwnerPaymentState {
+        match self.withdrawal {
+            Some((number, outcome)) if withdrawal_name(number) == id => outcome,
+            _ => OwnerPaymentState::Unknown,
+        }
     }
 
     fn commitments(&mut self) -> Option<&mut dyn Commitments> {

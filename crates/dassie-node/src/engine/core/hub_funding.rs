@@ -1,6 +1,7 @@
 //! Moving the owner's funds between the node's XRPL testnet account and its
 //! account in a settlement hub (spec/areas/hubs.md#in-the-node,
-//! spec/designs/settlement-hubs.md#11-choosing-a-hub).
+//! spec/designs/settlement-hubs.md#11-choosing-a-hub): when a move is due,
+//! and when one on its way is done. `hub_moves.rs` makes the moves.
 //!
 //! - **Between a floor and a ceiling.** What the hub account can spend
 //!   stays above a floor of what its peerings over the hub need, and what
@@ -16,44 +17,42 @@
 //!   key, the first deposit opens it: tag 0, the account key as the memo,
 //!   sized to the account reserve, the floor and the fees of its first
 //!   operations.
-//! - **One move at a time.** A deposit is on its way until the hub credited
-//!   it, a withdrawal until the hub executed it. A move that failed, or a
-//!   deposit the hub did not credit in time, waits a backoff, doubling, before
-//!   the next. A move is not kept across a restart, so after a start the
-//!   node waits a backoff before it moves anything by itself: a deposit the
-//!   XRP Ledger applied may not be credited yet.
+//! - **One move at a time, done by the counters.** A move names the counter
+//!   of the hub account it shows in, and the value it takes it to: a
+//!   deposit, what deposits credited the account as agreed when it was made
+//!   plus what it pays; a withdrawal, what withdrawals took plus what it
+//!   takes with the ledger fee. It is done once an agreed state of the
+//!   account reaches that, failed only once the side it leaves says its
+//!   payment moved nothing, and on its way otherwise, however long, and
+//!   across restarts: the database keeps it. So no move is ever paid twice.
+//!   One that failed waits a backoff, doubling, before the next.
+//! - **Late.** A move on its way past a while (`CREDIT_WAIT_MS`) since the
+//!   XRP Ledger applied it, or since it was made, is late: the owner is told,
+//!   and nothing is paid again for it. A deposit the XRP Ledger applied and
+//!   the hub never credits stays on its way.
 //! - **The owner's moves** go the same way, and pause the automatic ones
 //!   for a while, so the node does not undo them at once. The owner may
-//!   turn the automatic moves off, which the database keeps.
+//!   turn the automatic moves off. The database keeps both.
 //!
 //! Each side books its half when it sees it happen: the XRP scheme the
 //! owner's withdrawal once its Payment applied, the hub scheme the owner's
 //! deposit once the hub credited it, and the other way round
 //! (spec/areas/hubs.md#the-members-side).
 
-use dassie_hub::member::{HubAccount, UNITS_PER_DROP};
-use dassie_ledger::{LedgerId, Name};
-use dassie_settlement::{
-    ExternalAsset, LedgerStatus, OwnerPayment, OwnerPaymentState, SchemeError, policy,
-};
-
-use super::{Core, EngineError};
+use dassie_ledger::Name;
+use dassie_settlement::OwnerPaymentState;
 
 /// How long an owner's own move pauses the automatic ones.
 pub const OWNER_PAUSE_MS: u64 = 3_600_000;
-/// The first wait after a move failed, and after a start.
+/// The first wait after a move failed.
 pub const FIRST_BACKOFF_MS: u64 = 60_000;
 /// The longest wait after moves failed in a row.
 const MAX_BACKOFF_MS: u64 = 3_600_000;
-/// How long a deposit the XRP Ledger applied may wait for the hub to credit
-/// it before the node takes it for one that went wrong: the validators
-/// attest it within seconds of a validated ledger.
-const CREDIT_WAIT_MS: u64 = 600_000;
-/// The most XRP Ledger fee a deposit is sized to leave room for, in drops.
-const XRPL_FEE_DROPS: u64 = dassie_xrpl::account::MAX_FEE_DROPS;
-
-const HUB: Name = dassie_ledger::name!(dassie_hub::member::SCHEME_ID);
-const XRPL: Name = dassie_ledger::name!(dassie_xrpl::scheme::SCHEME_ID);
+/// How long a move may be on its way, since the XRP Ledger applied it or
+/// since it was made, before the owner is told it is late: the validators
+/// attest a deposit within seconds of a validated ledger, and execute an
+/// operation within a block.
+pub const CREDIT_WAIT_MS: u64 = 600_000;
 
 /// Which way a move goes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,7 +63,44 @@ pub enum Direction {
     Withdraw,
 }
 
-/// A move on its way.
+/// A move decided on, not made yet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Planned {
+    /// Which way.
+    pub direction: Direction,
+    /// How much, in drops.
+    pub drops: u64,
+    /// Whether the owner asked for it.
+    pub owner: bool,
+    /// The value of the account's counter that shows it done.
+    pub target: u64,
+}
+
+impl Planned {
+    /// A deposit of `drops`, to an account deposits had credited
+    /// `deposited` when it was made (0 for one it opens).
+    pub const fn deposit(drops: u64, deposited: u64, owner: bool) -> Self {
+        Self {
+            direction: Direction::Deposit,
+            drops,
+            owner,
+            target: deposited.saturating_add(drops),
+        }
+    }
+
+    /// A withdrawal of `drops`, with `ledger_fee`, from an account
+    /// withdrawals had taken `withdrawn` from when it was made.
+    pub const fn withdraw(drops: u64, ledger_fee: u64, withdrawn: u64, owner: bool) -> Self {
+        Self {
+            direction: Direction::Withdraw,
+            drops,
+            owner,
+            target: withdrawn.saturating_add(drops).saturating_add(ledger_fee),
+        }
+    }
+}
+
+/// A move on its way, as the database keeps it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Move {
     /// Which way.
@@ -73,12 +109,15 @@ pub struct Move {
     pub drops: u64,
     /// Whether the owner asked for it.
     pub owner: bool,
-    /// What the hub had credited the account by deposits when it was
-    /// made; `None` while the hub had no account for us.
-    deposited: Option<u64>,
-    /// When the XRP Ledger applied a deposit: from then it waits for the
-    /// hub.
-    applied_ms: Option<u64>,
+    /// The value of the account's counter (`deposited` for a deposit,
+    /// `withdrawn` for a withdrawal) that shows it done.
+    pub target: u64,
+    /// Its payment's ID with the scheme of the side it leaves.
+    pub payment: Name,
+    /// When it was made.
+    pub sent_ms: u64,
+    /// When the XRP Ledger applied a deposit.
+    pub applied_ms: Option<u64>,
 }
 
 /// The node's hub account, as last agreed, in drops.
@@ -91,6 +130,8 @@ pub struct Held {
     pub exposure: u64,
     /// What deposits credited it.
     pub deposited: u64,
+    /// What withdrawals took from it, ledger fees included.
+    pub withdrawn: u64,
 }
 
 /// What the moves are decided from.
@@ -109,6 +150,8 @@ pub struct Standing {
     pub opening: u64,
     /// The least the hub pays out.
     pub least_payout: u64,
+    /// The hub's ledger fee on a withdrawal.
+    pub ledger_fee: u64,
     /// What a withdrawal costs beyond its amount: the operation's fee and
     /// the ledger's.
     pub withdrawal_fees: u64,
@@ -117,10 +160,9 @@ pub struct Standing {
     /// The owner's funds on the XRPL account a deposit may take, in drops;
     /// `None` while its scheme does not run synced.
     pub xrpl: Option<u64>,
-    /// What became of the owner's last payment out of each side.
-    pub xrpl_paying: OwnerPaymentState,
-    /// The hub side's.
-    pub hub_paying: OwnerPaymentState,
+    /// What became of the payment of the move on its way, as the scheme of
+    /// the side it leaves says.
+    pub paying: OwnerPaymentState,
 }
 
 /// The node's moves between its XRPL account and its hub account.
@@ -132,7 +174,7 @@ pub struct Funding {
     pub paused_until_ms: u64,
     /// The move on its way.
     pub moving: Option<Move>,
-    /// No automatic move before this.
+    /// No automatic move before this: a failure's backoff.
     not_before_ms: u64,
     /// The wait after the next failure.
     backoff_ms: u64,
@@ -142,63 +184,58 @@ pub struct Funding {
 }
 
 impl Funding {
-    /// Nothing on its way, and no automatic move for a backoff after the
-    /// start; checked as often as settlements are.
+    /// Nothing on its way, checked as often as settlements are.
     pub const fn new(now_ms: u64, interval_ms: u64) -> Self {
         Self {
             automatic: true,
             paused_until_ms: 0,
             moving: None,
-            not_before_ms: now_ms.saturating_add(FIRST_BACKOFF_MS),
+            not_before_ms: 0,
             backoff_ms: FIRST_BACKOFF_MS,
             at_ms: now_ms,
             interval_ms,
         }
     }
 
-    /// Follows the move on its way: done once the side it goes to shows it,
-    /// failed if the side it leaves says so, or a deposit applied and not
-    /// credited in time.
-    pub fn follow(&mut self, now_ms: u64, standing: &Standing) {
+    /// Follows the move on its way: done once the account's counter
+    /// reaches its target, failed once the side it leaves says its payment
+    /// moved nothing, and on its way otherwise. Returns whether the move
+    /// changed, which the database keeps.
+    pub fn follow(&mut self, now_ms: u64, standing: &Standing) -> bool {
         let Some(moving) = &mut self.moving else {
-            return;
+            return false;
         };
-        let done = match moving.direction {
-            Direction::Deposit => {
-                if moving.applied_ms.is_none() && standing.xrpl_paying == OwnerPaymentState::Applied
-                {
-                    moving.applied_ms = Some(now_ms);
-                }
-                let credited = standing
-                    .held
-                    .is_some_and(|held| moving.deposited.is_none_or(|d| held.deposited > d));
-                let late = moving
-                    .applied_ms
-                    .is_some_and(|at| now_ms >= at.saturating_add(CREDIT_WAIT_MS));
-                if credited {
-                    Some(true)
-                } else if standing.xrpl_paying == OwnerPaymentState::Failed || late {
-                    Some(false)
-                } else {
-                    None
-                }
+        let counter = standing.held.map(|held| match moving.direction {
+            Direction::Deposit => held.deposited,
+            Direction::Withdraw => held.withdrawn,
+        });
+        if counter.is_some_and(|counter| counter >= moving.target) {
+            self.moving = None;
+            self.backoff_ms = FIRST_BACKOFF_MS;
+            return true;
+        }
+        match standing.paying {
+            OwnerPaymentState::Failed => {
+                self.failed(now_ms);
+                true
             }
-            Direction::Withdraw => match standing.hub_paying {
-                OwnerPaymentState::Applied => Some(true),
-                OwnerPaymentState::Failed | OwnerPaymentState::Idle => Some(false),
-                OwnerPaymentState::InFlight => None,
-            },
-        };
-        match done {
-            Some(true) => self.succeeded(),
-            Some(false) => self.failed(now_ms),
-            None => {}
+            OwnerPaymentState::Applied
+                if moving.direction == Direction::Deposit && moving.applied_ms.is_none() =>
+            {
+                moving.applied_ms = Some(now_ms);
+                true
+            }
+            _ => false,
         }
     }
 
-    fn succeeded(&mut self) {
-        self.moving = None;
-        self.backoff_ms = FIRST_BACKOFF_MS;
+    /// Whether the move on its way is late: the owner is told, and nothing
+    /// is paid again for it.
+    pub fn late(&self, now_ms: u64) -> bool {
+        self.moving.is_some_and(|moving| {
+            let since = moving.applied_ms.unwrap_or(moving.sent_ms);
+            now_ms >= since.saturating_add(CREDIT_WAIT_MS)
+        })
     }
 
     /// A move that failed, or could not be made: the next waits.
@@ -211,7 +248,7 @@ impl Funding {
     /// The automatic move due now, if any: none while one is on its way,
     /// the owner turned them off or paused them, or a failure's backoff
     /// lasts.
-    pub fn due(&self, now_ms: u64, standing: &Standing) -> Option<Move> {
+    pub fn due(&self, now_ms: u64, standing: &Standing) -> Option<Planned> {
         let waiting = self.moving.is_some()
             || !self.automatic
             || now_ms < self.paused_until_ms
@@ -228,7 +265,7 @@ impl Funding {
                 .min(standing.ceiling.saturating_sub(held.exposure))
                 .min(standing.xrpl?);
             return (drops >= standing.least_deposit)
-                .then(|| Move::deposit(drops, Some(held.deposited), false));
+                .then(|| Planned::deposit(drops, held.deposited, false));
         }
         if held.exposure > standing.ceiling {
             let spare = held
@@ -236,18 +273,28 @@ impl Funding {
                 .saturating_sub(standing.floor)
                 .saturating_sub(standing.withdrawal_fees);
             let drops = (held.exposure - middle).min(spare);
-            return (drops >= standing.least_payout).then(|| Move::withdraw(drops, false));
+            return (drops >= standing.least_payout)
+                .then(|| Planned::withdraw(drops, standing.ledger_fee, held.withdrawn, false));
         }
         None
     }
 
-    /// Starts `moving`; an owner's pauses the automatic moves.
-    pub fn start(&mut self, now_ms: u64, moving: Move) {
+    /// Starts `planned`, paid as `payment`; an owner's pauses the automatic
+    /// moves.
+    pub fn start(&mut self, now_ms: u64, planned: Planned, payment: Name) {
         assert!(self.moving.is_none(), "one move at a time");
-        if moving.owner {
+        if planned.owner {
             self.paused_until_ms = now_ms.saturating_add(OWNER_PAUSE_MS);
         }
-        self.moving = Some(moving);
+        self.moving = Some(Move {
+            direction: planned.direction,
+            drops: planned.drops,
+            owner: planned.owner,
+            target: planned.target,
+            payment,
+            sent_ms: now_ms,
+            applied_ms: None,
+        });
     }
 
     /// Whether a check is due, and when the next is.
@@ -262,440 +309,9 @@ impl Funding {
 
 /// The deposit that opens the account, once the hub says it has none for
 /// us, if the XRPL account has it.
-fn opening(standing: &Standing) -> Option<Move> {
+fn opening(standing: &Standing) -> Option<Planned> {
     let enough = standing.unfunded && standing.xrpl? >= standing.opening;
-    enough.then(|| Move::deposit(standing.opening, None, false))
-}
-
-impl Move {
-    /// A deposit of `drops`, made when the hub had credited `deposited`.
-    pub const fn deposit(drops: u64, deposited: Option<u64>, owner: bool) -> Self {
-        Self {
-            direction: Direction::Deposit,
-            drops,
-            owner,
-            deposited,
-            applied_ms: None,
-        }
-    }
-
-    /// A withdrawal of `drops`.
-    pub const fn withdraw(drops: u64, owner: bool) -> Self {
-        Self {
-            direction: Direction::Withdraw,
-            drops,
-            owner,
-            deposited: None,
-            applied_ms: None,
-        }
-    }
-}
-
-/// A hold of ours or toward us in the hub, as the owner sees it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HubHold {
-    /// The peer on its other side, if the node peers with it over the hub.
-    pub peer: Option<dassie_identity::NodeId>,
-    /// The other side's account.
-    pub account: u32,
-    /// What is left in it, in internal units.
-    pub amount: u64,
-}
-
-/// The node's hub account and its funding, as the owner sees them.
-/// Amounts are in internal units.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HubStatus {
-    /// The hub's ID.
-    pub hub_id: [u8; 32],
-    /// Our account's number, once the hub has said it.
-    pub account: Option<u32>,
-    /// How the account stands with the hub.
-    pub status: LedgerStatus,
-    /// What it can spend, as last agreed.
-    pub balance: u64,
-    /// Its account reserve.
-    pub reserve: u64,
-    /// What deposits credited it, and what withdrawals took from it.
-    pub deposited: u64,
-    /// What withdrawals took.
-    pub withdrawn: u64,
-    /// Our holds toward peers.
-    pub paying: Vec<HubHold>,
-    /// Peers' holds toward us.
-    pub taking: Vec<HubHold>,
-    /// The floor and the ceiling.
-    pub floor: u64,
-    /// The ceiling.
-    pub ceiling: u64,
-    /// Whether the node moves funds by itself.
-    pub automatic: bool,
-    /// Until when the owner's last move pauses the automatic ones.
-    pub paused_until_ms: Option<u64>,
-    /// The move on its way.
-    pub moving: Option<Move>,
-    /// How many validators the hub has, and how many answer.
-    pub validators: (usize, usize),
-}
-
-/// Internal units in drops, rounded up: a floor is never short.
-const fn drops_up(units: u64) -> u64 {
-    units.div_ceil(UNITS_PER_DROP)
-}
-
-impl Core {
-    /// The hub account, while its scheme runs.
-    fn hub_account(&self) -> Option<&HubAccount> {
-        let active = self.schemes.get(&HUB)?;
-        if active.failed.is_some() {
-            return None;
-        }
-        let asset = self.assets.get(&active.asset?)?;
-        let any: &dyn core::any::Any = asset.asset.as_ref();
-        any.downcast_ref::<HubAccount>()
-    }
-
-    /// The hub peerings: each peer's node and its account in the hub.
-    fn hub_peerings(&self, account: &HubAccount) -> Vec<(dassie_identity::NodeId, u32)> {
-        let hub = account.hub();
-        self.peer
-            .active_peers()
-            .filter(|(_, peering)| peering.scheme.as_str() == HUB.as_str())
-            .filter_map(|(node, peering)| {
-                let number = dassie_hub::member::peer_account(&peering.state, &hub)?;
-                Some((*node, number.0))
-            })
-            .collect()
-    }
-
-    /// The floor and the ceiling, in internal units, for `peerings`.
-    fn hub_limits(&self, peerings: usize) -> (u64, u64) {
-        let max_packet = self.settle.max_packet;
-        let in_flight = self.connector.config().max_in_flight();
-        let peerings = u64::try_from(peerings).unwrap_or(u64::MAX);
-        (
-            policy::hub_floor(max_packet, in_flight, peerings),
-            policy::hub_ceiling(max_packet),
-        )
-    }
-
-    /// What a move is decided from, while the hub scheme runs.
-    fn standing(&self) -> Option<Standing> {
-        let account = self.hub_account()?;
-        let terms = account.terms();
-        let fees = terms.fees;
-        let peerings = self.hub_peerings(account).len();
-        let (floor, ceiling) = self.hub_limits(peerings);
-        let (floor, ceiling) = (drops_up(floor), ceiling / UNITS_PER_DROP);
-        let held = account
-            .view()
-            .filter(|_| account.is_synced())
-            .map(|(_, view)| {
-                let number = account.number();
-                let toward_us: u64 = account
-                    .holds()
-                    .filter(|(_, hold)| Some(hold.payee) == number)
-                    .map(|(_, hold)| hold.amount)
-                    .fold(0, u64::saturating_add);
-                let paying = account
-                    .holds()
-                    .filter(|(_, hold)| Some(hold.payer) == number)
-                    .count();
-                let hold_reserves = fees
-                    .hold_reserve
-                    .saturating_mul(u64::try_from(paying).unwrap_or(u64::MAX));
-                Held {
-                    balance: view.balance,
-                    exposure: view
-                        .balance
-                        .saturating_add(view.reserve)
-                        .saturating_add(hold_reserves)
-                        .saturating_add(toward_us),
-                    deposited: view.deposited,
-                }
-            });
-        Some(Standing {
-            held,
-            unfunded: matches!(
-                self.assets
-                    .get(&dassie_hub::member::FIRST)
-                    .map(|a| a.asset.status()),
-                Some(LedgerStatus::Unfunded)
-            ),
-            floor,
-            ceiling,
-            opening: fees
-                .account_reserve
-                .saturating_add(floor)
-                .saturating_add(fees.starting_balance)
-                .max(terms.new_account_minimum()),
-            least_payout: fees.least_payout,
-            withdrawal_fees: fees.operation.saturating_add(fees.ledger),
-            least_deposit: drops_up(self.settle.max_packet),
-            xrpl: self.xrpl_spendable(),
-            xrpl_paying: self.paying(XRPL),
-            hub_paying: self.paying(HUB),
-        })
-    }
-
-    /// What the owner may move out of the XRPL account, in drops, after a
-    /// fee; `None` while its scheme does not run, or its account is not up
-    /// to date with its ledger and could sign nothing.
-    fn xrpl_spendable(&self) -> Option<u64> {
-        let active = self.schemes.get(&XRPL)?;
-        let synced = self
-            .assets
-            .get(&active.asset?)
-            .is_some_and(|asset| asset.asset.status() == LedgerStatus::Synced);
-        if active.failed.is_some() || !active.scheme.has_synced() || !synced {
-            return None;
-        }
-        let funds = self.owner_available(LedgerId::XrplTestnetXrp) / UNITS_PER_DROP;
-        Some(funds.saturating_sub(XRPL_FEE_DROPS))
-    }
-
-    fn paying(&self, scheme: Name) -> OwnerPaymentState {
-        self.schemes
-            .get(&scheme)
-            .map_or(OwnerPaymentState::Idle, |active| {
-                active.scheme.owner_payment()
-            })
-    }
-
-    /// Follows the move on its way, and makes the next automatic one when
-    /// it is due, at each funding check.
-    pub(super) fn fund_hub(&mut self) {
-        let now = self.now_ms;
-        if !self.funding.check_due(now) {
-            return;
-        }
-        let Some(standing) = self.standing() else {
-            return;
-        };
-        self.funding.follow(now, &standing);
-        if let Some(moving) = self.funding.due(now, &standing)
-            && self.make_move(moving, &standing).is_err()
-        {
-            self.funding.failed(now);
-        }
-    }
-
-    /// When the next funding check is, while the hub scheme runs.
-    pub(super) fn funding_deadline(&self) -> Option<u64> {
-        self.hub_account().map(|_| self.funding.at_ms)
-    }
-
-    /// Makes `moving`: pays out of the side it leaves.
-    fn make_move(&mut self, moving: Move, standing: &Standing) -> Result<(), SchemeError> {
-        let account = self.hub_account().ok_or(SchemeError::Unavailable)?;
-        let (scheme, payment) = match moving.direction {
-            Direction::Deposit => {
-                let escrow = dassie_xrpl::AccountId(account.terms().escrow);
-                let (tag, memo) = match (standing.held, account.number()) {
-                    (Some(_), Some(number)) => (number.0, None),
-                    _ => (0, Some(account.key().as_bytes().to_vec())),
-                };
-                let payment = OwnerPayment {
-                    destination: escrow.to_address(),
-                    tag: Some(tag),
-                    memo,
-                    amount: moving.drops.saturating_mul(UNITS_PER_DROP),
-                };
-                (XRPL, payment)
-            }
-            Direction::Withdraw => {
-                let own = super::schemes::own_xrpl_account(&self.key)?;
-                let payment = OwnerPayment {
-                    destination: own.to_address(),
-                    tag: None,
-                    memo: None,
-                    amount: moving.drops.saturating_mul(UNITS_PER_DROP),
-                };
-                (HUB, payment)
-            }
-        };
-        self.pay_owner(scheme, &payment)?;
-        self.funding.start(self.now_ms, moving);
-        Ok(())
-    }
-
-    /// Has `scheme` pay `payment` out of the owner's funds, and carries out
-    /// what its asset asks.
-    fn pay_owner(&mut self, scheme: Name, payment: &OwnerPayment) -> Result<(), SchemeError> {
-        let asset = self
-            .schemes
-            .get(&scheme)
-            .and_then(|active| active.asset)
-            .ok_or(SchemeError::Unavailable)?;
-        self.tell_owner_funds(asset);
-        let (active, on) = self
-            .scheme_and_asset(scheme)
-            .ok_or(SchemeError::Unavailable)?;
-        let paid = active.scheme.pay_owner(on, payment);
-        self.carry_out(asset);
-        paid
-    }
-}
-
-/// The owner's moves and view.
-impl Core {
-    /// The node's hub account and its funding, while the hub scheme runs.
-    pub fn hub_status(&self) -> Option<HubStatus> {
-        let account = self.hub_account()?;
-        let peers = self.hub_peerings(account);
-        let (floor, ceiling) = self.hub_limits(peers.len());
-        let number = account.number();
-        let view = account.view().map(|(_, view)| *view);
-        let units = dassie_hub::member::units;
-        let hold = |other: dassie_hub::operation::AccountNumber, amount: u64| HubHold {
-            peer: peers
-                .iter()
-                .find(|(_, account)| *account == other.0)
-                .map(|(node, _)| *node),
-            account: other.0,
-            amount: units(amount),
-        };
-        let mut paying = Vec::new();
-        let mut taking = Vec::new();
-        for (_, mirror) in account.holds() {
-            if Some(mirror.payer) == number {
-                paying.push(hold(mirror.payee, mirror.amount));
-            } else {
-                taking.push(hold(mirror.payer, mirror.amount));
-            }
-        }
-        let now = self.now_ms;
-        Some(HubStatus {
-            hub_id: *account.hub().0.as_bytes(),
-            account: number.map(|n| n.0),
-            status: account.status(),
-            balance: units(view.map_or(0, |v| v.balance)),
-            reserve: units(view.map_or(0, |v| v.reserve)),
-            deposited: units(view.map_or(0, |v| v.deposited)),
-            withdrawn: units(view.map_or(0, |v| v.withdrawn)),
-            paying,
-            taking,
-            floor,
-            ceiling,
-            automatic: self.funding.automatic,
-            paused_until_ms: (self.funding.paused_until_ms > now)
-                .then_some(self.funding.paused_until_ms),
-            moving: self.funding.moving,
-            validators: account.answering(),
-        })
-    }
-
-    /// The owner deposits `amount` (internal units, whole drops) from the
-    /// XRPL account into the hub, opening the account if the hub has none
-    /// for us. Pauses the automatic moves.
-    ///
-    /// # Errors
-    ///
-    /// No hub scheme, no XRP scheme synced, a move on its way, too little
-    /// to open the account, or more than the owner's funds there.
-    pub fn hub_deposit(&mut self, amount: u64) -> Result<HubStatus, EngineError> {
-        let standing = self.owner_standing()?;
-        let drops = amount / UNITS_PER_DROP;
-        let spendable = standing.xrpl.ok_or_else(|| {
-            EngineError::Precondition("the XRP Ledger testnet scheme is not running synced".into())
-        })?;
-        if drops == 0 {
-            return Err(EngineError::Invalid(
-                "the amount is less than a drop".into(),
-            ));
-        }
-        if drops > spendable {
-            return Err(EngineError::Refused(
-                "more than the owner's funds on the XRP Ledger, with its fee".into(),
-            ));
-        }
-        let deposited = match standing.held {
-            Some(held) => Some(held.deposited),
-            None if standing.unfunded => None,
-            None => {
-                return Err(EngineError::Precondition(
-                    "the hub's validators have not said yet whether the account exists".into(),
-                ));
-            }
-        };
-        if deposited.is_none() && drops < standing.opening {
-            return Err(EngineError::Invalid(format!(
-                "opening the account takes at least {} drops",
-                standing.opening
-            )));
-        }
-        self.owner_move(Move::deposit(drops, deposited, true), &standing)
-    }
-
-    /// The owner withdraws `amount` (internal units, whole drops) from the
-    /// hub to the XRPL account. Pauses the automatic moves.
-    ///
-    /// # Errors
-    ///
-    /// No hub account, a move on its way, less than the hub pays out, or
-    /// more than the account can spend with the fees.
-    pub fn hub_withdraw(&mut self, amount: u64) -> Result<HubStatus, EngineError> {
-        let standing = self.owner_standing()?;
-        let held = standing.held.ok_or_else(|| {
-            EngineError::Precondition("the node has no account in the hub yet".into())
-        })?;
-        let drops = amount / UNITS_PER_DROP;
-        if drops < standing.least_payout {
-            return Err(EngineError::Invalid(format!(
-                "the hub pays out at least {} drops",
-                standing.least_payout
-            )));
-        }
-        if drops.saturating_add(standing.withdrawal_fees) > held.balance {
-            return Err(EngineError::Refused(
-                "more than the hub account can spend, with the fees".into(),
-            ));
-        }
-        self.owner_move(Move::withdraw(drops, true), &standing)
-    }
-
-    /// Turns the automatic moves on or off; the database keeps it.
-    ///
-    /// # Errors
-    ///
-    /// No hub scheme runs.
-    pub fn set_hub_automatic(&mut self, automatic: bool) -> Result<(), EngineError> {
-        if self.hub_account().is_none() {
-            return Err(EngineError::Precondition(
-                "the settlement hub scheme is not running".into(),
-            ));
-        }
-        self.funding.automatic = automatic;
-        self.batch.hub_automatic = Some(automatic);
-        Ok(())
-    }
-
-    /// What an owner's move is decided from: the move on its way followed
-    /// first, so one that is done no longer stands in the way.
-    fn owner_standing(&mut self) -> Result<Standing, EngineError> {
-        let standing = self.standing().ok_or_else(|| {
-            EngineError::Precondition("the settlement hub scheme is not running".into())
-        })?;
-        self.funding.follow(self.now_ms, &standing);
-        if self.funding.moving.is_some() {
-            return Err(EngineError::Exhausted(
-                "a move between the hub and the XRP Ledger is on its way".into(),
-            ));
-        }
-        Ok(standing)
-    }
-
-    fn owner_move(&mut self, moving: Move, standing: &Standing) -> Result<HubStatus, EngineError> {
-        self.make_move(moving, standing)
-            .map_err(|error| match error {
-                SchemeError::Unavailable => EngineError::Exhausted(
-                    "the ledger cannot take the payment now; try again shortly".into(),
-                ),
-                other => EngineError::Invalid(other.to_string()),
-            })?;
-        self.hub_status()
-            .ok_or_else(|| EngineError::Internal("the hub scheme vanished".into()))
-    }
+    enough.then(|| Planned::deposit(standing.opening, 0, false))
 }
 
 #[cfg(test)]
@@ -710,38 +326,49 @@ mod tests {
                 balance,
                 exposure,
                 deposited: 7,
+                withdrawn: 3,
             }),
             unfunded: false,
             floor: 400_000,
             ceiling: 10_000_000,
             opening: 2_401_000,
             least_payout: 1_000_000,
+            ledger_fee: 100,
             withdrawal_fees: 110,
             least_deposit: 100_000,
             xrpl: Some(100_000_000),
-            xrpl_paying: OwnerPaymentState::Idle,
-            hub_paying: OwnerPaymentState::Idle,
+            paying: OwnerPaymentState::Unknown,
         }
     }
 
-    fn ready() -> Funding {
-        let mut funding = Funding::new(0, 4_000);
-        funding.not_before_ms = 0;
-        funding
+    fn payment() -> Name {
+        Name::new("abc").unwrap()
+    }
+
+    /// `low` with the account's counters at `deposited` and `withdrawn`.
+    fn counted(mut standing: Standing, deposited: u64, withdrawn: u64) -> Standing {
+        if let Some(held) = &mut standing.held {
+            held.deposited = deposited;
+            held.withdrawn = withdrawn;
+        }
+        standing
     }
 
     // Below the floor, a deposit up to the midpoint; above the ceiling, a
-    // withdrawal down to it; in between, nothing.
+    // withdrawal down to it; in between, nothing. Each names the counter
+    // value that shows it done.
     #[test]
     fn moves_go_back_to_the_midpoint() {
-        let funding = ready();
+        let funding = Funding::new(0, 4_000);
         let middle = 5_200_000;
         let low = funding.due(1, &standing(100_000, 2_100_000)).unwrap();
         assert_eq!(low.direction, Direction::Deposit);
         assert_eq!(low.drops, middle - 100_000);
+        assert_eq!(low.target, 7 + middle - 100_000);
         let high = funding.due(1, &standing(12_000_000, 14_000_000)).unwrap();
         assert_eq!(high.direction, Direction::Withdraw);
         assert_eq!(high.drops, 14_000_000 - middle);
+        assert_eq!(high.target, 3 + 14_000_000 - middle + 100);
         assert_eq!(funding.due(1, &standing(3_000_000, 5_000_000)), None);
     }
 
@@ -750,7 +377,7 @@ mod tests {
     // ceiling, and only peers' settlements grow them.
     #[test]
     fn the_ceiling_and_the_floor_bound_each_move() {
-        let funding = ready();
+        let funding = Funding::new(0, 4_000);
         let low = funding.due(1, &standing(100_000, 9_000_000)).unwrap();
         assert_eq!(low.drops, 1_000_000);
         assert_eq!(funding.due(1, &standing(100_000, 9_950_000)), None);
@@ -764,10 +391,11 @@ mod tests {
         );
     }
 
-    // The first deposit opens the account once the hub says it has none.
+    // The first deposit opens the account once the hub says it has none,
+    // and is done once the account it opened counts it.
     #[test]
     fn the_first_deposit_opens_the_account() {
-        let funding = ready();
+        let funding = Funding::new(0, 4_000);
         let mut none = standing(0, 0);
         none.held = None;
         assert_eq!(funding.due(1, &none), None, "not before the hub says");
@@ -777,67 +405,84 @@ mod tests {
             (open.direction, open.drops),
             (Direction::Deposit, 2_401_000)
         );
-        assert_eq!(open.deposited, None);
+        assert_eq!(open.target, 2_401_000);
         none.xrpl = Some(2_000_000);
         assert_eq!(funding.due(1, &none), None, "too little to open it");
     }
 
-    // One at a time: a deposit is done once the hub credited it, and one
-    // that failed, or was never credited, waits a backoff that doubles.
+    // One at a time, done only once the counter reaches its target,
+    // however long that takes: late after a while, never paid again. A
+    // payment that moved nothing fails the move, and the next waits a
+    // backoff that doubles.
     #[test]
-    fn one_move_at_a_time_and_failures_back_off() {
-        let mut funding = ready();
+    fn a_move_is_done_by_its_counter_and_never_paid_twice() {
+        let mut funding = Funding::new(0, 4_000);
         let low = standing(100_000, 2_000_000);
-        let moving = funding.due(1, &low).unwrap();
-        funding.start(1, moving);
+        let planned = funding.due(1, &low).unwrap();
+        funding.start(1, planned, payment());
         assert_eq!(funding.due(2, &low), None, "one on its way");
         let mut applied = low;
-        applied.xrpl_paying = OwnerPaymentState::Applied;
-        funding.follow(10, &applied);
-        assert!(funding.moving.is_some(), "applied, not credited yet");
-        funding.follow(10 + CREDIT_WAIT_MS, &applied);
+        applied.paying = OwnerPaymentState::Applied;
+        assert!(funding.follow(10, &applied), "applied: kept");
+        assert!(!funding.follow(20, &applied));
+        assert!(!funding.late(9 + CREDIT_WAIT_MS));
+        assert!(funding.late(10 + CREDIT_WAIT_MS));
+        let much_later = 10 + 100 * CREDIT_WAIT_MS;
+        let mut unknown = low;
+        unknown.paying = OwnerPaymentState::Unknown;
+        assert!(!funding.follow(much_later, &unknown));
+        assert!(funding.moving.is_some(), "still on its way");
+        assert_eq!(funding.due(much_later, &low), None, "never paid again");
+        let short = counted(low, planned.target - 1, 3);
+        assert!(!funding.follow(much_later, &short));
+        let credited = counted(low, planned.target, 3);
+        assert!(funding.follow(much_later, &credited));
         assert!(funding.moving.is_none());
-        assert_eq!(funding.due(11 + CREDIT_WAIT_MS, &low), None, "backing off");
-        let after = 10 + CREDIT_WAIT_MS + FIRST_BACKOFF_MS;
-        let again = funding.due(after, &low).unwrap();
-        funding.start(after, again);
+
+        let planned = funding.due(much_later, &low).unwrap();
+        funding.start(much_later, planned, payment());
         let mut failed = low;
-        failed.xrpl_paying = OwnerPaymentState::Failed;
+        failed.paying = OwnerPaymentState::Failed;
+        assert!(funding.follow(much_later, &failed));
+        assert_eq!(funding.due(much_later + 1, &low), None, "backing off");
+        let after = much_later + FIRST_BACKOFF_MS;
+        let again = funding.due(after, &low).unwrap();
+        funding.start(after, again, payment());
         funding.follow(after, &failed);
         assert_eq!(
             funding.due(after + FIRST_BACKOFF_MS, &low),
             None,
             "the backoff doubled"
         );
-        let later = after + 2 * FIRST_BACKOFF_MS;
-        let third = funding.due(later, &low).unwrap();
-        funding.start(later, third);
-        let mut credited = low;
-        credited.held = Some(Held {
-            deposited: 8,
-            ..low.held.unwrap()
-        });
-        funding.follow(later, &credited);
-        assert!(funding.moving.is_none());
-        assert_eq!(funding.backoff_ms, FIRST_BACKOFF_MS, "a success resets it");
+        assert!(funding.due(after + 2 * FIRST_BACKOFF_MS, &low).is_some());
     }
 
-    // An owner's move pauses the automatic ones; turned off, none is made;
-    // after a start, none for a backoff.
+    // A withdrawal is done once what withdrawals took reaches its target,
+    // its ledger fee included.
+    #[test]
+    fn a_withdrawal_is_done_by_what_withdrawals_took() {
+        let mut funding = Funding::new(0, 4_000);
+        let high = standing(12_000_000, 14_000_000);
+        let planned = funding.due(1, &high).unwrap();
+        funding.start(1, planned, payment());
+        let mut executed = high;
+        executed.paying = OwnerPaymentState::Applied;
+        assert!(!funding.follow(2, &executed), "not shown yet");
+        assert!(!funding.follow(3, &counted(high, 7, planned.target - 100)));
+        assert!(funding.follow(4, &counted(high, 7, planned.target)));
+    }
+
+    // An owner's move pauses the automatic ones; turned off, none is made.
     #[test]
     fn the_owner_decides_first() {
         let low = standing(100_000, 2_000_000);
-        let mut funding = ready();
-        funding.start(5, Move::withdraw(1_000_000, true));
-        let mut done = low;
-        done.hub_paying = OwnerPaymentState::Applied;
-        funding.follow(6, &done);
+        let mut funding = Funding::new(0, 4_000);
+        funding.start(5, Planned::withdraw(1_000_000, 100, 3, true), payment());
+        funding.follow(6, &counted(low, 7, 1_000_103));
+        assert!(funding.moving.is_none());
         assert_eq!(funding.due(7, &low), None);
         assert!(funding.due(5 + OWNER_PAUSE_MS, &low).is_some());
         funding.automatic = false;
         assert_eq!(funding.due(5 + OWNER_PAUSE_MS, &low), None);
-        let started = Funding::new(1_000, 4_000);
-        assert_eq!(started.due(1_000, &low), None);
-        assert!(started.due(1_000 + FIRST_BACKOFF_MS, &low).is_some());
     }
 }

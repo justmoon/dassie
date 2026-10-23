@@ -86,6 +86,9 @@ fn hub_status(status: &HubStatus) -> proto::HubStatus {
                 .drops
                 .saturating_mul(dassie_hub::member::UNITS_PER_DROP),
             by_owner: moving.owner,
+            sent_at_unix_ms: convert::time(moving.sent_ms),
+            applied_at_unix_ms: moving.applied_ms.map(convert::time),
+            late: status.late,
         }),
         validators: u32::try_from(validators).unwrap_or(u32::MAX),
         validators_answering: u32::try_from(answering).unwrap_or(u32::MAX),

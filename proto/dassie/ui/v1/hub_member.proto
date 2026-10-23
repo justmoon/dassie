@@ -24,12 +24,23 @@ message HubHold {
   uint64 amount = 3;
 }
 
-// A move between the hub and the XRP Ledger account on its way.
+// A move between the hub and the XRP Ledger account on its way. It is done
+// once the hub account's counters show it, and failed only once the side it
+// leaves says its payment moved nothing: until then no other move is made,
+// and it is never paid again.
 message HubMove {
   Direction direction = 1;
   uint64 amount = 2;
   // Whether the owner asked for it, rather than the node.
   bool by_owner = 3;
+  // When it was made.
+  int64 sent_at_unix_ms = 4;
+  // When the XRP Ledger applied a deposit, which the hub has not credited
+  // yet.
+  optional int64 applied_at_unix_ms = 5;
+  // On its way for long, since it was applied or made: the hub may not be
+  // crediting or executing it. The node waits, and pays nothing again.
+  bool late = 6;
 
   enum Direction {
     DIRECTION_UNSPECIFIED = 0;

@@ -81,10 +81,10 @@ impl HubScheme {
                 self.dropped(*purpose, effects);
                 None
             }
-            // Whether it applied, the account's counters book; the owner's
-            // next move waits as after a failed one.
+            // Whether it applied, only the account's counters say, and
+            // they book it, its ledger fee with it.
             Some((Purpose::Withdraw, _)) => {
-                self.withdrawal = OwnerPaymentState::Failed;
+                self.withdrawal_done(OwnerPaymentState::Unknown);
                 None
             }
             _ => None,

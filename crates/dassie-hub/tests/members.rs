@@ -1659,8 +1659,9 @@ fn deposits_and_withdrawals_are_the_owners() {
 
 /// The owner's withdrawal through the scheme (`pay_owner`): one at a time,
 /// at least the hub's least payout, to an address the escrow can pay. Once
-/// the hub executed it, what it took is booked as the owner's withdrawal,
-/// and the operation's fee as a fee.
+/// the hub executed it, what it paid out is booked as the owner's
+/// withdrawal, and the operation's fee and the ledger's as fees; neither
+/// twice across a restart, nor the counter's growth as a withdrawal.
 #[test]
 fn the_owner_withdraws_through_the_scheme() {
     use dassie_settlement::{OwnerPayment, OwnerPaymentState};
@@ -1682,11 +1683,11 @@ fn the_owner_withdraws_through_the_scheme() {
             Err(SchemeError::InvalidData)
         );
     }
-    member
+    let id = member
         .scheme
         .pay_owner(Some(&mut member.account), &payment([9; 20], 2 * XRP))
         .unwrap();
-    assert_eq!(member.scheme.owner_payment(), OwnerPaymentState::InFlight);
+    assert_eq!(member.scheme.owner_payment(id), OwnerPaymentState::InFlight);
     assert_eq!(
         member
             .scheme
@@ -1695,15 +1696,25 @@ fn the_owner_withdraws_through_the_scheme() {
         "one at a time"
     );
     world.heard(a);
+    // Executed, and then a restart before an agreed state shows what it
+    // took: the ledger fee booked ahead is kept.
+    world.run(500);
+    let member = &world.members[a];
+    assert_eq!(member.scheme.owner_payment(id), OwnerPaymentState::Applied);
+    assert_eq!(
+        member.books.owner, owner,
+        "the counter has not shown it yet"
+    );
+    world.restart(a);
     world.run(3_000);
     let member = &world.members[a];
-    assert_eq!(member.scheme.owner_payment(), OwnerPaymentState::Applied);
+    assert_eq!(member.scheme.owner_payment(id), OwnerPaymentState::Applied);
     let ledger_fee = world.validators.ledger.terms().fees.ledger;
+    assert_eq!(member.books.owner, owner - i128::from(units(2 * XRP)));
     assert_eq!(
-        member.books.owner,
-        owner - i128::from(units(2 * XRP + ledger_fee))
+        member.books.fees,
+        fees + i128::from(units(FEE + ledger_fee))
     );
-    assert_eq!(member.books.fees, fees + i128::from(units(FEE)));
     assert_eq!(member.books.suspense, 0);
     let (_, withdrawal) = world.validators.ledger.withdrawals().next().unwrap();
     assert_eq!(

@@ -15,6 +15,7 @@
 mod events;
 mod growth;
 mod hub_funding;
+mod hub_moves;
 mod hubs;
 mod incoming;
 mod invariants;
@@ -47,7 +48,8 @@ use dassie_stream::BUFFER_LENGTH;
 pub use events::{
     BtpEvent, EngineEvent, Event, MAX_EVENTS, PaymentEvent, PeerEvent, SettlementEvent, Severity,
 };
-pub use hub_funding::{Direction, HubHold, HubStatus, Move};
+pub use hub_funding::{Direction, Move};
+pub use hub_moves::{HubHold, HubStatus};
 #[cfg(feature = "testing")]
 pub use hubs::HubPeer;
 pub use incoming::{IncomingPolicy, NewIncoming};
@@ -494,7 +496,7 @@ impl Core {
             self.prices.rates.set_at(code, rate, as_of_ms);
         }
         self.peer_settings = store.peer_settings().map_err(text)?;
-        self.funding.automatic = store.hub_automatic().map_err(text)?;
+        self.load_funding()?;
         self.load_tokens(&store).map_err(text)?;
         self.load_schemes(&store)?;
         self.load_incoming()?;
@@ -680,7 +682,8 @@ impl Core {
             && batch.tokens_created.is_empty()
             && batch.tokens_revoked.is_empty()
             && batch.token_caps.is_empty()
-            && batch.hub_automatic.is_none());
+            && batch.hub_automatic.is_none()
+            && batch.hub_funding.is_none());
         self.changes.network |= !batch.peer.is_empty();
         self.changes.payments |= batch.changes_payments();
         self.batch.at_ms = self.now_ms;

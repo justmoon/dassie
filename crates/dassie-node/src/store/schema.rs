@@ -1034,13 +1034,29 @@ CREATE TABLE hub_bundles (
 
 /// Settlement hubs (spec/areas/hubs.md#in-the-node): whether the node moves
 /// funds between its XRPL account and its hub by itself, which the owner
-/// may turn off.
+/// may turn off; until when an owner's move pauses that; and the move on
+/// its way, with the counter value that shows it done and its payment, so
+/// that a restart never pays it twice.
 const MIGRATION_33: &str = "
 CREATE TABLE hub_funding (
   id INTEGER PRIMARY KEY CHECK (id = 1),
-  automatic INTEGER NOT NULL CHECK (automatic IN (0, 1))
+  automatic INTEGER NOT NULL CHECK (automatic IN (0, 1)),
+  paused_until_ms INTEGER NOT NULL CHECK (paused_until_ms >= 0),
+  move_kind TEXT CHECK (move_kind IN ('deposit', 'withdraw')),
+  move_drops INTEGER CHECK (move_drops > 0),
+  move_target INTEGER CHECK (move_target > 0),
+  move_payment TEXT CHECK (length(move_payment) BETWEEN 1 AND 64),
+  move_by_owner INTEGER CHECK (move_by_owner IN (0, 1)),
+  move_sent_ms INTEGER CHECK (move_sent_ms >= 0),
+  move_applied_ms INTEGER CHECK (move_applied_ms >= 0),
+  CHECK ((move_kind IS NULL) = (move_drops IS NULL)
+    AND (move_kind IS NULL) = (move_target IS NULL)
+    AND (move_kind IS NULL) = (move_payment IS NULL)
+    AND (move_kind IS NULL) = (move_by_owner IS NULL)
+    AND (move_kind IS NULL) = (move_sent_ms IS NULL)
+    AND (move_kind IS NOT NULL OR move_applied_ms IS NULL))
 ) STRICT;
-INSERT INTO hub_funding VALUES (1, 1);
+INSERT INTO hub_funding (id, automatic, paused_until_ms) VALUES (1, 1, 0);
 ";
 
 /// Columns that hold secrets: the database inspector never reads them.
@@ -1465,6 +1481,14 @@ pub const TABLES: &[Table] = &[
         columns: &[
             ("id", "INTEGER", false, true),
             ("automatic", "INTEGER", true, false),
+            ("paused_until_ms", "INTEGER", true, false),
+            ("move_kind", "TEXT", false, false),
+            ("move_drops", "INTEGER", false, false),
+            ("move_target", "INTEGER", false, false),
+            ("move_payment", "TEXT", false, false),
+            ("move_by_owner", "INTEGER", false, false),
+            ("move_sent_ms", "INTEGER", false, false),
+            ("move_applied_ms", "INTEGER", false, false),
         ],
     },
     Table {

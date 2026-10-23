@@ -174,18 +174,20 @@ pub struct OwnerPayment {
     pub amount: u64,
 }
 
-/// What became of the owner's last payment out of a scheme's account
+/// What became of an owner's payment out of a scheme's account
 /// ([`SettlementScheme::pay_owner`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum OwnerPaymentState {
-    /// None was made since the scheme started.
+    /// The scheme does not know: not its last payment, or one whose outcome
+    /// it never read, such as one its ledger settled while the scheme was
+    /// stopped. Only what it reached on the other side can tell.
     #[default]
-    Idle,
+    Unknown,
     /// It is on its way: no other is made meanwhile.
     InFlight,
     /// Its ledger applied it.
     Applied,
-    /// It never applied, or failed and cost only its fee.
+    /// It never applied, or failed and cost only its fee: it moved nothing.
     Failed,
 }
 
@@ -479,7 +481,9 @@ pub trait SettlementScheme: Send {
     /// one at a time. The node checks first that the owner's funds on the
     /// scheme's ledger cover it, and its fee. Nothing is booked now: the
     /// scheme books the owner's withdrawal once its ledger applied the
-    /// payment, and its fee either way.
+    /// payment, and its fee either way. Returns the payment's ID, which
+    /// [`owner_payment`](Self::owner_payment) answers for, also after a
+    /// restart.
     ///
     /// # Errors
     ///
@@ -491,14 +495,16 @@ pub trait SettlementScheme: Send {
         &mut self,
         asset: Option<&mut dyn ExternalAsset>,
         payment: &OwnerPayment,
-    ) -> Result<(), SchemeError> {
+    ) -> Result<Name, SchemeError> {
         let _ = (asset, payment);
         Err(SchemeError::Unsupported)
     }
 
-    /// What became of the owner's last payment out of the scheme's account.
-    fn owner_payment(&self) -> OwnerPaymentState {
-        OwnerPaymentState::Idle
+    /// What became of the owner's payment `id`: the scheme keeps the one
+    /// on its way and the outcome of the last, with its state.
+    fn owner_payment(&self, id: Name) -> OwnerPaymentState {
+        let _ = id;
+        OwnerPaymentState::Unknown
     }
 
     /// Its side that signs and takes promises per packet, if its peerings

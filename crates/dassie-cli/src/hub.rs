@@ -205,7 +205,14 @@ fn moving_text(moving: &proto::HubMove) -> String {
     } else {
         "the node's"
     };
-    format!("{direction} of {}, {whose}", xrp_text(moving.amount))
+    let mut text = format!("{direction} of {}, {whose}", xrp_text(moving.amount));
+    if moving.late {
+        text.push_str(
+            ". IT IS LATE: the hub has not shown it yet; the node waits for it and pays \
+             nothing again",
+        );
+    }
+    text
 }
 
 fn holds(holds: &[proto::HubHold], way: &str) -> String {
@@ -297,7 +304,13 @@ mod tests {
             direction: proto::hub_move::Direction::Withdraw.into(),
             amount: 1_000_000_000,
             by_owner: true,
+            ..Default::default()
         };
         assert_eq!(moving_text(&moving), "a withdrawal of 1 XRP, yours");
+        let late = proto::HubMove {
+            late: true,
+            ..moving
+        };
+        assert!(moving_text(&late).contains("IT IS LATE"));
     }
 }

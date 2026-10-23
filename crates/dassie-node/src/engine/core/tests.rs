@@ -3038,8 +3038,8 @@ fn withdrawals(outputs: &[Output]) -> Vec<(u64, dassie_hub::operation::Destinati
 
 // spec/areas/hubs.md#in-the-node: a node in a hub that has no account for
 // it opens one by its first deposit (tag 0, its hub key as the memo, the
-// account reserve, the floor and the fees of the first operations), once
-// a backoff after its start has passed. Below the floor, it deposits up to
+// account reserve, the floor and the fees of the first operations). Below
+// the floor, it deposits up to
 // the midpoint, by its account's tag, one move at a time: the next waits
 // until the hub credited it. Above the ceiling, it withdraws down to the
 // midpoint, to its own XRPL account.
@@ -3061,11 +3061,6 @@ fn the_node_keeps_its_hub_between_floor_and_ceiling() {
     assert_eq!((floor, ceiling), (400_000, 10_000_000));
 
     wait_and_close(&mut core, &mut ledger, 1_000);
-    assert!(
-        deposits(&mut ledger, escrow).is_empty(),
-        "not right after a start"
-    );
-    wait_and_close(&mut core, &mut ledger, super::hub_funding::FIRST_BACKOFF_MS);
     let made = deposits(&mut ledger, escrow);
     let opening = fees.account_reserve + floor + fees.starting_balance;
     assert_eq!(made.len(), 1, "{made:?}");
@@ -3162,4 +3157,60 @@ fn the_owners_moves_pause_the_automatic_ones() {
     drop(core);
     let core = core_on(Arc::clone(&store), 10);
     assert!(!core.funding.automatic);
+}
+
+// spec/areas/hubs.md#in-the-node: the move on its way is kept with the
+// books, so a restart between the XRP Ledger applying a deposit and the hub
+// crediting it never pays it again, however slow the hub: the move is late
+// after a while, and done once the account counts it.
+#[test]
+fn a_restart_never_pays_a_deposit_twice() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut ledger, _) = funded_ledger();
+    let mut core = core_on(Arc::clone(&store), 9);
+    core.add_scheme("xrpl-testnet", SHARED_CONFIG.into())
+        .unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 300))
+        .unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    hub.no_account(&mut core);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let made = deposits(&mut ledger, escrow);
+    assert_eq!(made.len(), 1, "applied on the XRP Ledger");
+    let opening = made[0].amount;
+    core.flush();
+    drop(core);
+
+    let mut core = core_on(Arc::clone(&store), 10);
+    follow_xrpl(&mut core, &mut ledger);
+    let moving = core.hub_status().unwrap().moving.unwrap();
+    assert_eq!(
+        (moving.direction, moving.drops, moving.target),
+        (super::Direction::Deposit, opening, opening)
+    );
+    hub.no_account(&mut core);
+    for _ in 0..4 {
+        wait_and_close(&mut core, &mut ledger, super::hub_funding::FIRST_BACKOFF_MS);
+    }
+    assert_eq!(deposits(&mut ledger, escrow).len(), 1, "not paid again");
+    wait_and_close(&mut core, &mut ledger, super::hub_funding::CREDIT_WAIT_MS);
+    let status = core.hub_status().unwrap();
+    assert!(
+        status.late && status.moving.is_some(),
+        "late, and waited for"
+    );
+    assert_eq!(
+        deposits(&mut ledger, escrow).len(),
+        1,
+        "still not paid again"
+    );
+
+    hub.account(&mut core, opening - 2_001_000, opening);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    let status = core.hub_status().unwrap();
+    assert_eq!((status.moving, status.late), (None, false), "credited");
+    assert_eq!(deposits(&mut ledger, escrow).len(), 1);
 }

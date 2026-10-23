@@ -262,14 +262,14 @@ impl XrplScheme {
         &mut self,
         payment: &dassie_settlement::OwnerPayment,
         effects: &mut Vec<Effect>,
-    ) -> Result<(), SchemeError> {
+    ) -> Result<Name, SchemeError> {
         let paid = self.scheme.pay_owner(Some(&mut self.account), payment);
         self.drain(effects);
         paid
     }
 
-    pub fn owner_payment(&self) -> dassie_settlement::OwnerPaymentState {
-        self.scheme.owner_payment()
+    pub fn owner_payment(&self, id: Name) -> dassie_settlement::OwnerPaymentState {
+        self.scheme.owner_payment(id)
     }
 
     pub fn discard_settlement(&mut self, settlement: Name) {

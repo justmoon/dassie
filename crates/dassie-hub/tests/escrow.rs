@@ -792,13 +792,14 @@ impl Node {
             memo,
             amount: drops * dassie_xrpl::UNITS_PER_DROP,
         };
-        self.scheme
+        let id = self
+            .scheme
             .pay_owner(Some(&mut self.account), &payment)
             .unwrap();
         self.follow(xrpl);
         let before = xrpl.balance(destination).unwrap();
         self.close(xrpl);
-        assert_eq!(self.scheme.owner_payment(), OwnerPaymentState::Applied);
+        assert_eq!(self.scheme.owner_payment(id), OwnerPaymentState::Applied);
         assert_eq!(xrpl.balance(destination).unwrap(), before + drops);
         let escrow_txs = request(xrpl, &api::account_tx(5, destination, 0, u32::MAX, None));
         let records = api::account_tx_result(&escrow_txs).unwrap();

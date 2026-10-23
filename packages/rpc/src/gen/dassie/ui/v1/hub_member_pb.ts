@@ -12,7 +12,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/ui/v1/hub_member.proto.
  */
 export const file_dassie_ui_v1_hub_member: GenFile = /*@__PURE__*/
-  fileDesc("Ch1kYXNzaWUvdWkvdjEvaHViX21lbWJlci5wcm90bxIMZGFzc2llLnVpLnYxIjgKB0h1YkhvbGQSDAoEcGVlchgBIAEoCRIPCgdhY2NvdW50GAIgASgNEg4KBmFtb3VudBgDIAEoBCK2AQoHSHViTW92ZRIyCglkaXJlY3Rpb24YASABKA4yHy5kYXNzaWUudWkudjEuSHViTW92ZS5EaXJlY3Rpb24SDgoGYW1vdW50GAIgASgEEhAKCGJ5X293bmVyGAMgASgIIlUKCURpcmVjdGlvbhIZChVESVJFQ1RJT05fVU5TUEVDSUZJRUQQABIVChFESVJFQ1RJT05fREVQT1NJVBABEhYKEkRJUkVDVElPTl9XSVRIRFJBVxACIs8DCglIdWJTdGF0dXMSDgoGaHViX2lkGAEgASgJEhQKB2FjY291bnQYAiABKA1IAIgBARIyCgpjb25uZWN0aW9uGAMgASgOMh4uZGFzc2llLnVpLnYxLkxlZGdlckNvbm5lY3Rpb24SDwoHYmFsYW5jZRgEIAEoBBIPCgdyZXNlcnZlGAUgASgEEhEKCWRlcG9zaXRlZBgGIAEoBBIRCgl3aXRoZHJhd24YByABKAQSJQoGcGF5aW5nGAggAygLMhUuZGFzc2llLnVpLnYxLkh1YkhvbGQSJQoGdGFraW5nGAkgAygLMhUuZGFzc2llLnVpLnYxLkh1YkhvbGQSDQoFZmxvb3IYCiABKAQSDwoHY2VpbGluZxgLIAEoBBIRCglhdXRvbWF0aWMYDCABKAgSIQoUcGF1c2VkX3VudGlsX3VuaXhfbXMYDSABKANIAYgBARIlCgZtb3ZpbmcYDiABKAsyFS5kYXNzaWUudWkudjEuSHViTW92ZRISCgp2YWxpZGF0b3JzGA8gASgNEhwKFHZhbGlkYXRvcnNfYW5zd2VyaW5nGBAgASgNQgoKCF9hY2NvdW50QhcKFV9wYXVzZWRfdW50aWxfdW5peF9tcyIVChNHZXRIdWJTdGF0dXNSZXF1ZXN0Ij8KFEdldEh1YlN0YXR1c1Jlc3BvbnNlEicKBnN0YXR1cxgBIAEoCzIXLmRhc3NpZS51aS52MS5IdWJTdGF0dXMiIwoRSHViRGVwb3NpdFJlcXVlc3QSDgoGYW1vdW50GAEgASgEIj0KEkh1YkRlcG9zaXRSZXNwb25zZRInCgZzdGF0dXMYASABKAsyFy5kYXNzaWUudWkudjEuSHViU3RhdHVzIiQKEkh1YldpdGhkcmF3UmVxdWVzdBIOCgZhbW91bnQYASABKAQiPgoTSHViV2l0aGRyYXdSZXNwb25zZRInCgZzdGF0dXMYASABKAsyFy5kYXNzaWUudWkudjEuSHViU3RhdHVzIisKFlNldEh1YkF1dG9tYXRpY1JlcXVlc3QSEQoJYXV0b21hdGljGAEgASgIIkIKF1NldEh1YkF1dG9tYXRpY1Jlc3BvbnNlEicKBnN0YXR1cxgBIAEoCzIXLmRhc3NpZS51aS52MS5IdWJTdGF0dXNiBnByb3RvMw", [file_dassie_ui_v1_ledger]);
+  fileDesc("Ch1kYXNzaWUvdWkvdjEvaHViX21lbWJlci5wcm90bxIMZGFzc2llLnVpLnYxIjgKB0h1YkhvbGQSDAoEcGVlchgBIAEoCRIPCgdhY2NvdW50GAIgASgNEg4KBmFtb3VudBgDIAEoBCKVAgoHSHViTW92ZRIyCglkaXJlY3Rpb24YASABKA4yHy5kYXNzaWUudWkudjEuSHViTW92ZS5EaXJlY3Rpb24SDgoGYW1vdW50GAIgASgEEhAKCGJ5X293bmVyGAMgASgIEhcKD3NlbnRfYXRfdW5peF9tcxgEIAEoAxIfChJhcHBsaWVkX2F0X3VuaXhfbXMYBSABKANIAIgBARIMCgRsYXRlGAYgASgIIlUKCURpcmVjdGlvbhIZChVESVJFQ1RJT05fVU5TUEVDSUZJRUQQABIVChFESVJFQ1RJT05fREVQT1NJVBABEhYKEkRJUkVDVElPTl9XSVRIRFJBVxACQhUKE19hcHBsaWVkX2F0X3VuaXhfbXMizwMKCUh1YlN0YXR1cxIOCgZodWJfaWQYASABKAkSFAoHYWNjb3VudBgCIAEoDUgAiAEBEjIKCmNvbm5lY3Rpb24YAyABKA4yHi5kYXNzaWUudWkudjEuTGVkZ2VyQ29ubmVjdGlvbhIPCgdiYWxhbmNlGAQgASgEEg8KB3Jlc2VydmUYBSABKAQSEQoJZGVwb3NpdGVkGAYgASgEEhEKCXdpdGhkcmF3bhgHIAEoBBIlCgZwYXlpbmcYCCADKAsyFS5kYXNzaWUudWkudjEuSHViSG9sZBIlCgZ0YWtpbmcYCSADKAsyFS5kYXNzaWUudWkudjEuSHViSG9sZBINCgVmbG9vchgKIAEoBBIPCgdjZWlsaW5nGAsgASgEEhEKCWF1dG9tYXRpYxgMIAEoCBIhChRwYXVzZWRfdW50aWxfdW5peF9tcxgNIAEoA0gBiAEBEiUKBm1vdmluZxgOIAEoCzIVLmRhc3NpZS51aS52MS5IdWJNb3ZlEhIKCnZhbGlkYXRvcnMYDyABKA0SHAoUdmFsaWRhdG9yc19hbnN3ZXJpbmcYECABKA1CCgoIX2FjY291bnRCFwoVX3BhdXNlZF91bnRpbF91bml4X21zIhUKE0dldEh1YlN0YXR1c1JlcXVlc3QiPwoUR2V0SHViU3RhdHVzUmVzcG9uc2USJwoGc3RhdHVzGAEgASgLMhcuZGFzc2llLnVpLnYxLkh1YlN0YXR1cyIjChFIdWJEZXBvc2l0UmVxdWVzdBIOCgZhbW91bnQYASABKAQiPQoSSHViRGVwb3NpdFJlc3BvbnNlEicKBnN0YXR1cxgBIAEoCzIXLmRhc3NpZS51aS52MS5IdWJTdGF0dXMiJAoSSHViV2l0aGRyYXdSZXF1ZXN0Eg4KBmFtb3VudBgBIAEoBCI+ChNIdWJXaXRoZHJhd1Jlc3BvbnNlEicKBnN0YXR1cxgBIAEoCzIXLmRhc3NpZS51aS52MS5IdWJTdGF0dXMiKwoWU2V0SHViQXV0b21hdGljUmVxdWVzdBIRCglhdXRvbWF0aWMYASABKAgiQgoXU2V0SHViQXV0b21hdGljUmVzcG9uc2USJwoGc3RhdHVzGAEgASgLMhcuZGFzc2llLnVpLnYxLkh1YlN0YXR1c2IGcHJvdG8z", [file_dassie_ui_v1_ledger]);
 
 /**
  * A hold of ours toward a peer, or a peer's toward us.
@@ -50,7 +50,10 @@ export const HubHoldSchema: GenMessage<HubHold> = /*@__PURE__*/
   messageDesc(file_dassie_ui_v1_hub_member, 0);
 
 /**
- * A move between the hub and the XRP Ledger account on its way.
+ * A move between the hub and the XRP Ledger account on its way. It is done
+ * once the hub account's counters show it, and failed only once the side it
+ * leaves says its payment moved nothing: until then no other move is made,
+ * and it is never paid again.
  *
  * @generated from message dassie.ui.v1.HubMove
  */
@@ -71,6 +74,29 @@ export type HubMove = Message<"dassie.ui.v1.HubMove"> & {
    * @generated from field: bool by_owner = 3;
    */
   byOwner: boolean;
+
+  /**
+   * When it was made.
+   *
+   * @generated from field: int64 sent_at_unix_ms = 4;
+   */
+  sentAtUnixMs: bigint;
+
+  /**
+   * When the XRP Ledger applied a deposit, which the hub has not credited
+   * yet.
+   *
+   * @generated from field: optional int64 applied_at_unix_ms = 5;
+   */
+  appliedAtUnixMs?: bigint | undefined;
+
+  /**
+   * On its way for long, since it was applied or made: the hub may not be
+   * crediting or executing it. The node waits, and pays nothing again.
+   *
+   * @generated from field: bool late = 6;
+   */
+  late: boolean;
 };
 
 /**

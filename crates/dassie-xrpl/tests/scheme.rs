@@ -1302,12 +1302,12 @@ fn the_owner_pays_out_of_the_account() {
         amount: 3_000_000_999,
     };
     let mut effects = Vec::new();
-    world.nodes[0]
+    let id = world.nodes[0]
         .scheme
         .pay_owner(&payment, &mut effects)
         .unwrap();
     assert_eq!(
-        world.nodes[0].scheme.owner_payment(),
+        world.nodes[0].scheme.owner_payment(id),
         OwnerPaymentState::InFlight
     );
     assert_eq!(
@@ -1318,7 +1318,7 @@ fn the_owner_pays_out_of_the_account() {
     world.apply(0, effects);
     world.close();
     assert_eq!(
-        world.nodes[0].scheme.owner_payment(),
+        world.nodes[0].scheme.owner_payment(id),
         OwnerPaymentState::Applied
     );
     let fee = 10 * i128::from(UNITS_PER_DROP);
@@ -1329,6 +1329,7 @@ fn the_owner_pays_out_of_the_account() {
     assert!(b.credited.is_empty(), "no settlement");
     assert_eq!(a.suspense + b.suspense, 0);
     let hash = submitted_hash(&world, 0);
+    assert_eq!(hash, id.as_str(), "its ID is its hash");
     let record = validated(&mut world, &hash);
     assert_eq!(record.destination, Some(to));
     assert_eq!(record.destination_tag, Some(42));
@@ -1337,9 +1338,32 @@ fn the_owner_pays_out_of_the_account() {
         record.memo,
         Some((dassie_xrpl::scheme::OWNER_MEMO_TYPE.to_vec(), vec![7; 32]))
     );
-    // Kept across a restart while on its way, and booked once after.
+}
+
+// spec/areas/xrpl.md#deposits-and-withdrawals: the owner's payment on its
+// way is kept across a restart and booked once after; what became of it
+// outlives the next restart, for the last payment only.
+#[test]
+fn the_owners_payment_outlives_a_restart() {
+    use dassie_settlement::{OwnerPayment, OwnerPaymentState};
+
+    let (mut world, _, _) = funded_pair();
+    let payment = OwnerPayment {
+        destination: world.account(1).to_address(),
+        tag: None,
+        memo: None,
+        amount: 3_000_000_000,
+    };
+    let mut effects = Vec::new();
+    let id = world.nodes[0]
+        .scheme
+        .pay_owner(&payment, &mut effects)
+        .unwrap();
+    world.apply(0, effects);
+    world.close();
+    let fee = 10 * i128::from(UNITS_PER_DROP);
     world.nodes[0].drop_submits = true;
-    world.nodes[0]
+    let second = world.nodes[0]
         .scheme
         .pay_owner(&payment, &mut Vec::new())
         .unwrap();
@@ -1350,12 +1374,26 @@ fn the_owner_pays_out_of_the_account() {
     world.nodes[0].scheme =
         XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
     assert_eq!(
-        world.nodes[0].scheme.owner_payment(),
+        world.nodes[0].scheme.owner_payment(second),
         OwnerPaymentState::InFlight
     );
     world.nodes[0].drop_submits = false;
     world.connect(0);
     world.closes(2);
+    // Its outcome outlives another restart; the one before is no longer
+    // the scheme's to tell.
+    let state = world.nodes[0].scheme.state();
+    let checkpoint = world.nodes[0].scheme.balance();
+    world.nodes[0].scheme =
+        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
+    assert_eq!(
+        world.nodes[0].scheme.owner_payment(second),
+        OwnerPaymentState::Applied
+    );
+    assert_eq!(
+        world.nodes[0].scheme.owner_payment(id),
+        OwnerPaymentState::Unknown
+    );
     let a = &world.nodes[0].books;
     assert_eq!(a.owner, i128::from(FUNDED) - 6_000_000_000);
     assert_eq!(a.fees, 2 * fee);
@@ -1390,14 +1428,14 @@ fn a_failed_owner_payment_costs_only_its_fee() {
     }
     // Too little to make a new account.
     let mut effects = Vec::new();
-    world.nodes[0]
+    let id = world.nodes[0]
         .scheme
         .pay_owner(&payment(nobody, 1_000_000, 0), &mut effects)
         .unwrap();
     world.apply(0, effects);
     world.close();
     assert_eq!(
-        world.nodes[0].scheme.owner_payment(),
+        world.nodes[0].scheme.owner_payment(id),
         OwnerPaymentState::Failed
     );
     let books = &world.nodes[0].books;

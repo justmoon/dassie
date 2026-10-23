@@ -75,37 +75,6 @@ impl Store {
     }
 }
 
-impl Store {
-    /// Whether the node moves funds between its XRPL account and its
-    /// settlement hub by itself (spec/areas/hubs.md#in-the-node).
-    ///
-    /// # Errors
-    ///
-    /// The database failed.
-    pub fn hub_automatic(&self) -> Result<bool, StoreError> {
-        let automatic: i64 = self.lock().query_row(
-            "SELECT automatic FROM hub_funding WHERE id = 1",
-            [],
-            |row| row.get(0),
-        )?;
-        Ok(automatic != 0)
-    }
-}
-
-/// Writes whether the node moves funds to and from its hub by itself.
-pub(super) fn write_hub_automatic(
-    transaction: &Transaction<'_>,
-    automatic: Option<bool>,
-) -> Result<(), StoreError> {
-    if let Some(automatic) = automatic {
-        transaction.execute(
-            "UPDATE hub_funding SET automatic = ?1 WHERE id = 1",
-            [i64::from(automatic)],
-        )?;
-    }
-    Ok(())
-}
-
 /// Writes a batch's peer settings.
 pub(super) fn write_peer_settings(
     transaction: &Transaction<'_>,
