@@ -24,7 +24,7 @@ Every endpoint has an ILP address, the [ledger](ledger.md) account its packets d
 
 ## A periphery node
 
-A periphery node ([Network](network.md#periphery-nodes)) has an address beneath each uplink, `<uplink's address>.<its node ID>`: what that uplink's ILDCP would tell it, which it derives rather than asks for, since an uplink's address and the rule are fixed. Its connector takes them all.
+A periphery node ([Network](network.md#periphery-nodes)) has an address beneath each uplink, `<uplink's address>.<its node ID>`: what that uplink's ILDCP would tell it, which it derives rather than asks for, since an uplink's address and the rule are fixed. Its connector takes them all, as many as a periphery node may be pinned to: `MAX_CHILD_ADDRESSES` equals the peer protocol's `MAX_UPLINKS`, which the node checks at start ([Network](network.md#pinned-uplinks)). A packet's address is matched against each in turn.
 
 - **Beneath any of them** lie the node's own endpoints, as below its own address. A packet routed there goes on with its destination written below the node's own address, the only one its endpoints know.
 - **It forwards nothing.** A Prepare from a peer that lies beneath none of its addresses gets F02. Its own endpoints' packets go out by the routes, through its uplinks.

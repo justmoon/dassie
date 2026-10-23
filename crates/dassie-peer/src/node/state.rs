@@ -606,7 +606,7 @@ impl PeerNode {
         );
         let (peers, all) = (self.core_peers().count(), self.peers().count());
         assert!(
-            peers <= self.config.max_peers && all - peers <= self.config.max_downlinks,
+            peers <= self.config.max_core_peers() && all - peers <= self.config.max_downlinks,
             "peers within bounds"
         );
         // A peering that ends forgets the mark

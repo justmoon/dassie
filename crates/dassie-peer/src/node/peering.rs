@@ -124,10 +124,11 @@ impl PeerNode {
     }
 
     /// Whether the node may start a peering now. A node pinned to its
-    /// uplinks counts only peerings with them among those it started, so
-    /// that ones made before the pin never keep it from asking them
-    /// (spec/areas/network.md#pinned-uplinks); `max_peers` still bounds
-    /// them all.
+    /// uplinks has slots of its own, as many as it pins, and counts only
+    /// peerings with them among those it started, so that ones made before
+    /// the pin never keep it from asking them
+    /// (spec/areas/network.md#pinned-uplinks); [`Self::max_core_peers`]
+    /// still bounds them all.
     fn can_start(&self) -> bool {
         let pinned = self.pinned_uplinks();
         let outbound = self
@@ -139,8 +140,26 @@ impl PeerNode {
         self.peering.attempt.is_none()
             && !self.schemes.is_empty()
             && self.own_link_bytes().is_some()
-            && outbound < self.config.max_outbound()
-            && self.core_peers().count() < self.config.max_peers
+            && outbound < self.max_outbound()
+            && self.core_peers().count() < self.max_core_peers()
+    }
+
+    /// Most peerings the node starts: as many as it is pinned to, if it
+    /// is, else the configured cap.
+    fn max_outbound(&self) -> usize {
+        self.pinned_uplinks()
+            .map_or(self.config.max_outbound(), <[NodeId]>::len)
+    }
+
+    /// Most peerings with core nodes the node holds: a pinned node's
+    /// slots are its own, bounded by [`crate::MAX_UPLINKS`] rather than
+    /// the configured `max_peers` ([`crate::Config::max_core_peers`]).
+    fn max_core_peers(&self) -> usize {
+        if self.pinned_uplinks().is_some() {
+            self.config.max_core_peers()
+        } else {
+            self.config.max_peers
+        }
     }
 
     /// Whether `node`, with `link`, may be asked to peer: never a
@@ -341,7 +360,7 @@ impl PeerNode {
         };
         match PeeringResponse::decode_exact(&body) {
             Ok(PeeringResponse::Accepted { .. })
-                if self.core_peers().count() >= self.config.max_peers
+                if self.core_peers().count() >= self.max_core_peers()
                     || !self.channel_room(&node) =>
             {
                 self.fail_attempt(node, "no room left");
@@ -476,8 +495,7 @@ impl PeerNode {
             self.auth.pin(node);
             self.stats.peerings += 1;
             self.gossip.heartbeat_soon(now);
-            self.gossip.own_changed = true;
-            self.gossip.routes_dirty = true;
+            self.advertised_changed();
             self.event(Event::Peered {
                 node,
                 scheme,

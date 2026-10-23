@@ -462,8 +462,6 @@ pub struct Entry {
     pub bucket: Bucket,
     /// Whether, as a peer, it is our advertised neighbor.
     pub advertise: Advertise,
-    /// When we last told it that it holds a peering we do not.
-    pub one_sided_at_ms: Option<u64>,
     /// Until when its peering requests are refused: an owner ended our
     /// peering with it.
     pub refuse_until_ms: u64,
@@ -495,7 +493,6 @@ impl Entry {
                 short_checked_ms: None,
                 settle_unreached: false,
             },
-            one_sided_at_ms: None,
             refuse_until_ms: 0,
         }
     }

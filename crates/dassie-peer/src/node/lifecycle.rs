@@ -191,8 +191,7 @@ impl PeerNode {
         entry.peer = PeerState::Terminating(peering, termination);
         entry.advertise.on = false;
         self.dirty.insert(peer);
-        self.gossip.own_changed = true;
-        self.gossip.routes_dirty = true;
+        self.advertised_changed();
         self.event(Event::Terminating {
             peer,
             reason,
@@ -359,6 +358,18 @@ impl PeerNode {
             })
             .map(|(id, _)| *id)
             .collect()
+    }
+
+    /// The advertised peers changed. A core node lists them in its link
+    /// state, so it issues a new one, and its routes follow from that. A
+    /// periphery node's link state lists none, and stays as it was; its
+    /// routes go through them, and are recomputed
+    /// (spec/areas/network.md#periphery-nodes).
+    pub(crate) fn advertised_changed(&mut self) {
+        if !self.is_periphery() {
+            self.gossip.own_changed = true;
+        }
+        self.gossip.routes_dirty = true;
     }
 
     /// Looks after the peerings: ends silent ones, sets the advertise
@@ -594,7 +605,7 @@ impl PeerNode {
             }
         }
         if !changes.is_empty() {
-            self.gossip.own_changed = true;
+            self.advertised_changed();
         }
         for (peer, on, short) in changes {
             self.event(Event::Advertised { peer, on, short });
@@ -656,26 +667,44 @@ impl PeerNode {
     /// most once per termination timeout, and its request still gets its
     /// refusal for not being peered (spec/areas/network.md#one-sided-peerings).
     /// A node that is asking holds back: the sender may have accepted our
-    /// request, and only not told us yet.
+    /// request, and only not told us yet. A downlink leaves the table when
+    /// its peering ends, and is reached by the channel it keeps.
     pub(crate) fn notice_one_sided(&mut self, sender: NodeId) {
         let now = self.now_ms;
         let period = self.config.termination_timeout_ms;
-        let Some(entry) = self.table.get_mut(&sender) else {
-            return;
-        };
-        if entry.peer != PeerState::None
-            || entry
-                .one_sided_at_ms
-                .is_some_and(|at| at.saturating_add(period) > now)
+        if self
+            .table
+            .get(&sender)
+            .is_some_and(|entry| entry.peer != PeerState::None)
         {
             return;
         }
-        entry.one_sided_at_ms = Some(now);
+        let contact = self.contact(&sender).or_else(|| {
+            self.channels
+                .get(&sender)
+                .map(|channel| (channel.key, channel.url.clone()))
+        });
+        let Some((key, url)) = contact else {
+            return;
+        };
+        self.told_not_peered
+            .retain(|_, at| at.saturating_add(period) > now);
+        if self.told_not_peered.contains_key(&sender)
+            || self.told_not_peered.len() >= MAX_TOLD_NOT_PEERED
+        {
+            return;
+        }
+        self.told_not_peered.insert(sender, now);
         let content = Content::PeeringTermination(TerminationReason::NotPeered);
         let timeout = self.config.request_timeout_ms;
-        self.send(sender, &content, Purpose::Gossip, timeout);
+        self.send_via(sender, key, url, &content, Purpose::Gossip, timeout);
     }
 }
+
+/// Most nodes told within a termination timeout that they hold a peering
+/// we do not: past it, a node is told at its next request after the
+/// oldest is forgotten.
+const MAX_TOLD_NOT_PEERED: usize = 1024;
 
 /// Whether an end for `reason` keeps the two nodes apart for the owner's
 /// cooldown, both ways: one the owner chose, and one for want of room,

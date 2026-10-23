@@ -742,3 +742,67 @@ fn the_hub_extension_is_pinned_and_read_strictly() {
         None
     );
 }
+
+// spec/areas/peer-protocol.md#link-states: the bound a node checks its own
+// link state against holds for the largest it can sign, at the longest URL,
+// alias and scheme IDs, with every extension; and the default
+// configuration's link state fits what every node decodes.
+#[test]
+fn the_largest_own_link_state_fits_its_bound() {
+    let neighbors = dassie_peer::Config::DEFAULT.max_peers;
+    let key = NodeKey::from_bytes(&[7; 32]);
+    let url = "a".repeat(MAX_URL_BYTES);
+    let alias = "\u{e9}".repeat(dassie_peer::wire::MAX_ALIAS_BYTES / 2);
+    let ids: Vec<NodeId> = (0..neighbors)
+        .map(|n| NodeKey::from_bytes(&[u8::try_from(n).unwrap() + 8; 32]).node_id())
+        .collect();
+    let schemes: Vec<SchemeId> = (0..dassie_peer::MAX_SCHEMES)
+        .map(|n| {
+            let text = format!("{n:02}{}", "a".repeat(dassie_peer::wire::MAX_SCHEME_ID - 2));
+            SchemeId::parse(&text).unwrap()
+        })
+        .collect();
+    let hub = HubMembership {
+        hub_id: [1; 32],
+        account: u32::MAX,
+        takes_peers: true,
+    }
+    .to_vec();
+    let port = 4433u16.to_be_bytes();
+    let extensions: [(u16, &[u8]); 3] = [
+        (dassie_peer::wire::EXTENSION_QUIC, &[]),
+        (dassie_peer::wire::EXTENSION_FEED, &port),
+        (EXTENSION_HUB, &hub),
+    ];
+    let info = NodeInfo {
+        node_id: key.node_id(),
+        sequence: u64::MAX,
+        url: &url,
+        alias: &alias,
+        public_key: *key.public_key().as_bytes(),
+        entries: ids
+            .iter()
+            .map(|id| Entry::Neighbor(*id))
+            .chain(schemes.iter().map(|id| Entry::Scheme(*id)))
+            .chain(
+                extensions
+                    .iter()
+                    .map(|(kind, value)| Entry::Extension { kind: *kind, value }),
+            )
+            .collect(),
+    };
+    let bound = dassie_peer::wire::max_node_info_bytes(
+        neighbors,
+        dassie_peer::MAX_SCHEMES,
+        extensions.len(),
+        port.len() + hub.len(),
+    );
+    assert!(
+        info.encoded_len() <= bound,
+        "{} > {bound}",
+        info.encoded_len()
+    );
+    assert!(bound <= dassie_peer::wire::MAX_NODE_INFO_BYTES);
+    let bytes = sign_node_info(&key, &info);
+    assert_eq!(SignedNodeInfo::decode_exact(&bytes).unwrap().info, info);
+}

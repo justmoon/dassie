@@ -136,6 +136,39 @@ pub struct NodeInfo<'a> {
     pub entries: Vec<Entry<'a>>,
 }
 
+/// The most bytes the signed part of a node info takes with `neighbors`
+/// neighbors, `schemes` schemes and `extensions` extensions whose values
+/// take `extension_bytes` together, at the longest URL, alias, node IDs
+/// and scheme IDs: what a node checks its own link state against, so it
+/// never signs one that others cannot decode.
+#[must_use]
+pub const fn max_node_info_bytes(
+    neighbors: usize,
+    schemes: usize,
+    extensions: usize,
+    extension_bytes: usize,
+) -> usize {
+    let node_id = size::prefixed(dassie_identity::MAX_NODE_ID_LENGTH);
+    let entries = neighbors.saturating_add(schemes).saturating_add(extensions);
+    let fixed = NODE_INFO_OID.len()
+        + node_id
+        + 8
+        + size::prefixed(MAX_URL_BYTES)
+        + size::prefixed(MAX_ALIAS_BYTES)
+        + size::prefixed(32)
+        + size::quantity(entries);
+    let neighbor = size::tag(0) + node_id;
+    let scheme = size::tag(0) + size::prefixed(super::MAX_SCHEME_ID);
+    // Each extension: its tag, its type and its value's length, at most as
+    // long as the longest value's.
+    let extension = size::tag(0) + 2 + size::length_determinant(MAX_EXTENSION_BYTES);
+    fixed
+        .saturating_add(neighbors.saturating_mul(neighbor))
+        .saturating_add(schemes.saturating_mul(scheme))
+        .saturating_add(extensions.saturating_mul(extension))
+        .saturating_add(extension_bytes)
+}
+
 impl NodeInfo<'_> {
     /// The neighbors it advertises.
     pub fn neighbors(&self) -> impl Iterator<Item = NodeId> + '_ {

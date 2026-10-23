@@ -353,20 +353,22 @@ fn a_pinned_periphery_node_asks_only_its_uplinks() {
 
 // spec/areas/network.md#pinned-uplinks: a node pinned after it found
 // uplinks of its own keeps them, but they take none of the places for
-// peerings it starts, so it still reaches every node it is pinned to.
+// peerings it starts, so it still reaches every node it is pinned to,
+// more than the peerings it would start unpinned.
 #[test]
 fn earlier_uplinks_leave_room_for_the_pinned_ones() {
-    let (core, periphery) = (8, 1);
+    let (core, periphery) = (11, 1);
     let mut network = Network::with_periphery(25, core, 1, periphery, Config::DEV);
     settle(&mut network, 90_000);
     let before = peers_of(&network, core);
     assert!(before.len() >= Config::DEV.peer_target, "{before:?}");
+    let count = Config::DEV.max_outbound() + 1;
     let mut pinned: Vec<NodeId> = (0..core)
         .map(id)
         .filter(|node| !before.contains(node))
-        .take(dassie_peer::MAX_PINNED_UPLINKS)
+        .take(count)
         .collect();
-    assert_eq!(pinned.len(), dassie_peer::MAX_PINNED_UPLINKS);
+    assert_eq!(pinned.len(), count);
     network.pin_uplinks(core, pinned.clone());
     settle(&mut network, 120_000);
     let after = peers_of(&network, core);
@@ -374,6 +376,126 @@ fn earlier_uplinks_leave_room_for_the_pinned_ones() {
     for node in before.iter().chain(&pinned) {
         assert!(after.contains(node), "{node} not in {after:?}");
     }
+}
+
+// spec/areas/network.md#pinned-uplinks, spec/decisions/periphery-lists-no-neighbors.md:
+// a periphery node pinned to more uplinks than it would start peerings
+// with, and than a link state could list, reaches every one of them. Its
+// link state lists no neighbors, so it stays what every node decodes, and
+// each uplink holds its newest.
+#[test]
+fn a_periphery_node_reaches_more_uplinks_than_a_link_state_lists() {
+    let core = dassie_peer::wire::MAX_ENTRIES + 6;
+    // At production timings, the bootstrap node takes and probes every
+    // registration at once, and core nodes keep a peer or two among
+    // themselves: neither is what this is about, and a network this size
+    // costs less to simulate so.
+    let config = Config {
+        registration_rate: dassie_peer::Rate {
+            burst: 256,
+            refill_ms: 1_000,
+        },
+        probe_rate: dassie_peer::Rate {
+            burst: 256,
+            refill_ms: 1_000,
+        },
+        peer_target: 1,
+        max_peers: 4,
+        ..Config::DEFAULT
+    };
+    let mut network = Network::with_periphery(26, core, 1, 1, config);
+    let pinned: Vec<NodeId> = (0..core).map(id).collect();
+    assert!(pinned.len() > config.max_outbound() && pinned.len() <= dassie_peer::MAX_UPLINKS);
+    network.pin_uplinks(core, pinned.clone());
+    // One asked a second, once each is known.
+    settle(&mut network, 4 * 60_000);
+    let mut sorted = pinned.clone();
+    sorted.sort_unstable();
+    assert_eq!(peers_of(&network, core), sorted);
+    // Its link state as it signed it, which it serves itself: what every
+    // node decodes, and verifies.
+    let asker = Arc::new(NodeKey::from_bytes(&[101; 32]));
+    let content = Content::LinkStateRequest(vec![id(core)]);
+    let body = request(&network, &asker, core, &content);
+    let reply = network.inbound(core, &body);
+    let envelope = ResponseEnvelope::decode(&reply.body).unwrap();
+    let states = LinkStateResponse::decode_exact(envelope.body).unwrap();
+    let signed = states.0[0].clone().expect("its own link state");
+    let node = network.node(core);
+    assert!(
+        pinned.iter().all(|uplink| node.is_advertised(uplink)),
+        "every uplink confirmed"
+    );
+    let own = node.nodes().into_iter().find(|v| v.id == id(core)).unwrap();
+    assert!(own.neighbors.is_empty(), "{:?}", own.neighbors);
+    assert!(signed.verify().is_ok() && signed.info.is_periphery());
+    assert_eq!(signed.info.neighbors().count(), 0);
+    for index in 0..core {
+        let uplink = network.node(index);
+        assert!(uplink.is_downlink(&id(core)), "a downlink of {index}");
+        let held = uplink
+            .nodes()
+            .into_iter()
+            .find(|v| v.id == id(core))
+            .unwrap();
+        assert_eq!(held.sequence, own.sequence, "node {index} holds its newest");
+        assert!(held.neighbors.is_empty());
+        // It still reaches no route there.
+        assert!(!uplink.routes().contains_key(&id(core)));
+    }
+    // Its routes go through its uplinks, all of them.
+    let route = &node.routes()[&id(0)];
+    assert!(route.first_hops.iter().all(|hop| pinned.contains(hop)));
+}
+
+// spec/areas/network.md#one-sided-peerings: an uplink that ended its
+// peering with a periphery node, whose termination never arrived, tells it
+// so when its next heartbeat comes: a periphery node's own link state lists
+// nobody, but goes only to its uplinks, so it presumes a peering.
+#[test]
+fn an_uplink_tells_a_periphery_node_it_is_not_peered() {
+    let (core, periphery) = (3, 1);
+    let mut network = Network::with_periphery(27, core, 1, periphery, Config::DEV);
+    settle(&mut network, 90_000);
+    let downlink = id(core);
+    let uplink = uplink_among(&network, core, core);
+    network.cut.insert((uplink, core));
+    network.act(uplink, |node, now| {
+        assert!(node.terminate(now, &downlink, dassie_peer::wire::TerminationReason::Owner));
+    });
+    let config = Config::DEV;
+    settle(
+        &mut network,
+        config.depeer_wait_ms + config.termination_timeout_ms + 5_000,
+    );
+    assert!(ended(&network, uplink, &downlink), "the uplink ended it");
+    assert!(network.node(core).peering_of(&id(uplink)).is_some());
+    assert!(
+        network
+            .node(uplink)
+            .nodes()
+            .iter()
+            .any(|v| v.id == downlink),
+        "the uplink still knows it"
+    );
+    network.cut.clear();
+    // A heartbeat comes within its longest interval.
+    settle(
+        &mut network,
+        config.heartbeat_min_ms + config.heartbeat_jitter_ms + 5_000,
+    );
+    assert!(
+        ended(&network, core, &id(uplink)),
+        "the periphery node ended it"
+    );
+    assert!(network.node(core).peering_of(&id(uplink)).is_none());
+}
+
+/// The core node among the first `core` that is `periphery`'s uplink.
+fn uplink_among(network: &Network, core: usize, periphery: usize) -> usize {
+    (0..core)
+        .find(|index| network.node(*index).is_downlink(&id(periphery)))
+        .expect("an uplink")
 }
 
 // spec/areas/network.md#pinned-uplinks: a pinned uplink that is not there

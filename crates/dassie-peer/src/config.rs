@@ -2,6 +2,7 @@
 //! All of them are configuration, so tests and simulations can shorten them.
 
 use crate::auth::AuthConfig;
+use crate::node::{MAX_UPLINKS, own_link_state_fits};
 
 /// A token bucket's shape: how many at once, and how fast they refill.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -265,6 +266,20 @@ impl Config {
         self.peer_target + 2
     }
 
+    /// Most peerings with core nodes a node holds, of every kind: a
+    /// periphery node pinned to its uplinks has slots of its own, as many
+    /// as it pins, up to [`MAX_UPLINKS`]; any other node at most
+    /// `max_peers` (spec/areas/network.md#pinned-uplinks). What its tables,
+    /// its channels and the node's connector are sized for.
+    #[must_use]
+    pub const fn max_core_peers(&self) -> usize {
+        if self.max_peers > MAX_UPLINKS {
+            self.max_peers
+        } else {
+            MAX_UPLINKS
+        }
+    }
+
     /// Checks that the values fit together (configuration, not input).
     ///
     /// # Panics
@@ -318,8 +333,12 @@ impl Config {
             "a peer short of room is given time to settle, and withdrawn before it is ended"
         );
         assert!(
-            self.max_channels >= self.max_peers && self.max_bans >= 1,
+            self.max_channels >= self.max_core_peers() && self.max_bans >= 1,
             "a channel for every peer, room for a ban"
+        );
+        assert!(
+            own_link_state_fits(self.max_peers),
+            "our own link state always decodes"
         );
     }
 }

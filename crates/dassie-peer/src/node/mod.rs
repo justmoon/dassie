@@ -39,14 +39,23 @@ pub use state::{NodeView, PeerStatus};
 
 use membership::Lists;
 
+pub(crate) use gossip::own_link_state_fits;
+
 /// Most events kept for the driver to poll.
 const MAX_EVENTS: usize = 1024;
 
-/// Most uplinks a periphery node can be pinned to: no more than the
-/// peerings any valid configuration lets it start, since `peer_target` is
-/// at least one and a node starts two more than its target
-/// ([`Config::max_outbound`]).
-pub const MAX_PINNED_UPLINKS: usize = 3;
+/// Most uplinks a periphery node can be pinned to, as a market maker's
+/// node that trades through many core nodes is
+/// (spec/areas/network.md#pinned-uplinks). Each takes a peering slot of
+/// the node's own, an address beneath the uplink in its connector and a
+/// settlement channel, so the node's bounds hold this many core peers
+/// ([`Config::max_core_peers`]).
+pub const MAX_UPLINKS: usize = 128;
+
+/// Most settlement schemes a node peers on, each listed in its link
+/// state: with them, its link state always fits what every node decodes
+/// ([`Config::validate`]).
+pub const MAX_SCHEMES: usize = 16;
 
 /// What this node says about itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -255,6 +264,9 @@ pub struct PeerNode {
     /// answered (spec/decisions/unreachable-peers.md). Only peers are kept,
     /// so it holds at most one per peering.
     pub(crate) unreached: BTreeSet<NodeId>,
+    /// Nodes told lately that they hold a peering we do not, and when
+    /// (spec/areas/network.md#one-sided-peerings).
+    pub(crate) told_not_peered: BTreeMap<NodeId, u64>,
     /// The only nodes a periphery node asks to be its uplinks, sorted;
     /// empty for any (spec/areas/network.md#pinned-uplinks).
     pub(crate) pinned: Vec<NodeId>,
@@ -318,6 +330,7 @@ impl PeerNode {
             unbanned: Vec::new(),
             telling: BTreeMap::new(),
             unreached: BTreeSet::new(),
+            told_not_peered: BTreeMap::new(),
             pinned: Vec::new(),
             config,
         };
@@ -386,7 +399,12 @@ impl PeerNode {
     /// Changes the settlement schemes the node peers on, in order of
     /// preference: those it advertises, asks for and accepts peerings on.
     /// Peerings already made on a scheme left out stay.
+    ///
+    /// # Panics
+    ///
+    /// With more than [`MAX_SCHEMES`] (the node's own, not input).
     pub fn set_schemes(&mut self, now_ms: u64, schemes: Vec<SchemeId>) {
+        assert!(schemes.len() <= MAX_SCHEMES, "too many schemes");
         self.advance(now_ms);
         if schemes != self.schemes {
             self.schemes = schemes;
@@ -407,13 +425,9 @@ impl PeerNode {
     ///
     /// # Panics
     ///
-    /// With more than [`MAX_PINNED_UPLINKS`], or more than the node may
-    /// start peerings (configuration, not input).
+    /// With more than [`MAX_UPLINKS`] (configuration, not input).
     pub fn pin_uplinks(&mut self, mut uplinks: Vec<NodeId>) {
-        assert!(
-            uplinks.len() <= MAX_PINNED_UPLINKS && uplinks.len() <= self.config.max_outbound(),
-            "too many pinned uplinks"
-        );
+        assert!(uplinks.len() <= MAX_UPLINKS, "too many pinned uplinks");
         uplinks.sort_unstable();
         uplinks.dedup();
         self.pinned = uplinks;
@@ -596,7 +610,7 @@ impl PeerNode {
             self.unreached.insert(node)
         };
         assert!(
-            self.unreached.len() <= self.config.max_peers + self.config.max_downlinks,
+            self.unreached.len() <= self.config.max_core_peers() + self.config.max_downlinks,
             "more peers unreached than peerings"
         );
         if changed {

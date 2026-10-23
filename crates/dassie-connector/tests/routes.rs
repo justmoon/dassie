@@ -491,3 +491,29 @@ fn a_periphery_node_forwards_nothing() {
         Err(RoutesError::InvalidPrefix)
     );
 }
+
+// spec/areas/connector.md#a-periphery-node: an address beneath each uplink,
+// as many as a periphery node may be pinned to, each reaching its own
+// endpoints; one more is refused, and changes nothing.
+#[test]
+fn a_periphery_node_takes_an_address_beneath_every_uplink() {
+    let mut harness = harness();
+    let addresses: Vec<String> = (0..=dassie_connector::MAX_CHILD_ADDRESSES)
+        .map(|n| format!("test.das.dup{n}.dnode"))
+        .collect();
+    assert_eq!(
+        harness.connector.set_periphery(Some(&addresses)),
+        Err(RoutesError::TooMany)
+    );
+    let (all, extra) = addresses.split_at(dassie_connector::MAX_CHILD_ADDRESSES);
+    harness.connector.set_periphery(Some(all)).unwrap();
+    let last = all.last().unwrap();
+    let packet = prepare(&format!("{last}.alice.x"), 10, NOW + 20_000, [1; 32]);
+    let Outcome::Forward(sent) = harness.prepare(NOW, ONE, 1, &packet) else {
+        panic!("not forwarded")
+    };
+    assert_eq!(sent.to, BTP);
+    let beyond = prepare(&format!("{}.alice.x", extra[0]), 10, NOW + 20_000, [2; 32]);
+    let outcome = harness.prepare(NOW, ONE, 2, &beyond);
+    assert_eq!(rejected(&harness, outcome), ErrorCode::F02_UNREACHABLE);
+}

@@ -233,11 +233,17 @@ impl PeerNode {
                     Processed::Invalid(_) => return Reply::refuse(400, "invalid link state"),
                     _ if accepted.is_authenticated() && info.info.node_id == sender => {
                         self.heard_from(&sender);
-                        // A node also sends its own link state to the
+                        // A core node also sends its own link state to the
                         // bootstrap nodes it is not peered with, even one
                         // it is asking for a peering: only one that lists
-                        // us presumes a peering.
-                        if info.info.neighbors().any(|neighbor| neighbor == self.own) {
+                        // us presumes a peering. A periphery node's lists
+                        // nobody, and goes only to its uplinks, in
+                        // heartbeats and when it issues a new one (to one
+                        // it asks, it goes in the peering request), so it
+                        // presumes one (spec/areas/network.md#one-sided-peerings).
+                        if info.info.is_periphery()
+                            || info.info.neighbors().any(|neighbor| neighbor == self.own)
+                        {
                             self.notice_one_sided(sender);
                         }
                     }

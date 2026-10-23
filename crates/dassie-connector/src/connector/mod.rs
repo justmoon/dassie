@@ -23,8 +23,10 @@ use crate::trace::{PacketRecord, Trace, TraceEvent};
 pub const MAX_ROUTE_OPTIONS: usize = 4;
 
 /// Most addresses a periphery node has beneath its uplinks: one per
-/// uplink, and it has no more peers than this.
-pub const MAX_CHILD_ADDRESSES: usize = 8;
+/// uplink, and it has no more peers than this. As many as the uplinks a
+/// periphery node may be pinned to, `dassie_peer::MAX_UPLINKS`, which the
+/// node checks at start.
+pub const MAX_CHILD_ADDRESSES: usize = 128;
 
 /// Why routes could not be set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -230,12 +232,18 @@ impl Connector {
             return Err(RoutesError::TooMany);
         }
         let own = Address::parse(&self.own_address).map_err(|_| RoutesError::InvalidPrefix)?;
-        for (index, text) in addresses.iter().enumerate() {
-            let address = Address::parse(text).map_err(|_| RoutesError::InvalidPrefix)?;
-            let nested = addresses.iter().skip(index + 1).any(|other| {
-                Address::parse(other)
-                    .is_ok_and(|other| other.has_prefix(address) || address.has_prefix(other))
-            });
+        // Each parsed once: with an address beneath each of many uplinks,
+        // every pair is compared.
+        let parsed = addresses
+            .iter()
+            .map(|text| Address::parse(text))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| RoutesError::InvalidPrefix)?;
+        for (index, address) in parsed.iter().copied().enumerate() {
+            let nested = parsed
+                .iter()
+                .skip(index + 1)
+                .any(|other| other.has_prefix(address) || address.has_prefix(*other));
             if address.has_prefix(own) || nested {
                 return Err(RoutesError::InvalidPrefix);
             }
