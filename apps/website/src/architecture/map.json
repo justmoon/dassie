@@ -1497,6 +1497,15 @@
   ],
   "releases": [
     {
+      "version": "0.2.6",
+      "date": "2026-10-23",
+      "changes": [
+        "A node's STREAM receiver never lowers the most it has told a sender it may send, as the STREAM specification asks. When several payments race into one incoming payment, payments that fit together all complete. A payment the receiver can no longer take is told the payment is full, and closed, rather than refused until its deadline. A Dassie payment that is short by no more than its tolerance then counts as complete.",
+        "`dassie market-maker` no longer stalls when one of its nodes is above its band and the other has no room: it trades from the other node into the full one, which lowers the full one, and then rebalances. The market maker's VM now leaves room for all the XRP the testnet faucet grants.",
+        "`tokio` is updated, for advisory RUSTSEC-2026-0386."
+      ]
+    },
+    {
       "version": "0.2.5",
       "date": "2026-10-23",
       "changes": [

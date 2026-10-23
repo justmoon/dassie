@@ -1,6 +1,6 @@
 [package]
 name = "dassie-stream"
-version = "0.2.5"
+version = "0.2.6"
 description = "STREAM (RFC 29) as sans-IO state machines: packets, crypto, connections and a server"
 edition.workspace = true
 rust-version.workspace = true
