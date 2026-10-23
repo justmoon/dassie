@@ -289,6 +289,7 @@
       "does": [
         "Config, TLS, certificates and sessions",
         "Ledgers, BTP tokens, payments and debug data",
+        "The node's account in its settlement hub, and the owner's moves into it and out of it",
         "Nodes, peers, routes, settlements and bans",
         "Wallet addresses, payments, grants and Send, to a wallet, a payment request or STREAM credentials",
         "`Subscribe*` streams: a snapshot, then changes, at most 4 a second",
@@ -323,6 +324,7 @@
         "`dassie init`: the domain name and the certificate, then a URL to finish setup in the browser",
         "`dassie status`, which also says whether a core node's rate feed reaches anyone, `dassie setup-url` to print that URL again, and `dassie pair` for a code that pairs an owner app",
         "`dassie setup`: sets a node up without a browser, from its owner's passphrase in a file on the node's host, and adds the settlement schemes it lacks; run again, it changes nothing, and it refuses a node that is another passphrase's",
+        "`dassie hub`: shows the node's account in its settlement hub, moves the owner's funds between it and the node's XRP Ledger account, and turns the node's own moves on or off",
         "`dassie update`: fetches, verifies and switches to a newer release, and goes back if it does not start",
         "`dassie verify-install`, which also names the release key",
         "`dassie front-door`: runs a front door, which is no node, and `--make-key` makes its key and prints the entry a node names it by",
@@ -353,6 +355,7 @@
         "Credit to each peer that grows with the fees it earned the node, read from the journal; over a settlement hub, the credit is the node's own hold toward the peer, kept in step as the hold is funded and taken from, and nothing grows",
         "Peerings over a settlement hub: the node names its hub in its link state and peers over it with members of the same hub, sends a commitment with each Prepare and a claim with each reply to a Fulfill, and books what a peering cost beyond its hold as a loss on the peer",
         "Settlement hubs' validator role, which an owner turns on for the sponsors it lists: a validator per hub, its consensus state and ledger written before each step's messages go out, the hub's messages over a QUIC stream of their own (and `POST /hub` for members), and the hub's escrow followed on the XRP Ledger, from deposits to resets of the test network",
+        "Funding its hub account: the node opens it with a first deposit from its XRP Ledger account, deposits when what it can spend falls below a floor of what its hub peerings need, and withdraws what goes above a ceiling, one move at a time, both counted in the largest packet; the owner moves funds too, and may turn the node's own moves off",
         "Simulated as a network of real engine cores, in tests and by `dassie-sim`: each seed draws its nodes, faults and payments, runs them through chaos, then heals the network, which must settle down"
       ]
     },
@@ -408,6 +411,7 @@
         "Reads an AMM pool with `amm_info` and prices its swaps exactly, rounding to the pool as the ledger does, for a client that converts on the ledger",
         "Reads token amounts exactly, and a trust line, its flags and its issuer from either side",
         "Books every validated transaction once: settlements, deposits, withdrawals and fees",
+        "Pays out of the account for the owner, with a destination tag and a memo, as a deposit into a settlement hub is made, and books it as the owner's withdrawal once validated",
         "Settles in a dollar token, RLUSD or DSUSD, on a trust line it sets up itself, booked in dollars by what reaches the line, the issuer's clawbacks included",
         "Pays a token scheme's fees in XRP: booked on the XRP ledger when the XRP scheme shares the account, off the books otherwise",
         "Stops settling while the issuer freezes the line, and stops asking peers to pay while the line cannot receive",
@@ -431,7 +435,8 @@
         "External assets: what the node holds outside its books, as the ledger says, apart from the schemes that settle through it",
         "Gas: a holding one scheme spends and another settles in is spent only within the owner's funds",
         "The stub scheme: 100 test USD, so everything works without a real ledger, and with commitments, peerings over a settlement hub without a hub",
-        "The settlement policy: when a creditor asks a peer to settle, and how much the debtor pays, counted in the largest packet",
+        "The settlement policy: when a creditor asks a peer to settle, and how much the debtor pays, counted in the largest packet; and the floor and the ceiling a node keeps its settlement hub account between",
+        "The owner's payments: a scheme pays the owner's funds out of its account, as the node moves them between two of its ledgers",
         "Promises per packet, for schemes whose peerings carry them, as a settlement hub's do, and assets that talk to several endpoints, such as a hub's validators",
         "Reconciling settlements still pending after a restart"
       ]
@@ -448,7 +453,7 @@
       "does": [
         "The hub's rules, whose digest names the hub, and each validator's signed acceptance",
         "Simplex consensus: an ordered log kept by a few validators, final in three message delays, with evidence that names whoever signed two histories",
-        "The ledger: accounts, holds, deposits and withdrawals, every table bounded, every drop accounted for after each block",
+        "The ledger: accounts, holds, deposits and withdrawals, every table bounded, every drop accounted for after each block; each account counts what deposits credited it and what withdrawals took",
         "Taking from a hold with the payer's claim, or with fulfilled commitments when the claim does not come, never twice",
         "Fees split among the validators whose votes the log recorded",
         "A validator's state as bytes, its consensus state and its ledger, from which it comes back after a restart without ever signing a vote that conflicts with one it sent",
@@ -456,7 +461,7 @@
         "The escrow on the XRP Ledger: the validators' keys, the sponsor's setup and its check, withdrawals, and the payout set that pays everyone out at the end",
         "A validator's service, without IO: consensus and the ledger together, a bounded pool of operations with room kept for deadlines, the escrow's signatures gathered from the validators' keys only, and snapshots of the state checked against a certified root",
         "What members and validators say to each other: requests, and statements a validator signs alone, which a member trusts once f + 1 validators signed them alike",
-        "A member's side: its account in the hub, which trusts what enough validators sign alike and reads the log in order, and the hub-xrp-testnet scheme on it, which funds holds, signs and checks the promises each packet carries, and claims on the hub what its peer's claims leave out"
+        "A member's side: its account in the hub, which trusts what enough validators sign alike and reads the log in order, and the hub-xrp-testnet scheme on it, which funds holds, signs and checks the promises each packet carries, claims on the hub what its peer's claims leave out, withdraws for the owner, and books the owner's deposits and withdrawals from the account's counts"
       ]
     },
     "peer": {
