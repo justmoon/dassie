@@ -532,6 +532,10 @@ fn read_transfer(row: &Row<'_>) -> rusqlite::Result<TransferRow> {
                 scheme: name(&scheme, "settlement scheme")?,
                 id: name(&id, "fee ID")?,
             },
+            ("loss", None, None, Some(scheme), Some(id)) => Reference::Loss {
+                scheme: name(&scheme, "settlement scheme")?,
+                id: name(&id, "loss ID")?,
+            },
             ("settlement", None, None, Some(scheme), Some(id)) => Reference::Settlement {
                 scheme: name(&scheme, "settlement scheme")?,
                 id: name(&id, "settlement ID")?,
@@ -651,6 +655,13 @@ fn insert_transfer(
         ),
         Reference::Fee { scheme, id } => (
             "fee",
+            None,
+            None,
+            Some(scheme.as_str().to_string()),
+            Some(id.as_str().to_string()),
+        ),
+        Reference::Loss { scheme, id } => (
+            "loss",
             None,
             None,
             Some(scheme.as_str().to_string()),

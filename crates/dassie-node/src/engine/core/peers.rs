@@ -86,6 +86,13 @@ enum Inbound {
     SettlementRequest(NodeId, SchemeId, dassie_peer::SettlementAnswer),
 }
 
+/// Whether a peering in `scheme` settles over a hub: its credit is the
+/// payer's hold, and nothing unsecured
+/// (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+fn over_hub(scheme: SchemeId) -> bool {
+    scheme.as_str() == dassie_hub::member::SCHEME_ID
+}
+
 /// A node's name in the ledger.
 fn name(peer: NodeId) -> Option<Name> {
     Name::new(peer.as_str()).ok()
@@ -136,7 +143,12 @@ impl PeeringHooks for Hooks<'_> {
         let ledger = active.scheme.ledger();
         // We accept, so we are the senior: the requester gets our credit
         // only once the peering earned it (spec/decisions/earned-trust.md).
-        let start = self.senior_credit;
+        // Over a hub the hold is all the credit there is.
+        let start = if over_hub(scheme) {
+            0
+        } else {
+            self.senior_credit
+        };
         let credit_out = self.credit_for(peer, ledger, start);
         let active = self
             .scheme(scheme)
@@ -170,8 +182,10 @@ impl PeeringHooks for Hooks<'_> {
         let active = self.scheme(scheme).ok_or(Declined)?;
         let ledger = active.scheme.ledger();
         // Our request was accepted, so we are the junior, and extend the
-        // default credit line (spec/decisions/earned-trust.md).
-        let start = self.credit;
+        // default credit line (spec/decisions/earned-trust.md). Over a hub
+        // the hold is all the credit there is.
+        let hub = over_hub(scheme);
+        let start = if hub { 0 } else { self.credit };
         let credit_out = self.credit_for(peer, ledger, start);
         let active = self.scheme(scheme).ok_or(Declined)?;
         let state = active
@@ -184,7 +198,9 @@ impl PeeringHooks for Hooks<'_> {
         // time we were the senior: a junior extends at least the default,
         // unless we ended a peering with it for room, which keeps what it
         // had (spec/decisions/ended-for-room.md).
-        let credit_out = if credit_out < start && !ended_for_room {
+        let credit_out = if hub {
+            0
+        } else if credit_out < start && !ended_for_room {
             self.raise(now_ms, peer, ledger, start - credit_out)
                 .map_err(|()| Declined)?;
             start
@@ -773,6 +789,11 @@ impl Core {
         self.endpoint_peers.insert(id, node);
         if !self.peer.reachable(&node) {
             self.connector.set_unreached(EndpointId::Peer(id), true);
+        }
+        if over_hub(peering.scheme) {
+            // A packet that timed out waits for the hub before it is
+            // rejected upstream (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+            self.connector.set_hub(EndpointId::Peer(id), true);
         }
         Ok(())
     }

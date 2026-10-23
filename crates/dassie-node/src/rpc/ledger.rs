@@ -555,6 +555,9 @@ fn transfer(row: &JournalRow) -> proto::Transfer {
         Reference::Reconciliation => proto::transfer::Reference::Other("reconciliation".into()),
         Reference::Refusal(trace) => proto::transfer::Reference::Refusal(trace_id(trace)),
         Reference::Fee { scheme, id } => proto::transfer::Reference::Fee(format!("{scheme}:{id}")),
+        Reference::Loss { scheme, id } => {
+            proto::transfer::Reference::Loss(format!("{scheme}:{id}"))
+        }
     };
     let state = match row.state {
         TransferState::Pending => proto::TransferState::Pending,

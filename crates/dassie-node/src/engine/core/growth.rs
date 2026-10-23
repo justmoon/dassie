@@ -72,9 +72,12 @@ impl Core {
                 }
             },
         };
+        // Over a hub the hold is the credit, and it grows only by the
+        // payer's funding (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
         let ledgers: BTreeSet<LedgerId> = self
             .schemes
             .values()
+            .filter(|active| active.scheme.id().as_str() != dassie_hub::member::SCHEME_ID)
             .map(|active| active.scheme.ledger())
             .collect();
         let mut earned: BTreeMap<AccountId, u128> = BTreeMap::new();

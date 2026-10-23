@@ -2317,3 +2317,79 @@ fn a_periphery_node_refuses_an_uplink_it_has_not() {
     assert!(matches!(refused, Err(super::EngineError::Precondition(_))));
     assert_eq!(core.incoming.len(), 1);
 }
+
+// What a peering over a hub cost beyond its hold is booked as a loss on the
+// peer (spec/areas/hubs.md#the-members-side): a claim's fee from
+// `assets/settlement`, a packet paid late from the peer's account, each
+// journaled as a loss whatever the owner's funds, and reported.
+#[test]
+fn a_peer_loss_is_booked_from_where_the_money_left() {
+    use dassie_ledger::{AccountName, LedgerId, Name, Reference};
+    use dassie_settlement::{Effect, LossCause};
+
+    use super::{Event, SettlementEvent};
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_on(Arc::clone(&store), 9);
+    core.add_scheme("stub", String::new()).unwrap();
+    let stub = Name::new("stub").unwrap();
+    let peer = Name::new("dpeer").unwrap();
+    let (interledger, _) = core
+        .ledger
+        .open_peer(NOW, LedgerId::StubUsd, peer, 0)
+        .unwrap();
+    let settlement = core
+        .account(LedgerId::StubUsd, AccountName::AssetsSettlement)
+        .unwrap();
+    let losses = core
+        .account(LedgerId::StubUsd, AccountName::ExpensesLosses)
+        .unwrap();
+    let effects = [
+        Effect::PeerLoss {
+            peer,
+            amount: 7,
+            cause: LossCause::ClaimFee,
+            id: Name::new("op1").unwrap(),
+        },
+        Effect::PeerLoss {
+            peer,
+            amount: 30,
+            cause: LossCause::PaidLate,
+            id: Name::new("op2").unwrap(),
+        },
+    ];
+    core.apply_effects(stub, LedgerId::StubUsd, &effects)
+        .unwrap();
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    let reported = outputs
+        .iter()
+        .filter(|output| {
+            matches!(
+                output,
+                Output::Event(Event::Settlement(SettlementEvent::PeerLoss { .. }))
+            )
+        })
+        .count();
+    assert_eq!(reported, 2);
+    let balance = |id| *core.ledger.account(id).unwrap().balance();
+    assert_eq!(balance(losses).debits_posted, 37);
+    assert_eq!(balance(settlement).credits_posted, 7);
+    assert_eq!(balance(interledger).credits_posted, 30);
+    core.flush();
+    let rows = store.transfers_after(None, 100, None).unwrap();
+    let ids: Vec<(Name, Name)> = rows
+        .iter()
+        .filter_map(|row| match row.transfer.reference {
+            Reference::Loss { scheme, id } => Some((scheme, id)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            (stub, Name::new("op1").unwrap()),
+            (stub, Name::new("op2").unwrap())
+        ]
+    );
+}

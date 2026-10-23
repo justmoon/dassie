@@ -232,6 +232,20 @@ impl Core {
         }
     }
 
+    /// Ends the peering with a payee that claimed on the hub a packet it
+    /// had rejected, which no honest payee does
+    /// (spec/areas/hubs.md#the-members-side): collecting what it owes
+    /// first, as any ending of a peering does. The owner decides on a ban.
+    pub(super) fn end_for_cheating(&mut self, peer: Name) {
+        let Ok(node) = NodeId::parse(peer.as_str()) else {
+            return;
+        };
+        let reason = dassie_peer::wire::TerminationReason::Unspecified;
+        if self.peer.terminate(self.now_ms, &node, reason) {
+            self.after_peer();
+        }
+    }
+
     fn settle_decided(&mut self, now: u64, decision: Decided) {
         let Ok(node) = NodeId::parse(decision.peer.as_str()) else {
             return;

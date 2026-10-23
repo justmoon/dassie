@@ -247,6 +247,14 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         } => {
             emit!(severity, target: target::SETTLEMENT, %scheme, amount, gain, "the underlying ledger differs from the books: reconciled");
         }
+        SettlementEvent::PeerLoss {
+            scheme,
+            peer,
+            amount,
+            cause,
+        } => {
+            emit!(severity, target: target::SETTLEMENT, %scheme, %peer, amount, ?cause, "a peering over a hub cost more than its hold: booked as a loss");
+        }
         SettlementEvent::MessageNotSent { peer, error } => {
             emit!(severity, target: target::SETTLEMENT, %peer, ?error, "a scheme message was not sent");
         }
@@ -320,6 +328,7 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         // Logged by `settlement`.
         SettlementEvent::BalanceBooked { .. }
         | SettlementEvent::Reconciled { .. }
+        | SettlementEvent::PeerLoss { .. }
         | SettlementEvent::MessageNotSent { .. }
         | SettlementEvent::DepositFromStranger { .. }
         | SettlementEvent::SchemeStopped { .. }

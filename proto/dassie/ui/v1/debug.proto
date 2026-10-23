@@ -62,6 +62,9 @@ message Transfer {
     // "<scheme>:<transaction>": the fee the underlying ledger charged for
     // one of this node's transactions.
     string fee = 15;
+    // "<scheme>:<ID>": what a peering over a settlement hub cost this node
+    // beyond its hold.
+    string loss = 16;
   }
   // Where the row is in the order rows were written or last changed: a
   // packet's transfer is written when it is posted, after transfers with

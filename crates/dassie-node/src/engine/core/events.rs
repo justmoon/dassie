@@ -221,6 +221,18 @@ pub enum SettlementEvent {
         /// What the scheme takes the difference to come from.
         cause: ReconcileCause,
     },
+    /// A peering over a settlement hub cost us money its hold did not
+    /// cover: booked as a loss on the peer.
+    PeerLoss {
+        /// The scheme.
+        scheme: Name,
+        /// The peer.
+        peer: Name,
+        /// How much.
+        amount: u64,
+        /// Why.
+        cause: dassie_settlement::LossCause,
+    },
     /// A scheme's message to a peer could not be sent.
     MessageNotSent {
         /// The peer.
@@ -445,6 +457,7 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
         | SettlementEvent::UnknownExecuted { .. }
         | SettlementEvent::UnknownCancelled { .. }
         | SettlementEvent::Failed { .. }
+        | SettlementEvent::PeerLoss { .. }
         | SettlementEvent::PeerSettlementRefused { .. } => Severity::Warn,
         SettlementEvent::SchemeStopped { .. }
         | SettlementEvent::AnnounceFailed { .. }

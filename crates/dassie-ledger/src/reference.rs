@@ -50,6 +50,14 @@ pub enum Reference {
         /// The transaction.
         id: Name,
     },
+    /// Money a peering over a settlement hub cost us beyond its hold
+    /// (spec/areas/hubs.md#the-members-side).
+    Loss {
+        /// The settlement scheme.
+        scheme: Name,
+        /// What on the underlying ledger it comes from.
+        id: Name,
+    },
 }
 
 impl Reference {
@@ -65,6 +73,7 @@ impl Reference {
                 | Self::Reconciliation
                 | Self::Refusal(_)
                 | Self::Fee { .. }
+                | Self::Loss { .. }
         )
     }
 
