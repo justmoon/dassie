@@ -41,6 +41,11 @@ use crate::validators::{Signers, ValidatorIndex, ValidatorSet};
 /// When every simulation starts, on the network's clock.
 pub const START: u64 = 1_800_000_000_000;
 
+/// How many proposals a flooding leader sends for each view it leads:
+/// more than all the room for blocks an engine had before room was kept
+/// per view.
+const FLOOD: u64 = 600;
+
 /// The marker of a payload no honest validator accepts.
 const INVALID: u8 = 0xff;
 
@@ -91,6 +96,10 @@ pub enum Role {
     /// One of f + 1 that collude: when one leads, they propose two blocks
     /// and sign both, each to half of the honest validators.
     Collude,
+    /// Proposes as it should when it leads, and then floods everyone with
+    /// other proposals for every view it leads within reach, of heights no
+    /// chain has, to crowd out honest blocks.
+    Flood,
 }
 
 impl Role {
@@ -538,7 +547,7 @@ impl Network {
     fn carry(&mut self, from: usize, to: &[usize], bytes: Vec<u8>) {
         match self.validators[from].role {
             Role::Silent => {}
-            Role::Withhold | Role::Equivocate | Role::Collude => {
+            Role::Withhold | Role::Equivocate | Role::Collude | Role::Flood => {
                 let message = Message::decode_message(&bytes).unwrap();
                 match (self.validators[from].role, message) {
                     (Role::Withhold, Message::Proposal(_)) => {}
@@ -552,11 +561,54 @@ impl Network {
                         self.forked = true;
                         self.equivocate(from, to, proposal, &colluders);
                     }
+                    (Role::Flood, Message::Proposal(proposal)) => {
+                        self.send_all(from, to, &bytes);
+                        self.flood(from, to, &proposal);
+                    }
                     _ => self.send_all(from, to, &bytes),
                 }
             }
             Role::Honest | Role::Invalid => self.send_all(from, to, &bytes),
         }
+    }
+
+    /// Sends [`FLOOD`] proposals for each view `leader` leads within the
+    /// views an engine takes ahead of its own, its current one included.
+    fn flood(&mut self, leader: usize, to: &[usize], proposal: &Proposal) {
+        let count = self.validators.len() as u64;
+        let first = proposal.block.view;
+        let index = ValidatorIndex::new(leader).unwrap();
+        let mut sent = 0u64;
+        for view in first..=first + crate::consensus::MAX_VIEWS_AHEAD {
+            if view % count != leader as u64 {
+                continue;
+            }
+            for at in 0..FLOOD {
+                let mut block = proposal.block.clone();
+                block.view = view;
+                block.height = u64::MAX - at;
+                block.parent_view = view - 1;
+                block.payload = at.to_be_bytes().to_vec();
+                let digest = block.digest(&hub());
+                let vote = Vote::sign(
+                    &hub(),
+                    &key(leader),
+                    index,
+                    VoteKind::Notarize,
+                    view,
+                    digest,
+                );
+                let bytes = Message::Proposal(Proposal {
+                    block,
+                    signature: vote.signature,
+                })
+                .to_vec();
+                self.send_all(leader, to, &bytes);
+                sent += 1;
+            }
+        }
+        self.trace
+            .push(format!("{} {leader} floods {sent} proposals", self.now));
     }
 
     /// Proposes `proposal` to one half of `to` and another block to the

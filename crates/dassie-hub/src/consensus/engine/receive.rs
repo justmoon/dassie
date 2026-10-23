@@ -6,6 +6,7 @@ use super::super::hooks::Application;
 use super::super::io::{Event, Evidence, PeerId, Recipient};
 use super::super::types::{Block, Certificate, Vote, VoteKind, verify_certificate};
 use super::super::wire::{Message, Proposal};
+use super::chain::Hold;
 use super::round::Proposed;
 use super::{Engine, MAX_VIEWS_AHEAD, MAX_VOTE_LOG};
 use crate::validators::Signers;
@@ -54,7 +55,7 @@ impl Engine {
         if vote.verify(&self.hub, self.epochs.for_view(view)).is_err() {
             return self.refuse();
         }
-        self.hold_block(proposal.block);
+        self.hold_block(proposal.block, Hold::Proposal);
         self.take_vote(vote);
         let now = self.now_ms;
         if let Some(round) = self.round_mut(view)
@@ -182,7 +183,7 @@ impl Engine {
             && block.view == view
             && block.digest(&self.hub) == certificate.block
         {
-            self.hold_block(block);
+            self.hold_block(block, Hold::Certified);
         }
         if !held {
             self.store_certificate(certificate, false);

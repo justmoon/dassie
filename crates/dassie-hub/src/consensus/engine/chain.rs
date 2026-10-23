@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 use super::super::hooks::Application;
 use super::super::io::{Event, Evidence, Recipient};
 use super::super::types::{Block, Certificate, Finalized, VoteKind};
-use super::{Engine, MAX_BLOCKS, MAX_VOTE_LOG, RETAINED_BLOCKS};
+use super::{BLOCKS_PER_VIEW, Engine, MAX_BLOCKS, MAX_VIEWS_AHEAD, MAX_VOTE_LOG, RETAINED_BLOCKS};
 use crate::digest::Digest;
 use crate::validators::Signers;
 
@@ -21,16 +21,60 @@ pub(super) enum Ancestry {
     Forks,
 }
 
+/// Why a block is held. Room is kept per view, so that no validator can
+/// crowd out another view's blocks: a faulty leader fills only its own
+/// views.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Hold {
+    /// The first proposal of its view: ours, the leader's first, or one we
+    /// voted for before a restart.
+    Proposal,
+    /// A block that a verified certificate names.
+    Certified,
+}
+
 impl Engine {
-    /// Holds a block above the tip, if there is room, and returns its
-    /// digest.
-    pub(super) fn hold_block(&mut self, block: Block) -> Digest {
+    /// Holds a block above the tip and returns its digest: the first
+    /// proposal of its view, or a block a certificate names, within
+    /// [`BLOCKS_PER_VIEW`] for its view. A block that could not extend the
+    /// tip, or of a view we hold no round for, is not held.
+    pub(super) fn hold_block(&mut self, block: Block, why: Hold) -> Digest {
         let digest = block.digest(&self.hub);
-        let room = self.blocks.len() < MAX_BLOCKS || self.blocks.contains_key(&digest);
-        if block.height > self.tip.block.height && block.view >= self.floor && room {
+        if self.blocks.contains_key(&digest) || !self.plausible(&block) {
+            return digest;
+        }
+        let view = block.view;
+        let Some(round) = self.round_mut(view) else {
+            return digest;
+        };
+        let first = round.proposal.is_none();
+        let held = self
+            .blocks
+            .values()
+            .filter(|held| held.view == view)
+            .count();
+        let admitted = match why {
+            Hold::Proposal => first,
+            Hold::Certified => true,
+        };
+        if admitted && held < BLOCKS_PER_VIEW {
             self.blocks.insert(digest, block);
         }
         digest
+    }
+
+    /// Whether `block` could extend the tip: in a view we may hold, above
+    /// the tip, built on an earlier view, and no higher than one block per
+    /// view since the tip allows.
+    fn plausible(&self, block: &Block) -> bool {
+        let tip = &self.tip.block;
+        let views = block.view.saturating_sub(tip.view);
+        let heights = block.height.saturating_sub(tip.height);
+        self.holds_view(block.view)
+            && block.view <= self.view.saturating_add(MAX_VIEWS_AHEAD)
+            && block.parent_view < block.view
+            && heights > 0
+            && heights <= views
     }
 
     /// How the block `digest`, of view `view`, relates to the tip.
@@ -215,7 +259,8 @@ impl Engine {
             self.vote_log.pop_front();
         }
         self.settled_conflicts.retain(|at| *at >= oldest);
-        self.blocks.retain(|_, block| block.height > height);
+        self.blocks
+            .retain(|_, block| block.height > height && block.view > view);
         self.finalize_heights.retain(|at, _| *at > height);
         if self.want.as_ref().is_some_and(|(want, _)| *want <= view) {
             self.want = None;

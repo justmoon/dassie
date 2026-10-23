@@ -50,10 +50,11 @@ fn setup(seed: u64) -> (SeededRng, Setup) {
             Role::Withhold,
             Role::Invalid,
             Role::Equivocate,
+            Role::Flood,
         ];
         let drawn = usize::try_from(rng.below(faults as u64 + 1)).unwrap_or(0);
         (0..drawn)
-            .map(|_| kinds[usize::try_from(rng.below(4)).unwrap_or(0)])
+            .map(|_| kinds[usize::try_from(rng.below(kinds.len() as u64)).unwrap_or(0)])
             .collect()
     };
     let roles = roles(count, &byzantine);

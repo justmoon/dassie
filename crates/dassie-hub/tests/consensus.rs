@@ -223,6 +223,71 @@ fn byzantine_leaders_cost_only_their_views() {
 }
 
 #[test]
+fn a_leader_flooding_proposals_crowds_out_no_honest_block() {
+    for count in [4, 7] {
+        let faulty = (count - 1) / 3;
+        let mut network = Network::new(9, &roles(count, &vec![Role::Flood; faulty]), CONFIG);
+        run_for(&mut network, 10_000);
+        assert_safe(&network);
+        assert!(network.honest_floor() >= 50, "{}", network.honest_floor());
+        assert!(network.trace.iter().any(|line| line.contains("floods")));
+        // Its second proposals of a view are evidence against it.
+        let named = network.honest().any(|i| {
+            network.validators[i]
+                .evidence
+                .iter()
+                .any(|evidence| evidence.culprits().contains(index(count - 1)))
+        });
+        assert!(named);
+    }
+}
+
+#[test]
+fn flooded_proposals_take_only_their_views_room() {
+    let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
+    let mut app = SimApp::default();
+    let mut engine = Engine::new(CONFIG, hub(), key(0), stored, START);
+    // Validator 1 leads views 1, 5, 9, 13 and 17, all within reach: a
+    // thousand proposals each, plausible and not.
+    for view in [1u64, 5, 9, 13, 17] {
+        for at in 0..1_000u64 {
+            let height = if at % 2 == 0 {
+                u64::MAX - at
+            } else {
+                1 + at % view
+            };
+            let block = dassie_hub::consensus::Block {
+                view,
+                height,
+                parent: Digest([u8::try_from(at % 251).unwrap(); 32]),
+                parent_view: view - 1,
+                timestamp_ms: START,
+                payload: at.to_be_bytes().to_vec(),
+            };
+            let digest = block.digest(&hub());
+            let vote = Vote::sign(&hub(), &key(1), index(1), VoteKind::Notarize, view, digest);
+            let bytes = Message::Proposal(Proposal {
+                block,
+                signature: vote.signature,
+            })
+            .to_vec();
+            engine.handle_message(START + 1, &mut app, PeerId(1), &bytes);
+        }
+    }
+    engine.check_invariants();
+    let _ = notarized(&mut engine);
+    // View 1 is nullified; view 2's leader proposes on genesis, and the
+    // block is held and notarized.
+    let nullification = certificate_of(VoteKind::Nullify, 1, Digest::default());
+    engine.handle_message(START + 3, &mut app, PeerId(3), &nullification);
+    assert_eq!(engine.view(), 2);
+    let honest = proposal_on(2, &genesis(), START + 5);
+    engine.handle_message(START + 6, &mut app, PeerId(2), &honest);
+    engine.check_invariants();
+    assert_eq!(notarized(&mut engine).len(), 1);
+}
+
+#[test]
 fn colluders_that_fork_are_named() {
     // n = 4, f = 1: two colluders sign two blocks of one view, each with
     // one honest validator.

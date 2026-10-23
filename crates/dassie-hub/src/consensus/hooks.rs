@@ -47,6 +47,9 @@ pub struct VerifyContext {
     /// The block's stamp, already checked against our clock and the
     /// parent's.
     pub timestamp_ms: u64,
+    /// The block's digest, by which the application keeps what it made of
+    /// it until it is final.
+    pub block: Digest,
 }
 
 /// What consensus needs from the application.

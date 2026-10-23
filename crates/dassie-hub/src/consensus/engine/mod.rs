@@ -27,6 +27,7 @@ use super::wire::Message;
 use crate::digest::Digest;
 use crate::validators::{MAX_VALIDATORS, ValidatorIndex, ValidatorSet};
 
+use chain::Hold;
 use round::Round;
 
 /// The most views held above the last finalized one. Beyond it, the lowest
@@ -38,8 +39,14 @@ pub const MAX_ROUNDS: usize = 256;
 /// taken from any view: they prove themselves.
 pub const MAX_VIEWS_AHEAD: u64 = 16;
 
-/// The most blocks held that are not final.
-pub const MAX_BLOCKS: usize = 2 * MAX_ROUNDS;
+/// The most blocks held for one view: its leader's first proposal, and the
+/// blocks of certificates that name others, of which there are two only if
+/// more than f validators are faulty. A faulty leader's other proposals are
+/// not held, so it fills only the room of its own views.
+pub const BLOCKS_PER_VIEW: usize = 3;
+
+/// The most blocks held that are not final: those of the views held.
+pub const MAX_BLOCKS: usize = BLOCKS_PER_VIEW * MAX_ROUNDS;
 
 /// The most finalized blocks kept, to serve catch-up and to record the
 /// votes for them (spec/designs/settlement-hubs.md#7-fees, "Who gets fees":
@@ -166,7 +173,7 @@ impl Engine {
             stats: Stats::default(),
         };
         for block in stored.blocks {
-            engine.hold_block(block);
+            engine.hold_block(block, Hold::Proposal);
         }
         for certificate in stored.certificates {
             if let Some(round) = engine.round_mut(certificate.view) {
@@ -507,9 +514,19 @@ impl Engine {
         }
         for block in self.blocks.values() {
             assert!(
-                block.height > self.tip.block.height,
+                block.height > self.tip.block.height && block.view > self.tip.block.view,
                 "blocks held are above the tip"
             );
+            assert!(
+                self.rounds.contains_key(&block.view),
+                "blocks held are of views held"
+            );
+        }
+        let mut per_view: BTreeMap<u64, usize> = BTreeMap::new();
+        for block in self.blocks.values() {
+            let count = per_view.entry(block.view).or_insert(0);
+            *count = count.saturating_add(1);
+            assert!(*count <= BLOCKS_PER_VIEW, "room for each view's blocks");
         }
         assert!(
             self.finalize_heights

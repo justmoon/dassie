@@ -16,7 +16,7 @@ use super::super::hooks::{Application, ProposeContext, VerifyContext};
 use super::super::io::{Event, Recipient};
 use super::super::types::{Block, MAX_PAYLOAD_BYTES, Vote, VoteKind};
 use super::super::wire::{Message, Proposal};
-use super::chain::Ancestry;
+use super::chain::{Ancestry, Hold};
 use super::round::Proposed;
 use super::{Engine, MAX_ROUNDS, Timers};
 use crate::digest::Digest;
@@ -199,7 +199,7 @@ impl Engine {
     fn broadcast_proposal(&mut self, block: Block) {
         let view = block.view;
         let height = block.height;
-        let digest = self.hold_block(block.clone());
+        let digest = self.hold_block(block.clone(), Hold::Proposal);
         let now = self.now_ms;
         if let Some(round) = self.round_mut(view) {
             round.proposal = Some(Proposed {
@@ -304,7 +304,7 @@ impl Engine {
         proposer: crate::validators::ValidatorIndex,
     ) -> Check {
         let Some(block) = self.blocks.get(&proposed.block) else {
-            // Not held for want of room: it cannot be checked.
+            // Not held: it could not extend the tip.
             return Check::Invalid;
         };
         let parent = match self.parent_of(block) {
@@ -335,6 +335,7 @@ impl Engine {
             parent: block.parent,
             height: block.height,
             timestamp_ms: block.timestamp_ms,
+            block: proposed.block,
         };
         if app.verify(&context, &block.payload) {
             Check::Valid
