@@ -247,7 +247,7 @@ impl Validator {
             timestamp: self.chain.ledger.timestamp(),
         };
         // What we no longer keep, we cannot vouch for: the member reads its
-        // state anew (spec/areas/hubs.md#the-members-side).
+        // state anew (spec/areas/hubs.md#the-validators-service).
         if from < self.complete_from {
             return alloc::vec![Statement::Trimmed {
                 height: self.chain.ledger.height(),

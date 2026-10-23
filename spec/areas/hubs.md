@@ -85,6 +85,16 @@ The `hub` simulation runs 4 to 7 validators over a network with loss, duplicatio
 
 A share of every fee goes to the reserve account; the rest waits in the pool of its block until the vote window has passed, and is then split equally among the validators whose votes for that block later blocks recorded (`ledger/fees.rs`). A block records each vote once, and only for blocks within the window. The time a validator's vote was last recorded also decides absence: a validator unrecorded for longer than the terms allow shuts the hub down.
 
+## The validator's service
+
+`service/` is one validator, without IO: consensus and the ledger together (`Validator`). A block's payload is the operations its mempool holds, deadlines first, and the votes for earlier blocks it recorded; a block is verified by executing it on a copy of the state and comparing the root. Members talk to it in self-authenticating messages (`client.rs`): requests, and statements the validator signs, which a member trusts once f + 1 validators signed them alike.
+
+- **What it answers.** It takes operations to submit, and answers for an account or a hold by key or number, for what touched an account since a height (`Since`), and for every hold an account pays into or takes from (`Holds`), each as of a final block.
+- **The contract it keeps for `Since`:** every executed operation that touches the account from the height asked, in order, then the newest final block it covered; an answer too long for one message stops before a block. A `Final` is its word that it sent everything up to it. What a block touched is worked out from the state before it, since an operation can change whose a hold is.
+- **Its history is bounded:** it keeps the recent blocks that touched any account (`KEPT_BLOCKS`), and answers a `Since` from further back with `Trimmed`, since it can no longer vouch for what happened there. A member then reads its state anew.
+- **What it pushes vouches for nothing:** statements it sends unasked carry no `Final`, so they never count toward what a member read up to a height.
+- **A snapshot of the ledger** (`ledger/snapshot.rs`) is its whole state as bytes; one taken from another validator is relied on only once its root is the one a certified block carries.
+
 ## Decisions
 
 - [settlement-hubs](../decisions/settlement-hubs.md): the hub as a whole.
