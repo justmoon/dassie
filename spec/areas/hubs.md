@@ -1,6 +1,6 @@
 # Settlement hubs
 
-What is built of [settlement hubs](../designs/settlement-hubs.md): the hub's rules and its ledger, the deterministic function that takes a hub from one block to the next, and its escrow on the XRP Ledger. Consensus, the member's scheme and the node's validator role are not built yet ([roadmap](../roadmap.md#settlement-hubs)); the design describes them.
+What is built of [settlement hubs](../designs/settlement-hubs.md): the hub's rules and its ledger, the deterministic function that takes a hub from one block to the next, Simplex consensus that orders its log, and its escrow on the XRP Ledger. The member's scheme and the node's validator role are not built yet ([roadmap](../roadmap.md#settlement-hubs)); the design describes them.
 
 **Paths:** `crates/dassie-hub/`
 **Read with:** [Settlement](settlement.md), [Encoding](encoding.md), [Identity](identity.md), [XRPL](xrpl.md)
@@ -48,6 +48,18 @@ Deposits, withdrawal outcomes, the escrow's setup and resets of the test network
 - **Validators' accounts are outside the bound on accounts,** which counts only accounts opened as members', so a change of validators never finds the table full; an account a validator joins with stays open, a payout that would have closed it a plain withdrawal.
 
 A reset writes off every balance, reserve, hold and pending payment, and keeps the accounts, which lock their reserve again from what they next receive. Only the testnet's network ID allows it ([ledger-resets](../decisions/ledger-resets.md)).
+
+## Consensus
+
+`consensus/` is Simplex (Chan and Pass), without IO and generic over a block's payload, which the ledger fills and checks through the `Application` hooks. Commonware's implementation is the reference and the source of its scenarios; nothing depends on it.
+
+- **What an honest validator signs.** It notarizes at most one block per view, and never one it nullified; it nullifies only its current view; it votes to finalize a block only if it neither nullified that view nor notarized another block in it, and only one block per height. So two conflicting votes, two certificates of one view, or two finalized blocks at one height name only validators that broke these rules: the evidence never blames an honest one.
+- **Never two conflicting votes, even across a crash.** Before it sends a step's messages, the host persists the step's batch: the view, every vote it signed above its last finalized block, the heights it voted to finalize, the blocks it notarized and the certificates it holds above it, and whether it declared the hub stalled. Certificates are kept so that a hub whose validators all restart at once can still skip the views they had nullified. A validator that declared a stall never votes again.
+- **Timing follows from the region.** Every duration derives from Δ, the region's one-way delay (`consensus/config.rs`): a timestamp is timely within twice Δ of a validator's clock, a block is proposed every interval and final three delays later, a silent leader's view is skipped after the interval and two delays. The hub's margin M is the precision, f skipped views, an interval and three delays. The values are never tuned for the simulation's sake.
+- **Leaders** take turns by view, view mod n of the set running that view. A new set takes over from the view after the one that finalizes the block before its first height.
+- **Catching up.** Peers keep the last 64 finalized blocks with their certificates; a validator further behind takes the state from a later certified block (the ledger's root proves it) and continues from there.
+
+The `hub` simulation runs 4 to 7 validators over a network with loss, duplication, slow links, partitions, crashes and clock skew, with up to f faulty ones (silent, withholding, proposing invalid payloads, equivocating) or, one run in ten, f + 1 colluding. It checks that honest validators never finalize different blocks at one height, that a fork always leaves evidence and that evidence never names an honest validator, and that blocks keep becoming final within production timings once the network heals.
 
 ## The escrow
 

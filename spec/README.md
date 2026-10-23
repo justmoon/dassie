@@ -21,7 +21,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | `crates/dassie-ledger` | [Ledger](areas/ledger.md) |
 | `crates/dassie-connector` | [Connector](areas/connector.md), [Ledger](areas/ledger.md) |
 | `crates/dassie-settlement` | [Settlement](areas/settlement.md), [Ledger](areas/ledger.md) |
-| `crates/dassie-hub` | [Settlement hubs](areas/hubs.md), [Settlement](areas/settlement.md), and `escrow/` [XRPL](areas/xrpl.md) |
+| `crates/dassie-hub` | [Settlement hubs](areas/hubs.md), [Settlement](areas/settlement.md), `escrow/` [XRPL](areas/xrpl.md), `sim/` [Testing](areas/testing.md#deterministic-simulation) |
 | `crates/dassie-xrpl` | [XRPL](areas/xrpl.md), [Settlement](areas/settlement.md) |
 | `crates/dassie-peer` | [Peer protocol](areas/peer-protocol.md), [Network](areas/network.md), [Settlement](areas/settlement.md) |
 | `crates/dassie-payments` | [Payments](areas/payments.md) |
