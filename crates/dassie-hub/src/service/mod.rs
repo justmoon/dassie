@@ -36,6 +36,9 @@ use wire::Message;
 /// The most members one validator pushes statements to.
 pub const MAX_SUBSCRIBERS: usize = 1024;
 
+/// The most members one validator pushes one account's statements to.
+pub const MAX_SUBSCRIBERS_PER_ACCOUNT: usize = 4;
+
 /// The most final blocks with operations a validator keeps to answer
 /// `Since`; blocks without any take no room.
 pub const KEPT_BLOCKS: usize = 4096;
@@ -77,7 +80,8 @@ pub struct Validator {
     engine: Engine,
     chain: Chain,
     sequence: u64,
-    subscribers: BTreeMap<PeerId, AccountNumber>,
+    /// Who gets pushes for which account, oldest first.
+    subscribers: VecDeque<(PeerId, AccountNumber)>,
     history: VecDeque<FinalBlock>,
     /// What the blocks in `history` hold, in bytes.
     history_bytes: usize,
@@ -139,7 +143,7 @@ impl Validator {
             engine,
             chain: Chain::new(ledger, tip),
             sequence: now,
-            subscribers: BTreeMap::new(),
+            subscribers: VecDeque::new(),
             history: VecDeque::new(),
             history_bytes: 0,
             complete_from: 1,
@@ -266,14 +270,29 @@ impl Validator {
                 account,
                 from: height,
             } => {
-                if self.subscribers.len() < MAX_SUBSCRIBERS || self.subscribers.contains_key(&from)
-                {
-                    self.subscribers.insert(from, account);
-                }
+                self.subscribe(from, account);
                 self.since(account, height)
             }
         };
         self.send_statements(from, statements);
+    }
+
+    /// Pushes to `peer` what touches `account` from now on, in place of
+    /// what it subscribed to before. The oldest subscription goes when the
+    /// account, or the validator, has too many: anyone may subscribe to any
+    /// account, and members reconnect, so none may lock others out.
+    fn subscribe(&mut self, peer: PeerId, account: AccountNumber) {
+        self.subscribers.retain(|(p, _)| *p != peer);
+        let of_account = self.subscribers.iter().filter(|(_, a)| *a == account);
+        if of_account.count() >= MAX_SUBSCRIBERS_PER_ACCOUNT
+            && let Some(oldest) = self.subscribers.iter().position(|(_, a)| *a == account)
+        {
+            self.subscribers.remove(oldest);
+        }
+        if self.subscribers.len() >= MAX_SUBSCRIBERS {
+            self.subscribers.pop_front();
+        }
+        self.subscribers.push_back((peer, account));
     }
 
     /// What was executed that touches `account` from `height` on, and the
@@ -420,8 +439,7 @@ impl Validator {
     /// everything up to the `Final` they end with
     /// (spec/areas/hubs.md#the-validators-service).
     fn publish(&mut self, block: &FinalBlock) {
-        let subscribers: Vec<(PeerId, AccountNumber)> =
-            self.subscribers.iter().map(|(p, a)| (*p, *a)).collect();
+        let subscribers: Vec<(PeerId, AccountNumber)> = self.subscribers.iter().copied().collect();
         for (peer, account) in subscribers {
             let statements: Vec<Statement> = touching(block, account).collect();
             if !statements.is_empty() {
@@ -506,7 +524,11 @@ impl Validator {
         self.engine.check_invariants();
         self.chain.check_invariants();
         assert!(
-            self.subscribers.len() <= MAX_SUBSCRIBERS,
+            self.subscribers.len() <= MAX_SUBSCRIBERS
+                && self.subscribers.iter().all(|(_, account)| {
+                    let of_account = self.subscribers.iter().filter(|(_, a)| a == account);
+                    of_account.count() <= MAX_SUBSCRIBERS_PER_ACCOUNT
+                }),
             "subscribers over their bound"
         );
         assert!(
@@ -668,11 +690,33 @@ mod tests {
     fn a_push_carries_no_final() {
         let mut v = validator();
         let member = PeerId(100);
-        v.subscribers.insert(member, AccountNumber(6));
+        v.subscribe(member, AccountNumber(6));
         v.publish(&block_of(2, 1));
         let statements: Vec<Statement> = sent(&mut v, member).into_iter().flatten().collect();
         assert_eq!(statements.len(), 1);
         assert!(matches!(statements[0], Statement::Executed { .. }));
+    }
+
+    #[test]
+    fn new_subscribers_push_out_the_oldest() {
+        let mut v = validator();
+        // Many reconnects to one account, and many accounts.
+        for peer in 0..10 {
+            v.subscribe(PeerId(peer), AccountNumber(6));
+        }
+        for peer in 10..2_000 {
+            v.subscribe(PeerId(peer), AccountNumber(u32::try_from(peer).unwrap()));
+        }
+        v.check_invariants();
+        let latecomer = PeerId(5_000);
+        v.subscribe(latecomer, AccountNumber(6));
+        v.publish(&block_of(2, 1));
+        assert_eq!(
+            sent(&mut v, latecomer).len(),
+            1,
+            "the latecomer gets pushes"
+        );
+        v.check_invariants();
     }
 
     #[test]
