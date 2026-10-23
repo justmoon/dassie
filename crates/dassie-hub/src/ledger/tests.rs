@@ -20,15 +20,15 @@ const START: Millis = 1_000_000;
 const OP_FEE: Amount = 10;
 
 /// A ledger, the validators' keys, and what the next block needs.
-struct Hub {
-    ledger: Ledger,
-    validators: Vec<NodeKey>,
+pub(crate) struct Hub {
+    pub(crate) ledger: Ledger,
+    pub(crate) validators: Vec<NodeKey>,
     sequence: u64,
     deposits: u8,
 }
 
 impl Hub {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::with(|_| {})
     }
 
@@ -145,7 +145,7 @@ impl Hub {
     }
 
     /// A member with `amount` deposited and a disbursal address set.
-    fn join(&mut self, seed: u8, amount: Amount) -> (AccountNumber, NodeKey) {
+    pub(crate) fn join(&mut self, seed: u8, amount: Amount) -> (AccountNumber, NodeKey) {
         let key = NodeKey::from_bytes(&[seed; 32]);
         self.deposit(0, Some(&key), amount);
         let number = self.ledger.account_of(&key.public_key()).unwrap();

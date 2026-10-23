@@ -238,10 +238,13 @@ impl Ledger {
                 .accounts
                 .get(&from)
                 .is_none_or(|a| a.paying >= limits.holds_per_account)
-            || self
-                .accounts
-                .get(&payee)
-                .is_none_or(|a| a.holds == u16::MAX);
+            // Each party counts the hold among its own, in a `u16`: the
+            // payer may already take part in as many as the payee.
+            || [from, payee].iter().any(|party| {
+                self.accounts
+                    .get(party)
+                    .is_none_or(|a| a.holds == u16::MAX)
+            });
         if full {
             return Err(Failure::Full);
         }
@@ -426,5 +429,29 @@ impl Ledger {
             account.balance = 0;
             account.reserve = 0;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ledger::tests::Hub;
+
+    // An account takes part in at most `u16::MAX` holds, as payer or payee:
+    // a payer whose count is full opens no more, whatever the payee's
+    // count, so the count never saturates and the ledger never asserts.
+    #[test]
+    fn a_payer_in_as_many_holds_as_it_counts_opens_no_more() {
+        let mut hub = Hub::new();
+        let (alice, _) = hub.join(1, 10_000_000);
+        let (bob, _) = hub.join(2, 10_000_000);
+        if let Some(account) = hub.ledger.accounts.get_mut(&alice) {
+            account.holds = u16::MAX;
+        }
+        assert_eq!(hub.ledger.hold_open(alice, bob, 1_000), Err(Failure::Full));
+        assert_eq!(
+            hub.ledger.accounts.get(&alice).map(|a| a.holds),
+            Some(u16::MAX)
+        );
     }
 }
