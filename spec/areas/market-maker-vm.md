@@ -35,7 +35,7 @@ The VM runs signed releases only, checked as an owner's install checks them ([re
 
 ## Settings
 
-The target, its node ID, the trade sizes, the bands, the margin and the slippage are instance metadata, each with a default in `startup.sh`, which writes them for the units at every boot. The defaults are starting points. The XRP band's top is below what the testnet faucet grants a new account, so the market maker's first rebalance buys DSUSD into its DSUSD node from the XRP node's surplus, and the VM needs no DSUSD bought by hand.
+The target, its node ID, the trade sizes, the bands, the margin and the slippage are instance metadata, each with a default in `startup.sh`, which writes them for the units at every boot. The defaults are starting points. The XRP band's top is below what the testnet faucet grants a new account, so the market maker's first rebalance buys DSUSD into its DSUSD node from the XRP node's surplus, and the VM needs no DSUSD bought by hand. It is also above what the XRP node keeps once that rebalance has filled the DSUSD band: the two bands together hold the whole grant, so neither node starts above its band with the other full.
 
 The units and the scripts come from `main` at every boot; `startup.sh` itself comes from the instance metadata, as for the [DSUSD keeper](dsusd-keeper.md#its-vm). So a change to a setting, a unit or a script takes effect when the VM is reset, and a change to `startup.sh` once it is put in the metadata too.
 
