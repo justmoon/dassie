@@ -75,6 +75,19 @@ pub(super) struct Peer {
     pub(super) payee: Payee,
 }
 
+impl Peer {
+    /// Whether its records hold anything not yet settled: a hold with funds
+    /// either way, a packet of ours in flight or waiting for the hub, or a
+    /// packet of its in flight or fulfilled that no claim covers yet.
+    pub(super) fn unresolved(&self) -> bool {
+        let ours = (self.payer.hold.is_some() && self.payer.snapshot.amount > 0)
+            || self.payer.has_open_packets();
+        let theirs = (self.payee.hold.is_some() && self.payee.snapshot.amount > 0)
+            || self.payee.has_unclaimed();
+        ours || theirs
+    }
+}
+
 /// A settlement of ours not yet applied.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Settling {
@@ -717,6 +730,23 @@ impl HubScheme {
     fn peer(&mut self, name: Name) -> Option<&mut Peer> {
         self.peers.get_mut(&name)
     }
+
+    /// Whether `peer` may peer as `membership`: as it did before, or, once
+    /// nothing of its old membership is left to settle, as another. A peer
+    /// that came back with another account would leave behind what we
+    /// fulfilled and never claimed; with another key, it would have us
+    /// take promises the hub refuses.
+    fn may_peer(&self, peer: Name, membership: &Membership) -> Result<(), SchemeError> {
+        match self.peers.get(&peer) {
+            Some(known)
+                if (known.account != membership.account || known.key != membership.key)
+                    && known.unresolved() =>
+            {
+                Err(SchemeError::Unavailable)
+            }
+            _ => Ok(()),
+        }
+    }
 }
 
 impl SettlementScheme for HubScheme {
@@ -826,21 +856,23 @@ impl SettlementScheme for HubScheme {
         data: &[u8],
         response: &mut Vec<u8>,
     ) -> Result<Vec<u8>, SchemeError> {
-        Membership::read(data, &self.hub)?;
+        let membership = Membership::read(data, &self.hub)?;
         if !self.peers.contains_key(&peer) && self.peers.len() >= MAX_PEERS {
             return Err(SchemeError::Unavailable);
         }
+        self.may_peer(peer, &membership)?;
         response.clear();
         Ok(data.to_vec())
     }
 
     fn finalize_peering_request(
         &mut self,
-        _peer: Name,
+        peer: Name,
         peering_info: &[u8],
         _data: &[u8],
     ) -> Result<Vec<u8>, SchemeError> {
-        Membership::read(peering_info, &self.hub)?;
+        let membership = Membership::read(peering_info, &self.hub)?;
+        self.may_peer(peer, &membership)?;
         Ok(peering_info.to_vec())
     }
 
@@ -851,9 +883,14 @@ impl SettlementScheme for HubScheme {
             return;
         };
         if let Some(known) = self.peers.get_mut(&peer) {
-            // Peered again: its holds stay, and so do our records of them.
-            if known.account == membership.account {
-                known.key = membership.key;
+            if known.account == membership.account && known.key == membership.key {
+                // Peered again as before: its holds stay, and so do our
+                // records of them.
+                return;
+            }
+            if known.unresolved() {
+                // Refused when the peering was made; anything that came up
+                // since keeps the old records until it is resolved.
                 return;
             }
         }

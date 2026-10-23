@@ -1461,3 +1461,50 @@ fn a_hold_opened_again_starts_its_records_anew() {
     assert_eq!(hold.amount, 2 * XRP - 3 * P / 1_000);
     assert!(world.members[a].books.losses.is_empty());
 }
+
+/// A peer that comes back with another key for its account, or another
+/// account, is refused while anything of its old membership is unsettled:
+/// here, a hold with funds and packets fulfilled that no claim covers.
+#[test]
+fn peering_again_as_another_waits_for_the_old_to_settle() {
+    let (mut world, a, b) = World::pair([Fault::Honest; 4], 2);
+    for request_id in 1..=2 {
+        world.prepare((a, b), request_id, P, 10_000).unwrap();
+        world.fulfill((a, b), request_id, true, false);
+    }
+    let hub = *world.validators.ledger.hub();
+    let membership = |account: AccountNumber, key: PublicKey| {
+        [
+            hub.0.as_bytes().as_slice(),
+            &account.0.to_be_bytes(),
+            key.as_bytes(),
+        ]
+        .concat()
+    };
+    let name_a = world.members[a].name;
+    let other_key = NodeKey::from_bytes(&[77; 32]).public_key();
+    let own_key = world.members[a].key.public_key();
+    let mut out = Vec::new();
+    for bytes in [
+        membership(world.number(a), other_key),
+        membership(AccountNumber(99), own_key),
+    ] {
+        let scheme = &mut world.members[b].scheme;
+        assert_eq!(
+            scheme.accept_peering_request(name_a, &bytes, &mut out),
+            Err(SchemeError::Unavailable)
+        );
+        assert_eq!(
+            scheme.finalize_peering_request(name_a, &bytes, &[]),
+            Err(SchemeError::Unavailable)
+        );
+    }
+    // As before, it may.
+    let same = membership(world.number(a), own_key);
+    assert!(
+        world.members[b]
+            .scheme
+            .accept_peering_request(name_a, &same, &mut out)
+            .is_ok()
+    );
+}

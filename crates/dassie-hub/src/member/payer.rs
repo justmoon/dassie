@@ -144,6 +144,11 @@ impl Payer {
         }
     }
 
+    /// Whether a packet of ours is in flight or waits for the hub.
+    pub(super) fn has_open_packets(&self) -> bool {
+        self.packets.values().any(|packet| !packet.state.resolved())
+    }
+
     /// T of our claims, in drops.
     pub(super) fn total(&self) -> Amount {
         Amount::try_from(self.through_units / u128::from(UNITS_PER_DROP)).unwrap_or(Amount::MAX)

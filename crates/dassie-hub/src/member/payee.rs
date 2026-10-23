@@ -112,6 +112,16 @@ impl Payee {
         self.accepted.map_or(0, |claim| claim.value.through)
     }
 
+    /// Whether a packet of the payer's is in flight through us, or was
+    /// fulfilled and neither a claim of its nor the hub paid it yet.
+    pub(super) fn has_unclaimed(&self) -> bool {
+        self.taken.values().any(|taken| {
+            taken
+                .done
+                .is_none_or(|done| matches!(done.claiming, Claiming::No | Claiming::Submitted))
+        })
+    }
+
     /// Packets its claims left uncovered.
     pub(super) fn missing(&self) -> usize {
         self.taken.values().filter(|t| t.done.is_some()).count()

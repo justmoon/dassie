@@ -459,6 +459,38 @@ fn the_queue_is_bounded_and_waits_for_the_account() {
     account.check_invariants();
 }
 
+// A peer that comes back with another key, with nothing left to settle,
+// starts afresh: the hub has not confirmed the new key.
+#[test]
+fn a_new_key_is_confirmed_anew() {
+    let hub = Hub::new();
+    let account = hub.account();
+    let mut scheme = HubScheme::new(&account, 100_000_000, None, &[]).unwrap();
+    let peer = Name::new("peer").unwrap();
+    let state = |key: &NodeKey| {
+        let mut out = Vec::new();
+        peering::Membership {
+            hub: hub.rules.id(),
+            account: AccountNumber(9),
+            key: key.public_key(),
+        }
+        .write(&mut out);
+        out
+    };
+    scheme.on_peered(peer, &state(&NodeKey::from_bytes(&[9; 32])));
+    scheme.peers.get_mut(&peer).unwrap().payee.key_confirmed = true;
+    let other = state(&NodeKey::from_bytes(&[10; 32]));
+    let mut out = Vec::new();
+    scheme
+        .accept_peering_request(peer, &other, &mut out)
+        .unwrap();
+    scheme.on_peered(peer, &other);
+    let known = &scheme.peers[&peer];
+    assert_eq!(known.key, NodeKey::from_bytes(&[10; 32]).public_key());
+    assert!(!known.payee.key_confirmed);
+    scheme.check_invariants();
+}
+
 #[test]
 fn the_scheme_books_nothing_on_its_own() {
     let hub = Hub::new();
