@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 
 use super::types::{Block, Vote};
 use crate::digest::Digest;
-use crate::validators::ValidatorIndex;
+use crate::validators::{ValidatorIndex, ValidatorSet};
 
 /// The application has no payload to give.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,4 +76,16 @@ pub trait Application {
     /// persists what the application did with it in the same batch as the
     /// engine's.
     fn finalized(&mut self, block: &Block, digest: &Digest);
+
+    /// The change of validators the block just [`finalized`](Self::finalized)
+    /// scheduled, if any: the height the new set takes over at, and the set
+    /// (spec/designs/settlement-hubs.md#8-changing-the-validators). The
+    /// engine asks after every finalized block and takes the change in
+    /// before it finalizes the next, so no catch-up can pass the boundary
+    /// before the change is known. The height must be at least two above
+    /// the block; [`Engine::reconfigure`](super::Engine::reconfigure) does
+    /// the same for a host that learns of a change otherwise.
+    fn reconfiguration(&mut self) -> Option<(u64, ValidatorSet)> {
+        None
+    }
 }

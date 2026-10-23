@@ -222,6 +222,15 @@ impl Engine {
             self.history.pop_front();
         }
         self.prune();
+        // Taken in before the next block is final, in the same step, so a
+        // catch-up that finalizes the block scheduling a change and the
+        // block before its boundary at once cannot miss it.
+        if let Some((from_height, set)) = app.reconfiguration() {
+            match self.epochs.reconfigure(from_height, set, height) {
+                Ok(()) => self.batch.epochs = Some(self.epochs.to_vec()),
+                Err(error) => self.event(Event::ReconfigureRefused(error)),
+            }
+        }
         if let Some((from_height, from_view)) = self.epochs.finalized(height, view) {
             self.take_over(from_height, from_view);
         }
@@ -288,7 +297,9 @@ impl Engine {
                 round.reset(leader, own);
             }
         }
-        if self.view > from_view {
+        // Entered again even when we are in it already: its leader and its
+        // timers were those of the old set, which we may not have been in.
+        if self.view >= from_view {
             self.enter(from_view);
         }
     }

@@ -17,9 +17,10 @@ use alloc::vec::Vec;
 
 use dassie_node_core::testing::{Outcome, Run, SeededRng};
 
-use super::{Faults, Network, Role, START, roles};
+use super::{Faults, Network, Role, START, Schedule, key, roles, set};
 use crate::consensus::Config;
 use crate::consensus::wire::MAX_DELIVERED_BLOCKS;
+use crate::validators::ValidatorSet;
 
 /// The production settings: nothing is scaled down.
 const CONFIG: Config = Config::DEFAULT;
@@ -35,7 +36,16 @@ const LIVE_BLOCKS: u64 = 3;
 struct Setup {
     roles: Vec<Role>,
     collusion: bool,
+    /// Whether one more validator follows the hub from the start, and
+    /// replaces validator 0 at [`RECONFIGURE_FROM`].
+    reconfigure: bool,
 }
+
+/// The block that schedules a change of validators, in seeds that draw one.
+const RECONFIGURE_AT: u64 = 30;
+
+/// The height the new set takes over at.
+const RECONFIGURE_FROM: u64 = 60;
 
 fn setup(seed: u64) -> (SeededRng, Setup) {
     let mut rng = SeededRng::new(seed ^ 0x6875_625f_7369_6d00);
@@ -57,8 +67,19 @@ fn setup(seed: u64) -> (SeededRng, Setup) {
             .map(|_| kinds[usize::try_from(rng.below(kinds.len() as u64)).unwrap_or(0)])
             .collect()
     };
-    let roles = roles(count, &byzantine);
-    (rng, Setup { roles, collusion })
+    let mut roles = roles(count, &byzantine);
+    let reconfigure = rng.below(3) == 0;
+    if reconfigure {
+        roles.push(Role::Honest);
+    }
+    (
+        rng,
+        Setup {
+            roles,
+            collusion,
+            reconfigure,
+        },
+    )
 }
 
 /// What the seed draws, before the run starts.
@@ -70,7 +91,15 @@ pub fn describe(seed: u64) -> String {
         .iter()
         .filter(|role| !role.is_honest())
         .collect();
-    format!("{} validators, Byzantine: {byzantine:?}", setup.roles.len())
+    if setup.reconfigure {
+        let count = setup.roles.len() - 1;
+        format!(
+            "{count} validators, Byzantine: {byzantine:?}, validator {count} replacing 0 \
+             from height {RECONFIGURE_FROM}"
+        )
+    } else {
+        format!("{} validators, Byzantine: {byzantine:?}", setup.roles.len())
+    }
 }
 
 /// The longest blocks may take to finalize again after the heal, from the
@@ -88,7 +117,7 @@ fn heal_deadline(count: u64, behind: u64) -> u64 {
 #[must_use]
 pub fn run(seed: u64) -> Run {
     let (mut rng, setup) = setup(seed);
-    let mut network = Network::new(seed, &setup.roles, CONFIG);
+    let mut network = network(seed, &setup);
     let mut counts = alloc::collections::BTreeMap::new();
     let mut at = START;
     while at < START + CHAOS_MS {
@@ -121,11 +150,38 @@ pub fn run(seed: u64) -> Run {
     if network.disagreement().is_some() {
         counts.insert("fork", 1);
     }
+    if setup.reconfigure && network.honest_floor() >= RECONFIGURE_FROM {
+        counts.insert("reconfigured", 1);
+    }
     if network.state_loads > 0 {
         counts.insert("state-load", network.state_loads);
     }
     run.counts = counts;
     run
+}
+
+/// The run's network: with a change of validators scheduled, validator
+/// `count` follows the hub and replaces validator 0, keeping the others'
+/// places in the set, so that evidence names the same validators.
+fn network(seed: u64, setup: &Setup) -> Network {
+    if !setup.reconfigure {
+        return Network::new(seed, &setup.roles, CONFIG);
+    }
+    let count = setup.roles.len() - 1;
+    let mut network = Network::with_genesis(seed, &setup.roles, CONFIG, count);
+    let keys = core::iter::once(count)
+        .chain(1..count)
+        .map(|index| key(index).public_key())
+        .collect();
+    let set = ValidatorSet::new(keys).unwrap_or_else(|| set(0..count));
+    for sim in &mut network.validators {
+        sim.app.schedule = Some(Schedule {
+            at: RECONFIGURE_AT,
+            from: RECONFIGURE_FROM,
+            set: set.clone(),
+        });
+    }
+    network
 }
 
 /// One stroke of chaos, and its name.
@@ -169,6 +225,22 @@ fn chaos(network: &mut Network, rng: &mut SeededRng) -> &'static str {
     }
 }
 
+/// Whether every honest validator past the boundary of a scheduled change
+/// runs the new set there: a problem if one does not.
+fn reconfigured(network: &Network, setup: &Setup) -> Option<String> {
+    if !setup.reconfigure {
+        return None;
+    }
+    network.honest().find_map(|index| {
+        let schedule = network.validators[index].app.schedule.as_ref()?;
+        let engine = network.validators[index].engine.as_ref()?;
+        let past = engine.tip().block.height >= RECONFIGURE_FROM;
+        (past && engine.set_for_height(RECONFIGURE_FROM) != &schedule.set).then(|| {
+            format!("validator {index} is past height {RECONFIGURE_FROM} with the old set")
+        })
+    })
+}
+
 fn check(network: &Network, setup: &Setup, top: u64) -> Outcome {
     if let Some(problem) = network.blamed_honest() {
         return Outcome::safety("blameless", problem);
@@ -184,6 +256,9 @@ fn check(network: &Network, setup: &Setup, top: u64) -> Outcome {
     }
     if let Some(problem) = disagreement {
         return Outcome::safety("agreement", problem);
+    }
+    if let Some(problem) = reconfigured(network, setup) {
+        return Outcome::safety("reconfigured", problem);
     }
     for index in network.honest() {
         let height = network.height(index);

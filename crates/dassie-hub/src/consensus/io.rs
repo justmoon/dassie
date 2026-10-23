@@ -126,13 +126,21 @@ pub enum Event {
     /// Validators broke the rules.
     Evidence(Box<Evidence>),
     /// A finalized block above our chain that we cannot connect to it from
-    /// what peers keep: the host loads the state after it from a validator
-    /// or member, checks it against the block's state root
-    /// (spec/designs/settlement-hubs.md#9-shutdown, "The state"), and then
-    /// calls [`Engine::jump`](super::Engine::jump) with it.
+    /// what peers keep, or whose finalization we cannot check with the
+    /// validator sets we know: the host loads the state after it from a
+    /// validator or member, checks it against the block's state root
+    /// (spec/designs/settlement-hubs.md#9-shutdown, "The state"), takes in
+    /// any change of validators the state names
+    /// ([`Engine::reconfigure`](super::Engine::reconfigure)), and then calls
+    /// [`Engine::jump`](super::Engine::jump), which checks the
+    /// finalization. Until then nothing about it is checked, so anyone can
+    /// cause one: the host bounds how often it loads a state.
     Behind(Box<Finalized>),
     /// We declared the hub stalled, and never vote in it again.
     Stalled,
+    /// The application scheduled a change of validators the engine could
+    /// not take in: another is waiting, or its height is too close.
+    ReconfigureRefused(super::epochs::ReconfigureError),
     /// A new validator set took over.
     Reconfigured {
         /// The first height it certifies.

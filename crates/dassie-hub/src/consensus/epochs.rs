@@ -125,17 +125,19 @@ impl Epochs {
     }
 
     /// Block `height` is final at `view`: a set waiting for it takes over
-    /// from the next view. Returns the first height and view of the set
-    /// that took over, if one did.
+    /// from the next view. So does one whose boundary it passed, as after
+    /// loading the state of a later block: the views between are below the
+    /// tip, and never read again. Returns the first height and view of the
+    /// set that took over, if one did.
     pub fn finalized(&mut self, height: u64, view: u64) -> Option<(u64, u64)> {
         let next = height.saturating_add(1);
         let epoch = self
             .later
             .iter_mut()
-            .find(|epoch| epoch.from_view.is_none() && epoch.from_height == next)?;
+            .find(|epoch| epoch.from_view.is_none() && epoch.from_height <= next)?;
         let from_view = view.saturating_add(1);
         epoch.from_view = Some(from_view);
-        Some((next, from_view))
+        Some((epoch.from_height, from_view))
     }
 }
 

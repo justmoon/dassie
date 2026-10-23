@@ -41,10 +41,11 @@ use crate::validators::{Signers, ValidatorIndex, ValidatorSet};
 /// When every simulation starts, on the network's clock.
 pub const START: u64 = 1_800_000_000_000;
 
-/// How many proposals a flooding leader sends for each view it leads:
-/// more than all the room for blocks an engine had before room was kept
-/// per view.
-const FLOOD: u64 = 600;
+/// How many proposals a flooding leader sends for each view it leads
+/// within reach: with a few such views each time it leads, more than all
+/// the room for blocks an engine had before room was kept per view, while
+/// each costs every validator a signature check.
+const FLOOD: u64 = 160;
 
 /// The marker of a payload no honest validator accepts.
 const INVALID: u8 = 0xff;
@@ -124,6 +125,22 @@ pub struct SimApp {
     pub finalized: BTreeMap<u64, Digest>,
     /// The votes the last proposal could record.
     pub votes_offered: usize,
+    /// A change of validators the chain schedules, as its ledger would: at
+    /// the block of this height, a set taking over at a later one.
+    pub schedule: Option<Schedule>,
+    /// The change the last finalized block scheduled, for the engine.
+    scheduled: Option<(u64, ValidatorSet)>,
+}
+
+/// A change of validators a chain schedules.
+#[derive(Clone, Debug)]
+pub struct Schedule {
+    /// The height of the block that schedules it.
+    pub at: u64,
+    /// The height the new set takes over at.
+    pub from: u64,
+    /// The new set.
+    pub set: ValidatorSet,
 }
 
 impl Application for SimApp {
@@ -151,6 +168,13 @@ impl Application for SimApp {
             .map_or(1, |(height, _)| height + 1);
         assert_eq!(block.height, expected, "blocks are finalized in order");
         self.finalized.insert(block.height, *digest);
+        if let Some(schedule) = self.schedule.as_ref().filter(|s| s.at == block.height) {
+            self.scheduled = Some((schedule.from, schedule.set.clone()));
+        }
+    }
+
+    fn reconfiguration(&mut self) -> Option<(u64, ValidatorSet)> {
+        self.scheduled.take()
     }
 }
 
@@ -515,6 +539,13 @@ impl Network {
         ));
         let mut jumped = false;
         self.act(index, |engine, app, now| {
+            // The state after the block says which validators it has: a
+            // change scheduled in the blocks skipped is taken in first.
+            if let Some(schedule) = app.schedule.as_ref().filter(|s| s.at <= height)
+                && engine.set_for_height(schedule.from) != &schedule.set
+            {
+                let _ = engine.reconfigure(now, schedule.from, schedule.set.clone());
+            }
             if engine.jump(now, finalized).is_ok() {
                 app.finalized.insert(height, digest);
                 jumped = true;

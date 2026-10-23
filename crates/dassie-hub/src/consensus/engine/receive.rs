@@ -16,9 +16,11 @@ impl Engine {
         match message {
             Message::Proposal(proposal) => self.on_proposal(from, proposal),
             Message::Vote(vote) => self.on_vote(vote),
-            Message::Certificate(certificate) => self.on_certificate(certificate, None),
+            Message::Certificate(certificate) => {
+                self.on_certificate(certificate, None, from);
+            }
             Message::Fetch(fetch) => self.on_fetch(from, fetch),
-            Message::Delivery(delivery) => self.on_delivery(app, delivery),
+            Message::Delivery(delivery) => self.on_delivery(app, from, delivery),
         }
     }
 
@@ -165,7 +167,12 @@ impl Engine {
     }
 
     /// Takes a certificate, with its block if one came with it.
-    pub(super) fn on_certificate(&mut self, certificate: Certificate, block: Option<Block>) {
+    pub(super) fn on_certificate(
+        &mut self,
+        certificate: Certificate,
+        block: Option<Block>,
+        from: PeerId,
+    ) {
         let view = certificate.view;
         if !self.holds_view(view) {
             return self.check_settled(&certificate, block.as_ref());
@@ -177,6 +184,13 @@ impl Engine {
             .is_some_and(|held| held.block == certificate.block);
         if !held && verify_certificate(&self.hub, self.epochs.for_view(view), &certificate).is_err()
         {
+            // Of a view ahead of ours, it may be a set we do not know yet
+            // that signed it: we are behind a change of validators, and
+            // ask its sender for what we lack (at most once per fetch
+            // interval, whoever sends such certificates).
+            if view > self.view {
+                self.want(self.view, Recipient::Peer(from));
+            }
             return self.refuse();
         }
         if let Some(block) = block

@@ -661,6 +661,44 @@ fn a_new_validator_set_takes_over_at_a_height() {
 }
 
 #[test]
+fn a_change_the_chain_schedules_is_taken_even_by_one_far_behind() {
+    // The block at height 20 schedules validator 4 to replace 0, from a
+    // height further than a delivery of blocks, and from one closer;
+    // validator 3 is cut off from before 20 until well past both, so it
+    // learns of the change and its boundary at once.
+    for from in [40, 25] {
+        let mut network = Network::with_genesis(8, &roles(5, &[]), CONFIG, 4);
+        let next = dassie_hub::ValidatorSet::new(
+            [4, 1, 2, 3]
+                .iter()
+                .map(|at| key(*at).public_key())
+                .collect(),
+        )
+        .unwrap();
+        for sim in &mut network.validators {
+            sim.app.schedule = Some(dassie_hub::sim::Schedule {
+                at: 20,
+                from,
+                set: next.clone(),
+            });
+        }
+        run_for(&mut network, 1_000);
+        assert!(network.height(3) < 20);
+        network.partition(&[3]);
+        run_for(&mut network, 5_000);
+        assert!(network.height(1) > 45);
+        network.heal();
+        run_for(&mut network, 3_000);
+        assert_safe(&network);
+        for index in 0..5 {
+            let height = network.height(index);
+            assert!(height > 50, "from {from}, validator {index}: {height}");
+            assert_eq!(network.engine(index).set_for_height(from), &next);
+        }
+    }
+}
+
+#[test]
 fn members_check_certificates_alone() {
     let mut network = honest(4);
     run_for(&mut network, 1_000);

@@ -129,12 +129,17 @@ impl Engine {
     }
 
     /// Takes in a delivery: its finalized blocks, then its certificates.
-    pub(super) fn on_delivery(&mut self, app: &mut dyn Application, delivery: Delivery) {
+    pub(super) fn on_delivery(
+        &mut self,
+        app: &mut dyn Application,
+        from: PeerId,
+        delivery: Delivery,
+    ) {
         if let Some(finalization) = &delivery.finalization {
             self.take_finalized(app, &delivery.finalized, finalization);
         }
         for certified in delivery.certified {
-            self.on_certificate(certified.certificate, certified.block);
+            self.on_certificate(certified.certificate, certified.block, from);
         }
     }
 
@@ -198,24 +203,33 @@ impl Engine {
         blocks: &[Block],
         finalization: &Certificate,
     ) {
-        let Some(digests) = self.linked(blocks, finalization) else {
-            return self.refuse();
-        };
         let (Some(first), Some(last)) = (blocks.first(), blocks.last()) else {
             return;
         };
-        if last.height <= self.tip.block.height {
+        let Some(digests) = self.chained(blocks, finalization) else {
+            return self.refuse();
+        };
+        // Beyond what we can connect, or signed by a set we do not know yet
+        // (a change scheduled within the blocks delivered, closer than a
+        // delivery): the host loads the state after it, and checks its
+        // certificate with the validator sets that state names.
+        let set = self.epochs.for_height(last.height);
+        let gap = first.height > self.tip.block.height.saturating_add(1);
+        let above = last.height > self.tip.block.height;
+        if gap || (above && verify_certificate(&self.hub, set, finalization).is_err()) {
+            self.event(Event::Behind(Box::new(Finalized {
+                block: last.clone(),
+                finalization: Some(finalization.clone()),
+            })));
+            return;
+        }
+        if !above {
+            if verify_certificate(&self.hub, set, finalization).is_err() {
+                return self.refuse();
+            }
             return self.check_finalized(last, finalization);
         }
-        if first.height != self.tip.block.height.saturating_add(1)
-            || first.parent != self.tip_digest
-        {
-            if first.height > self.tip.block.height.saturating_add(1) {
-                self.event(Event::Behind(Box::new(Finalized {
-                    block: last.clone(),
-                    finalization: Some(finalization.clone()),
-                })));
-            }
+        if first.parent != self.tip_digest {
             return;
         }
         let count = blocks.len();
@@ -229,6 +243,15 @@ impl Engine {
     /// proves: each the parent of the next, and the last finalized by the
     /// set of its height.
     fn linked(&self, blocks: &[Block], finalization: &Certificate) -> Option<Vec<Digest>> {
+        let digests = self.chained(blocks, finalization)?;
+        let set = self.epochs.for_height(blocks.last()?.height);
+        verify_certificate(&self.hub, set, finalization).ok()?;
+        Some(digests)
+    }
+
+    /// The digests of `blocks` if each is the parent of the next and
+    /// `finalization` names the last, whoever signed it.
+    fn chained(&self, blocks: &[Block], finalization: &Certificate) -> Option<Vec<Digest>> {
         let last = blocks.last()?;
         let digests: Vec<Digest> = blocks.iter().map(|block| block.digest(&self.hub)).collect();
         let chained = blocks.iter().zip(blocks.iter().skip(1)).zip(&digests).all(
@@ -241,11 +264,6 @@ impl Engine {
         let proven = finalization.kind == VoteKind::Finalize
             && finalization.view == last.view
             && digests.last() == Some(&finalization.block);
-        if !chained || !proven {
-            return None;
-        }
-        let set = self.epochs.for_height(last.height);
-        verify_certificate(&self.hub, set, finalization).ok()?;
-        Some(digests)
+        (chained && proven).then_some(digests)
     }
 }
