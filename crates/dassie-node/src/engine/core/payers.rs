@@ -106,6 +106,9 @@ pub(super) struct Unfinished {
     stream: Option<u64>,
     /// Its packets in flight.
     in_flight: u32,
+    /// The most its receiver said it received, over its connections since
+    /// the node started.
+    delivered: u64,
     /// Why it stops, once it does: it fails once nothing is in flight.
     stopping: Option<String>,
     /// Why its connection closed before it was done, if it did.
@@ -228,6 +231,7 @@ impl Core {
                     connection: None,
                     stream: None,
                     in_flight: 0,
+                    delivered: 0,
                     stopping: None,
                     closed: None,
                     receiver_full: false,
@@ -257,6 +261,13 @@ impl Core {
             Some((grant, limits)) => Some(self.reserve(*grant, limits, &new, now)?),
             None => None,
         };
+        // Under a receive limit a payment fixes what it delivers, so it
+        // delivers no more than it reserved, though it fixed its debit
+        // (spec/decisions/receive-limit-caps-delivery.md).
+        let receive_limited = new
+            .grant
+            .as_ref()
+            .is_some_and(|(_, limits)| limits.receive_amount.is_some());
         let row = OutgoingRow {
             id: self.new_payment_id(),
             ledger: new.ledger,
@@ -277,7 +288,7 @@ impl Core {
             deadline_ms: now + OUTGOING_DEADLINE_MS,
             finished_at_ms: None,
             recipient: new.recipient,
-            fixed_debit: new.fixed_debit,
+            fixed_debit: new.fixed_debit && !receive_limited,
         };
         self.batch.outgoing.created.push(row.clone());
         self.spending.waiting.insert((now, row.id));
@@ -289,6 +300,7 @@ impl Core {
                 connection: None,
                 stream: None,
                 in_flight: 0,
+                delivered: 0,
                 stopping: None,
                 closed: None,
                 receiver_full: false,
@@ -533,10 +545,18 @@ impl Core {
         // no room before it took that is asked why, even when another
         // payment took from it before this connection first heard its
         // maximum, rather than waited on until the idle timeout.
+        // One that fixes what it delivers delivers no more, as the
+        // receiver counts it.
         let expected = payment.row.receive_amount.value;
+        let cap = if payment.row.fixed_debit {
+            u64::MAX
+        } else {
+            expected
+        };
         payment.stream = connection.open_stream().ok().filter(|stream| {
             connection.set_send_max(*stream, left).is_ok()
                 && connection.set_expected_delivery(*stream, expected).is_ok()
+                && connection.set_delivery_max(*stream, cap).is_ok()
         });
         payment.base_sent = payment.row.sent_amount;
         payment.connection = Some(connection);
@@ -705,6 +725,11 @@ impl Core {
             .and_then(|stream| payment.connection.as_ref()?.stream(stream));
         let sent = payment.base_sent + stream.map_or(0, dassie_stream::Stream::total_sent);
         let delivered = stream.map_or(0, dassie_stream::Stream::remote_received);
+        payment.delivered = payment.delivered.max(delivered);
+        let cap_reached = payment
+            .stream
+            .zip(payment.connection.as_deref())
+            .is_some_and(|(stream, connection)| connection.delivery_cap_reached(stream));
         assert!(
             sent <= payment.row.debit_amount,
             "a payment sent more than its debit amount"
@@ -725,31 +750,8 @@ impl Core {
         if now >= payment.row.deadline_ms && payment.stopping.is_none() {
             payment.stopping = Some("the payment ran out of time".into());
         }
-        // One of a fixed amount to deliver also ends once the receiver has
-        // it, which a hop that lost a Fulfill may have paid for
-        // (spec/decisions/own-fulfills.md), or all of it but less than a unit
-        // sent is worth: no packet can be sized to deliver that, as the hops
-        // round down. One of a fixed amount to send ends once it delivered
-        // what its quote said, and the receiver takes no more: a request it
-        // filled. Either is delivered too once it is short by no more than
-        // the payment's tolerance and the receiver takes no more, as a
-        // receiver counts a payment within it as paid in full
-        // (spec/decisions/paid-within-a-tolerance.md).
-        let receive_amount = &payment.row.receive_amount;
-        let tolerance = payment_tolerance(Some(receive_amount.value), receive_amount.asset_scale);
-        let receive = u128::from(receive_amount.value);
-        let debit = u128::from(payment.row.debit_amount.max(1));
-        let short = receive.saturating_sub(u128::from(delivered));
         let full = payment.receiver_full || stream.is_some_and(|stream| stream.remote_room() == 0);
-        let within_tolerance = short <= u128::from(tolerance) && full;
-        let delivered_enough =
-            short == 0 || (delivered > 0 && short * debit < receive) || within_tolerance;
-        let done = sent == payment.row.debit_amount
-            || if payment.row.fixed_debit {
-                within_tolerance
-            } else {
-                delivered_enough
-            };
+        let done = done(&payment.row, sent, delivered, full, cap_reached);
         if (done || payment.stopping.is_some())
             && let Some(connection) = payment.connection.as_mut()
         {
@@ -796,21 +798,16 @@ impl Core {
         row.failure = failure;
         row.finished_at_ms = Some(now.max(row.created_at_ms));
         // What it did not send goes back to its grant's window; what it did
-        // not deliver too, if it failed, at the payment's own rate.
+        // not deliver too, if it failed.
         if let Some((grant, window)) = row.grant {
             let unsent = row.debit_amount - row.sent_amount;
-            let receive = row.receive_amount.value;
-            // It sent at most its debit amount, so delivered at most this.
-            let delivered = u64::try_from(
-                u128::from(row.sent_amount) * u128::from(receive)
-                    / u128::from(row.debit_amount.max(1)),
-            );
-            assert!(
-                delivered.is_ok_and(|delivered| delivered <= receive),
-                "a payment delivered more than it was to receive"
-            );
             let undelivered = match row.state {
-                OutgoingState::Failed => receive - delivered.unwrap_or_default(),
+                OutgoingState::Failed => undelivered(
+                    row.sent_amount,
+                    row.debit_amount,
+                    row.receive_amount.value,
+                    payment.delivered,
+                ),
                 _ => 0,
             };
             if unsent > 0 || undelivered > 0 {
@@ -1003,6 +1000,54 @@ fn with_change(spent: u64, change: i128) -> Result<u64, EngineError> {
         .map_err(|_| EngineError::Internal("a grant's spend overflows".into()))
 }
 
+/// Whether a payment is done, having sent `sent` and delivered `delivered`
+/// as its receiver says, which says it takes no more if `full`.
+///
+/// It is once it sent its debit amount. One of a fixed amount to deliver
+/// also ends once the receiver has it, which a hop that lost a Fulfill may
+/// have paid for (spec/decisions/own-fulfills.md), or all of it but less
+/// than a unit sent is worth: no packet can be sized to deliver that, as
+/// the hops round down. One of a fixed amount to send ends once it
+/// delivered what its quote said, and the receiver takes no more: a
+/// request it filled. Either is delivered too once it is short by no more
+/// than the payment's tolerance and the receiver takes no more, as a
+/// receiver counts a payment within it as paid in full
+/// (spec/decisions/paid-within-a-tolerance.md). One of a fixed amount to
+/// deliver also ends once its connection can send nothing more under its
+/// cap, short by less than the least packet delivers
+/// (spec/decisions/receive-limit-caps-delivery.md).
+fn done(row: &OutgoingRow, sent: u64, delivered: u64, full: bool, cap_reached: bool) -> bool {
+    let receive_amount = &row.receive_amount;
+    let tolerance = payment_tolerance(Some(receive_amount.value), receive_amount.asset_scale);
+    let receive = u128::from(receive_amount.value);
+    let debit = u128::from(row.debit_amount.max(1));
+    let short = receive.saturating_sub(u128::from(delivered));
+    let within_tolerance = short <= u128::from(tolerance) && full;
+    let delivered_enough =
+        short == 0 || (delivered > 0 && short * debit < receive) || within_tolerance;
+    sent == row.debit_amount
+        || if row.fixed_debit {
+            within_tolerance
+        } else {
+            delivered_enough || cap_reached
+        }
+}
+
+/// What a payment that failed did not deliver of its receive amount, which
+/// goes back to its grant: it sent `sent` of `debit` to deliver `receive`.
+/// Every packet delivered at least the payment's own rate and it sent at
+/// most its debit amount, so it delivered at least what it sent at that
+/// rate, and at most its receive amount; `reported`, what its receiver
+/// said it received, may be more, on a better path.
+fn undelivered(sent: u64, debit: u64, receive: u64, reported: u64) -> u64 {
+    let least = u64::try_from(u128::from(sent) * u128::from(receive) / u128::from(debit.max(1)));
+    assert!(
+        least.is_ok_and(|least| least <= receive),
+        "a payment delivered more than it was to receive"
+    );
+    receive - least.unwrap_or_default().max(reported).min(receive)
+}
+
 /// What the rows of outgoing payments require, checked before anything
 /// enters the engine: the receiver's details may come from another
 /// wallet.
@@ -1051,5 +1096,24 @@ fn progress(row: &OutgoingRow) -> OutgoingProgress {
         state: row.state,
         failure: row.failure.clone(),
         finished_at_ms: row.finished_at_ms,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::undelivered;
+
+    // A failed payment gives its grant back what it did not deliver: at
+    // least what it sent delivered at its own rate, more if its receiver
+    // said so on a better path, never more than its receive amount.
+    #[test]
+    fn a_failed_payment_gives_back_only_what_it_did_not_deliver() {
+        // Sent 600 of 1,000 to deliver 990: at least 594 arrived.
+        assert_eq!(undelivered(600, 1_000, 990, 0), 396);
+        // The receiver said 600 arrived.
+        assert_eq!(undelivered(600, 1_000, 990, 600), 390);
+        // A receiver's count past the receive amount gives back nothing.
+        assert_eq!(undelivered(600, 1_000, 990, 2_000), 0);
+        assert_eq!(undelivered(0, 1_000, 990, 0), 990);
     }
 }

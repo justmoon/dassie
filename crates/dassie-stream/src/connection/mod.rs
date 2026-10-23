@@ -269,6 +269,9 @@ pub struct Connection {
     /// better if replies show it. Used to convert the receiver's limits,
     /// which the minimum rate would overshoot.
     expected_rate: Option<Rate>,
+    /// Whether a reply showed what a packet with money delivered: until
+    /// then a stream with a delivery cap offers at most half of it.
+    rate_seen: bool,
     rate_too_low: bool,
     max_packet_amount: u64,
     retry_at: Option<Timestamp>,
@@ -352,6 +355,7 @@ impl Connection {
             concurrency_milli: policy.min_concurrency * 1000,
             exchange_rate: None,
             expected_rate: None,
+            rate_seen: false,
             rate_too_low: false,
             max_packet_amount: policy.max_packet_amount,
             retry_at: None,
@@ -509,6 +513,28 @@ impl Connection {
         let stream = self.open_stream_mut(id)?;
         stream.expected_delivery = amount;
         Ok(())
+    }
+
+    /// Caps what a stream delivers in total, in the remote's units, as the
+    /// remote counts it: no packet is offered past it. Each packet is sized
+    /// at the expected rate, and until a reply showed what one delivered,
+    /// at most half of what is left is offered, so a path better than the
+    /// minimum rate does not carry the first packet past the cap
+    /// (spec/areas/stream.md#sending).
+    pub fn set_delivery_max(&mut self, id: u64, amount: u64) -> Result<(), StreamError> {
+        let stream = self.open_stream_mut(id)?;
+        stream.delivery_max = amount;
+        Ok(())
+    }
+
+    /// Whether a stream delivered all its cap lets it: no packet that
+    /// delivers a unit at the minimum rate fits what is left, and none of
+    /// its money is in flight. It is then short of its cap by less than
+    /// such a packet delivers. False for a stream without a cap.
+    #[must_use]
+    pub fn delivery_cap_reached(&self, id: u64) -> bool {
+        self.stream(id)
+            .is_some_and(|stream| self.cap_reached(stream))
     }
 
     /// Sets how much a stream accepts in total. Never below what it

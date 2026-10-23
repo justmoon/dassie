@@ -249,6 +249,14 @@ impl Connection {
             .stats
             .amount_delivered
             .saturating_add(reply.unwrap_or(slot.min_destination_amount));
+        // What arrived shows the rate the path delivers, as a refusal's
+        // reply does: without it, limits would be converted at the minimum
+        // until a packet was refused.
+        if let Some(received) = reply
+            && slot.source_amount > 0
+        {
+            self.learn_rate(received, slot.source_amount);
+        }
         self.increase_concurrency();
         self.retry_delay_ms = self.policy.retry_delay_start_ms;
     }
@@ -378,6 +386,7 @@ impl Connection {
         let Some(observed) = Rate::new(received, source) else {
             return;
         };
+        self.rate_seen = true;
         let better = self
             .expected_rate
             .is_none_or(|expected| observed.at_least(expected) && observed != expected);

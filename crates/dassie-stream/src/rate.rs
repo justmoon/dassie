@@ -100,6 +100,20 @@ impl Rate {
         saturate(destination as u128 * self.denominator as u128 / self.numerator as u128)
     }
 
+    /// The most source units that convert to at most `destination` units,
+    /// exactly: `ceil((destination + 1) / rate) - 1`. Unlimited for a zero
+    /// rate. Unlike [`Self::max_source_amount`], a part of a source unit
+    /// left over still counts, so the last destination unit can be sent.
+    #[must_use]
+    pub const fn exact_max_source_amount(self, destination: u64) -> u64 {
+        if self.numerator == 0 {
+            return u64::MAX;
+        }
+        // At most (2^64)(2^64 - 1), which fits.
+        let bound = (destination as u128 + 1) * self.denominator as u128;
+        saturate(bound.div_ceil(self.numerator as u128) - 1)
+    }
+
     /// The fewest source units that convert to at least one destination
     /// unit: `ceil(1 / rate)`. None for a zero rate.
     #[must_use]

@@ -8,6 +8,8 @@ use super::{BUFFER_LENGTH, Connection, PacketKind, Role, Slot, State, Transmit};
 use crate::crypto::{Keys, OVERHEAD};
 use crate::frame::{ErrorCode, Frame};
 use crate::packet::{self, PacketType};
+use crate::rate::Rate;
+use crate::stream::Stream;
 
 /// Largest STREAM plaintext that fits an ILP packet's data once encrypted.
 pub(super) const MAX_PLAINTEXT: usize = MAX_DATA_LENGTH - OVERHEAD;
@@ -15,6 +17,13 @@ pub(super) const MAX_PLAINTEXT: usize = MAX_DATA_LENGTH - OVERHEAD;
 /// Most bytes a `StreamData` frame needs besides its data: type, length
 /// determinant, two 9-byte integers and the data's length determinant.
 const DATA_FRAME_OVERHEAD: usize = 1 + 3 + 9 + 9 + 3;
+
+/// The least a stream with a delivery cap offers in a packet: what
+/// delivers a unit at the minimum `rate`, or one unit when it accepts
+/// anything.
+fn least_under_cap(rate: Rate) -> u64 {
+    rate.min_source_for_one_unit().unwrap_or(1)
+}
 
 /// Counts and sizes the frames `visit` produces.
 pub(super) fn measure(visit: impl Fn(&mut dyn FnMut(Frame<'_>))) -> (usize, usize) {
@@ -163,9 +172,14 @@ impl Connection {
         let room_rate = self.expected_rate.unwrap_or(rate);
         for stream in self.streams.iter().filter(|stream| stream.can_send()) {
             // What is in flight takes from that room already, so packets
-            // sent together never offer more than the receiver takes.
+            // sent together never offer more than the receiver takes, or
+            // than the application lets the stream deliver. The cap is
+            // converted exactly: hops only round down, so the last unit can
+            // go.
+            let cap = self.delivery_cap(stream);
             let room = room_rate
                 .max_source_amount(stream.remote_room())
+                .min(room_rate.exact_max_source_amount(cap))
                 .saturating_sub(stream.held);
             let unsent = stream.unsent_amount();
             let mut sendable = unsent.min(room);
@@ -187,10 +201,16 @@ impl Connection {
                 // source unit delivers, is not offered more than it takes.
                 sendable = rate
                     .min_source_for_one_unit()
-                    .filter(|&least| least <= unsent)
+                    .filter(|&least| least <= unsent && room_rate.destination_amount(least) <= cap)
                     .unwrap_or(0);
             }
-            let amount = sendable.min(budget);
+            let mut amount = sendable.min(budget);
+            // Under a cap, a packet must deliver a unit at the minimum rate:
+            // one that may deliver nothing would pay for nothing, again and
+            // again, as the cap's last units come near.
+            if cap != u64::MAX && amount < least_under_cap(rate) {
+                amount = 0;
+            }
             if amount > 0 {
                 slot.money.push((stream.id, amount));
                 budget -= amount;
@@ -211,6 +231,37 @@ impl Connection {
         }
         if slot.source_amount > 0 {
             slot.min_destination_amount = rate.destination_amount(slot.source_amount);
+        }
+    }
+
+    /// Whether a stream delivered all its cap lets it: no packet that
+    /// delivers a unit at the minimum rate fits what is left, at the
+    /// expected rate, and none of its money is in flight. False without a
+    /// cap or a rate.
+    pub(super) fn cap_reached(&self, stream: &Stream) -> bool {
+        let Some(rate) = self.exchange_rate else {
+            return false;
+        };
+        let room_rate = self.expected_rate.unwrap_or(rate);
+        stream.delivery_max != u64::MAX
+            && stream.held == 0
+            && room_rate.exact_max_source_amount(stream.delivery_room()) < least_under_cap(rate)
+    }
+
+    /// What a stream may still deliver under its cap, in the remote's
+    /// units: unlimited without one. Until a reply showed the rate the path
+    /// delivers, only half of it, rounded up so a unit left still goes:
+    /// sized at the minimum rate, a packet that fit the whole of it would
+    /// overshoot by however much better the path is.
+    fn delivery_cap(&self, stream: &Stream) -> u64 {
+        if stream.delivery_max == u64::MAX {
+            return u64::MAX;
+        }
+        let left = stream.delivery_room();
+        if self.rate_seen {
+            left
+        } else {
+            left - left / 2
         }
     }
 

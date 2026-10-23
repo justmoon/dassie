@@ -37,6 +37,9 @@ pub struct Stream {
     /// an incoming payment's amount: while it took less, a stream left
     /// without room asks it again, as if its maximum fell.
     pub(crate) expected_delivery: u64,
+    /// The most the application lets the stream deliver in total, in the
+    /// remote's units, as it counts: `u64::MAX` for no cap.
+    pub(crate) delivery_max: u64,
 
     // Money in, in our units.
     pub(crate) receive_max: u64,
@@ -78,6 +81,7 @@ impl Stream {
             remote_reported_at: 0,
             remote_max_fell: false,
             expected_delivery: 0,
+            delivery_max: u64::MAX,
             receive_max: 0,
             received: 0,
             money_told: 0,
@@ -181,6 +185,12 @@ impl Stream {
     #[must_use]
     pub const fn remote_room(&self) -> u64 {
         self.remote_receive_max.saturating_sub(self.remote_reported)
+    }
+
+    /// Destination amount the application still lets the stream deliver:
+    /// its cap less what the remote says it received.
+    pub(crate) const fn delivery_room(&self) -> u64 {
+        self.delivery_max.saturating_sub(self.remote_received)
     }
 
     /// Takes a receive maximum and received total the remote reported,

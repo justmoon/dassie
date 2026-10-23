@@ -43,6 +43,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [random-seed-simulations](random-seed-simulations.md) | Simulations run continuously, from random seeds (partly built) | testing |
 | [ready-after-first-step](ready-after-first-step.md) | A node is up once its engine has committed a step | node, release |
 | [real-money](real-money.md) | Real money | xrpl, roadmap |
+| [receive-limit-caps-delivery](receive-limit-caps-delivery.md) | A receive limit caps what payments deliver, not only what they reserve | payments, stream |
 | [release-integrity](release-integrity.md) | Release integrity | release |
 | [rpc-contract](rpc-contract.md) | UI and CLI RPC contract | rpc, wallet |
 | [rust-and-typescript](rust-and-typescript.md) | What runs in Rust and what in TypeScript | overview, engineering |

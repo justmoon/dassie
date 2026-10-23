@@ -25,6 +25,7 @@ use dassie_payments::gnap;
 use hyper::StatusCode;
 use serde_json::{Value, json};
 use support::op::*;
+use support::pair::{Pair, until};
 use support::{TestNode, send};
 
 const DAY_MS: u64 = 24 * 60 * 60 * 1_000;
@@ -1349,4 +1350,69 @@ async fn the_owner_sees_a_receive_limit_in_another_asset() {
     let missing = format!("{prefix}/{}", "0".repeat(26));
     assert_eq!(flagged(&missing, "EUR", 2).await, (false, false));
     node.stop().await;
+}
+
+// Under a receive limit a payment delivers what it reserved of the grant
+// and no more, though it fixed its debit and the path pays better than its
+// quote, which takes STREAM's slippage off the rate it measured. What it
+// did not send goes back to the grant
+// (spec/decisions/receive-limit-caps-delivery.md).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_receive_limit_caps_what_a_better_path_delivers() {
+    const AMOUNT: u64 = 1_500_000_000;
+    let pair = Pair::start(61, 62).await;
+    let (a, b) = (&pair.a, &pair.b);
+    let client = own_client(a, &pair.key_a);
+    let access = json!([{
+        "type": "outgoing-payment",
+        "actions": ["create", "read"],
+        "identifier": host(a),
+        "limits": { "debitAmount": usd(AMOUNT), "receiveAmount": usd(AMOUNT) },
+    }]);
+    let grant = ask_for(a, &client, &access).await;
+    let token = approve(a, &client, &grant).await;
+    let target = b.ipc().await.incoming_payment(None).await;
+    let pay = json!({
+        "walletAddress": host(a), "incomingPayment": target.url, "debitAmount": usd(AMOUNT),
+    });
+    let reply = post(a, &client, "/outgoing-payments", &token, &pay).await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.text());
+    let payment = body(&reply);
+    // At the measured one for one, less STREAM's 1% slippage.
+    let receive = 1_485_000_000;
+    assert_eq!(payment["receiveAmount"], usd(receive));
+    let path = path_of(a, &payment["id"]);
+    let id = path.rsplit('/').next().unwrap();
+    let outgoing = async || {
+        let Ok(response::Method::ListOutgoingPayments(list)) = a
+            .ipc()
+            .await
+            .call(Method::ListOutgoingPayments(
+                proto::ListOutgoingPaymentsRequest { limit: 0 },
+            ))
+            .await
+        else {
+            panic!("no list")
+        };
+        list.payments.into_iter().find(|p| p.id == id).unwrap()
+    };
+    until(&pair.clock, async || outgoing().await.state != "sending").await;
+    let done = outgoing().await;
+    assert_eq!(done.state, "completed", "{}", done.failure);
+    assert!(done.sent_amount < AMOUNT, "sent {}", done.sent_amount);
+    let Ok(response::Method::ListIncomingPayments(list)) = b
+        .ipc()
+        .await
+        .call(Method::ListIncomingPayments(
+            proto::ListIncomingPaymentsRequest { limit: 0 },
+        ))
+        .await
+    else {
+        panic!("no list")
+    };
+    let paid = list.payments.iter().find(|p| target.url.ends_with(&p.id));
+    assert_eq!(paid.unwrap().received_amount, receive);
+    let spent = spent(a, &client, &token).await;
+    assert_eq!(spent["spentDebitAmount"], usd(done.sent_amount));
+    assert_eq!(spent["spentReceiveAmount"], usd(receive));
 }
