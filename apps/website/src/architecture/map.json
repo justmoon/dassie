@@ -1497,6 +1497,14 @@
   ],
   "releases": [
     {
+      "version": "0.2.5",
+      "date": "2026-10-23",
+      "changes": [
+        "`dassie setup --passphrase-file <file>` sets a node up from its recovery phrase without a browser, for a headless node or a market maker's own nodes. It sends the node key only to the node's own certificate, which the node names over its owner socket, and it can add settlement schemes with `--scheme`. Running it again changes nothing.",
+        "A constant-time helper the cryptography libraries use is updated, for advisory RUSTSEC-2026-0385."
+      ]
+    },
+    {
       "version": "0.2.4",
       "date": "2026-10-23",
       "changes": [
