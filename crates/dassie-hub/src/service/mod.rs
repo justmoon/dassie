@@ -66,7 +66,9 @@ pub enum Action {
 /// A hub's validator.
 pub struct Validator {
     hub: HubId,
-    index: ValidatorIndex,
+    /// Our consensus key's public half, by which we find our place in the
+    /// set in force.
+    consensus_public: PublicKey,
     consensus_key: Arc<NodeKey>,
     keys: ValidatorKeys,
     engine: Engine,
@@ -115,8 +117,8 @@ impl Validator {
     ) -> Result<Self, RulesError> {
         let ledger = Ledger::genesis(rules.clone(), timestamp)?;
         let set = ledger.validators().clone();
-        let index = set
-            .index_of(&keys.consensus.public_key())
+        let consensus_public = keys.consensus.public_key();
+        set.index_of(&consensus_public)
             .ok_or(RulesError::Validators)?;
         let block = genesis_block(&rules, timestamp);
         let hub = *ledger.hub();
@@ -126,7 +128,7 @@ impl Validator {
         let tip = *engine.tip_digest();
         Ok(Self {
             hub,
-            index,
+            consensus_public,
             consensus_key,
             keys,
             engine,
@@ -225,10 +227,14 @@ impl Validator {
     /// ([`mempool::VALIDATOR_WINDOW`]) is not passed on, and the host
     /// attests it again later.
     pub fn attest(&mut self, now: Millis, operation: ValidatorOperation) -> bool {
+        // A validator no longer in the set attests nothing.
+        let Some(index) = self.index() else {
+            return false;
+        };
         self.sequence = self.sequence.saturating_add(1).max(now);
         let signed = Operation::Validator(SignedValidatorOperation::sign(
             &self.hub,
-            self.index,
+            index,
             self.sequence,
             operation,
             &self.consensus_key,
@@ -299,11 +305,23 @@ impl Validator {
         statements
     }
 
+    /// Our place in the set in force, which a change of validators can
+    /// move; none once we left it.
+    fn index(&self) -> Option<ValidatorIndex> {
+        self.chain
+            .ledger
+            .validators()
+            .index_of(&self.consensus_public)
+    }
+
     fn send_statements(&mut self, to: PeerId, statements: Vec<Statement>) {
+        let Some(index) = self.index() else {
+            return;
+        };
         let signed: Vec<SignedStatement> = statements
             .into_iter()
             .map(|statement| {
-                SignedStatement::sign(&self.hub, self.index, statement, &self.consensus_key)
+                SignedStatement::sign(&self.hub, index, statement, &self.consensus_key)
             })
             .collect();
         for chunk in wire::split_statements(signed) {

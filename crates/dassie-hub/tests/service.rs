@@ -77,6 +77,9 @@ fn terms(sponsor: &NodeKey) -> Terms {
 struct Network {
     validators: Vec<Validator>,
     nodes: Vec<dassie_identity::PublicKey>,
+    /// Each validator's consensus key, by its place in the network.
+    consensus: Vec<dassie_identity::PublicKey>,
+    rules: Rules,
     queue: VecDeque<(usize, PeerId, Vec<u8>)>,
     member: Vec<Vec<u8>>,
     submitted: Vec<(usize, Vec<u8>)>,
@@ -116,6 +119,8 @@ impl Network {
         Self {
             validators,
             nodes: nodes.iter().map(NodeKey::public_key).collect(),
+            consensus: rules.validators.iter().map(|a| a.consensus).collect(),
+            rules,
             queue: VecDeque::new(),
             member: Vec::new(),
             submitted: Vec::new(),
@@ -136,8 +141,7 @@ impl Network {
                     }
                 }
                 Action::Validator(key, bytes) => {
-                    let set = self.validators[0].ledger().validators();
-                    let to = set.index_of(&key).unwrap().get();
+                    let to = self.consensus.iter().position(|k| *k == key).unwrap();
                     self.queue.push_back((to, sender, bytes));
                 }
                 Action::Peer(peer, bytes) if peer == MEMBER => self.member.push(bytes),
@@ -320,6 +324,40 @@ fn member(net: &mut Network, seed: u8) -> (AccountNumber, NodeKey) {
     net.request(&Request::Submit(op));
     net.run(1_000);
     (number, key)
+}
+
+#[test]
+fn a_validator_whose_place_moves_still_attests() {
+    let mut net = Network::new();
+    net.attest_all(&ValidatorOperation::AttestEscrow { sequence: 5 });
+    net.run(1_000);
+    // The same validators, in the reverse order: each one's index moves.
+    let mut rules = net.rules.clone();
+    rules.validators.reverse();
+    net.attest_all(&ValidatorOperation::Reconfigure(rules.clone()));
+    net.run(1_000);
+    let notice = net.validators[0].ledger().terms().timers.reconfigure_notice;
+    net.run(notice + 2_000);
+    for validator in &net.validators {
+        assert_eq!(validator.ledger().rules(), &rules, "the change is in force");
+    }
+    let key = NodeKey::from_bytes(&[31; 32]);
+    let deposit = Deposit {
+        transaction: Digest([31; 32]),
+        ledger: 10,
+        amount: 50_000_000,
+        sender: [3; 20],
+        tag: 0,
+        key: Some(key.public_key()),
+    };
+    net.attest_all(&ValidatorOperation::AttestDeposit(deposit));
+    net.run(1_000);
+    for validator in &net.validators {
+        assert!(
+            validator.ledger().account_of(&key.public_key()).is_some(),
+            "attestations count after the change"
+        );
+    }
 }
 
 #[test]
