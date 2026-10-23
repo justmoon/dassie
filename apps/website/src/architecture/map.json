@@ -1467,6 +1467,18 @@
   ],
   "releases": [
     {
+      "version": "0.2.4",
+      "date": "2026-10-23",
+      "changes": [
+        "A core node prices what it converts by what it holds. When it runs short of one asset, it pays a little more for that asset and asks more for it, so trading brings it back. The new rebalancing setting beside the spread says how strongly, 5% by default, and each packet pays for its own effect on the price.",
+        "A core node publishes the rates it converts at as a signed feed on UDP port 7768, from the new `dassie-feed.socket`, to subscribers that first prove their address. `GET /stats` and the node's link state name the port.",
+        "`dassie market-maker` trades through a node when the node's feed and an AMM pool on the XRP Ledger leave a margin, then swaps its funds back through the pool. It runs two periphery nodes of its own, each pinned to the node with the new `DASSIE_UPLINKS`.",
+        "A new settlement scheme, `xrpl-testnet-dsusd`, settles in DSUSD, Dassie's own testnet dollar, beside RLUSD. There is no DSUSD faucet: buy it with XRP through the testnet's XRP/DSUSD pool, which is kept at the market's XRP price.",
+        "The owner's Send also pays STREAM credentials, an ILP address and a shared secret.",
+        "A payment no longer fails at its very end when the receiver's answers arrive out of order."
+      ]
+    },
+    {
       "version": "0.2.3",
       "date": "2026-10-22",
       "changes": [
