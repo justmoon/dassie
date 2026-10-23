@@ -476,16 +476,79 @@ fn vec_of(statement: Statement) -> Vec<Statement> {
 /// The statements of `block`'s operations that touch `account`: its own,
 /// and those on holds it pays into or takes from.
 fn touching(block: &FinalBlock, account: AccountNumber) -> impl Iterator<Item = Statement> + '_ {
-    block
-        .operations
-        .iter()
+    (0u32..)
+        .zip(&block.operations)
         .zip(&block.outcomes)
         .zip(&block.touched)
         .filter(move |(_, touched)| touched.contains(&account))
-        .map(move |((operation, outcome), _)| Statement::Executed {
-            height: block.height,
-            timestamp: block.timestamp,
-            operation: operation.clone(),
-            outcome: *outcome,
-        })
+        .map(
+            move |(((index, operation), outcome), _)| Statement::Executed {
+                height: block.height,
+                timestamp: block.timestamp,
+                index,
+                operation: operation.clone(),
+                outcome: *outcome,
+            },
+        )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::digest::Digest;
+    use crate::ledger::{Detail, Outcome, Refusal};
+    use crate::operation::{MemberOperation, SignedMemberOperation};
+
+    /// A block of `count` copies of one transfer by account 5 to account
+    /// 6, the first applied and the rest refused, as a faulty leader may
+    /// build it.
+    pub(super) fn block_of(height: u64, count: usize) -> FinalBlock {
+        let key = NodeKey::from_bytes(&[5; 32]);
+        let hub = HubId(Digest([1; 32]));
+        let transfer = MemberOperation::Transfer {
+            to: AccountNumber(6),
+            amount: 1,
+        };
+        let operation = Operation::Member(SignedMemberOperation::sign(
+            &hub,
+            AccountNumber(5),
+            0,
+            10,
+            transfer,
+            &key,
+        ));
+        let outcomes = (0..count).map(|i| {
+            if i == 0 {
+                Outcome::Applied {
+                    fee: 10,
+                    detail: Detail::None,
+                }
+            } else {
+                Outcome::Refused(Refusal::Sequence)
+            }
+        });
+        FinalBlock {
+            height,
+            timestamp: height * 10,
+            digest: Digest([2; 32]),
+            operations: alloc::vec![operation; count],
+            outcomes: outcomes.collect(),
+            touched: alloc::vec![alloc::vec![AccountNumber(5), AccountNumber(6)]; count],
+        }
+    }
+
+    #[test]
+    fn an_operation_twice_in_a_block_makes_two_statements() {
+        let statements: Vec<Statement> = touching(&block_of(3, 2), AccountNumber(6)).collect();
+        let places: Vec<u32> = statements
+            .iter()
+            .filter_map(|s| match s {
+                Statement::Executed { index, .. } => Some(*index),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(places, [0, 1]);
+        let hub = HubId(Digest([1; 32]));
+        assert_ne!(statements[0].digest(&hub), statements[1].digest(&hub));
+    }
 }

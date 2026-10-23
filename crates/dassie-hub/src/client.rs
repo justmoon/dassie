@@ -70,12 +70,17 @@ pub struct HoldView {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Statement {
     /// `operation` was in the final block at `height`, stamped
-    /// `timestamp`, with `outcome`.
+    /// `timestamp`, at place `index` of its operations, with `outcome`.
+    /// The place names it: a faulty leader may put one operation in a
+    /// block twice, applied the first time and refused the second, and a
+    /// member reads a block's statements in the log's order.
     Executed {
         /// The block's height.
         height: u64,
         /// Its timestamp.
         timestamp: Millis,
+        /// Its place among the block's operations, from 0.
+        index: u32,
         /// The operation, whole.
         operation: Operation,
         /// What became of it.
@@ -556,7 +561,7 @@ impl Encode for Statement {
             + match self {
                 Self::Executed {
                     operation, outcome, ..
-                } => 8 + operation.encoded_len() + outcome.encoded_len(),
+                } => 8 + 4 + operation.encoded_len() + outcome.encoded_len(),
                 Self::Final { .. } | Self::Trimmed { .. } => 8,
                 Self::Account { account, .. } => {
                     32 + 1 + account.map_or(0, |(_, view)| 4 + view.encoded_len())
@@ -570,12 +575,14 @@ impl Encode for Statement {
             Self::Executed {
                 height,
                 timestamp,
+                index,
                 operation,
                 outcome,
             } => {
                 writer.write_u8(0);
                 writer.write_u64(*height);
                 writer.write_u64(*timestamp);
+                writer.write_u32(*index);
                 operation.encode_to(writer);
                 outcome.encode_to(writer);
             }
@@ -629,6 +636,7 @@ impl Statement {
             0 => Self::Executed {
                 height,
                 timestamp: reader.read_u64()?,
+                index: reader.read_u32()?,
                 operation: Operation::decode(reader)?,
                 outcome: Outcome::decode(reader)?,
             },
@@ -922,6 +930,7 @@ mod tests {
             Statement::Executed {
                 height: 13,
                 timestamp: 14,
+                index: 15,
                 operation: Operation::Validator(crate::operation::SignedValidatorOperation::sign(
                     &hub,
                     ValidatorIndex::new(0).unwrap(),
