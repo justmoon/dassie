@@ -203,6 +203,9 @@ impl Core {
     /// It runs before every commit, so the books keep the credit in step
     /// with the holds the scheme's state keeps.
     pub(super) fn sync_hub_credit(&mut self) {
+        if !self.schemes.values().any(|active| active.over_hub) {
+            return;
+        }
         let peerings: Vec<(Name, NodeId)> = self
             .peer
             .peers()
@@ -228,7 +231,7 @@ impl Core {
     /// took when the books took it, as the stub does; the hub's scheme
     /// learns of a take from the hub, later.
     // Panics only on a broken invariant: the amounts were checked against
-    // the accounts just now.
+    // the accounts just now, and the journal was drained before the write.
     #[allow(clippy::panic)]
     pub(super) fn sync_credit_with(&mut self, scheme: Name, node: NodeId) {
         let Ok(name) = Name::new(node.as_str()) else {
@@ -245,6 +248,12 @@ impl Core {
         };
         let target = hub_credit(holds, settling);
         let now = self.now_ms;
+        if target == credit {
+            return;
+        }
+        // However many peerings move in one step, each write finds the
+        // journal empty: what came before is in the batch.
+        self.take_journal();
         let changed = match target.cmp(&credit) {
             core::cmp::Ordering::Equal => return,
             core::cmp::Ordering::Greater => {
@@ -510,6 +519,9 @@ impl Core {
         let Some(&endpoint) = self.peer_endpoints.get(&node) else {
             return;
         };
+        // A decision posts up to a packet's transfers: each finds the
+        // journal empty, however many the hub decided in one step.
+        self.take_journal();
         let responded = self.connector.settle_hub(
             now,
             EndpointId::Peer(endpoint),

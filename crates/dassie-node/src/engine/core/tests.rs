@@ -2673,3 +2673,55 @@ fn the_credit_over_a_hub_is_lowered_only_as_far_as_the_books_allow() {
     });
     assert!(followed, "{outputs:?}");
 }
+
+// Keeping the credit over a hub in step writes to the books however full
+// the journal is: what came before goes to the batch first, so a step that
+// moves many hub peerings' holds never finds the journal full.
+#[test]
+fn the_credit_over_a_hub_is_kept_in_step_on_a_full_journal() {
+    use dassie_identity::NodeKey;
+    use dassie_ledger::{AccountName, LedgerId, Name, Reference, TransferError, TransferSpec};
+
+    let mut core = core(9);
+    core.add_scheme("stub", r#"{"commitments": 4}"#.into())
+        .unwrap();
+    let stub = Name::new("stub").unwrap();
+    let node = NodeKey::from_bytes(&[7; 32]).node_id();
+    let peer = Name::new(node.as_str()).unwrap();
+    // We extend it 1000, and it owes us 500, with no hold between us: the
+    // credit goes down to what it owes.
+    let (interledger, _) = core
+        .ledger
+        .open_peer(NOW, LedgerId::StubUsd, peer, 1_000)
+        .unwrap();
+    let owner = core
+        .account(LedgerId::StubUsd, AccountName::EquityOwner)
+        .unwrap();
+    let suspense = core
+        .account(LedgerId::StubUsd, AccountName::EquitySuspense)
+        .unwrap();
+    let book = |core: &mut Core, debit, credit, amount| {
+        let spec = TransferSpec {
+            debit,
+            credit,
+            amount,
+            pending: false,
+            reference: Reference::Reconciliation,
+        };
+        core.ledger.create(NOW, &spec)
+    };
+    book(&mut core, interledger, owner, 500).unwrap();
+    let mut written = 0;
+    loop {
+        match book(&mut core, suspense, owner, 1) {
+            Ok(_) => written += 1,
+            Err(TransferError::JournalFull) => break,
+            Err(error) => panic!("{error}"),
+        }
+        assert!(written < 100_000, "the journal fills");
+    }
+    core.sync_credit_with(stub, node);
+    // Down to what it owes: no room left beyond it.
+    let (credit, room, _) = core.hub_books(stub, node).unwrap();
+    assert_eq!((credit, room), (500, 0));
+}

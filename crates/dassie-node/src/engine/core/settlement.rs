@@ -859,7 +859,6 @@ impl Core {
     }
 }
 
-/// Whether `transfer`, in `ledger`, is a settlement of ours to `node`.
 /// Where a payer over a hub stands when asked to settle: as a junior that
 /// extends the default credit `credit` would, with the hold it keeps toward
 /// the peer counted as what it paid in advance. So it funds the hold with
@@ -872,6 +871,7 @@ fn hub_position(at: &Position, credit: u64) -> u128 {
     u128::try_from(standing).unwrap_or(0)
 }
 
+/// Whether `transfer`, in `ledger`, is a settlement of ours to `node`.
 pub(super) fn settles_to(
     ledger: &dassie_ledger::Ledger,
     transfer: &Transfer,
