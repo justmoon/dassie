@@ -347,3 +347,43 @@ impl Application for Chain {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::consensus::MAX_PAYLOAD_BYTES;
+    use crate::ledger::tests::Hub;
+    use crate::service::mempool::tests::{claim, member, signed};
+    use crate::validators::ValidatorIndex;
+
+    /// The context of the next block on `chain`'s final state.
+    fn next(chain: &Chain) -> ProposeContext<'static> {
+        ProposeContext {
+            view: 1,
+            proposer: ValidatorIndex::new(0).unwrap(),
+            parent: chain.tip,
+            height: chain.ledger.height() + 1,
+            timestamp_ms: chain.ledger.timestamp() + 10,
+            votes: &[],
+        }
+    }
+
+    #[test]
+    fn a_leader_fills_a_block_by_bytes_too() {
+        let mut hub = Hub::with(|rules| {
+            rules.terms.limits.commitments_per_claim = 1024;
+        });
+        let (number, key, sequence) = member(&mut hub, 1, 10);
+        let mut chain = Chain::new(hub.ledger.clone(), Digest::default());
+        // Four of the largest claims are more than a payload takes.
+        for offset in 0..4 {
+            let op = signed(&hub, (number, &key), sequence + offset, claim(1024));
+            assert!(chain.mempool.admit(&chain.ledger, op));
+        }
+        let mut payload = Vec::new();
+        chain.propose(&next(&chain), &mut payload).unwrap();
+        assert!(payload.len() <= MAX_PAYLOAD_BYTES);
+        let operations = Payload::decode_exact(&payload).unwrap().operations;
+        assert_eq!(operations.len(), 3, "as many as fit, in sequence order");
+    }
+}

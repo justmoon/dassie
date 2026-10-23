@@ -25,11 +25,15 @@
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
+use super::payload::OPERATION_BYTES;
 use crate::digest::Digest;
 use crate::ledger::{Account, Ledger};
-use crate::operation::{AccountNumber, Operation, SignedMemberOperation, SignedValidatorOperation};
+use crate::operation::{
+    AccountNumber, MemberOperation, Operation, SignedMemberOperation, SignedValidatorOperation,
+};
 use crate::rules::Amount;
 use crate::validators::ValidatorIndex;
+use dassie_oer::Encode;
 
 /// How far ahead of an account's sequence the pool takes its operations,
 /// and so the most it keeps of one account.
@@ -142,6 +146,10 @@ impl Mempool {
     /// and there is room. Whether it was taken. An operation for a sequence
     /// already taken does not replace it.
     pub fn admit(&mut self, ledger: &Ledger, operation: Operation) -> bool {
+        // What no block could take would wait for ever.
+        if operation.encoded_len() > OPERATION_BYTES {
+            return false;
+        }
         match &operation {
             Operation::Member(signed) => {
                 let Some(account) = ledger.account(signed.account) else {
@@ -165,10 +173,16 @@ impl Mempool {
 
     fn member_fits(ledger: &Ledger, account: &Account, signed: &SignedMemberOperation) -> bool {
         let current = account.sequence;
+        let commitments = usize::from(ledger.terms().limits.commitments_per_claim);
+        let claim_fits = match &signed.operation {
+            MemberOperation::Claim { fulfilled, .. } => fulfilled.len() <= commitments,
+            _ => true,
+        };
         signed.sequence >= current
             && signed.sequence < current.saturating_add(SEQUENCE_WINDOW)
             && signed.max_fee >= ledger.terms().fees.operation
             && !account.closing
+            && claim_fits
             && signed.verifies(ledger.hub(), &account.key)
     }
 
@@ -309,8 +323,11 @@ impl Mempool {
                 .saturating_sub(limits.deadline_operations),
         );
         let (deadlines, others) = self.stretches(base);
-        let mut out = Vec::new();
-        let complete = round_robin(&mut out, &deadlines, limit);
+        let mut fill = Fill {
+            out: Vec::new(),
+            bytes: 0,
+        };
+        let complete = round_robin(&mut fill, &deadlines, limit);
         let others: Lists<'_> = others
             .into_iter()
             .zip(complete)
@@ -319,12 +336,12 @@ impl Mempool {
         let validator_room = (others_room / 2).max(1);
         let share = (validator_room / base.validators().len().max(1)).max(1);
         let validators = self.validator_runs(base, share);
-        let free = others_room.min(limit.saturating_sub(out.len()));
-        let before = out.len();
-        round_robin(&mut out, &validators, validator_room.min(free));
-        let free = free.saturating_sub(out.len().saturating_sub(before));
-        round_robin(&mut out, &others, free);
-        out
+        let free = others_room.min(limit.saturating_sub(fill.out.len()));
+        let before = fill.out.len();
+        round_robin(&mut fill, &validators, validator_room.min(free));
+        let free = free.saturating_sub(fill.out.len().saturating_sub(before));
+        round_robin(&mut fill, &others, free);
+        fill.out
     }
 
     /// Per account, the deadlines and then the other operations a block on
@@ -492,6 +509,25 @@ fn normalize(
     }
 }
 
+/// A block being filled, within a budget of bytes.
+struct Fill {
+    out: Vec<Operation>,
+    bytes: usize,
+}
+
+impl Fill {
+    /// Takes `operation` if it fits [`OPERATION_BYTES`].
+    fn take(&mut self, operation: &Operation) -> bool {
+        let bytes = self.bytes.saturating_add(operation.encoded_len());
+        if bytes > OPERATION_BYTES {
+            return false;
+        }
+        self.bytes = bytes;
+        self.out.push(operation.clone());
+        true
+    }
+}
+
 /// A list of one signer's operations being taken in turns.
 struct Turn<'a, 'b> {
     list: &'b [&'a Operation],
@@ -500,7 +536,7 @@ struct Turn<'a, 'b> {
 
 /// Takes from `lists` in turns, one from each, at most `max` in all.
 /// Whether each list was taken whole.
-fn round_robin(out: &mut Vec<Operation>, lists: &Lists<'_>, max: usize) -> Vec<bool> {
+fn round_robin(fill: &mut Fill, lists: &Lists<'_>, max: usize) -> Vec<bool> {
     let mut turns: Vec<Turn<'_, '_>> = lists.iter().map(|list| Turn { list, next: 0 }).collect();
     let mut taken = 0usize;
     let mut progress = true;
@@ -510,8 +546,11 @@ fn round_robin(out: &mut Vec<Operation>, lists: &Lists<'_>, max: usize) -> Vec<b
             if taken >= max {
                 break;
             }
-            if let Some(operation) = turn.list.get(turn.next) {
-                out.push((*operation).clone());
+            // A list whose next operation does not fit stops there: what
+            // follows it in its sequence cannot go before it.
+            if let Some(operation) = turn.list.get(turn.next)
+                && fill.take(operation)
+            {
                 turn.next = turn.next.saturating_add(1);
                 taken = taken.saturating_add(1);
                 progress = true;
@@ -525,7 +564,7 @@ fn round_robin(out: &mut Vec<Operation>, lists: &Lists<'_>, max: usize) -> Vec<b
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use alloc::string::ToString;
 
     use dassie_identity::{NodeKey, Signature};
@@ -533,19 +572,19 @@ mod tests {
     use super::*;
     use crate::ledger::tests::{Hub, OP_FEE, reconfigure, resigned};
     use crate::operation::{MemberOperation, SignedMemberOperation, ValidatorOperation};
-    use crate::promise::{Claim, HoldNumber, Signed};
+    use crate::promise::{Claim, Commitment, Fulfilled, HoldNumber, Signed};
     use crate::rules::tests::rules;
 
     /// A hub whose blocks take 8 operations, 2 of them kept for deadlines:
     /// a pool of 24 ordinary operations and 8 with deadlines.
-    fn small() -> Hub {
+    pub(in crate::service) fn small() -> Hub {
         Hub::with(|rules| {
             rules.terms.limits.block_operations = 8;
             rules.terms.limits.deadline_operations = 2;
         })
     }
 
-    fn signed(
+    pub(in crate::service) fn signed(
         hub: &Hub,
         (account, key): (AccountNumber, &NodeKey),
         sequence: u64,
@@ -568,6 +607,40 @@ mod tests {
         }
     }
 
+    /// A claim on hold 1 with `count` commitments, which nothing checks
+    /// before a block executes it.
+    pub(in crate::service) fn claim(count: usize) -> MemberOperation {
+        let fulfilled = Fulfilled {
+            commitment: Signed {
+                value: Commitment {
+                    hold: HoldNumber(1),
+                    sequence: 1,
+                    amount: 1,
+                    condition: [0; 32],
+                    expiry: 0,
+                },
+                signature: Signature::from_bytes([0; 64]),
+            },
+            fulfillment: [0; 32],
+        };
+        MemberOperation::Claim {
+            hold: HoldNumber(1),
+            fulfilled: alloc::vec![fulfilled; count],
+        }
+    }
+
+    #[test]
+    fn a_claim_over_the_rules_bound_is_refused() {
+        let mut hub = small();
+        let (number, key, sequence) = member(&mut hub, 1, 10);
+        let mut pool = Mempool::new(&hub.ledger);
+        let bound = usize::from(hub.ledger.terms().limits.commitments_per_claim);
+        let over = signed(&hub, (number, &key), sequence, claim(bound + 1));
+        assert!(!pool.admit(&hub.ledger, over));
+        let within = signed(&hub, (number, &key), sequence, claim(bound));
+        assert!(pool.admit(&hub.ledger, within));
+    }
+
     fn redeem() -> MemberOperation {
         MemberOperation::Redeem(Signed {
             value: Claim {
@@ -580,7 +653,11 @@ mod tests {
     }
 
     /// A member whose balance pays `fees` operations.
-    fn member(hub: &mut Hub, seed: u8, fees: u64) -> (AccountNumber, NodeKey, u64) {
+    pub(in crate::service) fn member(
+        hub: &mut Hub,
+        seed: u8,
+        fees: u64,
+    ) -> (AccountNumber, NodeKey, u64) {
         let minimum = hub.ledger.terms().new_account_minimum();
         let (number, key) = hub.join(seed, minimum + 2 * OP_FEE + fees * OP_FEE);
         // Spend down to what it should have.

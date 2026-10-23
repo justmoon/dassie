@@ -243,6 +243,15 @@ impl Terms {
         if usize::from(limits.vote_window) < MAX_VALIDATORS {
             return fail("vote window shorter than any validator's turn");
         }
+        // What a follower decodes before it applies the rules: a block a
+        // leader may build under them must decode.
+        let decodable = usize::from(limits.block_operations)
+            <= crate::service::payload::MAX_OPERATIONS
+            && usize::from(limits.vote_window) <= crate::service::payload::MAX_VOTE_HEIGHTS
+            && usize::from(limits.commitments_per_claim) <= crate::operation::MAX_COMMITMENTS;
+        if !decodable {
+            return fail("a block or claim the rules allow could not be decoded");
+        }
         let empty = limits.accounts == 0
             || limits.holds == 0
             || limits.holds_per_account == 0

@@ -1022,7 +1022,11 @@ fn reset_votes_for_different_chains_do_not_add_up() {
 fn terms_that_would_trap_the_ledger_are_refused() {
     let sponsor = NodeKey::from_bytes(&[1; 32]);
     let base = crate::rules::tests::terms(&sponsor);
-    let changes: [fn(&mut crate::rules::Terms); 6] = [
+    let changes: [fn(&mut crate::rules::Terms); 9] = [
+        // Blocks or claims a follower could not decode.
+        |t| t.limits.block_operations = 4097,
+        |t| t.limits.vote_window = 257,
+        |t| t.limits.commitments_per_claim = 1025,
         |t| t.fees.operation = 0,
         |t| t.fees.hold_reserve = 0,
         |t| t.limits.recent_deposits = 0,

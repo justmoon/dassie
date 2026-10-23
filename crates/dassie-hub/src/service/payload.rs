@@ -7,9 +7,11 @@ use alloc::vec::Vec;
 
 use dassie_oer::{Encode, Reader, Writer, size};
 
-use crate::codec::{HubDecodeError, read_digest, write_digest};
+use crate::codec::{DIGEST_LEN, HubDecodeError, SIGNATURE_LEN, read_digest, write_digest};
+use crate::consensus::MAX_PAYLOAD_BYTES;
 use crate::digest::Digest;
-use crate::operation::Operation;
+use crate::operation::{MAX_COMMITMENTS, Operation};
+use crate::promise::COMMITMENT_LEN;
 use crate::validators::Signers;
 
 /// The most operations a payload may carry, whatever the rules say: a bound
@@ -18,6 +20,33 @@ pub const MAX_OPERATIONS: usize = 4096;
 
 /// The most heights a payload may record votes for.
 pub const MAX_VOTE_HEIGHTS: usize = 256;
+
+/// What a payload carries besides its operations, at most: two counts,
+/// the votes for every height it may record, and two roots.
+pub const FRAME_BYTES: usize = 2 * 9 + MAX_VOTE_HEIGHTS * (8 + 2) + 2 * DIGEST_LEN;
+
+/// The most bytes of operations a leader puts in one block. A payload over
+/// [`MAX_PAYLOAD_BYTES`] would have the leader nullify its own view, and
+/// every leader would build the same one again, so the leader fills a
+/// block by bytes as well as by count, below the bound by a margin.
+pub const OPERATION_BYTES: usize = MAX_PAYLOAD_BYTES - 16 * 1024;
+
+/// The encoding of a member's `claim` with [`MAX_COMMITMENTS`] commitments:
+/// the operation's tag, account, sequence and fee, the claim's tag, hold and
+/// count, the commitments with their fulfillments, and the signature.
+const MAX_CLAIM_BYTES: usize = 1
+    + 4
+    + 8
+    + 8
+    + 1
+    + 8
+    + 9
+    + MAX_COMMITMENTS * (COMMITMENT_LEN + SIGNATURE_LEN + DIGEST_LEN)
+    + SIGNATURE_LEN;
+
+const _: () = assert!(OPERATION_BYTES + FRAME_BYTES <= MAX_PAYLOAD_BYTES);
+// Any claim the rules can allow fits in a block.
+const _: () = assert!(MAX_CLAIM_BYTES <= OPERATION_BYTES);
 
 /// A block's content.
 #[derive(Clone, Debug, PartialEq, Eq)]
