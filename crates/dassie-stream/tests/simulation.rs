@@ -135,6 +135,134 @@ fn respects_the_receivers_maximum() {
     assert_eq!(sim.client.stream(stream).unwrap().total_sent(), 400);
 }
 
+/// Pays with a delivery cap of `cap` and money for twice that, at the
+/// minimum rate `floor`, until the cap is reached; `then` may change the
+/// path once the server has `at` (spec/areas/stream.md#sending). The
+/// stream is open on both sides first, so the first packet with money is
+/// fulfilled: no refusal shows the rate before it goes.
+fn pay_capped(
+    path: Path,
+    floor: Rate,
+    cap: u64,
+    at: u64,
+    then: impl FnOnce(&mut Simulation),
+) -> (Simulation, u64) {
+    let mut sim = Simulation::new(11, path, Policy::DEFAULT);
+    sim.client.set_exchange_rate(floor);
+    let stream = sim.client.open_stream().unwrap();
+    sim.client.write(stream, b"hello").unwrap();
+    sim.run_until(STEPS, |sim| {
+        sim.received_data.values().any(|data| !data.is_empty())
+    });
+    sim.client.set_send_max(stream, 2 * cap).unwrap();
+    sim.client.set_delivery_max(stream, cap).unwrap();
+    sim.run_until(STEPS, |sim| server_received(sim) >= at);
+    then(&mut sim);
+    sim.run_until(STEPS, |sim| sim.client.delivery_cap_reached(stream));
+    // Nothing more goes once it is reached, not even packets that would
+    // deliver nothing.
+    let sent = sim.client.stream(stream).unwrap().total_sent();
+    for _ in 0..200 {
+        sim.step();
+    }
+    assert_eq!(sim.client.stream(stream).unwrap().total_sent(), sent);
+    (sim, stream)
+}
+
+// A path that pays better than the minimum rate does not carry a capped
+// stream past its cap, in one packet or in many at once: the first goes
+// for half of it, and the rest are sized at the rate replies show.
+#[test]
+fn a_delivery_cap_holds_on_a_better_path() {
+    for max_packet_amount in [u64::MAX, 700] {
+        let path = Path {
+            rate: (101, 100),
+            max_packet_amount,
+            ..Path::default()
+        };
+        let (sim, stream) = pay_capped(path, Rate::ONE, 5_000, 0, |_| {});
+        assert_eq!(server_received(&sim), 5_000, "{}", sim.trace);
+        let sent = sim.client.stream(stream).unwrap().total_sent();
+        assert!(sent < 5_000, "sent {sent}");
+        // The rate the first packet with money showed sizes the second to
+        // the rest, rather than half of it again and again: the data that
+        // opened the stream, then two.
+        if max_packet_amount == u64::MAX {
+            assert_eq!(sim.client.stats().packets_fulfilled, 3, "{}", sim.trace);
+        }
+    }
+}
+
+// A path that pays worse than the rate replies showed, but no worse than
+// the minimum, still delivers the cap, short by less than the least packet
+// delivers, and never pays for a packet that delivers nothing.
+#[test]
+fn a_delivery_cap_is_reached_when_the_path_gets_worse() {
+    let path = Path {
+        max_packet_amount: 500,
+        ..Path::default()
+    };
+    let floor = Rate::new(95, 100).unwrap();
+    let (sim, stream) = pay_capped(path, floor, 5_000, 2_000, |sim| {
+        sim.path.rate = (97, 100);
+    });
+    let received = server_received(&sim);
+    assert!(
+        (4_999..=5_000).contains(&received),
+        "{received}\n{}",
+        sim.trace
+    );
+    // Every packet delivered at least the minimum rate.
+    let sent = sim.client.stream(stream).unwrap().total_sent();
+    assert!(floor.destination_amount(sent) <= received, "sent {sent}");
+}
+
+/// Opens a stream on both sides, as `pay_capped` does, and caps it.
+fn capped_stream(path: Path, floor: Rate, send_max: u64, cap: u64) -> (Simulation, u64) {
+    let mut sim = Simulation::new(12, path, Policy::DEFAULT);
+    sim.client.set_exchange_rate(floor);
+    let stream = sim.client.open_stream().unwrap();
+    sim.client.write(stream, b"hello").unwrap();
+    sim.run_until(STEPS, |sim| {
+        sim.received_data.values().any(|data| !data.is_empty())
+    });
+    sim.client.set_send_max(stream, send_max).unwrap();
+    sim.client.set_delivery_max(stream, cap).unwrap();
+    (sim, stream)
+}
+
+// Found in review: half of a cap can fit no packet that delivers a unit
+// while the whole does, as a single source unit at three units each for a
+// cap of three. The least such packet goes, or the stream would never send.
+#[test]
+fn a_delivery_cap_the_least_packet_fills_is_reached() {
+    let path = Path {
+        rate: (3, 1),
+        ..Path::default()
+    };
+    let (mut sim, stream) = capped_stream(path, Rate::new(3, 1).unwrap(), 1, 3);
+    sim.run_until(STEPS, |sim| sim.client.delivery_cap_reached(stream));
+    assert_eq!(server_received(&sim), 3, "{}", sim.trace);
+}
+
+// A stream told what an earlier connection delivered starts its cap from
+// what is left, halved until a reply shows the rate, rather than from all
+// of it. The server counts as a Dassie receiver does, over connections with
+// the same credentials, so its first reply says 4,000 and more.
+#[test]
+fn a_delivery_cap_starts_from_what_was_delivered() {
+    let path = Path {
+        rate: (101, 100),
+        ..Path::default()
+    };
+    let (mut sim, stream) = capped_stream(path, Rate::ONE, 10_000, 5_000);
+    sim.money_limit = Some(1_000_000);
+    sim.money_received = 4_000;
+    sim.client.set_delivered(stream, 4_000).unwrap();
+    sim.run_until(STEPS, |sim| sim.client.delivery_cap_reached(stream));
+    assert_eq!(sim.money_received, 5_000, "{}", sim.trace);
+}
+
 #[test]
 fn survives_packet_loss() {
     let path = Path {
