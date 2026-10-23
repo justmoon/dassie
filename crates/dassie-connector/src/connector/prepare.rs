@@ -516,6 +516,12 @@ impl Connector {
                 transfers,
                 failure: None,
                 charge,
+                backstop_ms: self
+                    .endpoints
+                    .get(route.to)
+                    .is_some_and(|endpoint| endpoint.hub)
+                    .then_some(prepare.expires_at.unix_ms),
+                awaiting_hub: false,
             },
         );
         self.deadlines.insert((expires_at_ms, route.to, request_id));

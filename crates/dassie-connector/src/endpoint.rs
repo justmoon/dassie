@@ -91,6 +91,10 @@ pub(crate) struct Endpoint {
     /// of the node, or a peer that is our downlink
     /// (spec/areas/connector.md#addresses-and-endpoints). Set when added.
     pub child: bool,
+    /// It is a peer we peer with over a settlement hub: a packet to it that
+    /// times out is rejected upstream only once the hub has decided it
+    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+    pub hub: bool,
 }
 
 /// The endpoints, by ID. A child's address, below the node's own, is its

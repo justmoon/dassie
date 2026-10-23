@@ -1,10 +1,10 @@
 //! Responses from downstream, and packets that expire.
 
-use dassie_ilp::{Address, ErrorCode, MAX_PACKET_LENGTH, Reject, Response, condition_for};
+use dassie_ilp::{Address, ErrorCode, Fulfill, MAX_PACKET_LENGTH, Reject, Response, condition_for};
 use dassie_ledger::{Ledger, LedgerError, TraceId, Transfer};
 use dassie_oer::{Decode, Encode};
 
-use super::{Connector, Pending, Upstream};
+use super::{Connector, HubWait, Pending, Upstream};
 use crate::endpoint::EndpointId;
 use crate::trace::PacketState;
 
@@ -168,6 +168,9 @@ impl Connector {
             if at > now_ms {
                 return None;
             }
+            if self.begin_hub_wait(now_ms, destination, request_id) {
+                continue;
+            }
             // Every deadline belongs to a packet in flight (an invariant);
             // without one, this would loop for ever.
             let entry = self.take(destination, request_id);
@@ -182,6 +185,96 @@ impl Connector {
             }
         }
         None
+    }
+
+    /// Lets a packet to a peer over a hub that just expired wait for the
+    /// hub instead of failing, until its incoming expiry. Whether it did.
+    fn begin_hub_wait(&mut self, now_ms: u64, destination: EndpointId, request_id: u32) -> bool {
+        let Some(entry) = self.pending.get_mut(&(destination, request_id)) else {
+            return false;
+        };
+        let Some(backstop_ms) = entry.backstop_ms.filter(|backstop| *backstop > now_ms) else {
+            return false;
+        };
+        if entry.awaiting_hub || entry.failure.is_some() {
+            return false;
+        }
+        self.deadlines
+            .remove(&(entry.expires_at_ms, destination, request_id));
+        entry.awaiting_hub = true;
+        entry.expires_at_ms = backstop_ms;
+        self.deadlines
+            .insert((backstop_ms, destination, request_id));
+        if self.hub_waits.len() >= self.config.max_pending {
+            // Only resolved packets' waits can be this old.
+            self.hub_waits.pop_front();
+        }
+        self.hub_waits.push_back(HubWait {
+            destination,
+            request_id,
+            condition: entry.condition,
+            backstop_ms,
+        });
+        true
+    }
+
+    /// Decides a packet that waits for the hub: with the fulfillment a
+    /// payee's claim on the hub revealed, it is fulfilled upstream, and the
+    /// books follow the hub; without one, rejected. A packet that is not
+    /// waiting, or a fulfillment that is not its, changes nothing.
+    ///
+    /// # Panics
+    ///
+    /// As [`handle_response`](Self::handle_response).
+    pub fn settle_hub(
+        &mut self,
+        now_ms: u64,
+        destination: EndpointId,
+        request_id: u32,
+        fulfillment: Option<[u8; 32]>,
+        ledger: &mut Ledger,
+        out: &mut [u8],
+    ) -> Responded {
+        let waiting = self
+            .pending
+            .get(&(destination, request_id))
+            .is_some_and(|entry| entry.awaiting_hub);
+        let matches = |entry: &Pending| {
+            fulfillment.is_none_or(|fulfillment| condition_for(&fulfillment) == entry.condition)
+        };
+        if !waiting
+            || !self
+                .pending
+                .get(&(destination, request_id))
+                .is_some_and(matches)
+        {
+            return Responded::Unmatched;
+        }
+        let mut encoded = [0; 64];
+        let length = fulfillment.map_or(0, |fulfillment| {
+            Fulfill {
+                fulfillment,
+                data: &[],
+            }
+            .encode(&mut encoded)
+        });
+        match encoded.get(..length).filter(|bytes| !bytes.is_empty()) {
+            Some(bytes) => {
+                self.handle_response(now_ms, destination, request_id, bytes, ledger, out)
+            }
+            None => {
+                let Some(entry) = self.take(destination, request_id) else {
+                    return Responded::Unmatched;
+                };
+                let resolution =
+                    Resolution::Failed(ErrorCode::R00_TRANSFER_TIMED_OUT, "packet timed out");
+                let upstream = self.resolve(now_ms, &entry, &resolution, ledger, out);
+                Responded::Resolved {
+                    upstream,
+                    posted: None,
+                }
+            }
+        }
     }
 
     /// Removes a packet from flight.

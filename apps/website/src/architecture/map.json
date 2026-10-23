@@ -467,7 +467,8 @@
         "A cap on money in flight with each peer, which bounds what a crash loses, and no new packets from a peer it cannot answer",
         "Exchange between currencies, with fees and a spread, at a rate moved from spot by what the owner holds on each ledger once the packet and those in flight have moved it, so that payments bring a skewed node back toward balance and no round trip gains",
         "A spending cap per BTP token",
-        "A packet trace for the debug pages"
+        "A packet trace for the debug pages",
+        "Waiting for a settlement hub's decision before rejecting a packet to a peer over the hub"
       ]
     },
     "release-crate": {
