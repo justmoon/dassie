@@ -339,22 +339,21 @@ test("a third-party client pays from one node to another with consent", {
     // 6. Asked again, with a receive limit in cents for a receiver that
     // counts in billionths, next to the debit limit a receive limit needs:
     // the page warns that no payment fits, and the owner denies. The app
-    // learns it on its return, and continuing is refused.
+    // learns it on its return, and continuing is refused. The client's types
+    // follow the published spec, which has no limits with both amounts, so
+    // they are built apart from the request, where only their shape counts.
+    const limits = {
+      receiver: incoming.id,
+      debitAmount: { value: "1000000000", assetCode: "USD", assetScale: 9 },
+      receiveAmount: { value: "100", assetCode: "USD", assetScale: 2 },
+    };
     const again = await op.grant.request({ url: payerAddress.authServer }, {
       access_token: {
         access: [{
           type: "outgoing-payment",
           actions: ["create"],
           identifier: payerAddress.id,
-          limits: {
-            receiver: incoming.id,
-            debitAmount: {
-              value: "1000000000",
-              assetCode: "USD",
-              assetScale: 9,
-            },
-            receiveAmount: { value: "100", assetCode: "USD", assetScale: 2 },
-          },
+          limits,
         }],
       },
       interact: {
