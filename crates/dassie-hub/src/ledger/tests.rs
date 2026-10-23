@@ -822,6 +822,9 @@ fn reconfigure_takes_effect_after_its_notice() {
     let notice = hub.ledger.terms().timers.reconfigure_notice;
     let at = hub.ledger.timestamp() + notice;
     hub.block_at(at, vec![], &[]);
+    // The new set takes over two blocks after its notice passed.
+    hub.block(vec![]);
+    hub.block(vec![]);
     assert_eq!(hub.ledger.terms().fees.operation, 20);
     assert_eq!(hub.ledger.hub(), &rules_id_of_genesis());
 }
@@ -862,6 +865,9 @@ fn reconfigure(hub: &mut Hub, rules: &Rules) -> Vec<Outcome> {
     let outcomes = hub.block(ops);
     let at = hub.ledger.timestamp() + hub.ledger.terms().timers.reconfigure_notice;
     hub.block_at(at, vec![], &[]);
+    // The new set takes over two blocks after its notice passed.
+    hub.block(vec![]);
+    hub.block(vec![]);
     outcomes
 }
 
@@ -1186,6 +1192,9 @@ fn a_withdrawal_with_a_quorum_after_a_change_of_set_settles() {
     hub.block(ops);
     let at = hub.ledger.timestamp() + hub.ledger.terms().timers.reconfigure_notice;
     hub.block_at(at, vec![], &[]);
+    // The new set takes over two blocks after its notice passed.
+    hub.block(vec![]);
+    hub.block(vec![]);
     assert_eq!(hub.ledger.validators().len(), 4);
     assert_eq!(
         hub.ledger.withdrawals().count(),

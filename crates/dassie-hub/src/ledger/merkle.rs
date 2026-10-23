@@ -173,7 +173,9 @@ impl Ledger {
         if let Some(pending) = &self.pending_rules {
             bytes.extend_from_slice(pending.rules.id().0.as_bytes());
             bytes.extend_from_slice(&pending.at.to_be_bytes());
+            push_option(bytes, pending.from_height);
         }
+        bytes.extend_from_slice(&self.set_since.to_be_bytes());
         push_count(bytes, self.rules_votes.len());
         for (digest, signers) in &self.rules_votes {
             bytes.extend_from_slice(digest.as_bytes());
