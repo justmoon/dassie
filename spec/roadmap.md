@@ -12,9 +12,16 @@ Another way to peer, beside bilateral peering: a ledger kept by n = 3f + 1 valid
 
 - **Parts that can be built side by side:**
   - `dassie-hub`: the hub's ledger, its operations and Simplex consensus, in the simulation without an escrow;
-  - the `hub` settlement scheme: holds, commitments and claims, peering over a hub, joining by being paid, against the hub's ledger in the simulation;
-  - the escrow on the XRP Ledger testnet: founding, deposits, withdrawals, changing validators, shutdown and payout, against the fake XRP Ledger.
-- **Done when:** in the simulation, with up to f faulty validators, members peered over a hub pay each other across hops without trusting each other: a payer that sends no claims, and a payee that claims twice or late, cost the other no more than its hold. f + 1 colluding validators leave evidence. A hub that loses a validator shuts down, and the escrow pays out exactly the final balances, with signatures collected over time.
+  - the `hub-xrp-testnet` settlement scheme: holds, commitments and claims, peering over a hub, joining by being paid, moving funds between the hub and the node's account, against the hub's ledger in the simulation;
+  - the escrow on the XRP Ledger testnet: founding, deposits, withdrawals, changing validators, shutdown and payout, test network resets, against the fake XRP Ledger;
+  - the testnet hub: the bootstrap nodes, moved into one region and joined by a fourth ([bootstrap-network](decisions/bootstrap-network.md)), as its validators, and its genesis built into the release as the default hub.
+- **Done when:** in the simulation, with up to f faulty validators, members peered over a hub pay each other across hops without trusting each other: a payer that sends no claims, and a payee that claims twice or late, cost the other no more than its hold. f + 1 colluding validators leave evidence. A hub that loses a validator shuts down, and the escrow pays out exactly the final balances, with signatures collected over time. On the testnet, nodes peered over the default hub pay each other, and it carries on while a validator restarts.
+- **Later, once hubs run:**
+  - fees that follow how full blocks are, so that holding back someone's claim grows dear, and an idle fee that frees the places of abandoned accounts;
+  - a setup fee the sponsor pays each validator, in place of the owner's list of sponsors;
+  - being in several hubs per asset, with a limit per validator operator over all of them;
+  - a node putting what it earned into its holds, so a peer's room grows with earnings;
+  - hub balances and holds in the wallet and the desktop app.
 - Hubs hold real money only once the conditions of [Real money](#real-money) are met.
 
 ### Continuous simulation
