@@ -2,7 +2,7 @@
 
 Dassie nodes talk to each other with the peer protocol v1: OER messages sent over QUIC, or as HTTPS `POST /peer` requests to a node that does not take QUIC, authenticated by a MAC from the two nodes' static keys. This document covers what the protocol guarantees, what a node trusts from whom, and what must stay compatible. What the messages are used for (the node table, membership, peering, routing) is in [Network](network.md).
 
-**Paths:** `crates/dassie-peer/src/wire/` (layouts), `crates/dassie-peer/src/auth/` (MACs, replay), `crates/dassie-peer/src/node/inbound.rs` (handlers and statuses), `crates/dassie-node/src/quic/`, `crates/dassie-node/src/http/peer.rs`, `crates/dassie-node/src/peer_client.rs`, `crates/dassie-node-core/src/address.rs`
+**Paths:** `crates/dassie-peer/src/wire/` (layouts), `crates/dassie-peer/src/auth/` (MACs, replay), `crates/dassie-peer/src/node/inbound.rs` (handlers and statuses), `crates/dassie-node/src/quic/`, `crates/dassie-node/src/http/peer.rs`, `crates/dassie-node/src/peer_client.rs`, `crates/dassie-node-core/src/address.rs`, and for the hub's stream `crates/dassie-node/src/hub/transport.rs`, `crates/dassie-node/src/quic/hub.rs`, `crates/dassie-node/src/http/hub.rs`
 **Read with:** [Network](network.md), [Identity](identity.md), [Encoding](encoding.md), [Settlement](settlement.md), [Connector](connector.md)
 
 ## Versions
@@ -30,7 +30,7 @@ The same requests travel over QUIC or HTTPS. A node whose link state says it tak
 
 - **One endpoint per node,** on UDP at its URL's host and port: 443 under systemd, the HTTPS listener's port number when standalone ([Node](node.md#runtimes)). It both takes and makes connections. A link state says the node takes QUIC with extension type 2 ([Link states](#link-states)), which a node issues only when it has its UDP socket on its URL's port.
 - **Keys, not certificates.** Each side presents a self-signed certificate for its Ed25519 node key. A dialler refuses a server whose key is not that of the node it asked for; a server takes any client that proves a key, and learns its node ID from it. TLS 1.3 only, ALPN `dassie/1`. No certificate authority is involved, so a node needs no certificate for its hostname to be reached over QUIC. TLS signs with a context string of its own, so a handshake signature never passes for a link state's (`crates/dassie-node/src/quic/keys.rs`).
-- **Every bidirectional stream starts with a kind byte** (`StreamKind` in `crates/dassie-node/src/quic/mod.rs`): a peer request, a relay request or a relayed stream ([Relayed streams](#relayed-streams)). A stream of a kind the node does not know is reset.
+- **Every bidirectional stream starts with a kind byte** (`StreamKind` in `crates/dassie-node/src/quic/mod.rs`): a peer request, a relay request or a relayed stream ([Relayed streams](#relayed-streams)), or a settlement hub's message ([The hub's stream](#the-hubs-stream)). A stream of a kind the node does not know is reset.
 - **A peer request** is the envelope, then the stream's end; the answer is the status as two bytes, big-endian, then the body. The bytes, bounds and statuses are those of HTTPS; the media types are implied by the ALPN.
 - **One connection per pair of nodes, used both ways.** A node sends on a connection another opened to it; when both dialled, the one the lower node ID opened is kept. A connection unused for a while closes, which peers' heartbeats prevent. A connection that is open but not the one used stands by, and takes over when the one used closes, so that a connection the other node keeps open for its own sake ([A chosen relay](node.md#a-chosen-relay)) is never lost behind one that goes idle.
 - **A periphery node is reached only over the connections it opened** ([Network](network.md#periphery-nodes)). It has no URL, so a peer request to it goes on the connection it opened, or on one it opened since that stands by, or fails as not delivered: it is never dialled, and never asked over HTTPS. The connections it dials for requests keep themselves alive as the one to a chosen relay does, well within the idle timeout, since they are the only way its uplinks reach it, and a NAT drops a mapping that goes quiet.
@@ -59,6 +59,16 @@ How a client reaches a node it cannot dial, such as a node behind a NAT ([core-a
 - **Uplinks relay for their downlinks.** A periphery node holds a connection to each of its uplinks ([Network](network.md#periphery-nodes)), and a relay reaches any node it holds a connection to, so every uplink is a relay for its downlinks, with nothing more to set up.
 
 How a client learns which relays reach a node, the design's records and home nodes, is not built ([roadmap](../roadmap.md#periphery)).
+
+### The hub's stream
+
+How validators and members of a [settlement hub](hubs.md#the-validator-in-the-node) exchange the hub's messages ([settlement-hubs](../decisions/settlement-hubs.md): they prove themselves, so they need no peer protocol envelope, and a member need not be known to the validators). `crates/dassie-node/src/hub/transport.rs` has the bytes and bounds.
+
+- **One exchange per stream:** the request is the hub's ID and one hub message, then the stream's end; the reply is a status byte (taken, no such hub, busy, malformed) and, when taken, the messages the validator sent back while it handled the request, each with its length ahead of it. Nothing else travels: a validator reaches a member only in the reply to its request.
+- **Who sent it** is the node whose key the connection proved, and the validator answers that node's requests as one asker's, whoever it is. The dialler pins the validator's node key from its acceptance, at the endpoint the hub's state names, as for a peer request.
+- **Validators use QUIC alone,** and a dial that fails marks nothing for the peer protocol: a validator that is back is reached at once, and its peers back off from it by themselves.
+- **Members fall back to HTTPS,** `POST /hub` at the validator's endpoint, with the same request as the body and the messages back with 200, or 404, 503, 400 or 429. It takes only a member's request, never a validator's message, and proves no key, so each request is charged to its address at the rate of unauthenticated peer requests and holds one of the places for requests waiting ([Transport](#transport)). A request that may have reached the validator over QUIC is never sent again over HTTPS.
+- **Bounds:** a request carries one message of bounded size; a reply, a bounded number of messages and bytes, the rest left for the next request; a validator's queue is bounded, and a request past it is answered busy, nothing taken.
 
 ### HTTPS
 

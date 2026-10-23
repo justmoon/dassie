@@ -1,0 +1,445 @@
+//! The validator role (spec/areas/hubs.md#the-validator-in-the-node): a
+//! supervised service that runs a validator for each hub the owner
+//! configured, once the node has its key.
+//!
+//! Each hub has one task that owns its [`Driver`] and takes, one at a time,
+//! the messages the hub's stream brings, the time, and what the node sees
+//! of the escrow. After each step is on disk it answers the message's
+//! sender, sends to the other validators over QUIC, each an exchange of its
+//! own whose reply comes back as a message from that validator, and hands
+//! the escrow's transactions to its XRPL connection ([`super::xrpl`]). A
+//! write that fails stops the service, which the supervisor starts again
+//! from what is on disk.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
+
+use dassie_hub::HubId;
+use dassie_hub::operation::ValidatorOperation;
+use dassie_identity::{NodeId, NodeKey};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch};
+use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
+
+use super::config::{HubConfig, ValidatorConfig};
+use super::driver::{Driver, DriverError, Effects, Peer, hex};
+use super::escrow::EscrowView;
+use super::transport::{Hubs, INBOX, Inbound, Route, Sender, bounded};
+use super::{HubClient, xrpl};
+use crate::clock::Clock;
+use crate::log::target;
+use crate::node::Node;
+use crate::store::StoreError;
+
+/// The longest an exchange with another validator takes: a consensus
+/// message is worth little later, and is sent again if it matters.
+pub const SEND_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// The most exchanges with other validators in flight for one hub: past
+/// it, a message is dropped, as a network drops one.
+pub const MAX_SENDS_IN_FLIGHT: usize = 256;
+
+/// The longest a validator waits between two ticks when its engine names
+/// no deadline: it still notices a stall.
+const IDLE_TICK_MS: u64 = 1_000;
+
+/// The most attestations and escrow transactions waiting between a hub's
+/// validator and its XRPL connection, each way.
+const ESCROW_QUEUE: usize = 64;
+
+/// The first wait before sending to a validator that could not be reached,
+/// and the longest.
+const BACKOFF_MIN: Duration = Duration::from_millis(250);
+const BACKOFF_MAX: Duration = Duration::from_secs(30);
+
+/// Runs the validators of the hubs in `config` until `shutdown`, once the
+/// node has its key. A hub the node is not a validator of, or whose stored
+/// state is broken, is left out, and said so.
+pub async fn run(node: Arc<Node>, config: Arc<ValidatorConfig>, shutdown: CancellationToken) {
+    let Some(key) = identity(&node, &shutdown).await else {
+        return;
+    };
+    let Some(client) = HubClient::of(&node) else {
+        tracing::error!(target: target::HUB, "no peer client: the node validates no hub");
+        return shutdown.cancelled().await;
+    };
+    if node.quic().is_none() {
+        tracing::warn!(target: target::HUB, "the node has no QUIC endpoint: validators reach each other over QUIC only, so its hubs cannot hear it");
+    }
+    let tasks = TaskTracker::new();
+    let stop = shutdown.child_token();
+    let mut started = 0_usize;
+    for hub in &config.hubs {
+        match start(&node, &key, hub, &client, &tasks, &stop) {
+            Ok(true) => started = started.saturating_add(1),
+            Ok(false) => {}
+            // The database failed: the service starts again.
+            Err(()) => stop.cancel(),
+        }
+    }
+    if started == 0 && !stop.is_cancelled() {
+        // Nothing to validate until the configuration changes, which
+        // takes a restart of the daemon.
+        return shutdown.cancelled().await;
+    }
+    tasks.close();
+    tokio::select! {
+        () = stop.cancelled() => {}
+        () = tasks.wait() => {}
+    }
+    stop.cancel();
+    tasks.wait().await;
+    for hub in &config.hubs {
+        node.hubs().unregister(&hub.rules.id());
+    }
+}
+
+/// The node's key, once it has one; `None` at shutdown.
+async fn identity(node: &Node, shutdown: &CancellationToken) -> Option<Arc<NodeKey>> {
+    let mut identity = node.identity();
+    tokio::select! {
+        () = shutdown.cancelled() => None,
+        key = identity.wait_for(Option::is_some) => key.ok().and_then(|key| key.clone()),
+    }
+}
+
+/// Opens the validator of `hub` and starts its tasks, which cancel `stop`
+/// if its store fails: whether it started, or `Err` if the database failed.
+fn start(
+    node: &Arc<Node>,
+    key: &NodeKey,
+    hub: &HubConfig,
+    client: &HubClient,
+    tasks: &TaskTracker,
+    stop: &CancellationToken,
+) -> Result<bool, ()> {
+    let id = hub.rules.id();
+    let opened = Driver::open(
+        node.store_handle(),
+        &hub.rules,
+        hub.genesis_ms,
+        key,
+        node.now_ms(),
+    );
+    let driver = match opened {
+        Ok(driver) => driver,
+        Err(DriverError::Store(error)) => {
+            tracing::error!(target: target::HUB, hub = %hex(id.0.as_bytes()), %error, "cannot open the hub's validator");
+            return Err(());
+        }
+        Err(error) => {
+            tracing::error!(target: target::HUB, hub = %hex(id.0.as_bytes()), %error, "not validating the hub");
+            return Ok(false);
+        }
+    };
+    tracing::info!(target: target::HUB, hub = %hex(id.0.as_bytes()), height = driver.validator().ledger().height(), "validating the hub");
+    let (task, links) = HubTask::new(
+        driver,
+        client.clone(),
+        Arc::clone(node.hubs()),
+        node.clock(),
+    );
+    let follow = xrpl::Follow {
+        store: node.store_handle(),
+        hub: id,
+        url: hub.xrpl.clone(),
+        client: node.peer_client().cloned(),
+        clock: node.clock(),
+        links,
+    };
+    let stop_ = stop.clone();
+    tasks.spawn(async move {
+        if let Err(error) = task.run(stop_.clone()).await {
+            tracing::error!(target: target::HUB, %error, "a hub's validator could not write its step; starting again");
+            stop_.cancel();
+        }
+    });
+    let stop_ = stop.clone();
+    tasks.spawn(async move { follow.run(stop_).await });
+    Ok(true)
+}
+
+/// What a hub's validator and its XRPL connection share.
+#[derive(Debug)]
+pub struct EscrowLinks {
+    /// What the connection saw, for the validator to attest.
+    pub attest: mpsc::Sender<ValidatorOperation>,
+    /// Escrow transactions a quorum signed, for the connection to submit.
+    pub submits: mpsc::Receiver<Vec<u8>>,
+    /// What the ledger says that bears on the escrow.
+    pub view: watch::Receiver<EscrowView>,
+    /// Whether the connection follows the escrow now.
+    pub connected: watch::Sender<bool>,
+}
+
+/// The most attestations waiting for room in the validator's own pool.
+const MAX_RETRIED: usize = 64;
+
+/// When each validator that could not be reached is sent to again.
+type Backoffs = Arc<Mutex<BTreeMap<NodeId, (tokio::time::Instant, Duration)>>>;
+
+/// One hub's validator at work.
+pub struct HubTask {
+    driver: Driver,
+    /// What the hub's other validators send, which members cannot crowd
+    /// out: taken first.
+    from_validators: mpsc::Receiver<Inbound>,
+    /// What anyone else sends.
+    from_members: mpsc::Receiver<Inbound>,
+    /// Where replies of the other validators go, as messages from them.
+    loopback: mpsc::Sender<Inbound>,
+    /// The other validators' nodes, as the route last had them.
+    validator_nodes: BTreeSet<NodeId>,
+    client: HubClient,
+    hubs: Arc<Hubs>,
+    clock: Arc<dyn Clock>,
+    attestations: mpsc::Receiver<ValidatorOperation>,
+    submits: mpsc::Sender<Vec<u8>>,
+    view: watch::Sender<EscrowView>,
+    xrpl_connected: watch::Receiver<bool>,
+    permits: Arc<Semaphore>,
+    backoffs: Backoffs,
+    sends: TaskTracker,
+    /// Attestations the validator's pool had no room for, to attest again.
+    retried: std::collections::VecDeque<ValidatorOperation>,
+}
+
+impl std::fmt::Debug for HubTask {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HubTask")
+            .field("driver", &self.driver)
+            .finish_non_exhaustive()
+    }
+}
+
+impl HubTask {
+    /// The task of `driver`'s validator, which takes what `hubs` routes to
+    /// its hub, and the links its XRPL connection takes.
+    #[must_use]
+    pub fn new(
+        driver: Driver,
+        client: HubClient,
+        hubs: Arc<Hubs>,
+        clock: Arc<dyn Clock>,
+    ) -> (Self, EscrowLinks) {
+        let (loopback, from_validators) = mpsc::channel(INBOX);
+        let (members, from_members) = mpsc::channel(INBOX);
+        let validator_nodes = driver.peer_nodes();
+        let route = Route {
+            validators: loopback.clone(),
+            members,
+            nodes: validator_nodes.clone(),
+        };
+        hubs.register(*driver.hub(), route);
+        let (attest, attestations) = mpsc::channel(ESCROW_QUEUE);
+        let (submits, submitted) = mpsc::channel(ESCROW_QUEUE);
+        let (view, viewed) = watch::channel(driver.escrow_view());
+        let (connected, xrpl_connected) = watch::channel(false);
+        hubs.set_status(driver.status(false));
+        let task = Self {
+            driver,
+            from_validators,
+            from_members,
+            loopback,
+            validator_nodes,
+            client,
+            hubs,
+            clock,
+            attestations,
+            submits,
+            view,
+            xrpl_connected,
+            permits: Arc::new(Semaphore::new(MAX_SENDS_IN_FLIGHT)),
+            backoffs: Arc::default(),
+            sends: TaskTracker::new(),
+            retried: std::collections::VecDeque::new(),
+        };
+        let links = EscrowLinks {
+            attest,
+            submits: submitted,
+            view: viewed,
+            connected,
+        };
+        (task, links)
+    }
+
+    /// Runs until `shutdown`.
+    ///
+    /// # Errors
+    ///
+    /// A step could not be written: nothing of it went out.
+    pub async fn run(mut self, shutdown: CancellationToken) -> Result<(), StoreError> {
+        let result = self.steps(&shutdown).await;
+        self.hubs.unregister(self.driver.hub());
+        self.sends.close();
+        self.sends.wait().await;
+        result
+    }
+
+    async fn steps(&mut self, shutdown: &CancellationToken) -> Result<(), StoreError> {
+        loop {
+            let now = self.clock.now_ms();
+            let wake = self
+                .driver
+                .deadline()
+                .unwrap_or(u64::MAX)
+                .min(now.saturating_add(IDLE_TICK_MS));
+            let sleep = Duration::from_millis(wake.saturating_sub(now));
+            // In this order: the time, the other validators, what the
+            // escrow showed, and only then members, who cannot hold up
+            // consensus however much they send.
+            let effects = tokio::select! {
+                biased;
+                () = shutdown.cancelled() => return Ok(()),
+                () = tokio::time::sleep(sleep) => self.tick()?,
+                Some(inbound) = self.from_validators.recv() => self.take(inbound)?,
+                Some(operation) = self.attestations.recv() => self.attest(operation)?,
+                Some(inbound) = self.from_members.recv() => self.take(inbound)?,
+            };
+            self.carry_out(effects, shutdown);
+            self.publish();
+        }
+    }
+
+    /// Does what is due, and attests again one of what found no room.
+    fn tick(&mut self) -> Result<Effects, StoreError> {
+        let mut effects = self.driver.tick(self.clock.now_ms())?;
+        if let Some(operation) = self.retried.pop_front() {
+            let more = self.attest(operation)?;
+            effects.sends.extend(more.sends);
+            effects.submits.extend(more.submits);
+        }
+        Ok(effects)
+    }
+
+    /// Attests `operation`, or keeps it to attest again later if the
+    /// validator's pool has no room for it now.
+    fn attest(&mut self, operation: ValidatorOperation) -> Result<Effects, StoreError> {
+        let (effects, taken) = self.driver.attest(self.clock.now_ms(), operation.clone())?;
+        if !taken && self.retried.len() < MAX_RETRIED {
+            self.retried.push_back(operation);
+        }
+        Ok(effects)
+    }
+
+    /// Takes a message, and answers its sender once the step is on disk.
+    fn take(&mut self, inbound: Inbound) -> Result<Effects, StoreError> {
+        let now = self.clock.now_ms();
+        let node = inbound.node.as_ref();
+        let effects = self
+            .driver
+            .handle(now, inbound.from, node, &inbound.message)?;
+        if let Some(reply) = inbound.reply {
+            let _ = reply.send(bounded(effects.reply.clone()));
+        }
+        Ok(effects)
+    }
+
+    /// Tells the node how the validator stands after a step: its status,
+    /// its co-validators' nodes, and what the escrow's watcher needs.
+    fn publish(&mut self) {
+        let connected = *self.xrpl_connected.borrow();
+        self.hubs.set_status(self.driver.status(connected));
+        let nodes = self.driver.peer_nodes();
+        if nodes != self.validator_nodes {
+            self.hubs.set_validators(self.driver.hub(), nodes.clone());
+            self.validator_nodes = nodes;
+        }
+        let view = self.driver.escrow_view();
+        self.view.send_if_modified(|seen| {
+            let changed = *seen != view;
+            *seen = view;
+            changed
+        });
+    }
+
+    fn carry_out(&self, effects: Effects, shutdown: &CancellationToken) {
+        for (peer, message) in effects.sends {
+            self.send(peer, message, shutdown);
+        }
+        for blob in effects.submits {
+            if self.submits.try_send(blob).is_err() {
+                tracing::warn!(target: target::HUB, "the XRPL connection is not keeping up: an escrow transaction was dropped");
+            }
+        }
+    }
+
+    /// Sends `message` to `peer`, unless it could not be reached lately or
+    /// too many exchanges are in flight; its reply comes back as messages
+    /// from it.
+    fn send(&self, peer: Peer, message: Vec<u8>, shutdown: &CancellationToken) {
+        if backing_off(&self.backoffs, &peer.node) {
+            return;
+        }
+        let Ok(permit) = Arc::clone(&self.permits).try_acquire_owned() else {
+            return;
+        };
+        let exchange = Exchange {
+            client: self.client.clone(),
+            hub: *self.driver.hub(),
+            loopback: self.loopback.clone(),
+            backoffs: Arc::clone(&self.backoffs),
+            _permit: permit,
+        };
+        let shutdown = shutdown.clone();
+        self.sends.spawn(async move {
+            tokio::select! {
+                () = shutdown.cancelled() => {}
+                () = exchange.run(peer, message) => {}
+            }
+        });
+    }
+}
+
+/// One exchange with another validator.
+struct Exchange {
+    client: HubClient,
+    hub: HubId,
+    loopback: mpsc::Sender<Inbound>,
+    backoffs: Backoffs,
+    _permit: OwnedSemaphorePermit,
+}
+
+impl Exchange {
+    async fn run(self, peer: Peer, message: Vec<u8>) {
+        let sent = self
+            .client
+            .exchange_quic(peer.node, &peer.endpoint, &self.hub, &message, SEND_TIMEOUT)
+            .await;
+        let mut backoffs = self.backoffs.lock().unwrap_or_else(PoisonError::into_inner);
+        match sent {
+            Ok(messages) => {
+                backoffs.remove(&peer.node);
+                drop(backoffs);
+                let from = Sender::Node(peer.key).peer();
+                for message in messages {
+                    let inbound = Inbound {
+                        from,
+                        node: Some(peer.key),
+                        message,
+                        reply: None,
+                    };
+                    let _ = self.loopback.try_send(inbound);
+                }
+            }
+            Err(error) => {
+                let wait = backoffs
+                    .get(&peer.node)
+                    .map_or(BACKOFF_MIN, |(_, wait)| (*wait * 2).min(BACKOFF_MAX));
+                backoffs.insert(peer.node, (tokio::time::Instant::now() + wait, wait));
+                tracing::debug!(target: target::HUB, node = %peer.node, %error, "a validator could not be reached");
+            }
+        }
+    }
+}
+
+/// Whether `node` could not be reached lately, so nothing is sent to it
+/// until its wait is over.
+fn backing_off(backoffs: &Backoffs, node: &NodeId) -> bool {
+    backoffs
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(node)
+        .is_some_and(|(until, _)| *until > tokio::time::Instant::now())
+}

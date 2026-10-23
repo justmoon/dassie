@@ -1195,7 +1195,8 @@ mod tests {
         assert_eq!(Outcome::from_destination(2), Outcome::Busy);
         assert_eq!(Outcome::from_destination(1), Outcome::Refused);
         assert_eq!(Outcome::from_destination(9), Outcome::Refused);
-        assert_eq!(StreamKind::from_byte(3), None);
+        assert_eq!(StreamKind::from_byte(3), Some(StreamKind::Hub));
+        assert_eq!(StreamKind::from_byte(4), None);
     }
 
     // The waits a relay that refuses every dial gets, in turn: it reads as

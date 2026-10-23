@@ -12,7 +12,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/ui/v1/node.proto.
  */
 export const file_dassie_ui_v1_node: GenFile = /*@__PURE__*/
-  fileDesc("ChdkYXNzaWUvdWkvdjEvbm9kZS5wcm90bxIMZGFzc2llLnVpLnYxIhYKFEdldEJhc2ljU3RhdGVSZXF1ZXN0IrUBChVHZXRCYXNpY1N0YXRlUmVzcG9uc2USJgoFc3RhdGUYASABKA4yFy5kYXNzaWUudWkudjEuTm9kZVN0YXRlEg8KB25vZGVfaWQYAiABKAkSEAoIaG9zdG5hbWUYAyABKAkSHQoVaWxwX2FsbG9jYXRpb25fc2NoZW1lGAQgASgJEg8KB3ZlcnNpb24YBSABKAkSIQoZYWN0aXZlX3NldHRsZW1lbnRfc2NoZW1lcxgGIAMoCSISChBHZXRTdGF0dXNSZXF1ZXN0IukCChFHZXRTdGF0dXNSZXNwb25zZRIPCgd2ZXJzaW9uGAEgASgJEiYKB3J1bnRpbWUYAiABKA4yFS5kYXNzaWUudWkudjEuUnVudGltZRIaChJzdGFydGVkX2F0X3VuaXhfbXMYAyABKAMSLgoLY2VydGlmaWNhdGUYBCABKAsyGS5kYXNzaWUudWkudjEuQ2VydGlmaWNhdGUSJgoEYWNtZRgFIAEoCzIYLmRhc3NpZS51aS52MS5BY21lU3RhdHVzEhEKCWh0dHBfcG9ydBgGIAEoDRISCgpodHRwc19wb3J0GAcgASgNEhEKCXBlcmlwaGVyeRgIIAEoCBIoCgVyZWxheRgJIAEoCzIZLmRhc3NpZS51aS52MS5DaG9zZW5SZWxheRIdChVvcGVuX3BheW1lbnRzX29yaWdpbnMYCiADKAkSJAoEZmVlZBgLIAEoCzIWLmRhc3NpZS51aS52MS5SYXRlRmVlZCKiAgoIUmF0ZUZlZWQSDwoHc2VydmluZxgBIAEoCBIPCgdhZGRyZXNzGAIgASgJEhMKC3N1YnNjcmliZXJzGAMgASgNEhEKCXB1Ymxpc2hlZBgEIAEoBBIMCgRzZW50GAUgASgEEhMKC3NlbmRfZmFpbGVkGAYgASgEEg4KBnVuc2VudBgHIAEoBBIQCghyZWNlaXZlZBgIIAEoBBISCgpjaGFsbGVuZ2VkGAkgASgEEhIKCnN1YnNjcmliZWQYCiABKAQSDwoHcmVuZXdlZBgLIAEoBBIUCgxyZWZ1c2VkX2Z1bGwYDCABKAQSFgoOcmVmdXNlZF9jbGllbnQYDSABKAQSDwoHaWdub3JlZBgOIAEoBBIPCgdleHBpcmVkGA8gASgEIm4KC0Nob3NlblJlbGF5EgwKBG5vZGUYASABKAkSCwoDdXJsGAIgASgJEhEKCWNvbm5lY3RlZBgDIAEoCBIxCgpjb25uZWN0aW9uGAQgASgOMh0uZGFzc2llLnVpLnYxLlJlbGF5Q29ubmVjdGlvbiJRCgpBY21lU3RhdHVzEhMKC2hhc19hY2NvdW50GAEgASgIEhoKEm5leHRfY2hlY2tfdW5peF9tcxgCIAEoAxISCgpsYXN0X2Vycm9yGAMgASgJKn0KCU5vZGVTdGF0ZRIaChZOT0RFX1NUQVRFX1VOU1BFQ0lGSUVEEAASHAoYTk9ERV9TVEFURV9VTklOSVRJQUxJWkVEEAESGAoUTk9ERV9TVEFURV9BTk9OWU1PVVMQAhIcChhOT0RFX1NUQVRFX0FVVEhFTlRJQ0FURUQQAyqWAQoPUmVsYXlDb25uZWN0aW9uEiAKHFJFTEFZX0NPTk5FQ1RJT05fVU5TUEVDSUZJRUQQABIeChpSRUxBWV9DT05ORUNUSU9OX0NPTk5FQ1RFRBABEh8KG1JFTEFZX0NPTk5FQ1RJT05fQ09OTkVDVElORxACEiAKHFJFTEFZX0NPTk5FQ1RJT05fVU5SRUFDSEFCTEUQAypPCgdSdW50aW1lEhcKE1JVTlRJTUVfVU5TUEVDSUZJRUQQABIWChJSVU5USU1FX1NUQU5EQUxPTkUQARITCg9SVU5USU1FX1NZU1RFTUQQAmIGcHJvdG8z", [file_dassie_ui_v1_tls]);
+  fileDesc("ChdkYXNzaWUvdWkvdjEvbm9kZS5wcm90bxIMZGFzc2llLnVpLnYxIhYKFEdldEJhc2ljU3RhdGVSZXF1ZXN0IrUBChVHZXRCYXNpY1N0YXRlUmVzcG9uc2USJgoFc3RhdGUYASABKA4yFy5kYXNzaWUudWkudjEuTm9kZVN0YXRlEg8KB25vZGVfaWQYAiABKAkSEAoIaG9zdG5hbWUYAyABKAkSHQoVaWxwX2FsbG9jYXRpb25fc2NoZW1lGAQgASgJEg8KB3ZlcnNpb24YBSABKAkSIQoZYWN0aXZlX3NldHRsZW1lbnRfc2NoZW1lcxgGIAMoCSISChBHZXRTdGF0dXNSZXF1ZXN0IpkDChFHZXRTdGF0dXNSZXNwb25zZRIPCgd2ZXJzaW9uGAEgASgJEiYKB3J1bnRpbWUYAiABKA4yFS5kYXNzaWUudWkudjEuUnVudGltZRIaChJzdGFydGVkX2F0X3VuaXhfbXMYAyABKAMSLgoLY2VydGlmaWNhdGUYBCABKAsyGS5kYXNzaWUudWkudjEuQ2VydGlmaWNhdGUSJgoEYWNtZRgFIAEoCzIYLmRhc3NpZS51aS52MS5BY21lU3RhdHVzEhEKCWh0dHBfcG9ydBgGIAEoDRISCgpodHRwc19wb3J0GAcgASgNEhEKCXBlcmlwaGVyeRgIIAEoCBIoCgVyZWxheRgJIAEoCzIZLmRhc3NpZS51aS52MS5DaG9zZW5SZWxheRIdChVvcGVuX3BheW1lbnRzX29yaWdpbnMYCiADKAkSJAoEZmVlZBgLIAEoCzIWLmRhc3NpZS51aS52MS5SYXRlRmVlZBIuCgp2YWxpZGF0aW5nGAwgAygLMhouZGFzc2llLnVpLnYxLkh1YlZhbGlkYXRvciLbAQoMSHViVmFsaWRhdG9yEgsKA2h1YhgBIAEoCRINCgVpbmRleBgCIAEoDRISCgp2YWxpZGF0b3JzGAMgASgNEg4KBmhlaWdodBgEIAEoBBIVCg1maW5hbF91bml4X21zGAUgASgDEgwKBHZpZXcYBiABKAQSJQoFcGhhc2UYByABKA4yFi5kYXNzaWUudWkudjEuSHViUGhhc2USDwoHc3RhbGxlZBgIIAEoCBIWCg5lc2Nyb3dfY2hlY2tlZBgJIAEoCBIWCg54cnBsX2Nvbm5lY3RlZBgKIAEoCCKiAgoIUmF0ZUZlZWQSDwoHc2VydmluZxgBIAEoCBIPCgdhZGRyZXNzGAIgASgJEhMKC3N1YnNjcmliZXJzGAMgASgNEhEKCXB1Ymxpc2hlZBgEIAEoBBIMCgRzZW50GAUgASgEEhMKC3NlbmRfZmFpbGVkGAYgASgEEg4KBnVuc2VudBgHIAEoBBIQCghyZWNlaXZlZBgIIAEoBBISCgpjaGFsbGVuZ2VkGAkgASgEEhIKCnN1YnNjcmliZWQYCiABKAQSDwoHcmVuZXdlZBgLIAEoBBIUCgxyZWZ1c2VkX2Z1bGwYDCABKAQSFgoOcmVmdXNlZF9jbGllbnQYDSABKAQSDwoHaWdub3JlZBgOIAEoBBIPCgdleHBpcmVkGA8gASgEIm4KC0Nob3NlblJlbGF5EgwKBG5vZGUYASABKAkSCwoDdXJsGAIgASgJEhEKCWNvbm5lY3RlZBgDIAEoCBIxCgpjb25uZWN0aW9uGAQgASgOMh0uZGFzc2llLnVpLnYxLlJlbGF5Q29ubmVjdGlvbiJRCgpBY21lU3RhdHVzEhMKC2hhc19hY2NvdW50GAEgASgIEhoKEm5leHRfY2hlY2tfdW5peF9tcxgCIAEoAxISCgpsYXN0X2Vycm9yGAMgASgJKn0KCU5vZGVTdGF0ZRIaChZOT0RFX1NUQVRFX1VOU1BFQ0lGSUVEEAASHAoYTk9ERV9TVEFURV9VTklOSVRJQUxJWkVEEAESGAoUTk9ERV9TVEFURV9BTk9OWU1PVVMQAhIcChhOT0RFX1NUQVRFX0FVVEhFTlRJQ0FURUQQAypuCghIdWJQaGFzZRIZChVIVUJfUEhBU0VfVU5TUEVDSUZJRUQQABIVChFIVUJfUEhBU0VfUlVOTklORxABEhsKF0hVQl9QSEFTRV9TSFVUVElOR19ET1dOEAISEwoPSFVCX1BIQVNFX0VOREVEEAMqlgEKD1JlbGF5Q29ubmVjdGlvbhIgChxSRUxBWV9DT05ORUNUSU9OX1VOU1BFQ0lGSUVEEAASHgoaUkVMQVlfQ09OTkVDVElPTl9DT05ORUNURUQQARIfChtSRUxBWV9DT05ORUNUSU9OX0NPTk5FQ1RJTkcQAhIgChxSRUxBWV9DT05ORUNUSU9OX1VOUkVBQ0hBQkxFEAMqTwoHUnVudGltZRIXChNSVU5USU1FX1VOU1BFQ0lGSUVEEAASFgoSUlVOVElNRV9TVEFOREFMT05FEAESEwoPUlVOVElNRV9TWVNURU1EEAJiBnByb3RvMw", [file_dassie_ui_v1_tls]);
 
 /**
  * @generated from message dassie.ui.v1.GetBasicStateRequest
@@ -171,6 +171,16 @@ export type GetStatusResponse = Message<"dassie.ui.v1.GetStatusResponse"> & {
    * @generated from field: dassie.ui.v1.RateFeed feed = 11;
    */
   feed?: RateFeed | undefined;
+
+  /**
+   * The settlement hubs the node validates
+   * (spec/areas/hubs.md#the-validator-in-the-node), by hub ID; empty on a
+   * node that validates none, which is every node whose owner did not turn
+   * validating on.
+   *
+   * @generated from field: repeated dassie.ui.v1.HubValidator validating = 12;
+   */
+  validating: HubValidator[];
 };
 
 /**
@@ -179,6 +189,91 @@ export type GetStatusResponse = Message<"dassie.ui.v1.GetStatusResponse"> & {
  */
 export const GetStatusResponseSchema: GenMessage<GetStatusResponse> = /*@__PURE__*/
   messageDesc(file_dassie_ui_v1_node, 3);
+
+/**
+ * How the node's validator of one settlement hub stands.
+ *
+ * @generated from message dassie.ui.v1.HubValidator
+ */
+export type HubValidator = Message<"dassie.ui.v1.HubValidator"> & {
+  /**
+   * The hub's ID, as hex.
+   *
+   * @generated from field: string hub = 1;
+   */
+  hub: string;
+
+  /**
+   * Its index in the set of validators in force; `validators` when the
+   * node is no longer in it.
+   *
+   * @generated from field: uint32 index = 2;
+   */
+  index: number;
+
+  /**
+   * How many validators the set in force has.
+   *
+   * @generated from field: uint32 validators = 3;
+   */
+  validators: number;
+
+  /**
+   * The height of the last final block it executed.
+   *
+   * @generated from field: uint64 height = 4;
+   */
+  height: bigint;
+
+  /**
+   * That block's timestamp.
+   *
+   * @generated from field: int64 final_unix_ms = 5;
+   */
+  finalUnixMs: bigint;
+
+  /**
+   * The view its consensus is in.
+   *
+   * @generated from field: uint64 view = 6;
+   */
+  view: bigint;
+
+  /**
+   * @generated from field: dassie.ui.v1.HubPhase phase = 7;
+   */
+  phase: HubPhase;
+
+  /**
+   * Whether it declared the hub stalled: it then never votes in it again,
+   * and signs the payout set of its last final block.
+   *
+   * @generated from field: bool stalled = 8;
+   */
+  stalled: boolean;
+
+  /**
+   * Whether a quorum of validators checked the hub's escrow, so that its
+   * deposits are credited.
+   *
+   * @generated from field: bool escrow_checked = 9;
+   */
+  escrowChecked: boolean;
+
+  /**
+   * Whether it follows the escrow on its XRPL server now.
+   *
+   * @generated from field: bool xrpl_connected = 10;
+   */
+  xrplConnected: boolean;
+};
+
+/**
+ * Describes the message dassie.ui.v1.HubValidator.
+ * Use `create(HubValidatorSchema)` to create a new message.
+ */
+export const HubValidatorSchema: GenMessage<HubValidator> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_node, 4);
 
 /**
  * What the rate feed does: whether it serves, where, and its counters since
@@ -304,7 +399,7 @@ export type RateFeed = Message<"dassie.ui.v1.RateFeed"> & {
  * Use `create(RateFeedSchema)` to create a new message.
  */
 export const RateFeedSchema: GenMessage<RateFeed> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_node, 4);
+  messageDesc(file_dassie_ui_v1_node, 5);
 
 /**
  * @generated from message dassie.ui.v1.ChosenRelay
@@ -342,7 +437,7 @@ export type ChosenRelay = Message<"dassie.ui.v1.ChosenRelay"> & {
  * Use `create(ChosenRelaySchema)` to create a new message.
  */
 export const ChosenRelaySchema: GenMessage<ChosenRelay> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_node, 5);
+  messageDesc(file_dassie_ui_v1_node, 6);
 
 /**
  * @generated from message dassie.ui.v1.AcmeStatus
@@ -375,7 +470,7 @@ export type AcmeStatus = Message<"dassie.ui.v1.AcmeStatus"> & {
  * Use `create(AcmeStatusSchema)` to create a new message.
  */
 export const AcmeStatusSchema: GenMessage<AcmeStatus> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_node, 6);
+  messageDesc(file_dassie_ui_v1_node, 7);
 
 /**
  * @generated from enum dassie.ui.v1.NodeState
@@ -418,6 +513,54 @@ export type NodeState = (typeof NodeState)[keyof typeof NodeState] | UnknownEnum
  */
 export const NodeStateSchema: GenEnum<NodeState> = /*@__PURE__*/
   enumDesc(file_dassie_ui_v1_node, 0);
+
+/**
+ * Where a settlement hub is in its life
+ * (spec/designs/settlement-hubs.md#9-shutdown).
+ *
+ * @generated from enum dassie.ui.v1.HubPhase
+ */
+export const HubPhase = {
+  /**
+   * @generated from enum value: HUB_PHASE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED: 0,
+
+  /**
+   * Taking every operation.
+   *
+   * @generated from enum value: HUB_PHASE_RUNNING = 1;
+   */
+  RUNNING: 1,
+
+  /**
+   * After a shutdown: payees may still redeem and claim.
+   *
+   * @generated from enum value: HUB_PHASE_SHUTTING_DOWN = 2;
+   */
+  SHUTTING_DOWN: 2,
+
+  /**
+   * Its last block is final; its payout set pays everyone out.
+   *
+   * @generated from enum value: HUB_PHASE_ENDED = 3;
+   */
+  ENDED: 3,
+} as const;
+
+/**
+ * Where a settlement hub is in its life
+ * (spec/designs/settlement-hubs.md#9-shutdown).
+ *
+ * @generated from enum dassie.ui.v1.HubPhase
+ */
+export type HubPhase = (typeof HubPhase)[keyof typeof HubPhase] | UnknownEnum;
+
+/**
+ * Describes the enum dassie.ui.v1.HubPhase.
+ */
+export const HubPhaseSchema: GenEnum<HubPhase> = /*@__PURE__*/
+  enumDesc(file_dassie_ui_v1_node, 1);
 
 /**
  * How a node stands with the relay it chose
@@ -469,7 +612,7 @@ export type RelayConnection = (typeof RelayConnection)[keyof typeof RelayConnect
  * Describes the enum dassie.ui.v1.RelayConnection.
  */
 export const RelayConnectionSchema: GenEnum<RelayConnection> = /*@__PURE__*/
-  enumDesc(file_dassie_ui_v1_node, 1);
+  enumDesc(file_dassie_ui_v1_node, 2);
 
 /**
  * @generated from enum dassie.ui.v1.Runtime
@@ -504,5 +647,5 @@ export type Runtime = (typeof Runtime)[keyof typeof Runtime] | UnknownEnum;
  * Describes the enum dassie.ui.v1.Runtime.
  */
 export const RuntimeSchema: GenEnum<Runtime> = /*@__PURE__*/
-  enumDesc(file_dassie_ui_v1_node, 2);
+  enumDesc(file_dassie_ui_v1_node, 3);
 

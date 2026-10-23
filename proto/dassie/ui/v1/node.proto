@@ -59,6 +59,49 @@ message GetStatusResponse {
   // The node's rate feed (spec/areas/rate-feed.md#what-the-owner-sees);
   // unset on a node without the feed's socket, which publishes none.
   RateFeed feed = 11;
+  // The settlement hubs the node validates
+  // (spec/areas/hubs.md#the-validator-in-the-node), by hub ID; empty on a
+  // node that validates none, which is every node whose owner did not turn
+  // validating on.
+  repeated HubValidator validating = 12;
+}
+
+// How the node's validator of one settlement hub stands.
+message HubValidator {
+  // The hub's ID, as hex.
+  string hub = 1;
+  // Its index in the set of validators in force; `validators` when the
+  // node is no longer in it.
+  uint32 index = 2;
+  // How many validators the set in force has.
+  uint32 validators = 3;
+  // The height of the last final block it executed.
+  uint64 height = 4;
+  // That block's timestamp.
+  int64 final_unix_ms = 5;
+  // The view its consensus is in.
+  uint64 view = 6;
+  HubPhase phase = 7;
+  // Whether it declared the hub stalled: it then never votes in it again,
+  // and signs the payout set of its last final block.
+  bool stalled = 8;
+  // Whether a quorum of validators checked the hub's escrow, so that its
+  // deposits are credited.
+  bool escrow_checked = 9;
+  // Whether it follows the escrow on its XRPL server now.
+  bool xrpl_connected = 10;
+}
+
+// Where a settlement hub is in its life
+// (spec/designs/settlement-hubs.md#9-shutdown).
+enum HubPhase {
+  HUB_PHASE_UNSPECIFIED = 0;
+  // Taking every operation.
+  HUB_PHASE_RUNNING = 1;
+  // After a shutdown: payees may still redeem and claim.
+  HUB_PHASE_SHUTTING_DOWN = 2;
+  // Its last block is final; its payout set pays everyone out.
+  HUB_PHASE_ENDED = 3;
 }
 
 // What the rate feed does: whether it serves, where, and its counters since

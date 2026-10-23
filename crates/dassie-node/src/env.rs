@@ -173,6 +173,11 @@ pub struct Settings {
     /// it then looks for (`DASSIE_UPLINKS`, node IDs, comma-separated;
     /// spec/areas/network.md#pinned-uplinks). Empty for any.
     pub uplinks: Vec<NodeId>,
+    /// The settlement hubs the node validates, and the sponsors it
+    /// validates for (`DASSIE_VALIDATOR_CONFIG`, a file;
+    /// spec/areas/hubs.md#the-validator-in-the-node). None when unset:
+    /// validating is something an owner turns on.
+    pub validator: Option<crate::hub::config::ValidatorConfig>,
 }
 
 impl Settings {
@@ -191,8 +196,35 @@ impl Settings {
             dev_timings: flag(env, "DASSIE_DEV_TIMINGS")?,
             public_names: public_names(env)?,
             uplinks: uplinks(env)?,
+            validator: validator(env)?,
         })
     }
+}
+
+/// The validator role's file, read and checked now, at most
+/// [`MAX_CONFIG_BYTES`](crate::hub::config::MAX_CONFIG_BYTES).
+fn validator(env: &Env) -> Result<Option<crate::hub::config::ValidatorConfig>, EnvError> {
+    use std::io::Read as _;
+    let Some(path) = env.path("DASSIE_VALIDATOR_CONFIG") else {
+        return Ok(None);
+    };
+    let error = |problem: String| EnvError {
+        variable: "DASSIE_VALIDATOR_CONFIG",
+        problem,
+    };
+    let file = std::fs::File::open(&path)
+        .map_err(|e| error(format!("names a file that cannot be read: {e}")))?;
+    let limit = crate::hub::config::MAX_CONFIG_BYTES;
+    let mut text = String::new();
+    file.take(limit.saturating_add(1))
+        .read_to_string(&mut text)
+        .map_err(|e| error(format!("names a file that cannot be read as text: {e}")))?;
+    if u64::try_from(text.len()).unwrap_or(u64::MAX) > limit {
+        return Err(error(format!("names a file larger than {limit} bytes")));
+    }
+    crate::hub::config::parse(&text)
+        .map(Some)
+        .map_err(|problem| error(format!("names a file that is wrong: {problem}")))
 }
 
 /// `DASSIE_STATE_DIRECTORY`, then systemd's `STATE_DIRECTORY` (its first
@@ -491,11 +523,38 @@ mod tests {
                 "DASSIE_BOOTSTRAP_NODES",
                 r#"[{"id":"dx","url":"https://a","publicKey":"QBe5HLbdYFtIpjFTIu_Lz8lkoUJ3fmAvFHfCb9CVwIM"}]"#,
             ),
+            ("DASSIE_VALIDATOR_CONFIG", "/no/such/file"),
         ];
         for (variable, value) in bad {
             let result = settings(&[("HOME", "/h"), (variable, value)]);
             assert_eq!(result.err().map(|e| e.variable), Some(variable), "{value}");
         }
+    }
+
+    // spec/areas/hubs.md#the-validator-in-the-node: validating is opt-in,
+    // and a file that is wrong stops the daemon, naming the variable.
+    #[test]
+    fn the_validator_config_is_read_from_its_file() {
+        let none = settings(&[("HOME", "/h")]).map(|s| s.validator.is_none());
+        assert_eq!(none, Ok(true));
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("validator.json");
+        std::fs::write(&path, r#"{"sponsors": [], "hubs": []}"#).unwrap();
+        let path_text = path.to_str().unwrap();
+        let config = settings(&[("HOME", "/h"), ("DASSIE_VALIDATOR_CONFIG", path_text)]);
+        assert_eq!(
+            config.map(|s| s.validator.map(|v| v.hubs.len())),
+            Ok(Some(0))
+        );
+        std::fs::write(&path, r#"{"sponsors": ["not an ID"], "hubs": []}"#).unwrap();
+        let wrong = settings(&[("HOME", "/h"), ("DASSIE_VALIDATOR_CONFIG", path_text)]);
+        let error = wrong.unwrap_err();
+        assert_eq!(error.variable, "DASSIE_VALIDATOR_CONFIG");
+        assert!(
+            error.problem.contains("invalid sponsor"),
+            "{}",
+            error.problem
+        );
     }
 
     #[test]

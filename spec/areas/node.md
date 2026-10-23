@@ -2,7 +2,7 @@
 
 The `dassie` binary: the daemon that composes every protocol crate into a running node, and the command-line tools that configure, inspect and update it.
 
-**Paths:** `crates/dassie-node/src/` (`daemon.rs`, `supervisor.rs`, `engine/`, `store/`, `env.rs`, `systemd.rs`, `ipc.rs`, `log.rs`, `clock.rs`, `node/`, `feed.rs`), `crates/dassie-node-core/src/`, `crates/dassie-cli/src/`
+**Paths:** `crates/dassie-node/src/` (`daemon.rs`, `supervisor.rs`, `engine/`, `store/`, `env.rs`, `systemd.rs`, `ipc.rs`, `log.rs`, `clock.rs`, `node/`, `feed.rs`, `hub/`), `crates/dassie-node-core/src/`, `crates/dassie-cli/src/`
 **Read with:** [Release](release.md), [HTTP](http.md), [RPC](rpc.md), [Ledger](ledger.md), [Connector](connector.md), [Network](network.md), [Identity](identity.md)
 
 ## Runtime model
@@ -104,6 +104,7 @@ What must survive a restart. Most of the original's integrity gaps came from sta
 - **Payment state with its STREAM credentials,** written with the journal rows that pay it, so a restart neither loses money received nor pays twice ([Payments](payments.md#persistence)).
 - **The setup token,** so a restart keeps the setup URL valid, and **the self-signed certificate,** made once and kept ([HTTP](http.md#certificates)).
 - **Paired devices,** by their device key's node ID, in a bounded list ([RPC](rpc.md#paired-devices)).
+- **The settlement hubs the node validates:** each hub's consensus state and the state after its last final block, written in one transaction before the step's messages go out, so a validator never signs a vote that conflicts with one it sent; how far it followed the hub's escrow, and the newest ledger it saw there, to tell a reset from a server behind; and the payout bundles it signed, the newest few ([Settlement hubs](hubs.md#the-validator-in-the-node)).
 
 Deliberately not kept: ILP packets in flight (their pending transfers were never on disk, so the books stand as if they were rejected), ACME challenge tokens (the daemon that serves them runs the order) and a pairing's secret (it works for minutes; the owner starts another).
 
@@ -118,6 +119,8 @@ Deliberately not kept: ILP packets in flight (their pending transfers were never
 ## Configuration
 
 The owner's configuration is one row, read into a validated `NodeConfig` (`dassie-node-core/src/config.rs`), with one RPC setter per value. Nothing derived is stored: URLs are computed from the current values, so a new hostname takes effect at once. A hostname is refused unless `https://<hostname>:65535` is a URL peers take, at most 256 bytes: with a longer one, the node would run as a periphery node ([Network](network.md#periphery-nodes)). The realm `live` is refused until the conditions for [real money](../roadmap.md#real-money) hold ([real-money](../decisions/real-money.md)). Settings that belong to an area are in that area's tables.
+
+The validator role of [settlement hubs](hubs.md#the-validator-in-the-node) is configured apart, by a file `DASSIE_VALIDATOR_CONFIG` names (`hub/config.rs`), read and checked at start like the environment: validating is something an owner turns on, for the sponsors it lists, and a node without the file validates nothing.
 
 ## Dev switches warn on a public node
 
@@ -137,6 +140,7 @@ The CLI talks to the daemon over the IPC socket with the same RPC contract as th
 - **`dassie status`** names no secret, so its output can be pasted where the owner asks for help; that is why the setup URL has a command of its own, `dassie setup-url`. It also reports the last update ([Release](release.md#dassie-update)).
   - It gives a hint only where something is wrong, so the normal state of a node never reads as a fault. A periphery node ([Network](network.md#periphery-nodes)) registers nowhere and needs no domain name, so status does not report its membership or send its owner to `dassie init`. It names the node's uplinks and whether each is connected, its [chosen relay](#a-chosen-relay) and whether the node holds its connection to it, is connecting or finds it unreachable, and the names the node answers Open Payments to ([Payments](payments.md#the-nodes-names)) as its addresses. A periphery node without an uplink, or whose relay is unreachable, is out of reach, and those get a hint; a relay the node is still connecting to, right after a start or a brief drop, gets none.
   - A node that is not a periphery node reports how many bootstrap nodes list it, and a relay if it chose one, and its rate feed: where it is served and to how many, with its counters, or that it is not served yet or has no socket ([Rate feed](rate-feed.md#what-the-owner-sees)).
+  - A node that validates settlement hubs reports each: which validator it is, the last final block and view, with a hint only where something is wrong: no block final for a while, a stall it declared, an escrow no quorum checked, or an XRPL server it cannot reach ([Settlement hubs](hubs.md#the-validator-in-the-node)).
 - **`dassie setup`** sets the node up from its owner's passphrase, in a file on the node's host, for a node nobody sets up in a browser, such as a market maker's ([headless-setup](../decisions/headless-setup.md)). It is the wallet's setup without the browser: it derives the node key and the login proof, and posts them with the setup token from the IPC socket to the node's own setup route on loopback ([HTTP](http.md#setup)), so the node checks it as it checks the wallet, and only the key reaches the node. Then it waits, bounded, for the engine, and adds each settlement scheme it was given that is not active.
   - It is idempotent, so a unit can run it at every start: a node set up with the same phrase is left as it is, and one set up with another phrase is refused with an exit code of its own, with nothing changed, its schemes included.
   - The phrase is read once from a bounded file and wiped once the key is derived; no line it prints names it.

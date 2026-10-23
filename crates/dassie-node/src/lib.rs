@@ -34,6 +34,7 @@ pub mod fake_ledger;
 pub mod feed;
 pub mod front_door;
 pub mod http;
+pub mod hub;
 pub mod ipc;
 pub mod quic;
 #[cfg(feature = "testing")]
