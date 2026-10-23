@@ -599,6 +599,10 @@ impl PeerNode {
             self.answers.len() <= self.config.max_requests,
             "retries within bounds"
         );
+        assert!(
+            self.told_not_peered.len() <= super::lifecycle::MAX_TOLD_NOT_PEERED,
+            "told not peered within bounds"
+        );
         let own = self.table.get(&self.own);
         assert!(
             own.is_some_and(|entry| entry.sources.contains(Sources::SELF)),

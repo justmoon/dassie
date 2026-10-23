@@ -21,7 +21,7 @@
 
 ## Accepted
 
-- **An older uplink loses the hint** from a newer periphery node, whose link state no longer lists it. It ends a one-sided peering only for silence, as it would a peer whose termination never arrived, and the periphery node's own side still notices its uplink's silence.
+- **An older uplink gives no hint** to a periphery node: it tells only nodes in its table, which a downlink leaves when its peering ends, and a newer periphery node's link state no longer lists it anyway. Such a periphery node ends that peering only when its uplink has been silent for as long as a silent peer is kept.
 - **The bounds hold the most uplinks on every node,** core nodes too. The tables are filled only as they are used, so the room costs nothing until a node has the peers to use it.
 - **A periphery node is less visible** to its uplinks: one can no longer read from its link state which other uplinks it has. Nothing used that.
 - **Many uplinks cost the periphery node** a connection, heartbeats and credit at risk for each. The owner who pins them chooses that.

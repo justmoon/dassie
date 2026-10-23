@@ -704,7 +704,7 @@ impl PeerNode {
 /// Most nodes told within a termination timeout that they hold a peering
 /// we do not: past it, a node is told at its next request after the
 /// oldest is forgotten.
-const MAX_TOLD_NOT_PEERED: usize = 1024;
+pub(super) const MAX_TOLD_NOT_PEERED: usize = 1024;
 
 /// Whether an end for `reason` keeps the two nodes apart for the owner's
 /// cooldown, both ways: one the owner chose, and one for want of room,
