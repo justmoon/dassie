@@ -31,12 +31,13 @@ use dassie_hub::operation::{
 };
 use dassie_hub::promise::{Commitment, Fulfilled, HoldNumber, Signed};
 use dassie_hub::rules::{Fees, Limits, Rules, Terms, Timers};
+use dassie_hub::service::wire::Message;
 use dassie_hub::validators::{Signers, ValidatorIndex};
 use dassie_hub::{Digest, Ledger, Millis};
 use dassie_identity::{NodeKey, PublicKey};
 use dassie_ledger::Name;
 use dassie_node_core::testing::SeededRng;
-use dassie_oer::Reader;
+use dassie_oer::{Encode, Reader};
 use dassie_settlement::{
     AssetEffect, Decided, Effect, ExternalAsset, LedgerInput, LossCause, Promised, ReconcileCause,
     SchemeError, SettlementScheme,
@@ -341,7 +342,10 @@ impl Validators {
         if self.faults[index] == Fault::Silent {
             return None;
         }
-        let statements = match Request::decode_exact(request).unwrap() {
+        let Message::Request(request) = Message::decode_exact(request).unwrap() else {
+            panic!("a member sends only requests");
+        };
+        let statements = match request {
             Request::Submit(operation) => {
                 self.submit(operation);
                 return None;
@@ -372,7 +376,7 @@ impl Validators {
                 )
             })
             .collect();
-        Some(SignedStatement::encode_list(&signed))
+        Some(Message::Statements(signed).to_vec())
     }
 }
 

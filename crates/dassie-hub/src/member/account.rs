@@ -37,6 +37,10 @@
 //!   A new account sets its disbursal address before anything else, as the
 //!   hub requires.
 //!
+//! What it sends a validator, and takes from one, is the hub's own wire
+//! message (`service::wire::Message`): a `Request`, and the `Statements`
+//! that answer it.
+//!
 //! One scheme settles through an account. Deposits from the underlying
 //! ledger, withdrawals and closing are the owner's, and not built yet.
 
@@ -54,7 +58,7 @@ use dassie_settlement::{
 };
 
 use super::mirror::HoldMirror;
-use crate::client::{AccountView, Agreement, MAX_STATEMENTS, Request, SignedStatement, Statement};
+use crate::client::{AccountView, Agreement, MAX_STATEMENTS, Request, Statement};
 use crate::service::MAX_ANSWER;
 
 use crate::ledger::{Detail, Outcome, Refusal};
@@ -654,7 +658,7 @@ impl HubAccount {
 
     /// Learns every validator's answer to a request: to all of them.
     fn ask(&mut self, request: &Request) {
-        let message = request.to_vec();
+        let message = crate::service::wire::Message::Request(request.clone()).to_vec();
         for endpoint in 0..self.endpoints.len() {
             if self.effects.len() >= MAX_EFFECTS {
                 return;
@@ -770,9 +774,12 @@ const fn operation_has_deadline(operation: &MemberOperation) -> bool {
 
 /// Reading what the validators say.
 impl HubAccount {
-    /// Takes in one validator's message: signed statements.
+    /// Takes in one validator's message: signed statements. Anything
+    /// else a validator sends a member means nothing to it.
     fn heard_from(&mut self, endpoint: usize, message: &[u8]) {
-        let Ok(statements) = SignedStatement::decode_list(message) else {
+        let Ok(crate::service::wire::Message::Statements(statements)) =
+            crate::service::wire::Message::decode_exact(message)
+        else {
             return;
         };
         self.heard = true;

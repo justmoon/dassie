@@ -146,6 +146,8 @@ pub(super) struct HubSend {
     pub asset: String,
     /// The account's connection, which the answer is for.
     pub epoch: u64,
+    /// The hub.
+    pub hub: dassie_hub::HubId,
     /// The validator's place in the hub's rules.
     pub endpoint: usize,
     /// The validator's node key, which the connection is pinned to.
@@ -156,48 +158,56 @@ pub(super) struct HubSend {
     pub message: Vec<u8>,
 }
 
-/// Sends a hub account's message to one validator on a task of its own,
-/// and feeds its answer to the core as from that validator. What does not
-/// arrive, the account sends again.
+/// How long one exchange with a validator may take: the account's interval
+/// for sending an operation again (`dassie_hub::member::account::RESUBMIT_MS`). Its
+/// polls come more often than that, and a later answer is superseded by
+/// the next one's.
+const HUB_EXCHANGE_TIMEOUT: Duration =
+    Duration::from_millis(dassie_hub::member::account::RESUBMIT_MS);
+
+/// Sends a hub account's message (a hub `Message::Request`) to one
+/// validator on a task of its own, over the hub's stream
+/// (spec/areas/peer-protocol.md#the-hubs-stream): QUIC pinned to its node
+/// key, or `POST /hub` when QUIC cannot reach it. Each message it sends
+/// back goes to the core as from that validator. What does not arrive, or
+/// finds no place among the node's exchanges, the account sends again.
 pub(super) fn hub_send(
-    quic: Option<std::sync::Arc<crate::quic::Quic>>,
+    client: Option<crate::hub::HubClient>,
+    hubs: &crate::hub::Hubs,
     commands: mpsc::Sender<Command>,
     send: HubSend,
 ) {
+    let (Some(client), Some(permit)) = (client, hubs.member_permit()) else {
+        tracing::debug!(target: target::SETTLEMENT, asset = %send.asset, "no place for a hub exchange: the account asks again");
+        return;
+    };
     tokio::spawn(async move {
+        let _permit = permit;
         let HubSend {
             asset,
             epoch,
+            hub,
             endpoint,
-            node: key,
+            node,
             address,
             message,
         } = send;
-        match hub_exchange(quic.as_deref(), &key, &address, &message).await {
-            Some(answer) => {
-                let event = LedgerEvent::From {
-                    endpoint,
-                    message: answer,
-                };
-                report(&commands, asset, epoch, event).await;
+        let to = node.node_id();
+        let exchanged = client
+            .exchange(to, &address, &hub, &message, HUB_EXCHANGE_TIMEOUT)
+            .await;
+        match exchanged {
+            Ok(messages) => {
+                for message in messages {
+                    let event = LedgerEvent::From { endpoint, message };
+                    report(&commands, asset.clone(), epoch, event).await;
+                }
             }
-            None => {
-                tracing::debug!(target: target::SETTLEMENT, %asset, endpoint, "a hub validator did not answer");
+            Err(error) => {
+                tracing::debug!(target: target::SETTLEMENT, %asset, endpoint, %error, "a hub validator did not answer");
             }
         }
     });
-}
-
-/// One exchange with a hub's validator over the hub stream, pinned to its
-/// node key. The transport comes with the validator role; until then no
-/// validator is reached.
-async fn hub_exchange(
-    _quic: Option<&crate::quic::Quic>,
-    _key: &dassie_identity::PublicKey,
-    _address: &str,
-    _message: &[u8],
-) -> Option<Vec<u8>> {
-    None
 }
 
 /// Feeds an event to the core.

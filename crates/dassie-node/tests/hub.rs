@@ -390,3 +390,78 @@ async fn post_hub_takes_only_a_members_request() {
     assert_eq!(reply.status, 415);
     node.stop().await;
 }
+
+// spec/areas/hubs.md#in-the-node: a node with the hub scheme reaches the
+// hub's validators through its engine's own driver, over the hub's stream,
+// and its account takes what f + 1 of them signed alike: here, that it has
+// no account yet, so it waits for funds.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_member_node_hears_its_validators_through_its_engine() {
+    use dassie_node::rpc::proto::{self, request::Method, response};
+
+    let shutdown = CancellationToken::new();
+    let nodes: Vec<Node> = (1..=4).map(|seed| node(seed, &shutdown)).collect();
+    let rules = rules(&nodes);
+    let genesis = SystemClock.now_ms();
+    let running: Vec<Running> = nodes.iter().map(|n| start(n, &rules, genesis)).collect();
+    until("blocks become final", || {
+        nodes.iter().all(|n| height(n) >= 3)
+    })
+    .await;
+
+    let member = support::Bound::new()
+        .start(
+            dassie_node::clock::ManualClock::new(support::START_MS),
+            1,
+            dassie_node::node::Policies::DEFAULT,
+            &[("DASSIE_PEER_ALLOW_PRIVATE", "1")],
+        )
+        .await;
+    support::set_up(&member, &NodeKey::from_bytes(&[60; 32])).await;
+    let mut owner = member.ipc().await;
+    let hex: String = rules.to_vec().iter().map(|b| format!("{b:02x}")).collect();
+    let config = serde_json::json!({ "rules": hex }).to_string();
+    let mut added = None;
+    for _ in 0..200 {
+        let reply = owner
+            .call(Method::AddSettlementScheme(
+                proto::AddSettlementSchemeRequest {
+                    id: dassie_hub::member::SCHEME_ID.into(),
+                    config: config.clone(),
+                },
+            ))
+            .await;
+        if let Ok(response::Method::AddSettlementScheme(scheme)) = reply {
+            added = scheme.ledger;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let ledger = added.expect("the hub scheme is added").id;
+    let mut connection = proto::LedgerConnection::Unspecified;
+    for _ in 0..1_000 {
+        let Ok(response::Method::ListLedgers(list)) = owner
+            .call(Method::ListLedgers(proto::ListLedgersRequest {}))
+            .await
+        else {
+            panic!("no ledgers");
+        };
+        let hub = list.ledgers.iter().find(|l| l.id == ledger).unwrap();
+        connection = proto::LedgerConnection::try_from(hub.connection).unwrap();
+        if connection == proto::LedgerConnection::Unfunded {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        connection,
+        proto::LedgerConnection::Unfunded,
+        "f + 1 validators agree the account does not exist yet"
+    );
+    member.stop().await;
+    shutdown.cancel();
+    for validator in running {
+        validator.stop.cancel();
+        validator.task.await.unwrap();
+    }
+}

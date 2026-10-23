@@ -198,6 +198,8 @@ pub enum Output {
         asset: String,
         /// Its connection, which the answer is for.
         epoch: u64,
+        /// The hub, which the request names.
+        hub: dassie_hub::HubId,
         /// The validator's place in the hub's rules.
         endpoint: usize,
         /// The validator's node key, which the connection is pinned to.

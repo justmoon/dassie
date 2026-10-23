@@ -294,15 +294,37 @@ pub struct Route {
     pub nodes: BTreeSet<NodeId>,
 }
 
+/// The most exchanges the node's hub accounts have in flight with
+/// validators at once: an account asks every validator a few times a
+/// second, and what does not fit is asked again.
+pub const MAX_MEMBER_EXCHANGES: usize = 64;
+
 /// The hubs the node validates: where what arrives for each goes, and how
-/// each stands.
-#[derive(Debug, Default)]
+/// each stands; and the places for its own exchanges as a member.
+#[derive(Debug)]
 pub struct Hubs {
     routes: Mutex<BTreeMap<HubId, Route>>,
     status: Mutex<BTreeMap<HubId, HubStatus>>,
+    members: Arc<tokio::sync::Semaphore>,
+}
+
+impl Default for Hubs {
+    fn default() -> Self {
+        Self {
+            routes: Mutex::default(),
+            status: Mutex::default(),
+            members: Arc::new(tokio::sync::Semaphore::new(MAX_MEMBER_EXCHANGES)),
+        }
+    }
 }
 
 impl Hubs {
+    /// A place for one exchange of the node's as a member, if one is free.
+    #[must_use]
+    pub fn member_permit(&self) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        Arc::clone(&self.members).try_acquire_owned().ok()
+    }
+
     /// Messages for `hub` go along `route` from now on.
     pub fn register(&self, hub: HubId, route: Route) {
         self.routes

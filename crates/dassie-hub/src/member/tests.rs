@@ -19,6 +19,7 @@ use crate::operation::{
     AccountNumber, Destination, MemberOperation, Operation, SignedMemberOperation,
 };
 use crate::rules::tests::rules;
+use crate::service::wire::Message;
 use crate::validators::ValidatorIndex;
 
 struct Hub {
@@ -65,7 +66,7 @@ impl Hub {
                 )
             })
             .collect();
-        SignedStatement::encode_list(&signed)
+        Message::Statements(signed).to_vec()
     }
 
     fn account_statement(&self, height: u64, disbursal: bool) -> Statement {
@@ -122,8 +123,8 @@ fn submitted(account: &mut HubAccount) -> Vec<SignedMemberOperation> {
     effects
         .iter()
         .filter_map(|effect| match effect {
-            AssetEffect::SendTo { message, .. } => match Request::decode_exact(message) {
-                Ok(Request::Submit(Operation::Member(signed))) => Some(signed),
+            AssetEffect::SendTo { message, .. } => match Message::decode_exact(message) {
+                Ok(Message::Request(Request::Submit(Operation::Member(signed)))) => Some(signed),
                 _ => None,
             },
             _ => None,
@@ -408,7 +409,7 @@ fn the_account_is_known_once_f_plus_one_agree() {
     account.on_timer(0);
     let mut asked = Vec::new();
     account.take_effects(&mut asked);
-    let ask = Request::Account(hub.key.public_key()).to_vec();
+    let ask = Message::Request(Request::Account(hub.key.public_key())).to_vec();
     assert_eq!(
         asked,
         (0..4)
@@ -507,8 +508,10 @@ fn a_new_account_sets_its_disbursal_address_first() {
     let submitted: Vec<MemberOperation> = asked
         .iter()
         .filter_map(|effect| match effect {
-            AssetEffect::SendTo { message, .. } => match Request::decode_exact(message) {
-                Ok(Request::Submit(Operation::Member(signed))) => Some(signed.operation),
+            AssetEffect::SendTo { message, .. } => match Message::decode_exact(message) {
+                Ok(Message::Request(Request::Submit(Operation::Member(signed)))) => {
+                    Some(signed.operation)
+                }
                 _ => None,
             },
             _ => None,
