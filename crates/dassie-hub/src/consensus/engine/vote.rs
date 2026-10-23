@@ -335,6 +335,7 @@ impl Engine {
             parent: block.parent,
             height: block.height,
             timestamp_ms: block.timestamp_ms,
+            block: proposed.block,
         };
         if app.verify(&context, &block.payload) {
             Check::Valid
