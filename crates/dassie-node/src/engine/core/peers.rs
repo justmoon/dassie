@@ -86,13 +86,6 @@ enum Inbound {
     SettlementRequest(NodeId, SchemeId, dassie_peer::SettlementAnswer),
 }
 
-/// Whether a peering in `scheme` settles over a hub: its credit is the
-/// payer's hold, and nothing unsecured
-/// (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
-fn over_hub(scheme: SchemeId) -> bool {
-    scheme.as_str() == dassie_hub::member::SCHEME_ID
-}
-
 /// A node's name in the ledger.
 fn name(peer: NodeId) -> Option<Name> {
     Name::new(peer.as_str()).ok()
@@ -141,14 +134,11 @@ impl PeeringHooks for Hooks<'_> {
             .scheme(scheme)
             .ok_or(RefusalReason::UnsupportedScheme)?;
         let ledger = active.scheme.ledger();
+        let hub = active.over_hub;
         // We accept, so we are the senior: the requester gets our credit
         // only once the peering earned it (spec/decisions/earned-trust.md).
         // Over a hub the hold is all the credit there is.
-        let start = if over_hub(scheme) {
-            0
-        } else {
-            self.senior_credit
-        };
+        let start = if hub { 0 } else { self.senior_credit };
         let credit_out = self.credit_for(peer, ledger, start);
         let active = self
             .scheme(scheme)
@@ -184,7 +174,7 @@ impl PeeringHooks for Hooks<'_> {
         // Our request was accepted, so we are the junior, and extend the
         // default credit line (spec/decisions/earned-trust.md). Over a hub
         // the hold is all the credit there is.
-        let hub = over_hub(scheme);
+        let hub = active.over_hub;
         let start = if hub { 0 } else { self.credit };
         let credit_out = self.credit_for(peer, ledger, start);
         let active = self.scheme(scheme).ok_or(Declined)?;
@@ -216,7 +206,10 @@ impl PeeringHooks for Hooks<'_> {
     /// claim in each reply to a Fulfill
     /// (spec/designs/settlement-hubs.md#13-how-it-fits-the-node).
     fn uses_commitments(&self, scheme: SchemeId) -> bool {
-        scheme.as_str() == dassie_hub::member::SCHEME_ID
+        Name::new(scheme.as_str())
+            .ok()
+            .and_then(|name| self.schemes.get(&name))
+            .is_some_and(|active| active.over_hub)
     }
 
     fn drained(&self, peer: NodeId) -> bool {
@@ -696,6 +689,8 @@ impl Core {
                 // one that may have is left to expire, so a peer that
                 // fulfilled it does not bear its loss.
                 if definite && let Some(&endpoint) = self.peer_endpoints.get(&peer) {
+                    // Over a hub, the scheme forgets the commitment too.
+                    self.hub_rejected(&peer, request_id);
                     self.connector.fail_forwarded(
                         self.now_ms,
                         EndpointId::Peer(endpoint),
@@ -794,7 +789,11 @@ impl Core {
         if !self.peer.reachable(&node) {
             self.connector.set_unreached(EndpointId::Peer(id), true);
         }
-        if over_hub(peering.scheme) {
+        let over_hub = self
+            .schemes
+            .get(&scheme)
+            .is_some_and(|active| active.over_hub);
+        if over_hub {
             // A packet that timed out waits for the hub before it is
             // rejected upstream (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
             self.connector.set_hub(EndpointId::Peer(id), true);

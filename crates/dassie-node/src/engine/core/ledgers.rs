@@ -24,6 +24,9 @@ pub(super) struct ActiveScheme {
     /// Why it stopped, if the books could not take what it said: it is fed
     /// nothing more until the node starts again.
     pub failed: Option<String>,
+    /// Whether its peerings are over a settlement hub: it signs and takes
+    /// promises per packet ([`SettlementScheme::commitments`]).
+    pub over_hub: bool,
 }
 
 /// A ledger as the owner sees it.
@@ -134,7 +137,8 @@ impl Core {
         checkpoint: Option<Checkpoint>,
         new: bool,
     ) -> Result<LedgerId, EngineError> {
-        let (scheme, asset) = self.make_scheme(id, &config, checkpoint.as_ref())?;
+        let (mut scheme, asset) = self.make_scheme(id, &config, checkpoint.as_ref())?;
+        let over_hub = scheme.commitments().is_some();
         let ledger = scheme.ledger();
         if let Err(error) = self.open_ledger(id, scheme.as_ref(), checkpoint.as_ref()) {
             if let Some(asset) = asset {
@@ -152,6 +156,7 @@ impl Core {
                 asset,
                 version: 0,
                 failed: None,
+                over_hub,
             },
         );
         if let Some(asset) = asset {

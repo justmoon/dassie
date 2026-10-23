@@ -36,7 +36,7 @@ pub use self::core::{
     AssetView, BtpEvent, BtpSession, Changes, Core, CoreParts, CreatedOutgoing, EngineError,
     EngineEvent, Event, IncomingPolicy, LedgerEvent, LedgerView, Lie, Measured, NetworkView,
     NewIncoming, NewOutgoing, NewToken, Outbound, Output, PaymentEvent, PeerEvent, PeerView,
-    Prober, RemovalBlocker, SCHEMES, SettlementEvent, Severity, TokenView, ledger_slug,
+    Prober, RemovalBlocker, SCHEMES, SettlementEvent, Severity, TokenView, ledger_slug, offered,
 };
 
 use crate::log::target;

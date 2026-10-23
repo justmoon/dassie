@@ -54,7 +54,7 @@ pub use peers::{NetworkView, PeerView};
 pub use probes::{
     MAX_PROBES, MAX_PROBES_PER_CLIENT, Measured, OWNER_PROBES, PROBE_TIMEOUT_MS, Prober,
 };
-pub use schemes::{AssetView, LedgerEvent, SCHEMES};
+pub use schemes::{AssetView, LedgerEvent, SCHEMES, offered};
 pub use settlement::Lie;
 pub use tokens::{BtpSession, NewToken, TokenView, token_hash};
 

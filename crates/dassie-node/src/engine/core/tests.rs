@@ -2490,3 +2490,16 @@ fn a_hub_is_joined_only_if_it_fits_the_message_window() {
     }
     assert!(sent > 0, "the account asks the validators: {outputs:?}");
 }
+
+// The wallet is offered a settlement hub's scheme only once the node knows
+// a hub to join without being told one: until then, adding it with nothing
+// filled in could only fail.
+#[test]
+fn a_hub_scheme_is_offered_only_with_a_default_hub() {
+    assert!(super::offered("stub"));
+    assert!(super::offered(dassie_xrpl::scheme::SCHEME_ID));
+    assert_eq!(
+        super::offered(dassie_hub::member::SCHEME_ID),
+        dassie_hub::member::DEFAULT_TESTNET_HUB.is_some()
+    );
+}

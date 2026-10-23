@@ -53,6 +53,15 @@ pub const SCHEMES: &[SchemeInfo] = &[
     },
 ];
 
+/// Whether the scheme `id` is offered to the owner to add: a settlement
+/// hub's only once the node knows a hub to join without being told one, so
+/// the wallet never offers what it cannot add with nothing to fill in. One
+/// added with a config of its own is listed as any active scheme.
+#[must_use]
+pub fn offered(id: &str) -> bool {
+    id != dassie_hub::member::SCHEME_ID || dassie_hub::member::DEFAULT_TESTNET_HUB.is_some()
+}
+
 /// The external asset scheme `id` settles through, if any, and the config
 /// the asset is made with: for the XRPL schemes, the server and the faucet
 /// their config names, which are the account's. All settle through the

@@ -12,6 +12,7 @@ use dassie_stream::{AssetDetails, ConnectionId, Event, Policy, Server, ServerCon
 
 use super::Core;
 use super::events::{BtpEvent, PaymentEvent, PeerEvent};
+use super::hubs::HubSent;
 use super::payers::Answer;
 use super::{EngineError, MAX_SENDS_PER_POLL, Outbound};
 
@@ -166,13 +167,19 @@ impl Core {
         request_id: u32,
         packet: &[u8],
     ) -> bool {
+        let is_prepare = packet.first() == Some(&PREPARE_TYPE);
         let Some(&endpoint) = self.peer_endpoints.get(&from) else {
+            if is_prepare {
+                self.hub_prepare_dropped(&from, request_id);
+            }
             return false;
         };
         let source = EndpointId::Peer(endpoint);
         match packet.first() {
             Some(&PREPARE_TYPE) => {
-                self.prepare_from(source, request_id, packet);
+                if !self.prepare_from(source, request_id, packet) {
+                    self.hub_prepare_dropped(&from, request_id);
+                }
                 false
             }
             Some(_) => self.response_from(source, request_id, packet),
@@ -181,7 +188,9 @@ impl Core {
     }
 
     /// A Prepare from an endpoint, through the connector.
-    fn prepare_from(&mut self, source: EndpointId, request_id: u32, packet: &[u8]) {
+    /// Whether the connector took it: forwarded, answered, or a duplicate
+    /// of one it holds.
+    fn prepare_from(&mut self, source: EndpointId, request_id: u32, packet: &[u8]) -> bool {
         let now = self.now_ms();
         let outcome = self.connector.handle_prepare(
             now,
@@ -217,8 +226,9 @@ impl Core {
                 // A peer has no error channel: the duplicate is dropped.
                 _ => self.report(PeerEvent::DuplicateRequest { source, request_id }),
             },
-            Outcome::UnknownSource => {}
+            Outcome::UnknownSource => return false,
         }
+        true
     }
 
     /// A response from an endpoint, through the connector.
@@ -298,18 +308,32 @@ impl Core {
         }
         let sent = match self.send_over_hub(now, &node, request_id, &packet, timeout_ms) {
             Some(sent) => sent,
-            None => self
+            None => match self
                 .peer
                 .send_packet(now, &node, request_id, &packet, timeout_ms)
-                .is_ok(),
+            {
+                Ok(_) => HubSent::Sent,
+                Err(_) => HubSent::Unreachable,
+            },
         };
-        if !sent {
+        let failure = match sent {
+            HubSent::Sent => None,
+            HubSent::Refused => Some((
+                ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
+                "the hold does not cover the packet",
+            )),
+            HubSent::Unreachable => Some((
+                ErrorCode::T01_PEER_UNREACHABLE,
+                "the peer could not be reached",
+            )),
+        };
+        if let Some((code, message)) = failure {
             self.connector.fail_forwarded(
                 now,
                 EndpointId::Peer(endpoint),
                 request_id,
-                ErrorCode::T01_PEER_UNREACHABLE,
-                "the peer could not be reached",
+                code,
+                message,
             );
         }
         self.after_peer();

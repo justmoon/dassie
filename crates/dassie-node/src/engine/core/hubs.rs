@@ -18,6 +18,17 @@ use dassie_settlement::{Commitments, Decided, Promised};
 
 use super::Core;
 
+/// What became of a Prepare to a peer over a hub.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum HubSent {
+    /// It went, with its commitment.
+    Sent,
+    /// The scheme would not commit to it: refused for liquidity.
+    Refused,
+    /// It could not be sent, and the scheme forgot it.
+    Unreachable,
+}
+
 /// What a commitment of ours or a peer's promises: the Prepare's amount,
 /// condition and expiry.
 fn promised(packet: &[u8]) -> Option<Promised> {
@@ -31,18 +42,16 @@ fn promised(packet: &[u8]) -> Option<Promised> {
 
 impl Core {
     /// The scheme and the peer's name, if the peering with `node` is over a
-    /// hub: its scheme signs promises per packet.
+    /// hub: its scheme signs promises per packet. A peering being ended
+    /// counts too, since its packets still resolve
+    /// (spec/decisions/ending-a-peering.md), and so does one whose scheme
+    /// stopped: its packets are then refused, never let through unchecked.
     pub(super) fn hub_peering(&self, node: &NodeId) -> Option<(Name, Name)> {
-        let scheme = self
-            .peer
-            .active_peers()
-            .find(|(id, _)| *id == node)
-            .map(|(_, peering)| peering.scheme)?;
+        let scheme = self.peer.peering_of(node)?.scheme;
         let scheme = Name::new(scheme.as_str()).ok()?;
-        let active = self.schemes.get(&scheme)?;
-        let hub =
-            active.failed.is_none() && active.scheme.id().as_str() == dassie_hub::member::SCHEME_ID;
-        hub.then(|| Some((scheme, Name::new(node.as_str()).ok()?)))
+        let over_hub = self.schemes.get(&scheme)?.over_hub;
+        over_hub
+            .then(|| Some((scheme, Name::new(node.as_str()).ok()?)))
             .flatten()
     }
 
@@ -94,8 +103,10 @@ impl Core {
     }
 
     /// As the payer: signs the commitment for our Prepare to a peer over a
-    /// hub and sends both. `None` if the peer is not over a hub; `Some(false)`
-    /// if the scheme refused the packet, which nothing has seen yet.
+    /// hub and sends both. `None` if the peer is not over a hub. A packet the
+    /// scheme will not commit to, as when the hold has no room, is refused
+    /// for liquidity; one committed to that could not be sent is forgotten
+    /// by the scheme at once, as nothing reached the peer.
     pub(super) fn send_over_hub(
         &mut self,
         now: u64,
@@ -103,10 +114,10 @@ impl Core {
         request_id: u32,
         packet: &[u8],
         timeout_ms: u64,
-    ) -> Option<bool> {
+    ) -> Option<HubSent> {
         let (scheme, peer) = self.hub_peering(node)?;
         let Some(promise) = promised(packet) else {
-            return Some(false);
+            return Some(HubSent::Refused);
         };
         let mut commitment = Vec::new();
         let committed = self
@@ -115,12 +126,16 @@ impl Core {
             })
             .is_some_and(|result| result.is_ok());
         if !committed || commitment.is_empty() {
-            return Some(false);
+            return Some(HubSent::Refused);
         }
         let sent =
             self.peer
                 .send_hub_packet(now, node, request_id, packet, &commitment, timeout_ms);
-        Some(sent.is_ok())
+        if sent.is_err() {
+            self.with_commitments(scheme, |c| c.on_answered(peer, request_id));
+            return Some(HubSent::Unreachable);
+        }
+        Some(HubSent::Sent)
     }
 
     /// As the payee: tells the scheme what became of a peer's Prepare we
@@ -164,7 +179,12 @@ impl Core {
         let Some((scheme, peer)) = self.hub_peering(node) else {
             return true;
         };
-        let (Some(promise), Some(commitment)) = (promised(packet), commitment) else {
+        // A Prepare that does not decode is the connector's to answer.
+        let Some(promise) = promised(packet) else {
+            return true;
+        };
+        let Some(commitment) = commitment else {
+            self.reject_hub_prepare(now, node, request_id);
             return false;
         };
         let accepted = self
@@ -209,8 +229,8 @@ impl Core {
         claim
     }
 
-    /// As the payer: a peer rejected our Prepare `request_id`: what the
-    /// scheme kept for it is forgotten.
+    /// As the payer: a peer rejected our Prepare `request_id`, or it never
+    /// reached the peer: what the scheme kept for it is forgotten.
     pub(super) fn hub_rejected(&mut self, node: &NodeId, request_id: u32) {
         if let Some((scheme, peer)) = self.hub_peering(node) {
             self.with_commitments(scheme, |c| c.on_answered(peer, request_id));
@@ -241,7 +261,7 @@ impl Core {
         let hubs: Vec<Name> = self
             .schemes
             .iter()
-            .filter(|(_, active)| active.scheme.id().as_str() == dassie_hub::member::SCHEME_ID)
+            .filter(|(_, active)| active.over_hub)
             .map(|(name, _)| *name)
             .collect();
         let mut decided: Vec<Decided> = Vec::new();
@@ -278,6 +298,14 @@ impl Core {
         let reason = dassie_peer::wire::TerminationReason::Unspecified;
         if self.peer.terminate(self.now_ms, &node, reason) {
             self.after_peer();
+        }
+    }
+
+    /// As the payee: a Prepare whose commitment we took never reached the
+    /// connector, so nothing will answer it: the scheme lets it go.
+    pub(super) fn hub_prepare_dropped(&mut self, node: &NodeId, request_id: u32) {
+        if let Some((scheme, peer)) = self.hub_peering(node) {
+            self.with_commitments(scheme, |c| c.on_released(peer, request_id));
         }
     }
 

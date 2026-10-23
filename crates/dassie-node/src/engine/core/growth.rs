@@ -77,7 +77,7 @@ impl Core {
         let ledgers: BTreeSet<LedgerId> = self
             .schemes
             .values()
-            .filter(|active| active.scheme.id().as_str() != dassie_hub::member::SCHEME_ID)
+            .filter(|active| !active.over_hub)
             .map(|active| active.scheme.ledger())
             .collect();
         let mut earned: BTreeMap<AccountId, u128> = BTreeMap::new();
