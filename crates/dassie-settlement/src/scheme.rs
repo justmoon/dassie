@@ -153,6 +153,42 @@ pub struct PreparedSettlement {
     pub peer_state: Option<Vec<u8>>,
 }
 
+/// The most bytes of the memo an [`OwnerPayment`] carries.
+pub const MAX_OWNER_MEMO_BYTES: usize = 64;
+
+/// A payment of the owner's funds out of a scheme's account, to an address
+/// its ledger pays: how the node moves the owner's funds between two of
+/// its ledgers, such as into a settlement hub and out of it
+/// (spec/areas/hubs.md#in-the-node). The scheme books it as the owner's
+/// withdrawal once its ledger shows it applied, with its fee; the ledger
+/// it arrives on books it as a deposit when it sees it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OwnerPayment {
+    /// Where, as the ledger writes an address.
+    pub destination: String,
+    /// The destination tag, on a ledger that has them.
+    pub tag: Option<u32>,
+    /// One memo's data, at most [`MAX_OWNER_MEMO_BYTES`].
+    pub memo: Option<Vec<u8>>,
+    /// How much, in internal units: whole units of the ledger.
+    pub amount: u64,
+}
+
+/// What became of the owner's last payment out of a scheme's account
+/// ([`SettlementScheme::pay_owner`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OwnerPaymentState {
+    /// None was made since the scheme started.
+    #[default]
+    Idle,
+    /// It is on its way: no other is made meanwhile.
+    InFlight,
+    /// Its ledger applied it.
+    Applied,
+    /// It never applied, or failed and cost only its fee.
+    Failed,
+}
+
 /// Why a scheme refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SchemeError {
@@ -438,6 +474,32 @@ pub trait SettlementScheme: Send {
     /// [`SchemeError::Unsupported`] where the owner deposits on the
     /// underlying ledger itself.
     fn deposit(&mut self, amount: u64, effects: &mut Vec<Effect>) -> Result<(), SchemeError>;
+
+    /// Pays `payment` out of the owner's funds, through the scheme's asset:
+    /// one at a time. The node checks first that the owner's funds on the
+    /// scheme's ledger cover it, and its fee. Nothing is booked now: the
+    /// scheme books the owner's withdrawal once its ledger applied the
+    /// payment, and its fee either way.
+    ///
+    /// # Errors
+    ///
+    /// [`SchemeError::Unsupported`] by default; [`SchemeError::InvalidData`]
+    /// for a destination the ledger cannot pay, a memo too long or an
+    /// amount below the ledger's unit; [`SchemeError::Unavailable`] while
+    /// one is on its way, or the asset cannot sign it now.
+    fn pay_owner(
+        &mut self,
+        asset: Option<&mut dyn ExternalAsset>,
+        payment: &OwnerPayment,
+    ) -> Result<(), SchemeError> {
+        let _ = (asset, payment);
+        Err(SchemeError::Unsupported)
+    }
+
+    /// What became of the owner's last payment out of the scheme's account.
+    fn owner_payment(&self) -> OwnerPaymentState {
+        OwnerPaymentState::Idle
+    }
 
     /// Its side that signs and takes promises per packet, if its peerings
     /// carry them, as a settlement hub's do

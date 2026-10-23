@@ -42,7 +42,7 @@ pub use asset::{
 };
 pub use commitments::{Commitments, Decided, Held, HoldsWith, Membership, Promised};
 pub use scheme::{
-    Effect, LedgerStatus, LossCause, PreparedSettlement, ReconcileCause, SchemeError, SchemeInfo,
-    SettlementScheme,
+    Effect, LedgerStatus, LossCause, MAX_OWNER_MEMO_BYTES, OwnerPayment, OwnerPaymentState,
+    PreparedSettlement, ReconcileCause, SchemeError, SchemeInfo, SettlementScheme,
 };
 pub use stub::{STUB_INITIAL_BALANCE, Stub};
