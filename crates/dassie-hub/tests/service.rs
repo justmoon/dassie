@@ -79,7 +79,10 @@ struct Network {
     nodes: Vec<dassie_identity::PublicKey>,
     queue: VecDeque<(usize, PeerId, Vec<u8>)>,
     member: Vec<Vec<u8>>,
-    submitted: Vec<Vec<u8>>,
+    submitted: Vec<(usize, Vec<u8>)>,
+    /// Whether shares to validator 0 wait in `held` until released.
+    hold_shares: bool,
+    held: Vec<(PeerId, Vec<u8>)>,
     payouts: usize,
     now: u64,
 }
@@ -116,6 +119,8 @@ impl Network {
             queue: VecDeque::new(),
             member: Vec::new(),
             submitted: Vec::new(),
+            hold_shares: false,
+            held: Vec::new(),
             payouts: 0,
             now: START,
         }
@@ -140,7 +145,7 @@ impl Network {
                     self.queue
                         .push_back((usize::try_from(peer.0).unwrap(), sender, bytes));
                 }
-                Action::Submit(blob) => self.submitted.push(blob),
+                Action::Submit(blob) => self.submitted.push((from, blob)),
                 Action::Payout(..) => self.payouts += 1,
             }
         }
@@ -161,6 +166,11 @@ impl Network {
                 self.collect(i);
             }
             while let Some((to, from, bytes)) = self.queue.pop_front() {
+                let share = matches!(Message::decode_exact(&bytes), Ok(Message::Share { .. }));
+                if self.hold_shares && to == 0 && share {
+                    self.held.push((from, bytes));
+                    continue;
+                }
                 let node = self.nodes.get(usize::try_from(from.0).unwrap()).copied();
                 self.validators[to].handle(self.now, from, node.as_ref(), &bytes);
                 self.collect(to);
@@ -313,6 +323,72 @@ fn member(net: &mut Network, seed: u8) -> (AccountNumber, NodeKey) {
 }
 
 #[test]
+fn shares_from_anyone_but_the_escrow_keys_count_for_nothing() {
+    use dassie_xrpl::codec::{Payment, Transact};
+    use dassie_xrpl::keys::Wallet;
+    let mut net = Network::new();
+    let (number, key) = member(&mut net, 31);
+    let hub = *net.validators[0].ledger().hub();
+    let withdraw = MemberOperation::Withdraw {
+        amount: 5_000_000,
+        to: Destination {
+            account: [9; 20],
+            tag: None,
+        },
+    };
+    let op = Operation::Member(SignedMemberOperation::sign(
+        &hub, number, 1, 10, withdraw, &key,
+    ));
+    net.hold_shares = true;
+    net.request(&Request::Submit(op));
+    net.run(1_000);
+    // The withdrawal is final; only validator 0's own share is in. Anyone
+    // can sign the payment: q − 1 throwaway keys do.
+    let ledger = net.validators[0].ledger();
+    let (sequence, withdrawal) = ledger.withdrawals().next().unwrap();
+    let payment = dassie_hub::escrow::withdrawal_payment(ledger.rules(), sequence, withdrawal);
+    let quorum = ledger.validators().quorum();
+    for seed in 0..quorum - 1 {
+        let wallet = Wallet::from_seed([u8::try_from(seed).unwrap() + 1; 16]);
+        let signer = payment.multi_sign(wallet.account(), &wallet);
+        let bytes = Message::Share { sequence, signer }.to_vec();
+        net.validators[0].handle(net.now, MEMBER, None, &bytes);
+        net.collect(0);
+    }
+    net.hold_shares = false;
+    for (from, bytes) in std::mem::take(&mut net.held) {
+        net.queue.push_back((0, from, bytes));
+    }
+    net.run(100);
+    let escrow_keys: Vec<[u8; 33]> = net.validators[0]
+        .ledger()
+        .rules()
+        .validators
+        .iter()
+        .map(|a| a.escrow)
+        .collect();
+    let mine: Vec<&Vec<u8>> = net
+        .submitted
+        .iter()
+        .filter(|(from, _)| *from == 0)
+        .map(|(_, blob)| blob)
+        .collect();
+    assert_eq!(mine.len(), 1, "validator 0 gathered a quorum once");
+    let payment = Payment::decode(mine[0]).unwrap();
+    assert!(payment.signatures_valid());
+    let dassie_xrpl::codec::Signing::Multi(signers) = payment.signing() else {
+        panic!("not multi-signed");
+    };
+    assert_eq!(signers.len(), quorum);
+    assert!(
+        signers
+            .iter()
+            .all(|s| escrow_keys.contains(s.signing_pub_key.as_bytes())),
+        "only validators' escrow keys sign"
+    );
+}
+
+#[test]
 fn a_withdrawal_is_signed_by_a_quorum_and_the_hub_pays_out_at_its_end() {
     let mut net = Network::new();
     let (number, key) = member(&mut net, 31);
@@ -339,7 +415,7 @@ fn a_withdrawal_is_signed_by_a_quorum_and_the_hub_pays_out_at_its_end() {
     let payloads: Vec<Vec<u8>> = net
         .submitted
         .iter()
-        .map(|blob| {
+        .map(|(_, blob)| {
             let payment = Payment::decode(blob).unwrap();
             assert!(payment.signatures_valid());
             payment.multi_signing_payload(dassie_xrpl::AccountId([0; 20]))

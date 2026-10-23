@@ -76,7 +76,9 @@ pub struct Validator {
     /// The lowest height from which `history` holds every block with
     /// operations.
     complete_from: u64,
-    shares: BTreeMap<u32, Vec<Signer>>,
+    /// Escrow signatures of withdrawals, by escrow sequence and by the
+    /// signer's place in the rules.
+    shares: BTreeMap<u32, BTreeMap<usize, Signer>>,
     signed: BTreeMap<u32, ()>,
     payout_signed: bool,
     actions: VecDeque<Action>,
@@ -402,10 +404,19 @@ impl Validator {
     }
 
     /// Gathers signatures of withdrawal `sequence`; with a quorum, the
-    /// transaction is submitted.
+    /// transaction is submitted. Only a signature by the escrow key of a
+    /// validator of the set in force counts, one per validator: anyone can
+    /// sign the payment with keys of their own, and the XRP Ledger would
+    /// refuse a transaction with such signers.
     fn take_share(&mut self, sequence: u32, signer: Signer) {
         let ledger = &self.chain.ledger;
         let Some((_, withdrawal)) = ledger.withdrawals().find(|(s, _)| *s == sequence) else {
+            return;
+        };
+        let Some(index) = ledger.rules().validators.iter().position(|acceptance| {
+            acceptance.escrow == *signer.signing_pub_key.as_bytes()
+                && signer.account == signer.signing_pub_key.account()
+        }) else {
             return;
         };
         let payment = withdrawal_payment(ledger.rules(), sequence, withdrawal);
@@ -414,12 +425,12 @@ impl Validator {
         }
         let quorum = ledger.validators().quorum();
         let shares = self.shares.entry(sequence).or_default();
-        if shares.iter().any(|s| s.account == signer.account) || shares.len() >= quorum {
+        if shares.contains_key(&index) || shares.len() >= quorum {
             return;
         }
-        shares.push(signer);
+        shares.insert(index, signer);
         if shares.len() == quorum
-            && let Ok(signed) = payment.with_signers(shares.clone())
+            && let Ok(signed) = payment.with_signers(shares.values().copied().collect())
         {
             self.actions.push_back(Action::Submit(signed.blob));
         }
