@@ -20,6 +20,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [exchange-rates](exchange-rates.md) | Exchange rates, fees and spread | connector |
 | [external-assets](external-assets.md) | External assets apart from settlement schemes | settlement, xrpl, ledger, wallet |
 | [full-or-stopped-short](full-or-stopped-short.md) | A receiver says whether it is full or stopped short | payments, stream |
+| [headless-setup](headless-setup.md) | An owner who keeps the passphrase on the node's host sets the node up with `dassie setup`, through the node's own setup route | node, http, identity, overview |
 | [issued-assets](issued-assets.md) | An issued asset's issuer is the owner's counterparty (transfer fees not built) | xrpl, settlement, connector |
 | [ledger-resets](ledger-resets.md) | A ledger below the newest seen is a reset only on the testnet | xrpl |
 | [membership-economics](membership-economics.md) | Network membership economics (fee not built) | network |

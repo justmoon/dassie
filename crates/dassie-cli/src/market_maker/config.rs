@@ -31,20 +31,16 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use dassie_identity::Mnemonic;
 use dassie_xrpl::Wallet;
 use dassie_xrpl::amount::Currency;
 use dassie_xrpl::keys::AccountId;
 use serde_json::{Map, Value};
-use zeroize::Zeroize;
 
 use super::strategy::{Band, MAX_MARGIN_PPM, MAX_SLIPPAGE_PPM, NodeParams, Params, Token};
+use crate::passphrase::{self, ReadProblem, read_bounded};
 
 /// Most bytes in a config file.
 pub const MAX_CONFIG_BYTES: u64 = 64 * 1024;
-
-/// Most bytes in a passphrase file: a phrase, and a line break or two.
-const MAX_PHRASE_FILE_BYTES: u64 = dassie_identity::MAX_PHRASE_INPUT_BYTES as u64 + 2;
 
 /// Most bytes in a ledger's ID, as a feed names it.
 const MAX_LEDGER_ID_BYTES: usize = dassie_feed::MAX_LEDGER_ID_BYTES;
@@ -433,44 +429,15 @@ pub fn host_and_port(authority: &str, default: u16) -> Option<(&str, u16)> {
 ///
 /// The file cannot be read, or holds no passphrase.
 pub fn wallet_from_file(path: &Path) -> Result<Wallet, String> {
-    let shown = path.display();
-    let mut text = read_bounded(path, MAX_PHRASE_FILE_BYTES).map_err(|problem| match problem {
-        ReadProblem::TooLong => format!("{shown} is too long for a passphrase"),
-        ReadProblem::Io(problem) => format!("cannot read {shown}: {problem}"),
-    })?;
-    let mnemonic = Mnemonic::parse(text.trim());
-    text.zeroize();
-    let mnemonic = mnemonic.map_err(|_| format!("{shown} holds no valid passphrase"))?;
-    let entropy = mnemonic
-        .to_seed()
-        .node_key()
+    let entropy = passphrase::node_key_from_file(path)?
         .settlement_entropy(dassie_xrpl::scheme::SCHEME_ID, XRPL_SEED_PATH)
         .map_err(|_| "cannot derive the XRPL keys".to_owned())?;
     Ok(Wallet::from_entropy(entropy.as_bytes()))
 }
 
-enum ReadProblem {
-    TooLong,
-    Io(String),
-}
-
-/// A text file of at most `max` bytes.
-fn read_bounded(path: &Path, max: u64) -> Result<String, ReadProblem> {
-    use std::io::Read as _;
-    let file = std::fs::File::open(path).map_err(|e| ReadProblem::Io(e.to_string()))?;
-    let mut text = String::new();
-    file.take(max + 1)
-        .read_to_string(&mut text)
-        .map_err(|e| ReadProblem::Io(e.to_string()))?;
-    if text.len() as u64 > max {
-        text.zeroize();
-        return Err(ReadProblem::TooLong);
-    }
-    Ok(text)
-}
-
 #[cfg(test)]
 mod tests {
+    use dassie_identity::Mnemonic;
     use serde_json::json;
 
     use super::*;

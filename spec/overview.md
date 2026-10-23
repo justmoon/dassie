@@ -22,7 +22,7 @@ Dassie works with test money only: the `live` realm is refused until the conditi
 |---|---|
 | **Node** | One running Dassie daemon, identified by an Ed25519 key ([Identity](areas/identity.md)). |
 | **Node ID** | A hash of the node's public key; the node's network identity. |
-| **Passphrase** | A BIP-39 mnemonic. Everything secret derives from it: the node key, the login secret, and each settlement scheme's ledger keys. The browser derives the node key; only the node key reaches the node. The same passphrase recovers the same node ID and the same on-ledger accounts. |
+| **Passphrase** | A BIP-39 mnemonic. Everything secret derives from it: the node key, the login secret, and each settlement scheme's ledger keys. The browser derives the node key, or `dassie setup` on the node's host; only the node key reaches the node. The same passphrase recovers the same node ID and the same on-ledger accounts. |
 | **Owner** | The person who set the node up with their passphrase and logs in to its wallet. |
 | **Realm** | `test` or `live`. It picks the ILP allocation scheme (`test` or `g`) and which settlement schemes may run. |
 | **ILP address** | Every node is `<scheme>.das.<nodeId>`. The node's own endpoints and clients live beneath it. |
@@ -61,7 +61,7 @@ Dassie works with test money only: the `live` realm is refused until the conditi
 
 1. **Install.** On a Linux server with systemd, `curl … | sh` fetches the newest release, verifies its signature before unpacking anything, installs it and starts the systemd units ([Release](areas/release.md)). On a Linux desktop, the desktop app runs the node in its own process as a periphery node, with no hostname, and opens the setup page in its window instead of steps 2 and 3's browser ([Desktop](areas/desktop.md)).
 2. **Configure.** `dassie init` asks for the hostname and an email address. The daemon obtains a certificate through ACME, and `dassie init` prints a one-time **setup URL** ([HTTP](areas/http.md)).
-3. **Set up the wallet.** In the browser, the owner creates or enters a passphrase. The browser derives the node key with the same code the node uses (WASM), and posts it with a proof of the login secret. The node's identity-dependent services start: the ledger, the connector, Open Payments, the peer protocol and routing.
+3. **Set up the wallet.** In the browser, the owner creates or enters a passphrase. The browser derives the node key with the same code the node uses (WASM), and posts it with a proof of the login secret. The node's identity-dependent services start: the ledger, the connector, Open Payments, the peer protocol and routing. An owner who keeps the phrase on the node's host, for a node nobody logs in to, runs `dassie setup` there instead, which also does step 4 ([Node](areas/node.md#the-dassie-command)).
 4. **Choose a ledger.** The wallet asks for a first settlement scheme.
 5. **Join the network.** The node polls the bootstrap nodes for their lists, registers with each, keeps the majority nodes and fetches their link states. It peers on its own with nodes that share a settlement scheme ([Network](areas/network.md)).
 6. **Transact.**
@@ -101,7 +101,7 @@ Not frozen, on purpose: a node does not talk to the original implementation's no
 
 - **Zero configuration.** A hostname and a passphrase are all a node needs; discovery, peering, addressing and settlement are automatic.
 - **Ledger-neutral, currency-neutral.** Settlement is a plug-in interface, and membership does not depend on any ledger.
-- **Secrets stay with the owner.** The passphrase never leaves the browser, and every key derives from it.
+- **Secrets stay with the owner.** The passphrase never leaves the browser, and every key derives from it. The exception is an owner who keeps the phrase on the node's own host, as a headless node or a market maker must: `dassie setup` sets the node up from it there, and still only the node key reaches the node ([headless-setup](decisions/headless-setup.md)).
 - **HTTPS everywhere,** in development too.
 - **Self-contained releases** that install and update themselves.
 
@@ -112,4 +112,5 @@ Not frozen, on purpose: a node does not talk to the original implementation's no
 - [real-money](decisions/real-money.md): no real money yet.
 - [bootstrap-network](decisions/bootstrap-network.md): the testnet's bootstrap nodes.
 - [own-books](decisions/own-books.md): each node keeps its own books.
+- [headless-setup](decisions/headless-setup.md): `dassie setup`, the exception to a passphrase that never leaves the browser.
 - [node-and-pnpm](decisions/node-and-pnpm.md): tooling on Node and pnpm.

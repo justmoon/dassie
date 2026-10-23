@@ -5,6 +5,8 @@
 //! - `dassie status` says how it is doing, `dassie setup-url` prints the
 //!   link that completes setup, and `dassie pair` a code that pairs an owner
 //!   app, over the IPC socket too.
+//! - `dassie setup` sets the node up from its owner's passphrase, without
+//!   a browser, and adds settlement schemes.
 //! - `dassie update` installs a newer release from the mirror.
 //! - `dassie verify-install` checks that this binary works here.
 //! - `dassie front-door` runs a front door, which is no node.
@@ -15,6 +17,8 @@ mod client;
 mod front_door;
 mod init;
 mod market_maker;
+mod passphrase;
+mod setup;
 mod status;
 mod update;
 
@@ -58,6 +62,14 @@ Commands:
   status            Show how the node is doing: version, address,
                     certificate, setup, network, ledgers and updates.
   setup-url         Print the link that completes setup in a browser.
+  setup             Set the node up from its owner's passphrase, on the
+                    node's own host, without a browser, and add the
+                    settlement schemes it lacks. Running it again changes
+                    nothing; it exits 3, changing nothing, if the node is
+                    another passphrase's.
+                      --passphrase-file <file>  the passphrase, alone
+                      --scheme <id>[=<config>]  a settlement scheme, with
+                                                its JSON config; repeatable
   pair              Print a code that pairs an owner app with the node, for
                     the next five minutes.
   update           Update Dassie to the newest version of its channel, once
@@ -130,6 +142,7 @@ fn run() -> Result<ExitCode, lexopt::Error> {
                 no_more(&mut parser)?;
                 Ok(over_ipc(status::status))
             }
+            "setup" => Ok(setup::run(&setup::args(&mut parser)?)),
             "setup-url" => {
                 no_more(&mut parser)?;
                 Ok(over_ipc(status::setup_url))
