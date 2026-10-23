@@ -188,6 +188,8 @@ Test money without an underlying ledger (`crates/dassie-settlement/src/stub.rs`)
 
 A peer's settlement is believed as stated. Anyone peered over the stub can mint credit, which is why it only ever holds test money.
 
+**With commitments,** for tests of the packet path over a settlement hub without a hub: given `{"commitments": N}`, the stub signs and takes promises per packet as a hub's member does ([Settlement hubs](hubs.md#in-the-node)), so the node sends a commitment with each Prepare to a peer on it, checks one with each Prepare from it, and carries a claim in each reply to a Fulfill. It holds at most N of a peer's packets in flight, and N of ours to it, and refuses past that; a commitment is the Prepare's amount and condition, and a claim is fixed; it keeps a fulfillment until the payer's claim covers it, a bounded number per peer; and a packet that waits for the hub it decides at once without a fulfillment, as a hub whose final block passed the commitment's expiry with no claim for it. What it holds is in memory, as the connector's packets are, so a restart forgets both together, and its checkpoint is the plain stub's. Built with the `testing` feature, the node makes nodes on it members of one pretend hub, so that they peer over it, and gives its peerings credit as the stub's: it stands in for the packet path over a hub, not for the hold.
+
 ## Decisions
 
 - [owner-ledger](../decisions/owner-ledger.md): the default trust line becomes the junior's starting credit.

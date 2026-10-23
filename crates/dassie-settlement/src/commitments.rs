@@ -38,6 +38,22 @@ pub struct Decided {
     pub fulfillment: Option<[u8; 32]>,
 }
 
+/// What a scheme holds of the packets between us and one peer, for tests
+/// and simulations to check against the node's connector
+/// (spec/areas/testing.md#the-simulations).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Held {
+    /// Our Prepares to the peer it committed to that are neither answered
+    /// nor decided.
+    pub ours: usize,
+    /// The peer's Prepares whose commitments it took that are neither
+    /// fulfilled nor released.
+    pub theirs: usize,
+    /// The peer's Prepares we fulfilled that no claim of the peer's covers
+    /// yet.
+    pub unclaimed: usize,
+}
+
 /// The side of a scheme that signs and takes promises per packet.
 pub trait Commitments {
     /// As the payer: the commitment to send with our Prepare `request_id`
@@ -119,4 +135,13 @@ pub trait Commitments {
 
     /// Moves the waits the hub has decided into `out`, oldest first.
     fn take_decided(&mut self, out: &mut Vec<Decided>);
+
+    /// Adds to `out` what it holds for each peer it holds anything for, in
+    /// the order of their names, for tests and simulations to check against
+    /// the node. Whether it counts them: a scheme that does not adds nothing
+    /// and says so.
+    fn held(&self, out: &mut Vec<(Name, Held)>) -> bool {
+        let _ = out;
+        false
+    }
 }

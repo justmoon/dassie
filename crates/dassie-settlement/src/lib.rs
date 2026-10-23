@@ -40,7 +40,7 @@ pub use activation::{Activation, activation};
 pub use asset::{
     AssetEffect, AssetId, AssetKind, Detach, ExternalAsset, Freeze, Holding, LedgerInput,
 };
-pub use commitments::{Commitments, Decided, Promised};
+pub use commitments::{Commitments, Decided, Held, Promised};
 pub use scheme::{
     Effect, LedgerStatus, LossCause, PreparedSettlement, ReconcileCause, SchemeError, SchemeInfo,
     SettlementScheme,
