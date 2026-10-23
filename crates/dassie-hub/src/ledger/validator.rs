@@ -138,6 +138,11 @@ impl Ledger {
         if vote(&mut self.signer_list_votes, index, sequence, quorum).map_err(Err)? {
             self.escrow.signer_list = None;
             self.signer_list_votes.clear();
+            // Its fee left the escrow, and the reserve account pays the
+            // hub's own transactions (spec/designs/settlement-hubs.md#7-fees).
+            let fee = self.rules.terms.fees.ledger.min(self.reserve_account);
+            self.reserve_account = self.reserve_account.saturating_sub(fee);
+            self.escrow.balance = self.escrow.balance.saturating_sub(fee);
         }
         Ok(Detail::None)
     }

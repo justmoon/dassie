@@ -1062,6 +1062,7 @@ dependencies = [
  "proptest",
  "serde_json",
  "sha2 0.11.0",
+ "zeroize",
 ]
 
 [[package]]

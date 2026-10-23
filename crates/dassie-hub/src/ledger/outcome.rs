@@ -70,6 +70,8 @@ pub enum Failure {
     Exists,
     /// A deposit in a ledger the hub no longer remembers.
     Stale,
+    /// A destination the escrow cannot pay: itself, or the zero account.
+    Destination,
 }
 
 /// Why an operation was refused without effect.

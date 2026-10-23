@@ -20,6 +20,8 @@ dassie-xrpl = { path = "../dassie-xrpl" }
 hmac = { version = "0.13", default-features = false }
 k256 = { version = "0.14", default-features = false, features = ["ecdsa"] }
 sha2 = { version = "0.11", default-features = false }
+# Wipes the payout key's secret on drop (spec/areas/identity.md#handling-of-secrets).
+zeroize = { version = "1.9", default-features = false }
 
 [dev-dependencies]
 dassie-xrpl = { path = "../dassie-xrpl", features = ["fake"] }

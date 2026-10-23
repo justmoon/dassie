@@ -16,9 +16,11 @@
 )]
 
 use dassie_hub::escrow::{
-    PayoutTransaction, ValidatorKeys, check_escrow, deposit_of, escrow_master, outcome_of,
-    payout_set, setup, sign_payout_set, withdrawal_payment,
+    EscrowFault, PayoutTransaction, ValidatorKeys, check_escrow, deposit_of, escrow_master,
+    outcome_of, payout_set, setup, sign_payout_set, signer_list_set, withdrawal_outcome,
+    withdrawal_payment,
 };
+use dassie_hub::ledger::Failure;
 use dassie_hub::ledger::{Block, Detail, Outcome, Phase};
 use dassie_hub::operation::{
     AccountNumber, Destination, MemberOperation, Operation, SignedMemberOperation,
@@ -447,4 +449,233 @@ fn a_payout_set_keeps_withdrawals_still_out_in_sequence() {
     for (i, transaction) in set.transactions.iter().enumerate() {
         assert_eq!(transaction.sequence(), first + u32::try_from(i).unwrap());
     }
+}
+
+impl Hub {
+    fn settings_and_objects(&mut self) -> (api::AccountSettings, api::AccountObjects) {
+        let escrow = self.escrow();
+        let settings =
+            api::account_settings_result(&request(&mut self.xrpl, &api::account_info(1, escrow)))
+                .unwrap();
+        let objects = api::account_objects_result(&request(
+            &mut self.xrpl,
+            &api::account_objects(2, escrow, None),
+        ))
+        .unwrap();
+        (settings, objects)
+    }
+}
+
+#[test]
+fn a_change_of_validators_reaches_the_escrows_signer_list() {
+    let mut hub = Hub::found();
+    let newcomer = NodeKey::from_bytes(&[9; 32]);
+    let keys = ValidatorKeys::derive(&newcomer, &NONCE).unwrap();
+    let mut rules = hub.rules.clone();
+    rules.validators[3] = keys
+        .accept(&newcomer, &rules.terms, "v9.example:443".into())
+        .unwrap();
+    rules.check().unwrap();
+    let votes = rules.clone();
+    hub.attest(move |_| ValidatorOperation::Reconfigure(votes.clone()));
+    let at = hub.ledger.timestamp() + hub.rules.terms.timers.reconfigure_notice;
+    hub.block_at(at, vec![]);
+    let sequence = hub.ledger.escrow().signer_list.unwrap();
+    // The old set signs the change of signers it owes.
+    let list = signer_list_set(&rules, sequence);
+    let signers: Vec<Signer> = hub.validators[..3]
+        .iter()
+        .map(|keys| list.multi_sign(keys.escrow.account(), &keys.escrow))
+        .collect();
+    let hash = hub.submit_signed(list, signers);
+    hub.xrpl.close();
+    let (seen, applied) = outcome_of(&record(&mut hub.xrpl, &hash), hub.escrow()).unwrap();
+    assert_eq!((seen, applied), (sequence, true));
+    let reserve = hub.ledger.reserve_account();
+    hub.attest(move |_| ValidatorOperation::AttestSignerList { sequence });
+    assert_eq!(hub.ledger.escrow().signer_list, None);
+    assert_eq!(
+        hub.ledger.reserve_account(),
+        reserve.saturating_sub(LEDGER_FEE)
+    );
+    // The escrow now checks against the new rules.
+    let (settings, objects) = hub.settings_and_objects();
+    check_escrow(&rules, &settings, &objects).unwrap();
+    assert_eq!(
+        check_escrow(&hub.rules, &settings, &objects),
+        Err(EscrowFault::SignerList)
+    );
+}
+
+#[test]
+fn the_check_refuses_an_escrow_with_a_way_in() {
+    let mut hub = Hub::found();
+    let (settings, objects) = hub.settings_and_objects();
+    check_escrow(&hub.rules, &settings, &objects).unwrap();
+    let rules = hub.rules.clone();
+    let check = |settings: &api::AccountSettings, objects: &api::AccountObjects| {
+        check_escrow(&rules, settings, objects)
+    };
+    let mut master = settings;
+    master.flags &= !api::account_flags::DISABLE_MASTER;
+    assert_eq!(check(&master, &objects), Err(EscrowFault::MasterKey));
+    let mut regular = settings;
+    regular.regular_key = Some(AccountId([5; 20]));
+    assert_eq!(check(&regular, &objects), Err(EscrowFault::RegularKey));
+    let mut open = settings;
+    open.flags &= !api::account_flags::REQUIRE_DEST_TAG;
+    assert_eq!(check(&open, &objects), Err(EscrowFault::NoRequireDest));
+    let mut more = objects.clone();
+    more.others = 1;
+    assert_eq!(check(&settings, &more), Err(EscrowFault::Objects));
+    let mut list = objects.clone();
+    list.signer_list.as_mut().unwrap().quorum = 2;
+    assert_eq!(check(&settings, &list), Err(EscrowFault::SignerList));
+    let mut earlier = objects.clone();
+    earlier.ledger_index = settings.ledger_index - 1;
+    assert_eq!(check(&settings, &earlier), Err(EscrowFault::NotValidated));
+    let mut unvalidated = settings;
+    unvalidated.validated = false;
+    assert_eq!(
+        check(&unvalidated, &objects),
+        Err(EscrowFault::NotValidated)
+    );
+}
+
+#[test]
+fn only_what_reaches_the_escrow_is_a_deposit() {
+    let mut hub = Hub::found();
+    let alice = Wallet::from_seed([31; 16]);
+    hub.xrpl.fund(alice.account());
+    hub.xrpl.close();
+    let alice_key = NodeKey::from_bytes(&[32; 32]);
+    deposit(&mut hub, &alice, &alice_key, 50_000_000);
+    let escrow = hub.escrow();
+    let result = request(
+        &mut hub.xrpl,
+        &api::account_tx(5, escrow, 0, u32::MAX, None),
+    );
+    let records = api::account_tx_result(&result).unwrap();
+    let real = records
+        .transactions
+        .into_iter()
+        .find(|record| deposit_of(record, escrow).is_some())
+        .unwrap();
+    let not = |change: &dyn Fn(&mut TxRecord)| {
+        let mut record = real.clone();
+        change(&mut record);
+        deposit_of(&record, escrow)
+    };
+    assert_eq!(not(&|r| r.validated = false), None);
+    assert_eq!(not(&|r| r.result = "tecPATH_PARTIAL".into()), None);
+    assert_eq!(not(&|r| r.destination = Some(AccountId([1; 20]))), None);
+    assert_eq!(not(&|r| r.destination_tag = None), None);
+    assert_eq!(
+        not(&|r| r.delivered = None),
+        None,
+        "a token is not the hub's asset"
+    );
+    assert_eq!(
+        not(&|r| r.account = escrow),
+        None,
+        "the escrow paying itself"
+    );
+    // A partial payment counts for what it delivered.
+    let partial = not(&|r| r.delivered = Some(7)).unwrap();
+    assert_eq!(partial.amount, 7);
+}
+
+#[test]
+fn the_escrow_and_the_zero_account_are_no_destinations() {
+    let mut hub = Hub::found();
+    let alice = Wallet::from_seed([31; 16]);
+    hub.xrpl.fund(alice.account());
+    hub.xrpl.close();
+    let alice_key = NodeKey::from_bytes(&[32; 32]);
+    let number = deposit(&mut hub, &alice, &alice_key, 50_000_000);
+    let refused = Outcome::Failed {
+        fee: 10,
+        reason: Failure::Destination,
+    };
+    for account in [hub.rules.terms.escrow, [0; 20]] {
+        let to = Destination {
+            account,
+            tag: Some(1),
+        };
+        assert_eq!(
+            hub.member(number, &alice_key, MemberOperation::SetDisbursal(to)),
+            refused
+        );
+    }
+    let home = Destination {
+        account: alice.account().0,
+        tag: None,
+    };
+    hub.member(number, &alice_key, MemberOperation::SetDisbursal(home));
+    for account in [hub.rules.terms.escrow, [0; 20]] {
+        let to = Destination { account, tag: None };
+        let withdraw = MemberOperation::Withdraw {
+            amount: 5_000_000,
+            to,
+        };
+        assert_eq!(hub.member(number, &alice_key, withdraw), refused);
+        let close = MemberOperation::Close(dassie_hub::operation::CloseTo::Ledger(to));
+        assert_eq!(hub.member(number, &alice_key, close), refused);
+    }
+}
+
+#[test]
+fn a_withdrawals_outcome_is_its_own_payment() {
+    let mut hub = Hub::found();
+    let alice = Wallet::from_seed([31; 16]);
+    hub.xrpl.fund(alice.account());
+    hub.xrpl.close();
+    let alice_key = NodeKey::from_bytes(&[32; 32]);
+    let number = deposit(&mut hub, &alice, &alice_key, 50_000_000);
+    let to = Destination {
+        account: alice.account().0,
+        tag: Some(5),
+    };
+    hub.member(number, &alice_key, MemberOperation::SetDisbursal(to));
+    let outcome = hub.member(
+        number,
+        &alice_key,
+        MemberOperation::Withdraw {
+            amount: 5_000_000,
+            to,
+        },
+    );
+    let Outcome::Applied {
+        detail: Detail::Withdrawal(sequence),
+        ..
+    } = outcome
+    else {
+        panic!("{outcome:?}");
+    };
+    let (_, withdrawal) = hub.ledger.withdrawals().next().unwrap();
+    let withdrawal = withdrawal.clone();
+    let payment = withdrawal_payment(&hub.rules, sequence, &withdrawal);
+    let signers: Vec<Signer> = hub.validators[..3]
+        .iter()
+        .map(|keys| payment.multi_sign(keys.escrow.account(), &keys.escrow))
+        .collect();
+    let hash = hub.submit_signed(payment, signers);
+    hub.xrpl.close();
+    let seen = record(&mut hub.xrpl, &hash);
+    assert_eq!(
+        withdrawal_outcome(&seen, hub.escrow(), sequence, &withdrawal),
+        Some(true)
+    );
+    let mut elsewhere = seen.clone();
+    elsewhere.destination_tag = Some(6);
+    assert_eq!(
+        withdrawal_outcome(&elsewhere, hub.escrow(), sequence, &withdrawal),
+        None
+    );
+    let mut short = seen;
+    short.delivered = Some(1);
+    assert_eq!(
+        withdrawal_outcome(&short, hub.escrow(), sequence, &withdrawal),
+        None
+    );
 }

@@ -5,7 +5,7 @@
 use alloc::format;
 use alloc::string::String;
 
-use dassie_identity::{NodeKey, SeedPath, Signature};
+use dassie_identity::{DerivedSecret, NodeKey, SeedPath, Signature};
 use dassie_xrpl::Wallet;
 
 use super::bip32::{ExtendedPrivate, ExtendedPublic};
@@ -20,11 +20,11 @@ fn path(nonce: &[u8; 32], name: &str) -> String {
     format!("node/hub/{hex}/{name}")
 }
 
-/// The secret at `name` for the hub of `nonce`.
-fn secret(node: &NodeKey, nonce: &[u8; 32], name: &str) -> Option<[u8; 32]> {
+/// The secret at `name` for the hub of `nonce`, wiped on drop.
+fn secret(node: &NodeKey, nonce: &[u8; 32], name: &str) -> Option<DerivedSecret> {
     let text = path(nonce, name);
     let path = SeedPath::parse(&text).ok()?;
-    node.derive(&path).ok().map(|secret| *secret.as_bytes())
+    node.derive(&path).ok()
 }
 
 /// What a validator makes for a hub: a consensus key, an escrow key on the
@@ -42,9 +42,9 @@ impl ValidatorKeys {
     /// The keys `node` makes for the hub of `nonce`.
     #[must_use]
     pub fn derive(node: &NodeKey, nonce: &[u8; 32]) -> Option<Self> {
-        let consensus = NodeKey::from_bytes(&secret(node, nonce, "consensus")?);
-        let escrow = Wallet::from_entropy(&secret(node, nonce, "escrow")?);
-        let payout = ExtendedPrivate::master(&secret(node, nonce, "payout")?)?;
+        let consensus = NodeKey::from_bytes(secret(node, nonce, "consensus")?.as_bytes());
+        let escrow = Wallet::from_entropy(secret(node, nonce, "escrow")?.as_bytes());
+        let payout = ExtendedPrivate::master(secret(node, nonce, "payout")?.as_bytes())?;
         Some(Self {
             consensus,
             escrow,
@@ -77,11 +77,9 @@ impl ValidatorKeys {
 /// of the test network (spec/designs/settlement-hubs.md#6-deposits-and-withdrawals).
 #[must_use]
 pub fn escrow_master(sponsor: &NodeKey, nonce: &[u8; 32]) -> Option<Wallet> {
-    Some(Wallet::from_entropy(&secret(
-        sponsor,
-        nonce,
-        "escrow-master",
-    )?))
+    Some(Wallet::from_entropy(
+        secret(sponsor, nonce, "escrow-master")?.as_bytes(),
+    ))
 }
 
 #[cfg(test)]
@@ -116,5 +114,34 @@ mod tests {
         let first = escrow_master(&sponsor, &[5; 32]).unwrap();
         let again = escrow_master(&sponsor, &[5; 32]).unwrap();
         assert_eq!(first.account(), again.account());
+    }
+
+    /// The paths are a contract (spec/areas/identity.md): a changed path
+    /// changes the keys a hub's rules name, and where a sponsor makes its
+    /// escrow again.
+    #[test]
+    fn the_paths_give_these_keys() {
+        let node = NodeKey::from_bytes(&[1; 32]);
+        let keys = ValidatorKeys::derive(&node, &[2; 32]).unwrap();
+        let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+        assert_eq!(
+            hex(keys.consensus.public_key().as_bytes()),
+            "7f55e267ef2e17c23bf9fa1017b6333eaa3e3d1700c3df4072fb9b8e955cedd5"
+        );
+        assert_eq!(
+            hex(keys.escrow.public_key().as_bytes()),
+            "ed622c65311fe0a74847f8096749ca146611f6dfa093c781b6da9bcc29431b4e30"
+        );
+        assert_eq!(
+            hex(&keys.payout.public().unwrap().key),
+            "03f2899aaca40be88ee8b9fcf411329e120cb56b7aab1c19d6220ddc15fa350673"
+        );
+        assert_eq!(
+            escrow_master(&node, &[2; 32])
+                .unwrap()
+                .account()
+                .to_address(),
+            "rJjEKAGxQud4c6YVbRJrDgmUQWjJ5QgJvw"
+        );
     }
 }

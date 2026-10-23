@@ -43,6 +43,28 @@ pub fn deposit_of(record: &TxRecord, escrow: AccountId) -> Option<Deposit> {
     })
 }
 
+/// Whether withdrawal `sequence` delivered, if `record` is its outcome:
+/// the escrow's Payment at that sequence, to the withdrawal's destination
+/// and tag, delivering its amount when it succeeded. Anything else at that
+/// sequence is not the withdrawal's, and burns nothing.
+#[must_use]
+pub fn withdrawal_outcome(
+    record: &TxRecord,
+    escrow: AccountId,
+    sequence: u32,
+    withdrawal: &crate::ledger::Withdrawal,
+) -> Option<bool> {
+    let (seen, delivered) = outcome_of(record, escrow)?;
+    let same = seen == sequence
+        && record.is_payment
+        && record.destination == Some(AccountId(withdrawal.to.account))
+        && record.destination_tag == withdrawal.to.tag;
+    if !same || (delivered && record.delivered != Some(withdrawal.amount)) {
+        return None;
+    }
+    Some(delivered)
+}
+
 /// What became of one of the escrow's own transactions, if `record` is
 /// one in a validated ledger: its sequence, and whether it did what it was
 /// for. A `tec` result failed but used the sequence; anything else that

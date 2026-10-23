@@ -15,7 +15,7 @@ pub mod payout;
 pub mod transactions;
 
 pub use keys::{ValidatorKeys, escrow_master};
-pub use observe::{deposit_of, outcome_of};
+pub use observe::{deposit_of, outcome_of, withdrawal_outcome};
 pub use payout::{PayoutSet, PayoutTransaction, payout_set, sign_payout_set};
 pub use transactions::{
     EscrowFault, check_escrow, escrow_account, setup, signer_entries, signer_list_set,

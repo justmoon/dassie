@@ -34,6 +34,14 @@ pub struct ExtendedPrivate {
     chain: [u8; 32],
 }
 
+impl Drop for ExtendedPrivate {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.secret.zeroize();
+        self.chain.zeroize();
+    }
+}
+
 impl core::fmt::Debug for ExtendedPrivate {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("ExtendedPrivate(<redacted>)")
@@ -49,12 +57,13 @@ fn hmac(key: &[u8], data: &[&[u8]]) -> ([u8; 32], [u8; 32]) {
     for part in data {
         mac.update(part);
     }
-    let out: [u8; 64] = mac.finalize().into_bytes().into();
+    let mut out: [u8; 64] = mac.finalize().into_bytes().into();
     let mut left = [0; 32];
     let mut right = [0; 32];
     let (l, r) = out.split_at(32);
     left.copy_from_slice(l);
     right.copy_from_slice(r);
+    zeroize::Zeroize::zeroize(&mut out);
     (left, right)
 }
 

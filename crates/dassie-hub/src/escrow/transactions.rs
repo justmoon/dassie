@@ -152,7 +152,8 @@ impl Transaction {
 /// Why an escrow is not one the validators take.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EscrowFault {
-    /// What was read is not as of a validated ledger.
+    /// What was read is not as of a validated ledger, or the objects were
+    /// read as of an earlier ledger than the settings.
     NotValidated,
     /// Its master key still signs.
     MasterKey,
@@ -176,7 +177,11 @@ pub fn check_escrow(
     settings: &AccountSettings,
     objects: &AccountObjects,
 ) -> Result<(), EscrowFault> {
-    if !settings.validated || !objects.validated {
+    // From the ledger where the master key is disabled and no regular key
+    // is set, only the signer list can add objects: the objects must be
+    // read as of that ledger or later, or the master key could have made
+    // one in between.
+    if !settings.validated || !objects.validated || objects.ledger_index < settings.ledger_index {
         return Err(EscrowFault::NotValidated);
     }
     if !settings.master_disabled() {
