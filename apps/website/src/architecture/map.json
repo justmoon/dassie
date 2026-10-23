@@ -447,7 +447,8 @@
         "The ledger: accounts, holds, deposits and withdrawals, every table bounded, every drop accounted for after each block",
         "Taking from a hold with the payer's claim, or with fulfilled commitments when the claim does not come, never twice",
         "Fees split among the validators whose votes the log recorded",
-        "Test network resets written off in place"
+        "Test network resets written off in place",
+        "The escrow on the XRP Ledger: the validators' keys, the sponsor's setup and its check, withdrawals, and the payout set that pays everyone out at the end"
       ]
     },
     "peer": {
@@ -1148,6 +1149,12 @@
       "t": "node",
       "k": "uses",
       "h": true
+    },
+    {
+      "f": "hub",
+      "t": "xrpl",
+      "k": "uses",
+      "h": false
     }
   ],
   "flows": [

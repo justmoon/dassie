@@ -1130,7 +1130,7 @@ fn new_rules_wait_for_the_old_sets_change_of_signers() {
     let mut hub = Hub::new();
     let (rules, _) = rules(4);
     let first = resigned(rules.clone(), |rules| {
-        rules.validators[3].escrow = [200; 33];
+        rules.validators[3].escrow = crate::rules::tests::escrow_key(200);
     });
     reconfigure(&mut hub, &first);
     // Only escrow keys changed, and the old set still owes the signer list.

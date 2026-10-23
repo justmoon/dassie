@@ -52,9 +52,10 @@ const ENDPOINT_ALPHABET: Alphabet = Alphabet::EMPTY
 pub struct Fees {
     /// What each operation pays.
     pub operation: Amount,
-    /// The underlying ledger's fee for one transaction the escrow sends.
-    /// A withdrawal pays it on top of the operation fee, and so does each
-    /// payment of a payout set.
+    /// The underlying ledger's fee for one transaction the escrow sends,
+    /// multi-signed by a quorum: at least the ledger's base fee once per
+    /// signer and once more. A withdrawal pays it on top of the operation
+    /// fee, and so does each payment of a payout set.
     pub ledger: Amount,
     /// Parts per million of each fee that go to the reserve account.
     pub reserve_share_ppm: u32,
@@ -372,11 +373,39 @@ impl Rules {
         }
         let terms = self.terms.digest();
         for (i, acceptance) in self.validators.iter().enumerate() {
-            if !acceptance.verifies(&terms, &self.terms.nonce) {
+            let usable = acceptance.keys_usable(&self.terms.escrow);
+            if !usable || !acceptance.verifies(&terms, &self.terms.nonce) {
                 return Err(RulesError::Acceptance(i));
             }
         }
         Ok(())
+    }
+}
+
+impl Acceptance {
+    /// Whether its keys can do their jobs: an escrow key that is a key of
+    /// the XRP Ledger and not the escrow's own (a signer list cannot name
+    /// its account), and a payout key that is a secp256k1 point. A
+    /// validator whose keys could not would leave a change of signers that
+    /// never applies, or a payout set that cannot be built, and freeze the
+    /// escrow (spec/designs/settlement-hubs.md#9-shutdown).
+    #[must_use]
+    pub fn keys_usable(&self, escrow: &[u8; LEDGER_ACCOUNT_LEN]) -> bool {
+        let escrow_key = dassie_xrpl::keys::PublicKey::from_bytes(self.escrow).filter(|key| {
+            match key.key_type() {
+                dassie_xrpl::keys::KeyType::Ed25519 => {
+                    let mut point = [0; 32];
+                    point.copy_from_slice(self.escrow.get(1..).unwrap_or(&[0; 32]));
+                    PublicKey::from_bytes(&point).is_ok_and(|key| !key.is_weak())
+                }
+                dassie_xrpl::keys::KeyType::Secp256k1 => {
+                    k256::PublicKey::from_sec1_bytes(&self.escrow).is_ok()
+                }
+            }
+        });
+        let payout = matches!(self.payout.first(), Some(0x02 | 0x03))
+            && k256::PublicKey::from_sec1_bytes(&self.payout).is_ok();
+        escrow_key.is_some_and(|key| key.account().0 != *escrow) && payout
     }
 }
 
@@ -624,6 +653,21 @@ pub(crate) mod tests {
         }
     }
 
+    /// A usable escrow key: Ed25519, as the ledger writes it.
+    pub(crate) fn escrow_key(seed: u8) -> [u8; LEDGER_KEY_LEN] {
+        let mut key = [0xed; LEDGER_KEY_LEN];
+        let point = NodeKey::from_bytes(&[seed.wrapping_add(10); 32]).public_key();
+        key[1..].copy_from_slice(point.as_bytes());
+        key
+    }
+
+    /// A usable payout key.
+    pub(crate) fn payout_key(seed: u8) -> crate::escrow::bip32::ExtendedPublic {
+        crate::escrow::bip32::ExtendedPrivate::master(&[seed; 32])
+            .and_then(|key| key.public())
+            .unwrap()
+    }
+
     /// The rules of a hub of `n` validators whose node keys are seeds
     /// 1..=n, for tests.
     pub(crate) fn rules(n: u8) -> (Rules, Vec<NodeKey>) {
@@ -638,9 +682,9 @@ pub(crate) mod tests {
                 Acceptance {
                     node: key.public_key(),
                     consensus: key.public_key(),
-                    escrow: [i; LEDGER_KEY_LEN],
-                    payout: [i.wrapping_add(100); LEDGER_KEY_LEN],
-                    payout_chain: [i; 32],
+                    escrow: escrow_key(i),
+                    payout: payout_key(i).key,
+                    payout_chain: payout_key(i).chain,
                     endpoint: alloc::format!("v{i}.example:443"),
                     signature: Signature::from_bytes([0; 64]),
                 }
@@ -660,6 +704,30 @@ pub(crate) mod tests {
         reader.finish().unwrap();
         assert_eq!(decoded, rules);
         assert_eq!(decoded.id(), rules.id());
+    }
+
+    #[test]
+    fn unusable_keys_are_refused() {
+        let escrow = rules(4).0.terms.escrow;
+        let mut master = [0; LEDGER_KEY_LEN];
+        // A key whose account is the escrow itself cannot be on its list.
+        let (mut own, _) = rules(4);
+        own.validators[1].escrow = escrow_key(1);
+        let own_account = dassie_xrpl::keys::PublicKey::from_bytes(own.validators[1].escrow)
+            .unwrap()
+            .account()
+            .0;
+        own.terms.escrow = own_account;
+        assert!(!own.validators[1].keys_usable(&own.terms.escrow));
+        master[0] = 0x02;
+        let (mut bad, _) = rules(4);
+        bad.validators[2].payout = master;
+        assert!(!bad.validators[2].keys_usable(&escrow));
+        let (mut bad, _) = rules(4);
+        bad.validators[3].escrow = [7; LEDGER_KEY_LEN];
+        assert!(!bad.validators[3].keys_usable(&escrow));
+        let (good, _) = rules(4);
+        assert!(good.validators.iter().all(|a| a.keys_usable(&escrow)));
     }
 
     #[test]

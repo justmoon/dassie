@@ -164,6 +164,12 @@ pub enum ValidatorOperation {
     SetEndpoint(alloc::string::String),
     /// A vote to end the hub.
     Shutdown,
+    /// The old validators' change of the escrow's signer list, at the
+    /// sequence the hub kept for it, applied on the underlying ledger.
+    AttestSignerList {
+        /// Its escrow sequence.
+        sequence: u32,
+    },
 }
 
 /// A payment to the escrow, as each validator attests it
@@ -556,7 +562,9 @@ impl Encode for ValidatorOperation {
         1 + match self {
             Self::AttestDeposit(deposit) => deposit.encoded_len(),
             Self::AttestWithdrawal { .. } => 4 + 1,
-            Self::AttestEscrow { .. } | Self::AttestReset { .. } => 4,
+            Self::AttestEscrow { .. }
+            | Self::AttestReset { .. }
+            | Self::AttestSignerList { .. } => 4,
             Self::Reconfigure(rules) => rules.encoded_len(),
             Self::SetEndpoint(endpoint) => dassie_oer::size::prefixed(endpoint.len()),
             Self::Shutdown => 0,
@@ -594,6 +602,10 @@ impl Encode for ValidatorOperation {
                 writer.write_u8(6);
                 writer.write_u32(*sequence);
             }
+            Self::AttestSignerList { sequence } => {
+                writer.write_u8(7);
+                writer.write_u32(*sequence);
+            }
         }
     }
 }
@@ -621,6 +633,9 @@ impl ValidatorOperation {
             }
             5 => Self::Shutdown,
             6 => Self::AttestEscrow {
+                sequence: reader.read_u32()?,
+            },
+            7 => Self::AttestSignerList {
                 sequence: reader.read_u32()?,
             },
             other => return Err(HubDecodeError::UnknownChoice(u64::from(other))),
@@ -820,6 +835,7 @@ mod tests {
             ValidatorOperation::SetEndpoint("v1.example:443".into()),
             ValidatorOperation::Shutdown,
             ValidatorOperation::AttestEscrow { sequence: 3 },
+            ValidatorOperation::AttestSignerList { sequence: 4 },
         ] {
             let signed = SignedValidatorOperation::sign(
                 &hub,

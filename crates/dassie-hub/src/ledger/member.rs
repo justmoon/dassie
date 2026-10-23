@@ -196,11 +196,23 @@ impl Ledger {
         }
     }
 
+    /// Whether the escrow can pay `destination`. A payment to itself or to
+    /// the zero account is malformed on the XRP Ledger: it never applies and
+    /// never uses its sequence, and every escrow transaction after it would
+    /// wait for ever.
+    fn payable_outside(&self, destination: &Destination) -> Result<(), Failure> {
+        if destination.account == self.rules.terms.escrow || destination.account == [0; 20] {
+            return Err(Failure::Destination);
+        }
+        Ok(())
+    }
+
     fn set_disbursal(
         &mut self,
         from: AccountNumber,
         destination: Destination,
     ) -> Result<Detail, Failure> {
+        self.payable_outside(&destination)?;
         let account = self.accounts.get_mut(&from).ok_or(Failure::Missing)?;
         account.disbursal = Some(destination);
         Ok(Detail::None)
@@ -326,6 +338,7 @@ impl Ledger {
         if amount < self.rules.terms.fees.least_payout {
             return Err(Failure::TooSmall);
         }
+        self.payable_outside(&to)?;
         let ledger_fee = self.rules.terms.fees.ledger;
         self.spendable(from, amount.saturating_add(ledger_fee))?;
         let sequence = self.queue_withdrawal(Some(from), amount, to, false)?;
@@ -392,6 +405,7 @@ impl Ledger {
                 Ok(Detail::None)
             }
             CloseTo::Ledger(destination) => {
+                self.payable_outside(&destination)?;
                 let fees = &self.rules.terms.fees;
                 let amount = total.saturating_sub(fees.ledger);
                 if amount < fees.least_payout {

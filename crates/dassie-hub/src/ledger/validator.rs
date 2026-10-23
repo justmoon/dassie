@@ -88,6 +88,9 @@ impl Ledger {
             } => self.attest_withdrawal(index, *escrow_sequence, *delivered),
             ValidatorOperation::AttestEscrow { sequence } => self.attest_escrow(index, *sequence),
             ValidatorOperation::AttestReset { ledger } => self.attest_reset(index, *ledger),
+            ValidatorOperation::AttestSignerList { sequence } => {
+                self.attest_signer_list(index, *sequence)
+            }
             ValidatorOperation::Reconfigure(rules) => self.vote_rules(index, rules),
             ValidatorOperation::SetEndpoint(endpoint) => {
                 if let Some(state) = self.validator_states.get_mut(index.get()) {
@@ -120,6 +123,26 @@ impl Ledger {
             self.escrow.next_sequence = sequence;
             self.escrow_votes.clear();
             self.credit_deposits();
+        }
+        Ok(Detail::None)
+    }
+
+    /// The old validators' change of the escrow's signer list applied: once
+    /// a quorum saw it, the hub stops keeping its sequence, and takes new
+    /// rules again (spec/designs/settlement-hubs.md#8-changing-the-validators).
+    fn attest_signer_list(&mut self, index: ValidatorIndex, sequence: u32) -> Executed {
+        if self.escrow.signer_list != Some(sequence) {
+            return Err(Ok(Failure::Missing));
+        }
+        let quorum = self.validators.quorum();
+        if vote(&mut self.signer_list_votes, index, sequence, quorum).map_err(Err)? {
+            self.escrow.signer_list = None;
+            self.signer_list_votes.clear();
+            // Its fee left the escrow, and the reserve account pays the
+            // hub's own transactions (spec/designs/settlement-hubs.md#7-fees).
+            let fee = self.rules.terms.fees.ledger.min(self.reserve_account);
+            self.reserve_account = self.reserve_account.saturating_sub(fee);
+            self.escrow.balance = self.escrow.balance.saturating_sub(fee);
         }
         Ok(Detail::None)
     }
@@ -277,6 +300,7 @@ impl Ledger {
         self.reset_votes.clear();
         self.escrow_votes.clear();
         self.rules_votes.clear();
+        self.signer_list_votes.clear();
     }
 
     /// The account of validator key `key`. A key that has a member account
