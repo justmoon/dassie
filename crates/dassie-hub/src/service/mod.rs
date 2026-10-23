@@ -41,7 +41,8 @@ pub const MAX_SUBSCRIBERS: usize = 1024;
 pub const KEPT_BLOCKS: usize = 4096;
 
 /// The most statements one answer to `Since` carries, over several
-/// messages.
+/// messages, but for its first block, which is always whole: a block can
+/// touch an account more often than this.
 pub const MAX_ANSWER: usize = 4 * crate::client::MAX_STATEMENTS;
 
 /// What the host carries out. Taken apart at once: boxing would only
@@ -282,8 +283,10 @@ impl Validator {
         for block in self.history.iter().filter(|block| block.height >= from) {
             let of_block: Vec<Statement> = touching(block, account).collect();
             // An answer too long stops before a block, and vouches only for
-            // the blocks before it.
-            if statements.len().saturating_add(of_block.len()) >= MAX_ANSWER {
+            // the blocks before it. A block is always sent whole, however
+            // many messages it takes, so every answer covers one more.
+            let long = statements.len().saturating_add(of_block.len()) > MAX_ANSWER;
+            if long && !statements.is_empty() {
                 statements.push(Statement::Final {
                     height: block.height.saturating_sub(1),
                     timestamp: block.timestamp.saturating_sub(1),
@@ -363,7 +366,7 @@ impl Validator {
     /// is lost would make the validator vouch for blocks it never sent. A
     /// member learns what is covered from answers to `Since`, which list
     /// everything up to the `Final` they end with
-    /// (spec/areas/hubs.md#the-members-side).
+    /// (spec/areas/hubs.md#the-validators-service).
     fn publish(&mut self, block: &FinalBlock) {
         let subscribers: Vec<(PeerId, AccountNumber)> =
             self.subscribers.iter().map(|(p, a)| (*p, *a)).collect();
@@ -550,5 +553,65 @@ mod tests {
         assert_eq!(places, [0, 1]);
         let hub = HubId(Digest([1; 32]));
         assert_ne!(statements[0].digest(&hub), statements[1].digest(&hub));
+    }
+
+    /// Validator 0 of a hub of four, at genesis.
+    pub(super) fn validator() -> Validator {
+        let (rules, mut keys) = crate::rules::tests::rules(4);
+        let keys = ValidatorKeys {
+            consensus: keys.remove(0),
+            escrow: dassie_xrpl::keys::Wallet::from_seed([1; 16]),
+            payout: crate::escrow::bip32::ExtendedPrivate::master(&[1; 32]).unwrap(),
+        };
+        Validator::genesis(rules, keys, 1_000, 1_000).unwrap()
+    }
+
+    /// The statements of the messages validator `v` sent `to`.
+    fn sent(v: &mut Validator, to: PeerId) -> Vec<Vec<Statement>> {
+        let mut messages = Vec::new();
+        while let Some(action) = v.poll() {
+            if let Action::Peer(peer, bytes) = action
+                && peer == to
+                && let Ok(Message::Statements(list)) = Message::decode_exact(&bytes)
+            {
+                messages.push(list.into_iter().map(|s| s.statement).collect());
+            }
+        }
+        messages
+    }
+
+    #[test]
+    fn a_block_too_long_for_one_answer_is_sent_whole() {
+        let mut v = validator();
+        let long = MAX_ANSWER + 44;
+        v.history.push_back(block_of(2, long));
+        v.history.push_back(block_of(3, 1));
+        let member = PeerId(100);
+        v.answer(
+            member,
+            Request::Since {
+                account: AccountNumber(6),
+                from: 1,
+            },
+        );
+        let messages = sent(&mut v, member);
+        assert!(messages.len() > 1, "over several messages");
+        let statements: Vec<Statement> = messages.into_iter().flatten().collect();
+        assert_eq!(statements.len(), long + 1);
+        assert!(matches!(
+            statements.last(),
+            Some(Statement::Final { height: 2, .. })
+        ));
+    }
+
+    #[test]
+    fn a_push_carries_no_final() {
+        let mut v = validator();
+        let member = PeerId(100);
+        v.subscribers.insert(member, AccountNumber(6));
+        v.publish(&block_of(2, 1));
+        let statements: Vec<Statement> = sent(&mut v, member).into_iter().flatten().collect();
+        assert_eq!(statements.len(), 1);
+        assert!(matches!(statements[0], Statement::Executed { .. }));
     }
 }

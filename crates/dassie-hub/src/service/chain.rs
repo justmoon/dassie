@@ -51,7 +51,7 @@ fn accounts_touched(
     before: &Ledger,
     operation: &crate::operation::Operation,
 ) -> Vec<crate::operation::AccountNumber> {
-    use crate::operation::{MemberOperation as M, Operation as O};
+    use crate::operation::{CloseTo, MemberOperation as M, Operation as O};
     let O::Member(signed) = operation else {
         return Vec::new();
     };
@@ -62,7 +62,9 @@ fn accounts_touched(
         | M::HoldRelease { hold }
         | M::Claim { hold, .. } => Some(*hold),
         M::Redeem(claim) => Some(claim.value.hold),
-        M::HoldOpen { payee, .. } | M::Transfer { to: payee, .. } => {
+        M::HoldOpen { payee, .. }
+        | M::Transfer { to: payee, .. }
+        | M::Close(CloseTo::Account(payee)) => {
             accounts.push(*payee);
             None
         }
@@ -385,5 +387,17 @@ mod tests {
         assert!(payload.len() <= MAX_PAYLOAD_BYTES);
         let operations = Payload::decode_exact(&payload).unwrap().operations;
         assert_eq!(operations.len(), 3, "as many as fit, in sequence order");
+    }
+
+    #[test]
+    fn a_close_into_another_account_touches_it() {
+        let mut hub = Hub::new();
+        let (number, key, sequence) = member(&mut hub, 1, 10);
+        let close = crate::operation::MemberOperation::Close(crate::operation::CloseTo::Account(
+            crate::operation::AccountNumber(1),
+        ));
+        let op = signed(&hub, (number, &key), sequence, close);
+        let touched = accounts_touched(&hub.ledger, &op);
+        assert!(touched.contains(&crate::operation::AccountNumber(1)));
     }
 }
