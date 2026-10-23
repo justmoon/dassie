@@ -148,6 +148,15 @@ impl Chain {
         }
     }
 
+    /// The chain of `ledger`, taken at the final block `tip` from a peer,
+    /// whose change of validators at `reported` the engine already took in.
+    #[must_use]
+    pub fn resumed(ledger: Ledger, tip: Digest, reported: Option<u64>) -> Self {
+        let mut chain = Self::new(ledger, tip);
+        chain.reported = reported;
+        chain
+    }
+
     /// The state a block on `parent` builds on.
     fn base(&self, parent: &Digest) -> Option<&Ledger> {
         if *parent == self.tip {

@@ -87,6 +87,13 @@ struct Network {
     hold_shares: bool,
     held: Vec<(PeerId, Vec<u8>)>,
     payouts: usize,
+    /// A validator cut off from the others: nothing reaches it or leaves it.
+    cut: Option<usize>,
+    /// Validators that are behind, with the final block whose state they
+    /// asked for.
+    behind: Vec<(usize, Box<dassie_hub::consensus::Finalized>)>,
+    /// States taken that way.
+    caught_up: usize,
     now: u64,
 }
 
@@ -127,6 +134,9 @@ impl Network {
             hold_shares: false,
             held: Vec::new(),
             payouts: 0,
+            cut: None,
+            behind: Vec::new(),
+            caught_up: 0,
             now: START,
         }
     }
@@ -151,6 +161,7 @@ impl Network {
                 }
                 Action::Submit(blob) => self.submitted.push((from, blob)),
                 Action::Payout(..) => self.payouts += 1,
+                Action::Behind(finalized) => self.behind.push((from, finalized)),
             }
         }
         self.validators[from].take_batches();
@@ -170,6 +181,10 @@ impl Network {
                 self.collect(i);
             }
             while let Some((to, from, bytes)) = self.queue.pop_front() {
+                let sender = usize::try_from(from.0).ok();
+                if self.cut.is_some() && (self.cut == Some(to) || self.cut == sender) {
+                    continue;
+                }
                 let share = matches!(Message::decode_exact(&bytes), Ok(Message::Share { .. }));
                 if self.hold_shares && to == 0 && share {
                     self.held.push((from, bytes));
@@ -182,6 +197,24 @@ impl Network {
         }
         for validator in &self.validators {
             validator.check_invariants();
+        }
+    }
+
+    /// Hands each validator that is behind the state it asked for, from a
+    /// validator whose final state is at that block, as a host fetches it.
+    fn serve_states(&mut self) {
+        for (to, finalized) in core::mem::take(&mut self.behind) {
+            let height = finalized.block.height;
+            let from = (0..self.validators.len())
+                .find(|i| *i != to && self.validators[*i].ledger().height() == height);
+            if let Some(from) = from {
+                let snapshot = self.validators[from].ledger().snapshot();
+                self.validators[to]
+                    .catch_up(self.now, *finalized, &snapshot)
+                    .unwrap();
+                self.caught_up += 1;
+                self.collect(to);
+            }
         }
     }
 
@@ -500,4 +533,71 @@ fn only_validators_are_served_catch_up() {
     assert_eq!(answers(&mut net, MEMBER, Some(&stranger), &bytes), 0);
     let validator = net.nodes[1];
     assert!(answers(&mut net, PeerId(1), Some(&validator), &bytes) > 0);
+}
+
+// A validator further behind than peers keep blocks takes the state after
+// a final block from a peer, checked against the block's root, and goes on
+// from there (spec/areas/hubs.md#the-validators-service).
+#[test]
+fn a_validator_far_behind_takes_a_peers_state_and_goes_on() {
+    let mut net = Network::new();
+    net.run(100);
+    net.cut = Some(3);
+    // The others finalize more blocks than they keep for catching up.
+    let mut runs = 0;
+    while net.validators[0].ledger().height() < net.validators[3].ledger().height() + 200 {
+        net.run(500);
+        runs += 1;
+        assert!(runs < 100, "the three others go on alone");
+    }
+    let behind_at = net.validators[3].ledger().height();
+    net.cut = None;
+    let mut runs = 0;
+    while net.validators[3].ledger().height() + 2 < net.validators[0].ledger().height() {
+        net.run(100);
+        net.serve_states();
+        runs += 1;
+        assert!(runs < 200, "it catches up");
+    }
+    assert!(net.validators[3].ledger().height() > behind_at + 200);
+    assert!(net.caught_up > 0, "through a peer's state");
+    // It takes part again: blocks keep becoming final with it in step.
+    let height = net.validators[0].ledger().height();
+    net.cut = Some(0);
+    net.run(3_000);
+    assert!(
+        net.validators[3].ledger().height() > height,
+        "a quorum with it"
+    );
+}
+
+// A state that is not the one the block names is refused, and nothing
+// changes.
+#[test]
+fn a_state_that_is_not_the_blocks_is_refused() {
+    let mut net = Network::new();
+    net.run(100);
+    net.cut = Some(3);
+    let mut runs = 0;
+    while net.validators[0].ledger().height() < net.validators[3].ledger().height() + 200 {
+        net.run(500);
+        runs += 1;
+        assert!(runs < 100);
+    }
+    net.cut = None;
+    let mut runs = 0;
+    while net.behind.is_empty() {
+        net.run(100);
+        runs += 1;
+        assert!(runs < 200, "it learns it is behind");
+    }
+    let (to, finalized) = net.behind.remove(0);
+    let before = net.validators[to].ledger().clone();
+    // The state of another height.
+    let wrong = before.snapshot();
+    assert_eq!(
+        net.validators[to].catch_up(net.now, *finalized, &wrong),
+        Err(dassie_hub::service::CatchUpError::State)
+    );
+    assert_eq!(net.validators[to].ledger(), &before);
 }

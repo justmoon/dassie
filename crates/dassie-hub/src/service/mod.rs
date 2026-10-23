@@ -13,6 +13,7 @@ mod mempool;
 pub mod payload;
 pub mod wire;
 
+use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -25,12 +26,15 @@ pub use chain::{Chain, FinalBlock};
 pub use mempool::{MAX_GAPPED, Mempool, SEQUENCE_WINDOW, VALIDATOR_WINDOW};
 
 use crate::client::{Request, SignedStatement, Statement};
-use crate::consensus::{Batch, Block, Config, Engine, Event, Output, PeerId, Recipient, Stored};
+use crate::consensus::{
+    Batch, Block, Config, Engine, Event, Finalized, Output, PeerId, Recipient, Stored,
+};
 use crate::escrow::{PayoutSet, ValidatorKeys, payout_set, sign_payout_set, withdrawal_payment};
 use crate::ledger::{Ledger, Phase};
 use crate::operation::{AccountNumber, Operation, SignedValidatorOperation, ValidatorOperation};
 use crate::rules::{HubId, Millis, Rules, RulesError};
 use crate::validators::ValidatorIndex;
+use payload::Payload;
 use wire::Message;
 
 /// The most members one validator pushes statements to.
@@ -67,6 +71,23 @@ pub enum Action {
     /// The hub ended or stalled: publish this validator's signatures of the
     /// payout set, to every validator and member, and to anyone who asks.
     Payout(PayoutSet, Vec<Signer>),
+    /// We are further behind than peers keep blocks: fetch the state after
+    /// this final block, already checked with a set we know, from a
+    /// validator, and hand it to [`Validator::catch_up`]
+    /// (spec/areas/hubs.md#the-validators-service).
+    Behind(Box<Finalized>),
+}
+
+/// Why [`Validator::catch_up`] did not take a state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CatchUpError {
+    /// The block's payload does not name a state.
+    Block,
+    /// The state is not the one the block names, or not at its height.
+    State,
+    /// The engine did not take the block: not above our tip, or not proven
+    /// by a set we know.
+    Refused,
 }
 
 /// A hub's validator.
@@ -153,6 +174,42 @@ impl Validator {
             actions: VecDeque::new(),
             batches: Vec::new(),
         })
+    }
+
+    /// Takes the state after `finalized`, a block [`Action::Behind`] named,
+    /// as fetched from a peer: only if it is the state the block's root
+    /// names, at its height. The engine jumps to the block and takes in
+    /// the change of validators that state has scheduled; the chain goes on
+    /// from it. We vouch for no history below it: a member asking from
+    /// further back is told to read its state anew.
+    ///
+    /// # Errors
+    ///
+    /// The block or the state is not one to take; nothing changes.
+    pub fn catch_up(
+        &mut self,
+        now: Millis,
+        finalized: Finalized,
+        snapshot: &[u8],
+    ) -> Result<(), CatchUpError> {
+        let payload =
+            Payload::decode_exact(&finalized.block.payload).map_err(|_| CatchUpError::Block)?;
+        let ledger = Ledger::restore(snapshot, &payload.state).map_err(|_| CatchUpError::State)?;
+        let height = finalized.block.height;
+        if ledger.height() != height {
+            return Err(CatchUpError::State);
+        }
+        let change = ledger.scheduled_change();
+        self.engine
+            .jump(now, finalized, change.clone())
+            .map_err(|_| CatchUpError::Refused)?;
+        let tip = *self.engine.tip_digest();
+        self.chain = Chain::resumed(ledger, tip, change.map(|(from, _)| from));
+        self.history.clear();
+        self.history_bytes = 0;
+        self.complete_from = height.saturating_add(1);
+        self.after(now);
+        Ok(())
     }
 
     /// The final state.
@@ -369,8 +426,10 @@ impl Validator {
             self.route(output);
         }
         while let Some(event) = self.engine.poll_event() {
-            if let Event::Proposed { view, block, .. } = event {
-                self.chain.adopt_proposal(view, block);
+            match event {
+                Event::Proposed { view, block, .. } => self.chain.adopt_proposal(view, block),
+                Event::Behind(finalized) => self.actions.push_back(Action::Behind(finalized)),
+                _ => {}
             }
         }
         self.batches.push(self.engine.take_batch());
