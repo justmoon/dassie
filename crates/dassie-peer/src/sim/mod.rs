@@ -53,6 +53,25 @@ pub struct StubHooks {
     pub settling: BTreeSet<NodeId>,
     /// Why the scheme refuses peering requests, if it does.
     pub refuse: Option<RefusalReason>,
+    /// Whether the stub scheme's peerings are over a hub: Prepares on them
+    /// come with commitments.
+    pub commitments: bool,
+    /// What the node puts after the verdict in its reply to a Fulfill on a
+    /// peering over a hub, as a payer's claim.
+    pub claim: Vec<u8>,
+}
+
+impl StubHooks {
+    /// The reply to a packet: its claim after the verdict, where one
+    /// goes.
+    fn reply(&self, answer: crate::PacketAnswer) -> crate::Reply {
+        let claim: &[u8] = if answer.takes_extra() {
+            &self.claim
+        } else {
+            &[]
+        };
+        answer.reply(claim)
+    }
 }
 
 impl PeeringHooks for StubHooks {
@@ -110,6 +129,10 @@ impl PeeringHooks for StubHooks {
             state: Vec::new(),
             credit_out: CREDIT,
         })
+    }
+
+    fn uses_commitments(&self, scheme: SchemeId) -> bool {
+        self.commitments && scheme.as_str() == "stub"
     }
 
     fn drained(&self, peer: NodeId) -> bool {
@@ -405,6 +428,7 @@ impl Network {
                 alias: format!("n{index}"),
                 quic: self.quic,
                 feed_port: None,
+                hub: None,
             },
             self.bootstrap.clone(),
             sim.stored.clone(),
@@ -708,13 +732,13 @@ impl Network {
                 None
             }
             Inbound::Packet {
-                reply,
+                answer,
                 from: sender,
                 request_id,
                 ..
             } => {
                 self.packets.push((to, sender, request_id));
-                Some(reply)
+                Some(sim.hooks.reply(answer))
             }
             Inbound::Settlement { .. } if self.refuse_settlements.contains_key(&to) => {
                 self.settlements_refused += 1;
@@ -893,9 +917,8 @@ impl Network {
         sim.next_inbound += 1;
         let node = sim.node.as_mut().unwrap();
         let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, body, source) {
-            Inbound::Reply(reply)
-            | Inbound::Packet { reply, .. }
-            | Inbound::SchemeMessage { reply, .. } => reply,
+            Inbound::Reply(reply) | Inbound::SchemeMessage { reply, .. } => reply,
+            Inbound::Packet { answer, .. } => sim.hooks.reply(answer),
             Inbound::SettlementRequest { answer, .. } => {
                 answer.reply(self.promise.get(&index).copied().unwrap_or(0))
             }

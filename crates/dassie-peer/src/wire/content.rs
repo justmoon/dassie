@@ -7,9 +7,12 @@ use dassie_identity::NodeId;
 use dassie_oer::{Decode, DecodeError, DecodeErrorKind, Encode, Reader, Size, Writer, size};
 
 use super::{
-    Kind, MAX_LINK_STATE_REQUEST_IDS, MAX_VERSIONS, SchemeId, SignedNodeInfo, node_id_len,
-    read_node_id, write_node_id,
+    Kind, MAX_COMMITMENT_BYTES, MAX_LINK_STATE_REQUEST_IDS, MAX_VERSIONS, SchemeId, SignedNodeInfo,
+    node_id_len, read_node_id, write_node_id,
 };
+
+/// The size of a `hubPacket`'s commitment: never empty, and bounded.
+const COMMITMENT_SIZE: Size = Size::range(1, MAX_COMMITMENT_BYTES);
 
 /// A peering request: the requester's signed link state, the scheme it
 /// wants to settle with, the versions of that scheme it speaks (NET-26) and
@@ -83,6 +86,20 @@ pub enum Content<'a> {
         /// The scheme.
         scheme: SchemeId,
     },
+    /// `hubPacket [12]`: an ILP Prepare with the payer's commitment, on a
+    /// peering over a settlement hub
+    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). Only a
+    /// Prepare travels in it; its Fulfill or Reject goes back as an
+    /// `interledgerPacket`.
+    HubPacket {
+        /// The request ID, scoped to the peering.
+        request_id: u32,
+        /// The ILP Prepare.
+        packet: &'a [u8],
+        /// The commitment, opaque to this crate: the hub's scheme reads
+        /// it. Never empty, at most [`MAX_COMMITMENT_BYTES`].
+        commitment: &'a [u8],
+    },
 }
 
 /// Why a peering is terminated. Unknown codes read as
@@ -147,6 +164,7 @@ impl Content<'_> {
             Self::PeeringInfoRequest { .. } => Kind::PeeringInfoRequest,
             Self::PeeringTermination(_) => Kind::PeeringTermination,
             Self::SettlementRequest { .. } => Kind::SettlementRequest,
+            Self::HubPacket { .. } => Kind::HubPacket,
         }
     }
 
@@ -178,6 +196,9 @@ impl Content<'_> {
                 scheme.encoded_len()
             }
             Self::PeeringTermination(_) => 1,
+            Self::HubPacket {
+                packet, commitment, ..
+            } => 4 + size::prefixed(packet.len()) + size::prefixed(commitment.len()),
         }
     }
 }
@@ -235,6 +256,15 @@ impl Encode for Content<'_> {
                 scheme.write(writer);
             }
             Self::PeeringTermination(reason) => writer.write_u8(reason.code()),
+            Self::HubPacket {
+                request_id,
+                packet,
+                commitment,
+            } => {
+                writer.write_u32(*request_id);
+                writer.write_octets(packet, Size::ANY);
+                writer.write_octets(commitment, COMMITMENT_SIZE);
+            }
         }
     }
 }
@@ -286,6 +316,11 @@ impl<'a> Decode<'a> for Content<'a> {
             }
             Kind::SettlementRequest => Self::SettlementRequest {
                 scheme: SchemeId::read(reader)?,
+            },
+            Kind::HubPacket => Self::HubPacket {
+                request_id: reader.read_u32()?,
+                packet: reader.read_octets(Size::ANY)?,
+                commitment: reader.read_octets(COMMITMENT_SIZE)?,
             },
         })
     }

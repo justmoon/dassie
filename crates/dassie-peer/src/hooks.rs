@@ -87,6 +87,14 @@ pub trait PeeringHooks {
         ended_for_room: bool,
     ) -> Result<Agreed, Declined>;
 
+    /// Whether peerings on `scheme` are over a settlement hub: each Prepare
+    /// on them comes with the payer's commitment, in a `hubPacket`, and
+    /// the reply to a Fulfill may carry the payer's claim
+    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). A Prepare
+    /// without a commitment is refused on such a peering, and one with a
+    /// commitment on any other.
+    fn uses_commitments(&self, scheme: SchemeId) -> bool;
+
     /// Whether nothing is in flight with `peer` any more: no packet waits
     /// for its response, in either direction. A terminating peering ends
     /// only then, so no response is lost with it.

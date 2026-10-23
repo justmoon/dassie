@@ -15,18 +15,20 @@ use super::gossip::{Processed, Retransmit};
 use super::{PeerNode, Problem, Purpose};
 use crate::auth::{Accepted, AuthError};
 use crate::hooks::PeeringHooks;
-use crate::io::{Event, Inbound, InboundId, Output, Reply, SettlementAnswer, VERDICT_ACCEPTED};
+use crate::io::{
+    Event, Inbound, InboundId, Output, PacketAnswer, Reply, SettlementAnswer, VERDICT_ACCEPTED,
+};
 use crate::table::{Entry, Network, Registration, Sources};
 use crate::wire::{
-    Content, Envelope, EnvelopeError, LinkStateResponse, SchemeId, SignedNodeInfo, encode_expiry,
-    encode_link_states, encode_octets, encode_response, encode_settling,
+    Content, Envelope, EnvelopeError, LinkStateResponse, MAX_CLAIM_BYTES, SchemeId, SignedNodeInfo,
+    encode_expiry, encode_link_states, encode_octets, encode_response, encode_settling,
 };
 
 /// The ILP packet type of a Prepare.
-const PREPARE_TYPE: u8 = 12;
+pub(super) const PREPARE_TYPE: u8 = 12;
 
 /// The ILP packet type of a Fulfill.
-const FULFILL_TYPE: u8 = 13;
+pub(super) const FULFILL_TYPE: u8 = 13;
 
 /// What an inbound request waits on a probe for.
 #[derive(Clone, Debug)]
@@ -102,8 +104,13 @@ impl PeerNode {
         }
         match content {
             Content::InterledgerPacket { request_id, packet } => {
-                self.packet_request(&accepted, request_id, packet)
+                self.packet_request(hooks, accepted, request_id, packet, None)
             }
+            Content::HubPacket {
+                request_id,
+                packet,
+                commitment,
+            } => self.packet_request(hooks, accepted, request_id, packet, Some(commitment)),
             Content::Registration(info) => self.registration_request(accepted, &info, id, network),
             Content::PeeringRequest(_) => {
                 self.peering_request(hooks, accepted, envelope.content, id, network)
@@ -160,41 +167,55 @@ impl PeerNode {
         }
     }
 
-    /// An ILP packet. A Prepare needs a peering that is not ending. A
-    /// response also comes from a node we hold a settlement channel with,
-    /// peered or not: a node of 0.1 asks for verdicts after the peering
-    /// ended, and is told it was accepted (spec/decisions/own-fulfills.md).
+    /// An ILP packet. A Prepare needs a peering that is not ending, and
+    /// comes with a commitment exactly when the peering's scheme uses them
+    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). A response
+    /// also comes from a node we hold a settlement channel with, peered or
+    /// not: a node of 0.1 asks for verdicts after the peering ended, and is
+    /// told it was accepted (spec/decisions/own-fulfills.md).
     fn packet_request<'a>(
         &mut self,
-        accepted: &Accepted,
+        hooks: &dyn PeeringHooks,
+        accepted: Accepted,
         request_id: u32,
         packet: &'a [u8],
+        commitment: Option<&'a [u8]>,
     ) -> Inbound<'a> {
+        let prepare = packet.first() == Some(&PREPARE_TYPE);
+        if commitment.is_some() && !prepare {
+            return refuse(400, "only a Prepare comes with a commitment");
+        }
         let entry = self.table.get(&accepted.sender);
-        let peered = entry.is_some_and(|entry| entry.peering().is_some());
-        if packet.first() == Some(&PREPARE_TYPE) {
-            if !peered {
+        let peering = entry.and_then(Entry::peering);
+        let hub = peering.is_some_and(|peering| hooks.uses_commitments(peering.scheme));
+        if prepare {
+            if peering.is_none() {
                 self.notice_one_sided(accepted.sender);
                 return refuse(409, "not peered");
+            }
+            // Refused as unpeered Prepares are: the sender reads 409 as
+            // not acted upon, and rejects the packet at once.
+            if commitment.is_some() != hub {
+                return refuse(409, commitment_refusal(hub));
             }
             // A peering being ended takes no new Prepares: refused here,
             // they leave nothing to answer, so the drain can finish.
             if entry.is_some_and(|entry| entry.termination().is_some()) {
                 return refuse(409, "the peering is ending");
             }
-        } else if !peered && !self.channels.contains_key(&accepted.sender) {
+        } else if peering.is_none() && !self.channels.contains_key(&accepted.sender) {
             return refuse(409, "not peered");
         }
-        let body: &[u8] = if packet.first() == Some(&FULFILL_TYPE) {
-            &[VERDICT_ACCEPTED]
-        } else {
-            &[]
-        };
         Inbound::Packet {
             from: accepted.sender,
             request_id,
             packet,
-            reply: ok(accepted, body),
+            commitment,
+            answer: PacketAnswer {
+                accepted: Box::new(accepted),
+                fulfill: packet.first() == Some(&FULFILL_TYPE),
+                hub,
+            },
         }
     }
 
@@ -264,6 +285,7 @@ impl PeerNode {
                 ok(accepted, &encode_octets(&info))
             }
             Content::InterledgerPacket { .. }
+            | Content::HubPacket { .. }
             | Content::Registration(_)
             | Content::PeeringRequest(_)
             | Content::Settlement { .. }
@@ -559,6 +581,43 @@ impl SettlementAnswer {
     #[must_use]
     pub fn reply(self, settling: u64) -> Reply {
         ok(&self.0, &encode_settling(settling))
+    }
+}
+
+impl PacketAnswer {
+    /// The acknowledgement: for a Fulfill, the verdict that accepts it,
+    /// then `extra`; for a Prepare or Reject, an empty body.
+    ///
+    /// # Panics
+    ///
+    /// If `extra` is not empty where it cannot go, on a packet other than a
+    /// Fulfill on a peering over a hub
+    /// ([`takes_extra`](Self::takes_extra)), or is longer than
+    /// [`MAX_CLAIM_BYTES`]: what follows the verdict is the node's own.
+    #[must_use]
+    pub fn reply(self, extra: &[u8]) -> Reply {
+        assert!(
+            extra.is_empty() || self.takes_extra(),
+            "bytes after the verdict only on a Fulfill over a hub"
+        );
+        assert!(extra.len() <= MAX_CLAIM_BYTES, "a claim too long");
+        if !self.fulfill {
+            return ok(&self.accepted, &[]);
+        }
+        let mut body = Vec::with_capacity(1 + extra.len());
+        body.push(VERDICT_ACCEPTED);
+        body.extend_from_slice(extra);
+        ok(&self.accepted, &body)
+    }
+}
+
+/// Why a Prepare is refused for its commitment: missing where the
+/// peering's scheme uses them, or there where it does not.
+const fn commitment_refusal(hub: bool) -> &'static str {
+    if hub {
+        "a Prepare over a hub needs its commitment"
+    } else {
+        "the peering takes no commitments"
     }
 }
 

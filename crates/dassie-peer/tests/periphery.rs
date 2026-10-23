@@ -211,6 +211,7 @@ fn a_core_node_that_becomes_periphery_ends_its_downlinks() {
                 alias: String::new(),
                 quic: true,
                 feed_port: None,
+                hub: None,
             },
         );
     });
@@ -597,6 +598,7 @@ fn downlinks_ended_by_a_node_turning_periphery_leave_a_full_table() {
                 alias: String::new(),
                 quic: true,
                 feed_port: None,
+                hub: None,
             },
         );
     });

@@ -816,6 +816,7 @@ impl Sim {
                 alias: format!("n{index}"),
                 quic: false,
                 feed_port: None,
+                hub: None,
             },
             bootstrap: self.bootstrap.clone(),
             uplinks: Vec::new(),

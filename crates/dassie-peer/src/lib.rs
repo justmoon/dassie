@@ -34,7 +34,7 @@ pub use channel::{Channel, Outgoing};
 pub use config::{Config, Rate};
 pub use hooks::{Agreed, Declined, PeeringHooks};
 pub use io::{
-    Event, Failure, Inbound, InboundId, Output, Reply, Request, RequestId, Response,
+    Event, Failure, Inbound, InboundId, Output, PacketAnswer, Reply, Request, RequestId, Response,
     SettlementAnswer, Stats, VERDICT_ACCEPTED,
 };
 pub use node::{

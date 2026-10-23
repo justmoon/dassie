@@ -444,11 +444,12 @@
       "does": [
         "The wire format and message authentication",
         "The node table, link-state flooding, membership by majority and registration",
-        "Link states that say whether a node takes QUIC, and where a core node's rate feed is",
+        "Link states that say whether a node takes QUIC, where a core node's rate feed is, and which settlement hub a node is in",
         "Peering on its own, and routing",
         "Periphery nodes without a URL, which peer only with core nodes as their downlinks, and only with those their owner pinned when it pinned any",
         "Advertising only peers that are alive and not stuck short of room, never ending one for room it could not pay",
-        "Delivering settlements and requests to settle, ending peerings, bans"
+        "Delivering settlements and requests to settle, ending peerings, bans",
+        "Over a settlement hub, each Prepare with the payer's commitment, and the payer's claim in its reply to a Fulfill"
       ]
     },
     "connector": {

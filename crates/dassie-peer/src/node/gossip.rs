@@ -5,14 +5,15 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
-use dassie_oer::Decode;
+use dassie_oer::{Decode, Encode};
 
 use super::{PeerNode, Problem, Purpose};
 use crate::config::Config;
 use crate::table::{LinkState, Sources, backoff};
 use crate::wire::{
-    Content, EXTENSION_FEED, EXTENSION_PERIPHERY, EXTENSION_QUIC, Entry, InvalidNodeInfo,
-    LinkStateResponse, NodeInfo, SignedNodeInfo, TerminationReason, sign_node_info,
+    Content, EXTENSION_FEED, EXTENSION_HUB, EXTENSION_PERIPHERY, EXTENSION_QUIC, Entry,
+    InvalidNodeInfo, LinkStateResponse, NodeInfo, SignedNodeInfo, TerminationReason,
+    sign_node_info,
 };
 
 /// The routes are recomputed at least this often, as link states go stale.
@@ -264,29 +265,16 @@ impl PeerNode {
         // Only advertised peers: confirmed, and not held down
         // (spec/decisions/peering-lifecycle.md).
         let neighbors = self.advertised();
-        let extension = if periphery {
-            Some(EXTENSION_PERIPHERY)
-        } else {
-            self.own_info.quic.then_some(EXTENSION_QUIC)
-        };
-        let extension = extension.map(|kind| Entry::Extension { kind, value: &[] });
-        // A core node's rate feed, at its URL's host; a periphery node has
-        // no URL to name one at.
-        let feed_port = self
-            .own_info
-            .feed_port
-            .filter(|_| !periphery)
-            .map(u16::to_be_bytes);
-        let feed = feed_port.as_ref().map(|port| Entry::Extension {
-            kind: EXTENSION_FEED,
-            value: port,
-        });
+        let extensions = self.own_extensions(periphery);
         let entries = neighbors
             .iter()
             .map(|id| Entry::Neighbor(*id))
             .chain(self.schemes.iter().map(|id| Entry::Scheme(*id)))
-            .chain(extension)
-            .chain(feed)
+            .chain(
+                extensions
+                    .iter()
+                    .map(|(kind, value)| Entry::Extension { kind: *kind, value }),
+            )
             .collect();
         let info = NodeInfo {
             node_id: self.own,
@@ -309,6 +297,26 @@ impl PeerNode {
         self.gossip.own_changed = false;
         self.gossip.last_issue_ms = Some(now);
         self.push_to_bootstrap(&bytes);
+    }
+
+    /// The extensions our link state carries, in order, each a type and
+    /// its value.
+    fn own_extensions(&self, periphery: bool) -> Vec<(u16, Vec<u8>)> {
+        let mut extensions = Vec::new();
+        if periphery {
+            extensions.push((EXTENSION_PERIPHERY, Vec::new()));
+        } else if self.own_info.quic {
+            extensions.push((EXTENSION_QUIC, Vec::new()));
+        }
+        // A core node's rate feed, at its URL's host; a periphery node has
+        // no URL to name one at.
+        if let Some(port) = self.own_info.feed_port.filter(|_| !periphery) {
+            extensions.push((EXTENSION_FEED, port.to_be_bytes().to_vec()));
+        }
+        if let Some(hub) = &self.own_info.hub {
+            extensions.push((EXTENSION_HUB, hub.to_vec()));
+        }
+        extensions
     }
 
     /// Bootstrap nodes get our new link state directly, so they can answer

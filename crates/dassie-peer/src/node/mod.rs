@@ -24,10 +24,14 @@ use rand_core::CryptoRng;
 use crate::auth::{Authenticator, Pending};
 use crate::channel::{Channel, Retry};
 use crate::config::Config;
+use crate::io::VERDICT_ACCEPTED;
 use crate::io::{Event, Failure, Output, Request, RequestId, Response, Stats};
 use crate::routing::Routes;
 use crate::table::{Bucket, Entry, NetworkBuckets, Sources};
-use crate::wire::{Authentication, Content, ResponseEnvelope, SchemeId, encode_envelope};
+use crate::wire::{
+    Authentication, Content, HubMembership, MAX_CLAIM_BYTES, MAX_COMMITMENT_BYTES,
+    ResponseEnvelope, SchemeId, encode_envelope,
+};
 
 pub use lifecycle::BanError;
 pub use membership::{RegisterError, RegistrationStatus};
@@ -60,6 +64,9 @@ pub struct OwnInfo {
     /// one (spec/areas/rate-feed.md#finding-a-feed). Only a node with a URL
     /// names it.
     pub feed_port: Option<u16>,
+    /// The settlement hub it is a member of, if any, which its link state
+    /// names (spec/designs/settlement-hubs.md#11-choosing-a-hub).
+    pub hub: Option<HubMembership>,
 }
 
 impl OwnInfo {
@@ -89,6 +96,7 @@ impl OwnInfo {
             alias,
             quic: self.quic,
             feed_port,
+            hub: self.hub,
         }
     }
 }
@@ -650,7 +658,15 @@ impl PeerNode {
             Purpose::Settlement(sequence) => self.on_settlement(to, sequence, &result),
             Purpose::FinalRequest => self.on_final_request(to, &result),
             Purpose::Termination => self.on_termination(to, &result),
-            Purpose::Response(answer) => {
+            Purpose::Response(answer) => self.on_answer(*answer, result),
+        }
+    }
+
+    /// What became of a Fulfill or Reject we sent.
+    fn on_answer(&mut self, answer: Answer, result: Result<Vec<u8>, Problem>) {
+        match result {
+            Ok(body) => self.on_fulfill_reply(&answer, &body),
+            Err(problem) => {
                 // A refusal after reading it will not change; anything
                 // else is tried again, and a copy that arrives twice is
                 // dropped by the peer's connector. A 401 is tried again
@@ -659,14 +675,35 @@ impl PeerNode {
                 // Each refusal is charged at the peer's rate limit, which
                 // costs a short spell of 429s at worst, not a Fulfill lost
                 // though booked (spec/areas/peer-protocol.md#message-set).
-                let refused = matches!(result, Err(Problem::Status(400 | 409)));
-                if result.is_err() && !refused {
-                    self.retry_answer(*answer);
-                } else if refused {
+                if matches!(problem, Problem::Status(400 | 409)) {
                     self.stats.answers_dropped += 1;
+                } else {
+                    self.retry_answer(answer);
                 }
             }
         }
+    }
+
+    /// The reply to a Fulfill we sent: the verdict, then, on a peering over
+    /// a hub, the payer's claim, which goes to the scheme
+    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). A node that
+    /// sends the verdict alone, as every node not over a hub does, gives
+    /// nothing more; a claim too long is ignored.
+    fn on_fulfill_reply(&mut self, answer: &Answer, body: &[u8]) {
+        if answer.packet.first() != Some(&inbound::FULFILL_TYPE) {
+            return;
+        }
+        let Some((&VERDICT_ACCEPTED, extra)) = body.split_first() else {
+            return;
+        };
+        if extra.is_empty() || extra.len() > MAX_CLAIM_BYTES {
+            return;
+        }
+        self.event(Event::FulfillReply {
+            peer: answer.peer,
+            request_id: answer.request_id,
+            extra: extra.to_vec(),
+        });
     }
 
     /// Fails requests whose time is up, as if the driver had said so.
@@ -729,13 +766,64 @@ impl PeerNode {
         packet: &[u8],
         timeout_ms: u64,
     ) -> Result<(), SendError> {
+        let content = Content::InterledgerPacket { request_id, packet };
+        self.send_prepare(now_ms, peer, request_id, &content, timeout_ms)
+    }
+
+    /// Sends an ILP Prepare to a peer over a settlement hub, with the
+    /// payer's commitment, in one message
+    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). Its Fulfill
+    /// or Reject comes back as any packet's does.
+    ///
+    /// # Errors
+    ///
+    /// The node is not a peer, or too much is in flight.
+    ///
+    /// # Panics
+    ///
+    /// If `packet` is not a Prepare, or `commitment` is empty or longer
+    /// than [`MAX_COMMITMENT_BYTES`]: both are the node's own.
+    pub fn send_hub_packet(
+        &mut self,
+        now_ms: u64,
+        peer: &NodeId,
+        request_id: u32,
+        packet: &[u8],
+        commitment: &[u8],
+        timeout_ms: u64,
+    ) -> Result<(), SendError> {
+        assert_eq!(
+            packet.first(),
+            Some(&inbound::PREPARE_TYPE),
+            "only a Prepare has a commitment"
+        );
+        assert!(
+            !commitment.is_empty() && commitment.len() <= MAX_COMMITMENT_BYTES,
+            "a commitment of a size the wire takes"
+        );
+        let content = Content::HubPacket {
+            request_id,
+            packet,
+            commitment,
+        };
+        self.send_prepare(now_ms, peer, request_id, &content, timeout_ms)
+    }
+
+    /// Sends a Prepare, in `content`, to a peer.
+    fn send_prepare(
+        &mut self,
+        now_ms: u64,
+        peer: &NodeId,
+        request_id: u32,
+        content: &Content<'_>,
+        timeout_ms: u64,
+    ) -> Result<(), SendError> {
         self.advance(now_ms);
         if self.peering_of(peer).is_none() {
             return Err(SendError::NotPeered);
         }
-        let content = Content::InterledgerPacket { request_id, packet };
         let timeout = timeout_ms.min(self.config.request_timeout_ms);
-        self.send(*peer, &content, Purpose::Prepare(request_id), timeout)
+        self.send(*peer, content, Purpose::Prepare(request_id), timeout)
             .map(|_| ())
             .ok_or(SendError::Busy)
     }

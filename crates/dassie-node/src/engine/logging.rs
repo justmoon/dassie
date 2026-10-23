@@ -76,6 +76,14 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         } => {
             emit!(severity, target: target::PEER, %peer, request_id, definite, "a packet to a peer failed");
         }
+        Event::FulfillReply {
+            peer,
+            request_id,
+            extra,
+        } => {
+            let bytes = extra.len();
+            emit!(severity, target: target::PEER, %peer, request_id, bytes, "the peer's reply to our Fulfill carries a claim");
+        }
         Event::PeeringFailed { node, reason } => {
             emit!(severity, target: target::PEER, %node, reason, "peering failed");
         }
@@ -102,6 +110,18 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         Event::Reachable { peer, reachable } => {
             emit!(severity, target: target::PEER, %peer, reachable, "whether our packets reach the peer: while they do not, its Prepares are refused");
         }
+        Event::SettlementDelivered { .. }
+        | Event::SettlementRequestAnswered { .. }
+        | Event::SettlementRequestRefused { .. }
+        | Event::SettlementRequestNotDelivered { .. }
+        | Event::SettlementRefused { .. } => peer_settlement(severity, event),
+    }
+}
+
+/// The peer node's events about settlement messages.
+fn peer_settlement(severity: Severity, event: &dassie_peer::Event) {
+    use dassie_peer::Event;
+    match event {
         Event::SettlementDelivered { peer, sequence } => {
             emit!(severity, target: target::SETTLEMENT, %peer, sequence, "the peer has our settlement");
         }
@@ -121,6 +141,7 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         } => {
             emit!(severity, target: target::SETTLEMENT, %peer, sequence, status, "the peer refused our settlement; it is kept and sent again later");
         }
+        _ => {}
     }
 }
 

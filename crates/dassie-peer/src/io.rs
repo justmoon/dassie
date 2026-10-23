@@ -70,6 +70,39 @@ impl PartialEq for SettlementAnswer {
 
 impl Eq for SettlementAnswer {}
 
+/// The acknowledgement of an ILP packet from a peer, still to be given what
+/// follows the verdict on a Fulfill: on a peering over a hub, the payer's
+/// claim (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+#[derive(Debug)]
+pub struct PacketAnswer {
+    pub(crate) accepted: alloc::boxed::Box<crate::auth::Accepted>,
+    /// Whether the packet is a Fulfill, which the reply accepts.
+    pub(crate) fulfill: bool,
+    /// Whether the packet came on a peering whose scheme uses commitments.
+    pub(crate) hub: bool,
+}
+
+impl PacketAnswer {
+    /// Whether the reply may carry bytes after the verdict: the packet is a
+    /// Fulfill on a peering over a hub.
+    #[must_use]
+    pub const fn takes_extra(&self) -> bool {
+        self.fulfill && self.hub
+    }
+}
+
+// Two answers are the same if they answer the same request alike.
+impl PartialEq for PacketAnswer {
+    fn eq(&self, other: &Self) -> bool {
+        self.accepted.sender == other.accepted.sender
+            && self.accepted.response_mac(&[]) == other.accepted.response_mac(&[])
+            && self.fulfill == other.fulfill
+            && self.hub == other.hub
+    }
+}
+
+impl Eq for PacketAnswer {}
+
 /// A reply to an inbound request.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reply {
@@ -104,7 +137,7 @@ pub enum Inbound<'a> {
     /// The reply comes later, through [`Output::Reply`]: the node first
     /// checks the requester's URL.
     Deferred,
-    /// An ILP packet from a peer, and the reply that acknowledges it.
+    /// An ILP packet from a peer, and the answer that acknowledges it.
     Packet {
         /// The peer.
         from: NodeId,
@@ -112,11 +145,16 @@ pub enum Inbound<'a> {
         request_id: u32,
         /// The ILP packet.
         packet: &'a [u8],
-        /// The acknowledgement. A Fulfill's says it was accepted, whatever
-        /// the node does with it: each side books its own Fulfills
+        /// The commitment that came with a Prepare on a peering over a
+        /// hub, for its scheme; `None` on any other peering, and with a
+        /// Fulfill or Reject.
+        commitment: Option<&'a [u8]>,
+        /// The acknowledgement, once the node knows what follows the
+        /// verdict. A Fulfill's says it was accepted, whatever the node does
+        /// with it: each side books its own Fulfills
         /// (spec/decisions/own-fulfills.md), and nodes of 0.1 still read the
         /// reply as a verdict.
-        reply: Reply,
+        answer: PacketAnswer,
     },
     /// A settlement not applied before. The node books it, then calls
     /// [`PeerNode::settlement_applied`](crate::PeerNode::settlement_applied)
@@ -210,6 +248,20 @@ pub enum Event {
         request_id: u32,
         /// Whether it surely did not arrive.
         definite: bool,
+    },
+    /// A peer answered a Fulfill of ours with bytes after the verdict: on
+    /// a peering over a hub, the payer's claim, for the hub's scheme to
+    /// read (spec/designs/settlement-hubs.md#4-peering-over-a-hub). A reply
+    /// of the verdict alone, or with more than
+    /// [`MAX_CLAIM_BYTES`](crate::wire::MAX_CLAIM_BYTES) after it, gives
+    /// none.
+    FulfillReply {
+        /// The peer.
+        peer: NodeId,
+        /// The ILP request ID of the Prepare the Fulfill answered.
+        request_id: u32,
+        /// The bytes after the verdict.
+        extra: Vec<u8>,
     },
     /// A peering attempt failed.
     PeeringFailed {

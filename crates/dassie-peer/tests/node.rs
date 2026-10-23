@@ -274,6 +274,7 @@ fn our_sequence_survives_restarts_and_clock_rollback() {
                 alias: String::new(),
                 quic: false,
                 feed_port: None,
+                hub: None,
             },
             Vec::new(),
             Stored {
@@ -673,6 +674,7 @@ fn taking_quic(own: &Arc<NodeKey>, boot: &NodeKey) -> PeerNode {
             alias: String::new(),
             quic: true,
             feed_port: None,
+            hub: None,
         },
         vec![dassie_peer::Bootstrap {
             id: boot.node_id(),
@@ -806,6 +808,7 @@ fn with_feed(own: &Arc<NodeKey>, boot: &NodeKey, feed_port: Option<u16>) -> Peer
             alias: String::new(),
             quic: true,
             feed_port,
+            hub: None,
         },
         vec![dassie_peer::Bootstrap {
             id: boot.node_id(),
@@ -833,6 +836,39 @@ fn a_core_node_names_its_feed_port_in_its_link_state() {
     assert_eq!(state.info.feed_port(), None);
 }
 
+// A member of a settlement hub names it in its link state, its account and
+// whether it takes new peers over it with it; a node in no hub names none
+// (spec/designs/settlement-hubs.md#11-choosing-a-hub).
+#[test]
+fn a_hub_member_names_its_hub_in_its_link_state() {
+    let (own, boot) = (key(0), key(1));
+    let membership = dassie_peer::wire::HubMembership {
+        hub_id: [0x42; 32],
+        account: 7,
+        takes_peers: true,
+    };
+    let mut node = with_feed(&own, &boot, Some(7768));
+    node.set_own_info(
+        START,
+        OwnInfo {
+            url: Some(url(0)),
+            alias: String::new(),
+            quic: true,
+            feed_port: Some(7768),
+            hub: Some(membership),
+        },
+    );
+    let bytes = own_link_state(node);
+    let state = SignedNodeInfo::decode_exact(&bytes).unwrap();
+    assert!(state.verify().is_ok());
+    assert_eq!(state.info.hub(), Some(membership));
+    assert_eq!(state.info.feed_port(), Some(7768));
+    assert!(state.info.speaks_quic());
+    let bytes = own_link_state(with_feed(&own, &boot, None));
+    let state = SignedNodeInfo::decode_exact(&bytes).unwrap();
+    assert_eq!(state.info.hub(), None);
+}
+
 // A feed is at the URL's host: a node without a URL, a periphery node,
 // names no port, and port 0 is none.
 #[test]
@@ -843,6 +879,7 @@ fn only_a_node_with_a_url_names_a_feed_port() {
             alias: String::new(),
             quic: true,
             feed_port,
+            hub: None,
         }
         .checked()
         .feed_port

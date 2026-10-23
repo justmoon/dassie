@@ -16,11 +16,12 @@ mod support;
 use dassie_identity::{NodeId, NodeKey, PublicKey, Signature};
 use dassie_oer::{Decode, Encode};
 use dassie_peer::wire::{
-    Authentication, Content, Entry, Envelope, EnvelopeError, HmacAuthentication, InvalidNodeInfo,
-    Kind, LinkStateResponse, MAX_URL_BYTES, NodeInfo, NodeListResponse, PeeringRequest,
-    PeeringResponse, RefusalReason, ResponseEnvelope, SchemeId, SignedNodeInfo, TerminationReason,
-    decode_expiry, decode_hash, decode_octets, decode_settling, encode_envelope, encode_expiry,
-    encode_octets, encode_response, encode_settling, is_valid_url, peek_kind, sign_node_info,
+    Authentication, Content, EXTENSION_HUB, Entry, Envelope, EnvelopeError, HmacAuthentication,
+    HubMembership, InvalidNodeInfo, Kind, LinkStateResponse, MAX_COMMITMENT_BYTES, MAX_URL_BYTES,
+    NodeInfo, NodeListResponse, PeeringRequest, PeeringResponse, RefusalReason, ResponseEnvelope,
+    SchemeId, SignedNodeInfo, TerminationReason, decode_expiry, decode_hash, decode_octets,
+    decode_settling, encode_envelope, encode_expiry, encode_octets, encode_response,
+    encode_settling, is_valid_url, peek_kind, sign_node_info,
 };
 use proptest::prelude::*;
 use sha2::{Digest, Sha256};
@@ -645,4 +646,99 @@ fn a_settlement_requests_answer_is_the_amount_on_its_way() {
     );
     assert_eq!(decode_settling(&[]), Ok(None));
     assert!(decode_settling(&[1, 2, 3]).is_err());
+}
+
+// spec/areas/peer-protocol.md#message-set: `hubPacket [12]` carries a
+// Prepare with its commitment, which is never empty and bounded.
+#[test]
+fn hub_packets_are_pinned_and_bounded() {
+    let content = Content::HubPacket {
+        request_id: 7,
+        packet: &[0x0c],
+        commitment: &[0xab, 0xab],
+    };
+    assert_eq!(to_hex(&content.to_vec()), "8c00000007010c02abab");
+    assert_eq!(Content::decode_exact(&content.to_vec()).unwrap(), content);
+    assert_eq!(Kind::from_tag(12), Some(Kind::HubPacket));
+    assert_eq!(content.kind(), Kind::HubPacket);
+    assert!(Kind::HubPacket.requires_authentication());
+    assert!(!Kind::HubPacket.is_read_only());
+    assert!(Kind::HubPacket.carries_packet() && Kind::InterledgerPacket.carries_packet());
+    assert!(!Kind::Settlement.carries_packet());
+    assert_eq!(Kind::from_tag(13), None);
+    // An empty commitment, and one past the bound, are malformed.
+    assert!(Content::decode_exact(&hex("8c00000007010c00")).is_err());
+    let at_bound = Content::HubPacket {
+        request_id: 7,
+        packet: &[0x0c],
+        commitment: &[0xab; MAX_COMMITMENT_BYTES],
+    };
+    let mut bytes = at_bound.to_vec();
+    assert_eq!(Content::decode_exact(&bytes).unwrap(), at_bound);
+    assert_eq!(bytes[7..10], [0x82, 0x01, 0x00]);
+    bytes[9] = 0x01;
+    bytes.push(0xab);
+    assert!(Content::decode_exact(&bytes).is_err());
+    // Nothing may follow the commitment.
+    let mut trailing = content.to_vec();
+    trailing.push(0);
+    assert!(Content::decode_exact(&trailing).is_err());
+}
+
+/// A signed link state of node A with these extensions.
+fn with_extensions(extensions: &[(u16, &[u8])]) -> Vec<u8> {
+    let mut info = info_a();
+    info.entries.extend(
+        extensions
+            .iter()
+            .map(|(kind, value)| Entry::Extension { kind: *kind, value }),
+    );
+    sign_node_info(&node_a(), &info)
+}
+
+// spec/areas/peer-protocol.md#link-states: extension type 5 names the hub a
+// node is a member of, in canonical OER; a value that is not one names none,
+// and the link state still verifies.
+#[test]
+fn the_hub_extension_is_pinned_and_read_strictly() {
+    let membership = HubMembership {
+        hub_id: [0x11; 32],
+        account: 0x0102_0304,
+        takes_peers: true,
+    };
+    let value = membership.to_vec();
+    assert_eq!(value.len(), HubMembership::ENCODED_BYTES);
+    assert_eq!(to_hex(&value), format!("{}01020304ff", "11".repeat(32)));
+    assert_eq!(HubMembership::decode_exact(&value), Ok(membership));
+    let bytes = with_extensions(&[(EXTENSION_HUB, &value)]);
+    let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
+    assert!(signed.verify().is_ok());
+    assert_eq!(signed.info.hub(), Some(membership));
+    let closed = HubMembership {
+        takes_peers: false,
+        ..membership
+    };
+    assert_eq!(closed.to_vec().last(), Some(&0x00));
+
+    // Not canonical, short or long: no hub, and still a valid link state.
+    let mut not_canonical = value.clone();
+    *not_canonical.last_mut().unwrap() = 0x01;
+    let short = &value[..36];
+    let mut long = value.clone();
+    long.push(0);
+    for broken in [&not_canonical[..], short, &long[..], &[]] {
+        let bytes = with_extensions(&[(EXTENSION_HUB, broken)]);
+        let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
+        assert!(signed.verify().is_ok());
+        assert_eq!(signed.info.hub(), None);
+    }
+    // The first hub extension is the one read.
+    let bytes = with_extensions(&[(EXTENSION_HUB, short), (EXTENSION_HUB, &value)]);
+    let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
+    assert_eq!(signed.info.hub(), None);
+    let full = signed_full();
+    assert_eq!(
+        SignedNodeInfo::decode_exact(&full).unwrap().info.hub(),
+        None
+    );
 }

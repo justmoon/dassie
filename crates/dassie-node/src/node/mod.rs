@@ -658,6 +658,7 @@ impl Node {
             alias: config.alias.as_str().to_owned(),
             quic,
             feed_port,
+            hub: None,
         }
     }
 
