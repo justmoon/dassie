@@ -14,7 +14,8 @@
 - **A channel closes once it has been idle for as long as a silent peer is kept** (`peer_dead_ms`), counted from the later of the node's start, the end of the peering and the channel's last settlement either way. Only these close:
   - channels with a node we neither peer with nor are asking;
   - channels with nothing on their way: no message, and no settlement of ours under way;
-  - channels whose node's books let them close: nothing of the node is pending in the ledger, and every scheme it has accounts with runs and sees its ledger.
+  - channels whose node's books let them close: nothing of the node is pending in the ledger, and every scheme it has accounts with runs and sees its ledger;
+  - channels no scheme still needs (`keeps_channel`): over a settlement hub, a hold with funds either way, or a packet no claim covers yet, is not settled on the hub's ledger, and keeps its channel open.
 - **Whatever the balance.** The node's accounts stay with what they show, and its trust with them. A later peering reuses them and settles what they show, as after any end.
 - **What stays of it is on disk only:** its row in `settlement_channels`, marked closed, with its two sequences and the mark of an end for room. It leaves memory, frees its place under the bound, and lets go of the node's replay state. The schemes forget what they kept for the node's settlements (`on_closed`).
 - **A closed channel is read back when it is needed.** A peering with the node opens it again where it was, so our next settlement follows the last and the peer applies it. A settlement that comes over it closed is applied once, by the sequence that stayed, and the channel stays closed.

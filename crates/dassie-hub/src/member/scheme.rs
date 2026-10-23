@@ -910,17 +910,23 @@ impl SettlementScheme for HubScheme {
         );
     }
 
-    /// Records with nothing left to settle go; those of holds with funds,
-    /// or of packets no claim covers yet, stay until resolved, as when the
-    /// peer is peered anew (spec/decisions/closing-channels.md).
+    /// The channel closed only once its records were resolved
+    /// ([`keeps_channel`](SettlementScheme::keeps_channel)), so they go
+    /// (spec/decisions/closing-channels.md).
     fn on_closed(&mut self, peer: Name) {
-        if self
-            .peers
-            .get(&peer)
-            .is_some_and(|known| !known.unresolved())
-        {
-            self.peers.remove(&peer);
-        }
+        assert!(
+            self.peers
+                .get(&peer)
+                .is_none_or(|known| !known.unresolved()),
+            "a channel closes once the hub's records of it are resolved"
+        );
+        self.peers.remove(&peer);
+    }
+
+    /// A hold with funds either way, or a packet no claim covers yet, still
+    /// needs the channel: what it settles is not on the hub's ledger yet.
+    fn keeps_channel(&self, peer: Name) -> bool {
+        self.peers.get(&peer).is_some_and(Peer::unresolved)
     }
 
     /// Funds the hold toward `peer` by whole drops of `amount`, opening it

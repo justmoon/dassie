@@ -939,7 +939,6 @@ ALTER TABLE peer_settings ADD COLUMN rebalance_ppm INTEGER NOT NULL DEFAULT 5000
   CHECK (rebalance_ppm BETWEEN 0 AND 100000);
 ";
 
-
 /// Settlement hubs (spec/areas/hubs.md#the-members-side): what a peering
 /// over a hub cost beyond its hold is journaled as a loss, keyed by its
 /// scheme and the hub's ID for it. The journal is rebuilt, since its

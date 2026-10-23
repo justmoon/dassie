@@ -298,7 +298,13 @@ impl PeeringHooks for Hooks<'_> {
                 .is_some()
                 && !self.sees(ledger)
         });
-        !pending && !unseen
+        // Nor while a scheme has something with it not settled on its
+        // ledger yet, as a hold with funds over a hub.
+        let kept = self
+            .schemes
+            .values()
+            .any(|active| active.scheme.keeps_channel(peer));
+        !pending && !unseen && !kept
     }
 }
 
