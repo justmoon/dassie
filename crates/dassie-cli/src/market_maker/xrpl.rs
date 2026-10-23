@@ -421,6 +421,7 @@ mod tests {
     use dassie_node::store::StoredCertificate;
     use dassie_node_core::certificate::CertificateSource;
     use dassie_xrpl::amount::TokenValue;
+    use dassie_xrpl::codec::{Signing, Transact};
     use dassie_xrpl::fake::{DSUSD_CURRENCY, DSUSD_ISSUER, FEE_BASE, Token as FakeToken};
 
     use super::super::strategy::{Side, to_amount};
@@ -504,12 +505,11 @@ mod tests {
             limit: FakeToken::DSUSD.amount(TokenValue::MAX),
             fee: FEE_BASE,
             sequence: server_sequence(server, wallet.account()),
-            last_ledger_sequence: sequence + 20,
+            last_ledger_sequence: Some(sequence + 20),
             flags: codec::TF_SET_NO_RIPPLE,
             network_id: None,
             memos: Vec::new(),
-            signing_pub_key: *wallet.public_key(),
-            signature: None,
+            signing: Signing::by(wallet.public_key()),
         }
         .sign(&wallet);
         let submit = serde_json::json!({ "command": "submit", "tx_blob": dassie_xrpl::hex_upper(&signed.blob) });

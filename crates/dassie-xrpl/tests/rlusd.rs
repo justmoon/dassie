@@ -22,7 +22,7 @@ use dassie_settlement::{
     ReconcileCause, SchemeError, SettlementScheme,
 };
 use dassie_xrpl::account::{self, News, XrplAccount};
-use dassie_xrpl::codec::{Amount, Payment, TokenValue, TrustSet};
+use dassie_xrpl::codec::{Amount, Payment, Signing, TokenValue, Transact, TrustSet};
 use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, FakeLedger, RESERVE_BASE, RESERVE_INC, Token};
 use dassie_xrpl::rlusd::{self, RlusdScheme, UNITS_PER_MICRO};
 use dassie_xrpl::{AccountId, UNITS_PER_DROP, Wallet, XrplScheme, api};
@@ -850,12 +850,11 @@ fn a_line_made_outside_the_node_is_corrected() {
         limit: Token::RLUSD.amount(value("100")),
         fee: FEE_BASE,
         sequence,
-        last_ledger_sequence: ledger.ledger() + 10,
+        last_ledger_sequence: Some(ledger.ledger() + 10),
         flags: 0,
         network_id: None,
         memos: Vec::new(),
-        signing_pub_key: *wallet.public_key(),
-        signature: None,
+        signing: Signing::by(wallet.public_key()),
     }
     .sign(&wallet);
     let submit =
@@ -1303,16 +1302,16 @@ fn xrp_paid_by_hand_is_a_withdrawal_and_moves_no_rlusd() {
     let signed = Payment {
         account: address,
         destination: world.address(1),
+        destination_tag: None,
         amount: Amount::Xrp(3_000_000),
         send_max: None,
         fee: FEE_BASE,
         sequence,
-        last_ledger_sequence: world.ledger.ledger() + 10,
+        last_ledger_sequence: Some(world.ledger.ledger() + 10),
         flags: 0,
         network_id: None,
         memos: Vec::new(),
-        signing_pub_key: *wallet.public_key(),
-        signature: None,
+        signing: Signing::by(wallet.public_key()),
     }
     .sign(&wallet);
     let submit =

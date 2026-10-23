@@ -1,16 +1,18 @@
 //! What the fake ledger writes about a transaction it applied: the
-//! transaction as JSON, and its metadata, with each `AccountRoot` and
-//! `RippleState` it created, modified or deleted, as rippled writes them.
+//! transaction as JSON, and its metadata, with each `AccountRoot`,
+//! `RippleState` and `SignerList` it created, modified or deleted, as
+//! rippled writes them.
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use serde_json::{Map, Value, json};
 
+use super::signers::signer_list_fields;
 use super::tokens::LineKey;
 use super::{Account, FakeLedger, Outcome, Tx, token_json};
-use crate::api::TrustLine;
-use crate::codec::{Amount, Memo, hash};
+use crate::api::{SignerList, TrustLine};
+use crate::codec::{Amount, Memo, Signing, Transact, Transaction, hash};
 use crate::hex_upper;
 use crate::keys::AccountId;
 
@@ -35,6 +37,8 @@ pub(super) struct Touched {
     accounts: Vec<(AccountId, Option<Account>)>,
     /// Each line before, and as last written: what a deleted line ended as.
     lines: Vec<(LineKey, Option<TrustLine>, TrustLine)>,
+    /// Each signer list before, and as last written, by its owner.
+    signer_lists: Vec<(AccountId, Option<SignerList>, SignerList)>,
 }
 
 impl Touched {
@@ -53,6 +57,20 @@ impl Touched {
             None => self.lines.push((key, before, written)),
         }
     }
+
+    /// `owner`'s signer list is written as `written`, or deleted as it
+    /// was; it was `before`, unless it was written already.
+    pub fn signer_list(
+        &mut self,
+        owner: AccountId,
+        before: Option<SignerList>,
+        written: SignerList,
+    ) {
+        match self.signer_lists.iter_mut().find(|(id, _, _)| *id == owner) {
+            Some((_, _, last)) => *last = written,
+            None => self.signer_lists.push((owner, before, written)),
+        }
+    }
 }
 
 /// An account's fields, as `account_info` and the metadata write them.
@@ -64,10 +82,13 @@ pub(super) fn account_fields(id: AccountId, account: &Account) -> Value {
         "OwnerCount": account.owner_count,
         "Sequence": account.sequence,
     });
-    if account.transfer_rate != 0
-        && let Some(object) = fields.as_object_mut()
-    {
-        object.insert("TransferRate".into(), account.transfer_rate.into());
+    if let Some(object) = fields.as_object_mut() {
+        if account.transfer_rate != 0 {
+            object.insert("TransferRate".into(), account.transfer_rate.into());
+        }
+        if let Some(key) = account.regular_key {
+            object.insert("RegularKey".into(), key.to_address().into());
+        }
     }
     fields
 }
@@ -187,30 +208,13 @@ fn transaction_json(tx: &Tx, tx_hash: &[u8; 32]) -> Value {
     put("Account", tx.account().to_address().into());
     put("Fee", tx.fee().to_string().into());
     put("Sequence", tx.sequence().into());
-    put("LastLedgerSequence", tx.last_ledger_sequence().into());
+    if let Some(last) = tx.last_ledger_sequence() {
+        put("LastLedgerSequence", last.into());
+    }
     put("hash", hex_upper(tx_hash).into());
     match tx {
-        Tx::Payment(payment) => {
-            put("TransactionType", "Payment".into());
-            put("Destination", payment.destination.to_address().into());
-            put("Amount", amount_json(&payment.amount));
-            if let Some(send_max) = &payment.send_max {
-                put("SendMax", amount_json(send_max));
-            }
-            put("Flags", payment.flags.into());
-            if !payment.memos.is_empty() {
-                put("Memos", memos_json(&payment.memos));
-            }
-        }
-        Tx::TrustSet(trust_set) => {
-            put("TransactionType", "TrustSet".into());
-            put("LimitAmount", token_json(&trust_set.limit));
-            put("Flags", trust_set.flags.into());
-            if !trust_set.memos.is_empty() {
-                put("Memos", memos_json(&trust_set.memos));
-            }
-        }
-        Tx::AccountSet(set) => {
+        Tx::Ledger(tx) => ledger_json(tx, &mut put),
+        Tx::IssuerSet(set) => {
             put("TransactionType", "AccountSet".into());
             put("Flags", 0.into());
             if let Some(flag) = set.set_flag {
@@ -232,6 +236,93 @@ fn transaction_json(tx: &Tx, tx_hash: &[u8; 32]) -> Value {
         Tx::PoolSet(_) => {}
     }
     Value::Object(fields)
+}
+
+/// The fields of a transaction of a kind the codec reads: its kind's, its
+/// flags and memos, and who signed it, if anyone did.
+fn ledger_json(tx: &Transaction, put: &mut impl FnMut(&str, Value)) {
+    let optional = |put: &mut dyn FnMut(&str, Value), key: &str, value: Option<Value>| {
+        if let Some(value) = value {
+            put(key, value);
+        }
+    };
+    let (kind, flags, memos) = match tx {
+        Transaction::Payment(payment) => {
+            put("Destination", payment.destination.to_address().into());
+            optional(
+                put,
+                "DestinationTag",
+                payment.destination_tag.map(Value::from),
+            );
+            put("Amount", amount_json(&payment.amount));
+            optional(put, "SendMax", payment.send_max.as_ref().map(amount_json));
+            ("Payment", payment.flags, &payment.memos)
+        }
+        Transaction::TrustSet(set) => {
+            put("LimitAmount", token_json(&set.limit));
+            ("TrustSet", set.flags, &set.memos)
+        }
+        Transaction::AccountSet(set) => {
+            optional(put, "SetFlag", set.set_flag.map(Value::from));
+            optional(put, "ClearFlag", set.clear_flag.map(Value::from));
+            ("AccountSet", set.flags, &set.memos)
+        }
+        Transaction::SetRegularKey(set) => {
+            let key = set.regular_key.map(|key| key.to_address().into());
+            optional(put, "RegularKey", key);
+            ("SetRegularKey", set.flags, &set.memos)
+        }
+        Transaction::SignerListSet(set) => {
+            put("SignerQuorum", set.signer_quorum.into());
+            if !set.signer_entries.is_empty() {
+                let list = SignerList {
+                    quorum: set.signer_quorum,
+                    entries: set.signer_entries.clone(),
+                };
+                let fields = signer_list_fields(&list);
+                put(
+                    "SignerEntries",
+                    fields.get("SignerEntries").cloned().unwrap_or_default(),
+                );
+            }
+            ("SignerListSet", set.flags, &set.memos)
+        }
+    };
+    put("TransactionType", kind.into());
+    put("Flags", flags.into());
+    if !memos.is_empty() {
+        put("Memos", memos_json(memos));
+    }
+    signing_json(tx.signing(), put);
+}
+
+/// Who signed, as the ledger writes it: one key and its signature, or an
+/// empty key and the signers. Nothing for the fake's own.
+fn signing_json(signing: &Signing, put: &mut impl FnMut(&str, Value)) {
+    match signing {
+        Signing::Single {
+            public_key,
+            signature: Some(signature),
+        } => {
+            put("SigningPubKey", hex_upper(public_key.as_bytes()).into());
+            put("TxnSignature", hex_upper(signature.as_bytes()).into());
+        }
+        Signing::Multi(signers) if !signers.is_empty() => {
+            put("SigningPubKey", "".into());
+            let signers: Vec<Value> = signers
+                .iter()
+                .map(|signer| {
+                    json!({ "Signer": {
+                        "Account": signer.account.to_address(),
+                        "SigningPubKey": hex_upper(signer.signing_pub_key.as_bytes()),
+                        "TxnSignature": hex_upper(signer.signature.as_bytes()),
+                    }})
+                })
+                .collect();
+            put("Signers", signers.into());
+        }
+        Signing::Single { .. } | Signing::Multi(_) => {}
+    }
 }
 
 impl FakeLedger {
@@ -256,7 +347,9 @@ impl FakeLedger {
         );
         let (nodes, mut accounts) = self.affected(touched);
         let mut also = alloc::vec![tx.account()];
-        if let Tx::Payment(payment) = tx {
+        if let Tx::Ledger(ledger_tx) = tx
+            && let Transaction::Payment(payment) = ledger_tx.as_ref()
+        {
             also.push(payment.destination);
         }
         for account in also {
@@ -316,6 +409,20 @@ impl FakeLedger {
                     if !accounts.contains(&account) {
                         accounts.push(account);
                     }
+                }
+            }
+        }
+        for (owner, before, last) in &touched.signer_lists {
+            let after = self.signer_lists.get(owner).map(signer_list_fields);
+            if let Some(node) = changed_node(
+                "SignerList",
+                before.as_ref().map(signer_list_fields),
+                after,
+                signer_list_fields(last),
+            ) {
+                nodes.push(node);
+                if !accounts.contains(owner) {
+                    accounts.push(*owner);
                 }
             }
         }

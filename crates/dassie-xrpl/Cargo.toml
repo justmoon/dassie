@@ -1,7 +1,7 @@
 [package]
 name = "dassie-xrpl"
 version = "0.2.6"
-description = "The XRP Ledger for Dassie: wallets, the transaction codec for XRP and tokens, the rippled API, AMM pool prices, the testnet account as an external asset and the settlement scheme on it, sans-IO; and a fake ledger for tests"
+description = "The XRP Ledger for Dassie: wallets and secp256k1 keys, the transaction codec for XRP and tokens, account settings and signer lists, single- and multi-signing, the rippled API, AMM pool prices, the testnet account as an external asset and the settlement scheme on it, sans-IO; and a fake ledger for tests"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -20,6 +20,10 @@ dassie-ledger = { path = "../dassie-ledger" }
 dassie-settlement = { path = "../dassie-settlement" }
 # Ed25519, as the original's ed25519 wallets sign (`sEd…` seeds).
 ed25519-dalek = { version = "3.0", default-features = false, features = ["fast", "zeroize"] }
+# ECDSA on secp256k1, as the ledger's secp256k1 keys sign, with its
+# signatures in strict DER (spec/areas/xrpl.md#keys-and-signatures).
+k256 = { version = "0.14", default-features = false, features = ["ecdsa"] }
+ecdsa = { version = "0.17", default-features = false, features = ["der"] }
 # SHA-512Half for hashes and keys, SHA-256 and RIPEMD-160 for account IDs.
 sha2 = { version = "0.11", default-features = false }
 ripemd = { version = "0.2", default-features = false }

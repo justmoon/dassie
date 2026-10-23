@@ -1,13 +1,16 @@
 //! The XRP Ledger for Dassie, without IO (spec/areas/xrpl.md).
 //!
 //! - [`keys`]: the original's wallet, derived from the node's settlement
-//!   entropy, so the same phrase finds the same funds; account IDs and
-//!   their addresses ([`base58`]).
+//!   entropy, so the same phrase finds the same funds; secp256k1 keys;
+//!   account IDs and their addresses ([`base58`]).
 //! - [`amount`]: amounts of XRP and of tokens, exact, and their
 //!   conversion to and from whole units.
 //! - [`codec`]: the binary form of the transactions the node sends, a
-//!   `Payment` of XRP or of a token with memos, perhaps with a `SendMax`
-//!   in another asset, and a `TrustSet`, their signing and their hash.
+//!   `Payment` of XRP or of a token with memos and perhaps a destination
+//!   tag or a `SendMax` in another asset, a `TrustSet`, and what sets up an
+//!   account several keys control (`AccountSet`, `SetRegularKey`,
+//!   `SignerListSet`); their signing by one key or by several, each
+//!   alone, and their hash.
 //! - [`api`]: the rippled WebSocket JSON the node speaks: requests, and
 //!   what comes back, parsed and bounded.
 //! - [`amm`]: an AMM pool's price, exact, for a client that swaps through
@@ -21,8 +24,8 @@
 //!   account's trust line to its issuer, with the account's XRP as gas;
 //!   [`rlusd`] is it in RLUSD (`xrpl-testnet-rlusd`), [`dsusd`] in DSUSD
 //!   (`xrpl-testnet-dsusd`).
-//! - `fake` (feature `fake`): a model of the ledger, with tokens and AMM
-//!   pools, for simulations and tests.
+//! - `fake` (feature `fake`): a model of the ledger, with tokens, AMM
+//!   pools and signer lists, for simulations and tests.
 //!
 //! Nothing here reads a clock or touches the network
 //! (spec/decisions/tigerstyle.md).

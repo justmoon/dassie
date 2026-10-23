@@ -17,8 +17,8 @@ use dassie_xrpl::amm::{self, TRADING_FEE_DENOMINATOR};
 use dassie_xrpl::amount::Asset;
 use dassie_xrpl::api::{self, AmmInfo, TxRecord};
 use dassie_xrpl::codec::{
-    Amount, Payment, SendMaxTerms, TF_SET_NO_RIPPLE, TokenAmount, TokenValue, TrustSet,
-    sign_send_max,
+    Amount, Payment, SendMaxTerms, Signing, TF_SET_NO_RIPPLE, TokenAmount, TokenValue, Transact,
+    TrustSet, sign_send_max,
 };
 use dassie_xrpl::fake::{
     FEE_BASE, FakeLedger, POOL_ACCOUNT_FLAGS, PoolState, RESERVE_BASE, RLUSD_ISSUER, Token,
@@ -108,12 +108,11 @@ fn holders(ledger: &mut FakeLedger, seeds: &[u8]) -> Vec<Wallet> {
             limit: Token::RLUSD.amount(TokenValue::MAX),
             fee: FEE_BASE,
             sequence,
-            last_ledger_sequence: ledger.ledger() + 10,
+            last_ledger_sequence: Some(ledger.ledger() + 10),
             flags: TF_SET_NO_RIPPLE,
             network_id: None,
             memos: Vec::new(),
-            signing_pub_key: *wallet.public_key(),
-            signature: None,
+            signing: Signing::by(wallet.public_key()),
         }
         .sign(wallet);
         assert_eq!(submit(ledger, &signed.blob), "tesSUCCESS");
@@ -563,16 +562,16 @@ fn swaps_go_only_through_a_pool_and_never_into_it() {
     let xrp_for_xrp = Payment {
         account: a.account(),
         destination: b.account(),
+        destination_tag: None,
         amount: Amount::Xrp(1),
         send_max: None,
         fee: FEE_BASE,
         sequence,
-        last_ledger_sequence: ledger.ledger() + 10,
+        last_ledger_sequence: Some(ledger.ledger() + 10),
         flags: 0,
         network_id: None,
         memos: Vec::new(),
-        signing_pub_key: *a.public_key(),
-        signature: None,
+        signing: Signing::by(a.public_key()),
     }
     .sign(a)
     .blob;

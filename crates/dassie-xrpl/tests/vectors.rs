@@ -11,8 +11,8 @@
 
 use dassie_identity::NodeKey;
 use dassie_xrpl::codec::{
-    Amount, Currency, Memo, Payment, SendMaxTerms, Signed, TokenAmount, TokenValue, Transaction,
-    TrustSet, hash, sign_send_max,
+    Amount, Currency, Memo, Payment, SendMaxTerms, Signed, Signing, TokenAmount, TokenValue,
+    Transact, Transaction, TrustSet, hash, sign_send_max,
 };
 use dassie_xrpl::{AccountId, Wallet, from_hex, hex_upper};
 use serde_json::Value;
@@ -46,7 +46,10 @@ fn the_original_wallets_derive_from_the_node_key() {
         let expected = &entry["xrplTestnetWallet"];
         assert_eq!(wallet.family_seed(), text(expected, "familySeed"));
         assert_eq!(wallet.account().to_address(), text(expected, "address"));
-        assert_eq!(hex_upper(wallet.public_key()), text(expected, "publicKey"));
+        assert_eq!(
+            hex_upper(wallet.public_key().as_bytes()),
+            text(expected, "publicKey")
+        );
         assert_eq!(
             AccountId::parse(text(expected, "address")),
             Some(wallet.account())
@@ -63,19 +66,19 @@ fn payment(vector: &Value) -> (Wallet, Payment) {
     let payment = Payment {
         account: AccountId::parse(text(tx, "Account")).unwrap(),
         destination: AccountId::parse(text(tx, "Destination")).unwrap(),
+        destination_tag: None,
         amount: Amount::Xrp(drops("Amount")),
         send_max: None,
         fee: drops("Fee"),
         sequence: number("Sequence"),
-        last_ledger_sequence: number("LastLedgerSequence"),
+        last_ledger_sequence: Some(number("LastLedgerSequence")),
         flags: number("Flags"),
         network_id: tx.get("NetworkID").map(|_| number("NetworkID")),
         memos: vec![Memo {
             memo_type: from_hex(text(memo, "MemoType")).unwrap(),
             memo_data: from_hex(text(memo, "MemoData")).unwrap(),
         }],
-        signing_pub_key: *wallet.public_key(),
-        signature: None,
+        signing: Signing::by(wallet.public_key()),
     };
     (wallet, payment)
 }
@@ -167,19 +170,19 @@ fn token_payments_sign_and_hash_as_xrpl_js_does() {
         let payment = Payment {
             account: AccountId::parse(text(tx, "Account")).unwrap(),
             destination: AccountId::parse(text(tx, "Destination")).unwrap(),
+            destination_tag: None,
             amount: Amount::Token(token(&tx["Amount"])),
             send_max: None,
             fee: text(tx, "Fee").parse().unwrap(),
             sequence: number(tx, "Sequence"),
-            last_ledger_sequence: number(tx, "LastLedgerSequence"),
+            last_ledger_sequence: Some(number(tx, "LastLedgerSequence")),
             flags: number(tx, "Flags"),
             network_id: tx.get("NetworkID").map(|_| number(tx, "NetworkID")),
             memos: vec![Memo {
                 memo_type: from_hex(text(memo, "MemoType")).unwrap(),
                 memo_data: from_hex(text(memo, "MemoData")).unwrap(),
             }],
-            signing_pub_key: *wallet.public_key(),
-            signature: None,
+            signing: Signing::by(wallet.public_key()),
         };
         let payload = payment.signing_payload();
         let signed = payment.sign(&wallet);
@@ -215,12 +218,11 @@ fn trust_sets_sign_and_hash_as_xrpl_js_does() {
             limit: token(&tx["LimitAmount"]),
             fee: text(tx, "Fee").parse().unwrap(),
             sequence: number(tx, "Sequence"),
-            last_ledger_sequence: number(tx, "LastLedgerSequence"),
+            last_ledger_sequence: Some(number(tx, "LastLedgerSequence")),
             flags: number(tx, "Flags"),
             network_id: tx.get("NetworkID").map(|_| number(tx, "NetworkID")),
             memos: Vec::new(),
-            signing_pub_key: *wallet.public_key(),
-            signature: None,
+            signing: Signing::by(wallet.public_key()),
         };
         let payload = trust_set.signing_payload();
         let signed = trust_set.sign(&wallet);
@@ -284,7 +286,7 @@ fn send_max_payments_sign_and_hash_as_xrpl_js_does() {
         let signed = sign_send_max(&wallet, terms).unwrap();
         assert_eq!(signed.tx.account.to_address(), text(tx, "Account"));
         let unsigned = Payment {
-            signature: None,
+            signing: Signing::by(wallet.public_key()),
             ..signed.tx.clone()
         };
         check(
