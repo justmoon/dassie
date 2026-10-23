@@ -22,7 +22,7 @@ use dassie_oer::Encode;
 use rand_core::CryptoRng;
 
 use crate::auth::{Authenticator, Pending};
-use crate::channel::{Channel, Retry};
+use crate::channel::{Channel, Closed, Retry};
 use crate::config::Config;
 use crate::io::VERDICT_ACCEPTED;
 use crate::io::{Event, Failure, Output, Request, RequestId, Response, Stats};
@@ -233,6 +233,14 @@ pub struct PeerNode {
     pub(crate) downlink_channels: usize,
     /// When each channel's outbox goes next.
     pub(crate) retries: BTreeMap<NodeId, Retry>,
+    /// When each channel last carried a settlement, either way, or its
+    /// peering ended, in this run: one idle for long enough closes
+    /// (spec/decisions/closing-channels.md). Not persisted, so a restart
+    /// starts every wait again.
+    pub(crate) channel_active: BTreeMap<NodeId, u64>,
+    /// Closed channels not written yet, and those read back for a
+    /// settlement that came over them closed: both go with the next batch.
+    pub(crate) closed: BTreeMap<NodeId, Closed>,
     /// Banned nodes, and the changes not yet persisted.
     pub(crate) bans: BTreeSet<NodeId>,
     pub(crate) banned: Vec<NodeId>,
@@ -300,6 +308,8 @@ impl PeerNode {
             channels_dirty: BTreeSet::new(),
             downlink_channels: 0,
             retries: BTreeMap::new(),
+            channel_active: BTreeMap::new(),
+            closed: BTreeMap::new(),
             bans: BTreeSet::new(),
             banned: Vec::new(),
             unbanned: Vec::new(),

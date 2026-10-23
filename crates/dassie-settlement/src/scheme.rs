@@ -347,6 +347,15 @@ pub trait SettlementScheme: Send {
         let _ = (peer, state);
     }
 
+    /// The settlement channel with `peer`, which no longer peers with us,
+    /// closed, with nothing of it pending and the scheme seeing its ledger
+    /// (spec/decisions/closing-channels.md): what the scheme kept of it for
+    /// its settlements may go. A later peering tells it again
+    /// ([`on_peered`](Self::on_peered)). Its accounts stay.
+    fn on_closed(&mut self, peer: Name) {
+        let _ = peer;
+    }
+
     /// Prepares a settlement of `amount` to `peer`, signing through
     /// `asset` where it settles through one. Submits nothing.
     ///

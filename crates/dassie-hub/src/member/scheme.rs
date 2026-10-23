@@ -910,6 +910,19 @@ impl SettlementScheme for HubScheme {
         );
     }
 
+    /// Records with nothing left to settle go; those of holds with funds,
+    /// or of packets no claim covers yet, stay until resolved, as when the
+    /// peer is peered anew (spec/decisions/closing-channels.md).
+    fn on_closed(&mut self, peer: Name) {
+        if self
+            .peers
+            .get(&peer)
+            .is_some_and(|known| !known.unresolved())
+        {
+            self.peers.remove(&peer);
+        }
+    }
+
     /// Funds the hold toward `peer` by whole drops of `amount`, opening it
     /// on the first settlement. Unavailable while the hold is being opened,
     /// or the balance cannot pay it.

@@ -925,8 +925,9 @@ fn check_bounds(policies: &Policies) {
         policies.ledger.max_journal >= 64,
         "a command's journal entries fit the journal"
     );
-    // Channels are never closed, so the XRPL scheme keeps the address of
-    // every node the node ever peered with, and never drops one for room.
+    // The XRPL scheme keeps the address of every node the node holds a
+    // channel with, and forgets it when the channel closes, so it never
+    // drops one for room.
     assert!(
         dassie_xrpl::scheme::MAX_PEERS >= policies.peer.max_channels + downlinks,
         "the XRPL scheme keeps an address for every settlement channel"

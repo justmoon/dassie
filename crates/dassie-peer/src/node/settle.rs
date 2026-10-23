@@ -1,6 +1,8 @@
 //! Settlement messages over channels
 //! (spec/areas/settlement.md#settlement-channels): ours, sent until
-//! acknowledged; theirs, applied once each.
+//! acknowledged; theirs, applied once each. A channel left idle closes, and
+//! what stays of it on disk opens it again
+//! (spec/decisions/closing-channels.md).
 
 use alloc::vec::Vec;
 
@@ -8,10 +10,11 @@ use dassie_identity::NodeId;
 
 use super::{PeerNode, Problem, Purpose, SendError};
 use crate::auth::Accepted;
-use crate::channel::{Channel, Outgoing, Retry};
+use crate::channel::{Channel, Closed, Outgoing, Retry};
+use crate::hooks::PeeringHooks;
 use crate::io::{Event, Inbound, Reply};
-use crate::table::Entry;
 use crate::table::backoff;
+use crate::table::{Entry, PeerState};
 use crate::wire::{Content, SchemeId};
 
 impl PeerNode {
@@ -53,9 +56,41 @@ impl PeerNode {
         (downlinks, self.channels.len().saturating_sub(downlinks))
     }
 
+    /// What stays of the closed channel with `node`, if it is closed: from
+    /// memory while not written yet, otherwise from disk.
+    pub(crate) fn closed_channel(&self, node: &NodeId, hooks: &dyn PeeringHooks) -> Option<Closed> {
+        if self.channels.contains_key(node) {
+            return None;
+        }
+        self.closed
+            .get(node)
+            .copied()
+            .or_else(|| hooks.closed_channel(*node))
+    }
+
+    /// Whether we once ended a peering with `node` for want of room, as its
+    /// channel says, open or closed (spec/decisions/ended-for-room.md).
+    pub(crate) fn ended_for_room(&self, node: &NodeId, hooks: &dyn PeeringHooks) -> bool {
+        self.channels.get(node).map_or_else(
+            || {
+                self.closed_channel(node, hooks)
+                    .is_some_and(|closed| closed.ended_for_room)
+            },
+            |channel| channel.ended_for_room,
+        )
+    }
+
     /// Opens the channel with `node`, a new peer, or brings its contact up
-    /// to date. Returns whether it exists.
-    pub(crate) fn open_channel(&mut self, node: NodeId) -> bool {
+    /// to date. A closed channel opens again where it was. Returns whether
+    /// it exists.
+    pub(crate) fn open_channel(&mut self, node: NodeId, hooks: &dyn PeeringHooks) -> bool {
+        let closed = self.closed_channel(&node, hooks);
+        self.open_channel_from(node, closed)
+    }
+
+    /// Opens the channel with `node` from `closed`, what stays of it if it
+    /// was closed, or brings its contact up to date.
+    pub(crate) fn open_channel_from(&mut self, node: NodeId, closed: Option<Closed>) -> bool {
         let Some((key, url)) = self.contact(&node) else {
             return self.channels.contains_key(&node);
         };
@@ -80,10 +115,96 @@ impl PeerNode {
         if url.is_empty() {
             self.downlink_channels += 1;
         }
-        self.channels.insert(node, Channel::new(key, url));
+        // Written open, the channel replaces what stayed of it.
+        self.closed.remove(&node);
+        let channel = Channel::reopen(key, url, closed.unwrap_or(Closed::NEW));
+        self.channels.insert(node, channel);
         self.channels_dirty.insert(node);
+        self.channel_active.insert(node, self.now_ms);
         self.auth.pin(node);
         true
+    }
+
+    /// Closes the channels idle for as long as a silent peer is kept, with
+    /// nodes we no longer peer with or ask to, and nothing on its way
+    /// either way (spec/decisions/closing-channels.md). Their accounts stay
+    /// with what they show, which a later peering settles.
+    pub(super) fn close_idle_channels(&mut self, hooks: &dyn PeeringHooks) {
+        let now = self.now_ms;
+        let idle: Vec<NodeId> = self
+            .channels
+            .keys()
+            .filter(|node| self.channel_closes_at(node).is_some_and(|at| at <= now))
+            .filter(|node| !hooks.settling_to(**node) && hooks.closable(**node))
+            .copied()
+            .collect();
+        for node in idle {
+            self.close_channel(node);
+        }
+    }
+
+    /// When a channel next closes, if one may. One idle long enough closes
+    /// once the node's books let it, which only the hooks tell: it is
+    /// looked at with each peering check, at an absolute time that inputs
+    /// do not push back.
+    pub(super) fn next_channel_close(&self) -> Option<u64> {
+        let now = self.now_ms;
+        self.channels
+            .keys()
+            .filter_map(|node| self.channel_closes_at(node))
+            .map(|at| {
+                if at > now {
+                    at
+                } else {
+                    self.peering.check_at_ms()
+                }
+            })
+            .min()
+    }
+
+    /// When the channel with `node` closes if it stays idle, if it may
+    /// close at all: not while the node is peered or being asked, nor with
+    /// a message on its way.
+    fn channel_closes_at(&self, node: &NodeId) -> Option<u64> {
+        let channel = self.channels.get(node)?;
+        let idle = channel.outbox.is_none()
+            && !self.retries.contains_key(node)
+            && !self.peering.is_asking(node)
+            && self
+                .table
+                .get(node)
+                .is_none_or(|entry| entry.peer == PeerState::None);
+        if !idle {
+            return None;
+        }
+        let since = self
+            .channel_active
+            .get(node)
+            .copied()
+            .unwrap_or(self.started_ms)
+            .max(self.started_ms);
+        Some(since.saturating_add(self.config.peer_dead_ms))
+    }
+
+    /// Closes the channel with `node`: it leaves memory, and what stays of
+    /// it is written with the next batch.
+    fn close_channel(&mut self, node: NodeId) {
+        let Some(channel) = self.channels.remove(&node) else {
+            return;
+        };
+        if channel.url.is_empty() {
+            self.downlink_channels -= 1;
+        }
+        self.closed.insert(node, channel.closed());
+        self.channels_dirty.remove(&node);
+        self.channel_active.remove(&node);
+        // Its replay state goes once nothing else keeps it: a late
+        // settlement is told from a copy by its sequence, which stays.
+        if !self.keeps_replay_state(&node) {
+            self.auth.unpin(self.now_ms, &node);
+        }
+        self.stats.channels_closed += 1;
+        self.event(Event::ChannelClosed { peer: node });
     }
 
     /// Sends a settlement to `node`, which we hold a channel with. It goes
@@ -108,6 +229,7 @@ impl PeerNode {
         }
         channel.settled_out = channel.settled_out.saturating_add(1);
         let sequence = channel.settled_out;
+        self.channel_active.insert(*node, self.now_ms);
         channel.outbox = Some(Outgoing {
             sequence,
             scheme,
@@ -221,6 +343,7 @@ impl PeerNode {
                     channel.outbox = None;
                 }
                 self.channels_dirty.insert(node);
+                self.channel_active.insert(node, self.now_ms);
                 self.retries.remove(&node);
                 self.stats.settlements_delivered += 1;
                 self.event(Event::SettlementDelivered {
@@ -310,10 +433,12 @@ impl PeerNode {
     }
 
     /// A settlement message: from a node we hold a channel with, peered or
-    /// not, since a settlement may arrive after the peering ended.
-    /// A copy already applied is acknowledged again, and nothing more.
+    /// not, since a settlement may arrive after the peering ended, and open
+    /// or closed, since one may arrive after the channel closed. A copy
+    /// already applied is acknowledged again, and nothing more.
     pub(super) fn settlement_request<'a>(
         &mut self,
+        hooks: &dyn PeeringHooks,
         accepted: &Accepted,
         scheme: SchemeId,
         amount: u64,
@@ -321,17 +446,26 @@ impl PeerNode {
         sequence: u64,
     ) -> Inbound<'a> {
         let from = accepted.sender;
-        let Some(channel) = self.channels.get(&from) else {
+        let (settled_in, closed) = if let Some(channel) = self.channels.get(&from) {
+            (channel.settled_in, None)
+        } else if let Some(closed) = self.closed_channel(&from, hooks) {
+            (closed.settled_in, Some(closed))
+        } else {
             return Inbound::Reply(Reply::refuse(409, "no accounts with the sender"));
         };
-        if sequence <= channel.settled_in {
+        if sequence <= settled_in {
             self.stats.settlements_duplicate += 1;
             return Inbound::Reply(super::inbound::ok(accepted, &[]));
         }
         // The sender sends one at a time, in order: anything but the next
         // is a bug, or an attempt to push the sequence out of range.
-        if Some(sequence) != channel.settled_in.checked_add(1) {
+        if Some(sequence) != settled_in.checked_add(1) {
             return Inbound::Reply(Reply::refuse(400, "settlement out of order"));
+        }
+        if let Some(closed) = closed {
+            // Kept in memory until the batch, so that applying it moves
+            // the sequence written for the closed channel.
+            self.closed.insert(from, closed);
         }
         Inbound::Settlement {
             from,
@@ -344,7 +478,7 @@ impl PeerNode {
     }
 
     /// Records that the settlement `sequence` from `node` was booked: a
-    /// copy of it is never applied again.
+    /// copy of it is never applied again, over its channel open or closed.
     pub fn settlement_applied(&mut self, now_ms: u64, node: &NodeId, sequence: u64) {
         self.advance(now_ms);
         if let Some(channel) = self.channels.get_mut(node)
@@ -352,6 +486,12 @@ impl PeerNode {
         {
             channel.settled_in = sequence;
             self.channels_dirty.insert(*node);
+            self.channel_active.insert(*node, self.now_ms);
+            self.stats.settlements_applied += 1;
+        } else if let Some(closed) = self.closed.get_mut(node)
+            && sequence > closed.settled_in
+        {
+            closed.settled_in = sequence;
             self.stats.settlements_applied += 1;
         }
     }

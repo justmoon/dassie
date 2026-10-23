@@ -39,6 +39,11 @@ impl Peering {
         }
     }
 
+    /// Whether we are asking `node` to peer.
+    pub(crate) fn is_asking(&self, node: &NodeId) -> bool {
+        self.attempt == Some(*node)
+    }
+
     /// When the next check for peers is due, whether or not one is wanted.
     pub(crate) const fn check_at_ms(&self) -> u64 {
         self.check_at_ms
@@ -351,13 +356,10 @@ impl PeerNode {
                     _ => Vec::new(),
                 };
                 let now = self.now_ms;
-                let ended_for_room = self
-                    .channels
-                    .get(&node)
-                    .is_some_and(|channel| channel.ended_for_room);
+                let ended_for_room = self.ended_for_room(&node, hooks);
                 match hooks.finalize(now, node, scheme, version, &info, data, ended_for_room) {
                     Ok(agreed) => {
-                        if !self.become_peered(node, scheme, version, agreed, false) {
+                        if !self.become_peered(hooks, node, scheme, version, agreed, false) {
                             self.fail_attempt(node, "no room left");
                         }
                     }
@@ -419,6 +421,7 @@ impl PeerNode {
     /// reach always has one.
     fn become_peered(
         &mut self,
+        hooks: &dyn PeeringHooks,
         node: NodeId,
         scheme: SchemeId,
         version: u16,
@@ -438,7 +441,7 @@ impl PeerNode {
             // (spec/decisions/peering-lifecycle.md).
             return true;
         }
-        if !self.open_channel(node) {
+        if !self.open_channel(node, hooks) {
             return false;
         }
         let Some(entry) = self.table.get_mut(&node) else {
@@ -704,7 +707,7 @@ impl PeerNode {
             Ok(agreed) => agreed,
             Err(reason) => return refused(accepted, reason),
         };
-        if !self.become_peered(sender, request.scheme, version, agreed, true) {
+        if !self.become_peered(hooks, sender, request.scheme, version, agreed, true) {
             return refused(accepted, RefusalReason::Capacity);
         }
         let answer = PeeringResponse::Accepted {

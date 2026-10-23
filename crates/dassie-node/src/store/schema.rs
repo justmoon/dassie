@@ -52,6 +52,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_28,
     MIGRATION_29,
     MIGRATION_30,
+    MIGRATION_31,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -938,6 +939,7 @@ ALTER TABLE peer_settings ADD COLUMN rebalance_ppm INTEGER NOT NULL DEFAULT 5000
   CHECK (rebalance_ppm BETWEEN 0 AND 100000);
 ";
 
+
 /// Settlement hubs (spec/areas/hubs.md#the-members-side): what a peering
 /// over a hub cost beyond its hold is journaled as a loss, keyed by its
 /// scheme and the hub's ID for it. The journal is rebuilt, since its
@@ -977,6 +979,15 @@ CREATE INDEX ledger_transfers_refusals ON ledger_transfers (credit, created_at_m
 CREATE INDEX ledger_transfers_by_packet ON ledger_transfers (packet_epoch, packet_sequence)
   WHERE packet_epoch IS NOT NULL;
 CREATE INDEX ledger_transfers_trust ON ledger_transfers (sequence) WHERE reference = 'trust';
+";
+
+/// A settlement channel left idle closes: its row stays, so that its
+/// sequences and whether we ended a peering for room outlive it, and it
+/// leaves memory (spec/decisions/closing-channels.md). Only a channel with
+/// nothing on its way closes.
+const MIGRATION_31: &str = "
+ALTER TABLE settlement_channels ADD COLUMN closed INTEGER NOT NULL DEFAULT 0
+  CHECK (closed IN (0, 1) AND (closed = 0 OR outbox_sequence IS NULL));
 ";
 
 /// Columns that hold secrets: the database inspector never reads them.
@@ -1223,6 +1234,7 @@ pub const TABLES: &[Table] = &[
             ("outbox_data", "BLOB", false, false),
             ("outbox_attempts", "INTEGER", false, false),
             ("ended_for_room", "INTEGER", true, false),
+            ("closed", "INTEGER", true, false),
         ],
     },
     Table {

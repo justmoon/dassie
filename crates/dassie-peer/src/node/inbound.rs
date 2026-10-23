@@ -120,7 +120,7 @@ impl PeerNode {
                 amount,
                 data,
                 sequence,
-            } => self.settlement_request(&accepted, scheme, amount, data, sequence),
+            } => self.settlement_request(hooks, &accepted, scheme, amount, data, sequence),
             Content::SettlementMessage { scheme, message } => {
                 if self.peering_of(&accepted.sender).is_none() {
                     self.notice_one_sided(accepted.sender);

@@ -888,6 +888,12 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         }
     }
 
+    /// As in the XRP scheme: a Payment from its address after the close is
+    /// the owner's deposit (spec/decisions/closing-channels.md).
+    fn on_closed(&mut self, peer: Name) {
+        self.peers.remove(&peer);
+    }
+
     /// Unavailable unless synced, the line not frozen, the issuer read with
     /// no global freeze and no transfer fee, and the account signs the
     /// Payment now ([`XrplAccount::sign_token_payment`]), with its fee in

@@ -16,8 +16,10 @@ use dassie_peer::{
 
 use super::events::{PeerEvent, SettlementEvent};
 use super::ledgers::ActiveScheme;
+use super::schemes::{ActiveAsset, merged_status};
 use super::{Core, EngineError, Output};
-use crate::store::PeerSettings;
+use crate::store::{PeerSettings, Store};
+use dassie_settlement::{AssetId, LedgerStatus};
 
 /// What peering needs, over the core's schemes, ledger and connector.
 pub(super) struct Hooks<'a> {
@@ -30,6 +32,10 @@ pub(super) struct Hooks<'a> {
     pub senior_credit: u64,
     pub connector: &'a Connector,
     pub endpoints: &'a BTreeMap<NodeId, u64>,
+    /// The external assets the schemes settle through, for their status.
+    pub assets: &'a BTreeMap<AssetId, ActiveAsset>,
+    /// The database, for what stays of closed settlement channels.
+    pub store: &'a Store,
 }
 
 impl Hooks<'_> {
@@ -223,6 +229,61 @@ impl PeeringHooks for Hooks<'_> {
             .pending_transfers()
             .any(|transfer| super::settlement::settles_to(self.ledger, transfer, &peer))
     }
+
+    // A database that cannot be read leaves the core unable to tell a
+    // settlement applied from one that is not: it stops, as when a write
+    // fails, and restarts from the disk.
+    #[allow(clippy::panic)]
+    fn closed_channel(&self, node: NodeId) -> Option<dassie_peer::Closed> {
+        match self.store.closed_channel(&node) {
+            Ok(closed) => closed,
+            Err(error) => panic!("reading a closed settlement channel failed: {error}"),
+        }
+    }
+
+    fn closable(&self, node: NodeId) -> bool {
+        let Some(peer) = name(node) else {
+            return false;
+        };
+        let held = |name: &AccountName| {
+            matches!(name, AccountName::AssetsInterledger(of) | AccountName::ContraTrust(of)
+                if *of == peer)
+        };
+        let pending = self.ledger.pending_transfers().any(|transfer| {
+            [transfer.debit, transfer.credit].iter().any(|id| {
+                self.ledger
+                    .account(*id)
+                    .is_some_and(|account| held(&account.path().name))
+            })
+        });
+        // A settlement it made before the close is booked as its own only
+        // by a scheme that still knows it, and sees its ledger.
+        let unseen = LedgerId::ALL.into_iter().any(|ledger| {
+            self.ledger
+                .find(&AccountPath::new(
+                    ledger,
+                    AccountName::AssetsInterledger(peer),
+                ))
+                .is_some()
+                && !self.sees(ledger)
+        });
+        !pending && !unseen
+    }
+}
+
+impl Hooks<'_> {
+    /// Whether a scheme on `ledger` runs and sees its ledger now.
+    fn sees(&self, ledger: LedgerId) -> bool {
+        self.schemes.values().any(|active| {
+            let asset = active
+                .asset
+                .and_then(|id| self.assets.get(&id))
+                .map(|asset| asset.asset.status());
+            active.scheme.ledger() == ledger
+                && active.failed.is_none()
+                && merged_status(asset, active.scheme.status()) == LedgerStatus::Synced
+        })
+    }
 }
 
 /// A peering as the owner sees it.
@@ -363,6 +424,8 @@ impl Core {
             senior_credit: self.senior_credit,
             connector: &self.connector,
             endpoints: &self.peer_endpoints,
+            assets: &self.assets,
+            store: &self.store,
         };
         f(&mut self.peer, &mut hooks, now)
     }
@@ -726,6 +789,19 @@ impl Core {
                 self.peerings_changed = true;
                 self.remove_peer_endpoint(&peer);
                 self.update_routes();
+            }
+            // Its accounts stay with what they show; the schemes forget
+            // what they kept of the node for its settlements
+            // (spec/decisions/closing-channels.md).
+            Event::ChannelClosed { peer } => {
+                self.settle.backoff.remove(&peer);
+                if let Some(name) = name(peer) {
+                    // A stopped scheme is fed nothing: the channel closed
+                    // only while every scheme it has accounts with ran.
+                    for active in self.schemes.values_mut().filter(|a| a.failed.is_none()) {
+                        active.scheme.on_closed(name);
+                    }
+                }
             }
             _ => {}
         }

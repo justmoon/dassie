@@ -407,6 +407,7 @@ const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
         | Event::Depeering { .. }
         | Event::Terminating { .. }
         | Event::PeeringEnded { .. }
+        | Event::ChannelClosed { .. }
         | Event::Reachable { .. }
         | Event::Advertised { short: true, .. } => Severity::Info,
         Event::SettlementRefused { .. } => Severity::Error,

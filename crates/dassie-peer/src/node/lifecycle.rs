@@ -388,6 +388,7 @@ impl PeerNode {
         for peer in done {
             self.end_peering(peer);
         }
+        self.close_idle_channels(hooks);
     }
 
     /// When the review of peerings next has something to do: an advertised
@@ -477,7 +478,10 @@ impl PeerNode {
                 _ => None,
             });
         let telling = self.telling.values().copied().filter(|at| *at != u64::MAX);
-        peerings.chain(telling).min()
+        peerings
+            .chain(telling)
+            .chain(self.next_channel_close())
+            .min()
     }
 
     /// Terminates peers not heard from for too long, counted from our
@@ -605,9 +609,10 @@ impl PeerNode {
             })
     }
 
-    /// Ends a terminating peering. Its accounts and channel stay; asking
-    /// the node again waits a while, a long while if an owner ended it or
-    /// it was for room.
+    /// Ends a terminating peering. Its accounts and channel stay, the
+    /// channel until it has been idle for as long as a silent peer is kept
+    /// (spec/decisions/closing-channels.md); asking the node again waits a
+    /// while, a long while if an owner ended it or it was for room.
     fn end_peering(&mut self, peer: NodeId) {
         let now = self.now_ms;
         let (min, max) = (self.config.min_backoff_ms, self.config.max_backoff_ms);
@@ -632,6 +637,9 @@ impl PeerNode {
         };
         entry.peering_at_ms = now.saturating_add(wait);
         self.dirty.insert(peer);
+        if self.channels.contains_key(&peer) {
+            self.channel_active.insert(peer, now);
+        }
         self.telling.remove(&peer);
         self.unreached.remove(&peer);
         self.drop_peer_source(&peer);

@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
 
-use crate::channel::Channel;
+use crate::channel::{Channel, Closed};
 use crate::table::{Peering, Registration, Sources, Termination};
 
 /// A node, as stored.
@@ -52,6 +52,15 @@ pub struct StoredChannel {
     pub channel: Channel,
 }
 
+/// What stays of a closed settlement channel, as stored.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StoredClosed {
+    /// The node at the other end.
+    pub node: NodeId,
+    /// What stays of the channel.
+    pub closed: Closed,
+}
+
 /// What the peer node starts from.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Stored {
@@ -59,7 +68,8 @@ pub struct Stored {
     pub nodes: Vec<StoredNode>,
     /// The highest sequence of our own link state issued.
     pub own_sequence: u64,
-    /// The settlement channels.
+    /// The settlement channels open: closed ones stay on disk, read
+    /// through [`PeeringHooks::closed_channel`](crate::PeeringHooks::closed_channel).
     pub channels: Vec<StoredChannel>,
     /// The banned nodes.
     pub bans: Vec<NodeId>,
@@ -77,9 +87,12 @@ pub struct PeerBatch {
     pub removed: Vec<NodeId>,
     /// Our own new sequence, if one was issued.
     pub own_sequence: Option<u64>,
-    /// Channels added or changed, as they are now. Channels are never
-    /// removed.
+    /// Channels opened, opened again or changed, as they are now.
     pub channels: Vec<StoredChannel>,
+    /// Channels closed, or closed ones whose sequence moved: what stays of
+    /// each. A channel is never removed, only closed
+    /// (spec/decisions/closing-channels.md).
+    pub closed: Vec<StoredClosed>,
     /// Nodes banned.
     pub banned: Vec<NodeId>,
     /// Nodes no longer banned.
@@ -98,6 +111,7 @@ impl PeerBatch {
             && self.removed.is_empty()
             && self.own_sequence.is_none()
             && self.channels.is_empty()
+            && self.closed.is_empty()
             && self.banned.is_empty()
             && self.unbanned.is_empty()
             && self.floors.is_empty()

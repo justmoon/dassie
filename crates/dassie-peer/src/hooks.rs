@@ -7,6 +7,7 @@ use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
 
+use crate::channel::Closed;
 use crate::wire::{RefusalReason, SchemeId};
 
 /// The scheme would not go on.
@@ -106,4 +107,17 @@ pub trait PeeringHooks {
     /// (spec/decisions/ending-a-peering.md); the message announcing one is
     /// the peer node's own to know.
     fn settling_to(&self, peer: NodeId) -> bool;
+
+    /// What stays of the closed settlement channel with `node`, as it was
+    /// last written, or `None` if there never was one
+    /// (spec/decisions/closing-channels.md). The node reads it from disk
+    /// when the channel opens again and when a settlement comes over it
+    /// closed.
+    fn closed_channel(&self, node: NodeId) -> Option<Closed>;
+
+    /// Whether the node's books let the channel with `node`, a node we no
+    /// longer peer with, close: nothing of it is pending in the ledger, and
+    /// every scheme it has accounts with runs and sees its ledger, so a
+    /// settlement it made before the close is booked as its own.
+    fn closable(&self, node: NodeId) -> bool;
 }

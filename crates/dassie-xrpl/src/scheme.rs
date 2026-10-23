@@ -55,8 +55,9 @@ pub const SCHEME_ID: &str = "xrpl-testnet";
 pub const MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrp-testnet/v1";
 
 /// Most peers whose addresses are kept: at least the node's settlement
-/// channels, with core nodes and with downlinks, so every node it peered
-/// with keeps its own. A table keyed by account, rather than this state,
+/// channels open, with core nodes and with downlinks, so every node it
+/// holds a channel with keeps its own; an address goes when its channel
+/// closes. A table keyed by account, rather than this state,
 /// is to hold them (spec/roadmap.md#periphery).
 pub const MAX_PEERS: usize = 1536;
 /// Most settlements of ours whose outcome is looked for after a restart.
@@ -533,8 +534,9 @@ impl XrplScheme {
 
     /// Keeps a peer's address; past [`MAX_PEERS`], the one learnt longest
     /// ago goes. Only peerings made are learnt, each with a settlement
-    /// channel the node never closes, and a node has at most [`MAX_PEERS`]
-    /// of those: no peer's address goes for another's.
+    /// channel, whose address goes when the channel closes, and a node has
+    /// at most [`MAX_PEERS`] channels open: no peer's address goes for
+    /// another's.
     fn learn(&mut self, peer: Name, address: AccountId) {
         if !self.peers.contains_key(&peer)
             && self.peers.len() >= MAX_PEERS
@@ -859,6 +861,13 @@ impl SettlementScheme for XrplScheme {
         if let Ok(address) = address {
             self.learn(peer, address);
         }
+    }
+
+    /// A Payment from its address is no settlement any more: it was
+    /// followed past every one the peer made before the close, and is the
+    /// owner's deposit if one comes (spec/decisions/closing-channels.md).
+    fn on_closed(&mut self, peer: Name) {
+        self.peers.remove(&peer);
     }
 
     /// Unavailable unless the account can sign it now
