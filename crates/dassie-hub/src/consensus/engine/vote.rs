@@ -22,6 +22,21 @@ use super::round::Proposed;
 use super::{Engine, MAX_ROUNDS, Timers};
 use crate::digest::Digest;
 
+/// What a block builds on: a block that is not a repeat, through the view
+/// that last notarized it (or a repeat of it), or the tip.
+#[derive(Clone, Debug)]
+pub(super) struct Parent {
+    /// The view it is built on through.
+    pub(super) view: u64,
+    /// Its digest.
+    pub(super) digest: Digest,
+    /// The block.
+    pub(super) block: Block,
+    /// The stamp of the block notarized in `view`: the block's, or its
+    /// repeat's. The next block comes an interval after it.
+    pub(super) stamp: u64,
+}
+
 /// What a proposal turned out to be.
 enum Check {
     /// Valid: notarize it.
@@ -46,9 +61,10 @@ impl Engine {
             let (leader_ms, advance_ms) = if self.skips(view) {
                 (now, now)
             } else {
+                let factor = self.backoff_at(view);
                 (
-                    now.saturating_add(self.config.leader_timeout_ms),
-                    now.saturating_add(self.config.advance_timeout_ms),
+                    now.saturating_add(self.config.leader_timeout_ms.saturating_mul(factor)),
+                    now.saturating_add(self.config.advance_timeout_ms.saturating_mul(factor)),
                 )
             };
             self.timers.leader_ms = Some(leader_ms);
@@ -66,6 +82,33 @@ impl Engine {
         if let Some(leader) = self.leader(view) {
             self.event(Event::EnteredView { view, leader });
         }
+    }
+
+    /// How many times longer than usual `view` waits: twice for each view
+    /// we hold nullified since the last notarized one, past
+    /// `backoff_after_views`. Only views held count: they are what the
+    /// engine must keep, and a validator that skipped views by a
+    /// certificate, as one that catches up, holds none of them and waits
+    /// as usual.
+    pub(super) fn backoff_at(&self, view: u64) -> u64 {
+        let notarized = self
+            .rounds
+            .range(..view)
+            .rev()
+            .find(|(_, round)| round.notarization.is_some() || round.finalization.is_some())
+            .map_or(self.tip_view(), |(at, _)| *at);
+        let failed = if notarized < view {
+            self.rounds
+                .range(notarized.saturating_add(1)..view)
+                .filter(|(_, round)| round.nullification.is_some())
+                .count() as u64
+        } else {
+            0
+        };
+        let doublings = failed
+            .saturating_sub(self.config.backoff_after_views)
+            .min(40);
+        1u64 << doublings
     }
 
     /// Whether `view`'s leader has been gone for a while that a quorum was
@@ -120,14 +163,17 @@ impl Engine {
         Some(vote)
     }
 
-    /// Nullifies `view`, and starts rebroadcasting it.
-    pub(super) fn nullify(&mut self, view: u64) {
-        if let Some(vote) = self.sign(VoteKind::Nullify, view, Digest::default()) {
-            self.send(Recipient::All, &Message::Vote(vote));
-            self.stats.nullifies = self.stats.nullifies.saturating_add(1);
-            let interval = self.config.advance_timeout_ms;
-            self.timers.retry = Some((self.now_ms.saturating_add(interval), interval));
-        }
+    /// Nullifies `view`, and starts rebroadcasting it. Returns whether it
+    /// signed: not if it did before, or holds no round for the view.
+    pub(super) fn nullify(&mut self, view: u64) -> bool {
+        let Some(vote) = self.sign(VoteKind::Nullify, view, Digest::default()) else {
+            return false;
+        };
+        self.send(Recipient::All, &Message::Vote(vote));
+        self.stats.nullifies = self.stats.nullifies.saturating_add(1);
+        let interval = self.config.advance_timeout_ms;
+        self.timers.retry = Some((self.now_ms.saturating_add(interval), interval));
+        true
     }
 
     /// Proposes a block, if we lead the view and its time has come.
@@ -140,19 +186,22 @@ impl Engine {
             .rounds
             .get(&view)
             .is_none_or(|round| round.proposal.is_none() && round.own_votes().next().is_none());
-        if self.leader(view) != Some(me) || !idle {
+        // Without room for the view's round, nothing we propose is held.
+        let room = self.rounds.contains_key(&view) || self.rounds.len() < MAX_ROUNDS;
+        if self.leader(view) != Some(me) || !idle || !room {
             return false;
         }
         // Armed again below only while we wait for the interval: a parent
         // that went missing must not leave a timer that is due for ever.
         self.timers.propose_ms = None;
-        let Some((parent_digest, parent)) = self.select_parent(view) else {
+        let Some(parent) = self.select_parent(view) else {
             return false;
         };
         // At the end of the epoch on this chain, the next set builds the
-        // next block; we repeat the last one, until a finalization proves
-        // it.
-        let boundary = match self.boundary_on(app, &parent_digest, view) {
+        // next block; and past the blocks that may wait to be final, the
+        // next one waits for them. Either way we repeat the last one, until
+        // a finalization proves it.
+        let boundary = match self.boundary_on(app, &parent.digest, view) {
             OnChain::Boundary(boundary) => boundary,
             OnChain::Missing(missing) => {
                 self.want_from_any(missing);
@@ -160,12 +209,14 @@ impl Engine {
             }
             OnChain::Invalid => return false,
         };
-        let repeat = boundary.is_some_and(|boundary| parent.height.saturating_add(1) >= boundary);
+        let repeat = boundary
+            .is_some_and(|boundary| parent.block.height.saturating_add(1) >= boundary)
+            || parent.block.height >= self.height_cap();
         // An interval after the parent's stamp, but never more than an
         // interval after we entered: our clock may lag the parent's leader.
         let interval = self.config.block_interval_ms;
         let due = parent
-            .timestamp_ms
+            .stamp
             .saturating_add(interval)
             .min(self.timers.entered_ms.saturating_add(interval));
         if self.now_ms < due {
@@ -173,34 +224,31 @@ impl Engine {
             return false;
         }
         self.timers.propose_ms = None;
-        let timestamp_ms = self.now_ms.max(parent.timestamp_ms.saturating_add(1));
+        let timestamp_ms = self.now_ms.max(parent.stamp.saturating_add(1));
         let block = if repeat {
-            Some(self.repeat_of(view, parent_digest, &parent, timestamp_ms))
+            Some(self.repeat_of(view, &parent, timestamp_ms))
         } else {
-            self.build(app, me, (view, parent_digest, &parent), timestamp_ms)
+            self.build(app, me, (view, &parent), timestamp_ms)
         };
         match block {
-            Some(block) => self.broadcast_proposal(block),
+            Some(block) => {
+                self.broadcast_proposal(block);
+                true
+            }
             None => self.nullify(view),
         }
-        true
     }
 
-    /// An empty repeat of `parent`, the last block of the epoch, which is
-    /// notarized and not final.
-    fn repeat_of(
-        &self,
-        view: u64,
-        parent_digest: Digest,
-        parent: &Block,
-        timestamp_ms: u64,
-    ) -> Block {
+    /// An empty repeat of `parent`, notarized and not final: the last block
+    /// of the epoch, or the last that may wait to be final. It builds on the
+    /// block itself, through the view that last notarized it.
+    fn repeat_of(&self, view: u64, parent: &Parent, timestamp_ms: u64) -> Block {
         let block = Block {
             epoch: self.epoch(),
             view,
-            height: parent.height,
-            parent: parent_digest,
-            parent_view: self.view_in_epoch(parent),
+            height: parent.block.height,
+            parent: parent.digest,
+            parent_view: parent.view,
             timestamp_ms,
             payload: Vec::new(),
         };
@@ -216,15 +264,15 @@ impl Engine {
         &self,
         app: &mut dyn Application,
         me: crate::validators::ValidatorIndex,
-        (view, parent_digest, parent): (u64, Digest, &Block),
+        (view, parent): (u64, &Parent),
         timestamp_ms: u64,
     ) -> Option<Block> {
-        let height = parent.height.saturating_add(1);
+        let height = parent.block.height.saturating_add(1);
         let votes = self.votes();
         let context = ProposeContext {
             view,
             proposer: me,
-            parent: parent_digest,
+            parent: parent.digest,
             height,
             timestamp_ms,
             votes: &votes,
@@ -237,8 +285,8 @@ impl Engine {
             epoch: self.epoch(),
             view,
             height,
-            parent: parent_digest,
-            parent_view: self.view_in_epoch(parent),
+            parent: parent.digest,
+            parent_view: parent.view,
             timestamp_ms,
             payload,
         })
@@ -272,24 +320,38 @@ impl Engine {
         }
     }
 
-    /// The block to build on in `view`: the highest notarized block below
-    /// it whose later views are all nullified, or the tip. Notes what is
+    /// The block to build on in `view`: the block the highest notarized
+    /// view below it stands for (itself, or the block a repeat repeats),
+    /// whose later views are all nullified, or the tip. Notes what is
     /// missing if neither is known.
-    fn select_parent(&mut self, view: u64) -> Option<(Digest, Block)> {
+    fn select_parent(&mut self, view: u64) -> Option<Parent> {
         let mut at = view.saturating_sub(1);
         for _ in 0..=MAX_ROUNDS {
             if at <= self.tip_view() {
-                return Some((self.tip_digest, self.tip.block.clone()));
+                return Some(Parent {
+                    view: self.tip_view(),
+                    digest: self.tip_digest,
+                    block: self.tip.block.clone(),
+                    stamp: self.tip.block.timestamp_ms,
+                });
             }
             let round = self.rounds.get(&at);
             let certified = round
                 .and_then(|round| round.notarization.as_ref().or(round.finalization.as_ref()))
                 .map(|certificate| certificate.block);
             if let Some(digest) = certified {
-                if let (Some(block), Ancestry::Extends) =
-                    (self.blocks.get(&digest), self.ancestry(&digest, at))
+                let content = self.content_of(&digest);
+                let stamp = self.known_block(&digest).map(|block| block.timestamp_ms);
+                if let Some((content, _)) = content
+                    && self.ancestry(&content, at) == Ancestry::Extends
+                    && let (Some(block), Some(stamp)) = (self.known_block(&content), stamp)
                 {
-                    return Some((digest, block.clone()));
+                    return Some(Parent {
+                        view: at,
+                        digest: content,
+                        block: block.clone(),
+                        stamp,
+                    });
                 }
                 self.want_from_any(at);
                 return None;
@@ -342,10 +404,7 @@ impl Engine {
                 }
                 false
             }
-            Check::Invalid => {
-                self.nullify(view);
-                true
-            }
+            Check::Invalid => self.nullify(view),
         }
     }
 
@@ -379,14 +438,20 @@ impl Engine {
                     .timestamp_ms
                     .saturating_add(precision)
                     .saturating_add(self.config.max_delay_ms);
+        if block.height > self.height_cap() {
+            // Above what may wait to be final here: others finalized more
+            // than we did. We ask for it.
+            return Check::Missing(block.view);
+        }
         let fits = boundary.is_none_or(|boundary| block.height < boundary);
-        // A repeat of the epoch's last block on this chain, notarized (by
-        // `parent_of`) and not final (or the epoch would have ended); else
-        // one height more than its parent.
+        // A repeat of a notarized block that is not final (by `parent_of`):
+        // the epoch's last on this chain, or the last that may wait to be
+        // final; else one height more than its parent.
         let repeat = block.height == parent.height;
         let height = if repeat {
-            self.repeat_shaped(&block)
-                && boundary.is_some_and(|boundary| parent.height.saturating_add(1) == boundary)
+            let last = boundary.is_some_and(|b| parent.height.saturating_add(1) == b)
+                || parent.height >= self.height_cap();
+            self.repeat_shaped(&block) && last
         } else {
             block.height == parent.height.saturating_add(1)
         };
@@ -413,31 +478,28 @@ impl Engine {
     }
 
     /// The parent of a proposed block, if it may build on it: the tip, or
-    /// a notarized block that extends the tip, with every view between
-    /// nullified.
+    /// a notarized block that extends the tip, never a repeat. It is built
+    /// on through `parent_view`: the parent's own view, or a view that
+    /// notarized a repeat of it. Every view after that is nullified.
     fn parent_of(&self, block: &Block) -> Result<Block, Check> {
-        if block.parent_view >= block.view {
+        // Skipping views below the floor, it skips the highest notarized
+        // view held, and the views it would need are let go of: we never
+        // notarize it.
+        let below = block.parent_view.saturating_add(1) < self.floor;
+        if block.parent_view >= block.view || block.parent_view < self.tip_view() || below {
             return Err(Check::Invalid);
         }
-        let parent = if block.parent == self.tip_digest {
-            self.tip.block.clone()
-        } else {
-            if block.parent_view < self.tip_view() {
-                return Err(Check::Invalid);
-            }
-            let notarized = self.rounds.get(&block.parent_view).is_some_and(|round| {
-                [&round.notarization, &round.finalization]
-                    .into_iter()
-                    .flatten()
-                    .any(|certificate| certificate.block == block.parent)
-            });
-            match (self.blocks.get(&block.parent), notarized) {
-                (Some(parent), true) => parent.clone(),
-                _ => return Err(Check::Missing(block.parent_view)),
-            }
+        let Some(parent) = self.known_block(&block.parent).cloned() else {
+            return Err(Check::Missing(self.ask_below(block.parent_view)));
         };
-        let parent_view = self.view_in_epoch(&parent);
-        if parent_view != block.parent_view {
+        if self
+            .content_of(&block.parent)
+            .is_none_or(|(content, _)| content != block.parent)
+        {
+            // A repeat is never a parent: blocks build on what it repeats.
+            return Err(Check::Invalid);
+        }
+        if !self.carries(block.parent_view, &block.parent, &parent)? {
             return Err(Check::Invalid);
         }
         match self.ancestry(&block.parent, block.parent_view) {
@@ -445,7 +507,7 @@ impl Engine {
             Ancestry::Missing(view) => return Err(Check::Missing(view)),
             Ancestry::Forks => return Err(Check::Invalid),
         }
-        let skipped = parent_view.saturating_add(1)..block.view;
+        let skipped = block.parent_view.saturating_add(1)..block.view;
         for view in skipped {
             let nullified = self
                 .rounds
@@ -456,6 +518,32 @@ impl Engine {
             }
         }
         Ok(parent)
+    }
+
+    /// Whether view `view` stands for `parent` (`digest`): the tip in its
+    /// own view, or a view that notarized it or a repeat of it.
+    fn carries(&self, view: u64, digest: &Digest, parent: &Block) -> Result<bool, Check> {
+        if *digest == self.tip_digest && view == self.tip_view() {
+            return Ok(true);
+        }
+        let Some(round) = self.rounds.get(&view) else {
+            return Err(Check::Missing(view));
+        };
+        let certified = [&round.notarization, &round.finalization]
+            .into_iter()
+            .flatten()
+            .map(|certificate| certificate.block)
+            .next();
+        let Some(certified) = certified else {
+            return Err(Check::Missing(view));
+        };
+        if certified == *digest {
+            return Ok(true);
+        }
+        match self.blocks.get(&certified) {
+            Some(repeat) => Ok(repeat.parent == *digest && repeat.repeats(parent)),
+            None => Err(Check::Missing(view)),
+        }
     }
 
     /// Votes to finalize every notarized block we may.

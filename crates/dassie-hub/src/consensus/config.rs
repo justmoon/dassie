@@ -52,6 +52,15 @@ pub struct Config {
     /// timeouts. A live validator votes in every view it is in; ten views
     /// are at least a second.
     pub skip_views: u64,
+    /// How many views in a row may be nullified, since the last that was
+    /// notarized, before each further view waits twice as long as the one
+    /// before. The views after the last notarized one are what the engine
+    /// must keep to build on it, so this bounds them, however long the
+    /// network stays unable to notarize: some 40 doublings make a view
+    /// longer than any outage. Sixteen is more than the faulty leaders of
+    /// three rotations of the largest set, so a hub that is merely missing
+    /// validators never waits longer.
+    pub backoff_after_views: u64,
     /// The least time between two catch-up requests: a round trip.
     pub fetch_interval_ms: u64,
 }
@@ -71,6 +80,7 @@ impl Config {
         advance_timeout_ms: ADVANCE_MS,
         max_retry_ms: 8 * ADVANCE_MS,
         skip_views: 10,
+        backoff_after_views: 16,
         fetch_interval_ms: 2 * DELAY_MS,
     };
 
@@ -108,6 +118,10 @@ impl Config {
             "retries back off from the timeout"
         );
         assert!(self.skip_views > 0, "a leader may miss a view");
+        assert!(
+            self.backoff_after_views > 0,
+            "a view may fail before views wait longer"
+        );
     }
 }
 

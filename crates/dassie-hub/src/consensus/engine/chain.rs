@@ -34,6 +34,10 @@ pub(super) enum Hold {
     Proposal,
     /// A block that a verified certificate names.
     Certified,
+    /// A block persisted before a restart: ours, or one held then, and
+    /// trusted as such. It may be below the floor, on the chain to the
+    /// highest notarized view.
+    Restored,
 }
 
 impl Engine {
@@ -43,7 +47,17 @@ impl Engine {
     /// not extend the tip, or of a view we hold no round for, is not held.
     pub(super) fn hold_block(&mut self, block: Block, why: Hold) -> Digest {
         let digest = block.digest(&self.hub);
-        if self.blocks.contains_key(&digest) || !self.plausible(&block) {
+        if self.blocks.contains_key(&digest) || self.blocks.len() >= MAX_BLOCKS {
+            return digest;
+        }
+        if why == Hold::Restored {
+            let above = block.height > self.tip.block.height || self.repeats_tip(&block);
+            if block.epoch == self.epoch() && above {
+                self.blocks.insert(digest, block);
+            }
+            return digest;
+        }
+        if !self.plausible(&block) {
             return digest;
         }
         let view = block.view;
@@ -58,9 +72,12 @@ impl Engine {
             .count();
         let admitted = match why {
             Hold::Proposal => first,
-            Hold::Certified => true,
+            Hold::Certified | Hold::Restored => true,
         };
         if admitted && held < BLOCKS_PER_VIEW {
+            // Kept across a restart: the chain to the highest notarized
+            // view must survive one, even below the floor.
+            self.batch.blocks.push(block.clone());
             self.blocks.insert(digest, block);
         }
         digest
@@ -77,7 +94,7 @@ impl Engine {
             && self.holds_view(block.view)
             && block.view <= self.view.saturating_add(MAX_VIEWS_AHEAD)
             && block.parent_view < block.view
-            && heights > 0
+            && (heights > 0 || self.repeats_tip(block))
             && heights <= views
     }
 
@@ -114,10 +131,19 @@ impl Engine {
             if block.height <= self.tip.block.height {
                 return Ancestry::Forks;
             }
-            view = block.parent_view;
+            view = self.ask_below(block.parent_view);
             at = block.parent;
         }
         Ancestry::Forks
+    }
+
+    /// The view to ask from for a block's parent that is not held, built on
+    /// through view `parent_view`: that view may have notarized only a
+    /// repeat of the parent, and the views between may be let go of, here
+    /// and at the peer, but those that certified the chain. So from the
+    /// lowest view the parent may be of: the first after the tip.
+    pub(super) fn ask_below(&self, parent_view: u64) -> u64 {
+        parent_view.min(self.tip_view().saturating_add(1))
     }
 
     /// The content block a block stands for: itself, or the block its
@@ -376,8 +402,11 @@ impl Engine {
             self.vote_log.pop_front();
         }
         self.settled_conflicts.retain(|at| *at >= oldest);
-        self.blocks
-            .retain(|_, block| block.height > height && block.view > view);
+        let (tip, tip_block) = (self.tip_digest, self.tip.block.clone());
+        self.blocks.retain(|_, block| {
+            let repeats_tip = block.parent == tip && block.repeats(&tip_block);
+            (block.height > height || repeats_tip) && block.view > view
+        });
         let blocks = &self.blocks;
         self.executed.retain(|digest| blocks.contains_key(digest));
         self.finalize_heights.retain(|at, _| *at > height);

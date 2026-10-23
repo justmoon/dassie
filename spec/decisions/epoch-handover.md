@@ -13,16 +13,15 @@
 
 - **Epochs.** Each set runs an epoch of its own, numbered, with views from 1. Every block, vote and certificate names its epoch, and a vote's signature covers it, so votes of two sets never mix, and a validator in both signs nothing that conflicts.
 - **The handover depends only on the block.** Once block H − 1 is final, by whatever certificate, the next epoch runs from view 1, and its first block builds on H − 1 at view 0. Every validator starts the new set at the same place, whichever certificate it learned of first.
-- **A repeat finalizes the last block.** While H − 1 is notarized and not final, the old set's next leader proposes a repeat: a block of the same height, with H − 1 as its parent and no payload. Only the old set makes one, only of its epoch's last block, and the application never sees it. A repeat is notarized and finalized like any block, and a later repeat may build on an earlier one, so the split votes on H − 1 no longer block anything: the repeat's finalization proves H − 1 final.
+- **A repeat finalizes the last block.** While H − 1 is notarized and not final, the old set's next leader proposes a repeat: a block of the same height, with H − 1 as its parent and no payload. Only the old set makes one, only of its epoch's last block, and the application never sees it. A repeat is notarized and finalized like any block, and every repeat builds on H − 1 itself, through the view that notarized it or a repeat of it, so the split votes on H − 1 no longer block anything: the repeat's finalization proves H − 1 final.
 - **The boundary is read from the chain.** The block that schedules the change can be notarized and not final while H − 2 and H − 1 are proposed, and its votes can split too. So whether a block is at or past H, and whether a repeat repeats the epoch's last block, is judged on the chain the block builds on: the application's state after its parent, final or not, names the change. A validator that has finalized less judges the same chain the same way, and the old set notarizes nothing at H or above. Finality is not judged by it: a finalization proves its block and every ancestor, so a validator applies the blocks it proves in order, learning of the change as it goes, and only then takes the repeats after them as the proof.
-- **Proofs of the last block are either kind.** H − 1's own finalization or a repeat's, with the repeats between, proves the block in catch-up and in the epochs' last blocks each validator keeps.
+- **Proofs of the last block are either kind.** H − 1's own finalization or a repeat's proves the block in catch-up and in the epochs' last blocks each validator keeps.
 
 ## Accepted
 
 - The application keeps the state after blocks it found valid, final or not, and answers what change each names. It may bound how many it keeps, and says which it still holds: the engine has it verify again, from the nearest it holds, what it let go of, and verify a notarized block it never saw proposed before it builds on it. Otherwise a state let go of while its block's votes split would refuse every block after it, at more than f honest validators for good.
 
 - A repeat costs a view, and only at the end of an epoch whose last block's votes split.
-- A chain of repeats longer than a delivery's bound cannot be handed over in one delivery; it takes a run of splits at one boundary that long.
 - Votes and blocks carry eight more bytes.
 
 ## Rejected

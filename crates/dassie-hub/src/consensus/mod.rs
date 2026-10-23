@@ -52,8 +52,8 @@ pub mod wire;
 
 pub use config::Config;
 pub use engine::{
-    BLOCKS_PER_VIEW, Engine, MAX_BLOCKS, MAX_BOUNDARIES, MAX_ROUNDS, MAX_VIEWS_AHEAD,
-    RETAINED_BLOCKS,
+    BLOCKS_PER_VIEW, Engine, MAX_BLOCKS, MAX_BOUNDARIES, MAX_ROUNDS, MAX_UNFINALIZED_HEIGHTS,
+    MAX_VIEWS_AHEAD, RETAINED_BLOCKS,
 };
 pub use epochs::{Epochs, MAX_EPOCHS, ReconfigureError};
 pub use hooks::{Application, Declined, ProposeContext, VerifyContext};

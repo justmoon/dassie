@@ -201,6 +201,9 @@ impl Engine {
             return self.refuse();
         }
         if !self.holds_view(view) {
+            if view > self.tip_view() && self.take_for_chain(&certificate, block.as_ref()) {
+                return;
+            }
             return self.check_settled(&certificate, block.as_ref());
         }
         let held = self

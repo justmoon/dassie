@@ -54,7 +54,18 @@ struct Setup {
     /// application keeps, if it is bounded: the engine must verify again
     /// what it let go of.
     keep_states: Option<usize>,
+    /// When, after the start, every vote to finalize is lost, and for how
+    /// long: often longer than the chaos, and than the heights and views an
+    /// engine holds, so blocks keep being notarized and none is final.
+    /// Once the votes go through again, blocks must be final again: a knob
+    /// for coverage of finality after a long outage.
+    finalize_outage: Option<(u64, u64)>,
 }
+
+/// The longest every vote to finalize is lost in seeds that draw it: some
+/// ten times the heights an engine holds unfinalized, at a block an
+/// interval.
+const OUTAGE_MS: u64 = 60_000;
 
 /// The block that schedules a change of validators, in seeds that draw one.
 const RECONFIGURE_AT: u64 = 30;
@@ -99,6 +110,8 @@ fn setup(seed: u64) -> (SeededRng, Setup) {
     };
     let lose_last_finalize = split_at_boundary && rng.below(2) == 0;
     let keep_states = (rng.below(3) == 0).then(|| 1 + usize::try_from(rng.below(8)).unwrap_or(0));
+    let finalize_outage =
+        (rng.below(6) == 0).then(|| (rng.below(CHAOS_MS), CHAOS_MS / 2 + rng.below(OUTAGE_MS)));
     let setup = Setup {
         roles,
         collusion,
@@ -108,6 +121,7 @@ fn setup(seed: u64) -> (SeededRng, Setup) {
         split_at_boundary,
         lose_last_finalize,
         keep_states,
+        finalize_outage,
     };
     (rng, setup)
 }
@@ -121,7 +135,11 @@ pub fn describe(seed: u64) -> String {
         .iter()
         .filter(|role| !role.is_honest())
         .collect();
-    if setup.reconfigure {
+    let outage = setup
+        .finalize_outage
+        .map(|(start, length)| format!(", every finalize lost for {length} ms from {start} ms"))
+        .unwrap_or_default();
+    let described = if setup.reconfigure {
         let count = setup.roles.len() - 1;
         format!(
             "{count} validators, Byzantine: {byzantine:?}, validator {count} replacing 0 \
@@ -135,18 +153,27 @@ pub fn describe(seed: u64) -> String {
         )
     } else {
         format!("{} validators, Byzantine: {byzantine:?}", setup.roles.len())
-    }
+    };
+    described + &outage
 }
 
 /// The longest blocks may take to finalize again after the heal, from the
 /// production rules: a view stuck in the chaos rebroadcasts its nullify
-/// within `max_retry_ms`; a validator `behind` blocks catches up a delivery
-/// of blocks per view, at worst an advance timeout each; then each of
-/// [`LIVE_BLOCKS`] blocks takes at most a rotation of `count` leaders, each
-/// faulty one's view lost to its timeout.
-fn heal_deadline(count: u64, behind: u64) -> u64 {
+/// within `max_retry_ms`, or, after a long run of views that failed, times
+/// out `backoff` times later than usual, and each view that fails after it
+/// waits twice as long, for at most a rotation of `count` leaders; a
+/// validator `behind` blocks catches up a delivery of blocks per view, at
+/// worst an advance timeout each; then each of [`LIVE_BLOCKS`] blocks takes
+/// at most a rotation of leaders, each faulty one's view lost to its
+/// timeout.
+fn heal_deadline(count: u64, behind: u64, backoff: u64) -> u64 {
+    let stuck = if backoff > 1 {
+        backoff.saturating_mul(1 << (count + 1)) * CONFIG.advance_timeout_ms
+    } else {
+        0
+    };
     let catch_up = (behind / MAX_DELIVERED_BLOCKS as u64 + 1) * CONFIG.advance_timeout_ms;
-    CONFIG.max_retry_ms + catch_up + LIVE_BLOCKS * count * CONFIG.advance_timeout_ms
+    CONFIG.max_retry_ms + stuck + catch_up + LIVE_BLOCKS * count * CONFIG.advance_timeout_ms
 }
 
 /// Runs the seed and checks it.
@@ -157,6 +184,39 @@ pub fn run(seed: u64) -> Run {
     for sim in &mut network.validators {
         sim.app.keep_states = setup.keep_states;
     }
+    let mut counts = rough(&mut network, &mut rng, &setup);
+    let (top, backoff) = heal(&mut network);
+    let outcome = check(&network, &setup, top);
+    let mut run = Run::new(outcome, core::mem::take(&mut network.trace));
+    if network.evidence_found() {
+        counts.insert("evidence", 1);
+    }
+    if network.disagreement().is_some() {
+        counts.insert("fork", 1);
+    }
+    if setup.reconfigure && network.honest_floor() >= setup.from {
+        counts.insert("reconfigured", 1);
+    }
+    if network.state_loads > 0 {
+        counts.insert("state-load", network.state_loads);
+    }
+    if backoff > 1 {
+        counts.insert("backoff", backoff);
+    }
+    if network.repeat_handovers > 0 {
+        counts.insert("repeat-handover", network.repeat_handovers);
+    }
+    run.counts = counts;
+    run
+}
+
+/// The stretch of chaos, with what the seed drew: a split at the boundary,
+/// the votes to finalize lost; and what happened, counted.
+fn rough(
+    network: &mut Network,
+    rng: &mut SeededRng,
+    setup: &Setup,
+) -> alloc::collections::BTreeMap<&'static str, u64> {
     let mut counts = alloc::collections::BTreeMap::new();
     let mut at = START;
     let mut split = setup.split_at_boundary;
@@ -164,7 +224,17 @@ pub fn run(seed: u64) -> Run {
         network.lose_finalize_at = Some(setup.from - 1);
     }
     let mut heal_at = None;
-    while at < START + CHAOS_MS {
+    let outage = setup
+        .finalize_outage
+        .map_or(START..START, |(start, length)| {
+            START + start..START + start + length
+        });
+    let end = (START + CHAOS_MS).max(outage.end);
+    if setup.finalize_outage.is_some() {
+        counts.insert("finalize-outage", 1);
+    }
+    while at < end {
+        network.lose_every_finalize = outage.contains(&at);
         // Waiting to split at the boundary, the network is watched closely.
         at += if split { 20 } else { 100 + rng.below(1_500) };
         network.run_until(at);
@@ -180,17 +250,26 @@ pub fn run(seed: u64) -> Run {
                 .unwrap_or(0);
             if top.saturating_add(3) >= setup.from {
                 split = false;
-                split_in_two(&mut network, &mut rng);
+                split_in_two(network, rng);
                 heal_at = Some(at + 300 + rng.below(1_700));
                 counts.insert("boundary-split", 1);
             }
             continue;
         }
-        let action = chaos(&mut network, &mut rng);
+        let action = chaos(network, rng);
         *counts.entry(action).or_insert(0) += 1;
     }
+    counts
+}
+
+/// Heals the network, starts every validator, and runs until every honest
+/// one finalized [`LIVE_BLOCKS`] more than the highest did at the heal, or
+/// the deadline. Returns that height, and the most any validator's view
+/// waited longer than usual then.
+fn heal(network: &mut Network) -> (u64, u64) {
     network.faults = Faults::CALM;
     network.lose_finalize_at = None;
+    network.lose_every_finalize = false;
     network.heal();
     for index in 0..network.validators.len() {
         if !network.is_up(index) {
@@ -204,27 +283,22 @@ pub fn run(seed: u64) -> Run {
         .max()
         .unwrap_or(0);
     let count = network.validators.len() as u64;
-    let deadline = network.now + heal_deadline(count, top - floor);
-    network.run_until(deadline);
-    let outcome = check(&network, &setup, top);
-    let mut run = Run::new(outcome, core::mem::take(&mut network.trace));
-    if network.evidence_found() {
-        counts.insert("evidence", 1);
+    let backoff = network
+        .honest()
+        .filter_map(|index| network.validators[index].engine.as_ref())
+        .map(crate::consensus::Engine::backoff)
+        .max()
+        .unwrap_or(1);
+    let deadline = network.now + heal_deadline(count, top - floor, backoff);
+    // A second at a time.
+    while network.now < deadline
+        && network
+            .honest()
+            .any(|index| network.height(index) < top + LIVE_BLOCKS)
+    {
+        network.run_until((network.now + 1_000).min(deadline));
     }
-    if network.disagreement().is_some() {
-        counts.insert("fork", 1);
-    }
-    if setup.reconfigure && network.honest_floor() >= setup.from {
-        counts.insert("reconfigured", 1);
-    }
-    if network.state_loads > 0 {
-        counts.insert("state-load", network.state_loads);
-    }
-    if network.repeat_handovers > 0 {
-        counts.insert("repeat-handover", network.repeat_handovers);
-    }
-    run.counts = counts;
-    run
+    (top, backoff)
 }
 
 /// The run's network: with a change of validators scheduled, validator

@@ -14,7 +14,7 @@
 
 use alloc::vec::Vec;
 
-use super::types::{Block, Certificate, Finalized, Vote};
+use super::types::{Block, Certificate, Finalized, Vote, VoteKind};
 use crate::digest::Digest;
 use crate::validators::ValidatorSet;
 
@@ -50,8 +50,10 @@ pub struct Stored {
     pub floor: u64,
     /// For each height above the tip, the block we voted to finalize there.
     pub finalize_heights: Vec<(u64, Digest)>,
-    /// The blocks we proposed or notarized above the tip, so that a
-    /// notarized block survives even if every validator restarts.
+    /// The blocks we hold above the tip: those of the views held, and the
+    /// chain from the tip to the highest notarized view, so that a notarized
+    /// block, and what a later one needs to be final, survive even if every
+    /// validator restarts.
     pub blocks: Vec<Block>,
     /// The certificates we hold of views above the tip.
     pub certificates: Vec<Certificate>,
@@ -73,8 +75,10 @@ pub struct Batch {
     pub floor: Option<u64>,
     /// Heights we voted to finalize a block at.
     pub finalize_heights: Vec<(u64, Digest)>,
-    /// Blocks we proposed or notarized.
+    /// Blocks we came to hold.
     pub blocks: Vec<Block>,
+    /// All the blocks we hold, when we let go of some.
+    pub blocks_held: Option<Vec<Block>>,
     /// Certificates we took.
     pub certificates: Vec<Certificate>,
     /// The last blocks of epochs that ended.
@@ -96,6 +100,7 @@ impl Batch {
             && self.floor.is_none()
             && self.finalize_heights.is_empty()
             && self.blocks.is_empty()
+            && self.blocks_held.is_none()
             && self.certificates.is_empty()
             && self.boundaries.is_empty()
             && self.tip.is_none()
@@ -135,7 +140,14 @@ impl Stored {
         }
         self.votes.extend(batch.votes);
         self.finalize_heights.extend(batch.finalize_heights);
-        self.blocks.extend(batch.blocks);
+        if let Some(held) = batch.blocks_held {
+            self.blocks = held;
+        }
+        for block in batch.blocks {
+            if !self.blocks.contains(&block) {
+                self.blocks.push(block);
+            }
+        }
         self.certificates.extend(batch.certificates);
         self.boundaries.extend(batch.boundaries);
         let excess = self
@@ -163,10 +175,20 @@ impl Stored {
         let live = |at: u64, of: u64| of == epoch && at > view && at >= floor;
         self.votes.retain(|vote| live(vote.view, vote.epoch));
         self.finalize_heights.retain(|(at, _)| *at > height);
+        // Blocks below the floor stay while the engine holds them: the chain
+        // to the highest notarized view. Repeats of the tip may stay as well.
         self.blocks
-            .retain(|block| block.height > height && live(block.view, block.epoch));
-        self.certificates
-            .retain(|certificate| live(certificate.view, certificate.epoch));
+            .retain(|block| block.epoch == epoch && block.view > view && block.height >= height);
+        // Below the floor, the certificates of the chain's blocks stay with
+        // them, for validators behind on it.
+        let blocks = &self.blocks;
+        self.certificates.retain(|certificate| {
+            live(certificate.view, certificate.epoch)
+                || (certificate.epoch == epoch
+                    && certificate.view > view
+                    && certificate.kind != VoteKind::Nullify
+                    && blocks.iter().any(|block| block.view == certificate.view))
+        });
     }
 
     /// The number of the epoch running: the last that started.

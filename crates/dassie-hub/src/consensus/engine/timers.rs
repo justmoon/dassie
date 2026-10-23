@@ -23,8 +23,13 @@ impl Engine {
         let now = self.now_ms;
         let late = |due: Option<u64>| due.is_some_and(|due| due <= now);
         if (!proposed && late(self.timers.leader_ms)) || late(self.timers.advance_ms) {
-            self.nullify(view);
-            return true;
+            if self.nullify(view) {
+                return true;
+            }
+            // No room for the view's round: the certificates that come
+            // move us on, not a timer that stays due.
+            self.timers.leader_ms = None;
+            self.timers.advance_ms = None;
         }
         false
     }

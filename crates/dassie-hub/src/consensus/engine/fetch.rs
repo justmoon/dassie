@@ -114,7 +114,9 @@ impl Engine {
                 proven = (delivery.finalized.len(), bytes);
                 delivery.finalization = Some(certificate.clone());
             }
-            if self.ends_epoch(finalized.block.height) {
+            // Repeats only end a delivery: the next block builds on the
+            // block they repeat.
+            if self.ends_epoch(finalized.block.height) || !finalized.repeats.is_empty() {
                 break;
             }
         }
@@ -122,6 +124,9 @@ impl Engine {
         delivery.finalized.truncate(count);
         if count == 0 {
             delivery.finalization = None;
+            if let Some(next) = self.next_proven(start) {
+                return next;
+            }
         }
         let bytes = bytes.saturating_add(
             delivery
@@ -130,6 +135,27 @@ impl Engine {
                 .map_or(0, Encode::encoded_len),
         );
         (delivery, bytes)
+    }
+
+    /// The first block from `start` on that we hold a finalization of, alone
+    /// with its repeats, and its size: when the blocks up to it do not fit
+    /// in one delivery, as after a long run finalized at once (or a few
+    /// large blocks), the asker loads the state after it, as below what we
+    /// keep.
+    fn next_proven(&self, start: u64) -> Option<(Delivery, usize)> {
+        let next = self
+            .history
+            .iter()
+            .map(|(_, finalized)| finalized)
+            .filter(|finalized| finalized.block.height >= start)
+            .find(|finalized| finalized.finalization.is_some())?;
+        let delivery = Delivery {
+            finalized: next.chain(),
+            finalization: next.finalization.clone(),
+            ..Delivery::default()
+        };
+        let bytes = delivery.encoded_len();
+        Some((delivery, bytes))
     }
 
     /// Whether block `height` is the last of an epoch we know of.
@@ -175,7 +201,9 @@ impl Engine {
         if let Some(finalization) = &delivery.finalization {
             self.take_finalized(app, &delivery.finalized, finalization);
         }
-        for certified in delivery.certified {
+        // The highest first: a block the chain lacks is taken below the
+        // floor only once the block that builds on it is held.
+        for certified in delivery.certified.into_iter().rev() {
             self.on_certificate(certified.certificate, certified.block);
         }
     }
@@ -313,7 +341,9 @@ impl Engine {
 
     /// The digests of `blocks` if each is the parent of the next, all of
     /// one epoch, and `finalization` names the last, whoever signed it.
-    /// Repeats may only end the chain, of the block before them. Whether
+    /// Each builds on a view from its parent's own to before its own: a
+    /// block may build on its parent through a view that notarized a repeat
+    /// of it. Repeats may only end the chain, of the block before them. Whether
     /// that block ends its epoch is learned by applying the blocks first:
     /// the finalization proves them final whatever the repeats are.
     fn chained(&self, blocks: &[Block], finalization: &Certificate) -> Option<Vec<Digest>> {
@@ -325,7 +355,8 @@ impl Engine {
             |((block, next), digest)| {
                 next.parent == *digest
                     && next.epoch == block.epoch
-                    && next.parent_view == block.view
+                    && next.parent_view >= block.view
+                    && next.parent_view < next.view
                     && (next.height == block.height.saturating_add(1) || next.repeats(block))
             },
         );
