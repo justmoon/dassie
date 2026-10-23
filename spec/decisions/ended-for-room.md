@@ -11,7 +11,7 @@
 ## Decision
 
 - **The pair stays apart.** After a peering ends for want of room, neither side asks the other for the owner's cooldown (`owner_termination_cooldown_ms`), and each refuses the other's requests meanwhile, as after an owner's end. The node that decided for room keeps that reason when the peer tells it first. Like the owner's, the cooldown is not persisted.
-- **No credit back.** The node that ends a peering for room remembers it on the settlement channel, which outlives peerings and is never removed. A later peering in which it is the junior keeps the trust account as it is, rather than raising it to the default: the peer's credit grows again only with what it earns the node.
+- **No credit back.** The node that ends a peering for room remembers it on the settlement channel, which outlives peerings and is never removed: a closed channel keeps the mark on disk ([closing-channels](closing-channels.md)). A later peering in which it is the junior keeps the trust account as it is, rather than raising it to the default: the peer's credit grows again only with what it earns the node.
 
 Other ends keep the short backoff.
 

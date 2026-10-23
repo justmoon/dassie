@@ -52,7 +52,7 @@ Built: who is a periphery node, its link state without a URL, its peerings with 
 
 A core node keeps its peerings with other core nodes, and its downlinks, under separate limits.
 
-- **Core relationships:** at most 32 settlement channels with core nodes over the node's life, as against 512 for every peer today. A channel outlives its peering ([Settlement](../areas/settlement.md#settlement-channels)), so this limit needs [closing settled relationships](../roadmap.md#not-built-yet): one whose peering has ended, with nothing owed either way, nothing in flight and no settlement on its way, is closed and frees its place. Its ledger accounts stay, at zero, since the journal refers to them.
+- **Core relationships:** at most 32 settlement channels open with core nodes, as against 512 today. A channel outlives its peering, and closes once idle, to disk, which frees its place ([Settlement](../areas/settlement.md#settlement-channels)). Its ledger accounts stay, with what they show, since the journal refers to them.
 - **Downlinks** live in a table of their own, not in the node table. Each row holds:
   - the downlink's node ID and public key;
   - its scheme, and the scheme's data for it (on the XRP Ledger, its account address);
@@ -62,7 +62,7 @@ A core node keeps its peerings with other core nodes, and its downlinks, under s
 
   With the downlink's two ledger accounts, that is about 0.5 KB per downlink on disk. A peer today costs about 1 KB on disk and 1.5–2 KB in memory, most of it the link state, kept both as bytes and parsed, which a downlink does not need.
 - **In memory only while connected.** A downlink's replay guard, MAC keys and peering state are loaded when it connects, and dropped once it has been gone for a while. Its replay floor is on disk, as for any peer.
-- **Limits:** at most 10 000 downlinks peered at once, and at most 100 000 rows, about 50 MB. A row with nothing owed either way and no peering is closed. When the rows are full, the node refuses new downlinks. What is built is one bound on downlinks, which live in the node table, and whose channels are never closed ([Network](../areas/network.md#downlinks)); their QUIC connections hold places of their own, with room for that many downlinks ([Peer protocol](../areas/peer-protocol.md#quic)).
+- **Limits:** at most 10 000 downlinks peered at once, and at most 100 000 rows, about 50 MB. A row with no peering, idle as a closed channel is, is closed. When the rows are full, the node refuses new downlinks. What is built is one bound on downlinks, which live in the node table, and whose channels close once idle, as every channel does ([Network](../areas/network.md#downlinks)); their QUIC connections hold places of their own, with room for that many downlinks ([Peer protocol](../areas/peer-protocol.md#quic)).
 - **No withdrawal for room** for a downlink that owes nothing is built ([Network](../areas/network.md#advertised-peers)).
 - **The XRPL scheme** keeps its peers' addresses in a table keyed by account, not in its state ([XRP Ledger](../areas/xrpl.md#state-and-restarts)). With many downlinks, its state would grow with every one and be written whole at every checkpoint, and a scheme that kept only the newest addresses could not recognise a settlement from a downlink it forgot.
 

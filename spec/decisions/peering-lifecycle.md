@@ -23,7 +23,7 @@ A peering is requested, peered or terminating; a peer is advertised in our link 
 ## Accepted
 
 - Withdrawing a stuck peer stops packets toward it too, even those that would raise its room: it must settle to come back. A link whose books drifted past what it survives is not saved; it is withdrawn and ended.
-- A node never closes a peer's accounts or settlement channel, so the number of nodes it has ever peered with is capped. Closing relationships whose balance is settled can lift that ([roadmap](../roadmap.md)).
+- A node never closes a peer's accounts, so the number of nodes it has ever peered with is capped by its ledger's accounts ([roadmap](../roadmap.md#not-built-yet)). A settlement channel closes once idle, to disk, and frees its place ([closing-channels](closing-channels.md)).
 - A peer short of room that cannot be reached is asked to settle at every check, not once a request interval. Each attempt fails before it reaches the peer, so it costs the peer nothing.
 - A peer that refuses our connections while it keeps talking to us is never ended for room. It stays withdrawn, no packet crosses the link, the credit bounds what it owes, and it holds one of our peer slots until either owner ends the peering, or ours bans it.
 

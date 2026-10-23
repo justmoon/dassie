@@ -163,7 +163,7 @@ After a restart, settlements still pending in the journal are handed to their sc
 
 - **The books first.** The node checks that it can book a settlement before the scheme sees it, so the scheme's balance never moves without the books. Otherwise it answers 400 and nothing changes.
 - **The scheme decides what it is worth.** The stub books the amount stated; the XRPL scheme books nothing on the message, since its ledger says what arrived ([XRPL](xrpl.md#settlement-messages)).
-- **From a channel, not a peering.** A `settlement` is taken from any authenticated node we hold a [settlement channel](#settlement-channels) with, so a settlement that arrives after the peering ended is still credited.
+- **From a channel, not a peering.** A `settlement` is taken from any authenticated node we hold a [settlement channel](#settlement-channels) with, open or closed, so a settlement that arrives after the peering ended, or after its channel closed, is still credited.
 - A settlement the scheme sees on its ledger from a node without accounts there cannot be from a peer: it is booked as the owner's deposit.
 
 ## Settlement channels
@@ -172,7 +172,13 @@ The node keeps a settlement channel with every node it has ever peered with (`cr
 
 **Delivery is exactly once.** Each `settlement` message carries a sequence per sender and recipient that never resets. The sender sends one at a time, in order, again until it is acknowledged, across restarts, never dropping it; one that got no answer goes again as soon as the node answers us at all ([Peer protocol](peer-protocol.md#message-set)). The receiver applies only the next sequence, recording it in the batch that books it, acknowledges anything at or below the last one without applying it again, and refuses anything else. So a copy from an old peering is never applied twice, and none is lost.
 
-**Channels are never closed,** so a node keeps a bounded number of them, one per node it has ever peered with: with core nodes under one bound, and with downlinks under their own ([Network](network.md#downlinks)). Once all of a kind are taken, peering with a new node of that kind is refused for capacity; nodes it holds a channel with can still peer. Closing a settled channel safely is not built ([roadmap](../roadmap.md#not-built-yet), [peering-lifecycle](../decisions/peering-lifecycle.md)).
+**Open channels are bounded:** with core nodes under one bound, and with downlinks under their own ([Network](network.md#downlinks)). Once all of a kind are taken, peering with a new node of that kind is refused for capacity; nodes it holds an open channel with can still peer.
+
+**A channel left idle closes, to disk** ([closing-channels](../decisions/closing-channels.md)). Once it has been idle for as long as a silent peer is kept, with a node we neither peer with nor ask, with nothing on its way and nothing of the node pending in the books, and every scheme the node has accounts with seeing its ledger, it leaves memory and frees its place. Its balance does not matter: the node's accounts stay with what they show, for a later peering to settle. Its row stays on disk with its sequences and the mark of an end for room, so delivery stays exactly once:
+
+- **A peering opens it again where it was,** so our next message follows the last one the peer applied.
+- **A settlement over it closed** is read against the sequence that stayed: applied once, and acknowledged again as a copy. The channel stays closed.
+- **The schemes forget** what they kept of the node for its settlements (`on_closed`): a ledger payment from it after the close is the owner's deposit.
 
 ## Settlement hubs
 
@@ -200,6 +206,7 @@ A peer's settlement is believed as stated. Anyone peered over the stub can mint 
 - [real-money](../decisions/real-money.md): only test-realm ledgers activate.
 - [external-assets](../decisions/external-assets.md): what the node holds apart from how it settles, and the ledger authoritative for holdings.
 - [peering-lifecycle](../decisions/peering-lifecycle.md): channels kept after a peering, and their limit.
+- [closing-channels](../decisions/closing-channels.md): a channel left idle closes to disk, whatever the balance.
 - [ending-a-peering](../decisions/ending-a-peering.md): nothing settled for a peering's end.
 - [synced-before-peering](../decisions/synced-before-peering.md): no peering on a scheme before its first sync.
 - [own-books](../decisions/own-books.md): each node decides from its own books, and the bound that holds whatever a peer does.

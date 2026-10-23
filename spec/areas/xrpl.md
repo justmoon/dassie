@@ -141,7 +141,7 @@ The scheme books **every validated transaction that touches its account once, in
 - **A settlement from a peer:** a successful Payment of XRP to us, whose memo has our memo type and names a peer, from the address that peer gave when peering. It is booked by `delivered_amount`, with its hash as the journal reference.
 - **Anything else** that adds XRP, the account's creation included, is a deposit; anything that takes XRP, a withdrawal.
 
-**Peers' addresses** are the scheme's. They are learnt only once a peering is made, never from an attempt that may still be refused, and kept after it ends, like the [settlement channel](settlement.md#settlement-channels) the peer's settlements come over. The scheme keeps at least as many as the node has channels (asserted at start), so no stranger's attempt displaces a peer's address and turns its settlement into the owner's deposit.
+**Peers' addresses** are the scheme's. They are learnt only once a peering is made, never from an attempt that may still be refused, and kept after it ends, like the [settlement channel](settlement.md#settlement-channels) the peer's settlements come over, until that channel closes: then the address goes, and a Payment from it is the owner's deposit ([closing-channels](../decisions/closing-channels.md)). The scheme keeps at least as many as the node has open channels (asserted at start), so no stranger's attempt displaces a peer's address and turns its settlement into the owner's deposit.
 
 After each, the books must hold the balance less the reserve; any difference, such as a reserve change or a balance below the reserve, is reconciled through `equity/suspense`. The part a change of the reserve explains (the base, the increment per object, or how many objects the account owns, as when a token scheme opens its line) is reconciled as the reserve's, down to the books holding nothing: expected, so the node logs it as information; the rest as a warning. **The reserve is never booked, so never spent.** A transaction of ours is settled whenever the ledger shows it, even behind the cursor: what the balance booked through suspense meanwhile comes back out.
 
@@ -219,4 +219,5 @@ The fake checks who signs as the ledger does (`fake/signers.rs`), so that a hub'
 - [real-money](../decisions/real-money.md): the gates before real money, and the testnet-only network check.
 - [tigerstyle](../decisions/tigerstyle.md): sans-IO, so the fake ledger can stand in for the network.
 - [synced-before-peering](../decisions/synced-before-peering.md): no peering on the scheme before its first sync.
+- [closing-channels](../decisions/closing-channels.md): a peer's address goes when its settlement channel closes.
 - [ledger-resets](../decisions/ledger-resets.md): only what is newer than the newest ledger seen; a reset is a lower ledger that closed later, and only on the testnet.
