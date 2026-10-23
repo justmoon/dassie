@@ -18,6 +18,7 @@
     "@dassie/dev": "workspace:*",
     "@dassie/identity-wasm": "workspace:*",
     "@dassie/rpc": "workspace:*",
+    "@interledger/http-signature-utils": "2.0.3",
     "@interledger/open-payments": "7.4.0",
     "@std/assert": "jsr:^1.0.19",
     "@types/node": "^26.6.5",

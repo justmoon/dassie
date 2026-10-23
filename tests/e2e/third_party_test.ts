@@ -18,15 +18,18 @@
 
 import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync, type KeyObject } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getCACertificates, setDefaultCACertificates } from "node:tls";
+import { createHeaders } from "@interledger/http-signature-utils";
 import {
   createAuthenticatedClient,
+  type Grant,
   isFinalizedGrantWithAccessToken,
   isPendingGrant,
+  type PendingGrant,
 } from "@interledger/open-payments";
 import { serve } from "@dassie/dev/serve";
 import { certificate, Scenario } from "@dassie/dev/scenario";
@@ -120,6 +123,35 @@ async function interactionHash(parts: string[]): Promise<string> {
     alphabet: "base64url",
     omitPadding: true,
   });
+}
+
+/**
+ * Asks the authorization server at `url` for a grant, signed with the
+ * client's key as the client library signs, but without the library: its
+ * version refuses limits on both amounts, which Open Payments is changing
+ * to allow and the node takes.
+ */
+async function requestGrant(
+  url: string,
+  body: object,
+  privateKey: KeyObject,
+  keyId: string,
+): Promise<PendingGrant | Grant> {
+  const text = JSON.stringify(body);
+  const request = {
+    method: "POST",
+    url,
+    headers: { "Content-Type": "application/json" },
+    body: text,
+  };
+  const signature = await createHeaders({ request, privateKey, keyId });
+  const reply = await fetch(url, {
+    method: "POST",
+    headers: { ...request.headers, ...signature },
+    body: text,
+  });
+  assertEquals(reply.status, 200, await reply.clone().text());
+  return await reply.json();
 }
 
 /** The HTTP status a client call failed with; it must fail. */
@@ -339,28 +371,36 @@ test("a third-party client pays from one node to another with consent", {
     // 6. Asked again, with a receive limit in cents for a receiver that
     // counts in billionths, next to the debit limit a receive limit needs:
     // the page warns that no payment fits, and the owner denies. The app
-    // learns it on its return, and continuing is refused. The client's types
-    // follow the published spec, which has no limits with both amounts, so
-    // they are built apart from the request, where only their shape counts.
-    const limits = {
-      receiver: incoming.id,
-      debitAmount: { value: "1000000000", assetCode: "USD", assetScale: 9 },
-      receiveAmount: { value: "100", assetCode: "USD", assetScale: 2 },
-    };
-    const again = await op.grant.request({ url: payerAddress.authServer }, {
-      access_token: {
-        access: [{
-          type: "outgoing-payment",
-          actions: ["create"],
-          identifier: payerAddress.id,
-          limits,
-        }],
+    // learns it on its return, and continuing is refused. The client library
+    // refuses limits on both amounts, so the app asks without it.
+    const again = await requestGrant(
+      payerAddress.authServer,
+      {
+        access_token: {
+          access: [{
+            type: "outgoing-payment",
+            actions: ["create"],
+            identifier: payerAddress.id,
+            limits: {
+              receiver: incoming.id,
+              debitAmount: {
+                value: "1000000000",
+                assetCode: "USD",
+                assetScale: 9,
+              },
+              receiveAmount: { value: "100", assetCode: "USD", assetScale: 2 },
+            },
+          }],
+        },
+        client: app.walletAddress,
+        interact: {
+          start: ["redirect"],
+          finish: { method: "redirect", uri: app.finish, nonce: "deny-nonce" },
+        },
       },
-      interact: {
-        start: ["redirect"],
-        finish: { method: "redirect", uri: app.finish, nonce: "deny-nonce" },
-      },
-    });
+      privateKey,
+      "app-key",
+    );
     assert(isPendingGrant(again));
     await page.goto(again.interact.redirect, { waitUntil: "load" });
     await until(
