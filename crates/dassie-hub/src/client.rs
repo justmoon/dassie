@@ -98,6 +98,14 @@ pub enum Statement {
         /// Its account, if any.
         account: Option<(AccountNumber, AccountView)>,
     },
+    /// What happened below `below` is no longer kept: an account that
+    /// asked from further back reads its state anew, as of `height`.
+    Trimmed {
+        /// The newest final block.
+        height: u64,
+        /// The lowest height still kept in full.
+        below: u64,
+    },
     /// Hold `number` after the block at `height`, if it exists.
     Hold {
         /// The block's height.
@@ -210,6 +218,7 @@ impl Statement {
             Self::Executed { height, .. }
             | Self::Final { height, .. }
             | Self::Account { height, .. }
+            | Self::Trimmed { height, .. }
             | Self::Hold { height, .. } => *height,
         }
     }
@@ -374,7 +383,7 @@ impl Encode for Statement {
                 Self::Executed {
                     operation, outcome, ..
                 } => 8 + operation.encoded_len() + outcome.encoded_len(),
-                Self::Final { .. } => 8,
+                Self::Final { .. } | Self::Trimmed { .. } => 8,
                 Self::Account { account, .. } => {
                     32 + 1 + account.map_or(0, |(_, view)| 4 + view.encoded_len())
                 }
@@ -414,6 +423,11 @@ impl Encode for Statement {
                     writer.write_u32(number.0);
                     view.encode_to(writer);
                 }
+            }
+            Self::Trimmed { height, below } => {
+                writer.write_u8(4);
+                writer.write_u64(*height);
+                writer.write_u64(*below);
             }
             Self::Hold {
                 height,
@@ -477,6 +491,10 @@ impl Statement {
                     hold,
                 }
             }
+            4 => Self::Trimmed {
+                height,
+                below: reader.read_u64()?,
+            },
             other => return Err(HubDecodeError::UnknownChoice(u64::from(other))),
         })
     }

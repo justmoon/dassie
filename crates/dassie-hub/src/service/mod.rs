@@ -36,8 +36,13 @@ use wire::Message;
 /// The most members one validator pushes statements to.
 pub const MAX_SUBSCRIBERS: usize = 1024;
 
-/// The most final blocks a validator keeps to answer `Since`.
-pub const KEPT_BLOCKS: usize = 1024;
+/// The most final blocks with operations a validator keeps to answer
+/// `Since`; blocks without any take no room.
+pub const KEPT_BLOCKS: usize = 4096;
+
+/// The most statements one answer to `Since` carries, over several
+/// messages.
+pub const MAX_ANSWER: usize = 4 * crate::client::MAX_STATEMENTS;
 
 /// What the host carries out. Taken apart at once: boxing would only
 /// allocate.
@@ -68,6 +73,9 @@ pub struct Validator {
     sequence: u64,
     subscribers: BTreeMap<PeerId, AccountNumber>,
     history: VecDeque<FinalBlock>,
+    /// The lowest height from which `history` holds every block with
+    /// operations.
+    complete_from: u64,
     shares: BTreeMap<u32, Vec<Signer>>,
     signed: BTreeMap<u32, ()>,
     payout_signed: bool,
@@ -123,6 +131,7 @@ impl Validator {
             sequence: now,
             subscribers: BTreeMap::new(),
             history: VecDeque::new(),
+            complete_from: 1,
             shares: BTreeMap::new(),
             signed: BTreeMap::new(),
             payout_signed: false,
@@ -231,18 +240,34 @@ impl Validator {
 
     /// What was executed that touches `account` from `height` on, and the
     /// newest final block, as far as they fit in one answer.
-    fn since(&self, account: AccountNumber, height: u64) -> Vec<Statement> {
-        let mut statements: Vec<Statement> = self
-            .history
-            .iter()
-            .filter(|block| block.height >= height)
-            .flat_map(|block| touching(&self.chain.ledger, block, account))
-            .take(crate::client::MAX_STATEMENTS.saturating_sub(1))
-            .collect();
-        statements.push(Statement::Final {
+    fn since(&self, account: AccountNumber, from: u64) -> Vec<Statement> {
+        let tip = Statement::Final {
             height: self.chain.ledger.height(),
             timestamp: self.chain.ledger.timestamp(),
-        });
+        };
+        // What we no longer keep, we cannot vouch for: the member reads its
+        // state anew (spec/areas/hubs.md#the-members-side).
+        if from < self.complete_from {
+            return alloc::vec![Statement::Trimmed {
+                height: self.chain.ledger.height(),
+                below: self.complete_from,
+            }];
+        }
+        let mut statements = Vec::new();
+        for block in self.history.iter().filter(|block| block.height >= from) {
+            let of_block: Vec<Statement> = touching(block, account).collect();
+            // An answer too long stops before a block, and vouches only for
+            // the blocks before it.
+            if statements.len().saturating_add(of_block.len()) >= MAX_ANSWER {
+                statements.push(Statement::Final {
+                    height: block.height.saturating_sub(1),
+                    timestamp: block.timestamp.saturating_sub(1),
+                });
+                return statements;
+            }
+            statements.extend(of_block);
+        }
+        statements.push(tip);
         statements
     }
 
@@ -275,8 +300,13 @@ impl Validator {
         self.batches.push(self.engine.take_batch());
         while let Some(block) = self.chain.finals.pop_front() {
             self.publish(&block);
-            if self.history.len() >= KEPT_BLOCKS {
-                self.history.pop_front();
+            if block.operations.is_empty() {
+                continue;
+            }
+            if self.history.len() >= KEPT_BLOCKS
+                && let Some(oldest) = self.history.pop_front()
+            {
+                self.complete_from = oldest.height.saturating_add(1);
             }
             self.history.push_back(block);
         }
@@ -304,8 +334,7 @@ impl Validator {
         let subscribers: Vec<(PeerId, AccountNumber)> =
             self.subscribers.iter().map(|(p, a)| (*p, *a)).collect();
         for (peer, account) in subscribers {
-            let mut statements: Vec<Statement> =
-                touching(&self.chain.ledger, block, account).collect();
+            let mut statements: Vec<Statement> = touching(block, account).collect();
             statements.push(Statement::Final {
                 height: block.height,
                 timestamp: block.timestamp,
@@ -394,42 +423,17 @@ fn vec_of(statement: Statement) -> Vec<Statement> {
 
 /// The statements of `block`'s operations that touch `account`: its own,
 /// and those on holds it pays into or takes from.
-fn touching<'a>(
-    ledger: &'a Ledger,
-    block: &'a FinalBlock,
-    account: AccountNumber,
-) -> impl Iterator<Item = Statement> + 'a {
+fn touching(block: &FinalBlock, account: AccountNumber) -> impl Iterator<Item = Statement> + '_ {
     block
         .operations
         .iter()
         .zip(&block.outcomes)
-        .filter(move |(operation, _)| touches(ledger, operation, account))
-        .map(move |(operation, outcome)| Statement::Executed {
+        .zip(&block.touched)
+        .filter(move |(_, touched)| touched.contains(&account))
+        .map(move |((operation, outcome), _)| Statement::Executed {
             height: block.height,
             timestamp: block.timestamp,
             operation: operation.clone(),
             outcome: *outcome,
         })
-}
-
-fn touches(ledger: &Ledger, operation: &Operation, account: AccountNumber) -> bool {
-    use crate::operation::MemberOperation as M;
-    let Operation::Member(signed) = operation else {
-        return false;
-    };
-    if signed.account == account {
-        return true;
-    }
-    let hold = match &signed.operation {
-        M::HoldFund { hold, .. } | M::HoldReduce { hold, .. } | M::HoldRelease { hold } => {
-            Some(*hold)
-        }
-        M::Redeem(claim) => Some(claim.value.hold),
-        M::Claim { hold, .. } => Some(*hold),
-        M::HoldOpen { payee, .. } => return *payee == account,
-        M::Transfer { to, .. } => return *to == account,
-        _ => None,
-    };
-    hold.and_then(|number| ledger.hold(number))
-        .is_some_and(|hold| hold.payer == account || hold.payee == account)
 }

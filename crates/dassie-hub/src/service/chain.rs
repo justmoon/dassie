@@ -39,6 +39,42 @@ pub struct FinalBlock {
     pub operations: Vec<crate::operation::Operation>,
     /// Their outcomes.
     pub outcomes: Vec<Outcome>,
+    /// For each operation, the accounts it touches: its signer's, and the
+    /// payer's and payee's of a hold it acts on, as of before the block,
+    /// so a hold the block closes still counts.
+    pub touched: Vec<Vec<crate::operation::AccountNumber>>,
+}
+
+/// The accounts `operation` touches on `before`, the state before its
+/// block.
+fn accounts_touched(
+    before: &Ledger,
+    operation: &crate::operation::Operation,
+) -> Vec<crate::operation::AccountNumber> {
+    use crate::operation::{MemberOperation as M, Operation as O};
+    let O::Member(signed) = operation else {
+        return Vec::new();
+    };
+    let mut accounts = alloc::vec![signed.account];
+    let hold = match &signed.operation {
+        M::HoldFund { hold, .. }
+        | M::HoldReduce { hold, .. }
+        | M::HoldRelease { hold }
+        | M::Claim { hold, .. } => Some(*hold),
+        M::Redeem(claim) => Some(claim.value.hold),
+        M::HoldOpen { payee, .. } | M::Transfer { to: payee, .. } => {
+            accounts.push(*payee);
+            None
+        }
+        _ => None,
+    };
+    if let Some(hold) = hold.and_then(|number| before.hold(number)) {
+        accounts.push(hold.payer);
+        accounts.push(hold.payee);
+    }
+    accounts.sort_unstable();
+    accounts.dedup();
+    accounts
 }
 
 /// The ledger's side of consensus.
@@ -272,6 +308,12 @@ impl Application for Chain {
             .iter()
             .map(|o| o.hash())
             .collect();
+        let touched = executed
+            .payload
+            .operations
+            .iter()
+            .map(|operation| accounts_touched(&self.ledger, operation))
+            .collect();
         self.ledger = executed.ledger;
         self.tip = *digest;
         self.heights.insert(*digest, block.height);
@@ -292,6 +334,7 @@ impl Application for Chain {
             digest: *digest,
             operations: executed.payload.operations,
             outcomes: executed.outcomes,
+            touched,
         });
     }
 }
