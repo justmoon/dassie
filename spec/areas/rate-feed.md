@@ -73,7 +73,7 @@ A node's rates move with every conversion, but a feed costs a signature and a da
 
 - **Only a core node publishes.** A feed is found at the node's URL's host ([Finding a feed](#finding-a-feed)), so a node without a URL, a periphery node, answers no datagram, publishes nothing and never asks the engine for its table, and neither does a node without its key. A node that gets a hostname starts at once; one that loses it stops.
 - **The cookie's secret** is drawn from the node's RNG each time the service starts, and kept in memory only, so a restart voids every cookie, as [The cookie](#the-cookie) says.
-- **Counted, not logged.** Every datagram taken, answer sent, subscriber refused and send that failed is counted (`FeedStats`), never logged: a flood of Subscribes costs the node its bytes and a MAC each, and no journal lines. The node logs only whether it has a feed, in the line that says it listens ([Node](node.md#logging)).
+- **Counted, not logged.** Every datagram taken, answer sent, subscriber refused and send that failed is counted (`FeedStats`), never logged: a flood of Subscribes costs the node its bytes and a MAC each, and no journal lines. The node logs only whether it has a feed, in the line that says it listens ([Node](node.md#logging)); its owner reads the counters instead ([below](#what-the-owner-sees)).
 
 ### What it publishes
 
@@ -82,6 +82,16 @@ A node's rates move with every conversion, but a feed costs a signature and a da
 - **Its validity** is the schedule's, or the moment a rate the table uses ages out, whichever comes first. A feed made after that names no ledgers until the engine builds the table again. While the engine is down, nothing is published, and a subscriber's last feed runs out.
 - **The sequence** is the node's clock in milliseconds, made to grow ([Publishing](#publishing)). The service keeps its schedule across its own restarts; across a restart of the node, the clock has moved on. A clock set back across a restart holds a subscriber's next feed back until the clock passes the last sequence it took; nothing persists the sequence, since a feed lost is replaced within a heartbeat.
 - **Each publish** encodes and signs once, then sends to each subscriber once, without retries, within half the least interval: a send the socket refuses or that does not fit the time is counted and dropped. A newly subscribed address gets the latest feed at once, if it still counts, so a subscriber need not wait for the heartbeat.
+
+### What the owner sees
+
+Nothing in the journal says whether the feed reaches anyone, so the node's status does: `GetStatus` carries the feed ([RPC](rpc.md)), and `dassie status` and the wallet's network page show it ([Node](node.md#the-dassie-command), [Wallet](wallet.md#pages)).
+
+- **Whether it serves, and where:** the socket's address, and whether the node serves on it now, which is the rule [above](#the-node-side): a URL and a key. A node without the socket reports no feed; a periphery node reports one that does not serve, and `dassie status` and the wallet leave it out, since a periphery node publishing none is no fault.
+- **How many subscribers now,** and none while the feed does not serve. It is the table's size when the service last changed it, so a subscription that lapsed counts until the next publish drops it, a heartbeat at most.
+- **The counters since the node started:** feeds published; datagrams sent, sends the socket refused and sends a publish ran out of time for; datagrams taken, challenges, subscriptions new and renewed, refusals by reason (a full table, a client's share), datagrams ignored, and subscriptions that lapsed, those dropped to make room for a newcomer included.
+- **Cheap and bounded.** The service adds to atomic counters as it goes, and the status reads each on its own, with no lock on the datagram path, so two may be a datagram apart. It is a fixed set of numbers: how many subscribe, never who, so the answer does not grow with the table and names no subscriber's address.
+- **They live as long as the socket,** so a restart of the service keeps the counters, though its new table starts empty, and a restart of the node starts them over. Nothing of them is persisted, as nothing of the sequence is.
 
 ### Bounds
 

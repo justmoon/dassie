@@ -56,6 +56,50 @@ message GetStatusResponse {
   // name at the default front door and the names its owner added. Empty
   // before setup on a node without a hostname.
   repeated string open_payments_origins = 10;
+  // The node's rate feed (spec/areas/rate-feed.md#what-the-owner-sees);
+  // unset on a node without the feed's socket, which publishes none.
+  RateFeed feed = 11;
+}
+
+// What the rate feed does: whether it serves, where, and its counters since
+// the node started. The counters are read one by one, without a lock, so
+// they may be a datagram apart from each other; each only grows.
+message RateFeed {
+  // Whether the feed answers and publishes now: the node has a URL, at
+  // whose host subscribers find the feed, and its key. A periphery node, or
+  // one without a hostname yet, holds the socket and answers nothing.
+  bool serving = 1;
+  // Where the socket takes datagrams, for example "0.0.0.0:7768"; empty if
+  // it cannot be read.
+  string address = 2;
+  // Addresses subscribed now, up to the table's bound; 0 while the feed
+  // does not serve. One that lapsed counts until the next publish drops it.
+  uint32 subscribers = 3;
+  // Feeds made and signed.
+  uint64 published = 4;
+  // Datagrams sent: feeds and challenges.
+  uint64 sent = 5;
+  // Datagrams the socket refused to send.
+  uint64 send_failed = 6;
+  // Feeds not sent because a publish ran out of time.
+  uint64 unsent = 7;
+  // Datagrams taken.
+  uint64 received = 8;
+  // Subscribes without a valid cookie, answered with a Challenge.
+  uint64 challenged = 9;
+  // Addresses subscribed.
+  uint64 subscribed = 10;
+  // Subscriptions renewed.
+  uint64 renewed = 11;
+  // Proven addresses refused because the table was full.
+  uint64 refused_full = 12;
+  // Proven addresses refused because their client had its share.
+  uint64 refused_client = 13;
+  // Datagrams that got no answer: not a Subscribe, broken, or from an
+  // address a feed cannot go to.
+  uint64 ignored = 14;
+  // Subscriptions that lapsed.
+  uint64 expired = 15;
 }
 
 message ChosenRelay {

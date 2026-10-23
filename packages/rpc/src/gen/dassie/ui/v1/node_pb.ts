@@ -12,7 +12,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/ui/v1/node.proto.
  */
 export const file_dassie_ui_v1_node: GenFile = /*@__PURE__*/
-  fileDesc("ChdkYXNzaWUvdWkvdjEvbm9kZS5wcm90bxIMZGFzc2llLnVpLnYxIhYKFEdldEJhc2ljU3RhdGVSZXF1ZXN0IrUBChVHZXRCYXNpY1N0YXRlUmVzcG9uc2USJgoFc3RhdGUYASABKA4yFy5kYXNzaWUudWkudjEuTm9kZVN0YXRlEg8KB25vZGVfaWQYAiABKAkSEAoIaG9zdG5hbWUYAyABKAkSHQoVaWxwX2FsbG9jYXRpb25fc2NoZW1lGAQgASgJEg8KB3ZlcnNpb24YBSABKAkSIQoZYWN0aXZlX3NldHRsZW1lbnRfc2NoZW1lcxgGIAMoCSISChBHZXRTdGF0dXNSZXF1ZXN0IsMCChFHZXRTdGF0dXNSZXNwb25zZRIPCgd2ZXJzaW9uGAEgASgJEiYKB3J1bnRpbWUYAiABKA4yFS5kYXNzaWUudWkudjEuUnVudGltZRIaChJzdGFydGVkX2F0X3VuaXhfbXMYAyABKAMSLgoLY2VydGlmaWNhdGUYBCABKAsyGS5kYXNzaWUudWkudjEuQ2VydGlmaWNhdGUSJgoEYWNtZRgFIAEoCzIYLmRhc3NpZS51aS52MS5BY21lU3RhdHVzEhEKCWh0dHBfcG9ydBgGIAEoDRISCgpodHRwc19wb3J0GAcgASgNEhEKCXBlcmlwaGVyeRgIIAEoCBIoCgVyZWxheRgJIAEoCzIZLmRhc3NpZS51aS52MS5DaG9zZW5SZWxheRIdChVvcGVuX3BheW1lbnRzX29yaWdpbnMYCiADKAkibgoLQ2hvc2VuUmVsYXkSDAoEbm9kZRgBIAEoCRILCgN1cmwYAiABKAkSEQoJY29ubmVjdGVkGAMgASgIEjEKCmNvbm5lY3Rpb24YBCABKA4yHS5kYXNzaWUudWkudjEuUmVsYXlDb25uZWN0aW9uIlEKCkFjbWVTdGF0dXMSEwoLaGFzX2FjY291bnQYASABKAgSGgoSbmV4dF9jaGVja191bml4X21zGAIgASgDEhIKCmxhc3RfZXJyb3IYAyABKAkqfQoJTm9kZVN0YXRlEhoKFk5PREVfU1RBVEVfVU5TUEVDSUZJRUQQABIcChhOT0RFX1NUQVRFX1VOSU5JVElBTElaRUQQARIYChROT0RFX1NUQVRFX0FOT05ZTU9VUxACEhwKGE5PREVfU1RBVEVfQVVUSEVOVElDQVRFRBADKpYBCg9SZWxheUNvbm5lY3Rpb24SIAocUkVMQVlfQ09OTkVDVElPTl9VTlNQRUNJRklFRBAAEh4KGlJFTEFZX0NPTk5FQ1RJT05fQ09OTkVDVEVEEAESHwobUkVMQVlfQ09OTkVDVElPTl9DT05ORUNUSU5HEAISIAocUkVMQVlfQ09OTkVDVElPTl9VTlJFQUNIQUJMRRADKk8KB1J1bnRpbWUSFwoTUlVOVElNRV9VTlNQRUNJRklFRBAAEhYKElJVTlRJTUVfU1RBTkRBTE9ORRABEhMKD1JVTlRJTUVfU1lTVEVNRBACYgZwcm90bzM", [file_dassie_ui_v1_tls]);
+  fileDesc("ChdkYXNzaWUvdWkvdjEvbm9kZS5wcm90bxIMZGFzc2llLnVpLnYxIhYKFEdldEJhc2ljU3RhdGVSZXF1ZXN0IrUBChVHZXRCYXNpY1N0YXRlUmVzcG9uc2USJgoFc3RhdGUYASABKA4yFy5kYXNzaWUudWkudjEuTm9kZVN0YXRlEg8KB25vZGVfaWQYAiABKAkSEAoIaG9zdG5hbWUYAyABKAkSHQoVaWxwX2FsbG9jYXRpb25fc2NoZW1lGAQgASgJEg8KB3ZlcnNpb24YBSABKAkSIQoZYWN0aXZlX3NldHRsZW1lbnRfc2NoZW1lcxgGIAMoCSISChBHZXRTdGF0dXNSZXF1ZXN0IukCChFHZXRTdGF0dXNSZXNwb25zZRIPCgd2ZXJzaW9uGAEgASgJEiYKB3J1bnRpbWUYAiABKA4yFS5kYXNzaWUudWkudjEuUnVudGltZRIaChJzdGFydGVkX2F0X3VuaXhfbXMYAyABKAMSLgoLY2VydGlmaWNhdGUYBCABKAsyGS5kYXNzaWUudWkudjEuQ2VydGlmaWNhdGUSJgoEYWNtZRgFIAEoCzIYLmRhc3NpZS51aS52MS5BY21lU3RhdHVzEhEKCWh0dHBfcG9ydBgGIAEoDRISCgpodHRwc19wb3J0GAcgASgNEhEKCXBlcmlwaGVyeRgIIAEoCBIoCgVyZWxheRgJIAEoCzIZLmRhc3NpZS51aS52MS5DaG9zZW5SZWxheRIdChVvcGVuX3BheW1lbnRzX29yaWdpbnMYCiADKAkSJAoEZmVlZBgLIAEoCzIWLmRhc3NpZS51aS52MS5SYXRlRmVlZCKiAgoIUmF0ZUZlZWQSDwoHc2VydmluZxgBIAEoCBIPCgdhZGRyZXNzGAIgASgJEhMKC3N1YnNjcmliZXJzGAMgASgNEhEKCXB1Ymxpc2hlZBgEIAEoBBIMCgRzZW50GAUgASgEEhMKC3NlbmRfZmFpbGVkGAYgASgEEg4KBnVuc2VudBgHIAEoBBIQCghyZWNlaXZlZBgIIAEoBBISCgpjaGFsbGVuZ2VkGAkgASgEEhIKCnN1YnNjcmliZWQYCiABKAQSDwoHcmVuZXdlZBgLIAEoBBIUCgxyZWZ1c2VkX2Z1bGwYDCABKAQSFgoOcmVmdXNlZF9jbGllbnQYDSABKAQSDwoHaWdub3JlZBgOIAEoBBIPCgdleHBpcmVkGA8gASgEIm4KC0Nob3NlblJlbGF5EgwKBG5vZGUYASABKAkSCwoDdXJsGAIgASgJEhEKCWNvbm5lY3RlZBgDIAEoCBIxCgpjb25uZWN0aW9uGAQgASgOMh0uZGFzc2llLnVpLnYxLlJlbGF5Q29ubmVjdGlvbiJRCgpBY21lU3RhdHVzEhMKC2hhc19hY2NvdW50GAEgASgIEhoKEm5leHRfY2hlY2tfdW5peF9tcxgCIAEoAxISCgpsYXN0X2Vycm9yGAMgASgJKn0KCU5vZGVTdGF0ZRIaChZOT0RFX1NUQVRFX1VOU1BFQ0lGSUVEEAASHAoYTk9ERV9TVEFURV9VTklOSVRJQUxJWkVEEAESGAoUTk9ERV9TVEFURV9BTk9OWU1PVVMQAhIcChhOT0RFX1NUQVRFX0FVVEhFTlRJQ0FURUQQAyqWAQoPUmVsYXlDb25uZWN0aW9uEiAKHFJFTEFZX0NPTk5FQ1RJT05fVU5TUEVDSUZJRUQQABIeChpSRUxBWV9DT05ORUNUSU9OX0NPTk5FQ1RFRBABEh8KG1JFTEFZX0NPTk5FQ1RJT05fQ09OTkVDVElORxACEiAKHFJFTEFZX0NPTk5FQ1RJT05fVU5SRUFDSEFCTEUQAypPCgdSdW50aW1lEhcKE1JVTlRJTUVfVU5TUEVDSUZJRUQQABIWChJSVU5USU1FX1NUQU5EQUxPTkUQARITCg9SVU5USU1FX1NZU1RFTUQQAmIGcHJvdG8z", [file_dassie_ui_v1_tls]);
 
 /**
  * @generated from message dassie.ui.v1.GetBasicStateRequest
@@ -163,6 +163,14 @@ export type GetStatusResponse = Message<"dassie.ui.v1.GetStatusResponse"> & {
    * @generated from field: repeated string open_payments_origins = 10;
    */
   openPaymentsOrigins: string[];
+
+  /**
+   * The node's rate feed (spec/areas/rate-feed.md#what-the-owner-sees);
+   * unset on a node without the feed's socket, which publishes none.
+   *
+   * @generated from field: dassie.ui.v1.RateFeed feed = 11;
+   */
+  feed?: RateFeed | undefined;
 };
 
 /**
@@ -171,6 +179,132 @@ export type GetStatusResponse = Message<"dassie.ui.v1.GetStatusResponse"> & {
  */
 export const GetStatusResponseSchema: GenMessage<GetStatusResponse> = /*@__PURE__*/
   messageDesc(file_dassie_ui_v1_node, 3);
+
+/**
+ * What the rate feed does: whether it serves, where, and its counters since
+ * the node started. The counters are read one by one, without a lock, so
+ * they may be a datagram apart from each other; each only grows.
+ *
+ * @generated from message dassie.ui.v1.RateFeed
+ */
+export type RateFeed = Message<"dassie.ui.v1.RateFeed"> & {
+  /**
+   * Whether the feed answers and publishes now: the node has a URL, at
+   * whose host subscribers find the feed, and its key. A periphery node, or
+   * one without a hostname yet, holds the socket and answers nothing.
+   *
+   * @generated from field: bool serving = 1;
+   */
+  serving: boolean;
+
+  /**
+   * Where the socket takes datagrams, for example "0.0.0.0:7768"; empty if
+   * it cannot be read.
+   *
+   * @generated from field: string address = 2;
+   */
+  address: string;
+
+  /**
+   * Addresses subscribed now, up to the table's bound; 0 while the feed
+   * does not serve. One that lapsed counts until the next publish drops it.
+   *
+   * @generated from field: uint32 subscribers = 3;
+   */
+  subscribers: number;
+
+  /**
+   * Feeds made and signed.
+   *
+   * @generated from field: uint64 published = 4;
+   */
+  published: bigint;
+
+  /**
+   * Datagrams sent: feeds and challenges.
+   *
+   * @generated from field: uint64 sent = 5;
+   */
+  sent: bigint;
+
+  /**
+   * Datagrams the socket refused to send.
+   *
+   * @generated from field: uint64 send_failed = 6;
+   */
+  sendFailed: bigint;
+
+  /**
+   * Feeds not sent because a publish ran out of time.
+   *
+   * @generated from field: uint64 unsent = 7;
+   */
+  unsent: bigint;
+
+  /**
+   * Datagrams taken.
+   *
+   * @generated from field: uint64 received = 8;
+   */
+  received: bigint;
+
+  /**
+   * Subscribes without a valid cookie, answered with a Challenge.
+   *
+   * @generated from field: uint64 challenged = 9;
+   */
+  challenged: bigint;
+
+  /**
+   * Addresses subscribed.
+   *
+   * @generated from field: uint64 subscribed = 10;
+   */
+  subscribed: bigint;
+
+  /**
+   * Subscriptions renewed.
+   *
+   * @generated from field: uint64 renewed = 11;
+   */
+  renewed: bigint;
+
+  /**
+   * Proven addresses refused because the table was full.
+   *
+   * @generated from field: uint64 refused_full = 12;
+   */
+  refusedFull: bigint;
+
+  /**
+   * Proven addresses refused because their client had its share.
+   *
+   * @generated from field: uint64 refused_client = 13;
+   */
+  refusedClient: bigint;
+
+  /**
+   * Datagrams that got no answer: not a Subscribe, broken, or from an
+   * address a feed cannot go to.
+   *
+   * @generated from field: uint64 ignored = 14;
+   */
+  ignored: bigint;
+
+  /**
+   * Subscriptions that lapsed.
+   *
+   * @generated from field: uint64 expired = 15;
+   */
+  expired: bigint;
+};
+
+/**
+ * Describes the message dassie.ui.v1.RateFeed.
+ * Use `create(RateFeedSchema)` to create a new message.
+ */
+export const RateFeedSchema: GenMessage<RateFeed> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_node, 4);
 
 /**
  * @generated from message dassie.ui.v1.ChosenRelay
@@ -208,7 +342,7 @@ export type ChosenRelay = Message<"dassie.ui.v1.ChosenRelay"> & {
  * Use `create(ChosenRelaySchema)` to create a new message.
  */
 export const ChosenRelaySchema: GenMessage<ChosenRelay> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_node, 4);
+  messageDesc(file_dassie_ui_v1_node, 5);
 
 /**
  * @generated from message dassie.ui.v1.AcmeStatus
@@ -241,7 +375,7 @@ export type AcmeStatus = Message<"dassie.ui.v1.AcmeStatus"> & {
  * Use `create(AcmeStatusSchema)` to create a new message.
  */
 export const AcmeStatusSchema: GenMessage<AcmeStatus> = /*@__PURE__*/
-  messageDesc(file_dassie_ui_v1_node, 5);
+  messageDesc(file_dassie_ui_v1_node, 6);
 
 /**
  * @generated from enum dassie.ui.v1.NodeState

@@ -304,7 +304,7 @@
       "does": [
         "`dassie daemon`: standalone, or socket-activated by systemd",
         "`dassie init`: the domain name and the certificate, then a URL to finish setup in the browser",
-        "`dassie status`, `dassie setup-url` to print that URL again, and `dassie pair` for a code that pairs an owner app",
+        "`dassie status`, which also says whether a core node's rate feed reaches anyone, `dassie setup-url` to print that URL again, and `dassie pair` for a code that pairs an owner app",
         "`dassie update`: fetches, verifies and switches to a newer release, and goes back if it does not start",
         "`dassie verify-install`, which also names the release key",
         "`dassie front-door`: runs a front door, which is no node, and `--make-key` makes its key and prints the entry a node names it by",
@@ -331,7 +331,7 @@
         "Owner apps paired by the owner on the node's own machine: each proves a device key on a relayed stream and calls the RPC as the owner until it is revoked",
         "Open Payments over HTTPS and relayed streams: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments, each answer signed with the node key and written under the name the request came through",
         "Exchange rates, fetched from several sources, the fee and spread on what passes between peers, and the price table rebuilt from them and the owner's funds whenever either changes",
-        "A core node's rate feed: the price table, signed once and sent over UDP to every subscriber that proved its address, at most once a second while it changes, with the feed's port in `GET /stats` and the node's link state",
+        "A core node's rate feed: the price table, signed once and sent over UDP to every subscriber that proved its address, at most once a second while it changes, with the feed's port in `GET /stats` and the node's link state, and its counters in the owner's status rather than the log",
         "Credit to each peer that grows with the fees it earned the node, read from the journal",
         "Simulated as a network of real engine cores, in tests and by `dassie-sim`: each seed draws its nodes, faults and payments, runs them through chaos, then heals the network, which must settle down"
       ]
