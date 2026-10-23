@@ -324,7 +324,7 @@ struct Pending {
 ///
 /// Bounded per signer, so no validator can push out another's signatures:
 /// each signer has at most `capacity / n` signatures on statements still
-/// waiting for agreement, and one over that drops the signer's own lowest.
+/// waiting for agreement, and one more of its signatures is refused.
 /// Statements that agreed are kept, up to `capacity`, so that each agrees
 /// once; the lowest go first. A statement further than
 /// [`MAX_HEIGHTS_AHEAD`] above the height f + 1 validators have reached is
@@ -392,7 +392,13 @@ impl Agreement {
             }
             _ => {}
         }
-        self.make_room(signer);
+        // A signer at its quota has its new signature refused, not its old
+        // ones dropped: the lowest are the ones to agree first, and once
+        // they did the signer has room again.
+        if self.full(signer) {
+            self.drop_signature(height, signer);
+            return None;
+        }
         let entry = self.pending.entry(key).or_insert_with(|| Pending {
             statement: signed.statement,
             signers: Signers::NONE,
@@ -441,33 +447,12 @@ impl Agreement {
         Some(statement)
     }
 
-    /// Drops `signer`'s own lowest signature on a statement still waiting,
-    /// if it has its quota of them.
-    fn make_room(&mut self, signer: ValidatorIndex) {
-        let full = self
-            .waiting
+    /// Whether `signer` has its quota of signatures on statements still
+    /// waiting.
+    fn full(&self, signer: ValidatorIndex) -> bool {
+        self.waiting
             .get(signer.get())
-            .is_some_and(|count| *count >= self.quota);
-        if !full {
-            return;
-        }
-        let lowest = self
-            .pending
-            .iter()
-            .find(|(_, p)| !p.agreed && p.signers.contains(signer))
-            .map(|(key, _)| *key);
-        let Some(key) = lowest else { return };
-        if let Some(entry) = self.pending.get_mut(&key) {
-            entry.signers =
-                Signers::from_bits(entry.signers.bits() & !Signers::NONE.with(signer).bits());
-            if entry.signers.count() == 0 {
-                self.pending.remove(&key);
-            }
-        }
-        if let Some(count) = self.waiting.get_mut(signer.get()) {
-            *count = count.saturating_sub(1);
-        }
-        self.drop_signature(key.0, signer);
+            .is_some_and(|count| *count >= self.quota)
     }
 
     fn drop_signature(&mut self, height: u64, signer: ValidatorIndex) {
@@ -944,7 +929,7 @@ mod tests {
     }
 
     #[test]
-    fn a_signer_over_its_quota_drops_its_own_lowest_and_says_so() {
+    fn a_signer_over_its_quota_is_refused_and_it_says_so() {
         let hub = HubId(Digest([1; 32]));
         let (set, keys) = set();
         // Four signatures per validator wait at most.
@@ -962,10 +947,11 @@ mod tests {
         assert_eq!(agreement.take_dropped(), None);
         assert_eq!(agreement.add(sign(1, final_at(14))), None);
         let dropped = agreement.take_dropped().unwrap();
-        assert_eq!(dropped.lowest, 10);
-        // Height 10 waits for two signatures again; 11 still has one.
-        assert_eq!(agreement.add(sign(2, final_at(10))), None);
-        assert_eq!(agreement.add(sign(2, final_at(11))), Some(final_at(11)));
+        assert_eq!(dropped.lowest, 14);
+        // What it holds still agrees, and makes room once it did.
+        assert_eq!(agreement.add(sign(2, final_at(10))), Some(final_at(10)));
+        assert_eq!(agreement.add(sign(2, final_at(14))), None);
+        assert_eq!(agreement.add(sign(1, final_at(14))), Some(final_at(14)));
         agreement.check_invariants();
     }
 

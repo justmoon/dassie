@@ -54,6 +54,7 @@ use dassie_settlement::{
 
 use super::mirror::HoldMirror;
 use crate::client::{AccountView, Agreement, MAX_STATEMENTS, Request, SignedStatement, Statement};
+use crate::service::MAX_ANSWER;
 
 use crate::ledger::{Detail, Outcome, Refusal};
 use crate::operation::{
@@ -75,14 +76,33 @@ pub const MAX_QUEUED: usize = 16;
 /// Most holds mirrored: those it pays into, and those toward it, which
 /// anyone can open, each for a hold reserve.
 pub const MAX_HOLDS: usize = 1_024;
-/// Most agreed operations held until a quorum covered their height.
-const MAX_BUFFERED: usize = 1_024;
 /// Most final blocks remembered.
 const MAX_FINALS: usize = 64;
-/// Most undecided statements the agreement keeps.
-const AGREEMENT_CAPACITY: usize = 4 * MAX_STATEMENTS;
+
+/// Most agreed operations held until a quorum covered their height: two
+/// of the longest answers a validator gives under `terms`, which carries up
+/// to `MAX_ANSWER` statements and always one block whole, so one answer and
+/// the pushes beside it always fit.
+pub(super) fn max_buffered(terms: &Terms) -> usize {
+    MAX_ANSWER
+        .saturating_add(usize::from(terms.limits.block_operations))
+        .saturating_mul(2)
+}
+
 /// Most news between two tellings: what one advance reads, and the rest.
-const MAX_NEWS: usize = 2 * MAX_BUFFERED + MAX_HOLDS + MAX_QUEUED + MAX_LOOKUPS + 8;
+fn max_news(terms: &Terms) -> usize {
+    max_buffered(terms)
+        .saturating_mul(2)
+        .saturating_add(MAX_HOLDS + MAX_QUEUED + MAX_LOOKUPS + 8)
+}
+
+/// A tally of statements in which each validator's signatures on statements
+/// still waiting fit a buffer's worth and a message more: an honest answer
+/// is never refused.
+fn agreement(hub: HubId, set: &ValidatorSet, terms: &Terms) -> Agreement {
+    let quota = max_buffered(terms).saturating_add(MAX_STATEMENTS);
+    Agreement::new(hub, set.clone(), quota.saturating_mul(set.len()))
+}
 /// Most messages between two takings: a round of requests and a
 /// submission to every validator, a few times over.
 const MAX_EFFECTS: usize = 8 * MAX_VALIDATORS;
@@ -260,6 +280,10 @@ pub struct HubAccount {
     /// Per validator, the newest final block it covered from its own
     /// endpoint.
     covered: Vec<u64>,
+    /// Per validator, whether a signature of its was dropped or refused since
+    /// its last `Final` from its own endpoint: the answer that `Final`
+    /// ends is not held whole, so it covers nothing.
+    dirty: Vec<bool>,
     finals: BTreeMap<u64, Millis>,
     told_final: u64,
     /// Operations agreed executed, by block and their place in it: the
@@ -305,7 +329,7 @@ impl HubAccount {
         let mut account = Self {
             id,
             hub,
-            agreement: Agreement::new(hub, set.clone(), AGREEMENT_CAPACITY),
+            agreement: agreement(hub, &set, &rules.terms),
             set,
             rules,
             endpoints,
@@ -329,6 +353,7 @@ impl HubAccount {
             recent_views: BTreeMap::new(),
             lookups: BTreeMap::new(),
             covered: alloc::vec![0; n],
+            dirty: alloc::vec![false; n],
             finals: BTreeMap::new(),
             told_final: 0,
             buffer: BTreeMap::new(),
@@ -699,16 +724,54 @@ impl HubAccount {
             }
             if let Statement::Final { height, .. } = signed.statement
                 && signed.validator.get() == endpoint
-                && let Some(covered) = self.covered.get_mut(endpoint)
             {
-                *covered = (*covered).max(height);
+                self.covers(endpoint, height);
             }
             if let Some(agreed) = self.agreement.add(signed) {
                 self.agreed(agreed);
             }
+            if let Some(dropped) = self.agreement.take_dropped() {
+                self.uncover(dropped.signers.iter().map(|v| v.get()), dropped.lowest);
+            }
         }
         self.advance();
         self.pump();
+    }
+
+    /// Validator `v` ended an answer with the final block at `height`: it
+    /// covered everything up to it, unless the account dropped some of what
+    /// it sent since its last `Final`.
+    fn covers(&mut self, v: usize, height: u64) {
+        let dirty = self.dirty.get_mut(v).map(core::mem::take);
+        if dirty == Some(false)
+            && let Some(covered) = self.covered.get_mut(v)
+        {
+            *covered = (*covered).max(height);
+        }
+    }
+
+    /// Forgets everything read above the cursor, to read it again: no
+    /// validator covers anything past the cursor until it answered anew.
+    fn start_over(&mut self) {
+        self.buffer.clear();
+        self.agreement = agreement(self.hub, &self.set, &self.rules.terms);
+        let cursor = self.cursor;
+        self.uncover(0..self.set.len(), cursor.saturating_add(1));
+    }
+
+    /// The account dropped what `validators` sent from `lowest` on: their
+    /// coverage stops below it, and the `Final` that ends what they are
+    /// sending now covers nothing (spec/areas/hubs.md#the-members-side).
+    fn uncover(&mut self, validators: impl Iterator<Item = usize>, lowest: u64) {
+        let ceiling = lowest.saturating_sub(1).max(self.cursor);
+        for v in validators {
+            if let Some(covered) = self.covered.get_mut(v) {
+                *covered = (*covered).min(ceiling);
+            }
+            if let Some(dirty) = self.dirty.get_mut(v) {
+                *dirty = true;
+            }
+        }
     }
 
     /// A statement f + 1 validators signed alike.
@@ -751,10 +814,8 @@ impl HubAccount {
                 operation: Operation::Member(operation),
                 outcome,
             } if height > self.cursor => {
-                if self.buffer.len() >= MAX_BUFFERED {
-                    // Read again once the agreement fills anew.
-                    self.buffer.clear();
-                    self.agreement = Agreement::new(self.hub, self.set.clone(), AGREEMENT_CAPACITY);
+                if self.buffer.len() >= max_buffered(&self.rules.terms) {
+                    self.start_over();
                     return;
                 }
                 self.buffer.insert(
@@ -1114,7 +1175,7 @@ impl HubAccount {
     /// one input tells at most a buffer's worth and a reduction per hold;
     /// past the bound the account stops rather than forget any.
     fn push_news(&mut self, news: News) {
-        if self.news.len() >= MAX_NEWS {
+        if self.news.len() >= max_news(&self.rules.terms) {
             self.failed = Some("more news than the scheme was told");
             return;
         }
@@ -1231,7 +1292,7 @@ impl ExternalAsset for HubAccount {
     fn check_invariants(&self) {
         assert!(self.queue.len() <= MAX_QUEUED);
         assert!(self.holds.len() <= MAX_HOLDS);
-        assert!(self.buffer.len() <= MAX_BUFFERED);
+        assert!(self.buffer.len() <= max_buffered(&self.rules.terms));
         assert!(self.finals.len() <= MAX_FINALS);
         assert!(self.lookups.len() <= MAX_LOOKUPS);
         assert!(self.recent_views.len() <= RECENT_VIEWS);
@@ -1241,9 +1302,10 @@ impl ExternalAsset for HubAccount {
                 .is_none_or(|(height, _, _)| *height > self.cursor),
             "holds read anew are above the cursor"
         );
-        assert!(self.news.len() <= MAX_NEWS);
+        assert!(self.news.len() <= max_news(&self.rules.terms));
         assert!(self.effects.len() <= MAX_EFFECTS);
         assert_eq!(self.covered.len(), self.set.len());
+        assert_eq!(self.dirty.len(), self.set.len());
         assert!(
             self.queue.iter().filter(|q| q.sent.is_some()).count() <= 1,
             "one operation on its way at a time"

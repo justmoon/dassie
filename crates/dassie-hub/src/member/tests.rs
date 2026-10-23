@@ -145,6 +145,79 @@ fn synced(hub: &Hub) -> HubAccount {
     account
 }
 
+/// Validator `v` says `statements`, a message at most.
+fn say_all(hub: &Hub, account: &mut HubAccount, v: usize, statements: &[Statement]) {
+    for chunk in statements.chunks(crate::client::MAX_STATEMENTS) {
+        from(account, v, &hub.says(v, chunk));
+    }
+}
+
+fn read_count(account: &HubAccount) -> usize {
+    account
+        .news()
+        .iter()
+        .filter(|n| matches!(n, News::Executed { .. }))
+        .count()
+}
+
+// One faulty validator signing junk between the honest answers never makes
+// the account pass an operation it did not read.
+#[test]
+fn a_flood_from_one_validator_never_hides_an_operation() {
+    let hub = Hub::new();
+    let mut account = synced(&hub);
+    let answer = [
+        hub.transfer(1),
+        Statement::Final {
+            height: 20,
+            timestamp: 2_000,
+        },
+    ];
+    let junk: Vec<Statement> = (0..2_000u64)
+        .map(|k| Statement::Final {
+            height: 21 + k,
+            timestamp: k,
+        })
+        .collect();
+    for v in 0..3 {
+        say_all(&hub, &mut account, v, &answer);
+        say_all(&hub, &mut account, 3, &junk);
+        account.check_invariants();
+    }
+    assert_eq!(account.cursor(), 20);
+    assert_eq!(read_count(&account), 1, "the operation was read");
+}
+
+// When the account drops what it agreed above its cursor, no `Final` that
+// was on its way counts: the validators answer anew first.
+#[test]
+fn a_full_buffer_moves_no_coverage_past_what_it_dropped() {
+    let hub = Hub::new();
+    let mut account = synced(&hub);
+    let bound = super::account::max_buffered(&hub.rules.terms);
+    let many: Vec<Statement> = (1..=u64::try_from(bound).unwrap() + 1)
+        .map(|sequence| hub.transfer(sequence))
+        .collect();
+    for v in 0..2 {
+        say_all(&hub, &mut account, v, &many);
+    }
+    let final_at = |height: u64| Statement::Final {
+        height,
+        timestamp: 1_000 + height,
+    };
+    for v in 0..3 {
+        say_all(&hub, &mut account, v, &[final_at(5_000)]);
+    }
+    assert_eq!(account.cursor(), 5, "nothing it dropped is passed");
+    // The validators answer anew.
+    for v in 0..3 {
+        say_all(&hub, &mut account, v, &[hub.transfer(1), final_at(11)]);
+    }
+    assert_eq!(account.cursor(), 11);
+    assert_eq!(read_count(&account), 1);
+    account.check_invariants();
+}
+
 // A faulty leader can put our operation in a block twice: applied, then
 // refused for its sequence. The account reads both, in the log's order,
 // and takes the first for what became of it.
