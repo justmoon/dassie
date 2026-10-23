@@ -935,6 +935,8 @@ fn a_junior_extends_at_least_the_default_credit() {
         senior_credit: core.senior_credit,
         connector: &core.connector,
         endpoints: &core.peer_endpoints,
+        assets: &core.assets,
+        store: &core.store,
     };
     let agreed = hooks
         .finalize(NOW, peer, scheme, 1, &[], &[], false)
@@ -975,6 +977,8 @@ fn a_junior_keeps_the_lower_credit_of_a_peer_it_ended_for_room() {
         senior_credit: core.senior_credit,
         connector: &core.connector,
         endpoints: &core.peer_endpoints,
+        assets: &core.assets,
+        store: &core.store,
     };
     let agreed = hooks
         .finalize(NOW, peer, scheme, 1, &[], &[], true)
@@ -990,6 +994,94 @@ fn a_junior_keeps_the_lower_credit_of_a_peer_it_ended_for_room() {
         .unwrap();
     let trust = dassie_settlement::policy::trust(core.ledger.account(contra).unwrap().balance());
     assert_eq!(trust, core.senior_credit);
+}
+
+// spec/decisions/closing-channels.md: peers' accounts stay when their
+// channels close, so new ones stop where the room the node keeps for its own
+// accounts begins; a peer whose accounts are open peers again regardless.
+#[test]
+fn peers_accounts_leave_room_for_the_nodes_own() {
+    use dassie_ledger::{Config, Ledger, LedgerId, Name};
+
+    let most = super::ledgers::OWN_ACCOUNTS + 4;
+    let mut ledger = Ledger::new(Config {
+        max_accounts: u32::try_from(most).unwrap(),
+        ..Config::DEFAULT
+    });
+    for peer in ["a", "b"] {
+        assert!(super::peers::room_for_peer(&ledger));
+        ledger
+            .open_peer(NOW, LedgerId::StubUsd, Name::new(peer).unwrap(), 1)
+            .unwrap();
+    }
+    assert!(
+        !super::peers::room_for_peer(&ledger),
+        "the rest is the node's"
+    );
+    // Whatever the peers took, the node's own accounts still open, the
+    // owner's pool first: each batch takes the journal, as the node's step
+    // does.
+    let path = |name| dassie_ledger::AccountPath::new(LedgerId::StubUsd, name);
+    ledger
+        .open(path(dassie_ledger::AccountName::EquityOwner))
+        .unwrap();
+    for n in 1..super::ledgers::OWN_ACCOUNTS {
+        while ledger.poll_journal().is_some() {}
+        let sub = dassie_ledger::OwnerSub::Btp(u64::try_from(n).unwrap());
+        ledger
+            .open(path(dassie_ledger::AccountName::EquityOwnerSub(sub)))
+            .unwrap();
+    }
+}
+
+// spec/decisions/closing-channels.md: the books let a former peer's channel
+// close only with nothing of it pending, and every scheme it has accounts
+// with running and seeing its ledger, so a settlement it made before the
+// close is booked as its own.
+#[test]
+fn the_books_hold_a_channel_open_while_anything_of_it_is_pending() {
+    use dassie_ledger::{AccountName, AccountPath, LedgerId, Name, Reference, TransferSpec};
+    use dassie_peer::PeeringHooks;
+
+    let mut core = core(7);
+    core.add_scheme("stub", String::new()).unwrap();
+    let peer = NodeKey::from_bytes(&[9; 32]).node_id();
+    let name = Name::new(peer.as_str()).unwrap();
+    core.ledger
+        .open_peer(NOW, LedgerId::StubUsd, name, core.peer_credit)
+        .unwrap();
+    assert!(core.with_peer(|_, hooks, _| hooks.closable(peer)));
+    let find = |core: &Core, name| {
+        core.ledger
+            .find(&AccountPath::new(LedgerId::StubUsd, name))
+            .unwrap()
+    };
+    let spec = TransferSpec {
+        debit: find(&core, AccountName::AssetsInterledger(name)),
+        credit: find(&core, AccountName::AssetsSettlement),
+        amount: 1,
+        pending: true,
+        reference: Reference::Settlement {
+            scheme: Name::new("stub").unwrap(),
+            id: Name::new("s1").unwrap(),
+        },
+    };
+    let pending = core.ledger.create(NOW, &spec).unwrap();
+    assert!(
+        !core.with_peer(|_, hooks, _| hooks.closable(peer)),
+        "pending"
+    );
+    core.ledger.void(NOW, pending).unwrap();
+    assert!(core.with_peer(|_, hooks, _| hooks.closable(peer)));
+    // Accounts on a ledger no scheme follows: a late settlement there
+    // could not be told from a deposit.
+    core.ledger
+        .open_peer(NOW, LedgerId::XrplTestnetXrp, name, core.peer_credit)
+        .unwrap();
+    assert!(
+        !core.with_peer(|_, hooks, _| hooks.closable(peer)),
+        "unseen"
+    );
 }
 
 // Found by the simulation (spec/decisions/random-seed-simulations.md): a

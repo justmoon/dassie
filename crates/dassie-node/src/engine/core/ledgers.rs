@@ -95,6 +95,13 @@ const COMMON_ACCOUNTS: [AccountName; 8] = [
     AccountName::ExpensesLosses,
 ];
 
+/// Most accounts the node opens for itself, never a peer's: one for every
+/// BTP token ever made, and on every ledger its common accounts and its
+/// payer's. Peers' accounts, which stay when their channels close, leave
+/// room for these (spec/decisions/closing-channels.md).
+pub(super) const OWN_ACCOUNTS: usize =
+    super::tokens::MAX_TOKEN_ROWS + LedgerId::ALL.len() * (COMMON_ACCOUNTS.len() + 1);
+
 impl Core {
     /// Activates the stored schemes, booking what changed while the node was
     /// down.

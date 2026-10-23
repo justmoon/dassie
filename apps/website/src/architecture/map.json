@@ -474,6 +474,7 @@
         "Periphery nodes without a URL, which peer only with core nodes as their downlinks, and only with those their owner pinned when it pinned any",
         "Advertising only peers that are alive and not stuck short of room, never ending one for room it could not pay",
         "Delivering settlements and requests to settle, ending peerings, bans",
+        "Settlement channels that close once idle, kept on disk so a late settlement still counts once",
         "Over a settlement hub, each Prepare with the payer's commitment, and the payer's claim in its reply to a Fulfill"
       ]
     },

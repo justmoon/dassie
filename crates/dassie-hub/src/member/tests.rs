@@ -605,6 +605,36 @@ fn a_new_key_is_confirmed_anew() {
     scheme.check_invariants();
 }
 
+// spec/decisions/closing-channels.md: a hold with funds keeps a former
+// peer's settlement channel open; once nothing is left to settle, the
+// channel may close, and its records go with it.
+#[test]
+fn a_hold_with_funds_keeps_the_channel() {
+    let hub = Hub::new();
+    let account = hub.account();
+    let mut scheme = HubScheme::new(&account, 100_000_000, None, &[]).unwrap();
+    let peer = Name::new("peer").unwrap();
+    let mut state = Vec::new();
+    peering::Membership {
+        hub: hub.rules.id(),
+        account: AccountNumber(9),
+        key: NodeKey::from_bytes(&[9; 32]).public_key(),
+    }
+    .write(&mut state);
+    scheme.on_peered(peer, &state);
+    assert!(!scheme.keeps_channel(peer));
+    let known = scheme.peers.get_mut(&peer).unwrap();
+    known.payee.hold = Some(crate::promise::HoldNumber(1));
+    known.payee.snapshot.amount = 5;
+    assert!(scheme.keeps_channel(peer), "funds in its hold toward us");
+    let known = scheme.peers.get_mut(&peer).unwrap();
+    known.payee.snapshot.amount = 0;
+    assert!(!scheme.keeps_channel(peer));
+    scheme.on_closed(peer);
+    assert!(!scheme.peers.contains_key(&peer));
+    scheme.check_invariants();
+}
+
 #[test]
 fn the_scheme_books_nothing_on_its_own() {
     let hub = Hub::new();

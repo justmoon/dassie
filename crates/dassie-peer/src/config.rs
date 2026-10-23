@@ -132,19 +132,24 @@ pub struct Config {
     pub owner_termination_cooldown_ms: u64,
     /// Most banned nodes.
     pub max_bans: usize,
-    /// Most settlement channels with core nodes: one per core node ever
-    /// peered with.
+    /// Most settlement channels open with core nodes: one per core node
+    /// peered with, or not long ago, since a channel closes once idle for
+    /// [`Config::peer_dead_ms`] after its peering ended.
     pub max_channels: usize,
     /// Most downlinks a core node keeps, apart from its peers with other
     /// core nodes (spec/areas/network.md#downlinks): each with a
-    /// settlement channel, which is never closed, so this bounds the
-    /// periphery nodes ever peered with. A node without a URL, or with
-    /// none of these, takes no downlinks.
+    /// settlement channel, which closes as a core node's does, so this
+    /// bounds the periphery nodes peered with, or not long ago. A node
+    /// without a URL, or with none of these, takes no downlinks.
     pub max_downlinks: usize,
     /// The first wait before a settlement message is sent again.
     pub settlement_retry_min_ms: u64,
     /// The longest wait.
     pub settlement_retry_max_ms: u64,
+    /// How often the channels idle long enough are looked at to close:
+    /// each asks the books, which scan what is pending, so a channel the
+    /// books hold open is not asked at every step.
+    pub channel_check_ms: u64,
 }
 
 impl Config {
@@ -215,6 +220,7 @@ impl Config {
         max_downlinks: 1_000,
         settlement_retry_min_ms: 1_000,
         settlement_retry_max_ms: 3_600_000,
+        channel_check_ms: 60_000,
     };
 
     /// The dev settings: the same rules, faster, for what runs on a real
@@ -242,6 +248,7 @@ impl Config {
         depeer_wait_ms: 20_000,
         owner_termination_cooldown_ms: 300_000,
         settlement_retry_max_ms: 10_000,
+        channel_check_ms: 5_000,
         ..Self::DEFAULT
     };
 
@@ -277,6 +284,10 @@ impl Config {
             "registrations are renewed before they expire"
         );
         assert!(self.min_backoff_ms <= self.max_backoff_ms, "backoff bounds");
+        assert!(
+            self.channel_check_ms > 0 && self.channel_check_ms < self.peer_dead_ms,
+            "idle channels are looked at well within their wait"
+        );
         assert!(
             self.link_state_rate.burst >= 1 && self.registration_rate.burst >= 1,
             "buckets hold a token"

@@ -59,6 +59,10 @@ pub struct StubHooks {
     /// What the node puts after the verdict in its reply to a Fulfill on a
     /// peering over a hub, as a payer's claim.
     pub claim: Vec<u8>,
+    /// What stays of the closed channels, as the node last wrote it.
+    pub closed: BTreeMap<NodeId, crate::Closed>,
+    /// Nodes whose channels the books hold open.
+    pub holding: BTreeSet<NodeId>,
 }
 
 impl StubHooks {
@@ -141,6 +145,14 @@ impl PeeringHooks for StubHooks {
 
     fn settling_to(&self, peer: NodeId) -> bool {
         self.settling.contains(&peer)
+    }
+
+    fn closed_channel(&self, node: NodeId) -> Option<crate::Closed> {
+        self.closed.get(&node).copied()
+    }
+
+    fn closable(&self, node: NodeId) -> bool {
+        !self.holding.contains(&node) && !self.busy.contains(&node)
     }
 }
 
@@ -501,7 +513,14 @@ impl Network {
         if let Some(sequence) = batch.own_sequence {
             sim.stored.own_sequence = sequence;
         }
+        // Closed and open again in one batch, a channel is open: as the
+        // store writes them.
+        for closed in batch.closed {
+            sim.stored_channels.remove(&closed.node);
+            sim.hooks.closed.insert(closed.node, closed.closed);
+        }
         for channel in batch.channels {
+            sim.hooks.closed.remove(&channel.node);
             sim.stored_channels.insert(channel.node, channel);
         }
         for banned in batch.banned {
@@ -541,8 +560,8 @@ impl Network {
         true
     }
 
-    /// Whether the node `node` holds a channel with node `with`, as it
-    /// persisted it: up or down.
+    /// Whether the node `node` holds an open channel with node `with`, as
+    /// it persisted it: up or down.
     pub fn holds_channel(&self, node: &NodeId, with: usize) -> bool {
         let own = key(with).node_id();
         (0..self.nodes.len())

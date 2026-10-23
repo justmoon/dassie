@@ -137,7 +137,8 @@ impl Policies {
         max_btp_connections: 64,
         btp_auth_timeout_ms: 10_000,
         btp_auth_attempts: RateLimitPolicy::DEFAULT,
-        // Two accounts for each core node and downlink ever peered with.
+        // Two accounts for each core node and downlink ever peered with:
+        // they stay when its channel closes (spec/roadmap.md#not-built-yet).
         ledger: dassie_ledger::Config {
             max_accounts: 8192,
             max_pending: 205_312,

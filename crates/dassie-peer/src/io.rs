@@ -293,6 +293,13 @@ pub enum Event {
         /// The peer.
         peer: NodeId,
     },
+    /// The settlement channel with a node we no longer peer with closed,
+    /// once idle: what stays of it is on disk, and its accounts stay
+    /// (spec/decisions/closing-channels.md).
+    ChannelClosed {
+        /// The node.
+        peer: NodeId,
+    },
     /// A peer is listed as our neighbor again, or no longer.
     Advertised {
         /// The peer.
@@ -383,6 +390,8 @@ pub struct Stats {
     pub settlements_applied: u64,
     /// Settlement messages that arrived again and were not applied twice.
     pub settlements_duplicate: u64,
+    /// Settlement channels closed.
+    pub channels_closed: u64,
     /// Settlement requests sent (spec/decisions/own-fulfills.md).
     pub settlements_requested: u64,
 }

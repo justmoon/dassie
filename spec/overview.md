@@ -37,7 +37,7 @@ Dassie works with test money only: the `live` realm is refused until the conditi
 | **Largest packet** | The most one packet may carry on a ledger. A link's thresholds (in flight, the trigger to ask for settlement, the least settlement) are counted in it, never as a share of credit ([thresholds-in-packets](decisions/thresholds-in-packets.md)). |
 | **Settlement scheme** | A pluggable module that moves value on an underlying ledger ([Settlement](areas/settlement.md), [XRP Ledger](areas/xrpl.md)). |
 | **External asset** | Something the node holds outside its books, such as its account on the XRP Ledger testnet, which schemes settle through. The ledger, not the books, says what it holds ([Settlement](areas/settlement.md#external-assets)). |
-| **Settlement channel** | What a node keeps per node it ever peered with to deliver settlements exactly once: sequences sent and applied, and the message not yet acknowledged. |
+| **Settlement channel** | What a node keeps per node it ever peered with to deliver settlements exactly once: sequences sent and applied, and the message not yet acknowledged. Once idle, it closes to disk. |
 | **Internal ledger** | The node's double-entry ledger, with accounts named `<ledgerId>:<path>`, and an append-only transfer journal ([Ledger](areas/ledger.md)). |
 | **Owner's funds** | Per ledger, the pool `equity/owner` and its group: the owner's sub-accounts and what the node gains or loses on that ledger. Everything the node holds beyond what it owes peers. |
 | **Endpoint** | Anything the connector exchanges packets with: a peer, a BTP client, or a local endpoint such as the STREAM receiver or payer ([Connector](areas/connector.md)). |

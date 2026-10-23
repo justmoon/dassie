@@ -52,6 +52,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_28,
     MIGRATION_29,
     MIGRATION_30,
+    MIGRATION_31,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -979,6 +980,15 @@ CREATE INDEX ledger_transfers_by_packet ON ledger_transfers (packet_epoch, packe
 CREATE INDEX ledger_transfers_trust ON ledger_transfers (sequence) WHERE reference = 'trust';
 ";
 
+/// A settlement channel left idle closes: its row stays, so that its
+/// sequences and whether we ended a peering for room outlive it, and it
+/// leaves memory (spec/decisions/closing-channels.md). Only a channel with
+/// nothing on its way closes.
+const MIGRATION_31: &str = "
+ALTER TABLE settlement_channels ADD COLUMN closed INTEGER NOT NULL DEFAULT 0
+  CHECK (closed IN (0, 1) AND (closed = 0 OR outbox_sequence IS NULL));
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1223,6 +1233,7 @@ pub const TABLES: &[Table] = &[
             ("outbox_data", "BLOB", false, false),
             ("outbox_attempts", "INTEGER", false, false),
             ("ended_for_room", "INTEGER", true, false),
+            ("closed", "INTEGER", true, false),
         ],
     },
     Table {

@@ -235,6 +235,10 @@ impl XrplScheme {
         self.scheme.on_peered(peer, state);
     }
 
+    pub fn on_closed(&mut self, peer: Name) {
+        self.scheme.on_closed(peer);
+    }
+
     pub fn prepare_settlement(
         &mut self,
         rng: &mut SeededRng,

@@ -30,7 +30,7 @@ pub mod sim;
 mod table;
 pub mod wire;
 
-pub use channel::{Channel, Outgoing};
+pub use channel::{Channel, Closed, Outgoing};
 pub use config::{Config, Rate};
 pub use hooks::{Agreed, Declined, PeeringHooks};
 pub use io::{
@@ -41,5 +41,5 @@ pub use node::{
     BanError, Bootstrap, MAX_PINNED_UPLINKS, NodeView, OwnInfo, PeerNode, PeerStatus,
     RegisterError, RegistrationStatus, SendError,
 };
-pub use persist::{PeerBatch, Stored, StoredChannel, StoredFloor, StoredNode};
+pub use persist::{PeerBatch, Stored, StoredChannel, StoredClosed, StoredFloor, StoredNode};
 pub use table::{Advertise, Depeering, Network, Peering, Registration, Room, Sources, Termination};

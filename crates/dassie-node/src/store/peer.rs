@@ -7,8 +7,8 @@
 use dassie_identity::{NodeId, PublicKey};
 use dassie_peer::wire::{SchemeId, TerminationReason};
 use dassie_peer::{
-    Channel, Depeering, Network, Outgoing, PeerBatch, Peering, Registration, Sources, Stored,
-    StoredChannel, StoredFloor, StoredNode, Termination,
+    Channel, Closed, Depeering, Network, Outgoing, PeerBatch, Peering, Registration, Sources,
+    Stored, StoredChannel, StoredClosed, StoredFloor, StoredNode, Termination,
 };
 use rusqlite::{Connection, Row, Transaction, params};
 
@@ -59,13 +59,34 @@ impl Store {
             floors: load_floors(&connection)?,
         })
     }
+
+    /// What stays of the closed settlement channel with `node`, if it was
+    /// closed (spec/decisions/closing-channels.md).
+    pub fn closed_channel(&self, node: &NodeId) -> Result<Option<Closed>, StoreError> {
+        let connection = self.lock();
+        let mut statement = connection.prepare_cached(
+            "SELECT settled_in, settled_out, ended_for_room FROM settlement_channels
+             WHERE node = ?1 AND closed = 1",
+        )?;
+        let mut rows = statement.query([node.as_str()])?;
+        let Some(row) = rows.next()? else {
+            return Ok(None);
+        };
+        Ok(Some(Closed {
+            settled_in: from_sql_amount(row.get(0)?)?,
+            settled_out: from_sql_amount(row.get(1)?)?,
+            ended_for_room: row.get(2)?,
+        }))
+    }
 }
 
+/// The channels open: a closed one stays on disk, and is read only when
+/// it is needed.
 fn load_channels(connection: &Connection) -> Result<Vec<StoredChannel>, StoreError> {
     let mut statement = connection.prepare(
         "SELECT node, public_key, url, settled_in, settled_out, outbox_sequence,
                 outbox_scheme, outbox_amount, outbox_data, outbox_attempts, ended_for_room
-         FROM settlement_channels ORDER BY node",
+         FROM settlement_channels WHERE closed = 0 ORDER BY node",
     )?;
     let rows = statement.query_map([], |row| Ok(read_channel(row)))?;
     let mut channels = Vec::new();
@@ -240,6 +261,9 @@ pub(super) fn write_peer(
     for channel in &batch.channels {
         write_channel(transaction, channel)?;
     }
+    for closed in &batch.closed {
+        write_closed(transaction, closed)?;
+    }
     for banned in &batch.banned {
         transaction.execute(
             "INSERT INTO peer_bans (node) VALUES (?1) ON CONFLICT DO NOTHING",
@@ -277,7 +301,7 @@ fn write_channel(transaction: &Transaction<'_>, stored: &StoredChannel) -> Resul
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
          ON CONFLICT (node) DO UPDATE SET public_key = ?2, url = ?3, settled_in = ?4,
            settled_out = ?5, outbox_sequence = ?6, outbox_scheme = ?7, outbox_amount = ?8,
-           outbox_data = ?9, outbox_attempts = ?10, ended_for_room = ?11",
+           outbox_data = ?9, outbox_attempts = ?10, ended_for_room = ?11, closed = 0",
         params![
             stored.node.as_str(),
             channel.key.as_bytes().to_vec(),
@@ -293,6 +317,29 @@ fn write_channel(transaction: &Transaction<'_>, stored: &StoredChannel) -> Resul
         ],
     )?;
     Ok(())
+}
+
+/// Closes a channel, or moves a closed one's sequence. Its row was written
+/// when it opened, and stays.
+fn write_closed(transaction: &Transaction<'_>, stored: &StoredClosed) -> Result<(), StoreError> {
+    let closed = &stored.closed;
+    let changed = transaction.execute(
+        "UPDATE settlement_channels SET closed = 1, settled_in = ?2, settled_out = ?3,
+           ended_for_room = ?4, outbox_sequence = NULL, outbox_scheme = NULL,
+           outbox_amount = NULL, outbox_data = NULL, outbox_attempts = NULL
+         WHERE node = ?1",
+        params![
+            stored.node.as_str(),
+            to_sql_amount(closed.settled_in)?,
+            to_sql_amount(closed.settled_out)?,
+            closed.ended_for_room,
+        ],
+    )?;
+    if changed == 1 {
+        Ok(())
+    } else {
+        Err(StoreError::Corrupt("a closed channel without its row"))
+    }
 }
 
 fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), StoreError> {

@@ -7,6 +7,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [bootstrap-network](bootstrap-network.md) | Bootstrap network for v1 | network |
 | [build-system](build-system.md) | Build system | engineering, release |
 | [close-rather-than-lower](close-rather-than-lower.md) | A receiver never lowers a maximum it told: it closes a connection that no longer fits | stream, payments |
+| [closing-channels](closing-channels.md) | A settlement channel left idle closes to disk, whatever the balance | settlement, network, xrpl |
 | [connector-timing](connector-timing.md) | Connector timing and packet limits | connector, ilp |
 | [core-and-periphery](core-and-periphery.md) | Core and periphery (design, partly built) | designs/periphery |
 | [crash-drift](crash-drift.md) | The simulation rules out a link that crashes drifted past what it survives | testing, settlement |

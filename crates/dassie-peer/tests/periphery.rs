@@ -120,9 +120,9 @@ fn an_empty_url_verifies_only_in_a_periphery_link_state() {
 
 // Found in review: a peering request whose link state has a URL and the
 // periphery extension took a core channel without a probe, outside the
-// peering caps; channels are never closed, so a few hundred fresh keys
-// would have kept the node from ever peering with a new core node. It is
-// refused, and nothing is opened for it.
+// peering caps; a channel closes only a day after its peering ended, so a
+// few hundred fresh keys would have kept the node from peering with a new
+// core node. It is refused, and nothing is opened for it.
 #[test]
 fn a_downlink_with_a_url_is_refused_without_a_channel() {
     let mut network = Network::with_periphery(17, 2, 1, 0, Config::DEV);
@@ -481,6 +481,48 @@ fn downlinks_are_bounded() {
     let node = network.node(0);
     assert_eq!(node.peers().count() - node.core_peers().count(), 2);
     assert_eq!(node.core_peers().count(), 1, "the core peer kept its slot");
+}
+
+// A downlink's channel closes once idle after its peering ended, and frees
+// its place: the bound counts the channels open, not every downlink ever
+// peered with (spec/decisions/closing-channels.md).
+#[test]
+fn a_closed_channel_frees_a_downlinks_place() {
+    let config = Config {
+        max_downlinks: 1,
+        ..Config::DEV
+    };
+    let mut network = Network::with_periphery(17, 2, 1, 0, config);
+    settle(&mut network, 30_000);
+    let first = Arc::new(NodeKey::from_bytes(&[97; 32]));
+    let second = Arc::new(NodeKey::from_bytes(&[98; 32]));
+    let at = network.clock(0);
+    let state = link_state(&first, at, "", &[EXTENSION_PERIPHERY]);
+    let reply = ask(&mut network, &first, 0, &state);
+    assert!(matches!(answer(&reply), PeeringResponse::Accepted { .. }));
+    network.act(0, |node, now| {
+        assert!(node.terminate(
+            now,
+            &first.node_id(),
+            dassie_peer::wire::TerminationReason::Owner
+        ));
+    });
+    settle(&mut network, 120_000);
+    assert!(network.node(0).peering_of(&first.node_id()).is_none());
+    let state = link_state(&second, network.clock(0), "", &[EXTENSION_PERIPHERY]);
+    let reply = ask(&mut network, &second, 0, &state);
+    assert_eq!(
+        answer(&reply),
+        PeeringResponse::Refused(RefusalReason::Capacity),
+        "the first one's channel still holds the place"
+    );
+    settle(&mut network, Config::DEV.peer_dead_ms);
+    assert!(network.node(0).channel(&first.node_id()).is_none());
+    // Another newcomer: `ask` signs each node's requests alike.
+    let third = Arc::new(NodeKey::from_bytes(&[99; 32]));
+    let state = link_state(&third, network.clock(0), "", &[EXTENSION_PERIPHERY]);
+    let reply = ask(&mut network, &third, 0, &state);
+    assert!(matches!(answer(&reply), PeeringResponse::Accepted { .. }));
 }
 
 // A periphery node takes no peers: it peers only as a downlink.

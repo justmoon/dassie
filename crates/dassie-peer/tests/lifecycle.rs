@@ -285,12 +285,12 @@ fn an_owner_ends_a_peering() {
             )
     });
     assert!(by_them, "the other side learns why");
-    settle(&mut network, 120_000);
-    assert!(network.node(0).peering_of(&b).is_none(), "a cooldown");
     // A settlement after the end is still credited.
     assert!(network.settle(0, b, 9));
     settle(&mut network, 5_000);
     assert_eq!(network.applied.len(), 1);
+    settle(&mut network, 120_000);
+    assert!(network.node(0).peering_of(&b).is_none(), "a cooldown");
 }
 
 #[test]

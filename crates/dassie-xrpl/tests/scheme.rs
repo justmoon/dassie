@@ -395,6 +395,25 @@ fn a_settlement_from_the_wrong_address_is_a_deposit() {
     assert_eq!(books.owner, i128::from(FUNDED) + 1_000_000_000);
 }
 
+// A peer's address goes when its settlement channel closes
+// (spec/decisions/closing-channels.md): a Payment from it after that is
+// the owner's deposit, as from any address no peer gave.
+#[test]
+fn a_closed_peers_address_is_forgotten() {
+    let (mut world, _, state_b) = funded_pair();
+    let peer = world.nodes[1].name;
+    world.settle(1, 0, 1_000_000_000, &state_b);
+    world.close();
+    assert_eq!(world.nodes[0].books.peers.get(&peer), Some(&1_000_000_000));
+    world.nodes[0].scheme.on_closed(peer);
+    world.nodes[0].scheme.check_invariants();
+    world.settle(1, 0, 2_000_000_000, &state_b);
+    world.close();
+    let books = &world.nodes[0].books;
+    assert_eq!(books.peers.get(&peer), Some(&1_000_000_000));
+    assert_eq!(books.owner, i128::from(FUNDED) + 2_000_000_000);
+}
+
 // Peering attempts that never became peerings, ours and others', as many
 // as the scheme keeps addresses, take no peer's place: the peer's next
 // settlement is still its own, not the owner's deposit.

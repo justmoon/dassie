@@ -11,7 +11,7 @@ use dassie_oer::Decode;
 use super::PeerNode;
 use crate::channel::Retry;
 use crate::io::Event;
-use crate::persist::{PeerBatch, Stored, StoredChannel, StoredFloor, StoredNode};
+use crate::persist::{PeerBatch, Stored, StoredChannel, StoredClosed, StoredFloor, StoredNode};
 use crate::routing;
 use crate::table::{
     Advertise, Depeering, Entry, LinkState, PeerState, Peering, Room, Sources, Termination,
@@ -131,14 +131,16 @@ impl PeerNode {
             }
         }
         self.dirty.clear();
-        // Peerings from before channels existed get one now.
+        // Peerings from before channels existed get one now. None of them
+        // is closed: a channel closes only once its peering is over, in
+        // the batch that writes the peering's end or after it.
         let unchanneled: Vec<NodeId> = self
             .peers()
             .map(|(id, _)| *id)
             .filter(|id| !self.channels.contains_key(id))
             .collect();
         for id in unchanneled {
-            self.open_channel(id);
+            self.open_channel_from(id, None);
         }
         self.restore_floors(&stored.floors);
         // A node that lost its URL while down ends its downlinks.
@@ -266,6 +268,11 @@ impl PeerNode {
                 });
             }
         }
+        batch.closed.extend(
+            core::mem::take(&mut self.closed)
+                .into_iter()
+                .map(|(node, closed)| StoredClosed { node, closed }),
+        );
         batch.banned.append(&mut self.banned);
         batch.unbanned.append(&mut self.unbanned);
         if self.gossip.sequence_dirty {
@@ -711,6 +718,18 @@ impl PeerNode {
                 "a retry is for a message on its way"
             );
         }
+        assert!(
+            self.channel_active
+                .keys()
+                .all(|node| self.channels.contains_key(node)),
+            "only open channels are active"
+        );
+        assert!(
+            self.closed
+                .keys()
+                .all(|node| !self.channels.contains_key(node)),
+            "a channel is open or closed"
+        );
         for (node, channel) in &self.channels {
             assert!(
                 channel.outbox.is_none() || self.retries.contains_key(node),

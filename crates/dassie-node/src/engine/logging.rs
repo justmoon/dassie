@@ -100,6 +100,9 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         Event::PeeringEnded { peer } => {
             emit!(severity, target: target::PEER, %peer, "peering ended");
         }
+        Event::ChannelClosed { peer } => {
+            emit!(severity, target: target::PEER, %peer, "settlement channel closed");
+        }
         Event::Advertised { peer, on, short } => {
             if *short {
                 emit!(severity, target: target::PEER, %peer, "withdrawn: its room stayed short of a packet");

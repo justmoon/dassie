@@ -3,8 +3,8 @@
 use dassie_identity::NodeKey;
 use dassie_peer::wire::{SchemeId, TerminationReason};
 use dassie_peer::{
-    Channel, Outgoing, PeerBatch, Peering, Registration, Sources, StoredChannel, StoredFloor,
-    StoredNode, Termination,
+    Channel, Closed, Outgoing, PeerBatch, Peering, Registration, Sources, StoredChannel,
+    StoredClosed, StoredFloor, StoredNode, Termination,
 };
 
 use super::*;
@@ -308,4 +308,94 @@ fn terminations_channels_and_bans_round_trip() {
         })
         .unwrap();
     assert_eq!(terminations, 0);
+}
+
+// A closed channel stays on disk with its sequences and its mark of an end
+// for room, and leaves what a restart loads; a late settlement moves its
+// sequence, and opening it again writes it open
+// (spec/decisions/closing-channels.md).
+#[test]
+fn a_closed_channel_stays_on_disk() {
+    let store = Store::open_in_memory().unwrap();
+    let key = NodeKey::from_bytes(&[4; 32]);
+    let open = StoredChannel {
+        node: key.node_id(),
+        channel: Channel {
+            key: key.public_key(),
+            url: "https://d.example".into(),
+            settled_in: 2,
+            settled_out: 5,
+            outbox: None,
+            ended_for_room: true,
+        },
+    };
+    commit(
+        &store,
+        PeerBatch {
+            channels: vec![open.clone()],
+            ..PeerBatch::default()
+        },
+    );
+    assert_eq!(store.closed_channel(&key.node_id()).unwrap(), None);
+    commit(
+        &store,
+        PeerBatch {
+            closed: vec![StoredClosed {
+                node: key.node_id(),
+                closed: open.channel.closed(),
+            }],
+            ..PeerBatch::default()
+        },
+    );
+    assert!(store.load_peer().unwrap().channels.is_empty());
+    assert_eq!(
+        store.closed_channel(&key.node_id()).unwrap(),
+        Some(open.channel.closed())
+    );
+    let late = Closed {
+        settled_in: 3,
+        ..open.channel.closed()
+    };
+    commit(
+        &store,
+        PeerBatch {
+            closed: vec![StoredClosed {
+                node: key.node_id(),
+                closed: late,
+            }],
+            ..PeerBatch::default()
+        },
+    );
+    assert_eq!(store.closed_channel(&key.node_id()).unwrap(), Some(late));
+    let reopened = StoredChannel {
+        node: key.node_id(),
+        channel: Channel::reopen(key.public_key(), "https://d.example".into(), late),
+    };
+    commit(
+        &store,
+        PeerBatch {
+            channels: vec![reopened.clone()],
+            ..PeerBatch::default()
+        },
+    );
+    assert_eq!(store.closed_channel(&key.node_id()).unwrap(), None);
+    assert_eq!(store.load_peer().unwrap().channels, [reopened]);
+}
+
+// Closing a channel the disk never held is a broken invariant: the batch
+// is refused, and nothing is written.
+#[test]
+fn closing_a_channel_without_its_row_is_refused() {
+    let store = Store::open_in_memory().unwrap();
+    let batch = LedgerBatch {
+        peer: PeerBatch {
+            closed: vec![StoredClosed {
+                node: NodeKey::from_bytes(&[5; 32]).node_id(),
+                closed: Closed::NEW,
+            }],
+            ..PeerBatch::default()
+        },
+        ..LedgerBatch::default()
+    };
+    assert!(store.commit_ledger(&batch).is_err());
 }
