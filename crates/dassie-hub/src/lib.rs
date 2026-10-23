@@ -17,6 +17,10 @@
 //!   with each Prepare and a claim with each Fulfill.
 //! - [`ledger`]: the hub's state and the deterministic function that takes
 //!   it from one block to the next.
+//! - [`client`]: what members and validators say to each other: requests,
+//!   and statements a member trusts once f + 1 validators signed them.
+//! - [`service`]: a validator: consensus and the ledger together, its
+//!   statements, attestations and escrow signatures.
 //! - [`escrow`]: the escrow on the XRP Ledger: keys, setup and check,
 //!   withdrawals, what validators attest, and the payout set.
 //! - [`consensus`]: Simplex, which orders the hub's log, generic over the
@@ -32,6 +36,7 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+pub mod client;
 pub mod codec;
 pub mod consensus;
 pub mod digest;
@@ -40,6 +45,7 @@ pub mod ledger;
 pub mod operation;
 pub mod promise;
 pub mod rules;
+pub mod service;
 #[cfg(feature = "sim")]
 pub mod sim;
 pub mod validators;

@@ -1,6 +1,8 @@
 //! What became of an operation in a block, as its receipt reports it.
 
-use dassie_oer::{Encode, Writer};
+use dassie_oer::{Encode, Reader, Writer};
+
+use crate::codec::HubDecodeError;
 
 use crate::operation::AccountNumber;
 use crate::promise::HoldNumber;
@@ -128,7 +130,64 @@ impl Encode for Outcome {
     }
 }
 
+const FAILURES: [Failure; 12] = [
+    Failure::Funds,
+    Failure::Missing,
+    Failure::NotYours,
+    Failure::Full,
+    Failure::TooSmall,
+    Failure::Claim,
+    Failure::NoDisbursal,
+    Failure::Busy,
+    Failure::ShuttingDown,
+    Failure::Exists,
+    Failure::Stale,
+    Failure::Destination,
+];
+
+const REFUSALS: [Refusal; 5] = [
+    Refusal::Unknown,
+    Refusal::Signature,
+    Refusal::Sequence,
+    Refusal::Fee,
+    Refusal::NotAllowed,
+];
+
 impl Outcome {
+    /// Decodes an outcome.
+    pub fn decode(reader: &mut Reader<'_>) -> Result<Self, HubDecodeError> {
+        let unknown = |tag: u8| HubDecodeError::UnknownChoice(u64::from(tag));
+        Ok(match reader.read_u8()? {
+            0 => {
+                let fee = reader.read_u64()?;
+                let kind = reader.read_u8()?;
+                let value = reader.read_u64()?;
+                let narrow =
+                    |v: u64| u32::try_from(v).map_err(|_| HubDecodeError::Invalid("detail"));
+                let detail = match kind {
+                    0 if value == 0 => Detail::None,
+                    1 => Detail::Account(AccountNumber(narrow(value)?)),
+                    2 => Detail::Hold(HoldNumber(value)),
+                    3 => Detail::Paid(value),
+                    4 => Detail::Withdrawal(narrow(value)?),
+                    other => return Err(unknown(other)),
+                };
+                Self::Applied { fee, detail }
+            }
+            1 => {
+                let fee = reader.read_u64()?;
+                let tag = reader.read_u8()?;
+                let reason = *FAILURES.get(usize::from(tag)).ok_or(unknown(tag))?;
+                Self::Failed { fee, reason }
+            }
+            2 => {
+                let tag = reader.read_u8()?;
+                Self::Refused(*REFUSALS.get(usize::from(tag)).ok_or(unknown(tag))?)
+            }
+            other => return Err(unknown(other)),
+        })
+    }
+
     /// Whether it used the signer's sequence.
     #[must_use]
     pub const fn used_sequence(&self) -> bool {

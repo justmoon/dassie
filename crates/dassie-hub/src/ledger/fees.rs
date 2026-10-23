@@ -45,7 +45,7 @@ impl Ledger {
     /// Checks the votes a block records: each for an earlier block within
     /// the window, each height once, and none recorded before.
     pub(super) fn check_votes(&self, block: &Block<'_>) -> Result<(), BlockError> {
-        let floor = self.vote_floor(block.height);
+        let floor = self.vote_floor(block.height).max(self.set_since);
         let n = self.validators.len();
         let mut seen = BTreeSet::new();
         for (height, signers) in block.votes {

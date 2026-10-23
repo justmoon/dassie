@@ -250,7 +250,7 @@ Two sets can therefore never be mixed, which would pay out more than the escrow 
 - **Volume gathers.** Volume in networks follows a power law, so one hub per asset, likely the default, may carry most of it. That is accepted: the fewer the hubs, the more peers one deposit reaches. A hub is bounded already by its asset and by the region its validators share for low latency.
 - **Small hubs multiply the validators' work.** Each validator serves more of them, and founding one costs it keys and a check of the escrow before it earns anything. A setup fee would pay for that ([roadmap](../roadmap.md#settlement-hubs)); until then, a validator founds hubs only with sponsors its owner chose (§2).
 - **Funds can wait.** A hub that loses more than f validators stops, and pays out only once q validators have signed one payout set, though not at the same time (§9).
-- **Privacy.** The validators see every member's balance and holds, and the packets of disputes (§4).
+- **Privacy.** Anyone sees every member's balance and holds, and every operation on them, with the packets of disputes (§4): a validator answers whoever asks, since its answers prove themselves and a member need not be known to it.
 
 ## 13. How it fits the node
 

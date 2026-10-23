@@ -186,6 +186,7 @@ impl Ledger {
         if vote(&mut self.rules_votes, index, rules.id().0, quorum).map_err(Err)? {
             self.pending_rules = Some(PendingRules {
                 rules: rules.clone(),
+                from_height: None,
                 at: self
                     .timestamp
                     .saturating_add(self.rules.terms.timers.reconfigure_notice),
@@ -204,12 +205,17 @@ impl Ledger {
     /// escrow's next sequence for the old set's change of signer list
     /// (spec/designs/settlement-hubs.md#8-changing-the-validators).
     pub(super) fn apply_pending_rules(&mut self) {
-        let due = self
-            .pending_rules
-            .as_ref()
-            .is_some_and(|pending| pending.at <= self.timestamp);
-        if !due {
+        let height = self.height;
+        let Some(pending) = self.pending_rules.as_mut() else {
             return;
+        };
+        match pending.from_height {
+            None if pending.at <= self.timestamp => {
+                pending.from_height = Some(height.saturating_add(2));
+                return;
+            }
+            Some(from) if from <= height => {}
+            _ => return,
         }
         let Some(PendingRules { rules, .. }) = self.pending_rules.take() else {
             return;
@@ -249,6 +255,7 @@ impl Ledger {
         }
         self.validators = set;
         self.rules = rules;
+        self.set_since = height;
         self.move_attestations(&moved);
         if changed && let Some(next) = self.escrow.next_sequence.checked_add(1) {
             self.escrow.signer_list = Some(self.escrow.next_sequence);

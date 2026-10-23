@@ -17,23 +17,23 @@ use crate::rules::Rules;
 use crate::rules::tests::rules;
 
 const START: Millis = 1_000_000;
-const OP_FEE: Amount = 10;
+pub(crate) const OP_FEE: Amount = 10;
 
 /// A ledger, the validators' keys, and what the next block needs.
-struct Hub {
-    ledger: Ledger,
-    validators: Vec<NodeKey>,
+pub(crate) struct Hub {
+    pub(crate) ledger: Ledger,
+    pub(crate) validators: Vec<NodeKey>,
     sequence: u64,
     deposits: u8,
 }
 
 impl Hub {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::with(|_| {})
     }
 
     /// A hub whose rules `change` changed.
-    fn with(change: impl FnOnce(&mut Rules)) -> Self {
+    pub(crate) fn with(change: impl FnOnce(&mut Rules)) -> Self {
         Self::of(4, change)
     }
 
@@ -55,7 +55,7 @@ impl Hub {
 
     /// Executes a block 10 ms after the last, recording every validator's
     /// vote for the last block.
-    fn block(&mut self, operations: Vec<Operation>) -> Vec<Outcome> {
+    pub(crate) fn block(&mut self, operations: Vec<Operation>) -> Vec<Outcome> {
         let height = self.ledger.height() + 1;
         let votes: Vec<(u64, Signers)> = if height > 1 {
             vec![(height - 1, Signers::from_bits(0b1111))]
@@ -66,7 +66,7 @@ impl Hub {
         self.block_at(timestamp, operations, &votes)
     }
 
-    fn block_at(
+    pub(crate) fn block_at(
         &mut self,
         timestamp: Millis,
         operations: Vec<Operation>,
@@ -81,7 +81,11 @@ impl Hub {
         self.ledger.apply(&block).unwrap()
     }
 
-    fn validator_op(&mut self, index: usize, operation: ValidatorOperation) -> Operation {
+    pub(crate) fn validator_op(
+        &mut self,
+        index: usize,
+        operation: ValidatorOperation,
+    ) -> Operation {
         self.sequence += 1;
         Operation::Validator(SignedValidatorOperation::sign(
             self.ledger.hub(),
@@ -101,7 +105,7 @@ impl Hub {
 
     /// Deposits `amount` with destination tag `tag` (or a new account for
     /// `key`), attested by three validators.
-    fn deposit(&mut self, tag: u32, key: Option<&NodeKey>, amount: Amount) {
+    pub(crate) fn deposit(&mut self, tag: u32, key: Option<&NodeKey>, amount: Amount) {
         self.deposits += 1;
         let deposit = Deposit {
             transaction: Digest([self.deposits; 32]),
@@ -117,7 +121,7 @@ impl Hub {
         self.block(ops);
     }
 
-    fn member(
+    pub(crate) fn member(
         &self,
         account: AccountNumber,
         key: &NodeKey,
@@ -134,7 +138,7 @@ impl Hub {
         ))
     }
 
-    fn run(
+    pub(crate) fn run(
         &mut self,
         account: AccountNumber,
         key: &NodeKey,
@@ -145,7 +149,7 @@ impl Hub {
     }
 
     /// A member with `amount` deposited and a disbursal address set.
-    fn join(&mut self, seed: u8, amount: Amount) -> (AccountNumber, NodeKey) {
+    pub(crate) fn join(&mut self, seed: u8, amount: Amount) -> (AccountNumber, NodeKey) {
         let key = NodeKey::from_bytes(&[seed; 32]);
         self.deposit(0, Some(&key), amount);
         let number = self.ledger.account_of(&key.public_key()).unwrap();
@@ -160,7 +164,7 @@ impl Hub {
         (number, key)
     }
 
-    fn balance(&self, account: AccountNumber) -> Amount {
+    pub(crate) fn balance(&self, account: AccountNumber) -> Amount {
         self.ledger.account(account).map_or(0, |a| a.balance)
     }
 }
@@ -822,6 +826,9 @@ fn reconfigure_takes_effect_after_its_notice() {
     let notice = hub.ledger.terms().timers.reconfigure_notice;
     let at = hub.ledger.timestamp() + notice;
     hub.block_at(at, vec![], &[]);
+    // The new set takes over two blocks after its notice passed.
+    hub.block(vec![]);
+    hub.block(vec![]);
     assert_eq!(hub.ledger.terms().fees.operation, 20);
     assert_eq!(hub.ledger.hub(), &rules_id_of_genesis());
 }
@@ -842,7 +849,7 @@ fn the_state_root_follows_the_state() {
 
 /// `rules`, changed by `change` and signed again by the validators' node
 /// keys (seeds 1..=4), so that they pass `Rules::check`.
-fn resigned(mut rules: Rules, change: impl FnOnce(&mut Rules)) -> Rules {
+pub(crate) fn resigned(mut rules: Rules, change: impl FnOnce(&mut Rules)) -> Rules {
     change(&mut rules);
     let terms = rules.terms.clone();
     for (i, acceptance) in rules.validators.iter_mut().enumerate() {
@@ -855,13 +862,16 @@ fn resigned(mut rules: Rules, change: impl FnOnce(&mut Rules)) -> Rules {
 }
 
 /// Votes `rules` in with three validators and lets their notice pass.
-fn reconfigure(hub: &mut Hub, rules: &Rules) -> Vec<Outcome> {
+pub(crate) fn reconfigure(hub: &mut Hub, rules: &Rules) -> Vec<Outcome> {
     let ops: Vec<Operation> = (0..3)
         .map(|i| hub.validator_op(i, ValidatorOperation::Reconfigure(rules.clone())))
         .collect();
     let outcomes = hub.block(ops);
     let at = hub.ledger.timestamp() + hub.ledger.terms().timers.reconfigure_notice;
     hub.block_at(at, vec![], &[]);
+    // The new set takes over two blocks after its notice passed.
+    hub.block(vec![]);
+    hub.block(vec![]);
     outcomes
 }
 
@@ -1012,7 +1022,11 @@ fn reset_votes_for_different_chains_do_not_add_up() {
 fn terms_that_would_trap_the_ledger_are_refused() {
     let sponsor = NodeKey::from_bytes(&[1; 32]);
     let base = crate::rules::tests::terms(&sponsor);
-    let changes: [fn(&mut crate::rules::Terms); 6] = [
+    let changes: [fn(&mut crate::rules::Terms); 9] = [
+        // Blocks or claims a follower could not decode.
+        |t| t.limits.block_operations = 4097,
+        |t| t.limits.vote_window = 257,
+        |t| t.limits.commitments_per_claim = 1025,
         |t| t.fees.operation = 0,
         |t| t.fees.hold_reserve = 0,
         |t| t.limits.recent_deposits = 0,
@@ -1186,6 +1200,9 @@ fn a_withdrawal_with_a_quorum_after_a_change_of_set_settles() {
     hub.block(ops);
     let at = hub.ledger.timestamp() + hub.ledger.terms().timers.reconfigure_notice;
     hub.block_at(at, vec![], &[]);
+    // The new set takes over two blocks after its notice passed.
+    hub.block(vec![]);
+    hub.block(vec![]);
     assert_eq!(hub.ledger.validators().len(), 4);
     assert_eq!(
         hub.ledger.withdrawals().count(),
@@ -1359,6 +1376,8 @@ mod properties {
             }
             prop_assert_eq!(first.hub.ledger.state_root(), second.hub.ledger.state_root());
             prop_assert_eq!(first.hub.ledger.liabilities(), first.hub.ledger.supply());
+            let restored = Ledger::restore(&first.hub.ledger.snapshot(), &first.hub.ledger.state_root()).unwrap();
+            prop_assert_eq!(&restored, &first.hub.ledger);
         }
     }
 }
