@@ -17,7 +17,7 @@ Add settlement hubs as another way to peer, beside bilateral peering, which stay
 - **Payout even from a stalled hub,** through payout sets that hand the escrow to keys made for that set alone, so the XRP Ledger applies one set and refuses the rest.
 - **Hubs are regional.** Validators and the members that peer over a hub are within a few tens of milliseconds of each other. The rules state the hub's margin and an allowance for the legs between members, and a node peers over a hub only when both fit in the window its connector already keeps, so a peering over a hub keeps the connector's timing but for the payer's Reject.
 - **The hold is the credit,** all of it and nothing more, and does not grow with earnings. Settling on request funds the hold.
-- **Hub or direct.** Two nodes in the same hub peer over it; otherwise they settle directly, which stays. On the test network, a node joins the default hub unless its owner turned hubs off. A node is in at most one hub per asset and underlying ledger for now.
+- **Hub or direct.** Two nodes in the same hub peer over it; otherwise they settle directly, which stays. On the test network, a node joins the default hub unless its owner turned hubs off, or its own round trip to the validators exceeds the rules' allowance. A node is in at most one hub per asset and underlying ledger for now. A node whose hub fails peers again directly.
 - **A node moves its own funds** between its account on the underlying ledger and the hub, to stay between a floor its holds need and a ceiling its owner sets, both counted in largest packets.
 - **Fees are rules,** flat, with caps, and **accounts and holds lock reserves,** as on the XRP Ledger, which price their place in the hub and pay each account out at shutdown.
 - **The asset is XRP** at first. The default list of validators is kept like the default bootstrap node list, and so is a **default hub** for each asset and ledger, which owners may override.
@@ -35,6 +35,8 @@ It will affect: the `hub-xrp-testnet` settlement scheme, commitments and claims 
 - A stall pays out with no notice period for claims, so payees lose what they had not taken from holds, from a block that may be older than the last one any member saw.
 - Volume may gather in one hub per asset. The fewer the hubs, the more peers one deposit reaches, and a hub is bounded already by its asset and the region its validators share.
 - Nodes far from every hub settle directly, as before.
+- While a hub runs, a node in it keeps no peering outside it, so a hub's failure cuts off every peering over it at once, until its nodes have peered again directly.
+- What a payer's missing claims make its payee pay in `claim` fees has no bound yet, so the simulation does not hold a peering over a hub to [own-books](own-books.md)'s bound on what a peer can cost; it measures that cost instead.
 - Until a node can be in several hubs, its limit is on the one hub it is in. Hubs that share validators fail together, so a limit per validator operator comes with being in several.
 - A member whose legs to its peers are slower than the hub's allowance learns of some packets too late, and books the loss.
 - Abandoned accounts keep their place in the hub's tables, which their reserves paid for, and holding back someone's claim costs only the fees of the claims that crowd it out.
