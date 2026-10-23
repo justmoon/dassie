@@ -24,7 +24,7 @@ A new secret takes a new path below `node`, never a new meaning for an existing 
 
 A path is resolved from the node key only if it is `node` or starts with `node/`. Any other path hangs off the master seed, which the node never has: only the browser holds the phrase and the master seed, during setup and login ([HTTP](http.md)), or, for an owner who keeps the phrase on the node's host, `dassie setup` and the market maker, which wipe them once they have the node key ([headless-setup](../decisions/headless-setup.md)). `dev/session` is such a sibling of `node`, so only a holder of the phrase derives a development session token.
 
-Users of the tree: the login secret ([HTTP](http.md)), settlement entropy at `node/settlement-module/<scheme>/<path>` ([XRPL](xrpl.md#the-wallet)), the STREAM receivers ([Payments](payments.md#receiving)), the Open Payments key ([Payments](payments.md#wallet-addresses)) and the QUIC endpoint's key for stateless resets ([Peer protocol](peer-protocol.md#quic)).
+Users of the tree: the login secret ([HTTP](http.md)), settlement entropy at `node/settlement-module/<scheme>/<path>` ([XRPL](xrpl.md#the-wallet)), the STREAM receivers ([Payments](payments.md#receiving)), the Open Payments key ([Payments](payments.md#wallet-addresses)) the QUIC endpoint's key for stateless resets ([Peer protocol](peer-protocol.md#quic)), and a settlement hub's keys at `node/hub/<nonce>/<name>`: a validator's consensus, escrow and payout keys, and a sponsor's escrow master key ([Settlement hubs](hubs.md#the-escrow)).
 
 ## Node key
 

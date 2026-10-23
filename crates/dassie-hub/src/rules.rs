@@ -52,9 +52,10 @@ const ENDPOINT_ALPHABET: Alphabet = Alphabet::EMPTY
 pub struct Fees {
     /// What each operation pays.
     pub operation: Amount,
-    /// The underlying ledger's fee for one transaction the escrow sends.
-    /// A withdrawal pays it on top of the operation fee, and so does each
-    /// payment of a payout set.
+    /// The underlying ledger's fee for one transaction the escrow sends,
+    /// multi-signed by a quorum: at least the ledger's base fee once per
+    /// signer and once more. A withdrawal pays it on top of the operation
+    /// fee, and so does each payment of a payout set.
     pub ledger: Amount,
     /// Parts per million of each fee that go to the reserve account.
     pub reserve_share_ppm: u32,

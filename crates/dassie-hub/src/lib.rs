@@ -17,6 +17,8 @@
 //!   with each Prepare and a claim with each Fulfill.
 //! - [`ledger`]: the hub's state and the deterministic function that takes
 //!   it from one block to the next.
+//! - [`escrow`]: the escrow on the XRP Ledger: keys, setup and check,
+//!   withdrawals, what validators attest, and the payout set.
 //!
 //! Like the other protocol crates, it never reads a clock, an RNG or a
 //! socket of its own (spec/decisions/tigerstyle.md): time and randomness
@@ -30,6 +32,7 @@ extern crate std;
 
 pub mod codec;
 pub mod digest;
+pub mod escrow;
 pub mod ledger;
 pub mod operation;
 pub mod promise;

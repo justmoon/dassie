@@ -289,6 +289,7 @@ impl Ledger {
         self.escrow.signer_list = None;
         self.reset_votes.clear();
         self.escrow_votes.clear();
+        self.signer_list_votes.clear();
     }
 }
 

@@ -94,6 +94,7 @@ pub struct Ledger {
     pub(crate) pending_rules: Option<PendingRules>,
     pub(crate) rules_votes: Vec<(Digest, Signers)>,
     pub(crate) escrow_votes: Vec<(u32, Signers)>,
+    pub(crate) signer_list_votes: Vec<(u32, Signers)>,
     pub(crate) shutdown_votes: Signers,
     pub(crate) reset_votes: Vec<(u32, Signers)>,
 }
@@ -136,6 +137,7 @@ impl Ledger {
             pending_rules: None,
             rules_votes: Vec::new(),
             escrow_votes: Vec::new(),
+            signer_list_votes: Vec::new(),
             shutdown_votes: Signers::NONE,
             reset_votes: Vec::new(),
             rules,
