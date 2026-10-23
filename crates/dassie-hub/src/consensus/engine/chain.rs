@@ -196,8 +196,16 @@ impl Engine {
                         .get(&view)
                         .and_then(|round| round.finalization.clone());
                     let chain = self.chain_to(&digest);
-                    self.apply_chain(app, chain, certificate);
-                    return true;
+                    if self.apply_chain(app, chain, certificate) {
+                        return true;
+                    }
+                    // A finalization of nothing we can finalize: only more
+                    // than f faulty validators, or an application that
+                    // breaks its contract, make one. We stall on it, and
+                    // never take it up again.
+                    if let Some(round) = self.rounds.get_mut(&view) {
+                        round.forked = true;
+                    }
                 }
                 Ancestry::Missing(missing) => self.want_from_any(missing),
                 Ancestry::Forks => {
@@ -223,13 +231,13 @@ impl Engine {
     /// Finalizes `chain`, which extends the tip, with `finalization` of its
     /// last block. Repeats come only at its end, of its last content block,
     /// which is then the last of its epoch: they prove it, and the
-    /// application never sees them.
+    /// application never sees them. Returns whether it finalized a block.
     pub(super) fn apply_chain(
         &mut self,
         app: &mut dyn Application,
         chain: Vec<(Digest, Block)>,
         finalization: Option<Certificate>,
-    ) {
+    ) -> bool {
         let content = chain
             .iter()
             .zip(chain.iter().skip(1))
@@ -247,6 +255,7 @@ impl Engine {
         // change that ends the epoch. The chain stops where the epoch
         // ended, which only more than f faulty validators can make happen
         // before its last block.
+        let mut applied = false;
         for (at, (digest, block)) in chain.into_iter().enumerate() {
             let follows = block.parent == self.tip_digest
                 && block.height == self.tip.block.height.saturating_add(1)
@@ -256,7 +265,9 @@ impl Engine {
             }
             let own = if at == last { proof.take() } else { None };
             self.apply_finalized(app, digest, block, own.unwrap_or_default());
+            applied = true;
         }
+        applied
     }
 
     /// Makes `block` final: tells the application, moves the tip, and lets

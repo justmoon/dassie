@@ -878,6 +878,105 @@ fn a_long_stall_lets_go_of_what_the_application_verified() {
     assert_eq!(engine.tip().block.height, 0);
 }
 
+/// An application that breaks its contract: its chain schedules a change,
+/// which `scheduled_change` names, but `reconfiguration` never reports it.
+struct Misreporting(SimApp);
+
+impl dassie_hub::consensus::Application for Misreporting {
+    fn propose(
+        &mut self,
+        context: &dassie_hub::consensus::ProposeContext<'_>,
+        payload: &mut Vec<u8>,
+    ) -> Result<(), dassie_hub::consensus::Declined> {
+        self.0.propose(context, payload)
+    }
+
+    fn verify(&mut self, context: &dassie_hub::consensus::VerifyContext, payload: &[u8]) -> bool {
+        self.0.verify(context, payload)
+    }
+
+    fn finalized(&mut self, block: &dassie_hub::consensus::Block, digest: &Digest) {
+        self.0.finalized(block, digest);
+        let _ = self.0.reconfiguration();
+    }
+
+    fn scheduled_change(&mut self, after: &Digest) -> Option<(u64, dassie_hub::ValidatorSet)> {
+        self.0.scheduled_change(after)
+    }
+}
+
+#[test]
+fn a_broken_application_or_quorum_stalls_the_engine_without_a_panic() {
+    // Blocks 1 and 2 are final, but the application never reported the
+    // change block 1 scheduled, so the epoch goes on past its last block;
+    // the chain says block 2 ends it, and view 3 repeats it. The repeat's
+    // finalization finalizes nothing new: the engine stalls, as it must
+    // with an application that breaks its word, and does not panic.
+    let (mut engine, app, schedule) = scheduled_at_one();
+    let mut app = Misreporting(app);
+    let b1 = scheduled_block(1, &genesis(), &schedule);
+    let b2 = scheduled_block(2, &b1, &schedule);
+    for (block, leader) in [(&b1, 1u64), (&b2, 2)] {
+        let message = proposed(block, usize::try_from(leader).unwrap());
+        engine.handle_message(
+            START + block.view * 100 + 1,
+            &mut app,
+            PeerId(leader),
+            &message.to_vec(),
+        );
+        for kind in [VoteKind::Notarize, VoteKind::Finalize] {
+            let certificate = certificate_of(kind, block.view, block.digest(&hub()));
+            engine.handle_message(
+                START + block.view * 100 + 5,
+                &mut app,
+                PeerId(3),
+                &certificate,
+            );
+            engine.check_invariants();
+        }
+    }
+    assert_eq!((engine.tip().block.height, engine.epoch()), (2, 0));
+    let repeat = repeat_of(3, &b2);
+    engine.handle_message(
+        START + 301,
+        &mut app,
+        PeerId(3),
+        &proposed(&repeat, 3).to_vec(),
+    );
+    for kind in [VoteKind::Notarize, VoteKind::Finalize] {
+        let certificate = certificate_of(kind, 3, repeat.digest(&hub()));
+        engine.handle_message(START + 305, &mut app, PeerId(3), &certificate);
+        engine.check_invariants();
+    }
+    engine.handle_timeout(START + 2_000, &mut app);
+    engine.check_invariants();
+    assert_eq!((engine.tip().block.height, engine.epoch()), (2, 0));
+    // A quorum that breaks the rules too finalizes a block on block 2 that
+    // skips a height: there is nothing it can finalize, and the engine
+    // stalls on it as well.
+    let mut skipping = scheduled_block(5, &b2, &schedule);
+    skipping.height = 4;
+    for kind in [VoteKind::Notarize, VoteKind::Finalize] {
+        let certificate = certificate_of(kind, 5, skipping.digest(&hub()));
+        let mut message = Message::decode_message(&certificate).unwrap();
+        if let Message::Certificate(certificate) = message {
+            message = Message::Delivery(dassie_hub::consensus::wire::Delivery {
+                finalized: Vec::new(),
+                finalization: None,
+                certified: vec![dassie_hub::consensus::wire::Certified {
+                    certificate,
+                    block: Some(skipping.clone()),
+                }],
+            });
+        }
+        engine.handle_message(START + 2_100, &mut app, PeerId(3), &message.to_vec());
+        engine.check_invariants();
+    }
+    engine.handle_timeout(START + 3_000, &mut app);
+    engine.check_invariants();
+    assert_eq!(engine.tip().block.height, 2);
+}
+
 #[test]
 fn a_repeat_is_valid_only_of_an_epochs_last_block() {
     let (mut engine, mut app, b2, _) = split_at_the_boundary();

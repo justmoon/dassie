@@ -293,7 +293,7 @@ impl Engine {
             return;
         }
         let chain = digests.into_iter().zip(blocks.iter().cloned()).collect();
-        self.apply_chain(app, chain, Some(finalization.clone()));
+        let _ = self.apply_chain(app, chain, Some(finalization.clone()));
     }
 
     /// The digests of `blocks` if they form a chain that `finalization`
