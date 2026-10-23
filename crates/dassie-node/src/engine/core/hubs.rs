@@ -13,6 +13,7 @@ use dassie_identity::NodeId;
 use dassie_ilp::{Address, ErrorCode, Prepare, Response};
 use dassie_ledger::Name;
 use dassie_oer::Decode;
+use dassie_peer::wire::HubMembership;
 use dassie_settlement::{Commitments, Decided, Promised};
 
 use super::Core;
@@ -43,6 +44,40 @@ impl Core {
             active.failed.is_none() && active.scheme.id().as_str() == dassie_hub::member::SCHEME_ID;
         hub.then(|| Some((scheme, Name::new(node.as_str()).ok()?)))
             .flatten()
+    }
+
+    /// The settlement hub we are a member of, as our link state names it
+    /// (spec/designs/settlement-hubs.md#11-choosing-a-hub): once our hub
+    /// account has its number, and while its scheme runs.
+    pub(super) fn hub_membership(&self) -> Option<HubMembership> {
+        let scheme = Name::new(dassie_hub::member::SCHEME_ID).ok()?;
+        let running = self
+            .schemes
+            .get(&scheme)
+            .is_some_and(|active| active.failed.is_none());
+        if !running {
+            return None;
+        }
+        let active = self.assets.get(&dassie_hub::member::FIRST)?;
+        let any: &dyn core::any::Any = active.asset.as_ref();
+        let account = any.downcast_ref::<dassie_hub::member::HubAccount>()?;
+        Some(HubMembership {
+            hub_id: *account.hub().0.as_bytes(),
+            account: account.number()?.0,
+            takes_peers: true,
+        })
+    }
+
+    /// Names in our link state the hub we are a member of now, if that
+    /// changed: a new link state follows.
+    pub(super) fn advertise_hub(&mut self) {
+        let hub = self.hub_membership();
+        if self.peer.own_info().hub == hub {
+            return;
+        }
+        let mut info = self.peer.own_info().clone();
+        info.hub = hub;
+        self.peer.set_own_info(self.now_ms, info);
     }
 
     /// Runs `f` on the commitments side of `scheme`, if it has one.

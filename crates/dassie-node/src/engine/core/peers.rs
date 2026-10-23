@@ -588,9 +588,12 @@ impl Core {
         self.after_peer();
     }
 
-    /// Changes what our link state says: a new one follows (NET-6).
-    pub fn set_own_info(&mut self, info: dassie_peer::OwnInfo) {
+    /// Changes what our link state says: a new one follows (NET-6). The
+    /// hub it names is the core's: that of our hub account, if we are a
+    /// member.
+    pub fn set_own_info(&mut self, mut info: dassie_peer::OwnInfo) {
         let now = self.now_ms;
+        info.hub = self.hub_membership();
         self.peer.set_own_info(now, info);
         // Becoming a periphery node, or a core node again, changes how
         // packets from peers are routed.
@@ -631,6 +634,7 @@ impl Core {
             .collect();
         let now = self.now_ms;
         self.peer.set_schemes(now, schemes);
+        self.advertise_hub();
     }
 
     /// Takes in what the peer node did: its requests and replies to hand

@@ -73,7 +73,7 @@ impl PeerNode {
             let wanted = self.confirmed_peers() < self.peer_target();
             if wanted
                 && self.can_start()
-                && let Some((node, scheme)) = self.pick_candidate(false)
+                && let Some((node, scheme)) = self.pick_candidate(hooks, false)
             {
                 self.start_peering(hooks, node, scheme);
             }
@@ -84,7 +84,7 @@ impl PeerNode {
             // uplinks only.
             if !self.is_periphery()
                 && self.can_start()
-                && let Some((node, scheme)) = self.pick_candidate(true)
+                && let Some((node, scheme)) = self.pick_candidate(hooks, true)
             {
                 self.start_peering(hooks, node, scheme);
             }
@@ -180,7 +180,11 @@ impl PeerNode {
     /// Nodes our routes do not reach come first, then majority nodes; the
     /// RNG picks among the best. A bridge only considers majority nodes
     /// unreachable for the grace period.
-    fn pick_candidate(&mut self, bridge: bool) -> Option<(NodeId, SchemeId)> {
+    fn pick_candidate(
+        &mut self,
+        hooks: &dyn PeeringHooks,
+        bridge: bool,
+    ) -> Option<(NodeId, SchemeId)> {
         let (now, stale, future) = (self.now_ms, self.config.stale_ms, self.config.max_future_ms);
         let grace = self.config.unreachable_grace_ms;
         let mut best: Vec<(u8, NodeId, SchemeId)> = Vec::new();
@@ -198,7 +202,7 @@ impl PeerNode {
             {
                 continue;
             }
-            let Some(scheme) = link.schemes.iter().find(|s| self.schemes.contains(s)) else {
+            let Some(scheme) = self.scheme_with(hooks, link) else {
                 continue;
             };
             let unreachable = !self.routes.contains_key(id);
@@ -212,12 +216,37 @@ impl PeerNode {
                 continue;
             }
             let score = u8::from(!unreachable) * 2 + u8::from(!majority);
-            best.push((score, *id, *scheme));
+            best.push((score, *id, scheme));
         }
         let top = best.iter().map(|(score, _, _)| *score).min()?;
         best.retain(|(score, _, _)| *score == top);
         let index = usize::try_from(self.rng.next_u64() % (best.len() as u64)).unwrap_or(0);
         best.get(index).map(|(_, id, scheme)| (*id, *scheme))
+    }
+
+    /// The scheme to ask a node to peer on: over the settlement hub we
+    /// share with it, if it takes peers there, else the first of its
+    /// schemes we have that is not over a hub. A hub scheme without a shared hub would
+    /// leave each side without the other's account
+    /// (spec/designs/settlement-hubs.md#11-choosing-a-hub).
+    fn scheme_with(&self, hooks: &dyn PeeringHooks, link: &LinkState) -> Option<SchemeId> {
+        let shared = matches!(
+            (self.own_info.hub, link.hub),
+            (Some(own), Some(theirs))
+                if own.hub_id == theirs.hub_id && own.takes_peers && theirs.takes_peers
+        );
+        // In the other node's order, as before hubs.
+        let common = || {
+            link.schemes
+                .iter()
+                .copied()
+                .filter(|scheme| self.schemes.contains(scheme))
+        };
+        let over_hub = common().find(|scheme| hooks.uses_commitments(*scheme));
+        if shared && over_hub.is_some() {
+            return over_hub;
+        }
+        common().find(|scheme| !hooks.uses_commitments(*scheme))
     }
 
     fn start_peering(&mut self, hooks: &mut dyn PeeringHooks, node: NodeId, scheme: SchemeId) {

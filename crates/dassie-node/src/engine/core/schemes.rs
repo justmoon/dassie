@@ -103,14 +103,20 @@ fn decode_rules(hex: &str) -> Result<dassie_hub::Rules, SchemeError> {
 
 /// The node's hub account in the hub of `config`: its key derived at
 /// `node/hub/<hub ID>/account`, paying out at the hub's end to the node's
-/// own XRPL testnet account.
+/// own XRPL testnet account. A hub whose legs between members do not fit
+/// in the connector's message window is not joined: it is too far apart
+/// for a peering over it (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
 fn create_hub_account(
     id: AssetId,
     config: &str,
     state: &[u8],
-    key: &NodeKey,
+    (key, window_ms): (&NodeKey, u64),
 ) -> Result<Box<dyn ExternalAsset>, SchemeError> {
     let rules = hub_rules(config)?;
+    let timers = &rules.terms.timers;
+    if timers.margin.saturating_add(timers.allowance) > window_ms {
+        return Err(SchemeError::InvalidConfig);
+    }
     let member =
         dassie_hub::escrow::member_key(key, &rules.id()).ok_or(SchemeError::InvalidConfig)?;
     let entropy = key
@@ -157,7 +163,7 @@ fn create_asset(
     id: AssetId,
     config: &str,
     state: &[u8],
-    key: &NodeKey,
+    (key, window_ms): (&NodeKey, u64),
 ) -> Result<Box<dyn ExternalAsset>, SchemeError> {
     match (id.kind, id.index) {
         (AssetKind::XrplTestnetAccount, 0) => {
@@ -172,7 +178,9 @@ fn create_asset(
                 state,
             )?))
         }
-        (AssetKind::HubTestnetAccount, 0) => create_hub_account(id, config, state, key),
+        (AssetKind::HubTestnetAccount, 0) => {
+            create_hub_account(id, config, state, (key, window_ms))
+        }
         _ => Err(SchemeError::UnknownScheme),
     }
 }
@@ -332,7 +340,9 @@ impl Core {
                 .get(&asset)
                 .cloned()
                 .unwrap_or_default();
-            let made = create_asset(asset, config, &state, &self.key).map_err(invalid)?;
+            let window_ms = self.connector.config().message_window_ms;
+            let made =
+                create_asset(asset, config, &state, (&self.key, window_ms)).map_err(invalid)?;
             self.assets.insert(
                 asset,
                 ActiveAsset {

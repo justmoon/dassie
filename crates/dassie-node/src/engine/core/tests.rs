@@ -2393,3 +2393,100 @@ fn a_peer_loss_is_booked_from_where_the_money_left() {
         ]
     );
 }
+
+/// A hub's rules, as the scheme's config takes them: four validators,
+/// commitments expiring `margin` early, and legs between members of
+/// `allowance`.
+fn hub_config(margin: u64, allowance: u64) -> String {
+    use dassie_hub::escrow::{ValidatorKeys, escrow_master};
+    use dassie_hub::rules::{Fees, Limits, Rules, Terms, Timers};
+    use dassie_identity::NodeKey;
+    use dassie_oer::Encode;
+
+    let nonce = [7; 32];
+    let sponsor = NodeKey::from_bytes(&[100; 32]);
+    let master = escrow_master(&sponsor, &nonce).unwrap();
+    let terms = Terms {
+        nonce,
+        sponsor: sponsor.public_key(),
+        network: 1,
+        escrow: master.account().0,
+        fees: Fees {
+            operation: 10,
+            ledger: 100,
+            reserve_share_ppm: 100_000,
+            account_reserve: 2_000_000,
+            hold_reserve: 200_000,
+            starting_balance: 1_000,
+            least_payout: 1_000_000,
+        },
+        limits: Limits {
+            accounts: 100,
+            holds: 100,
+            holds_per_account: 8,
+            withdrawals: 16,
+            pending_deposits: 64,
+            recent_deposits: 256,
+            block_operations: 64,
+            deadline_operations: 16,
+            claimed_per_hold: 1_100,
+            commitments_per_claim: 16,
+            vote_window: 32,
+        },
+        timers: Timers {
+            hold_notice: 60_000,
+            shutdown_notice: 60_000,
+            reconfigure_notice: 120_000,
+            absence: 86_400_000,
+            stall: 3_600_000,
+            precision: 100,
+            margin,
+            allowance,
+            view_timeout: 200,
+        },
+    };
+    let validators = (1..=4u8)
+        .map(|i| {
+            let node = NodeKey::from_bytes(&[i; 32]);
+            ValidatorKeys::derive(&node, &nonce)
+                .unwrap()
+                .accept(&node, &terms, format!("v{i}.example:443"))
+                .unwrap()
+        })
+        .collect();
+    let rules = Rules { terms, validators };
+    let hex: String = rules
+        .to_vec()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    serde_json::json!({ "rules": hex }).to_string()
+}
+
+// A node joins a hub only when its legs between members fit in the
+// connector's message window (spec/designs/settlement-hubs.md#4-peering-over-a-hub):
+// a hub too far apart is refused, and nothing of it is kept. One that fits
+// is joined, and its account asks the hub's validators for itself.
+#[test]
+fn a_hub_is_joined_only_if_it_fits_the_message_window() {
+    let mut core = core(9);
+    let refused = core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 600));
+    assert!(refused.is_err(), "500 ms + 600 ms is past the 1 s window");
+    assert!(core.ledger_views().is_empty());
+    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 300))
+        .unwrap();
+    assert_eq!(core.ledger_views().len(), 1);
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    let mut sent = 0;
+    for output in &outputs {
+        if let Output::HubSend {
+            endpoint, address, ..
+        } = output
+        {
+            assert_eq!(*address, format!("v{}.example:443", endpoint + 1));
+            sent += 1;
+        }
+    }
+    assert!(sent > 0, "the account asks the validators: {outputs:?}");
+}

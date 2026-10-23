@@ -16,9 +16,11 @@ use dassie_identity::{NodeId, NodeKey};
 use dassie_node_core::testing::SeededRng;
 use dassie_oer::Encode;
 use dassie_peer::auth::{AuthConfig, Authenticator};
-use dassie_peer::sim::{Network, START, key};
-use dassie_peer::wire::{Authentication, Content, ResponseEnvelope, encode_envelope};
-use dassie_peer::{Config, Event, Inbound, InboundId, Reply, VERDICT_ACCEPTED};
+use dassie_peer::sim::{Network, START, key, url};
+use dassie_peer::wire::{
+    Authentication, Content, HubMembership, ResponseEnvelope, encode_envelope,
+};
+use dassie_peer::{Config, Event, Inbound, InboundId, OwnInfo, Reply, VERDICT_ACCEPTED};
 
 /// A Prepare, as far as the peer protocol reads one.
 const PREPARE: &[u8] = &[12, 1, 0];
@@ -277,4 +279,53 @@ fn a_reply_of_the_verdict_alone_gives_no_claim() {
     assert!(claims(&network, 1).is_empty());
     assert_eq!(network.node(1).stats().answers_dropped, 0);
     assert!(network.node(1).reachable(&a));
+}
+
+/// Two nodes whose only scheme is over a hub, each a member of `hubs[i]`,
+/// after a while to find each other.
+fn over_hubs(seed: u64, hubs: [Option<HubMembership>; 2]) -> (Network, NodeId, NodeId) {
+    let mut network = Network::new(seed, 2, 1, Config::DEV);
+    for (index, hub) in hubs.into_iter().enumerate() {
+        network.nodes[index].hooks.commitments = true;
+        let now = network.clock(index);
+        let info = OwnInfo {
+            url: Some(url(index)),
+            alias: format!("n{index}"),
+            quic: false,
+            feed_port: None,
+            hub,
+        };
+        network.node_mut(index).set_own_info(now, info);
+    }
+    let (a, b) = (*network.node(0).own(), *network.node(1).own());
+    settle(&mut network, 60_000);
+    (network, a, b)
+}
+
+fn member(hub: u8, takes_peers: bool) -> Option<HubMembership> {
+    Some(HubMembership {
+        hub_id: [hub; 32],
+        account: 1,
+        takes_peers,
+    })
+}
+
+// A scheme over a hub is asked for only by a node that shares the hub with
+// the other, which takes peers there
+// (spec/designs/settlement-hubs.md#11-choosing-a-hub): without, neither
+// would find the other's account.
+#[test]
+fn a_hub_scheme_is_chosen_only_for_a_shared_hub() {
+    let (network, a, b) = over_hubs(7, [member(1, true), member(1, true)]);
+    assert!(network.node(0).peering_of(&b).is_some());
+    assert!(network.node(1).peering_of(&a).is_some());
+    for hubs in [
+        [member(1, true), member(2, true)],
+        [member(1, true), None],
+        [member(1, true), member(1, false)],
+    ] {
+        let (network, a, b) = over_hubs(7, hubs);
+        assert!(network.node(0).peering_of(&b).is_none(), "{hubs:?}");
+        assert!(network.node(1).peering_of(&a).is_none(), "{hubs:?}");
+    }
 }
