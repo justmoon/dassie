@@ -86,6 +86,9 @@ pub struct Ledger {
     pub(crate) keys: BTreeMap<[u8; 32], AccountNumber>,
     pub(crate) next_account: u32,
     pub(crate) holds: BTreeMap<HoldNumber, Hold>,
+    /// Each hold by its payer and by its payee: derived from `holds`, and
+    /// not in the state root.
+    pub(crate) hold_index: alloc::collections::BTreeSet<(AccountNumber, HoldNumber)>,
     pub(crate) next_hold: u64,
     pub(crate) withdrawals: BTreeMap<u32, Withdrawal>,
     pub(crate) pending_deposits: BTreeMap<Digest, PendingDeposit>,
@@ -132,6 +135,7 @@ impl Ledger {
             keys: BTreeMap::new(),
             next_account: 1,
             holds: BTreeMap::new(),
+            hold_index: alloc::collections::BTreeSet::new(),
             next_hold: 1,
             withdrawals: BTreeMap::new(),
             pending_deposits: BTreeMap::new(),
@@ -332,6 +336,32 @@ impl Ledger {
     /// Every hold, in order.
     pub fn holds(&self) -> impl Iterator<Item = (HoldNumber, &Hold)> {
         self.holds.iter().map(|(number, hold)| (*number, hold))
+    }
+
+    /// Every hold `account` pays into or takes from, in order, found by an
+    /// index rather than by looking at every hold.
+    pub fn holds_of(&self, account: AccountNumber) -> impl Iterator<Item = (HoldNumber, &Hold)> {
+        self.hold_index
+            .range((account, HoldNumber(0))..=(account, HoldNumber(u64::MAX)))
+            .filter_map(|(_, number)| self.holds.get(number).map(|hold| (*number, hold)))
+    }
+
+    /// How many holds `account` pays into or takes from.
+    #[must_use]
+    pub fn hold_count(&self, account: AccountNumber) -> usize {
+        self.hold_index
+            .range((account, HoldNumber(0))..=(account, HoldNumber(u64::MAX)))
+            .count()
+    }
+
+    /// The index of holds by account, as the holds make it.
+    pub(crate) fn derived_hold_index(
+        &self,
+    ) -> alloc::collections::BTreeSet<(AccountNumber, HoldNumber)> {
+        self.holds
+            .iter()
+            .flat_map(|(number, hold)| [(hold.payer, *number), (hold.payee, *number)])
+            .collect()
     }
 
     /// Withdrawals not yet settled, by escrow sequence.

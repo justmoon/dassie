@@ -263,6 +263,8 @@ impl Ledger {
                 claimed: alloc::collections::BTreeMap::new(),
             },
         );
+        self.hold_index.insert((from, number));
+        self.hold_index.insert((payee, number));
         for party in [from, payee] {
             if let Some(account) = self.accounts.get_mut(&party) {
                 account.holds = account.holds.saturating_add(1);

@@ -125,6 +125,10 @@ const RECENT_VIEWS: usize = 8;
 /// The holds of an account as one statement lists them.
 type HoldList = Vec<(HoldNumber, crate::client::HoldView)>;
 
+/// Pages of an account's holds as of one block (its height and timestamp):
+/// how many there are, and those agreed so far.
+type HoldPages = ((u64, Millis), u16, BTreeMap<u16, HoldList>);
+
 /// Why an operation is submitted: what the scheme on the account is told
 /// of it once it executed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -272,6 +276,9 @@ pub struct HubAccount {
     resync: bool,
     /// The holds read anew, waiting for the account as of the same block.
     resync_holds: Option<(u64, Millis, HoldList)>,
+    /// The pages of the holds read anew agreed so far, as of one block, and
+    /// how many there are.
+    hold_pages: Option<HoldPages>,
     /// The account as agreed at recent heights.
     recent_views: BTreeMap<u64, AccountView>,
     /// Keys the scheme asked the account of.
@@ -350,6 +357,7 @@ impl HubAccount {
             heard: false,
             resync: false,
             resync_holds: None,
+            hold_pages: None,
             recent_views: BTreeMap::new(),
             lookups: BTreeMap::new(),
             covered: alloc::vec![0; n],
@@ -798,10 +806,11 @@ impl HubAccount {
                 height,
                 timestamp,
                 account,
+                page,
+                pages,
                 holds,
             } if self.resync && Some(account) == self.number && height > self.cursor => {
-                self.resync_holds = Some((height, timestamp, holds));
-                self.try_resync();
+                self.hold_page((height, timestamp), (page, pages), holds);
             }
             // Whether it touches the account is read in order: a hold
             // opened toward it makes the operations on it its own.
@@ -1101,6 +1110,37 @@ impl HubAccount {
         }
     }
 
+    /// Gathers the pages of the holds as of one block: the newest block
+    /// any page was agreed as of. Once every page is in, the list is whole.
+    fn hold_page(
+        &mut self,
+        (height, timestamp): (u64, Millis),
+        (page, pages): (u16, u16),
+        holds: HoldList,
+    ) {
+        let newer = self
+            .hold_pages
+            .as_ref()
+            .is_none_or(|(at, _, _)| *at < (height, timestamp));
+        if newer {
+            self.hold_pages = Some(((height, timestamp), pages, BTreeMap::new()));
+        }
+        let Some((at, count, gathered)) = self.hold_pages.as_mut() else {
+            return;
+        };
+        if *at != (height, timestamp) || *count != pages {
+            return;
+        }
+        gathered.insert(page, holds);
+        if gathered.len() < usize::from(pages) {
+            return;
+        }
+        let whole: HoldList = gathered.values().flatten().copied().collect();
+        self.hold_pages = None;
+        self.resync_holds = Some((height, timestamp, whole));
+        self.try_resync();
+    }
+
     /// Reads the account anew once the holds and the account agreed as of
     /// one block are both in, above the cursor.
     fn try_resync(&mut self) {
@@ -1301,6 +1341,13 @@ impl ExternalAsset for HubAccount {
                 .as_ref()
                 .is_none_or(|(height, _, _)| *height > self.cursor),
             "holds read anew are above the cursor"
+        );
+        assert!(
+            self.hold_pages
+                .as_ref()
+                .is_none_or(|(_, pages, gathered)| gathered.len() < usize::from(*pages)
+                    && usize::from(*pages) <= crate::client::MAX_HOLD_PAGES),
+            "pages of holds past their bound"
         );
         assert!(self.news.len() <= max_news(&self.rules.terms));
         assert!(self.effects.len() <= MAX_EFFECTS);

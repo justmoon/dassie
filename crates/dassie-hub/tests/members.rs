@@ -351,10 +351,9 @@ impl Validators {
             Request::Since { account, from } => self.since(account, from),
             Request::Holds(account) => {
                 let key = self.ledger.account(account)?.key;
-                vec![
-                    Statement::account(&self.ledger, key),
-                    Statement::holds(&self.ledger, account),
-                ]
+                let mut statements = vec![Statement::account(&self.ledger, key)];
+                statements.extend(Statement::holds(&self.ledger, account));
+                statements
             }
         };
         let statements = if self.faults[index] == Fault::Liar {

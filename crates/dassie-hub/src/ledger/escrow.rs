@@ -277,6 +277,7 @@ impl Ledger {
             self.delete_account(number);
         }
         self.holds.clear();
+        self.hold_index.clear();
         self.withdrawals.clear();
         self.pending_deposits = alloc::collections::BTreeMap::new();
         self.recent_deposits.clear();

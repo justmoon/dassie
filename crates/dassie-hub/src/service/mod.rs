@@ -330,10 +330,11 @@ impl Validator {
                 let Some(key) = ledger.account(account).map(|a| a.key) else {
                     return;
                 };
-                alloc::vec![
-                    Statement::account(ledger, key),
-                    Statement::holds(ledger, account)
-                ]
+                // Every page: the list is whole, and found by the ledger's
+                // index of holds by account, not by looking at every hold.
+                let mut statements = vec_of(Statement::account(ledger, key));
+                statements.extend(Statement::holds(ledger, account));
+                statements
             }
             Request::Since {
                 account,

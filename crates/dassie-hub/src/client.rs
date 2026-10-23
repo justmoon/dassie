@@ -31,8 +31,12 @@ use crate::validators::{Signers, ValidatorIndex, ValidatorSet};
 /// The most statements one answer or push carries.
 pub const MAX_STATEMENTS: usize = 64;
 
-/// The most holds one [`Statement::Holds`] lists.
+/// The most holds one [`Statement::Holds`] lists: one page of them.
 pub const MAX_HOLDS_LISTED: usize = 1_024;
+
+/// The most pages the holds of one account take: an account takes part in
+/// at most `u16::MAX` holds (`ledger/member.rs`).
+pub const MAX_HOLD_PAGES: usize = (u16::MAX as usize).div_ceil(MAX_HOLDS_LISTED);
 
 /// What an account holds, as a statement tells it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -123,11 +127,11 @@ pub enum Statement {
         /// The hold, if it exists.
         hold: Option<HoldView>,
     },
-    /// Every hold `account` pays into or takes from after the block at
-    /// `height`, stamped `timestamp`: those it pays into first, then those
-    /// toward it, each in order, as far as [`MAX_HOLDS_LISTED`]. What a
-    /// member that can no longer read its history in order reads its holds
-    /// anew from.
+    /// Page `page` of `pages` of every hold `account` pays into or takes
+    /// from after the block at `height`, stamped `timestamp`, in order of
+    /// their numbers, [`MAX_HOLDS_LISTED`] to a page: the pages together
+    /// are the whole list. What a member that can no longer read its
+    /// history in order reads its holds anew from.
     Holds {
         /// The block's height.
         height: u64,
@@ -135,7 +139,11 @@ pub enum Statement {
         timestamp: Millis,
         /// The account.
         account: AccountNumber,
-        /// Its holds.
+        /// This page, from 0.
+        page: u16,
+        /// How many pages the list takes; at least one.
+        pages: u16,
+        /// Its holds on this page.
         holds: Vec<(HoldNumber, HoldView)>,
     },
 }
@@ -237,21 +245,35 @@ impl Statement {
         }
     }
 
-    /// What `ledger` says of the holds of `account`.
+    /// What `ledger` says of the holds of `account`: every one, over as
+    /// many pages as they take.
     #[must_use]
-    pub fn holds(ledger: &Ledger, account: AccountNumber) -> Self {
-        let paying = ledger.holds().filter(|(_, hold)| hold.payer == account);
-        let toward = ledger.holds().filter(|(_, hold)| hold.payee == account);
-        Self::Holds {
-            height: ledger.height(),
-            timestamp: ledger.timestamp(),
-            account,
-            holds: paying
-                .chain(toward)
-                .take(MAX_HOLDS_LISTED)
-                .map(|(number, hold)| (number, HoldView::of(hold)))
-                .collect(),
-        }
+    pub fn holds(ledger: &Ledger, account: AccountNumber) -> Vec<Self> {
+        let listed: Vec<(HoldNumber, HoldView)> = ledger
+            .holds_of(account)
+            .map(|(number, hold)| (number, HoldView::of(hold)))
+            .collect();
+        let chunks: Vec<&[(HoldNumber, HoldView)]> = if listed.is_empty() {
+            alloc::vec![&[]]
+        } else {
+            listed.chunks(MAX_HOLDS_LISTED).collect()
+        };
+        assert!(
+            chunks.len() <= MAX_HOLD_PAGES,
+            "more holds than an account takes part in"
+        );
+        let pages = u16::try_from(chunks.len()).unwrap_or(u16::MAX);
+        (0u16..)
+            .zip(chunks)
+            .map(|(page, holds)| Self::Holds {
+                height: ledger.height(),
+                timestamp: ledger.timestamp(),
+                account,
+                page,
+                pages,
+                holds: holds.to_vec(),
+            })
+            .collect()
     }
 
     /// The height it is as of.
@@ -593,6 +615,8 @@ impl Encode for Statement {
                 Self::Hold { hold, .. } => 8 + 1 + hold.map_or(0, |view| view.encoded_len()),
                 Self::Holds { holds, .. } => {
                     8 + 4
+                        + 2
+                        + 2
                         + size::quantity(holds.len())
                         + holds
                             .iter()
@@ -655,23 +679,58 @@ impl Encode for Statement {
                     view.encode_to(writer);
                 }
             }
-            Self::Holds {
-                height,
-                timestamp,
-                account,
-                holds,
-            } => {
-                writer.write_u8(5);
-                writer.write_u64(*height);
-                writer.write_u64(*timestamp);
-                writer.write_u32(account.0);
-                writer.write_quantity(holds.len());
-                for (number, view) in holds {
-                    writer.write_u64(number.0);
-                    view.encode_to(writer);
-                }
-            }
+            Self::Holds { .. } => self.encode_holds(writer),
         }
+    }
+}
+
+impl Statement {
+    fn encode_holds(&self, writer: &mut Writer<'_>) {
+        let Self::Holds {
+            height,
+            timestamp,
+            account,
+            page,
+            pages,
+            holds,
+        } = self
+        else {
+            return;
+        };
+        writer.write_u8(5);
+        writer.write_u64(*height);
+        writer.write_u64(*timestamp);
+        writer.write_u32(account.0);
+        writer.write_u16(*page);
+        writer.write_u16(*pages);
+        writer.write_quantity(holds.len());
+        for (number, view) in holds {
+            writer.write_u64(number.0);
+            view.encode_to(writer);
+        }
+    }
+
+    fn decode_holds(reader: &mut Reader<'_>, height: u64) -> Result<Self, HubDecodeError> {
+        let timestamp = reader.read_u64()?;
+        let account = AccountNumber(reader.read_u32()?);
+        let page = reader.read_u16()?;
+        let pages = reader.read_u16()?;
+        if page >= pages || usize::from(pages) > MAX_HOLD_PAGES {
+            return Err(HubDecodeError::Invalid("page"));
+        }
+        let count = reader.read_quantity(MAX_HOLDS_LISTED)?;
+        let mut holds = Vec::with_capacity(count);
+        for _ in 0..count {
+            holds.push((HoldNumber(reader.read_u64()?), HoldView::decode(reader)?));
+        }
+        Ok(Self::Holds {
+            height,
+            timestamp,
+            account,
+            page,
+            pages,
+            holds,
+        })
     }
 }
 
@@ -725,21 +784,7 @@ impl Statement {
                 height,
                 below: reader.read_u64()?,
             },
-            5 => {
-                let timestamp = reader.read_u64()?;
-                let account = AccountNumber(reader.read_u32()?);
-                let count = reader.read_quantity(MAX_HOLDS_LISTED)?;
-                let mut holds = Vec::with_capacity(count);
-                for _ in 0..count {
-                    holds.push((HoldNumber(reader.read_u64()?), HoldView::decode(reader)?));
-                }
-                Self::Holds {
-                    height,
-                    timestamp,
-                    account,
-                    holds,
-                }
-            }
+            5 => Self::decode_holds(reader, height)?,
             other => return Err(HubDecodeError::UnknownChoice(u64::from(other))),
         })
     }
@@ -1024,6 +1069,45 @@ mod tests {
         assert_eq!(SignedStatement::decode_list(&bytes).unwrap(), signed);
     }
 
+    // The holds of an account are listed whole, over as many pages as they
+    // take, each a statement of its own.
+    #[test]
+    fn every_hold_is_listed_over_pages() {
+        let (rules, _) = crate::rules::tests::rules(4);
+        let mut ledger = Ledger::genesis(rules, 1_000).unwrap();
+        let payee = AccountNumber(1);
+        let count = MAX_HOLDS_LISTED + 500;
+        for n in 1..=u64::try_from(count).unwrap() {
+            let hold = crate::ledger::Hold {
+                payer: AccountNumber(2),
+                payee,
+                amount: n,
+                reserve: 0,
+                reduction: None,
+                total: 0,
+                through: 0,
+                claimed: BTreeMap::new(),
+            };
+            ledger.holds.insert(HoldNumber(n), hold);
+            ledger.hold_index.insert((payee, HoldNumber(n)));
+        }
+        let pages = Statement::holds(&ledger, payee);
+        assert_eq!(pages.len(), 2);
+        let mut listed = Vec::new();
+        for statement in &pages {
+            let bytes = statement.to_vec();
+            let mut reader = Reader::new(&bytes);
+            assert_eq!(&Statement::decode(&mut reader).unwrap(), statement);
+            let Statement::Holds { holds, pages, .. } = statement else {
+                panic!("not holds");
+            };
+            assert_eq!(*pages, 2);
+            listed.extend(holds.iter().map(|(number, _)| *number));
+        }
+        assert_eq!(listed.len(), count, "every hold");
+        assert!(listed.windows(2).all(|w| w[0] < w[1]));
+    }
+
     // What a member that can no longer read its history in order is told.
     #[test]
     fn what_a_resync_reads_round_trips() {
@@ -1042,6 +1126,8 @@ mod tests {
                 height: 8,
                 timestamp: 9,
                 account: AccountNumber(2),
+                page: 1,
+                pages: 2,
                 holds: alloc::vec![(HoldNumber(9), view), (HoldNumber(10), view)],
             },
             Statement::Trimmed {

@@ -218,6 +218,54 @@ fn a_full_buffer_moves_no_coverage_past_what_it_dropped() {
     account.check_invariants();
 }
 
+// The holds read anew come over several pages: the account takes them only
+// once every page is in, so it never takes part of the list for the whole.
+#[test]
+fn holds_read_anew_wait_for_every_page() {
+    let hub = Hub::new();
+    let mut account = synced(&hub);
+    let trimmed = Statement::Trimmed {
+        height: 100,
+        below: 50,
+    };
+    let view = crate::client::HoldView {
+        payer: AccountNumber(7),
+        payee: AccountNumber(9),
+        amount: 10,
+        reduction: None,
+        total: 0,
+        through: 0,
+    };
+    let page = |page: u16| Statement::Holds {
+        height: 100,
+        timestamp: 9_000,
+        account: AccountNumber(7),
+        page,
+        pages: 2,
+        holds: alloc::vec![(crate::promise::HoldNumber(u64::from(page) + 1), view)],
+    };
+    for v in 0..2 {
+        say_all(&hub, &mut account, v, core::slice::from_ref(&trimmed));
+    }
+    assert!(account.is_resyncing());
+    for v in 0..2 {
+        say_all(
+            &hub,
+            &mut account,
+            v,
+            &[hub.account_statement(100, true), page(0)],
+        );
+    }
+    assert!(account.is_resyncing(), "one page of two");
+    for v in 0..2 {
+        say_all(&hub, &mut account, v, &[page(1)]);
+    }
+    assert!(!account.is_resyncing());
+    assert_eq!(account.holds().count(), 2);
+    assert_eq!(account.cursor(), 100);
+    account.check_invariants();
+}
+
 // A faulty leader can put our operation in a block twice: applied, then
 // refused for its sequence. The account reads both, in the log's order,
 // and takes the first for what became of it.
