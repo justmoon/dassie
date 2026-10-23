@@ -857,6 +857,28 @@ fn catch_up_crosses_a_handover_that_ended_with_repeats() {
 }
 
 #[test]
+fn a_long_stall_lets_go_of_what_the_application_verified() {
+    // Block 1 is verified and notarized, never final; then view after view
+    // is nullified, until the rounds held pass their bound and the lowest,
+    // with block 1, are let go. What the application verified goes with
+    // them (the invariants check it after every step).
+    let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
+    let mut app = SimApp::default();
+    let mut engine = Engine::new(CONFIG, hub(), key(0), stored, START);
+    let b1 = block_of(&proposal_on(1, &genesis(), START));
+    hand(&mut engine, &mut app, START + 1, 1, &proposed(&b1, 1));
+    certify(&mut engine, &mut app, &b1, false);
+    let views = dassie_hub::consensus::MAX_ROUNDS as u64 + 10;
+    for view in 2..views {
+        let nullification = certificate_of(VoteKind::Nullify, view, Digest::default());
+        let message = Message::decode_message(&nullification).unwrap();
+        hand(&mut engine, &mut app, START + view, 3, &message);
+    }
+    assert!(engine.view() >= views);
+    assert_eq!(engine.tip().block.height, 0);
+}
+
+#[test]
 fn a_repeat_is_valid_only_of_an_epochs_last_block() {
     let (mut engine, mut app, b2, _) = split_at_the_boundary();
     // With a payload, or below the epoch's last height, it is no repeat:

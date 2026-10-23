@@ -471,6 +471,10 @@ impl Engine {
             self.floor = floor;
             self.batch.floor = Some(floor);
             self.blocks.retain(|_, block| block.view >= floor);
+            // A block evicted and fetched again must be verified again:
+            // the application may have let go of its state.
+            let blocks = &self.blocks;
+            self.executed.retain(|digest| blocks.contains_key(digest));
         }
     }
 
@@ -538,6 +542,12 @@ impl Engine {
     pub fn check_invariants(&self) {
         assert!(self.rounds.len() <= MAX_ROUNDS, "rounds within bound");
         assert!(self.blocks.len() <= MAX_BLOCKS, "blocks within bound");
+        assert!(
+            self.executed
+                .iter()
+                .all(|digest| self.blocks.contains_key(digest)),
+            "blocks the application verified are among those held"
+        );
         assert!(
             self.history.len() <= RETAINED_BLOCKS,
             "history within bound"
