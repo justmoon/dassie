@@ -565,6 +565,25 @@ impl Network {
     fn equivocate(&mut self, leader: usize, to: &[usize], proposal: Proposal, signers: &[usize]) {
         let mut other = proposal.block.clone();
         other.payload.push(0xaa);
+        // A lone equivocator, in odd views, builds its second block on an
+        // older final block, skipping a notarized one: only the rule that
+        // skipped views be nullified stops validators that lag.
+        let older = self.validators[leader].engine.as_ref().and_then(|engine| {
+            let history: Vec<_> = engine.history().collect();
+            history.len().checked_sub(2).map(|at| history[at].clone())
+        });
+        if let (true, Some((digest, finalized))) =
+            (signers.len() == 1 && other.view % 2 == 1, older)
+        {
+            other.parent = digest;
+            other.parent_view = finalized.block.view;
+            other.height = finalized.block.height + 1;
+            other.payload = vec![1];
+            other.payload.extend_from_slice(&other.height.to_be_bytes());
+            other
+                .payload
+                .extend_from_slice(&[u8::try_from(leader).unwrap(), 0xaa]);
+        }
         let view = other.view;
         let digests = [proposal.block.digest(&hub()), other.digest(&hub())];
         let blocks = [proposal.block, other];

@@ -347,6 +347,142 @@ fn outdated_messages_are_ignored() {
     assert!(network.height(0) > height);
 }
 
+/// A block of `view` by its leader on `parent`, as a proposal.
+fn proposal_on(view: u64, parent: &dassie_hub::consensus::Block, stamp: u64) -> Vec<u8> {
+    let height = parent.height + 1;
+    let mut payload = vec![1];
+    payload.extend_from_slice(&height.to_be_bytes());
+    payload.push(9);
+    let block = dassie_hub::consensus::Block {
+        view,
+        height,
+        parent: parent.digest(&hub()),
+        parent_view: parent.view,
+        timestamp_ms: stamp,
+        payload,
+    };
+    let leader = usize::try_from(view % 4).unwrap();
+    let vote = Vote::sign(
+        &hub(),
+        &key(leader),
+        index(leader),
+        VoteKind::Notarize,
+        view,
+        block.digest(&hub()),
+    );
+    Message::Proposal(Proposal {
+        block,
+        signature: vote.signature,
+    })
+    .to_vec()
+}
+
+/// The certificate of validators 1 to 3 of `kind` for `view` and `block`.
+fn certificate_of(kind: VoteKind, view: u64, block: Digest) -> Vec<u8> {
+    let votes: Vec<Vote> = (1..4)
+        .map(|at| Vote::sign(&hub(), &key(at), index(at), kind, view, block))
+        .collect();
+    Message::Certificate(dassie_hub::consensus::Certificate {
+        kind,
+        view,
+        block: votes[0].block,
+        signers: votes
+            .iter()
+            .fold(dassie_hub::Signers::NONE, |signers, vote| {
+                signers.with(vote.signer)
+            }),
+        signatures: votes.iter().map(|vote| vote.signature).collect(),
+    })
+    .to_vec()
+}
+
+/// The notarize votes of validator 0 among `engine`'s outputs.
+fn notarized(engine: &mut Engine) -> Vec<Digest> {
+    std::iter::from_fn(|| engine.poll_output())
+        .filter_map(|output| match Message::decode_message(&output.message) {
+            Ok(Message::Vote(vote)) if vote.kind == VoteKind::Notarize => Some(vote.block),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_block_skips_a_notarized_view_only_once_it_is_nullified() {
+    let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
+    let mut app = SimApp::default();
+    let mut engine = Engine::new(CONFIG, hub(), key(0), stored, START);
+    let first = proposal_on(1, &genesis(), START);
+    engine.handle_message(START + 2, &mut app, PeerId(1), &first);
+    let Ok(Message::Proposal(Proposal { block: b1, .. })) = Message::decode_message(&first) else {
+        panic!("a proposal");
+    };
+    assert_eq!(notarized(&mut engine), vec![b1.digest(&hub())]);
+    // View 1 is notarized, never finalized; view 2's leader builds on
+    // genesis, skipping it.
+    let notarization = certificate_of(VoteKind::Notarize, 1, b1.digest(&hub()));
+    engine.handle_message(START + 4, &mut app, PeerId(1), &notarization);
+    assert_eq!(engine.view(), 2);
+    let skipping = proposal_on(2, &genesis(), START + 110);
+    engine.handle_message(START + 112, &mut app, PeerId(2), &skipping);
+    engine.check_invariants();
+    assert!(notarized(&mut engine).is_empty());
+    // Once view 1 is nullified too, the block may skip it.
+    let nullification = certificate_of(VoteKind::Nullify, 1, Digest::default());
+    engine.handle_message(START + 114, &mut app, PeerId(3), &nullification);
+    engine.check_invariants();
+    assert_eq!(notarized(&mut engine).len(), 1);
+    // It voted to finalize the first block at height 1 when view 1 was
+    // notarized: it never votes to finalize another there, so that two
+    // finalizations of one height name only faulty validators.
+    let Ok(Message::Proposal(Proposal { block: b2, .. })) = Message::decode_message(&skipping)
+    else {
+        panic!("a proposal");
+    };
+    let notarization = certificate_of(VoteKind::Notarize, 2, b2.digest(&hub()));
+    engine.handle_message(START + 116, &mut app, PeerId(3), &notarization);
+    engine.check_invariants();
+    let finalized: Vec<Vote> = std::iter::from_fn(|| engine.poll_output())
+        .filter_map(|output| match Message::decode_message(&output.message) {
+            Ok(Message::Vote(vote)) if vote.kind == VoteKind::Finalize => Some(vote),
+            _ => None,
+        })
+        .collect();
+    assert!(finalized.is_empty(), "{finalized:?}");
+    assert_eq!(engine.view(), 3);
+}
+
+#[test]
+fn a_block_is_notarized_only_if_its_stamp_is_timely() {
+    let precision = CONFIG.precision_ms;
+    let delay = CONFIG.max_delay_ms;
+    // Stamped ahead of our clock by more than the precision, or behind it
+    // by more than the precision and a message's delay.
+    for (stamp, timely) in [
+        (START + precision + 1, false),
+        (START + precision, true),
+        (START - precision - delay, true),
+        (START - precision - delay - 1, false),
+    ] {
+        let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
+        let mut engine = Engine::new(CONFIG, hub(), key(0), stored, START);
+        let proposal = proposal_on(1, &genesis(), stamp);
+        engine.handle_message(START, &mut SimApp::default(), PeerId(1), &proposal);
+        engine.check_invariants();
+        let votes: Vec<VoteKind> = std::iter::from_fn(|| engine.poll_output())
+            .filter_map(|output| match Message::decode_message(&output.message) {
+                Ok(Message::Vote(vote)) => Some(vote.kind),
+                _ => None,
+            })
+            .collect();
+        let expected = if timely {
+            VoteKind::Notarize
+        } else {
+            VoteKind::Nullify
+        };
+        assert_eq!(votes, vec![expected], "stamped {stamp}");
+    }
+}
+
 #[test]
 fn a_restart_never_signs_a_second_notarize_in_a_view() {
     let validators = set(0..4);
