@@ -34,6 +34,10 @@ impl Connector {
                     .contains(&(entry.expires_at_ms, destination, request_id)),
                 "a packet without its deadline"
             );
+            assert!(
+                !entry.awaiting_hub || entry.backstop_ms == Some(entry.expires_at_ms),
+                "a packet waits for the hub past its backstop"
+            );
             if !entry.source_gone {
                 live_incoming += 1;
                 assert!(

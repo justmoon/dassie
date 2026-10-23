@@ -484,6 +484,18 @@ impl Connector {
         Ok(slots.map(|slot| slot.and_then(|_| ids.next())))
     }
 
+    /// How long a packet to `to` may wait for its hub after its expiry, if
+    /// `to` is a peer over a hub: until the incoming expiry, and at most one
+    /// message window past its own, even when the incoming expiry is far.
+    /// The hub decides well within it, and the packet holds money in flight
+    /// meanwhile.
+    fn backstop(&self, to: EndpointId, incoming_ms: u64, expires_at_ms: u64) -> Option<u64> {
+        self.endpoints
+            .get(to)
+            .is_some_and(|endpoint| endpoint.hub)
+            .then_some(incoming_ms.min(expires_at_ms.saturating_add(self.config.message_window_ms)))
+    }
+
     /// Registers the packet as in flight and writes the outgoing Prepare.
     #[allow(clippy::too_many_arguments)]
     fn forward(
@@ -516,6 +528,8 @@ impl Connector {
                 transfers,
                 failure: None,
                 charge,
+                backstop_ms: self.backstop(route.to, prepare.expires_at.unix_ms, expires_at_ms),
+                awaiting_hub: false,
             },
         );
         self.deadlines.insert((expires_at_ms, route.to, request_id));

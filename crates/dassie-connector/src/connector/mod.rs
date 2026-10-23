@@ -118,6 +118,12 @@ pub(crate) struct Pending {
     /// The account it spends from and the amount, if it moves money out of
     /// its owner's funds: what a spending cap counts.
     pub charge: Option<(AccountId, u64)>,
+    /// For a packet to a peer over a hub, how long it may wait for the hub
+    /// once its own expiry passed: the incoming packet's expiry, and at
+    /// most one message window past its own.
+    pub backstop_ms: Option<u64>,
+    /// It expired and waits for the hub to decide it.
+    pub awaiting_hub: bool,
 }
 
 /// The connector.
@@ -151,6 +157,27 @@ pub struct Connector {
     /// Reused for a destination written below our own address, so the
     /// packet path does not allocate.
     rewritten: String,
+    /// Packets to peers over a hub that expired, for the hub's scheme to
+    /// watch, oldest first.
+    hub_waits: alloc::collections::VecDeque<HubWait>,
+}
+
+/// A packet to a peer over a hub that expired without a response. Its
+/// Reject upstream waits until the hub has a final block stamped at or
+/// after its commitment's expiry: by then the payee either won a claim for
+/// it, and it is fulfilled, or cannot any more, and it is rejected
+/// ([`Connector::settle_hub`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HubWait {
+    /// The peer it went to.
+    pub destination: EndpointId,
+    /// The request ID it went with.
+    pub request_id: u32,
+    /// Its condition.
+    pub condition: [u8; 32],
+    /// The latest it can be answered upstream: after that it is rejected
+    /// whatever the hub says.
+    pub backstop_ms: u64,
 }
 
 impl Connector {
@@ -179,6 +206,7 @@ impl Connector {
             cap_changes: BTreeSet::new(),
             periphery: None,
             rewritten: String::new(),
+            hub_waits: alloc::collections::VecDeque::new(),
         }
     }
 
@@ -270,6 +298,7 @@ impl Connector {
             refusing: false,
             unreached: false,
             child: false,
+            hub: false,
         };
         self.endpoints.insert(id, endpoint, own)
     }
@@ -310,6 +339,7 @@ impl Connector {
             refusing: false,
             unreached: false,
             child: false,
+            hub: false,
         };
         self.endpoints.insert(id, endpoint, own)
     }
@@ -368,6 +398,7 @@ impl Connector {
             .remove(&(entry.expires_at_ms, to, request_id));
         entry.failure = Some((code, message));
         entry.expires_at_ms = now_ms;
+        entry.awaiting_hub = false;
         self.deadlines.insert((now_ms, to, request_id));
         true
     }
@@ -396,6 +427,7 @@ impl Connector {
             if let Some(entry) = self.pending.get_mut(&(destination, request_id)) {
                 entry.failure = Some((ErrorCode::T01_PEER_UNREACHABLE, "next hop went away"));
                 entry.expires_at_ms = now_ms;
+                entry.awaiting_hub = false;
             }
             self.deadlines.insert((now_ms, destination, request_id));
         }
@@ -406,6 +438,24 @@ impl Connector {
         }
         self.incoming.retain(|(source, _)| *source != id);
         true
+    }
+
+    /// Marks a peer as one we peer with over a settlement hub, or not.
+    /// Returns whether it is a peer endpoint.
+    pub fn set_hub(&mut self, id: EndpointId, hub: bool) -> bool {
+        if !id.is_peer() {
+            return false;
+        }
+        self.endpoints
+            .get_mut(id)
+            .map(|endpoint| endpoint.hub = hub)
+            .is_some()
+    }
+
+    /// The next packet to a peer over a hub that expired and waits for the
+    /// hub, oldest first.
+    pub fn poll_hub_wait(&mut self) -> Option<HubWait> {
+        self.hub_waits.pop_front()
     }
 
     /// Stops, or resumes, new Prepares to and from an endpoint, whose
