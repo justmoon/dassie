@@ -77,6 +77,48 @@ impl<'a> Decode<'a> for Entry<'a> {
     }
 }
 
+/// The value of a hub extension ([`EXTENSION_HUB`](super::EXTENSION_HUB)):
+/// the settlement hub a node is a member of
+/// (spec/designs/settlement-hubs.md#11-choosing-a-hub).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct HubMembership {
+    /// The hub's ID: the hash of its rules.
+    pub hub_id: [u8; 32],
+    /// The node's account number in the hub.
+    pub account: u32,
+    /// Whether it takes new peers over the hub.
+    pub takes_peers: bool,
+}
+
+impl HubMembership {
+    /// The bytes of its encoding: the ID, the account and the flag.
+    pub const ENCODED_BYTES: usize = 32 + 4 + 1;
+}
+
+impl Encode for HubMembership {
+    fn encoded_len(&self) -> usize {
+        Self::ENCODED_BYTES
+    }
+
+    fn encode_to(&self, writer: &mut Writer<'_>) {
+        writer.write_bytes(&self.hub_id);
+        writer.write_u32(self.account);
+        writer.write_bool(self.takes_peers);
+    }
+}
+
+impl<'a> Decode<'a> for HubMembership {
+    type Error = DecodeError;
+
+    fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
+        Ok(Self {
+            hub_id: read_fixed::<32>(reader)?,
+            account: reader.read_u32()?,
+            takes_peers: reader.read_bool()?,
+        })
+    }
+}
+
 /// `PeerNodeInfo`: what a node says about itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeInfo<'a> {
@@ -136,6 +178,19 @@ impl NodeInfo<'_> {
         })?;
         let port = u16::from_be_bytes(*<&[u8; 2]>::try_from(value).ok()?);
         (port != 0).then_some(port)
+    }
+
+    /// The settlement hub it is a member of, if it names one: the first hub
+    /// extension's, when that is a canonical [`HubMembership`]. One that is
+    /// not names none; it is still kept and forwarded, as the signature
+    /// covers it.
+    #[must_use]
+    pub fn hub(&self) -> Option<HubMembership> {
+        let value = self.entries.iter().find_map(|entry| match entry {
+            Entry::Extension { kind, value } if *kind == super::EXTENSION_HUB => Some(*value),
+            _ => None,
+        })?;
+        HubMembership::decode_exact(value).ok()
     }
 
     fn has_extension(&self, wanted: u16) -> bool {

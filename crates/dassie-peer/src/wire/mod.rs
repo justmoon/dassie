@@ -17,7 +17,9 @@ use dassie_oer::{Alphabet, DecodeError, DecodeErrorKind, Reader, Size, Writer, o
 
 pub use content::{Content, PeeringRequest, TerminationReason};
 pub use envelope::{Authentication, Envelope, EnvelopeError, HmacAuthentication, encode_envelope};
-pub use node_info::{Entry, InvalidNodeInfo, NodeInfo, SignedNodeInfo, sign_node_info};
+pub use node_info::{
+    Entry, HubMembership, InvalidNodeInfo, NodeInfo, SignedNodeInfo, sign_node_info,
+};
 pub use response::{
     LinkStateResponse, NodeListResponse, PeeringResponse, RefusalReason, ResponseEnvelope,
     decode_expiry, decode_hash, decode_octets, decode_settling, encode_expiry, encode_link_states,
@@ -74,6 +76,19 @@ pub const EXTENSION_PERIPHERY: u16 = 3;
 /// periphery node, which has no URL, leave it out.
 pub const EXTENSION_FEED: u16 = 4;
 
+/// The link-state extension that says which settlement hub a node is a
+/// member of (spec/designs/settlement-hubs.md#11-choosing-a-hub): a
+/// [`HubMembership`] in canonical OER. A node in no hub leaves it out.
+pub const EXTENSION_HUB: u16 = 5;
+
+/// Most bytes in the commitment a `hubPacket` carries with its Prepare: a
+/// signature and what it covers, well within this.
+pub const MAX_COMMITMENT_BYTES: usize = 256;
+
+/// Most bytes after the verdict in the reply to a Fulfill on a peering
+/// over a hub: the payer's claim. More is ignored.
+pub const MAX_CLAIM_BYTES: usize = 256;
+
 /// Most scheme versions in a peering request.
 pub const MAX_VERSIONS: usize = 16;
 
@@ -120,6 +135,8 @@ pub enum Kind {
     PeeringTermination,
     /// `settlementRequest [11]`.
     SettlementRequest,
+    /// `hubPacket [12]`.
+    HubPacket,
 }
 
 impl Kind {
@@ -139,6 +156,7 @@ impl Kind {
             9 => Self::PeeringInfoRequest,
             10 => Self::PeeringTermination,
             11 => Self::SettlementRequest,
+            12 => Self::HubPacket,
             _ => return None,
         })
     }
@@ -159,6 +177,7 @@ impl Kind {
             Self::PeeringInfoRequest => 9,
             Self::PeeringTermination => 10,
             Self::SettlementRequest => 11,
+            Self::HubPacket => 12,
         }
     }
 
@@ -175,7 +194,15 @@ impl Kind {
                 | Self::Registration
                 | Self::PeeringTermination
                 | Self::SettlementRequest
+                | Self::HubPacket
         )
+    }
+
+    /// Whether a message of this kind carries an ILP packet: its bounds are
+    /// the connector's, not those of the protocol's own requests.
+    #[must_use]
+    pub const fn carries_packet(self) -> bool {
+        matches!(self, Self::InterledgerPacket | Self::HubPacket)
     }
 
     /// Whether a message of this kind only reads: it changes nothing at the

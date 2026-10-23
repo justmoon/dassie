@@ -300,7 +300,7 @@ impl PeerClient {
         // ILP packets are bounded by the connector's tables, and their
         // responses must get through: only the protocol's own requests
         // count against the limits here.
-        if request.kind == dassie_peer::wire::Kind::InterledgerPacket {
+        if request.kind.carries_packet() {
             return Ok(None);
         }
         // A periphery node has no URL: each counts by its ID, not all

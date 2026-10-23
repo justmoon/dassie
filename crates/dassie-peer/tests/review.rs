@@ -350,6 +350,7 @@ fn an_own_url_too_long_is_no_url() {
             alias: String::new(),
             quic: false,
             feed_port: None,
+            hub: None,
         },
         Vec::new(),
         Stored::default(),

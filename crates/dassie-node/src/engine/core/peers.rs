@@ -10,7 +10,8 @@ use dassie_ilp::ErrorCode;
 use dassie_ledger::{AccountName, AccountPath, Ledger, LedgerId, Name};
 use dassie_peer::wire::{RefusalReason, SchemeId, TerminationReason};
 use dassie_peer::{
-    Agreed, BanError, Declined, Event, InboundId, Output as PeerOutput, PeeringHooks, Reply,
+    Agreed, BanError, Declined, Event, InboundId, Output as PeerOutput, PacketAnswer, PeeringHooks,
+    Reply,
 };
 
 use super::events::{PeerEvent, SettlementEvent};
@@ -79,7 +80,7 @@ impl Hooks<'_> {
 enum Inbound {
     Reply(Reply),
     Deferred,
-    Packet(NodeId, u32, Vec<u8>, Reply),
+    Packet(NodeId, u32, Vec<u8>, PacketAnswer),
     Settlement(NodeId, SchemeId, u64, Vec<u8>, u64, Reply),
     SchemeMessage(NodeId, SchemeId, Vec<u8>, Reply),
     SettlementRequest(NodeId, SchemeId, dassie_peer::SettlementAnswer),
@@ -193,6 +194,12 @@ impl PeeringHooks for Hooks<'_> {
         let active = self.scheme(scheme).ok_or(Declined)?;
         active.scheme.on_peered(peer_name, &state);
         Ok(Agreed { state, credit_out })
+    }
+
+    // No scheme settles over a hub yet
+    // (spec/designs/settlement-hubs.md#13-how-it-fits-the-node).
+    fn uses_commitments(&self, _scheme: SchemeId) -> bool {
+        false
     }
 
     fn drained(&self, peer: NodeId) -> bool {
@@ -362,12 +369,15 @@ impl Core {
             match peer.handle_inbound(now, hooks, inbound, body, source) {
                 dassie_peer::Inbound::Reply(reply) => Inbound::Reply(reply),
                 dassie_peer::Inbound::Deferred => Inbound::Deferred,
+                // No scheme uses commitments yet, so none comes with a
+                // packet.
                 dassie_peer::Inbound::Packet {
                     from,
                     request_id,
                     packet,
-                    reply,
-                } => Inbound::Packet(from, request_id, packet.to_vec(), reply),
+                    commitment: _,
+                    answer,
+                } => Inbound::Packet(from, request_id, packet.to_vec(), answer),
                 dassie_peer::Inbound::Settlement {
                     from,
                     scheme,
@@ -392,9 +402,10 @@ impl Core {
         let reply = match outcome {
             Inbound::Reply(reply) => Some(reply),
             Inbound::Deferred => None,
-            Inbound::Packet(from, request_id, packet, reply) => {
+            Inbound::Packet(from, request_id, packet, answer) => {
                 self.peer_packet(from, request_id, &packet);
-                Some(reply)
+                // Nothing after the verdict: no peering is over a hub yet.
+                Some(answer.reply(&[]))
             }
             Inbound::Settlement(from, scheme, amount, data, sequence, reply) => {
                 Some(self.settlement_from(from, scheme, amount, &data, sequence, reply))
