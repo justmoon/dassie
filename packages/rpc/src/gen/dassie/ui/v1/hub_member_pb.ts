@@ -12,7 +12,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/ui/v1/hub_member.proto.
  */
 export const file_dassie_ui_v1_hub_member: GenFile = /*@__PURE__*/
-  fileDesc("Ch1kYXNzaWUvdWkvdjEvaHViX21lbWJlci5wcm90bxIMZGFzc2llLnVpLnYxIjgKB0h1YkhvbGQSDAoEcGVlchgBIAEoCRIPCgdhY2NvdW50GAIgASgNEg4KBmFtb3VudBgDIAEoBCKVAgoHSHViTW92ZRIyCglkaXJlY3Rpb24YASABKA4yHy5kYXNzaWUudWkudjEuSHViTW92ZS5EaXJlY3Rpb24SDgoGYW1vdW50GAIgASgEEhAKCGJ5X293bmVyGAMgASgIEhcKD3NlbnRfYXRfdW5peF9tcxgEIAEoAxIfChJhcHBsaWVkX2F0X3VuaXhfbXMYBSABKANIAIgBARIMCgRsYXRlGAYgASgIIlUKCURpcmVjdGlvbhIZChVESVJFQ1RJT05fVU5TUEVDSUZJRUQQABIVChFESVJFQ1RJT05fREVQT1NJVBABEhYKEkRJUkVDVElPTl9XSVRIRFJBVxACQhUKE19hcHBsaWVkX2F0X3VuaXhfbXMizwMKCUh1YlN0YXR1cxIOCgZodWJfaWQYASABKAkSFAoHYWNjb3VudBgCIAEoDUgAiAEBEjIKCmNvbm5lY3Rpb24YAyABKA4yHi5kYXNzaWUudWkudjEuTGVkZ2VyQ29ubmVjdGlvbhIPCgdiYWxhbmNlGAQgASgEEg8KB3Jlc2VydmUYBSABKAQSEQoJZGVwb3NpdGVkGAYgASgEEhEKCXdpdGhkcmF3bhgHIAEoBBIlCgZwYXlpbmcYCCADKAsyFS5kYXNzaWUudWkudjEuSHViSG9sZBIlCgZ0YWtpbmcYCSADKAsyFS5kYXNzaWUudWkudjEuSHViSG9sZBINCgVmbG9vchgKIAEoBBIPCgdjZWlsaW5nGAsgASgEEhEKCWF1dG9tYXRpYxgMIAEoCBIhChRwYXVzZWRfdW50aWxfdW5peF9tcxgNIAEoA0gBiAEBEiUKBm1vdmluZxgOIAEoCzIVLmRhc3NpZS51aS52MS5IdWJNb3ZlEhIKCnZhbGlkYXRvcnMYDyABKA0SHAoUdmFsaWRhdG9yc19hbnN3ZXJpbmcYECABKA1CCgoIX2FjY291bnRCFwoVX3BhdXNlZF91bnRpbF91bml4X21zIhUKE0dldEh1YlN0YXR1c1JlcXVlc3QiPwoUR2V0SHViU3RhdHVzUmVzcG9uc2USJwoGc3RhdHVzGAEgASgLMhcuZGFzc2llLnVpLnYxLkh1YlN0YXR1cyIjChFIdWJEZXBvc2l0UmVxdWVzdBIOCgZhbW91bnQYASABKAQiPQoSSHViRGVwb3NpdFJlc3BvbnNlEicKBnN0YXR1cxgBIAEoCzIXLmRhc3NpZS51aS52MS5IdWJTdGF0dXMiJAoSSHViV2l0aGRyYXdSZXF1ZXN0Eg4KBmFtb3VudBgBIAEoBCI+ChNIdWJXaXRoZHJhd1Jlc3BvbnNlEicKBnN0YXR1cxgBIAEoCzIXLmRhc3NpZS51aS52MS5IdWJTdGF0dXMiKwoWU2V0SHViQXV0b21hdGljUmVxdWVzdBIRCglhdXRvbWF0aWMYASABKAgiQgoXU2V0SHViQXV0b21hdGljUmVzcG9uc2USJwoGc3RhdHVzGAEgASgLMhcuZGFzc2llLnVpLnYxLkh1YlN0YXR1c2IGcHJvdG8z", [file_dassie_ui_v1_ledger]);
+  fileDesc("Ch1kYXNzaWUvdWkvdjEvaHViX21lbWJlci5wcm90bxIMZGFzc2llLnVpLnYxIjgKB0h1YkhvbGQSDAoEcGVlchgBIAEoCRIPCgdhY2NvdW50GAIgASgNEg4KBmFtb3VudBgDIAEoBCKVAgoHSHViTW92ZRIyCglkaXJlY3Rpb24YASABKA4yHy5kYXNzaWUudWkudjEuSHViTW92ZS5EaXJlY3Rpb24SDgoGYW1vdW50GAIgASgEEhAKCGJ5X293bmVyGAMgASgIEhcKD3NlbnRfYXRfdW5peF9tcxgEIAEoAxIfChJhcHBsaWVkX2F0X3VuaXhfbXMYBSABKANIAIgBARIMCgRsYXRlGAYgASgIIlUKCURpcmVjdGlvbhIZChVESVJFQ1RJT05fVU5TUEVDSUZJRUQQABIVChFESVJFQ1RJT05fREVQT1NJVBABEhYKEkRJUkVDVElPTl9XSVRIRFJBVxACQhUKE19hcHBsaWVkX2F0X3VuaXhfbXMi+AMKCUh1YlN0YXR1cxIOCgZodWJfaWQYASABKAkSFAoHYWNjb3VudBgCIAEoDUgAiAEBEjIKCmNvbm5lY3Rpb24YAyABKA4yHi5kYXNzaWUudWkudjEuTGVkZ2VyQ29ubmVjdGlvbhIPCgdiYWxhbmNlGAQgASgEEg8KB3Jlc2VydmUYBSABKAQSEQoJZGVwb3NpdGVkGAYgASgEEhEKCXdpdGhkcmF3bhgHIAEoBBIlCgZwYXlpbmcYCCADKAsyFS5kYXNzaWUudWkudjEuSHViSG9sZBIlCgZ0YWtpbmcYCSADKAsyFS5kYXNzaWUudWkudjEuSHViSG9sZBINCgVmbG9vchgKIAEoBBIPCgdjZWlsaW5nGAsgASgEEhEKCWF1dG9tYXRpYxgMIAEoCBIhChRwYXVzZWRfdW50aWxfdW5peF9tcxgNIAEoA0gBiAEBEiUKBm1vdmluZxgOIAEoCzIVLmRhc3NpZS51aS52MS5IdWJNb3ZlEhIKCnZhbGlkYXRvcnMYDyABKA0SHAoUdmFsaWRhdG9yc19hbnN3ZXJpbmcYECABKA0SJwoIZ2l2ZW5fdXAYESABKAsyFS5kYXNzaWUudWkudjEuSHViTW92ZUIKCghfYWNjb3VudEIXChVfcGF1c2VkX3VudGlsX3VuaXhfbXMiFQoTR2V0SHViU3RhdHVzUmVxdWVzdCI/ChRHZXRIdWJTdGF0dXNSZXNwb25zZRInCgZzdGF0dXMYASABKAsyFy5kYXNzaWUudWkudjEuSHViU3RhdHVzIiMKEUh1YkRlcG9zaXRSZXF1ZXN0Eg4KBmFtb3VudBgBIAEoBCI9ChJIdWJEZXBvc2l0UmVzcG9uc2USJwoGc3RhdHVzGAEgASgLMhcuZGFzc2llLnVpLnYxLkh1YlN0YXR1cyIkChJIdWJXaXRoZHJhd1JlcXVlc3QSDgoGYW1vdW50GAEgASgEIj4KE0h1YldpdGhkcmF3UmVzcG9uc2USJwoGc3RhdHVzGAEgASgLMhcuZGFzc2llLnVpLnYxLkh1YlN0YXR1cyIrChZTZXRIdWJBdXRvbWF0aWNSZXF1ZXN0EhEKCWF1dG9tYXRpYxgBIAEoCCJCChdTZXRIdWJBdXRvbWF0aWNSZXNwb25zZRInCgZzdGF0dXMYASABKAsyFy5kYXNzaWUudWkudjEuSHViU3RhdHVzIhIKEEh1YkdpdmVVcFJlcXVlc3QiPAoRSHViR2l2ZVVwUmVzcG9uc2USJwoGc3RhdHVzGAEgASgLMhcuZGFzc2llLnVpLnYxLkh1YlN0YXR1c2IGcHJvdG8z", [file_dassie_ui_v1_ledger]);
 
 /**
  * A hold of ours toward a peer, or a peer's toward us.
@@ -256,6 +256,16 @@ export type HubStatus = Message<"dassie.ui.v1.HubStatus"> & {
    * @generated from field: uint32 validators_answering = 16;
    */
   validatorsAnswering: number;
+
+  /**
+   * The move the owner gave up, which way and how much, while it holds the
+   * node's own moves back: the other side may yet show it, and then books
+   * it, once. Cleared when the owner turns the node's own moves on again or
+   * moves funds.
+   *
+   * @generated from field: dassie.ui.v1.HubMove given_up = 17;
+   */
+  givenUp?: HubMove | undefined;
 };
 
 /**
@@ -412,4 +422,39 @@ export type SetHubAutomaticResponse = Message<"dassie.ui.v1.SetHubAutomaticRespo
  */
 export const SetHubAutomaticResponseSchema: GenMessage<SetHubAutomaticResponse> = /*@__PURE__*/
   messageDesc(file_dassie_ui_v1_hub_member, 10);
+
+/**
+ * Gives up the move on its way, once it is late: the node forgets it and
+ * books nothing. Its own moves then wait until the owner turns them on again
+ * or moves funds. FAILED_PRECONDITION when no move is on its way, or it is
+ * not late.
+ *
+ * @generated from message dassie.ui.v1.HubGiveUpRequest
+ */
+export type HubGiveUpRequest = Message<"dassie.ui.v1.HubGiveUpRequest"> & {
+};
+
+/**
+ * Describes the message dassie.ui.v1.HubGiveUpRequest.
+ * Use `create(HubGiveUpRequestSchema)` to create a new message.
+ */
+export const HubGiveUpRequestSchema: GenMessage<HubGiveUpRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_hub_member, 11);
+
+/**
+ * @generated from message dassie.ui.v1.HubGiveUpResponse
+ */
+export type HubGiveUpResponse = Message<"dassie.ui.v1.HubGiveUpResponse"> & {
+  /**
+   * @generated from field: dassie.ui.v1.HubStatus status = 1;
+   */
+  status?: HubStatus | undefined;
+};
+
+/**
+ * Describes the message dassie.ui.v1.HubGiveUpResponse.
+ * Use `create(HubGiveUpResponseSchema)` to create a new message.
+ */
+export const HubGiveUpResponseSchema: GenMessage<HubGiveUpResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_ui_v1_hub_member, 12);
 

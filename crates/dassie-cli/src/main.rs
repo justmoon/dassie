@@ -74,6 +74,8 @@ Commands:
                     Either move pauses the node's own moves for an hour.
   hub auto on|off   Let the node move funds to and from the hub by itself,
                     or not.
+  hub give-up       Give up a move the hub has not shown for long; the node
+                    then moves nothing by itself until you act.
   setup             Set the node up from its owner's passphrase, on the
                     node's own host, without a browser, and add the
                     settlement schemes it lacks. Running it again changes

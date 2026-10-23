@@ -7,6 +7,8 @@
 //! - `dassie hub deposit <XRP>` and `dassie hub withdraw <XRP>` move funds
 //!   now, which pauses the node's own moves for a while.
 //! - `dassie hub auto on|off` turns the node's own moves on or off.
+//! - `dassie hub give-up` gives up a move that is late; the node's own
+//!   moves then wait for the owner.
 
 use dassie_node::env::Env;
 use dassie_node::rpc::proto::{self, request::Method, response};
@@ -29,6 +31,8 @@ pub enum Command {
     Withdraw(u64),
     /// Turn the node's own moves on or off.
     Automatic(bool),
+    /// Give up the late move.
+    GiveUp,
 }
 
 /// Reads `dassie hub`'s arguments.
@@ -48,6 +52,7 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Command, lexopt::Error> {
                 "off" => Command::Automatic(false),
                 other => return Err(format!("`auto` takes on or off, not {other:?}").into()),
             },
+            "give-up" => Command::GiveUp,
             other => return Err(format!("unknown hub command {other:?}").into()),
         },
         Some(other) => return Err(other.unexpected()),
@@ -87,13 +92,15 @@ pub async fn run(env: &Env, command: Command) -> Result<(), String> {
         Command::Automatic(automatic) => {
             Method::SetHubAutomatic(proto::SetHubAutomaticRequest { automatic })
         }
+        Command::GiveUp => Method::HubGiveUp(proto::HubGiveUpRequest {}),
     };
     let status = match client.call(method).await {
         Ok(
             response::Method::GetHubStatus(proto::GetHubStatusResponse { status })
             | response::Method::HubDeposit(proto::HubDepositResponse { status })
             | response::Method::HubWithdraw(proto::HubWithdrawResponse { status })
-            | response::Method::SetHubAutomatic(proto::SetHubAutomaticResponse { status }),
+            | response::Method::SetHubAutomatic(proto::SetHubAutomaticResponse { status })
+            | response::Method::HubGiveUp(proto::HubGiveUpResponse { status }),
         ) => status.unwrap_or_default(),
         other => return Err(unexpected(other)),
     };
@@ -175,6 +182,9 @@ fn show(status: &proto::HubStatus, now_ms: i64) {
     if let Some(moving) = &status.moving {
         line("Moving", &moving_text(moving));
     }
+    if let Some(given_up) = &status.given_up {
+        line("Given up", &given_up_text(given_up));
+    }
     line("Paying", &holds(&status.paying, "to"));
     line("Taking", &holds(&status.taking, "from"));
 }
@@ -183,6 +193,10 @@ fn show(status: &proto::HubStatus, now_ms: i64) {
 fn keeps(status: &proto::HubStatus, now_ms: i64) -> String {
     let who = match (status.automatic, status.paused_until_unix_ms) {
         (false, _) => "the node's own moves are off (`dassie hub auto on`)".into(),
+        (true, _) if status.given_up.is_some() => {
+            "the node's own moves wait for you after a move you gave up (`dassie hub auto on`)"
+                .into()
+        }
         (true, Some(until)) if until > now_ms => {
             format!("the node's own moves wait until {}", date(until))
         }
@@ -193,6 +207,20 @@ fn keeps(status: &proto::HubStatus, now_ms: i64) -> String {
         xrp_text(status.floor),
         xrp_text(status.ceiling)
     )
+}
+
+/// A move the owner gave up: what the other side may still show.
+fn given_up_text(given_up: &proto::HubMove) -> String {
+    match proto::hub_move::Direction::try_from(given_up.direction) {
+        Ok(proto::hub_move::Direction::Withdraw) => format!(
+            "a withdrawal of {}; the XRP Ledger account may still receive it",
+            xrp_text(given_up.amount)
+        ),
+        _ => format!(
+            "a deposit of {}; the hub may still credit it",
+            xrp_text(given_up.amount)
+        ),
+    }
 }
 
 fn moving_text(moving: &proto::HubMove) -> String {
@@ -265,6 +293,7 @@ mod tests {
         );
         assert_eq!(parse(&["auto", "off"]), Ok(Command::Automatic(false)));
         assert!(parse(&["auto", "maybe"]).is_err());
+        assert_eq!(parse(&["give-up"]), Ok(Command::GiveUp));
         assert!(parse(&["deposit"]).is_err());
         assert!(parse(&["status", "now"]).is_err());
     }

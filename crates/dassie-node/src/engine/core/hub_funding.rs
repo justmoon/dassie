@@ -30,6 +30,12 @@
 //!   XRP Ledger applied it, or since it was made, is late: the owner is told,
 //!   and nothing is paid again for it. A deposit the XRP Ledger applied and
 //!   the hub never credits stays on its way.
+//! - **Giving up.** Once a move is late, the owner may give it up: the
+//!   node forgets it and books nothing, since each side books its half
+//!   when it sees it, so what the hub does with it later is booked then,
+//!   once. Its automatic moves then stay paused until the owner turns them
+//!   on again or moves funds himself: the node never pays again by itself
+//!   what the hub may yet credit.
 //! - **The owner's moves** go the same way, and pause the automatic ones
 //!   for a while, so the node does not undo them at once. The owner may
 //!   turn the automatic moves off. The database keeps both.
@@ -174,6 +180,10 @@ pub struct Funding {
     pub paused_until_ms: u64,
     /// The move on its way.
     pub moving: Option<Move>,
+    /// The move the owner gave up last, which way and how much, which may
+    /// still show on the other side: the automatic moves wait for the owner
+    /// until it is cleared.
+    pub given_up: Option<(Direction, u64)>,
     /// No automatic move before this: a failure's backoff.
     not_before_ms: u64,
     /// The wait after the next failure.
@@ -190,6 +200,7 @@ impl Funding {
             automatic: true,
             paused_until_ms: 0,
             moving: None,
+            given_up: None,
             not_before_ms: 0,
             backoff_ms: FIRST_BACKOFF_MS,
             at_ms: now_ms,
@@ -238,6 +249,24 @@ impl Funding {
         })
     }
 
+    /// The owner gives up the move on its way, which must be late: it is
+    /// forgotten, nothing is booked, and the automatic moves wait for the
+    /// owner. Returns it, or `None` if there is none or it is not late.
+    pub fn give_up(&mut self, now_ms: u64) -> Option<Move> {
+        if !self.late(now_ms) {
+            return None;
+        }
+        let moving = self.moving.take()?;
+        self.given_up = Some((moving.direction, moving.drops));
+        Some(moving)
+    }
+
+    /// The owner turned the automatic moves on, or moved funds: the given-up
+    /// move no longer holds them back.
+    pub const fn owner_acted(&mut self) {
+        self.given_up = None;
+    }
+
     /// A move that failed, or could not be made: the next waits.
     pub fn failed(&mut self, now_ms: u64) {
         self.moving = None;
@@ -246,10 +275,11 @@ impl Funding {
     }
 
     /// The automatic move due now, if any: none while one is on its way,
-    /// the owner turned them off or paused them, or a failure's backoff
-    /// lasts.
+    /// the owner turned them off or paused them, gave one up and has not
+    /// acted since, or a failure's backoff lasts.
     pub fn due(&self, now_ms: u64, standing: &Standing) -> Option<Planned> {
         let waiting = self.moving.is_some()
+            || self.given_up.is_some()
             || !self.automatic
             || now_ms < self.paused_until_ms
             || now_ms < self.not_before_ms;
@@ -285,6 +315,7 @@ impl Funding {
         assert!(self.moving.is_none(), "one move at a time");
         if planned.owner {
             self.paused_until_ms = now_ms.saturating_add(OWNER_PAUSE_MS);
+            self.owner_acted();
         }
         self.moving = Some(Move {
             direction: planned.direction,
@@ -470,6 +501,27 @@ mod tests {
         assert!(!funding.follow(2, &executed), "not shown yet");
         assert!(!funding.follow(3, &counted(high, 7, planned.target - 100)));
         assert!(funding.follow(4, &counted(high, 7, planned.target)));
+    }
+
+    // A move may be given up only once late; then nothing moves by itself
+    // until the owner acts, and the move is forgotten, whatever shows later.
+    #[test]
+    fn a_late_move_given_up_waits_for_the_owner() {
+        let low = standing(100_000, 2_000_000);
+        let mut funding = Funding::new(0, 4_000);
+        let planned = funding.due(1, &low).unwrap();
+        funding.start(1, planned, payment());
+        assert_eq!(funding.give_up(2), None, "not late yet");
+        let late = 1 + CREDIT_WAIT_MS;
+        let given_up = funding.give_up(late).unwrap();
+        assert_eq!(given_up.target, planned.target);
+        assert!(funding.moving.is_none());
+        assert_eq!(funding.due(late + 100 * OWNER_PAUSE_MS, &low), None);
+        assert!(!funding.follow(late, &counted(low, planned.target, 3)));
+        funding.owner_acted();
+        assert!(funding.due(late, &low).is_some());
+        funding.start(late, Planned::deposit(5, 7, true), payment());
+        assert_eq!(funding.given_up, None);
     }
 
     // An owner's move pauses the automatic ones; turned off, none is made.

@@ -430,6 +430,12 @@ impl Engine {
         self.call(move |core| core.hub_withdraw(amount)).await
     }
 
+    /// The owner gives up the late move between the hub and the XRPL
+    /// account.
+    pub async fn hub_give_up(&self) -> Result<HubStatus, EngineError> {
+        self.call(|core| core.hub_give_up()).await
+    }
+
     /// Turns the node's own moves to and from the hub on or off.
     pub async fn set_hub_automatic(
         &self,

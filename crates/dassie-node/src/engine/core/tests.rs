@@ -3214,3 +3214,66 @@ fn a_restart_never_pays_a_deposit_twice() {
     assert_eq!((status.moving, status.late), (None, false), "credited");
     assert_eq!(deposits(&mut ledger, escrow).len(), 1);
 }
+
+/// What the owner holds on the hub's ledger, as the books say.
+fn hub_owner_balance(core: &Core) -> i128 {
+    core.ledger_views()
+        .into_iter()
+        .find(|view| view.id == dassie_ledger::LedgerId::HubXrpTestnetXrp)
+        .unwrap()
+        .owner_balance
+}
+
+// spec/areas/hubs.md#in-the-node: the owner may give up a move only once it
+// is late. Giving up forgets it and books nothing; the node then moves
+// nothing by itself until the owner turns its moves on again, and a credit
+// the hub makes later anyway is booked as a deposit, once.
+#[test]
+fn a_late_deposit_given_up_is_booked_once_if_credited() {
+    let (mut ledger, _) = funded_ledger();
+    let mut core = funding_core(&mut ledger);
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    hub.no_account(&mut core);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let opening = deposits(&mut ledger, escrow)[0].amount;
+    hub.account(&mut core, 100_000, opening);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    let made = deposits(&mut ledger, escrow);
+    assert_eq!(made.len(), 2, "below the floor: {made:?}");
+    let amount = made[1].amount;
+    assert!(core.hub_give_up().is_err(), "not late yet");
+    wait_and_close(&mut core, &mut ledger, super::hub_funding::CREDIT_WAIT_MS);
+    assert!(core.hub_status().unwrap().late);
+    let status = core.hub_give_up().unwrap();
+    assert_eq!(status.moving, None);
+    assert_eq!(status.given_up, Some((super::Direction::Deposit, amount)));
+    for _ in 0..3 {
+        wait_and_close(&mut core, &mut ledger, super::hub_funding::OWNER_PAUSE_MS);
+    }
+    assert_eq!(
+        deposits(&mut ledger, escrow).len(),
+        2,
+        "waits for the owner"
+    );
+
+    let before = hub_owner_balance(&core);
+    hub.account(&mut core, 100_000 + amount, opening + amount);
+    hub.account(&mut core, 100_000 + amount, opening + amount);
+    let units = i128::from(dassie_xrpl::UNITS_PER_DROP);
+    assert_eq!(
+        hub_owner_balance(&core) - before,
+        i128::from(amount) * units,
+        "the late credit is a deposit, once"
+    );
+
+    core.set_hub_automatic(true).unwrap();
+    assert_eq!(core.hub_status().unwrap().given_up, None);
+    hub.account(&mut core, 100_000, opening + amount);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    assert_eq!(
+        deposits(&mut ledger, escrow).len(),
+        3,
+        "moving by itself again"
+    );
+}

@@ -65,6 +65,9 @@ pub struct HubStatus {
     /// Whether it is late: the owner should look, and nothing is paid
     /// again for it.
     pub late: bool,
+    /// The move the owner gave up, which way and how much in drops, while
+    /// it holds the node's own moves back: the other side may yet show it.
+    pub given_up: Option<(Direction, u64)>,
     /// How many validators the hub has, and how many answer.
     pub validators: (usize, usize),
 }
@@ -87,6 +90,9 @@ fn row(funding: &super::hub_funding::Funding) -> HubFundingRow {
             sent_ms: moving.sent_ms,
             applied_ms: moving.applied_ms,
         }),
+        given_up: funding
+            .given_up
+            .map(|(direction, drops)| (direction == Direction::Deposit, drops)),
     }
 }
 
@@ -114,6 +120,14 @@ impl Core {
         self.funding.automatic = automatic;
         self.funding.paused_until_ms = row.paused_until_ms;
         self.funding.moving = row.moving.as_ref().map(from_row).transpose()?;
+        self.funding.given_up = row.given_up.map(|(deposit, drops)| {
+            let direction = if deposit {
+                Direction::Deposit
+            } else {
+                Direction::Withdraw
+            };
+            (direction, drops)
+        });
         Ok(())
     }
 
@@ -386,6 +400,7 @@ impl Core {
                 .then_some(self.funding.paused_until_ms),
             moving: self.funding.moving,
             late: self.funding.late(now),
+            given_up: self.funding.given_up,
             validators: account.answering(),
         })
     }
@@ -473,7 +488,38 @@ impl Core {
         }
         self.funding.automatic = automatic;
         self.batch.hub_automatic = Some(automatic);
+        if automatic && self.funding.given_up.is_some() {
+            self.funding.owner_acted();
+            self.keep_funding();
+        }
         Ok(())
+    }
+
+    /// The owner gives up the move on its way, once it is late: the node
+    /// forgets it and books nothing. Each side books its half when it sees
+    /// it, so if the hub credits a given-up deposit later, or the XRPL
+    /// account sees a given-up withdrawal arrive, it is booked then, once.
+    /// The node's own moves wait until the owner turns them on again or
+    /// moves funds, so it never pays again by itself what may yet arrive.
+    ///
+    /// # Errors
+    ///
+    /// No hub scheme runs, or no move is on its way, or it is not late.
+    pub fn hub_give_up(&mut self) -> Result<HubStatus, EngineError> {
+        let standing = self.standing().ok_or_else(|| {
+            EngineError::Precondition("the settlement hub scheme is not running".into())
+        })?;
+        if self.funding.follow(self.now_ms, &standing) {
+            self.keep_funding();
+        }
+        if self.funding.give_up(self.now_ms).is_none() {
+            return Err(EngineError::Precondition(
+                "only a move that is late can be given up".into(),
+            ));
+        }
+        self.keep_funding();
+        self.hub_status()
+            .ok_or_else(|| EngineError::Internal("the hub scheme vanished".into()))
     }
 
     /// What an owner's move is decided from: the move on its way followed

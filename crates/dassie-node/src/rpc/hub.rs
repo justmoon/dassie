@@ -15,6 +15,7 @@ pub(super) const fn is_hub(method: &Method) -> bool {
             | Method::HubDeposit(_)
             | Method::HubWithdraw(_)
             | Method::SetHubAutomatic(_)
+            | Method::HubGiveUp(_)
     )
 }
 
@@ -42,6 +43,12 @@ pub(super) async fn dispatch(engine: &Engine, method: Method) -> Result<Reply, R
         Method::SetHubAutomatic(request) => {
             let status = running(engine.set_hub_automatic(request.automatic).await?)?;
             response::Method::SetHubAutomatic(proto::SetHubAutomaticResponse {
+                status: Some(hub_status(&status)),
+            })
+        }
+        Method::HubGiveUp(_) => {
+            let status = engine.hub_give_up().await?;
+            response::Method::HubGiveUp(proto::HubGiveUpResponse {
                 status: Some(hub_status(&status)),
             })
         }
@@ -77,11 +84,7 @@ fn hub_status(status: &HubStatus) -> proto::HubStatus {
         automatic: status.automatic,
         paused_until_unix_ms: status.paused_until_ms.map(convert::time),
         moving: status.moving.map(|moving| proto::HubMove {
-            direction: match moving.direction {
-                Direction::Deposit => proto::hub_move::Direction::Deposit,
-                Direction::Withdraw => proto::hub_move::Direction::Withdraw,
-            }
-            .into(),
+            direction: direction_of(moving.direction).into(),
             amount: moving
                 .drops
                 .saturating_mul(dassie_hub::member::UNITS_PER_DROP),
@@ -90,8 +93,20 @@ fn hub_status(status: &HubStatus) -> proto::HubStatus {
             applied_at_unix_ms: moving.applied_ms.map(convert::time),
             late: status.late,
         }),
+        given_up: status.given_up.map(|(direction, drops)| proto::HubMove {
+            direction: direction_of(direction).into(),
+            amount: drops.saturating_mul(dassie_hub::member::UNITS_PER_DROP),
+            ..Default::default()
+        }),
         validators: u32::try_from(validators).unwrap_or(u32::MAX),
         validators_answering: u32::try_from(answering).unwrap_or(u32::MAX),
+    }
+}
+
+const fn direction_of(direction: Direction) -> proto::hub_move::Direction {
+    match direction {
+        Direction::Deposit => proto::hub_move::Direction::Deposit,
+        Direction::Withdraw => proto::hub_move::Direction::Withdraw,
     }
 }
 

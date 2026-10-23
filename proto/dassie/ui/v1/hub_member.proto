@@ -8,7 +8,7 @@ import "dassie/ui/v1/ledger.proto";
 // the owner's funds between it and the node's XRP Ledger testnet account
 // (spec/areas/hubs.md#in-the-node). Its methods are numbered in
 // `Request` and `Response` (transport.proto): GetHubStatus, HubDeposit,
-// HubWithdraw and SetHubAutomatic. Each fails with FAILED_PRECONDITION while
+// HubWithdraw, SetHubAutomatic and HubGiveUp. Each fails with FAILED_PRECONDITION while
 // no settlement hub scheme runs.
 //
 // Amounts are in the hub ledger's smallest unit, as `Ledger` amounts are:
@@ -86,6 +86,11 @@ message HubStatus {
   // the account has read to.
   uint32 validators = 15;
   uint32 validators_answering = 16;
+  // The move the owner gave up, which way and how much, while it holds the
+  // node's own moves back: the other side may yet show it, and then books
+  // it, once. Cleared when the owner turns the node's own moves on again or
+  // moves funds.
+  HubMove given_up = 17;
 }
 
 message GetHubStatusRequest {}
@@ -128,5 +133,15 @@ message SetHubAutomaticRequest {
 }
 
 message SetHubAutomaticResponse {
+  HubStatus status = 1;
+}
+
+// Gives up the move on its way, once it is late: the node forgets it and
+// books nothing. Its own moves then wait until the owner turns them on again
+// or moves funds. FAILED_PRECONDITION when no move is on its way, or it is
+// not late.
+message HubGiveUpRequest {}
+
+message HubGiveUpResponse {
   HubStatus status = 1;
 }

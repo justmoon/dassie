@@ -1036,7 +1036,8 @@ CREATE TABLE hub_bundles (
 /// funds between its XRPL account and its hub by itself, which the owner
 /// may turn off; until when an owner's move pauses that; and the move on
 /// its way, with the counter value that shows it done and its payment, so
-/// that a restart never pays it twice.
+/// that a restart never pays it twice; and the move the owner gave up,
+/// while it holds the node's own moves back.
 const MIGRATION_33: &str = "
 CREATE TABLE hub_funding (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -1049,6 +1050,9 @@ CREATE TABLE hub_funding (
   move_by_owner INTEGER CHECK (move_by_owner IN (0, 1)),
   move_sent_ms INTEGER CHECK (move_sent_ms >= 0),
   move_applied_ms INTEGER CHECK (move_applied_ms >= 0),
+  given_up_kind TEXT CHECK (given_up_kind IN ('deposit', 'withdraw')),
+  given_up_drops INTEGER CHECK (given_up_drops > 0),
+  CHECK ((given_up_kind IS NULL) = (given_up_drops IS NULL)),
   CHECK ((move_kind IS NULL) = (move_drops IS NULL)
     AND (move_kind IS NULL) = (move_target IS NULL)
     AND (move_kind IS NULL) = (move_payment IS NULL)
@@ -1489,6 +1493,8 @@ pub const TABLES: &[Table] = &[
             ("move_by_owner", "INTEGER", false, false),
             ("move_sent_ms", "INTEGER", false, false),
             ("move_applied_ms", "INTEGER", false, false),
+            ("given_up_kind", "TEXT", false, false),
+            ("given_up_drops", "INTEGER", false, false),
         ],
     },
     Table {

@@ -627,6 +627,7 @@ fn hub() -> BoxedStrategy<Method> {
         any::<bool>().prop_map(|automatic| {
             Method::SetHubAutomatic(proto::SetHubAutomaticRequest { automatic })
         }),
+        Just(Method::HubGiveUp(proto::HubGiveUpRequest {})),
     ]
     .boxed()
 }
