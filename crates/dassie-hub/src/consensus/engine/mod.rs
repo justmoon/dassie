@@ -53,6 +53,11 @@ pub const MAX_BLOCKS: usize = BLOCKS_PER_VIEW * MAX_ROUNDS;
 /// K is at most this).
 pub const RETAINED_BLOCKS: usize = 64;
 
+/// The most epochs whose last block is kept, with its finalization, for
+/// validators that come back from an epoch that ended to catch up from
+/// (spec/designs/settlement-hubs.md#9-shutdown).
+pub const MAX_BOUNDARIES: usize = 8;
+
 /// The most votes for finalized blocks kept.
 const MAX_VOTE_LOG: usize = RETAINED_BLOCKS * MAX_VALIDATORS * 2;
 
@@ -109,6 +114,9 @@ pub struct Engine {
     /// Finalized views a conflicting certificate was reported for, each
     /// once; within the history's views.
     settled_conflicts: BTreeSet<u64>,
+    /// The last block of each recent epoch that ended, with the
+    /// finalization its own set made, oldest first.
+    boundaries: VecDeque<Finalized>,
     stalled: bool,
     /// The last view each validator of the running set voted in.
     last_voted: [u64; MAX_VALIDATORS],
@@ -162,6 +170,7 @@ impl Engine {
             vote_log: VecDeque::new(),
             finalize_heights: stored.finalize_heights.into_iter().collect(),
             settled_conflicts: BTreeSet::new(),
+            boundaries: stored.boundaries.into_iter().collect(),
             stalled: stored.stalled,
             last_voted: [0; MAX_VALIDATORS],
             want: None,
@@ -325,6 +334,12 @@ impl Engine {
     /// running set certifies nothing from there, and the new set runs
     /// every view after the one that finalizes the block before it.
     ///
+    /// The host passes only a change that a block this engine finalized
+    /// scheduled, read from the state after that block: a set taken from
+    /// anything the engine did not check would let whoever made it up sign
+    /// our history. [`Application::reconfiguration`] does the same as part
+    /// of finalizing, and [`Engine::jump`] for the state a host loaded.
+    ///
     /// # Errors
     ///
     /// Another change is waiting, or the height is too close to the tip.
@@ -481,6 +496,11 @@ impl Engine {
         assert!(
             self.history.len() <= RETAINED_BLOCKS,
             "history within bound"
+        );
+        assert!(
+            self.boundaries.len() <= MAX_BOUNDARIES
+                && self.boundaries.iter().all(|end| end.finalization.is_some()),
+            "epochs' last blocks within bound, each certified"
         );
         assert!(self.vote_log.len() <= MAX_VOTE_LOG, "vote log within bound");
         assert!(self.events.len() <= MAX_EVENTS, "events within bound");

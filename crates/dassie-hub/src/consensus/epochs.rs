@@ -124,6 +124,43 @@ impl Epochs {
         Ok(())
     }
 
+    /// Takes in a change named by the state after block `height`, which a
+    /// host loaded and checked: its set takes over at `from_height`, at
+    /// least the next height. A change already known is taken again
+    /// without effect.
+    ///
+    /// # Errors
+    ///
+    /// Another change is waiting, or the height is not above the block.
+    pub fn take_in(
+        &mut self,
+        from_height: u64,
+        set: ValidatorSet,
+        height: u64,
+    ) -> Result<(), ReconfigureError> {
+        let known = self
+            .iter()
+            .any(|epoch| epoch.from_height == from_height && epoch.set == set);
+        if known {
+            return Ok(());
+        }
+        if self.iter().any(|epoch| epoch.from_view.is_none()) {
+            return Err(ReconfigureError::Pending);
+        }
+        if from_height <= height {
+            return Err(ReconfigureError::TooLate);
+        }
+        if self.later.len().saturating_add(1) >= MAX_EPOCHS {
+            self.first = self.later.remove(0);
+        }
+        self.later.push(Epoch {
+            from_height,
+            from_view: None,
+            set,
+        });
+        Ok(())
+    }
+
     /// Block `height` is final at `view`: a set waiting for it takes over
     /// from the next view. So does one whose boundary it passed, as after
     /// loading the state of a later block: the views between are below the

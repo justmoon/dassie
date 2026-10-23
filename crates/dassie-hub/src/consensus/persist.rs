@@ -53,6 +53,9 @@ pub struct Stored {
     pub blocks: Vec<Block>,
     /// The certificates we hold of views above the tip.
     pub certificates: Vec<Certificate>,
+    /// The last block of each recent epoch that ended, with its
+    /// finalization, oldest first.
+    pub boundaries: Vec<Finalized>,
     /// Whether we declared the hub stalled.
     pub stalled: bool,
 }
@@ -72,6 +75,8 @@ pub struct Batch {
     pub blocks: Vec<Block>,
     /// Certificates we took.
     pub certificates: Vec<Certificate>,
+    /// The last blocks of epochs that ended.
+    pub boundaries: Vec<Finalized>,
     /// The new last finalized block.
     pub tip: Option<Finalized>,
     /// The validator sets, if they changed.
@@ -90,6 +95,7 @@ impl Batch {
             && self.finalize_heights.is_empty()
             && self.blocks.is_empty()
             && self.certificates.is_empty()
+            && self.boundaries.is_empty()
             && self.tip.is_none()
             && self.epochs.is_none()
             && !self.stalled
@@ -118,6 +124,7 @@ impl Stored {
             finalize_heights: Vec::new(),
             blocks: Vec::new(),
             certificates: Vec::new(),
+            boundaries: Vec::new(),
             stalled: false,
         }
     }
@@ -131,6 +138,12 @@ impl Stored {
         self.finalize_heights.extend(batch.finalize_heights);
         self.blocks.extend(batch.blocks);
         self.certificates.extend(batch.certificates);
+        self.boundaries.extend(batch.boundaries);
+        let excess = self
+            .boundaries
+            .len()
+            .saturating_sub(super::engine::MAX_BOUNDARIES);
+        self.boundaries.drain(..excess);
         if let Some(floor) = batch.floor {
             self.floor = floor;
         }

@@ -6,7 +6,10 @@ use alloc::vec::Vec;
 use super::super::hooks::Application;
 use super::super::io::{Event, Evidence, Recipient};
 use super::super::types::{Block, Certificate, Finalized, VoteKind};
-use super::{BLOCKS_PER_VIEW, Engine, MAX_BLOCKS, MAX_VIEWS_AHEAD, MAX_VOTE_LOG, RETAINED_BLOCKS};
+use super::{
+    BLOCKS_PER_VIEW, Engine, MAX_BLOCKS, MAX_BOUNDARIES, MAX_VIEWS_AHEAD, MAX_VOTE_LOG,
+    RETAINED_BLOCKS,
+};
 use crate::digest::Digest;
 use crate::validators::Signers;
 
@@ -239,6 +242,21 @@ impl Engine {
         }
     }
 
+    /// Keeps the tip as the last block of an epoch, if it is one and its
+    /// own set finalized it: what a validator coming back from that epoch
+    /// can check, and catch up from.
+    pub(super) fn keep_boundary(&mut self, from_height: u64) {
+        if self.tip.block.height.saturating_add(1) != from_height || self.tip.finalization.is_none()
+        {
+            return;
+        }
+        if self.boundaries.len() >= MAX_BOUNDARIES {
+            self.boundaries.pop_front();
+        }
+        self.boundaries.push_back(self.tip.clone());
+        self.batch.boundaries.push(self.tip.clone());
+    }
+
     /// Lets go of rounds, blocks and heights at or below the tip, keeping
     /// the votes for blocks it finalized.
     pub(super) fn prune(&mut self) {
@@ -279,6 +297,7 @@ impl Engine {
     /// A new set runs from `from_view`: views from there were read in the
     /// old set, so their votes are dropped, but for ours.
     pub(super) fn take_over(&mut self, from_height: u64, from_view: u64) {
+        self.keep_boundary(from_height);
         self.batch.epochs = Some(self.epochs.to_vec());
         self.event(Event::Reconfigured {
             from_height,

@@ -66,7 +66,15 @@ impl Engine {
                     .filter(|finalization| finalization.view == previous)
             })
             .cloned();
-        if let Some(certificate) = entered_by {
+        // And the finalization of our tip: a validator that missed it, but
+        // holds the block, finalizes it, and learns where it stands; at the
+        // end of an epoch, without it, it would stay in a set that ended.
+        let tip = self
+            .tip
+            .finalization
+            .clone()
+            .filter(|tip| entered_by.as_ref() != Some(tip));
+        for certificate in entered_by.into_iter().chain(tip) {
             self.send(Recipient::All, &Message::Certificate(certificate));
         }
         let next = interval.saturating_mul(2).min(self.config.max_retry_ms);

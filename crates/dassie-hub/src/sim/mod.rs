@@ -111,8 +111,16 @@ impl Role {
     }
 }
 
-/// The application: payloads that name their proposer and height, and the
-/// finalized chain as the host would persist it.
+/// The application: payloads that name their proposer and height, carry
+/// the root of the state after them and the change of validators the chain
+/// schedules, and the finalized chain as the host would persist it.
+///
+/// The simulated state is the change of validators scheduled and not yet
+/// made. The block that schedules it carries it, as an operation would;
+/// every block carries the root of the state after it, which the rule of
+/// the [`Schedule`] decides and every validator checks, as a ledger
+/// checks its own; and a validator that loads a state checks it against
+/// the root in the block, whose finalization the engine checked.
 #[derive(Clone, Debug, Default)]
 pub struct SimApp {
     /// The validator's index.
@@ -125,11 +133,92 @@ pub struct SimApp {
     pub finalized: BTreeMap<u64, Digest>,
     /// The votes the last proposal could record.
     pub votes_offered: usize,
-    /// A change of validators the chain schedules, as its ledger would: at
-    /// the block of this height, a set taking over at a later one.
+    /// A change of validators the chain schedules, as its ledger's rules
+    /// would: at the block of this height, a set taking over at a later
+    /// one. Proposers put it in that block, and validators check it is
+    /// there; a validator learns of it only from a block it finalized, or a
+    /// state it loaded and checked.
     pub schedule: Option<Schedule>,
+    /// The changes learned from the chain, by the height of the block that
+    /// scheduled them, or of the state loaded that named them.
+    pub learned: BTreeMap<u64, (u64, ValidatorSet)>,
     /// The change the last finalized block scheduled, for the engine.
     scheduled: Option<(u64, ValidatorSet)>,
+}
+
+/// Where a payload's state root starts, after its marker, height and
+/// proposer.
+const ROOT_AT: usize = 10;
+
+/// Where the operation scheduling a change starts, after the root.
+const OPERATION_AT: usize = ROOT_AT + 32;
+
+/// The root of a simulated state: the change scheduled and not yet made.
+#[must_use]
+pub fn state_root(change: Option<&(u64, ValidatorSet)>) -> Digest {
+    change.map_or_else(Digest::default, |(from, set)| {
+        let mut bytes = from.to_be_bytes().to_vec();
+        for key in set.keys() {
+            bytes.extend_from_slice(key.as_bytes());
+        }
+        Digest::of(Domain::StateLeaf, &[&bytes])
+    })
+}
+
+fn encode_change(from: u64, set: &ValidatorSet, out: &mut Vec<u8>) {
+    out.push(u8::try_from(set.len()).unwrap());
+    out.extend_from_slice(&from.to_be_bytes());
+    for key in set.keys() {
+        out.extend_from_slice(key.as_bytes());
+    }
+}
+
+fn decode_change(bytes: &[u8]) -> Option<(u64, ValidatorSet)> {
+    let count = usize::from(*bytes.first()?);
+    let from = u64::from_be_bytes(bytes.get(1..9)?.try_into().ok()?);
+    let keys = (0..count)
+        .map(|at| {
+            let key: [u8; 32] = bytes.get(9 + 32 * at..9 + 32 * (at + 1))?.try_into().ok()?;
+            PublicKey::from_bytes(&key).ok()
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some((from, ValidatorSet::new(keys)?))
+}
+
+/// A valid payload of the block at `height`, by validator `index`.
+#[must_use]
+pub fn payload(height: u64, index: usize, schedule: Option<&Schedule>) -> Vec<u8> {
+    let mut payload = vec![1];
+    payload.extend_from_slice(&height.to_be_bytes());
+    payload.push(u8::try_from(index).unwrap());
+    let pending = schedule.and_then(|schedule| schedule.pending(height));
+    payload.extend_from_slice(state_root(pending.as_ref()).as_bytes());
+    if let Some(schedule) = schedule.filter(|schedule| schedule.at == height) {
+        encode_change(schedule.from, &schedule.set, &mut payload);
+    }
+    payload
+}
+
+impl Schedule {
+    /// The change scheduled and not yet made in the state after block
+    /// `height`, by the rule.
+    #[must_use]
+    pub fn pending(&self, height: u64) -> Option<(u64, ValidatorSet)> {
+        (self.at <= height && height < self.from).then(|| (self.from, self.set.clone()))
+    }
+}
+
+impl SimApp {
+    /// The state after block `height`, as this validator learned the chain:
+    /// what a peer hands one that loads it.
+    #[must_use]
+    pub fn state_after(&self, height: u64) -> Option<(u64, ValidatorSet)> {
+        self.learned
+            .range(..=height)
+            .map(|(_, change)| change)
+            .find(|(from, _)| height < *from)
+            .cloned()
+    }
 }
 
 /// A change of validators a chain schedules.
@@ -149,16 +238,30 @@ impl Application for SimApp {
         context: &ProposeContext<'_>,
         payload: &mut Vec<u8>,
     ) -> Result<(), Declined> {
-        payload.push(if self.invalid { INVALID } else { 1 });
-        payload.extend_from_slice(&context.height.to_be_bytes());
-        payload.push(u8::try_from(self.index).unwrap());
+        payload.extend(self::payload(
+            context.height,
+            self.index,
+            self.schedule.as_ref(),
+        ));
+        if self.invalid {
+            payload[0] = INVALID;
+        }
         self.votes_offered = context.votes.len();
         Ok(())
     }
 
     fn verify(&mut self, context: &VerifyContext, payload: &[u8]) -> bool {
+        let schedule = self.schedule.as_ref();
+        let pending = schedule.and_then(|schedule| schedule.pending(context.height));
+        let operation = payload.get(OPERATION_AT..).unwrap_or_default();
+        let scheduled = schedule
+            .filter(|schedule| schedule.at == context.height)
+            .map(|schedule| (schedule.from, schedule.set.clone()));
         payload.first().is_some_and(|first| *first != INVALID)
             && payload.get(1..9) == Some(&context.height.to_be_bytes()[..])
+            && payload.get(ROOT_AT..OPERATION_AT) == Some(state_root(pending.as_ref()).as_bytes())
+            && decode_change(operation) == scheduled
+            && (scheduled.is_some() || operation.is_empty())
     }
 
     fn finalized(&mut self, block: &Block, digest: &Digest) {
@@ -168,8 +271,10 @@ impl Application for SimApp {
             .map_or(1, |(height, _)| height + 1);
         assert_eq!(block.height, expected, "blocks are finalized in order");
         self.finalized.insert(block.height, *digest);
-        if let Some(schedule) = self.schedule.as_ref().filter(|s| s.at == block.height) {
-            self.scheduled = Some((schedule.from, schedule.set.clone()));
+        let operation = block.payload.get(OPERATION_AT..).unwrap_or_default();
+        if let Some(change) = decode_change(operation) {
+            self.learned.insert(block.height, change.clone());
+            self.scheduled = Some(change);
         }
     }
 
@@ -537,17 +642,27 @@ impl Network {
             "{} {index} loads the state after height {height}",
             self.now
         ));
+        // The state comes from a peer that finalized the block, and counts
+        // only if its root is the one the block carries: the block the
+        // engine checked with a set it knows.
+        let root = finalized.block.payload.get(ROOT_AT..OPERATION_AT);
+        let state = self
+            .honest()
+            .filter(|peer| *peer != index && self.height(*peer) >= height)
+            .map(|peer| self.validators[peer].app.state_after(height))
+            .find(|state| Some(state_root(state.as_ref()).as_bytes().as_slice()) == root);
+        let Some(state) = state else {
+            self.trace
+                .push(format!("{} {index} finds no state that fits", self.now));
+            return;
+        };
         let mut jumped = false;
         self.act(index, |engine, app, now| {
-            // The state after the block says which validators it has: a
-            // change scheduled in the blocks skipped is taken in first.
-            if let Some(schedule) = app.schedule.as_ref().filter(|s| s.at <= height)
-                && engine.set_for_height(schedule.from) != &schedule.set
-            {
-                let _ = engine.reconfigure(now, schedule.from, schedule.set.clone());
-            }
-            if engine.jump(now, finalized).is_ok() {
+            if engine.jump(now, finalized, state.clone()).is_ok() {
                 app.finalized.insert(height, digest);
+                if let Some(change) = state {
+                    app.learned.insert(height, change);
+                }
                 jumped = true;
             }
         });
@@ -647,7 +762,10 @@ impl Network {
     /// block to its half.
     fn equivocate(&mut self, leader: usize, to: &[usize], proposal: Proposal, signers: &[usize]) {
         let mut other = proposal.block.clone();
-        other.payload.push(0xaa);
+        // Another proposer byte: still a valid payload.
+        if let Some(byte) = other.payload.get_mut(9) {
+            *byte ^= 0x80;
+        }
         // A lone equivocator, in odd views, builds its second block on an
         // older final block, skipping a notarized one: only the rule that
         // skipped views be nullified stops validators that lag.
@@ -661,11 +779,11 @@ impl Network {
             other.parent = digest;
             other.parent_view = finalized.block.view;
             other.height = finalized.block.height + 1;
-            other.payload = vec![1];
-            other.payload.extend_from_slice(&other.height.to_be_bytes());
-            other
-                .payload
-                .extend_from_slice(&[u8::try_from(leader).unwrap(), 0xaa]);
+            let schedule = self.validators[leader].app.schedule.as_ref();
+            other.payload = payload(other.height, leader, schedule);
+            if let Some(byte) = other.payload.get_mut(9) {
+                *byte ^= 0x80;
+            }
         }
         let view = other.view;
         let digests = [proposal.block.digest(&hub()), other.digest(&hub())];

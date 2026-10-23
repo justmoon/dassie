@@ -17,6 +17,7 @@ use super::super::wire::{
 };
 use super::Engine;
 use crate::digest::Digest;
+use crate::validators::ValidatorSet;
 
 /// What a delivery may fill of a message, leaving room for its framing.
 const DELIVERY_BYTES: usize = MAX_MESSAGE_BYTES - 1024;
@@ -52,13 +53,43 @@ impl Engine {
     }
 
     /// Answers a request: the finalized blocks above its height, up to the
-    /// last within bounds we hold a finalization of, and the certificates
-    /// of its view and after, with their blocks.
+    /// last within bounds we hold a finalization of and never past the end
+    /// of an epoch, and the certificates of its view and after, with their
+    /// blocks.
     pub(super) fn on_fetch(&mut self, from: PeerId, fetch: Fetch) {
+        let (mut delivery, bytes) = self.finalized_above(fetch.height.saturating_add(1));
+        self.add_certified(&mut delivery, fetch.view, bytes);
+        if delivery.finalized.is_empty() && delivery.certified.is_empty() {
+            return;
+        }
+        self.send(Recipient::Peer(from), &Message::Delivery(delivery));
+    }
+
+    /// The finalized blocks from `start` on that an asker can check with
+    /// the sets it knows, and their size. A delivery stops at the last
+    /// block of an epoch, which its own set finalized: the asker learns
+    /// of the next set from the blocks before it, never from a set that
+    /// blocks it cannot check name. Below what we keep, it is the last
+    /// block of the asker's epoch, if we kept it, or else our tip, for the
+    /// asker to load the state after it (Event::Behind).
+    fn finalized_above(&self, start: u64) -> (Delivery, usize) {
         let mut delivery = Delivery::default();
+        let oldest = self.history.front().map_or(0, |(_, f)| f.block.height);
+        if start < oldest {
+            let end = self
+                .boundaries
+                .iter()
+                .find(|boundary| boundary.block.height >= start)
+                .unwrap_or(&self.tip);
+            if let Some(finalization) = &end.finalization {
+                delivery.finalized.push(end.block.clone());
+                delivery.finalization = Some(finalization.clone());
+            }
+            let bytes = delivery.encoded_len();
+            return (delivery, bytes);
+        }
         let mut bytes = 0usize;
         let mut proven = (0, 0);
-        let start = fetch.height.saturating_add(1);
         for (_, finalized) in self.history.iter().filter(|(_, f)| f.block.height >= start) {
             bytes = bytes.saturating_add(finalized.block.encoded_len());
             if delivery.finalized.len() >= MAX_DELIVERED_BLOCKS || bytes > DELIVERY_BYTES / 2 {
@@ -69,35 +100,32 @@ impl Engine {
                 proven = (delivery.finalized.len(), bytes);
                 delivery.finalization = Some(certificate.clone());
             }
+            if self.ends_epoch(finalized.block.height) {
+                break;
+            }
         }
-        let starts = delivery
-            .finalized
-            .first()
-            .is_some_and(|first| first.height == start);
-        let (count, mut bytes) = if starts { proven } else { (0, 0) };
+        let (count, bytes) = proven;
         delivery.finalized.truncate(count);
         if count == 0 {
             delivery.finalization = None;
         }
-        // Below what we keep: our tip, certified, for the asker to load
-        // the state after it (Event::Behind).
-        let oldest = self.history.front().map_or(0, |(_, f)| f.block.height);
-        if start < oldest && self.tip.finalization.is_some() {
-            delivery.finalized = alloc::vec![self.tip.block.clone()];
-            delivery.finalization = self.tip.finalization.clone();
-            bytes = self.tip.block.encoded_len();
-        }
-        bytes = bytes.saturating_add(
+        let bytes = bytes.saturating_add(
             delivery
                 .finalization
                 .as_ref()
                 .map_or(0, Encode::encoded_len),
         );
-        self.add_certified(&mut delivery, fetch.view, bytes);
-        if delivery.finalized.is_empty() && delivery.certified.is_empty() {
-            return;
-        }
-        self.send(Recipient::Peer(from), &Message::Delivery(delivery));
+        (delivery, bytes)
+    }
+
+    /// Whether block `height` is the last of an epoch we know of.
+    fn ends_epoch(&self, height: u64) -> bool {
+        let next = height.saturating_add(1);
+        self.epochs
+            .iter()
+            .skip(1)
+            .any(|epoch| epoch.from_height == next)
+            || self.boundaries.iter().any(|end| end.block.height == height)
     }
 
     fn add_certified(&self, delivery: &mut Delivery, from_view: u64, mut bytes: usize) {
@@ -129,17 +157,12 @@ impl Engine {
     }
 
     /// Takes in a delivery: its finalized blocks, then its certificates.
-    pub(super) fn on_delivery(
-        &mut self,
-        app: &mut dyn Application,
-        from: PeerId,
-        delivery: Delivery,
-    ) {
+    pub(super) fn on_delivery(&mut self, app: &mut dyn Application, delivery: Delivery) {
         if let Some(finalization) = &delivery.finalization {
             self.take_finalized(app, &delivery.finalized, finalization);
         }
         for certified in delivery.certified {
-            self.on_certificate(certified.certificate, certified.block, from);
+            self.on_certificate(certified.certificate, certified.block);
         }
     }
 
@@ -159,15 +182,39 @@ impl Engine {
         self.progress(app);
     }
 
-    /// Moves the tip to `finalized`, a certified block above it whose
-    /// state the host loaded from a validator or member, without the blocks
-    /// between (spec/designs/settlement-hubs.md#9-shutdown, "The state").
-    /// The application learns no block below it.
+    /// Moves the tip to `finalized`, a block above it whose state the host
+    /// loaded (spec/designs/settlement-hubs.md#9-shutdown, "The state"),
+    /// without the blocks between. The application learns no block below
+    /// it.
+    ///
+    /// The contract that keeps a validator on the hub's own history:
+    ///
+    /// - `finalized` must be finalized by a set the engine knows for its
+    ///   height ([`Event::Behind`] hands over only such blocks), and is
+    ///   checked here before anything changes.
+    /// - The host checks the state it loaded against the state root that
+    ///   block carries, and so against that set's signatures.
+    /// - `change` is the change of validators that verified state has
+    ///   scheduled and not yet made, if any: the height its set takes over
+    ///   at, at least the one after the block, and the set. It is taken
+    ///   from nothing else. Taking over at the next height, it runs from
+    ///   the next view; later, it waits as one the chain scheduled does.
+    ///
+    /// A validator behind a change thus catches up epoch by epoch: the
+    /// last block of its epoch, certified by the set it knows, then the
+    /// state after it, which names the next set.
     ///
     /// # Errors
     ///
-    /// Its finalization does not prove it, or it is not above the tip.
-    pub fn jump(&mut self, now_ms: u64, finalized: Finalized) -> Result<(), Invalid> {
+    /// The finalization does not prove the block with a set we know, the
+    /// block is not above the tip, or the change does not fit: before
+    /// the block, or another one is waiting.
+    pub fn jump(
+        &mut self,
+        now_ms: u64,
+        finalized: Finalized,
+        change: Option<(u64, ValidatorSet)>,
+    ) -> Result<(), Invalid> {
         self.advance(now_ms);
         let Some(finalization) = finalized.finalization.as_ref() else {
             return Err(Invalid::Unproven);
@@ -181,6 +228,12 @@ impl Engine {
             return Err(Invalid::Stale);
         }
         let (height, view) = (block.height, block.view);
+        if let Some((from_height, set)) = change {
+            self.epochs
+                .take_in(from_height, set, height)
+                .map_err(|_| Invalid::Stale)?;
+            self.batch.epochs = Some(self.epochs.to_vec());
+        }
         self.tip_digest = digest;
         self.tip = finalized;
         self.batch.tip = Some(self.tip.clone());
@@ -206,28 +259,21 @@ impl Engine {
         let (Some(first), Some(last)) = (blocks.first(), blocks.last()) else {
             return;
         };
-        let Some(digests) = self.chained(blocks, finalization) else {
+        // Checked with the set of its height that we know: a set comes to
+        // us only from blocks we checked, never from one we cannot check.
+        let Some(digests) = self.linked(blocks, finalization) else {
             return self.refuse();
         };
-        // Beyond what we can connect, or signed by a set we do not know yet
-        // (a change scheduled within the blocks delivered, closer than a
-        // delivery): the host loads the state after it, and checks its
-        // certificate with the validator sets that state names.
-        let set = self.epochs.for_height(last.height);
-        let gap = first.height > self.tip.block.height.saturating_add(1);
-        let above = last.height > self.tip.block.height;
-        if gap || (above && verify_certificate(&self.hub, set, finalization).is_err()) {
+        if last.height <= self.tip.block.height {
+            return self.check_finalized(last, finalization);
+        }
+        // Beyond what we can connect: the host loads the state after it.
+        if first.height > self.tip.block.height.saturating_add(1) {
             self.event(Event::Behind(Box::new(Finalized {
                 block: last.clone(),
                 finalization: Some(finalization.clone()),
             })));
             return;
-        }
-        if !above {
-            if verify_certificate(&self.hub, set, finalization).is_err() {
-                return self.refuse();
-            }
-            return self.check_finalized(last, finalization);
         }
         if first.parent != self.tip_digest {
             return;

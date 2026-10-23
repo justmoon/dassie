@@ -17,7 +17,7 @@ use dassie_hub::consensus::{
 };
 use dassie_hub::sim::{Faults, Network, Role, START, SimApp, genesis, hub, key, roles, set};
 use dassie_hub::{Digest, ValidatorIndex};
-use dassie_identity::Signature;
+use dassie_identity::{NodeKey, Signature};
 use dassie_oer::Encode;
 
 const CONFIG: Config = Config::DEFAULT;
@@ -415,9 +415,7 @@ fn outdated_messages_are_ignored() {
 /// A block of `view` by its leader on `parent`, as a proposal.
 fn proposal_on(view: u64, parent: &dassie_hub::consensus::Block, stamp: u64) -> Vec<u8> {
     let height = parent.height + 1;
-    let mut payload = vec![1];
-    payload.extend_from_slice(&height.to_be_bytes());
-    payload.push(9);
+    let payload = dassie_hub::sim::payload(height, 9, None);
     let block = dassie_hub::consensus::Block {
         view,
         height,
@@ -558,15 +556,14 @@ fn a_restart_never_signs_a_second_notarize_in_a_view() {
     let mut stored = stored;
     // View 1 is led by validator 1.
     let proposal = |payload: u8| {
-        let mut block = dassie_hub::consensus::Block {
+        let block = dassie_hub::consensus::Block {
             view: 1,
             height: 1,
             parent: genesis().digest(&hub()),
             parent_view: 0,
             timestamp_ms: now,
-            payload: vec![1, 0, 0, 0, 0, 0, 0, 0, 1, payload],
+            payload: dassie_hub::sim::payload(1, usize::from(payload), None),
         };
-        block.payload.truncate(10);
         let digest = block.digest(&hub());
         let vote = Vote::sign(&hub(), &key(1), index(1), VoteKind::Notarize, 1, digest);
         Message::Proposal(Proposal {
@@ -664,9 +661,11 @@ fn a_new_validator_set_takes_over_at_a_height() {
 fn a_change_the_chain_schedules_is_taken_even_by_one_far_behind() {
     // The block at height 20 schedules validator 4 to replace 0, from a
     // height further than a delivery of blocks, and from one closer;
-    // validator 3 is cut off from before 20 until well past both, so it
-    // learns of the change and its boundary at once.
-    for from in [40, 25] {
+    // validator 3 is cut off from before 20 until past both: within what
+    // peers keep, it catches up block by block; beyond it, epoch by epoch,
+    // loading the state after the last block of its epoch, then after the
+    // tip. An attacker meanwhile sends it a history of its own.
+    for (from, cut_ms) in [(40, 5_000), (25, 5_000), (40, 15_000)] {
         let mut network = Network::with_genesis(8, &roles(5, &[]), CONFIG, 4);
         let next = dassie_hub::ValidatorSet::new(
             [4, 1, 2, 3]
@@ -685,17 +684,130 @@ fn a_change_the_chain_schedules_is_taken_even_by_one_far_behind() {
         run_for(&mut network, 1_000);
         assert!(network.height(3) < 20);
         network.partition(&[3]);
-        run_for(&mut network, 5_000);
+        run_for(&mut network, cut_ms);
         assert!(network.height(1) > 45);
         network.heal();
-        run_for(&mut network, 3_000);
+        for at in 0..10 {
+            let (finalized, _) = forged(network.height(1) + 10 + at, 1_000 + at);
+            let delivery = Message::Delivery(dassie_hub::consensus::wire::Delivery {
+                finalized: vec![finalized.block],
+                finalization: finalized.finalization,
+                certified: Vec::new(),
+            });
+            inject(&mut network, 3, &delivery);
+            run_for(&mut network, 300);
+        }
         assert_safe(&network);
+        let top = network.height(1);
         for index in 0..5 {
             let height = network.height(index);
-            assert!(height > 50, "from {from}, validator {index}: {height}");
+            assert!(
+                height + 5 >= top,
+                "from {from}, validator {index}: {height}"
+            );
             assert_eq!(network.engine(index).set_for_height(from), &next);
         }
+        assert_eq!(network.state_loads > 0, cut_ms > 10_000, "from {from}");
     }
+}
+
+/// An attacker's keys, which no hub named.
+fn attacker(at: usize) -> NodeKey {
+    NodeKey::from_bytes(&[u8::try_from(100 + at).unwrap(); 32])
+}
+
+/// A block far ahead, finalized by the attacker's own keys, and the set
+/// of them that a state the attacker made up would name.
+fn forged(height: u64, view: u64) -> (dassie_hub::consensus::Finalized, dassie_hub::ValidatorSet) {
+    let keys = dassie_hub::ValidatorSet::new((0..4).map(|at| attacker(at).public_key()).collect())
+        .unwrap();
+    let change = (2, keys.clone());
+    let mut payload = dassie_hub::sim::payload(height, 0, None);
+    payload[10..42].copy_from_slice(dassie_hub::sim::state_root(Some(&change)).as_bytes());
+    let block = dassie_hub::consensus::Block {
+        view,
+        height,
+        parent: Digest([7; 32]),
+        parent_view: view - 1,
+        timestamp_ms: START,
+        payload,
+    };
+    let digest = block.digest(&hub());
+    let votes: Vec<Vote> = (0..4)
+        .map(|at| {
+            Vote::sign(
+                &hub(),
+                &attacker(at),
+                index(at),
+                VoteKind::Finalize,
+                view,
+                digest,
+            )
+        })
+        .collect();
+    let finalization = dassie_hub::consensus::Certificate {
+        kind: VoteKind::Finalize,
+        view,
+        block: digest,
+        signers: votes
+            .iter()
+            .fold(dassie_hub::Signers::NONE, |signers, vote| {
+                signers.with(vote.signer)
+            }),
+        signatures: votes.iter().map(|vote| vote.signature).collect(),
+    };
+    let finalized = dassie_hub::consensus::Finalized {
+        block,
+        finalization: Some(finalization),
+    };
+    (finalized, keys)
+}
+
+#[test]
+fn a_set_named_by_data_no_known_set_signed_is_never_taken_in() {
+    let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
+    let mut app = SimApp::default();
+    let mut engine = Engine::new(CONFIG, hub(), key(0), stored, START);
+    let _ = std::iter::from_fn(|| engine.poll_output()).count();
+    let (finalized, keys) = forged(500, 600);
+    // Delivered as the end of our epoch: refused, and no Behind.
+    let delivery = Message::Delivery(dassie_hub::consensus::wire::Delivery {
+        finalized: vec![finalized.block.clone()],
+        finalization: finalized.finalization.clone(),
+        certified: Vec::new(),
+    });
+    let refused = engine.stats().refused;
+    engine.handle_message(START + 1, &mut app, PeerId(99), &delivery.to_vec());
+    engine.check_invariants();
+    assert_eq!(engine.stats().refused, refused + 1);
+    let events: Vec<_> = std::iter::from_fn(|| engine.poll_event()).collect();
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, dassie_hub::consensus::Event::Behind(_)))
+    );
+    // Loaded as if a host trusted it, with the change its state names:
+    // the finalization is checked with the set we know, first.
+    let jumped = engine.jump(START + 2, finalized.clone(), Some((2, keys.clone())));
+    assert_eq!(jumped, Err(dassie_hub::consensus::Invalid::Unproven));
+    assert_eq!(engine.tip().block.height, 0);
+    assert_eq!(engine.set_for_height(2), &set(0..4));
+    assert_eq!(engine.set_for_height(1_000), &set(0..4));
+    // A certificate of the attacker's for a view ahead steers no request
+    // to its sender: we ask a validator we know.
+    let certificate = Message::Certificate(finalized.finalization.clone().unwrap());
+    engine.handle_message(START + 200, &mut app, PeerId(99), &certificate.to_vec());
+    engine.handle_timeout(START + 400, &mut app);
+    let known: Vec<_> = set(0..4).keys().to_vec();
+    let mut fetches = 0;
+    for output in std::iter::from_fn(|| engine.poll_output()) {
+        if let Ok(Message::Fetch(_)) = Message::decode_message(&output.message) {
+            assert!(matches!(&output.to, Recipient::Validator(key) if known.contains(key)));
+            fetches += 1;
+        }
+        assert_ne!(output.to, Recipient::Peer(PeerId(99)));
+    }
+    assert!(fetches > 0);
 }
 
 #[test]
