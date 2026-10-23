@@ -187,16 +187,25 @@
 
           # The desktop app (nix/desktop.nix), with the wallet built in, on
           # x86_64-linux, where the wallet is built: `nix run .#desktop`.
-          desktop-app = lib.optionalAttrs (system == "x86_64-linux") {
-            desktop = import ./nix/desktop.nix {
+          # The package builds in release; its check, below, in
+          # desktop-check.
+          desktopIn =
+            profile:
+            import ./nix/desktop.nix {
               inherit
                 lib
                 pkgs
                 craneLib
                 src
+                profile
                 ;
               inherit (release.packages) wallet;
             };
+          desktop-app = lib.optionalAttrs (system == "x86_64-linux") {
+            desktop = desktopIn "release";
+          };
+          desktop-check = lib.optionalAttrs (system == "x86_64-linux") {
+            desktop = desktopIn "desktop-check";
           };
 
           # The TypeScript side's checks (nix/ts.nix), on x86_64-linux too,
@@ -277,8 +286,12 @@
           // (release.checks or { })
           // (ts.checks or { })
           # The packaged app builds and is wrapped, which clippy and the
-          # tests do not show.
-          // desktop-app;
+          # tests do not show. It builds the package's code in the release
+          # profile's settings but for fat LTO (desktop-check, Cargo.toml):
+          # optimizing the whole app as one unit took it minutes on every
+          # change to the node, and how well the app is optimized is not
+          # what it checks.
+          // desktop-check;
 
           # The simulation campaign's VMs (scripts/sim-campaign.ts): CI's
           # toolchain, and Node for the supervisor, without the rest of the

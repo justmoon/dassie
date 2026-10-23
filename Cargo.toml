@@ -98,3 +98,9 @@ inherits = "test"
 inherits = "release"
 lto = false
 codegen-units = 16
+
+# The desktop app's check (flake.nix): the install tests' profile, so the
+# check compiles the code the package ships, with debug assertions off, but
+# without fat LTO's link, which the package alone pays.
+[profile.desktop-check]
+inherits = "install-test"

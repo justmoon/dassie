@@ -44,6 +44,10 @@ The window's web engine keeps the wallet's session cookie, its cache and its sto
 
 A second launch shows the first one's window and starts nothing. Beneath that, [one daemon per data directory](node.md#database) holds whatever starts a node, so a `dassie daemon` on the same data directory, or a second app, refuses to start rather than book beside the first.
 
+## The package
+
+`nix/desktop.nix` builds the app in Cargo's release profile, as owners build it with `nix run .#desktop`, and wraps it with its GIO modules, schemas, desktop file and icons. Every PR's check builds the same code with debug assertions off, but without fat LTO, which made the check minutes slower on every change to the node and is not what it checks: that the app links with the wallet built in and is wrapped. The release workflow builds the package itself, so that each tag's app is known to build as owners get it.
+
 ## Decisions
 
 - [desktop-app](../decisions/desktop-app.md): the node in the app's process, the wallet from the node's own origin, and a Nix package first.

@@ -5,12 +5,16 @@
 # modules (glib-networking: WebKit's TLS) and schemas. The tray icon's
 # AppIndicator library is loaded at run time, so the wrapper puts it on the
 # library path.
+#
+# `profile` is Cargo's: the package builds in release, as owners install
+# it; the flake's check builds the same code in a cheaper profile.
 {
   lib,
   pkgs,
   craneLib,
   src,
   wallet,
+  profile ? "release",
 }:
 let
   desktopLibs = import ./desktop-libs.nix { inherit pkgs; };
@@ -20,7 +24,7 @@ let
     pname = "dassie-desktop";
     strictDeps = true;
     cargoExtraArgs = "--locked -p dassie-desktop";
-    CARGO_PROFILE = "release";
+    CARGO_PROFILE = profile;
     doCheck = false;
     nativeBuildInputs = desktopLibs.nativeBuildInputs ++ [ pkgs.wrapGAppsHook3 ];
     buildInputs = desktopLibs.buildInputs ++ [
