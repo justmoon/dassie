@@ -19,6 +19,8 @@
 //!   it from one block to the next.
 //! - [`escrow`]: the escrow on the XRP Ledger: keys, setup and check,
 //!   withdrawals, what validators attest, and the payout set.
+//! - [`consensus`]: Simplex, which orders the hub's log, generic over the
+//!   payload of its blocks.
 //!
 //! Like the other protocol crates, it never reads a clock, an RNG or a
 //! socket of its own (spec/decisions/tigerstyle.md): time and randomness
@@ -31,12 +33,15 @@ extern crate alloc;
 extern crate std;
 
 pub mod codec;
+pub mod consensus;
 pub mod digest;
 pub mod escrow;
 pub mod ledger;
 pub mod operation;
 pub mod promise;
 pub mod rules;
+#[cfg(feature = "sim")]
+pub mod sim;
 pub mod validators;
 
 pub use digest::Digest;

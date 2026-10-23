@@ -32,7 +32,7 @@ pub struct Sim {
 /// run that takes a millisecond costs a campaign almost nothing, so the
 /// time goes to the simulations whose runs take seconds, and most of it to
 /// the `node` simulation.
-pub static SIMS: [Sim; 11] = [
+pub static SIMS: [Sim; 12] = [
     Sim {
         name: "node",
         about: "whole nodes' engine cores, with a network, faults and payments drawn per seed, \
@@ -112,6 +112,15 @@ pub static SIMS: [Sim; 11] = [
         about: "a STREAM payment over a lossy path with an exchange rate",
         describe: dassie_stream::sim::payment::describe,
         run: dassie_stream::sim::payment::run,
+        weight: 10,
+    },
+    Sim {
+        name: "hub",
+        about: "a settlement hub's validators running Simplex through chaos, Byzantine \
+                validators among them, then healed",
+        describe: dassie_hub::sim::chaos::describe,
+        run: dassie_hub::sim::chaos::run,
+        // Its runs take a fraction of a second.
         weight: 10,
     },
     Sim {
