@@ -45,6 +45,15 @@ pub struct Account {
     /// even once that validator leaves, so a change of validators never
     /// finds the table full or overfills it.
     pub member_slot: bool,
+    /// Everything deposits credited it, opening it included, and the
+    /// withdrawals that came back: what its member books as its owner's
+    /// deposits, since validators' attestations never reach it as an
+    /// operation (spec/areas/hubs.md#the-members-side). Saturating.
+    pub deposited: Amount,
+    /// Everything its withdrawals and its payout took from it, their ledger
+    /// fees included: what its member books as its owner's withdrawals.
+    /// Saturating.
+    pub withdrawn: Amount,
 }
 
 /// A reduction of a hold the payer asked for, and when it takes effect.
@@ -179,7 +188,7 @@ pub struct ValidatorState {
 
 impl Encode for Account {
     fn encoded_len(&self) -> usize {
-        KEY_LEN + 8 * 3 + 1 + DESTINATION_LEN + 1 + 2 + 2 + 2 + 1 + 1
+        KEY_LEN + 8 * 3 + 1 + DESTINATION_LEN + 1 + 2 + 2 + 2 + 1 + 1 + 8 * 2
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
@@ -194,6 +203,8 @@ impl Encode for Account {
         writer.write_u16(self.withdrawals);
         writer.write_bool(self.validator);
         writer.write_bool(self.member_slot);
+        writer.write_u64(self.deposited);
+        writer.write_u64(self.withdrawn);
     }
 }
 

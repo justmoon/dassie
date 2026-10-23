@@ -82,6 +82,8 @@ impl Hub {
                     sequence: 3,
                     disbursal,
                     closing: false,
+                    deposited: 7_000_000,
+                    withdrawn: 0,
                 },
             )),
         }

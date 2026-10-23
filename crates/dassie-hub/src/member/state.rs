@@ -311,6 +311,10 @@ pub(super) fn scheme_state(scheme: &HubScheme) -> Vec<u8> {
         out.name(&settling.peer);
         out.u64(settling.drops);
     }
+    out.option(scheme.counters.as_ref(), |out, (deposited, withdrawn)| {
+        out.u64(*deposited);
+        out.u64(*withdrawn);
+    });
     out.0
 }
 
@@ -495,6 +499,9 @@ pub(super) fn restore_scheme(scheme: &mut HubScheme, state: &[u8]) -> Option<()>
             return None;
         }
     }
+    scheme.counters = read_option(&mut reader, |r| {
+        Some((r.read_u64().ok()?, r.read_u64().ok()?))
+    })?;
     reader.finish().ok()?;
     Some(())
 }

@@ -110,8 +110,13 @@ pub struct HubScheme {
     pub(super) account: Option<AccountNumber>,
     pub(super) peers: BTreeMap<Name, Peer>,
     pub(super) settling: BTreeMap<Name, Settling>,
+    /// What the account had been credited by deposits, and debited by
+    /// withdrawals, as of the last state the books were matched to.
+    pub(super) counters: Option<(Amount, Amount)>,
     // Learnt.
     reserve: Amount,
+    /// The account reserve as of the last state the books were matched to.
+    account_reserve: Option<Amount>,
     strangers: BTreeMap<HoldNumber, SignedMemberOperation>,
     losses: VecDeque<(Name, Loss)>,
     decided: VecDeque<Decided>,
@@ -175,7 +180,9 @@ impl HubScheme {
             account: None,
             peers: BTreeMap::new(),
             settling: BTreeMap::new(),
+            counters: None,
             reserve: 0,
+            account_reserve: None,
             strangers: BTreeMap::new(),
             losses: VecDeque::new(),
             decided: VecDeque::new(),
@@ -268,7 +275,10 @@ impl HubScheme {
 
     /// Makes the books hold what the account and the holds toward us from
     /// our peers held as of a block: on the first sync, the owner's
-    /// deposit; after, a difference reconciled through suspense.
+    /// deposit; after, the owner's deposits and withdrawals since the last
+    /// state, by how far the account's counters grew, and the rest
+    /// reconciled through suspense, as the reserve's when the account
+    /// reserve changed.
     fn match_balance(
         &mut self,
         account: &HubAccount,
@@ -283,7 +293,9 @@ impl HubScheme {
             .filter_map(|hold| account.hold(hold).map(|mirror| mirror.amount))
             .fold(0, Amount::saturating_add);
         let target = units(view.balance.saturating_add(toward_us));
-        if !self.synced {
+        if self.synced {
+            self.book_moves(view, effects);
+        } else {
             self.synced = true;
             if target > self.booked {
                 effects.push(Effect::Deposit {
@@ -292,13 +304,45 @@ impl HubScheme {
                 self.booked = target;
             }
         }
+        let (deposited, withdrawn) = self.counters.unwrap_or_default();
+        self.counters = Some((deposited.max(view.deposited), withdrawn.max(view.withdrawn)));
+        let reserve_moved = self
+            .account_reserve
+            .is_some_and(|reserve| reserve != view.reserve);
+        self.account_reserve = Some(view.reserve);
         if target != self.booked {
             effects.push(Effect::Reconcile {
                 amount: target.abs_diff(self.booked),
                 gain: target > self.booked,
-                cause: ReconcileCause::Unexplained,
+                cause: if reserve_moved {
+                    ReconcileCause::Reserve
+                } else {
+                    ReconcileCause::Unexplained
+                },
             });
             self.booked = target;
+        }
+    }
+
+    /// Books the owner's deposits and withdrawals since the last state the
+    /// books were matched to: what the account's counters grew by. A
+    /// deposit is credited by the validators' attestations, which never
+    /// reach the account as an operation, so only the counters tell it
+    /// from a difference nothing explains
+    /// (spec/areas/hubs.md#the-members-side).
+    fn book_moves(&mut self, view: &AccountView, effects: &mut Vec<Effect>) {
+        let Some((deposited, withdrawn)) = self.counters else {
+            return;
+        };
+        let added = units(view.deposited.saturating_sub(deposited));
+        if added > 0 {
+            effects.push(Effect::Deposit { amount: added });
+            self.booked = self.booked.saturating_add(added);
+        }
+        let taken = units(view.withdrawn.saturating_sub(withdrawn));
+        if taken > 0 {
+            effects.push(Effect::Withdrawal { amount: taken });
+            self.booked = self.booked.saturating_sub(taken);
         }
     }
 
@@ -1096,6 +1140,10 @@ impl SettlementScheme for HubScheme {
         );
         if self.synced {
             assert!(self.account.is_some(), "a synced scheme knows its account");
+            assert!(
+                self.counters.is_some(),
+                "a synced scheme counts the owner's moves from its first sync"
+            );
         }
     }
 }
