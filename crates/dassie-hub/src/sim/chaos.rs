@@ -50,6 +50,10 @@ struct Setup {
     /// during the chaos, so that only a repeat can make it final: a knob
     /// too.
     lose_last_finalize: bool,
+    /// How many states after blocks that are not final each validator's
+    /// application keeps, if it is bounded: the engine must verify again
+    /// what it let go of.
+    keep_states: Option<usize>,
 }
 
 /// The block that schedules a change of validators, in seeds that draw one.
@@ -94,6 +98,7 @@ fn setup(seed: u64) -> (SeededRng, Setup) {
         RECONFIGURE_FROM
     };
     let lose_last_finalize = split_at_boundary && rng.below(2) == 0;
+    let keep_states = (rng.below(3) == 0).then(|| 1 + usize::try_from(rng.below(8)).unwrap_or(0));
     let setup = Setup {
         roles,
         collusion,
@@ -102,6 +107,7 @@ fn setup(seed: u64) -> (SeededRng, Setup) {
         from,
         split_at_boundary,
         lose_last_finalize,
+        keep_states,
     };
     (rng, setup)
 }
@@ -148,6 +154,9 @@ fn heal_deadline(count: u64, behind: u64) -> u64 {
 pub fn run(seed: u64) -> Run {
     let (mut rng, setup) = setup(seed);
     let mut network = network(seed, &setup);
+    for sim in &mut network.validators {
+        sim.app.keep_states = setup.keep_states;
+    }
     let mut counts = alloc::collections::BTreeMap::new();
     let mut at = START;
     let mut split = setup.split_at_boundary;

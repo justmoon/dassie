@@ -148,6 +148,12 @@ pub struct SimApp {
     /// The state after each block it found valid or finalized, final or
     /// not: its height, and the change scheduled and not yet made.
     states: BTreeMap<Digest, (u64, Option<(u64, ValidatorSet)>)>,
+    /// If set, how many states after blocks that are not final it keeps,
+    /// letting go of the lowest first, as an application bounded in memory
+    /// would.
+    pub keep_states: Option<usize>,
+    /// The digest of the last finalized block, whose state it always keeps.
+    last_final: Option<Digest>,
 }
 
 /// Where a payload's state root starts, after its marker, height and
@@ -255,19 +261,27 @@ impl Application for SimApp {
     }
 
     fn verify(&mut self, context: &VerifyContext, payload: &[u8]) -> bool {
+        // A block is checked on the state after its parent: without it,
+        // genesis aside, it cannot be.
+        let parent = match self.states.get(&context.parent) {
+            Some((_, pending)) => pending.clone(),
+            None if context.height == 1 => None,
+            None => return false,
+        };
         let valid = self.valid(context, payload);
         if valid {
             let operation = payload.get(OPERATION_AT..).unwrap_or_default();
-            let parent = self.states.get(&context.parent).map_or_else(
-                || self.state_after(context.height.saturating_sub(1)),
-                |(_, pending)| pending.clone(),
-            );
             let pending = decode_change(operation)
                 .or(parent)
                 .filter(|(from, _)| context.height < *from);
             self.states.insert(context.block, (context.height, pending));
+            self.let_go(context.block);
         }
         valid
+    }
+
+    fn holds(&mut self, block: &Digest) -> bool {
+        self.states.contains_key(block)
     }
 
     fn finalized(&mut self, block: &Block, digest: &Digest) {
@@ -302,8 +316,31 @@ impl SimApp {
     /// below the finalized chain.
     pub fn keep_state(&mut self, digest: Digest, height: u64, state: Option<(u64, ValidatorSet)>) {
         self.states.insert(digest, (height, state));
+        self.last_final = Some(digest);
         let floor = height.saturating_sub(256);
         self.states.retain(|_, (at, _)| *at >= floor);
+        self.let_go(digest);
+    }
+
+    /// Lets go of the lowest states after blocks that are not final, past
+    /// `keep_states`, but never of the one just made (`newest`), which the
+    /// next block builds on.
+    fn let_go(&mut self, newest: Digest) {
+        let Some(keep) = self.keep_states else {
+            return;
+        };
+        let last_final = self.last_final;
+        let mut held: Vec<(u64, Digest)> = self
+            .states
+            .iter()
+            .filter(|(digest, _)| Some(**digest) != last_final && **digest != newest)
+            .map(|(digest, (height, _))| (*height, *digest))
+            .collect();
+        held.sort_unstable();
+        let excess = held.len().saturating_sub(keep.saturating_sub(1));
+        for (_, digest) in held.into_iter().take(excess) {
+            self.states.remove(&digest);
+        }
     }
 
     fn valid(&self, context: &VerifyContext, payload: &[u8]) -> bool {
@@ -415,6 +452,9 @@ pub struct Network {
     /// repeat is lost: a knob that makes the last block of an epoch final
     /// only through a repeat, for coverage of the handover.
     pub lose_finalize_at: Option<u64>,
+    /// While set, every vote to finalize is lost: blocks are notarized and
+    /// none is final, a long run of them.
+    pub lose_every_finalize: bool,
     /// The height of every block proposed, and whether it is a repeat, by
     /// digest, for `lose_finalize_at`.
     proposed_blocks: BTreeMap<Digest, (u64, bool)>,
@@ -453,6 +493,7 @@ impl Network {
             state_loads: 0,
             repeat_handovers: 0,
             lose_finalize_at: None,
+            lose_every_finalize: false,
             proposed_blocks: BTreeMap::new(),
             slow: BTreeMap::new(),
             queue: BTreeMap::new(),
@@ -748,7 +789,7 @@ impl Network {
 
     /// Sends what validator `from` said, as its role has it.
     fn carry(&mut self, from: usize, to: &[usize], bytes: Vec<u8>) {
-        if self.lose_finalize_at.is_some() && self.lost(&bytes) {
+        if (self.lose_finalize_at.is_some() || self.lose_every_finalize) && self.lost(&bytes) {
             return;
         }
         match self.validators[from].role {
@@ -829,6 +870,9 @@ impl Network {
                 false
             }
             Ok(Message::Vote(vote)) if vote.kind == VoteKind::Finalize => {
+                if self.lose_every_finalize {
+                    return true;
+                }
                 let at = self.proposed_blocks.get(&vote.block);
                 at.is_some_and(|(height, repeat)| Some(*height) == self.lose_finalize_at && !repeat)
             }

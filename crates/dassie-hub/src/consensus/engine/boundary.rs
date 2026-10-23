@@ -58,7 +58,10 @@ impl Engine {
     }
 
     /// Has the application verify every block from the tip to `content`
-    /// that it has not, in order, so that it holds the state after each.
+    /// whose state it does not hold, in order from the nearest it holds (or
+    /// the tip, whose state it always holds), so that it holds the state
+    /// after `content`. A block whose state the application let go of
+    /// counts as not verified: it is verified again, from the blocks held.
     fn execute(
         &mut self,
         app: &mut dyn Application,
@@ -69,8 +72,14 @@ impl Engine {
         let mut at = content;
         let mut asked = view;
         for _ in 0..=MAX_BLOCKS {
-            if at == self.tip_digest || self.executed.contains(&at) {
+            if at == self.tip_digest {
                 break;
+            }
+            if self.executed.contains(&at) {
+                if app.holds(&at) {
+                    break;
+                }
+                self.executed.remove(&at);
             }
             let Some(block) = self.blocks.get(&at) else {
                 return Some(OnChain::Missing(asked));

@@ -857,6 +857,199 @@ fn catch_up_crosses_a_handover_that_ended_with_repeats() {
 }
 
 #[test]
+fn a_long_stall_lets_go_of_what_the_application_verified() {
+    // Block 1 is verified and notarized, never final; then view after view
+    // is nullified, until the rounds held pass their bound and the lowest,
+    // with block 1, are let go. What the application verified goes with
+    // them (the invariants check it after every step).
+    let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
+    let mut app = SimApp::default();
+    let mut engine = Engine::new(CONFIG, hub(), key(0), stored, START);
+    let b1 = block_of(&proposal_on(1, &genesis(), START));
+    hand(&mut engine, &mut app, START + 1, 1, &proposed(&b1, 1));
+    certify(&mut engine, &mut app, &b1, false);
+    let views = dassie_hub::consensus::MAX_ROUNDS as u64 + 10;
+    for view in 2..views {
+        let nullification = certificate_of(VoteKind::Nullify, view, Digest::default());
+        let message = Message::decode_message(&nullification).unwrap();
+        hand(&mut engine, &mut app, START + view, 3, &message);
+    }
+    assert!(engine.view() >= views);
+    assert_eq!(engine.tip().block.height, 0);
+}
+
+/// An application that breaks its contract: its chain schedules a change,
+/// which `scheduled_change` names, but `reconfiguration` never reports it.
+struct Misreporting(SimApp);
+
+impl dassie_hub::consensus::Application for Misreporting {
+    fn propose(
+        &mut self,
+        context: &dassie_hub::consensus::ProposeContext<'_>,
+        payload: &mut Vec<u8>,
+    ) -> Result<(), dassie_hub::consensus::Declined> {
+        self.0.propose(context, payload)
+    }
+
+    fn verify(&mut self, context: &dassie_hub::consensus::VerifyContext, payload: &[u8]) -> bool {
+        self.0.verify(context, payload)
+    }
+
+    fn finalized(&mut self, block: &dassie_hub::consensus::Block, digest: &Digest) {
+        self.0.finalized(block, digest);
+        let _ = self.0.reconfiguration();
+    }
+
+    fn scheduled_change(&mut self, after: &Digest) -> Option<(u64, dassie_hub::ValidatorSet)> {
+        self.0.scheduled_change(after)
+    }
+}
+
+#[test]
+fn a_broken_application_or_quorum_stalls_the_engine_without_a_panic() {
+    // Blocks 1 and 2 are final, but the application never reported the
+    // change block 1 scheduled, so the epoch goes on past its last block;
+    // the chain says block 2 ends it, and view 3 repeats it. The repeat's
+    // finalization finalizes nothing new: the engine stalls, as it must
+    // with an application that breaks its word, and does not panic.
+    let (mut engine, app, schedule) = scheduled_at_one();
+    let mut app = Misreporting(app);
+    let b1 = scheduled_block(1, &genesis(), &schedule);
+    let b2 = scheduled_block(2, &b1, &schedule);
+    for (block, leader) in [(&b1, 1u64), (&b2, 2)] {
+        let message = proposed(block, usize::try_from(leader).unwrap());
+        engine.handle_message(
+            START + block.view * 100 + 1,
+            &mut app,
+            PeerId(leader),
+            &message.to_vec(),
+        );
+        for kind in [VoteKind::Notarize, VoteKind::Finalize] {
+            let certificate = certificate_of(kind, block.view, block.digest(&hub()));
+            engine.handle_message(
+                START + block.view * 100 + 5,
+                &mut app,
+                PeerId(3),
+                &certificate,
+            );
+            engine.check_invariants();
+        }
+    }
+    assert_eq!((engine.tip().block.height, engine.epoch()), (2, 0));
+    let repeat = repeat_of(3, &b2);
+    engine.handle_message(
+        START + 301,
+        &mut app,
+        PeerId(3),
+        &proposed(&repeat, 3).to_vec(),
+    );
+    for kind in [VoteKind::Notarize, VoteKind::Finalize] {
+        let certificate = certificate_of(kind, 3, repeat.digest(&hub()));
+        engine.handle_message(START + 305, &mut app, PeerId(3), &certificate);
+        engine.check_invariants();
+    }
+    engine.handle_timeout(START + 2_000, &mut app);
+    engine.check_invariants();
+    assert_eq!((engine.tip().block.height, engine.epoch()), (2, 0));
+    // A quorum that breaks the rules too finalizes a block on block 2 that
+    // skips a height: there is nothing it can finalize, and the engine
+    // stalls on it as well.
+    let mut skipping = scheduled_block(5, &b2, &schedule);
+    skipping.height = 4;
+    for kind in [VoteKind::Notarize, VoteKind::Finalize] {
+        let certificate = certificate_of(kind, 5, skipping.digest(&hub()));
+        let mut message = Message::decode_message(&certificate).unwrap();
+        if let Message::Certificate(certificate) = message {
+            message = Message::Delivery(dassie_hub::consensus::wire::Delivery {
+                finalized: Vec::new(),
+                finalization: None,
+                certified: vec![dassie_hub::consensus::wire::Certified {
+                    certificate,
+                    block: Some(skipping.clone()),
+                }],
+            });
+        }
+        engine.handle_message(START + 2_100, &mut app, PeerId(3), &message.to_vec());
+        engine.check_invariants();
+    }
+    engine.handle_timeout(START + 3_000, &mut app);
+    engine.check_invariants();
+    assert_eq!(engine.tip().block.height, 2);
+}
+
+#[test]
+fn a_block_whose_state_was_let_go_of_is_verified_again() {
+    // Block 1 is notarized, its finalize votes split. Views 2 to 4 each
+    // bring a block on it that we verify and that is then nullified; the
+    // application keeps two states, so it lets go of block 1's. View 5's
+    // block on block 1 is still verified, on block 1 verified again, and
+    // its finalization finalizes block 1 too.
+    let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
+    let mut app = SimApp::default();
+    app.keep_states = Some(2);
+    let mut engine = Engine::new(CONFIG, hub(), key(0), stored, START);
+    let b1 = block_of(&proposal_on(1, &genesis(), START));
+    hand(&mut engine, &mut app, START + 1, 1, &proposed(&b1, 1));
+    certify(&mut engine, &mut app, &b1, false);
+    for view in 2..5 {
+        let mut other = block_of(&proposal_on(view, &b1, START + view * 100));
+        other.parent_view = 1;
+        let leader = usize::try_from(view % 4).unwrap();
+        hand(
+            &mut engine,
+            &mut app,
+            START + view * 100 + 1,
+            2,
+            &proposed(&other, leader),
+        );
+        let nullification = certificate_of(VoteKind::Nullify, view, Digest::default());
+        let message = Message::decode_message(&nullification).unwrap();
+        hand(&mut engine, &mut app, START + view * 100 + 5, 3, &message);
+    }
+    let _ = notarized(&mut engine);
+    let mut b5 = block_of(&proposal_on(5, &b1, START + 500));
+    b5.parent_view = 1;
+    hand(&mut engine, &mut app, START + 501, 1, &proposed(&b5, 1));
+    assert_eq!(notarized(&mut engine), vec![b5.digest(&hub())]);
+    certify(&mut engine, &mut app, &b5, true);
+    assert_eq!(engine.tip().block, b5);
+    assert_eq!(
+        app.finalized.keys().copied().collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+}
+
+#[test]
+fn applications_that_keep_few_states_finalize_after_a_long_run_unfinalized() {
+    let mut network = honest(7);
+    for sim in &mut network.validators {
+        sim.app.keep_states = Some(2);
+    }
+    run_for(&mut network, 1_000);
+    let before = network.honest_floor();
+    // Every finalize vote is lost, on a rough network that parts now and
+    // then: blocks are notarized, views nullified, none is final.
+    network.lose_every_finalize = true;
+    network.faults = Faults::ROUGH;
+    for round in 0..6 {
+        network.partition(&[round % 7, (round + 3) % 7]);
+        run_for(&mut network, 400);
+        network.heal();
+        run_for(&mut network, 400);
+    }
+    assert!(network.honest_floor() <= before + 1);
+    network.lose_every_finalize = false;
+    network.faults = Faults::CALM;
+    run_for(&mut network, 5_000);
+    assert_safe(&network);
+    assert!(
+        network.honest_floor() > before + 20,
+        "{}",
+        network.honest_floor()
+    );
+}
+
+#[test]
 fn a_repeat_is_valid_only_of_an_epochs_last_block() {
     let (mut engine, mut app, b2, _) = split_at_the_boundary();
     // With a payload, or below the epoch's last height, it is no repeat:
