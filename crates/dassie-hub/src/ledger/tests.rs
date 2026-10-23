@@ -1376,7 +1376,7 @@ mod properties {
             }
             prop_assert_eq!(first.hub.ledger.state_root(), second.hub.ledger.state_root());
             prop_assert_eq!(first.hub.ledger.liabilities(), first.hub.ledger.supply());
-            let restored = Ledger::restore(&first.hub.ledger.snapshot()).unwrap();
+            let restored = Ledger::restore(&first.hub.ledger.snapshot(), &first.hub.ledger.state_root()).unwrap();
             prop_assert_eq!(&restored, &first.hub.ledger);
         }
     }

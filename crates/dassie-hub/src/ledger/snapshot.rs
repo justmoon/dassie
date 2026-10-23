@@ -4,9 +4,9 @@
 //! (spec/designs/settlement-hubs.md#9-shutdown, "The state").
 //!
 //! Decoding never panics and allocates only as it reads, whatever the
-//! input. A state taken from someone else is trusted only once its root is
-//! the one a certified block carries; only then are its invariants
-//! asserted.
+//! input. Restoring takes the state root the snapshot must have, the one a
+//! certified block carries, so no state is relied on before its root is
+//! checked; only then are its invariants asserted.
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -19,6 +19,7 @@ use super::state::{
     Withdrawal,
 };
 use crate::codec::{HubDecodeError, read_digest, read_key};
+use crate::digest::Digest;
 use crate::operation::{AccountNumber, Deposit, Destination};
 use crate::promise::HoldNumber;
 use crate::rules::{HubId, Rules};
@@ -158,10 +159,25 @@ impl Ledger {
         out.u16(self.shutdown_votes.bits());
     }
 
-    /// The ledger a snapshot holds. Its own snapshots a validator restores
-    /// as they are; one taken from anyone else must first have the state
-    /// root a certified block carries, before anything relies on it.
-    pub fn restore(bytes: &[u8]) -> Result<Self, HubDecodeError> {
+    /// The ledger a snapshot holds, if its state root is `root`: the root a
+    /// certified block carries, or the one a validator recorded with its
+    /// own snapshot. A snapshot has one encoding per state, every table in
+    /// strictly ascending order, and the index of keys is rebuilt from the
+    /// accounts, so a state whose root matches is the state that root
+    /// names.
+    ///
+    /// # Errors
+    ///
+    /// The bytes are not one canonical snapshot, or its root is not `root`.
+    pub fn restore(bytes: &[u8], root: &Digest) -> Result<Self, HubDecodeError> {
+        let ledger = Self::decode_snapshot(bytes)?;
+        if ledger.state_root() != *root {
+            return Err(HubDecodeError::Invalid("state root"));
+        }
+        Ok(ledger)
+    }
+
+    fn decode_snapshot(bytes: &[u8]) -> Result<Self, HubDecodeError> {
         let mut reader = Reader::new(bytes);
         let rules = Rules::decode(&mut reader)?;
         let validators = rules
@@ -226,34 +242,45 @@ impl Ledger {
         }
         for _ in 0..reader.read_u32()? {
             let number = AccountNumber(reader.read_u32()?);
-            let account = read_account(reader)?;
-            if self.keys.insert(*account.key.as_bytes(), number).is_some() {
+            insert_ascending(&mut self.accounts, number, read_account(reader)?)?;
+        }
+        // The index of keys is derived: it is not in the state root, so it
+        // is rebuilt, never read.
+        for (number, account) in &self.accounts {
+            if self.keys.insert(*account.key.as_bytes(), *number).is_some() {
                 return Err(HubDecodeError::Invalid("a key with two accounts"));
             }
-            self.accounts.insert(number, account);
         }
         for _ in 0..reader.read_u32()? {
             let number = HoldNumber(reader.read_u64()?);
-            self.holds.insert(number, read_hold(reader)?);
+            insert_ascending(&mut self.holds, number, read_hold(reader)?)?;
         }
         for _ in 0..reader.read_u32()? {
             let sequence = reader.read_u32()?;
-            self.withdrawals.insert(sequence, read_withdrawal(reader)?);
+            insert_ascending(&mut self.withdrawals, sequence, read_withdrawal(reader)?)?;
         }
         for _ in 0..reader.read_u32()? {
             let hash = read_digest(reader)?;
-            self.pending_deposits.insert(hash, read_pending(reader)?);
+            insert_ascending(&mut self.pending_deposits, hash, read_pending(reader)?)?;
         }
         for _ in 0..reader.read_u32()? {
             let hash = read_digest(reader)?;
-            self.recent_deposits.insert(hash, reader.read_u32()?);
+            insert_ascending(&mut self.recent_deposits, hash, reader.read_u32()?)?;
         }
         for _ in 0..reader.read_u32()? {
-            self.pools.push(FeePool {
+            let pool = FeePool {
                 height: reader.read_u64()?,
                 amount: reader.read_u64()?,
                 voters: Signers::from_bits(reader.read_u16()?),
-            });
+            };
+            if self
+                .pools
+                .last()
+                .is_some_and(|last| last.height >= pool.height)
+            {
+                return Err(HubDecodeError::Invalid("fee pools out of order"));
+            }
+            self.pools.push(pool);
         }
         Ok(())
     }
@@ -281,6 +308,20 @@ impl Ledger {
         self.shutdown_votes = Signers::from_bits(reader.read_u16()?);
         Ok(())
     }
+}
+
+/// Inserts an entry of a table whose keys a snapshot writes in strictly
+/// ascending order: one out of order, or twice, is not a snapshot.
+fn insert_ascending<K: Ord, V>(
+    map: &mut BTreeMap<K, V>,
+    key: K,
+    value: V,
+) -> Result<(), HubDecodeError> {
+    if map.last_key_value().is_some_and(|(last, _)| *last >= key) {
+        return Err(HubDecodeError::Invalid("table out of order"));
+    }
+    map.insert(key, value);
+    Ok(())
 }
 
 fn read_votes(reader: &mut Reader<'_>) -> Result<Vec<(u32, Signers)>, HubDecodeError> {
@@ -361,7 +402,7 @@ fn read_hold(reader: &mut Reader<'_>) -> Result<Hold, HubDecodeError> {
     let through = reader.read_u64()?;
     let mut claimed = BTreeMap::new();
     for _ in 0..reader.read_u32()? {
-        claimed.insert(reader.read_u64()?, reader.read_u64()?);
+        insert_ascending(&mut claimed, reader.read_u64()?, reader.read_u64()?)?;
     }
     Ok(Hold {
         payer,
@@ -417,15 +458,49 @@ mod tests {
     fn a_ledger_restores_from_its_snapshot() {
         let (rules, _) = crate::rules::tests::rules(4);
         let ledger = Ledger::genesis(rules, 1_000).unwrap();
-        let restored = Ledger::restore(&ledger.snapshot()).unwrap();
+        let restored = Ledger::restore(&ledger.snapshot(), &ledger.state_root()).unwrap();
         assert_eq!(restored, ledger);
-        assert_eq!(restored.state_root(), ledger.state_root());
+        assert!(Ledger::restore(&ledger.snapshot(), &Digest([1; 32])).is_err());
+    }
+
+    fn entry(number: AccountNumber, account: &Account) -> Vec<u8> {
+        [number.0.to_be_bytes().as_slice(), &account.to_vec()].concat()
+    }
+
+    fn find(haystack: &[u8], needle: &[u8]) -> usize {
+        haystack
+            .windows(needle.len())
+            .position(|window| window == needle)
+            .unwrap()
+    }
+
+    #[test]
+    fn a_snapshot_with_an_account_twice_is_refused() {
+        let mut hub = crate::ledger::tests::Hub::new();
+        hub.join(1, 10_000_000);
+        let ledger = hub.ledger.clone();
+        let snapshot = ledger.snapshot();
+        let (first, first_account) = ledger.accounts().next().unwrap();
+        let (last, account) = ledger.accounts().last().unwrap();
+        // The last account once more before itself, under another key: the
+        // second entry wins the table, so the root stays the same, but the
+        // index of keys would name the account twice.
+        let mut forged = account.clone();
+        forged.key = dassie_identity::NodeKey::from_bytes(&[77; 32]).public_key();
+        let mut bytes = snapshot.clone();
+        let at = find(&snapshot, &entry(last, account));
+        bytes.splice(at..at, entry(last, &forged));
+        let count_at = find(&snapshot, &entry(first, first_account)) - 4;
+        let count = u32::from_be_bytes(bytes[count_at..count_at + 4].try_into().unwrap());
+        bytes[count_at..count_at + 4].copy_from_slice(&(count + 1).to_be_bytes());
+        assert!(Ledger::restore(&bytes, &ledger.state_root()).is_err());
+        assert!(Ledger::restore(&snapshot, &ledger.state_root()).is_ok());
     }
 
     proptest! {
         #[test]
         fn restoring_garbage_never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..2048)) {
-            let _ = Ledger::restore(&bytes);
+            let _ = Ledger::restore(&bytes, &Digest::default());
         }
     }
 }
