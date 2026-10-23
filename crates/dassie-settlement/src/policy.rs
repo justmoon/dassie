@@ -76,6 +76,33 @@ pub const fn least_credit(max_packet: u64, drift: u64) -> u64 {
         .saturating_add(drift)
 }
 
+/// The least a node keeps spendable in its settlement hub: for each of its
+/// peerings over the hub, and for one while it has none, what a payee's
+/// room may need at once, which is its trigger with a full window of
+/// packets in flight on top, so that a settlement asked of us never waits
+/// for a deposit. At most half the [`hub_ceiling`], which bounds how many
+/// peerings it funds fully, so that the floor and the ceiling stay far
+/// enough apart that each move between the hub and the node's own account
+/// carries many packets' worth (spec/designs/settlement-hubs.md#11-choosing-a-hub).
+#[must_use]
+pub const fn hub_floor(max_packet: u64, max_in_flight: u64, peerings: u64) -> u64 {
+    let each = trigger(max_packet).saturating_add(max_in_flight);
+    let peerings = if peerings == 0 { 1 } else { peerings };
+    let floor = each.saturating_mul(peerings);
+    let most = hub_ceiling(max_packet) / 2;
+    if floor < most { floor } else { most }
+}
+
+/// The most a node keeps in its settlement hub, holds toward it included:
+/// as much as the most credit any peer can earn, a hundred of the largest
+/// packets. A hub that fails costs the node no more than a peer that
+/// earned all the credit it can and walked away
+/// (spec/designs/settlement-hubs.md#11-choosing-a-hub).
+#[must_use]
+pub const fn hub_ceiling(max_packet: u64) -> u64 {
+    credit_cap(max_packet)
+}
+
 /// The share of the fees a peer earned us by which the credit we extend
 /// to it grows, in millionths: 10%. A packet comes in through one peer and
 /// leaves through another, so its fee counts toward both; at most 50%, so
@@ -206,6 +233,20 @@ mod tests {
         let least = u128::from(T) + 2 * u128::from(M);
         assert_eq!(requested_amount(least - 1, T, M), 0);
         assert_eq!(requested_amount(least, T, M), M);
+    }
+
+    // spec/designs/settlement-hubs.md#11-choosing-a-hub: a hub's floor is
+    // four packets per peering over it (the trigger and two and a half in
+    // flight), one peering's worth with none, and at most half the ceiling
+    // of a hundred packets: twelve peerings are funded fully.
+    #[test]
+    fn the_hub_keeps_between_its_floor_and_its_ceiling() {
+        let in_flight = 250_000_000;
+        assert_eq!(hub_floor(P, in_flight, 0), 4 * P);
+        assert_eq!(hub_floor(P, in_flight, 1), 4 * P);
+        assert_eq!(hub_floor(P, in_flight, 12), 48 * P);
+        assert_eq!(hub_floor(P, in_flight, 13), 50 * P);
+        assert_eq!(hub_ceiling(P), 100 * P);
     }
 
     #[test]

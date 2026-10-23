@@ -29,6 +29,7 @@ mod state;
 
 pub use account::{FIRST, HubAccount, News, Purpose};
 pub use mirror::HoldMirror;
+pub use peering::peer_account;
 pub use scheme::{HubScheme, SCHEME_ID};
 
 /// The default hub of the XRP Ledger testnet, as the hex of its rules'

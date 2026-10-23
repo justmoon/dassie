@@ -654,6 +654,18 @@ impl HubAccount {
         }
     }
 
+    /// How many validators the hub has, and how many of them answered, from
+    /// their own endpoints, up to the block the account has read to.
+    #[must_use]
+    pub fn answering(&self) -> (usize, usize) {
+        let up_to_date = self
+            .covered
+            .iter()
+            .filter(|height| **height > 0 && **height >= self.cursor)
+            .count();
+        (self.set.len(), up_to_date)
+    }
+
     /// Whether it is reading its state anew.
     #[must_use]
     pub const fn is_resyncing(&self) -> bool {

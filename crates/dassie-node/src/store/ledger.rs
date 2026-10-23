@@ -56,6 +56,9 @@ pub struct LedgerBatch {
     pub outgoing: super::OutgoingBatch,
     /// The owner's peer settings, if they changed.
     pub peer_settings: Option<super::PeerSettings>,
+    /// Whether the node moves funds between its XRPL account and its hub
+    /// by itself, if the owner changed it.
+    pub hub_automatic: Option<bool>,
 }
 
 impl LedgerBatch {
@@ -77,6 +80,7 @@ impl LedgerBatch {
             && self.incoming_connections_gone.is_empty()
             && self.outgoing.is_empty()
             && self.peer_settings.is_none()
+            && self.hub_automatic.is_none()
     }
 
     /// Whether it changes Open Payments resources.
@@ -335,6 +339,7 @@ impl Store {
         )?;
         super::outgoing::write_outgoing(&transaction, &batch.outgoing)?;
         super::peer_settings::write_peer_settings(&transaction, batch.peer_settings)?;
+        super::peer_settings::write_hub_automatic(&transaction, batch.hub_automatic)?;
         #[cfg(feature = "testing")]
         self.fail_if_aimed(&transaction, batch);
         transaction.commit()?;

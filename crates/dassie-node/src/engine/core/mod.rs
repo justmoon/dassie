@@ -14,6 +14,7 @@
 
 mod events;
 mod growth;
+mod hub_funding;
 mod hubs;
 mod incoming;
 mod invariants;
@@ -46,6 +47,7 @@ use dassie_stream::BUFFER_LENGTH;
 pub use events::{
     BtpEvent, EngineEvent, Event, MAX_EVENTS, PaymentEvent, PeerEvent, SettlementEvent, Severity,
 };
+pub use hub_funding::{Direction, HubHold, HubStatus, Move};
 #[cfg(feature = "testing")]
 pub use hubs::HubPeer;
 pub use incoming::{IncomingPolicy, NewIncoming};
@@ -340,6 +342,8 @@ pub struct Core {
     sweeps: Sweeps,
     /// What the core reports, until it is handed over.
     events: Events,
+    /// Moving the owner's funds between the XRPL account and the hub.
+    funding: hub_funding::Funding,
 }
 
 /// The exchange rates, and the price table the connector charges transit and
@@ -476,6 +480,7 @@ impl Core {
             peer_settings: PeerSettings::DEFAULT,
             sweeps: Sweeps::DUE,
             events: Events::new(),
+            funding: hub_funding::Funding::new(now_ms, policies.settlement_interval_ms),
         };
         core.restore()?;
         Ok(core)
@@ -489,6 +494,7 @@ impl Core {
             self.prices.rates.set_at(code, rate, as_of_ms);
         }
         self.peer_settings = store.peer_settings().map_err(text)?;
+        self.funding.automatic = store.hub_automatic().map_err(text)?;
         self.load_tokens(&store).map_err(text)?;
         self.load_schemes(&store)?;
         self.load_incoming()?;
@@ -579,6 +585,7 @@ impl Core {
             self.outgoing_deadline(),
             self.probe_deadline(),
             self.schemes_deadline(),
+            self.funding_deadline(),
             self.work_left(),
         ]
         .into_iter()
@@ -607,6 +614,7 @@ impl Core {
         self.peer_timers();
         self.scheme_timers();
         self.settlement_timers();
+        self.fund_hub();
         self.expire(self.now_ms);
         self.hub_waits(self.now_ms);
         self.drain_local(self.now_ms);
@@ -671,7 +679,8 @@ impl Core {
             && batch.asset_checkpoints.is_empty()
             && batch.tokens_created.is_empty()
             && batch.tokens_revoked.is_empty()
-            && batch.token_caps.is_empty());
+            && batch.token_caps.is_empty()
+            && batch.hub_automatic.is_none());
         self.changes.network |= !batch.peer.is_empty();
         self.changes.payments |= batch.changes_payments();
         self.batch.at_ms = self.now_ms;

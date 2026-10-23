@@ -54,6 +54,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_30,
     MIGRATION_31,
     MIGRATION_32,
+    MIGRATION_33,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -1031,6 +1032,17 @@ CREATE TABLE hub_bundles (
 ) STRICT, WITHOUT ROWID;
 ";
 
+/// Settlement hubs (spec/areas/hubs.md#in-the-node): whether the node moves
+/// funds between its XRPL account and its hub by itself, which the owner
+/// may turn off.
+const MIGRATION_33: &str = "
+CREATE TABLE hub_funding (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  automatic INTEGER NOT NULL CHECK (automatic IN (0, 1))
+) STRICT;
+INSERT INTO hub_funding VALUES (1, 1);
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1445,6 +1457,14 @@ pub const TABLES: &[Table] = &[
             ("incoming_payment", "BLOB", true, true),
             ("connection", "BLOB", true, true),
             ("received", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "hub_funding",
+        without_rowid: false,
+        columns: &[
+            ("id", "INTEGER", false, true),
+            ("automatic", "INTEGER", true, false),
         ],
     },
     Table {
