@@ -41,6 +41,10 @@ pub struct Stream {
     // Money in, in our units.
     pub(crate) receive_max: u64,
     pub(crate) received: u64,
+    /// The most this stream was told it may receive under the
+    /// connection's money limit: what it is told never falls
+    /// (spec/decisions/close-rather-than-lower.md). Nothing until told.
+    pub(crate) money_told: u64,
 
     // Data.
     pub(crate) send: SendBuffer,
@@ -76,6 +80,7 @@ impl Stream {
             expected_delivery: 0,
             receive_max: 0,
             received: 0,
+            money_told: 0,
             send: SendBuffer::new(send_buffer),
             receive: ReceiveBuffer::new(receive_window),
             remote_max_data: DEFAULT_REMOTE_STREAM_WINDOW,

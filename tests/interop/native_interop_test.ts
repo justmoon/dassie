@@ -253,3 +253,70 @@ test(
     await peer.stop();
   },
 );
+
+// Two payments into one total, as into one incoming payment: what a
+// connection was told it may receive never falls (RFC 29 §4.4.4), and
+// ilp-protocol-stream only ever raises it. One whose packet no longer fits
+// what is left is closed at once, not refused until it gives up
+// (spec/decisions/close-rather-than-lower.md).
+test(
+  "a native dassie payee closes an ilp-protocol-stream payer another payment left too little",
+  async () => {
+    const binary = await buildPeer();
+    const network = new Network();
+    const peer = new Peer(binary, ["payee", "test.native", "100"]);
+    network.register("test.native", (prepare) => peer.prepare(prepare));
+    peer.onSend = (requestId, prepare) => {
+      network.route(prepare).then((response) =>
+        peer.reply(requestId, response)
+      );
+    };
+    // Every step must end within seconds; one that does not fails with
+    // what the peer logged.
+    const within = <T>(promise: Promise<T>, what: string): Promise<T> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${what}:\n${peer.lines.join("\n")}`)),
+          5_000,
+        );
+      });
+      return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+    };
+    const connect = async (tag: string) => {
+      const line = await peer.waitForLine((line) =>
+        line.startsWith(`credentials ${tag} `)
+      );
+      const [, , destination, secret] = line.split(" ");
+      return await createConnection({
+        plugin: createPlugin(network, `test.upstream-${tag}`),
+        destinationAccount: destination,
+        sharedSecret: Buffer.from(Uint8Array.fromHex(secret)),
+      });
+    };
+    const a = await within(connect("a"), "a connects");
+    const b = await within(connect("b"), "b connects");
+    const aStream = a.createStream();
+    await within(aStream.sendTotal(60), "a pays 60");
+    const bStream = b.createStream();
+    await within(bStream.sendTotal(30), "b pays 30");
+    await peer.waitForLine((line) => line === "paid 90");
+
+    // A was told 100, and offers the 40 it still sees room for. The payee
+    // closes it at once with `NoError`, rather than refusing it until it
+    // gives up. ilp-protocol-stream ends a connection closed with `NoError`
+    // gracefully, still offering what it has left, each offer answered by
+    // the close, until its own timeout: here a short one.
+    const sending = aStream.sendTotal(100, { timeout: 2_000 }).then(
+      () => "sent",
+      () => "ended",
+    );
+    await peer.waitForLine((line) => line === "closed a 1 false", 1_000);
+    assertEquals(await within(sending, "a ends"), "ended");
+    assertEquals(aStream.totalSent, "60");
+    assert(!peer.lines.includes("paid 130"), peer.lines.join("\n"));
+
+    await b.end();
+    await peer.stop();
+  },
+);

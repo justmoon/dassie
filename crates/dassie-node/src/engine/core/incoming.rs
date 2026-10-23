@@ -9,13 +9,16 @@
 //! what others did. When a packet arrives, its receiver asks [`admission`]
 //! whether the payment is open on that ledger, how much it may still take
 //! over all its connections, and what this one received, and the
-//! connection takes no more. One that pays a payment with nothing left is
-//! closed, with `NoError` if the payment received all it asked for, and
-//! `ApplicationError` if it was completed or closed short of that, so that
-//! its sender can tell the two apart. What it took is added to the payment
-//! and the connection in the step that books the packet, and written with
-//! its journal row, so the payment never shows money the books lack, nor
-//! the other way round.
+//! connection takes no more. What a connection is told it may receive
+//! never falls, however much another connection pays, so one whose packet
+//! no longer fits what is left is closed with `NoError`
+//! (spec/decisions/close-rather-than-lower.md). One that pays a payment
+//! with nothing left is closed, with `NoError` if the payment received all
+//! it asked for, and `ApplicationError` if it was completed or closed
+//! short of that, so that its sender can tell the two apart. What it took
+//! is added to the payment and the connection in the step that books the
+//! packet, and written with its journal row, so the payment never shows
+//! money the books lack, nor the other way round.
 //!
 //! The owner's payments and clients' are bounded apart, so that clients,
 //! whom anyone can be, never crowd out the owner's own requests. When the

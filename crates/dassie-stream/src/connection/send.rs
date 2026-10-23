@@ -321,18 +321,13 @@ impl Connection {
     ) {
         // Under a connection limit, a stream reports the application's
         // count, which survives reconnections and leaves out what the
-        // application does not count yet, and no more room than what is
-        // left of the limit: none once that is within the tolerance.
+        // application does not count yet, and as its maximum that count
+        // plus what is left of the limit, or the most it was told before:
+        // a maximum never falls (spec/decisions/close-rather-than-lower.md).
         let (receive_max, total_received) = if self.money_limit == u64::MAX {
             (stream.receive_max, stream.received)
         } else {
-            let received = self.money_received;
-            (
-                stream
-                    .receive_max
-                    .min(received.saturating_add(self.money_room())),
-                received,
-            )
+            (self.money_told_total(stream), self.money_received)
         };
         visit(Frame::StreamMaxMoney {
             stream_id: stream.id,
@@ -424,6 +419,7 @@ impl Connection {
             }
         }
         if slot.kind == PacketKind::Normal {
+            self.note_money_told();
             self.stream_id_blocked = None;
             slot.window_update = self
                 .window_update_pending

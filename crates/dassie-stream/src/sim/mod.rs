@@ -108,6 +108,9 @@ pub struct Simulation {
     /// The error the server's application refuses packets with, if any.
     pub refusal: Option<IlpErrorCode>,
     server_config: (u64, [u8; 32], Policy),
+    /// Whether the server restarted: a receiver that forgot a connection
+    /// may tell it a lower maximum, and only then.
+    server_restarted: bool,
     /// The tags the server's application was asked about.
     pub admitted_tags: Vec<Vec<u8>>,
     /// Data each side read, per stream.
@@ -176,6 +179,7 @@ impl Simulation {
             money_received: 0,
             refusal: None,
             server_config: (seed, secret, policy),
+            server_restarted: false,
             admitted_tags: Vec::new(),
             received_data: BTreeMap::new(),
             trace: String::new(),
@@ -341,6 +345,7 @@ impl Simulation {
             policy,
             max_connections: 4,
         });
+        self.server_restarted = true;
         let _ = writeln!(self.trace, "{} server restarts", self.now.unix_ms);
     }
 
@@ -452,6 +457,17 @@ impl Simulation {
     pub fn check_invariants(&self) {
         self.client.check_invariants();
         self.server.check_invariants();
+        // A receiver never lowers a maximum it told, unless it forgot the
+        // connection (spec/decisions/close-rather-than-lower.md).
+        if !self.server_restarted {
+            for stream in self.client.streams() {
+                assert!(
+                    !stream.remote_max_fell,
+                    "stream {} heard a lower maximum\n{}",
+                    stream.id, self.trace
+                );
+            }
+        }
     }
 
     /// Runs one step: send, then advance to the next delivery or deadline.
