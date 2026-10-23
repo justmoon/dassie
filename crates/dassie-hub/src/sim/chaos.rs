@@ -19,8 +19,8 @@ use alloc::vec::Vec;
 use dassie_node_core::testing::{Outcome, Run, SeededRng};
 
 use super::{Faults, Network, Role, START, Schedule, key, roles, set};
-use crate::consensus::Config;
 use crate::consensus::wire::MAX_DELIVERED_BLOCKS;
+use crate::consensus::{Config, MAX_VIEW_TIMEOUT_MS};
 use crate::validators::ValidatorSet;
 
 /// The production settings: nothing is scaled down.
@@ -163,14 +163,15 @@ pub fn describe(seed: u64) -> String {
 /// production rules: a view stuck in the chaos rebroadcasts its nullify
 /// within `max_retry_ms`, or, after a long run of views that failed, times
 /// out `backoff` times later than usual, and each view that fails after it
-/// waits twice as long, for at most a rotation of `count` leaders; a
-/// validator `behind` blocks catches up a delivery of blocks per view, at
-/// worst an advance timeout each; then each of [`LIVE_BLOCKS`] blocks takes
-/// at most a rotation of leaders, each faulty one's view lost to its
-/// timeout.
+/// waits twice as long, for at most a rotation of `count` leaders, none
+/// longer than the longest view; a validator `behind` blocks catches up a
+/// delivery of blocks per view, at worst an advance timeout each; then each
+/// of [`LIVE_BLOCKS`] blocks takes at most a rotation of leaders, each
+/// faulty one's view lost to its timeout.
 fn heal_deadline(count: u64, behind: u64, backoff: u64) -> u64 {
     let stuck = if backoff > 1 {
-        backoff.saturating_mul(1 << (count + 1)) * CONFIG.advance_timeout_ms
+        let doubling = backoff.saturating_mul(1 << (count + 1)) * CONFIG.advance_timeout_ms;
+        doubling.min((count + 1) * MAX_VIEW_TIMEOUT_MS)
     } else {
         0
     };

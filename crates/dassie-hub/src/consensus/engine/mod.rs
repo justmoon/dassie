@@ -38,7 +38,7 @@ use round::Round;
 /// later view until one is notarized. Views that fail in a row wait longer
 /// and longer (`Config::backoff_after_views`), so a run of them never
 /// reaches it.
-pub const MAX_ROUNDS: usize = 256;
+pub const MAX_ROUNDS: usize = 512;
 
 /// How far beyond our view votes and proposals are taken. Certificates are
 /// taken from any view: they prove themselves.
@@ -266,7 +266,9 @@ impl Engine {
 
     /// How many times longer than usual the view we are in waits for its
     /// leader: 1, until more views in a row than
-    /// [`Config::backoff_after_views`] failed to notarize.
+    /// [`Config::backoff_after_views`] failed to notarize. No view waits
+    /// longer than [`super::config::MAX_VIEW_TIMEOUT_MS`], whatever this
+    /// says.
     #[must_use]
     pub fn backoff(&self) -> u64 {
         self.backoff_at(self.view)

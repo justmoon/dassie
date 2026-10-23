@@ -1120,6 +1120,48 @@ fn a_validator_down_through_a_long_outage_catches_up_by_blocks() {
 }
 
 #[test]
+fn finality_returns_within_the_longest_view_before_the_hub_stalls() {
+    // Every proposal is lost for almost as long as the stall in the test
+    // terms: a quorum nullifies view after view, each waiting longer, up to
+    // the longest view. Uncapped, the view in progress at the heal would
+    // wait about as long again, and the hub would stall. Capped, blocks are
+    // final again within about the longest view, and no validator goes as
+    // long as the stall without a final block.
+    const STALL_MS: u64 = 3_600_000;
+    let mut network = honest(4);
+    run_for(&mut network, 1_000);
+    let before = network.honest_floor();
+    let outage_from = network.now;
+    network.lose_proposals = true;
+    run_for(
+        &mut network,
+        STALL_MS - 5 * dassie_hub::consensus::MAX_VIEW_TIMEOUT_MS,
+    );
+    assert_eq!(network.honest_floor(), before);
+    // The views of the outage are few: the longest view bounds them.
+    let views = network.engine(0).view();
+    assert!(views < 200, "{views} views");
+    // Uncapped, the view in progress would wait longer than the outage.
+    let backoff = network.engine(0).backoff();
+    assert!(
+        backoff.saturating_mul(CONFIG.advance_timeout_ms) > STALL_MS,
+        "{backoff}"
+    );
+    network.lose_proposals = false;
+    let healed = network.now;
+    while network.honest_floor() <= before && network.now < healed + STALL_MS {
+        run_for(&mut network, 100);
+    }
+    let recovered = network.now - healed;
+    assert_safe(&network);
+    assert!(
+        recovered <= dassie_hub::consensus::MAX_VIEW_TIMEOUT_MS + 1_000,
+        "final again {recovered} ms after the heal"
+    );
+    assert!(network.now - outage_from < STALL_MS, "no stall");
+}
+
+#[test]
 fn a_validator_away_while_nothing_is_final_takes_the_chain_from_others() {
     // While every finalize vote is lost, one validator is cut off as the
     // chain grows, and comes back while it is still not final: it takes

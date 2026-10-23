@@ -482,6 +482,9 @@ pub struct Network {
     /// While set, every vote to finalize is lost: blocks are notarized and
     /// none is final, a long run of them.
     pub lose_every_finalize: bool,
+    /// While set, every proposal is lost: the validators vote, but only to
+    /// nullify, view after view.
+    pub lose_proposals: bool,
     /// The height of every block proposed, and whether it is a repeat, by
     /// digest, for `lose_finalize_at`.
     proposed_blocks: BTreeMap<Digest, (u64, bool)>,
@@ -521,6 +524,7 @@ impl Network {
             repeat_handovers: 0,
             lose_finalize_at: None,
             lose_every_finalize: false,
+            lose_proposals: false,
             proposed_blocks: BTreeMap::new(),
             slow: BTreeMap::new(),
             queue: BTreeMap::new(),
@@ -827,6 +831,11 @@ impl Network {
     /// Sends what validator `from` said, as its role has it.
     fn carry(&mut self, from: usize, to: &[usize], bytes: Vec<u8>) {
         if (self.lose_finalize_at.is_some() || self.lose_every_finalize) && self.lost(&bytes) {
+            return;
+        }
+        if self.lose_proposals
+            && matches!(Message::decode_message(&bytes), Ok(Message::Proposal(_)))
+        {
             return;
         }
         match self.validators[from].role {

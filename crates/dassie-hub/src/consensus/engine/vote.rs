@@ -12,6 +12,7 @@
 
 use alloc::vec::Vec;
 
+use super::super::config::MAX_VIEW_TIMEOUT_MS;
 use super::super::hooks::{Application, ProposeContext, VerifyContext};
 use super::super::io::{Event, Recipient};
 use super::super::types::{Block, MAX_PAYLOAD_BYTES, Vote, VoteKind};
@@ -62,9 +63,14 @@ impl Engine {
                 (now, now)
             } else {
                 let factor = self.backoff_at(view);
+                let wait = |timeout: u64| {
+                    timeout
+                        .saturating_mul(factor)
+                        .min(MAX_VIEW_TIMEOUT_MS.max(timeout))
+                };
                 (
-                    now.saturating_add(self.config.leader_timeout_ms.saturating_mul(factor)),
-                    now.saturating_add(self.config.advance_timeout_ms.saturating_mul(factor)),
+                    now.saturating_add(wait(self.config.leader_timeout_ms)),
+                    now.saturating_add(wait(self.config.advance_timeout_ms)),
                 )
             };
             self.timers.leader_ms = Some(leader_ms);
@@ -86,7 +92,8 @@ impl Engine {
 
     /// How many times longer than usual `view` waits: twice for each view
     /// we hold nullified since the last notarized one, past
-    /// `backoff_after_views`. Only views held count: they are what the
+    /// `backoff_after_views`; no view waits longer than
+    /// [`MAX_VIEW_TIMEOUT_MS`], whatever this says. Only views held count: they are what the
     /// engine must keep, and a validator that skipped views by a
     /// certificate, as one that catches up, holds none of them and waits
     /// as usual.

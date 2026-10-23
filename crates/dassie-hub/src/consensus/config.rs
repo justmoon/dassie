@@ -21,6 +21,59 @@
 //! took it there; the leader waits at most an interval after its parent's
 //! stamp, and its proposal takes Δ (`leader_timeout_ms`, interval + 2Δ); the
 //! notarize votes take another Δ (`advance_timeout_ms`, interval + 3Δ).
+//!
+//! Views that fail in a row wait longer and longer
+//! ([`Config::backoff_after_views`]), but never longer than
+//! [`MAX_VIEW_TIMEOUT_MS`], and the stall a hub's rules set must fit around
+//! that ([`MIN_STALL_MS`], [`MAX_STALL_MS`]).
+
+use super::engine::{MAX_ROUNDS, MAX_UNFINALIZED_HEIGHTS, MAX_VIEWS_AHEAD};
+use crate::validators::MAX_VALIDATORS;
+
+/// The longest any view waits for its proposal or its notarization,
+/// however many views failed before it. Half a minute: long enough that a
+/// hub in a long outage enters a new view only twice a minute (its
+/// rebroadcasts aside, every `max_retry_ms`), so it sends a trickle and
+/// holds few views; short enough that once the network heals, the view in
+/// progress ends within it, so recovery takes about this long, not as long
+/// as the outage was. Against the views of a working hub (a quarter of a
+/// second) it is 120 of them; against the stall (an hour in the test terms)
+/// it is small.
+pub const MAX_VIEW_TIMEOUT_MS: u64 = 30_000;
+
+/// The most faulty validators of the largest set.
+const MAX_FAULTS: u64 = (MAX_VALIDATORS as u64 - 1) / 3;
+
+/// The shortest stall a hub's rules may set: twice what recovery takes
+/// after the network heals from the longest outage. The view in progress
+/// ends within [`MAX_VIEW_TIMEOUT_MS`], and so may each of the views of up
+/// to f faulty leaders in a row after it, before an honest leader's block
+/// is notarized and views are short again: f + 1 of the longest views. A
+/// stall any shorter could end a hub that was about to recover.
+pub const MIN_STALL_MS: u64 = 2 * (MAX_FAULTS + 1) * MAX_VIEW_TIMEOUT_MS;
+
+/// The views an engine holds besides those an outage makes: the views
+/// ahead of its own, those that certified the chain waiting to be final,
+/// the views that fail before views wait longer (at most
+/// [`MAX_BACKOFF_AFTER_VIEWS`]), and the views that double up to the
+/// longest (fewer than 16, as 2^15 ms is longer than it).
+const RESERVED_ROUNDS: u64 =
+    MAX_VIEWS_AHEAD + MAX_UNFINALIZED_HEIGHTS + MAX_BACKOFF_AFTER_VIEWS + 16 + 1;
+
+/// The most [`Config::backoff_after_views`] may be.
+pub const MAX_BACKOFF_AFTER_VIEWS: u64 = 64;
+
+/// The longest stall a hub's rules may set: an outage that long, in which
+/// a quorum keeps nullifying views, makes at most one view per
+/// [`MAX_VIEW_TIMEOUT_MS`], and all of them must fit in the views an engine
+/// holds (`MAX_ROUNDS`), or the engine could not enter the next one. A
+/// longer outage is a stall anyway.
+pub const MAX_STALL_MS: u64 = (MAX_ROUNDS as u64 - RESERVED_ROUNDS) * MAX_VIEW_TIMEOUT_MS;
+
+const _: () = assert!(
+    MIN_STALL_MS < MAX_STALL_MS,
+    "a stall fits between the bounds"
+);
 
 /// The consensus settings. [`Config::DEFAULT`] holds the derived values;
 /// the hub's rules may set others.
@@ -119,8 +172,12 @@ impl Config {
         );
         assert!(self.skip_views > 0, "a leader may miss a view");
         assert!(
-            self.backoff_after_views > 0,
-            "a view may fail before views wait longer"
+            self.backoff_after_views > 0 && self.backoff_after_views <= MAX_BACKOFF_AFTER_VIEWS,
+            "a view may fail before views wait longer, but not too many"
+        );
+        assert!(
+            self.advance_timeout_ms <= MAX_VIEW_TIMEOUT_MS,
+            "no view waits longer than the longest"
         );
     }
 }
@@ -144,5 +201,14 @@ mod tests {
         // With one faulty leader before an honest one: its timeout too.
         assert_eq!(config.margin_ms(0), 350);
         assert_eq!(config.margin_ms(1), 600);
+    }
+
+    #[test]
+    fn the_stall_fits_around_the_longest_view() {
+        // Recovery from the longest outage takes f + 1 of the longest views
+        // at worst: six for the largest set, three minutes.
+        assert_eq!(MIN_STALL_MS, 6 * 60_000);
+        // The test terms' hour fits.
+        assert!((MIN_STALL_MS..=MAX_STALL_MS).contains(&3_600_000));
     }
 }
