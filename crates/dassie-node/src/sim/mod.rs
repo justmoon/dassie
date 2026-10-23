@@ -345,12 +345,17 @@ pub fn key(index: usize) -> Arc<NodeKey> {
 /// The ILP packet a peer message carries, with its request ID, if it
 /// carries one.
 fn ilp_packet(body: &[u8]) -> Option<(u32, dassie_ilp::Packet<'_>)> {
-    if dassie_peer::wire::peek_kind(body) != Some(dassie_peer::wire::Kind::InterledgerPacket) {
+    use dassie_peer::wire::Content;
+    if !dassie_peer::wire::peek_kind(body).is_some_and(dassie_peer::wire::Kind::carries_packet) {
         return None;
     }
     let envelope = dassie_peer::wire::Envelope::decode(body).ok()?;
-    let dassie_peer::wire::Content::InterledgerPacket { request_id, packet } =
-        dassie_peer::wire::Content::decode_exact(envelope.content).ok()?
+    // A Prepare over a settlement hub comes with its commitment, which the
+    // simulation does not read.
+    let (Content::InterledgerPacket { request_id, packet }
+    | Content::HubPacket {
+        request_id, packet, ..
+    }) = Content::decode_exact(envelope.content).ok()?
     else {
         return None;
     };
