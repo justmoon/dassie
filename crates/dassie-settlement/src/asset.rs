@@ -130,6 +130,16 @@ pub enum LedgerInput<'a> {
     Disconnected,
     /// The faucet answered, or did not.
     Funded(bool),
+    /// A message came from one of its endpoints
+    /// ([`ExternalAsset::endpoints`]), named by its index. The node takes
+    /// it only from that endpoint, so the asset may take who sent it as
+    /// said.
+    From {
+        /// The endpoint's index.
+        endpoint: usize,
+        /// The message.
+        message: &'a [u8],
+    },
 }
 
 /// Something the node must do on an external asset's ledger.
@@ -138,6 +148,15 @@ pub enum AssetEffect {
     /// Send a message over the asset's connection
     /// ([`ExternalAsset::connection`]).
     Send {
+        /// The message.
+        message: Vec<u8>,
+    },
+    /// Send a message to one of its endpoints
+    /// ([`ExternalAsset::endpoints`]), named by its index. What comes back
+    /// comes as [`LedgerInput::From`].
+    SendTo {
+        /// The endpoint's index.
+        endpoint: usize,
         /// The message.
         message: Vec<u8>,
     },
@@ -194,6 +213,15 @@ pub trait ExternalAsset: Send + Any {
     /// URL.
     fn connection(&self) -> Option<&str> {
         None
+    }
+
+    /// Where the node reaches its ledger when that is several parties it
+    /// talks to apart rather than one connection, such as a settlement
+    /// hub's validators: their endpoints, in an order that never changes
+    /// while the asset runs. The asset names one by its index
+    /// ([`AssetEffect::SendTo`], [`LedgerInput::From`]). None by default.
+    fn endpoints(&self) -> &[String] {
+        &[]
     }
 
     /// Takes in what came from its ledger, or the faucet.

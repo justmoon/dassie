@@ -2397,6 +2397,8 @@ impl ExternalAsset for XrplAccount {
                     self.send(Request::AccountInfo);
                 }
             }
+            // It names no endpoints: nothing comes from one.
+            LedgerInput::From { .. } => {}
         }
     }
 

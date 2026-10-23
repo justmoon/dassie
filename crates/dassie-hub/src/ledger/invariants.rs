@@ -105,6 +105,10 @@ impl Ledger {
                 .is_none_or(|s| s < self.escrow.next_sequence),
             "signer list without an escrow sequence"
         );
+        assert!(
+            self.hold_index == self.derived_hold_index(),
+            "hold index out of step"
+        );
         assert_eq!(
             self.keys.len(),
             self.accounts.len(),

@@ -6,7 +6,7 @@ A hub moves trust, it does not remove it. Instead of trusting each peer up to it
 
 **A hub is regional.** Its validators, and the members that peer over it, are within a few tens of milliseconds of each other, so a block is final in well under a quarter of a second and a packet over a hub keeps the connector's timing (§4). Nodes far apart peer over different hubs, or directly. Peering directly, with settlement up to the node that owes, stays; a hub both peers are in is preferred over it.
 
-This is a design ([settlement-hubs](../decisions/settlement-hubs.md)). The rules, the ledger, consensus and the escrow are built ([Settlement hubs](../areas/hubs.md)); the rest is not yet. Durations and sizes in it are starting points, to be set from the deterministic simulation when the hub is built.
+This is a design ([settlement-hubs](../decisions/settlement-hubs.md)). The rules, the ledger, consensus, the escrow and a member's side are built ([Settlement hubs](../areas/hubs.md)); the rest is not yet. Durations and sizes in it are starting points, to be set from the deterministic simulation when the hub is built.
 
 ## 1. Concepts
 

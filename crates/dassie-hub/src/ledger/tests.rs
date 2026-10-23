@@ -328,6 +328,28 @@ fn pay_opens_the_payees_account() {
     assert_eq!(hub.ledger.account(number).unwrap().reserve, RESERVE);
 }
 
+// The holds of an account are found by an index, kept in step as holds
+// open and close, and rebuilt from the holds when a snapshot is restored.
+#[test]
+fn the_holds_of_an_account_are_indexed() {
+    let mut hub = Hub::new();
+    let (alice, alice_key, bob, bob_key, hold) = hold_for_bob(&mut hub);
+    let of = |hub: &Hub, account| {
+        hub.ledger
+            .holds_of(account)
+            .map(|(n, _)| n)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(of(&hub, alice), [hold]);
+    assert_eq!(of(&hub, bob), [hold]);
+    let snapshot = hub.ledger.snapshot();
+    let restored = Ledger::restore(&snapshot, &hub.ledger.state_root()).unwrap();
+    assert_eq!(restored, hub.ledger, "the index rebuilt");
+    hub.run(bob, &bob_key, MemberOperation::HoldRelease { hold });
+    assert!(of(&hub, alice).is_empty() && of(&hub, bob).is_empty());
+    let _ = alice_key;
+}
+
 /// Alice holds 1 XRP for Bob.
 fn hold_for_bob(hub: &mut Hub) -> (AccountNumber, NodeKey, AccountNumber, NodeKey, HoldNumber) {
     let (alice, alice_key) = hub.join(1, 10_000_000);

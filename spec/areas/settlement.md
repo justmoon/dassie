@@ -29,6 +29,8 @@ A scheme is sans-IO: its methods return effects (`Effect` in `scheme.rs`) for th
 - **The settlement check** (`on_check`) lets a scheme read what it needs of its ledger at every check, through its asset, such as an issuer's account ([XRPL](xrpl.md#rlusd)); what it learns comes as news.
 - **The scheme's reserve** is what its ledger holds back from the balance: never booked, so never spendable.
 - **Its status,** as the owner sees it, is its asset's until the asset is synced, then its own.
+- **Promises per packet** (`commitments.rs`): a scheme whose peerings carry them, as a settlement hub's do, signs a commitment with each Prepare, checks one with each Prepare it takes, and signs a claim into each reply to a Fulfill; as payer, it decides from its ledger the packets whose Reject upstream waits for it ([Connector](connector.md#responses-and-expiry)). A scheme without them settles as every other.
+- **What a peering over a hub costs beyond its hold** is a loss on the peer (`Effect::PeerLoss`): Dr `expenses/losses`, Cr the account the money left, as its cause says, recorded whatever the owner's funds ([Settlement hubs](hubs.md#packets-promises-and-claims)).
 
 **A scheme's effects are booked all or none.** Whatever hands them over (the scheme's ledger or timers, a peer's settlement or message, executing or reconciling a settlement, the owner's stub deposit or request to a faucet), the books first check every transfer the effects make, in order, each as it would find the accounts with the ones before it booked (`Ledger::validate_posted`). If they refuse one, none of the effects is carried out, and the scheme's checkpoint does not move, so it still explains exactly what the books hold. Nor does anything its asset asked of its ledger with that input go out once no scheme on the asset runs: no message, no new connection and no request to a faucet. Posting or voiding a settlement of ours is not checked: it raises no total and tightens no limit, so it cannot make a later transfer fail.
 
@@ -48,6 +50,10 @@ An external asset is something the node holds outside its books, of a type: an a
 ### Assets that follow a ledger
 
 An asset with a ledger to follow names a WebSocket URL; it says what to send and the node feeds it what comes back, then tells its schemes what it learnt and carries out what it asks. The driver (`engine/links.rs`) runs one connection per asset, however many schemes settle through it, bound to an epoch, so a message from a connection the engine has replaced is dropped. A connection whose queue overflows drops messages, and the asset, hearing nothing, connects anew. Names resolve under the node's outbound rules: public addresses only, unless private ones are allowed (dev and tests).
+
+### Assets that talk to several endpoints
+
+An asset whose ledger is several parties it talks to apart, a settlement hub's validators, names their endpoints instead (`endpoints`), in an order that does not change while it runs. It sends to one by its index, and the node feeds it what came back from that endpoint under the same index, so the asset may take who sent it as said: the driver authenticates each endpoint. The asset asks again on its own timers, so a message lost costs nothing but time. The node's driver for them is not built yet ([Settlement hubs](hubs.md#the-members-side)).
 
 ## Checkpoints and activation
 
@@ -101,6 +107,7 @@ Every threshold of a link is counted in its [largest packet](connector.md#the-la
 | Money in flight with a peer, each way | 2.5 | [Connector](connector.md#money-in-flight-with-a-peer) |
 | Room below which a peer is no longer advertised, past a grace | 1 | [Network](network.md#advertised-peers) |
 | Least default credit | 7.5 | [Above](#credit) |
+| What a payee over a hub lets claims add before it redeems | 2 | Each redeem costs the hub's fee; what is not taken is lost if the hub fails ([Settlement hubs](hubs.md#packets-promises-and-claims)) |
 | Most credit earned | 100 | [Above](#credit) |
 
 Amounts are rounded down to whole units of the scheme's ledger; what is less than a unit stays owed. Both rules are deliberately simple, to be tuned later (expected settlement latency, fees, volume on the link).
@@ -166,6 +173,14 @@ The node keeps a settlement channel with every node it has ever peered with (`cr
 **Delivery is exactly once.** Each `settlement` message carries a sequence per sender and recipient that never resets. The sender sends one at a time, in order, again until it is acknowledged, across restarts, never dropping it; one that got no answer goes again as soon as the node answers us at all ([Peer protocol](peer-protocol.md#message-set)). The receiver applies only the next sequence, recording it in the batch that books it, acknowledges anything at or below the last one without applying it again, and refuses anything else. So a copy from an old peering is never applied twice, and none is lost.
 
 **Channels are never closed,** so a node keeps a bounded number of them, one per node it has ever peered with: with core nodes under one bound, and with downlinks under their own ([Network](network.md#downlinks)). Once all of a kind are taken, peering with a new node of that kind is refused for capacity; nodes it holds a channel with can still peer. Closing a settled channel safely is not built ([roadmap](../roadmap.md#not-built-yet), [peering-lifecycle](../decisions/peering-lifecycle.md)).
+
+## Settlement hubs
+
+A peering over a [settlement hub](hubs.md#the-members-side) settles by funding the payer's hold toward the payee, which is all the credit the payee extends: it extends nothing beyond it, and the credit does not grow with earnings ([settlement-hubs](../decisions/settlement-hubs.md)). Settling stays [on request](#settling-on-request), so the node's rules for settling are the same:
+
+- **Funding a hold is a settlement.** The payer books it as its outgoing settlement, finalized once agreed statements show the hold grew. The payee books it as an incoming settlement only then, from what the hub says, as the XRPL scheme books what its ledger reports: the settlement message books nothing.
+- **What a payee takes moves nothing in its books.** The holds toward it from its peers are part of what it holds on the hub's ledger, so a redeem or a claim moves money within `assets/settlement`, and books only its fee.
+- **A hold's reserve is the ledger's,** never booked, as the XRP Ledger's reserves are; opening a hold reconciles it out of the books.
 
 ## The stub scheme
 

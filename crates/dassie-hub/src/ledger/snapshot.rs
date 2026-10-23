@@ -211,6 +211,7 @@ impl Ledger {
             keys: BTreeMap::new(),
             next_account,
             holds: BTreeMap::new(),
+            hold_index: alloc::collections::BTreeSet::new(),
             next_hold,
             withdrawals: BTreeMap::new(),
             pending_deposits: BTreeMap::new(),
@@ -255,6 +256,7 @@ impl Ledger {
             let number = HoldNumber(reader.read_u64()?);
             insert_ascending(&mut self.holds, number, read_hold(reader)?)?;
         }
+        self.hold_index = self.derived_hold_index();
         for _ in 0..reader.read_u32()? {
             let sequence = reader.read_u32()?;
             insert_ascending(&mut self.withdrawals, sequence, read_withdrawal(reader)?)?;

@@ -31,6 +31,13 @@ use crate::validators::{Signers, ValidatorIndex, ValidatorSet};
 /// The most statements one answer or push carries.
 pub const MAX_STATEMENTS: usize = 64;
 
+/// The most holds one [`Statement::Holds`] lists: one page of them.
+pub const MAX_HOLDS_LISTED: usize = 1_024;
+
+/// The most pages the holds of one account take: an account takes part in
+/// at most `u16::MAX` holds (`ledger/member.rs`).
+pub const MAX_HOLD_PAGES: usize = (u16::MAX as usize).div_ceil(MAX_HOLDS_LISTED);
+
 /// What an account holds, as a statement tells it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AccountView {
@@ -120,6 +127,25 @@ pub enum Statement {
         /// The hold, if it exists.
         hold: Option<HoldView>,
     },
+    /// Page `page` of `pages` of every hold `account` pays into or takes
+    /// from after the block at `height`, stamped `timestamp`, in order of
+    /// their numbers, [`MAX_HOLDS_LISTED`] to a page: the pages together
+    /// are the whole list. What a member that can no longer read its
+    /// history in order reads its holds anew from.
+    Holds {
+        /// The block's height.
+        height: u64,
+        /// Its timestamp.
+        timestamp: Millis,
+        /// The account.
+        account: AccountNumber,
+        /// This page, from 0.
+        page: u16,
+        /// How many pages the list takes; at least one.
+        pages: u16,
+        /// Its holds on this page.
+        holds: Vec<(HoldNumber, HoldView)>,
+    },
 }
 
 /// A statement with the validator's signature.
@@ -144,6 +170,9 @@ pub enum Request {
     Account(PublicKey),
     /// This hold.
     Hold(HoldNumber),
+    /// The account of this number, and every hold it pays into or takes
+    /// from, as of one block.
+    Holds(AccountNumber),
     /// What was executed that touches `account`, from the block at `from`
     /// on, and the newest final block. Asked again and again by a member
     /// a validator cannot reach, and kept open by one it can.
@@ -216,6 +245,37 @@ impl Statement {
         }
     }
 
+    /// What `ledger` says of the holds of `account`: every one, over as
+    /// many pages as they take.
+    #[must_use]
+    pub fn holds(ledger: &Ledger, account: AccountNumber) -> Vec<Self> {
+        let listed: Vec<(HoldNumber, HoldView)> = ledger
+            .holds_of(account)
+            .map(|(number, hold)| (number, HoldView::of(hold)))
+            .collect();
+        let chunks: Vec<&[(HoldNumber, HoldView)]> = if listed.is_empty() {
+            alloc::vec![&[]]
+        } else {
+            listed.chunks(MAX_HOLDS_LISTED).collect()
+        };
+        assert!(
+            chunks.len() <= MAX_HOLD_PAGES,
+            "more holds than an account takes part in"
+        );
+        let pages = u16::try_from(chunks.len()).unwrap_or(u16::MAX);
+        (0u16..)
+            .zip(chunks)
+            .map(|(page, holds)| Self::Holds {
+                height: ledger.height(),
+                timestamp: ledger.timestamp(),
+                account,
+                page,
+                pages,
+                holds: holds.to_vec(),
+            })
+            .collect()
+    }
+
     /// The height it is as of.
     #[must_use]
     pub const fn height(&self) -> u64 {
@@ -224,7 +284,8 @@ impl Statement {
             | Self::Final { height, .. }
             | Self::Account { height, .. }
             | Self::Trimmed { height, .. }
-            | Self::Hold { height, .. } => *height,
+            | Self::Hold { height, .. }
+            | Self::Holds { height, .. } => *height,
         }
     }
 }
@@ -256,6 +317,39 @@ impl SignedStatement {
     }
 }
 
+/// What a page of [`Statement::Holds`] adds to its holds, at most: its tag,
+/// height, timestamp, account, page, pages and count.
+const HOLDS_PAGE_OVERHEAD: usize = 1 + 8 + 8 + 4 + 2 + 2 + 9;
+
+/// The most bytes of one hold on a page of [`Statement::Holds`].
+const LISTED_HOLD_BYTES: usize = 8 + HOLD_VIEW_LEN;
+
+/// The most bytes of one page of [`Statement::Holds`].
+pub const MAX_HOLDS_PAGE_BYTES: usize = HOLDS_PAGE_OVERHEAD + MAX_HOLDS_LISTED * LISTED_HOLD_BYTES;
+
+/// The most bytes of statements an honest answer to `Holds` carries: the
+/// account, and every page of its holds.
+pub const MAX_HOLDS_ANSWER_BYTES: usize =
+    ACCOUNT_STATEMENT_BYTES + MAX_HOLD_PAGES * MAX_HOLDS_PAGE_BYTES;
+
+/// The most bytes of statements still waiting for agreement that a tally
+/// keeps of one validator ([`Agreement`]): two answers to `Since`, which is
+/// what a member's buffer holds, and an answer to `Holds`. An honest
+/// validator sends no more before what it sent agrees, however many
+/// messages its answers span; a faulty one fills only this much of a
+/// member's memory, so a tally holds at most n times it.
+pub const MAX_SIGNER_BYTES: usize =
+    2 * crate::service::MAX_SINCE_ANSWER_BYTES + MAX_HOLDS_ANSWER_BYTES;
+
+const _: () = assert!(MAX_SIGNER_BYTES >= 2 * crate::service::MAX_SINCE_ANSWER_BYTES);
+const _: () = assert!(MAX_SIGNER_BYTES >= MAX_HOLDS_ANSWER_BYTES);
+
+/// The encoded size of a [`HoldView`].
+const HOLD_VIEW_LEN: usize = 4 + 4 + 8 + 1 + 16 + 8 + 8;
+
+/// The most bytes of a [`Statement::Account`].
+const ACCOUNT_STATEMENT_BYTES: usize = 1 + 8 + 32 + 1 + 4 + (32 + 8 * 3 + 2);
+
 /// How far above the height f + 1 validators have reached a statement may
 /// be: no honest validator signs one further ahead than the hub is, and at
 /// least one of any f + 1 is honest.
@@ -277,6 +371,8 @@ pub struct Dropped {
 #[derive(Clone, Debug)]
 struct Pending {
     statement: Statement,
+    /// Its encoded size, which each signer's signature on it counts.
+    bytes: usize,
     signers: Signers,
     agreed: bool,
 }
@@ -284,8 +380,9 @@ struct Pending {
 /// Gathers signed statements until f + 1 validators agree on one.
 ///
 /// Bounded per signer, so no validator can push out another's signatures:
-/// each signer has at most `capacity / n` signatures on statements still
-/// waiting for agreement, and one over that drops the signer's own lowest.
+/// each signer has at most `capacity / n` signatures and [`MAX_SIGNER_BYTES`]
+/// of statements still waiting for agreement, and a signature past either
+/// is refused.
 /// Statements that agreed are kept, up to `capacity`, so that each agrees
 /// once; the lowest go first. A statement further than
 /// [`MAX_HEIGHTS_AHEAD`] above the height f + 1 validators have reached is
@@ -298,8 +395,9 @@ pub struct Agreement {
     capacity: usize,
     quota: usize,
     pending: BTreeMap<(u64, Digest), Pending>,
-    /// Per signer, its signatures on statements still waiting.
-    waiting: Vec<usize>,
+    /// Per signer, its signatures on statements still waiting, and their
+    /// statements' bytes.
+    waiting: Vec<(usize, usize)>,
     /// Per signer, the highest height it signed a statement at.
     reached: Vec<u64>,
     dropped: Option<Dropped>,
@@ -318,7 +416,7 @@ impl Agreement {
             quota: (capacity / n.max(1)).max(1),
             capacity,
             pending: BTreeMap::new(),
-            waiting: alloc::vec![0; n],
+            waiting: alloc::vec![(0, 0); n],
             reached: alloc::vec![0; n],
             dropped: None,
             set,
@@ -353,15 +451,24 @@ impl Agreement {
             }
             _ => {}
         }
-        self.make_room(signer);
+        // A signer at its quota, of count or bytes, has its new signature
+        // refused, not its old ones dropped: the lowest are the ones to
+        // agree first, and once they did the signer has room again.
+        let bytes = signed.statement.encoded_len();
+        if self.full(signer, bytes) {
+            self.drop_signature(height, signer);
+            return None;
+        }
         let entry = self.pending.entry(key).or_insert_with(|| Pending {
             statement: signed.statement,
+            bytes,
             signers: Signers::NONE,
             agreed: false,
         });
         entry.signers = entry.signers.with(signer);
-        if let Some(count) = self.waiting.get_mut(signer.get()) {
+        if let Some((count, held)) = self.waiting.get_mut(signer.get()) {
             *count = count.saturating_add(1);
+            *held = held.saturating_add(bytes);
         }
         self.agree(key)
     }
@@ -386,10 +493,11 @@ impl Agreement {
             return None;
         }
         entry.agreed = true;
-        let (statement, signers) = (entry.statement.clone(), entry.signers);
+        let (statement, signers, bytes) = (entry.statement.clone(), entry.signers, entry.bytes);
         for index in signers.iter() {
-            if let Some(count) = self.waiting.get_mut(index.get()) {
+            if let Some((count, held)) = self.waiting.get_mut(index.get()) {
                 *count = count.saturating_sub(1);
+                *held = held.saturating_sub(bytes);
             }
         }
         // One more agreed: at most one over the bound.
@@ -402,33 +510,12 @@ impl Agreement {
         Some(statement)
     }
 
-    /// Drops `signer`'s own lowest signature on a statement still waiting,
-    /// if it has its quota of them.
-    fn make_room(&mut self, signer: ValidatorIndex) {
-        let full = self
-            .waiting
-            .get(signer.get())
-            .is_some_and(|count| *count >= self.quota);
-        if !full {
-            return;
-        }
-        let lowest = self
-            .pending
-            .iter()
-            .find(|(_, p)| !p.agreed && p.signers.contains(signer))
-            .map(|(key, _)| *key);
-        let Some(key) = lowest else { return };
-        if let Some(entry) = self.pending.get_mut(&key) {
-            entry.signers =
-                Signers::from_bits(entry.signers.bits() & !Signers::NONE.with(signer).bits());
-            if entry.signers.count() == 0 {
-                self.pending.remove(&key);
-            }
-        }
-        if let Some(count) = self.waiting.get_mut(signer.get()) {
-            *count = count.saturating_sub(1);
-        }
-        self.drop_signature(key.0, signer);
+    /// Whether `signer` has its quota of signatures on statements still
+    /// waiting, or one more of `bytes` would pass [`MAX_SIGNER_BYTES`].
+    fn full(&self, signer: ValidatorIndex, bytes: usize) -> bool {
+        self.waiting.get(signer.get()).is_some_and(|(count, held)| {
+            *count >= self.quota || held.saturating_add(bytes) > MAX_SIGNER_BYTES
+        })
     }
 
     fn drop_signature(&mut self, height: u64, signer: ValidatorIndex) {
@@ -456,16 +543,23 @@ impl Agreement {
         self.waiting = self.count_waiting();
     }
 
-    fn count_waiting(&self) -> Vec<usize> {
-        let mut waiting = alloc::vec![0usize; self.set.len()];
+    fn count_waiting(&self) -> Vec<(usize, usize)> {
+        let mut waiting = alloc::vec![(0usize, 0usize); self.set.len()];
         for entry in self.pending.values().filter(|p| !p.agreed) {
             for index in entry.signers.iter() {
-                if let Some(count) = waiting.get_mut(index.get()) {
+                if let Some((count, held)) = waiting.get_mut(index.get()) {
                     *count = count.saturating_add(1);
+                    *held = held.saturating_add(entry.bytes);
                 }
             }
         }
         waiting
+    }
+
+    /// The bytes of statements still waiting that validator `v` signed.
+    #[must_use]
+    pub fn waiting_bytes(&self, v: ValidatorIndex) -> usize {
+        self.waiting.get(v.get()).map_or(0, |(_, held)| *held)
     }
 
     /// Asserts its bounds.
@@ -476,7 +570,9 @@ impl Agreement {
             "agreement counts out of step"
         );
         assert!(
-            self.waiting.iter().all(|count| *count <= self.quota),
+            self.waiting
+                .iter()
+                .all(|(count, held)| *count <= self.quota && *held <= MAX_SIGNER_BYTES),
             "a signer over its quota"
         );
         assert!(
@@ -567,6 +663,16 @@ impl Encode for Statement {
                     32 + 1 + account.map_or(0, |(_, view)| 4 + view.encoded_len())
                 }
                 Self::Hold { hold, .. } => 8 + 1 + hold.map_or(0, |view| view.encoded_len()),
+                Self::Holds { holds, .. } => {
+                    8 + 4
+                        + 2
+                        + 2
+                        + size::quantity(holds.len())
+                        + holds
+                            .iter()
+                            .map(|(_, view)| 8 + view.encoded_len())
+                            .sum::<usize>()
+                }
             }
     }
 
@@ -623,7 +729,58 @@ impl Encode for Statement {
                     view.encode_to(writer);
                 }
             }
+            Self::Holds { .. } => self.encode_holds(writer),
         }
+    }
+}
+
+impl Statement {
+    fn encode_holds(&self, writer: &mut Writer<'_>) {
+        let Self::Holds {
+            height,
+            timestamp,
+            account,
+            page,
+            pages,
+            holds,
+        } = self
+        else {
+            return;
+        };
+        writer.write_u8(5);
+        writer.write_u64(*height);
+        writer.write_u64(*timestamp);
+        writer.write_u32(account.0);
+        writer.write_u16(*page);
+        writer.write_u16(*pages);
+        writer.write_quantity(holds.len());
+        for (number, view) in holds {
+            writer.write_u64(number.0);
+            view.encode_to(writer);
+        }
+    }
+
+    fn decode_holds(reader: &mut Reader<'_>, height: u64) -> Result<Self, HubDecodeError> {
+        let timestamp = reader.read_u64()?;
+        let account = AccountNumber(reader.read_u32()?);
+        let page = reader.read_u16()?;
+        let pages = reader.read_u16()?;
+        if page >= pages || usize::from(pages) > MAX_HOLD_PAGES {
+            return Err(HubDecodeError::Invalid("page"));
+        }
+        let count = reader.read_quantity(MAX_HOLDS_LISTED)?;
+        let mut holds = Vec::with_capacity(count);
+        for _ in 0..count {
+            holds.push((HoldNumber(reader.read_u64()?), HoldView::decode(reader)?));
+        }
+        Ok(Self::Holds {
+            height,
+            timestamp,
+            account,
+            page,
+            pages,
+            holds,
+        })
     }
 }
 
@@ -677,6 +834,7 @@ impl Statement {
                 height,
                 below: reader.read_u64()?,
             },
+            5 => Self::decode_holds(reader, height)?,
             other => return Err(HubDecodeError::UnknownChoice(u64::from(other))),
         })
     }
@@ -739,6 +897,7 @@ impl Encode for Request {
             Self::Submit(operation) => operation.encoded_len(),
             Self::Account(_) => 32,
             Self::Hold(_) => 8,
+            Self::Holds(_) => 4,
             Self::Since { .. } => 4 + 8,
         }
     }
@@ -762,6 +921,10 @@ impl Encode for Request {
                 writer.write_u32(account.0);
                 writer.write_u64(*from);
             }
+            Self::Holds(account) => {
+                writer.write_u8(4);
+                writer.write_u32(account.0);
+            }
         }
     }
 }
@@ -778,6 +941,7 @@ impl Request {
                 account: AccountNumber(reader.read_u32()?),
                 from: reader.read_u64()?,
             },
+            4 => Self::Holds(AccountNumber(reader.read_u32()?)),
             other => return Err(HubDecodeError::UnknownChoice(u64::from(other))),
         };
         reader.finish()?;
@@ -859,8 +1023,71 @@ mod tests {
         agreement.check_invariants();
     }
 
+    /// A statement that a claim of 1024 commitments executed at `height`.
+    fn large(hub: &HubId, height: u64) -> Statement {
+        use crate::operation::{MemberOperation, SignedMemberOperation};
+        use crate::promise::{Commitment, Fulfilled, Signed};
+        let fulfilled = Fulfilled {
+            commitment: Signed {
+                value: Commitment {
+                    hold: HoldNumber(1),
+                    sequence: height,
+                    amount: 1,
+                    condition: [0; 32],
+                    expiry: 0,
+                },
+                signature: Signature::from_bytes([0; 64]),
+            },
+            fulfillment: [0; 32],
+        };
+        let claim = MemberOperation::Claim {
+            hold: HoldNumber(1),
+            fulfilled: alloc::vec![fulfilled; crate::operation::MAX_COMMITMENTS],
+        };
+        let key = NodeKey::from_bytes(&[9; 32]);
+        Statement::Executed {
+            height,
+            timestamp: height,
+            index: 0,
+            operation: Operation::Member(SignedMemberOperation::sign(
+                hub,
+                AccountNumber(1),
+                height,
+                10,
+                claim,
+                &key,
+            )),
+            outcome: Outcome::Refused(crate::ledger::Refusal::Sequence),
+        }
+    }
+
+    // A validator signing large statements fills only its own bytes: a
+    // signature past them is refused and reported, and the others agree.
     #[test]
-    fn a_signer_over_its_quota_drops_its_own_lowest_and_says_so() {
+    fn one_validators_large_statements_stay_within_its_bytes() {
+        let hub = HubId(Digest([1; 32]));
+        let (set, keys) = set();
+        let mut agreement = Agreement::new(hub, set, 4 * 4096);
+        let sign = |i: usize, s: Statement| {
+            SignedStatement::sign(&hub, ValidatorIndex::new(i).unwrap(), s, &keys[i])
+        };
+        let size = large(&hub, 1).encoded_len();
+        let flood = MAX_SIGNER_BYTES / size + 4;
+        let faulty = ValidatorIndex::new(0).unwrap();
+        for height in 0..u64::try_from(flood).unwrap() {
+            assert_eq!(agreement.add(sign(0, large(&hub, 10 + height))), None);
+        }
+        assert!(agreement.waiting_bytes(faulty) <= MAX_SIGNER_BYTES);
+        let dropped = agreement.take_dropped().unwrap();
+        assert_eq!(dropped.signers, Signers::NONE.with(faulty));
+        let fact = large(&hub, 5);
+        assert_eq!(agreement.add(sign(1, fact.clone())), None);
+        assert_eq!(agreement.add(sign(2, fact.clone())), Some(fact));
+        agreement.check_invariants();
+    }
+
+    #[test]
+    fn a_signer_over_its_quota_is_refused_and_it_says_so() {
         let hub = HubId(Digest([1; 32]));
         let (set, keys) = set();
         // Four signatures per validator wait at most.
@@ -878,10 +1105,11 @@ mod tests {
         assert_eq!(agreement.take_dropped(), None);
         assert_eq!(agreement.add(sign(1, final_at(14))), None);
         let dropped = agreement.take_dropped().unwrap();
-        assert_eq!(dropped.lowest, 10);
-        // Height 10 waits for two signatures again; 11 still has one.
-        assert_eq!(agreement.add(sign(2, final_at(10))), None);
-        assert_eq!(agreement.add(sign(2, final_at(11))), Some(final_at(11)));
+        assert_eq!(dropped.lowest, 14);
+        // What it holds still agrees, and makes room once it did.
+        assert_eq!(agreement.add(sign(2, final_at(10))), Some(final_at(10)));
+        assert_eq!(agreement.add(sign(2, final_at(14))), None);
+        assert_eq!(agreement.add(sign(1, final_at(14))), Some(final_at(14)));
         agreement.check_invariants();
     }
 
@@ -954,12 +1182,87 @@ mod tests {
         assert_eq!(SignedStatement::decode_list(&bytes).unwrap(), signed);
     }
 
+    // The holds of an account are listed whole, over as many pages as they
+    // take, each a statement of its own.
+    #[test]
+    fn every_hold_is_listed_over_pages() {
+        let (rules, _) = crate::rules::tests::rules(4);
+        let mut ledger = Ledger::genesis(rules, 1_000).unwrap();
+        let payee = AccountNumber(1);
+        let count = MAX_HOLDS_LISTED + 500;
+        for n in 1..=u64::try_from(count).unwrap() {
+            let hold = crate::ledger::Hold {
+                payer: AccountNumber(2),
+                payee,
+                amount: n,
+                reserve: 0,
+                reduction: None,
+                total: 0,
+                through: 0,
+                claimed: BTreeMap::new(),
+            };
+            ledger.holds.insert(HoldNumber(n), hold);
+            ledger.hold_index.insert((payee, HoldNumber(n)));
+        }
+        let pages = Statement::holds(&ledger, payee);
+        assert_eq!(pages.len(), 2);
+        let mut listed = Vec::new();
+        for statement in &pages {
+            let bytes = statement.to_vec();
+            let mut reader = Reader::new(&bytes);
+            assert_eq!(&Statement::decode(&mut reader).unwrap(), statement);
+            let Statement::Holds { holds, pages, .. } = statement else {
+                panic!("not holds");
+            };
+            assert_eq!(*pages, 2);
+            assert!(statement.encoded_len() <= MAX_HOLDS_PAGE_BYTES);
+            listed.extend(holds.iter().map(|(number, _)| *number));
+        }
+        assert_eq!(listed.len(), count, "every hold");
+        assert!(listed.windows(2).all(|w| w[0] < w[1]));
+    }
+
+    // What a member that can no longer read its history in order is told.
+    #[test]
+    fn what_a_resync_reads_round_trips() {
+        let hub = HubId(Digest([1; 32]));
+        let (_, keys) = set();
+        let view = HoldView {
+            payer: AccountNumber(1),
+            payee: AccountNumber(2),
+            amount: 10,
+            reduction: None,
+            total: 11,
+            through: 12,
+        };
+        let signed: Vec<SignedStatement> = [
+            Statement::Holds {
+                height: 8,
+                timestamp: 9,
+                account: AccountNumber(2),
+                page: 1,
+                pages: 2,
+                holds: alloc::vec![(HoldNumber(9), view), (HoldNumber(10), view)],
+            },
+            Statement::Trimmed {
+                height: 8,
+                below: 4,
+            },
+        ]
+        .into_iter()
+        .map(|s| SignedStatement::sign(&hub, ValidatorIndex::new(1).unwrap(), s, &keys[1]))
+        .collect();
+        let bytes = SignedStatement::encode_list(&signed);
+        assert_eq!(SignedStatement::decode_list(&bytes).unwrap(), signed);
+    }
+
     #[test]
     fn requests_and_outcomes_round_trip() {
         let key = NodeKey::from_bytes(&[9; 32]).public_key();
         for request in [
             Request::Account(key),
             Request::Hold(HoldNumber(3)),
+            Request::Holds(AccountNumber(5)),
             Request::Since {
                 account: AccountNumber(2),
                 from: 9,

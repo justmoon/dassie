@@ -160,6 +160,8 @@ impl Ledger {
                 .saturating_add(hold.amount)
                 .saturating_add(hold.reserve);
         }
+        self.hold_index.remove(&(hold.payer, number));
+        self.hold_index.remove(&(hold.payee, number));
         for party in [hold.payer, hold.payee] {
             if let Some(account) = self.accounts.get_mut(&party) {
                 account.holds = account.holds.saturating_sub(1);
