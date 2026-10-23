@@ -1029,7 +1029,7 @@ dependencies = [
 
 [[package]]
 name = "dassie-hub"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "dassie-hub",
  "dassie-identity",
