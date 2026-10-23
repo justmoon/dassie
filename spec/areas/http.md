@@ -85,7 +85,7 @@ Setup happens once: whoever opens the setup URL claims the node with their passp
 - **The token** is 32 random bytes, compared in constant time. It is stored until setup completes and deleted in the same write that stores the node key, so a restart (the nightly update, say) keeps the URL the owner was given, and of two setups at once only one wins.
 - **The URL is never logged,** since the journal is readable by groups that do not administer the node. `dassie setup-url` prints it, over the IPC socket. It names `localhost` until a hostname is configured, which reaches the node from its own machine or through an SSH tunnel; the HTTPS listener always has a certificate, so it always works.
 - On success the node starts what depends on its identity and opens a session.
-- **`dassie setup`** posts the same request from the node's own host, for an owner who keeps the passphrase there ([Node](node.md#the-dassie-command), [headless-setup](../decisions/headless-setup.md)). It takes the token over the IPC socket and connects on loopback to the HTTPS port the daemon reports, with the `Origin` and `Host` of `localhost` at that port, so the route checks it as it checks the wallet. It accepts whatever certificate the node presents there, checking only that the handshake is signed by its key: no CA vouches for a node without a hostname, and on loopback, at a port the node holds, only the node, its own user or root can answer, and those can already read the node's database, where the key goes.
+- **`dassie setup`** posts the same request from the node's own host, for an owner who keeps the passphrase there ([Node](node.md#the-dassie-command), [headless-setup](../decisions/headless-setup.md)). It takes the token over the IPC socket and connects on loopback to the HTTPS port the daemon reports, with the `Origin` and `Host` of `localhost` at that port, so the route checks it as it checks the wallet. No CA vouches for a node without a hostname, so it pins the certificate the daemon's status names by its leaf's SHA-256, and sends nothing to a listener that cannot sign the handshake with that certificate's key, such as another user's on a loopback address the node leaves free.
 
 ## Login and logout
 
@@ -123,5 +123,5 @@ The daemon runs every ACME order ([RFC 8555](https://www.rfc-editor.org/rfc/rfc8
 - [rpc-contract](../decisions/rpc-contract.md): the RPC contract the `/rpc` WebSocket carries, and why the Origin check and per-call session checks came with it.
 - [open-payments](../decisions/open-payments.md): why Open Payments routes are open to every origin.
 - [secrets-at-rest](../decisions/secrets-at-rest.md): session tokens stored only as hashes.
-- [headless-setup](../decisions/headless-setup.md): `dassie setup` through the setup route, and why it takes the node's certificate on loopback unverified.
+- [headless-setup](../decisions/headless-setup.md): `dassie setup` through the setup route, and why it pins the certificate the daemon names.
 - [tigerstyle](../decisions/tigerstyle.md): the node's decisions as pure functions in `dassie-node-core`; every table and timer bounded.

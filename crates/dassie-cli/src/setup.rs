@@ -32,8 +32,10 @@ use lexopt::prelude::*;
 use rustls::DigitallySignedStruct;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use sha2::{Digest as _, Sha256};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
+use tokio_rustls::client::TlsStream;
 
 use crate::client::{CallError, Client};
 use crate::passphrase;
@@ -44,9 +46,10 @@ const MAX_SCHEMES: usize = 16;
 const OTHER_NODE: u8 = 3;
 /// How long one call over the IPC socket may take.
 const CALL_TIMEOUT: Duration = Duration::from_secs(30);
-/// How long connecting to the node's HTTPS listener may take.
+/// How long connecting to the node's HTTPS listener at one address, with
+/// the TLS handshake, may take.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-/// How long the setup request may take, from the TLS handshake to the
+/// How long the setup request may take, from the first connection to the
 /// answer's last byte.
 const SETUP_TIMEOUT: Duration = Duration::from_secs(30);
 /// Most bytes of the node's answer to the setup request read: a refusal's
@@ -260,11 +263,8 @@ async fn claim(client: &mut Client, key: &NodeKey) -> Result<bool, Failure> {
         .map(|(_, token)| token)
         .filter(|token| is_token(token))
         .ok_or_else(|| "The daemon's setup URL holds no setup token".to_owned())?;
-    let port = match call(client, Method::GetStatus(proto::GetStatusRequest {})).await? {
-        response::Method::GetStatus(status) => u16::try_from(status.https_port)
-            .ok()
-            .filter(|port| *port != 0)
-            .ok_or_else(|| format!("The daemon names no HTTPS port ({})", status.https_port))?,
+    let listener = match call(client, Method::GetStatus(proto::GetStatusRequest {})).await? {
+        response::Method::GetStatus(status) => Listener::of(&status)?,
         _ => return Err(unexpected()),
     };
     // The key is what the node stores in its database once set up; the
@@ -274,7 +274,33 @@ async fn claim(client: &mut Client, key: &NodeKey) -> Result<bool, Failure> {
         hex::encode(key.as_bytes()),
         hex::encode(key.login_secret().as_bytes())
     );
-    post_setup(port, body).await
+    post_setup(&listener, body).await
+}
+
+/// The node's HTTPS listener, as the daemon describes it over the owner's
+/// socket: its port, and the certificate it serves there.
+struct Listener {
+    port: u16,
+    leaf_sha256: [u8; 32],
+}
+
+impl Listener {
+    fn of(status: &proto::GetStatusResponse) -> Result<Self, String> {
+        let port = u16::try_from(status.https_port)
+            .ok()
+            .filter(|port| *port != 0)
+            .ok_or_else(|| format!("The daemon names no HTTPS port ({})", status.https_port))?;
+        let leaf_sha256 = status
+            .certificate
+            .as_ref()
+            .and_then(|certificate| <[u8; 32]>::try_from(certificate.leaf_sha256.as_slice()).ok())
+            .ok_or_else(|| {
+                "The daemon does not say which certificate it serves: restart it, so that it \
+                 runs the version of this command"
+                    .to_owned()
+            })?;
+        Ok(Self { port, leaf_sha256 })
+    }
 }
 
 /// 64 lowercase hex digits: a token that is safe to put in JSON as it is.
@@ -282,24 +308,14 @@ fn is_token(text: &str) -> bool {
     text.len() == TOKEN_HEX_CHARS && text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-/// Posts `body` to `/api/setup` on the node's HTTPS listener at `port` on
-/// this host. True once set up; false if the route is gone, which it is
-/// once the node has an identity.
-async fn post_setup(port: u16, body: String) -> Result<bool, Failure> {
-    let stream = connect_local(port).await?;
+/// Posts `body` to `/api/setup` on the node's HTTPS listener on this host.
+/// True once set up; false if the route is gone, which it is once the node
+/// has an identity.
+async fn post_setup(listener: &Listener, body: String) -> Result<bool, Failure> {
+    let port = listener.port;
     let origin = format!("https://localhost:{port}");
     let exchange = async {
-        let config = rustls::ClientConfig::builder_with_provider(tls::provider())
-            .with_safe_default_protocol_versions()
-            .map_err(|e| format!("TLS: {e}"))?
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(PresentedCertificate))
-            .with_no_client_auth();
-        let name = ServerName::try_from("localhost").map_err(|e| format!("TLS: {e}"))?;
-        let tls = TlsConnector::from(Arc::new(config))
-            .connect(name, stream)
-            .await
-            .map_err(|e| format!("No TLS with the node at {origin}: {e}"))?;
+        let tls = connect_local(listener).await?;
         let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(tls))
             .await
             .map_err(|e| format!("No HTTP with the node at {origin}: {e}"))?;
@@ -350,16 +366,31 @@ fn shown(text: &[u8]) -> String {
         .to_owned()
 }
 
-/// A connection to `port` on loopback: IPv4 first, then IPv6, as the
-/// daemon binds every address of one or both, or `--listen` one of them.
-async fn connect_local(port: u16) -> Result<TcpStream, String> {
+/// A TLS connection to the node's listener on loopback, IPv4 first, then
+/// IPv6, as the daemon binds every address of one or both, or `--listen`
+/// one of them. Only a listener that proves it holds the key of the
+/// certificate the daemon named counts: whatever else answers at an
+/// address is passed over, and is sent nothing.
+async fn connect_local(listener: &Listener) -> Result<TlsStream<TcpStream>, String> {
+    let config = rustls::ClientConfig::builder_with_provider(tls::provider())
+        .with_safe_default_protocol_versions()
+        .map_err(|e| format!("TLS: {e}"))?
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(NodeCertificate(listener.leaf_sha256)))
+        .with_no_client_auth();
+    let connector = TlsConnector::from(Arc::new(config));
+    let name = ServerName::try_from("localhost").map_err(|e| format!("TLS: {e}"))?;
     let addresses = [
-        std::net::SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, port)),
-        std::net::SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, port)),
+        std::net::SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, listener.port)),
+        std::net::SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, listener.port)),
     ];
     let mut problems = Vec::with_capacity(addresses.len());
     for address in addresses {
-        match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(address)).await {
+        let attempt = async {
+            let stream = TcpStream::connect(address).await?;
+            connector.connect(name.clone(), stream).await
+        };
+        match tokio::time::timeout(CONNECT_TIMEOUT, attempt).await {
             Ok(Ok(stream)) => return Ok(stream),
             Ok(Err(error)) => problems.push(format!("{address}: {error}")),
             Err(_) => problems.push(format!("{address}: no answer")),
@@ -372,31 +403,35 @@ async fn connect_local(port: u16) -> Result<TcpStream, String> {
     ))
 }
 
-/// Accepts the certificate the node presents on loopback, whoever issued
-/// it, and checks only that the handshake is signed with its key.
+/// Accepts exactly the certificate whose SHA-256 the daemon named over the
+/// owner's socket, and checks that the handshake is signed with its key.
 ///
 /// No CA can vouch for a node that has no hostname, and its self-signed
-/// certificate names `localhost`, which anyone can put in one; but nothing
-/// else can answer here. The port is the one the daemon says, over the
-/// owner's socket, that it listens on; it holds that port, so no other
-/// user's process can bind it (Linux shares a port only within one user);
-/// and loopback never leaves the host. Whatever could still answer in its
-/// place runs as the node's own user or as root, and so can read the
-/// node's database, where the key goes anyway
+/// certificate names `localhost`, which anyone can put in one. The pin
+/// does not depend on who holds the port: another user may bind a
+/// loopback address the node leaves free, but cannot sign with the key of
+/// the node's certificate. Only the node holds that key, and whoever can
+/// read it from the node's database can read the node key there too
 /// (spec/decisions/headless-setup.md).
 #[derive(Debug)]
-struct PresentedCertificate;
+struct NodeCertificate([u8; 32]);
 
-impl ServerCertVerifier for PresentedCertificate {
+impl ServerCertVerifier for NodeCertificate {
     fn verify_server_cert(
         &self,
-        _end_entity: &CertificateDer<'_>,
+        end_entity: &CertificateDer<'_>,
         _intermediates: &[CertificateDer<'_>],
         _server_name: &ServerName<'_>,
         _ocsp_response: &[u8],
         _now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        Ok(ServerCertVerified::assertion())
+        if Sha256::digest(end_entity.as_ref()).as_slice() == self.0 {
+            Ok(ServerCertVerified::assertion())
+        } else {
+            Err(rustls::Error::General(
+                "not the certificate the daemon says it serves".into(),
+            ))
+        }
     }
 
     fn verify_tls12_signature(
@@ -567,6 +602,44 @@ mod tests {
         assert!(!is_token(&"0A".repeat(32)));
         assert!(!is_token(&"0a".repeat(31)));
         assert!(!is_token(&format!("{}\"", "0".repeat(63))));
+    }
+
+    #[test]
+    fn only_the_certificate_the_daemon_names_is_accepted() {
+        let served = CertificateDer::from(vec![0x30, 0x03, 0x02, 0x01, 0x01]);
+        let other = CertificateDer::from(vec![0x30, 0x03, 0x02, 0x01, 0x02]);
+        let pinned = NodeCertificate(Sha256::digest(served.as_ref()).into());
+        let check = |certificate: &CertificateDer<'_>| {
+            pinned.verify_server_cert(
+                certificate,
+                &[],
+                &ServerName::try_from("localhost").unwrap(),
+                &[],
+                UnixTime::now(),
+            )
+        };
+        assert!(check(&served).is_ok());
+        assert!(check(&other).is_err());
+    }
+
+    #[test]
+    fn a_daemon_that_names_no_certificate_is_sent_nothing() {
+        let mut status = proto::GetStatusResponse {
+            https_port: 5101,
+            certificate: Some(proto::Certificate {
+                leaf_sha256: vec![7; 32],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let listener = Listener::of(&status).unwrap();
+        assert_eq!((listener.port, listener.leaf_sha256), (5101, [7; 32]));
+        status.certificate = Some(proto::Certificate::default());
+        assert!(Listener::of(&status).is_err());
+        status.certificate = None;
+        assert!(Listener::of(&status).is_err());
+        status.https_port = 0;
+        assert!(Listener::of(&status).is_err());
     }
 
     #[test]

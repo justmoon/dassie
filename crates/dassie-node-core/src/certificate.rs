@@ -72,6 +72,9 @@ pub struct CertificateInfo {
     pub not_before_ms: u64,
     /// Valid until, in ms since the Unix epoch.
     pub not_after_ms: u64,
+    /// SHA-256 of the leaf, DER-encoded, which a client that cannot check
+    /// the chain pins.
+    pub leaf_sha256: [u8; 32],
 }
 
 impl CertificateInfo {
@@ -166,6 +169,7 @@ mod tests {
             names: names.iter().map(|name| (*name).to_string()).collect(),
             not_before_ms: 0,
             not_after_ms,
+            leaf_sha256: [0; 32],
         }
     }
 
@@ -275,6 +279,7 @@ mod tests {
                 names,
                 not_before_ms: 0,
                 not_after_ms: 0,
+                leaf_sha256: [0; 32],
             };
             prop_assert_eq!(certificate.covers(&hostname), expected);
         }

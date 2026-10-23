@@ -10,7 +10,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/ui/v1/tls.proto.
  */
 export const file_dassie_ui_v1_tls: GenFile = /*@__PURE__*/
-  fileDesc("ChZkYXNzaWUvdWkvdjEvdGxzLnByb3RvEgxkYXNzaWUudWkudjEihAEKC0NlcnRpZmljYXRlEi8KBnNvdXJjZRgBIAEoDjIfLmRhc3NpZS51aS52MS5DZXJ0aWZpY2F0ZVNvdXJjZRINCgVuYW1lcxgCIAMoCRIaChJub3RfYmVmb3JlX3VuaXhfbXMYAyABKAMSGQoRbm90X2FmdGVyX3VuaXhfbXMYBCABKAMiTwoVU2V0Q2VydGlmaWNhdGVSZXF1ZXN0Eh0KFWNlcnRpZmljYXRlX2NoYWluX3BlbRgBIAEoCRIXCg9wcml2YXRlX2tleV9wZW0YAiABKAkiSAoWU2V0Q2VydGlmaWNhdGVSZXNwb25zZRIuCgtjZXJ0aWZpY2F0ZRgBIAEoCzIZLmRhc3NpZS51aS52MS5DZXJ0aWZpY2F0ZSqXAQoRQ2VydGlmaWNhdGVTb3VyY2USIgoeQ0VSVElGSUNBVEVfU09VUkNFX1VOU1BFQ0lGSUVEEAASIgoeQ0VSVElGSUNBVEVfU09VUkNFX1NFTEZfU0lHTkVEEAESGwoXQ0VSVElGSUNBVEVfU09VUkNFX0FDTUUQAhIdChlDRVJUSUZJQ0FURV9TT1VSQ0VfTUFOVUFMEANiBnByb3RvMw");
+  fileDesc("ChZkYXNzaWUvdWkvdjEvdGxzLnByb3RvEgxkYXNzaWUudWkudjEimQEKC0NlcnRpZmljYXRlEi8KBnNvdXJjZRgBIAEoDjIfLmRhc3NpZS51aS52MS5DZXJ0aWZpY2F0ZVNvdXJjZRINCgVuYW1lcxgCIAMoCRIaChJub3RfYmVmb3JlX3VuaXhfbXMYAyABKAMSGQoRbm90X2FmdGVyX3VuaXhfbXMYBCABKAMSEwoLbGVhZl9zaGEyNTYYBSABKAwiTwoVU2V0Q2VydGlmaWNhdGVSZXF1ZXN0Eh0KFWNlcnRpZmljYXRlX2NoYWluX3BlbRgBIAEoCRIXCg9wcml2YXRlX2tleV9wZW0YAiABKAkiSAoWU2V0Q2VydGlmaWNhdGVSZXNwb25zZRIuCgtjZXJ0aWZpY2F0ZRgBIAEoCzIZLmRhc3NpZS51aS52MS5DZXJ0aWZpY2F0ZSqXAQoRQ2VydGlmaWNhdGVTb3VyY2USIgoeQ0VSVElGSUNBVEVfU09VUkNFX1VOU1BFQ0lGSUVEEAASIgoeQ0VSVElGSUNBVEVfU09VUkNFX1NFTEZfU0lHTkVEEAESGwoXQ0VSVElGSUNBVEVfU09VUkNFX0FDTUUQAhIdChlDRVJUSUZJQ0FURV9TT1VSQ0VfTUFOVUFMEANiBnByb3RvMw");
 
 /**
  * @generated from message dassie.ui.v1.Certificate
@@ -37,6 +37,16 @@ export type Certificate = Message<"dassie.ui.v1.Certificate"> & {
    * @generated from field: int64 not_after_unix_ms = 4;
    */
   notAfterUnixMs: bigint;
+
+  /**
+   * SHA-256 of the leaf certificate, DER-encoded. A client on the node's own
+   * host that no CA can vouch to pins it: `dassie setup` sends the node key
+   * only to a listener that proves it holds this certificate's key
+   * (spec/decisions/headless-setup.md).
+   *
+   * @generated from field: bytes leaf_sha256 = 5;
+   */
+  leafSha256: Uint8Array;
 };
 
 /**

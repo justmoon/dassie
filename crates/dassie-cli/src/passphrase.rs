@@ -51,9 +51,13 @@ pub fn read_bounded(path: &Path, max: u64) -> Result<String, ReadProblem> {
     let file = std::fs::File::open(path).map_err(|e| ReadProblem::Io(e.to_string()))?;
     let capacity = usize::try_from(max.saturating_add(1)).map_err(|_| ReadProblem::TooLong)?;
     let mut text = String::with_capacity(capacity);
-    file.take(max.saturating_add(1))
-        .read_to_string(&mut text)
-        .map_err(|e| ReadProblem::Io(e.to_string()))?;
+    let read = file.take(max.saturating_add(1)).read_to_string(&mut text);
+    // A file that is not UTF-8 leaves what was read in the buffer's spare
+    // capacity, which zeroizing a string wipes too.
+    if let Err(error) = read {
+        text.zeroize();
+        return Err(ReadProblem::Io(error.to_string()));
+    }
     if text.len() as u64 > max {
         text.zeroize();
         return Err(ReadProblem::TooLong);

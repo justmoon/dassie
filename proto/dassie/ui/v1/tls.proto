@@ -8,6 +8,11 @@ message Certificate {
   repeated string names = 2;
   int64 not_before_unix_ms = 3;
   int64 not_after_unix_ms = 4;
+  // SHA-256 of the leaf certificate, DER-encoded. A client on the node's own
+  // host that no CA can vouch to pins it: `dassie setup` sends the node key
+  // only to a listener that proves it holds this certificate's key
+  // (spec/decisions/headless-setup.md).
+  bytes leaf_sha256 = 5;
 }
 
 enum CertificateSource {
