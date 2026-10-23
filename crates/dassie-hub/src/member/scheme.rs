@@ -484,8 +484,9 @@ impl HubScheme {
                 if let Some(name) = self.payee_of(*hold)
                     && let Some(peer) = self.peers.get_mut(&name)
                 {
-                    // It went back to us; the next settlement opens another.
-                    peer.payer.hold = None;
+                    // It went back to us; the next settlement opens another,
+                    // with records of its own.
+                    peer.payer = Payer::new();
                 }
             }
             _ => {}
@@ -599,6 +600,23 @@ impl HubScheme {
         };
         let mut paying: Amount = 0;
         for peer in self.peers.values_mut() {
+            // A hold that closed, released or reduced to nothing, takes its
+            // records with it: the next one starts at nothing, as the hub
+            // starts it (spec/areas/hubs.md#packets-promises-and-claims).
+            if peer
+                .payer
+                .hold
+                .is_some_and(|hold| account.hold(hold).is_none())
+            {
+                peer.payer = Payer::new();
+            }
+            if peer
+                .payee
+                .hold
+                .is_some_and(|hold| account.hold(hold).is_none())
+            {
+                peer.payee = Payee::fresh(peer.payee.key_confirmed);
+            }
             peer.payer.snapshot = snapshot(peer.payer.hold);
             peer.payee.snapshot = snapshot(peer.payee.hold);
             if peer.payer.hold.is_some() {

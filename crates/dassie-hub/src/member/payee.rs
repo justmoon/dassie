@@ -97,6 +97,16 @@ pub(super) struct Payee {
 }
 
 impl Payee {
+    /// The records of a hold not yet opened, or of the next one from the
+    /// same peer once the last closed: nothing carries over but whether
+    /// the hub confirmed the peer's key.
+    pub(super) fn fresh(key_confirmed: bool) -> Self {
+        Self {
+            key_confirmed,
+            ..Self::default()
+        }
+    }
+
     /// W of the claim we took.
     fn through(&self) -> u64 {
         self.accepted.map_or(0, |claim| claim.value.through)

@@ -1430,3 +1430,34 @@ fn a_peer_in_another_hub_is_refused() {
         Err(SchemeError::InvalidData)
     );
 }
+
+/// The payee releases the payer's hold; the next settlement opens another,
+/// whose records start at nothing on both sides, as the hub starts it: a
+/// packet fulfilled on it is claimed with T from 0, and a redeem pays only
+/// what was owed on it.
+#[test]
+fn a_hold_opened_again_starts_its_records_anew() {
+    let (mut world, a, b) = World::pair([Fault::Honest; 4], 2);
+    let first = world.hold(a, b).unwrap();
+    for request_id in 1..=3 {
+        world.prepare((a, b), request_id, P, 10_000).unwrap();
+        world.fulfill((a, b), request_id, true, true);
+    }
+    world.run(1_000);
+    world.raw(b, MemberOperation::HoldRelease { hold: first });
+    world.run(1_000);
+    assert!(world.validators.ledger.hold(first).is_none(), "released");
+    world.settle(a, b, units(2 * XRP)).unwrap();
+    world.run(1_000);
+    let second = world.hold(a, b).unwrap();
+    assert_ne!(second, first);
+    for request_id in 4..=6 {
+        world.prepare((a, b), request_id, P, 10_000).unwrap();
+        world.fulfill((a, b), request_id, true, true);
+    }
+    world.run(2_000);
+    let hold = world.validators.ledger.hold(second).unwrap();
+    assert_eq!(hold.total, 3 * P / 1_000, "only what was owed on it");
+    assert_eq!(hold.amount, 2 * XRP - 3 * P / 1_000);
+    assert!(world.members[a].books.losses.is_empty());
+}

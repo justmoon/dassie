@@ -166,7 +166,7 @@ impl HubScheme {
             // Released or reduced to nothing: the account's state says what
             // that left us.
             if let Some(peer) = self.peers.get_mut(&name) {
-                peer.payee = super::payee::Payee::default();
+                peer.payee = super::payee::Payee::fresh(peer.payee.key_confirmed);
             }
             return;
         };
@@ -206,7 +206,7 @@ impl HubScheme {
         };
         let Some(now) = account.hold(number) else {
             // Released: what it held came back to us.
-            peer.payer.hold = None;
+            peer.payer = super::payer::Payer::new();
             return;
         };
         let old = before.get(&number);
