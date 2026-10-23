@@ -323,6 +323,18 @@ impl Validator {
             }
             Request::Account(key) => vec_of(Statement::account(&self.chain.ledger, key)),
             Request::Hold(number) => vec_of(Statement::hold(&self.chain.ledger, number)),
+            // The account and its holds as of one block, for a member that
+            // reads its state anew (spec/areas/hubs.md#the-members-side).
+            Request::Holds(account) => {
+                let ledger = &self.chain.ledger;
+                let Some(key) = ledger.account(account).map(|a| a.key) else {
+                    return;
+                };
+                alloc::vec![
+                    Statement::account(ledger, key),
+                    Statement::holds(ledger, account)
+                ]
+            }
             Request::Since {
                 account,
                 from: height,

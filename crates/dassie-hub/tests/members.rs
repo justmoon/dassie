@@ -132,6 +132,8 @@ struct Validators {
     stamps: BTreeMap<u64, Millis>,
     sequence: u64,
     deposits: u32,
+    /// The lowest height whose operations the validators still keep.
+    complete_from: u64,
 }
 
 impl Validators {
@@ -166,6 +168,7 @@ impl Validators {
             stamps: BTreeMap::from([(0, START)]),
             sequence: 0,
             deposits: 0,
+            complete_from: 1,
         };
         hub.attest(&ValidatorOperation::AttestEscrow { sequence: 10 });
         hub.block(START + 1);
@@ -212,6 +215,13 @@ impl Validators {
         if !self.executed.contains(&hash) && !self.mempool.contains(&operation) {
             self.mempool.push(operation);
         }
+    }
+
+    /// Forgets the history of every block so far, as validators that keep a
+    /// bounded history do.
+    fn trim(&mut self) {
+        self.complete_from = self.ledger.height() + 1;
+        self.log.clear();
     }
 
     /// Executes what waits, deadlines first, as far as a block takes.
@@ -290,6 +300,12 @@ impl Validators {
     /// newest final block the answer covers: an answer too long for one
     /// message stops before a block.
     fn since(&self, account: AccountNumber, from: u64) -> Vec<Statement> {
+        if from < self.complete_from {
+            return vec![Statement::Trimmed {
+                height: self.ledger.height(),
+                below: self.complete_from,
+            }];
+        }
         let mut statements: Vec<Statement> = Vec::new();
         let mut covered = self.ledger.height();
         let touching = self
@@ -329,6 +345,13 @@ impl Validators {
             Request::Account(key) => vec![Statement::account(&self.ledger, key)],
             Request::Hold(number) => vec![Statement::hold(&self.ledger, number)],
             Request::Since { account, from } => self.since(account, from),
+            Request::Holds(account) => {
+                let key = self.ledger.account(account)?.key;
+                vec![
+                    Statement::account(&self.ledger, key),
+                    Statement::holds(&self.ledger, account),
+                ]
+            }
         };
         let statements = if self.faults[index] == Fault::Liar {
             statements.into_iter().filter_map(lie).collect()
@@ -472,6 +495,8 @@ struct Member {
     books: Books,
     peer_states: BTreeMap<Name, Vec<u8>>,
     decided: Vec<Decided>,
+    /// It reaches no validator: its timers do not run.
+    offline: bool,
 }
 
 /// The hub and its members, in simulated time.
@@ -525,6 +550,7 @@ impl World {
             books: Books::default(),
             peer_states: BTreeMap::new(),
             decided: Vec::new(),
+            offline: false,
         });
         self.members.len() - 1
     }
@@ -539,10 +565,11 @@ impl World {
                 self.next_block += BLOCK_MS;
             }
             for i in 0..self.members.len() {
-                let due = self.members[i]
-                    .account
-                    .deadline()
-                    .is_some_and(|at| at <= self.now);
+                let due = !self.members[i].offline
+                    && self.members[i]
+                        .account
+                        .deadline()
+                        .is_some_and(|at| at <= self.now);
                 if due {
                     self.members[i].account.on_timer(self.now);
                     self.heard(i);
@@ -1264,6 +1291,117 @@ fn nothing_goes_beyond_the_hold() {
             .check_commitment(world.now, name_a, 12, promised, &bytes),
         Err(SchemeError::Unavailable)
     );
+}
+
+/// A payee offline past what the validators keep reads its state anew,
+/// and books what its payer added to its hold meanwhile as the payer's
+/// settlement; the peering carries on.
+#[test]
+fn a_payee_offline_past_the_history_books_what_its_hold_grew() {
+    let (mut world, a, b) = World::pair([Fault::Honest; 4], 2);
+    world.members[b].offline = true;
+    world.settle(a, b, units(XRP)).unwrap();
+    world.run(1_000);
+    world.validators.trim();
+    let trimmed = world.validators.ledger.height();
+    world.members[b].offline = false;
+    world.run(2_000);
+    assert!(world.members[b].account.cursor() >= trimmed);
+    assert!(!world.members[b].account.is_resyncing());
+    let name_a = world.members[a].name;
+    assert_eq!(
+        world.members[b].books.peers[&name_a],
+        i128::from(units(3 * XRP))
+    );
+    // It reads in order again: the next packets go through, and their
+    // claims are redeemed.
+    for request_id in 1..=3 {
+        world.prepare((a, b), request_id, P, 10_000).unwrap();
+        world.fulfill((a, b), request_id, true, true);
+    }
+    world.run(1_000);
+    let hold = world.hold(a, b).unwrap();
+    assert_eq!(
+        world.validators.ledger.hold(hold).unwrap().total,
+        3 * P / 1_000
+    );
+    for i in [a, b] {
+        assert_eq!(world.members[i].scheme.balance(), world.truth(i));
+        assert_eq!(world.members[i].books.suspense, 0, "everything explained");
+    }
+}
+
+/// A payer offline past what the validators keep, while the payee won a
+/// claim on the hub for a packet the payer gave up on, books what the hub
+/// paid as a loss once it reads its holds anew, and counts it in its
+/// claims, so the payee still takes them.
+#[test]
+fn a_payer_offline_past_the_history_books_what_the_hub_paid() {
+    let (mut world, a, b) = World::pair([Fault::Honest; 4], 2);
+    world.prepare((a, b), 1, P, 5_000).unwrap();
+    world.fulfill((a, b), 1, false, false);
+    world.members[a].offline = true;
+    world.run(5_000);
+    let hold = world.hold(a, b).unwrap();
+    assert_eq!(world.validators.ledger.hold(hold).unwrap().claimed.len(), 1);
+    // Its node gave up waiting for the hub.
+    world.wait((a, b), 1, world.now);
+    let name_b = world.members[b].name;
+    world.members[a]
+        .scheme
+        .commitments()
+        .unwrap()
+        .on_answered(name_b, 1);
+    world.validators.trim();
+    world.members[a].offline = false;
+    world.run(2_000);
+    assert_eq!(world.members[a].books.lost(LossCause::PaidLate), P);
+    assert!(world.members[a].decided.is_empty(), "it gave up before");
+    for request_id in 2..=3 {
+        world.prepare((a, b), request_id, P, 10_000).unwrap();
+        world.fulfill((a, b), request_id, true, true);
+    }
+    world.run(1_000);
+    let ledger_hold = world.validators.ledger.hold(hold).unwrap();
+    assert_eq!(ledger_hold.total, 3 * P / 1_000, "the payee took its claim");
+    assert_eq!(
+        ledger_hold.amount,
+        2 * XRP - 3 * P / 1_000,
+        "paid once each"
+    );
+    for i in [a, b] {
+        assert_eq!(world.members[i].scheme.balance(), world.truth(i));
+        assert_eq!(world.members[i].books.suspense, 0, "everything explained");
+    }
+}
+
+/// A hold opened toward a payee while it could not read its history is
+/// found when it reads its holds anew, booked as the payer's settlement,
+/// and taken once the hub confirms the key the payer gave at peering.
+#[test]
+fn a_hold_opened_while_the_payee_was_away_is_found() {
+    let mut world = World::new([Fault::Honest; 4]);
+    let a = world.join("alice", 31, 100);
+    let b = world.join("bob", 32, 100);
+    world.run(3_000);
+    world.peer(a, b);
+    world.members[b].offline = true;
+    world.settle(a, b, units(2 * XRP)).unwrap();
+    world.run(1_000);
+    world.validators.trim();
+    world.members[b].offline = false;
+    world.run(2_000);
+    let name_a = world.members[a].name;
+    assert_eq!(
+        world.members[b].books.peers[&name_a],
+        i128::from(units(2 * XRP))
+    );
+    world.prepare((a, b), 1, P, 10_000).unwrap();
+    world.fulfill((a, b), 1, true, true);
+    for i in [a, b] {
+        assert_eq!(world.members[i].scheme.balance(), world.truth(i));
+        assert_eq!(world.members[i].books.suspense, 0);
+    }
 }
 
 /// A member of another hub is refused as a peer.

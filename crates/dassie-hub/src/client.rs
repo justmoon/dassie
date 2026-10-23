@@ -31,6 +31,9 @@ use crate::validators::{Signers, ValidatorIndex, ValidatorSet};
 /// The most statements one answer or push carries.
 pub const MAX_STATEMENTS: usize = 64;
 
+/// The most holds one [`Statement::Holds`] lists.
+pub const MAX_HOLDS_LISTED: usize = 1_024;
+
 /// What an account holds, as a statement tells it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AccountView {
@@ -120,6 +123,21 @@ pub enum Statement {
         /// The hold, if it exists.
         hold: Option<HoldView>,
     },
+    /// Every hold `account` pays into or takes from after the block at
+    /// `height`, stamped `timestamp`: those it pays into first, then those
+    /// toward it, each in order, as far as [`MAX_HOLDS_LISTED`]. What a
+    /// member that can no longer read its history in order reads its holds
+    /// anew from.
+    Holds {
+        /// The block's height.
+        height: u64,
+        /// Its timestamp.
+        timestamp: Millis,
+        /// The account.
+        account: AccountNumber,
+        /// Its holds.
+        holds: Vec<(HoldNumber, HoldView)>,
+    },
 }
 
 /// A statement with the validator's signature.
@@ -144,6 +162,9 @@ pub enum Request {
     Account(PublicKey),
     /// This hold.
     Hold(HoldNumber),
+    /// The account of this number, and every hold it pays into or takes
+    /// from, as of one block.
+    Holds(AccountNumber),
     /// What was executed that touches `account`, from the block at `from`
     /// on, and the newest final block. Asked again and again by a member
     /// a validator cannot reach, and kept open by one it can.
@@ -216,6 +237,23 @@ impl Statement {
         }
     }
 
+    /// What `ledger` says of the holds of `account`.
+    #[must_use]
+    pub fn holds(ledger: &Ledger, account: AccountNumber) -> Self {
+        let paying = ledger.holds().filter(|(_, hold)| hold.payer == account);
+        let toward = ledger.holds().filter(|(_, hold)| hold.payee == account);
+        Self::Holds {
+            height: ledger.height(),
+            timestamp: ledger.timestamp(),
+            account,
+            holds: paying
+                .chain(toward)
+                .take(MAX_HOLDS_LISTED)
+                .map(|(number, hold)| (number, HoldView::of(hold)))
+                .collect(),
+        }
+    }
+
     /// The height it is as of.
     #[must_use]
     pub const fn height(&self) -> u64 {
@@ -224,7 +262,8 @@ impl Statement {
             | Self::Final { height, .. }
             | Self::Account { height, .. }
             | Self::Trimmed { height, .. }
-            | Self::Hold { height, .. } => *height,
+            | Self::Hold { height, .. }
+            | Self::Holds { height, .. } => *height,
         }
     }
 }
@@ -567,6 +606,14 @@ impl Encode for Statement {
                     32 + 1 + account.map_or(0, |(_, view)| 4 + view.encoded_len())
                 }
                 Self::Hold { hold, .. } => 8 + 1 + hold.map_or(0, |view| view.encoded_len()),
+                Self::Holds { holds, .. } => {
+                    8 + 4
+                        + size::quantity(holds.len())
+                        + holds
+                            .iter()
+                            .map(|(_, view)| 8 + view.encoded_len())
+                            .sum::<usize>()
+                }
             }
     }
 
@@ -620,6 +667,22 @@ impl Encode for Statement {
                 writer.write_u64(number.0);
                 writer.write_bool(hold.is_some());
                 if let Some(view) = hold {
+                    view.encode_to(writer);
+                }
+            }
+            Self::Holds {
+                height,
+                timestamp,
+                account,
+                holds,
+            } => {
+                writer.write_u8(5);
+                writer.write_u64(*height);
+                writer.write_u64(*timestamp);
+                writer.write_u32(account.0);
+                writer.write_quantity(holds.len());
+                for (number, view) in holds {
+                    writer.write_u64(number.0);
                     view.encode_to(writer);
                 }
             }
@@ -677,6 +740,21 @@ impl Statement {
                 height,
                 below: reader.read_u64()?,
             },
+            5 => {
+                let timestamp = reader.read_u64()?;
+                let account = AccountNumber(reader.read_u32()?);
+                let count = reader.read_quantity(MAX_HOLDS_LISTED)?;
+                let mut holds = Vec::with_capacity(count);
+                for _ in 0..count {
+                    holds.push((HoldNumber(reader.read_u64()?), HoldView::decode(reader)?));
+                }
+                Self::Holds {
+                    height,
+                    timestamp,
+                    account,
+                    holds,
+                }
+            }
             other => return Err(HubDecodeError::UnknownChoice(u64::from(other))),
         })
     }
@@ -739,6 +817,7 @@ impl Encode for Request {
             Self::Submit(operation) => operation.encoded_len(),
             Self::Account(_) => 32,
             Self::Hold(_) => 8,
+            Self::Holds(_) => 4,
             Self::Since { .. } => 4 + 8,
         }
     }
@@ -762,6 +841,10 @@ impl Encode for Request {
                 writer.write_u32(account.0);
                 writer.write_u64(*from);
             }
+            Self::Holds(account) => {
+                writer.write_u8(4);
+                writer.write_u32(account.0);
+            }
         }
     }
 }
@@ -778,6 +861,7 @@ impl Request {
                 account: AccountNumber(reader.read_u32()?),
                 from: reader.read_u64()?,
             },
+            4 => Self::Holds(AccountNumber(reader.read_u32()?)),
             other => return Err(HubDecodeError::UnknownChoice(u64::from(other))),
         };
         reader.finish()?;
@@ -954,12 +1038,45 @@ mod tests {
         assert_eq!(SignedStatement::decode_list(&bytes).unwrap(), signed);
     }
 
+    // What a member that can no longer read its history in order is told.
+    #[test]
+    fn what_a_resync_reads_round_trips() {
+        let hub = HubId(Digest([1; 32]));
+        let (_, keys) = set();
+        let view = HoldView {
+            payer: AccountNumber(1),
+            payee: AccountNumber(2),
+            amount: 10,
+            reduction: None,
+            total: 11,
+            through: 12,
+        };
+        let signed: Vec<SignedStatement> = [
+            Statement::Holds {
+                height: 8,
+                timestamp: 9,
+                account: AccountNumber(2),
+                holds: alloc::vec![(HoldNumber(9), view), (HoldNumber(10), view)],
+            },
+            Statement::Trimmed {
+                height: 8,
+                below: 4,
+            },
+        ]
+        .into_iter()
+        .map(|s| SignedStatement::sign(&hub, ValidatorIndex::new(1).unwrap(), s, &keys[1]))
+        .collect();
+        let bytes = SignedStatement::encode_list(&signed);
+        assert_eq!(SignedStatement::decode_list(&bytes).unwrap(), signed);
+    }
+
     #[test]
     fn requests_and_outcomes_round_trip() {
         let key = NodeKey::from_bytes(&[9; 32]).public_key();
         for request in [
             Request::Account(key),
             Request::Hold(HoldNumber(3)),
+            Request::Holds(AccountNumber(5)),
             Request::Since {
                 account: AccountNumber(2),
                 from: 9,
