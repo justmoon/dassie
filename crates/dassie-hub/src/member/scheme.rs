@@ -929,30 +929,33 @@ impl SettlementScheme for HubScheme {
         }
         let opening = self.settling.values().any(|s| s.peer == peer);
         let hold = self.peers.get(&peer).and_then(|p| p.payer.hold);
-        let (operation, needs) = match hold {
-            Some(hold) => (
-                MemberOperation::HoldFund {
-                    hold,
-                    amount: drops,
-                },
-                drops,
-            ),
+        // Opening a hold locks its reserve besides what it holds.
+        let reserve = match hold {
+            Some(_) => 0,
             None if opening => return Err(SchemeError::Unavailable),
-            None => (
-                MemberOperation::HoldOpen {
-                    payee: membership.account,
-                    amount: drops,
-                },
-                drops.saturating_add(self.terms.fees.hold_reserve),
-            ),
+            None => self.terms.fees.hold_reserve,
         };
         let balance = account.view().map_or(0, |(_, view)| view.balance);
         let spendable = balance
             .saturating_sub(account.committed())
-            .saturating_sub(self.terms.fees.operation);
-        if spendable < needs {
+            .saturating_sub(self.terms.fees.operation)
+            .saturating_sub(reserve);
+        // At most what the account can spend: a node asked to settle funds
+        // the hold with what it has (spec/areas/hubs.md#in-the-node).
+        let drops = drops.min(spendable);
+        if drops == 0 {
             return Err(SchemeError::Unavailable);
         }
+        let operation = match hold {
+            Some(hold) => MemberOperation::HoldFund {
+                hold,
+                amount: drops,
+            },
+            None => MemberOperation::HoldOpen {
+                payee: membership.account,
+                amount: drops,
+            },
+        };
         let mut bytes = [0u8; 16];
         rng.fill_bytes(&mut bytes);
         let id = Name::hex(&bytes, false);
@@ -1200,6 +1203,27 @@ impl Commitments for HubScheme {
 
     fn take_decided(&mut self, out: &mut Vec<Decided>) {
         out.extend(self.decided.drain(..));
+    }
+
+    /// What is left in our hold toward `peer` and in its hold toward us,
+    /// as the account mirrored them from the last block it read through.
+    fn holds(&self, peer: Name) -> dassie_settlement::HoldsWith {
+        self.peers
+            .get(&peer)
+            .map_or_else(dassie_settlement::HoldsWith::default, |peer| {
+                dassie_settlement::HoldsWith {
+                    toward: units(peer.payer.snapshot.amount),
+                    from: units(peer.payee.snapshot.amount),
+                }
+            })
+    }
+
+    /// The hub, and our account in it once it has its number.
+    fn membership(&self) -> Option<dassie_settlement::Membership> {
+        Some(dassie_settlement::Membership {
+            hub: *self.hub.0.as_bytes(),
+            account: self.account?.0,
+        })
     }
 }
 

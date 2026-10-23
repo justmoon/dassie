@@ -630,6 +630,9 @@ pub struct Sim {
     /// Packets a node's stub with commitments held past its connector
     /// ([`Sim::watch_hub`]).
     pub hub_leaks: Vec<String>,
+    /// Credit over the stub with commitments apart from the holds
+    /// ([`Sim::watch_hub`]).
+    pub hub_credit_off: Vec<String>,
     /// Nodes whose connection to the ledger carries nothing.
     pub ledger_down: BTreeSet<usize>,
     /// The peer protocol's settings.
@@ -770,6 +773,7 @@ impl Sim {
             refused: Vec::new(),
             priced: Vec::new(),
             hub_leaks: Vec::new(),
+            hub_credit_off: Vec::new(),
             ledger_down: BTreeSet::new(),
             peer,
             withdrawn: Vec::new(),
@@ -1132,40 +1136,41 @@ impl Sim {
         true
     }
 
-    /// Checks node `index`'s stub with commitments after a step against its
-    /// connector: the stub holds no more of a peer's packets, or of ours to
-    /// it, than the connector holds pending with that peer. A commitment
-    /// the stub still holds for a packet the connector let go would never
-    /// be resolved, and would take a place the stub has for the peer for
-    /// good, as a hub's member would keep a promise for a packet nobody
-    /// answers. A run keeps the first it finds of each node and peer, and
-    /// of the first few.
+    /// Checks node `index`'s peerings over the stub with commitments after
+    /// a step. The stub holds no more of its packets to a peer, or of the
+    /// peer's to it, than the connector holds pending with that peer: a
+    /// commitment the stub still held for a packet the connector let go
+    /// would never be resolved, and would take a place the stub has for the
+    /// peer for good, as a hub's member would keep a promise for a packet
+    /// nobody answers. And the credit the node extends to each peer is its
+    /// hold toward the peer and its settlements to it still on their way
+    /// (spec/areas/hubs.md#in-the-node). A run keeps the first it finds of
+    /// each node and peer, and of the first few.
     fn watch_hub(&mut self, index: usize) {
         let Some(core) = self.nodes[index].core.as_mut() else {
             return;
         };
-        for packets in core.hub_packets() {
-            let held = packets.held;
-            if held.ours <= packets.pending_to && held.theirs <= packets.pending_from {
-                continue;
-            }
-            let seen = format!(" node {index}'s stub ");
-            let to = format!(" to {} ", packets.peer);
-            let again = self
-                .hub_leaks
-                .iter()
-                .any(|leak| leak.contains(&seen) && leak.contains(&to));
-            if !again && self.hub_leaks.len() < 10 {
-                self.hub_leaks.push(format!(
+        for peer in core.hub_peers() {
+            let held = peer.held;
+            if held.ours > peer.pending_to || held.theirs > peer.pending_from {
+                let leak = format!(
                     "{} node {index}'s stub holds {} of its packets to {} and {} of that \
                      peer's to it, while its connector holds {} and {} pending",
-                    self.now,
-                    held.ours,
-                    packets.peer,
-                    held.theirs,
-                    packets.pending_to,
-                    packets.pending_from,
-                ));
+                    self.now, held.ours, peer.peer, held.theirs, peer.pending_to, peer.pending_from,
+                );
+                record_once(&mut self.hub_leaks, index, peer.peer, leak);
+            }
+            let holds = peer.holds.toward.saturating_add(peer.settling);
+            if peer.peered
+                && let Some(credit) = peer.credit
+                && credit != holds
+            {
+                let off = format!(
+                    "{} node {index}'s stub extends {} credit of {credit}, while its hold \
+                     toward it is {} and its settlements to it on their way {}",
+                    self.now, peer.peer, peer.holds.toward, peer.settling,
+                );
+                record_once(&mut self.hub_credit_off, index, peer.peer, off);
             }
         }
     }
@@ -2288,6 +2293,23 @@ const COMMIT_FAILED: &str = "persisting the ledger failed";
 thread_local! {
     /// Whether this thread runs a step whose commit is made to fail.
     static FAILING: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Keeps `finding`, of node `index` and `peer`, unless one of theirs is
+/// kept, and among the first few only.
+fn record_once(
+    findings: &mut Vec<String>,
+    index: usize,
+    peer: dassie_ledger::Name,
+    finding: String,
+) {
+    let (node, to) = (format!(" node {index}'s "), format!(" {peer} "));
+    let again = findings
+        .iter()
+        .any(|kept| kept.contains(&node) && kept.contains(&to));
+    if !again && findings.len() < 10 {
+        findings.push(finding);
+    }
 }
 
 /// Runs a step whose commit is made to fail, catching the panic that

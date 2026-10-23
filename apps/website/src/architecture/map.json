@@ -350,7 +350,7 @@
         "Open Payments over HTTPS and relayed streams: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments, each answer signed with the node key and written under the name the request came through",
         "Exchange rates, fetched from several sources, the fee and spread on what passes between peers, and the price table rebuilt from them and the owner's funds whenever either changes",
         "A core node's rate feed: the price table, signed once and sent over UDP to every subscriber that proved its address, at most once a second while it changes, with the feed's port in `GET /stats` and the node's link state, and its counters in the owner's status rather than the log",
-        "Credit to each peer that grows with the fees it earned the node, read from the journal; over a settlement hub, the payer's hold is the credit and nothing grows",
+        "Credit to each peer that grows with the fees it earned the node, read from the journal; over a settlement hub, the credit is the node's own hold toward the peer, kept in step as the hold is funded and taken from, and nothing grows",
         "Peerings over a settlement hub: the node names its hub in its link state and peers over it with members of the same hub, sends a commitment with each Prepare and a claim with each reply to a Fulfill, and books what a peering cost beyond its hold as a loss on the peer",
         "Simulated as a network of real engine cores, in tests and by `dassie-sim`: each seed draws its nodes, faults and payments, runs them through chaos, then heals the network, which must settle down"
       ]
@@ -429,7 +429,7 @@
         "The scheme interface, and when a scheme is active",
         "External assets: what the node holds outside its books, as the ledger says, apart from the schemes that settle through it",
         "Gas: a holding one scheme spends and another settles in is spent only within the owner's funds",
-        "The stub scheme: 100 test USD, so everything works without a real ledger",
+        "The stub scheme: 100 test USD, so everything works without a real ledger, and with commitments, peerings over a settlement hub without a hub",
         "The settlement policy: when a creditor asks a peer to settle, and how much the debtor pays, counted in the largest packet",
         "Promises per packet, for schemes whose peerings carry them, as a settlement hub's do, and assets that talk to several endpoints, such as a hub's validators",
         "Reconciling settlements still pending after a restart"

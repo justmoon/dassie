@@ -2503,3 +2503,173 @@ fn a_hub_scheme_is_offered_only_with_a_default_hub() {
         dassie_hub::member::DEFAULT_TESTNET_HUB.is_some()
     );
 }
+
+/// A core node at `https://core.test` that takes QUIC, over the stub with
+/// commitments, with a downlink peered on it: the downlink's ID.
+fn hub_core_with_downlink(seed: u64) -> (Core, dassie_identity::NodeId) {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = Core::start(
+        CoreParts {
+            store,
+            key: Arc::new(NodeKey::from_bytes(&[7; 32])),
+            realm: Realm::Test,
+            policies: Policies::DEFAULT,
+            rng: Box::new(SeededRng::new(seed)),
+            peer_rng: Box::new(SeededRng::new(seed + 1)),
+            own_info: dassie_peer::OwnInfo {
+                url: Some("https://core.test".into()),
+                alias: String::new(),
+                quic: true,
+                feed_port: None,
+                hub: None,
+            },
+            bootstrap: Vec::new(),
+            uplinks: Vec::new(),
+        },
+        NOW,
+    )
+    .unwrap();
+    core.add_scheme("stub", r#"{"commitments":1}"#.into())
+        .unwrap();
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
+    let at = NOW + 1_000;
+    core.begin_step(at);
+    let body = downlink_request(&core, &downlink, at);
+    core.peer_inbound(dassie_peer::InboundId(1), &body, None);
+    core.finish_step(&mut outputs);
+    let id = downlink.node_id();
+    assert!(core.peer.peering_of(&id).is_some());
+    (core, id)
+}
+
+/// The credit `core` extends to `peer` over the stub, its hold toward the
+/// peer, and its settlements to the peer still pending.
+fn hub_books(core: &mut Core, peer: dassie_identity::NodeId) -> (u64, u64, u64) {
+    let stub = dassie_ledger::name!("stub");
+    let name = dassie_ledger::Name::new(peer.as_str()).unwrap();
+    let toward = core
+        .with_commitments(stub, |c| c.holds(name).toward)
+        .unwrap();
+    let (credit, _, settling) = core.hub_books(stub, peer).unwrap();
+    (credit, toward, settling)
+}
+
+// spec/areas/hubs.md#in-the-node: asked to settle over a hub, a payer funds
+// its hold toward the peer with what it would otherwise have paid, as a
+// junior that extends the default credit would, though it extends none:
+// the credit is raised by it first, so that the books take the settlement,
+// and once the settlement executed the credit is the hold it funded.
+#[test]
+fn asked_over_a_hub_a_payer_funds_its_hold() {
+    let (mut core, peer) = hub_core_with_downlink(31);
+    assert_eq!(hub_books(&mut core, peer), (0, 0, 0));
+    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
+    core.begin_step(NOW + 2_000);
+    let settling = core.settlement_requested(peer, scheme);
+    let expected = dassie_settlement::policy::requested_amount(
+        u128::from(Policies::DEFAULT.peer_credit),
+        core.settle.trigger,
+        core.settle.minimum,
+    );
+    assert!(expected > 0);
+    assert_eq!(settling, expected);
+    assert_eq!(hub_books(&mut core, peer), (expected, 0, expected));
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    assert_eq!(hub_books(&mut core, peer), (expected, expected, 0));
+}
+
+// spec/areas/hubs.md#in-the-node: a payer whose hub account can spend
+// nothing funds no hold when asked: it answers that nothing is on its way,
+// and its credit and books stay as they were, so the payee's room for it
+// stays what it was.
+#[test]
+fn a_payer_without_hub_funds_funds_nothing() {
+    let (mut core, peer) = hub_core_with_downlink(32);
+    // Everything the stub holds goes elsewhere, behind the books.
+    let stub = dassie_ledger::name!("stub");
+    let elsewhere = dassie_ledger::Name::new("delsewhere").unwrap();
+    let scheme = &mut core.schemes.get_mut(&stub).unwrap().scheme;
+    let balance = scheme.balance();
+    let prepared = scheme
+        .prepare_settlement(&mut SeededRng::new(9), None, elsewhere, balance, &[])
+        .unwrap();
+    scheme.execute_settlement(None, prepared.id, &mut Vec::new());
+    assert_eq!(scheme.balance(), 0);
+    core.begin_step(NOW + 2_000);
+    let scheme_id = dassie_peer::wire::SchemeId::parse("stub").unwrap();
+    assert_eq!(core.settlement_requested(peer, scheme_id), 0);
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    assert_eq!(hub_books(&mut core, peer), (0, 0, 0));
+    assert!(core.ledger.pending_transfers().next().is_none());
+}
+
+// spec/areas/hubs.md#in-the-node: the credit over a hub follows the hold
+// down as the payee takes from it, but never past what the peer may still
+// owe us: the books cannot take more from its account than the ledger's
+// limit leaves. Here the payee took a packet from our hold that our books
+// never paid it, so it owes us all the room there is: the credit stays,
+// and follows the hold once our books owe the peer the packet.
+#[test]
+fn the_credit_over_a_hub_is_lowered_only_as_far_as_the_books_allow() {
+    use dassie_ledger::{AccountName, LedgerId, Reference, TransferSpec};
+    use dassie_settlement::Promised;
+
+    let (mut core, peer) = hub_core_with_downlink(33);
+    let scheme_id = dassie_peer::wire::SchemeId::parse("stub").unwrap();
+    core.begin_step(NOW + 2_000);
+    let funded = core.settlement_requested(peer, scheme_id);
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    assert_eq!(hub_books(&mut core, peer), (funded, funded, 0));
+    // The payee takes a packet of 100 from our hold.
+    let stub = dassie_ledger::name!("stub");
+    let name = dassie_ledger::Name::new(peer.as_str()).unwrap();
+    let promised = Promised {
+        amount: 100,
+        condition: [1; 32],
+        expires_at_ms: NOW + 30_000,
+    };
+    core.with_commitments(stub, |c| {
+        let mut out = Vec::new();
+        c.commit(NOW, name, 7, promised, &mut out).unwrap();
+        c.claim(NOW, name, 7, true, &mut out);
+    });
+    core.begin_step(NOW + 3_000);
+    outputs.clear();
+    core.finish_step(&mut outputs);
+    assert_eq!(hub_books(&mut core, peer), (funded, funded - 100, 0));
+    // Our books owe the peer the packet: the credit follows the hold.
+    let interledger = core
+        .account(LedgerId::StubUsd, AccountName::AssetsInterledger(name))
+        .unwrap();
+    let pool = core
+        .account(LedgerId::StubUsd, AccountName::EquityOwner)
+        .unwrap();
+    core.begin_step(NOW + 4_000);
+    core.ledger
+        .create(
+            NOW + 4_000,
+            &TransferSpec {
+                debit: pool,
+                credit: interledger,
+                amount: 100,
+                pending: false,
+                reference: Reference::Deposit,
+            },
+        )
+        .unwrap();
+    outputs.clear();
+    core.finish_step(&mut outputs);
+    assert_eq!(hub_books(&mut core, peer), (funded - 100, funded - 100, 0));
+    let followed = outputs.iter().any(|output| {
+        matches!(output, Output::Event(event @ super::Event::Settlement(
+            super::SettlementEvent::HubCredit { credit, holds, .. }
+        )) if *credit == funded - 100 && *holds == funded - 100
+            && event.severity() == super::Severity::Debug)
+    });
+    assert!(followed, "{outputs:?}");
+}

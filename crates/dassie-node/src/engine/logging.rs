@@ -280,10 +280,8 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         SettlementEvent::PrepareFailed { node, error } => {
             emit!(severity, target: target::SETTLEMENT, %node, %error, "the scheme could not prepare a settlement");
         }
-        SettlementEvent::Reconciling { scheme, pending } => {
-            emit!(severity, target: target::SETTLEMENT, %scheme, pending, "reconciling settlements from before the restart");
-        }
-        SettlementEvent::UnknownExecuted { .. }
+        SettlementEvent::Reconciling { .. }
+        | SettlementEvent::UnknownExecuted { .. }
         | SettlementEvent::AnnounceFailed { .. }
         | SettlementEvent::UnknownCancelled { .. }
         | SettlementEvent::Failed { .. }
@@ -291,6 +289,7 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::SettlementBooked { .. }
         | SettlementEvent::PeerSettlementRefused { .. }
         | SettlementEvent::CreditRaised { .. }
+        | SettlementEvent::HubCredit { .. }
         | SettlementEvent::EarningsNotRead { .. } => settlement_outcome(severity, event),
     }
 }
@@ -322,6 +321,16 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         SettlementEvent::CreditRaised { peer, credit } => {
             emit!(severity, target: target::SETTLEMENT, %peer, credit, "a peer earned more credit");
         }
+        SettlementEvent::Reconciling { scheme, pending } => {
+            emit!(severity, target: target::SETTLEMENT, %scheme, pending, "reconciling settlements from before the restart");
+        }
+        SettlementEvent::HubCredit {
+            peer,
+            credit,
+            holds,
+        } => {
+            emit!(severity, target: target::SETTLEMENT, %peer, credit, holds, "the credit over a hub followed its holds");
+        }
         SettlementEvent::EarningsNotRead { error } => {
             emit!(severity, target: target::SETTLEMENT, %error, "the fees peers earned could not be credited");
         }
@@ -335,8 +344,7 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::BooksCannotSettle { .. }
         | SettlementEvent::Settling { .. }
         | SettlementEvent::SchemeUnavailable { .. }
-        | SettlementEvent::PrepareFailed { .. }
-        | SettlementEvent::Reconciling { .. } => {}
+        | SettlementEvent::PrepareFailed { .. } => {}
     }
 }
 

@@ -6,9 +6,10 @@
 //! scripted run.
 //!
 //! After every step, the simulation checks that no node's stub holds a
-//! packet its connector let go (`Sim::watch_hub`): the targeted tests below
-//! set up the situations where one was held for good, and each checks the
-//! run with it.
+//! packet its connector let go, and that the credit each node extends over
+//! the hub is what the holds call for (`Sim::watch_hub`): the targeted tests
+//! below set up the situations where a packet was held for good, and each
+//! checks the run with it.
 
 #![allow(
     clippy::unwrap_used,
@@ -21,8 +22,9 @@ use std::collections::BTreeMap;
 
 use dassie_connector::{EndpointId, PacketRecord, PacketState};
 use dassie_ilp::ErrorCode;
-use dassie_node::engine::HubPackets;
-use dassie_node::sim::checks::{check, check_hub_packets};
+use dassie_ledger::Name;
+use dassie_node::engine::HubPeer;
+use dassie_node::sim::checks::{check, check_hub_credit, check_hub_packets};
 use dassie_node::sim::{START, Settling, Sim, key, received, scripted};
 use dassie_node_core::testing::assert_seeds_pass;
 use dassie_settlement::Held;
@@ -79,20 +81,33 @@ fn line(seed: u64, payer: usize) -> Sim {
     sim
 }
 
-/// What node `index`'s stub holds of each peer's packets, beside its
-/// connector.
-fn held(sim: &mut Sim, index: usize) -> Vec<HubPackets> {
-    sim.nodes[index].core.as_mut().unwrap().hub_packets()
+/// Node `index`'s peerings over the stub with commitments.
+fn hub_peers(sim: &mut Sim, index: usize) -> Vec<HubPeer> {
+    sim.nodes[index].core.as_mut().unwrap().hub_peers()
+}
+
+/// What node `index`'s stub holds of each peer's packets, for each peer it
+/// holds any of.
+fn held(sim: &mut Sim, index: usize) -> Vec<(Name, Held)> {
+    hub_peers(sim, index)
+        .into_iter()
+        .filter(|peer| peer.held != Held::default())
+        .map(|peer| (peer.peer, peer.held))
+        .collect()
+}
+
+/// Node `index`'s peering over the stub with commitments with node `peer`.
+fn hub_peer(sim: &mut Sim, index: usize, peer: usize) -> Option<HubPeer> {
+    let name = key(peer).node_id();
+    hub_peers(sim, index)
+        .into_iter()
+        .find(|hub| hub.peer.as_str() == name.as_str())
 }
 
 /// What node `index`'s stub holds of the packets between it and node
 /// `peer`.
 fn held_with(sim: &mut Sim, index: usize, peer: usize) -> Held {
-    let name = key(peer).node_id();
-    held(sim, index)
-        .into_iter()
-        .find(|packets| packets.peer.as_str() == name.as_str())
-        .map_or(Held::default(), |packets| packets.held)
+    hub_peer(sim, index, peer).map_or(Held::default(), |hub| hub.held)
 }
 
 /// The packets node `index` sent to a peer, as its connector traced them.
@@ -282,8 +297,78 @@ fn a_prepare_that_never_reached_the_peer_frees_its_place() {
         PacketState::Rejected(ErrorCode::T01_PEER_UNREACHABLE)
     ));
     check_hub_packets(&sim).unwrap();
-    assert_eq!(held_with(&mut sim, 0, 1).ours, 0);
+    let hub = hub_peer(&mut sim, 0, 1).unwrap();
+    assert!(hub.held.ours <= hub.pending_to);
     sim.cut.clear();
     paid(&mut sim, 180_000);
+    check(&sim).unwrap();
+}
+
+// spec/areas/hubs.md#in-the-node: the credit a node extends to a peer over a
+// hub is its hold toward the peer, with its settlements to it on their way.
+// Node 1 asks node 0 to settle at once, since it extends nothing: node 0
+// funds its hold toward node 1, raising its credit by as much, and node 1
+// books the funding as node 0's settlement. Each packet node 1 is paid is
+// taken from node 0's hold, which node 0's credit follows down, until node
+// 1 asks again. The credit is what the holds call for after every step
+// (`Sim::watch_hub`).
+#[test]
+fn the_credit_over_a_hub_follows_the_holds() {
+    let mut sim = hub_network(7, 2, 1);
+    peered(&mut sim);
+    let books = |sim: &mut Sim, index: usize, peer: usize| {
+        let hub = hub_peer(sim, index, peer).unwrap();
+        (hub.credit.unwrap(), hub.holds, hub.settling)
+    };
+    let funded = |sim: &Sim| {
+        let id = key(1).node_id();
+        sim.core(0)
+            .network()
+            .peers
+            .iter()
+            .any(|peer| peer.id == id && peer.peering.credit_out > 0)
+    };
+    assert!(sim.run_until_or(sim.now + 120_000, funded), "no hold");
+    let (credit, holds, settling) = books(&mut sim, 0, 1);
+    assert!(holds.toward > 0, "node 0 holds nothing toward node 1");
+    assert_eq!(credit, holds.toward + settling);
+    // Node 1 books the funding once node 0's settlement arrives.
+    let deadline = sim.now + 30_000;
+    while books(&mut sim, 1, 0).1.from == 0 {
+        assert!(sim.now < deadline, "node 1 never heard of the hold");
+        sim.run_until(sim.now + 100);
+    }
+    assert_eq!(books(&mut sim, 1, 0).1.from, holds.toward);
+    paying(&mut sim, 0, 1);
+    paid(&mut sim, 120_000);
+    sim.run_until(sim.now + 120_000);
+    let (credit, holds, settling) = books(&mut sim, 0, 1);
+    assert_eq!(credit, holds.toward + settling);
+    // Node 0's hold is what it funded, less what node 1 was paid from it.
+    // Node 0 asks node 1 to settle too, so node 1 funds a hold toward node
+    // 0, which node 0's stub holds besides: what node 0 funded is what left
+    // the stub, with what came in for that hold.
+    let funded = 100_000_000_000 + sim.balances(0)["assets/settlement"] + i128::from(holds.from);
+    assert_eq!(i128::from(holds.toward), funded - 500_000_000);
+    check_hub_credit(&sim).unwrap();
+    check(&sim).unwrap();
+}
+
+// A payment over hubs crosses hops in full: each payer funds its hold
+// toward the next hop when asked, and is paid from it.
+#[test]
+fn a_payment_over_hubs_is_paid_in_full_across_hops() {
+    let mut sim = line(8, 1);
+    assert!(sim.pay(0, 2, 3_000_000_000, None, None));
+    paid(&mut sim, 600_000);
+    assert_eq!(received(&sim, &sim.payments[0]), 3_000_000_000);
+    for (index, peer) in [(0, 1), (1, 2)] {
+        let hub = hub_peer(&mut sim, index, peer).unwrap();
+        assert!(
+            hub.holds.toward > 0,
+            "node {index} holds nothing toward {peer}"
+        );
+    }
+    check_hub_credit(&sim).unwrap();
     check(&sim).unwrap();
 }

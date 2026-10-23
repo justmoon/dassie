@@ -12,16 +12,13 @@ use dassie_connector::{EndpointId, HubWait};
 use dassie_identity::NodeId;
 use dassie_ilp::{Address, ErrorCode, Prepare, Response};
 use dassie_ledger::Name;
+use dassie_ledger::{AccountName, AccountPath, MAX_TOTAL};
 use dassie_oer::Decode;
 use dassie_peer::wire::HubMembership;
-use dassie_settlement::{Commitments, Decided, Promised};
+use dassie_settlement::{Commitments, Decided, HoldsWith, Promised, policy};
 
 use super::Core;
-
-/// The pretend hub that nodes on the stub with commitments are members of,
-/// in tests and simulations.
-#[cfg(feature = "testing")]
-const STUB_HUB_ID: [u8; 32] = *b"the stub with commitments' hub..";
+use super::events::SettlementEvent;
 
 /// What became of a Prepare to a peer over a hub.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,39 +42,42 @@ fn promised(packet: &[u8]) -> Option<Promised> {
     })
 }
 
-/// What a scheme over a hub holds of the packets between us and one peer,
-/// beside what the connector holds pending with it: for a simulation to
-/// check that the scheme holds no packet the connector let go
-/// (spec/areas/testing.md#the-simulations).
+/// A peering over a hub as a simulation checks it
+/// (spec/areas/testing.md#the-simulations): what the scheme holds of the
+/// packets between us and the peer, beside what the connector holds pending
+/// with it, and the credit we extend to it, beside the holds it follows.
 #[cfg(feature = "testing")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct HubPackets {
+pub struct HubPeer {
     /// The peer.
     pub peer: Name,
-    /// What the scheme holds.
+    /// What the scheme holds of the packets between us, if it counts them.
     pub held: dassie_settlement::Held,
     /// The connector's packets to the peer, in flight or waiting for the
     /// hub.
     pub pending_to: usize,
     /// The connector's packets from the peer that it has not answered.
     pub pending_from: usize,
+    /// Whether we are peered with it, ending the peering or not: only
+    /// then does the credit follow the holds.
+    pub peered: bool,
+    /// The holds between us, as the scheme last read them.
+    pub holds: HoldsWith,
+    /// The credit we extend to it, while its accounts are open.
+    pub credit: Option<u64>,
+    /// Our settlements to it still pending: what funds our hold once they
+    /// execute.
+    pub settling: u64,
 }
 
-impl super::ledgers::ActiveScheme {
-    /// Whether its peerings extend no unsecured credit: those over a hub,
-    /// whose hold is all the credit there is
-    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). In tests and
-    /// simulations, the stub with commitments, which has no hold, extends
-    /// credit as the stub does, so that money crosses its peerings: it
-    /// stands in for the packet path over a hub, not for the hold. Built
-    /// only with the `testing` feature.
-    pub(super) fn credit_is_hold(&self) -> bool {
-        #[cfg(feature = "testing")]
-        if self.scheme.id() == dassie_ledger::name!("stub") {
-            return false;
-        }
-        self.over_hub
-    }
+/// The credit we extend to a peer over a hub: our hold toward it, our money
+/// set aside for it, and our settlements to it still on their way, which
+/// fund that hold once they execute (spec/areas/hubs.md#in-the-node). Its
+/// hold toward us is not counted: it is booked already, as its settlements
+/// to us, and counting it here too would let it owe us twice what it holds.
+#[must_use]
+pub(super) fn hub_credit(holds: HoldsWith, settling: u64) -> u64 {
+    holds.toward.saturating_add(settling).min(MAX_TOTAL)
 }
 
 impl Core {
@@ -96,77 +96,179 @@ impl Core {
     }
 
     /// The settlement hub we are a member of, as our link state names it
-    /// (spec/designs/settlement-hubs.md#11-choosing-a-hub): once our hub
-    /// account has its number, and while its scheme runs.
-    pub(super) fn hub_membership(&self) -> Option<HubMembership> {
-        #[cfg(feature = "testing")]
-        if let Some(membership) = self.stub_hub_membership() {
-            return Some(membership);
-        }
-        let scheme = Name::new(dassie_hub::member::SCHEME_ID).ok()?;
-        let running = self
+    /// (spec/designs/settlement-hubs.md#11-choosing-a-hub): that of the
+    /// first scheme over a hub that runs and has an account in it.
+    pub(super) fn hub_membership(&mut self) -> Option<HubMembership> {
+        let hubs: Vec<Name> = self
             .schemes
-            .get(&scheme)
-            .is_some_and(|active| active.failed.is_none());
-        if !running {
-            return None;
-        }
-        let active = self.assets.get(&dassie_hub::member::FIRST)?;
-        let any: &dyn core::any::Any = active.asset.as_ref();
-        let account = any.downcast_ref::<dassie_hub::member::HubAccount>()?;
-        Some(HubMembership {
-            hub_id: *account.hub().0.as_bytes(),
-            account: account.number()?.0,
-            takes_peers: true,
+            .iter()
+            .filter(|(_, active)| active.over_hub)
+            .map(|(name, _)| *name)
+            .collect();
+        hubs.into_iter().find_map(|scheme| {
+            let membership = self.with_commitments(scheme, |c| c.membership())??;
+            Some(HubMembership {
+                hub_id: membership.hub,
+                account: membership.account,
+                takes_peers: true,
+            })
         })
     }
 
-    /// In tests and simulations, the stub with commitments makes its nodes
-    /// members of one pretend hub, so that they peer over it as over a hub
-    /// (spec/areas/settlement.md#the-stub-scheme): a hub's member side
-    /// needs validators, which no simulation runs yet. Built only with the
-    /// `testing` feature.
+    /// Each peering over a hub, and each peer a scheme over a hub holds
+    /// packets of, in the order of the schemes and then the peers, as a
+    /// simulation checks them. Built only with the `testing` feature.
     #[cfg(feature = "testing")]
-    fn stub_hub_membership(&self) -> Option<HubMembership> {
-        let stub = self.schemes.get(&dassie_ledger::name!("stub"))?;
-        (stub.over_hub && stub.failed.is_none()).then_some(HubMembership {
-            hub_id: STUB_HUB_ID,
-            account: 0,
-            takes_peers: true,
-        })
-    }
-
-    /// What each scheme over a hub holds of each peer's packets, beside what
-    /// the connector holds pending with that peer, in the order of the
-    /// schemes and then the peers: for a simulation's checks. A scheme that
-    /// does not count what it holds is left out. Built only with the
-    /// `testing` feature.
-    #[cfg(feature = "testing")]
-    pub fn hub_packets(&mut self) -> Vec<HubPackets> {
-        let mut held = Vec::new();
-        for active in self.schemes.values_mut().filter(|active| active.over_hub) {
-            if let Some(commitments) = active.scheme.commitments() {
-                commitments.held(&mut held);
+    pub fn hub_peers(&mut self) -> Vec<HubPeer> {
+        let hubs: Vec<Name> = self
+            .schemes
+            .iter()
+            .filter(|(_, active)| active.over_hub)
+            .map(|(name, _)| *name)
+            .collect();
+        let mut out = Vec::new();
+        for scheme in hubs {
+            let mut held = Vec::new();
+            self.with_commitments(scheme, |c| c.held(&mut held));
+            let mut peers: std::collections::BTreeSet<Name> =
+                held.iter().map(|(peer, _)| *peer).collect();
+            for (node, peering) in self.peer.peers() {
+                if peering.scheme.as_str() == scheme.as_str()
+                    && let Ok(name) = Name::new(node.as_str())
+                {
+                    peers.insert(name);
+                }
             }
-        }
-        held.into_iter()
-            .map(|(peer, held)| {
-                let endpoint = NodeId::parse(peer.as_str())
-                    .ok()
-                    .and_then(|node| self.peer_endpoints.get(&node))
+            for peer in peers {
+                let Ok(node) = NodeId::parse(peer.as_str()) else {
+                    continue;
+                };
+                let endpoint = self
+                    .peer_endpoints
+                    .get(&node)
                     .map(|id| EndpointId::Peer(*id));
                 let (pending_to, pending_from) = endpoint.map_or((0, 0), |id| {
                     let from = self.connector.pending_from(id);
                     (self.connector.pending_for(id).saturating_sub(from), from)
                 });
-                HubPackets {
+                let holds = self
+                    .with_commitments(scheme, |c| c.holds(peer))
+                    .unwrap_or_default();
+                let books = self.hub_books(scheme, node);
+                out.push(HubPeer {
                     peer,
-                    held,
+                    held: held
+                        .iter()
+                        .find(|(name, _)| *name == peer)
+                        .map(|(_, held)| *held)
+                        .unwrap_or_default(),
                     pending_to,
                     pending_from,
-                }
+                    peered: self.peer.peering_of(&node).is_some(),
+                    holds,
+                    credit: books.map(|(credit, _, _)| credit),
+                    settling: books.map_or(0, |(_, _, settling)| settling),
+                });
+            }
+        }
+        out
+    }
+
+    /// The credit we extend to `node` on `scheme`'s ledger, our position
+    /// with it, and our settlements to it still pending, while its accounts
+    /// are open.
+    pub(super) fn hub_books(&self, scheme: Name, node: NodeId) -> Option<(u64, u128, u64)> {
+        let ledger = self.schemes.get(&scheme)?.scheme.ledger();
+        let name = Name::new(node.as_str()).ok()?;
+        let find = |account| self.ledger.find(&AccountPath::new(ledger, account));
+        let interledger = find(AccountName::AssetsInterledger(name))?;
+        let trust = find(AccountName::ContraTrust(name))?;
+        let settling = self
+            .ledger
+            .pending_transfers()
+            .filter(|transfer| transfer.debit == interledger)
+            .filter(|transfer| super::settlement::settles_to(&self.ledger, transfer, &node))
+            .fold(0u64, |sum, transfer| sum.saturating_add(transfer.amount));
+        Some((
+            policy::trust(self.ledger.account(trust)?.balance()),
+            policy::position(self.ledger.account(interledger)?.balance()),
+            settling,
+        ))
+    }
+
+    /// Keeps the credit we extend to each peer over a hub at what the holds
+    /// between us call for ([`hub_credit`]), with trust transfers, whenever
+    /// they changed: a hold funded, taken from, reduced, released or
+    /// closed, or a settlement of ours on its way, executed or cancelled.
+    /// It runs before every commit, so the books keep the credit in step
+    /// with the holds the scheme's state keeps.
+    pub(super) fn sync_hub_credit(&mut self) {
+        let peerings: Vec<(Name, NodeId)> = self
+            .peer
+            .peers()
+            .filter_map(|(node, peering)| {
+                let scheme = Name::new(peering.scheme.as_str()).ok()?;
+                let active = self.schemes.get(&scheme)?;
+                (active.over_hub && active.failed.is_none()).then_some((scheme, *node))
             })
-            .collect()
+            .collect();
+        for (scheme, node) in peerings {
+            self.sync_credit_with(scheme, node);
+        }
+    }
+
+    /// Keeps the credit we extend to `node` over the hub of `scheme` at what
+    /// the holds between us call for. It is lowered only as far as what the
+    /// peer may still owe us allows, as the ledger's limit on its account
+    /// counts it: short of that, the peer owes us more than our hold toward
+    /// it and our settlements on their way leave room for, and the books
+    /// keep the higher credit, say so when they lower it part of the way,
+    /// and lower it further at the next commit that leaves room. The holds
+    /// and the books move together for every scheme that reports what it
+    /// took when the books took it, as the stub does; the hub's scheme
+    /// learns of a take from the hub, later.
+    // Panics only on a broken invariant: the amounts were checked against
+    // the accounts just now.
+    #[allow(clippy::panic)]
+    pub(super) fn sync_credit_with(&mut self, scheme: Name, node: NodeId) {
+        let Ok(name) = Name::new(node.as_str()) else {
+            return;
+        };
+        let Some(holds) = self.with_commitments(scheme, |c| c.holds(name)) else {
+            return;
+        };
+        let Some((credit, position, settling)) = self.hub_books(scheme, node) else {
+            return;
+        };
+        let Some(ledger) = self.schemes.get(&scheme).map(|a| a.scheme.ledger()) else {
+            return;
+        };
+        let target = hub_credit(holds, settling);
+        let now = self.now_ms;
+        let changed = match target.cmp(&credit) {
+            core::cmp::Ordering::Equal => return,
+            core::cmp::Ordering::Greater => {
+                super::growth::raise_trust(&mut self.ledger, now, ledger, name, target - credit)
+                    .map(|()| target)
+            }
+            core::cmp::Ordering::Less => {
+                let room = u64::try_from(position).unwrap_or(u64::MAX);
+                let lower = (credit - target).min(room);
+                if lower == 0 {
+                    return;
+                }
+                super::growth::lower_trust(&mut self.ledger, now, ledger, name, lower)
+                    .map(|()| credit - lower)
+            }
+        };
+        match changed {
+            Ok(credit) => self.report(SettlementEvent::HubCredit {
+                peer: name,
+                credit,
+                holds: target,
+            }),
+            Err(error) => panic!("the credit over a hub was refused: {error}"),
+        }
     }
 
     /// Names in our link state the hub we are a member of now, if that
@@ -182,7 +284,7 @@ impl Core {
     }
 
     /// Runs `f` on the commitments side of `scheme`, if it has one.
-    fn with_commitments<R>(
+    pub(super) fn with_commitments<R>(
         &mut self,
         scheme: Name,
         f: impl FnOnce(&mut dyn Commitments) -> R,

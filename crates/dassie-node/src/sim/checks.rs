@@ -404,6 +404,7 @@ pub fn check_events(sim: &Sim) -> Result<(), String> {
 /// fails for safety, before it fails for liveness.
 pub fn check_mid_flight(sim: &Sim) -> Result<(), Outcome> {
     check_hub_packets(sim).map_err(|problem| Outcome::safety("hub-packets", problem))?;
+    check_hub_credit(sim).map_err(|problem| Outcome::safety("hub-credit", problem))?;
     for payment in &sim.payments {
         check_cap(sim, payment).map_err(|problem| Outcome::safety("cap", problem))?;
         let row = sim.nodes[payment.to]
@@ -465,6 +466,20 @@ pub fn check_hub_packets(sim: &Sim) -> Result<(), String> {
     }
 }
 
+/// No node's credit to a peer over the stub with commitments was, after
+/// any step, other than its hold toward the peer and its settlements to it
+/// still on their way (spec/areas/hubs.md#in-the-node).
+pub fn check_hub_credit(sim: &Sim) -> Result<(), String> {
+    match sim.hub_credit_off.as_slice() {
+        [] => Ok(()),
+        off => Err(format!(
+            "credit over a hub was apart from the holds with {} peers: {}",
+            off.len(),
+            off.join("; ")
+        )),
+    }
+}
+
 /// The first safety failure among `results`, or else the first other
 /// failure: a run that broke something that must never happen says so,
 /// whatever else it failed to do.
@@ -499,6 +514,7 @@ pub fn check(sim: &Sim) -> Result<(), Outcome> {
         [
             check_events(sim).map_err(|problem| Outcome::safety("events", problem)),
             check_hub_packets(sim).map_err(|problem| Outcome::safety("hub-packets", problem)),
+            check_hub_credit(sim).map_err(|problem| Outcome::safety("hub-credit", problem)),
         ]
         .into_iter()
         .chain(caps)

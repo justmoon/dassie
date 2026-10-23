@@ -353,6 +353,18 @@ pub enum SettlementEvent {
         /// The credit now.
         credit: u64,
     },
+    /// The credit we extend to a peer over a hub followed the holds between
+    /// us (spec/areas/hubs.md#in-the-node): it is `credit` now, and the
+    /// holds call for `holds`. It falls short of them only while the peer
+    /// may owe us more than they leave room for.
+    HubCredit {
+        /// The peer.
+        peer: Name,
+        /// The credit now.
+        credit: u64,
+        /// What the holds call for.
+        holds: u64,
+    },
     /// The fees peers earned us could not be read, or not credited.
     EarningsNotRead {
         /// Why.
@@ -432,6 +444,15 @@ const fn payment_severity(event: &PaymentEvent) -> Severity {
 
 const fn settlement_severity(event: &SettlementEvent) -> Severity {
     match event {
+        // Whenever a hold changes; a credit the books could not lower to
+        // what the holds call for, someone should look at.
+        SettlementEvent::HubCredit { credit, holds, .. } => {
+            if *credit == *holds {
+                Severity::Debug
+            } else {
+                Severity::Warn
+            }
+        }
         // At every check, for every peer that earned us something.
         SettlementEvent::MessageNotSent { .. }
         | SettlementEvent::CreditRaised { .. }

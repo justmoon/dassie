@@ -47,7 +47,7 @@ pub use events::{
     BtpEvent, EngineEvent, Event, MAX_EVENTS, PaymentEvent, PeerEvent, SettlementEvent, Severity,
 };
 #[cfg(feature = "testing")]
-pub use hubs::HubPackets;
+pub use hubs::HubPeer;
 pub use incoming::{IncomingPolicy, NewIncoming};
 pub use ledgers::{LedgerView, RemovalBlocker};
 pub use packets::ledger_slug;
@@ -683,6 +683,9 @@ impl Core {
     /// Moves what changed in memory into the batch, and builds the prices
     /// again if what they are built from changed.
     fn stage(&mut self) {
+        // The credit over a hub follows the holds the schemes' states keep,
+        // in the batch that keeps them.
+        self.sync_hub_credit();
         self.checkpoint_schemes();
         self.take_journal();
         self.take_cap_changes();

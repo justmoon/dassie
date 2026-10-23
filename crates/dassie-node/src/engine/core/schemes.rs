@@ -218,7 +218,7 @@ fn create(
     let node = || Name::new(key.node_id().as_str()).map_err(|_| SchemeError::InvalidData);
     let state = checkpoint.map_or(&[][..], |c| c.state.as_slice());
     match id {
-        "stub" => Ok(Box::new(Stub::new(config, balance)?)),
+        "stub" => Ok(Box::new(Stub::new(config, balance, state)?)),
         dassie_xrpl::scheme::SCHEME_ID => Ok(Box::new(XrplScheme::new(
             account()?,
             node()?,

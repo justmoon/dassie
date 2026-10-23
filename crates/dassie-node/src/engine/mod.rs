@@ -33,7 +33,7 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 #[cfg(feature = "testing")]
-pub use self::core::HubPackets;
+pub use self::core::HubPeer;
 pub use self::core::{
     AssetView, BtpEvent, BtpSession, Changes, Core, CoreParts, CreatedOutgoing, EngineError,
     EngineEvent, Event, IncomingPolicy, LedgerEvent, LedgerView, Lie, Measured, NetworkView,
