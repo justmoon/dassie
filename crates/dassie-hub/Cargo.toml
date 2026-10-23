@@ -10,8 +10,15 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = []
+# The simulated hub, for this crate's tests and the simulation runner,
+# dassie-sim (spec/decisions/random-seed-simulations.md).
+sim = ["dep:dassie-node-core"]
+
 [dependencies]
 dassie-identity = { path = "../dassie-identity" }
+dassie-node-core = { path = "../dassie-node-core", features = ["testing"], optional = true }
 dassie-oer = { path = "../dassie-oer", default-features = false, features = ["alloc"] }
 # The escrow's transactions, keys and the records validators read.
 dassie-xrpl = { path = "../dassie-xrpl" }
@@ -24,6 +31,8 @@ sha2 = { version = "0.11", default-features = false }
 zeroize = { version = "1.9", default-features = false }
 
 [dev-dependencies]
+dassie-hub = { path = ".", features = ["sim"] }
+dassie-node-core = { path = "../dassie-node-core", features = ["testing"] }
 dassie-xrpl = { path = "../dassie-xrpl", features = ["fake"] }
 proptest = "1.12"
 serde_json = "1.0.154"

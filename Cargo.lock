@@ -1054,7 +1054,9 @@ dependencies = [
 name = "dassie-hub"
 version = "0.2.6"
 dependencies = [
+ "dassie-hub",
  "dassie-identity",
+ "dassie-node-core",
  "dassie-oer",
  "dassie-xrpl",
  "hmac",
@@ -1236,6 +1238,7 @@ name = "dassie-sim"
 version = "0.2.6"
 dependencies = [
  "dassie-connector",
+ "dassie-hub",
  "dassie-node",
  "dassie-node-core",
  "dassie-peer",
