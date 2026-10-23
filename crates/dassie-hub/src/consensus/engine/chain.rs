@@ -34,6 +34,10 @@ pub(super) enum Hold {
     Proposal,
     /// A block that a verified certificate names.
     Certified,
+    /// A block persisted before a restart: ours, or one held then, and
+    /// trusted as such. It may be below the floor, on the chain to the
+    /// highest notarized view.
+    Restored,
 }
 
 impl Engine {
@@ -43,7 +47,17 @@ impl Engine {
     /// not extend the tip, or of a view we hold no round for, is not held.
     pub(super) fn hold_block(&mut self, block: Block, why: Hold) -> Digest {
         let digest = block.digest(&self.hub);
-        if self.blocks.contains_key(&digest) || !self.plausible(&block) {
+        if self.blocks.contains_key(&digest) || self.blocks.len() >= MAX_BLOCKS {
+            return digest;
+        }
+        if why == Hold::Restored {
+            let above = block.height > self.tip.block.height || self.repeats_tip(&block);
+            if block.epoch == self.epoch() && above {
+                self.blocks.insert(digest, block);
+            }
+            return digest;
+        }
+        if !self.plausible(&block) {
             return digest;
         }
         let view = block.view;
@@ -58,12 +72,26 @@ impl Engine {
             .count();
         let admitted = match why {
             Hold::Proposal => first,
-            Hold::Certified => true,
+            Hold::Certified | Hold::Restored => true,
         };
         if admitted && held < BLOCKS_PER_VIEW {
             self.blocks.insert(digest, block);
+            // A certified block is kept across a restart: the chain to the
+            // highest notarized view must survive one, even below the
+            // floor. A proposal is, once we notarize it.
+            if why == Hold::Certified {
+                self.persist_block(digest);
+            }
         }
         digest
+    }
+
+    /// Writes block `digest`, held, in the batch: one we notarize, or one a
+    /// certificate names.
+    pub(super) fn persist_block(&mut self, digest: Digest) {
+        if let Some(block) = self.blocks.get(&digest) {
+            self.batch.blocks.push((digest, block.clone()));
+        }
     }
 
     /// Whether `block` could extend the tip: of the running epoch, in a
@@ -77,7 +105,7 @@ impl Engine {
             && self.holds_view(block.view)
             && block.view <= self.view.saturating_add(MAX_VIEWS_AHEAD)
             && block.parent_view < block.view
-            && heights > 0
+            && (heights > 0 || self.repeats_tip(block))
             && heights <= views
     }
 
@@ -376,8 +404,11 @@ impl Engine {
             self.vote_log.pop_front();
         }
         self.settled_conflicts.retain(|at| *at >= oldest);
-        self.blocks
-            .retain(|_, block| block.height > height && block.view > view);
+        let (tip, tip_block) = (self.tip_digest, self.tip.block.clone());
+        self.blocks.retain(|_, block| {
+            let repeats_tip = block.parent == tip && block.repeats(&tip_block);
+            (block.height > height || repeats_tip) && block.view > view
+        });
         let blocks = &self.blocks;
         self.executed.retain(|digest| blocks.contains_key(digest));
         self.finalize_heights.retain(|at, _| *at > height);

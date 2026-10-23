@@ -50,10 +50,12 @@ mod persist;
 mod types;
 pub mod wire;
 
-pub use config::Config;
+pub use config::{
+    Config, MAX_BACKOFF_AFTER_VIEWS, MAX_STALL_MS, MAX_VIEW_TIMEOUT_MS, MIN_STALL_MS,
+};
 pub use engine::{
-    BLOCKS_PER_VIEW, Engine, MAX_BLOCKS, MAX_BOUNDARIES, MAX_ROUNDS, MAX_VIEWS_AHEAD,
-    RETAINED_BLOCKS,
+    BLOCKS_PER_VIEW, Engine, MAX_BLOCKS, MAX_BOUNDARIES, MAX_ROUNDS, MAX_UNFINALIZED_HEIGHTS,
+    MAX_VIEWS_AHEAD, RETAINED_BLOCKS,
 };
 pub use epochs::{Epochs, MAX_EPOCHS, ReconfigureError};
 pub use hooks::{Application, Declined, ProposeContext, VerifyContext};

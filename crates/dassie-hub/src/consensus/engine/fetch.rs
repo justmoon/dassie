@@ -114,7 +114,9 @@ impl Engine {
                 proven = (delivery.finalized.len(), bytes);
                 delivery.finalization = Some(certificate.clone());
             }
-            if self.ends_epoch(finalized.block.height) {
+            // Repeats only end a delivery: the next block builds on the
+            // block they repeat.
+            if self.ends_epoch(finalized.block.height) || !finalized.repeats.is_empty() {
                 break;
             }
         }
@@ -122,6 +124,9 @@ impl Engine {
         delivery.finalized.truncate(count);
         if count == 0 {
             delivery.finalization = None;
+            if let Some(next) = self.next_proven(start) {
+                return next;
+            }
         }
         let bytes = bytes.saturating_add(
             delivery
@@ -130,6 +135,27 @@ impl Engine {
                 .map_or(0, Encode::encoded_len),
         );
         (delivery, bytes)
+    }
+
+    /// The first block from `start` on that we hold a finalization of, alone
+    /// with its repeats, and its size: when the blocks up to it do not fit
+    /// in one delivery, as after a long run finalized at once (or a few
+    /// large blocks), the asker loads the state after it, as below what we
+    /// keep.
+    fn next_proven(&self, start: u64) -> Option<(Delivery, usize)> {
+        let next = self
+            .history
+            .iter()
+            .map(|(_, finalized)| finalized)
+            .filter(|finalized| finalized.block.height >= start)
+            .find(|finalized| finalized.finalization.is_some())?;
+        let delivery = Delivery {
+            finalized: next.chain(),
+            finalization: next.finalization.clone(),
+            ..Delivery::default()
+        };
+        let bytes = delivery.encoded_len();
+        Some((delivery, bytes))
     }
 
     /// Whether block `height` is the last of an epoch we know of.
@@ -142,16 +168,44 @@ impl Engine {
             || self.boundaries.iter().any(|end| end.block.height == height)
     }
 
+    /// The certificates of view `from_view` and after, with their blocks:
+    /// what an asker lacks to take part in those views. Below our floor,
+    /// only the views that certified the chain waiting to be final are
+    /// held: there, the asker lacks a block of that chain, built on through
+    /// `from_view` (by itself, or through a repeat of it), and gets the
+    /// chain from there down, so that each delivery brings blocks it lacks
+    /// however many the chain holds. A repeat comes with the view that
+    /// certified the block it repeats.
     fn add_certified(&self, delivery: &mut Delivery, from_view: u64, mut bytes: usize) {
-        let certificates = self.rounds.range(from_view..).flat_map(|(_, round)| {
-            [
+        let below = from_view < self.floor;
+        let rounds: Vec<&super::round::Round> = if below {
+            self.rounds
+                .range(..=from_view)
+                .rev()
+                .map(|(_, round)| round)
+                .collect()
+        } else {
+            self.rounds
+                .range(from_view..)
+                .map(|(_, round)| round)
+                .collect()
+        };
+        let mut certificates: Vec<&Certificate> = Vec::new();
+        for round in rounds {
+            for certificate in [
                 &round.notarization,
                 &round.nullification,
                 &round.finalization,
             ]
             .into_iter()
             .flatten()
-        });
+            {
+                certificates.push(certificate);
+                if let Some(repeated) = self.repeated_certificate(certificate) {
+                    certificates.push(repeated);
+                }
+            }
+        }
         for certificate in certificates {
             let block = if certificate.kind == VoteKind::Nullify {
                 None
@@ -170,12 +224,32 @@ impl Engine {
         }
     }
 
+    /// If `certificate` names a repeat, the certificate held of the block
+    /// it repeats.
+    fn repeated_certificate(&self, certificate: &Certificate) -> Option<&Certificate> {
+        let repeat = self.blocks.get(&certificate.block)?;
+        let (content, _) = self.content_of(&certificate.block)?;
+        if content == certificate.block || repeat.parent != content {
+            return None;
+        }
+        self.rounds.values().find_map(|round| {
+            [&round.notarization, &round.finalization]
+                .into_iter()
+                .flatten()
+                .find(|held| held.block == content)
+        })
+    }
+
     /// Takes in a delivery: its finalized blocks, then its certificates.
     pub(super) fn on_delivery(&mut self, app: &mut dyn Application, delivery: Delivery) {
         if let Some(finalization) = &delivery.finalization {
             self.take_finalized(app, &delivery.finalized, finalization);
         }
-        for certified in delivery.certified {
+        // The highest view first: a block the chain lacks is taken below
+        // the floor only once the block that builds on it is held.
+        let mut certified = delivery.certified;
+        certified.sort_by_key(|certified| core::cmp::Reverse(certified.certificate.view));
+        for certified in certified {
             self.on_certificate(certified.certificate, certified.block);
         }
     }
@@ -313,7 +387,9 @@ impl Engine {
 
     /// The digests of `blocks` if each is the parent of the next, all of
     /// one epoch, and `finalization` names the last, whoever signed it.
-    /// Repeats may only end the chain, of the block before them. Whether
+    /// Each builds on a view from its parent's own to before its own: a
+    /// block may build on its parent through a view that notarized a repeat
+    /// of it. Repeats may only end the chain, of the block before them. Whether
     /// that block ends its epoch is learned by applying the blocks first:
     /// the finalization proves them final whatever the repeats are.
     fn chained(&self, blocks: &[Block], finalization: &Certificate) -> Option<Vec<Digest>> {
@@ -325,7 +401,8 @@ impl Engine {
             |((block, next), digest)| {
                 next.parent == *digest
                     && next.epoch == block.epoch
-                    && next.parent_view == block.view
+                    && next.parent_view >= block.view
+                    && next.parent_view < next.view
                     && (next.height == block.height.saturating_add(1) || next.repeats(block))
             },
         );

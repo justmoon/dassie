@@ -4,6 +4,7 @@
 
 mod boundary;
 mod chain;
+mod compact;
 mod fetch;
 mod receive;
 mod round;
@@ -24,17 +25,20 @@ use super::hooks::Application;
 use super::io::{Event, Evidence, Output, PeerId, Recipient, Stats};
 use super::persist::{Batch, Stored};
 use super::types::{Block, Finalized, Vote};
-use super::wire::Message;
+use super::wire::{MAX_DELIVERED_BLOCKS, Message};
 use crate::digest::Digest;
 use crate::validators::{MAX_VALIDATORS, ValidatorIndex, ValidatorSet};
 
 use chain::Hold;
 use round::Round;
 
-/// The most views held above the last finalized one. Beyond it, the lowest
-/// is dropped and never voted in again: a hub that keeps notarizing for this
-/// many views without finalizing anything is far outside the fault model.
-pub const MAX_ROUNDS: usize = 256;
+/// The most views held. The engine keeps the views from the highest one
+/// that notarized a block extending the last final one, and lets go of
+/// those below (spec/areas/hubs.md#consensus); past this many, it takes no
+/// later view until one is notarized. Views that fail in a row wait longer
+/// and longer (`Config::backoff_after_views`), so a run of them never
+/// reaches it.
+pub const MAX_ROUNDS: usize = 512;
 
 /// How far beyond our view votes and proposals are taken. Certificates are
 /// taken from any view: they prove themselves.
@@ -46,8 +50,17 @@ pub const MAX_VIEWS_AHEAD: u64 = 16;
 /// not held, so it fills only the room of its own views.
 pub const BLOCKS_PER_VIEW: usize = 3;
 
-/// The most blocks held that are not final: those of the views held.
+/// The most blocks held that are not final: those of the views held, and
+/// the chain from the tip to the highest notarized one.
 pub const MAX_BLOCKS: usize = BLOCKS_PER_VIEW * MAX_ROUNDS;
+
+/// The most heights above the tip a block may be notarized at: past it, a
+/// leader repeats the last block until one becomes final. Far more than a
+/// hub makes while its finality is merely late (a block is final three
+/// message delays after it is proposed), and few enough that the chain an
+/// engine keeps while nothing becomes final stays small, and that such a
+/// chain, finalized at once with a repeat, fits in one delivery.
+pub const MAX_UNFINALIZED_HEIGHTS: u64 = MAX_DELIVERED_BLOCKS as u64 - 1;
 
 /// The most finalized blocks kept, to serve catch-up and to record the
 /// votes for them (spec/designs/settlement-hubs.md#7-fees, "Who gets fees":
@@ -192,8 +205,8 @@ impl Engine {
             events: VecDeque::new(),
             stats: Stats::default(),
         };
-        for block in stored.blocks {
-            engine.hold_block(block, Hold::Proposal);
+        for (_, block) in stored.blocks {
+            engine.hold_block(block, Hold::Restored);
         }
         let epoch = engine.epoch();
         for certificate in stored.certificates {
@@ -202,9 +215,12 @@ impl Engine {
             }
             if let Some(round) = engine.round_mut(certificate.view) {
                 round.hold(certificate);
+            } else {
+                engine.restore_chain_certificate(certificate);
             }
         }
         engine.restore_votes(&stored.votes);
+        engine.retain_blocks();
         let view = engine.view;
         engine.enter(view);
         // A first step at once, to propose or rebroadcast what is due.
@@ -246,6 +262,22 @@ impl Engine {
     #[must_use]
     pub const fn view(&self) -> u64 {
         self.view
+    }
+
+    /// How many times longer than usual the view we are in waits for its
+    /// leader: 1, until more views in a row than
+    /// [`Config::backoff_after_views`] failed to notarize. No view waits
+    /// longer than [`super::config::MAX_VIEW_TIMEOUT_MS`], whatever this
+    /// says.
+    #[must_use]
+    pub fn backoff(&self) -> u64 {
+        self.backoff_at(self.view)
+    }
+
+    /// How many views it holds, at most [`MAX_ROUNDS`].
+    #[must_use]
+    pub fn rounds_held(&self) -> usize {
+        self.rounds.len()
     }
 
     /// The last finalized block.
@@ -445,8 +477,10 @@ impl Engine {
         view > self.tip_view() && view >= self.floor
     }
 
-    /// The round of `view`, made if there is room. Making room drops the
-    /// lowest round, and raises the floor past it.
+    /// The round of `view`, made if there is room. No round is let go of
+    /// to make room: the views held are those from the highest one that
+    /// notarized a block extending the tip ([`Self::compact`]), which the
+    /// leaders' back-off keeps far below the bound.
     fn round_mut(&mut self, view: u64) -> Option<&mut Round> {
         if !self.holds_view(view) {
             return None;
@@ -454,27 +488,24 @@ impl Engine {
         if !self.rounds.contains_key(&view) {
             let leader = self.leader(view)?;
             if self.rounds.len() >= MAX_ROUNDS {
-                let lowest = self.rounds.first_key_value().map(|(lowest, _)| *lowest)?;
-                if lowest > view {
-                    return None;
-                }
-                self.rounds.remove(&lowest);
-                self.raise_floor(lowest.saturating_add(1));
+                return None;
             }
             self.rounds.insert(view, Round::new(leader));
         }
         self.rounds.get_mut(&view)
     }
 
+    /// Lets go of the views below `floor`, but those that certified a block
+    /// of the chain to the highest notarized view, and of their blocks but
+    /// those the chain still needs.
     fn raise_floor(&mut self, floor: u64) {
         if floor > self.floor {
             self.floor = floor;
             self.batch.floor = Some(floor);
-            self.blocks.retain(|_, block| block.view >= floor);
-            // A block evicted and fetched again must be verified again:
-            // the application may have let go of its state.
-            let blocks = &self.blocks;
-            self.executed.retain(|digest| blocks.contains_key(digest));
+            // What the application verified goes with the blocks let go
+            // of: bounding what counts as verified by the blocks held keeps
+            // it bounded, and a block held again is verified again.
+            self.retain_blocks();
         }
     }
 
@@ -530,6 +561,7 @@ impl Engine {
         // Each step consumes a view's work; running out means a step that
         // changes nothing claims it did.
         assert!(settled, "consensus settles within its bound");
+        self.compact();
         self.ask();
     }
 
@@ -593,14 +625,22 @@ impl Engine {
 
     /// Checks the rounds and blocks held.
     fn check_held(&self) {
+        let chain = self
+            .carrier()
+            .map(|(_, content)| self.chain_of(content))
+            .unwrap_or_default();
         for (view, round) in &self.rounds {
-            assert!(self.holds_view(*view), "rounds above the tip and floor");
+            assert!(
+                self.holds_view(*view)
+                    || (*view > self.tip_view() && compact::certifies(round, &chain)),
+                "rounds above the tip and floor, or below the floor certifying the chain"
+            );
             let notarized = round
                 .voted_notarize()
                 .and_then(|digest| self.blocks.get(&digest));
             assert!(
                 notarized.is_none_or(|block| self.repeat_shaped(block)),
-                "we notarize a repeat only of an epoch's last block"
+                "we notarize a repeat only of an epoch's last block or of the highest that may wait to be final"
             );
             assert!(
                 !(round.voted_nullify() && round.voted_finalize().is_some()),
@@ -613,20 +653,26 @@ impl Engine {
                 "finalize only the block notarized"
             );
         }
-        for block in self.blocks.values() {
+        for (digest, block) in &self.blocks {
             assert!(
                 block.epoch == self.epoch()
-                    && block.height > self.tip.block.height
+                    && (block.height > self.tip.block.height || self.repeats_tip(block))
                     && block.view > self.tip_view(),
                 "blocks held are of the running epoch, above the tip"
             );
             assert!(
-                self.rounds.contains_key(&block.view),
-                "blocks held are of views held"
+                self.rounds.contains_key(&block.view)
+                    || chain.contains(digest)
+                    || self.repeats_tip(block),
+                "blocks held are of views held, on the chain to the highest notarized, or repeat the tip"
             );
         }
         let mut per_view: BTreeMap<u64, usize> = BTreeMap::new();
-        for block in self.blocks.values() {
+        for block in self
+            .blocks
+            .values()
+            .filter(|b| self.rounds.contains_key(&b.view))
+        {
             let count = per_view.entry(block.view).or_insert(0);
             *count = count.saturating_add(1);
             assert!(*count <= BLOCKS_PER_VIEW, "room for each view's blocks");

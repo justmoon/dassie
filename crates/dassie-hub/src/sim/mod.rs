@@ -102,6 +102,11 @@ pub enum Role {
     /// other proposals for every view it leads within reach, of heights no
     /// chain has, to crowd out honest blocks.
     Flood,
+    /// Sends its proposals to only f of the others, too few to notarize
+    /// them: they verify a block that is never notarized, and an
+    /// application that keeps few states lets go of what the next block
+    /// builds on.
+    Partial,
 }
 
 impl Role {
@@ -152,8 +157,13 @@ pub struct SimApp {
     /// letting go of the lowest first, as an application bounded in memory
     /// would.
     pub keep_states: Option<usize>,
+    /// How many bytes of padding its payloads carry: a full block's worth
+    /// makes blocks as large as the ledger's.
+    pub pad: usize,
     /// The digest of the last finalized block, whose state it always keeps.
     last_final: Option<Digest>,
+    /// How many times the engine had it verify a block, again or not.
+    pub verifications: u64,
 }
 
 /// Where a payload's state root starts, after its marker, height and
@@ -162,6 +172,34 @@ const ROOT_AT: usize = 10;
 
 /// Where the operation scheduling a change starts, after the root.
 const OPERATION_AT: usize = ROOT_AT + 32;
+
+/// The marker of a padded payload: its operation's length, as four bytes,
+/// then the operation, then the padding.
+const PADDED: u8 = 2;
+
+/// The operation a payload carries, padded or not.
+fn operation_of(payload: &[u8]) -> &[u8] {
+    if payload.first() != Some(&PADDED) {
+        return payload.get(OPERATION_AT..).unwrap_or_default();
+    }
+    let length = payload
+        .get(OPERATION_AT..OPERATION_AT + 4)
+        .and_then(|bytes| bytes.try_into().ok())
+        .map_or(0, |bytes| u32::from_be_bytes(bytes) as usize);
+    payload
+        .get(OPERATION_AT + 4..OPERATION_AT + 4 + length)
+        .unwrap_or_default()
+}
+
+/// `payload` with `pad` bytes of padding.
+fn padded(mut payload: Vec<u8>, pad: usize) -> Vec<u8> {
+    let operation = payload.split_off(OPERATION_AT);
+    payload[0] = PADDED;
+    payload.extend_from_slice(&u32::try_from(operation.len()).unwrap().to_be_bytes());
+    payload.extend_from_slice(&operation);
+    payload.resize(payload.len() + pad, 0xee);
+    payload
+}
 
 /// The root of a simulated state: the change scheduled and not yet made.
 #[must_use]
@@ -248,11 +286,12 @@ impl Application for SimApp {
         context: &ProposeContext<'_>,
         payload: &mut Vec<u8>,
     ) -> Result<(), Declined> {
-        payload.extend(self::payload(
-            context.height,
-            self.index,
-            self.schedule.as_ref(),
-        ));
+        let made = self::payload(context.height, self.index, self.schedule.as_ref());
+        payload.extend(if self.pad > 0 {
+            padded(made, self.pad)
+        } else {
+            made
+        });
         if self.invalid {
             payload[0] = INVALID;
         }
@@ -261,16 +300,18 @@ impl Application for SimApp {
     }
 
     fn verify(&mut self, context: &VerifyContext, payload: &[u8]) -> bool {
-        // A block is checked on the state after its parent: without it,
-        // genesis aside, it cannot be.
-        let parent = match self.states.get(&context.parent) {
-            Some((_, pending)) => pending.clone(),
-            None if context.height == 1 => None,
-            None => return false,
-        };
+        // A block is checked on the state after its parent, which the
+        // engine must make sure is held (genesis's aside): it verifies
+        // again what was let go of.
+        self.verifications += 1;
+        self.needs(&context.parent);
+        let parent = self
+            .states
+            .get(&context.parent)
+            .and_then(|(_, pending)| pending.clone());
         let valid = self.valid(context, payload);
         if valid {
-            let operation = payload.get(OPERATION_AT..).unwrap_or_default();
+            let operation = operation_of(payload);
             let pending = decode_change(operation)
                 .or(parent)
                 .filter(|(from, _)| context.height < *from);
@@ -291,7 +332,7 @@ impl Application for SimApp {
             .map_or(1, |(height, _)| height + 1);
         assert_eq!(block.height, expected, "blocks are finalized in order");
         self.finalized.insert(block.height, *digest);
-        let operation = block.payload.get(OPERATION_AT..).unwrap_or_default();
+        let operation = operation_of(&block.payload);
         if let Some(change) = decode_change(operation) {
             self.learned.insert(block.height, change.clone());
             self.scheduled = Some(change);
@@ -305,6 +346,7 @@ impl Application for SimApp {
     }
 
     fn scheduled_change(&mut self, after: &Digest) -> Option<(u64, ValidatorSet)> {
+        self.needs(after);
         self.states
             .get(after)
             .and_then(|(_, pending)| pending.clone())
@@ -312,6 +354,17 @@ impl Application for SimApp {
 }
 
 impl SimApp {
+    /// Checks that the engine asks about a state the application holds:
+    /// one it verified or finalized and has not let go of since, or
+    /// genesis's. Anything else breaks the contract of the hooks.
+    fn needs(&self, digest: &Digest) {
+        assert!(
+            self.states.contains_key(digest) || *digest == genesis().digest(&hub()),
+            "validator {} is asked about the state after {digest:?}, which it does not hold",
+            self.index
+        );
+    }
+
     /// Keeps the state after block `digest`, and lets go of states far
     /// below the finalized chain.
     pub fn keep_state(&mut self, digest: Digest, height: u64, state: Option<(u64, ValidatorSet)>) {
@@ -346,7 +399,7 @@ impl SimApp {
     fn valid(&self, context: &VerifyContext, payload: &[u8]) -> bool {
         let schedule = self.schedule.as_ref();
         let pending = schedule.and_then(|schedule| schedule.pending(context.height));
-        let operation = payload.get(OPERATION_AT..).unwrap_or_default();
+        let operation = operation_of(payload);
         let scheduled = schedule
             .filter(|schedule| schedule.at == context.height)
             .map(|schedule| (schedule.from, schedule.set.clone()));
@@ -416,6 +469,12 @@ pub struct SimValidator {
     /// The longest a block took from its stamp to being final here, by
     /// this validator's clock.
     pub slowest_ms: u64,
+    /// The most blocks its application verified while it was in one view,
+    /// again or not: the work a view costs.
+    pub most_verified_in_a_view: u64,
+    /// The view it is in, and how many blocks its application had verified
+    /// when it entered it.
+    view_work: (u64, u64),
 }
 
 #[derive(Debug)]
@@ -455,6 +514,9 @@ pub struct Network {
     /// While set, every vote to finalize is lost: blocks are notarized and
     /// none is final, a long run of them.
     pub lose_every_finalize: bool,
+    /// While set, every proposal is lost: the validators vote, but only to
+    /// nullify, view after view.
+    pub lose_proposals: bool,
     /// The height of every block proposed, and whether it is a repeat, by
     /// digest, for `lose_finalize_at`.
     proposed_blocks: BTreeMap<Digest, (u64, bool)>,
@@ -494,6 +556,7 @@ impl Network {
             repeat_handovers: 0,
             lose_finalize_at: None,
             lose_every_finalize: false,
+            lose_proposals: false,
             proposed_blocks: BTreeMap::new(),
             slow: BTreeMap::new(),
             queue: BTreeMap::new(),
@@ -516,6 +579,8 @@ impl Network {
                 evidence: Vec::new(),
                 stalled: false,
                 slowest_ms: 0,
+                most_verified_in_a_view: 0,
+                view_work: (0, 0),
             });
             network.start(index);
         }
@@ -616,7 +681,15 @@ impl Network {
         let Some(engine) = sim.engine.as_mut() else {
             return;
         };
+        let before = sim.app.verifications;
         act(engine, &mut sim.app, now);
+        // A step that enters a view checks what it holds for it: what it
+        // verified counts for the view it entered.
+        if engine.view() != sim.view_work.0 {
+            sim.view_work = (engine.view(), before);
+        }
+        let done = sim.app.verifications.saturating_sub(sim.view_work.1);
+        sim.most_verified_in_a_view = sim.most_verified_in_a_view.max(done);
         self.drain(index);
     }
 
@@ -686,6 +759,10 @@ impl Network {
         engine.check_invariants();
         let batch = engine.take_batch();
         sim.stored.apply(batch);
+        assert!(
+            sim.stored.blocks.len() <= crate::consensus::MAX_BLOCKS,
+            "the blocks persisted stay within bound"
+        );
         let mut behind = None;
         let mut outputs = Vec::new();
         while let Some(output) = engine.poll_output() {
@@ -792,9 +869,14 @@ impl Network {
         if (self.lose_finalize_at.is_some() || self.lose_every_finalize) && self.lost(&bytes) {
             return;
         }
+        if self.lose_proposals
+            && matches!(Message::decode_message(&bytes), Ok(Message::Proposal(_)))
+        {
+            return;
+        }
         match self.validators[from].role {
             Role::Silent => {}
-            Role::Withhold | Role::Equivocate | Role::Collude | Role::Flood => {
+            Role::Withhold | Role::Equivocate | Role::Collude | Role::Flood | Role::Partial => {
                 let message = Message::decode_message(&bytes).unwrap();
                 match (self.validators[from].role, message) {
                     (Role::Withhold, Message::Proposal(_)) => {}
@@ -807,6 +889,11 @@ impl Network {
                             .collect();
                         self.forked = true;
                         self.equivocate(from, to, proposal, &colluders);
+                    }
+                    (Role::Partial, Message::Proposal(_)) => {
+                        let few = (self.validators.len() - 1) / 3;
+                        let some: Vec<usize> = to.iter().copied().take(few).collect();
+                        self.send_all(from, &some, &bytes);
                     }
                     (Role::Flood, Message::Proposal(proposal)) => {
                         self.send_all(from, to, &bytes);

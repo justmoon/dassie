@@ -21,6 +21,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [epoch-handover](epoch-handover.md) | Each validator set runs an epoch of its own, and a repeat finalizes an epoch's last block | hubs, designs/settlement-hubs |
 | [exchange-rates](exchange-rates.md) | Exchange rates, fees and spread | connector |
 | [external-assets](external-assets.md) | External assets apart from settlement schemes | settlement, xrpl, ledger, wallet |
+| [finality-after-any-outage](finality-after-any-outage.md) | A hub finalizes again after any outage, in bounded memory | hubs |
 | [full-or-stopped-short](full-or-stopped-short.md) | A receiver says whether it is full or stopped short | payments, stream |
 | [headless-setup](headless-setup.md) | An owner who keeps the passphrase on the node's host sets the node up with `dassie setup`, through the node's own setup route | node, http, identity, overview |
 | [issued-assets](issued-assets.md) | An issued asset's issuer is the owner's counterparty (transfer fees not built) | xrpl, settlement, connector |

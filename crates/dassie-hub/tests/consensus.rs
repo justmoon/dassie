@@ -857,25 +857,43 @@ fn catch_up_crosses_a_handover_that_ended_with_repeats() {
 }
 
 #[test]
-fn a_long_stall_lets_go_of_what_the_application_verified() {
-    // Block 1 is verified and notarized, never final; then view after view
-    // is nullified, until the rounds held pass their bound and the lowest,
-    // with block 1, are let go. What the application verified goes with
-    // them (the invariants check it after every step).
+fn a_long_stall_keeps_the_chain_and_lets_go_of_the_rest() {
+    // For more views than the engine holds rounds, every other view
+    // notarizes a block on the last and the others are nullified; nothing
+    // is final. The engine keeps only the views from the last notarized one
+    // and the chain to it (the invariants check it after every step, what
+    // the application verified among it), and once the last block is
+    // final, so is the whole chain.
     let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
     let mut app = SimApp::default();
     let mut engine = Engine::new(CONFIG, hub(), key(0), stored, START);
-    let b1 = block_of(&proposal_on(1, &genesis(), START));
-    hand(&mut engine, &mut app, START + 1, 1, &proposed(&b1, 1));
-    certify(&mut engine, &mut app, &b1, false);
-    let views = dassie_hub::consensus::MAX_ROUNDS as u64 + 10;
-    for view in 2..views {
-        let nullification = certificate_of(VoteKind::Nullify, view, Digest::default());
-        let message = Message::decode_message(&nullification).unwrap();
-        hand(&mut engine, &mut app, START + view, 3, &message);
+    let views = dassie_hub::consensus::MAX_ROUNDS as u64 + 50;
+    let mut parent = genesis();
+    for view in 1..views {
+        let at = START + view * 100;
+        if view % 2 == 0 {
+            let nullification = certificate_of(VoteKind::Nullify, view, Digest::default());
+            hand(
+                &mut engine,
+                &mut app,
+                at,
+                3,
+                &Message::decode_message(&nullification).unwrap(),
+            );
+            continue;
+        }
+        let mut block = block_of(&proposal_on(view, &parent, at));
+        block.parent_view = parent.view;
+        let leader = usize::try_from(view % 4).unwrap();
+        hand(&mut engine, &mut app, at + 1, 2, &proposed(&block, leader));
+        certify(&mut engine, &mut app, &block, false);
+        parent = block;
     }
     assert!(engine.view() >= views);
     assert_eq!(engine.tip().block.height, 0);
+    certify(&mut engine, &mut app, &parent, true);
+    assert_eq!(engine.tip().block, parent);
+    assert_eq!(app.finalized.len() as u64, parent.height);
 }
 
 /// An application that breaks its contract: its chain schedules a change,
@@ -1047,6 +1065,247 @@ fn applications_that_keep_few_states_finalize_after_a_long_run_unfinalized() {
         "{}",
         network.honest_floor()
     );
+}
+
+#[test]
+fn finality_returns_after_finalize_was_lost_longer_than_the_engine_holds() {
+    // Every finalize vote is lost for far longer than the views and blocks
+    // an engine holds: blocks keep being notarized, none is final. Once
+    // the votes go through again, blocks are final again at once.
+    for count in [4, 7] {
+        let mut network = honest(count);
+        run_for(&mut network, 1_000);
+        let before = network.honest_floor();
+        network.lose_every_finalize = true;
+        run_for(&mut network, 60_000);
+        assert!(network.honest_floor() <= before + 1);
+        network.lose_every_finalize = false;
+        run_for(&mut network, 3_000);
+        assert_safe(&network);
+        assert!(
+            network.honest_floor() > before + 10,
+            "{count} validators: {} after the outage, {before} before",
+            network.honest_floor()
+        );
+    }
+}
+
+#[test]
+fn a_validator_down_through_a_long_outage_catches_up_by_blocks() {
+    // While one validator is down, every finalize vote is lost long enough
+    // for the chain to reach the most heights that wait to be final; then
+    // a repeat finalizes it all at once, and blocks build on it through the
+    // repeat's view. The validator that comes back takes all of it in
+    // deliveries, without loading a state.
+    for count in [4, 7] {
+        let mut network = honest(count);
+        run_for(&mut network, 1_000);
+        let down = count - 1;
+        network.crash(down);
+        network.lose_every_finalize = true;
+        run_for(&mut network, 20_000);
+        network.lose_every_finalize = false;
+        run_for(&mut network, 2_000);
+        let top = network.honest_floor();
+        network.start(down);
+        run_for(&mut network, 5_000);
+        assert_safe(&network);
+        assert!(
+            network.height(down) >= top,
+            "{count} validators: {} after coming back, {top} at the others",
+            network.height(down)
+        );
+        assert_eq!(network.state_loads, 0);
+    }
+}
+
+#[test]
+fn finality_returns_within_the_longest_view_before_the_hub_stalls() {
+    // Every proposal is lost for almost as long as the stall in the test
+    // terms: a quorum nullifies view after view, each waiting longer, up to
+    // the longest view. Uncapped, the view in progress at the heal would
+    // wait about as long again, and the hub would stall. Capped, blocks are
+    // final again within about the longest view, and no validator goes as
+    // long as the stall without a final block.
+    const STALL_MS: u64 = 3_600_000;
+    let mut network = honest(4);
+    run_for(&mut network, 1_000);
+    let before = network.honest_floor();
+    let outage_from = network.now;
+    network.lose_proposals = true;
+    run_for(
+        &mut network,
+        STALL_MS - 5 * dassie_hub::consensus::MAX_VIEW_TIMEOUT_MS,
+    );
+    assert_eq!(network.honest_floor(), before);
+    // The views of the outage are few: the longest view bounds them.
+    let views = network.engine(0).view();
+    assert!(views < 200, "{views} views");
+    // Uncapped, the view in progress would wait longer than the outage.
+    let backoff = network.engine(0).backoff();
+    assert!(
+        backoff.saturating_mul(CONFIG.advance_timeout_ms) > STALL_MS,
+        "{backoff}"
+    );
+    network.lose_proposals = false;
+    let healed = network.now;
+    while network.honest_floor() <= before && network.now < healed + STALL_MS {
+        run_for(&mut network, 100);
+    }
+    let recovered = network.now - healed;
+    assert_safe(&network);
+    assert!(
+        recovered <= dassie_hub::consensus::MAX_VIEW_TIMEOUT_MS + 1_000,
+        "final again {recovered} ms after the heal"
+    );
+    assert!(network.now - outage_from < STALL_MS, "no stall");
+}
+
+#[test]
+fn a_validator_away_while_nothing_is_final_takes_a_chain_of_full_blocks() {
+    // As below, with blocks as large as the ledger's: the chain waiting to
+    // be final takes several deliveries, which must each bring what the
+    // validator still lacks.
+    let mut network = honest(4);
+    for sim in &mut network.validators {
+        sim.app.pad = dassie_hub::consensus::MAX_PAYLOAD_BYTES - 16 * 1024;
+    }
+    run_for(&mut network, 1_000);
+    let before = network.honest_floor();
+    network.lose_every_finalize = true;
+    network.partition(&[3]);
+    run_for(&mut network, 6_000);
+    network.heal();
+    run_for(&mut network, 4_000);
+    network.crash(0);
+    network.lose_every_finalize = false;
+    run_for(&mut network, 6_000);
+    assert_safe(&network);
+    for index in 1..4 {
+        assert!(
+            network.height(index) > before + 31,
+            "validator {index}: {} after, {before} before",
+            network.height(index)
+        );
+    }
+}
+
+#[test]
+fn the_longest_stall_holds_the_views_of_an_outage_with_f_silent_leaders() {
+    // The largest set, f of it silent: their views end at once, so views
+    // come faster than one per longest view. Every proposal is lost for as
+    // long as the longest stall the rules allow, but the recovery: the
+    // views made fit in what an engine holds, and blocks are final again
+    // once proposals go through.
+    use dassie_hub::consensus::{MAX_ROUNDS, MAX_STALL_MS, MAX_VIEW_TIMEOUT_MS, MIN_STALL_MS};
+    let count = dassie_hub::validators::MAX_VALIDATORS;
+    let faults = (count - 1) / 3;
+    let mut network = Network::new(1, &roles(count, &vec![Role::Silent; faults]), CONFIG);
+    run_for(&mut network, 3_000);
+    let before = network.honest_floor();
+    let outage_from = network.now;
+    network.lose_proposals = true;
+    let mut most = 0;
+    while network.now < outage_from + MAX_STALL_MS - MIN_STALL_MS / 2 {
+        run_for(&mut network, MAX_VIEW_TIMEOUT_MS);
+        let held = network
+            .honest()
+            .map(|index| network.engine(index).rounds_held())
+            .max()
+            .unwrap_or(0);
+        most = most.max(held);
+    }
+    assert_eq!(network.honest_floor(), before);
+    assert!(most < MAX_ROUNDS, "{most} views held");
+    network.lose_proposals = false;
+    let healed = network.now;
+    while network.honest_floor() <= before && network.now < healed + MIN_STALL_MS {
+        run_for(&mut network, 1_000);
+    }
+    assert_safe(&network);
+    assert!(network.honest_floor() > before, "final again");
+    assert!(network.now - outage_from < MAX_STALL_MS, "no stall");
+}
+
+#[test]
+fn a_validator_away_while_nothing_is_final_takes_the_chain_from_others() {
+    // While every finalize vote is lost, one validator is cut off as the
+    // chain grows, and comes back while it is still not final: it takes
+    // what it lacks from the others, who let go of the views below the
+    // highest notarized one. Then another crashes, so that its vote is
+    // needed for every quorum, and blocks are final again once the votes
+    // go through.
+    let mut network = honest(4);
+    run_for(&mut network, 1_000);
+    let before = network.honest_floor();
+    network.lose_every_finalize = true;
+    network.partition(&[3]);
+    run_for(&mut network, 6_000);
+    network.heal();
+    run_for(&mut network, 3_000);
+    network.crash(0);
+    network.lose_every_finalize = false;
+    run_for(&mut network, 5_000);
+    assert_safe(&network);
+    for index in 1..4 {
+        assert!(
+            network.height(index) > before + 31,
+            "validator {index}: {} after, {before} before",
+            network.height(index)
+        );
+    }
+}
+
+#[test]
+fn verifying_again_costs_at_most_the_unfinalized_chain_per_view() {
+    // Faulty leaders propose to too few to notarize: those few verify a
+    // block that is never notarized, and an application that keeps one
+    // state lets go of what the next block builds on, so that block's
+    // ancestors are verified again, from the last final block. With every
+    // finalize lost, that chain is as long as it gets.
+    for count in [4, 7] {
+        let faults = (count - 1) / 3;
+        for keep in [None, Some(1), Some(2)] {
+            let mut network = Network::new(1, &roles(count, &vec![Role::Partial; faults]), CONFIG);
+            for sim in &mut network.validators {
+                sim.app.keep_states = keep;
+            }
+            run_for(&mut network, 1_000);
+            let start: Vec<(u64, u64)> = network
+                .honest()
+                .map(|i| {
+                    (
+                        network.engine(i).view(),
+                        network.validators[i].app.verifications,
+                    )
+                })
+                .collect();
+            network.lose_every_finalize = true;
+            run_for(&mut network, 30_000);
+            network.lose_every_finalize = false;
+            run_for(&mut network, 3_000);
+            assert_safe(&network);
+            let (views, verified) = network.honest().zip(&start).fold(
+                (0, 0),
+                |(views, verified), (i, (view, before))| {
+                    (
+                        views + network.engine(i).view() - view,
+                        verified + network.validators[i].app.verifications - before,
+                    )
+                },
+            );
+            let most = network
+                .honest()
+                .map(|i| network.validators[i].most_verified_in_a_view)
+                .max()
+                .unwrap();
+            eprintln!(
+                "{count} validators, keeping {keep:?}: {verified} verified in {views} views, \
+                 at most {most} in one view"
+            );
+            assert!(most <= dassie_hub::consensus::MAX_UNFINALIZED_HEIGHTS + 2);
+        }
+    }
 }
 
 #[test]

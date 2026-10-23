@@ -23,6 +23,7 @@ Another way to peer, beside bilateral peering: a ledger kept by n = 3f + 1 valid
   - being in several hubs per asset, with a limit per validator operator over all of them;
   - a node putting what it earned into its holds, so a peer's room grows with earnings;
   - hub balances and holds in the wallet and the desktop app.
+  - stall periods above what the engine's views hold at the longest view (`MAX_STALL_MS`), by keeping long runs of nullified views as ranges ([finality-after-any-outage](decisions/finality-after-any-outage.md)).
 - Hubs hold real money only once the conditions of [Real money](#real-money) are met.
 
 ### Continuous simulation

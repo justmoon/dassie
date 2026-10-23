@@ -15,6 +15,7 @@ use dassie_oer::{Alphabet, Encode, Reader, Size, Writer, size};
 use crate::codec::{
     HubDecodeError, KEY_LEN, SIGNATURE_LEN, read_key, read_signature, write_key, write_signature,
 };
+use crate::consensus::{MAX_STALL_MS, MIN_STALL_MS};
 use crate::digest::{Digest, Domain};
 use crate::validators::{MAX_VALIDATORS, MIN_VALIDATORS, ValidatorSet};
 
@@ -278,6 +279,12 @@ impl Terms {
         }
         if timers.stall <= timers.view_timeout || timers.absence <= timers.stall {
             return fail("stall or absence not longer than a view");
+        }
+        // A hub recovering from the longest outage must not stall first,
+        // and an outage as long as the stall must fit in the views an
+        // engine holds (consensus/config.rs).
+        if !(MIN_STALL_MS..=MAX_STALL_MS).contains(&timers.stall) {
+            return fail("stall not between a recovery and the views an engine holds");
         }
         Ok(())
     }
@@ -758,5 +765,17 @@ pub(crate) mod tests {
         let mut bad = terms(&sponsor);
         bad.limits.claimed_per_hold = 1_000;
         assert!(bad.check().is_err());
+        // A stall shorter than recovery from the longest outage, or longer
+        // than an engine holds the views of.
+        for stall in [MIN_STALL_MS - 1, MAX_STALL_MS + 1] {
+            let mut bad = terms(&sponsor);
+            bad.timers.stall = stall;
+            assert!(bad.check().is_err(), "{stall}");
+        }
+        for stall in [MIN_STALL_MS, MAX_STALL_MS] {
+            let mut good = terms(&sponsor);
+            good.timers.stall = stall;
+            assert_eq!(good.check(), Ok(()), "{stall}");
+        }
     }
 }
