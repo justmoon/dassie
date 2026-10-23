@@ -97,7 +97,14 @@ pub trait Commitments {
 
     /// As the payer: our Prepare `request_id` to `peer` expired and waits
     /// for the hub to decide it, until `backstop_ms`.
-    fn on_hub_wait(&mut self, now_ms: u64, peer: Name, request_id: u32, condition: [u8; 32], backstop_ms: u64);
+    fn on_hub_wait(
+        &mut self,
+        now_ms: u64,
+        peer: Name,
+        request_id: u32,
+        condition: [u8; 32],
+        backstop_ms: u64,
+    );
 
     /// As the payer: our Prepare `request_id` to `peer` was answered, or
     /// decided: what the scheme kept for it is forgotten.
