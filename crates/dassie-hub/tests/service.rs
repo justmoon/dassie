@@ -94,6 +94,9 @@ struct Network {
     behind: Vec<(usize, Box<dassie_hub::consensus::Finalized>)>,
     /// States taken that way.
     caught_up: usize,
+    /// Whether every vote to finalize, finalization and catch-up is lost,
+    /// so blocks are notarized and none becomes final.
+    no_finality: bool,
     now: u64,
 }
 
@@ -137,6 +140,7 @@ impl Network {
             cut: None,
             behind: Vec::new(),
             caught_up: 0,
+            no_finality: false,
             now: START,
         }
     }
@@ -183,6 +187,9 @@ impl Network {
             while let Some((to, from, bytes)) = self.queue.pop_front() {
                 let sender = usize::try_from(from.0).ok();
                 if self.cut.is_some() && (self.cut == Some(to) || self.cut == sender) {
+                    continue;
+                }
+                if self.no_finality && carries_finality(&bytes) {
                     continue;
                 }
                 let share = matches!(Message::decode_exact(&bytes), Ok(Message::Share { .. }));
@@ -600,4 +607,55 @@ fn a_state_that_is_not_the_blocks_is_refused() {
         Err(dassie_hub::service::CatchUpError::State)
     );
     assert_eq!(net.validators[to].ledger(), &before);
+}
+
+/// Whether a message is a vote to finalize, a finalization, or catch-up,
+/// which carries finalizations.
+fn carries_finality(bytes: &[u8]) -> bool {
+    use dassie_hub::consensus::VoteKind;
+    use dassie_hub::consensus::wire::Message as Consensus;
+    let Ok(Message::Consensus(inner)) = Message::decode_exact(bytes) else {
+        return false;
+    };
+    match Consensus::decode_message(&inner) {
+        Ok(Consensus::Vote(vote)) => vote.kind == VoteKind::Finalize,
+        Ok(Consensus::Certificate(certificate)) => certificate.kind == VoteKind::Finalize,
+        Ok(Consensus::Fetch(_) | Consensus::Delivery(_)) => true,
+        _ => false,
+    }
+}
+
+// Validators keep the states of a bounded number of blocks not yet final
+// (`MAX_EXECUTED`), and the engine verifies again what they let go of: a
+// long run of notarized blocks none of which became final ends once votes
+// to finalize arrive again (spec/areas/hubs.md#consensus).
+#[test]
+fn finality_returns_after_more_blocks_than_validators_keep_states_of() {
+    let mut net = Network::new();
+    net.run(100);
+    let final_height = net.validators[0].ledger().height();
+    let view = net.validators[0].engine().view();
+    net.no_finality = true;
+    // A hundred views: more than the states a validator keeps, fewer than
+    // the rounds the engine keeps.
+    net.run(10_000);
+    assert_eq!(
+        net.validators[0].ledger().height(),
+        final_height,
+        "nothing became final"
+    );
+    let views = net.validators[0].engine().view() - view;
+    assert!(
+        views > 70,
+        "more blocks notarized than states kept: {views} views"
+    );
+    net.no_finality = false;
+    net.run(5_000);
+    for validator in &net.validators {
+        assert!(
+            validator.ledger().height() > final_height + 70,
+            "final again: {}",
+            validator.ledger().height()
+        );
+    }
 }

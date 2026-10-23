@@ -294,6 +294,12 @@ impl Application for Chain {
         Some((from, set))
     }
 
+    fn holds(&mut self, block: &Digest) -> bool {
+        // The final state always; others while kept. One let go of is
+        // verified again by the engine from the nearest state held.
+        *block == self.tip || self.executed.contains_key(block)
+    }
+
     fn scheduled_change(
         &mut self,
         after: &Digest,
@@ -574,5 +580,42 @@ pub(super) mod tests {
         chain.finalized(&block, &Digest([2; 32]));
         assert_eq!(chain.reconfiguration(), change);
         assert_eq!(chain.scheduled_change(&Digest([2; 32])), change);
+    }
+
+    // The service keeps a bounded number of states and says which it holds:
+    // the final one always, the one just verified at least until the next,
+    // and none it let go of (spec/areas/hubs.md#consensus).
+    #[test]
+    fn the_states_it_holds_are_the_ones_it_says() {
+        let hub = Hub::new();
+        let mut chain = Chain::new(hub.ledger.clone(), Digest([1; 32]));
+        let tip = chain.tip;
+        assert!(chain.holds(&tip));
+        let mut parent = chain.tip;
+        let mut digests = Vec::new();
+        for i in 0..=MAX_EXECUTED {
+            let base = chain.base(&parent).unwrap().clone();
+            let height = base.height() + 1;
+            let timestamp = base.timestamp() + 10;
+            let executed =
+                Chain::execute(&base, height, timestamp, Vec::new(), Vec::new()).unwrap();
+            let digest = Digest([u8::try_from(i % 200).unwrap() + 2; 32]);
+            let context = VerifyContext {
+                view: height,
+                proposer: ValidatorIndex::new(0).unwrap(),
+                parent,
+                height,
+                timestamp_ms: timestamp,
+                block: digest,
+            };
+            assert!(chain.verify(&context, &executed.payload.to_vec()));
+            assert!(chain.holds(&digest), "the block just verified");
+            digests.push(digest);
+            parent = digest;
+        }
+        assert!(!chain.holds(&digests[0]), "the lowest was let go of");
+        assert!(chain.holds(&tip), "the final state always");
+        assert!(chain.holds(digests.last().unwrap()));
+        chain.check_invariants();
     }
 }
