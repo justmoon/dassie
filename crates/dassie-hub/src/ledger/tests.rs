@@ -1027,9 +1027,10 @@ fn a_payee_can_release_holds_toward_it() {
 }
 
 #[test]
-fn reset_votes_for_different_chains_do_not_add_up() {
+fn reset_votes_count_validators_whatever_ledger_each_saw() {
     let mut hub = Hub::new();
     hub.join(1, 10_000_000);
+    // Honest validators see the new chain at different ledgers.
     let ops: Vec<Operation> = (0..3)
         .map(|i| {
             let ledger = u32::try_from(i).unwrap() + 1;
@@ -1037,7 +1038,8 @@ fn reset_votes_for_different_chains_do_not_add_up() {
         })
         .collect();
     hub.block(ops);
-    assert!(hub.ledger.supply() > 0);
+    assert_eq!(hub.ledger.supply(), 0);
+    assert_eq!(hub.ledger.written_off_at(), Some(hub.ledger.timestamp()));
 }
 
 #[test]
@@ -1146,19 +1148,73 @@ fn attestations_follow_their_validators_through_a_change_of_set() {
 }
 
 #[test]
-fn a_validator_may_change_its_reset_vote() {
+fn a_validator_votes_for_a_reset_once() {
     let mut hub = Hub::new();
     hub.join(1, 10_000_000);
-    let ops = vec![
-        hub.validator_op(0, ValidatorOperation::AttestReset { ledger: 1 }),
-        hub.validator_op(1, ValidatorOperation::AttestReset { ledger: 1 }),
-        hub.validator_op(2, ValidatorOperation::AttestReset { ledger: 2 }),
-    ];
+    let first = hub.validator_op(0, ValidatorOperation::AttestReset { ledger: 1 });
+    let again = hub.validator_op(0, ValidatorOperation::AttestReset { ledger: 2 });
+    let other = hub.validator_op(1, ValidatorOperation::AttestReset { ledger: 1 });
+    let outcomes = hub.block(vec![first, again, other]);
+    assert_eq!(outcomes[1], Outcome::Refused(Refusal::NotAllowed));
+    assert!(hub.ledger.supply() > 0, "two validators are no quorum");
+}
+
+/// The hub of `reset_votes_count_validators_whatever_ledger_each_saw`
+/// after its write-off, with its escrow checked again and a member funded.
+fn written_off() -> Hub {
+    let mut hub = Hub::new();
+    hub.join(1, 10_000_000);
+    let ops: Vec<Operation> = (0..3)
+        .map(|i| hub.validator_op(i, ValidatorOperation::AttestReset { ledger: 1 }))
+        .collect();
     hub.block(ops);
-    assert!(hub.ledger.supply() > 0);
-    let changed = hub.validator_op(2, ValidatorOperation::AttestReset { ledger: 1 });
-    hub.block(vec![changed]);
     assert_eq!(hub.ledger.supply(), 0);
+    hub.all_validators(|_| ValidatorOperation::AttestEscrow { sequence: 7 });
+    hub.join(2, 10_000_000);
+    assert!(hub.ledger.supply() > 0);
+    hub
+}
+
+// spec/areas/hubs.md#what-validators-attest: votes count validators, so a
+// vote must not outlive its reset. The honest validator that saw the reset
+// late, with f faulty ones and one a lying server fooled, would otherwise
+// be a quorum for a second write-off.
+#[test]
+fn late_reset_votes_never_make_a_second_write_off() {
+    let mut hub = written_off();
+    let late = hub.validator_op(3, ValidatorOperation::AttestReset { ledger: 5 });
+    let faulty = hub.validator_op(0, ValidatorOperation::AttestReset { ledger: 9 });
+    let fooled = hub.validator_op(1, ValidatorOperation::AttestReset { ledger: 9 });
+    let outcomes = hub.block(vec![late, faulty, fooled]);
+    assert!(
+        outcomes
+            .iter()
+            .all(|o| *o == Outcome::Refused(Refusal::NotAllowed)),
+        "{outcomes:?}"
+    );
+    assert!(hub.ledger.supply() > 0, "no second write-off");
+}
+
+#[test]
+fn a_reset_vote_counts_again_after_the_quiet_period() {
+    let mut hub = written_off();
+    let at = hub.ledger.written_off_at().unwrap();
+    let ops: Vec<Operation> = [0, 1]
+        .into_iter()
+        .map(|i| hub.validator_op(i, ValidatorOperation::AttestReset { ledger: 3 }))
+        .collect();
+    let votes = [(hub.ledger.height(), Signers::from_bits(0b1111))];
+    let quiet_end = at + crate::ledger::RESET_QUIET_MS;
+    let outcomes = hub.block_at(quiet_end - 1, ops, &votes);
+    assert!(outcomes.iter().all(|o| matches!(o, Outcome::Refused(_))));
+    let ops: Vec<Operation> = [0, 1, 3]
+        .into_iter()
+        .map(|i| hub.validator_op(i, ValidatorOperation::AttestReset { ledger: 3 }))
+        .collect();
+    let votes = [(hub.ledger.height(), Signers::from_bits(0b1111))];
+    hub.block_at(quiet_end, ops, &votes);
+    assert_eq!(hub.ledger.supply(), 0, "a new reset is written off");
+    assert_eq!(hub.ledger.written_off_at(), Some(quiet_end));
 }
 
 #[test]

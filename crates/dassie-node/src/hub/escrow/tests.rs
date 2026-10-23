@@ -54,6 +54,7 @@ impl Setup {
             next_sequence: 0,
             withdrawals: Vec::new(),
             signer_list: None,
+            written_off_at: None,
         };
         let watcher = Watcher::new(master.account(), 1, None);
         Self {
@@ -185,8 +186,40 @@ fn a_reset_of_the_test_network_is_attested_and_a_server_behind_is_not() {
             _ => None,
         })
         .expect("the reset is attested");
-    assert_eq!(reset % RESET_EPOCH_LEDGERS, 0);
+    assert_eq!(
+        reset,
+        setup.cursor.unwrap().newest_ledger,
+        "the ledger it saw"
+    );
     assert!(setup.watcher.following());
+
+    // Seen again, after another reconnect: attested no more.
+    setup.attested.clear();
+    setup.watcher.disconnected();
+    setup.connect();
+    assert!(setup.attested.is_empty(), "{:?}", setup.attested);
+}
+
+#[test]
+fn a_reset_the_hub_wrote_off_already_is_not_attested() {
+    let mut setup = Setup::new();
+    setup.connect();
+    setup.view.checked = true;
+    setup.xrpl.reset();
+    // A quorum saw the new chain first, and the hub wrote it off.
+    setup.view.written_off_at = Some(u64::MAX);
+    setup.watcher.disconnected();
+    setup.attested.clear();
+    setup.connect();
+    assert!(setup.watcher.following());
+    assert!(
+        !setup
+            .attested
+            .iter()
+            .any(|op| matches!(op, ValidatorOperation::AttestReset { .. })),
+        "{:?}",
+        setup.attested
+    );
 }
 
 #[test]

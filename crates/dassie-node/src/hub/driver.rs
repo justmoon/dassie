@@ -384,6 +384,7 @@ impl Driver {
                 .map(|(sequence, withdrawal)| (sequence, withdrawal.clone()))
                 .collect(),
             signer_list: escrow.signer_list,
+            written_off_at: ledger.written_off_at(),
         }
     }
 

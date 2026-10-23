@@ -6,9 +6,9 @@
 use alloc::vec::Vec;
 
 use super::Ledger;
-use super::TESTNET_NETWORK;
 use super::outcome::{Detail, Failure, Outcome, Refusal};
 use super::state::{Account, PendingRules, Phase, ValidatorState};
+use super::{RESET_QUIET_MS, TESTNET_NETWORK};
 use crate::operation::{AccountNumber, SignedValidatorOperation, ValidatorOperation};
 use crate::rules::Rules;
 use crate::validators::{Signers, ValidatorIndex};
@@ -147,18 +147,28 @@ impl Ledger {
         Ok(Detail::None)
     }
 
-    /// A reset of the test network, once a quorum saw the same new chain,
-    /// writes off everything the escrow held
+    /// A reset of the test network, once a quorum of validators attested
+    /// one, writes off everything the escrow held
     /// (spec/designs/settlement-hubs.md#6-deposits-and-withdrawals). One
-    /// faulty validator, or one lying server, cannot; nor can sightings of
-    /// different chains add up.
-    fn attest_reset(&mut self, index: ValidatorIndex, ledger: u32) -> Executed {
+    /// faulty validator, or one lying server, cannot. Votes count
+    /// validators, whatever ledger of the new chain each first saw, which
+    /// differs between honest ones; so for [`RESET_QUIET_MS`] after a
+    /// write-off no vote is taken, and the late votes for the reset written
+    /// off never count toward another.
+    fn attest_reset(&mut self, index: ValidatorIndex, _ledger: u32) -> Executed {
         if self.rules.terms.network != TESTNET_NETWORK {
             return Err(Err(Refusal::NotAllowed));
         }
-        let quorum = self.validators.quorum();
-        if vote(&mut self.reset_votes, index, ledger, quorum).map_err(Err)? {
+        let quiet = self
+            .written_off_at
+            .is_some_and(|at| self.timestamp < at.saturating_add(RESET_QUIET_MS));
+        if quiet || self.reset_votes.contains(index) {
+            return Err(Err(Refusal::NotAllowed));
+        }
+        self.reset_votes = self.reset_votes.with(index);
+        if self.reset_votes.count() >= self.validators.quorum() {
             self.write_off();
+            self.written_off_at = Some(self.timestamp);
         }
         Ok(Detail::None)
     }
@@ -304,7 +314,7 @@ impl Ledger {
             withdrawal.failed = remap(withdrawal.failed);
         }
         self.shutdown_votes = Signers::NONE;
-        self.reset_votes.clear();
+        self.reset_votes = Signers::NONE;
         self.escrow_votes.clear();
         self.rules_votes.clear();
         self.signer_list_votes.clear();

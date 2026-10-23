@@ -155,7 +155,9 @@ pub enum ValidatorOperation {
     },
     /// A reset of the test network the validator saw.
     AttestReset {
-        /// The first ledger of the new chain the validator saw.
+        /// The first ledger of the new chain the validator saw. It informs:
+        /// votes count validators, since honest ones see the chain at
+        /// different ledgers.
         ledger: u32,
     },
     /// Changes the validators or the terms, after the rules' notice.

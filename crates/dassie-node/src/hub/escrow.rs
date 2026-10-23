@@ -33,11 +33,9 @@ use crate::store::EscrowCursor;
 /// attested just before a crash may never have reached a block.
 pub const RESCAN_LEDGERS: u32 = 1024;
 
-/// A reset is attested by the new chain's ledger rounded down to this, so
-/// that validators that see the same new chain within its first days
-/// attest the same value, and sightings of chains far apart never add up
-/// (about 2.6 days of ledgers).
-pub const RESET_EPOCH_LEDGERS: u32 = 1 << 16;
+/// Seconds from the Unix epoch to the XRP Ledger's, in which close times
+/// are counted.
+const XRPL_EPOCH_S: u64 = 946_684_800;
 
 /// How often the escrow is checked while no quorum has.
 pub const ESCROW_CHECK_EVERY_MS: u64 = 30_000;
@@ -72,6 +70,8 @@ pub struct EscrowView {
     pub withdrawals: Vec<(u32, Withdrawal)>,
     /// The sequence kept for the old validators' change of signer list.
     pub signer_list: Option<u32>,
+    /// When the hub last wrote off a reset, by its block's timestamp.
+    pub written_off_at: Option<u64>,
 }
 
 /// Where a server's validated ledger stands against the newest seen.
@@ -168,6 +168,8 @@ pub struct Watcher {
     settings: Option<(AccountSettings, u32)>,
     escrow_checked_ms: Option<u64>,
     attested_escrow: Option<u32>,
+    /// When the hub last wrote off a reset, as the view last said.
+    written_off_at: Option<u64>,
     out: VecDeque<Out>,
 }
 
@@ -189,6 +191,7 @@ impl Watcher {
             settings: None,
             escrow_checked_ms: None,
             attested_escrow: None,
+            written_off_at: None,
             out: VecDeque::new(),
         }
     }
@@ -241,6 +244,7 @@ impl Watcher {
     /// Does what is due at `now`: ask a server that was behind again, check
     /// the escrow while no quorum has, look again at outcomes held.
     pub fn tick(&mut self, now_ms: u64, view: &EscrowView) {
+        self.written_off_at = view.written_off_at;
         match self.phase {
             Phase::Waiting { since_ms } if now_ms.saturating_sub(since_ms) >= RETRY_MS => {
                 self.phase = Phase::Checking;
@@ -266,6 +270,7 @@ impl Watcher {
 
     /// Takes a message from the server.
     pub fn message(&mut self, now_ms: u64, bytes: &[u8], view: &EscrowView) {
+        self.written_off_at = view.written_off_at;
         match api::parse(bytes) {
             Message::Response { id, outcome } => {
                 if let Some(asked) = self.pending.remove(&id) {
@@ -355,7 +360,10 @@ impl Watcher {
 
     /// Takes a validated ledger the server reports as the newest: whether
     /// it is on the chain the watcher follows, a new one after a reset of
-    /// the test network, which it attests, or neither.
+    /// the test network, or neither. A reset is attested once, by the
+    /// ledger it was seen at, unless the hub wrote one off since that
+    /// ledger closed: a quorum saw it before this validator did, and a
+    /// late vote only waits out the hub's quiet period.
     fn take_ledger(&mut self, index: u32, close_time: u64) -> bool {
         let newest = self
             .cursor
@@ -370,11 +378,15 @@ impl Watcher {
                 false
             }
             Chain::Restarted => {
-                let ledger = index - index % RESET_EPOCH_LEDGERS;
-                self.out
-                    .push_back(Out::Attest(ValidatorOperation::AttestReset { ledger }));
+                let closed_ms = close_time
+                    .saturating_add(XRPL_EPOCH_S)
+                    .saturating_mul(1_000);
+                if self.written_off_at.is_none_or(|at| at < closed_ms) {
+                    let reset = ValidatorOperation::AttestReset { ledger: index };
+                    self.out.push_back(Out::Attest(reset));
+                }
                 self.out.push_back(Out::Problem(
-                    "the XRP Ledger testnet was reset: attested, and the escrow is checked again",
+                    "the XRP Ledger testnet was reset: the escrow is checked again",
                 ));
                 let cursor = EscrowCursor {
                     newest_ledger: index,

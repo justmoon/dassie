@@ -288,7 +288,7 @@ impl Ledger {
         self.escrow.next_sequence = 0;
         self.escrow.deposit_floor = 0;
         self.escrow.signer_list = None;
-        self.reset_votes.clear();
+        self.reset_votes = Signers::NONE;
         self.escrow_votes.clear();
         self.signer_list_votes.clear();
     }

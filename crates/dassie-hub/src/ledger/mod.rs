@@ -100,7 +100,10 @@ pub struct Ledger {
     pub(crate) escrow_votes: Vec<(u32, Signers)>,
     pub(crate) signer_list_votes: Vec<(u32, Signers)>,
     pub(crate) shutdown_votes: Signers,
-    pub(crate) reset_votes: Vec<(u32, Signers)>,
+    /// The validators that attested a reset since the last write-off.
+    pub(crate) reset_votes: Signers,
+    /// The timestamp of the block that last wrote off a reset.
+    pub(crate) written_off_at: Option<Millis>,
     /// The height from which the validators in force sign blocks: no block
     /// records votes for blocks before it, signed by others.
     pub(crate) set_since: u64,
@@ -109,6 +112,21 @@ pub struct Ledger {
 /// The XRP Ledger testnet's network ID, the one network on which the hub
 /// writes off a reset (spec/decisions/ledger-resets.md).
 pub const TESTNET_NETWORK: u32 = 1;
+
+/// How long after a write-off the hub takes no attestation of a reset, by
+/// block timestamps: one hour.
+///
+/// Reset votes count validators, not the ledger each names, since honest
+/// validators see a new chain at different ledgers. So a vote must never
+/// outlive its reset: up to f honest validators may still be on their way
+/// to attest a reset a quorum already wrote off, and those late votes,
+/// with f faulty ones and one validator a lying server fooled, would be a
+/// quorum for a second write-off. An online validator sees a new chain at
+/// its server's next validated ledger, or when it connects again (backing
+/// off at most a minute), and its attestation is in a block within a few
+/// views: seconds to a minute or two. An hour is well above that, and far
+/// below the months between resets of the test network.
+pub const RESET_QUIET_MS: Millis = 60 * 60 * 1_000;
 
 impl Ledger {
     /// The ledger at genesis: one account per validator, for its fees, and
@@ -147,7 +165,8 @@ impl Ledger {
             escrow_votes: Vec::new(),
             signer_list_votes: Vec::new(),
             shutdown_votes: Signers::NONE,
-            reset_votes: Vec::new(),
+            reset_votes: Signers::NONE,
+            written_off_at: None,
             set_since: 1,
             rules,
         };
@@ -402,6 +421,13 @@ impl Ledger {
     #[must_use]
     pub const fn pending_rules(&self) -> Option<&PendingRules> {
         self.pending_rules.as_ref()
+    }
+
+    /// The timestamp of the block that last wrote off a reset of the test
+    /// network, if one did.
+    #[must_use]
+    pub const fn written_off_at(&self) -> Option<Millis> {
+        self.written_off_at
     }
 
     /// The height from which the validators in force sign blocks.
