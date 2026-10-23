@@ -317,6 +317,39 @@ impl SignedStatement {
     }
 }
 
+/// What a page of [`Statement::Holds`] adds to its holds, at most: its tag,
+/// height, timestamp, account, page, pages and count.
+const HOLDS_PAGE_OVERHEAD: usize = 1 + 8 + 8 + 4 + 2 + 2 + 9;
+
+/// The most bytes of one hold on a page of [`Statement::Holds`].
+const LISTED_HOLD_BYTES: usize = 8 + HOLD_VIEW_LEN;
+
+/// The most bytes of one page of [`Statement::Holds`].
+pub const MAX_HOLDS_PAGE_BYTES: usize = HOLDS_PAGE_OVERHEAD + MAX_HOLDS_LISTED * LISTED_HOLD_BYTES;
+
+/// The most bytes of statements an honest answer to `Holds` carries: the
+/// account, and every page of its holds.
+pub const MAX_HOLDS_ANSWER_BYTES: usize =
+    ACCOUNT_STATEMENT_BYTES + MAX_HOLD_PAGES * MAX_HOLDS_PAGE_BYTES;
+
+/// The most bytes of statements still waiting for agreement that a tally
+/// keeps of one validator ([`Agreement`]): two answers to `Since`, which is
+/// what a member's buffer holds, and an answer to `Holds`. An honest
+/// validator sends no more before what it sent agrees, however many
+/// messages its answers span; a faulty one fills only this much of a
+/// member's memory, so a tally holds at most n times it.
+pub const MAX_SIGNER_BYTES: usize =
+    2 * crate::service::MAX_SINCE_ANSWER_BYTES + MAX_HOLDS_ANSWER_BYTES;
+
+const _: () = assert!(MAX_SIGNER_BYTES >= 2 * crate::service::MAX_SINCE_ANSWER_BYTES);
+const _: () = assert!(MAX_SIGNER_BYTES >= MAX_HOLDS_ANSWER_BYTES);
+
+/// The encoded size of a [`HoldView`].
+const HOLD_VIEW_LEN: usize = 4 + 4 + 8 + 1 + 16 + 8 + 8;
+
+/// The most bytes of a [`Statement::Account`].
+const ACCOUNT_STATEMENT_BYTES: usize = 1 + 8 + 32 + 1 + 4 + (32 + 8 * 3 + 2);
+
 /// How far above the height f + 1 validators have reached a statement may
 /// be: no honest validator signs one further ahead than the hub is, and at
 /// least one of any f + 1 is honest.
@@ -338,6 +371,8 @@ pub struct Dropped {
 #[derive(Clone, Debug)]
 struct Pending {
     statement: Statement,
+    /// Its encoded size, which each signer's signature on it counts.
+    bytes: usize,
     signers: Signers,
     agreed: bool,
 }
@@ -345,8 +380,9 @@ struct Pending {
 /// Gathers signed statements until f + 1 validators agree on one.
 ///
 /// Bounded per signer, so no validator can push out another's signatures:
-/// each signer has at most `capacity / n` signatures on statements still
-/// waiting for agreement, and one more of its signatures is refused.
+/// each signer has at most `capacity / n` signatures and [`MAX_SIGNER_BYTES`]
+/// of statements still waiting for agreement, and a signature past either
+/// is refused.
 /// Statements that agreed are kept, up to `capacity`, so that each agrees
 /// once; the lowest go first. A statement further than
 /// [`MAX_HEIGHTS_AHEAD`] above the height f + 1 validators have reached is
@@ -359,8 +395,9 @@ pub struct Agreement {
     capacity: usize,
     quota: usize,
     pending: BTreeMap<(u64, Digest), Pending>,
-    /// Per signer, its signatures on statements still waiting.
-    waiting: Vec<usize>,
+    /// Per signer, its signatures on statements still waiting, and their
+    /// statements' bytes.
+    waiting: Vec<(usize, usize)>,
     /// Per signer, the highest height it signed a statement at.
     reached: Vec<u64>,
     dropped: Option<Dropped>,
@@ -379,7 +416,7 @@ impl Agreement {
             quota: (capacity / n.max(1)).max(1),
             capacity,
             pending: BTreeMap::new(),
-            waiting: alloc::vec![0; n],
+            waiting: alloc::vec![(0, 0); n],
             reached: alloc::vec![0; n],
             dropped: None,
             set,
@@ -414,21 +451,24 @@ impl Agreement {
             }
             _ => {}
         }
-        // A signer at its quota has its new signature refused, not its old
-        // ones dropped: the lowest are the ones to agree first, and once
-        // they did the signer has room again.
-        if self.full(signer) {
+        // A signer at its quota, of count or bytes, has its new signature
+        // refused, not its old ones dropped: the lowest are the ones to
+        // agree first, and once they did the signer has room again.
+        let bytes = signed.statement.encoded_len();
+        if self.full(signer, bytes) {
             self.drop_signature(height, signer);
             return None;
         }
         let entry = self.pending.entry(key).or_insert_with(|| Pending {
             statement: signed.statement,
+            bytes,
             signers: Signers::NONE,
             agreed: false,
         });
         entry.signers = entry.signers.with(signer);
-        if let Some(count) = self.waiting.get_mut(signer.get()) {
+        if let Some((count, held)) = self.waiting.get_mut(signer.get()) {
             *count = count.saturating_add(1);
+            *held = held.saturating_add(bytes);
         }
         self.agree(key)
     }
@@ -453,10 +493,11 @@ impl Agreement {
             return None;
         }
         entry.agreed = true;
-        let (statement, signers) = (entry.statement.clone(), entry.signers);
+        let (statement, signers, bytes) = (entry.statement.clone(), entry.signers, entry.bytes);
         for index in signers.iter() {
-            if let Some(count) = self.waiting.get_mut(index.get()) {
+            if let Some((count, held)) = self.waiting.get_mut(index.get()) {
                 *count = count.saturating_sub(1);
+                *held = held.saturating_sub(bytes);
             }
         }
         // One more agreed: at most one over the bound.
@@ -470,11 +511,11 @@ impl Agreement {
     }
 
     /// Whether `signer` has its quota of signatures on statements still
-    /// waiting.
-    fn full(&self, signer: ValidatorIndex) -> bool {
-        self.waiting
-            .get(signer.get())
-            .is_some_and(|count| *count >= self.quota)
+    /// waiting, or one more of `bytes` would pass [`MAX_SIGNER_BYTES`].
+    fn full(&self, signer: ValidatorIndex, bytes: usize) -> bool {
+        self.waiting.get(signer.get()).is_some_and(|(count, held)| {
+            *count >= self.quota || held.saturating_add(bytes) > MAX_SIGNER_BYTES
+        })
     }
 
     fn drop_signature(&mut self, height: u64, signer: ValidatorIndex) {
@@ -502,16 +543,23 @@ impl Agreement {
         self.waiting = self.count_waiting();
     }
 
-    fn count_waiting(&self) -> Vec<usize> {
-        let mut waiting = alloc::vec![0usize; self.set.len()];
+    fn count_waiting(&self) -> Vec<(usize, usize)> {
+        let mut waiting = alloc::vec![(0usize, 0usize); self.set.len()];
         for entry in self.pending.values().filter(|p| !p.agreed) {
             for index in entry.signers.iter() {
-                if let Some(count) = waiting.get_mut(index.get()) {
+                if let Some((count, held)) = waiting.get_mut(index.get()) {
                     *count = count.saturating_add(1);
+                    *held = held.saturating_add(entry.bytes);
                 }
             }
         }
         waiting
+    }
+
+    /// The bytes of statements still waiting that validator `v` signed.
+    #[must_use]
+    pub fn waiting_bytes(&self, v: ValidatorIndex) -> usize {
+        self.waiting.get(v.get()).map_or(0, |(_, held)| *held)
     }
 
     /// Asserts its bounds.
@@ -522,7 +570,9 @@ impl Agreement {
             "agreement counts out of step"
         );
         assert!(
-            self.waiting.iter().all(|count| *count <= self.quota),
+            self.waiting
+                .iter()
+                .all(|(count, held)| *count <= self.quota && *held <= MAX_SIGNER_BYTES),
             "a signer over its quota"
         );
         assert!(
@@ -973,6 +1023,69 @@ mod tests {
         agreement.check_invariants();
     }
 
+    /// A statement that a claim of 1024 commitments executed at `height`.
+    fn large(hub: &HubId, height: u64) -> Statement {
+        use crate::operation::{MemberOperation, SignedMemberOperation};
+        use crate::promise::{Commitment, Fulfilled, Signed};
+        let fulfilled = Fulfilled {
+            commitment: Signed {
+                value: Commitment {
+                    hold: HoldNumber(1),
+                    sequence: height,
+                    amount: 1,
+                    condition: [0; 32],
+                    expiry: 0,
+                },
+                signature: Signature::from_bytes([0; 64]),
+            },
+            fulfillment: [0; 32],
+        };
+        let claim = MemberOperation::Claim {
+            hold: HoldNumber(1),
+            fulfilled: alloc::vec![fulfilled; crate::operation::MAX_COMMITMENTS],
+        };
+        let key = NodeKey::from_bytes(&[9; 32]);
+        Statement::Executed {
+            height,
+            timestamp: height,
+            index: 0,
+            operation: Operation::Member(SignedMemberOperation::sign(
+                hub,
+                AccountNumber(1),
+                height,
+                10,
+                claim,
+                &key,
+            )),
+            outcome: Outcome::Refused(crate::ledger::Refusal::Sequence),
+        }
+    }
+
+    // A validator signing large statements fills only its own bytes: a
+    // signature past them is refused and reported, and the others agree.
+    #[test]
+    fn one_validators_large_statements_stay_within_its_bytes() {
+        let hub = HubId(Digest([1; 32]));
+        let (set, keys) = set();
+        let mut agreement = Agreement::new(hub, set, 4 * 4096);
+        let sign = |i: usize, s: Statement| {
+            SignedStatement::sign(&hub, ValidatorIndex::new(i).unwrap(), s, &keys[i])
+        };
+        let size = large(&hub, 1).encoded_len();
+        let flood = MAX_SIGNER_BYTES / size + 4;
+        let faulty = ValidatorIndex::new(0).unwrap();
+        for height in 0..u64::try_from(flood).unwrap() {
+            assert_eq!(agreement.add(sign(0, large(&hub, 10 + height))), None);
+        }
+        assert!(agreement.waiting_bytes(faulty) <= MAX_SIGNER_BYTES);
+        let dropped = agreement.take_dropped().unwrap();
+        assert_eq!(dropped.signers, Signers::NONE.with(faulty));
+        let fact = large(&hub, 5);
+        assert_eq!(agreement.add(sign(1, fact.clone())), None);
+        assert_eq!(agreement.add(sign(2, fact.clone())), Some(fact));
+        agreement.check_invariants();
+    }
+
     #[test]
     fn a_signer_over_its_quota_is_refused_and_it_says_so() {
         let hub = HubId(Digest([1; 32]));
@@ -1102,6 +1215,7 @@ mod tests {
                 panic!("not holds");
             };
             assert_eq!(*pages, 2);
+            assert!(statement.encoded_len() <= MAX_HOLDS_PAGE_BYTES);
             listed.extend(holds.iter().map(|(number, _)| *number));
         }
         assert_eq!(listed.len(), count, "every hold");

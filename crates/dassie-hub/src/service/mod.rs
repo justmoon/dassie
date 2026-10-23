@@ -55,6 +55,27 @@ pub const KEPT_BYTES: usize = 64 * 1024 * 1024;
 /// touch an account more often than this.
 pub const MAX_ANSWER: usize = 4 * crate::client::MAX_STATEMENTS;
 
+/// The most bytes of statements one answer to `Since` carries, but for its
+/// first block, which is always whole.
+pub const MAX_ANSWER_BYTES: usize = 1 << 20;
+
+/// What a statement that an operation was executed adds to the operation,
+/// at most: its tag, height, timestamp and place, and the outcome.
+pub const EXECUTED_OVERHEAD: usize = 1 + 8 + 8 + 4 + (1 + 8 + 1 + 8);
+
+/// The most bytes of statements one block makes for one account: its
+/// operations fit a payload, and each adds [`EXECUTED_OVERHEAD`].
+pub const MAX_BLOCK_STATEMENT_BYTES: usize =
+    crate::consensus::MAX_PAYLOAD_BYTES + payload::MAX_OPERATIONS * EXECUTED_OVERHEAD;
+
+/// The most bytes of statements an honest answer to `Since` carries, over
+/// however many messages it spans: up to [`MAX_ANSWER_BYTES`] of them, or
+/// its first block whole if that is more, and the final block it covers.
+/// What a member's tally must hold of one validator's answer.
+pub const MAX_SINCE_ANSWER_BYTES: usize = MAX_ANSWER_BYTES + MAX_BLOCK_STATEMENT_BYTES + 64;
+
+const _: () = assert!(MAX_SINCE_ANSWER_BYTES >= MAX_ANSWER_BYTES + MAX_BLOCK_STATEMENT_BYTES);
+
 /// What the host carries out. Taken apart at once: boxing would only
 /// allocate.
 #[allow(clippy::large_enum_variant)]
@@ -381,12 +402,17 @@ impl Validator {
             }];
         }
         let mut statements = Vec::new();
+        let mut bytes = 0usize;
         for block in self.history.iter().filter(|block| block.height >= from) {
             let of_block: Vec<Statement> = touching(block, account).collect();
-            // An answer too long stops before a block, and vouches only for
-            // the blocks before it. A block is always sent whole, however
-            // many messages it takes, so every answer covers one more.
-            let long = statements.len().saturating_add(of_block.len()) > MAX_ANSWER;
+            let block_bytes: usize = of_block.iter().map(Encode::encoded_len).sum();
+            // An answer too long, by count or bytes, stops before a block,
+            // and vouches only for the blocks before it. A block is always
+            // sent whole, however many messages it takes, so every answer
+            // covers one more.
+            let long = statements.len().saturating_add(of_block.len()) > MAX_ANSWER
+                || bytes.saturating_add(block_bytes) > MAX_ANSWER_BYTES;
+            bytes = bytes.saturating_add(block_bytes);
             if long && !statements.is_empty() {
                 statements.push(Statement::Final {
                     height: block.height.saturating_sub(1),
@@ -756,6 +782,46 @@ mod tests {
             statements.last(),
             Some(Statement::Final { height: 2, .. })
         ));
+    }
+
+    #[test]
+    fn an_executed_statement_adds_at_most_its_overhead() {
+        let block = block_of(3, 1);
+        let statement = touching(&block, AccountNumber(6)).next().unwrap();
+        let operation = block.operations[0].encoded_len();
+        assert!(statement.encoded_len() - operation <= EXECUTED_OVERHEAD);
+    }
+
+    // An answer is bounded by bytes as well as count, so a member can bound
+    // what it holds of one validator's answer.
+    #[test]
+    fn an_answer_is_bounded_by_bytes() {
+        let mut v = validator();
+        let key = NodeKey::from_bytes(&[5; 32]);
+        let hub = HubId(Digest([1; 32]));
+        for height in 2..40u64 {
+            let claim = Operation::Member(SignedMemberOperation::sign(
+                &hub,
+                AccountNumber(5),
+                height,
+                10,
+                mempool::tests::claim(1024),
+                &key,
+            ));
+            v.history.push_back(FinalBlock {
+                height,
+                timestamp: height * 10,
+                digest: Digest([2; 32]),
+                operations: alloc::vec![claim],
+                outcomes: alloc::vec![Outcome::Refused(Refusal::Sequence)],
+                touched: alloc::vec![alloc::vec![AccountNumber(6)]],
+            });
+        }
+        let statements = v.since(AccountNumber(6), 1);
+        let bytes: usize = statements.iter().map(Encode::encoded_len).sum();
+        assert!(bytes <= MAX_SINCE_ANSWER_BYTES);
+        assert!(statements.len() < 39, "it stopped before a block");
+        assert!(matches!(statements.last(), Some(Statement::Final { .. })));
     }
 
     #[test]
