@@ -151,6 +151,7 @@ pub(super) fn account_state(account: &HubAccount) -> Vec<u8> {
     for (number, hold) in &account.holds {
         out.u64(number.0);
         write_hold(&mut out, hold);
+        out.bool(account.strangers.contains(number));
     }
     out.count(account.queue.len());
     for queued in &account.queue {
@@ -235,10 +236,14 @@ pub(super) fn restore_account(account: &mut HubAccount, state: &[u8]) -> Option<
     account.number = read_option(&mut reader, |r| Some(AccountNumber(r.read_u32().ok()?)))?;
     account.cursor = reader.read_u64().ok()?;
     account.last_touch = reader.read_u64().ok()?;
-    let holds = read_count(&mut reader, 8, super::account::MAX_HOLDS)?;
+    let most = super::account::MAX_HOLDS + super::account::MAX_STRANGER_HOLDS;
+    let holds = read_count(&mut reader, 8, most)?;
     for _ in 0..holds {
         let number = HoldNumber(reader.read_u64().ok()?);
         account.holds.insert(number, read_hold(&mut reader)?);
+        if reader.read_bool().ok()? {
+            account.strangers.insert(number);
+        }
     }
     let queued = read_count(&mut reader, 3, super::account::MAX_QUEUED)?;
     for _ in 0..queued {
@@ -250,7 +255,9 @@ pub(super) fn restore_account(account: &mut HubAccount, state: &[u8]) -> Option<
     }
     reader.finish().ok()?;
     let sent = account.queue.iter().filter(|q| q.sent.is_some()).count();
-    (sent <= 1 && account.last_touch <= account.cursor).then_some(())
+    let bounded = account.strangers.len() <= super::account::MAX_STRANGER_HOLDS
+        && account.holds.len().saturating_sub(account.strangers.len()) <= super::account::MAX_HOLDS;
+    (sent <= 1 && bounded && account.last_touch <= account.cursor).then_some(())
 }
 
 fn read_queued(account: &HubAccount, reader: &mut Reader<'_>) -> Option<Queued> {

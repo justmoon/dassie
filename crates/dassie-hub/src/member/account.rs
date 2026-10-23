@@ -22,8 +22,9 @@
 //!   reductions that took effect, and the newest final block up to which it
 //!   read everything, which is what a payer waits for before it rejects a
 //!   packet whose commitment expired.
-//! - **What it mirrors:** every hold it pays into or takes from
-//!   ([`HoldMirror`]), from the operations on it.
+//! - **What it mirrors:** the holds it pays into, and those toward it from
+//!   the peers its scheme follows ([`HoldMirror`]), from the operations on
+//!   them; holds others open toward it in a small pool of their own.
 //! - **When its history is gone.** Validators keep a bounded history; one
 //!   that no longer keeps what touched the account since its cursor says so
 //!   (`Trimmed`). Once f + 1 agree, the account reads its state and every
@@ -39,7 +40,7 @@
 //! One scheme settles through an account. Deposits from the underlying
 //! ledger, withdrawals and closing are the owner's, and not built yet.
 
-use alloc::collections::{BTreeMap, VecDeque};
+use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -76,6 +77,15 @@ pub const MAX_QUEUED: usize = 16;
 /// Most holds mirrored: those it pays into, and those toward it, which
 /// anyone can open, each for a hold reserve.
 pub const MAX_HOLDS: usize = 1_024;
+/// Most holds mirrored from each payer the scheme follows: the hold it
+/// follows, and the next one once that closes.
+pub const MAX_HOLDS_PER_PEER: usize = 2;
+/// Most holds mirrored toward us from accounts the scheme does not follow,
+/// kept so that a peering made just after its peer opened its hold still
+/// finds it; the oldest go first.
+pub const MAX_STRANGER_HOLDS: usize = 64;
+/// Most payers followed: one per peer.
+const MAX_FOLLOWED: usize = super::scheme::MAX_PEERS;
 /// Most final blocks remembered.
 const MAX_FINALS: usize = 64;
 
@@ -93,7 +103,7 @@ pub(super) fn max_buffered(terms: &Terms) -> usize {
 fn max_news(terms: &Terms) -> usize {
     max_buffered(terms)
         .saturating_mul(2)
-        .saturating_add(MAX_HOLDS + MAX_QUEUED + MAX_LOOKUPS + 8)
+        .saturating_add(MAX_HOLDS + MAX_STRANGER_HOLDS + MAX_QUEUED + MAX_LOOKUPS + 8)
 }
 
 /// A tally of statements in which each validator's signatures on statements
@@ -257,6 +267,10 @@ pub struct HubAccount {
     /// hold toward it.
     pub(super) last_touch: u64,
     pub(super) holds: BTreeMap<HoldNumber, HoldMirror>,
+    /// Those of `holds` toward us from accounts the scheme does not follow.
+    pub(super) strangers: BTreeSet<HoldNumber>,
+    /// The accounts whose holds toward us the scheme follows.
+    followed: BTreeSet<AccountNumber>,
     pub(super) queue: VecDeque<Queued>,
     // Learnt from the validators.
     sequence: Option<u64>,
@@ -347,6 +361,8 @@ impl HubAccount {
             cursor: 0,
             last_touch: 0,
             holds: BTreeMap::new(),
+            strangers: BTreeSet::new(),
+            followed: BTreeSet::new(),
             queue: VecDeque::new(),
             sequence: None,
             stale_sequence: None,
@@ -593,6 +609,29 @@ impl HubAccount {
     pub fn look_up(&mut self, key: PublicKey) {
         if self.lookups.len() < MAX_LOOKUPS {
             self.lookups.insert(*key.as_bytes(), key);
+        }
+    }
+
+    /// The accounts whose holds toward us the scheme follows: its peers'.
+    /// A hold from one of them that waited among strangers' is followed
+    /// from now on.
+    pub fn follow(&mut self, payers: impl IntoIterator<Item = AccountNumber>) {
+        self.followed = payers.into_iter().take(MAX_FOLLOWED).collect();
+        let waiting: Vec<HoldNumber> = self
+            .strangers
+            .iter()
+            .filter(|number| {
+                self.holds
+                    .get(number)
+                    .is_some_and(|hold| self.followed.contains(&hold.payer))
+            })
+            .copied()
+            .collect();
+        for number in waiting {
+            self.strangers.remove(&number);
+            if let Some(mirror) = self.holds.remove(&number) {
+                self.take_hold(number, mirror);
+            }
         }
     }
 
@@ -984,7 +1023,7 @@ impl HubAccount {
                 continue;
             };
             if mirror.amount == 0 {
-                self.holds.remove(&hold);
+                self.drop_hold(hold);
             }
             self.last_touch = self.last_touch.max(height);
             self.push_news(News::Reduced { hold, amount });
@@ -1076,11 +1115,9 @@ impl HubAccount {
         let notice = self.rules.terms.timers.hold_notice;
         match &operation.operation {
             MemberOperation::HoldOpen { payee, amount } => {
-                if let Detail::Hold(number) = detail
-                    && self.holds.len() < MAX_HOLDS
-                {
+                if let Detail::Hold(number) = detail {
                     let mirror = HoldMirror::opened(operation.account, *payee, *amount);
-                    self.holds.insert(number, mirror);
+                    self.take_hold(number, mirror);
                 }
             }
             MemberOperation::HoldFund { hold, amount } => {
@@ -1093,9 +1130,7 @@ impl HubAccount {
                     mirror.reduce(*amount, timestamp, notice);
                 }
             }
-            MemberOperation::HoldRelease { hold } => {
-                self.holds.remove(hold);
-            }
+            MemberOperation::HoldRelease { hold } => self.drop_hold(*hold),
             MemberOperation::Redeem(claim) => {
                 if let Some(mirror) = self.holds.get_mut(&claim.value.hold) {
                     mirror.redeem(&claim.value, paid);
@@ -1108,6 +1143,46 @@ impl HubAccount {
             }
             _ => {}
         }
+    }
+
+    /// Mirrors hold `number`: one of ours, or toward us from a payer the
+    /// scheme follows, up to [`MAX_HOLDS`] (and [`MAX_HOLDS_PER_PEER`] from
+    /// each payer); any other toward us in a pool of its own, whose oldest
+    /// goes first, so holds anyone may open toward us never take the place
+    /// of ours or our peers'.
+    fn take_hold(&mut self, number: HoldNumber, mirror: HoldMirror) {
+        let ours = Some(mirror.payer) == self.number;
+        let from_payer = self
+            .holds
+            .iter()
+            .filter(|(n, h)| h.payer == mirror.payer && !self.strangers.contains(n))
+            .count();
+        let followed =
+            ours || (self.followed.contains(&mirror.payer) && from_payer < MAX_HOLDS_PER_PEER);
+        if followed {
+            if self.followed_holds() < MAX_HOLDS {
+                self.holds.insert(number, mirror);
+            }
+            return;
+        }
+        self.holds.insert(number, mirror);
+        self.strangers.insert(number);
+        while self.strangers.len() > MAX_STRANGER_HOLDS {
+            if let Some(oldest) = self.strangers.pop_first() {
+                self.holds.remove(&oldest);
+            }
+        }
+    }
+
+    /// Forgets hold `number`: it closed.
+    fn drop_hold(&mut self, number: HoldNumber) {
+        self.holds.remove(&number);
+        self.strangers.remove(&number);
+    }
+
+    /// How many holds it mirrors that are its own or its peers'.
+    fn followed_holds(&self) -> usize {
+        self.holds.len().saturating_sub(self.strangers.len())
     }
 
     /// Gathers the pages of the holds as of one block: the newest block
@@ -1164,7 +1239,8 @@ impl HubAccount {
     fn resynced(&mut self, height: u64, timestamp: Millis, view: AccountView, holds: HoldList) {
         let unread = self.take_unread(view.sequence);
         let before = core::mem::take(&mut self.holds);
-        for (number, hold) in holds.into_iter().take(MAX_HOLDS) {
+        self.strangers.clear();
+        for (number, hold) in holds {
             let mut mirror = HoldMirror::of(&hold);
             if let Some(old) = before.get(&number) {
                 mirror.claimed = old.claimed.clone();
@@ -1172,7 +1248,7 @@ impl HubAccount {
                     .claimed
                     .retain(|sequence, _| *sequence > hold.through);
             }
-            self.holds.insert(number, mirror);
+            self.take_hold(number, mirror);
         }
         self.sequence = Some(view.sequence);
         self.stale_sequence = None;
@@ -1331,7 +1407,13 @@ impl ExternalAsset for HubAccount {
 
     fn check_invariants(&self) {
         assert!(self.queue.len() <= MAX_QUEUED);
-        assert!(self.holds.len() <= MAX_HOLDS);
+        assert!(self.followed_holds() <= MAX_HOLDS);
+        assert!(self.strangers.len() <= MAX_STRANGER_HOLDS);
+        assert!(
+            self.strangers.iter().all(|n| self.holds.contains_key(n)),
+            "a stranger's hold not mirrored"
+        );
+        assert!(self.followed.len() <= MAX_FOLLOWED);
         assert!(self.buffer.len() <= max_buffered(&self.rules.terms));
         assert!(self.finals.len() <= MAX_FINALS);
         assert!(self.lookups.len() <= MAX_LOOKUPS);

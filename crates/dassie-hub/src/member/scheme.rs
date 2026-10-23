@@ -813,6 +813,8 @@ impl SettlementScheme for HubScheme {
         for item in &news {
             self.tell(account, item, effects);
         }
+        // Holds toward us are followed from our peers only.
+        account.follow(self.peers.values().map(|peer| peer.account));
         self.refresh(account);
         self.adopt_holds(account, effects);
         if self.synced {

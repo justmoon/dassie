@@ -266,6 +266,72 @@ fn holds_read_anew_wait_for_every_page() {
     account.check_invariants();
 }
 
+/// A hold `account` opened toward account 7 at `height`, as hold `number`.
+fn opened_toward_us(hub: &Hub, account: u32, number: u64, height: u64) -> Statement {
+    let signed = SignedMemberOperation::sign(
+        &hub.rules.id(),
+        AccountNumber(account),
+        0,
+        10,
+        MemberOperation::HoldOpen {
+            payee: AccountNumber(7),
+            amount: 1,
+        },
+        &NodeKey::from_bytes(&[9; 32]),
+    );
+    Statement::Executed {
+        height,
+        timestamp: height,
+        index: 0,
+        operation: Operation::Member(signed),
+        outcome: Outcome::Applied {
+            fee: 10,
+            detail: crate::ledger::Detail::Hold(crate::promise::HoldNumber(number)),
+        },
+    }
+}
+
+// Anyone may open holds toward the account: those of accounts the scheme
+// does not follow wait in a pool of their own, and never take the place of
+// its peers' holds.
+#[test]
+fn holds_strangers_open_toward_us_take_no_peers_place() {
+    let hub = Hub::new();
+    let mut account = synced(&hub);
+    let mut statements: Vec<Statement> = (0..100u32)
+        .map(|i| opened_toward_us(&hub, 100 + i, u64::from(i) + 1, 10 + u64::from(i)))
+        .collect();
+    // The peer's hold, opened before its peering was made.
+    statements.push(opened_toward_us(&hub, 9, 500, 200));
+    statements.push(Statement::Final {
+        height: 300,
+        timestamp: 300,
+    });
+    for v in 0..3 {
+        say_all(&hub, &mut account, v, &statements);
+    }
+    assert_eq!(account.cursor(), 300);
+    assert!(account.strangers.len() <= account::MAX_STRANGER_HOLDS);
+    assert!(account.hold(crate::promise::HoldNumber(500)).is_some());
+    account.follow([AccountNumber(9)]);
+    assert!(!account.strangers.contains(&crate::promise::HoldNumber(500)));
+    // Strangers keep coming; the peer's hold stays.
+    let more: Vec<Statement> = (0..100u32)
+        .map(|i| opened_toward_us(&hub, 300 + i, 1_000 + u64::from(i), 301 + u64::from(i)))
+        .chain([Statement::Final {
+            height: 500,
+            timestamp: 500,
+        }])
+        .collect();
+    for v in 0..3 {
+        say_all(&hub, &mut account, v, &more);
+    }
+    assert_eq!(account.cursor(), 500);
+    assert!(account.hold(crate::promise::HoldNumber(500)).is_some());
+    assert_eq!(account.holds().count(), account::MAX_STRANGER_HOLDS + 1);
+    account.check_invariants();
+}
+
 // A faulty leader can put our operation in a block twice: applied, then
 // refused for its sequence. The account reads both, in the log's order,
 // and takes the first for what became of it.
