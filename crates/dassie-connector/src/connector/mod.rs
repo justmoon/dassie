@@ -118,8 +118,9 @@ pub(crate) struct Pending {
     /// The account it spends from and the amount, if it moves money out of
     /// its owner's funds: what a spending cap counts.
     pub charge: Option<(AccountId, u64)>,
-    /// For a packet to a peer over a hub, the incoming packet's expiry:
-    /// how long it may wait for the hub once its own expiry passed.
+    /// For a packet to a peer over a hub, how long it may wait for the hub
+    /// once its own expiry passed: the incoming packet's expiry, and at
+    /// most one message window past its own.
     pub backstop_ms: Option<u64>,
     /// It expired and waits for the hub to decide it.
     pub awaiting_hub: bool,

@@ -172,3 +172,67 @@ fn packets_to_other_peers_are_rejected_at_their_expiry() {
         "only peers settle over hubs"
     );
 }
+
+#[test]
+fn a_fulfill_at_the_expiry_before_the_timer_ran_is_taken() {
+    let mut harness = harness();
+    let request_id = send(&mut harness, 1, [3; 32]);
+    // The Fulfill comes in the step whose timer would start the wait.
+    let upstream = harness
+        .respond(NOW + 19_000, HUB_PEER, request_id, &fulfill([3; 32]))
+        .unwrap();
+    assert_eq!(harness.written(upstream.length), fulfill([3; 32]));
+    assert!(harness.timeout(NOW + 19_000).is_none());
+}
+
+#[test]
+fn a_far_incoming_expiry_waits_at_most_one_window() {
+    let mut harness = harness();
+    // Expires toward the peer at the 30 s cap, far before upstream does.
+    let packet = prepare("test.das.dhub.x", 10, NOW + 120_000, [3; 32]);
+    let Outcome::Forward(sent) = harness.prepare(NOW, BTP, 1, &packet) else {
+        panic!("not forwarded");
+    };
+    assert_eq!(sent.to, HUB_PEER);
+    assert!(harness.timeout(NOW + 30_000).is_none());
+    assert_eq!(wait(&mut harness).backstop_ms, NOW + 31_000);
+    let upstream = harness.timeout(NOW + 31_000).unwrap();
+    assert_eq!(
+        harness.reject_written(upstream.length).0,
+        ErrorCode::R00_TRANSFER_TIMED_OUT
+    );
+}
+
+#[test]
+fn a_waiting_packet_fails_at_once_when_its_peer_goes() {
+    let mut harness = harness();
+    send(&mut harness, 1, [3; 32]);
+    harness.timeout(NOW + 19_000);
+    assert!(harness.connector.remove_endpoint(NOW + 19_100, HUB_PEER));
+    harness.check();
+    let upstream = harness.timeout(NOW + 19_100).unwrap();
+    assert_eq!(
+        harness.reject_written(upstream.length).0,
+        ErrorCode::T01_PEER_UNREACHABLE
+    );
+}
+
+#[test]
+fn a_waiting_packet_can_still_be_failed() {
+    let mut harness = harness();
+    let request_id = send(&mut harness, 1, [3; 32]);
+    harness.timeout(NOW + 19_000);
+    assert!(harness.connector.fail_forwarded(
+        NOW + 19_100,
+        HUB_PEER,
+        request_id,
+        ErrorCode::T01_PEER_UNREACHABLE,
+        "unreachable",
+    ));
+    harness.check();
+    let upstream = harness.timeout(NOW + 19_100).unwrap();
+    assert_eq!(
+        harness.reject_written(upstream.length).0,
+        ErrorCode::T01_PEER_UNREACHABLE
+    );
+}

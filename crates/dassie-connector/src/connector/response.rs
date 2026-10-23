@@ -63,7 +63,8 @@ pub struct Posted {
     pub destination: EndpointId,
     /// Its condition.
     pub condition: [u8; 32],
-    /// The outgoing packet's expiry.
+    /// The outgoing packet's expiry, or for a packet to a peer over a hub
+    /// fulfilled while it waited for the hub, its backstop.
     pub expires_at_ms: u64,
     /// Its transfers, as posted, in the slots of
     /// [`PacketTransfers`](crate::PacketTransfers): the first and the
@@ -111,7 +112,14 @@ impl Connector {
             self.stats.unexpected_responses += 1;
             return Responded::Unmatched;
         };
-        let resolution = if now_ms >= entry.expires_at_ms {
+        // A packet to a peer over a hub is on time until its backstop, even
+        // before its wait began: the Fulfill may come in the same step as
+        // the timer that would start it.
+        let on_time_until = entry
+            .backstop_ms
+            .filter(|_| entry.failure.is_none())
+            .unwrap_or(entry.expires_at_ms);
+        let resolution = if now_ms >= on_time_until {
             // The timer just has not fired yet (ILP-1's other half).
             Resolution::Failed(ErrorCode::R00_TRANSFER_TIMED_OUT, "packet timed out")
         } else {
@@ -188,7 +196,7 @@ impl Connector {
     }
 
     /// Lets a packet to a peer over a hub that just expired wait for the
-    /// hub instead of failing, until its incoming expiry. Whether it did.
+    /// hub instead of failing, until its backstop. Whether it did.
     fn begin_hub_wait(&mut self, now_ms: u64, destination: EndpointId, request_id: u32) -> bool {
         let Some(entry) = self.pending.get_mut(&(destination, request_id)) else {
             return false;
@@ -203,19 +211,35 @@ impl Connector {
             .remove(&(entry.expires_at_ms, destination, request_id));
         entry.awaiting_hub = true;
         entry.expires_at_ms = backstop_ms;
+        let condition = entry.condition;
         self.deadlines
             .insert((backstop_ms, destination, request_id));
-        if self.hub_waits.len() >= self.config.max_pending {
-            // Only resolved packets' waits can be this old.
-            self.hub_waits.pop_front();
-        }
-        self.hub_waits.push_back(HubWait {
+        self.queue_hub_wait(HubWait {
             destination,
             request_id,
-            condition: entry.condition,
+            condition,
             backstop_ms,
         });
         true
+    }
+
+    /// Queues a wait for the hub's scheme, which drains the queue every
+    /// step.
+    fn queue_hub_wait(&mut self, wait: HubWait) {
+        if self.hub_waits.len() >= self.config.max_pending {
+            // The queue is drained every step, so it is full only of waits
+            // whose packets were resolved meanwhile: drop those first.
+            let pending = &self.pending;
+            self.hub_waits.retain(|wait| {
+                pending
+                    .get(&(wait.destination, wait.request_id))
+                    .is_some_and(|entry| entry.awaiting_hub)
+            });
+            if self.hub_waits.len() >= self.config.max_pending {
+                self.hub_waits.pop_front();
+            }
+        }
+        self.hub_waits.push_back(wait);
     }
 
     /// Decides a packet that waits for the hub: with the fulfillment a
