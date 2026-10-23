@@ -61,7 +61,13 @@ const LEAST: [(&str, u64); 24] = [
 #[test]
 fn random_networks_settle_down_after_chaos_and_reach_every_fault() {
     let seeds: Vec<u64> = SEEDS.collect();
-    let runs = each(&seeds, |seed| caught(|| swarm::run(seed)));
+    // A run's trace is dropped as soon as it ends: nothing here reads it,
+    // and every seed's would otherwise be kept until the slowest ends.
+    let runs = each(&seeds, |seed| {
+        let mut run = caught(|| swarm::run(seed));
+        run.trace = Vec::new();
+        run
+    });
     // Every seed has run by now, so each one that failed is named.
     let mut failed = Vec::new();
     let mut reached: BTreeMap<&str, u64> = BTreeMap::new();

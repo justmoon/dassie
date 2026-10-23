@@ -78,7 +78,8 @@
             };
 
           # The Rust workspace, with Cargo's configuration (the property
-          # tests' fixed seed), the golden vectors the tests read (the rate
+          # tests' fixed seed, and the bundled SQLite's build flags, which
+          # the release builds with too), the golden vectors the tests read (the rate
           # feed's are in testdata/feed), the RPC contract dassie-node
           # generates its messages from, the test certificates two
           # in-process daemons peer with, minisign's signatures with the
