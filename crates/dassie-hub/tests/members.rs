@@ -1656,3 +1656,62 @@ fn deposits_and_withdrawals_are_the_owners() {
     world.run(3_000);
     assert_eq!(world.members[a].books.suspense, 0, "the counters are kept");
 }
+
+/// The owner's withdrawal through the scheme (`pay_owner`): one at a time,
+/// at least the hub's least payout, to an address the escrow can pay. Once
+/// the hub executed it, what it took is booked as the owner's withdrawal,
+/// and the operation's fee as a fee.
+#[test]
+fn the_owner_withdraws_through_the_scheme() {
+    use dassie_settlement::{OwnerPayment, OwnerPaymentState};
+
+    let (mut world, a, _) = World::pair([Fault::Honest; 4], 2);
+    let owner = world.members[a].books.owner;
+    let fees = world.members[a].books.fees;
+    let payment = |destination: [u8; 20], drops: u64| OwnerPayment {
+        destination: dassie_xrpl::AccountId(destination).to_address(),
+        tag: Some(3),
+        memo: None,
+        amount: units(drops),
+    };
+    let escrow = world.validators.ledger.terms().escrow;
+    let member = &mut world.members[a];
+    for refused in [payment(escrow, 2 * XRP), payment([9; 20], XRP / 2)] {
+        assert_eq!(
+            member.scheme.pay_owner(Some(&mut member.account), &refused),
+            Err(SchemeError::InvalidData)
+        );
+    }
+    member
+        .scheme
+        .pay_owner(Some(&mut member.account), &payment([9; 20], 2 * XRP))
+        .unwrap();
+    assert_eq!(member.scheme.owner_payment(), OwnerPaymentState::InFlight);
+    assert_eq!(
+        member
+            .scheme
+            .pay_owner(Some(&mut member.account), &payment([9; 20], 2 * XRP)),
+        Err(SchemeError::Unavailable),
+        "one at a time"
+    );
+    world.heard(a);
+    world.run(3_000);
+    let member = &world.members[a];
+    assert_eq!(member.scheme.owner_payment(), OwnerPaymentState::Applied);
+    let ledger_fee = world.validators.ledger.terms().fees.ledger;
+    assert_eq!(
+        member.books.owner,
+        owner - i128::from(units(2 * XRP + ledger_fee))
+    );
+    assert_eq!(member.books.fees, fees + i128::from(units(FEE)));
+    assert_eq!(member.books.suspense, 0);
+    let (_, withdrawal) = world.validators.ledger.withdrawals().next().unwrap();
+    assert_eq!(
+        withdrawal.to,
+        Destination {
+            account: [9; 20],
+            tag: Some(3)
+        }
+    );
+    assert_eq!(member.scheme.balance(), world.truth(a));
+}

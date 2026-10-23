@@ -214,6 +214,7 @@ fn write_purpose(out: &mut Out, purpose: Purpose) {
             out.u64(hold.0);
         }
         Purpose::Disbursal => out.u8(3),
+        Purpose::Withdraw => out.u8(4),
     }
 }
 
@@ -223,6 +224,7 @@ fn read_purpose(reader: &mut Reader<'_>) -> Option<Purpose> {
         1 => Purpose::Redeem(HoldNumber(reader.read_u64().ok()?)),
         2 => Purpose::Claim(HoldNumber(reader.read_u64().ok()?)),
         3 => Purpose::Disbursal,
+        4 => Purpose::Withdraw,
         _ => return None,
     })
 }
