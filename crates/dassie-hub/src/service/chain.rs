@@ -285,6 +285,16 @@ impl Application for Chain {
         Some((from, set))
     }
 
+    fn scheduled_change(
+        &mut self,
+        after: &Digest,
+    ) -> Option<(u64, crate::validators::ValidatorSet)> {
+        // The state after `after` names the change once its notice passed,
+        // as the final state does once that block is final
+        // (spec/decisions/epoch-handover.md).
+        self.base(after)?.scheduled_change()
+    }
+
     fn propose(
         &mut self,
         context: &ProposeContext<'_>,
@@ -501,5 +511,59 @@ pub(super) mod tests {
         }
         assert_eq!(chain.executed.len(), MAX_EXECUTED);
         chain.check_invariants();
+    }
+
+    // The end of an epoch is a property of the chain being extended: a
+    // block not yet final that passed the change's notice names it, before
+    // the final state does (spec/decisions/epoch-handover.md).
+    #[test]
+    fn a_change_is_seen_on_the_chain_before_it_is_final() {
+        use crate::ledger::tests::resigned;
+        use crate::operation::ValidatorOperation;
+
+        let mut hub = Hub::new();
+        let rules = resigned(hub.ledger.rules().clone(), |rules| {
+            rules.terms.fees.operation = 20;
+        });
+        let ops = (0..3)
+            .map(|i| hub.validator_op(i, ValidatorOperation::Reconfigure(rules.clone())))
+            .collect();
+        hub.block(ops);
+        let mut chain = Chain::new(hub.ledger.clone(), Digest([1; 32]));
+        assert_eq!(chain.scheduled_change(&chain.tip.clone()), None);
+        // A block past the notice, verified and not final.
+        let at = hub.ledger.timestamp() + hub.ledger.terms().timers.reconfigure_notice;
+        let height = hub.ledger.height() + 1;
+        let executed = Chain::execute(&chain.ledger, height, at, Vec::new(), Vec::new()).unwrap();
+        let context = VerifyContext {
+            view: 1,
+            proposer: ValidatorIndex::new(0).unwrap(),
+            parent: chain.tip,
+            height,
+            timestamp_ms: at,
+            block: Digest([2; 32]),
+        };
+        assert!(chain.verify(&context, &executed.payload.to_vec()));
+        let change = chain.scheduled_change(&Digest([2; 32]));
+        let (from, set) = change.clone().expect("the chain names the change");
+        assert_eq!(from, height + 2);
+        assert_eq!(Some(set), rules.validator_set());
+        assert_eq!(chain.reconfiguration(), None, "not final yet");
+        // Asking again about the same block gives the same answer.
+        assert!(chain.verify(&context, &executed.payload.to_vec()));
+        assert_eq!(chain.scheduled_change(&Digest([2; 32])), change);
+        // Once it is final, the final state agrees.
+        let block = Block {
+            epoch: 0,
+            view: 1,
+            height,
+            parent: chain.tip,
+            parent_view: 0,
+            timestamp_ms: at,
+            payload: executed.payload.to_vec(),
+        };
+        chain.finalized(&block, &Digest([2; 32]));
+        assert_eq!(chain.reconfiguration(), change);
+        assert_eq!(chain.scheduled_change(&Digest([2; 32])), change);
     }
 }
