@@ -658,8 +658,13 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// None yet: the setting is kept whether or not a hub scheme runs.
+    /// No hub scheme runs.
     pub fn set_hub_automatic(&mut self, automatic: bool) -> Result<(), EngineError> {
+        if self.hub_account().is_none() {
+            return Err(EngineError::Precondition(
+                "the settlement hub scheme is not running".into(),
+            ));
+        }
         self.funding.automatic = automatic;
         self.batch.hub_automatic = Some(automatic);
         Ok(())

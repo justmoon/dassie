@@ -1,0 +1,121 @@
+syntax = "proto3";
+
+package dassie.ui.v1;
+
+import "dassie/ui/v1/ledger.proto";
+
+// HubMemberService: the node's account in its settlement hub, and moving
+// the owner's funds between it and the node's XRP Ledger testnet account
+// (spec/areas/hubs.md#in-the-node). Its methods are numbered in
+// `Request` and `Response` (transport.proto): GetHubStatus, HubDeposit,
+// HubWithdraw and SetHubAutomatic. Each fails with FAILED_PRECONDITION while
+// no settlement hub scheme runs.
+//
+// Amounts are in the hub ledger's smallest unit, as `Ledger` amounts are:
+// XRP at scale 9. A move pays whole drops; what is less is left.
+
+// A hold of ours toward a peer, or a peer's toward us.
+message HubHold {
+  // The peer's node ID, if the node peers with it over the hub.
+  string peer = 1;
+  // The other side's account in the hub.
+  uint32 account = 2;
+  // What is left in it.
+  uint64 amount = 3;
+}
+
+// A move between the hub and the XRP Ledger account on its way.
+message HubMove {
+  Direction direction = 1;
+  uint64 amount = 2;
+  // Whether the owner asked for it, rather than the node.
+  bool by_owner = 3;
+
+  enum Direction {
+    DIRECTION_UNSPECIFIED = 0;
+    // From the XRP Ledger account into the hub.
+    DIRECTION_DEPOSIT = 1;
+    // From the hub to the XRP Ledger account.
+    DIRECTION_WITHDRAW = 2;
+  }
+}
+
+message HubStatus {
+  // The hub's ID, the digest of its rules, as 64 hex digits.
+  string hub_id = 1;
+  // The node's account in the hub, once the hub has said it.
+  optional uint32 account = 2;
+  // How the account stands with the hub: UNFUNDED until the first deposit
+  // opens it.
+  LedgerConnection connection = 3;
+  // What the account can spend, as the validators last agreed.
+  uint64 balance = 4;
+  // Its account reserve: never spendable.
+  uint64 reserve = 5;
+  // Everything deposits credited it, and withdrawals that came back.
+  uint64 deposited = 6;
+  // Everything its withdrawals took, ledger fees included.
+  uint64 withdrawn = 7;
+  // Our holds toward peers.
+  repeated HubHold paying = 8;
+  // Peers' holds toward us.
+  repeated HubHold taking = 9;
+  // Below the floor the node deposits, above the ceiling it withdraws,
+  // each time back to the midpoint.
+  uint64 floor = 10;
+  uint64 ceiling = 11;
+  // Whether the node moves funds by itself.
+  bool automatic = 12;
+  // Until when the owner's last move pauses the automatic ones, if it
+  // still does.
+  optional int64 paused_until_unix_ms = 13;
+  // The move on its way, if any: one at a time.
+  HubMove moving = 14;
+  // How many validators the hub has, and how many answered up to the block
+  // the account has read to.
+  uint32 validators = 15;
+  uint32 validators_answering = 16;
+}
+
+message GetHubStatusRequest {}
+
+message GetHubStatusResponse {
+  HubStatus status = 1;
+}
+
+// Deposits from the XRP Ledger account into the hub, opening the account if
+// the hub has none for the node yet. Pauses the automatic moves for a
+// while. RESOURCE_EXHAUSTED while a move is on its way; INVALID_ARGUMENT for
+// less than a drop, or less than opening the account takes;
+// FAILED_PRECONDITION before the hub said whether the account exists, while
+// the XRP Ledger testnet scheme does not run synced, or for more than the
+// owner's funds there with the fee.
+message HubDepositRequest {
+  uint64 amount = 1;
+}
+
+message HubDepositResponse {
+  HubStatus status = 1;
+}
+
+// Withdraws from the hub to the XRP Ledger account. Pauses the automatic
+// moves for a while. RESOURCE_EXHAUSTED while a move is on its way;
+// INVALID_ARGUMENT for less than the hub pays out; FAILED_PRECONDITION
+// without an account in the hub, or for more than it can spend with the
+// fees.
+message HubWithdrawRequest {
+  uint64 amount = 1;
+}
+
+message HubWithdrawResponse {
+  HubStatus status = 1;
+}
+
+// Turns the node's own moves on or off. The node keeps the choice.
+message SetHubAutomaticRequest {
+  bool automatic = 1;
+}
+
+message SetHubAutomaticResponse {
+  HubStatus status = 1;
+}

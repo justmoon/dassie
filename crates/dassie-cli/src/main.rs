@@ -5,6 +5,8 @@
 //! - `dassie status` says how it is doing, `dassie setup-url` prints the
 //!   link that completes setup, and `dassie pair` a code that pairs an owner
 //!   app, over the IPC socket too.
+//! - `dassie hub` shows the node's account in its settlement hub, and moves
+//!   the owner's funds between it and the node's XRP Ledger account.
 //! - `dassie setup` sets the node up from its owner's passphrase, without
 //!   a browser, and adds settlement schemes.
 //! - `dassie update` installs a newer release from the mirror.
@@ -15,6 +17,7 @@
 
 mod client;
 mod front_door;
+mod hub;
 mod init;
 mod market_maker;
 mod passphrase;
@@ -62,6 +65,15 @@ Commands:
   status            Show how the node is doing: version, address,
                     certificate, setup, network, ledgers and updates.
   setup-url         Print the link that completes setup in a browser.
+  hub [status]      Show the node's account in its settlement hub, and the
+                    floor and ceiling the node keeps it between.
+  hub deposit <XRP> Move XRP from the node's XRP Ledger account into the
+                    hub, opening the account there if it has none.
+  hub withdraw <XRP>
+                    Move XRP from the hub to the node's XRP Ledger account.
+                    Either move pauses the node's own moves for an hour.
+  hub auto on|off   Let the node move funds to and from the hub by itself,
+                    or not.
   setup             Set the node up from its owner's passphrase, on the
                     node's own host, without a browser, and add the
                     settlement schemes it lacks. Running it again changes
@@ -143,6 +155,10 @@ fn run() -> Result<ExitCode, lexopt::Error> {
                 Ok(over_ipc(status::status))
             }
             "setup" => Ok(setup::run(&setup::args(&mut parser)?)),
+            "hub" => {
+                let command = hub::args(&mut parser)?;
+                Ok(over_ipc(async |env: &Env| hub::run(env, command).await))
+            }
             "setup-url" => {
                 no_more(&mut parser)?;
                 Ok(over_ipc(status::setup_url))

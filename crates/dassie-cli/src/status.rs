@@ -67,6 +67,9 @@ pub async fn status(env: &Env) -> Result<(), String> {
             line("Relay", &relay);
         }
         line("Ledgers", &ledgers(&mut client).await);
+        if let Some(hub) = crate::hub::summary(&mut client).await {
+            line("Hub", &hub);
+        }
         if let Some(feed) = feed(&node) {
             line("Rate feed", &feed);
         }
@@ -125,7 +128,7 @@ pub async fn pair(env: &Env) -> Result<(), String> {
     }
 }
 
-fn unexpected(result: Result<response::Method, CallError>) -> String {
+pub(crate) fn unexpected(result: Result<response::Method, CallError>) -> String {
     match result {
         Err(error) => error.message,
         Ok(_) => "The daemon answered something this CLI does not understand".into(),
@@ -133,13 +136,13 @@ fn unexpected(result: Result<response::Method, CallError>) -> String {
 }
 
 /// Prints `label` and `text`, aligned with the other lines.
-fn line(label: &str, text: &str) {
+pub(crate) fn line(label: &str, text: &str) {
     println!("  {label:<12} {text}");
 }
 
 /// Joins the entries of one line, each on a line of its own, aligned under
 /// the first.
-fn entries(texts: impl IntoIterator<Item = String>) -> String {
+pub(crate) fn entries(texts: impl IntoIterator<Item = String>) -> String {
     texts
         .into_iter()
         .collect::<Vec<_>>()
@@ -533,7 +536,7 @@ fn updates() -> String {
 }
 
 /// `value` units at `scale`, as a decimal without trailing zeros.
-fn amount(value: i64, scale: u32) -> String {
+pub(crate) fn amount(value: i64, scale: u32) -> String {
     let digits = value.unsigned_abs().to_string();
     let scale = usize::try_from(scale).unwrap_or(usize::MAX);
     let sign = if value < 0 { "-" } else { "" };
@@ -563,7 +566,7 @@ fn duration(ms: i64) -> String {
 }
 
 /// A moment, in UTC, to the minute.
-fn date(unix_ms: i64) -> String {
+pub(crate) fn date(unix_ms: i64) -> String {
     let nanos = i128::from(unix_ms) * 1_000_000;
     match time::OffsetDateTime::from_unix_timestamp_nanos(nanos) {
         Ok(at) => format!(

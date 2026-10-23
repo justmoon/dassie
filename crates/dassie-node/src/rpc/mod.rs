@@ -12,6 +12,7 @@ pub mod connection;
 mod convert;
 mod grants;
 mod handlers;
+mod hub;
 mod inspect;
 mod ledger;
 mod live;

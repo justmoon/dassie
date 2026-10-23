@@ -35,10 +35,11 @@ use tokio_util::sync::CancellationToken;
 #[cfg(feature = "testing")]
 pub use self::core::HubPeer;
 pub use self::core::{
-    AssetView, BtpEvent, BtpSession, Changes, Core, CoreParts, CreatedOutgoing, EngineError,
-    EngineEvent, Event, IncomingPolicy, LedgerEvent, LedgerView, Lie, Measured, NetworkView,
-    NewIncoming, NewOutgoing, NewToken, Outbound, Output, PaymentEvent, PeerEvent, PeerView,
-    Prober, RemovalBlocker, SCHEMES, SettlementEvent, Severity, TokenView, ledger_slug, offered,
+    AssetView, BtpEvent, BtpSession, Changes, Core, CoreParts, CreatedOutgoing, Direction,
+    EngineError, EngineEvent, Event, HubHold, HubStatus, IncomingPolicy, LedgerEvent, LedgerView,
+    Lie, Measured, Move, NetworkView, NewIncoming, NewOutgoing, NewToken, Outbound, Output,
+    PaymentEvent, PeerEvent, PeerView, Prober, RemovalBlocker, SCHEMES, SettlementEvent, Severity,
+    TokenView, ledger_slug, offered,
 };
 
 use crate::log::target;
@@ -411,6 +412,34 @@ impl Engine {
     /// The owner's peer settings.
     pub async fn peer_settings(&self) -> Result<crate::store::PeerSettings, EngineError> {
         self.call(|core| Ok(core.peer_settings())).await
+    }
+
+    /// The node's account in its settlement hub and its funding, while a
+    /// hub scheme runs.
+    pub async fn hub_status(&self) -> Result<Option<HubStatus>, EngineError> {
+        self.call(|core| Ok(core.hub_status())).await
+    }
+
+    /// The owner deposits into the hub from the XRPL account.
+    pub async fn hub_deposit(&self, amount: u64) -> Result<HubStatus, EngineError> {
+        self.call(move |core| core.hub_deposit(amount)).await
+    }
+
+    /// The owner withdraws from the hub to the XRPL account.
+    pub async fn hub_withdraw(&self, amount: u64) -> Result<HubStatus, EngineError> {
+        self.call(move |core| core.hub_withdraw(amount)).await
+    }
+
+    /// Turns the node's own moves to and from the hub on or off.
+    pub async fn set_hub_automatic(
+        &self,
+        automatic: bool,
+    ) -> Result<Option<HubStatus>, EngineError> {
+        self.call(move |core| {
+            core.set_hub_automatic(automatic)?;
+            Ok(core.hub_status())
+        })
+        .await
     }
 
     /// Changes the owner's peer settings.

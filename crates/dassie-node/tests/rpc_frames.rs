@@ -613,6 +613,20 @@ fn ledgers() -> BoxedStrategy<Method> {
                 limit,
             })
         }),
+        hub(),
+    ]
+    .boxed()
+}
+
+/// HubMemberService: refused without a hub scheme, never a bug.
+fn hub() -> BoxedStrategy<Method> {
+    prop_oneof![
+        Just(Method::GetHubStatus(proto::GetHubStatusRequest {})),
+        number().prop_map(|amount| Method::HubDeposit(proto::HubDepositRequest { amount })),
+        number().prop_map(|amount| Method::HubWithdraw(proto::HubWithdrawRequest { amount })),
+        any::<bool>().prop_map(|automatic| {
+            Method::SetHubAutomatic(proto::SetHubAutomaticRequest { automatic })
+        }),
     ]
     .boxed()
 }
