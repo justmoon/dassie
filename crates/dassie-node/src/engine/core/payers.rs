@@ -546,17 +546,25 @@ impl Core {
         // payment took from it before this connection first heard its
         // maximum, rather than waited on until the idle timeout.
         // One that fixes what it delivers delivers no more, as the
-        // receiver counts it.
+        // receiver counts it, starting from what it knows got there over
+        // earlier connections, until the receiver's first word.
         let expected = payment.row.receive_amount.value;
         let cap = if payment.row.fixed_debit {
             u64::MAX
         } else {
             expected
         };
+        let delivered = delivered_at_least(
+            payment.row.sent_amount,
+            payment.row.debit_amount,
+            expected,
+            payment.delivered,
+        );
         payment.stream = connection.open_stream().ok().filter(|stream| {
             connection.set_send_max(*stream, left).is_ok()
                 && connection.set_expected_delivery(*stream, expected).is_ok()
                 && connection.set_delivery_max(*stream, cap).is_ok()
+                && connection.set_delivered(*stream, delivered).is_ok()
         });
         payment.base_sent = payment.row.sent_amount;
         payment.connection = Some(connection);
@@ -802,12 +810,16 @@ impl Core {
         if let Some((grant, window)) = row.grant {
             let unsent = row.debit_amount - row.sent_amount;
             let undelivered = match row.state {
-                OutgoingState::Failed => undelivered(
-                    row.sent_amount,
-                    row.debit_amount,
-                    row.receive_amount.value,
-                    payment.delivered,
-                ),
+                OutgoingState::Failed => {
+                    let receive = row.receive_amount.value;
+                    receive
+                        - delivered_at_least(
+                            row.sent_amount,
+                            row.debit_amount,
+                            receive,
+                            payment.delivered,
+                        )
+                }
                 _ => 0,
             };
             if unsent > 0 || undelivered > 0 {
@@ -1033,19 +1045,20 @@ fn done(row: &OutgoingRow, sent: u64, delivered: u64, full: bool, cap_reached: b
         }
 }
 
-/// What a payment that failed did not deliver of its receive amount, which
-/// goes back to its grant: it sent `sent` of `debit` to deliver `receive`.
-/// Every packet delivered at least the payment's own rate and it sent at
-/// most its debit amount, so it delivered at least what it sent at that
-/// rate, and at most its receive amount; `reported`, what its receiver
-/// said it received, may be more, on a better path.
-fn undelivered(sent: u64, debit: u64, receive: u64, reported: u64) -> u64 {
+/// The least a payment is known to have delivered of its receive amount,
+/// having sent `sent` of `debit` to deliver `receive`. Every packet
+/// delivered at least the payment's own rate and it sent at most its debit
+/// amount, so it delivered at least what it sent at that rate;
+/// `reported`, what its receiver said it received, may be more, on a
+/// better path. Never more than its receive amount: past it, the rest
+/// counts as nothing left.
+fn delivered_at_least(sent: u64, debit: u64, receive: u64, reported: u64) -> u64 {
     let least = u64::try_from(u128::from(sent) * u128::from(receive) / u128::from(debit.max(1)));
     assert!(
         least.is_ok_and(|least| least <= receive),
         "a payment delivered more than it was to receive"
     );
-    receive - least.unwrap_or_default().max(reported).min(receive)
+    least.unwrap_or_default().max(reported).min(receive)
 }
 
 /// What the rows of outgoing payments require, checked before anything
@@ -1101,19 +1114,20 @@ fn progress(row: &OutgoingRow) -> OutgoingProgress {
 
 #[cfg(test)]
 mod tests {
-    use super::undelivered;
+    use super::delivered_at_least;
 
-    // A failed payment gives its grant back what it did not deliver: at
-    // least what it sent delivered at its own rate, more if its receiver
-    // said so on a better path, never more than its receive amount.
+    // What a payment is known to have delivered, which a failed one keeps
+    // of its grant and a new connection starts its cap from: at least what
+    // it sent delivered at its own rate, more if its receiver said so on a
+    // better path, never more than its receive amount.
     #[test]
-    fn a_failed_payment_gives_back_only_what_it_did_not_deliver() {
+    fn a_payment_delivered_at_least_what_it_sent_at_its_rate() {
         // Sent 600 of 1,000 to deliver 990: at least 594 arrived.
-        assert_eq!(undelivered(600, 1_000, 990, 0), 396);
+        assert_eq!(delivered_at_least(600, 1_000, 990, 0), 594);
         // The receiver said 600 arrived.
-        assert_eq!(undelivered(600, 1_000, 990, 600), 390);
-        // A receiver's count past the receive amount gives back nothing.
-        assert_eq!(undelivered(600, 1_000, 990, 2_000), 0);
-        assert_eq!(undelivered(0, 1_000, 990, 0), 990);
+        assert_eq!(delivered_at_least(600, 1_000, 990, 600), 600);
+        // A receiver's count past the receive amount leaves nothing.
+        assert_eq!(delivered_at_least(600, 1_000, 990, 2_000), 990);
+        assert_eq!(delivered_at_least(0, 1_000, 990, 0), 0);
     }
 }

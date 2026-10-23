@@ -217,6 +217,52 @@ fn a_delivery_cap_is_reached_when_the_path_gets_worse() {
     assert!(floor.destination_amount(sent) <= received, "sent {sent}");
 }
 
+/// Opens a stream on both sides, as `pay_capped` does, and caps it.
+fn capped_stream(path: Path, floor: Rate, send_max: u64, cap: u64) -> (Simulation, u64) {
+    let mut sim = Simulation::new(12, path, Policy::DEFAULT);
+    sim.client.set_exchange_rate(floor);
+    let stream = sim.client.open_stream().unwrap();
+    sim.client.write(stream, b"hello").unwrap();
+    sim.run_until(STEPS, |sim| {
+        sim.received_data.values().any(|data| !data.is_empty())
+    });
+    sim.client.set_send_max(stream, send_max).unwrap();
+    sim.client.set_delivery_max(stream, cap).unwrap();
+    (sim, stream)
+}
+
+// Found in review: half of a cap can fit no packet that delivers a unit
+// while the whole does, as a single source unit at three units each for a
+// cap of three. The least such packet goes, or the stream would never send.
+#[test]
+fn a_delivery_cap_the_least_packet_fills_is_reached() {
+    let path = Path {
+        rate: (3, 1),
+        ..Path::default()
+    };
+    let (mut sim, stream) = capped_stream(path, Rate::new(3, 1).unwrap(), 1, 3);
+    sim.run_until(STEPS, |sim| sim.client.delivery_cap_reached(stream));
+    assert_eq!(server_received(&sim), 3, "{}", sim.trace);
+}
+
+// A stream told what an earlier connection delivered starts its cap from
+// what is left, halved until a reply shows the rate, rather than from all
+// of it. The server counts as a Dassie receiver does, over connections with
+// the same credentials, so its first reply says 4,000 and more.
+#[test]
+fn a_delivery_cap_starts_from_what_was_delivered() {
+    let path = Path {
+        rate: (101, 100),
+        ..Path::default()
+    };
+    let (mut sim, stream) = capped_stream(path, Rate::ONE, 10_000, 5_000);
+    sim.money_limit = Some(1_000_000);
+    sim.money_received = 4_000;
+    sim.client.set_delivered(stream, 4_000).unwrap();
+    sim.run_until(STEPS, |sim| sim.client.delivery_cap_reached(stream));
+    assert_eq!(sim.money_received, 5_000, "{}", sim.trace);
+}
+
 #[test]
 fn survives_packet_loss() {
     let path = Path {

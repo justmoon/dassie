@@ -173,13 +173,12 @@ impl Connection {
         for stream in self.streams.iter().filter(|stream| stream.can_send()) {
             // What is in flight takes from that room already, so packets
             // sent together never offer more than the receiver takes, or
-            // than the application lets the stream deliver. The cap is
-            // converted exactly: hops only round down, so the last unit can
-            // go.
-            let cap = self.delivery_cap(stream);
+            // than the application lets the stream deliver.
+            let capped = stream.delivery_max != u64::MAX;
+            let cap = self.delivery_cap(stream, rate);
             let room = room_rate
                 .max_source_amount(stream.remote_room())
-                .min(room_rate.exact_max_source_amount(cap))
+                .min(cap)
                 .saturating_sub(stream.held);
             let unsent = stream.unsent_amount();
             let mut sendable = unsent.min(room);
@@ -201,14 +200,14 @@ impl Connection {
                 // source unit delivers, is not offered more than it takes.
                 sendable = rate
                     .min_source_for_one_unit()
-                    .filter(|&least| least <= unsent && room_rate.destination_amount(least) <= cap)
+                    .filter(|&least| least <= unsent && least <= cap)
                     .unwrap_or(0);
             }
             let mut amount = sendable.min(budget);
             // Under a cap, a packet must deliver a unit at the minimum rate:
             // one that may deliver nothing would pay for nothing, again and
             // again, as the cap's last units come near.
-            if cap != u64::MAX && amount < least_under_cap(rate) {
+            if capped && amount < least_under_cap(rate) {
                 amount = 0;
             }
             if amount > 0 {
@@ -248,20 +247,31 @@ impl Connection {
             && room_rate.exact_max_source_amount(stream.delivery_room()) < least_under_cap(rate)
     }
 
-    /// What a stream may still deliver under its cap, in the remote's
-    /// units: unlimited without one. Until a reply showed the rate the path
-    /// delivers, only half of it, rounded up so a unit left still goes:
-    /// sized at the minimum rate, a packet that fit the whole of it would
-    /// overshoot by however much better the path is.
-    fn delivery_cap(&self, stream: &Stream) -> u64 {
+    /// The most source units a stream may offer under its delivery cap, at
+    /// the expected rate: unlimited without one. What is left of the cap is
+    /// converted exactly, since hops only round down, so the last unit can
+    /// go. Until a reply showed the rate the path delivers, only half of
+    /// it, rounded up: sized at the minimum rate, a packet that fit the
+    /// whole would overshoot by however much better the path is. If half
+    /// fits no packet that delivers a unit at the minimum `rate`, but the
+    /// whole does, the least such packet goes, or the stream would never
+    /// send.
+    fn delivery_cap(&self, stream: &Stream, rate: Rate) -> u64 {
         if stream.delivery_max == u64::MAX {
             return u64::MAX;
         }
+        let room_rate = self.expected_rate.unwrap_or(rate);
         let left = stream.delivery_room();
+        let whole = room_rate.exact_max_source_amount(left);
         if self.rate_seen {
-            left
+            return whole;
+        }
+        let half = room_rate.exact_max_source_amount(left - left / 2);
+        let least = least_under_cap(rate);
+        if half < least && whole >= least {
+            least
         } else {
-            left - left / 2
+            half
         }
     }
 

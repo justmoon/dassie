@@ -527,6 +527,16 @@ impl Connection {
         Ok(())
     }
 
+    /// Says the remote received at least `amount` on a stream already, in
+    /// its units, as over an earlier connection with the same credentials:
+    /// until the remote says more, the stream counts that as delivered, so
+    /// a delivery cap starts from what is really left.
+    pub fn set_delivered(&mut self, id: u64, amount: u64) -> Result<(), StreamError> {
+        let stream = self.open_stream_mut(id)?;
+        stream.remote_received = stream.remote_received.max(amount);
+        Ok(())
+    }
+
     /// Whether a stream delivered all its cap lets it: no packet that
     /// delivers a unit at the minimum rate fits what is left, and none of
     /// its money is in flight. It is then short of its cap by less than
@@ -668,6 +678,9 @@ impl Connection {
     pub fn set_exchange_rate(&mut self, rate: Rate) {
         self.exchange_rate = Some(rate);
         self.expected_rate = (!rate.is_zero()).then_some(rate);
+        // The expected rate starts again from the minimum, so a delivery
+        // cap is approached as before any reply.
+        self.rate_seen = false;
         self.rate_too_low = false;
     }
 
