@@ -1,0 +1,71 @@
+# The market maker (spec/areas/market-maker-vm.md), on its VM, which
+# startup.sh installs: `dassie market-maker` with its two nodes,
+# dassie-mm-node@xrp and dassie-mm-node@dsusd. Starting it starts them
+# first, and stopping or restarting a node stops or restarts it too. A node
+# that fails to start does not keep it down for good: it starts all the
+# same, `dassie setup` fails while the node does not answer, and it tries
+# again until the node is up.
+#
+# Before it starts, root reads the nodes' two passphrases from Secret
+# Manager into this unit's runtime directory (phrases.sh): files on tmpfs,
+# readable by dassie-mm alone, gone when the unit stops. Then run.sh, as
+# dassie-mm, sets each node up from its phrase, writes the config beside
+# them and runs the market maker.
+[Unit]
+Description=Dassie market maker
+Documentation=https://dassie.land
+Wants=dassie-mm-node@xrp.service dassie-mm-node@dsusd.service
+PartOf=dassie-mm-node@xrp.service dassie-mm-node@dsusd.service
+After=dassie-mm-node@xrp.service dassie-mm-node@dsusd.service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+# The target and the strategy's settings, which startup.sh writes from the
+# instance metadata.
+EnvironmentFile=/etc/dassie-mm/settings.env
+User=dassie-mm
+Group=dassie-mm
+RuntimeDirectory=dassie-mm
+RuntimeDirectoryMode=0700
+ExecStartPre=+/bin/sh /opt/dassie-mm/repo/apps/market-maker/vm/phrases.sh
+ExecStart=/bin/sh /opt/dassie-mm/repo/apps/market-maker/vm/run.sh
+# It exits at start if anything it needs is missing, such as a node that
+# has no account on its ledger yet, and rides out outages once it runs,
+# until SIGTERM. It starts again after a failure, slowly enough that the
+# target and the ledger are not asked in a hurry.
+Restart=on-failure
+RestartSec=30
+# Each decision's line, on the serial console too, which needs no SSH.
+StandardOutput=journal+console
+StandardError=journal+console
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+ProtectProc=invisible
+ProcSubset=pid
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

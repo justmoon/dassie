@@ -27,12 +27,12 @@
     {
       "id": "tooling",
       "name": "Tooling and tests",
-      "desc": "The local network for development, the tests that run real binaries, and the keeper of the testnet's dollar pool."
+      "desc": "The local network for development, the tests that run real binaries, and the testnet's own services: the keeper of its dollar pool and a market maker."
     }
   ],
   "viewBox": {
     "w": 1000,
-    "h": 918
+    "h": 1014
   },
   "bands": [
     {
@@ -41,7 +41,7 @@
       "x": 8,
       "y": 8,
       "w": 600,
-      "h": 230
+      "h": 326
     },
     {
       "t": "Developer tooling",
@@ -49,13 +49,13 @@
       "x": 624,
       "y": 8,
       "w": 368,
-      "h": 230
+      "h": 326
     },
     {
       "t": "Contracts",
       "s": "protobuf · both sides generated",
       "x": 8,
-      "y": 254,
+      "y": 350,
       "w": 984,
       "h": 116
     },
@@ -63,7 +63,7 @@
       "t": "The binaries",
       "s": "Rust · the only layer with sockets, disk and a clock",
       "x": 8,
-      "y": 386,
+      "y": 482,
       "w": 984,
       "h": 134
     },
@@ -71,7 +71,7 @@
       "t": "Sans-IO cores",
       "s": "Rust · pure state machines · simulated from a seed",
       "x": 8,
-      "y": 536,
+      "y": 632,
       "w": 984,
       "h": 374
     }
@@ -80,13 +80,13 @@
     {
       "text": "compiled from the Rust cores ↓",
       "x": 596,
-      "y": 226,
+      "y": 322,
       "anchor": "end"
     },
     {
       "text": "builds on every core crate below ↓",
       "x": 786,
-      "y": 508,
+      "y": 604,
       "anchor": "end"
     }
   ],
@@ -260,13 +260,30 @@
         "One line per run, and a VM set up by `provision.sh` that reads only the two seeds it needs"
       ]
     },
+    "market-maker": {
+      "name": "apps/market-maker",
+      "path": "apps/market-maker",
+      "label": "testnet market maker",
+      "sub": "tooling",
+      "x": 636,
+      "y": 240,
+      "w": 167,
+      "desc": "Runs `dassie market-maker` on a small VM of its own, so that a core node of the testnet is brought back toward balance. Its two periphery nodes, one in XRP and one in DSUSD, run beside it, pinned to that node.",
+      "does": [
+        "`provision.sh` makes the VM, a network that nothing reaches, and an account that can read only the two nodes' passphrases",
+        "At each boot, installs the newest release as `install.sh` lays it out, checked against the release key, and the units from `main`",
+        "Sets each node up from its passphrase with `dassie setup`, then runs the market maker; the passphrases sit in files in memory only while it runs",
+        "Updates every day with `dassie update`, restarts the nodes on the new version, and goes back if one does not start",
+        "Logs to the serial console, so it is watched without SSH"
+      ]
+    },
     "proto-ui": {
       "name": "proto/dassie/ui/v1",
       "path": "proto/dassie/ui/v1",
       "label": "the owner's RPC contract: calls and live streams",
       "sub": "interfaces",
       "x": 20,
-      "y": 294,
+      "y": 390,
       "w": 576,
       "desc": "The contract between a node and its owner's clients, written in protobuf. Rust and TypeScript are both generated from it, so a change starts here.",
       "does": [
@@ -284,7 +301,7 @@
       "label": "the dev network's control channel",
       "sub": "tooling",
       "x": 636,
-      "y": 294,
+      "y": 390,
       "w": 344,
       "desc": "The contract between the dev server and its dashboard: scenarios, nodes and logs. Everything stays on loopback, on one origin.",
       "does": [
@@ -298,7 +315,7 @@
       "label": "the dassie binary",
       "sub": "node",
       "x": 20,
-      "y": 426,
+      "y": 522,
       "w": 184,
       "desc": "The binary a server runs, with the wallet built in. Everything a node owner runs is a subcommand of it, and so are a front door and a market maker.",
       "does": [
@@ -317,7 +334,7 @@
       "label": "the daemon: IO, TLS, RPC, the engine",
       "sub": "node",
       "x": 214,
-      "y": 426,
+      "y": 522,
       "w": 378,
       "desc": "The only part that does IO. It wires the sans-IO cores below to sockets, the database and the clock. Every service is a supervised task that restarts with backoff if it fails.",
       "does": [
@@ -342,7 +359,7 @@
       "label": "the node in a window",
       "sub": "node",
       "x": 602,
-      "y": 426,
+      "y": 522,
       "w": 184,
       "desc": "The desktop app for Linux: the owner's node runs inside it as a periphery node, with no public IP or hostname, and its wallet opens in a window. A tray icon keeps the node running after the window closes.",
       "does": [
@@ -359,7 +376,7 @@
       "label": "installer & updater",
       "sub": "node",
       "x": 796,
-      "y": 426,
+      "y": 522,
       "w": 184,
       "desc": "How Dassie ships: Nix builds static binaries for x64 and arm64 with the wallet inside, CI signs and publishes them to get.dassie.land, and systemd runs the node and updates it every day. On NixOS, a flake from the mirror runs the same binary.",
       "does": [
@@ -377,7 +394,7 @@
       "label": "XRP Ledger settlement",
       "sub": "money",
       "x": 20,
-      "y": 576,
+      "y": 672,
       "w": 184,
       "desc": "The node's XRP Ledger testnet account and the settlement schemes on it: one in XRP, and a token scheme in a dollar token, run in RLUSD, Ripple's, and in DSUSD, Dassie's own testnet dollar. Also the wallet, the transaction codec, the rippled API, the account that connects, signs and follows the ledger, and the schemes that book what the account tells them. It also prices the ledger's AMM pools and signs the Payments that swap through one. A fake ledger serves the tests and the dev network, with test RLUSD and DSUSD from issuers of its own and pools to swap through.",
       "does": [
@@ -402,7 +419,7 @@
       "label": "when & how to settle",
       "sub": "money",
       "x": 214,
-      "y": 576,
+      "y": 672,
       "w": 184,
       "desc": "Where real-world ledgers plug in. A settlement scheme moves actual money through an external asset the node holds, such as an account on a ledger, and this crate decides when that is due.",
       "does": [
@@ -420,7 +437,7 @@
       "label": "node-to-node protocol",
       "sub": "money",
       "x": 408,
-      "y": 576,
+      "y": 672,
       "w": 184,
       "desc": "Peer protocol v1: how Dassie nodes find each other, peer and stay in sync.",
       "does": [
@@ -439,7 +456,7 @@
       "label": "routes ILP packets",
       "sub": "money",
       "x": 602,
-      "y": 576,
+      "y": 672,
       "w": 184,
       "desc": "The Interledger connector. A packet comes in from an endpoint; the connector picks a route, reserves the amount in the ledger, and settles the outcome when the answer comes back.",
       "does": [
@@ -458,7 +475,7 @@
       "label": "trusting a release",
       "sub": "node",
       "x": 796,
-      "y": 576,
+      "y": 672,
       "w": 184,
       "desc": "What a release is and how to trust one: versions and channels, the mirror's layout, `SHA256SUMS` and its minisign signature. The updater and the release workflow both trust a release through it.",
       "does": [
@@ -475,7 +492,7 @@
       "label": "Open Payments",
       "sub": "money",
       "x": 20,
-      "y": 662,
+      "y": 758,
       "w": 184,
       "desc": "Open Payments without IO: wallet addresses and their resources, GNAP grants, HTTP message signatures, payment pointers. The node serves it over HTTPS.",
       "does": [
@@ -493,7 +510,7 @@
       "label": "double-entry books",
       "sub": "money",
       "x": 214,
-      "y": 662,
+      "y": 758,
       "w": 184,
       "desc": "The node's books. Every transfer has two sides, every account has limits, and every change is written to a journal.",
       "does": [
@@ -510,7 +527,7 @@
       "label": "the node's decisions",
       "sub": "node",
       "x": 408,
-      "y": 662,
+      "y": 758,
       "w": 184,
       "desc": "Every decision the node makes, with no IO at all. Each is a function of its inputs, the time and an injected random source, so tests can replay it exactly.",
       "does": [
@@ -527,7 +544,7 @@
       "label": "runs simulations",
       "sub": "tooling",
       "x": 602,
-      "y": 662,
+      "y": 758,
       "w": 184,
       "desc": "A developer tool that runs the simulations from any seed, and the engine of the simulation campaign. Each simulation lives in the crate it simulates, and a seed fixes its whole run, so a seed that fails replays the same way every time.",
       "does": [
@@ -546,7 +563,7 @@
       "label": "STREAM payments",
       "sub": "protocols",
       "x": 796,
-      "y": 662,
+      "y": 758,
       "w": 184,
       "desc": "STREAM (Interledger RFC 29) sends money and data in many small ILP packets. Here it is a state machine: inputs go in, packets and timers come out.",
       "does": [
@@ -563,7 +580,7 @@
       "label": "the signed rate feed",
       "sub": "protocols",
       "x": 214,
-      "y": 748,
+      "y": 844,
       "w": 184,
       "desc": "The public feed in which a core node says what it converts at, so that market makers can trade through it. A feed is one signed UDP datagram, made once and sent to every subscriber.",
       "does": [
@@ -580,7 +597,7 @@
       "label": "phrase → keys, node ID",
       "sub": "protocols",
       "x": 408,
-      "y": 748,
+      "y": 844,
       "w": 184,
       "desc": "Turns the owner's 24-word phrase into everything that identifies a node. The same phrase always gives the same node.",
       "does": [
@@ -597,7 +614,7 @@
       "label": "ILPv4 & BTP packets",
       "sub": "protocols",
       "x": 602,
-      "y": 748,
+      "y": 844,
       "w": 184,
       "desc": "The Interledger packet formats. Encoders can write a header in place, so a packet is built without copying.",
       "does": [
@@ -614,7 +631,7 @@
       "label": "canonical binary encoding (X.696 OER): every wire format above is written in it",
       "sub": "protocols",
       "x": 20,
-      "y": 834,
+      "y": 930,
       "w": 960,
       "desc": "The binary encoding all of Dassie's protocols use. It accepts only the canonical form, so each value has exactly one encoding.",
       "does": [
@@ -749,6 +766,18 @@
       "f": "e2e",
       "t": "cli",
       "k": "runs",
+      "h": true
+    },
+    {
+      "f": "market-maker",
+      "t": "cli",
+      "k": "runs",
+      "h": true
+    },
+    {
+      "f": "market-maker",
+      "t": "release",
+      "k": "uses",
       "h": true
     },
     {

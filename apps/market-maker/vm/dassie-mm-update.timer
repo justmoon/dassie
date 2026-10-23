@@ -1,0 +1,12 @@
+# Looks for a Dassie update for the market maker's VM
+# (dassie-mm-update.service) once a day, at a random time in the hour
+# after 03:20, as dassie-update.timer does on a node.
+[Unit]
+Description=Daily Dassie update of the market maker's VM
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+RandomizedDelaySec=3600
+
+[Install]
+WantedBy=timers.target

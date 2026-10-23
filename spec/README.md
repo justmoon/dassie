@@ -41,6 +41,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | `apps/dev` | [Dev](areas/dev.md) |
 | `apps/dev-dashboard` | [Dev](areas/dev.md), [Wallet](areas/wallet.md) |
 | `apps/dsusd-keeper` | [DSUSD keeper](areas/dsusd-keeper.md), [XRPL](areas/xrpl.md) |
+| `apps/market-maker` | [Market maker VM](areas/market-maker-vm.md), [Rate feed](areas/rate-feed.md#market-maker), [Release](areas/release.md) |
 | `apps/website`, `scripts/website/`, `.github/workflows/website.yml` | [Website](areas/website.md) |
 | `tests/e2e` | [Testing](areas/testing.md), and the area under test |
 | `tests/interop` | [Testing](areas/testing.md), [STREAM](areas/stream.md), [Payments](areas/payments.md) |
@@ -75,6 +76,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [Desktop](areas/desktop.md) | The desktop app: the owner's node in its process, the wallet's window, the tray and starting at login |
 | [Dev](areas/dev.md) | The local dev network and its dashboard |
 | [DSUSD keeper](areas/dsusd-keeper.md) | The testnet dollar token of our own: its issuer, its pool, and the keeper that holds the pool at the market |
+| [Market maker VM](areas/market-maker-vm.md) | The VM that runs a market maker and its two nodes against a testnet core node: secrets, releases and updates, settings |
 | [Testing](areas/testing.md) | Test levels, golden vectors, simulations and the simulation runner |
 
 Not built yet: the [roadmap](roadmap.md), and the designs in `designs/`: [settlement hubs](designs/settlement-hubs.md), and what is not built of the [periphery](designs/periphery.md).

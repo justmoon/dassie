@@ -131,9 +131,12 @@ async function manifestDependencies(): Promise<Map<string, string[]>> {
     ) {
       if (!entry.isDirectory()) continue;
       const path = `${dir}/${entry.name}`;
-      const json = JSON.parse(
-        await readFile(`${root}${path}/package.json`, "utf8"),
-      );
+      // An app that is no package, such as the market maker's VM, has no
+      // manifest, and builds on nothing by one.
+      const text = await readFile(`${root}${path}/package.json`, "utf8")
+        .catch(() => undefined);
+      if (text === undefined) continue;
+      const json = JSON.parse(text);
       const all = { ...json.dependencies, ...json.devDependencies };
       const uses = Object.keys(all).filter((dep) =>
         all[dep].startsWith("workspace:")
