@@ -84,7 +84,7 @@ pub enum Action {
 
 /// Limits on an outgoing-payment grant (`limits-outgoing`). They limit
 /// the amount debited, and may also limit the amount received, but never
-/// the amount received alone, as Open Payments has it.
+/// the amount received alone, as Open Payments is changing it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Limits {

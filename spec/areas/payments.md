@@ -66,7 +66,7 @@ The flow is GNAP's redirect interaction. The interaction URL carries a random ke
 ### What a grant allows
 
 - **A grant is bound to its client's key:** every later request of the grant must be signed with it, so a stolen token is of no use without the key.
-- **A limit caps the amount debited, and may also cap the amount received,** each binding on its own. A limit on the amount received alone is refused, as the Open Payments spec has it: the debit is what the owner pays, so a grant that caps anything caps that. Grants stored with a receive limit alone keep it.
+- **A limit caps the amount debited, and may also cap the amount received,** each binding on its own. A limit on the amount received alone is refused, as the Open Payments spec is changing it: the debit is what the owner pays, so a grant that caps anything caps that. Grants stored with a receive limit alone keep it.
 - **On an item that creates outgoing payments, a debit limit is in its wallet address's asset,** code and scale, or the request is refused with the asset it must be in, since no payment from that wallet could fit it ([unusable-limits](../decisions/unusable-limits.md)).
 - **Each access item keeps to its own limits,** and only one item per wallet address may allow `create`, since otherwise which limits apply would be unclear. On an item that only reads or lists, a `receiver` limit narrows what it reaches.
 - An item without an identifier reaches every wallet address of the node.

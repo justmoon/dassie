@@ -1088,8 +1088,8 @@ async fn an_item_that_only_reads_does_not_lift_the_limit() {
 }
 
 // A grant may limit what its payments deliver as well as what they debit,
-// but never what they deliver alone, as Open Payments has it. The receive
-// limit binds although the debit limit has room.
+// but never what they deliver alone, as Open Payments is changing it. The
+// receive limit binds although the debit limit has room.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_receive_limit_caps_what_is_delivered() {
     let (node, key) = start().await;

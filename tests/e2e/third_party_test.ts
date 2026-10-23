@@ -337,9 +337,9 @@ test("a third-party client pays from one node to another with consent", {
     );
 
     // 6. Asked again, with a receive limit in cents for a receiver that
-    // counts in billionths: the page warns that no payment fits, and the
-    // owner denies. The app learns it on its return, and continuing is
-    // refused.
+    // counts in billionths, next to the debit limit a receive limit needs:
+    // the page warns that no payment fits, and the owner denies. The app
+    // learns it on its return, and continuing is refused.
     const again = await op.grant.request({ url: payerAddress.authServer }, {
       access_token: {
         access: [{
@@ -348,6 +348,11 @@ test("a third-party client pays from one node to another with consent", {
           identifier: payerAddress.id,
           limits: {
             receiver: incoming.id,
+            debitAmount: {
+              value: "1000000000",
+              assetCode: "USD",
+              assetScale: 9,
+            },
             receiveAmount: { value: "100", assetCode: "USD", assetScale: 2 },
           },
         }],
