@@ -432,6 +432,23 @@
         "Reconciling settlements still pending after a restart"
       ]
     },
+    "hub": {
+      "name": "dassie-hub",
+      "path": "crates/dassie-hub",
+      "label": "settlement hubs",
+      "sub": "money",
+      "x": 20,
+      "y": 844,
+      "w": 184,
+      "desc": "A settlement hub lets two nodes peer without being able to walk away with what they owe each other: a small ledger kept by a few validators and backed by an escrow on the XRP Ledger. A payer sets funds aside in a hold, and its payee takes from it with the payer's signed promises.",
+      "does": [
+        "The hub's rules, whose digest names the hub, and each validator's signed acceptance",
+        "The ledger: accounts, holds, deposits and withdrawals, every table bounded, every drop accounted for after each block",
+        "Taking from a hold with the payer's claim, or with fulfilled commitments when the claim does not come, never twice",
+        "Fees split among the validators whose votes the log recorded",
+        "Test network resets written off in place"
+      ]
+    },
     "peer": {
       "name": "dassie-peer",
       "path": "crates/dassie-peer",
@@ -967,6 +984,18 @@
       "t": "ledger",
       "k": "uses",
       "h": false
+    },
+    {
+      "f": "hub",
+      "t": "identity",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "hub",
+      "t": "oer",
+      "k": "uses",
+      "h": true
     },
     {
       "f": "peer",

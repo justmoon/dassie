@@ -6,7 +6,7 @@ A hub moves trust, it does not remove it. Instead of trusting each peer up to it
 
 **A hub is regional.** Its validators, and the members that peer over it, are within a few tens of milliseconds of each other, so a block is final in well under a quarter of a second and a packet over a hub keeps the connector's timing (§4). Nodes far apart peer over different hubs, or directly. Peering directly, with settlement up to the node that owes, stays; a hub both peers are in is preferred over it.
 
-This is a design ([settlement-hubs](../decisions/settlement-hubs.md)); nothing in it is built yet. Durations and sizes in it are starting points, to be set from the deterministic simulation when the hub is built.
+This is a design ([settlement-hubs](../decisions/settlement-hubs.md)). The rules and the ledger are built ([Settlement hubs](../areas/hubs.md)); the rest is not yet. Durations and sizes in it are starting points, to be set from the deterministic simulation when the hub is built.
 
 ## 1. Concepts
 
@@ -69,6 +69,7 @@ Every table has a limit in the rules; an operation that would exceed one fails, 
 | `set-disbursal` | owner | Sets where the account's funds go at shutdown (§9). |
 | `hold-open`, `hold-fund` | payer | Sets funds aside for a payee, or adds to a hold. Opening one locks a hold reserve (§7). |
 | `hold-reduce` | payer | Takes funds back from a hold, after the hold's notice period. Reducing it to zero closes it and frees its hold reserve. |
+| `hold-release` | payee | Gives a hold toward it back to its payer at once. Only holds an account pays into count toward its limit per account, so no one can use up another's room by opening holds toward it. |
 | `redeem` | payee | Takes from a hold with the payer's latest signed claim (§4). |
 | `claim` | payee | Takes from a hold with the payer's signed commitments and their fulfillments (§4). |
 | `withdraw` | owner | Pays funds out to an address on the underlying ledger (§6). |
