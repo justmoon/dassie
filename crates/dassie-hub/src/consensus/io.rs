@@ -144,8 +144,8 @@ pub enum Event {
     Reconfigured {
         /// The first height it certifies.
         from_height: u64,
-        /// The first view it runs.
-        from_view: u64,
+        /// Its epoch, which runs from view 1.
+        epoch: u64,
     },
 }
 

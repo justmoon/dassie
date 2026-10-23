@@ -66,6 +66,7 @@ pub fn hub() -> Digest {
 #[must_use]
 pub fn genesis() -> Block {
     Block {
+        epoch: 0,
         view: 0,
         height: 0,
         parent: Digest::default(),
@@ -370,6 +371,9 @@ pub struct Network {
     pub forked: bool,
     /// How many times a validator loaded the state after a later block.
     pub state_loads: u64,
+    /// How many times a validator handed over to a new set after the last
+    /// block of its epoch was finalized through a repeat.
+    pub repeat_handovers: u64,
     /// How much longer the messages of some validators take.
     pub slow: BTreeMap<usize, u64>,
     queue: BTreeMap<(u64, u64), Delivery>,
@@ -403,6 +407,7 @@ impl Network {
             trace: Vec::new(),
             forked: false,
             state_loads: 0,
+            repeat_handovers: 0,
             slow: BTreeMap::new(),
             queue: BTreeMap::new(),
             sequence: 0,
@@ -610,6 +615,11 @@ impl Network {
                     sim.evidence.push((**evidence).clone());
                 }
                 Event::Stalled => sim.stalled = true,
+                Event::Reconfigured { .. } if !engine.tip().repeats.is_empty() => {
+                    self.repeat_handovers += 1;
+                    self.trace
+                        .push(format!("{} {index} {event:?} through a repeat", self.now));
+                }
                 Event::Behind(finalized) => behind = Some((**finalized).clone()),
                 Event::Finalized { height, .. } => {
                     let stamped = engine
@@ -741,7 +751,7 @@ impl Network {
                     &key(leader),
                     index,
                     VoteKind::Notarize,
-                    view,
+                    (block.epoch, view),
                     digest,
                 );
                 let bytes = Message::Proposal(Proposal {
@@ -785,7 +795,7 @@ impl Network {
                 *byte ^= 0x80;
             }
         }
-        let view = other.view;
+        let (epoch, view) = (other.epoch, other.view);
         let digests = [proposal.block.digest(&hub()), other.digest(&hub())];
         let blocks = [proposal.block, other];
         let targets: Vec<usize> = to
@@ -811,7 +821,7 @@ impl Network {
                 &key(leader),
                 leader_index,
                 VoteKind::Notarize,
-                view,
+                (epoch, view),
                 digest,
             )
             .signature;
@@ -823,7 +833,8 @@ impl Network {
             for signer in colluding {
                 let index = ValidatorIndex::new(*signer).unwrap();
                 for kind in [VoteKind::Notarize, VoteKind::Finalize] {
-                    let vote = Vote::sign(&hub(), &key(*signer), index, kind, view, digest);
+                    let vote =
+                        Vote::sign(&hub(), &key(*signer), index, kind, (epoch, view), digest);
                     self.send_all(*signer, &half, &Message::Vote(vote).to_vec());
                 }
             }

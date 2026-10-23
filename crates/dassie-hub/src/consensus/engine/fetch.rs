@@ -36,6 +36,7 @@ impl Engine {
         };
         let fetch = Fetch {
             height: self.tip.block.height,
+            epoch: self.epoch(),
             view,
         };
         self.send(to, &Message::Fetch(fetch));
@@ -58,7 +59,9 @@ impl Engine {
     /// blocks.
     pub(super) fn on_fetch(&mut self, from: PeerId, fetch: Fetch) {
         let (mut delivery, bytes) = self.finalized_above(fetch.height.saturating_add(1));
-        self.add_certified(&mut delivery, fetch.view, bytes);
+        if fetch.epoch == self.epoch() {
+            self.add_certified(&mut delivery, fetch.view, bytes);
+        }
         if delivery.finalized.is_empty() && delivery.certified.is_empty() {
             return;
         }
@@ -81,8 +84,11 @@ impl Engine {
                 .iter()
                 .find(|boundary| boundary.block.height >= start)
                 .unwrap_or(&self.tip);
-            if let Some(finalization) = &end.finalization {
-                delivery.finalized.push(end.block.clone());
+            let chain = end.chain();
+            if let Some(finalization) = &end.finalization
+                && chain.len() <= MAX_DELIVERED_BLOCKS
+            {
+                delivery.finalized = chain;
                 delivery.finalization = Some(finalization.clone());
             }
             let bytes = delivery.encoded_len();
@@ -91,11 +97,19 @@ impl Engine {
         let mut bytes = 0usize;
         let mut proven = (0, 0);
         for (_, finalized) in self.history.iter().filter(|(_, f)| f.block.height >= start) {
-            bytes = bytes.saturating_add(finalized.block.encoded_len());
-            if delivery.finalized.len() >= MAX_DELIVERED_BLOCKS || bytes > DELIVERY_BYTES / 2 {
+            // A block with its finalization comes with the repeats that
+            // finalization proves it through, if any.
+            let chain = if finalized.finalization.is_some() {
+                finalized.chain()
+            } else {
+                alloc::vec![finalized.block.clone()]
+            };
+            bytes = bytes.saturating_add(chain.iter().map(Encode::encoded_len).sum::<usize>());
+            let count = delivery.finalized.len().saturating_add(chain.len());
+            if count > MAX_DELIVERED_BLOCKS || bytes > DELIVERY_BYTES / 2 {
                 break;
             }
-            delivery.finalized.push(finalized.block.clone());
+            delivery.finalized.extend(chain);
             if let Some(certificate) = &finalized.finalization {
                 proven = (delivery.finalized.len(), bytes);
                 delivery.finalization = Some(certificate.clone());
@@ -221,13 +235,14 @@ impl Engine {
         };
         let block = &finalized.block;
         let digests = self
-            .linked(core::slice::from_ref(block), finalization)
+            .linked(&finalized.chain(), finalization)
             .ok_or(Invalid::Unproven)?;
         let digest = digests.first().copied().ok_or(Invalid::Unproven)?;
-        if block.height <= self.tip.block.height || block.view <= self.tip.block.view {
+        let ahead = (block.epoch, block.view) > (self.tip.block.epoch, self.tip.block.view);
+        if block.height <= self.tip.block.height || !ahead {
             return Err(Invalid::Stale);
         }
-        let (height, view) = (block.height, block.view);
+        let height = block.height;
         if let Some((from_height, set)) = change {
             self.epochs
                 .take_in(from_height, set, height)
@@ -241,12 +256,8 @@ impl Engine {
         self.history.push_back((digest, self.tip.clone()));
         self.vote_log.clear();
         self.prune();
-        if let Some((from_height, from_view)) = self.epochs.finalized(height, view) {
-            self.take_over(from_height, from_view);
-        }
-        if self.view <= view {
-            self.enter(view.saturating_add(1));
-        }
+        // Into a later epoch whose set we know: it starts.
+        self.after_finalized();
         Ok(())
     }
 
@@ -256,60 +267,90 @@ impl Engine {
         blocks: &[Block],
         finalization: &Certificate,
     ) {
-        let (Some(first), Some(last)) = (blocks.first(), blocks.last()) else {
-            return;
-        };
-        // Checked with the set of its height that we know: a set comes to
+        // Checked with the set of its epoch that we know: a set comes to
         // us only from blocks we checked, never from one we cannot check.
         let Some(digests) = self.linked(blocks, finalization) else {
             return self.refuse();
         };
-        if last.height <= self.tip.block.height {
-            return self.check_finalized(last, finalization);
+        let content = content_len(blocks);
+        let (Some(first), Some(end)) = (blocks.first(), blocks.get(content.saturating_sub(1)))
+        else {
+            return;
+        };
+        if end.height <= self.tip.block.height {
+            return self.check_finalized(end, finalization);
         }
         // Beyond what we can connect: the host loads the state after it.
         if first.height > self.tip.block.height.saturating_add(1) {
             self.event(Event::Behind(Box::new(Finalized {
-                block: last.clone(),
+                block: end.clone(),
+                repeats: blocks.get(content..).unwrap_or_default().to_vec(),
                 finalization: Some(finalization.clone()),
             })));
             return;
         }
-        if first.parent != self.tip_digest {
+        if first.parent != self.tip_digest || first.epoch != self.epoch() {
             return;
         }
-        let count = blocks.len();
-        for (at, (block, digest)) in blocks.iter().zip(digests).enumerate() {
-            let own = (at.saturating_add(1) == count).then(|| finalization.clone());
-            self.apply_finalized(app, digest, block.clone(), own);
-        }
+        let chain = digests.into_iter().zip(blocks.iter().cloned()).collect();
+        self.apply_chain(app, chain, Some(finalization.clone()));
     }
 
     /// The digests of `blocks` if they form a chain that `finalization`
     /// proves: each the parent of the next, and the last finalized by the
-    /// set of its height.
+    /// set of its epoch, which must be one we know and the one of its
+    /// height.
     fn linked(&self, blocks: &[Block], finalization: &Certificate) -> Option<Vec<Digest>> {
         let digests = self.chained(blocks, finalization)?;
-        let set = self.epochs.for_height(blocks.last()?.height);
+        let last = blocks.last()?;
+        let set = self.epochs.for_epoch(last.epoch)?;
+        if self.epochs.for_height(last.height) != set {
+            return None;
+        }
         verify_certificate(&self.hub, set, finalization).ok()?;
         Some(digests)
     }
 
-    /// The digests of `blocks` if each is the parent of the next and
-    /// `finalization` names the last, whoever signed it.
+    /// The digests of `blocks` if each is the parent of the next, all of
+    /// one epoch, and `finalization` names the last, whoever signed it.
+    /// Repeats may only end the chain, of the block before them, which
+    /// must be the last of its epoch, as far as we know.
     fn chained(&self, blocks: &[Block], finalization: &Certificate) -> Option<Vec<Digest>> {
         let last = blocks.last()?;
+        let content = content_len(blocks);
+        let end = blocks.get(content.checked_sub(1)?)?;
         let digests: Vec<Digest> = blocks.iter().map(|block| block.digest(&self.hub)).collect();
         let chained = blocks.iter().zip(blocks.iter().skip(1)).zip(&digests).all(
             |((block, next), digest)| {
                 next.parent == *digest
-                    && next.height == block.height.saturating_add(1)
+                    && next.epoch == block.epoch
                     && next.parent_view == block.view
+                    && (next.height == block.height.saturating_add(1) || next.repeats(block))
             },
         );
+        let only_repeats = blocks
+            .iter()
+            .skip(content)
+            .all(|repeat| repeat.height == end.height && repeat.payload.is_empty());
+        let repeats_fit = content == blocks.len()
+            || self
+                .epochs
+                .boundary(end.epoch)
+                .is_some_and(|boundary| end.height.saturating_add(1) == boundary);
         let proven = finalization.kind == VoteKind::Finalize
+            && finalization.epoch == last.epoch
             && finalization.view == last.view
             && digests.last() == Some(&finalization.block);
-        (chained && proven).then_some(digests)
+        (chained && only_repeats && repeats_fit && proven).then_some(digests)
     }
+}
+
+/// How many of `blocks` come before the repeats that end them: the first
+/// that repeats the block before it, and all after it, are repeats.
+fn content_len(blocks: &[Block]) -> usize {
+    blocks
+        .iter()
+        .zip(blocks.iter().skip(1))
+        .position(|(block, next)| next.repeats(block))
+        .map_or(blocks.len(), |at| at.saturating_add(1))
 }

@@ -156,6 +156,9 @@ pub fn run(seed: u64) -> Run {
     if network.state_loads > 0 {
         counts.insert("state-load", network.state_loads);
     }
+    if network.repeat_handovers > 0 {
+        counts.insert("repeat-handover", network.repeat_handovers);
+    }
     run.counts = counts;
     run
 }

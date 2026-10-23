@@ -2,9 +2,12 @@
 //! what validators sign, and how anyone checks it.
 //!
 //! A vote signs a [`Digest`] under [`Domain::Vote`] that binds the hub, the
-//! kind of vote, the view and the block, so a vote can never be taken for
-//! one of another hub, kind or view. A certificate is q votes of one kind
-//! for one view and block, with the bitmap of who signed.
+//! epoch, the kind of vote, the view and the block, so a vote can never be
+//! taken for one of another hub, epoch, kind or view. A certificate is q
+//! votes of one kind for one view and block, with the bitmap of who signed.
+//!
+//! An epoch is the run of one validator set; each numbers its views from 1
+//! (spec/decisions/epoch-handover.md).
 
 use alloc::vec::Vec;
 
@@ -21,15 +24,19 @@ pub const MAX_PAYLOAD_BYTES: usize = 512 * 1024;
 /// A block of the hub's log.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Block {
-    /// The view it was proposed in.
+    /// The epoch it was proposed in: which validator set runs its view.
+    pub epoch: u64,
+    /// The view it was proposed in, within its epoch.
     pub view: u64,
     /// Its place in the chain: its parent's height plus one. The anchor of
-    /// a hub, its genesis, is height 0.
+    /// a hub, its genesis, is height 0. A repeat block alone has its
+    /// parent's height ([`Block::repeats`]).
     pub height: u64,
     /// Its parent's digest.
     pub parent: Digest,
-    /// The view of its parent: every view between the two must have been
-    /// nullified.
+    /// The view of its parent in this block's epoch: every view between
+    /// the two must have been nullified. The first block of an epoch builds
+    /// on the last block of the one before, at view 0.
     pub parent_view: u64,
     /// When its leader stamped it, by the leader's clock
     /// (spec/designs/settlement-hubs.md#3-the-ledger, "Time").
@@ -44,6 +51,18 @@ impl Block {
     #[must_use]
     pub fn digest(&self, hub: &Digest) -> Digest {
         Digest::of(Domain::Block, &[hub.as_bytes(), &self.to_vec()])
+    }
+
+    /// Whether this block repeats `parent`, the block it builds on: the
+    /// same height and no payload. Only a repeat of an epoch's last block
+    /// is valid, by that epoch's set, while that block is notarized and not
+    /// final: finalizing the repeat finalizes the block, when the votes for
+    /// the block itself split so that it can be neither finalized nor
+    /// skipped (spec/decisions/epoch-handover.md). The application never
+    /// sees a repeat.
+    #[must_use]
+    pub fn repeats(&self, parent: &Self) -> bool {
+        self.height == parent.height && self.payload.is_empty()
     }
 }
 
@@ -82,14 +101,15 @@ impl VoteKind {
     }
 }
 
-/// The digest a vote signs: the hub, the kind, the view and the block (all
-/// zero for a nullify).
+/// The digest a vote signs: the hub, the epoch, the kind, the view and the
+/// block (all zero for a nullify).
 #[must_use]
-pub fn vote_digest(hub: &Digest, kind: VoteKind, view: u64, block: &Digest) -> Digest {
+pub fn vote_digest(hub: &Digest, epoch: u64, kind: VoteKind, view: u64, block: &Digest) -> Digest {
     Digest::of(
         Domain::Vote,
         &[
             hub.as_bytes(),
+            &epoch.to_be_bytes(),
             &[kind.code()],
             &view.to_be_bytes(),
             block.as_bytes(),
@@ -102,6 +122,8 @@ pub fn vote_digest(hub: &Digest, kind: VoteKind, view: u64, block: &Digest) -> D
 pub struct Vote {
     /// What it says.
     pub kind: VoteKind,
+    /// The epoch: which validator set it is a vote of.
+    pub epoch: u64,
     /// The view.
     pub view: u64,
     /// The block; [`Digest::default`] for a nullify.
@@ -132,14 +154,14 @@ pub enum Invalid {
 }
 
 impl Vote {
-    /// Signs a vote with `key` as validator `signer`.
+    /// Signs a vote with `key` as validator `signer` of epoch `epoch`.
     #[must_use]
     pub fn sign(
         hub: &Digest,
         key: &NodeKey,
         signer: ValidatorIndex,
         kind: VoteKind,
-        view: u64,
+        (epoch, view): (u64, u64),
         block: Digest,
     ) -> Self {
         let block = if kind == VoteKind::Nullify {
@@ -147,9 +169,10 @@ impl Vote {
         } else {
             block
         };
-        let digest = vote_digest(hub, kind, view, &block);
+        let digest = vote_digest(hub, epoch, kind, view, &block);
         Self {
             kind,
+            epoch,
             view,
             block,
             signer,
@@ -157,7 +180,7 @@ impl Vote {
         }
     }
 
-    /// Checks the vote against the validator set of its view.
+    /// Checks the vote against the validator set of its epoch.
     ///
     /// # Errors
     ///
@@ -167,7 +190,7 @@ impl Vote {
             return Err(Invalid::NullifyWithBlock);
         }
         let key = set.key(self.signer).ok_or(Invalid::UnknownSigner)?;
-        let digest = vote_digest(hub, self.kind, self.view, &self.block);
+        let digest = vote_digest(hub, self.epoch, self.kind, self.view, &self.block);
         key.verify(digest.as_bytes(), &self.signature)
             .map_err(|_| Invalid::BadSignature(self.signer))
     }
@@ -179,7 +202,7 @@ impl Vote {
     /// (spec/designs/settlement-hubs.md#10-consensus, "Evidence").
     #[must_use]
     pub fn conflicts_with(&self, other: &Self) -> bool {
-        if self.signer != other.signer || self.view != other.view {
+        if self.signer != other.signer || self.epoch != other.epoch || self.view != other.view {
             return false;
         }
         match (self.kind, other.kind) {
@@ -200,6 +223,8 @@ impl Vote {
 pub struct Certificate {
     /// The kind of the votes.
     pub kind: VoteKind,
+    /// The epoch: which validator set signed it.
+    pub epoch: u64,
     /// The view.
     pub view: u64,
     /// The block; [`Digest::default`] for a nullification.
@@ -218,6 +243,7 @@ impl Certificate {
             .zip(self.signatures.iter())
             .map(|(signer, signature)| Vote {
                 kind: self.kind,
+                epoch: self.epoch,
                 view: self.view,
                 block: self.block,
                 signer,
@@ -230,7 +256,7 @@ impl Certificate {
     /// finalized in one view, or one view both finalized and nullified.
     #[must_use]
     pub fn conflicts_with(&self, other: &Self) -> bool {
-        if self.view != other.view {
+        if self.epoch != other.epoch || self.view != other.view {
             return false;
         }
         match (self.kind, other.kind) {
@@ -243,7 +269,7 @@ impl Certificate {
     }
 }
 
-/// Checks a certificate against the validator set of its view: at least q
+/// Checks a certificate against the validator set of its epoch: at least q
 /// distinct signers of the set, each signature valid. Members check the
 /// certificates in receipts with it too
 /// (spec/designs/settlement-hubs.md#3-the-ledger, "Receipts").
@@ -268,7 +294,13 @@ pub fn verify_certificate(
     if certificate.signatures.len() != certificate.signers.count() {
         return Err(Invalid::SignatureCount);
     }
-    let digest = vote_digest(hub, certificate.kind, certificate.view, &certificate.block);
+    let digest = vote_digest(
+        hub,
+        certificate.epoch,
+        certificate.kind,
+        certificate.view,
+        &certificate.block,
+    );
     for (signer, signature) in certificate.signers.iter().zip(&certificate.signatures) {
         let key = set.key(signer).ok_or(Invalid::UnknownSigner)?;
         key.verify(digest.as_bytes(), signature)
@@ -277,14 +309,40 @@ pub fn verify_certificate(
     Ok(())
 }
 
-/// A finalized block and, when one is held, its own finalization. A block
-/// finalized as the ancestor of another has none of its own.
+/// A finalized block and, when one is held, the finalization that proves
+/// it: its own, or that of the last of the repeats of it, when it is the
+/// last block of an epoch. A block finalized as the ancestor of another has
+/// none of its own.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Finalized {
     /// The block.
     pub block: Block,
-    /// Its finalization, if held.
+    /// The repeats of it the finalization proves it through, each building
+    /// on the one before, the first on the block; usually none.
+    pub repeats: Vec<Block>,
+    /// The finalization of the block, or of the last repeat, if held.
     pub finalization: Option<Certificate>,
+}
+
+impl Finalized {
+    /// A block with its own finalization, if any.
+    #[must_use]
+    pub const fn new(block: Block, finalization: Option<Certificate>) -> Self {
+        Self {
+            block,
+            repeats: Vec::new(),
+            finalization,
+        }
+    }
+
+    /// The block, then its repeats: the chain the finalization proves.
+    #[must_use]
+    pub fn chain(&self) -> Vec<Block> {
+        core::iter::once(&self.block)
+            .chain(&self.repeats)
+            .cloned()
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -311,15 +369,16 @@ mod tests {
     }
 
     #[test]
-    fn a_vote_binds_hub_kind_view_and_block() {
+    fn a_vote_binds_hub_epoch_kind_view_and_block() {
         let keys = keys(4);
         let set = set(&keys);
         let hub = Digest([1; 32]);
         let block = Digest([2; 32]);
-        let vote = Vote::sign(&hub, &keys[0], index(0), VoteKind::Notarize, 5, block);
+        let vote = Vote::sign(&hub, &keys[0], index(0), VoteKind::Notarize, (0, 5), block);
         assert_eq!(vote.verify(&hub, &set), Ok(()));
         for changed in [
             Vote { view: 6, ..vote },
+            Vote { epoch: 1, ..vote },
             Vote {
                 kind: VoteKind::Finalize,
                 ..vote
@@ -345,10 +404,11 @@ mod tests {
         let hub = Digest([1; 32]);
         let block = Digest([2; 32]);
         let votes: Vec<Vote> = (0..3)
-            .map(|i| Vote::sign(&hub, &keys[i], index(i), VoteKind::Finalize, 7, block))
+            .map(|i| Vote::sign(&hub, &keys[i], index(i), VoteKind::Finalize, (0, 7), block))
             .collect();
         let mut certificate = Certificate {
             kind: VoteKind::Finalize,
+            epoch: 0,
             view: 7,
             block,
             signers: votes.iter().fold(Signers::NONE, |s, v| s.with(v.signer)),
@@ -379,7 +439,7 @@ mod tests {
         let keys = keys(4);
         let hub = Digest([1; 32]);
         let (a, b) = (Digest([2; 32]), Digest([3; 32]));
-        let vote = |kind, view, block| Vote::sign(&hub, &keys[0], index(0), kind, view, block);
+        let vote = |kind, view, block| Vote::sign(&hub, &keys[0], index(0), kind, (0, view), block);
         let notarize_a = vote(VoteKind::Notarize, 1, a);
         assert!(notarize_a.conflicts_with(&vote(VoteKind::Notarize, 1, b)));
         assert!(notarize_a.conflicts_with(&vote(VoteKind::Finalize, 1, b)));

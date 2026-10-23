@@ -1,12 +1,13 @@
-//! Which validator set runs which views and certifies which heights
-//! (spec/designs/settlement-hubs.md#8-changing-the-validators).
+//! Which validator set runs which epoch and certifies which heights
+//! (spec/designs/settlement-hubs.md#8-changing-the-validators,
+//! spec/decisions/epoch-handover.md).
 //!
 //! A new set takes over at a height H that the ledger fixes. The old set
-//! never certifies a block at H or above. Once block H − 1 is final at view
-//! v, the new set runs every view from v + 1, and its first block builds on
-//! block H − 1. Views of the two sets never overlap, so a vote's view says
-//! which set it belongs to; a block's certificate is checked against the set
-//! of its height.
+//! never certifies a block at H or above. Once block H − 1 is final, by its
+//! own finalization or a repeat's, the new set runs the next epoch from its
+//! view 1, and its first block builds on block H − 1. Every vote and block
+//! names its epoch, so the two sets' views never mix, whichever certificate
+//! each validator learned of H − 1's finality from.
 
 use alloc::vec::Vec;
 
@@ -20,7 +21,7 @@ pub const MAX_EPOCHS: usize = 3;
 /// The validator sets, in order of height.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Epochs {
-    /// The oldest set held, which runs from its first view.
+    /// The oldest set held, which has started.
     first: Epoch,
     /// Those after it.
     later: Vec<Epoch>,
@@ -41,7 +42,7 @@ impl Epochs {
     /// # Panics
     ///
     /// If the list is empty, out of order, or too long, or its first set
-    /// has no first view: stored state the engine wrote, not input.
+    /// has not started: stored state the engine wrote, not input.
     #[must_use]
     pub fn new(mut list: Vec<Epoch>) -> Self {
         assert!(
@@ -49,12 +50,14 @@ impl Epochs {
             "between one and MAX_EPOCHS validator sets"
         );
         assert!(
-            list.windows(2)
-                .all(|pair| matches!(pair, [a, b] if a.from_height < b.from_height)),
-            "sets in order of height"
+            list.windows(2).all(|pair| matches!(pair, [a, b]
+                if a.from_height < b.from_height
+                    && b.number == a.number.saturating_add(1)
+                    && (a.started || !b.started))),
+            "sets in order of height and number, started ones first"
         );
         let first = list.remove(0);
-        assert!(first.from_view.is_some(), "the first set runs");
+        assert!(first.started, "the first set runs");
         Self { first, later: list }
     }
 
@@ -69,15 +72,21 @@ impl Epochs {
         self.iter().cloned().collect()
     }
 
-    /// The set that runs `view`: the last whose first view is known and at
-    /// or below it.
+    /// The epoch running: the last that started.
     #[must_use]
-    pub fn for_view(&self, view: u64) -> &ValidatorSet {
-        let found = self
-            .iter()
+    pub fn running(&self) -> &Epoch {
+        self.iter()
             .rev()
-            .find(|epoch| epoch.from_view.is_some_and(|from| from <= view));
-        &found.unwrap_or(&self.first).set
+            .find(|epoch| epoch.started)
+            .unwrap_or(&self.first)
+    }
+
+    /// The set of epoch `number`, if it is held.
+    #[must_use]
+    pub fn for_epoch(&self, number: u64) -> Option<&ValidatorSet> {
+        self.iter()
+            .find(|epoch| epoch.number == number)
+            .map(|epoch| &epoch.set)
     }
 
     /// The set that certifies a block at `height`.
@@ -87,12 +96,12 @@ impl Epochs {
         &found.unwrap_or(&self.first).set
     }
 
-    /// The first height the set running `view` must not certify: where the
-    /// next set takes over, if one is waiting or took over later.
+    /// The first height epoch `number` must not certify: where the next set
+    /// takes over, if one is known.
     #[must_use]
-    pub fn boundary(&self, view: u64) -> Option<u64> {
+    pub fn boundary(&self, number: u64) -> Option<u64> {
         self.iter()
-            .find(|epoch| epoch.from_view.is_none_or(|from| from > view))
+            .find(|epoch| epoch.number == number.saturating_add(1))
             .map(|next| next.from_height)
     }
 
@@ -107,21 +116,10 @@ impl Epochs {
         set: ValidatorSet,
         finalized_height: u64,
     ) -> Result<(), ReconfigureError> {
-        if self.iter().any(|epoch| epoch.from_view.is_none()) {
-            return Err(ReconfigureError::Pending);
-        }
         if from_height <= finalized_height.saturating_add(1) {
             return Err(ReconfigureError::TooLate);
         }
-        if self.later.len().saturating_add(1) >= MAX_EPOCHS {
-            self.first = self.later.remove(0);
-        }
-        self.later.push(Epoch {
-            from_height,
-            from_view: None,
-            set,
-        });
-        Ok(())
+        self.push(from_height, set)
     }
 
     /// Takes in a change named by the state after block `height`, which a
@@ -144,37 +142,44 @@ impl Epochs {
         if known {
             return Ok(());
         }
-        if self.iter().any(|epoch| epoch.from_view.is_none()) {
-            return Err(ReconfigureError::Pending);
-        }
         if from_height <= height {
             return Err(ReconfigureError::TooLate);
         }
+        self.push(from_height, set)
+    }
+
+    fn push(&mut self, from_height: u64, set: ValidatorSet) -> Result<(), ReconfigureError> {
+        let last = self.later.last().unwrap_or(&self.first);
+        if !last.started {
+            return Err(ReconfigureError::Pending);
+        }
+        if from_height <= last.from_height {
+            return Err(ReconfigureError::TooLate);
+        }
+        let number = last.number.saturating_add(1);
         if self.later.len().saturating_add(1) >= MAX_EPOCHS {
             self.first = self.later.remove(0);
         }
         self.later.push(Epoch {
+            number,
             from_height,
-            from_view: None,
+            started: false,
             set,
         });
         Ok(())
     }
 
-    /// Block `height` is final at `view`: a set waiting for it takes over
-    /// from the next view. So does one whose boundary it passed, as after
-    /// loading the state of a later block: the views between are below the
-    /// tip, and never read again. Returns the first height and view of the
-    /// set that took over, if one did.
-    pub fn finalized(&mut self, height: u64, view: u64) -> Option<(u64, u64)> {
+    /// Block `height` is final: a set waiting for it starts. So does one
+    /// whose boundary it passed, as after loading the state of a later
+    /// block. Returns the number of the epoch that started, if one did.
+    pub fn finalized(&mut self, height: u64) -> Option<u64> {
         let next = height.saturating_add(1);
         let epoch = self
             .later
             .iter_mut()
-            .find(|epoch| epoch.from_view.is_none() && epoch.from_height <= next)?;
-        let from_view = view.saturating_add(1);
-        epoch.from_view = Some(from_view);
-        Some((epoch.from_height, from_view))
+            .find(|epoch| !epoch.started && epoch.from_height <= next)?;
+        epoch.started = true;
+        Some(epoch.number)
     }
 }
 
@@ -197,11 +202,12 @@ mod tests {
     fn a_new_set_takes_over_after_the_block_before_it() {
         let (old, new) = (set(1), set(50));
         let mut epochs = Epochs::new(vec![Epoch {
+            number: 0,
             from_height: 1,
-            from_view: Some(1),
+            started: true,
             set: old.clone(),
         }]);
-        assert_eq!(epochs.boundary(5), None);
+        assert_eq!(epochs.boundary(0), None);
         assert_eq!(
             epochs.reconfigure(10, new.clone(), 9),
             Err(ReconfigureError::TooLate)
@@ -211,14 +217,14 @@ mod tests {
             epochs.reconfigure(12, new.clone(), 3),
             Err(ReconfigureError::Pending)
         );
-        assert_eq!(epochs.boundary(40), Some(10));
-        assert_eq!(epochs.for_view(40), &old);
+        assert_eq!(epochs.boundary(0), Some(10));
+        assert_eq!(epochs.running().number, 0);
         assert_eq!(epochs.for_height(10), &new);
-        assert_eq!(epochs.finalized(8, 30), None);
-        assert_eq!(epochs.finalized(9, 33), Some((10, 34)));
-        assert_eq!(epochs.for_view(33), &old);
-        assert_eq!(epochs.for_view(34), &new);
-        assert_eq!(epochs.boundary(34), None);
-        assert_eq!(epochs.boundary(33), Some(10));
+        assert_eq!(epochs.for_epoch(1), Some(&new));
+        assert_eq!(epochs.finalized(8), None);
+        assert_eq!(epochs.finalized(9), Some(1));
+        assert_eq!(epochs.running().number, 1);
+        assert_eq!(epochs.for_epoch(0), Some(&old));
+        assert_eq!(epochs.boundary(1), None);
     }
 }

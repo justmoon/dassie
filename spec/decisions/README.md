@@ -18,6 +18,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [earned-trust](earned-trust.md) | Trust follows what a peer earned us | settlement, network |
 | [ended-for-room](ended-for-room.md) | A peering ended for room stays apart, and earns no credit back | network, settlement |
 | [ending-a-peering](ending-a-peering.md) | A node that ends a peering collects first, and pays nothing | network, settlement, peer-protocol, connector |
+| [epoch-handover](epoch-handover.md) | Each validator set runs an epoch of its own, and a repeat finalizes an epoch's last block | hubs, designs/settlement-hubs |
 | [exchange-rates](exchange-rates.md) | Exchange rates, fees and spread | connector |
 | [external-assets](external-assets.md) | External assets apart from settlement schemes | settlement, xrpl, ledger, wallet |
 | [full-or-stopped-short](full-or-stopped-short.md) | A receiver says whether it is full or stopped short | payments, stream |

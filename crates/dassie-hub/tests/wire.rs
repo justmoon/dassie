@@ -38,13 +38,15 @@ fn block() -> impl Strategy<Value = Block> {
     (
         any::<u64>(),
         any::<u64>(),
+        any::<u64>(),
         digest(),
         any::<u64>(),
         any::<u64>(),
         proptest::collection::vec(any::<u8>(), 0..64),
     )
         .prop_map(
-            |(view, height, parent, parent_view, timestamp_ms, payload)| Block {
+            |(epoch, view, height, parent, parent_view, timestamp_ms, payload)| Block {
+                epoch,
                 view,
                 height,
                 parent,
@@ -56,9 +58,16 @@ fn block() -> impl Strategy<Value = Block> {
 }
 
 fn vote() -> impl Strategy<Value = Vote> {
-    (kind(), any::<u64>(), digest(), 0..16usize, signature()).prop_map(
-        |(kind, view, block, signer, signature)| Vote {
+    (
+        kind(),
+        any::<(u64, u64)>(),
+        digest(),
+        0..16usize,
+        signature(),
+    )
+        .prop_map(|(kind, (epoch, view), block, signer, signature)| Vote {
             kind,
+            epoch,
             view,
             block: if kind == VoteKind::Nullify {
                 Digest::default()
@@ -67,22 +76,22 @@ fn vote() -> impl Strategy<Value = Vote> {
             },
             signer: ValidatorIndex::new(signer).unwrap(),
             signature,
-        },
-    )
+        })
 }
 
 fn certificate() -> impl Strategy<Value = Certificate> {
     (
         kind(),
-        any::<u64>(),
+        any::<(u64, u64)>(),
         digest(),
         any::<u16>(),
         proptest::collection::vec(signature(), 16),
     )
-        .prop_map(|(kind, view, block, bits, signatures)| {
+        .prop_map(|(kind, (epoch, view), block, bits, signatures)| {
             let signers = Signers::from_bits(bits);
             Certificate {
                 kind,
+                epoch,
                 view,
                 block: if kind == VoteKind::Nullify {
                     Digest::default()
@@ -118,8 +127,13 @@ fn message() -> impl Strategy<Value = Message> {
             .prop_map(|(block, signature)| Message::Proposal(Proposal { block, signature })),
         vote().prop_map(Message::Vote),
         certificate().prop_map(Message::Certificate),
-        (any::<u64>(), any::<u64>())
-            .prop_map(|(height, view)| Message::Fetch(Fetch { height, view })),
+        (any::<u64>(), any::<u64>(), any::<u64>()).prop_map(
+            |(height, epoch, view)| Message::Fetch(Fetch {
+                height,
+                epoch,
+                view
+            })
+        ),
         delivery().prop_map(Message::Delivery),
     ]
 }
@@ -168,14 +182,17 @@ proptest! {
 fn a_vote_is_laid_out_as_specified() {
     let vote = Vote {
         kind: VoteKind::Finalize,
+        epoch: 0x0304,
         view: 0x0102,
         block: Digest([0xab; 32]),
         signer: ValidatorIndex::new(3).unwrap(),
         signature: Signature::from_bytes([0xcd; 64]),
     };
     let bytes = Message::Vote(vote).to_vec();
-    // [1] tag, kind, view as 8 octets, block, signer, signature.
-    let mut expected = vec![0x81, 0x01, 0, 0, 0, 0, 0, 0, 0x01, 0x02];
+    // [1] tag, kind, epoch and view as 8 octets each, block, signer,
+    // signature.
+    let mut expected = vec![0x81, 0x01, 0, 0, 0, 0, 0, 0, 0x03, 0x04];
+    expected.extend([0, 0, 0, 0, 0, 0, 0x01, 0x02]);
     expected.extend([0xab; 32]);
     expected.push(3);
     expected.extend([0xcd; 64]);
@@ -186,6 +203,7 @@ fn a_vote_is_laid_out_as_specified() {
 fn malformed_values_are_refused() {
     let nullify = Vote {
         kind: VoteKind::Nullify,
+        epoch: 0,
         view: 1,
         block: Digest::default(),
         signer: ValidatorIndex::new(0).unwrap(),
@@ -193,7 +211,7 @@ fn malformed_values_are_refused() {
     };
     let mut bytes = Message::Vote(nullify).to_vec();
     // A nullify naming a block.
-    bytes[10] = 1;
+    bytes[18] = 1;
     assert!(Message::decode_message(&bytes).is_err());
     // An unknown kind.
     let mut bytes = Message::Vote(nullify).to_vec();
@@ -201,7 +219,7 @@ fn malformed_values_are_refused() {
     assert!(Message::decode_message(&bytes).is_err());
     // A signer beyond the largest set.
     let mut bytes = Message::Vote(nullify).to_vec();
-    bytes[42] = 16;
+    bytes[50] = 16;
     assert!(Message::decode_message(&bytes).is_err());
     // An unknown message.
     assert!(Message::decode_message(&[0x85]).is_err());
@@ -211,6 +229,7 @@ fn malformed_values_are_refused() {
 fn a_certificate_has_one_signature_per_signer() {
     let certificate = Certificate {
         kind: VoteKind::Notarize,
+        epoch: 0,
         view: 9,
         block: Digest([1; 32]),
         signers: Signers::from_bits(0b111),
@@ -218,13 +237,14 @@ fn a_certificate_has_one_signature_per_signer() {
     };
     let mut bytes = Message::Certificate(certificate).to_vec();
     // Two signers named, three signatures.
-    bytes[43] = 0b011;
+    bytes[51] = 0b011;
     assert!(Message::decode_message(&bytes).is_err());
 }
 
 #[test]
 fn deliveries_are_bounded() {
     let block = Block {
+        epoch: 0,
         view: 1,
         height: 1,
         parent: Digest::default(),

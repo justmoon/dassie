@@ -73,7 +73,7 @@ impl Engine {
         let Some(leader) = self.leader(view) else {
             return false;
         };
-        if Some(leader) == self.member(view) || view <= self.config.skip_views {
+        if Some(leader) == self.member() || view <= self.config.skip_views {
             return false;
         }
         let since = view.saturating_sub(self.config.skip_views);
@@ -82,7 +82,7 @@ impl Engine {
                 .get(index)
                 .is_some_and(|last| *last >= since)
         };
-        let set = self.epochs.for_view(view);
+        let set = self.set();
         let quorum_active = (0..set.len()).filter(|index| active(*index)).count() >= set.quorum();
         quorum_active && !active(leader.get())
     }
@@ -108,7 +108,7 @@ impl Engine {
     /// Signs and records a vote of ours, to persist before it is sent.
     fn sign(&mut self, kind: VoteKind, view: u64, block: Digest) -> Option<Vote> {
         let me = self.voter(view)?;
-        let vote = Vote::sign(&self.hub, &self.key, me, kind, view, block);
+        let vote = Vote::sign(&self.hub, &self.key, me, kind, (self.epoch(), view), block);
         let round = self.round_mut(view)?;
         if round.own(kind).is_some() {
             return None;
@@ -148,15 +148,12 @@ impl Engine {
         let Some((parent_digest, parent)) = self.select_parent(view) else {
             return false;
         };
-        let height = parent.height.saturating_add(1);
-        if self
+        // At the end of the epoch, the next set builds the next block; we
+        // repeat the last one, until a finalization proves it.
+        let repeat = self
             .epochs
-            .boundary(view)
-            .is_some_and(|boundary| height >= boundary)
-        {
-            // The next set builds the next block.
-            return false;
-        }
+            .boundary(self.epoch())
+            .is_some_and(|boundary| parent.height.saturating_add(1) >= boundary);
         // An interval after the parent's stamp, but never more than an
         // interval after we entered: our clock may lag the parent's leader.
         let interval = self.config.block_interval_ms;
@@ -170,6 +167,52 @@ impl Engine {
         }
         self.timers.propose_ms = None;
         let timestamp_ms = self.now_ms.max(parent.timestamp_ms.saturating_add(1));
+        let block = if repeat {
+            Some(self.repeat_of(view, parent_digest, &parent, timestamp_ms))
+        } else {
+            self.build(app, me, (view, parent_digest, &parent), timestamp_ms)
+        };
+        match block {
+            Some(block) => self.broadcast_proposal(block),
+            None => self.nullify(view),
+        }
+        true
+    }
+
+    /// An empty repeat of `parent`, the last block of the epoch, which is
+    /// notarized and not final.
+    fn repeat_of(
+        &self,
+        view: u64,
+        parent_digest: Digest,
+        parent: &Block,
+        timestamp_ms: u64,
+    ) -> Block {
+        let block = Block {
+            epoch: self.epoch(),
+            view,
+            height: parent.height,
+            parent: parent_digest,
+            parent_view: self.view_in_epoch(parent),
+            timestamp_ms,
+            payload: Vec::new(),
+        };
+        assert!(
+            self.repeat_fits(&block),
+            "a repeat only of an epoch's last block"
+        );
+        block
+    }
+
+    /// A block on `parent` with the application's payload, if it gives one.
+    fn build(
+        &self,
+        app: &mut dyn Application,
+        me: crate::validators::ValidatorIndex,
+        (view, parent_digest, parent): (u64, Digest, &Block),
+        timestamp_ms: u64,
+    ) -> Option<Block> {
+        let height = parent.height.saturating_add(1);
         let votes = self.votes();
         let context = ProposeContext {
             view,
@@ -181,19 +224,17 @@ impl Engine {
         };
         let mut payload = Vec::new();
         if app.propose(&context, &mut payload).is_err() || payload.len() > MAX_PAYLOAD_BYTES {
-            self.nullify(view);
-            return true;
+            return None;
         }
-        let block = Block {
+        Some(Block {
+            epoch: self.epoch(),
             view,
             height,
             parent: parent_digest,
-            parent_view: parent.view,
+            parent_view: self.view_in_epoch(parent),
             timestamp_ms,
             payload,
-        };
-        self.broadcast_proposal(block);
-        true
+        })
     }
 
     fn broadcast_proposal(&mut self, block: Block) {
@@ -230,7 +271,7 @@ impl Engine {
     fn select_parent(&mut self, view: u64) -> Option<(Digest, Block)> {
         let mut at = view.saturating_sub(1);
         for _ in 0..=MAX_ROUNDS {
-            if at <= self.tip.block.view {
+            if at <= self.tip_view() {
                 return Some((self.tip_digest, self.tip.block.clone()));
             }
             let round = self.rounds.get(&at);
@@ -276,6 +317,12 @@ impl Engine {
                 if let Some(block) = self.blocks.get(&proposed.block) {
                     self.batch.blocks.push(block.clone());
                 }
+                assert!(
+                    self.blocks
+                        .get(&proposed.block)
+                        .is_some_and(|block| self.repeat_fits(block)),
+                    "we notarize a repeat only of an epoch's last block"
+                );
                 if let Some(vote) = self.sign(VoteKind::Notarize, view, proposed.block) {
                     self.send(Recipient::All, &Message::Vote(vote));
                 }
@@ -318,16 +365,22 @@ impl Engine {
                     .timestamp_ms
                     .saturating_add(precision)
                     .saturating_add(self.config.max_delay_ms);
-        let fits = self
-            .epochs
-            .boundary(block.view)
-            .is_none_or(|boundary| block.height < boundary);
-        if block.height != parent.height.saturating_add(1)
-            || block.timestamp_ms <= parent.timestamp_ms
-            || !timely
-            || !fits
-        {
+        let boundary = self.epochs.boundary(block.epoch);
+        let fits = boundary.is_none_or(|boundary| block.height < boundary);
+        // A repeat of the epoch's last block, notarized (by `parent_of`)
+        // and not final (or the epoch would have ended); else one height
+        // more than its parent.
+        let repeat = block.height == parent.height;
+        let height = if repeat {
+            self.repeat_fits(block)
+        } else {
+            block.height == parent.height.saturating_add(1)
+        };
+        if !height || block.timestamp_ms <= parent.timestamp_ms || !timely || !fits {
             return Check::Invalid;
+        }
+        if repeat {
+            return Check::Valid;
         }
         let context = VerifyContext {
             view: block.view,
@@ -354,7 +407,7 @@ impl Engine {
         let parent = if block.parent == self.tip_digest {
             self.tip.block.clone()
         } else {
-            if block.parent_view < self.tip.block.view {
+            if block.parent_view < self.tip_view() {
                 return Err(Check::Invalid);
             }
             let notarized = self.rounds.get(&block.parent_view).is_some_and(|round| {
@@ -368,7 +421,8 @@ impl Engine {
                 _ => return Err(Check::Missing(block.parent_view)),
             }
         };
-        if parent.view != block.parent_view {
+        let parent_view = self.view_in_epoch(&parent);
+        if parent_view != block.parent_view {
             return Err(Check::Invalid);
         }
         match self.ancestry(&block.parent, block.parent_view) {
@@ -376,7 +430,7 @@ impl Engine {
             Ancestry::Missing(view) => return Err(Check::Missing(view)),
             Ancestry::Forks => return Err(Check::Invalid),
         }
-        let skipped = parent.view.saturating_add(1)..block.view;
+        let skipped = parent_view.saturating_add(1)..block.view;
         for view in skipped {
             let nullified = self
                 .rounds
@@ -409,19 +463,24 @@ impl Engine {
             .collect();
         let mut voted = false;
         for (view, digest) in candidates {
-            let Some(height) = self.blocks.get(&digest).map(|block| block.height) else {
+            if !self.blocks.contains_key(&digest) {
+                continue;
+            }
+            // A repeat stands for the block it repeats: voting to finalize
+            // both is voting for one block at their height.
+            let Some((content, height)) = self.content_of(&digest) else {
                 continue;
             };
             let free = self
                 .finalize_heights
                 .get(&height)
-                .is_none_or(|held| *held == digest);
+                .is_none_or(|held| *held == content);
             if !free || self.ancestry(&digest, view) != Ancestry::Extends {
                 continue;
             }
             if let Some(vote) = self.sign(VoteKind::Finalize, view, digest) {
-                self.finalize_heights.insert(height, digest);
-                self.batch.finalize_heights.push((height, digest));
+                self.finalize_heights.insert(height, content);
+                self.batch.finalize_heights.push((height, content));
                 self.send(Recipient::All, &Message::Vote(vote));
                 voted = true;
             }

@@ -113,7 +113,7 @@ pub struct Engine {
     finalize_heights: BTreeMap<u64, Digest>,
     /// Finalized views a conflicting certificate was reported for, each
     /// once; within the history's views.
-    settled_conflicts: BTreeSet<u64>,
+    settled_conflicts: BTreeSet<(u64, u64)>,
     /// The last block of each recent epoch that ended, with the
     /// finalization its own set made, oldest first.
     boundaries: VecDeque<Finalized>,
@@ -152,14 +152,20 @@ impl Engine {
         config.validate();
         let public = key.public_key();
         let tip_digest = stored.tip.block.digest(&hub);
+        let epochs = Epochs::new(stored.epochs);
+        let tip_view = if stored.tip.block.epoch == epochs.running().number {
+            stored.tip.block.view
+        } else {
+            0
+        };
         let mut engine = Self {
             config,
             hub,
             key,
             public,
-            epochs: Epochs::new(stored.epochs),
+            epochs,
             now_ms,
-            view: stored.view.max(stored.tip.block.view.saturating_add(1)),
+            view: stored.view.max(tip_view.saturating_add(1)),
             floor: stored.floor,
             timers: Timers::default(),
             rounds: BTreeMap::new(),
@@ -184,7 +190,11 @@ impl Engine {
         for block in stored.blocks {
             engine.hold_block(block, Hold::Proposal);
         }
+        let epoch = engine.epoch();
         for certificate in stored.certificates {
+            if certificate.epoch != epoch {
+                continue;
+            }
             if let Some(round) = engine.round_mut(certificate.view) {
                 round.hold(certificate);
             }
@@ -201,10 +211,10 @@ impl Engine {
     /// may still count again.
     fn restore_votes(&mut self, votes: &[Vote]) {
         for vote in votes {
-            if !self.holds_view(vote.view) {
+            if vote.epoch != self.epoch() || !self.holds_view(vote.view) {
                 continue;
             }
-            let Some(me) = self.member(vote.view) else {
+            let Some(me) = self.member() else {
                 continue;
             };
             let vote = Vote {
@@ -256,10 +266,38 @@ impl Engine {
         self.history.iter()
     }
 
-    /// The validator set that runs `view`.
+    /// The epoch running: which validator set runs our views.
     #[must_use]
-    pub fn set_for_view(&self, view: u64) -> &ValidatorSet {
-        self.epochs.for_view(view)
+    pub fn epoch(&self) -> u64 {
+        self.epochs.running().number
+    }
+
+    /// The validator set of the running epoch.
+    #[must_use]
+    pub fn set(&self) -> &ValidatorSet {
+        &self.epochs.running().set
+    }
+
+    /// The validator set of epoch `epoch`, if it is held.
+    #[must_use]
+    pub fn set_for_epoch(&self, epoch: u64) -> Option<&ValidatorSet> {
+        self.epochs.for_epoch(epoch)
+    }
+
+    /// The tip's view in the running epoch: 0 if the tip is the last block
+    /// of the epoch before, on which this one builds from view 1.
+    pub(super) fn tip_view(&self) -> u64 {
+        self.view_in_epoch(&self.tip.block)
+    }
+
+    /// A block's view in the running epoch: 0 for a block of an earlier
+    /// one.
+    pub(super) fn view_in_epoch(&self, block: &Block) -> u64 {
+        if block.epoch == self.epoch() {
+            block.view
+        } else {
+            0
+        }
     }
 
     /// The validator set that certifies a block at `height`.
@@ -268,28 +306,29 @@ impl Engine {
         self.epochs.for_height(height)
     }
 
-    /// The leader of `view`: its number modulo the size of the set that
-    /// runs it, a pure function of the view and the hub's sets.
+    /// The leader of `view` of the running epoch: its number modulo the
+    /// size of the set, a pure function of the view and the hub's sets.
     #[must_use]
     pub fn leader(&self, view: u64) -> Option<ValidatorIndex> {
-        let set = self.epochs.for_view(view);
+        let set = self.set();
         let n = u64::try_from(set.len()).unwrap_or(u64::MAX);
         let at = usize::try_from(view.checked_rem(n)?).ok()?;
         ValidatorIndex::new(at)
     }
 
-    /// Our index in the set that runs `view`, if we are in it.
+    /// Our index in the running set, if we are in it.
     #[must_use]
-    pub fn member(&self, view: u64) -> Option<ValidatorIndex> {
-        self.epochs.for_view(view).index_of(&self.public)
+    pub fn member(&self) -> Option<ValidatorIndex> {
+        self.set().index_of(&self.public)
     }
 
-    /// Our index if we may vote in `view`: in its set, and not stalled.
+    /// Our index if we may vote in `view`: in the running set, above the
+    /// tip and the floor, and not stalled.
     fn voter(&self, view: u64) -> Option<ValidatorIndex> {
-        if self.stalled || view < self.floor || view <= self.tip.block.view {
+        if self.stalled || view < self.floor || view <= self.tip_view() {
             return None;
         }
-        self.member(view)
+        self.member()
     }
 
     /// Every vote for a block we hold, for a block of ours to record: those
@@ -331,8 +370,8 @@ impl Engine {
 
     /// A new validator set takes over at block `from_height`
     /// (spec/designs/settlement-hubs.md#8-changing-the-validators): the
-    /// running set certifies nothing from there, and the new set runs
-    /// every view after the one that finalizes the block before it.
+    /// running set certifies nothing from there, and the new set runs the
+    /// next epoch, from its view 1, once the block before it is final.
     ///
     /// The host passes only a change that a block this engine finalized
     /// scheduled, read from the state after that block: a set taken from
@@ -395,9 +434,10 @@ impl Engine {
         });
     }
 
-    /// Whether `view` is one we hold a round for, or may.
+    /// Whether `view` of the running epoch is one we hold a round for, or
+    /// may.
     fn holds_view(&self, view: u64) -> bool {
-        view > self.tip.block.view && view >= self.floor
+        view > self.tip_view() && view >= self.floor
     }
 
     /// The round of `view`, made if there is room. Making room drops the
@@ -504,7 +544,15 @@ impl Engine {
         );
         assert!(self.vote_log.len() <= MAX_VOTE_LOG, "vote log within bound");
         assert!(self.events.len() <= MAX_EVENTS, "events within bound");
-        assert!(self.view > self.tip.block.view, "the view is above the tip");
+        assert!(self.view > self.tip_view(), "the view is above the tip");
+        assert!(
+            self.tip.block.epoch <= self.epoch()
+                && self
+                    .epochs
+                    .boundary(self.epoch())
+                    .is_none_or(|b| self.tip.block.height < b),
+            "the tip is of the running epoch or the one before"
+        );
         assert!(
             self.history
                 .back()
@@ -519,8 +567,26 @@ impl Engine {
                     && next.block.height == self.height_after(digest)),
             "the history is a chain"
         );
+        self.check_held();
+        assert!(
+            self.finalize_heights
+                .keys()
+                .all(|height| *height > self.tip.block.height),
+            "finalize heights above the tip"
+        );
+    }
+
+    /// Checks the rounds and blocks held.
+    fn check_held(&self) {
         for (view, round) in &self.rounds {
             assert!(self.holds_view(*view), "rounds above the tip and floor");
+            let notarized = round
+                .voted_notarize()
+                .and_then(|digest| self.blocks.get(&digest));
+            assert!(
+                notarized.is_none_or(|block| self.repeat_fits(block)),
+                "we notarize a repeat only of an epoch's last block"
+            );
             assert!(
                 !(round.voted_nullify() && round.voted_finalize().is_some()),
                 "never nullify and finalize one view"
@@ -534,8 +600,10 @@ impl Engine {
         }
         for block in self.blocks.values() {
             assert!(
-                block.height > self.tip.block.height && block.view > self.tip.block.view,
-                "blocks held are above the tip"
+                block.epoch == self.epoch()
+                    && block.height > self.tip.block.height
+                    && block.view > self.tip_view(),
+                "blocks held are of the running epoch, above the tip"
             );
             assert!(
                 self.rounds.contains_key(&block.view),
@@ -548,12 +616,6 @@ impl Engine {
             *count = count.saturating_add(1);
             assert!(*count <= BLOCKS_PER_VIEW, "room for each view's blocks");
         }
-        assert!(
-            self.finalize_heights
-                .keys()
-                .all(|height| *height > self.tip.block.height),
-            "finalize heights above the tip"
-        );
     }
 
     /// The height after the block `digest` of the history.

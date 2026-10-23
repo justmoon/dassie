@@ -8,19 +8,22 @@
 //!   proposal    [0] SEQUENCE { block Block, signature OCTET STRING (SIZE(64)) },
 //!   vote        [1] Vote,
 //!   certificate [2] Certificate,
-//!   fetch       [3] SEQUENCE { height UInt64, view UInt64 },
+//!   fetch       [3] SEQUENCE { height UInt64, epoch UInt64, view UInt64 },
 //!   delivery    [4] SEQUENCE {
 //!     finalized    SEQUENCE (SIZE(0..32)) OF Block,
 //!     finalization CHOICE { none [0] NULL, some [1] Certificate },
 //!     certified    SEQUENCE (SIZE(0..64)) OF SEQUENCE {
 //!       certificate Certificate,
 //!       block       CHOICE { none [0] NULL, some [1] Block } } } }
-//! Block ::= SEQUENCE { view UInt64, height UInt64, parent OCTET STRING (SIZE(32)),
-//!   parentView UInt64, timestamp UInt64, payload OCTET STRING (SIZE(0..524288)) }
-//! Vote ::= SEQUENCE { kind UInt8, view UInt64, block OCTET STRING (SIZE(32)),
-//!   signer UInt8 (0..15), signature OCTET STRING (SIZE(64)) }
-//! Certificate ::= SEQUENCE { kind UInt8, view UInt64, block OCTET STRING (SIZE(32)),
-//!   signers UInt16, signatures SEQUENCE (SIZE(0..16)) OF OCTET STRING (SIZE(64)) }
+//! Block ::= SEQUENCE { epoch UInt64, view UInt64, height UInt64,
+//!   parent OCTET STRING (SIZE(32)), parentView UInt64, timestamp UInt64,
+//!   payload OCTET STRING (SIZE(0..524288)) }
+//! Vote ::= SEQUENCE { kind UInt8, epoch UInt64, view UInt64,
+//!   block OCTET STRING (SIZE(32)), signer UInt8 (0..15),
+//!   signature OCTET STRING (SIZE(64)) }
+//! Certificate ::= SEQUENCE { kind UInt8, epoch UInt64, view UInt64,
+//!   block OCTET STRING (SIZE(32)), signers UInt16,
+//!   signatures SEQUENCE (SIZE(0..16)) OF OCTET STRING (SIZE(64)) }
 //! ```
 //!
 //! Fixed-size fields carry no length; `payload` is length-prefixed, and
@@ -59,11 +62,13 @@ pub struct Proposal {
 }
 
 /// A request for what the asker lacks: finalized blocks above `height`, and
-/// certificates (with their blocks) from view `view` on.
+/// certificates (with their blocks) of epoch `epoch` from view `view` on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Fetch {
     /// The asker's finalized height.
     pub height: u64,
+    /// The asker's epoch.
+    pub epoch: u64,
     /// The first view it wants certificates of.
     pub view: u64,
 }
@@ -133,10 +138,11 @@ fn check_nullify(reader: &Reader<'_>, kind: VoteKind, block: &Digest) -> Result<
 
 impl Encode for Block {
     fn encoded_len(&self) -> usize {
-        8 + 8 + DIGEST_BYTES + 8 + 8 + size::prefixed(self.payload.len())
+        8 + 8 + 8 + DIGEST_BYTES + 8 + 8 + size::prefixed(self.payload.len())
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
+        writer.write_u64(self.epoch);
         writer.write_u64(self.view);
         writer.write_u64(self.height);
         writer.write_bytes(self.parent.as_bytes());
@@ -150,6 +156,7 @@ impl<'a> Decode<'a> for Block {
     type Error = DecodeError;
 
     fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
+        let epoch = reader.read_u64()?;
         let view = reader.read_u64()?;
         let height = reader.read_u64()?;
         let parent = read_digest(reader)?;
@@ -159,6 +166,7 @@ impl<'a> Decode<'a> for Block {
             .read_octets(Size::range(0, MAX_PAYLOAD_BYTES))?
             .to_vec();
         Ok(Self {
+            epoch,
             view,
             height,
             parent,
@@ -171,11 +179,12 @@ impl<'a> Decode<'a> for Block {
 
 impl Encode for Vote {
     fn encoded_len(&self) -> usize {
-        1 + 8 + DIGEST_BYTES + 1 + SIGNATURE_BYTES
+        1 + 8 + 8 + DIGEST_BYTES + 1 + SIGNATURE_BYTES
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
         writer.write_u8(self.kind.code());
+        writer.write_u64(self.epoch);
         writer.write_u64(self.view);
         writer.write_bytes(self.block.as_bytes());
         // An index is below MAX_VALIDATORS, which fits a byte.
@@ -189,6 +198,7 @@ impl<'a> Decode<'a> for Vote {
 
     fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
         let kind = read_kind(reader)?;
+        let epoch = reader.read_u64()?;
         let view = reader.read_u64()?;
         let block = read_digest(reader)?;
         check_nullify(reader, kind, &block)?;
@@ -197,6 +207,7 @@ impl<'a> Decode<'a> for Vote {
         let signature = read_signature(reader)?;
         Ok(Self {
             kind,
+            epoch,
             view,
             block,
             signer,
@@ -208,6 +219,7 @@ impl<'a> Decode<'a> for Vote {
 impl Encode for Certificate {
     fn encoded_len(&self) -> usize {
         1 + 8
+            + 8
             + DIGEST_BYTES
             + 2
             + size::quantity(self.signatures.len())
@@ -220,6 +232,7 @@ impl Encode for Certificate {
             "a certificate has one signature per signer"
         );
         writer.write_u8(self.kind.code());
+        writer.write_u64(self.epoch);
         writer.write_u64(self.view);
         writer.write_bytes(self.block.as_bytes());
         writer.write_u16(self.signers.bits());
@@ -235,6 +248,7 @@ impl<'a> Decode<'a> for Certificate {
 
     fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
         let kind = read_kind(reader)?;
+        let epoch = reader.read_u64()?;
         let view = reader.read_u64()?;
         let block = read_digest(reader)?;
         check_nullify(reader, kind, &block)?;
@@ -249,6 +263,7 @@ impl<'a> Decode<'a> for Certificate {
         }
         Ok(Self {
             kind,
+            epoch,
             view,
             block,
             signers,
@@ -393,7 +408,7 @@ impl Encode for Message {
                 Self::Proposal(proposal) => proposal.block.encoded_len() + SIGNATURE_BYTES,
                 Self::Vote(vote) => vote.encoded_len(),
                 Self::Certificate(certificate) => certificate.encoded_len(),
-                Self::Fetch(_) => 16,
+                Self::Fetch(_) => 24,
                 Self::Delivery(delivery) => delivery.encoded_len(),
             }
     }
@@ -409,6 +424,7 @@ impl Encode for Message {
             Self::Certificate(certificate) => certificate.encode_to(writer),
             Self::Fetch(fetch) => {
                 writer.write_u64(fetch.height);
+                writer.write_u64(fetch.epoch);
                 writer.write_u64(fetch.view);
             }
             Self::Delivery(delivery) => delivery.encode_to(writer),
@@ -431,6 +447,7 @@ impl<'a> Decode<'a> for Message {
             2 => Self::Certificate(Certificate::decode(reader)?),
             3 => Self::Fetch(Fetch {
                 height: reader.read_u64()?,
+                epoch: reader.read_u64()?,
                 view: reader.read_u64()?,
             }),
             4 => Self::Delivery(Delivery::decode(reader)?),

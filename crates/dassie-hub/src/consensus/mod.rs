@@ -21,6 +21,12 @@
 //! timeout, and rebroadcasting a stuck view's nullify with the certificate
 //! that entered it.
 //!
+//! **Epochs:** each validator set runs an epoch of its own, with views from
+//! 1, and every block, vote and certificate names its epoch. The next set
+//! starts once its predecessor's last block is final; while that block is
+//! notarized and not final, the old set's leaders propose repeats of it,
+//! whose finalization proves it (spec/decisions/epoch-handover.md).
+//!
 //! **Safety across crashes:** every vote we sign goes into the step's
 //! [`Batch`], which the host persists before it sends the step's outputs,
 //! and [`Engine::new`] restores from the [`Stored`] state the batches built.

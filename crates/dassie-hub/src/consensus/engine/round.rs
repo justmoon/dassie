@@ -130,7 +130,7 @@ impl Round {
     pub fn assemble(
         &self,
         kind: VoteKind,
-        view: u64,
+        (epoch, view): (u64, u64),
         block: &Digest,
         quorum: usize,
     ) -> Option<Certificate> {
@@ -145,6 +145,7 @@ impl Round {
         }
         Some(Certificate {
             kind,
+            epoch,
             view,
             block: *block,
             signers: votes
@@ -230,28 +231,5 @@ impl Round {
     /// Our own votes.
     pub fn own_votes(&self) -> impl Iterator<Item = &Vote> {
         self.own.iter().flatten()
-    }
-
-    /// Drops every vote and certificate but our own votes, which are kept
-    /// under our index in the new set, `own`, if we are in it: a view's
-    /// votes are read in the set that runs it, and that changed. A vote
-    /// signs the view and block, never the index, so it stays valid.
-    pub fn reset(&mut self, leader: ValidatorIndex, own: Option<ValidatorIndex>) {
-        let mine = self.own;
-        *self = Self::new(leader);
-        self.own = mine;
-        for vote in mine.iter().flatten() {
-            if let Some(own) = own {
-                self.take(Vote {
-                    signer: own,
-                    ..*vote
-                });
-            }
-        }
-        for slot in &mut self.own {
-            if let (Some(vote), Some(own)) = (slot.as_mut(), own) {
-                vote.signer = own;
-            }
-        }
     }
 }

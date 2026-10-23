@@ -1,6 +1,8 @@
 //! Taking messages: proposals, votes and certificates, each checked against
-//! the validator set of its view before it counts, and copies of what is
-//! held dropped before any signature is checked.
+//! the validator set of its epoch before it counts, and copies of what is
+//! held dropped before any signature is checked. Those of a later epoch
+//! than ours say we are behind: we ask a validator we know for what we
+//! lack.
 
 use super::super::hooks::Application;
 use super::super::io::{Event, Evidence, PeerId, Recipient};
@@ -34,7 +36,21 @@ impl Engine {
         self.holds_view(view) && view <= self.view.saturating_add(MAX_VIEWS_AHEAD)
     }
 
+    /// Whether a message of `epoch` is of ours; one of a later epoch makes
+    /// us ask for what we lack.
+    fn of_our_epoch(&mut self, epoch: u64) -> bool {
+        let ours = self.epoch();
+        if epoch > ours {
+            let view = self.view;
+            self.want_from_any(view);
+        }
+        epoch == ours
+    }
+
     fn on_proposal(&mut self, from: PeerId, proposal: Proposal) {
+        if !self.of_our_epoch(proposal.block.epoch) {
+            return self.refuse();
+        }
         let view = proposal.block.view;
         let Some(leader) = self.leader(view) else {
             return self.refuse();
@@ -45,6 +61,7 @@ impl Engine {
         let digest = proposal.block.digest(&self.hub);
         let vote = Vote {
             kind: VoteKind::Notarize,
+            epoch: proposal.block.epoch,
             view,
             block: digest,
             signer: leader,
@@ -54,7 +71,7 @@ impl Engine {
         if held.is_some_and(|round| round.proposal.is_some_and(|p| p.block == digest)) {
             return;
         }
-        if vote.verify(&self.hub, self.epochs.for_view(view)).is_err() {
+        if vote.verify(&self.hub, self.set()).is_err() {
             return self.refuse();
         }
         self.hold_block(proposal.block, Hold::Proposal);
@@ -72,6 +89,12 @@ impl Engine {
     }
 
     fn on_vote(&mut self, vote: Vote) {
+        if vote.epoch < self.epoch() {
+            return self.log_late_vote(vote);
+        }
+        if !self.of_our_epoch(vote.epoch) {
+            return self.refuse();
+        }
         if !self.holds_view(vote.view) {
             return self.log_late_vote(vote);
         }
@@ -85,10 +108,7 @@ impl Engine {
         {
             return;
         }
-        if vote
-            .verify(&self.hub, self.epochs.for_view(vote.view))
-            .is_err()
-        {
+        if vote.verify(&self.hub, self.set()).is_err() {
             return self.refuse();
         }
         self.take_vote(vote);
@@ -97,20 +117,24 @@ impl Engine {
     /// Keeps a late vote for a finalized block we still hold, so a block of
     /// ours can record it.
     fn log_late_vote(&mut self, vote: Vote) {
-        let finalized = self
-            .history
-            .iter()
-            .any(|(digest, finalized)| finalized.block.view == vote.view && *digest == vote.block);
+        let finalized = self.history.iter().any(|(digest, finalized)| {
+            finalized.block.epoch == vote.epoch
+                && finalized.block.view == vote.view
+                && *digest == vote.block
+        });
         let known = self.vote_log.iter().any(|held| {
-            held.view == vote.view && held.signer == vote.signer && held.kind == vote.kind
+            held.epoch == vote.epoch
+                && held.view == vote.view
+                && held.signer == vote.signer
+                && held.kind == vote.kind
         });
         if !finalized || known || vote.kind == VoteKind::Nullify {
             return;
         }
-        if vote
-            .verify(&self.hub, self.epochs.for_view(vote.view))
-            .is_err()
-        {
+        let Some(set) = self.epochs.for_epoch(vote.epoch) else {
+            return;
+        };
+        if vote.verify(&self.hub, set).is_err() {
             return self.refuse();
         }
         if self.vote_log.len() >= MAX_VOTE_LOG {
@@ -129,9 +153,10 @@ impl Engine {
     /// Counts a verified vote, and reports a conflict with another of its
     /// signer's. Returns the certificate it completes, if any.
     fn count_vote(&mut self, vote: Vote) -> Option<Certificate> {
-        let quorum = self.epochs.for_view(vote.view).quorum();
+        assert!(vote.epoch == self.epoch(), "votes counted are of our epoch");
+        let quorum = self.set().quorum();
         let leader = self.leader(vote.view);
-        let me = self.member(vote.view);
+        let me = self.member();
         let round = self.round_mut(vote.view)?;
         let taken = round.take(vote);
         let mut evidence = None;
@@ -145,7 +170,7 @@ impl Engine {
             });
         }
         let formed = if taken.new && round.certificate(vote.kind).is_none() {
-            round.assemble(vote.kind, vote.view, &vote.block, quorum)
+            round.assemble(vote.kind, (vote.epoch, vote.view), &vote.block, quorum)
         } else {
             None
         };
@@ -169,6 +194,12 @@ impl Engine {
     /// Takes a certificate, with its block if one came with it.
     pub(super) fn on_certificate(&mut self, certificate: Certificate, block: Option<Block>) {
         let view = certificate.view;
+        if certificate.epoch < self.epoch() {
+            return self.check_settled(&certificate, block.as_ref());
+        }
+        if !self.of_our_epoch(certificate.epoch) {
+            return self.refuse();
+        }
         if !self.holds_view(view) {
             return self.check_settled(&certificate, block.as_ref());
         }
@@ -177,19 +208,12 @@ impl Engine {
             .get(&view)
             .and_then(|round| round.certificate(certificate.kind))
             .is_some_and(|held| held.block == certificate.block);
-        if !held && verify_certificate(&self.hub, self.epochs.for_view(view), &certificate).is_err()
-        {
-            // Of a view ahead of ours, it may be a set we do not know yet
-            // that signed it: we may be behind a change of validators, and
-            // ask a validator we know, never its sender, which could steer
-            // our requests (at most once per fetch interval).
-            if view > self.view {
-                self.want_from_any(self.view);
-            }
+        if !held && verify_certificate(&self.hub, self.set(), &certificate).is_err() {
             return self.refuse();
         }
         if let Some(block) = block
             && block.view == view
+            && block.epoch == certificate.epoch
             && block.digest(&self.hub) == certificate.block
         {
             self.hold_block(block, Hold::Certified);
@@ -253,9 +277,14 @@ impl Engine {
     }
 
     /// A certificate of a view at or below the tip: it conflicts with the
-    /// finalization of the block we finalized in that view, if it names
-    /// another block or nullifies the view.
+    /// finalization of a block we finalized, if it is of the same view and
+    /// names another block or nullifies the view; or, with its block, if it
+    /// finalizes another block at a height we finalized (a repeat of ours
+    /// is ours).
     fn check_settled(&mut self, certificate: &Certificate, block: Option<&Block>) {
+        let Some(set) = self.epochs.for_epoch(certificate.epoch).cloned() else {
+            return;
+        };
         let ours_at_height = |block: &Block| {
             self.history
                 .iter()
@@ -263,30 +292,30 @@ impl Engine {
                 .map(|(digest, _)| *digest)
         };
         if let (Some(block), VoteKind::Finalize) = (block, certificate.kind)
-            && ours_at_height(block).is_some_and(|ours| ours != certificate.block)
+            && ours_at_height(block)
+                .is_some_and(|ours| ours != certificate.block && ours != block.parent)
             && block.digest(&self.hub) == certificate.block
+            && block.epoch == certificate.epoch
+            && verify_certificate(&self.hub, &set, certificate).is_ok()
         {
-            let set = self.epochs.for_height(block.height);
-            if verify_certificate(&self.hub, set, certificate).is_ok() {
-                self.check_finalized(block, certificate);
-            }
+            self.check_finalized(block, certificate);
         }
         let ours = self
             .history
             .iter()
-            .find(|(_, finalized)| finalized.block.view == certificate.view)
-            .and_then(|(_, finalized)| finalized.finalization.clone());
+            .filter_map(|(_, finalized)| finalized.finalization.clone())
+            .find(|ours| ours.epoch == certificate.epoch && ours.view == certificate.view);
         let Some(ours) = ours else {
             return;
         };
-        if !ours.conflicts_with(certificate) || self.settled_conflicts.contains(&certificate.view) {
+        let at = (certificate.epoch, certificate.view);
+        if !ours.conflicts_with(certificate) || self.settled_conflicts.contains(&at) {
             return;
         }
-        let set = self.epochs.for_view(certificate.view);
-        if verify_certificate(&self.hub, set, certificate).is_err() {
+        if verify_certificate(&self.hub, &set, certificate).is_err() {
             return self.refuse();
         }
-        self.settled_conflicts.insert(certificate.view);
+        self.settled_conflicts.insert(at);
         let signers = Signers::from_bits(ours.signers.bits() & certificate.signers.bits());
         self.evidence(Evidence::Certificates {
             first: ours,

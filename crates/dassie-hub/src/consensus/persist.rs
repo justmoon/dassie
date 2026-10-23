@@ -18,15 +18,16 @@ use super::types::{Block, Certificate, Finalized, Vote};
 use crate::digest::Digest;
 use crate::validators::ValidatorSet;
 
-/// A validator set and when it runs: from block `from_height`, and from
-/// view `from_view` once the block before it is final.
+/// A validator set and when it runs: from block `from_height`, as epoch
+/// `number`, from its view 1 once the block before that height is final.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Epoch {
+    /// Its number: one more than the epoch before it.
+    pub number: u64,
     /// The first height it certifies.
     pub from_height: u64,
-    /// The first view it runs: the view after the one that finalized block
-    /// `from_height − 1`, unknown until that block is final.
-    pub from_view: Option<u64>,
+    /// Whether it runs: the block before `from_height` is final.
+    pub started: bool,
     /// The set.
     pub set: ValidatorSet,
 }
@@ -39,12 +40,13 @@ pub struct Stored {
     pub tip: Finalized,
     /// The validator sets: the one running, and the one taking over.
     pub epochs: Vec<Epoch>,
-    /// The view the engine is in: it never notarizes or nullifies below it.
+    /// The view the engine is in, within the running epoch.
     pub view: u64,
-    /// Every vote we signed in a view above the tip's, and at or above
-    /// `floor`.
+    /// Every vote we signed in the running epoch, in a view above the
+    /// tip's, and at or above `floor`.
     pub votes: Vec<Vote>,
-    /// The views below which we no longer vote at all, even to finalize.
+    /// The views of the running epoch below which we no longer vote at all,
+    /// even to finalize.
     pub floor: u64,
     /// For each height above the tip, the block we voted to finalize there.
     pub finalize_heights: Vec<(u64, Digest)>,
@@ -103,22 +105,19 @@ impl Batch {
 }
 
 impl Stored {
-    /// A new hub's state: `genesis` final at view 0, and `set` running from
-    /// height 1.
+    /// A new hub's state: `genesis` final, and `set` running from the
+    /// height after it as epoch 0, from view 1.
     #[must_use]
     pub fn genesis(genesis: Block, set: ValidatorSet) -> Self {
-        let from_view = genesis.view.saturating_add(1);
         Self {
             epochs: alloc::vec![Epoch {
+                number: genesis.epoch,
                 from_height: genesis.height.saturating_add(1),
-                from_view: Some(from_view),
+                started: true,
                 set,
             }],
-            view: from_view,
-            tip: Finalized {
-                block: genesis,
-                finalization: None,
-            },
+            view: 1,
+            tip: Finalized::new(genesis, None),
             votes: Vec::new(),
             floor: 0,
             finalize_heights: Vec::new(),
@@ -154,13 +153,29 @@ impl Stored {
             self.epochs = epochs;
         }
         self.stalled |= batch.stalled;
-        let (view, height, floor) = (self.tip.block.view, self.tip.block.height, self.floor);
-        self.votes
-            .retain(|vote| vote.view > view && vote.view >= floor);
+        let epoch = self.running_epoch();
+        let view = if self.tip.block.epoch == epoch {
+            self.tip.block.view
+        } else {
+            0
+        };
+        let (height, floor) = (self.tip.block.height, self.floor);
+        let live = |at: u64, of: u64| of == epoch && at > view && at >= floor;
+        self.votes.retain(|vote| live(vote.view, vote.epoch));
         self.finalize_heights.retain(|(at, _)| *at > height);
         self.blocks
-            .retain(|block| block.height > height && block.view >= floor);
+            .retain(|block| block.height > height && live(block.view, block.epoch));
         self.certificates
-            .retain(|certificate| certificate.view > view && certificate.view >= floor);
+            .retain(|certificate| live(certificate.view, certificate.epoch));
+    }
+
+    /// The number of the epoch running: the last that started.
+    #[must_use]
+    pub fn running_epoch(&self) -> u64 {
+        self.epochs
+            .iter()
+            .rev()
+            .find(|epoch| epoch.started)
+            .map_or(0, |epoch| epoch.number)
     }
 }
