@@ -70,23 +70,30 @@ pub trait Application {
     /// Whether `payload` is valid on its parent. Every honest validator
     /// must give the same answer for the same block, so it may depend on
     /// nothing but the chain. The application keeps the state after a block
-    /// it found valid, by the block's digest, for as long as it likes: at
-    /// least until its next call, and it says whether it still does
-    /// ([`holds`](Self::holds)). [`scheduled_change`](Self::scheduled_change)
-    /// reads that state, and later blocks build on it. The state after
-    /// `context.parent` is held when the engine asks: the engine verifies a
-    /// block's ancestors again, in order from the nearest whose state is
-    /// held, when the application let go of theirs. So it may ask again
-    /// about a block it asked about before (as after a restart, or after
-    /// the application let go of its state), and about a block a quorum
-    /// notarized that it never saw proposed, before it builds on it.
+    /// it found valid, by the block's digest, for as long as it likes, and
+    /// says whether it still does ([`holds`](Self::holds)). It lets go of a
+    /// state only within `verify` or [`finalized`](Self::finalized), and
+    /// never of the one it just made; [`holds`](Self::holds),
+    /// [`scheduled_change`](Self::scheduled_change) and
+    /// [`propose`](Self::propose) never let go. So the state after a block
+    /// is held at least until the next call of `verify` or `finalized`: the
+    /// engine verifies a block, asks `scheduled_change` about the state
+    /// after it, and then has the application verify or propose a block on
+    /// it. The state after `context.parent` is held when the engine asks:
+    /// the engine verifies a block's ancestors again, in order from the
+    /// nearest whose state is held, when the application let go of theirs.
+    /// So it may ask again about a block it asked about before (as after a
+    /// restart, or after the application let go of its state), and about a
+    /// block a quorum notarized that it never saw proposed, before it builds
+    /// on it.
     fn verify(&mut self, context: &VerifyContext, payload: &[u8]) -> bool;
 
     /// Whether the application still holds the state after `block`, a block
     /// it found valid ([`verify`](Self::verify)). The state after the last
-    /// finalized block is always held. An application that keeps the state
-    /// after every block it verified until that block is final or abandoned
-    /// keeps the default.
+    /// finalized block is always held. Asking lets go of nothing: a state
+    /// held stays held until the next call of `verify` or `finalized`. An
+    /// application that keeps the state after every block it verified until
+    /// that block is final or abandoned keeps the default.
     fn holds(&mut self, block: &Digest) -> bool {
         let _ = block;
         true

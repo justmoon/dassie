@@ -261,13 +261,14 @@ impl Application for SimApp {
     }
 
     fn verify(&mut self, context: &VerifyContext, payload: &[u8]) -> bool {
-        // A block is checked on the state after its parent: without it,
-        // genesis aside, it cannot be.
-        let parent = match self.states.get(&context.parent) {
-            Some((_, pending)) => pending.clone(),
-            None if context.height == 1 => None,
-            None => return false,
-        };
+        // A block is checked on the state after its parent, which the
+        // engine must make sure is held (genesis's aside): it verifies
+        // again what was let go of.
+        self.needs(&context.parent);
+        let parent = self
+            .states
+            .get(&context.parent)
+            .and_then(|(_, pending)| pending.clone());
         let valid = self.valid(context, payload);
         if valid {
             let operation = payload.get(OPERATION_AT..).unwrap_or_default();
@@ -305,6 +306,7 @@ impl Application for SimApp {
     }
 
     fn scheduled_change(&mut self, after: &Digest) -> Option<(u64, ValidatorSet)> {
+        self.needs(after);
         self.states
             .get(after)
             .and_then(|(_, pending)| pending.clone())
@@ -312,6 +314,17 @@ impl Application for SimApp {
 }
 
 impl SimApp {
+    /// Checks that the engine asks about a state the application holds:
+    /// one it verified or finalized and has not let go of since, or
+    /// genesis's. Anything else breaks the contract of the hooks.
+    fn needs(&self, digest: &Digest) {
+        assert!(
+            self.states.contains_key(digest) || *digest == genesis().digest(&hub()),
+            "validator {} is asked about the state after {digest:?}, which it does not hold",
+            self.index
+        );
+    }
+
     /// Keeps the state after block `digest`, and lets go of states far
     /// below the finalized chain.
     pub fn keep_state(&mut self, digest: Digest, height: u64, state: Option<(u64, ValidatorSet)>) {
