@@ -22,6 +22,7 @@ use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::sign::CertifiedKey;
+use sha2::{Digest as _, Sha256};
 use x509_parser::extensions::GeneralName;
 
 use crate::store::StoredCertificate;
@@ -142,6 +143,7 @@ fn inspect(
         names,
         not_before_ms: timestamp_ms(validity.not_before.timestamp()),
         not_after_ms: timestamp_ms(validity.not_after.timestamp()),
+        leaf_sha256: Sha256::digest(leaf.as_ref()).into(),
     })
 }
 

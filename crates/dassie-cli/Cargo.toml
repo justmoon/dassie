@@ -55,6 +55,11 @@ tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 # Wipes a passphrase read from its file once the keys are derived.
 zeroize = "1.9"
+# `dassie setup` posts the node key to the node's own HTTPS listener, as
+# the wallet does.
+hyper = { version = "1.12.0", features = ["client", "http1"] }
+hyper-util = { version = "0.1.21", features = ["tokio"] }
+http-body-util = "0.1.5"
 
 [build-dependencies]
 dassie-release = { path = "../dassie-release" }

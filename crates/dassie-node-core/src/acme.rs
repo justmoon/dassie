@@ -293,6 +293,7 @@ mod tests {
             names: vec!["node.example".to_string()],
             not_before_ms: 0,
             not_after_ms,
+            leaf_sha256: [0; 32],
         }
     }
 

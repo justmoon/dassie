@@ -45,6 +45,7 @@ pub fn certificate(info: &CertificateInfo) -> proto::Certificate {
         names: info.names.clone(),
         not_before_unix_ms: time(info.not_before_ms),
         not_after_unix_ms: time(info.not_after_ms),
+        leaf_sha256: info.leaf_sha256.to_vec(),
     }
 }
 
