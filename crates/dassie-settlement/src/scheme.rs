@@ -74,6 +74,40 @@ pub enum Effect {
         /// What the scheme takes the difference to come from.
         cause: ReconcileCause,
     },
+    /// A peering over a settlement hub cost us money its hold did not
+    /// cover, for one of the reasons the design lists
+    /// (spec/designs/settlement-hubs.md#13-how-it-fits-the-node): Dr
+    /// `expenses/losses`, Cr the account the money left as its cause says,
+    /// recorded whatever the owner's funds, since the money is gone. The
+    /// node counts it against the peer, and the simulation measures it.
+    PeerLoss {
+        /// The peer.
+        peer: Name,
+        /// How much, in internal units.
+        amount: u64,
+        /// Why, which says what account the money left.
+        cause: LossCause,
+        /// What on the underlying ledger it comes from, such as the
+        /// operation that took it: the journal books it once.
+        id: Name,
+    },
+}
+
+/// Why a peering over a settlement hub cost us money its hold did not
+/// cover (spec/designs/settlement-hubs.md#13-how-it-fits-the-node).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LossCause {
+    /// The hub's fee for a claim we submitted because the peer's claim was
+    /// missing or late: it left `assets/settlement`.
+    ClaimFee,
+    /// The hub paid the peer, with its claim, for a packet we had not
+    /// counted as fulfilled when we learnt of it: we had rejected it
+    /// upstream, or forgotten it. It left `assets/interledger/<peer>`.
+    PaidLate,
+    /// The hub paid the peer, with its claim, for a packet the peer had
+    /// rejected, which an honest payee never claims: evidence against the
+    /// peering. It left `assets/interledger/<peer>`.
+    Cheated,
 }
 
 /// What a scheme takes a reconciliation to come from.

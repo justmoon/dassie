@@ -416,6 +416,9 @@ impl Core {
                     epoch,
                     message,
                 }),
+                // Only a settlement hub's account names endpoints, and no
+                // node registers one yet: its driver comes with it.
+                AssetEffect::SendTo { .. } => {}
                 AssetEffect::Reconnect => self.connect_asset(asset),
                 AssetEffect::Fund { url, body } => self.outputs_peer.push(Output::Fund {
                     asset: asset.to_string(),

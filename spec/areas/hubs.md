@@ -1,9 +1,9 @@
 # Settlement hubs
 
-What is built of [settlement hubs](../designs/settlement-hubs.md): the hub's rules and its ledger, the deterministic function that takes a hub from one block to the next, Simplex consensus that orders its log, and its escrow on the XRP Ledger. The member's scheme and the node's validator role are not built yet ([roadmap](../roadmap.md#settlement-hubs)); the design describes them.
+What is built of [settlement hubs](../designs/settlement-hubs.md): the hub's rules and its ledger, the deterministic function that takes a hub from one block to the next, Simplex consensus that orders its log, its escrow on the XRP Ledger, and a member's side: its account in the hub and the `hub-xrp-testnet` scheme on it. The node does not run either yet, nor the validator role ([roadmap](../roadmap.md#settlement-hubs)); the design describes them.
 
 **Paths:** `crates/dassie-hub/`
-**Read with:** [Settlement](settlement.md), [Encoding](encoding.md), [Identity](identity.md), [XRPL](xrpl.md)
+**Read with:** [Settlement](settlement.md), [Encoding](encoding.md), [Identity](identity.md), [XRPL](xrpl.md), and for `member/` [Connector](connector.md#responses-and-expiry) and [Peer protocol](peer-protocol.md#message-set)
 
 ## The rules
 
@@ -77,6 +77,35 @@ The `hub` simulation runs 4 to 7 validators over a network with loss, duplicatio
 ## Fees
 
 A share of every fee goes to the reserve account; the rest waits in the pool of its block until the vote window has passed, and is then split equally among the validators whose votes for that block later blocks recorded (`ledger/fees.rs`). A block records each vote once, and only for blocks within the window. The time a validator's vote was last recorded also decides absence: a validator unrecorded for longer than the terms allow shuts the hub down.
+
+## The member's side
+
+`member/` is a member's side of a hub, without IO: its account as an [external asset](settlement.md#external-assets) and the `hub-xrp-testnet` settlement scheme on it, which the node books as every scheme ([Settlement](settlement.md#settlement-hubs)).
+
+**What the account trusts, and when it reads.** The account's ledger is the hub's validators, each at its endpoint. It trusts a statement once f + 1 validators signed it alike: one is honest. It reads the operations that touch it in the order of the log, each once, and only up to a height a quorum covered:
+
+- **The contract a validator keeps:** its answer to `Since` lists every executed operation that touches the account from the height asked, in order, and ends with the newest final block it covered; an answer too long for one message stops before a block. A `Final` is a validator's word that it sent everything up to it.
+- **Coverage counts from the validator's own endpoint only.** A `Final` names no account, so one passed on from another member's answer would vouch for nothing; the node's driver authenticates each endpoint.
+- **Why a quorum.** Once 2f + 1 validators covered a height, f + 1 honest ones sent every operation up to it, so each is agreed, and the account reads them, in order, up to that height. A faulty validator can neither make one up nor hide one. A payer decides a packet without a fulfillment only from a final block up to which it read everything ([below](#packets-promises-and-claims)).
+- **Its own state** is told to the scheme only as of a block through which it read everything, and nothing touching it since, so the scheme checks its books against it without counting anything twice.
+
+**What it submits.** One operation at a time, to every validator, again until one executes: claims and redeems before what waits, never before what is on its way. A settlement is sent only once the node executed it. An operation is signed with the account's sequence when it is sent; refused for its sequence, it is signed again with the one the account had as of that block or later. A sequence only ever goes up, so the refused one can never apply later. A new account sets its disbursal address before anything else, as the ledger requires.
+
+**One scheme per account.** The node writes the two in one batch, and the scheme refuses a state that is not in step with its account's. When the scheme stops, the account reads nothing more until a restart, so neither misses what the other read.
+
+### Packets, promises and claims
+
+- **Amounts.** A commitment promises its packet in drops rounded up, so it never covers less than the packet. T is what the packets up to W add up to in internal units, rounded down to drops: what is less than a drop stays owed until there is more.
+- **T covers W and nothing above.** The hub subtracts what `claim` paid from a redeem only up to its W, and remembers the rest, so a T that counted a packet above W would pay it twice. T counts every packet the hub paid with a claim, whatever the payer's books said: the hub overrules them.
+- **The payee takes a commitment** only once an operation of the payer's on the hold that the hub executed verified under the key the payer gave at peering: the hub checks claims with the account's own key. It takes the packet if the hold covers it beyond what the payee has not taken, what is in flight, and a reduction due before the commitment expires.
+- **The payee takes a claim** only if its T is what the payee fulfilled up to its W by its own record, and no packet up to W is still in flight: a redeem through such a packet would forbid claiming it on the hub. A claim that leaves out packets whose commitments expired before the payee could claim them is still taken: only the payer can pay those now, and the claim is worth more than none.
+- **Missing claims.** A payer's claim for a packet is late a reply leg (the rules' allowance) after every packet below it was resolved, since only then can the payer cover it; and a margin before the commitment expires in any case, so the claim lands in a block stamped before. A claim the hub refused is tried again with each packet alone, a bounded number of times, each try costing a fee. Past 1024 packets its claims left uncovered, the payee takes no more of the payer's Prepares.
+- **Redeeming** waits until the claims it took add two largest packets to what it took (`policy::redeem_threshold`): each redeem costs a fee, and what is not taken is lost if the hub fails.
+- **The payer's waits.** A packet whose Reject upstream waits for the hub is decided at once by a claim the hub paid for it, and otherwise without a fulfillment once a final block, up to which the account read everything, is stamped at or after its commitment's expiry.
+
+**What a peering costs beyond its hold** is booked as a loss on the peer (`Effect::PeerLoss`), as the design lists it ([Settlement hubs](../designs/settlement-hubs.md#13-how-it-fits-the-node)): the fee of every claim the payee had to make; a packet the hub paid that the payer had rejected upstream or forgotten; and a packet the payee had rejected and then claimed, which no honest payee does, so it also counts against the peering.
+
+**Not built yet:** the node's driver for the validators' endpoints and its registry of the scheme; credit over a hub, which the node keeps at nothing beyond the hold; validators pushing statements, which the account asks for in the meantime; deposits, withdrawals and closing by the owner, and moving funds between the hub and the node's account; joining by being paid; and a booking of their own for a hold's reduction or release, which the scheme reconciles through suspense meanwhile.
 
 ## Decisions
 

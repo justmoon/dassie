@@ -37,12 +37,12 @@ mod scheme;
 mod stub;
 
 pub use activation::{Activation, activation};
-pub use commitments::{Commitments, Decided, Promised};
 pub use asset::{
     AssetEffect, AssetId, AssetKind, Detach, ExternalAsset, Freeze, Holding, LedgerInput,
 };
+pub use commitments::{Commitments, Decided, Promised};
 pub use scheme::{
-    Effect, LedgerStatus, PreparedSettlement, ReconcileCause, SchemeError, SchemeInfo,
+    Effect, LedgerStatus, LossCause, PreparedSettlement, ReconcileCause, SchemeError, SchemeInfo,
     SettlementScheme,
 };
 pub use stub::{STUB_INITIAL_BALANCE, Stub};

@@ -25,6 +25,8 @@
 //!   withdrawals, what validators attest, and the payout set.
 //! - [`consensus`]: Simplex, which orders the hub's log, generic over the
 //!   payload of its blocks.
+//! - [`member`]: a member's side: its account in the hub as an external
+//!   asset, and the `hub-xrp-testnet` settlement scheme on it.
 //!
 //! Like the other protocol crates, it never reads a clock, an RNG or a
 //! socket of its own (spec/decisions/tigerstyle.md): time and randomness
@@ -42,6 +44,7 @@ pub mod consensus;
 pub mod digest;
 pub mod escrow;
 pub mod ledger;
+pub mod member;
 pub mod operation;
 pub mod promise;
 pub mod rules;

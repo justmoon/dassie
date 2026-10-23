@@ -87,7 +87,9 @@ pub trait Commitments {
     /// As the payer: the claim to send after the verdict that accepts
     /// `peer`'s Fulfill of our Prepare `request_id`, written to `out`.
     /// `taken` says whether the books took the Fulfill: a Fulfill we did
-    /// not take adds nothing to the total we claim to owe.
+    /// not take adds nothing to the total we claim to owe. It answers the
+    /// packet: an [`on_answered`](Self::on_answered) after it changes
+    /// nothing.
     fn claim(&mut self, now_ms: u64, peer: Name, request_id: u32, taken: bool, out: &mut Vec<u8>);
 
     /// As the payee: the claim `peer` sent with its reply to our Fulfill of
@@ -97,10 +99,22 @@ pub trait Commitments {
 
     /// As the payer: our Prepare `request_id` to `peer` expired and waits
     /// for the hub to decide it, until `backstop_ms`.
-    fn on_hub_wait(&mut self, now_ms: u64, peer: Name, request_id: u32, condition: [u8; 32], backstop_ms: u64);
+    fn on_hub_wait(
+        &mut self,
+        now_ms: u64,
+        peer: Name,
+        request_id: u32,
+        condition: [u8; 32],
+        backstop_ms: u64,
+    );
 
     /// As the payer: our Prepare `request_id` to `peer` was answered, or
-    /// decided: what the scheme kept for it is forgotten.
+    /// decided: the node is done with it. Not after
+    /// [`claim`](Self::claim), it was rejected: by the peer while it was in
+    /// flight, or by us at the end of its wait for the hub. The scheme
+    /// keeps what it needs of it until the hub can no longer pay it, so
+    /// that a claim the peer still wins for it on the hub is booked as the
+    /// loss it is (spec/designs/settlement-hubs.md#13-how-it-fits-the-node).
     fn on_answered(&mut self, peer: Name, request_id: u32);
 
     /// Moves the waits the hub has decided into `out`, oldest first.
