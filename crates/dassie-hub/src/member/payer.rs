@@ -114,6 +114,10 @@ pub(super) struct Loss {
     pub(super) units: u64,
     pub(super) cause: LossCause,
     pub(super) operation: Digest,
+    /// The hold, and the packet's sequence on it: an operation that paid
+    /// several packets causes a loss for each (0 for one not a packet's).
+    pub(super) hold: HoldNumber,
+    pub(super) sequence: u64,
 }
 
 /// Our hold toward a peer.
@@ -251,7 +255,13 @@ impl Payer {
             if !packet.state.resolved() {
                 packet.state = State::Fulfilled { taken };
                 if !taken {
-                    loss = packet.paid.map(|paid| late(&paid, LossCause::PaidLate));
+                    loss = packet.paid.map(|paid| {
+                        late(
+                            &paid,
+                            LossCause::PaidLate,
+                            (packet.commitment.hold, sequence),
+                        )
+                    });
                 }
             }
         }
@@ -277,7 +287,9 @@ impl Payer {
             }
             _ => return None,
         };
-        let loss = packet.paid.map(|paid| late(&paid, cause));
+        let loss = packet
+            .paid
+            .map(|paid| late(&paid, cause, (packet.commitment.hold, sequence)));
         self.advance();
         loss
     }
@@ -333,6 +345,10 @@ impl Payer {
         operation: Digest,
     ) -> (Vec<(u32, [u8; 32])>, Vec<Loss>) {
         let mut decided = Vec::new();
+        // One claim takes from one hold.
+        let hold = fulfilled
+            .first()
+            .map_or(HoldNumber(0), |item| item.commitment.value.hold);
         let mut losses = Vec::new();
         for (sequence, fulfillment, drops) in paid_in_order(fulfilled, paid) {
             let paid = PaidOnHub {
@@ -353,9 +369,17 @@ impl Payer {
                                 decided.push((request_id, fulfillment));
                             }
                         }
-                        State::Rejected => losses.push(late(&paid, LossCause::Cheated)),
+                        State::Rejected => losses.push(late(
+                            &paid,
+                            LossCause::Cheated,
+                            (packet.commitment.hold, sequence),
+                        )),
                         State::GaveUp | State::Fulfilled { taken: false } => {
-                            losses.push(late(&paid, LossCause::PaidLate));
+                            losses.push(late(
+                                &paid,
+                                LossCause::PaidLate,
+                                (packet.commitment.hold, sequence),
+                            ));
                         }
                         _ => {}
                     }
@@ -367,7 +391,7 @@ impl Payer {
                 None => {
                     // Forgotten, or never ours to know: the hub says what it
                     // paid, and we owe it.
-                    losses.push(late(&paid, LossCause::PaidLate));
+                    losses.push(late(&paid, LossCause::PaidLate, (hold, sequence)));
                     let units = u128::from(drops) * u128::from(UNITS_PER_DROP);
                     if sequence <= self.through {
                         self.through_units = self.through_units.saturating_add(units);
@@ -465,11 +489,13 @@ fn paid_in_order(fulfilled: &[Fulfilled], paid: Amount) -> Vec<(u64, [u8; 32], A
 
 /// The loss of a packet the hub paid that our books did not count: what
 /// it paid, in internal units.
-fn late(paid: &PaidOnHub, cause: LossCause) -> Loss {
+fn late(paid: &PaidOnHub, cause: LossCause, (hold, sequence): (HoldNumber, u64)) -> Loss {
     Loss {
         units: super::units(paid.drops),
         cause,
         operation: paid.operation,
+        hold,
+        sequence,
     }
 }
 
@@ -627,6 +653,28 @@ mod tests {
         // Both count in T now: the hub paid them.
         assert_eq!(payer.claim_value().unwrap().total, 3);
         payer.check_invariants();
+    }
+
+    // Two packets of one claim, lost alike, are two losses, each booked
+    // once: the journal books an ID once.
+    #[test]
+    fn each_packet_of_a_claim_is_a_loss_of_its_own() {
+        let mut payer = payer(1_000);
+        let first = payer.commit(1, promised(1_000, 1), MARGIN).unwrap();
+        let second = payer.commit(2, promised(1_000, 2), MARGIN).unwrap();
+        for request in 1..=2 {
+            payer.wait(request);
+            payer.answered(request);
+        }
+        let (_, losses) = payer.claimed(
+            &[fulfilled(first, 1), fulfilled(second, 2)],
+            2,
+            Digest([4; 32]),
+        );
+        assert_eq!(losses.len(), 2);
+        let ids: alloc::collections::BTreeSet<_> =
+            losses.iter().map(super::super::scheme::loss_id).collect();
+        assert_eq!(ids.len(), 2, "one ID per packet");
     }
 
     // A claim the hub paid while the packet was in flight is a loss only

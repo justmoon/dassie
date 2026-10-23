@@ -111,17 +111,23 @@ fn account_of(asset: &mut dyn ExternalAsset) -> Option<&mut HubAccount> {
     any.downcast_mut()
 }
 
-/// A loss's ID: the operation's hash with its cause in the last byte, so
-/// that one operation's losses of each cause are booked once each.
-pub(super) fn loss_id(operation: &Digest, cause: LossCause) -> Name {
-    let mut bytes = operation.0;
-    if let Some(last) = bytes.last_mut() {
-        *last = match cause {
-            LossCause::ClaimFee => 0,
-            LossCause::PaidLate => 1,
-            LossCause::Cheated => 2,
-        };
-    }
+/// A loss's ID: a hash of the operation that caused it, its cause, the
+/// hold and the packet's sequence on it, so that each packet's loss is
+/// booked once, however many one operation paid.
+pub(super) fn loss_id(loss: &Loss) -> Name {
+    use sha2::{Digest as _, Sha256};
+    let cause: u8 = match loss.cause {
+        LossCause::ClaimFee => 0,
+        LossCause::PaidLate => 1,
+        LossCause::Cheated => 2,
+    };
+    let mut hash = Sha256::new();
+    hash.update(b"dassie-hub/loss");
+    hash.update(loss.operation.as_bytes());
+    hash.update([cause]);
+    hash.update(loss.hold.0.to_be_bytes());
+    hash.update(loss.sequence.to_be_bytes());
+    let bytes: [u8; 32] = hash.finalize().into();
     Name::hex(&bytes, false)
 }
 
@@ -310,6 +316,8 @@ impl HubScheme {
                         units: units(fee),
                         cause: LossCause::ClaimFee,
                         operation: id,
+                        hold,
+                        sequence: 0,
                     };
                     self.book_loss(peer, loss, effects);
                     return;
@@ -572,7 +580,7 @@ impl HubScheme {
                 peer,
                 amount: loss.units,
                 cause: loss.cause,
-                id: loss_id(&loss.operation, loss.cause),
+                id: loss_id(&loss),
             });
         }
     }

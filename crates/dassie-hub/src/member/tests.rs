@@ -507,7 +507,15 @@ fn losses_of_each_cause_are_booked_once_each() {
     let ids: alloc::collections::BTreeSet<Name> =
         [LossCause::ClaimFee, LossCause::PaidLate, LossCause::Cheated]
             .into_iter()
-            .map(|cause| scheme::loss_id(&operation, cause))
+            .map(|cause| {
+                scheme::loss_id(&payer::Loss {
+                    units: 1,
+                    cause,
+                    operation,
+                    hold: crate::promise::HoldNumber(1),
+                    sequence: 1,
+                })
+            })
             .collect();
     assert_eq!(ids.len(), 3);
 }

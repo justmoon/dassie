@@ -232,6 +232,8 @@ impl HubScheme {
             units: units(excess),
             cause: LossCause::PaidLate,
             operation: Digest(resync_digest(number, height)),
+            hold: number,
+            sequence: 0,
         };
         self.queue_loss(name, loss);
     }
