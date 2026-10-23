@@ -49,7 +49,12 @@ fi
 problem="a node did not start on dassie $after"
 echo "Error: $problem; going back to dassie $before" >&2
 
-# As install.sh and the updater switch it: one rename.
+# As install.sh and the updater switch it: one rename, under their lock.
+exec 9< "$base/.update.lock"
+flock -w 600 9 || {
+  echo "Error: an update is running; dassie $after stays" >&2
+  exit 1
+}
 ln -sfn "$before" "$base/.current-$$"
 mv -T "$base/.current-$$" "$base/current"
 sync
@@ -69,6 +74,7 @@ record="$base/.last-update-$$"
 chmod 0644 "$record"
 mv -f "$record" "$base/last-update"
 sync
+exec 9<&-
 
 if ! restart; then
   echo "Error: dassie $before does not start again either; see journalctl -u 'dassie-mm-node@*'" >&2

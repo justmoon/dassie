@@ -1,7 +1,10 @@
 # The market maker (spec/areas/market-maker-vm.md), on its VM, which
 # startup.sh installs: `dassie market-maker` with its two nodes,
-# dassie-mm-node@xrp and dassie-mm-node@dsusd, which it requires, so that
-# restarting a node restarts it too.
+# dassie-mm-node@xrp and dassie-mm-node@dsusd. Starting it starts them
+# first, and stopping or restarting a node stops or restarts it too. A node
+# that fails to start does not keep it down for good: it starts all the
+# same, `dassie setup` fails while the node does not answer, and it tries
+# again until the node is up.
 #
 # Before it starts, root reads the nodes' two passphrases from Secret
 # Manager into this unit's runtime directory (phrases.sh): files on tmpfs,
@@ -11,7 +14,8 @@
 [Unit]
 Description=Dassie market maker
 Documentation=https://dassie.land
-Requires=dassie-mm-node@xrp.service dassie-mm-node@dsusd.service
+Wants=dassie-mm-node@xrp.service dassie-mm-node@dsusd.service
+PartOf=dassie-mm-node@xrp.service dassie-mm-node@dsusd.service
 After=dassie-mm-node@xrp.service dassie-mm-node@dsusd.service
 Wants=network-online.target
 After=network-online.target

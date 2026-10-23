@@ -53,9 +53,13 @@ umask 022
 mkdir -p "$(dirname "$checkout")"
 if [ ! -d "$checkout/.git" ]; then
   rm -rf "$checkout"
-  git clone --quiet "$repository" "$checkout"
+  git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \
+    clone --quiet "$repository" "$checkout"
 fi
-git -C "$checkout" fetch --quiet origin main
+# A transfer slower than 1 kB/s for a minute stops, rather than holding
+# the boot.
+git -C "$checkout" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \
+  fetch --quiet origin main
 git -C "$checkout" checkout --quiet --force --detach origin/main
 
 # --- The release ----------------------------------------------------------------
@@ -211,7 +215,9 @@ else
   case "$uplink" in
     "" | *[!A-Za-z0-9_-]*) fail "no node ID for $target: set the metadata's mm-uplink" ;;
   esac
-  [ "${#uplink}" -le 64 ] || fail "the node ID for $target is too long"
+  # As long as a node ID may be (crates/dassie-identity/src/node_id.rs).
+  [ "${#uplink}" -ge 2 ] && [ "${#uplink}" -le 45 ] ||
+    fail "the node ID for $target is not one a node takes"
   printf 'DASSIE_UPLINKS=%s\nDASSIE_MM_UPLINK_OF=%s\n' "$uplink" "$target" > "$config/uplink.env.new"
   mv -f "$config/uplink.env.new" "$config/uplink.env"
 fi
@@ -230,7 +236,9 @@ systemctl enable dassie-mm.service dassie-mm-update.timer
 systemctl restart dassie-mm-update.timer
 # The market maker stops first, so that it does not restart with each node;
 # then both nodes start on the units and settings just written, and it
-# after them.
+# after them. A node that does not start keeps restarting, and the market
+# maker waits for it, trying again every RestartSec.
 systemctl stop dassie-mm.service
-systemctl restart dassie-mm-node@xrp.service dassie-mm-node@dsusd.service
+systemctl restart dassie-mm-node@xrp.service dassie-mm-node@dsusd.service ||
+  echo "Note: a node did not start; see journalctl -u 'dassie-mm-node@*'" >&2
 systemctl start dassie-mm.service
