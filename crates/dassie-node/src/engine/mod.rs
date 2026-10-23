@@ -32,11 +32,13 @@ use dassie_ledger::{Account, AccountId, TraceId};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
+#[cfg(feature = "testing")]
+pub use self::core::HubPeer;
 pub use self::core::{
     AssetView, BtpEvent, BtpSession, Changes, Core, CoreParts, CreatedOutgoing, EngineError,
     EngineEvent, Event, IncomingPolicy, LedgerEvent, LedgerView, Lie, Measured, NetworkView,
     NewIncoming, NewOutgoing, NewToken, Outbound, Output, PaymentEvent, PeerEvent, PeerView,
-    Prober, RemovalBlocker, SCHEMES, SettlementEvent, Severity, TokenView, ledger_slug,
+    Prober, RemovalBlocker, SCHEMES, SettlementEvent, Severity, TokenView, ledger_slug, offered,
 };
 
 use crate::log::target;
@@ -853,6 +855,7 @@ impl Driver<'_> {
                 Output::LedgerConnect { .. }
                 | Output::LedgerClose { .. }
                 | Output::LedgerSend { .. }
+                | Output::HubSend { .. }
                 | Output::Fund { .. } => {
                     self.ledger_output(output);
                     continue;
@@ -915,6 +918,25 @@ impl Driver<'_> {
                 let client = self.node.peer_client().cloned();
                 links::fund(client, self.commands.clone(), asset, epoch, url, body);
             }
+            Output::HubSend {
+                asset,
+                epoch,
+                endpoint,
+                node,
+                address,
+                message,
+            } => links::hub_send(
+                self.node.quic().cloned(),
+                self.commands.clone(),
+                links::HubSend {
+                    asset,
+                    epoch,
+                    endpoint,
+                    node: *node,
+                    address,
+                    message,
+                },
+            ),
             _ => {}
         }
     }

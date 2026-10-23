@@ -68,6 +68,8 @@ pub(super) struct Settlements {
     pub unavailable_warned: BTreeMap<Name, u64>,
     /// Whether this node lies that it never settles, in a simulation.
     pub never_settles: bool,
+    /// The largest packet, which schemes that count in packets need.
+    pub max_packet: u64,
 }
 
 impl Settlements {
@@ -79,6 +81,7 @@ impl Settlements {
             trigger: policy::trigger(policies.connector.max_packet_amount),
             minimum: policy::minimum(policies.connector.max_packet_amount),
             credit_cap: policy::credit_cap(policies.connector.max_packet_amount),
+            max_packet: policies.connector.max_packet_amount,
             growth: super::growth::Growth::new(),
             asked: BTreeMap::new(),
             settling: BTreeMap::new(),
@@ -309,12 +312,21 @@ impl Core {
         let Some(at) = self.position(node, scheme) else {
             return 0;
         };
+        let over_hub = self
+            .schemes
+            .get(&at.scheme)
+            .is_some_and(|active| active.over_hub);
+        let position = if over_hub {
+            hub_position(&at, self.peer_credit)
+        } else {
+            at.position
+        };
         let amount = self.whole_units(
             &at.scheme,
-            policy::requested_amount(at.position, self.settle.trigger, self.settle.minimum),
+            policy::requested_amount(position, self.settle.trigger, self.settle.minimum),
         );
         if amount > 0 {
-            self.prepare_settlement(node, &at, amount, &state);
+            self.prepare_settlement(node, &at, amount, &state, over_hub);
         }
         self.settling_to(&node, scheme)
     }
@@ -425,13 +437,45 @@ impl Core {
     }
 
     /// Prepares a settlement and books its pending transfer; it executes
-    /// once that is on disk (ACC-16).
-    // Panics only on a broken invariant: what was validated is taken.
-    #[allow(clippy::panic)]
-    fn prepare_settlement(&mut self, node: NodeId, at: &Position, amount: u64, state: &[u8]) {
+    /// once that is on disk (ACC-16). Over a hub, it funds our hold toward
+    /// the peer, which is part of the credit we extend to it: the credit is
+    /// raised by it first, so that the books take it, and follows what the
+    /// scheme prepared, or nothing, at once (spec/areas/hubs.md#in-the-node).
+    fn prepare_settlement(
+        &mut self,
+        node: NodeId,
+        at: &Position,
+        amount: u64,
+        state: &[u8],
+        over_hub: bool,
+    ) {
         let Ok(name) = Name::new(node.as_str()) else {
             return;
         };
+        if !over_hub {
+            self.prepare_and_book(node, name, at, amount, state);
+            return;
+        }
+        if let Err(error) =
+            super::growth::raise_trust(&mut self.ledger, self.now_ms, at.ledger, name, amount)
+        {
+            self.report(SettlementEvent::BooksCannotSettle { node, error });
+            return;
+        }
+        self.prepare_and_book(node, name, at, amount, state);
+        self.sync_credit_with(at.scheme, node);
+    }
+
+    // Panics only on a broken invariant: what was validated is taken.
+    #[allow(clippy::panic)]
+    fn prepare_and_book(
+        &mut self,
+        node: NodeId,
+        name: Name,
+        at: &Position,
+        amount: u64,
+        state: &[u8],
+    ) {
         let (Ok(interledger), Ok(settlement)) = (
             self.account(at.ledger, AccountName::AssetsInterledger(name)),
             self.account(at.ledger, AccountName::AssetsSettlement),
@@ -813,6 +857,18 @@ impl Core {
         let id = Name::new(&format!("in{}", self.ledger.next_transfer_id().0)).unwrap_or(scheme);
         Reference::Settlement { scheme, id }
     }
+}
+
+/// Where a payer over a hub stands when asked to settle: as a junior that
+/// extends the default credit `credit` would, with the hold it keeps toward
+/// the peer counted as what it paid in advance. So it funds the hold with
+/// what it would otherwise have paid
+/// (spec/designs/settlement-hubs.md#4-peering-over-a-hub), whatever the
+/// hold's part of the credit it extends.
+fn hub_position(at: &Position, credit: u64) -> u128 {
+    let position = i128::try_from(at.position).unwrap_or(i128::MAX);
+    let standing = position - i128::from(at.credit_out) + i128::from(credit);
+    u128::try_from(standing).unwrap_or(0)
 }
 
 /// Whether `transfer`, in `ledger`, is a settlement of ours to `node`.

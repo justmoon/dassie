@@ -396,6 +396,17 @@ impl HubAccount {
         Ok(account)
     }
 
+    /// The node key of the validator at `endpoint`, which the node's
+    /// driver pins the connection to: coverage counts only from a
+    /// validator's own endpoint (spec/areas/hubs.md#the-members-side).
+    #[must_use]
+    pub fn validator_node(&self, endpoint: usize) -> Option<dassie_identity::PublicKey> {
+        self.rules
+            .validators
+            .get(endpoint)
+            .map(|acceptance| acceptance.node)
+    }
+
     /// The hub's ID.
     #[must_use]
     pub const fn hub(&self) -> HubId {

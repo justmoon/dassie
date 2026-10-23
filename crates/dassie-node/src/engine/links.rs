@@ -140,6 +140,66 @@ pub(super) fn fund(
     });
 }
 
+/// A message for one validator of a settlement hub.
+pub(super) struct HubSend {
+    /// The hub account it is for.
+    pub asset: String,
+    /// The account's connection, which the answer is for.
+    pub epoch: u64,
+    /// The validator's place in the hub's rules.
+    pub endpoint: usize,
+    /// The validator's node key, which the connection is pinned to.
+    pub node: dassie_identity::PublicKey,
+    /// Where it is reached: `host:port`.
+    pub address: String,
+    /// The message.
+    pub message: Vec<u8>,
+}
+
+/// Sends a hub account's message to one validator on a task of its own,
+/// and feeds its answer to the core as from that validator. What does not
+/// arrive, the account sends again.
+pub(super) fn hub_send(
+    quic: Option<std::sync::Arc<crate::quic::Quic>>,
+    commands: mpsc::Sender<Command>,
+    send: HubSend,
+) {
+    tokio::spawn(async move {
+        let HubSend {
+            asset,
+            epoch,
+            endpoint,
+            node: key,
+            address,
+            message,
+        } = send;
+        match hub_exchange(quic.as_deref(), &key, &address, &message).await {
+            Some(answer) => {
+                let event = LedgerEvent::From {
+                    endpoint,
+                    message: answer,
+                };
+                report(&commands, asset, epoch, event).await;
+            }
+            None => {
+                tracing::debug!(target: target::SETTLEMENT, %asset, endpoint, "a hub validator did not answer");
+            }
+        }
+    });
+}
+
+/// One exchange with a hub's validator over the hub stream, pinned to its
+/// node key. The transport comes with the validator role; until then no
+/// validator is reached.
+async fn hub_exchange(
+    _quic: Option<&crate::quic::Quic>,
+    _key: &dassie_identity::PublicKey,
+    _address: &str,
+    _message: &[u8],
+) -> Option<Vec<u8>> {
+    None
+}
+
 /// Feeds an event to the core.
 async fn report(commands: &mpsc::Sender<Command>, asset: String, epoch: u64, event: LedgerEvent) {
     let call: super::Call = Box::new(move |core| {

@@ -31,6 +31,13 @@ pub use account::{FIRST, HubAccount, News, Purpose};
 pub use mirror::HoldMirror;
 pub use scheme::{HubScheme, SCHEME_ID};
 
+/// The default hub of the XRP Ledger testnet, as the hex of its rules'
+/// encoding, kept like the default bootstrap node list
+/// (spec/designs/settlement-hubs.md#11-choosing-a-hub). None until the
+/// testnet hub is founded: until then a node names a hub in its scheme's
+/// config.
+pub const DEFAULT_TESTNET_HUB: Option<&str> = None;
+
 use dassie_ledger::{MAX_TOTAL, Name};
 
 use crate::digest::Digest;

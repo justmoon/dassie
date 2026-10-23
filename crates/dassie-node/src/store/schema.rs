@@ -51,6 +51,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_27,
     MIGRATION_28,
     MIGRATION_29,
+    MIGRATION_30,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -935,6 +936,47 @@ DROP TABLE incoming_connections_kept;
 const MIGRATION_29: &str = "
 ALTER TABLE peer_settings ADD COLUMN rebalance_ppm INTEGER NOT NULL DEFAULT 50000
   CHECK (rebalance_ppm BETWEEN 0 AND 100000);
+";
+
+/// Settlement hubs (spec/areas/hubs.md#the-members-side): what a peering
+/// over a hub cost beyond its hold is journaled as a loss, keyed by its
+/// scheme and the hub's ID for it. The journal is rebuilt, since its
+/// CHECKs change.
+const MIGRATION_30: &str = "
+CREATE TABLE ledger_transfers_new (
+  id INTEGER PRIMARY KEY CHECK (id >= 0),
+  debit INTEGER NOT NULL REFERENCES ledger_accounts (id),
+  credit INTEGER NOT NULL REFERENCES ledger_accounts (id) CHECK (credit != debit),
+  amount INTEGER NOT NULL CHECK (amount > 0),
+  state TEXT NOT NULL CHECK (state IN ('pending', 'posted', 'voided')),
+  created_at_ms INTEGER NOT NULL,
+  resolved_at_ms INTEGER CHECK ((state = 'pending') = (resolved_at_ms IS NULL)),
+  reference TEXT NOT NULL CHECK (reference IN
+    ('packet', 'settlement', 'trust', 'deposit', 'withdrawal', 'reconciliation', 'refusal', 'fee',
+     'loss')),
+  packet_epoch INTEGER CHECK ((reference IN ('packet', 'refusal')) = (packet_epoch IS NOT NULL)),
+  packet_sequence INTEGER CHECK ((reference IN ('packet', 'refusal')) = (packet_sequence IS NOT NULL)),
+  settlement_scheme TEXT
+    CHECK ((reference IN ('settlement', 'fee', 'loss')) = (settlement_scheme IS NOT NULL)),
+  settlement_id TEXT
+    CHECK ((reference IN ('settlement', 'fee', 'loss')) = (settlement_id IS NOT NULL)),
+  sequence INTEGER NOT NULL UNIQUE CHECK (sequence > 0)
+) STRICT;
+
+INSERT INTO ledger_transfers_new SELECT * FROM ledger_transfers;
+DROP TABLE ledger_transfers;
+ALTER TABLE ledger_transfers_new RENAME TO ledger_transfers;
+
+CREATE INDEX ledger_transfers_by_debit ON ledger_transfers (debit, state);
+CREATE INDEX ledger_transfers_by_credit ON ledger_transfers (credit, state);
+CREATE INDEX ledger_transfers_pending ON ledger_transfers (state) WHERE state = 'pending';
+CREATE INDEX ledger_transfers_by_debit_sequence ON ledger_transfers (debit, sequence);
+CREATE INDEX ledger_transfers_by_credit_sequence ON ledger_transfers (credit, sequence);
+CREATE INDEX ledger_transfers_refusals ON ledger_transfers (credit, created_at_ms)
+  WHERE reference = 'refusal';
+CREATE INDEX ledger_transfers_by_packet ON ledger_transfers (packet_epoch, packet_sequence)
+  WHERE packet_epoch IS NOT NULL;
+CREATE INDEX ledger_transfers_trust ON ledger_transfers (sequence) WHERE reference = 'trust';
 ";
 
 /// Columns that hold secrets: the database inspector never reads them.

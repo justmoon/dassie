@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use dassie_identity::{NodeId, PublicKey};
 
 use crate::config::Rate;
-use crate::wire::{SchemeId, SignedNodeInfo, TerminationReason};
+use crate::wire::{HubMembership, SchemeId, SignedNodeInfo, TerminationReason};
 
 /// Why a node is in the table (NET-29). A node with none left is removed
 /// after a grace period (NET-18).
@@ -166,6 +166,8 @@ pub struct LinkState {
     /// Whether it is a periphery node's, without a URL: it never floods,
     /// and is reached only over the connection the node opened.
     pub periphery: bool,
+    /// The settlement hub the node is a member of, if it names one.
+    pub hub: Option<HubMembership>,
     /// Copies of this sequence received, for suppressing the flood.
     pub copies: u8,
     /// When to forward it, if it is to be.
@@ -190,6 +192,7 @@ impl LinkState {
             schemes: signed.info.schemes().collect(),
             quic: signed.info.speaks_quic(),
             periphery: signed.info.is_periphery(),
+            hub: signed.info.hub(),
             copies: 1,
             retransmit_at_ms: None,
             from: None,

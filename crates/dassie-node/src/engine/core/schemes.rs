@@ -46,7 +46,21 @@ pub const SCHEMES: &[SchemeInfo] = &[
         name: "DSUSD on the XRP Ledger Testnet",
         ledger: LedgerId::XrplTestnetDsusdUsd,
     },
+    SchemeInfo {
+        id: dassie_hub::member::SCHEME_ID,
+        name: "XRP in a settlement hub on the XRP Ledger Testnet",
+        ledger: LedgerId::HubXrpTestnetXrp,
+    },
 ];
+
+/// Whether the scheme `id` is offered to the owner to add: a settlement
+/// hub's only once the node knows a hub to join without being told one, so
+/// the wallet never offers what it cannot add with nothing to fill in. One
+/// added with a config of its own is listed as any active scheme.
+#[must_use]
+pub fn offered(id: &str) -> bool {
+    id != dassie_hub::member::SCHEME_ID || dassie_hub::member::DEFAULT_TESTNET_HUB.is_some()
+}
 
 /// The external asset scheme `id` settles through, if any, and the config
 /// the asset is made with: for the XRPL schemes, the server and the faucet
@@ -58,6 +72,9 @@ fn asset_of(id: &str) -> Option<AssetId> {
     if id == super::tests::WITNESS {
         return Some(dassie_xrpl::account::FIRST);
     }
+    if id == dassie_hub::member::SCHEME_ID {
+        return Some(dassie_hub::member::FIRST);
+    }
     [
         dassie_xrpl::scheme::SCHEME_ID,
         dassie_xrpl::rlusd::SCHEME_ID,
@@ -65,6 +82,71 @@ fn asset_of(id: &str) -> Option<AssetId> {
     ]
     .contains(&id)
     .then_some(dassie_xrpl::account::FIRST)
+}
+
+/// The rules of the hub a hub scheme's config names: the hex of their
+/// encoding as `{"rules": "…"}`, or nothing for the default hub of the
+/// testnet (spec/designs/settlement-hubs.md#11-choosing-a-hub).
+fn hub_rules(config: &str) -> Result<dassie_hub::Rules, SchemeError> {
+    let hex = if config.trim().is_empty() {
+        dassie_hub::member::DEFAULT_TESTNET_HUB.ok_or(SchemeError::InvalidConfig)?
+    } else {
+        let value: serde_json::Value =
+            serde_json::from_str(config).map_err(|_| SchemeError::InvalidConfig)?;
+        return value
+            .get("rules")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|hex| decode_rules(hex).ok())
+            .ok_or(SchemeError::InvalidConfig);
+    };
+    decode_rules(hex)
+}
+
+fn decode_rules(hex: &str) -> Result<dassie_hub::Rules, SchemeError> {
+    let bytes = dassie_xrpl::from_hex(hex).ok_or(SchemeError::InvalidConfig)?;
+    let mut reader = dassie_oer::Reader::new(&bytes);
+    let rules = dassie_hub::Rules::decode(&mut reader).map_err(|_| SchemeError::InvalidConfig)?;
+    reader.finish().map_err(|_| SchemeError::InvalidConfig)?;
+    Ok(rules)
+}
+
+/// The node's hub account in the hub of `config`: its key derived at
+/// `node/hub/<hub ID>/account`, paying out at the hub's end to the node's
+/// own XRPL testnet account. A hub whose legs between members do not fit
+/// in the connector's message window is not joined: it is too far apart
+/// for a peering over it (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+fn create_hub_account(
+    id: AssetId,
+    config: &str,
+    state: &[u8],
+    (key, window_ms): (&NodeKey, u64),
+) -> Result<Box<dyn ExternalAsset>, SchemeError> {
+    let rules = hub_rules(config)?;
+    let timers = &rules.terms.timers;
+    if timers.margin.saturating_add(timers.allowance) > window_ms {
+        return Err(SchemeError::InvalidConfig);
+    }
+    let member =
+        dassie_hub::escrow::member_key(key, &rules.id()).ok_or(SchemeError::InvalidConfig)?;
+    let entropy = key
+        .settlement_entropy(dassie_xrpl::scheme::SCHEME_ID, "seed-testnet")
+        .map_err(|_| SchemeError::InvalidConfig)?;
+    let disbursal = dassie_hub::operation::Destination {
+        account: dassie_xrpl::Wallet::from_entropy(entropy.as_bytes())
+            .account()
+            .0,
+        tag: None,
+    };
+    let scheme =
+        Name::new(dassie_hub::member::SCHEME_ID).map_err(|_| SchemeError::InvalidConfig)?;
+    Ok(Box::new(dassie_hub::member::HubAccount::new(
+        id,
+        rules,
+        std::sync::Arc::new(member),
+        disbursal,
+        scheme,
+        state,
+    )?))
 }
 
 /// The schemes that may settle through `asset`.
@@ -90,7 +172,7 @@ fn create_asset(
     id: AssetId,
     config: &str,
     state: &[u8],
-    key: &NodeKey,
+    (key, window_ms): (&NodeKey, u64),
 ) -> Result<Box<dyn ExternalAsset>, SchemeError> {
     match (id.kind, id.index) {
         (AssetKind::XrplTestnetAccount, 0) => {
@@ -104,6 +186,9 @@ fn create_asset(
                 entropy.as_bytes(),
                 state,
             )?))
+        }
+        (AssetKind::HubTestnetAccount, 0) => {
+            create_hub_account(id, config, state, (key, window_ms))
         }
         _ => Err(SchemeError::UnknownScheme),
     }
@@ -122,6 +207,7 @@ fn create(
     checkpoint: Option<&Checkpoint>,
     key: &NodeKey,
     asset: Option<&dyn ExternalAsset>,
+    max_packet: u64,
 ) -> Result<Box<dyn SettlementScheme>, SchemeError> {
     let balance = checkpoint.map(|c| c.balance);
     let account = || {
@@ -132,7 +218,7 @@ fn create(
     let node = || Name::new(key.node_id().as_str()).map_err(|_| SchemeError::InvalidData);
     let state = checkpoint.map_or(&[][..], |c| c.state.as_slice());
     match id {
-        "stub" => Ok(Box::new(Stub::new(config, balance)?)),
+        "stub" => Ok(Box::new(Stub::new(config, balance, state)?)),
         dassie_xrpl::scheme::SCHEME_ID => Ok(Box::new(XrplScheme::new(
             account()?,
             node()?,
@@ -151,6 +237,15 @@ fn create(
             balance,
             state,
         )?)),
+        dassie_hub::member::SCHEME_ID => {
+            let any: Option<&dyn core::any::Any> = asset.map(|asset| asset as _);
+            let account = any
+                .and_then(|asset| asset.downcast_ref::<dassie_hub::member::HubAccount>())
+                .ok_or(SchemeError::InvalidConfig)?;
+            Ok(Box::new(dassie_hub::member::HubScheme::new(
+                account, max_packet, balance, state,
+            )?))
+        }
         #[cfg(test)]
         super::tests::WITNESS => Ok(Box::new(super::tests::Witness)),
         _ => Err(SchemeError::UnknownScheme),
@@ -201,6 +296,13 @@ pub enum LedgerEvent {
     Disconnected,
     /// The faucet answered, or did not.
     Funded(bool),
+    /// A hub's validator at `endpoint` answered.
+    From {
+        /// Its place in the hub's rules.
+        endpoint: usize,
+        /// What it said.
+        message: Vec<u8>,
+    },
 }
 
 /// How a scheme stands, as the owner sees it: its asset's status until the
@@ -229,8 +331,15 @@ impl Core {
     ) -> Result<MadeScheme, EngineError> {
         let invalid = |error: SchemeError| EngineError::Invalid(error.to_string());
         let Some(asset) = asset_of(id.as_str()) else {
-            let scheme =
-                create(id.as_str(), config, checkpoint, &self.key, None).map_err(invalid)?;
+            let scheme = create(
+                id.as_str(),
+                config,
+                checkpoint,
+                &self.key,
+                None,
+                self.settle.max_packet,
+            )
+            .map_err(invalid)?;
             return Ok((scheme, None));
         };
         let new = !self.assets.contains_key(&asset);
@@ -240,7 +349,9 @@ impl Core {
                 .get(&asset)
                 .cloned()
                 .unwrap_or_default();
-            let made = create_asset(asset, config, &state, &self.key).map_err(invalid)?;
+            let window_ms = self.connector.config().message_window_ms;
+            let made =
+                create_asset(asset, config, &state, (&self.key, window_ms)).map_err(invalid)?;
             self.assets.insert(
                 asset,
                 ActiveAsset {
@@ -258,6 +369,7 @@ impl Core {
                 checkpoint,
                 &self.key,
                 Some(active.asset.as_ref()),
+                self.settle.max_packet,
             )
             .map_err(invalid),
             _ => Err(EngineError::Precondition(
@@ -315,6 +427,10 @@ impl Core {
             LedgerEvent::Message(bytes) => LedgerInput::Message(bytes),
             LedgerEvent::Disconnected => LedgerInput::Disconnected,
             LedgerEvent::Funded(ok) => LedgerInput::Funded(*ok),
+            LedgerEvent::From { endpoint, message } => LedgerInput::From {
+                endpoint: *endpoint,
+                message,
+            },
         };
         active.asset.on_ledger(now, input);
         self.asset_heard(id);
@@ -416,9 +532,9 @@ impl Core {
                     epoch,
                     message,
                 }),
-                // Only a settlement hub's account names endpoints, and no
-                // node registers one yet: its driver comes with it.
-                AssetEffect::SendTo { .. } => {}
+                AssetEffect::SendTo { endpoint, message } => {
+                    self.send_to_validator(asset, epoch, endpoint, message);
+                }
                 AssetEffect::Reconnect => self.connect_asset(asset),
                 AssetEffect::Fund { url, body } => self.outputs_peer.push(Output::Fund {
                     asset: asset.to_string(),
@@ -536,6 +652,32 @@ impl Core {
             .filter(|(id, _)| !self.live_schemes_on(**id).is_empty())
             .filter_map(|(_, active)| active.asset.deadline())
             .min()
+    }
+
+    /// Sends a hub account's message to the validator at `endpoint`,
+    /// pinned to its node key (spec/areas/hubs.md#the-members-side).
+    fn send_to_validator(&mut self, asset: AssetId, epoch: u64, endpoint: usize, message: Vec<u8>) {
+        let Some(active) = self.assets.get(&asset) else {
+            return;
+        };
+        let any: &dyn core::any::Any = active.asset.as_ref();
+        let Some(account) = any.downcast_ref::<dassie_hub::member::HubAccount>() else {
+            return;
+        };
+        let (Some(node), Some(address)) = (
+            account.validator_node(endpoint),
+            active.asset.endpoints().get(endpoint).cloned(),
+        ) else {
+            return;
+        };
+        self.outputs_peer.push(Output::HubSend {
+            asset: asset.to_string(),
+            epoch,
+            endpoint,
+            node: Box::new(node),
+            address,
+            message,
+        });
     }
 
     /// Opens an asset's connection, anew if it had one: the asset is told

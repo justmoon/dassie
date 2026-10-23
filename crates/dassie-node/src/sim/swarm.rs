@@ -219,7 +219,7 @@ impl Options {
         let nodes = 2 + usize::try_from(rng.below(11)).unwrap();
         let bootstraps = 1 + usize::try_from(rng.below(3)).unwrap().min(nodes - 1);
         let settling = if rng.below(2) == 0 {
-            Settling::Stub
+            stub_or_hub(seed)
         } else {
             Settling::Xrpl
         };
@@ -275,6 +275,19 @@ impl Options {
         (0..self.nodes)
             .map(|_| i64::try_from(rng.below(2 * self.skew_ms + 1)).unwrap() - skew)
             .collect()
+    }
+}
+
+/// What a run over the stub settles over: in one seed in four, the stub
+/// with commitments, so that packets take the path over a settlement hub,
+/// with room for 1, 2, 4 or 8 packets in flight per peer each way. Its own
+/// generator, so that it draws nothing else's.
+fn stub_or_hub(seed: u64) -> Settling {
+    let mut rng = SeededRng::new(seed ^ 0x6875_6240);
+    if rng.below(4) == 0 {
+        Settling::StubHub(1 << rng.below(4))
+    } else {
+        Settling::Stub
     }
 }
 

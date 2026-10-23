@@ -527,6 +527,10 @@ fn any_reference(kind: u8) -> Reference {
             scheme: stub,
             id: stub,
         },
+        7 => Reference::Loss {
+            scheme: stub,
+            id: stub,
+        },
         _ => Reference::Settlement {
             scheme: stub,
             id: Name::new("damaged").unwrap(),

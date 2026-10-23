@@ -31,7 +31,7 @@ const SEEDS: Range<u64> = 0..16;
 /// forty or so, for a fixed handful to be sure to reach it:
 /// `a_settlement_that_lands_after_the_end_is_credited_once` in
 /// `tests/network.rs` reaches it every time.
-const LEAST: [(&str, u64); 24] = [
+const LEAST: [(&str, u64); 25] = [
     ("payments", 10),
     ("capped payments", 1),
     ("outgoing payments", 1),
@@ -56,6 +56,7 @@ const LEAST: [(&str, u64); 24] = [
     ("partitions", 5),
     ("partitions longer than the silence that ends a peering", 1),
     ("peerings ended for silence", 5),
+    ("prepares over a hub", 20),
 ];
 
 #[test]

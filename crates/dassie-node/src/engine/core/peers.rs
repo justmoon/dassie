@@ -80,7 +80,7 @@ impl Hooks<'_> {
 enum Inbound {
     Reply(Reply),
     Deferred,
-    Packet(NodeId, u32, Vec<u8>, PacketAnswer),
+    Packet(NodeId, u32, Vec<u8>, Option<Vec<u8>>, PacketAnswer),
     Settlement(NodeId, SchemeId, u64, Vec<u8>, u64, Reply),
     SchemeMessage(NodeId, SchemeId, Vec<u8>, Reply),
     SettlementRequest(NodeId, SchemeId, dassie_peer::SettlementAnswer),
@@ -134,9 +134,11 @@ impl PeeringHooks for Hooks<'_> {
             .scheme(scheme)
             .ok_or(RefusalReason::UnsupportedScheme)?;
         let ledger = active.scheme.ledger();
+        let hub = active.over_hub;
         // We accept, so we are the senior: the requester gets our credit
         // only once the peering earned it (spec/decisions/earned-trust.md).
-        let start = self.senior_credit;
+        // Over a hub the hold is all the credit there is.
+        let start = if hub { 0 } else { self.senior_credit };
         let credit_out = self.credit_for(peer, ledger, start);
         let active = self
             .scheme(scheme)
@@ -170,8 +172,10 @@ impl PeeringHooks for Hooks<'_> {
         let active = self.scheme(scheme).ok_or(Declined)?;
         let ledger = active.scheme.ledger();
         // Our request was accepted, so we are the junior, and extend the
-        // default credit line (spec/decisions/earned-trust.md).
-        let start = self.credit;
+        // default credit line (spec/decisions/earned-trust.md). Over a hub
+        // the hold is all the credit there is.
+        let hub = active.over_hub;
+        let start = if hub { 0 } else { self.credit };
         let credit_out = self.credit_for(peer, ledger, start);
         let active = self.scheme(scheme).ok_or(Declined)?;
         let state = active
@@ -184,7 +188,9 @@ impl PeeringHooks for Hooks<'_> {
         // time we were the senior: a junior extends at least the default,
         // unless we ended a peering with it for room, which keeps what it
         // had (spec/decisions/ended-for-room.md).
-        let credit_out = if credit_out < start && !ended_for_room {
+        let credit_out = if hub {
+            0
+        } else if credit_out < start && !ended_for_room {
             self.raise(now_ms, peer, ledger, start - credit_out)
                 .map_err(|()| Declined)?;
             start
@@ -196,10 +202,14 @@ impl PeeringHooks for Hooks<'_> {
         Ok(Agreed { state, credit_out })
     }
 
-    // No scheme settles over a hub yet
-    // (spec/designs/settlement-hubs.md#13-how-it-fits-the-node).
-    fn uses_commitments(&self, _scheme: SchemeId) -> bool {
-        false
+    /// A peering over a hub carries a commitment with each Prepare and a
+    /// claim in each reply to a Fulfill
+    /// (spec/designs/settlement-hubs.md#13-how-it-fits-the-node).
+    fn uses_commitments(&self, scheme: SchemeId) -> bool {
+        Name::new(scheme.as_str())
+            .ok()
+            .and_then(|name| self.schemes.get(&name))
+            .is_some_and(|active| active.over_hub)
     }
 
     fn drained(&self, peer: NodeId) -> bool {
@@ -369,15 +379,19 @@ impl Core {
             match peer.handle_inbound(now, hooks, inbound, body, source) {
                 dassie_peer::Inbound::Reply(reply) => Inbound::Reply(reply),
                 dassie_peer::Inbound::Deferred => Inbound::Deferred,
-                // No scheme uses commitments yet, so none comes with a
-                // packet.
                 dassie_peer::Inbound::Packet {
                     from,
                     request_id,
                     packet,
-                    commitment: _,
+                    commitment,
                     answer,
-                } => Inbound::Packet(from, request_id, packet.to_vec(), answer),
+                } => Inbound::Packet(
+                    from,
+                    request_id,
+                    packet.to_vec(),
+                    commitment.map(<[u8]>::to_vec),
+                    answer,
+                ),
                 dassie_peer::Inbound::Settlement {
                     from,
                     scheme,
@@ -402,10 +416,8 @@ impl Core {
         let reply = match outcome {
             Inbound::Reply(reply) => Some(reply),
             Inbound::Deferred => None,
-            Inbound::Packet(from, request_id, packet, answer) => {
-                self.peer_packet(from, request_id, &packet);
-                // Nothing after the verdict: no peering is over a hub yet.
-                Some(answer.reply(&[]))
+            Inbound::Packet(from, request_id, packet, commitment, answer) => {
+                Some(self.packet_inbound(from, request_id, &packet, commitment.as_deref(), answer))
             }
             Inbound::Settlement(from, scheme, amount, data, sequence, reply) => {
                 Some(self.settlement_from(from, scheme, amount, &data, sequence, reply))
@@ -423,6 +435,34 @@ impl Core {
             self.outputs_peer.push(Output::PeerReply { inbound, reply });
         }
         self.after_peer();
+    }
+
+    /// An ILP packet from a peer, and the reply to it. Over a hub, a
+    /// Prepare goes on only if its commitment covers it, and the reply to a
+    /// Fulfill carries our claim after the verdict
+    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+    fn packet_inbound(
+        &mut self,
+        from: NodeId,
+        request_id: u32,
+        packet: &[u8],
+        commitment: Option<&[u8]>,
+        answer: dassie_peer::PacketAnswer,
+    ) -> Reply {
+        let now = self.now_ms;
+        let is_prepare = packet.first() == Some(&dassie_ilp::TYPE_PREPARE);
+        if is_prepare && !self.check_hub_prepare(now, &from, request_id, packet, commitment) {
+            return answer.reply(&[]);
+        }
+        let taken = self.peer_packet(from, request_id, packet);
+        if answer.takes_extra() {
+            let claim = self.hub_claim(now, &from, request_id, taken);
+            return answer.reply(&claim);
+        }
+        if !is_prepare {
+            self.hub_rejected(&from, request_id);
+        }
+        answer.reply(&[])
     }
 
     /// Applies a peer's settlement, once: refused with 400 if the books
@@ -541,9 +581,12 @@ impl Core {
         self.after_peer();
     }
 
-    /// Changes what our link state says: a new one follows (NET-6).
-    pub fn set_own_info(&mut self, info: dassie_peer::OwnInfo) {
+    /// Changes what our link state says: a new one follows (NET-6). The
+    /// hub it names is the core's: that of our hub account, if we are a
+    /// member.
+    pub fn set_own_info(&mut self, mut info: dassie_peer::OwnInfo) {
         let now = self.now_ms;
+        info.hub = self.hub_membership();
         self.peer.set_own_info(now, info);
         // Becoming a periphery node, or a core node again, changes how
         // packets from peers are routed.
@@ -584,6 +627,7 @@ impl Core {
             .collect();
         let now = self.now_ms;
         self.peer.set_schemes(now, schemes);
+        self.advertise_hub();
     }
 
     /// Takes in what the peer node did: its requests and replies to hand
@@ -613,6 +657,11 @@ impl Core {
                 self.update_routes();
             }
             Event::RoutesChanged => self.update_routes(),
+            Event::FulfillReply {
+                peer,
+                request_id,
+                extra,
+            } => self.hub_claim_received(self.now_ms, &peer, request_id, &extra),
             // Asked again at the next check, not a minute later: a junior
             // that had not yet taken in our acceptance pays in advance at
             // once (spec/decisions/own-fulfills.md), and a request that never
@@ -640,6 +689,8 @@ impl Core {
                 // one that may have is left to expire, so a peer that
                 // fulfilled it does not bear its loss.
                 if definite && let Some(&endpoint) = self.peer_endpoints.get(&peer) {
+                    // Over a hub, the scheme forgets the commitment too.
+                    self.hub_rejected(&peer, request_id);
                     self.connector.fail_forwarded(
                         self.now_ms,
                         EndpointId::Peer(endpoint),
@@ -737,6 +788,15 @@ impl Core {
         self.endpoint_peers.insert(id, node);
         if !self.peer.reachable(&node) {
             self.connector.set_unreached(EndpointId::Peer(id), true);
+        }
+        let over_hub = self
+            .schemes
+            .get(&scheme)
+            .is_some_and(|active| active.over_hub);
+        if over_hub {
+            // A packet that timed out waits for the hub before it is
+            // rejected upstream (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+            self.connector.set_hub(EndpointId::Peer(id), true);
         }
         Ok(())
     }

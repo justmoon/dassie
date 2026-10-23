@@ -38,6 +38,44 @@ pub struct Decided {
     pub fulfillment: Option<[u8; 32]>,
 }
 
+/// What a scheme holds of the packets between us and one peer, for tests
+/// and simulations to check against the node's connector
+/// (spec/areas/testing.md#the-simulations).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Held {
+    /// Our Prepares to the peer it committed to that are neither answered
+    /// nor decided.
+    pub ours: usize,
+    /// The peer's Prepares whose commitments it took that are neither
+    /// fulfilled nor released.
+    pub theirs: usize,
+    /// The peer's Prepares we fulfilled that no claim of the peer's covers
+    /// yet.
+    pub unclaimed: usize,
+}
+
+/// The holds between us and one peer on a hub, in the ledger's internal
+/// units, as the scheme last read them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HoldsWith {
+    /// What is left in our hold toward the peer: our money, set aside for
+    /// it, which comes back to us if the hold is released.
+    pub toward: u64,
+    /// What is left in the peer's hold toward us, which secures what it
+    /// owes us.
+    pub from: u64,
+}
+
+/// Our membership of a hub, as our link state names it
+/// (spec/designs/settlement-hubs.md#11-choosing-a-hub).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Membership {
+    /// The hub's ID.
+    pub hub: [u8; 32],
+    /// Our account number in it.
+    pub account: u32,
+}
+
 /// The side of a scheme that signs and takes promises per packet.
 pub trait Commitments {
     /// As the payer: the commitment to send with our Prepare `request_id`
@@ -119,4 +157,28 @@ pub trait Commitments {
 
     /// Moves the waits the hub has decided into `out`, oldest first.
     fn take_decided(&mut self, out: &mut Vec<Decided>);
+
+    /// The holds between us and `peer`, as the scheme last read them: what
+    /// the node keeps the credit it extends to the peer in step with
+    /// (spec/areas/hubs.md#in-the-node). None, by default.
+    fn holds(&self, peer: Name) -> HoldsWith {
+        let _ = peer;
+        HoldsWith::default()
+    }
+
+    /// The hub we are a member of, once we have an account in it: what
+    /// our link state names, so that peers in the same hub peer with us
+    /// over it. None, by default.
+    fn membership(&self) -> Option<Membership> {
+        None
+    }
+
+    /// Adds to `out` what it holds for each peer it holds anything for, in
+    /// the order of their names, for tests and simulations to check against
+    /// the node. Whether it counts them: a scheme that does not adds nothing
+    /// and says so.
+    fn held(&self, out: &mut Vec<(Name, Held)>) -> bool {
+        let _ = out;
+        false
+    }
 }

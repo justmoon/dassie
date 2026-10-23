@@ -308,8 +308,10 @@ fn list_schemes(node: &Node) -> Result<Reply, RpcError> {
         .store()
         .settlement_schemes()
         .map_err(RpcError::internal)?;
+    let is_active = |id: &str| active.iter().any(|(active, _)| active.as_str() == id);
     let schemes = crate::engine::SCHEMES
         .iter()
+        .filter(|info| crate::engine::offered(info.id) || is_active(info.id))
         .map(|info| {
             let asset = info.ledger.asset();
             proto::SettlementSchemeInfo {
@@ -319,7 +321,7 @@ fn list_schemes(node: &Node) -> Result<Reply, RpcError> {
                 asset_code: asset.code.into(),
                 asset_scale: asset.scale.into(),
                 realm: realm(info.ledger.realm()).into(),
-                active: active.iter().any(|(id, _)| id.as_str() == info.id),
+                active: is_active(info.id),
             }
         })
         .collect();
@@ -555,6 +557,9 @@ fn transfer(row: &JournalRow) -> proto::Transfer {
         Reference::Reconciliation => proto::transfer::Reference::Other("reconciliation".into()),
         Reference::Refusal(trace) => proto::transfer::Reference::Refusal(trace_id(trace)),
         Reference::Fee { scheme, id } => proto::transfer::Reference::Fee(format!("{scheme}:{id}")),
+        Reference::Loss { scheme, id } => {
+            proto::transfer::Reference::Loss(format!("{scheme}:{id}"))
+        }
     };
     let state = match row.state {
         TransferState::Pending => proto::TransferState::Pending,

@@ -352,6 +352,12 @@ impl PeerNode {
         &self.config
     }
 
+    /// What we say about ourselves.
+    #[must_use]
+    pub const fn own_info(&self) -> &OwnInfo {
+        &self.own_info
+    }
+
     /// Changes what we say about ourselves: a new link state follows
     /// (NET-6).
     pub fn set_own_info(&mut self, now_ms: u64, info: OwnInfo) {

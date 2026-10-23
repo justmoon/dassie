@@ -4,7 +4,8 @@ use dassie_ledger::{
     AccountId, AccountName, AccountPath, LedgerId, Name, Realm, Reference, TransferSpec,
 };
 use dassie_settlement::{
-    Activation, AssetId, Detach, Effect, LedgerStatus, SchemeError, SettlementScheme, activation,
+    Activation, AssetId, Detach, Effect, LedgerStatus, LossCause, SchemeError, SettlementScheme,
+    activation,
 };
 
 use super::Core;
@@ -23,6 +24,9 @@ pub(super) struct ActiveScheme {
     /// Why it stopped, if the books could not take what it said: it is fed
     /// nothing more until the node starts again.
     pub failed: Option<String>,
+    /// Whether its peerings are over a settlement hub: it signs and takes
+    /// promises per packet ([`SettlementScheme::commitments`]).
+    pub over_hub: bool,
 }
 
 /// A ledger as the owner sees it.
@@ -133,7 +137,8 @@ impl Core {
         checkpoint: Option<Checkpoint>,
         new: bool,
     ) -> Result<LedgerId, EngineError> {
-        let (scheme, asset) = self.make_scheme(id, &config, checkpoint.as_ref())?;
+        let (mut scheme, asset) = self.make_scheme(id, &config, checkpoint.as_ref())?;
+        let over_hub = scheme.commitments().is_some();
         let ledger = scheme.ledger();
         if let Err(error) = self.open_ledger(id, scheme.as_ref(), checkpoint.as_ref()) {
             if let Some(asset) = asset {
@@ -151,6 +156,7 @@ impl Core {
                 asset,
                 version: 0,
                 failed: None,
+                over_hub,
             },
         );
         if let Some(asset) = asset {
@@ -374,9 +380,23 @@ impl Core {
                         self.settlement_in(scheme, *peer, *amount, *id, spec);
                     }
                 }
-                // Only a settlement hub's scheme reports it, which no node
-                // registers yet: the booking comes with it.
-                Effect::PeerLoss { .. } => {}
+                Effect::PeerLoss {
+                    peer,
+                    amount,
+                    cause,
+                    ..
+                } => {
+                    self.report(SettlementEvent::PeerLoss {
+                        scheme,
+                        peer: *peer,
+                        amount: *amount,
+                        cause: *cause,
+                    });
+                    self.book(booking);
+                    if *cause == LossCause::Cheated {
+                        self.end_for_cheating(*peer);
+                    }
+                }
                 Effect::Finalize { settlement: id } => self.settlement_done(scheme, *id),
                 Effect::Cancel { settlement: id } => self.settlement_cancelled(scheme, *id),
                 Effect::SendMessage { peer, message } => {
@@ -409,67 +429,23 @@ impl Core {
         ledger: LedgerId,
         effects: &[Effect],
     ) -> Result<Vec<Option<TransferSpec>>, EngineError> {
-        let settlement = self.account(ledger, AccountName::AssetsSettlement)?;
-        let owner = self.account(ledger, AccountName::EquityOwner)?;
-        let suspense = self.account(ledger, AccountName::EquitySuspense)?;
+        let accounts = [
+            self.account(ledger, AccountName::AssetsSettlement)?,
+            self.account(ledger, AccountName::EquityOwner)?,
+            self.account(ledger, AccountName::EquitySuspense)?,
+        ];
         let mut bookings = Vec::with_capacity(effects.len());
         for effect in effects {
-            let (debit, credit, amount, reference) = match effect {
-                Effect::Deposit { amount } => (settlement, owner, *amount, Reference::Deposit),
-                Effect::Withdrawal { amount } => {
-                    (owner, settlement, *amount, Reference::Withdrawal)
-                }
-                Effect::Reconcile {
-                    amount, gain: true, ..
-                } => (settlement, suspense, *amount, Reference::Reconciliation),
-                Effect::Reconcile {
+            let booking = self.effect_transfer(scheme, ledger, accounts, effect)?;
+            bookings.push(
+                booking.map(|(debit, credit, amount, reference)| TransferSpec {
+                    debit,
+                    credit,
                     amount,
-                    gain: false,
-                    ..
-                } => (suspense, settlement, *amount, Reference::Reconciliation),
-                Effect::Fee { amount, id } => {
-                    let fees = self.account(ledger, AccountName::ExpensesFees)?;
-                    (
-                        fees,
-                        settlement,
-                        *amount,
-                        Reference::Fee { scheme, id: *id },
-                    )
-                }
-                // A peer with no accounts on the ledger cannot have settled
-                // with us: what it sent is a deposit. One without an ID
-                // gets the next transfer's as it is booked, which the check
-                // does not look at: a settlement is not a report either way.
-                Effect::IncomingSettlement { peer, amount, id } => {
-                    let path = AccountPath::new(ledger, AccountName::AssetsInterledger(*peer));
-                    match self.ledger.find(&path) {
-                        Some(interledger) => (
-                            settlement,
-                            interledger,
-                            *amount,
-                            Reference::Settlement {
-                                scheme,
-                                id: id.unwrap_or(scheme),
-                            },
-                        ),
-                        None => (settlement, owner, *amount, Reference::Deposit),
-                    }
-                }
-                Effect::Finalize { .. }
-                | Effect::Cancel { .. }
-                | Effect::SendMessage { .. }
-                | Effect::PeerLoss { .. } => {
-                    bookings.push(None);
-                    continue;
-                }
-            };
-            bookings.push(Some(TransferSpec {
-                debit,
-                credit,
-                amount,
-                pending: false,
-                reference,
-            }));
+                    pending: false,
+                    reference,
+                }),
+            );
         }
         // Nothing to book for nothing: the journal holds no empty transfers.
         let specs: Vec<TransferSpec> = bookings
@@ -482,6 +458,92 @@ impl Core {
             .validate_posted(&specs)
             .map_err(|(_, error)| EngineError::Invalid(error.to_string()))?;
         Ok(bookings)
+    }
+
+    /// What one of a scheme's effects books, if anything: debit, credit,
+    /// amount and reference. `accounts` are the ledger's settlement, owner
+    /// and suspense accounts.
+    fn effect_transfer(
+        &self,
+        scheme: Name,
+        ledger: LedgerId,
+        accounts: [AccountId; 3],
+        effect: &Effect,
+    ) -> Result<Option<(AccountId, AccountId, u64, Reference)>, EngineError> {
+        let [settlement, owner, suspense] = accounts;
+        let transfer = match effect {
+            Effect::Deposit { amount } => (settlement, owner, *amount, Reference::Deposit),
+            Effect::Withdrawal { amount } => (owner, settlement, *amount, Reference::Withdrawal),
+            Effect::Reconcile {
+                amount, gain: true, ..
+            } => (settlement, suspense, *amount, Reference::Reconciliation),
+            Effect::Reconcile {
+                amount,
+                gain: false,
+                ..
+            } => (suspense, settlement, *amount, Reference::Reconciliation),
+            Effect::Fee { amount, id } => {
+                let fees = self.account(ledger, AccountName::ExpensesFees)?;
+                (
+                    fees,
+                    settlement,
+                    *amount,
+                    Reference::Fee { scheme, id: *id },
+                )
+            }
+            // A peer with no accounts on the ledger cannot have settled
+            // with us: what it sent is a deposit. One without an ID
+            // gets the next transfer's as it is booked, which the check
+            // does not look at: a settlement is not a report either way.
+            Effect::IncomingSettlement { peer, amount, id } => {
+                let path = AccountPath::new(ledger, AccountName::AssetsInterledger(*peer));
+                match self.ledger.find(&path) {
+                    Some(interledger) => (
+                        settlement,
+                        interledger,
+                        *amount,
+                        Reference::Settlement {
+                            scheme,
+                            id: id.unwrap_or(scheme),
+                        },
+                    ),
+                    None => (settlement, owner, *amount, Reference::Deposit),
+                }
+            }
+            Effect::PeerLoss {
+                peer,
+                amount,
+                cause,
+                id,
+            } => self.loss_transfer(scheme, ledger, settlement, *peer, *cause, *amount, *id)?,
+            Effect::Finalize { .. } | Effect::Cancel { .. } | Effect::SendMessage { .. } => {
+                return Ok(None);
+            }
+        };
+        Ok(Some(transfer))
+    }
+
+    /// What a peering over a hub cost beyond its hold: Dr `expenses/losses`,
+    /// Cr the account the money left, as its cause says.
+    #[allow(clippy::too_many_arguments)]
+    fn loss_transfer(
+        &self,
+        scheme: Name,
+        ledger: LedgerId,
+        settlement: AccountId,
+        peer: Name,
+        cause: LossCause,
+        amount: u64,
+        id: Name,
+    ) -> Result<(AccountId, AccountId, u64, Reference), EngineError> {
+        let losses = self.account(ledger, AccountName::ExpensesLosses)?;
+        let from = match cause {
+            LossCause::ClaimFee => settlement,
+            LossCause::PaidLate | LossCause::Cheated => {
+                self.account(ledger, AccountName::AssetsInterledger(peer))?
+            }
+        };
+        Ok((losses, from, amount, Reference::Loss { scheme, id }))
     }
 
     /// Books a transfer of a batch the books checked whole.

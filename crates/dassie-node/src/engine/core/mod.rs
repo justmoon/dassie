@@ -14,6 +14,7 @@
 
 mod events;
 mod growth;
+mod hubs;
 mod incoming;
 mod invariants;
 mod ledgers;
@@ -45,6 +46,8 @@ use dassie_stream::BUFFER_LENGTH;
 pub use events::{
     BtpEvent, EngineEvent, Event, MAX_EVENTS, PaymentEvent, PeerEvent, SettlementEvent, Severity,
 };
+#[cfg(feature = "testing")]
+pub use hubs::HubPeer;
 pub use incoming::{IncomingPolicy, NewIncoming};
 pub use ledgers::{LedgerView, RemovalBlocker};
 pub use packets::ledger_slug;
@@ -53,7 +56,7 @@ pub use peers::{NetworkView, PeerView};
 pub use probes::{
     MAX_PROBES, MAX_PROBES_PER_CLIENT, Measured, OWNER_PROBES, PROBE_TIMEOUT_MS, Prober,
 };
-pub use schemes::{AssetView, LedgerEvent, SCHEMES};
+pub use schemes::{AssetView, LedgerEvent, SCHEMES, offered};
 pub use settlement::Lie;
 pub use tokens::{BtpSession, NewToken, TokenView, token_hash};
 
@@ -184,6 +187,23 @@ pub enum Output {
         asset: String,
         /// The connection.
         epoch: u64,
+        /// The message.
+        message: Vec<u8>,
+    },
+    /// Send a message to one validator of a settlement hub, for the hub
+    /// account `asset`; its answer comes back as [`LedgerEvent::From`]
+    /// with the same endpoint and epoch (spec/areas/hubs.md#the-members-side).
+    HubSend {
+        /// The asset's ID.
+        asset: String,
+        /// Its connection, which the answer is for.
+        epoch: u64,
+        /// The validator's place in the hub's rules.
+        endpoint: usize,
+        /// The validator's node key, which the connection is pinned to.
+        node: Box<dassie_identity::PublicKey>,
+        /// Where it is reached: `host:port`.
+        address: String,
         /// The message.
         message: Vec<u8>,
     },
@@ -586,6 +606,7 @@ impl Core {
         self.scheme_timers();
         self.settlement_timers();
         self.expire(self.now_ms);
+        self.hub_waits(self.now_ms);
         self.drain_local(self.now_ms);
         self.pump_outgoing(self.now_ms);
         self.flush();
@@ -662,6 +683,9 @@ impl Core {
     /// Moves what changed in memory into the batch, and builds the prices
     /// again if what they are built from changed.
     fn stage(&mut self) {
+        // The credit over a hub follows the holds the schemes' states keep,
+        // in the batch that keeps them.
+        self.sync_hub_credit();
         self.checkpoint_schemes();
         self.take_journal();
         self.take_cap_changes();

@@ -179,6 +179,7 @@ The node keeps a settlement channel with every node it has ever peered with (`cr
 A peering over a [settlement hub](hubs.md#the-members-side) settles by funding the payer's hold toward the payee, which is all the credit the payee extends: it extends nothing beyond it, and the credit does not grow with earnings ([settlement-hubs](../decisions/settlement-hubs.md)). Settling stays [on request](#settling-on-request), so the node's rules for settling are the same:
 
 - **Funding a hold is a settlement.** The payer books it as its outgoing settlement, finalized once agreed statements show the hold grew. The payee books it as an incoming settlement only then, from what the hub says, as the XRPL scheme books what its ledger reports: the settlement message books nothing.
+- **The payer's hold is its credit.** The credit the payer extends to the payee is its hold toward it and its settlements to it on their way ([Settlement hubs](hubs.md#in-the-node)): a `trust` transfer raises it before the funding's pending transfer is booked, so the books take a settlement the payer does not owe, and one back lowers it, Dr `assets/interledger/<peer>`, Cr `contra/trust/<peer>`, as the payee takes from the hold, never past what the peer may still owe us. Its settlement thus moves the payer's money into the hold without moving its room for the payee, and the payee's room for the payer grows by it.
 - **What a payee takes moves nothing in its books.** The holds toward it from its peers are part of what it holds on the hub's ledger, so a redeem or a claim moves money within `assets/settlement`, and books only its fee.
 - **A hold's reserve is the ledger's,** never booked, as the XRP Ledger's reserves are; opening a hold reconciles it out of the books.
 
@@ -187,6 +188,11 @@ A peering over a [settlement hub](hubs.md#the-members-side) settles by funding t
 Test money without an underlying ledger (`crates/dassie-settlement/src/stub.rs`). Its "ledger" is a number the checkpoint keeps; its first activation books a starting balance as the owner's deposit, and the owner may deposit more. It accepts every peering, and finalizes a settlement as it executes it; one still pending after a restart was never executed, so it is cancelled.
 
 A peer's settlement is believed as stated. Anyone peered over the stub can mint credit, which is why it only ever holds test money.
+
+**With commitments,** for tests of peerings over a settlement hub without a hub: given `{"commitments": N}`, the stub signs and takes promises per packet as a hub's member does ([Settlement hubs](hubs.md#in-the-node)), so the node sends a commitment with each Prepare to a peer on it, checks one with each Prepare from it, and carries a claim in each reply to a Fulfill. Every stub with commitments is a member of one pretend hub, so nodes on it peer over it.
+
+- **Packets.** It holds at most N of a peer's packets in flight, and N of ours to it, and refuses past that; a commitment is the Prepare's amount and condition, and a claim is fixed; it keeps a fulfillment until the payer's claim covers it, a bounded number per peer; and a packet that waits for the hub it decides at once without a fulfillment, as a hub whose final block passed the commitment's expiry with no claim for it. What it holds of packets is in memory, as the connector's packets are, so a restart forgets both together.
+- **Holds.** It emulates the holds as each side sees them: our settlement to a peer funds our hold toward it once it executes, with at most what the stub can spend, and the peer's settlement funds its hold toward us; a fulfilled packet is taken from the payer's hold as a redeem takes it, on the payer's side when it writes its claim for a Fulfill its books took, and on the payee's side when that claim arrives, or when it takes the packet as claimed on the hub. Its state keeps the holds across restarts; a plain stub has no state, and refuses one.
 
 ## Decisions
 

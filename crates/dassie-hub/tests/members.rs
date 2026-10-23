@@ -924,7 +924,7 @@ fn signed_commitment(bytes: &[u8]) -> Signed<Commitment> {
 /// the hold's reserve is the ledger's, never booked.
 #[test]
 fn a_hold_is_a_settlement_on_both_sides() {
-    let (world, a, b) = World::pair([Fault::Honest; 4], 2);
+    let (mut world, a, b) = World::pair([Fault::Honest; 4], 2);
     let books = &world.members[a].books;
     assert_eq!(books.finalized.len(), 1);
     assert_eq!(
@@ -945,6 +945,38 @@ fn a_hold_is_a_settlement_on_both_sides() {
         world.balance(a),
         98 * XRP - ACCOUNT_RESERVE - HOLD_RESERVE - 2 * FEE
     );
+    // Each side reports the hold, which the node's credit follows
+    // (spec/areas/hubs.md#in-the-node), and the hub it is a member of.
+    let (name_a, name_b) = (world.members[a].name, world.members[b].name);
+    let holds = |world: &mut World, i: usize, peer: Name| {
+        world.members[i].scheme.commitments().unwrap().holds(peer)
+    };
+    assert_eq!(
+        holds(&mut world, a, name_b),
+        dassie_settlement::HoldsWith {
+            toward: units(2 * XRP),
+            from: 0
+        }
+    );
+    assert_eq!(
+        holds(&mut world, b, name_a),
+        dassie_settlement::HoldsWith {
+            toward: 0,
+            from: units(2 * XRP)
+        }
+    );
+    for i in [a, b] {
+        let membership = world.members[i]
+            .scheme
+            .commitments()
+            .unwrap()
+            .membership()
+            .unwrap();
+        assert_eq!(
+            membership.account,
+            world.members[i].account.number().unwrap().0
+        );
+    }
 }
 
 /// `a` pays `b` across the hold; `b` takes its claims and redeems them
@@ -961,6 +993,22 @@ fn pays_across_the_hold(faults: [Fault; 4]) {
     let redeemed = world.validators.ledger.hold(hold).unwrap().total;
     assert!(redeemed >= XRP - 2 * P / 1_000, "redeemed {redeemed}");
     assert!(redeemed <= XRP);
+    // What the payee took left the hold, as both sides see it.
+    let (name_a, name_b) = (world.members[a].name, world.members[b].name);
+    let left = units(2 * XRP - redeemed);
+    let toward = world.members[a]
+        .scheme
+        .commitments()
+        .unwrap()
+        .holds(name_b)
+        .toward;
+    let from = world.members[b]
+        .scheme
+        .commitments()
+        .unwrap()
+        .holds(name_a)
+        .from;
+    assert_eq!((toward, from), (left, left));
     // Its fees: setting its disbursal address, and each redeem.
     let redeems = world.members[b].books.fees / i128::from(units(FEE)) - 1;
     assert!(
@@ -1506,4 +1554,26 @@ fn peering_again_as_another_waits_for_the_old_to_settle() {
             .accept_peering_request(name_a, &same, &mut out)
             .is_ok()
     );
+}
+
+/// A member asked to settle funds its hold with at most what its account
+/// can spend: what is left once the operation's fee is set aside
+/// (spec/areas/hubs.md#in-the-node).
+#[test]
+fn a_hold_is_funded_with_at_most_what_the_account_can_spend() {
+    let (mut world, a, b) = World::pair([Fault::Honest; 4], 2);
+    let spendable = world.balance(a) - FEE;
+    let settlement = world.settle(a, b, units(1_000 * XRP)).unwrap();
+    assert_eq!(
+        world.members[a].books.pending[&settlement].1,
+        units(spendable)
+    );
+    world.run(1_000);
+    assert!(world.members[a].books.finalized.contains(&settlement));
+    let hold = world.hold(a, b).unwrap();
+    assert_eq!(
+        world.validators.ledger.hold(hold).unwrap().amount,
+        2 * XRP + spendable
+    );
+    assert_eq!(world.balance(a), 0);
 }
