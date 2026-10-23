@@ -42,6 +42,8 @@ pub enum Domain {
     Claim,
     /// The outcome of an operation in a block.
     Result,
+    /// What a validator tells a member the log holds.
+    Statement,
 }
 
 impl Domain {
@@ -59,6 +61,7 @@ impl Domain {
             Self::Commitment => b"dassie-hub/commitment",
             Self::Claim => b"dassie-hub/claim",
             Self::Result => b"dassie-hub/result",
+            Self::Statement => b"dassie-hub/statement",
         }
     }
 }
