@@ -85,6 +85,7 @@ impl From<dassie_settlement::Effect> for Effect {
                 gain,
                 cause,
             },
+            E::PeerLoss { .. } => panic!("an XRPL scheme books no peer losses"),
         }
     }
 }
@@ -95,6 +96,7 @@ impl From<AssetEffect> for Effect {
             AssetEffect::Send { message } => Self::LedgerSend { message },
             AssetEffect::Reconnect => Self::Reconnect,
             AssetEffect::Fund { url, body } => Self::Fund { url, body },
+            AssetEffect::SendTo { .. } => panic!("an XRPL account names no endpoints"),
         }
     }
 }

@@ -374,6 +374,9 @@ impl Core {
                         self.settlement_in(scheme, *peer, *amount, *id, spec);
                     }
                 }
+                // Only a settlement hub's scheme reports it, which no node
+                // registers yet: the booking comes with it.
+                Effect::PeerLoss { .. } => {}
                 Effect::Finalize { settlement: id } => self.settlement_done(scheme, *id),
                 Effect::Cancel { settlement: id } => self.settlement_cancelled(scheme, *id),
                 Effect::SendMessage { peer, message } => {
@@ -452,7 +455,10 @@ impl Core {
                         None => (settlement, owner, *amount, Reference::Deposit),
                     }
                 }
-                Effect::Finalize { .. } | Effect::Cancel { .. } | Effect::SendMessage { .. } => {
+                Effect::Finalize { .. }
+                | Effect::Cancel { .. }
+                | Effect::SendMessage { .. }
+                | Effect::PeerLoss { .. } => {
                     bookings.push(None);
                     continue;
                 }

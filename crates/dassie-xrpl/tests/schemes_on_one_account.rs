@@ -137,6 +137,7 @@ impl Shared {
                 AssetEffect::Send { message } => self.request(&message),
                 AssetEffect::Reconnect => self.connect(),
                 AssetEffect::Fund { .. } => panic!("the account exists"),
+                AssetEffect::SendTo { .. } => panic!("an XRPL account names no endpoints"),
             }
         }
     }

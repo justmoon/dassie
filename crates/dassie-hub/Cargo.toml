@@ -1,7 +1,7 @@
 [package]
 name = "dassie-hub"
 version = "0.2.6"
-description = "Settlement hubs for Dassie as sans-IO code: the hub's rules, its ledger and operations, Simplex consensus and the escrow's payout sets"
+description = "Settlement hubs for Dassie as sans-IO code: the hub's rules, its ledger and operations, Simplex consensus, the escrow's payout sets, and a member's account and settlement scheme"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -18,6 +18,12 @@ sim = ["dep:dassie-node-core"]
 
 [dependencies]
 dassie-identity = { path = "../dassie-identity" }
+# The member's side: the hub's ledger in the node's books, its account as an
+# external asset and its settlement scheme (spec/areas/hubs.md#the-members-side).
+dassie-ledger = { path = "../dassie-ledger" }
+dassie-settlement = { path = "../dassie-settlement" }
+# The RNG trait of the scheme interface only: the caller injects it.
+rand_core = { version = "0.10", default-features = false }
 dassie-node-core = { path = "../dassie-node-core", features = ["testing"], optional = true }
 dassie-oer = { path = "../dassie-oer", default-features = false, features = ["alloc"] }
 # The escrow's transactions, keys and the records validators read.

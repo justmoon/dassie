@@ -53,6 +53,16 @@ pub const fn minimum(max_packet: u64) -> u64 {
     max_packet
 }
 
+/// What a payee over a settlement hub lets its payer's claims add before
+/// it redeems them: two of the largest packets. Each redeem costs the
+/// hub's fee, so it waits for more than a packet; what it has not taken is
+/// lost if the hub fails, so it waits for little more
+/// (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+#[must_use]
+pub const fn redeem_threshold(max_packet: u64) -> u64 {
+    max_packet.saturating_mul(2)
+}
+
 /// The least credit that keeps a link settling after a crash drifted the
 /// two sides' books apart by `drift`. Asked at the asker's trigger, a
 /// debtor settles only if its own books leave it its trigger plus twice the
@@ -144,6 +154,7 @@ mod tests {
     #[test]
     fn the_thresholds_follow_the_largest_packet() {
         assert_eq!((T, M), (150_000_000, 100_000_000));
+        assert_eq!(redeem_threshold(P), 200_000_000);
         // Two triggers, twice the minimum, and a crash's drift at the cap
         // of two and a half packets in flight: 0.75 units.
         assert_eq!(least_credit(P, 250_000_000), 750_000_000);

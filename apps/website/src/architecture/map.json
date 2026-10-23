@@ -430,8 +430,8 @@
         "Gas: a holding one scheme spends and another settles in is spent only within the owner's funds",
         "The stub scheme: 100 test USD, so everything works without a real ledger",
         "The settlement policy: when a creditor asks a peer to settle, and how much the debtor pays, counted in the largest packet",
-        "Reconciling settlements still pending after a restart",
-        "Commitments: the side of a scheme whose peerings carry a signed promise with every packet, as a settlement hub's do, so the payee can take what it is owed without the payer's help"
+        "Promises per packet, for schemes whose peerings carry them, as a settlement hub's do, and assets that talk to several endpoints, such as a hub's validators",
+        "Reconciling settlements still pending after a restart"
       ]
     },
     "hub": {
@@ -452,7 +452,8 @@
         "Test network resets written off in place",
         "The escrow on the XRP Ledger: the validators' keys, the sponsor's setup and its check, withdrawals, and the payout set that pays everyone out at the end",
         "A validator's service, without IO: consensus and the ledger together, a bounded pool of operations with room kept for deadlines, the escrow's signatures gathered from the validators' keys only, and snapshots of the state checked against a certified root",
-        "What members and validators say to each other: requests, and statements a validator signs alone, which a member trusts once f + 1 validators signed them alike"
+        "What members and validators say to each other: requests, and statements a validator signs alone, which a member trusts once f + 1 validators signed them alike",
+        "A member's side: its account in the hub, which trusts what enough validators sign alike and reads the log in order, and the hub-xrp-testnet scheme on it, which funds holds, signs and checks the promises each packet carries, and claims on the hub what its peer's claims leave out"
       ]
     },
     "peer": {
@@ -1159,6 +1160,18 @@
       "t": "xrpl",
       "k": "uses",
       "h": false
+    },
+    {
+      "f": "hub",
+      "t": "settlement",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "hub",
+      "t": "ledger",
+      "k": "uses",
+      "h": true
     },
     {
       "f": "hub",

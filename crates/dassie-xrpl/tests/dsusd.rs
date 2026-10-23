@@ -94,6 +94,7 @@ impl Books {
                 self.pending.remove(&settlement).unwrap();
             }
             Effect::SendMessage { .. } => {}
+            Effect::PeerLoss { .. } => panic!("an XRPL scheme books no peer losses"),
         }
     }
 
@@ -249,6 +250,7 @@ impl World {
                     self.input(index, LedgerInput::Connected);
                 }
                 AssetEffect::Fund { .. } => panic!("the faucet funded the account"),
+                AssetEffect::SendTo { .. } => panic!("an XRPL account names no endpoints"),
             }
         }
     }
