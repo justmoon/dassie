@@ -781,12 +781,51 @@ impl Core {
     /// (spec/areas/connector.md#a-periphery-node): of every peering, or,
     /// if `connected`, of those whose uplink is confirmed now, best first.
     pub(super) fn child_addresses(&self, connected: bool) -> Vec<String> {
-        let own = self.peer.own();
         self.peer
             .core_peers()
             .filter(|(id, _)| !connected || self.peer.is_advertised(id))
-            .map(|(id, _)| format!("{}.das.{id}.{own}", self.allocation_scheme))
+            .map(|(id, _)| self.child_address(id))
             .collect()
+    }
+
+    /// The address beneath `uplink`, `<uplink's address>.<our ID>`: the
+    /// one rule [`Self::child_addresses`] and [`Self::address_beneath`]
+    /// share, so the two never disagree.
+    fn child_address(&self, uplink: &NodeId) -> String {
+        format!(
+            "{}.das.{uplink}.{}",
+            self.allocation_scheme,
+            self.peer.own()
+        )
+    }
+
+    /// Where a periphery node is paid beneath the uplink its owner chose
+    /// (spec/areas/payments.md#receiving): only one confirmed now, as
+    /// [`Self::receiving_address`] would pick among.
+    ///
+    /// # Errors
+    ///
+    /// A core node, which is paid at its own address, or `uplink` is not
+    /// an uplink confirmed now.
+    pub(super) fn address_beneath(&self, uplink: &NodeId) -> Result<String, EngineError> {
+        if !self.peer.is_periphery() {
+            return Err(EngineError::Precondition(
+                "a core node is paid at its own address, beneath no uplink".into(),
+            ));
+        }
+        if !self.peer.is_advertised(uplink) {
+            return Err(EngineError::Precondition(format!(
+                "{uplink} is not a confirmed uplink"
+            )));
+        }
+        let address = self.child_address(uplink);
+        // A confirmed uplink is a core peering, so the connector holds the
+        // address: what a payment's packets reach it at.
+        assert!(
+            self.child_addresses(false).contains(&address),
+            "the address beneath a confirmed uplink is not the node's"
+        );
+        Ok(address)
     }
 
     /// Where a periphery node is paid now: beneath an uplink it is

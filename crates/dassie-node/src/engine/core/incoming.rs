@@ -33,6 +33,7 @@
 
 use std::collections::BTreeMap;
 
+use dassie_identity::NodeId;
 use dassie_ilp::ErrorCode;
 use dassie_ledger::LedgerId;
 use dassie_stream::{Admission, Credentials, ErrorCode as StreamErrorCode};
@@ -209,6 +210,9 @@ pub struct NewIncoming {
     pub expires_at_ms: Option<u64>,
     /// The creator's metadata, as JSON.
     pub metadata: Option<String>,
+    /// On a periphery node, the confirmed uplink whose address its
+    /// credentials name; none for the one the node picks.
+    pub uplink: Option<NodeId>,
 }
 
 /// Most completed incoming payments remembered, to tell their senders.
@@ -404,12 +408,24 @@ impl Core {
         id: PaymentId,
         ledger: LedgerId,
     ) -> Result<Credentials, EngineError> {
-        let mut key = [0u8; 16];
-        self.rng.fill_bytes(&mut key);
-        let tag = connection_tag(id, ConnectionKey::from_random(key));
         // A periphery node is paid beneath an uplink it is connected to
         // (spec/areas/connector.md#a-periphery-node).
         let child = self.receiving_address();
+        self.credentials_beneath(id, ledger, child)
+    }
+
+    /// New credentials for an incoming payment on `ledger`, at `child`, an
+    /// address of a periphery node's beneath an uplink, or at the node's
+    /// own address if none.
+    fn credentials_beneath(
+        &mut self,
+        id: PaymentId,
+        ledger: LedgerId,
+        child: Option<String>,
+    ) -> Result<Credentials, EngineError> {
+        let mut key = [0u8; 16];
+        self.rng.fill_bytes(&mut key);
+        let tag = connection_tag(id, ConnectionKey::from_random(key));
         let Self {
             rng,
             receivers,
@@ -435,8 +451,9 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// The ledger is not active, the expiry or amount is out of range, or
-    /// too many are open.
+    /// The ledger is not active, the expiry or amount is out of range, the
+    /// uplink is not a confirmed one of a periphery node's, or too many are
+    /// open.
     pub fn create_incoming_payment(
         &mut self,
         new: NewIncoming,
@@ -464,11 +481,17 @@ impl Core {
         if !self.receivers.contains_key(&new.ledger) {
             return Err(EngineError::Precondition("the ledger is not active".into()));
         }
+        // Before room is made, so that a refused request never closes
+        // another payment for it.
+        let child = match &new.uplink {
+            Some(uplink) => Some(self.address_beneath(uplink)?),
+            None => self.receiving_address(),
+        };
         self.make_room(now, new.client.is_none())?;
         let id = self.new_payment_id();
         // Those kept with it are one connection like any other: the
         // owner's wallet shows them, to pay it with STREAM alone.
-        let credentials = self.incoming_credentials(id, new.ledger)?;
+        let credentials = self.credentials_beneath(id, new.ledger, child)?;
         let row = IncomingRow {
             id,
             ledger: new.ledger,

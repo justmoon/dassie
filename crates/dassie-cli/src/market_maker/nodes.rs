@@ -201,6 +201,7 @@ async fn create_incoming(to: &mut Node, now_ms: u64) -> Result<proto::IncomingPa
         incoming_amount: None,
         expires_at_ms: now_ms.saturating_add(INCOMING_TTL_MS),
         description: "market maker".into(),
+        uplink: None,
     };
     match to.call(Method::CreateIncomingPayment(request)).await? {
         response::Method::CreateIncomingPayment(proto::CreateIncomingPaymentResponse {

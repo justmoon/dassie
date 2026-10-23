@@ -626,16 +626,20 @@ fn payments() -> BoxedStrategy<Method> {
             field(LEDGERS),
             proptest::option::of(number()),
             number(),
-            text()
+            text(),
+            proptest::option::of(node_id())
         )
-            .prop_map(|(ledger, incoming_amount, expires_at_ms, description)| {
-                Method::CreateIncomingPayment(proto::CreateIncomingPaymentRequest {
-                    ledger,
-                    incoming_amount,
-                    expires_at_ms,
-                    description,
-                })
-            }),
+            .prop_map(
+                |(ledger, incoming_amount, expires_at_ms, description, uplink)| {
+                    Method::CreateIncomingPayment(proto::CreateIncomingPaymentRequest {
+                        ledger,
+                        incoming_amount,
+                        expires_at_ms,
+                        description,
+                        uplink,
+                    })
+                }
+            ),
         payment_id().prop_map(|id| {
             Method::CompleteIncomingPayment(proto::CompleteIncomingPaymentRequest { id })
         }),

@@ -81,6 +81,11 @@ message CreateIncomingPaymentRequest {
   uint64 expires_at_ms = 3;
   // Goes into its metadata as "description"; at most 256 bytes.
   string description = 4;
+  // On a periphery node, the node ID of the uplink to be paid through: its
+  // credentials name the address beneath that uplink. None for the one the
+  // node picks. INVALID_ARGUMENT unless a node ID; FAILED_PRECONDITION on a
+  // core node, or unless it is an uplink confirmed now.
+  optional string uplink = 5;
 }
 
 message CreateIncomingPaymentResponse {

@@ -1860,6 +1860,7 @@ impl Sim {
                     incoming_amount: limit,
                     expires_at_ms: None,
                     metadata: None,
+                    uplink: None,
                 })
                 .unwrap();
             credentials = Some((payment.id, payment.ilp_address, payment.shared_secret));
@@ -1927,6 +1928,7 @@ impl Sim {
                     incoming_amount: Some(amount),
                     expires_at_ms: None,
                     metadata: None,
+                    uplink: None,
                 })
                 .unwrap();
             incoming = Some(payment);
@@ -2316,6 +2318,7 @@ impl Sim {
                     incoming_amount: None,
                     expires_at_ms: None,
                     metadata: None,
+                    uplink: None,
                 })
                 .unwrap();
             incoming = Some(payment);

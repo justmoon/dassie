@@ -28,7 +28,7 @@ A periphery node ([Network](network.md#periphery-nodes)) has an address beneath 
 
 - **Beneath any of them** lie the node's own endpoints, as below its own address. A packet routed there goes on with its destination written below the node's own address, the only one its endpoints know.
 - **It forwards nothing.** A Prepare from a peer that lies beneath none of its addresses gets F02. Its own endpoints' packets go out by the routes, through its uplinks.
-- **It is paid beneath an uplink it is connected to:** its STREAM receiver's credentials name the address beneath an uplink confirmed now ([Payments](payments.md)), so a payment's packets reach it through that uplink. Credentials handed out earlier keep their address, and reach it while that peering lasts.
+- **It is paid beneath an uplink it is connected to:** its STREAM receiver's credentials name the address beneath an uplink confirmed now, the one the owner names if any ([Payments](payments.md#receiving)), so a payment's packets reach it through that uplink. Credentials handed out earlier keep their address, and reach it while that peering lasts.
 
 ## Handling a Prepare
 

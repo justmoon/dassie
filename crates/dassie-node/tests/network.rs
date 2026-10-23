@@ -442,6 +442,7 @@ fn outgoing_payments_never_share_credentials() {
                 incoming_amount: Some(20),
                 expires_at_ms: None,
                 metadata: None,
+                uplink: None,
             })
             .unwrap(),
         );
@@ -586,6 +587,7 @@ fn race_into_one_incoming_payment(seed: u64, amount: u64) -> (Sim, u64, Vec<Outg
                 incoming_amount: Some(amount),
                 expires_at_ms: None,
                 metadata: None,
+                uplink: None,
             })
             .unwrap();
         let other = core.incoming_credentials(payment.id, ledger).unwrap();

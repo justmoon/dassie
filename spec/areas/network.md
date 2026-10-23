@@ -218,7 +218,7 @@ What is lost is either fetched again (bootstrap lists) or only paces the node's 
 
 The `peer` simulation (`dassie_peer::sim::chaos`) runs this protocol on a rough network with crashes, partitions, terminations and bans, and checks that link states and routes converge, peerings are two-sided, every termination finishes, and each settlement is applied exactly once ([Testing](testing.md#the-simulations)).
 
-Periphery nodes peer with their uplinks on the same simulated network in `crates/dassie-peer/tests/periphery.rs`, pinned ones too; `crates/dassie-node/tests/periphery.rs` has a periphery daemon peer with a core daemon over QUIC and get paid beneath it, and one pinned to a core node ask only that one.
+Periphery nodes peer with their uplinks on the same simulated network in `crates/dassie-peer/tests/periphery.rs`, pinned ones too; `crates/dassie-node/tests/periphery.rs` has a periphery daemon peer with a core daemon over QUIC and get paid beneath it, one pinned to a core node ask only that one, and one pinned to two get paid beneath each, as its owner names it.
 
 ## Decisions
 
