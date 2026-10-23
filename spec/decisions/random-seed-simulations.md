@@ -18,18 +18,20 @@ The simulations run continuously, outside CI, from random seeds; each seed draws
 - **A campaign on spot VMs** runs `main`, and pull requests that ask for it. It runs unreviewed code in the project that holds the bootstrap nodes' phrases, so its VMs run as a service account that can read only its GitHub credentials, and the code they build runs in a sandbox that cannot reach those ([Testing](../areas/testing.md#isolating-pull-requests)).
 - **Failures become issues,** one per signature; a failure on a pull request is a comment there instead. A tripwire simulation fails on purpose now and then, so a silent campaign shows. A fix comes with a targeted test, because a seed reproduces a failure only at the commit it ran on.
 - **CI runs fixed seeds only,** plus the coverage minimums.
-- **Releases do not wait for the campaign yet.** While Dassie changes quickly and no live network runs on its releases, a release held until the campaign has cleared its commit would slow every release for little gain. The campaign's commit status still records what it saw on each commit. Releases wait for it once a live network depends on them ([roadmap](../roadmap.md#continuous-simulation)).
+- **The campaign is not a check.** It posts no commit status, so nothing it finds shows next to CI's checks or blocks anything; its issues are what someone acts on.
+- **Releases do not wait for the campaign yet.** While Dassie changes quickly and no live network runs on its releases, a release held until the campaign has cleared its commit would slow every release for little gain. Releases wait for it once a live network depends on them ([roadmap](../roadmap.md#continuous-simulation)).
 
 ## Accepted
 
 - A failure surfaces after the merge that caused it, sometimes hours later.
 - Until releases wait for the campaign, a release can carry a failure the campaign has already found; its issue says so, and the owner decides.
-- Spot VMs cost money, and each holds credentials that write this repository's issues, comments and commit statuses.
+- Spot VMs cost money, and each holds credentials that write this repository's issues and comments.
 
 ## Rejected
 
 - *A random seed per commit in CI:* a pull request would fail on a bug it did not cause.
 - *Fuzzing in CI,* in any form, including a nightly workflow.
+- *A commit status that says whether the campaign has cleared a commit:* it sits among CI's checks and reads as one, though it judges a commit hours after its merge and gates nothing. A release check that needs such a verdict keeps its own record.
 - *Keeping failing seeds as a regression corpus:* a seed means nothing after the code changes.
 - *Results in a file that someone has to look at:* agents pick up issues; nobody watches a file.
 

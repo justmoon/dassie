@@ -7,31 +7,24 @@ import {
   type CampaignResult,
   chooseTarget,
   cleanSignature,
-  CLEAR_RUNS,
   type Comment,
   decodeState,
   decodeTrouble,
   fenced,
-  foldStatuses,
   type GitHub,
   type Issue,
   issueBody,
   LABELS,
   mergeFailure,
   mergeTrouble,
-  names,
-  type NewStatus,
-  nextStatus,
   parseLine,
+  reportMain,
   reportPullRequest,
   reportTrouble,
-  reportTrusted,
   type RunRecord,
   sandboxArgs,
   sandboxEnv,
   type SandboxSpec,
-  STATUS_CONTEXT,
-  type StatusEntry,
   Tally,
   type Target,
   TROUBLE,
@@ -92,35 +85,14 @@ function tally(lines: string[], summary?: { runs: number; seconds: number }) {
 /** GitHub in memory, recording every write. Its calls answer at once. */
 class FakeGitHub implements GitHub {
   login = BOT;
-  statusesBySha = new Map<string, StatusEntry[]>();
   issues:
     (Issue & { label: string; state: "open" | "closed"; title: string })[] = [];
   commentsByIssue = new Map<number, Comment[]>();
   writes: string[] = [];
   #next = 100;
-  /** Runs after each status write, as another VM would. */
-  afterStatus: ((sha: string) => void) | undefined;
 
   ensureLabel(label: { name: string }) {
     this.writes.push(`label ${label.name}`);
-    return Promise.resolve();
-  }
-  statuses(sha: string) {
-    return Promise.resolve([...(this.statusesBySha.get(sha) ?? [])]);
-  }
-  createStatus(sha: string, status: NewStatus) {
-    assert(status.description.length <= 140, status.description);
-    this.writes.push(`status ${sha} ${status.state}`);
-    this.statusesBySha.set(sha, [
-      {
-        state: status.state,
-        description: status.description,
-        creator: this.login,
-        targetUrl: status.targetUrl ?? "",
-      },
-      ...(this.statusesBySha.get(sha) ?? []),
-    ]);
-    this.afterStatus?.(sha);
     return Promise.resolve();
   }
   openIssues(label: string) {
@@ -222,7 +194,7 @@ test("signatures: what a run prints cannot break out of a marker or a code span"
   assertEquals(cleanSignature("x".repeat(500)).length, 200);
 });
 
-test("a loop's tally: runs, failures by signature, the fastest seed, trips", () => {
+test("a loop's tally: runs, failures by signature, the fastest seed", () => {
   const result = tally([
     line({}),
     failing("node", "5", 9000),
@@ -234,7 +206,6 @@ test("a loop's tally: runs, failures by signature, the fastest seed, trips", () 
   ], { runs: 6, seconds: 3600 });
   assertEquals(result.runs, 6);
   assertEquals(result.invalid, 1);
-  assertEquals(result.trips, 1);
   const node = result.failures.get("node/liveness/books")!;
   assertEquals(node.count, 3);
   assertEquals(node.fastest.seed, "6");
@@ -278,7 +249,7 @@ test("a loop is unread when a line fails to parse, a failure is dropped, or the 
   );
 });
 
-test("status: a trusted loop not all read fails closed, and adds no runs", async () => {
+test("main: a loop not all read fails closed", async () => {
   const github = new FakeGitHub();
   // Only the tripwire's failures parsed; a real one was lost in a line too
   // long to read.
@@ -286,16 +257,11 @@ test("status: a trusted loop not all read fails closed, and adds no runs", async
   loop.add(
     parseLine('{"summary":{"runs":2,"by_sim":{},"failures":2,"seconds":3600}}'),
   );
-  await reportTrusted(github, MAIN, loop, true);
-  const [status] = github.statusesBySha.get(MAIN)!;
-  assertEquals(status.state, "failure");
-  assert(status.description.startsWith("failed: campaign/unreadable"));
-  assertEquals(foldStatuses([status], BOT).runs, 0);
+  await reportMain(github, MAIN, loop, true);
   const issue = github.issues.find((each) =>
     each.label === LABELS.failure.name
   )!;
   assertEquals(issue.title, "sim: campaign/unreadable");
-  assertEquals(status.targetUrl, issue.url);
   assert(issue.body.includes("did not parse"));
   assert(issue.body.includes("-- campaign --minutes"));
 });
@@ -310,13 +276,12 @@ function cutShort(lines: string[], cut: string) {
 
 const CUT = failing("node", "4", 10).slice(0, 40);
 
-test("status: an unfinished loop's last line, cut short, fails nothing, and adds no runs", async () => {
+test("main: an unfinished loop's last line, cut short, fails nothing", async () => {
   const github = new FakeGitHub();
-  await reportTrusted(github, MAIN, cutShort([line({})], CUT), false);
+  await reportMain(github, MAIN, cutShort([line({})], CUT), false);
   assertEquals(github.issues.length, 0);
-  assertEquals(github.statusesBySha.get(MAIN), undefined);
   // Its real failures still count.
-  await reportTrusted(
+  await reportMain(
     github,
     MAIN,
     cutShort([failing("node", "5", 10)], CUT),
@@ -325,25 +290,18 @@ test("status: an unfinished loop's last line, cut short, fails nothing, and adds
   assertEquals(github.issues.map((each) => each.title), [
     "sim: node/liveness/books",
   ]);
-  const [status] = github.statusesBySha.get(MAIN)!;
-  assertEquals(status.state, "failure");
-  assertEquals(foldStatuses([status], BOT).runs, 0);
 });
 
-test("status: an unfinished loop with a line it could not read before its cut last line fails closed", async () => {
+test("main: an unfinished loop with a line it could not read before its cut last line fails closed", async () => {
   const github = new FakeGitHub();
   // A fully written line that did not parse may be a failure: the kill
   // that cut the last line does not explain it.
-  await reportTrusted(
+  await reportMain(
     github,
     MAIN,
     cutShort([line({}), "{not json"], CUT),
     false,
   );
-  const [status] = github.statusesBySha.get(MAIN)!;
-  assertEquals(status.state, "failure");
-  assert(status.description.startsWith("failed: campaign/unreadable"));
-  assertEquals(foldStatuses([status], BOT).runs, 0);
   const issue = github.issues.find((each) =>
     each.title === "sim: campaign/unreadable"
   )!;
@@ -357,84 +315,9 @@ test("a finished loop is not excused its cut last line", () => {
   assertEquals(loop.unreadable(true), "the last line of output did not parse");
 });
 
-function entry(
-  state: StatusEntry["state"],
-  description: string,
-  creator = BOT,
-): StatusEntry {
-  return { state, description, creator, targetUrl: "" };
-}
-
-test("status: the history adds up each loop's own counts, from the campaign alone", () => {
-  const clearing = foldStatuses([
-    entry("pending", "200 runs of 30000, 0.1 h, 0 trips [+100 +200s +0t]"),
-    entry("success", "cleared: forged [+99999 +1s +9t]", "someone-else"),
-    entry("pending", "100 runs of 30000, 0.1 h, 1 trips [+100 +300s +1t]"),
-    entry("pending", "set by hand"),
-  ], BOT);
-  assertEquals(
-    { runs: clearing.runs, seconds: clearing.seconds, trips: clearing.trips },
-    { runs: 200, seconds: 500, trips: 1 },
-  );
-  assertEquals(clearing.statuses, 3);
-  assertEquals(clearing.failed, false);
-});
-
-test("status: a failure anywhere in the history is final", () => {
-  const clearing = foldStatuses([
-    entry("success", `cleared [+${CLEAR_RUNS} +3600s +2t]`),
-    entry("failure", "failed: node/safety/x [+1 +1s +0t]"),
-  ], BOT);
-  assert(clearing.failed);
-  const next = nextStatus(clearing, { runs: 10, seconds: 60, trips: 1 });
-  assertEquals(next.state, "failure");
-});
-
-test("status: pending until the threshold and a trip, then success", () => {
-  const empty = foldStatuses([], BOT);
-  const half = nextStatus(empty, {
-    runs: CLEAR_RUNS / 2,
-    seconds: 3600,
-    trips: 0,
-  });
-  assertEquals(half.state, "pending");
-  const history = [entry(half.state, half.description)];
-  const noTrip = nextStatus(foldStatuses(history, BOT), {
-    runs: CLEAR_RUNS / 2,
-    seconds: 3600,
-    trips: 0,
-  });
-  // Long enough, but a runner that never reports the tripwire clears
-  // nothing.
-  assertEquals(noTrip.state, "pending");
-  history.unshift(entry(noTrip.state, noTrip.description));
-  const tripped = nextStatus(foldStatuses(history, BOT), {
-    runs: 10,
-    seconds: 5,
-    trips: 1,
-  });
-  assertEquals(tripped.state, "success");
-  history.unshift(entry(tripped.state, tripped.description));
-  const total = foldStatuses(history, BOT);
-  assertEquals(total.runs, CLEAR_RUNS + 10);
-  assertEquals(total.seconds, 7205);
-});
-
-test("status: a description stays within 140 characters and keeps its counts", () => {
-  const status = nextStatus(foldStatuses([], BOT), {
-    runs: 123456,
-    seconds: 3599.6,
-    trips: 3,
-  }, { signature: `node/safety/${"x".repeat(200)}`, url: "u" });
-  assertEquals(status.state, "failure");
-  assert(status.description.length <= 140);
-  const back = foldStatuses([entry("failure", status.description)], BOT);
-  assertEquals([back.runs, back.seconds, back.trips], [123456, 3600, 3]);
-});
-
 test("issues: one per signature on main, found again by its marker", async () => {
   const github = new FakeGitHub();
-  await reportTrusted(
+  await reportMain(
     github,
     MAIN,
     tally([failing("node", "6", 300), failing("node", "9", 900)], {
@@ -451,25 +334,22 @@ test("issues: one per signature on main, found again by its marker", async () =>
   assert(issue.body.includes("--profile sim -- run node 6"));
   assert(issue.body.includes("nodes=4 loss=0.1"));
   assert(issue.body.includes("t=2 heal"));
-  const [status] = github.statusesBySha.get(MAIN)!;
-  assertEquals(status.state, "failure");
-  assertEquals(status.targetUrl, issue.url);
 
   // Later seeds of the signature update the issue, keep the fastest seed,
   // and say once per commit that it still fails.
-  await reportTrusted(
+  await reportMain(
     github,
     MAIN,
     tally([failing("node", "11", 50)], { runs: 10, seconds: 60 }),
     true,
   );
-  await reportTrusted(
+  await reportMain(
     github,
     NEXT,
     tally([failing("node", "12", 5000)], { runs: 10, seconds: 60 }),
     true,
   );
-  await reportTrusted(
+  await reportMain(
     github,
     NEXT,
     tally([failing("node", "13", 5000)], { runs: 10, seconds: 60 }),
@@ -482,15 +362,14 @@ test("issues: one per signature on main, found again by its marker", async () =>
   assertEquals(state.fastest.commit, MAIN);
   assertEquals(state.commits, [MAIN, NEXT]);
   assertEquals(github.commentsByIssue.get(issue.number)?.length, 1);
-  assertEquals(github.statusesBySha.get(NEXT)![0].state, "failure");
 });
 
 test("issues: a closed issue is not added to; the signature gets a new one", async () => {
   const github = new FakeGitHub();
   const failure = tally([failing("node", "6", 300)], { runs: 1, seconds: 1 });
-  await reportTrusted(github, MAIN, failure, true);
+  await reportMain(github, MAIN, failure, true);
   github.issues[0].state = "closed";
-  await reportTrusted(github, NEXT, failure, true);
+  await reportMain(github, NEXT, failure, true);
   assertEquals(github.issues.map((issue) => issue.state), ["closed", "open"]);
 });
 
@@ -507,7 +386,7 @@ test("issues: two VMs filing one signature at once keep the earlier issue", asyn
     }
     return create(title, body, label);
   };
-  await reportTrusted(github, MAIN, failure, true);
+  await reportMain(github, MAIN, failure, true);
   assertEquals(github.issues.map((issue) => issue.state), ["open", "closed"]);
   assert(
     github.commentsByIssue.get(github.issues[1].number)![0].body.includes(
@@ -516,158 +395,38 @@ test("issues: two VMs filing one signature at once keep the earlier issue", asyn
   );
 });
 
-test("the tripwire files under its own label, and holds up nothing", async () => {
+test("the tripwire files under its own label, and is never commented on", async () => {
   const github = new FakeGitHub();
   const run = () =>
     tally([failing("tripwire", "3", 10, "tripwire"), line({})], {
-      runs: CLEAR_RUNS,
+      runs: 100,
       seconds: 3600,
     });
-  await reportTrusted(github, MAIN, run(), true);
-  await reportTrusted(github, NEXT, run(), true);
+  await reportMain(github, MAIN, run(), true);
+  await reportMain(github, NEXT, run(), true);
   assertEquals(github.issues.length, 1);
   assertEquals(github.issues[0].label, LABELS.tripwire.name);
   assertEquals(github.commentsByIssue.size, 0);
-  assertEquals(github.statusesBySha.get(MAIN)![0].state, "success");
   assertEquals(decodeState(github.issues[0].body)!.seen, 2);
 });
 
-test("status: a loop the runner did not finish adds failures, not runs", async () => {
+test("main: a loop files issues and nothing else", async () => {
   const github = new FakeGitHub();
-  await reportTrusted(github, MAIN, tally([line({})]), false);
-  assertEquals(github.statusesBySha.get(MAIN), undefined);
-  await reportTrusted(github, MAIN, tally([failing("node", "6", 3)]), false);
-  const [status] = github.statusesBySha.get(MAIN)!;
-  assertEquals(status.state, "failure");
-  assertEquals(foldStatuses([status], BOT).runs, 0);
-});
-
-test("status: a failure another VM posted meanwhile ends up on top", async () => {
-  const github = new FakeGitHub();
-  github.afterStatus = (sha) => {
-    github.afterStatus = undefined;
-    // The other VM read the history before our write, and wrote after it.
-    github.statusesBySha.get(sha)!.splice(
-      1,
-      0,
-      entry("failure", "failed: x [+1 +1s +0t]"),
-    );
-  };
-  await reportTrusted(
+  await reportMain(
     github,
     MAIN,
-    tally([line({})], { runs: 10, seconds: 10 }),
+    tally([line({})], { runs: 10, seconds: 60 }),
     true,
   );
-  const statuses = github.statusesBySha.get(MAIN)!;
-  assertEquals(statuses.map((each) => each.state), [
-    "failure",
-    "pending",
-    "failure",
-  ]);
-});
-
-test("status: a failed commit gets no status for a signature it already names", async () => {
-  const github = new FakeGitHub();
-  const loop = () =>
-    tally([failing("node", "6", 300, "settle-down"), line({})], {
-      runs: 14533,
-      seconds: 3600,
-    });
-  await reportTrusted(github, MAIN, loop(), true);
-  const [first] = github.statusesBySha.get(MAIN)!;
-  assertEquals(first.state, "failure");
-  assert(first.description.startsWith("failed: node/liveness/settle-down; "));
-  // `main` does not move, and the next loops find the same failure: its
-  // issue counts them, and nobody is notified again.
-  await reportTrusted(github, MAIN, loop(), true);
-  await reportTrusted(github, MAIN, loop(), true);
-  assertEquals(github.statusesBySha.get(MAIN), [first]);
-  assertEquals(decodeState(github.issues[0].body)!.seen, 3);
-  // Nor does a loop that finds nothing.
-  await reportTrusted(
-    github,
-    MAIN,
-    tally([line({})], { runs: CLEAR_RUNS, seconds: 3600 }),
-    true,
+  assertEquals(github.writes, []);
+  await reportMain(github, MAIN, tally([failing("node", "6", 3)]), false);
+  assert(
+    github.writes.every((write) => /^issue \d+ sim-failure$/.test(write)),
+    github.writes.join(),
   );
-  assertEquals(github.statusesBySha.get(MAIN), [first]);
 });
 
-test("status: a failed commit gets a status for a signature it does not name yet", async () => {
-  const github = new FakeGitHub();
-  await reportTrusted(
-    github,
-    MAIN,
-    tally([failing("node", "6", 300, "settle-down")], {
-      runs: 10,
-      seconds: 60,
-    }),
-    true,
-  );
-  // A loop that finds the known failure and a new one names the new one.
-  await reportTrusted(
-    github,
-    MAIN,
-    tally([
-      failing("node", "7", 300, "settle-down"),
-      failing("node", "8", 300, "books"),
-    ], { runs: 10, seconds: 60 }),
-    true,
-  );
-  const statuses = github.statusesBySha.get(MAIN)!;
-  assertEquals(statuses.map((each) => each.state), ["failure", "failure"]);
-  assert(statuses[0].description.startsWith("failed: node/liveness/books; "));
-  const books = github.issues.find((each) =>
-    each.title === "sim: node/liveness/books"
-  )!;
-  assertEquals(statuses[0].targetUrl, books.url);
-  // The history still adds up every status's own counts.
-  assertEquals(foldStatuses(statuses, BOT).runs, 20);
-});
-
-test("status: a commit that has not failed gets a status each loop", async () => {
-  const github = new FakeGitHub();
-  const loop = () => tally([line({})], { runs: 10, seconds: 60 });
-  await reportTrusted(github, MAIN, loop(), true);
-  await reportTrusted(github, MAIN, loop(), true);
-  assertEquals(
-    github.statusesBySha.get(MAIN)!.map((each) => each.state),
-    ["pending", "pending"],
-  );
-  assertEquals(foldStatuses(github.statusesBySha.get(MAIN)!, BOT).runs, 20);
-});
-
-test("status: a signature cut short in a description is told apart by its issue", () => {
-  const long = `node/safety/${"x".repeat(150)}`;
-  const status = nextStatus(foldStatuses([], BOT), {
-    runs: 1,
-    seconds: 1,
-    trips: 0,
-  }, { signature: `${long}/a`, url: "https://issues/1" });
-  assert(!status.description.includes(`${long}/a`));
-  const history = foldStatuses([{
-    state: status.state,
-    description: status.description,
-    creator: BOT,
-    targetUrl: status.targetUrl!,
-  }], BOT);
-  assert(names(history, `${long}/a`, "https://issues/1"));
-  // Another signature that starts the same is a new failure.
-  assert(!names(history, `${long}/b`, "https://issues/2"));
-  // A whole signature is named by its text alone, and not by another that
-  // it starts.
-  const short = foldStatuses([
-    entry("failure", "failed: node/liveness/books; 1 runs [+1 +1s +0t]"),
-    entry("failure", "failed earlier; 2 runs [+1 +1s +0t]"),
-  ], BOT);
-  assert(names(short, "node/liveness/books", "https://issues/3"));
-  assert(!names(short, "node/liveness/book", ""));
-  assert(!names(short, "node/liveness/books-2", ""));
-  assert(!names(foldStatuses([], BOT), "node/liveness/books", ""));
-});
-
-test("a pull request gets comments on itself, and no status or issue", async () => {
+test("a pull request gets comments on itself, and no issue", async () => {
   const github = new FakeGitHub();
   const pr = 77;
   // What a pull request's runner prints is untrusted: here it tries to
@@ -690,7 +449,6 @@ test("a pull request gets comments on itself, and no status or issue", async () 
     });
   await reportPullRequest(github, pr, MAIN, { tally: run() });
   await reportPullRequest(github, pr, NEXT, { tally: run() });
-  assertEquals(github.statusesBySha.size, 0);
   assertEquals(github.issues.length, 0);
   assert(
     github.writes.every((write) => /^(comment 77|edit \d+)$/.test(write)),
@@ -719,7 +477,6 @@ test("a pull request's loop not all read says so in its summary", async () => {
   const [summary] = github.commentsByIssue.get(9)!;
   assert(summary.body.includes("1 lines of output did not parse"));
   assertEquals(github.issues.length, 0);
-  assertEquals(github.statusesBySha.size, 0);
 });
 
 test("a pull request that does not build gets the end of its log", async () => {
@@ -729,12 +486,10 @@ test("a pull request that does not build gets the end of its log", async () => {
   const comments = github.commentsByIssue.get(5)!;
   assertEquals(comments.length, 1);
   assert(comments[0].body.includes("E0308"));
-  assertEquals(github.statusesBySha.size, 0);
 });
 
 function trouble(fields: Partial<Trouble> = {}): Trouble {
   return {
-    target: "main",
     sha: MAIN,
     step: "build",
     log: "error: linker `cc` not found",
@@ -744,11 +499,8 @@ function trouble(fields: Partial<Trouble> = {}): Trouble {
   };
 }
 
-test("trouble: a trusted commit that does not build files one issue of its own, and no status", async () => {
+test("trouble: a commit of main that does not build files one issue of its own", async () => {
   const github = new FakeGitHub();
-  // The commit already has a status of its own, which trouble leaves as
-  // it is.
-  github.statusesBySha.set(MAIN, [entry("pending", "x [+10 +10s +0t]")]);
   await reportTrouble(github, trouble());
   await reportTrouble(
     github,
@@ -757,7 +509,6 @@ test("trouble: a trusted commit that does not build files one issue of its own, 
   await reportTrouble(
     github,
     trouble({
-      target: "release",
       sha: NEXT,
       step: "fetch",
       time: "2026-10-20T10:02:00.000Z",
@@ -777,15 +528,13 @@ test("trouble: a trusted commit that does not build files one issue of its own, 
     ),
     github.writes.join(),
   );
-  assertEquals(github.statusesBySha.get(MAIN)!.length, 1);
-  assertEquals(github.statusesBySha.get(NEXT), undefined);
   const state = decodeTrouble(issue.body)!;
   assertEquals(state.seen, 3);
   assertEquals(state.first, "2026-10-20T10:00:00.000Z");
   assertEquals(state.latest.time, "2026-10-20T10:02:00.000Z");
   assertEquals(state.commits, [MAIN, NEXT]);
   assert(issue.body.includes("Seen 3 times since 2026-10-20T10:00:00.000Z"));
-  assert(issue.body.includes(`fetching the dependencies of release ${NEXT}`));
+  assert(issue.body.includes(`fetching the dependencies of main ${NEXT}`));
   assert(issue.body.includes("sim-campaign-1"));
   assert(issue.body.includes("linker `cc` not found"));
 });
@@ -879,7 +628,6 @@ test("state: an edited body without it starts the counts again", () => {
   // A failure's state is not the campaign's trouble, nor the other way.
   assertEquals(decodeTrouble(issueBody(state)), undefined);
   const trouble = mergeTrouble(undefined, {
-    target: "main",
     sha: MAIN,
     step: "build",
     log: "",
@@ -895,9 +643,8 @@ test("fences: no text closes its block", () => {
   assertEquals(fenced("x ```` y"), "`````\nx ```` y\n`````");
 });
 
-test("targets: main, the release candidate and pull requests by their shares", () => {
+test("targets: main and pull requests by their shares", () => {
   const main: Target = { kind: "main", sha: MAIN };
-  const release: Target = { kind: "release", sha: NEXT };
   const pr = (number: number): Target => ({ kind: "pr", sha: MAIN, number });
   const pick = (candidates: Target[]) => {
     const counts = new Map<string, number>();
@@ -909,12 +656,11 @@ test("targets: main, the release candidate and pull requests by their shares", (
     return Object.fromEntries(counts);
   };
   assertEquals(pick([main]), { main: 1000 });
-  assertEquals(pick([main, release]), { main: 667, release: 333 });
-  assertEquals(pick([main, release, pr(1), pr(2)]), {
-    main: 500,
-    release: 250,
-    pr1: 125,
-    pr2: 125,
+  assertEquals(pick([main, pr(1)]), { main: 667, pr1: 333 });
+  assertEquals(pick([main, pr(1), pr(2)]), {
+    main: 667,
+    pr1: 167,
+    pr2: 166,
   });
 });
 
@@ -987,8 +733,4 @@ test("sandbox: the environment keeps the toolchain and withholds secrets", () =>
     NIX_CC: "/nix/store/cc",
     HOME: "/work/home",
   });
-});
-
-test("the status context is the one the release check reads", () => {
-  assertEquals(STATUS_CONTEXT, "sim-campaign");
 });

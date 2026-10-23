@@ -22,9 +22,9 @@
 #   again once there is room (a group takes only spot VMs that stop, not
 #   ones deleted on preemption; the startup script runs at every boot).
 #
-# The GitHub App needs read and write access to issues and commit
-# statuses, and read access to pull requests (it comments on them as
-# issues), on justmoon/dassie, and nothing else; its ID goes in
+# The GitHub App needs read and write access to issues, and read access
+# to pull requests (it comments on them as issues), on justmoon/dassie,
+# and nothing else; its ID goes in
 # app_id below. Without an App, a dedicated account's fine-grained token
 # with the same access can be the secret instead, with app_id empty.
 set -eu

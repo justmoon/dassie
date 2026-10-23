@@ -1441,7 +1441,7 @@
     },
     {
       "t": "The campaign",
-      "p": "Outside CI, spot VMs run the simulations from random seeds, loop after loop: mostly `main`, sometimes the commit about to be released, and pull requests labelled `sim`. Each kind of failure becomes one GitHub issue with the seed that reproduces it, a pull request's become comments on it, and each commit gets a `sim-campaign` status that says whether the campaign has cleared it. When the campaign cannot build `main` itself, it says so in an issue of its own rather than going quiet. A pull request's code builds and runs in a sandbox with no network and nothing secret to read.",
+      "p": "Outside CI, spot VMs run the simulations from random seeds, loop after loop: mostly `main`, and pull requests labelled `sim`. Each kind of failure becomes one GitHub issue with the seed that reproduces it, and a pull request's become comments on it. The campaign is not a CI check: it posts no commit status. When the campaign cannot build `main` itself, it says so in an issue of its own rather than going quiet. A pull request's code builds and runs in a sandbox with no network and nothing secret to read.",
       "ev": "scripts/sim-campaign.ts · scripts/sim-campaign/"
     },
     {

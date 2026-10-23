@@ -4,17 +4,16 @@
 //
 //   node scripts/sim-campaign.ts [--minutes N] [--dry-run [--unsandboxed]]
 //
-// A loop picks what to run: `main`, the release candidate (the `release`
-// branch, once it is on `main`), or an open pull request labelled `sim`.
+// A loop picks what to run: `main`, or an open pull request labelled `sim`.
 // It builds that commit's `dassie-sim` and runs `dassie-sim campaign` on
-// every core for an hour, then reports: a trusted commit (main, the release
-// candidate) gets a `sim-campaign` commit status and one issue per failure
+// every core for an hour, then reports: `main` gets one issue per failure
 // signature; a pull request gets comments on itself, and nothing else.
+// Neither gets a commit status: the campaign is not a check.
 //
 // The loop then exits, and systemd starts the next one from a fresh
 // checkout of `main` (scripts/sim-campaign/dassie-sim-campaign.service), so
 // a change to this script, or to the runner, reaches every VM within a loop.
-// A loop that cannot build or start a trusted commit reports the campaign's
+// A loop that cannot build or start `main` reports the campaign's
 // own trouble in an issue of its own, and exits with an error.
 //
 // Only this process holds the GitHub credentials, in memory. Every build
@@ -40,21 +39,9 @@ import { parseArgs } from "node:util";
 
 export const REPO = "justmoon/dassie";
 
-/** The status context the release check reads. */
-export const STATUS_CONTEXT = "sim-campaign";
-
-/** Runs a trusted commit needs before its status is `success`, with no
- * failure but the tripwire's. A failure that hits a share p of the seeds
- * shows within 3/p runs with 95% confidence (the rule of three), so 30,000
- * runs hold a release until a failure of one seed in 10,000 would most
- * likely have shown. The runs are spread over every simulation, so for any
- * one of them the bound is looser by their number. */
-export const CLEAR_RUNS = 30_000;
-
-/** The shares of loops, by what they run. The release candidate's share
- * goes to `main` while there is none, or once its status is settled; the
- * pull requests' share is split among them. */
-export const SHARES = { main: 2, release: 1, pr: 1 };
+/** The shares of loops, by what they run. The pull requests' share is
+ * split among them. */
+export const SHARES = { main: 2, pr: 1 };
 
 /** The labels the campaign uses, created if missing. */
 export const LABELS = {
@@ -84,11 +71,6 @@ export const LABELS = {
   },
 };
 
-/** GitHub keeps at most 1,000 statuses per commit and context. A commit
- * stops getting new ones short of that, but for a failure. */
-const STATUS_CAP = 990;
-/** A status description is at most 140 characters. */
-const DESCRIPTION_BYTES = 140;
 /** Pages of 100 read from a list, at most. */
 const PAGES_MAX = 10;
 /** Distinct failure signatures one loop keeps; the rest are counted. */
@@ -265,7 +247,6 @@ export interface Failure {
 /** What one loop's runs add up to. */
 export class Tally {
   runs = 0;
-  trips = 0;
   invalid = 0;
   /** A last line with no newline that did not parse: what a runner
    * stopped while it wrote leaves. */
@@ -292,7 +273,6 @@ export class Tally {
     this.runs += 1;
     if (!isFailure(run)) return;
     this.failed += 1;
-    if (isTripwire(run)) this.trips += 1;
     const known = this.failures.get(run.signature);
     if (known) {
       known.count += 1;
@@ -314,18 +294,18 @@ export class Tally {
     return this.runs + this.invalid + this.cut + (this.summary ? 1 : 0);
   }
 
-  /** The failures that hold up a commit: all but the tripwire's. */
+  /** The failures that count against a commit: all but the tripwire's. */
   real(): Failure[] {
     return [...this.failures.values()].filter((failure) => !failure.tripwire);
   }
 
   /** Why some of the loop went unread, if it did. A line that did not
    * parse, a failure past what a loop keeps, or counts that disagree with
-   * the runner's summary could each hide a failure, so a trusted commit
+   * the runner's summary could each hide a failure, so a loop on `main`
    * fails closed on them (`unreadableFailure`). The one thing excused is
    * the last line of a loop that did not finish, cut short: a runner
    * stopped at its sandbox's limits leaves one, through no fault of the
-   * commit's, and the loop earns no runs. */
+   * commit's. */
   unreadable(finished = true): string | undefined {
     const reasons = [];
     if (this.invalid > 0) {
@@ -353,7 +333,7 @@ export class Tally {
   }
 }
 
-/** The signature a trusted commit fails under when its loop went unread. */
+/** The signature `main` fails under when its loop went unread. */
 export const UNREADABLE = "campaign/unreadable";
 
 /** The failure that stands for what a loop could not read. */
@@ -373,173 +353,6 @@ export function unreadableFailure(reason: string): Failure {
       traceTail: "",
     },
   };
-}
-
-// The commit status
-
-export type StatusState = "pending" | "success" | "failure" | "error";
-
-export interface StatusEntry {
-  state: StatusState;
-  description: string;
-  creator: string;
-  targetUrl: string;
-}
-
-export interface NewStatus {
-  state: "pending" | "success" | "failure";
-  description: string;
-  targetUrl?: string;
-}
-
-/** What the campaign has done on a commit, from every status it posted
- * there. The state lives only in the statuses, since spot VMs lose theirs. */
-export interface Clearing {
-  runs: number;
-  seconds: number;
-  trips: number;
-  failed: boolean;
-  /** The failure's link, from its status. */
-  failureUrl: string;
-  /** The campaign's failure statuses on the commit, each as its text
-   * before its counts, and its link. */
-  failures: { head: string; url: string }[];
-  /** The campaign's own statuses on the commit. */
-  statuses: number;
-  latest: StatusState | undefined;
-}
-
-const INCREMENT = /\[\+([0-9]+) \+([0-9]+)s \+([0-9]+)t\]$/;
-
-/** Folds the commit's statuses, newest first as GitHub lists them. Each
- * status records what its loop added, so that two VMs reporting at once
- * both count; a failure anywhere in the history is final. Only the
- * campaign's own statuses count: anyone with write access can post one in
- * its context. */
-export function foldStatuses(entries: StatusEntry[], login: string): Clearing {
-  const clearing: Clearing = {
-    runs: 0,
-    seconds: 0,
-    trips: 0,
-    failed: false,
-    failureUrl: "",
-    failures: [],
-    statuses: 0,
-    latest: undefined,
-  };
-  for (const entry of entries) {
-    if (entry.creator !== login) continue;
-    clearing.statuses += 1;
-    clearing.latest ??= entry.state;
-    const match = entry.description.match(INCREMENT);
-    if (entry.state === "failure") {
-      clearing.failed = true;
-      clearing.failureUrl ||= entry.targetUrl;
-      clearing.failures.push({
-        head: match
-          ? entry.description.slice(0, match.index).trimEnd()
-          : entry.description,
-        url: entry.targetUrl,
-      });
-    }
-    if (match) {
-      clearing.runs += Number(match[1]);
-      clearing.seconds += Number(match[2]);
-      clearing.trips += Number(match[3]);
-    }
-  }
-  return clearing;
-}
-
-/** Whether a commit's campaign is over: failed, or cleared. */
-export function settled(clearing: Clearing): boolean {
-  return clearing.failed || cleared(clearing);
-}
-
-/** A commit is cleared once it ran long enough with no failure, and the
- * tripwire tripped on it: a runner that stopped reporting failures would
- * otherwise clear every commit. */
-function cleared(clearing: Clearing): boolean {
-  return !clearing.failed && clearing.runs >= CLEAR_RUNS &&
-    clearing.trips > 0;
-}
-
-const FAILED = "failed: ";
-
-/** Whether the commit's statuses already name the failure `signature`,
- * whose issue is at `url`. A status names its failure as `failed:
- * <signature>; <totals>`, and the counts after it take their room first,
- * so a long signature may be cut short. A cut one could be the start of
- * another signature too, so it names this one only if it also links to
- * this signature's issue. */
-export function names(
-  clearing: Clearing,
-  signature: string,
-  url: string,
-): boolean {
-  const whole = `${FAILED}${signature};`;
-  return clearing.failures.some(({ head, url: link }) =>
-    head.startsWith(whole) ||
-    (head.length > FAILED.length && whole.startsWith(head) && url !== "" &&
-      link === url)
-  );
-}
-
-export interface LoopCounts {
-  runs: number;
-  seconds: number;
-  trips: number;
-}
-
-/** The status a loop posts: its own counts, after the totals so far. */
-export function nextStatus(
-  before: Clearing,
-  loop: LoopCounts,
-  failure?: { signature: string; url: string },
-): NewStatus {
-  assert(Number.isSafeInteger(loop.runs) && loop.runs >= 0, "loop runs");
-  const seconds = Math.round(loop.seconds);
-  const total: Clearing = {
-    ...before,
-    runs: before.runs + loop.runs,
-    seconds: before.seconds + seconds,
-    trips: before.trips + loop.trips,
-    failed: before.failed || failure !== undefined,
-  };
-  const increment = ` [+${loop.runs} +${seconds}s +${loop.trips}t]`;
-  const hours = (total.seconds / 3600).toFixed(1);
-  const totals = `${total.runs} runs, ${hours} h, ${total.trips} trips`;
-  let status: NewStatus;
-  if (failure) {
-    status = {
-      state: "failure",
-      description: `failed: ${failure.signature}; ${totals}`,
-      targetUrl: failure.url,
-    };
-  } else if (total.failed) {
-    status = {
-      state: "failure",
-      description: `failed earlier; ${totals}`,
-      targetUrl: before.failureUrl || undefined,
-    };
-  } else if (cleared(total)) {
-    status = { state: "success", description: `cleared: ${totals}` };
-  } else {
-    const waiting = total.runs < CLEAR_RUNS
-      ? `of ${CLEAR_RUNS}`
-      : "no trip yet";
-    status = {
-      state: "pending",
-      description:
-        `${total.runs} runs ${waiting}, ${hours} h, ${total.trips} trips`,
-    };
-  }
-  // The counts are what later loops add up, so the text before them gives
-  // way when the whole does not fit.
-  const room = DESCRIPTION_BYTES - increment.length;
-  status.description = status.description.slice(0, room) + increment;
-  assert(status.description.length <= DESCRIPTION_BYTES, "description");
-  return status;
 }
 
 // Issues and comments
@@ -710,7 +523,7 @@ export function issueTitle(signature: string): string {
 export function issueBody(state: FailureState): string {
   const intro = state.sim === "tripwire"
     ? "The campaign's tripwire, which fails on purpose on a small share of seeds. While it keeps getting seeds, the campaign runs; if it stops, the campaign has stopped."
-    : "The simulation campaign found this failure on a trusted commit.";
+    : "The simulation campaign found this failure on `main`.";
   return [
     signatureMarker(state.signature),
     `${intro} Its signature is \`${state.signature}\`.`,
@@ -767,11 +580,11 @@ export function pullRequestSummary(
 
 // The campaign's own trouble
 
-/** The signature of a trusted commit the campaign could not build or
+/** The signature of a commit of `main` the campaign could not build or
  * start. */
 export const TROUBLE = "campaign/build";
 
-/** Where a loop on a trusted commit stopped short of its runs. */
+/** Where a loop on `main` stopped short of its runs. */
 export type TroubleStep = "prepare" | "fetch" | "build" | "run";
 
 const TROUBLE_STEPS: Record<TroubleStep, string> = {
@@ -781,9 +594,8 @@ const TROUBLE_STEPS: Record<TroubleStep, string> = {
   run: "starting the runner of",
 };
 
-/** One loop's trouble with a trusted commit. */
+/** One loop's trouble with a commit of `main`. */
 export interface Trouble {
-  target: "main" | "release";
   sha: string;
   step: TroubleStep;
   log: string;
@@ -842,10 +654,10 @@ export function troubleBody(state: TroubleState): string {
   const { latest } = state;
   return [
     signatureMarker(TROUBLE),
-    "The simulation campaign could not build or start a trusted commit. CI keeps `main` building, so this is most likely the campaign's own trouble rather than Dassie's: its sandbox, its toolchain, a VM's disk, or its network to crates.io. It is not a `sim-failure`, and the campaign posts no commit status for it, so it neither fails nor clears a commit.",
+    "The simulation campaign could not build or start a commit of `main`. CI keeps `main` building, so this is most likely the campaign's own trouble rather than Dassie's: its sandbox, its toolchain, a VM's disk, or its network to crates.io. It is not a `sim-failure`, since nothing in it is the commit's fault.",
     `Seen ${state.seen} times since ${state.first}; latest at ${latest.time} on ${latest.host}, while ${
       TROUBLE_STEPS[latest.step]
-    } ${latest.target} ${latest.sha} (commits: ${state.commits.join(", ")}).`,
+    } main ${latest.sha} (commits: ${state.commits.join(", ")}).`,
     "The end of its log:",
     fenced(latest.log),
     "After each, the supervisor exits with an error, so `systemctl status dassie-sim-campaign` on the VM shows the unit failing, and systemd starts the next loop a minute later. Later loops update this issue in place. Close it once the campaign is fixed: it is never reopened, and trouble after that gets a new issue.",
@@ -874,8 +686,6 @@ export interface GitHub {
   ensureLabel(
     label: { name: string; color: string; description: string },
   ): Promise<void>;
-  statuses(sha: string): Promise<StatusEntry[]>;
-  createStatus(sha: string, status: NewStatus): Promise<void>;
   openIssues(label: string): Promise<Issue[]>;
   createIssue(title: string, body: string, label: string): Promise<Issue>;
   updateIssue(
@@ -928,7 +738,7 @@ async function upsertIssue(
   return created;
 }
 
-/** Files a trusted commit's failures as issues, one per signature. */
+/** Files a failure on `main` as an issue, one per signature. */
 function fileIssue(
   github: GitHub,
   failure: Failure,
@@ -962,11 +772,10 @@ function fileIssue(
   );
 }
 
-/** Reports a loop that could not build or start a trusted commit: one
- * issue for all of them, under a label of its own, updated in place and
- * never commented on, since the supervisor retries every minute. It posts
- * no status: the commit is not at fault, and a status about the VM would
- * fail a good commit or, on a commit that failed, hide its failure. */
+/** Reports a loop that could not build or start `main`: one issue for
+ * all of them, under a label of its own, updated in place and never
+ * commented on, since the supervisor retries every minute. It is not a
+ * `sim-failure`, since the commit is not at fault. */
 export function reportTrouble(
   github: GitHub,
   trouble: Trouble,
@@ -975,7 +784,7 @@ export function reportTrouble(
     github,
     LABELS.trouble.name,
     TROUBLE,
-    "sim-campaign: the campaign cannot build a trusted commit",
+    "sim-campaign: the campaign cannot build main",
     (body) => ({
       body: troubleBody(
         mergeTrouble(
@@ -987,11 +796,11 @@ export function reportTrouble(
   );
 }
 
-/** Whether a trusted commit's loop stopped short of its runs through the
+/** Whether a loop on `main` stopped short of its runs through the
  * campaign's own trouble: it did not build, or its runner failed before it
  * printed a line, which a sandbox that could not start leaves. A runner
  * that printed something and then failed is the commit's to answer for, as
- * `reportTrusted` does. */
+ * `reportMain` does. */
 export function troubleOf(
   result: CampaignResult,
 ): { step: TroubleStep; log: string } | undefined {
@@ -1002,8 +811,9 @@ export function troubleOf(
   return undefined;
 }
 
-/** A trusted commit's report: issues, then its status. */
-export async function reportTrusted(
+/** A loop's report on `main`: one issue per failure signature, and one
+ * for what a loop could not read, if it could not read all of it. */
+export async function reportMain(
   github: GitHub,
   sha: string,
   tally: Tally,
@@ -1012,55 +822,7 @@ export async function reportTrusted(
   const unreadable = tally.unreadable(complete);
   const failures = [...tally.failures.values()];
   if (unreadable) failures.push(unreadableFailure(unreadable));
-  const issues = new Map<string, Issue>();
-  for (const failure of failures) {
-    issues.set(failure.signature, await fileIssue(github, failure, sha));
-  }
-  const before = foldStatuses(await github.statuses(sha), github.login);
-  // A failure is final for its commit, and later runs count for nothing
-  // there: a commit that has failed gets a status only for a signature its
-  // statuses do not name yet. Another one, each loop on a commit `main`
-  // stays on, would notify the owner of nothing new.
-  const failure = failures.find((each) =>
-    !each.tripwire &&
-    !names(before, each.signature, issues.get(each.signature)?.url ?? "")
-  );
-  // A loop the runner did not finish, or that was not all read, adds no
-  // runs toward clearing; its failures still count.
-  const loop = complete && !unreadable && tally.summary
-    ? {
-      runs: tally.summary.runs,
-      seconds: tally.summary.seconds,
-      trips: tally.trips,
-    }
-    : { runs: 0, seconds: 0, trips: 0 };
-  const post = failure !== undefined ||
-    (!before.failed && before.statuses < STATUS_CAP && loop.runs > 0);
-  if (post) {
-    await github.createStatus(
-      sha,
-      nextStatus(
-        before,
-        loop,
-        failure && {
-          signature: failure.signature,
-          url: issues.get(failure.signature)?.url ?? "",
-        },
-      ),
-    );
-  }
-  // Another VM may have posted a failure between our read and our write,
-  // and the release check reads only the latest status: a failure in the
-  // history is posted again on top.
-  const after = post
-    ? foldStatuses(await github.statuses(sha), github.login)
-    : before;
-  if (after.failed && after.latest !== "failure") {
-    await github.createStatus(
-      sha,
-      nextStatus(after, { runs: 0, seconds: 0, trips: 0 }),
-    );
-  }
+  for (const failure of failures) await fileIssue(github, failure, sha);
 }
 
 /** A pull request's report: comments on it, and nothing else. What its
@@ -1112,7 +874,6 @@ export async function reportPullRequest(
 
 export type Target =
   | { kind: "main"; sha: string }
-  | { kind: "release"; sha: string }
   | { kind: "pr"; sha: string; number: number };
 
 /** Picks a loop's target by SHARES, with `random` in [0, 1). */
@@ -1413,33 +1174,6 @@ class RestGitHub implements GitHub {
     await this.#write("POST", `/repos/${REPO}/labels`, label);
   }
 
-  async statuses(sha: string): Promise<StatusEntry[]> {
-    type Raw = {
-      state: StatusState;
-      description: string | null;
-      context: string;
-      target_url: string | null;
-      creator: { login: string } | null;
-    };
-    return (await this.#pages<Raw>(`/repos/${REPO}/commits/${sha}/statuses`))
-      .filter((status) => status.context === STATUS_CONTEXT)
-      .map((status) => ({
-        state: status.state,
-        description: status.description ?? "",
-        creator: status.creator?.login ?? "",
-        targetUrl: status.target_url ?? "",
-      }));
-  }
-
-  async createStatus(sha: string, status: NewStatus) {
-    await this.#write("POST", `/repos/${REPO}/statuses/${sha}`, {
-      state: status.state,
-      description: status.description,
-      context: STATUS_CONTEXT,
-      ...(status.targetUrl ? { target_url: status.targetUrl } : {}),
-    });
-  }
-
   async openIssues(label: string): Promise<Issue[]> {
     type Raw = {
       number: number;
@@ -1574,7 +1308,6 @@ async function appToken(
       permissions: {
         issues: "write",
         pull_requests: "read",
-        statuses: "write",
       },
     },
   )).json() as { token: string };
@@ -1605,51 +1338,18 @@ async function connect(config: Config): Promise<GitHub> {
   return new RestGitHub(user.login, secret, false);
 }
 
-/** What can run this loop. The release candidate is the `release` branch,
- * once `main` holds its commit (so it is reviewed code) and while its
- * campaign is not settled. */
+/** What can run this loop: `main`, and the pull requests labelled for
+ * the campaign. */
 async function candidates(github: GitHub, config: Config): Promise<Target[]> {
   const main = await git(config.repo, "rev-parse", "HEAD");
   const targets: Target[] = [{ kind: "main", sha: main }];
-  const fetched = await run("git", [
-    "-C",
-    config.repo,
-    "fetch",
-    "--quiet",
-    "origin",
-    "+refs/heads/release:refs/remotes/origin/release",
-  ]);
-  if (fetched.code === 0) {
-    const release = await git(
-      config.repo,
-      "rev-parse",
-      "refs/remotes/origin/release",
-    );
-    const onMain = await run("git", [
-      "-C",
-      config.repo,
-      "merge-base",
-      "--is-ancestor",
-      release,
-      main,
-    ]);
-    if (onMain.code !== 0) {
-      console.log(`release ${release} is not on main: not run`);
-    } else if (release !== main) {
-      const clearing = foldStatuses(
-        await github.statuses(release),
-        github.login,
-      );
-      if (!settled(clearing)) targets.push({ kind: "release", sha: release });
-    }
-  }
   for (const pull of await github.labelledPulls(LABELS.optIn.name)) {
     targets.push({ kind: "pr", sha: pull.sha, number: pull.number });
   }
   return targets;
 }
 
-const SANDBOX_USER = { main: "sim-main", release: "sim-main", pr: "sim-pr" };
+const SANDBOX_USER = { main: "sim-main", pr: "sim-pr" };
 
 /** Builds and runs one target's campaign. */
 async function campaign(
@@ -1808,7 +1508,7 @@ async function buildAndRun(
 }
 
 /** One loop. It resolves `false` when the campaign could not build or start
- * a trusted commit, which it has reported. */
+ * `main`, which it has reported. */
 async function loop(config: Config): Promise<boolean> {
   if (!config.unsandboxed) {
     // A loop that died left its sandboxes running; nothing else should.
@@ -1830,8 +1530,7 @@ async function loop(config: Config): Promise<boolean> {
   try {
     result = await campaign(target, config);
   } catch (error) {
-    // A trusted commit's checkout fails only when the VM's disk or Git
-    // does.
+    // A checkout of `main` fails only when the VM's disk or Git does.
     result = {
       buildLog: String((error as Error).stack ?? error),
       step: "prepare",
@@ -1840,18 +1539,16 @@ async function loop(config: Config): Promise<boolean> {
   github = await connect(config);
   const trouble = troubleOf(result);
   if (trouble) {
-    // CI keeps main building, so a trusted commit that does not build or
+    // CI keeps main building, so a commit of main that does not build or
     // start here almost always means the campaign is broken: its sandbox,
-    // toolchain, disk or network. That goes to an issue of its own, and
-    // never to the commit's status, which it would fail or clear for no
-    // fault of the commit's.
+    // toolchain, disk or network. That goes to an issue of its own, never
+    // to a `sim-failure`, since the commit is not at fault.
     console.log(
       `${target.kind} ${target.sha}: ${trouble.step} failed: ${
         trouble.log.slice(-2000)
       }`,
     );
     const issue = await reportTrouble(github, {
-      target: target.kind,
       sha: target.sha,
       ...trouble,
       time: new Date().toISOString(),
@@ -1861,7 +1558,7 @@ async function loop(config: Config): Promise<boolean> {
     return false;
   }
   assert(!("buildLog" in result), "a build that failed is trouble");
-  await reportTrusted(github, target.sha, result.tally, result.complete);
+  await reportMain(github, target.sha, result.tally, result.complete);
   return true;
 }
 
