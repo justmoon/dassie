@@ -16,6 +16,7 @@ use dassie_peer::{
 
 use super::events::{PeerEvent, SettlementEvent};
 use super::ledgers::ActiveScheme;
+use super::ledgers::OWN_ACCOUNTS;
 use super::schemes::{ActiveAsset, merged_status};
 use super::{Core, EngineError, Output};
 use crate::store::{PeerSettings, Store};
@@ -72,9 +73,22 @@ impl Hooks<'_> {
         super::growth::raise_trust(self.ledger, now_ms, ledger, name, amount).map_err(|_| ())
     }
 
-    /// Opens the peer's accounts and extends it `start`, once (ACC-5).
+    /// Opens the peer's accounts and extends it `start`, once (ACC-5). New
+    /// ones only while peers' accounts leave room for the node's own: they
+    /// stay when a channel closes, so the node's ever-growing number of
+    /// former peers must not take the room its tokens and ledgers need.
     fn open(&mut self, now_ms: u64, peer: NodeId, ledger: LedgerId, start: u64) -> Result<(), ()> {
         let name = Name::new(peer.as_str()).map_err(|_| ())?;
+        let fresh = self
+            .ledger
+            .find(&AccountPath::new(
+                ledger,
+                AccountName::AssetsInterledger(name),
+            ))
+            .is_none();
+        if fresh && !room_for_peer(self.ledger) {
+            return Err(());
+        }
         self.ledger
             .open_peer(now_ms, ledger, name, start)
             .map(|_| ())
@@ -95,6 +109,23 @@ enum Inbound {
 /// A node's name in the ledger.
 fn name(peer: NodeId) -> Option<Name> {
     Name::new(peer.as_str()).ok()
+}
+
+/// Whether another peer's two accounts fit beside the peers' accounts
+/// already open, with room left for every account the node opens for
+/// itself ([`OWN_ACCOUNTS`]).
+pub(super) fn room_for_peer(ledger: &Ledger) -> bool {
+    let peers = ledger
+        .accounts()
+        .filter(|(_, account)| {
+            matches!(
+                account.path().name,
+                AccountName::AssetsInterledger(_) | AccountName::ContraTrust(_)
+            )
+        })
+        .count();
+    let most = usize::try_from(ledger.config().max_accounts).unwrap_or(usize::MAX);
+    peers + 2 <= most.saturating_sub(OWN_ACCOUNTS)
 }
 
 impl PeeringHooks for Hooks<'_> {

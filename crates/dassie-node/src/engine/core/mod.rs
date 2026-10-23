@@ -932,6 +932,14 @@ fn check_bounds(policies: &Policies) {
         dassie_xrpl::scheme::MAX_PEERS >= policies.peer.max_channels + downlinks,
         "the XRPL scheme keeps an address for every settlement channel"
     );
+    // Peers' accounts stay when their channels close, and leave room for
+    // the node's own (spec/decisions/closing-channels.md): what is left
+    // takes at least every open channel's on one ledger.
+    assert!(
+        usize::try_from(policies.ledger.max_accounts).unwrap_or(usize::MAX)
+            >= ledgers::OWN_ACCOUNTS + 2 * (policies.peer.max_channels + downlinks),
+        "the accounts hold the node's own and every open channel's"
+    );
 }
 
 /// Most local endpoints at once: a receiver and a payer for each ledger

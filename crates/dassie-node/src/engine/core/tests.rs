@@ -996,6 +996,44 @@ fn a_junior_keeps_the_lower_credit_of_a_peer_it_ended_for_room() {
     assert_eq!(trust, core.senior_credit);
 }
 
+// spec/decisions/closing-channels.md: peers' accounts stay when their
+// channels close, so new ones stop where the room the node keeps for its own
+// accounts begins; a peer whose accounts are open peers again regardless.
+#[test]
+fn peers_accounts_leave_room_for_the_nodes_own() {
+    use dassie_ledger::{Config, Ledger, LedgerId, Name};
+
+    let most = super::ledgers::OWN_ACCOUNTS + 4;
+    let mut ledger = Ledger::new(Config {
+        max_accounts: u32::try_from(most).unwrap(),
+        ..Config::DEFAULT
+    });
+    for peer in ["a", "b"] {
+        assert!(super::peers::room_for_peer(&ledger));
+        ledger
+            .open_peer(NOW, LedgerId::StubUsd, Name::new(peer).unwrap(), 1)
+            .unwrap();
+    }
+    assert!(
+        !super::peers::room_for_peer(&ledger),
+        "the rest is the node's"
+    );
+    // Whatever the peers took, the node's own accounts still open, the
+    // owner's pool first: each batch takes the journal, as the node's step
+    // does.
+    let path = |name| dassie_ledger::AccountPath::new(LedgerId::StubUsd, name);
+    ledger
+        .open(path(dassie_ledger::AccountName::EquityOwner))
+        .unwrap();
+    for n in 1..super::ledgers::OWN_ACCOUNTS {
+        while ledger.poll_journal().is_some() {}
+        let sub = dassie_ledger::OwnerSub::Btp(u64::try_from(n).unwrap());
+        ledger
+            .open(path(dassie_ledger::AccountName::EquityOwnerSub(sub)))
+            .unwrap();
+    }
+}
+
 // spec/decisions/closing-channels.md: the books let a former peer's channel
 // close only with nothing of it pending, and every scheme it has accounts
 // with running and seeing its ledger, so a settlement it made before the

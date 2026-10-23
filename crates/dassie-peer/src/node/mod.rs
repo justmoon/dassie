@@ -241,6 +241,8 @@ pub struct PeerNode {
     /// Closed channels not written yet, and those read back for a
     /// settlement that came over them closed: both go with the next batch.
     pub(crate) closed: BTreeMap<NodeId, Closed>,
+    /// When the channels idle long enough are next looked at to close.
+    pub(crate) channel_check_at_ms: u64,
     /// Banned nodes, and the changes not yet persisted.
     pub(crate) bans: BTreeSet<NodeId>,
     pub(crate) banned: Vec<NodeId>,
@@ -310,6 +312,7 @@ impl PeerNode {
             retries: BTreeMap::new(),
             channel_active: BTreeMap::new(),
             closed: BTreeMap::new(),
+            channel_check_at_ms: now_ms,
             bans: BTreeSet::new(),
             banned: Vec::new(),
             unbanned: Vec::new(),

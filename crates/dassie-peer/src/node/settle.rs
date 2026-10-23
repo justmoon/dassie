@@ -131,6 +131,10 @@ impl PeerNode {
     /// with what they show, which a later peering settles.
     pub(super) fn close_idle_channels(&mut self, hooks: &dyn PeeringHooks) {
         let now = self.now_ms;
+        if now < self.channel_check_at_ms {
+            return;
+        }
+        self.channel_check_at_ms = now.saturating_add(self.config.channel_check_ms);
         let idle: Vec<NodeId> = self
             .channels
             .keys()
@@ -145,21 +149,14 @@ impl PeerNode {
 
     /// When a channel next closes, if one may. One idle long enough closes
     /// once the node's books let it, which only the hooks tell: it is
-    /// looked at with each peering check, at an absolute time that inputs
+    /// looked at with each channel check, at an absolute time that inputs
     /// do not push back.
     pub(super) fn next_channel_close(&self) -> Option<u64> {
-        let now = self.now_ms;
         self.channels
             .keys()
             .filter_map(|node| self.channel_closes_at(node))
-            .map(|at| {
-                if at > now {
-                    at
-                } else {
-                    self.peering.check_at_ms()
-                }
-            })
             .min()
+            .map(|at| at.max(self.channel_check_at_ms))
     }
 
     /// When the channel with `node` closes if it stays idle, if it may
