@@ -402,6 +402,7 @@
         "Derives the node's XRP Ledger wallet from its key, so the same phrase finds the same funds",
         "Keeps one connection per account, and hands out its sequences so schemes on it never take the same one",
         "Signs Payments byte for byte as `xrpl.js` does, and writes token Payments, TrustSets and Payments with a `SendMax` the same way",
+        "Writes what sets up an account several keys control, such as a settlement hub's escrow, and signs it with Ed25519 or secp256k1 keys, one key alone or several signers each alone, as `xrpl.js` does",
         "Reads an AMM pool with `amm_info` and prices its swaps exactly, rounding to the pool as the ledger does, for a client that converts on the ledger",
         "Reads token amounts exactly, and a trust line, its flags and its issuer from either side",
         "Books every validated transaction once: settlements, deposits, withdrawals and fees",
@@ -411,7 +412,7 @@
         "Never books the reserve, and catches up after a restart",
         "Asks the testnet faucet when the account is new, or when the owner wants more test XRP",
         "Reports what the account holds, as the ledger says, for the wallet: XRP and its reserve, and each line with its freezes",
-        "Fakes the ledger for tests: XRP, trust lines, token payments through the issuer and their failures, issuers of RLUSD and DSUSD that mint, freeze and claw back, and AMM pools that Payments with a `SendMax` swap through"
+        "Fakes the ledger for tests: XRP, trust lines, token payments through the issuer and their failures, issuers of RLUSD and DSUSD that mint, freeze and claw back, AMM pools that Payments with a `SendMax` swap through, and signer lists, regular keys and destination tags, with who may sign checked again as a transaction applies"
       ]
     },
     "settlement": {

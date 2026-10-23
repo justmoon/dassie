@@ -8,6 +8,7 @@
 //! digits, the fake refuses the transaction (`tecPRECISION_LOSS`), so no
 //! test depends on how the ledger rounds.
 
+use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
@@ -16,12 +17,13 @@ use sha2::{Digest, Sha512};
 
 use super::{
     Account, DSUSD_CURRENCY, DSUSD_ISSUER, FEE_BASE, FakeLedger, Outcome, RLUSD_CURRENCY,
-    RLUSD_ISSUER, Touched, Tx,
+    RLUSD_ISSUER, Touched, Tx, unsigned,
 };
 use crate::api::{TRANSFER_RATE_PAR, TrustLine, account_flags, line_flags};
 use crate::codec::{
     Amount, Currency, Payment, TF_CLEAR_DEEP_FREEZE, TF_CLEAR_FREEZE, TF_CLEAR_NO_RIPPLE,
-    TF_SET_DEEP_FREEZE, TF_SET_FREEZE, TF_SET_NO_RIPPLE, TokenAmount, TokenValue, TrustSet,
+    TF_SET_DEEP_FREEZE, TF_SET_FREEZE, TF_SET_NO_RIPPLE, TokenAmount, TokenValue, Transaction,
+    TrustSet,
 };
 use crate::keys::AccountId;
 
@@ -327,20 +329,20 @@ impl FakeLedger {
         if to == amount.issuer {
             return Err("temREDUNDANT");
         }
-        self.queue_own(Tx::Payment(Payment {
+        self.queue_own(Tx::Ledger(Box::new(Transaction::Payment(Payment {
             account: amount.issuer,
             destination: to,
+            destination_tag: None,
             amount: Amount::Token(amount),
             send_max: None,
             fee: FEE_BASE,
             sequence,
-            last_ledger_sequence,
+            last_ledger_sequence: Some(last_ledger_sequence),
             flags: 0,
             network_id: None,
             memos: Vec::new(),
-            signing_pub_key: [0; 33],
-            signature: None,
-        }));
+            signing: unsigned(),
+        }))));
         Ok(())
     }
 
@@ -400,7 +402,7 @@ impl FakeLedger {
             .line(holder, token.issuer, token.currency)
             .and_then(|line| line.view(token.issuer))
             .map_or(TokenValue::ZERO, |view| view.limit);
-        self.queue_own(Tx::TrustSet(TrustSet {
+        self.queue_own(Tx::Ledger(Box::new(Transaction::TrustSet(TrustSet {
             account: token.issuer,
             limit: TokenAmount {
                 value: limit,
@@ -409,13 +411,12 @@ impl FakeLedger {
             },
             fee: FEE_BASE,
             sequence,
-            last_ledger_sequence,
+            last_ledger_sequence: Some(last_ledger_sequence),
             flags,
             network_id: None,
             memos: Vec::new(),
-            signing_pub_key: [0; 33],
-            signature: None,
-        }));
+            signing: unsigned(),
+        }))));
         Ok(())
     }
 
@@ -428,7 +429,7 @@ impl FakeLedger {
     pub fn global_freeze(&mut self, issuer: AccountId, on: bool) -> Result<(), &'static str> {
         let (sequence, last_ledger_sequence) = self.own_slot(issuer)?;
         let flag = Some(ASF_GLOBAL_FREEZE);
-        self.queue_own(Tx::AccountSet(IssuerSet {
+        self.queue_own(Tx::IssuerSet(IssuerSet {
             account: issuer,
             sequence,
             last_ledger_sequence,
@@ -451,7 +452,7 @@ impl FakeLedger {
         if rate != 0 && !(TRANSFER_RATE_PAR..=MAX_TRANSFER_RATE).contains(&rate) {
             return Err("temBAD_TRANSFER_RATE");
         }
-        self.queue_own(Tx::AccountSet(IssuerSet {
+        self.queue_own(Tx::IssuerSet(IssuerSet {
             account: issuer,
             sequence,
             last_ledger_sequence,

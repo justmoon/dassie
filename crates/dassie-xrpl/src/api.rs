@@ -9,6 +9,11 @@
 //!
 //! AMM pools (spec/areas/xrpl.md#amm-pools): what a pool of two assets
 //! holds and charges, from `amm_info`.
+//!
+//! Who signs for an account (spec/areas/xrpl.md#the-transactions): whether
+//! its master key is disabled and destination tags are required, its
+//! regular key, and its signer list with what else it owns, from
+//! `account_objects`; and the destination tag a transaction names.
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -17,6 +22,7 @@ use serde_json::{Map, Value, json};
 
 use crate::amm::MAX_TRADING_FEE;
 use crate::amount::{Amount, Asset, Currency, TokenAmount, TokenValue};
+use crate::codec::SignerEntry;
 use crate::keys::AccountId;
 use crate::{MAX_DROPS, from_hex, hex_upper};
 
@@ -49,8 +55,14 @@ pub mod line_flags {
     pub const HIGH_DEEP_FREEZE: u32 = 0x0400_0000;
 }
 
-/// An account's flags (`AccountRoot`) that bear on its tokens.
+/// An account's flags (`AccountRoot`) that bear on its tokens, and on who
+/// may pay it and sign for it.
 pub mod account_flags {
+    /// Payments to it must name a destination tag.
+    pub const REQUIRE_DEST_TAG: u32 = 0x0002_0000;
+    /// Its master key no longer signs: only its regular key or its signer
+    /// list.
+    pub const DISABLE_MASTER: u32 = 0x0010_0000;
     /// Holders of its tokens must be authorised.
     pub const REQUIRE_AUTH: u32 = 0x0004_0000;
     /// It gave up freezing lines for good.
@@ -68,6 +80,9 @@ pub const TRANSFER_RATE_PAR: u32 = 1_000_000_000;
 
 /// Most transactions an `account_tx` page asks for.
 pub const PAGE: u32 = 200;
+
+/// Most objects an `account_objects` page asks for.
+pub const OBJECTS_PAGE: u32 = 200;
 
 fn request(id: u64, command: &str, mut params: Value) -> Vec<u8> {
     if let Some(object) = params.as_object_mut() {
@@ -186,6 +201,22 @@ pub fn ripple_state_at(
     )
 }
 
+/// The objects `account` owns as of the last validated ledger, such as its
+/// signer list and its trust lines, a page of at most [`OBJECTS_PAGE`] at
+/// a time from `marker`.
+#[must_use]
+pub fn account_objects(id: u64, account: AccountId, marker: Option<&Value>) -> Vec<u8> {
+    let mut params = json!({
+        "account": account.to_address(),
+        "ledger_index": "validated",
+        "limit": OBJECTS_PAGE,
+    });
+    if let (Some(object), Some(marker)) = (params.as_object_mut(), marker) {
+        object.insert("marker".into(), marker.clone());
+    }
+    request(id, "account_objects", params)
+}
+
 /// Submits a signed transaction.
 #[must_use]
 pub fn submit(id: u64, blob: &[u8]) -> Vec<u8> {
@@ -295,6 +326,8 @@ pub struct TxRecord {
     pub is_payment: bool,
     /// Who it pays, for a Payment.
     pub destination: Option<AccountId>,
+    /// The destination tag it names, if it names one.
+    pub destination_tag: Option<u32>,
     /// The sender's sequence it used.
     pub sequence: u32,
     /// The fee, in drops.
@@ -643,6 +676,10 @@ fn tx_record(
         account: account_of("Account")?,
         is_payment,
         destination: account_of("Destination"),
+        destination_tag: match tx.get("DestinationTag") {
+            None => None,
+            tag => Some(number(tag)?),
+        },
         sequence: number(tx.get("Sequence"))?,
         fee: drops(tx.get("Fee"))?,
         result: meta
@@ -884,8 +921,8 @@ pub fn ripple_state_result(result: &Value) -> Option<LineEntry> {
     })
 }
 
-/// What an account's root says about its tokens: an issuer's freeze and
-/// transfer fee.
+/// What an account's root says about its tokens, an issuer's freeze and
+/// transfer fee, and about who signs for it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AccountSettings {
     /// Its flags ([`account_flags`]).
@@ -893,6 +930,8 @@ pub struct AccountSettings {
     /// Its transfer rate in billionths: 0 when it has none, which charges
     /// nothing, as [`TRANSFER_RATE_PAR`] does.
     pub transfer_rate: u32,
+    /// Its regular key, as the account of the key, if it has one.
+    pub regular_key: Option<AccountId>,
     /// The ledger this is as of.
     pub ledger_index: u32,
     /// Whether that ledger is validated.
@@ -911,6 +950,18 @@ impl AccountSettings {
     pub const fn charges_transfer_fee(&self) -> bool {
         self.transfer_rate != 0 && self.transfer_rate != TRANSFER_RATE_PAR
     }
+
+    /// Whether its master key no longer signs.
+    #[must_use]
+    pub const fn master_disabled(&self) -> bool {
+        self.flags & account_flags::DISABLE_MASTER != 0
+    }
+
+    /// Whether Payments to it must name a destination tag.
+    #[must_use]
+    pub const fn requires_destination_tag(&self) -> bool {
+        self.flags & account_flags::REQUIRE_DEST_TAG != 0
+    }
 }
 
 /// Reads `account_info`'s result for an account's settings.
@@ -923,9 +974,100 @@ pub fn account_settings_result(result: &Value) -> Option<AccountSettings> {
             None => 0,
             rate => number(rate)?,
         },
+        regular_key: match data.get("RegularKey") {
+            None => None,
+            key => Some(AccountId::parse(key?.as_str()?)?),
+        },
         ledger_index: number(result.get("ledger_index"))?,
         validated: result.get("validated").and_then(Value::as_bool) == Some(true),
     })
+}
+
+/// An account's signer list (`SignerList`): the accounts that together sign
+/// for it, each with its weight, and the weight they must reach.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignerList {
+    /// The weight the signers of one transaction must reach together.
+    pub quorum: u32,
+    /// Its entries, sorted by account, each once, at most
+    /// [`MAX_SIGNERS`](crate::codec::MAX_SIGNERS).
+    pub entries: Vec<SignerEntry>,
+}
+
+/// What an account owns, as of a validated ledger, from `account_objects`:
+/// its signer list, and how many other objects.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AccountObjects {
+    /// Its signer list, if it has one.
+    pub signer_list: Option<SignerList>,
+    /// How many objects of other kinds it owns on this page, such as trust
+    /// lines.
+    pub others: usize,
+    /// Where the next page starts, if there is one.
+    pub marker: Option<Value>,
+    /// The ledger this is as of.
+    pub ledger_index: u32,
+    /// Whether that ledger is validated.
+    pub validated: bool,
+}
+
+/// Reads `account_objects`' result: a signer list at most once, with
+/// entries the ledger would hold. `None` if any of it is not so, or the
+/// page is longer than asked for.
+#[must_use]
+pub fn account_objects_result(result: &Value) -> Option<AccountObjects> {
+    let objects = result.get("account_objects")?.as_array()?;
+    if objects.len() > usize::try_from(OBJECTS_PAGE).unwrap_or(usize::MAX) {
+        return None;
+    }
+    let mut signer_list = None;
+    let mut others = 0_usize;
+    for object in objects {
+        if object.get("LedgerEntryType").and_then(Value::as_str) == Some("SignerList") {
+            if signer_list.is_some() {
+                return None;
+            }
+            signer_list = Some(signer_list_fields(object)?);
+        } else {
+            others = others.saturating_add(1);
+        }
+    }
+    Some(AccountObjects {
+        signer_list,
+        others,
+        marker: result
+            .get("marker")
+            .filter(|marker| !marker.is_null())
+            .cloned(),
+        ledger_index: number(result.get("ledger_index"))?,
+        validated: result.get("validated").and_then(Value::as_bool) == Some(true),
+    })
+}
+
+/// A `SignerList`'s quorum and entries: at least one and at most the
+/// ledger's limit, sorted by account and each once, as the ledger keeps
+/// them.
+fn signer_list_fields(object: &Value) -> Option<SignerList> {
+    let quorum = number(object.get("SignerQuorum"))?;
+    let list = object.get("SignerEntries")?.as_array()?;
+    if list.is_empty() || list.len() > crate::codec::MAX_SIGNERS {
+        return None;
+    }
+    let entries = list
+        .iter()
+        .map(|entry| {
+            let entry = entry.get("SignerEntry")?;
+            Some(SignerEntry {
+                account: AccountId::parse(entry.get("Account")?.as_str()?)?,
+                weight: u16::try_from(entry.get("SignerWeight")?.as_u64()?).ok()?,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let sorted = entries
+        .iter()
+        .zip(entries.iter().skip(1))
+        .all(|(a, b)| a.account < b.account);
+    sorted.then_some(SignerList { quorum, entries })
 }
 
 /// An AMM pool of two assets, as of a validated ledger, from `amm_info`.
@@ -1269,6 +1411,87 @@ mod tests {
         assert!(refused(&|r| r["ledger_index"] = Value::Null).is_none());
         assert!(
             refused(&|r| r["amm"]["asset2_frozen"] = true.into()).is_some_and(|i| i.asset2_frozen)
+        );
+    }
+
+    /// An `account_objects` result as rippled's documentation shows a
+    /// signer list in one, with a trust line beside it.
+    fn objects_result() -> Value {
+        let entry =
+            |account: &str| json!({ "SignerEntry": { "Account": account, "SignerWeight": 1 } });
+        json!({
+            "account": "rsUiUMpnrgxQp24dJYZDhmV4bE3aBtQyt8",
+            "account_objects": [
+                {
+                    "Flags": 65_536,
+                    "LedgerEntryType": "SignerList",
+                    "OwnerNode": "0",
+                    "SignerEntries": [
+                        entry("rGUM1gzaff5U3gW7BVabm6ibgn2y8ThJ4i"),
+                        entry("rLS65dJaZawYYbkZSLBaue52S7qMo2KZsJ"),
+                    ],
+                    "SignerListID": 0,
+                    "SignerQuorum": 2,
+                    "index": "A9C28A28B85CD533217F5C0A0C7767666B093FA58A0F2D80026FCC4CD932DDC7",
+                },
+                { "LedgerEntryType": "RippleState" },
+            ],
+            "ledger_index": 900,
+            "validated": true,
+        })
+    }
+
+    #[test]
+    fn a_signer_list_is_read_only_as_the_ledger_keeps_one() {
+        let objects = account_objects_result(&objects_result()).unwrap();
+        let list = objects.signer_list.unwrap();
+        assert_eq!((list.quorum, list.entries.len(), objects.others), (2, 2, 1));
+        assert!(list.entries[0].account < list.entries[1].account);
+        assert_eq!((objects.ledger_index, objects.validated), (900, true));
+        let refused = |change: &dyn Fn(&mut Value)| {
+            let mut result = objects_result();
+            change(&mut result);
+            account_objects_result(&result)
+        };
+        // Two lists, entries out of order, a weight beyond 16 bits, none.
+        assert!(
+            refused(&|r| {
+                let list = r["account_objects"][0].clone();
+                r["account_objects"][1] = list;
+            })
+            .is_none()
+        );
+        assert!(
+            refused(&|r| {
+                let entries = &mut r["account_objects"][0]["SignerEntries"];
+                let first = entries[0].clone();
+                entries[0] = entries[1].clone();
+                entries[1] = first;
+            })
+            .is_none()
+        );
+        assert!(
+            refused(&|r| {
+                r["account_objects"][0]["SignerEntries"][0]["SignerEntry"]["SignerWeight"] =
+                    65_536.into();
+            })
+            .is_none()
+        );
+        assert!(refused(&|r| r["account_objects"][0]["SignerEntries"] = json!([])).is_none());
+        // An account's regular key is read with its flags.
+        let settings = account_settings_result(&json!({
+            "account_data": {
+                "Flags": account_flags::DISABLE_MASTER | account_flags::REQUIRE_DEST_TAG,
+                "RegularKey": "rGUM1gzaff5U3gW7BVabm6ibgn2y8ThJ4i",
+            },
+            "ledger_index": 900,
+            "validated": true,
+        }))
+        .unwrap();
+        assert!(settings.master_disabled() && settings.requires_destination_tag());
+        assert_eq!(
+            settings.regular_key,
+            AccountId::parse("rGUM1gzaff5U3gW7BVabm6ibgn2y8ThJ4i")
         );
     }
 }

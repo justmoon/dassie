@@ -421,7 +421,7 @@ fn issuer_request(
 mod tests {
     use dassie_xrpl::Wallet;
     use dassie_xrpl::api::account_flags;
-    use dassie_xrpl::codec::{TF_SET_NO_RIPPLE, TrustSet};
+    use dassie_xrpl::codec::{Signing, TF_SET_NO_RIPPLE, Transact, TrustSet};
     use dassie_xrpl::fake::{DSUSD_ISSUER, FEE_BASE, RLUSD_ISSUER};
     use serde_json::json;
 
@@ -442,12 +442,11 @@ mod tests {
             fee: FEE_BASE,
             // A new account's first sequence is the ledger it was made in.
             sequence: ledger.ledger(),
-            last_ledger_sequence: ledger.ledger() + 5,
+            last_ledger_sequence: Some(ledger.ledger() + 5),
             flags: TF_SET_NO_RIPPLE,
             network_id: None,
             memos: Vec::new(),
-            signing_pub_key: *wallet.public_key(),
-            signature: None,
+            signing: Signing::by(wallet.public_key()),
         }
         .sign(&wallet);
         let submit =
@@ -517,12 +516,11 @@ mod tests {
             limit: Token::DSUSD.amount(TokenValue::MAX),
             fee: FEE_BASE,
             sequence: ledger.ledger(),
-            last_ledger_sequence: ledger.ledger() + 5,
+            last_ledger_sequence: Some(ledger.ledger() + 5),
             flags: TF_SET_NO_RIPPLE,
             network_id: None,
             memos: Vec::new(),
-            signing_pub_key: *wallet.public_key(),
-            signature: None,
+            signing: Signing::by(wallet.public_key()),
         }
         .sign(&wallet);
         let submit =

@@ -17,9 +17,11 @@ use dassie_xrpl::Config;
 use dassie_xrpl::amount::{MAX_DECIMALS, MAX_EXPONENT, MAX_MANTISSA, MIN_EXPONENT, MIN_MANTISSA};
 use dassie_xrpl::api::line_flags;
 use dassie_xrpl::codec::{
-    self, Amount, Currency, MAX_MEMO_BYTES, MAX_MEMOS, Memo, Payment, TF_PARTIAL_PAYMENT,
-    TokenAmount, TokenValue, Transaction, TrustSet,
+    self, AccountSet, Amount, Currency, MAX_MEMO_BYTES, MAX_MEMOS, MAX_SIGNERS, Memo, Payment,
+    SetRegularKey, Signer, SignerEntry, SignerListSet, Signing, TF_PARTIAL_PAYMENT, TokenAmount,
+    TokenValue, Transact, Transaction, TrustSet,
 };
+use dassie_xrpl::keys::{MAX_SIGNATURE_BYTES, PublicKey, Signature};
 use dassie_xrpl::scheme::MEMO_TYPE;
 use dassie_xrpl::{AccountId, MAX_DROPS, UNITS_PER_DROP, Wallet, api, base58, from_hex, hex_upper};
 use proptest::prelude::*;
@@ -120,27 +122,28 @@ fn payable() -> impl Strategy<Value = Amount> {
 
 fn payment() -> impl Strategy<Value = Payment> {
     (
-        (any::<[u8; 20]>(), any::<[u8; 20]>()),
+        (any::<[u8; 20]>(), any::<[u8; 20]>(), any::<Option<u32>>()),
         (payable(), proptest::option::of(payable()), 0..=MAX_DROPS),
         (
             any::<u32>(),
-            any::<u32>(),
+            any::<Option<u32>>(),
             any::<u32>().prop_map(|flags| flags & !TF_PARTIAL_PAYMENT),
             any::<Option<u32>>(),
         ),
         prop::collection::vec(memo(), 0..=MAX_MEMOS),
-        (any::<[u8; 33]>(), any::<Option<[u8; 64]>>()),
+        signing(),
     )
         .prop_map(
             |(
-                (account, destination),
+                (account, destination, destination_tag),
                 (amount, send_max, fee),
                 (sequence, last_ledger_sequence, flags, network_id),
                 memos,
-                (signing_pub_key, signature),
+                signing,
             )| Payment {
                 account: AccountId(account),
                 destination: AccountId(destination),
+                destination_tag,
                 amount,
                 // Never XRP for XRP, which the ledger refuses.
                 send_max: send_max.filter(|send_max| {
@@ -152,8 +155,7 @@ fn payment() -> impl Strategy<Value = Payment> {
                 flags,
                 network_id,
                 memos,
-                signing_pub_key,
-                signature,
+                signing,
             },
         )
 }
@@ -166,43 +168,155 @@ fn memo() -> impl Strategy<Value = Memo> {
     })
 }
 
-/// A TrustSet the codec can write: any fields within the ledger's bounds.
-fn trust_set() -> impl Strategy<Value = TrustSet> {
+/// A public key of either kind, which need not be on its curve: the codec
+/// reads keys, and only verifying checks them.
+fn public_key() -> impl Strategy<Value = PublicKey> {
     (
-        any::<[u8; 20]>(),
-        token_amount(),
+        prop::sample::select(vec![0xED_u8, 0x02, 0x03]),
+        any::<[u8; 32]>(),
+    )
+        .prop_map(|(prefix, rest)| {
+            let mut bytes = [prefix; 33];
+            bytes[1..].copy_from_slice(&rest);
+            PublicKey::from_bytes(bytes).unwrap()
+        })
+}
+
+fn signature() -> impl Strategy<Value = Signature> {
+    prop::collection::vec(any::<u8>(), 1..=MAX_SIGNATURE_BYTES)
+        .prop_map(|bytes| Signature::from_slice(&bytes).unwrap())
+}
+
+/// Who signs: a key with a signature or without, or signers, sorted or
+/// not, which the codec writes as they are.
+fn signing() -> impl Strategy<Value = Signing> {
+    let signer = (any::<[u8; 20]>(), public_key(), signature()).prop_map(
+        |(account, signing_pub_key, signature)| Signer {
+            account: AccountId(account),
+            signing_pub_key,
+            signature,
+        },
+    );
+    prop_oneof![
+        (public_key(), proptest::option::of(signature())).prop_map(|(public_key, signature)| {
+            Signing::Single {
+                public_key,
+                signature,
+            }
+        }),
+        prop::collection::vec(signer, 0..=6).prop_map(Signing::Multi),
+    ]
+}
+
+/// The fields every kind has: fee, sequence, last ledger, flags, network,
+/// memos, and who signs.
+#[derive(Clone, Debug)]
+struct Common {
+    fee: u64,
+    sequence: u32,
+    last_ledger_sequence: Option<u32>,
+    flags: u32,
+    network_id: Option<u32>,
+    memos: Vec<Memo>,
+    signing: Signing,
+}
+
+fn common() -> impl Strategy<Value = Common> {
+    (
         0..=MAX_DROPS,
-        (
-            any::<u32>(),
-            any::<u32>(),
-            any::<u32>(),
-            any::<Option<u32>>(),
-        ),
+        any::<u32>(),
+        any::<Option<u32>>(),
+        any::<u32>(),
+        any::<Option<u32>>(),
         prop::collection::vec(memo(), 0..=MAX_MEMOS),
-        (any::<[u8; 33]>(), any::<Option<[u8; 64]>>()),
+        signing(),
     )
         .prop_map(
-            |(
-                account,
-                limit,
-                fee,
-                (sequence, last_ledger_sequence, flags, network_id),
-                memos,
-                (signing_pub_key, signature),
-            )| TrustSet {
-                account: AccountId(account),
-                limit: TokenAmount {
-                    value: positive(limit.value),
-                    ..limit
-                },
+            |(fee, sequence, last_ledger_sequence, flags, network_id, memos, signing)| Common {
                 fee,
                 sequence,
                 last_ledger_sequence,
                 flags,
                 network_id,
                 memos,
-                signing_pub_key,
-                signature,
+                signing,
+            },
+        )
+}
+
+/// A TrustSet the codec can write: any fields within the ledger's bounds.
+fn trust_set() -> impl Strategy<Value = TrustSet> {
+    (any::<[u8; 20]>(), token_amount(), common()).prop_map(|(account, limit, common)| TrustSet {
+        account: AccountId(account),
+        limit: TokenAmount {
+            value: positive(limit.value),
+            ..limit
+        },
+        fee: common.fee,
+        sequence: common.sequence,
+        last_ledger_sequence: common.last_ledger_sequence,
+        flags: common.flags,
+        network_id: common.network_id,
+        memos: common.memos,
+        signing: common.signing,
+    })
+}
+
+/// An AccountSet, a SetRegularKey or a SignerListSet: any fields the codec
+/// can write, whether the ledger would take them or not.
+fn account_settings() -> impl Strategy<Value = Transaction> {
+    let entry = (any::<[u8; 20]>(), any::<u16>()).prop_map(|(account, weight)| SignerEntry {
+        account: AccountId(account),
+        weight,
+    });
+    (
+        any::<[u8; 20]>(),
+        (any::<Option<u32>>(), any::<Option<u32>>()),
+        proptest::option::of(any::<[u8; 20]>()),
+        (any::<u32>(), prop::collection::vec(entry, 0..=MAX_SIGNERS)),
+        0..3_u8,
+        common(),
+    )
+        .prop_map(
+            |(account, (set_flag, clear_flag), regular_key, (quorum, entries), kind, c)| {
+                let account = AccountId(account);
+                match kind {
+                    0 => Transaction::AccountSet(AccountSet {
+                        account,
+                        set_flag,
+                        clear_flag,
+                        fee: c.fee,
+                        sequence: c.sequence,
+                        last_ledger_sequence: c.last_ledger_sequence,
+                        flags: c.flags,
+                        network_id: c.network_id,
+                        memos: c.memos,
+                        signing: c.signing,
+                    }),
+                    1 => Transaction::SetRegularKey(SetRegularKey {
+                        account,
+                        regular_key: regular_key.map(AccountId),
+                        fee: c.fee,
+                        sequence: c.sequence,
+                        last_ledger_sequence: c.last_ledger_sequence,
+                        flags: c.flags,
+                        network_id: c.network_id,
+                        memos: c.memos,
+                        signing: c.signing,
+                    }),
+                    _ => Transaction::SignerListSet(SignerListSet {
+                        account,
+                        signer_quorum: quorum,
+                        signer_entries: entries,
+                        fee: c.fee,
+                        sequence: c.sequence,
+                        last_ledger_sequence: c.last_ledger_sequence,
+                        flags: c.flags,
+                        network_id: c.network_id,
+                        memos: c.memos,
+                        signing: c.signing,
+                    }),
+                }
             },
         )
 }
@@ -1578,14 +1692,17 @@ proptest! {
         let _ = AccountId::parse(&text);
     }
 
+    // The form is canonical (spec/areas/xrpl.md#the-transactions): what
+    // decodes, from whatever bytes, writes back to exactly those bytes, so
+    // no other form of a transaction is read.
     #[test]
     fn payments_decode_what_was_changed_or_refuse_it(payment in payment(), mutations in mutations()) {
         let blob = payment.blob();
-        prop_assert_eq!(Payment::decode(&blob), Ok(payment));
-        // What decodes from changed bytes is a Payment the codec can
-        // write again.
-        if let Ok(decoded) = Payment::decode(&mutate(blob, &mutations)) {
-            prop_assert_eq!(Payment::decode(&decoded.blob()), Ok(decoded));
+        prop_assert_eq!(Payment::decode(&blob), Ok(payment.clone()));
+        prop_assert_eq!(Transaction::decode(&blob), Ok(Transaction::Payment(payment)));
+        let changed = mutate(blob, &mutations);
+        if let Ok(decoded) = Transaction::decode(&changed) {
+            prop_assert_eq!(decoded.blob(), changed);
         }
     }
 
@@ -1594,8 +1711,19 @@ proptest! {
         let blob = trust_set.blob();
         prop_assert_eq!(TrustSet::decode(&blob), Ok(trust_set.clone()));
         prop_assert_eq!(Transaction::decode(&blob), Ok(Transaction::TrustSet(trust_set)));
-        if let Ok(decoded) = Transaction::decode(&mutate(blob, &mutations)) {
-            prop_assert_eq!(Transaction::decode(&decoded.blob()), Ok(decoded));
+        let changed = mutate(blob, &mutations);
+        if let Ok(decoded) = Transaction::decode(&changed) {
+            prop_assert_eq!(decoded.blob(), changed);
+        }
+    }
+
+    #[test]
+    fn account_settings_decode_what_was_changed_or_refuse_it(tx in account_settings(), mutations in mutations()) {
+        let blob = tx.blob();
+        prop_assert_eq!(Transaction::decode(&blob), Ok(tx));
+        let changed = mutate(blob, &mutations);
+        if let Ok(decoded) = Transaction::decode(&changed) {
+            prop_assert_eq!(decoded.blob(), changed);
         }
     }
 

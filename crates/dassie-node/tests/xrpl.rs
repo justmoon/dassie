@@ -385,7 +385,7 @@ async fn eventually(mut done: impl FnMut() -> bool) {
 /// claws back shows on the holder's line once a ledger closes.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_fake_issuer_mints_and_claws_back_over_https() {
-    use dassie_xrpl::codec::{TF_SET_NO_RIPPLE, TokenValue, TrustSet};
+    use dassie_xrpl::codec::{Signing, TF_SET_NO_RIPPLE, TokenValue, Transact, TrustSet};
     use dassie_xrpl::fake::{FEE_BASE, Token};
 
     let server = fake_ledger().await;
@@ -405,12 +405,11 @@ async fn the_fake_issuer_mints_and_claws_back_over_https() {
         limit: Token::RLUSD.amount(TokenValue::MAX),
         fee: FEE_BASE,
         sequence,
-        last_ledger_sequence: ledger + 20,
+        last_ledger_sequence: Some(ledger + 20),
         flags: TF_SET_NO_RIPPLE,
         network_id: None,
         memos: Vec::new(),
-        signing_pub_key: *wallet.public_key(),
-        signature: None,
+        signing: Signing::by(wallet.public_key()),
     }
     .sign(&wallet);
     let submit =

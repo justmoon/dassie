@@ -14,6 +14,11 @@
 //! AMM pools ([`pools`]): a constant-product pool of XRP and a token with a
 //! trading fee, `amm_info`, and Payments with `SendMax` that cross it.
 //!
+//! Keys (`fake/signers.rs`): an account signs with its master key unless it is
+//! disabled, its regular key, or its signer list's signers together, each
+//! alone, as of when a transaction applies; destination tags, which an
+//! account may require; and `account_objects`.
+//!
 //! It answers the subset of the rippled WebSocket API in [`crate::api`],
 //! at API version 1, as rippled does. It checks what it is sent with the
 //! node's own codec, so the codec is pinned by the xrpl.js vectors, not by
@@ -21,17 +26,21 @@
 
 mod meta;
 pub mod pools;
+mod signers;
 pub mod tokens;
 
+use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::ToString;
 use alloc::vec::Vec;
 
 use serde_json::{Value, json};
 
-use crate::api::account_flags;
-use crate::codec::{Amount, Currency, Payment, TokenAmount, Transaction, TrustSet, hash};
-use crate::keys::{AccountId, verify};
+use crate::api::{SignerList, account_flags};
+use crate::codec::{
+    Amount, Currency, Payment, Signing, TokenAmount, Transact, Transaction, hash, multi_signed_fee,
+};
+use crate::keys::AccountId;
 use crate::{DROPS_PER_XRP, from_hex, hex_upper};
 
 pub use pools::{POOL_ACCOUNT_FLAGS, PoolState, pool_account};
@@ -94,6 +103,8 @@ struct Account {
     flags: u32,
     /// Its transfer rate in billionths; 0 when it charges nothing.
     transfer_rate: u32,
+    /// Its regular key, as the account of the key.
+    regular_key: Option<AccountId>,
 }
 
 impl Account {
@@ -104,6 +115,7 @@ impl Account {
             owner_count: 0,
             flags: 0,
             transfer_rate: 0,
+            regular_key: None,
         }
     }
 }
@@ -111,10 +123,12 @@ impl Account {
 /// A transaction waiting for the next close.
 #[derive(Clone, Debug)]
 enum Tx {
-    Payment(Payment),
-    TrustSet(TrustSet),
+    /// Of a kind the codec reads: submitted signed, or the fake's own,
+    /// such as a deposit or an issuer's mint, signed by none
+    /// ([`unsigned`]).
+    Ledger(Box<Transaction>),
     /// An issuer's own: a global freeze or a transfer rate.
-    AccountSet(IssuerSet),
+    IssuerSet(IssuerSet),
     /// An issuer's own.
     Clawback(Clawback),
     /// An issuer's own: makes its token's pool, or sets it.
@@ -124,9 +138,8 @@ enum Tx {
 impl Tx {
     fn account(&self) -> AccountId {
         match self {
-            Self::Payment(tx) => tx.account,
-            Self::TrustSet(tx) => tx.account,
-            Self::AccountSet(tx) => tx.account,
+            Self::Ledger(tx) => tx.sender(),
+            Self::IssuerSet(tx) => tx.account,
             Self::Clawback(tx) => tx.account,
             Self::PoolSet(tx) => tx.account,
         }
@@ -134,40 +147,49 @@ impl Tx {
 
     fn sequence(&self) -> u32 {
         match self {
-            Self::Payment(tx) => tx.sequence,
-            Self::TrustSet(tx) => tx.sequence,
-            Self::AccountSet(tx) => tx.sequence,
+            Self::Ledger(tx) => Transact::sequence(tx.as_ref()),
+            Self::IssuerSet(tx) => tx.sequence,
             Self::Clawback(tx) => tx.sequence,
             Self::PoolSet(tx) => tx.sequence,
         }
     }
 
-    fn last_ledger_sequence(&self) -> u32 {
+    fn last_ledger_sequence(&self) -> Option<u32> {
         match self {
-            Self::Payment(tx) => tx.last_ledger_sequence,
-            Self::TrustSet(tx) => tx.last_ledger_sequence,
-            Self::AccountSet(tx) => tx.last_ledger_sequence,
-            Self::Clawback(tx) => tx.last_ledger_sequence,
-            Self::PoolSet(tx) => tx.last_ledger_sequence,
+            Self::Ledger(tx) => Transact::last_ledger_sequence(tx.as_ref()),
+            Self::IssuerSet(tx) => Some(tx.last_ledger_sequence),
+            Self::Clawback(tx) => Some(tx.last_ledger_sequence),
+            Self::PoolSet(tx) => Some(tx.last_ledger_sequence),
         }
     }
 
     fn fee(&self) -> u64 {
         match self {
-            Self::Payment(tx) => tx.fee,
-            Self::TrustSet(tx) => tx.fee,
-            Self::AccountSet(_) | Self::Clawback(_) | Self::PoolSet(_) => FEE_BASE,
+            Self::Ledger(tx) => Transact::fee(tx.as_ref()),
+            Self::IssuerSet(_) | Self::Clawback(_) | Self::PoolSet(_) => FEE_BASE,
+        }
+    }
+
+    /// Who signed it, if it was signed and submitted.
+    fn signing(&self) -> Option<&Signing> {
+        match self {
+            Self::Ledger(tx) => Some(tx.signing()).filter(|signing| signing.is_signed()),
+            Self::IssuerSet(_) | Self::Clawback(_) | Self::PoolSet(_) => None,
         }
     }
 
     /// Its blob, if it was signed and submitted.
     fn signed_blob(&self) -> Option<Vec<u8>> {
         match self {
-            Self::Payment(tx) => tx.signature.map(|_| tx.blob()),
-            Self::TrustSet(tx) => tx.signature.map(|_| tx.blob()),
-            Self::AccountSet(_) | Self::Clawback(_) | Self::PoolSet(_) => None,
+            Self::Ledger(tx) => self.signing().map(|_| tx.blob()),
+            Self::IssuerSet(_) | Self::Clawback(_) | Self::PoolSet(_) => None,
         }
     }
+}
+
+/// Who signs the fake's own transactions: none, as it acts without keys.
+const fn unsigned() -> Signing {
+    Signing::multi()
 }
 
 /// What applying a transaction came to.
@@ -200,6 +222,8 @@ pub struct FakeLedger {
     supply: BTreeMap<Token, ExactSum>,
     /// The pools of XRP and a token, by the token.
     pools: BTreeMap<Token, Pool>,
+    /// Signer lists, by their owner.
+    signer_lists: BTreeMap<AccountId, SignerList>,
     /// The last validated ledger.
     ledger: u32,
     /// When it closed, in seconds since the XRP Ledger's epoch.
@@ -247,6 +271,7 @@ impl FakeLedger {
             issuers: BTreeSet::new(),
             supply: BTreeMap::new(),
             pools: BTreeMap::new(),
+            signer_lists: BTreeMap::new(),
             ledger: FIRST_LEDGER,
             close_time: FIRST_CLOSE_TIME,
             history_from: FIRST_LEDGER,
@@ -366,8 +391,8 @@ impl FakeLedger {
     }
 
     /// Starts the chain again, as a testnet reset does: every account but
-    /// genesis and the issuers, every trust line and pool, and all history
-    /// wiped, from a ledger below the last, which closes later.
+    /// genesis and the issuers, every trust line, signer list and pool, and
+    /// all history wiped, from a ledger below the last, which closes later.
     pub fn reset(&mut self) {
         self.ledger = RESTART_LEDGER.min(self.ledger.saturating_sub(1));
         self.close_time = self.close_time.saturating_add(CLOSE_INTERVAL_S);
@@ -391,6 +416,7 @@ impl FakeLedger {
         self.lines.clear();
         self.supply.clear();
         self.pools.clear();
+        self.signer_lists.clear();
         self.queued.clear();
         self.queued_hashes.clear();
     }
@@ -402,6 +428,7 @@ impl FakeLedger {
         if let Some(removed) = self.accounts.remove(&account) {
             self.wiped = self.wiped.saturating_add(removed.balance);
         }
+        self.signer_lists.remove(&account);
     }
 
     /// A connection went away.
@@ -413,21 +440,29 @@ impl FakeLedger {
     /// Pays `drops` from genesis to `to`, in the next ledger: a deposit from
     /// outside.
     pub fn deposit(&mut self, to: AccountId, drops: u64) {
+        self.deposit_tagged(to, drops, None);
+    }
+
+    /// Pays `drops` from genesis to `to` with destination tag `tag`, in the
+    /// next ledger: a deposit from outside, as to an account that requires
+    /// a tag.
+    pub fn deposit_tagged(&mut self, to: AccountId, drops: u64, tag: Option<u32>) {
         let sequence = self.next_sequence(self.genesis);
-        self.queued.push(Tx::Payment(Payment {
-            account: self.genesis,
-            destination: to,
-            amount: Amount::Xrp(drops),
-            send_max: None,
-            fee: FEE_BASE,
-            sequence,
-            last_ledger_sequence: self.ledger.saturating_add(OWN_TX_LEDGERS),
-            flags: 0,
-            network_id: None,
-            memos: Vec::new(),
-            signing_pub_key: [0; 33],
-            signature: None,
-        }));
+        self.queued
+            .push(Tx::Ledger(Box::new(Transaction::Payment(Payment {
+                account: self.genesis,
+                destination: to,
+                destination_tag: tag,
+                amount: Amount::Xrp(drops),
+                send_max: None,
+                fee: FEE_BASE,
+                sequence,
+                last_ledger_sequence: Some(self.ledger.saturating_add(OWN_TX_LEDGERS)),
+                flags: 0,
+                network_id: None,
+                memos: Vec::new(),
+                signing: unsigned(),
+            }))));
     }
 
     /// Sets the sequence `account` uses next, as for an account that has
@@ -457,6 +492,7 @@ impl FakeLedger {
             "account_info" => self.account_info(&request),
             "account_tx" => self.account_tx(&request),
             "ledger_entry" => self.ledger_entry(&request),
+            "account_objects" => self.account_objects(&request),
             "amm_info" => self.amm_info(&request),
             "tx" => self.tx(&request),
             "submit" => self.submit(&request),
@@ -767,43 +803,66 @@ impl FakeLedger {
         if self.queued_hashes.contains(&tx_hash) || self.history.iter().any(|a| a.hash == tx_hash) {
             return result("tefALREADY");
         }
-        if !signed_by_sender(&tx) {
+        // Signatures are checked once: they cannot change. Whether the keys
+        // may sign for the sender is checked again as it applies.
+        if !tx.signatures_valid() {
             return result("temBAD_SIGNATURE");
         }
-        let tx = match tx {
-            Transaction::Payment(payment) => Tx::Payment(payment),
-            Transaction::TrustSet(trust_set) => Tx::TrustSet(trust_set),
-        };
-        if let Err(code) = preflight(&tx) {
+        let tx = Tx::Ledger(Box::new(tx));
+        if let Err(code) = preflight(&tx).and_then(|()| self.preclaim(&tx)) {
             return result(code);
-        }
-        if !self.accounts.contains_key(&tx.account()) {
-            return result("terNO_ACCOUNT");
-        }
-        if tx.fee() < FEE_BASE {
-            return result("telINSUF_FEE_P");
-        }
-        if tx.last_ledger_sequence() <= self.ledger {
-            return result("tefMAX_LEDGER");
-        }
-        let next = self.next_sequence(tx.account());
-        if tx.sequence() < next {
-            return result("tefPAST_SEQ");
-        }
-        if tx.sequence() > next {
-            return result("terPRE_SEQ");
         }
         self.queued_hashes.insert(tx_hash);
         self.queued.push(tx);
         result("tesSUCCESS")
     }
 
+    /// What the ledger checks of a transaction against the accounts, in
+    /// rippled's order: the sender, the fee (one more base fee for each
+    /// signer), the last ledger, the sequence, and who signed.
+    fn preclaim(&self, tx: &Tx) -> Result<(), &'static str> {
+        if !self.accounts.contains_key(&tx.account()) {
+            return Err("terNO_ACCOUNT");
+        }
+        let signers = tx.signing().map_or(0, Signing::signers);
+        if tx.fee() < multi_signed_fee(FEE_BASE, signers) {
+            return Err("telINSUF_FEE_P");
+        }
+        if tx
+            .last_ledger_sequence()
+            .is_some_and(|last| last <= self.ledger)
+        {
+            return Err("tefMAX_LEDGER");
+        }
+        let next = self.next_sequence(tx.account());
+        if tx.sequence() < next {
+            return Err("tefPAST_SEQ");
+        }
+        if tx.sequence() > next {
+            return Err("terPRE_SEQ");
+        }
+        match tx.signing() {
+            Some(signing) => self.authorized(tx.account(), signing),
+            None => Ok(()),
+        }
+    }
+
     /// Applies a queued transaction, as the ledger closes: its fee is
     /// burned and its sequence used whatever its result, and nothing else
-    /// changes unless it succeeds.
+    /// changes unless it succeeds. One past its last ledger, out of
+    /// sequence, or whose keys may no longer sign for its sender (`tef`)
+    /// applies nothing, costs nothing and uses no sequence.
     fn apply(&mut self, tx: &Tx, index: u32) -> Option<Applied> {
         let sender = *self.accounts.get(&tx.account())?;
-        if tx.last_ledger_sequence() < self.ledger || tx.sequence() != sender.sequence {
+        let expired = tx
+            .last_ledger_sequence()
+            .is_some_and(|last| last < self.ledger);
+        if expired || tx.sequence() != sender.sequence {
+            return None;
+        }
+        if let Some(signing) = tx.signing()
+            && self.authorized(tx.account(), signing).is_err()
+        {
             return None;
         }
         let fee = tx.fee().min(sender.balance);
@@ -816,15 +875,26 @@ impl FakeLedger {
         };
         self.put_account(&mut touched, tx.account(), after_fee);
         let outcome = match tx {
-            Tx::Payment(payment) => self.pay(&mut touched, payment),
-            Tx::TrustSet(trust_set) => {
-                Outcome::code(self.trust_set(&mut touched, trust_set, sender.balance))
-            }
-            Tx::AccountSet(set) => Outcome::code(self.issuer_set(&mut touched, set)),
+            Tx::Ledger(tx) => self.apply_ledger(&mut touched, tx, sender.balance),
+            Tx::IssuerSet(set) => Outcome::code(self.issuer_set(&mut touched, set)),
             Tx::Clawback(clawback) => Outcome::code(self.claw(&mut touched, clawback)),
             Tx::PoolSet(set) => Outcome::code(self.apply_pool_set(&mut touched, set)),
         };
         Some(self.applied(tx, index, &outcome, &touched))
+    }
+
+    /// A transaction of a kind the codec reads, after its fee; `prior` is
+    /// the sender's XRP before it, which reserves are checked against.
+    fn apply_ledger(&mut self, touched: &mut Touched, tx: &Transaction, prior: u64) -> Outcome {
+        match tx {
+            Transaction::Payment(payment) => self.pay(touched, payment),
+            Transaction::TrustSet(set) => Outcome::code(self.trust_set(touched, set, prior)),
+            Transaction::AccountSet(set) => Outcome::code(self.account_set(touched, set)),
+            Transaction::SetRegularKey(set) => Outcome::code(self.set_regular_key(touched, set)),
+            Transaction::SignerListSet(set) => {
+                Outcome::code(self.signer_list_set(touched, set, prior))
+            }
+        }
     }
 
     /// A Payment, after its fee: of what it names, or across a pool when
@@ -832,6 +902,13 @@ impl FakeLedger {
     fn pay(&mut self, touched: &mut Touched, payment: &Payment) -> Outcome {
         if self.is_pool_account(payment.destination) {
             return Outcome::code("tecNO_PERMISSION");
+        }
+        let requires_tag = self
+            .accounts
+            .get(&payment.destination)
+            .is_some_and(|account| account.flags & account_flags::REQUIRE_DEST_TAG != 0);
+        if requires_tag && payment.destination_tag.is_none() {
+            return Outcome::code("tecDST_TAG_NEEDED");
         }
         let (from, to) = (payment.account, payment.destination);
         match (payment.amount, payment.send_max) {
@@ -921,34 +998,6 @@ impl FakeLedger {
     }
 }
 
-/// Whether a submitted transaction is signed, by the key of its sender.
-fn signed_by_sender(tx: &Transaction) -> bool {
-    let (account, key, signature, payload) = match tx {
-        Transaction::Payment(payment) => (
-            payment.account,
-            payment.signing_pub_key,
-            payment.signature,
-            Payment {
-                signature: None,
-                ..payment.clone()
-            }
-            .signing_payload(),
-        ),
-        Transaction::TrustSet(trust_set) => (
-            trust_set.account,
-            trust_set.signing_pub_key,
-            trust_set.signature,
-            TrustSet {
-                signature: None,
-                ..trust_set.clone()
-            }
-            .signing_payload(),
-        ),
-    };
-    signature.is_some_and(|signature| verify(&key, &payload, &signature))
-        && AccountId::from_public_key(&key) == account
-}
-
 /// Universal transaction flags: `tfFullyCanonicalSig`.
 const TF_FULLY_CANONICAL_SIG: u32 = 0x8000_0000;
 /// The Payment flags the fake knows: `tfNoRippleDirect` and
@@ -958,8 +1007,11 @@ const PAYMENT_FLAGS: u32 = 0x0001_0000 | 0x0004_0000 | TF_FULLY_CANONICAL_SIG;
 
 /// What the ledger checks before anything else: the transaction alone.
 fn preflight(tx: &Tx) -> Result<(), &'static str> {
-    match tx {
-        Tx::Payment(payment) => {
+    let Tx::Ledger(tx) = tx else {
+        return Ok(());
+    };
+    match tx.as_ref() {
+        Transaction::Payment(payment) => {
             if payment.flags & !PAYMENT_FLAGS != 0 {
                 return Err("temINVALID_FLAG");
             }
@@ -973,8 +1025,10 @@ fn preflight(tx: &Tx) -> Result<(), &'static str> {
             }
             Ok(())
         }
-        Tx::TrustSet(trust_set) => tokens::preflight_trust_set(trust_set),
-        Tx::AccountSet(_) | Tx::Clawback(_) | Tx::PoolSet(_) => Ok(()),
+        Transaction::TrustSet(trust_set) => tokens::preflight_trust_set(trust_set),
+        Transaction::AccountSet(set) => signers::preflight_account_set(set),
+        Transaction::SetRegularKey(set) => signers::preflight_set_regular_key(set),
+        Transaction::SignerListSet(set) => signers::preflight_signer_list_set(set),
     }
 }
 

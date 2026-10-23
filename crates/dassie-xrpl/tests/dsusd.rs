@@ -22,7 +22,7 @@ use dassie_settlement::{
     AssetEffect, Effect, ExternalAsset, LedgerInput, LedgerStatus, SettlementScheme,
 };
 use dassie_xrpl::account::{self, XrplAccount};
-use dassie_xrpl::codec::{Amount, Memo, Payment, TokenValue};
+use dassie_xrpl::codec::{Amount, Memo, Payment, Signing, TokenValue, Transact};
 use dassie_xrpl::fake::{FEE_BASE, FakeLedger, RESERVE_BASE, RESERVE_INC, Token};
 use dassie_xrpl::token::UNITS_PER_MICRO;
 use dassie_xrpl::{
@@ -531,19 +531,19 @@ fn a_payment_with_another_schemes_memo_is_no_settlement() {
     let signed = Payment {
         account: address,
         destination: world.address(1),
+        destination_tag: None,
         amount: Amount::Token(Token::DSUSD.amount(value("4"))),
         send_max: None,
         fee: FEE_BASE,
         sequence,
-        last_ledger_sequence: world.ledger.ledger() + 10,
+        last_ledger_sequence: Some(world.ledger.ledger() + 10),
         flags: 0,
         network_id: None,
         memos: vec![Memo {
             memo_type: rlusd::MEMO_TYPE.to_vec(),
             memo_data: world.nodes[0].name.as_str().as_bytes().to_vec(),
         }],
-        signing_pub_key: *wallet.public_key(),
-        signature: None,
+        signing: Signing::by(wallet.public_key()),
     }
     .sign(&wallet);
     let submit =

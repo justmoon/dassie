@@ -14,8 +14,8 @@
 
 use dassie_xrpl::api::{self, TxRecord, account_flags, line_flags};
 use dassie_xrpl::codec::{
-    Amount, Payment, TF_CLEAR_FREEZE, TF_SET_DEEP_FREEZE, TF_SET_FREEZE, TF_SET_NO_RIPPLE,
-    TokenAmount, TokenValue, TrustSet,
+    Amount, Payment, Signing, TF_CLEAR_FREEZE, TF_SET_DEEP_FREEZE, TF_SET_FREEZE, TF_SET_NO_RIPPLE,
+    TokenAmount, TokenValue, Transact, TrustSet,
 };
 use dassie_xrpl::fake::{
     ExactSum, FEE_BASE, FakeLedger, RESERVE_BASE, RESERVE_INC, RLUSD_CURRENCY, RLUSD_ISSUER, Token,
@@ -117,12 +117,11 @@ fn trust(
         limit,
         fee: FEE_BASE,
         sequence,
-        last_ledger_sequence: ledger.ledger() + 10,
+        last_ledger_sequence: Some(ledger.ledger() + 10),
         flags,
         network_id: None,
         memos: Vec::new(),
-        signing_pub_key: *wallet.public_key(),
-        signature: None,
+        signing: Signing::by(wallet.public_key()),
     }
     .sign(wallet);
     (submit(ledger, &signed.blob), signed.hash)
@@ -134,16 +133,16 @@ fn pay(ledger: &mut FakeLedger, wallet: &Wallet, to: AccountId, amount: Amount) 
     let signed = Payment {
         account: wallet.account(),
         destination: to,
+        destination_tag: None,
         amount,
         send_max: None,
         fee: FEE_BASE,
         sequence,
-        last_ledger_sequence: ledger.ledger() + 10,
+        last_ledger_sequence: Some(ledger.ledger() + 10),
         flags: 0,
         network_id: None,
         memos: Vec::new(),
-        signing_pub_key: *wallet.public_key(),
-        signature: None,
+        signing: Signing::by(wallet.public_key()),
     }
     .sign(wallet);
     assert_eq!(submit(ledger, &signed.blob), "tesSUCCESS");
@@ -467,16 +466,16 @@ fn a_payment_that_cannot_deliver_it_all_fails_and_costs_its_fee() {
     let mut partial = Payment {
         account: a.account(),
         destination: b.account(),
+        destination_tag: None,
         amount: Amount::Token(rlusd("1")),
         send_max: None,
         fee: FEE_BASE,
         sequence: sequence(&mut ledger, a.account()),
-        last_ledger_sequence: ledger.ledger() + 10,
+        last_ledger_sequence: Some(ledger.ledger() + 10),
         flags: 0,
         network_id: None,
         memos: Vec::new(),
-        signing_pub_key: *a.public_key(),
-        signature: None,
+        signing: Signing::by(a.public_key()),
     }
     .sign(a)
     .blob;

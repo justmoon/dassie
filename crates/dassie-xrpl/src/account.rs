@@ -51,7 +51,7 @@ use crate::amount::{Currency, TokenAmount, TokenValue};
 use crate::api::{
     self, AccountInfo, AccountSettings, ApiError, LedgerClosed, Message, TrustLine, TxRecord,
 };
-use crate::codec::{Amount, Memo, Payment, TrustSet};
+use crate::codec::{Amount, Memo, Payment, Signing, Transact, TrustSet};
 use crate::keys::{AccountId, Wallet};
 use crate::{UNITS_PER_DROP, from_hex, hex_upper};
 
@@ -835,18 +835,18 @@ impl XrplAccount {
         let payment = Payment {
             account: self.account(),
             destination,
+            destination_tag: None,
             amount: Amount::Xrp(drops),
             send_max: None,
             fee,
             sequence: self.sequence,
-            last_ledger_sequence: self.validated.saturating_add(LEDGER_WINDOW),
+            last_ledger_sequence: Some(self.validated.saturating_add(LEDGER_WINDOW)),
             flags: 0,
             // Only the testnet is signed for, and a transaction names its
             // network only above 1024.
             network_id: None,
             memos,
-            signing_pub_key: *self.wallet.public_key(),
-            signature: None,
+            signing: Signing::by(self.wallet.public_key()),
         };
         let signed = payment.sign(&self.wallet);
         Ok(self.keep(scheme, signed.hash, signed.blob, drops, fee, None, 0))
@@ -881,16 +881,16 @@ impl XrplAccount {
         let payment = Payment {
             account: self.account(),
             destination,
+            destination_tag: None,
             amount: Amount::Token(amount),
             send_max: None,
             fee,
             sequence: self.sequence,
-            last_ledger_sequence: self.validated.saturating_add(LEDGER_WINDOW),
+            last_ledger_sequence: Some(self.validated.saturating_add(LEDGER_WINDOW)),
             flags: 0,
             network_id: None,
             memos,
-            signing_pub_key: *self.wallet.public_key(),
-            signature: None,
+            signing: Signing::by(self.wallet.public_key()),
         };
         let signed = payment.sign(&self.wallet);
         Ok(self.keep(
@@ -966,12 +966,11 @@ impl XrplAccount {
             limit,
             fee,
             sequence: self.sequence,
-            last_ledger_sequence: self.validated.saturating_add(LEDGER_WINDOW),
+            last_ledger_sequence: Some(self.validated.saturating_add(LEDGER_WINDOW)),
             flags,
             network_id: None,
             memos: Vec::new(),
-            signing_pub_key: *self.wallet.public_key(),
-            signature: None,
+            signing: Signing::by(self.wallet.public_key()),
         };
         let signed = trust_set.sign(&self.wallet);
         let hash = self.keep(scheme, signed.hash, signed.blob, 0, fee, None, reserve);
