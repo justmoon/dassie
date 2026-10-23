@@ -327,10 +327,7 @@ impl Connection {
         let (receive_max, total_received) = if self.money_limit == u64::MAX {
             (stream.receive_max, stream.received)
         } else {
-            (
-                stream.receive_max.min(self.money_told_total()),
-                self.money_received,
-            )
+            (self.money_told_total(stream), self.money_received)
         };
         visit(Frame::StreamMaxMoney {
             stream_id: stream.id,

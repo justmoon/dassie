@@ -12,7 +12,7 @@
 
 ## Decision
 
-A stream is told the most it was ever told: what it received plus what is left, or what it was told before, if more. It takes money while the money fits what the payment expects, within its tolerance. A packet that fits what its streams were told but no longer fits what is left closes the connection, with the code the application gave with the limit: `NoError` for an incoming payment that is open or full ([full-or-stopped-short](full-or-stopped-short.md)). Only a packet the receiver would fulfill closes it. A packet over what its streams were told is refused with F99 and the room, as before ([paid-within-a-tolerance](paid-within-a-tolerance.md)).
+A stream is told the most it was ever told: what it received plus what is left, or what it was told before, if more. A stream opened later starts from what is left, as it was never told more. It takes money while the money fits what the payment expects, within its tolerance. A packet that fits what its streams were told but no longer fits what is left closes the connection, with the code the application gave with the limit: `NoError` for an incoming payment that is open or full ([full-or-stopped-short](full-or-stopped-short.md)). Only a packet the receiver would fulfill closes it. A packet over what its streams were told is refused with F99 and the room, as before ([paid-within-a-tolerance](paid-within-a-tolerance.md)).
 
 Dassie's payer takes the `NoError` close as the receiver taking no more. A payment short by no more than its tolerance completes on it, as it does when the receiver reports no room.
 
@@ -20,7 +20,7 @@ Dassie's payer takes the `NoError` close as the receiver taking no more. A payme
 
 - Payments that together offer more than an incoming payment expects can leave it short: each was told room that the others took, and none can be told the last units. The incoming payment stays open for the rest, and the payments that were closed fail.
 - `ilp-protocol-stream` ends a connection closed with `NoError` gracefully, still offering what it has left, each offer answered with the close, until its application gives up ([full-or-stopped-short](full-or-stopped-short.md)). Nothing more is paid, and it hears why; it stops no sooner than when it was refused.
-- A receiver that forgot a connection, after a restart or to make room in its server's table, no longer knows what it told it, and may tell it less. Dassie's sender still takes a maximum that fell, for such receivers and other implementations ([stream.md](../areas/stream.md#money-limit)).
+- A receiver that forgot a connection, after a restart or to make room in its server's table, no longer knows what it told it, and may tell it less. So may one whose count for the connection fell, as when the node gave its place in an incoming payment to a new payer while it was still open: what it was told rested on that count, and it is told the room again. Dassie's sender still takes a maximum that fell, for such receivers and other implementations ([stream.md](../areas/stream.md#money-limit)).
 
 ## Rejected
 

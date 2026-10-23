@@ -1091,6 +1091,64 @@ fn a_double_payment_ends_at_most_at_the_amount() {
 }
 
 #[test]
+fn a_stream_opened_after_another_payment_is_told_the_room() {
+    // A pays 100 of 1 000 on a stream, and is told 1 000 in all; B pays
+    // 850. A stream A opens then was never told anything, so it is told
+    // the room, 50, not what A's first stream was, and pays what fits.
+    let mut rng = SeededRng::new(22);
+    let mut server = server(PAYEE);
+    let mut payment = Payment::new(1_000, 0);
+    let (mut a, first, keys) = payer(&server, &mut rng, b"payment/a");
+    let (mut b, b_stream, _) = payer(&server, &mut rng, b"payment/b");
+    a.set_send_max(first, 100).unwrap();
+    assert_eq!(
+        pay(NOW, &mut rng, &mut server, &mut payment, &mut a),
+        (1, 0)
+    );
+    b.set_send_max(b_stream, 850).unwrap();
+    assert_eq!(
+        pay(NOW, &mut rng, &mut server, &mut payment, &mut b),
+        (1, 0)
+    );
+
+    let second = a.open_stream().unwrap();
+    a.set_send_max(second, 70).unwrap();
+    let mut out = vec![0; BUFFER_LENGTH];
+    let mut answer = vec![0; BUFFER_LENGTH];
+    let transmit = a.poll_transmit(NOW, &mut rng, &mut out).unwrap();
+    let prepare = Prepare::decode_exact(&out[..transmit.length]).unwrap();
+    assert_eq!(prepare.amount, 70);
+    let admit = |tag: &[u8]| payment.admit(tag);
+    let handled = server.handle_prepare_admitted(NOW, &mut rng, &prepare, admit, &mut answer);
+    assert_eq!(handled.received, 0);
+    let answer = &answer[..handled.length];
+    check_refusal(&keys, answer, |_, frames| {
+        let room = Frame::StreamMaxMoney {
+            stream_id: second,
+            receive_max: 150,
+            total_received: 100,
+        };
+        assert!(frames.contains(&room), "{frames:?}");
+        // The first stream keeps what it was told.
+        let told = Frame::StreamMaxMoney {
+            stream_id: first,
+            receive_max: 1_000,
+            total_received: 100,
+        };
+        assert!(frames.contains(&told), "{frames:?}");
+        let closes = |frame: &Frame<'_>| matches!(frame, Frame::ConnectionClose { .. });
+        assert!(!frames.iter().any(closes), "{frames:?}");
+    });
+    let mut work = vec![0; BUFFER_LENGTH];
+    a.handle_response(NOW, transmit.request_id, answer, &mut work);
+    a.check_invariants();
+    let later = NOW.saturating_add_ms(1_000);
+    pay(later, &mut rng, &mut server, &mut payment, &mut a);
+    assert_eq!(payment.remaining, 0);
+    assert_eq!(payment.paid.values().sum::<u64>(), 1_000);
+}
+
+#[test]
 fn a_sender_left_less_room_than_its_packet_sends_what_is_left() {
     // Two connections pay one incoming payment of 1 000. A pays 100, B
     // pays 850, and 50 are left, less than what A offers next. A receiver
@@ -1542,9 +1600,9 @@ fn a_reply_after_the_receiver_dropped_its_count_is_taken() {
     assert_eq!(a.stream(a_stream).unwrap().remote_room(), 9_500);
 
     // A's place goes to another payer, and its count with it; B pays all
-    // but 500. A's place goes only once A paid nothing for the idle
-    // timeout, after which its connection was forgotten too: here the
-    // receiver restarts.
+    // but 500. A's connection is still open: a place is idle by what it
+    // paid, the connection by any packet. The receiver forgot what it
+    // counted for A, so what A's stream was told no longer stands.
     payment.paid.remove(b"payment/a".as_slice());
     b.set_send_max(b_stream, 9_000).unwrap();
     assert_eq!(
@@ -1552,7 +1610,6 @@ fn a_reply_after_the_receiver_dropped_its_count_is_taken() {
         (1, 0)
     );
     assert_eq!(payment.remaining, 500);
-    server = self::server(PAYEE);
 
     // A comes back and offers what it was told fits. The refusal says the
     // receiver counts nothing from A, and takes 500.

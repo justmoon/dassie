@@ -158,12 +158,12 @@ impl Connection {
             return decision;
         }
         if !within_limit {
-            // A payment within what its streams were told, but over what
-            // is left, met money another connection took: the streams
+            // A payment within what one of its streams was told, but over
+            // what is left, met money another connection took: the stream
             // cannot be told less (RFC 29 §4.4.4), so the connection
             // closes, with the code the application gave for a total it
             // takes no more of (spec/decisions/close-rather-than-lower.md).
-            let told_room = self.money_told_total().saturating_sub(self.money_received);
+            let told_room = self.told_room(packet);
             if self.money_limit != u64::MAX
                 && offers_money
                 && decision.close.is_none()
@@ -182,6 +182,24 @@ impl Connection {
             Err(code) => decision.close = Some((code, false)),
         }
         decision
+    }
+
+    /// The most a packet's streams were told they may still receive
+    /// under the money limit. A stream never told more than the room has
+    /// the room for a window, so a packet over it is refused and told the
+    /// room.
+    fn told_room(&self, packet: &Packet<'_>) -> u64 {
+        packet
+            .frames
+            .iter()
+            .filter_map(|frame| match frame {
+                Frame::StreamMoney { stream_id, .. } => self.stream(stream_id),
+                _ => None,
+            })
+            .map(|stream| self.money_told_total(stream))
+            .max()
+            .unwrap_or(0)
+            .saturating_sub(self.money_received)
     }
 
     /// Applies a frame that changes connection or stream state whether or
