@@ -614,6 +614,248 @@ fn a_repeat_finalizes_an_epochs_last_block_whose_votes_split() {
     assert_eq!(notarized(&mut engine), vec![third.digest(&hub())]);
 }
 
+/// Validator 0 of 0 to 3, with an application whose chain schedules, at
+/// block 1, the set `next` to take over at height 3: the least notice, so
+/// block 2 is the last of epoch 0. No one has finalized block 1.
+fn scheduled_at_one() -> (Engine, SimApp, dassie_hub::sim::Schedule) {
+    let stored = dassie_hub::consensus::Stored::genesis(genesis(), set(0..4));
+    let keys = [0, 1, 2, 5]
+        .iter()
+        .map(|at| key(*at).public_key())
+        .collect();
+    let schedule = dassie_hub::sim::Schedule {
+        at: 1,
+        from: 3,
+        set: dassie_hub::ValidatorSet::new(keys).unwrap(),
+    };
+    let mut app = SimApp::default();
+    app.schedule = Some(schedule.clone());
+    let engine = Engine::new(CONFIG, hub(), key(0), stored, START);
+    (engine, app, schedule)
+}
+
+/// The block of `view` on `parent`, with the payload the schedule asks for.
+fn scheduled_block(
+    view: u64,
+    parent: &dassie_hub::consensus::Block,
+    schedule: &dassie_hub::sim::Schedule,
+) -> dassie_hub::consensus::Block {
+    let height = parent.height + 1;
+    dassie_hub::consensus::Block {
+        epoch: 0,
+        view,
+        height,
+        parent: parent.digest(&hub()),
+        parent_view: parent.view,
+        timestamp_ms: START + view * 100,
+        payload: dassie_hub::sim::payload(height, 9, Some(schedule)),
+    }
+}
+
+/// An empty repeat of `parent` in view `view` of epoch 0.
+fn repeat_of(view: u64, parent: &dassie_hub::consensus::Block) -> dassie_hub::consensus::Block {
+    dassie_hub::consensus::Block {
+        epoch: 0,
+        view,
+        height: parent.height,
+        parent: parent.digest(&hub()),
+        parent_view: parent.view,
+        timestamp_ms: START + view * 100,
+        payload: Vec::new(),
+    }
+}
+
+/// Hands `engine` the notarization of `block`, and its finalization too if
+/// `finalized`.
+fn certify(
+    engine: &mut Engine,
+    app: &mut SimApp,
+    block: &dassie_hub::consensus::Block,
+    finalized: bool,
+) {
+    let kinds: &[VoteKind] = if finalized {
+        &[VoteKind::Notarize, VoteKind::Finalize]
+    } else {
+        &[VoteKind::Notarize]
+    };
+    for kind in kinds {
+        let certificate = certificate_of(*kind, block.view, block.digest(&hub()));
+        let message = Message::decode_message(&certificate).unwrap();
+        hand(engine, app, START + block.view * 100 + 5, 3, &message);
+    }
+}
+
+#[test]
+fn a_lagging_validator_finalizes_through_a_repeat_before_it_knows_the_change() {
+    // It saw blocks 1 and 2 proposed and notarized, never final, and knows
+    // the change only from the chain: it judges the repeat on that chain,
+    // and finalizes blocks 1 and 2 when the repeat's finalization comes.
+    let (mut engine, mut app, schedule) = scheduled_at_one();
+    let b1 = scheduled_block(1, &genesis(), &schedule);
+    let b2 = scheduled_block(2, &b1, &schedule);
+    for (block, leader) in [(&b1, 1), (&b2, 2)] {
+        hand(
+            &mut engine,
+            &mut app,
+            START + block.view * 100 + 1,
+            leader,
+            &proposed(block, usize::try_from(leader).unwrap()),
+        );
+        certify(&mut engine, &mut app, block, false);
+    }
+    assert_eq!(
+        (engine.tip().block.height, engine.set_for_height(3)),
+        (0, &set(0..4))
+    );
+    let repeat = repeat_of(3, &b2);
+    let _ = notarized(&mut engine);
+    hand(&mut engine, &mut app, START + 301, 3, &proposed(&repeat, 3));
+    assert_eq!(notarized(&mut engine), vec![repeat.digest(&hub())]);
+    certify(&mut engine, &mut app, &repeat, true);
+    assert_eq!(engine.tip().block, b2);
+    assert_eq!(engine.tip().repeats, vec![repeat]);
+    assert_eq!((engine.epoch(), engine.set()), (1, &schedule.set));
+    // One that never saw them proposed gets the blocks with their
+    // certificates only, and finalizes them the same.
+    let (mut engine, mut app, schedule) = scheduled_at_one();
+    let certified =
+        |block: &dassie_hub::consensus::Block, kind| dassie_hub::consensus::wire::Certified {
+            certificate: match Message::decode_message(&certificate_of(
+                kind,
+                block.view,
+                block.digest(&hub()),
+            ))
+            .unwrap()
+            {
+                Message::Certificate(certificate) => certificate,
+                _ => panic!("a certificate"),
+            },
+            block: Some(block.clone()),
+        };
+    let delivery = Message::Delivery(dassie_hub::consensus::wire::Delivery {
+        finalized: Vec::new(),
+        finalization: None,
+        certified: vec![
+            certified(&b1, VoteKind::Notarize),
+            certified(&b2, VoteKind::Notarize),
+            certified(&repeat_of(3, &b2), VoteKind::Notarize),
+            certified(&repeat_of(3, &b2), VoteKind::Finalize),
+        ],
+    });
+    hand(&mut engine, &mut app, START + 400, 1, &delivery);
+    assert_eq!((engine.tip().block.height, engine.epoch()), (2, 1));
+    assert_eq!(engine.set(), &schedule.set);
+}
+
+#[test]
+fn no_block_of_the_old_set_passes_the_boundary_before_the_change_is_final() {
+    // Blocks 1 (which schedules the change for height 3) and 2 are
+    // notarized, and their votes split: neither is final. View 3's leader
+    // proposes block 3 in epoch 0, which the chain says the next set must
+    // build: we nullify it, and lead view 4 with a repeat of block 2.
+    let (mut engine, mut app, schedule) = scheduled_at_one();
+    let b1 = scheduled_block(1, &genesis(), &schedule);
+    let b2 = scheduled_block(2, &b1, &schedule);
+    for (block, leader) in [(&b1, 1), (&b2, 2)] {
+        hand(
+            &mut engine,
+            &mut app,
+            START + block.view * 100 + 1,
+            leader,
+            &proposed(block, usize::try_from(leader).unwrap()),
+        );
+        certify(&mut engine, &mut app, block, false);
+    }
+    let _ = std::iter::from_fn(|| engine.poll_output()).count();
+    let b3 = scheduled_block(3, &b2, &schedule);
+    hand(&mut engine, &mut app, START + 301, 3, &proposed(&b3, 3));
+    let votes: Vec<VoteKind> = std::iter::from_fn(|| engine.poll_output())
+        .filter_map(|output| match Message::decode_message(&output.message) {
+            Ok(Message::Vote(vote)) if vote.view == 3 => Some(vote.kind),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(votes, vec![VoteKind::Nullify]);
+    let nullification = certificate_of(VoteKind::Nullify, 3, Digest::default());
+    hand(
+        &mut engine,
+        &mut app,
+        START + 310,
+        3,
+        &Message::decode_message(&nullification).unwrap(),
+    );
+    assert_eq!(engine.view(), 4);
+    engine.handle_timeout(START + 500, &mut app);
+    engine.check_invariants();
+    let ours: Vec<_> = std::iter::from_fn(|| engine.poll_output())
+        .filter_map(|output| match Message::decode_message(&output.message) {
+            Ok(Message::Proposal(proposal)) => Some(proposal.block),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ours.len(), 1);
+    assert!(ours[0].repeats(&b2) && ours[0].parent == b2.digest(&hub()));
+}
+
+#[test]
+fn catch_up_crosses_a_handover_that_ended_with_repeats() {
+    let (_, _, schedule) = scheduled_at_one();
+    let b1 = scheduled_block(1, &genesis(), &schedule);
+    let b2 = scheduled_block(2, &b1, &schedule);
+    let repeat = repeat_of(3, &b2);
+    let finalization = match Message::decode_message(&certificate_of(
+        VoteKind::Finalize,
+        3,
+        repeat.digest(&hub()),
+    ))
+    .unwrap()
+    {
+        Message::Certificate(certificate) => certificate,
+        _ => panic!("a certificate"),
+    };
+    // Behind the scheduling block: blocks 1 and 2 and the repeat, in one
+    // delivery; it learns of the change from block 1 as it applies it.
+    let (mut engine, mut app, _) = scheduled_at_one();
+    let delivery = |finalized: Vec<_>| {
+        Message::Delivery(dassie_hub::consensus::wire::Delivery {
+            finalized,
+            finalization: Some(finalization.clone()),
+            certified: Vec::new(),
+        })
+    };
+    hand(
+        &mut engine,
+        &mut app,
+        START + 400,
+        1,
+        &delivery(vec![b1.clone(), b2.clone(), repeat.clone()]),
+    );
+    assert_eq!((engine.tip().block.height, engine.epoch()), (2, 1));
+    assert_eq!(engine.tip().repeats, vec![repeat.clone()]);
+    // Beyond what peers keep: block 2 and its repeat, checked with the set
+    // it knows, then the state after block 2, which names the change.
+    let (mut engine, mut app, schedule) = scheduled_at_one();
+    hand(
+        &mut engine,
+        &mut app,
+        START + 400,
+        1,
+        &delivery(vec![b2.clone(), repeat.clone()]),
+    );
+    let behind = std::iter::from_fn(|| engine.poll_event())
+        .find_map(|event| match event {
+            dassie_hub::consensus::Event::Behind(finalized) => Some(*finalized),
+            _ => None,
+        })
+        .expect("behind");
+    assert_eq!(behind.repeats, vec![repeat]);
+    let change = schedule.pending(behind.block.height);
+    engine.jump(START + 401, behind, change).unwrap();
+    engine.check_invariants();
+    assert_eq!((engine.tip().block.height, engine.epoch()), (2, 1));
+    assert_eq!(engine.set(), &schedule.set);
+}
+
 #[test]
 fn a_repeat_is_valid_only_of_an_epochs_last_block() {
     let (mut engine, mut app, b2, _) = split_at_the_boundary();

@@ -89,22 +89,15 @@ impl Engine {
         self.blocks.get(digest)
     }
 
-    /// Whether `block`, if it repeats its parent, is a repeat the running
-    /// epoch may make: of the epoch's last block, by the epoch's set. A
-    /// block that is no repeat, or whose parent is not known, fits.
-    pub(super) fn repeat_fits(&self, block: &Block) -> bool {
+    /// Whether `block`, if it has its parent's height, has a repeat's shape:
+    /// no payload, in the running epoch. Whether it repeats the epoch's last
+    /// block is a matter of the chain it builds on ([`Self::boundary_on`]).
+    /// A block of another height, or whose parent is not known, passes.
+    pub(super) fn repeat_shaped(&self, block: &Block) -> bool {
         let Some(parent) = self.known_block(&block.parent) else {
             return true;
         };
-        if block.height != parent.height {
-            return true;
-        }
-        block.repeats(parent)
-            && block.epoch == self.epoch()
-            && self
-                .epochs
-                .boundary(block.epoch)
-                .is_some_and(|boundary| parent.height.saturating_add(1) == boundary)
+        block.height != parent.height || (block.repeats(parent) && block.epoch == self.epoch())
     }
 
     /// How the block `digest`, of view `view`, relates to the tip.
@@ -249,21 +242,18 @@ impl Engine {
             .map(|(_, block)| block)
             .collect();
         let last = chain.len().saturating_sub(1);
-        if let Some((_, end)) = chain.last() {
-            assert!(
-                repeats.iter().all(|repeat| repeat.height == end.height
-                    && repeat.payload.is_empty()
-                    && repeat.epoch == end.epoch)
-                    && (repeats.is_empty()
-                        || self
-                            .epochs
-                            .boundary(end.epoch)
-                            .is_some_and(|b| end.height.saturating_add(1) == b)),
-                "repeats only of an epoch's last block, at the end of a chain"
-            );
-        }
         let mut proof = Some((repeats, finalization));
+        // The content first, in order: a block in it may schedule the
+        // change that ends the epoch. The chain stops where the epoch
+        // ended, which only more than f faulty validators can make happen
+        // before its last block.
         for (at, (digest, block)) in chain.into_iter().enumerate() {
+            let follows = block.parent == self.tip_digest
+                && block.height == self.tip.block.height.saturating_add(1)
+                && block.epoch == self.epoch();
+            if !follows {
+                break;
+            }
             let own = if at == last { proof.take() } else { None };
             self.apply_finalized(app, digest, block, own.unwrap_or_default());
         }
@@ -377,6 +367,8 @@ impl Engine {
         self.settled_conflicts.retain(|at| *at >= oldest);
         self.blocks
             .retain(|_, block| block.height > height && block.view > view);
+        let blocks = &self.blocks;
+        self.executed.retain(|digest| blocks.contains_key(digest));
         self.finalize_heights.retain(|at, _| *at > height);
         if self.want.as_ref().is_some_and(|(want, _)| *want <= view) {
             self.want = None;
@@ -399,6 +391,7 @@ impl Engine {
         self.last_voted = [0; crate::validators::MAX_VALIDATORS];
         self.rounds.clear();
         self.blocks.clear();
+        self.executed.clear();
         self.settled_conflicts.clear();
         self.want = None;
         self.floor = 0;

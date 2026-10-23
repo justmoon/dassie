@@ -145,6 +145,9 @@ pub struct SimApp {
     pub learned: BTreeMap<u64, (u64, ValidatorSet)>,
     /// The change the last finalized block scheduled, for the engine.
     scheduled: Option<(u64, ValidatorSet)>,
+    /// The state after each block it found valid or finalized, final or
+    /// not: its height, and the change scheduled and not yet made.
+    states: BTreeMap<Digest, (u64, Option<(u64, ValidatorSet)>)>,
 }
 
 /// Where a payload's state root starts, after its marker, height and
@@ -252,17 +255,19 @@ impl Application for SimApp {
     }
 
     fn verify(&mut self, context: &VerifyContext, payload: &[u8]) -> bool {
-        let schedule = self.schedule.as_ref();
-        let pending = schedule.and_then(|schedule| schedule.pending(context.height));
-        let operation = payload.get(OPERATION_AT..).unwrap_or_default();
-        let scheduled = schedule
-            .filter(|schedule| schedule.at == context.height)
-            .map(|schedule| (schedule.from, schedule.set.clone()));
-        payload.first().is_some_and(|first| *first != INVALID)
-            && payload.get(1..9) == Some(&context.height.to_be_bytes()[..])
-            && payload.get(ROOT_AT..OPERATION_AT) == Some(state_root(pending.as_ref()).as_bytes())
-            && decode_change(operation) == scheduled
-            && (scheduled.is_some() || operation.is_empty())
+        let valid = self.valid(context, payload);
+        if valid {
+            let operation = payload.get(OPERATION_AT..).unwrap_or_default();
+            let parent = self.states.get(&context.parent).map_or_else(
+                || self.state_after(context.height.saturating_sub(1)),
+                |(_, pending)| pending.clone(),
+            );
+            let pending = decode_change(operation)
+                .or(parent)
+                .filter(|(from, _)| context.height < *from);
+            self.states.insert(context.block, (context.height, pending));
+        }
+        valid
     }
 
     fn finalized(&mut self, block: &Block, digest: &Digest) {
@@ -277,10 +282,42 @@ impl Application for SimApp {
             self.learned.insert(block.height, change.clone());
             self.scheduled = Some(change);
         }
+        let state = self.state_after(block.height);
+        self.keep_state(*digest, block.height, state);
     }
 
     fn reconfiguration(&mut self) -> Option<(u64, ValidatorSet)> {
         self.scheduled.take()
+    }
+
+    fn scheduled_change(&mut self, after: &Digest) -> Option<(u64, ValidatorSet)> {
+        self.states
+            .get(after)
+            .and_then(|(_, pending)| pending.clone())
+    }
+}
+
+impl SimApp {
+    /// Keeps the state after block `digest`, and lets go of states far
+    /// below the finalized chain.
+    pub fn keep_state(&mut self, digest: Digest, height: u64, state: Option<(u64, ValidatorSet)>) {
+        self.states.insert(digest, (height, state));
+        let floor = height.saturating_sub(256);
+        self.states.retain(|_, (at, _)| *at >= floor);
+    }
+
+    fn valid(&self, context: &VerifyContext, payload: &[u8]) -> bool {
+        let schedule = self.schedule.as_ref();
+        let pending = schedule.and_then(|schedule| schedule.pending(context.height));
+        let operation = payload.get(OPERATION_AT..).unwrap_or_default();
+        let scheduled = schedule
+            .filter(|schedule| schedule.at == context.height)
+            .map(|schedule| (schedule.from, schedule.set.clone()));
+        payload.first().is_some_and(|first| *first != INVALID)
+            && payload.get(1..9) == Some(&context.height.to_be_bytes()[..])
+            && payload.get(ROOT_AT..OPERATION_AT) == Some(state_root(pending.as_ref()).as_bytes())
+            && decode_change(operation) == scheduled
+            && (scheduled.is_some() || operation.is_empty())
     }
 }
 
@@ -374,6 +411,13 @@ pub struct Network {
     /// How many times a validator handed over to a new set after the last
     /// block of its epoch was finalized through a repeat.
     pub repeat_handovers: u64,
+    /// While set, every vote to finalize a block of this height that is no
+    /// repeat is lost: a knob that makes the last block of an epoch final
+    /// only through a repeat, for coverage of the handover.
+    pub lose_finalize_at: Option<u64>,
+    /// The height of every block proposed, and whether it is a repeat, by
+    /// digest, for `lose_finalize_at`.
+    proposed_blocks: BTreeMap<Digest, (u64, bool)>,
     /// How much longer the messages of some validators take.
     pub slow: BTreeMap<usize, u64>,
     queue: BTreeMap<(u64, u64), Delivery>,
@@ -408,6 +452,8 @@ impl Network {
             forked: false,
             state_loads: 0,
             repeat_handovers: 0,
+            lose_finalize_at: None,
+            proposed_blocks: BTreeMap::new(),
             slow: BTreeMap::new(),
             queue: BTreeMap::new(),
             sequence: 0,
@@ -670,6 +716,7 @@ impl Network {
         self.act(index, |engine, app, now| {
             if engine.jump(now, finalized, state.clone()).is_ok() {
                 app.finalized.insert(height, digest);
+                app.keep_state(digest, height, state.clone());
                 if let Some(change) = state {
                     app.learned.insert(height, change);
                 }
@@ -701,6 +748,9 @@ impl Network {
 
     /// Sends what validator `from` said, as its role has it.
     fn carry(&mut self, from: usize, to: &[usize], bytes: Vec<u8>) {
+        if self.lose_finalize_at.is_some() && self.lost(&bytes) {
+            return;
+        }
         match self.validators[from].role {
             Role::Silent => {}
             Role::Withhold | Role::Equivocate | Role::Collude | Role::Flood => {
@@ -765,6 +815,25 @@ impl Network {
         }
         self.trace
             .push(format!("{} {leader} floods {sent} proposals", self.now));
+    }
+
+    /// Whether `bytes` are a vote that `lose_finalize_at` loses; notes the
+    /// blocks proposed.
+    fn lost(&mut self, bytes: &[u8]) -> bool {
+        match Message::decode_message(bytes) {
+            Ok(Message::Proposal(proposal)) => {
+                let block = &proposal.block;
+                let repeat = block.payload.is_empty();
+                self.proposed_blocks
+                    .insert(block.digest(&hub()), (block.height, repeat));
+                false
+            }
+            Ok(Message::Vote(vote)) if vote.kind == VoteKind::Finalize => {
+                let at = self.proposed_blocks.get(&vote.block);
+                at.is_some_and(|(height, repeat)| Some(*height) == self.lose_finalize_at && !repeat)
+            }
+            _ => false,
+        }
     }
 
     /// Proposes `proposal` to one half of `to` and another block to the

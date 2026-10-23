@@ -313,8 +313,9 @@ impl Engine {
 
     /// The digests of `blocks` if each is the parent of the next, all of
     /// one epoch, and `finalization` names the last, whoever signed it.
-    /// Repeats may only end the chain, of the block before them, which
-    /// must be the last of its epoch, as far as we know.
+    /// Repeats may only end the chain, of the block before them. Whether
+    /// that block ends its epoch is learned by applying the blocks first:
+    /// the finalization proves them final whatever the repeats are.
     fn chained(&self, blocks: &[Block], finalization: &Certificate) -> Option<Vec<Digest>> {
         let last = blocks.last()?;
         let content = content_len(blocks);
@@ -332,16 +333,11 @@ impl Engine {
             .iter()
             .skip(content)
             .all(|repeat| repeat.height == end.height && repeat.payload.is_empty());
-        let repeats_fit = content == blocks.len()
-            || self
-                .epochs
-                .boundary(end.epoch)
-                .is_some_and(|boundary| end.height.saturating_add(1) == boundary);
         let proven = finalization.kind == VoteKind::Finalize
             && finalization.epoch == last.epoch
             && finalization.view == last.view
             && digests.last() == Some(&finalization.block);
-        (chained && only_repeats && repeats_fit && proven).then_some(digests)
+        (chained && only_repeats && proven).then_some(digests)
     }
 }
 

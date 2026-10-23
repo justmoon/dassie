@@ -16,6 +16,7 @@ use super::super::hooks::{Application, ProposeContext, VerifyContext};
 use super::super::io::{Event, Recipient};
 use super::super::types::{Block, MAX_PAYLOAD_BYTES, Vote, VoteKind};
 use super::super::wire::{Message, Proposal};
+use super::boundary::OnChain;
 use super::chain::{Ancestry, Hold};
 use super::round::Proposed;
 use super::{Engine, MAX_ROUNDS, Timers};
@@ -148,12 +149,18 @@ impl Engine {
         let Some((parent_digest, parent)) = self.select_parent(view) else {
             return false;
         };
-        // At the end of the epoch, the next set builds the next block; we
-        // repeat the last one, until a finalization proves it.
-        let repeat = self
-            .epochs
-            .boundary(self.epoch())
-            .is_some_and(|boundary| parent.height.saturating_add(1) >= boundary);
+        // At the end of the epoch on this chain, the next set builds the
+        // next block; we repeat the last one, until a finalization proves
+        // it.
+        let boundary = match self.boundary_on(app, &parent_digest, view) {
+            OnChain::Boundary(boundary) => boundary,
+            OnChain::Missing(missing) => {
+                self.want_from_any(missing);
+                return false;
+            }
+            OnChain::Invalid => return false,
+        };
+        let repeat = boundary.is_some_and(|boundary| parent.height.saturating_add(1) >= boundary);
         // An interval after the parent's stamp, but never more than an
         // interval after we entered: our clock may lag the parent's leader.
         let interval = self.config.block_interval_ms;
@@ -198,8 +205,8 @@ impl Engine {
             payload: Vec::new(),
         };
         assert!(
-            self.repeat_fits(&block),
-            "a repeat only of an epoch's last block"
+            self.repeat_shaped(&block),
+            "a repeat has its parent's height and no payload"
         );
         block
     }
@@ -306,13 +313,13 @@ impl Engine {
         let Some(round) = self.rounds.get(&view) else {
             return false;
         };
-        let Some(proposed) = round.proposal else {
+        let (Some(proposed), leader) = (round.proposal, round.leader) else {
             return false;
         };
         if round.own(VoteKind::Notarize).is_some() || round.voted_nullify() {
             return false;
         }
-        match self.check_proposal(app, &proposed, round.leader) {
+        match self.check_proposal(app, &proposed, leader) {
             Check::Valid => {
                 if let Some(block) = self.blocks.get(&proposed.block) {
                     self.batch.blocks.push(block.clone());
@@ -320,8 +327,8 @@ impl Engine {
                 assert!(
                     self.blocks
                         .get(&proposed.block)
-                        .is_some_and(|block| self.repeat_fits(block)),
-                    "we notarize a repeat only of an epoch's last block"
+                        .is_some_and(|block| self.repeat_shaped(block)),
+                    "a repeat we notarize has its parent's height and no payload"
                 );
                 if let Some(vote) = self.sign(VoteKind::Notarize, view, proposed.block) {
                     self.send(Recipient::All, &Message::Vote(vote));
@@ -345,18 +352,25 @@ impl Engine {
     /// Checks a proposal: what it builds on, its height, its stamp, and its
     /// payload.
     fn check_proposal(
-        &self,
+        &mut self,
         app: &mut dyn Application,
         proposed: &Proposed,
         proposer: crate::validators::ValidatorIndex,
     ) -> Check {
-        let Some(block) = self.blocks.get(&proposed.block) else {
+        let Some(block) = self.blocks.get(&proposed.block).cloned() else {
             // Not held: it could not extend the tip.
             return Check::Invalid;
         };
-        let parent = match self.parent_of(block) {
+        let parent = match self.parent_of(&block) {
             Ok(parent) => parent,
             Err(check) => return check,
+        };
+        // Where the epoch ends on the chain it builds on, as the state after
+        // its parent says, final or not.
+        let boundary = match self.boundary_on(app, &block.parent, block.parent_view) {
+            OnChain::Boundary(boundary) => boundary,
+            OnChain::Missing(missing) => return Check::Missing(missing),
+            OnChain::Invalid => return Check::Invalid,
         };
         let precision = self.config.precision_ms;
         let timely = block.timestamp_ms <= proposed.arrived_ms.saturating_add(precision)
@@ -365,14 +379,14 @@ impl Engine {
                     .timestamp_ms
                     .saturating_add(precision)
                     .saturating_add(self.config.max_delay_ms);
-        let boundary = self.epochs.boundary(block.epoch);
         let fits = boundary.is_none_or(|boundary| block.height < boundary);
-        // A repeat of the epoch's last block, notarized (by `parent_of`)
-        // and not final (or the epoch would have ended); else one height
-        // more than its parent.
+        // A repeat of the epoch's last block on this chain, notarized (by
+        // `parent_of`) and not final (or the epoch would have ended); else
+        // one height more than its parent.
         let repeat = block.height == parent.height;
         let height = if repeat {
-            self.repeat_fits(block)
+            self.repeat_shaped(&block)
+                && boundary.is_some_and(|boundary| parent.height.saturating_add(1) == boundary)
         } else {
             block.height == parent.height.saturating_add(1)
         };
@@ -391,6 +405,7 @@ impl Engine {
             block: proposed.block,
         };
         if app.verify(&context, &block.payload) {
+            self.executed.insert(proposed.block);
             Check::Valid
         } else {
             Check::Invalid

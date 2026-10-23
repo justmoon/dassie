@@ -2,6 +2,7 @@
 //! the passing of time, and gives back messages to send, events, and what to
 //! persist before sending them.
 
+mod boundary;
 mod chain;
 mod fetch;
 mod receive;
@@ -111,6 +112,9 @@ pub struct Engine {
     vote_log: VecDeque<Vote>,
     /// For each height above the tip, the block we voted to finalize.
     finalize_heights: BTreeMap<u64, Digest>,
+    /// The blocks held whose state the application holds: those it found
+    /// valid since it last started.
+    executed: BTreeSet<Digest>,
     /// Finalized views a conflicting certificate was reported for, each
     /// once; within the history's views.
     settled_conflicts: BTreeSet<(u64, u64)>,
@@ -175,6 +179,7 @@ impl Engine {
             tip_digest,
             vote_log: VecDeque::new(),
             finalize_heights: stored.finalize_heights.into_iter().collect(),
+            executed: BTreeSet::new(),
             settled_conflicts: BTreeSet::new(),
             boundaries: stored.boundaries.into_iter().collect(),
             stalled: stored.stalled,
@@ -584,7 +589,7 @@ impl Engine {
                 .voted_notarize()
                 .and_then(|digest| self.blocks.get(&digest));
             assert!(
-                notarized.is_none_or(|block| self.repeat_fits(block)),
+                notarized.is_none_or(|block| self.repeat_shaped(block)),
                 "we notarize a repeat only of an epoch's last block"
             );
             assert!(

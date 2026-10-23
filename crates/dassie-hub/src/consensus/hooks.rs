@@ -69,7 +69,12 @@ pub trait Application {
 
     /// Whether `payload` is valid on its parent. Every honest validator
     /// must give the same answer for the same block, so it may depend on
-    /// nothing but the chain.
+    /// nothing but the chain. The application keeps the state after a block
+    /// it found valid, by the block's digest, until the block is final or
+    /// abandoned: [`scheduled_change`](Self::scheduled_change) reads it, and
+    /// later blocks build on it. The engine may ask again about a block it
+    /// asked about before, as after a restart, and about a block a quorum
+    /// notarized that it never saw proposed, before it builds on it.
     fn verify(&mut self, context: &VerifyContext, payload: &[u8]) -> bool;
 
     /// A block is final. Called once per block, in height order; the host
@@ -81,11 +86,29 @@ pub trait Application {
     /// scheduled, if any: the height the new set takes over at, and the set
     /// (spec/designs/settlement-hubs.md#8-changing-the-validators). The
     /// engine asks after every finalized block and takes the change in
-    /// before it finalizes the next, so no catch-up can pass the boundary
-    /// before the change is known. The height must be at least two above
-    /// the block; [`Engine::reconfigure`](super::Engine::reconfigure) does
-    /// the same for a host that learns of a change otherwise.
+    /// before it finalizes the next. The height must be at least two above
+    /// the block; a larger notice only makes it less likely that blocks
+    /// near the boundary are notarized before the change is final, which
+    /// [`scheduled_change`](Self::scheduled_change) covers.
+    /// [`Engine::reconfigure`](super::Engine::reconfigure) does the same for
+    /// a host that learns of a change otherwise.
     fn reconfiguration(&mut self) -> Option<(u64, ValidatorSet)> {
+        None
+    }
+
+    /// The change of validators scheduled and not yet made in the state
+    /// after block `after`, if any: the height its set takes over at, and
+    /// the set. `after` is the last finalized block, or a block the
+    /// application found valid since ([`verify`](Self::verify)), which need
+    /// not be final: the boundary is a property of the chain being
+    /// extended, so that no block of the old set at or above it, and only
+    /// repeats of the block before it, are notarized on that chain, whatever
+    /// a validator has finalized (spec/decisions/epoch-handover.md). It must
+    /// agree with [`reconfiguration`](Self::reconfiguration) once the
+    /// scheduling block is final. An application that never changes
+    /// validators keeps the default.
+    fn scheduled_change(&mut self, after: &Digest) -> Option<(u64, ValidatorSet)> {
+        let _ = after;
         None
     }
 }

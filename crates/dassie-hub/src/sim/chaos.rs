@@ -37,14 +37,26 @@ struct Setup {
     roles: Vec<Role>,
     collusion: bool,
     /// Whether one more validator follows the hub from the start, and
-    /// replaces validator 0 at [`RECONFIGURE_FROM`].
+    /// replaces validator 0 at `from`, a change the block at `at`
+    /// schedules.
     reconfigure: bool,
+    at: u64,
+    from: u64,
+    /// Whether the network splits in two just before `from`, where the
+    /// votes on the epoch's last blocks are most likely to split: a knob
+    /// for coverage of the handover, not a production value.
+    split_at_boundary: bool,
+    /// Whether every vote to finalize the epoch's last block itself is lost
+    /// during the chaos, so that only a repeat can make it final: a knob
+    /// too.
+    lose_last_finalize: bool,
 }
 
 /// The block that schedules a change of validators, in seeds that draw one.
 const RECONFIGURE_AT: u64 = 30;
 
-/// The height the new set takes over at.
+/// The height the new set takes over at, with a notice the ledger might
+/// give; seeds that split at the boundary draw the least notice too.
 const RECONFIGURE_FROM: u64 = 60;
 
 fn setup(seed: u64) -> (SeededRng, Setup) {
@@ -72,14 +84,26 @@ fn setup(seed: u64) -> (SeededRng, Setup) {
     if reconfigure {
         roles.push(Role::Honest);
     }
-    (
-        rng,
-        Setup {
-            roles,
-            collusion,
-            reconfigure,
-        },
-    )
+    let split_at_boundary = reconfigure && rng.below(2) == 0;
+    // The least notice the ledger gives: the change takes over two blocks
+    // after the one that schedules it.
+    let least = split_at_boundary && rng.below(2) == 0;
+    let from = if least {
+        RECONFIGURE_AT + 2
+    } else {
+        RECONFIGURE_FROM
+    };
+    let lose_last_finalize = split_at_boundary && rng.below(2) == 0;
+    let setup = Setup {
+        roles,
+        collusion,
+        reconfigure,
+        at: RECONFIGURE_AT,
+        from,
+        split_at_boundary,
+        lose_last_finalize,
+    };
+    (rng, setup)
 }
 
 /// What the seed draws, before the run starts.
@@ -95,7 +119,13 @@ pub fn describe(seed: u64) -> String {
         let count = setup.roles.len() - 1;
         format!(
             "{count} validators, Byzantine: {byzantine:?}, validator {count} replacing 0 \
-             from height {RECONFIGURE_FROM}"
+             from height {}{}",
+            setup.from,
+            if setup.split_at_boundary {
+                ", split at the boundary"
+            } else {
+                ""
+            }
         )
     } else {
         format!("{} validators, Byzantine: {byzantine:?}", setup.roles.len())
@@ -120,13 +150,38 @@ pub fn run(seed: u64) -> Run {
     let mut network = network(seed, &setup);
     let mut counts = alloc::collections::BTreeMap::new();
     let mut at = START;
+    let mut split = setup.split_at_boundary;
+    if setup.lose_last_finalize {
+        network.lose_finalize_at = Some(setup.from - 1);
+    }
+    let mut heal_at = None;
     while at < START + CHAOS_MS {
-        at += 100 + rng.below(1_500);
+        // Waiting to split at the boundary, the network is watched closely.
+        at += if split { 20 } else { 100 + rng.below(1_500) };
         network.run_until(at);
+        if heal_at.is_some_and(|heal| at >= heal) {
+            network.heal();
+            heal_at = None;
+        }
+        if split {
+            let top = network
+                .honest()
+                .map(|i| network.height(i))
+                .max()
+                .unwrap_or(0);
+            if top.saturating_add(3) >= setup.from {
+                split = false;
+                split_in_two(&mut network, &mut rng);
+                heal_at = Some(at + 300 + rng.below(1_700));
+                counts.insert("boundary-split", 1);
+            }
+            continue;
+        }
         let action = chaos(&mut network, &mut rng);
         *counts.entry(action).or_insert(0) += 1;
     }
     network.faults = Faults::CALM;
+    network.lose_finalize_at = None;
     network.heal();
     for index in 0..network.validators.len() {
         if !network.is_up(index) {
@@ -150,7 +205,7 @@ pub fn run(seed: u64) -> Run {
     if network.disagreement().is_some() {
         counts.insert("fork", 1);
     }
-    if setup.reconfigure && network.honest_floor() >= RECONFIGURE_FROM {
+    if setup.reconfigure && network.honest_floor() >= setup.from {
         counts.insert("reconfigured", 1);
     }
     if network.state_loads > 0 {
@@ -179,12 +234,24 @@ fn network(seed: u64, setup: &Setup) -> Network {
     let set = ValidatorSet::new(keys).unwrap_or_else(|| set(0..count));
     for sim in &mut network.validators {
         sim.app.schedule = Some(Schedule {
-            at: RECONFIGURE_AT,
-            from: RECONFIGURE_FROM,
+            at: setup.at,
+            from: setup.from,
             set: set.clone(),
         });
     }
     network
+}
+
+/// Splits the network into two halves, drawn at random.
+fn split_in_two(network: &mut Network, rng: &mut SeededRng) {
+    let count = network.validators.len();
+    let mut side: Vec<usize> = (0..count).collect();
+    for at in 0..count {
+        let other = usize::try_from(rng.below(count as u64)).unwrap_or(0);
+        side.swap(at, other);
+    }
+    side.truncate(count / 2);
+    network.partition(&side);
 }
 
 /// One stroke of chaos, and its name.
@@ -237,9 +304,12 @@ fn reconfigured(network: &Network, setup: &Setup) -> Option<String> {
     network.honest().find_map(|index| {
         let schedule = network.validators[index].app.schedule.as_ref()?;
         let engine = network.validators[index].engine.as_ref()?;
-        let past = engine.tip().block.height >= RECONFIGURE_FROM;
-        (past && engine.set_for_height(RECONFIGURE_FROM) != &schedule.set).then(|| {
-            format!("validator {index} is past height {RECONFIGURE_FROM} with the old set")
+        let past = engine.tip().block.height >= setup.from;
+        (past && engine.set_for_height(setup.from) != &schedule.set).then(|| {
+            format!(
+                "validator {index} is past height {} with the old set",
+                setup.from
+            )
         })
     })
 }
