@@ -110,6 +110,11 @@ pub(super) struct Unfinished {
     stopping: Option<String>,
     /// Why its connection closed before it was done, if it did.
     closed: Option<String>,
+    /// Whether the receiver closed its connection because it takes no
+    /// more: a receiver never lowers the maximum it told, so this, not
+    /// the room it reports, says it is full
+    /// (spec/decisions/close-rather-than-lower.md).
+    receiver_full: bool,
     /// How often it opened a new connection.
     reconnects: u32,
     /// When it may start sending, while it waits to.
@@ -225,6 +230,7 @@ impl Core {
                     in_flight: 0,
                     stopping: None,
                     closed: None,
+                    receiver_full: false,
                     reconnects: 0,
                     start_at_ms: self.now_ms,
                 },
@@ -285,6 +291,7 @@ impl Core {
                 in_flight: 0,
                 stopping: None,
                 closed: None,
+                receiver_full: false,
                 reconnects: 0,
                 start_at_ms: now,
             },
@@ -733,7 +740,7 @@ impl Core {
         let receive = u128::from(receive_amount.value);
         let debit = u128::from(payment.row.debit_amount.max(1));
         let short = receive.saturating_sub(u128::from(delivered));
-        let full = stream.is_some_and(|stream| stream.remote_room() == 0);
+        let full = payment.receiver_full || stream.is_some_and(|stream| stream.remote_room() == 0);
         let within_tolerance = short <= u128::from(tolerance) && full;
         let delivered_enough =
             short == 0 || (delivered > 0 && short * debit < receive) || within_tolerance;
@@ -969,6 +976,7 @@ fn closed_early(payment: &mut Unfinished) {
             && payment.stopping.is_none()
         {
             if by_remote && code == ErrorCode::NO_ERROR {
+                payment.receiver_full = true;
                 payment.stopping = Some("the receiver takes no more".into());
                 continue;
             }

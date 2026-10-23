@@ -77,6 +77,7 @@ impl Connection {
         self.last_activity = Some(now);
         let decision = self.receive(prepare, &packet);
         let length = self.write_response(rng, prepare, &packet, &decision, out);
+        self.note_money_told();
         if let Some((code, by_remote)) = decision.close {
             self.finish_close(code, by_remote);
         }
@@ -135,8 +136,8 @@ impl Connection {
         if self.money_room() == 0 && offers_money && decision.close.is_none() {
             // What the connection pays into is full, possibly by another
             // connection, or within the tolerance of it, or closed short
-            // of it: its streams' maxima fell, which other senders ignore,
-            // so they would offer money until their deadline. A close they
+            // of it. Its streams' maxima cannot fall (RFC 29 §4.4.4), so
+            // a sender would offer money until its deadline. A close they
             // all understand ends it, with the code the application gave
             // for why; the response still reports the streams' totals, so
             // the sender learns what it delivered. Rate probes and packets
@@ -153,7 +154,23 @@ impl Connection {
         // stream's room, so the sender can send what is left instead
         // (spec/areas/stream.md#money-limit).
         let within_limit = prepare.amount <= self.money_limit.saturating_add(self.money_tolerance);
-        if !(acceptable && fulfillable && enough && within_limit) {
+        if !(acceptable && fulfillable && enough) {
+            return decision;
+        }
+        if !within_limit {
+            // A payment within what its streams were told, but over what
+            // is left, met money another connection took: the streams
+            // cannot be told less (RFC 29 §4.4.4), so the connection
+            // closes, with the code the application gave for a total it
+            // takes no more of (spec/decisions/close-rather-than-lower.md).
+            let told_room = self.money_told_total().saturating_sub(self.money_received);
+            if self.money_limit != u64::MAX
+                && offers_money
+                && decision.close.is_none()
+                && prepare.amount <= told_room.saturating_add(self.money_tolerance)
+            {
+                decision.close = Some((self.money_exhausted, false));
+            }
             return decision;
         }
         match self.check_incoming(prepare, packet) {

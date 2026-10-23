@@ -17,7 +17,11 @@
 //! ```text
 //! interop_peer client <destination> <shared-secret-hex> <amount> <own-address>
 //! interop_peer server <own-address> <receipt-nonce-hex> <receipt-secret-hex>
+//! interop_peer payee <own-address> <amount>
 //! ```
+//!
+//! A payee takes `amount` in all over two connections, tagged `a` and `b`,
+//! as two payments into one incoming payment, and logs `paid <total>`.
 
 // A process for the interop tests, not a state machine: it runs on the
 // real clock, the OS RNG and a reader thread.
@@ -37,8 +41,8 @@ use dassie_ilp::{Address, Prepare, Timestamp};
 use dassie_oer::Decode;
 use dassie_stream::receipt::ReceiptSecret;
 use dassie_stream::{
-    AssetDetails, BUFFER_LENGTH, Config, Connection, ConnectionId, ErrorCode, Event, Policy, Role,
-    Server, ServerConfig,
+    Admission, AssetDetails, BUFFER_LENGTH, Config, Connection, ConnectionId, ErrorCode, Event,
+    Policy, Role, Server, ServerConfig,
 };
 use rand_core::UnwrapErr;
 
@@ -275,11 +279,98 @@ fn run_server(args: &[String]) {
     }
 }
 
+fn run_payee(args: &[String]) {
+    let [own, amount] = args else {
+        panic!("payee <own-address> <amount>");
+    };
+    let mut remaining: u64 = amount.parse().unwrap();
+    let mut paid = std::collections::BTreeMap::<Vec<u8>, u64>::new();
+    let mut rng = UnwrapErr(getrandom::SysRng);
+    let mut secret = [0u8; 32];
+    rand_core::Rng::fill_bytes(&mut rng, &mut secret);
+    let mut server = Server::new(&ServerConfig {
+        secret,
+        address: Address::parse(own).unwrap(),
+        asset: Some(AssetDetails {
+            code: "USD",
+            scale: 6,
+        }),
+        policy: Policy {
+            remote_stream_receive_max: u64::MAX,
+            ..Policy::DEFAULT
+        },
+        max_connections: 8,
+    });
+    for tag in ["a", "b"] {
+        let credentials = server.generate_credentials(&mut rng, tag.as_bytes(), None);
+        log(&format!(
+            "credentials {tag} {} {}",
+            credentials.destination,
+            to_hex(&credentials.shared_secret)
+        ));
+    }
+    let mut buffer = vec![0u8; BUFFER_LENGTH];
+    let frames = read_frames();
+    let mut connections: Vec<ConnectionId> = Vec::new();
+    loop {
+        while let Some(id) = server.poll_opened() {
+            connections.push(id);
+        }
+        for &id in &connections {
+            let label = server
+                .connection_tag(id)
+                .map(|tag| String::from_utf8_lossy(tag).into_owned())
+                .unwrap_or_default();
+            if let Some(connection) = server.connection_mut(id) {
+                pump(connection, &label, &mut rng, &mut buffer);
+            }
+        }
+        let deadline = server
+            .connections()
+            .filter_map(|(_, c)| c.poll_timeout())
+            .min();
+        match wait(&frames, deadline) {
+            Err(()) => return,
+            Ok(Some(frame)) if frame.kind == 1 => {
+                let Ok(prepare) = Prepare::decode_exact(&frame.bytes) else {
+                    continue;
+                };
+                let admit = |tag: &[u8]| Admission::Accept {
+                    money_limit: remaining,
+                    received: paid.get(tag).copied().unwrap_or(0),
+                    tolerance: 0,
+                    exhausted: ErrorCode::NO_ERROR,
+                };
+                let handled =
+                    server.handle_prepare_admitted(now(), &mut rng, &prepare, admit, &mut buffer);
+                write_frame(2, frame.id, &buffer[..handled.length]);
+                if handled.received > 0
+                    && let Some(id) = handled.connection
+                {
+                    let tag = server.connection_tag(id).unwrap().to_vec();
+                    remaining -= handled.received;
+                    *paid.entry(tag).or_default() += handled.received;
+                    log(&format!("paid {}", paid.values().sum::<u64>()));
+                }
+            }
+            _ => {
+                let time = now();
+                for &id in &connections {
+                    if let Some(connection) = server.connection_mut(id) {
+                        connection.handle_timeout(time);
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("client") => run_client(&args[1..]),
         Some("server") => run_server(&args[1..]),
-        _ => panic!("usage: interop_peer client|server ..."),
+        Some("payee") => run_payee(&args[1..]),
+        _ => panic!("usage: interop_peer client|server|payee ..."),
     }
 }

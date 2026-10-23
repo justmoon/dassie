@@ -227,6 +227,10 @@ pub struct Connection {
     /// What a packet that offers money closes the connection with once
     /// nothing is left.
     money_exhausted: ErrorCode,
+    /// The most the connection told any stream it may receive in total
+    /// under the limit: what it tells never falls
+    /// (spec/decisions/close-rather-than-lower.md).
+    money_told: u64,
 
     state: State,
     /// The code the connection closed with, if it closed itself: what it
@@ -326,6 +330,7 @@ impl Connection {
             money_received: 0,
             money_tolerance: 0,
             money_exhausted: ErrorCode::NO_ERROR,
+            money_told: 0,
             state: State::Open,
             closed_with: None,
             close_attempts: 0,
@@ -534,15 +539,17 @@ impl Connection {
     /// Under a limit, each stream reports the application's count as what
     /// it received, and that count plus the limit as its maximum, so a
     /// sender aims at the limit itself; the tolerance only absorbs what
-    /// rounding on the way puts over or under it. The count only grows,
-    /// even when the sender's earlier connection is forgotten: after a
-    /// restart, or when the server dropped it. The maximum falls when
-    /// something else takes from the total, and a refused packet's reply
-    /// says so. A limit within the tolerance counts as nothing left: the
-    /// streams report no more room, and a packet that offers money is
-    /// refused and closes the connection with `exhausted`, which tells
-    /// every sender to stop, and why: `NO_ERROR` for a total that is
-    /// reached, another code for one the application stopped short of it.
+    /// rounding on the way puts over or under it. The maximum a stream is
+    /// told never falls, as RFC 29 requires
+    /// (spec/decisions/close-rather-than-lower.md): when something else
+    /// takes from the total, the streams keep reporting the most they were
+    /// told, and a packet that fits that but not what is left closes the
+    /// connection with `exhausted` instead. A limit within the tolerance
+    /// counts as nothing left: a packet that offers money is refused and
+    /// closes the connection with `exhausted`, which tells every sender to
+    /// stop, and why: `NO_ERROR` for a total that is reached, possibly by
+    /// another connection, another code for one the application stopped
+    /// short of it.
     pub fn set_money_limit(
         &mut self,
         remaining: u64,
@@ -563,6 +570,21 @@ impl Connection {
             0
         } else {
             self.money_limit
+        }
+    }
+
+    /// The total a stream is told it may receive under the limit: the
+    /// count plus the room, or the most it was told before, if more.
+    pub(super) fn money_told_total(&self) -> u64 {
+        self.money_told
+            .max(self.money_received.saturating_add(self.money_room()))
+    }
+
+    /// Notes what the streams were just told, once a packet that carried
+    /// their limits is sent.
+    pub(super) fn note_money_told(&mut self) {
+        if self.money_limit != u64::MAX {
+            self.money_told = self.money_told_total();
         }
     }
 
