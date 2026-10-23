@@ -26,17 +26,21 @@ use crate::scheme::{LedgerStatus, SchemeError};
 pub enum AssetKind {
     /// An account on the XRP Ledger testnet.
     XrplTestnetAccount,
+    /// An account in a settlement hub on the XRP Ledger testnet
+    /// (spec/designs/settlement-hubs.md).
+    HubTestnetAccount,
 }
 
 impl AssetKind {
     /// Every kind, in a fixed order.
-    pub const ALL: &'static [Self] = &[Self::XrplTestnetAccount];
+    pub const ALL: &'static [Self] = &[Self::XrplTestnetAccount, Self::HubTestnetAccount];
 
     /// Its name, as IDs and the database write it.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::XrplTestnetAccount => "xrpl-testnet-account",
+            Self::HubTestnetAccount => "hub-testnet-account",
         }
     }
 }

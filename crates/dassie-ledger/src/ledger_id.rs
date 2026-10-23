@@ -40,16 +40,21 @@ pub enum LedgerId {
     /// DSUSD on the XRP Ledger testnet, Dassie's own testnet dollar token,
     /// booked as `USD` at par as RLUSD is, on a ledger of its own.
     XrplTestnetDsusdUsd,
+    /// XRP in the node's settlement hub on the XRP Ledger testnet
+    /// (spec/designs/settlement-hubs.md): a ledger of its own, since what
+    /// the hub holds is a claim on its validators, not on the XRP Ledger.
+    HubXrpTestnetXrp,
 }
 
 impl LedgerId {
     /// Every ledger, in a fixed order.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::StubUsd,
         Self::XrplTestnetXrp,
         Self::XrplXrp,
         Self::XrplTestnetRlusdUsd,
         Self::XrplTestnetDsusdUsd,
+        Self::HubXrpTestnetXrp,
     ];
 
     /// The ledger's name, for example `stub+usd`.
@@ -61,6 +66,7 @@ impl LedgerId {
             Self::XrplXrp => "xrpl+xrp",
             Self::XrplTestnetRlusdUsd => "xrpl-testnet-rlusd+usd",
             Self::XrplTestnetDsusdUsd => "xrpl-testnet-dsusd+usd",
+            Self::HubXrpTestnetXrp => "hub-xrp-testnet+xrp",
         }
     }
 
@@ -79,7 +85,7 @@ impl LedgerId {
                 code: "USD",
                 scale: 9,
             },
-            Self::XrplTestnetXrp | Self::XrplXrp => Asset {
+            Self::XrplTestnetXrp | Self::XrplXrp | Self::HubXrpTestnetXrp => Asset {
                 code: "XRP",
                 scale: 9,
             },
@@ -93,7 +99,8 @@ impl LedgerId {
             Self::StubUsd
             | Self::XrplTestnetXrp
             | Self::XrplTestnetRlusdUsd
-            | Self::XrplTestnetDsusdUsd => Realm::Test,
+            | Self::XrplTestnetDsusdUsd
+            | Self::HubXrpTestnetXrp => Realm::Test,
             Self::XrplXrp => Realm::Live,
         }
     }

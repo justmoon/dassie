@@ -8,6 +8,7 @@ use dassie_ledger::{LedgerId, Name};
 use rand_core::CryptoRng;
 
 use crate::asset::{AssetId, ExternalAsset};
+use crate::commitments::Commitments;
 
 /// Something the node must book or do because of a scheme.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -384,6 +385,16 @@ pub trait SettlementScheme: Send {
     /// [`SchemeError::Unsupported`] where the owner deposits on the
     /// underlying ledger itself.
     fn deposit(&mut self, amount: u64, effects: &mut Vec<Effect>) -> Result<(), SchemeError>;
+
+    /// Its side that signs and takes promises per packet, if its peerings
+    /// carry them, as a settlement hub's do
+    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). The node
+    /// then sends a commitment with each Prepare to a peer on it, checks
+    /// one with each Prepare from it, and carries a claim in each reply to
+    /// a Fulfill.
+    fn commitments(&mut self) -> Option<&mut dyn Commitments> {
+        None
+    }
 
     /// Asserts what holds between calls: its bounds, and how its parts
     /// relate (spec/decisions/tigerstyle.md). Tests, simulations and the
