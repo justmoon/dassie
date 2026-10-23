@@ -157,20 +157,26 @@ impl Core {
     /// An ILP packet from a peer: a Prepare, or the response to one of
     /// ours, told apart by its type. A response from a node no longer
     /// peered can only be a resend, and is dropped.
+    ///
+    /// For a response, whether it fulfilled a packet of ours and the books
+    /// posted it: what a claim over a hub counts.
     pub(super) fn peer_packet(
         &mut self,
         from: dassie_identity::NodeId,
         request_id: u32,
         packet: &[u8],
-    ) {
+    ) -> bool {
         let Some(&endpoint) = self.peer_endpoints.get(&from) else {
-            return;
+            return false;
         };
         let source = EndpointId::Peer(endpoint);
         match packet.first() {
-            Some(&PREPARE_TYPE) => self.prepare_from(source, request_id, packet),
+            Some(&PREPARE_TYPE) => {
+                self.prepare_from(source, request_id, packet);
+                false
+            }
             Some(_) => self.response_from(source, request_id, packet),
-            None => {}
+            None => false,
         }
     }
 
@@ -216,7 +222,7 @@ impl Core {
     }
 
     /// A response from an endpoint, through the connector.
-    fn response_from(&mut self, source: EndpointId, request_id: u32, packet: &[u8]) {
+    fn response_from(&mut self, source: EndpointId, request_id: u32, packet: &[u8]) -> bool {
         let now = self.now_ms();
         let responded = self.connector.handle_response(
             now,
@@ -226,14 +232,22 @@ impl Core {
             &mut self.ledger,
             &mut self.up,
         );
+        let posted = matches!(
+            responded,
+            Responded::Resolved {
+                posted: Some(_),
+                ..
+            }
+        );
         self.responded(now, responded, None);
+        posted
     }
 
     /// Carries out what the connector did with a response: counts what our
     /// receiver took once the packet is posted, and sends the response
     /// upstream. A Fulfill counts in our books whether or not the upstream
     /// takes it (spec/decisions/own-fulfills.md).
-    fn responded(
+    pub(super) fn responded(
         &mut self,
         now: u64,
         responded: Responded,
@@ -274,16 +288,22 @@ impl Core {
             (None, Some(length)) => (self.up.get(..length).unwrap_or_default(), u64::MAX),
             (None, None) => return,
         };
+        let packet = packet.to_vec();
         if prepare.is_none() {
+            self.answered_over_hub(now, &node, request_id, &packet);
             // A response is retried by the peer node until it arrives.
-            self.peer.send_response(now, &node, request_id, packet);
+            self.peer.send_response(now, &node, request_id, &packet);
             self.after_peer();
             return;
         }
-        let sent = self
-            .peer
-            .send_packet(now, &node, request_id, packet, timeout_ms);
-        if sent.is_err() {
+        let sent = match self.send_over_hub(now, &node, request_id, &packet, timeout_ms) {
+            Some(sent) => sent,
+            None => self
+                .peer
+                .send_packet(now, &node, request_id, &packet, timeout_ms)
+                .is_ok(),
+        };
+        if !sent {
             self.connector.fail_forwarded(
                 now,
                 EndpointId::Peer(endpoint),

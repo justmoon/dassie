@@ -14,6 +14,7 @@
 
 mod events;
 mod growth;
+mod hubs;
 mod incoming;
 mod invariants;
 mod ledgers;
@@ -603,6 +604,7 @@ impl Core {
         self.scheme_timers();
         self.settlement_timers();
         self.expire(self.now_ms);
+        self.hub_waits(self.now_ms);
         self.drain_local(self.now_ms);
         self.pump_outgoing(self.now_ms);
         self.flush();

@@ -80,7 +80,7 @@ impl Hooks<'_> {
 enum Inbound {
     Reply(Reply),
     Deferred,
-    Packet(NodeId, u32, Vec<u8>, PacketAnswer),
+    Packet(NodeId, u32, Vec<u8>, Option<Vec<u8>>, PacketAnswer),
     Settlement(NodeId, SchemeId, u64, Vec<u8>, u64, Reply),
     SchemeMessage(NodeId, SchemeId, Vec<u8>, Reply),
     SettlementRequest(NodeId, SchemeId, dassie_peer::SettlementAnswer),
@@ -196,10 +196,11 @@ impl PeeringHooks for Hooks<'_> {
         Ok(Agreed { state, credit_out })
     }
 
-    // No scheme settles over a hub yet
-    // (spec/designs/settlement-hubs.md#13-how-it-fits-the-node).
-    fn uses_commitments(&self, _scheme: SchemeId) -> bool {
-        false
+    /// A peering over a hub carries a commitment with each Prepare and a
+    /// claim in each reply to a Fulfill
+    /// (spec/designs/settlement-hubs.md#13-how-it-fits-the-node).
+    fn uses_commitments(&self, scheme: SchemeId) -> bool {
+        scheme.as_str() == dassie_hub::member::SCHEME_ID
     }
 
     fn drained(&self, peer: NodeId) -> bool {
@@ -369,15 +370,19 @@ impl Core {
             match peer.handle_inbound(now, hooks, inbound, body, source) {
                 dassie_peer::Inbound::Reply(reply) => Inbound::Reply(reply),
                 dassie_peer::Inbound::Deferred => Inbound::Deferred,
-                // No scheme uses commitments yet, so none comes with a
-                // packet.
                 dassie_peer::Inbound::Packet {
                     from,
                     request_id,
                     packet,
-                    commitment: _,
+                    commitment,
                     answer,
-                } => Inbound::Packet(from, request_id, packet.to_vec(), answer),
+                } => Inbound::Packet(
+                    from,
+                    request_id,
+                    packet.to_vec(),
+                    commitment.map(<[u8]>::to_vec),
+                    answer,
+                ),
                 dassie_peer::Inbound::Settlement {
                     from,
                     scheme,
@@ -402,10 +407,8 @@ impl Core {
         let reply = match outcome {
             Inbound::Reply(reply) => Some(reply),
             Inbound::Deferred => None,
-            Inbound::Packet(from, request_id, packet, answer) => {
-                self.peer_packet(from, request_id, &packet);
-                // Nothing after the verdict: no peering is over a hub yet.
-                Some(answer.reply(&[]))
+            Inbound::Packet(from, request_id, packet, commitment, answer) => {
+                Some(self.packet_inbound(from, request_id, &packet, commitment.as_deref(), answer))
             }
             Inbound::Settlement(from, scheme, amount, data, sequence, reply) => {
                 Some(self.settlement_from(from, scheme, amount, &data, sequence, reply))
@@ -423,6 +426,34 @@ impl Core {
             self.outputs_peer.push(Output::PeerReply { inbound, reply });
         }
         self.after_peer();
+    }
+
+    /// An ILP packet from a peer, and the reply to it. Over a hub, a
+    /// Prepare goes on only if its commitment covers it, and the reply to a
+    /// Fulfill carries our claim after the verdict
+    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+    fn packet_inbound(
+        &mut self,
+        from: NodeId,
+        request_id: u32,
+        packet: &[u8],
+        commitment: Option<&[u8]>,
+        answer: dassie_peer::PacketAnswer,
+    ) -> Reply {
+        let now = self.now_ms;
+        let is_prepare = packet.first() == Some(&dassie_ilp::TYPE_PREPARE);
+        if is_prepare && !self.check_hub_prepare(now, &from, request_id, packet, commitment) {
+            return answer.reply(&[]);
+        }
+        let taken = self.peer_packet(from, request_id, packet);
+        if answer.takes_extra() {
+            let claim = self.hub_claim(now, &from, request_id, taken);
+            return answer.reply(&claim);
+        }
+        if !is_prepare {
+            self.hub_rejected(&from, request_id);
+        }
+        answer.reply(&[])
     }
 
     /// Applies a peer's settlement, once: refused with 400 if the books
@@ -613,6 +644,11 @@ impl Core {
                 self.update_routes();
             }
             Event::RoutesChanged => self.update_routes(),
+            Event::FulfillReply {
+                peer,
+                request_id,
+                extra,
+            } => self.hub_claim_received(self.now_ms, &peer, request_id, &extra),
             // Asked again at the next check, not a minute later: a junior
             // that had not yet taken in our acceptance pays in advance at
             // once (spec/decisions/own-fulfills.md), and a request that never
