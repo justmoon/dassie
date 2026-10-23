@@ -17,7 +17,7 @@ use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use dassie_identity::NodeKey;
+use dassie_identity::{NodeKey, PublicKey};
 use dassie_oer::Encode;
 use dassie_xrpl::codec::{Signer, Transact};
 
@@ -168,10 +168,16 @@ impl Validator {
         core::mem::take(&mut self.batches)
     }
 
-    /// Takes a message from `from`, a validator or a member.
-    pub fn handle(&mut self, now: Millis, from: PeerId, bytes: &[u8]) {
+    /// Takes a message from `from`, a validator or a member. `node` is the
+    /// node key the transport authenticated the sender by, if any: only a
+    /// validator of a set we know is served catch-up.
+    pub fn handle(&mut self, now: Millis, from: PeerId, node: Option<&PublicKey>, bytes: &[u8]) {
         match Message::decode_exact(bytes) {
             Ok(Message::Consensus(inner)) => {
+                if is_fetch(&inner) && !node.is_some_and(|node| self.is_validator(node)) {
+                    self.after(now);
+                    return;
+                }
                 self.engine
                     .handle_message(now, &mut self.chain, from, &inner);
             }
@@ -183,6 +189,17 @@ impl Validator {
             Ok(Message::Statements(_)) | Err(_) => {}
         }
         self.after(now);
+    }
+
+    /// Whether `node` is a validator of the set in force or of the one
+    /// scheduled to take over.
+    fn is_validator(&self, node: &PublicKey) -> bool {
+        let ledger = &self.chain.ledger;
+        let pending = ledger.pending_rules.as_ref().map(|p| &p.rules);
+        core::iter::once(ledger.rules())
+            .chain(pending)
+            .flat_map(|rules| &rules.validators)
+            .any(|acceptance| acceptance.node == *node)
     }
 
     /// Does what is due.
@@ -284,11 +301,9 @@ impl Validator {
                 SignedStatement::sign(&self.hub, self.index, statement, &self.consensus_key)
             })
             .collect();
-        for chunk in signed.chunks(crate::client::MAX_STATEMENTS) {
-            self.actions.push_back(Action::Peer(
-                to,
-                Message::Statements(chunk.to_vec()).to_vec(),
-            ));
+        for chunk in wire::split_statements(signed) {
+            self.actions
+                .push_back(Action::Peer(to, Message::Statements(chunk).to_vec()));
         }
     }
 
@@ -326,6 +341,12 @@ impl Validator {
     }
 
     fn route(&mut self, output: Output) {
+        // Consensus keeps its messages within MAX_MESSAGE_BYTES, which our
+        // content's bound covers; one beyond it is dropped, never sent half
+        // or encoded past its bound.
+        if output.message.len() > wire::MAX_CONTENT {
+            return;
+        }
         let message = Message::Consensus(output.message).to_vec();
         self.actions.push_back(match output.to {
             Recipient::All => Action::Validators(message),
@@ -424,6 +445,17 @@ impl Validator {
         );
         assert!(self.history.len() <= KEPT_BLOCKS, "history over its bound");
     }
+}
+
+/// Whether a consensus message asks for catch-up: what a delivery answers
+/// can be up to a consensus message's bound, so it is for validators only.
+fn is_fetch(inner: &[u8]) -> bool {
+    // A request is a few bytes; anything longer is not one.
+    inner.len() <= 64
+        && matches!(
+            crate::consensus::wire::Message::decode_message(inner),
+            Ok(crate::consensus::wire::Message::Fetch(_))
+        )
 }
 
 fn vec_of(statement: Statement) -> Vec<Statement> {

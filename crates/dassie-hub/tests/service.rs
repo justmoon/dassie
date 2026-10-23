@@ -25,7 +25,7 @@ use dassie_hub::operation::{
 use dassie_hub::rules::{Acceptance, Fees, Limits, Rules, Terms, Timers};
 use dassie_hub::service::wire::Message;
 use dassie_hub::service::{Action, Validator};
-use dassie_identity::NodeKey;
+use dassie_identity::{NodeKey, PublicKey};
 use dassie_oer::Encode;
 
 const NONCE: [u8; 32] = [7; 32];
@@ -76,6 +76,7 @@ fn terms(sponsor: &NodeKey) -> Terms {
 
 struct Network {
     validators: Vec<Validator>,
+    nodes: Vec<dassie_identity::PublicKey>,
     queue: VecDeque<(usize, PeerId, Vec<u8>)>,
     member: Vec<Vec<u8>>,
     submitted: Vec<Vec<u8>>,
@@ -111,6 +112,7 @@ impl Network {
             .collect();
         Self {
             validators,
+            nodes: nodes.iter().map(NodeKey::public_key).collect(),
             queue: VecDeque::new(),
             member: Vec::new(),
             submitted: Vec::new(),
@@ -159,7 +161,8 @@ impl Network {
                 self.collect(i);
             }
             while let Some((to, from, bytes)) = self.queue.pop_front() {
-                self.validators[to].handle(self.now, from, &bytes);
+                let node = self.nodes.get(usize::try_from(from.0).unwrap()).copied();
+                self.validators[to].handle(self.now, from, node.as_ref(), &bytes);
                 self.collect(to);
             }
         }
@@ -178,7 +181,7 @@ impl Network {
     fn request(&mut self, request: &Request) {
         let bytes = Message::Request(request.clone()).to_vec();
         for i in 0..self.validators.len() {
-            self.validators[i].handle(self.now, MEMBER, &bytes);
+            self.validators[i].handle(self.now, MEMBER, None, &bytes);
             self.collect(i);
         }
     }
@@ -353,4 +356,34 @@ fn a_withdrawal_is_signed_by_a_quorum_and_the_hub_pays_out_at_its_end() {
         dassie_hub::ledger::Phase::Ended
     );
     assert_eq!(net.payouts, 4, "every validator signs the payout set once");
+}
+
+/// How many messages validator 0 sends back to `from` for `bytes`.
+fn answers(net: &mut Network, from: PeerId, node: Option<&PublicKey>, bytes: &[u8]) -> usize {
+    net.validators[0].handle(net.now, from, node, bytes);
+    let mut count = 0;
+    while let Some(action) = net.validators[0].poll() {
+        if matches!(action, Action::Peer(to, _) if to == from) {
+            count += 1;
+        }
+    }
+    count
+}
+
+#[test]
+fn only_validators_are_served_catch_up() {
+    let mut net = Network::new();
+    net.attest_all(&ValidatorOperation::AttestEscrow { sequence: 5 });
+    net.run(1_000);
+    let fetch = dassie_hub::consensus::wire::Message::Fetch(dassie_hub::consensus::wire::Fetch {
+        height: 0,
+        epoch: 0,
+        view: 1,
+    });
+    let bytes = Message::Consensus(fetch.to_vec()).to_vec();
+    let stranger = NodeKey::from_bytes(&[99; 32]).public_key();
+    assert_eq!(answers(&mut net, MEMBER, None, &bytes), 0);
+    assert_eq!(answers(&mut net, MEMBER, Some(&stranger), &bytes), 0);
+    let validator = net.nodes[1];
+    assert!(answers(&mut net, PeerId(1), Some(&validator), &bytes) > 0);
 }

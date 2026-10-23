@@ -15,8 +15,48 @@ use crate::client::{MAX_STATEMENTS, Request, SignedStatement};
 use crate::codec::HubDecodeError;
 use crate::operation::Operation;
 
-/// The most bytes of one message's content.
-pub const MAX_CONTENT: usize = 1 << 20;
+/// The most bytes of one message's content: the largest consensus message,
+/// such as a catch-up delivery.
+pub const MAX_CONTENT: usize = crate::consensus::wire::MAX_MESSAGE_BYTES;
+
+/// What a message adds around its content, at most: its tag and a length
+/// prefix.
+pub const ENVELOPE: usize = 1 + 9;
+
+/// The most bytes of one message on a hub's stream. A host drops anything
+/// longer before decoding it.
+pub const MAX_MESSAGE: usize = MAX_CONTENT + ENVELOPE;
+
+const _: () = assert!(MAX_CONTENT >= crate::consensus::wire::MAX_MESSAGE_BYTES);
+
+/// Splits signed statements into lists that each fit one message: at most
+/// [`MAX_STATEMENTS`] and [`MAX_CONTENT`] bytes each. A statement too large
+/// for a message alone is dropped; none is, since an operation fits a block
+/// and a block fits a consensus message.
+#[must_use]
+pub fn split_statements(statements: Vec<SignedStatement>) -> Vec<Vec<SignedStatement>> {
+    let mut lists: Vec<Vec<SignedStatement>> = Vec::new();
+    let mut current: Vec<SignedStatement> = Vec::new();
+    let mut bytes = 0usize;
+    for statement in statements {
+        let len = statement.encoded_len();
+        if len.saturating_add(ENVELOPE) > MAX_CONTENT {
+            continue;
+        }
+        let full = current.len() >= MAX_STATEMENTS
+            || bytes.saturating_add(len).saturating_add(ENVELOPE) > MAX_CONTENT;
+        if full {
+            lists.push(core::mem::take(&mut current));
+            bytes = 0;
+        }
+        bytes = bytes.saturating_add(len);
+        current.push(statement);
+    }
+    if !current.is_empty() {
+        lists.push(current);
+    }
+    lists
+}
 
 /// One message on a hub's stream.
 #[allow(clippy::large_enum_variant)]
@@ -106,6 +146,9 @@ impl Encode for Message {
 impl Message {
     /// Decodes a message that fills `input`.
     pub fn decode_exact(input: &[u8]) -> Result<Self, HubDecodeError> {
+        if input.len() > MAX_MESSAGE {
+            return Err(HubDecodeError::Invalid("message too long"));
+        }
         let mut reader = Reader::new(input);
         let message = match reader.read_u8()? {
             0 => Self::Consensus(reader.read_octets(Size::range(0, MAX_CONTENT))?.to_vec()),
@@ -130,5 +173,43 @@ impl Message {
         };
         reader.finish()?;
         Ok(message)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::client::Statement;
+    use crate::consensus::wire::MAX_MESSAGE_BYTES;
+    use crate::validators::ValidatorIndex;
+
+    #[test]
+    fn the_largest_consensus_message_travels() {
+        let message = Message::Consensus(alloc::vec![7; MAX_MESSAGE_BYTES]);
+        let bytes = message.to_vec();
+        assert!(bytes.len() <= MAX_MESSAGE);
+        assert_eq!(Message::decode_exact(&bytes).unwrap(), message);
+    }
+
+    #[test]
+    fn statements_split_by_count_and_bytes() {
+        let key = dassie_identity::NodeKey::from_bytes(&[1; 32]);
+        let hub = crate::rules::HubId(crate::digest::Digest([1; 32]));
+        let statement = SignedStatement::sign(
+            &hub,
+            ValidatorIndex::new(0).unwrap(),
+            Statement::Final {
+                height: 1,
+                timestamp: 2,
+            },
+            &key,
+        );
+        let lists = split_statements(alloc::vec![statement; 3 * MAX_STATEMENTS + 1]);
+        assert_eq!(lists.len(), 4);
+        assert!(lists.iter().all(|list| list.len() <= MAX_STATEMENTS));
+        for list in lists {
+            let bytes = Message::Statements(list).to_vec();
+            assert!(bytes.len() <= MAX_MESSAGE);
+        }
     }
 }
