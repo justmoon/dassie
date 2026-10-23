@@ -142,6 +142,9 @@ impl Engine {
         if self.leader(view) != Some(me) || !idle {
             return false;
         }
+        // Armed again below only while we wait for the interval: a parent
+        // that went missing must not leave a timer that is due for ever.
+        self.timers.propose_ms = None;
         let Some((parent_digest, parent)) = self.select_parent(view) else {
             return false;
         };
