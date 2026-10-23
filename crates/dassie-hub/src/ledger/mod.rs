@@ -342,6 +342,17 @@ impl Ledger {
         self.accounts.values().filter(|a| a.member_slot).count()
     }
 
+    /// The validators whose votes for the block at `height` a block has
+    /// recorded, while its fees wait for the vote window to pass: a
+    /// proposer records only those not recorded yet.
+    #[must_use]
+    pub fn recorded_voters(&self, height: u64) -> Signers {
+        self.pools
+            .iter()
+            .find(|pool| pool.height == height)
+            .map_or(Signers::NONE, |pool| pool.voters)
+    }
+
     /// What the reserve account holds.
     #[must_use]
     pub const fn reserve_account(&self) -> Amount {
