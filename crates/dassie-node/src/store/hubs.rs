@@ -2,8 +2,10 @@
 //! spec/areas/hubs.md#the-validator-in-the-node): for each, its consensus
 //! state and the state after its last final block, written together before
 //! a step's messages go out, so a restart never signs a vote that conflicts
-//! with one sent before; how far it followed the escrow on the XRP Ledger;
-//! and the payout bundles it signed.
+//! with one sent before; the states after a few recent final blocks and
+//! after the last blocks of recent epochs, which validators far behind
+//! catch up from; how far it followed the escrow on the XRP Ledger; and the
+//! payout bundles it signed.
 //!
 //! The rows hold bytes the hub's crate encodes and reads; the store knows
 //! only their bounds.
@@ -25,6 +27,18 @@ pub const MAX_HUB_BUNDLE_BYTES: usize = 16 * 1024 * 1024;
 /// The payout bundles kept per hub, the newest: a validator signs one per
 /// final block it pays out from, and only the highest matters.
 pub const KEPT_BUNDLES: u32 = 8;
+
+/// The states after recent final blocks kept per hub, the newest first:
+/// a peer names its tip to a validator far behind, which asks for the
+/// state after it a moment later, when a few more blocks are final.
+pub const KEPT_TIPS: u32 = 8;
+
+/// The states after the last blocks of epochs kept per hub: as many as the
+/// engine keeps those blocks, which it names to a validator still in an
+/// epoch that ended.
+pub const KEPT_BOUNDARIES: u32 = 8;
+
+const _: () = assert!(KEPT_BOUNDARIES as usize == dassie_hub::consensus::MAX_BOUNDARIES);
 
 /// What a validator resumes from.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,16 +69,21 @@ pub struct HubStep<'a> {
     pub consensus: Option<&'a [u8]>,
     /// The height and state after a block that became final, if one did.
     pub ledger: Option<(u64, &'a [u8])>,
+    /// The heights of blocks the step learned were the last of their
+    /// epochs, whose states are kept longer.
+    pub boundaries: &'a [u64],
 }
 
 impl Store {
-    /// What the validator of `hub` resumes from, if it ran before.
+    /// What the validator of `hub` resumes from, if it ran before: its
+    /// consensus state and its newest state.
     pub fn hub(&self, hub: &[u8; 32]) -> Result<Option<StoredHub>, StoreError> {
         let row = self
             .lock()
             .query_row(
-                "SELECT c.state, l.height, l.state FROM hub_consensus c \
-                 JOIN hub_ledgers l ON l.hub = c.hub WHERE c.hub = ?1",
+                "SELECT c.state, s.height, s.state FROM hub_consensus c \
+                 JOIN hub_states s ON s.hub = c.hub WHERE c.hub = ?1 \
+                 ORDER BY s.height DESC LIMIT 1",
                 [&hub[..]],
                 |row| {
                     Ok((
@@ -82,15 +101,28 @@ impl Store {
         }))
     }
 
+    /// The state of `hub` after its block at `height`, if it is kept.
+    pub fn hub_state(&self, hub: &[u8; 32], height: u64) -> Result<Option<Vec<u8>>, StoreError> {
+        Ok(self
+            .lock()
+            .query_row(
+                "SELECT state FROM hub_states WHERE hub = ?1 AND height = ?2",
+                params![&hub[..], to_sql_time(height)],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
     /// Writes what a step of `hub`'s validator changed, in one transaction:
-    /// a validator that runs for the first time writes both.
+    /// a validator that runs for the first time writes both. States beyond
+    /// [`KEPT_TIPS`] and [`KEPT_BOUNDARIES`] go; the newest always stays.
     pub fn save_hub_step(
         &self,
         hub: &[u8; 32],
         now_ms: u64,
         step: HubStep<'_>,
     ) -> Result<(), StoreError> {
-        if step.consensus.is_none() && step.ledger.is_none() {
+        if step.consensus.is_none() && step.ledger.is_none() && step.boundaries.is_empty() {
             return Ok(());
         }
         let too_large = step
@@ -113,11 +145,26 @@ impl Store {
         }
         if let Some((height, state)) = step.ledger {
             transaction.execute(
-                "INSERT INTO hub_ledgers (hub, height, state) VALUES (?1, ?2, ?3) \
-                 ON CONFLICT (hub) DO UPDATE SET height = ?2, state = ?3",
+                "INSERT INTO hub_states (hub, height, boundary, state) VALUES (?1, ?2, 0, ?3) \
+                 ON CONFLICT (hub, height) DO UPDATE SET state = ?3",
                 params![&hub[..], to_sql_time(height), state],
             )?;
         }
+        for height in step.boundaries {
+            transaction.execute(
+                "UPDATE hub_states SET boundary = 1 WHERE hub = ?1 AND height = ?2",
+                params![&hub[..], to_sql_time(*height)],
+            )?;
+        }
+        transaction.execute(
+            "DELETE FROM hub_states WHERE hub = ?1 \
+             AND height < (SELECT max(height) FROM hub_states WHERE hub = ?1) \
+             AND height NOT IN (SELECT height FROM hub_states WHERE hub = ?1 \
+               ORDER BY height DESC LIMIT ?2) \
+             AND height NOT IN (SELECT height FROM hub_states WHERE hub = ?1 AND boundary = 1 \
+               ORDER BY height DESC LIMIT ?3)",
+            params![&hub[..], KEPT_TIPS, KEPT_BOUNDARIES],
+        )?;
         transaction.commit()?;
         Ok(())
     }
@@ -210,31 +257,57 @@ mod tests {
         let store = Store::open_in_memory().unwrap();
         let hub = [7; 32];
         assert_eq!(store.hub(&hub).unwrap(), None);
-        let first = HubStep {
-            consensus: Some(&[1, 2]),
-            ledger: Some((0, &[3])),
+        let step = |consensus, ledger| HubStep {
+            consensus,
+            ledger,
+            boundaries: &[],
         };
-        store.save_hub_step(&hub, 10, first).unwrap();
-        let only_votes = HubStep {
-            consensus: Some(&[4]),
-            ledger: None,
-        };
-        store.save_hub_step(&hub, 11, only_votes).unwrap();
+        store
+            .save_hub_step(&hub, 10, step(Some(&[1, 2]), Some((0, &[3]))))
+            .unwrap();
+        store
+            .save_hub_step(&hub, 11, step(Some(&[4]), None))
+            .unwrap();
         let read = store.hub(&hub).unwrap().unwrap();
         assert_eq!(read.consensus, vec![4]);
         assert_eq!((read.height, read.ledger), (0, vec![3]));
         store
-            .save_hub_step(
-                &hub,
-                12,
-                HubStep {
-                    consensus: None,
-                    ledger: Some((5, &[6])),
-                },
-            )
+            .save_hub_step(&hub, 12, step(None, Some((5, &[6]))))
             .unwrap();
         assert_eq!(store.hub(&hub).unwrap().unwrap().height, 5);
+        assert_eq!(store.hub_state(&hub, 0).unwrap(), Some(vec![3]));
         assert_eq!(store.hub(&[8; 32]).unwrap(), None);
+    }
+
+    // Recent states and those of the last blocks of epochs are kept for
+    // validators far behind, each within its bound; the newest always.
+    #[test]
+    fn states_are_kept_within_their_bounds() {
+        let store = Store::open_in_memory().unwrap();
+        let hub = [7; 32];
+        let first = HubStep {
+            consensus: Some(&[1]),
+            ledger: Some((1, &[1])),
+            boundaries: &[],
+        };
+        store.save_hub_step(&hub, 1, first).unwrap();
+        for height in 2..100_u64 {
+            let boundaries: &[u64] = if height % 10 == 0 { &[height] } else { &[] };
+            let step = HubStep {
+                consensus: None,
+                ledger: Some((height, &[2])),
+                boundaries,
+            };
+            store.save_hub_step(&hub, height, step).unwrap();
+        }
+        let kept = |height| store.hub_state(&hub, height).unwrap().is_some();
+        let tips = (1..100).filter(|h| kept(*h) && h % 10 != 0).count();
+        assert_eq!(tips, usize::try_from(KEPT_TIPS).unwrap());
+        assert!(kept(99), "the newest stays");
+        let boundaries: Vec<u64> = (1..100).filter(|h| kept(*h) && h % 10 == 0).collect();
+        assert_eq!(boundaries.len(), usize::try_from(KEPT_BOUNDARIES).unwrap());
+        assert_eq!(boundaries.last(), Some(&90));
+        assert!(!kept(10), "the oldest epoch's goes");
     }
 
     #[test]

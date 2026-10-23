@@ -991,13 +991,14 @@ ALTER TABLE settlement_channels ADD COLUMN closed INTEGER NOT NULL DEFAULT 0
 ";
 
 /// The settlement hubs the node validates (spec/areas/hubs.md#the-validator-in-the-node),
-/// each by its ID: its consensus state and the state after its last final
-/// block, written together in a step's transaction before its messages go
-/// out; how far it followed the escrow on the XRP Ledger, and the newest
-/// ledger it saw there, to tell a reset from a server behind
-/// (spec/decisions/ledger-resets.md); and the payout bundles it signed.
-/// The states are the hub crate's encodings (`store/hubs.rs` has the
-/// bounds).
+/// each by its ID: its consensus state, and the states after its recent
+/// final blocks and after the last blocks of recent epochs, the newest
+/// written in a step's transaction before its messages go out, the others
+/// kept to serve validators far behind; how far it followed the escrow on
+/// the XRP Ledger, and the newest ledger it saw there, to tell a reset from
+/// a server behind (spec/decisions/ledger-resets.md); and the payout
+/// bundles it signed. The states are the hub crate's encodings
+/// (`store/hubs.rs` has the bounds).
 const MIGRATION_32: &str = "
 CREATE TABLE hub_consensus (
   hub BLOB PRIMARY KEY CHECK (length(hub) = 32),
@@ -1005,10 +1006,13 @@ CREATE TABLE hub_consensus (
   state BLOB NOT NULL CHECK (length(state) BETWEEN 1 AND 536870912)
 ) STRICT, WITHOUT ROWID;
 
-CREATE TABLE hub_ledgers (
-  hub BLOB PRIMARY KEY CHECK (length(hub) = 32),
+CREATE TABLE hub_states (
+  hub BLOB NOT NULL CHECK (length(hub) = 32),
   height INTEGER NOT NULL CHECK (height >= 0),
-  state BLOB NOT NULL CHECK (length(state) BETWEEN 1 AND 268435456)
+  -- Whether the block is the last of an epoch, kept longer than the others.
+  boundary INTEGER NOT NULL CHECK (boundary IN (0, 1)),
+  state BLOB NOT NULL CHECK (length(state) BETWEEN 1 AND 268435456),
+  PRIMARY KEY (hub, height)
 ) STRICT, WITHOUT ROWID;
 
 CREATE TABLE hub_escrow (
@@ -1461,11 +1465,12 @@ pub const TABLES: &[Table] = &[
         ],
     },
     Table {
-        name: "hub_ledgers",
+        name: "hub_states",
         without_rowid: true,
         columns: &[
             ("hub", "BLOB", true, true),
-            ("height", "INTEGER", true, false),
+            ("height", "INTEGER", true, true),
+            ("boundary", "INTEGER", true, false),
             ("state", "BLOB", true, false),
         ],
     },

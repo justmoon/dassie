@@ -53,7 +53,7 @@ const NONCE: [u8; 32] = [7; 32];
 
 /// Routes the hub's stream to the hubs a node validates, as the node's own
 /// handler does.
-struct HubHandler(Arc<Hubs>);
+struct HubHandler(Arc<Hubs>, Arc<Store>);
 
 impl Handler for HubHandler {
     fn client(&self, _address: IpAddr) -> Option<ClientKey> {
@@ -87,6 +87,14 @@ impl Handler for HubHandler {
     ) -> Pin<Box<dyn Future<Output = Option<HubAnswer>> + Send + 'a>> {
         Box::pin(async move { Some(self.0.answer(Sender::Node(from), &request, false).await) })
     }
+
+    fn hub_state<'a>(
+        &'a self,
+        from: PublicKey,
+        request: Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = Option<Vec<u8>>> + Send + 'a>> {
+        Box::pin(async move { Some(self.0.answer_state(&self.1, &from, &request)) })
+    }
 }
 
 /// A node's endpoint, the hubs it validates and its database.
@@ -114,14 +122,15 @@ fn node(seed: u8, shutdown: &CancellationToken) -> Node {
     let (identity, receiver) = watch::channel(Some(Arc::clone(&key)));
     let quic = Arc::new(Quic::new(socket, receiver, true).unwrap());
     let hubs = Arc::new(Hubs::default());
-    let handler = Arc::new(HubHandler(Arc::clone(&hubs)));
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let handler = Arc::new(HubHandler(Arc::clone(&hubs), Arc::clone(&store)));
     tokio::spawn(Arc::clone(&quic).serve(handler, shutdown.clone()));
     let port = quic.local_addr().unwrap().port();
     Node {
         key,
         quic,
         hubs,
-        store: Arc::new(Store::open_in_memory().unwrap()),
+        store,
         endpoint: format!("127.0.0.1:{port}"),
         _identity: identity,
     }
@@ -459,6 +468,52 @@ async fn a_member_node_hears_its_validators_through_its_engine() {
         "f + 1 validators agree the account does not exist yet"
     );
     member.stop().await;
+    shutdown.cancel();
+    for validator in running {
+        validator.stop.cancel();
+        validator.task.await.unwrap();
+    }
+}
+
+// spec/areas/hubs.md#the-validator-in-the-node: a validator that was away
+// longer than its peers keep blocks fetches the state after a block they
+// name from one of them, on the hub's state stream, takes it, and
+// finalizes again with them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_validator_far_behind_catches_up_from_a_peers_state() {
+    let shutdown = CancellationToken::new();
+    let nodes: Vec<Node> = (1..=4).map(|seed| node(seed, &shutdown)).collect();
+    let rules = rules(&nodes);
+    let genesis = SystemClock.now_ms();
+    let mut running: Vec<Running> = nodes.iter().map(|n| start(n, &rules, genesis)).collect();
+    until("blocks become final", || {
+        nodes.iter().all(|n| height(n) >= 5)
+    })
+    .await;
+
+    let away = running.remove(3);
+    away.stop.cancel();
+    away.task.await.unwrap();
+    let at = height(&nodes[3]);
+    let past = at + 2 * u64::try_from(dassie_hub::consensus::RETAINED_BLOCKS).unwrap();
+    until("the others finalize past what they keep", || {
+        (0..3).all(|i| height(&nodes[i]) > past)
+    })
+    .await;
+
+    running.push(start(&nodes[3], &rules, genesis));
+    until("it catches up through a peer's state", || {
+        nodes[3]
+            .hubs
+            .statuses()
+            .first()
+            .is_some_and(|s| s.caught_up > 0)
+    })
+    .await;
+    let caught = height(&nodes[3]);
+    assert!(caught > past, "it took a state from after it left");
+    until("it finalizes again", || height(&nodes[3]) > caught + 5).await;
+
     shutdown.cancel();
     for validator in running {
         validator.stop.cancel();

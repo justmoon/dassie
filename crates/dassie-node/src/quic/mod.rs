@@ -161,6 +161,9 @@ pub enum StreamKind {
     /// A settlement hub's message, then its reply
     /// ([`crate::hub::transport`]).
     Hub = 3,
+    /// A hub validator's request for the state after a final block, then
+    /// the state ([`crate::hub::transport`]).
+    HubState = 4,
 }
 
 impl StreamKind {
@@ -172,6 +175,7 @@ impl StreamKind {
             1 => Some(Self::Relay),
             2 => Some(Self::Relayed),
             3 => Some(Self::Hub),
+            4 => Some(Self::HubState),
             _ => None,
         }
     }
@@ -216,6 +220,17 @@ pub trait Handler: Send + Sync + 'static {
         _from: PublicKey,
         _request: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Option<crate::hub::HubAnswer>> + Send + 'a>> {
+        Box::pin(async { None })
+    }
+
+    /// Answers a hub validator's request for the state after a final block
+    /// from the node `from` ([`crate::hub::transport`]): the reply's bytes.
+    /// `None` resets the stream, unless a handler says otherwise.
+    fn hub_state<'a>(
+        &'a self,
+        _from: PublicKey,
+        _request: Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = Option<Vec<u8>>> + Send + 'a>> {
         Box::pin(async { None })
     }
 
@@ -930,6 +945,7 @@ impl On {
             Some(StreamKind::Relay) => self.relay(send, recv).await,
             Some(StreamKind::Relayed) => self.serve_relayed(send, recv).await,
             Some(StreamKind::Hub) => self.hub(send, recv).await,
+            Some(StreamKind::HubState) => self.hub_state(send, recv).await,
             None => {
                 let _ = send.reset(0u32.into());
                 let _ = recv.stop(0u32.into());

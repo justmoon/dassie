@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use dassie_hub::HubId;
+use dassie_hub::consensus::Finalized;
 use dassie_hub::operation::ValidatorOperation;
 use dassie_identity::{NodeId, NodeKey};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch};
@@ -173,8 +174,21 @@ pub struct EscrowLinks {
     pub connected: watch::Sender<bool>,
 }
 
+/// The longest fetching the state after a final block from one validator
+/// takes: a state is far larger than a message.
+pub const STATE_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// The least time between two fetches of a state: anyone can name a block
+/// far ahead, which is unverified until its state is loaded
+/// (spec/areas/hubs.md#consensus), so the host limits how often it loads
+/// one.
+pub const CATCH_UP_EVERY: Duration = Duration::from_secs(1);
+
 /// The most attestations waiting for room in the validator's own pool.
 const MAX_RETRIED: usize = 64;
+
+/// A state fetched from a validator, for the block it is after.
+type Fetched = (Box<Finalized>, Vec<u8>);
 
 /// When each validator that could not be reached is sent to again.
 type Backoffs = Arc<Mutex<BTreeMap<NodeId, (tokio::time::Instant, Duration)>>>;
@@ -201,6 +215,12 @@ pub struct HubTask {
     permits: Arc<Semaphore>,
     backoffs: Backoffs,
     sends: TaskTracker,
+    /// States fetched for catching up, and where fetches send them.
+    fetched: mpsc::Receiver<Fetched>,
+    fetches: mpsc::Sender<Fetched>,
+    /// When the last fetch started, if one did; one runs at a time.
+    fetching: Arc<std::sync::atomic::AtomicBool>,
+    last_fetch: Option<tokio::time::Instant>,
     /// Attestations the validator's pool had no room for, to attest again.
     retried: std::collections::VecDeque<ValidatorOperation>,
 }
@@ -236,6 +256,7 @@ impl HubTask {
         let (submits, submitted) = mpsc::channel(ESCROW_QUEUE);
         let (view, viewed) = watch::channel(driver.escrow_view());
         let (connected, xrpl_connected) = watch::channel(false);
+        let (fetches, fetched) = mpsc::channel(1);
         hubs.set_status(driver.status(false));
         let task = Self {
             driver,
@@ -253,6 +274,10 @@ impl HubTask {
             permits: Arc::new(Semaphore::new(MAX_SENDS_IN_FLIGHT)),
             backoffs: Arc::default(),
             sends: TaskTracker::new(),
+            fetched,
+            fetches,
+            fetching: Arc::default(),
+            last_fetch: None,
             retried: std::collections::VecDeque::new(),
         };
         let links = EscrowLinks {
@@ -293,6 +318,9 @@ impl HubTask {
                 biased;
                 () = shutdown.cancelled() => return Ok(()),
                 () = tokio::time::sleep(sleep) => self.tick()?,
+                Some((finalized, state)) = self.fetched.recv() => {
+                    self.catch_up(*finalized, &state)?
+                }
                 Some(inbound) = self.from_validators.recv() => self.take(inbound)?,
                 Some(operation) = self.attestations.recv() => self.attest(operation)?,
                 Some(inbound) = self.from_members.recv() => self.take(inbound)?,
@@ -309,6 +337,7 @@ impl HubTask {
             let more = self.attest(operation)?;
             effects.sends.extend(more.sends);
             effects.submits.extend(more.submits);
+            effects.behind = effects.behind.or(more.behind);
         }
         Ok(effects)
     }
@@ -321,6 +350,24 @@ impl HubTask {
             self.retried.push_back(operation);
         }
         Ok(effects)
+    }
+
+    /// Takes the state a validator sent for catching up.
+    fn catch_up(&mut self, finalized: Finalized, state: &[u8]) -> Result<Effects, StoreError> {
+        let height = finalized.block.height;
+        match self
+            .driver
+            .catch_up(self.clock.now_ms(), finalized, state)?
+        {
+            Ok(effects) => {
+                tracing::info!(target: target::HUB, hub = %hex(self.driver.hub().0.as_bytes()), height, "caught up from a validator's state");
+                Ok(effects)
+            }
+            Err(error) => {
+                tracing::warn!(target: target::HUB, height, ?error, "a validator's state was not the one its block names");
+                Ok(Effects::default())
+            }
+        }
     }
 
     /// Takes a message, and answers its sender once the step is on disk.
@@ -354,9 +401,12 @@ impl HubTask {
         });
     }
 
-    fn carry_out(&self, effects: Effects, shutdown: &CancellationToken) {
+    fn carry_out(&mut self, effects: Effects, shutdown: &CancellationToken) {
         for (peer, message) in effects.sends {
             self.send(peer, message, shutdown);
+        }
+        if let Some(finalized) = effects.behind {
+            self.fetch(finalized, shutdown);
         }
         for blob in effects.submits {
             if self.submits.try_send(blob).is_err() {
@@ -388,6 +438,45 @@ impl HubTask {
                 () = shutdown.cancelled() => {}
                 () = exchange.run(peer, message) => {}
             }
+        });
+    }
+}
+
+impl HubTask {
+    /// Fetches the state after `finalized` from the validators, one after
+    /// another until one has it: one fetch at a time, and at most one per
+    /// [`CATCH_UP_EVERY`].
+    fn fetch(&mut self, finalized: Box<Finalized>, shutdown: &CancellationToken) {
+        use std::sync::atomic::Ordering;
+        let due = self
+            .last_fetch
+            .is_none_or(|at| at.elapsed() >= CATCH_UP_EVERY);
+        if !due || self.fetching.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        self.last_fetch = Some(tokio::time::Instant::now());
+        let peers = self.driver.peers();
+        let (client, hub) = (self.client.clone(), *self.driver.hub());
+        let (fetches, fetching) = (self.fetches.clone(), Arc::clone(&self.fetching));
+        let shutdown = shutdown.clone();
+        self.sends.spawn(async move {
+            let height = finalized.block.height;
+            for peer in peers {
+                let fetched = tokio::select! {
+                    () = shutdown.cancelled() => break,
+                    fetched = client.fetch_state(peer.node, &peer.endpoint, &hub, height, STATE_TIMEOUT) => fetched,
+                };
+                match fetched {
+                    Ok(state) => {
+                        let _ = fetches.send((finalized, state)).await;
+                        break;
+                    }
+                    Err(error) => {
+                        tracing::debug!(target: target::HUB, node = %peer.node, height, %error, "no state from a validator");
+                    }
+                }
+            }
+            fetching.store(false, Ordering::Release);
         });
     }
 }

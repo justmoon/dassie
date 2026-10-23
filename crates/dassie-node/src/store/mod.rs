@@ -54,8 +54,8 @@ pub use devices::{
 pub use faults::{Aim, FailedCommit, Holds};
 pub use gnap::{GrantCounts, GrantRow, GrantState, MAX_GRANTS, TokenRow};
 pub use hubs::{
-    EscrowCursor, HubStep, KEPT_BUNDLES, MAX_HUB_BUNDLE_BYTES, MAX_HUB_CONSENSUS_BYTES,
-    MAX_HUB_LEDGER_BYTES, StoredHub,
+    EscrowCursor, HubStep, KEPT_BOUNDARIES, KEPT_BUNDLES, KEPT_TIPS, MAX_HUB_BUNDLE_BYTES,
+    MAX_HUB_CONSENSUS_BYTES, MAX_HUB_LEDGER_BYTES, StoredHub,
 };
 pub use inspect::{BLOB_CUT, Cell, ColumnInfo, MAX_ROWS, RowsPage, TEXT_CUT, TableInfo, Value};
 pub use ledger::{

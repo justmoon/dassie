@@ -166,6 +166,16 @@ impl crate::quic::Handler for QuicHandler {
         })
     }
 
+    /// The states the node keeps of the hubs it validates, for their other
+    /// validators only.
+    fn hub_state<'a>(
+        &'a self,
+        from: dassie_identity::PublicKey,
+        request: Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = Option<Vec<u8>>> + Send + 'a>> {
+        Box::pin(async move { Some(self.0.hubs().answer_state(self.0.store(), &from, &request)) })
+    }
+
     /// Open Payments, and owner apps' RPC. The wallet, `/api/*` and `/rpc`
     /// are never relayed (spec/decisions/core-and-periphery.md): an owner
     /// app proves its device key instead of carrying a browser's cookie.

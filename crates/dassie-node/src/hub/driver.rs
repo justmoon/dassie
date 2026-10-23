@@ -13,14 +13,14 @@
 
 use std::sync::Arc;
 
-use dassie_hub::consensus::{PeerId, Stored};
+use dassie_hub::consensus::{Finalized, PeerId, Stored};
 use dassie_hub::escrow::{PayoutSet, ValidatorKeys};
 use dassie_hub::ledger::Ledger;
 use dassie_hub::operation::ValidatorOperation;
 use dassie_hub::rules::Rules;
 use dassie_hub::service::payload::Payload;
 use dassie_hub::service::wire::Message;
-use dassie_hub::service::{Action, Validator, genesis_block};
+use dassie_hub::service::{Action, CatchUpError, Validator, genesis_block};
 use dassie_hub::{HubId, Millis};
 use dassie_identity::{NodeId, NodeKey, PublicKey};
 use dassie_oer::{Decode, Encode};
@@ -52,6 +52,9 @@ pub struct Effects {
     pub submits: Vec<Vec<u8>>,
     /// Payout bundles signed: the height each pays out from.
     pub bundles: Vec<u64>,
+    /// We are further behind than peers keep blocks: the final block whose
+    /// state to fetch from a validator, for [`Driver::catch_up`].
+    pub behind: Option<Box<Finalized>>,
 }
 
 /// Why a hub's validator cannot run.
@@ -90,6 +93,8 @@ pub struct Driver {
     stored: Stored,
     /// The height of the ledger last written.
     written_height: u64,
+    /// How often it took a peer's state.
+    caught_up: u64,
     store: Arc<Store>,
 }
 
@@ -139,6 +144,7 @@ impl Driver {
                 validator,
                 stored,
                 written_height: saved.height,
+                caught_up: 0,
                 store,
             });
         }
@@ -149,6 +155,7 @@ impl Driver {
         let step = HubStep {
             consensus: Some(&stored.to_vec()),
             ledger: Some((0, &validator.ledger().snapshot())),
+            boundaries: &[],
         };
         store.save_hub_step(hub.0.as_bytes(), now, step)?;
         Ok(Self {
@@ -157,6 +164,7 @@ impl Driver {
             validator,
             stored,
             written_height: 0,
+            caught_up: 0,
             store,
         })
     }
@@ -194,6 +202,29 @@ impl Driver {
     ) -> Result<Effects, StoreError> {
         self.validator.handle(now, from, node, message);
         self.finish(now, Some(from))
+    }
+
+    /// Takes the state after `finalized`, fetched from a validator: only
+    /// if it is the state the block names. The new state is written as any
+    /// step's.
+    ///
+    /// # Errors
+    ///
+    /// The state was not taken, and nothing changed; or the step could not
+    /// be written, and nothing of it goes out.
+    pub fn catch_up(
+        &mut self,
+        now: Millis,
+        finalized: Finalized,
+        snapshot: &[u8],
+    ) -> Result<Result<Effects, CatchUpError>, StoreError> {
+        match self.validator.catch_up(now, finalized, snapshot) {
+            Ok(()) => {
+                self.caught_up = self.caught_up.saturating_add(1);
+                self.finish(now, None).map(Ok)
+            }
+            Err(error) => Ok(Err(error)),
+        }
     }
 
     /// Does what is due.
@@ -245,9 +276,7 @@ impl Driver {
                     self.keep_bundle(now, &set, &signatures)?;
                     effects.bundles.push(set.height);
                 }
-                // Catching up from a peer's state is not built yet: the
-                // validator stays behind.
-                Action::Behind(_) => {}
+                Action::Behind(finalized) => effects.behind = Some(finalized),
             }
         }
         Ok(effects)
@@ -257,8 +286,10 @@ impl Driver {
     /// the ledger if a block became final.
     fn persist(&mut self, now: Millis) -> Result<(), StoreError> {
         let mut changed = false;
+        let mut boundaries = Vec::new();
         for batch in self.validator.take_batches() {
             changed |= !batch.is_empty();
+            boundaries.extend(batch.boundaries.iter().map(|b| b.block.height));
             self.stored.apply(batch);
         }
         let ledger = self.validator.ledger();
@@ -278,6 +309,7 @@ impl Driver {
         let step = HubStep {
             consensus: consensus.as_deref(),
             ledger: snapshot.as_deref().map(|bytes| (height, bytes)),
+            boundaries: &boundaries,
         };
         self.store.save_hub_step(self.hub.0.as_bytes(), now, step)?;
         self.written_height = height;
@@ -286,7 +318,8 @@ impl Driver {
 
     /// Every other validator: of the set in force, and of new rules
     /// waiting to take over, each once.
-    fn peers(&self) -> Vec<Peer> {
+    #[must_use]
+    pub fn peers(&self) -> Vec<Peer> {
         let ledger = self.validator.ledger();
         let mut peers: Vec<Peer> = Vec::new();
         let current = ledger.rules().validators.iter().enumerate().map(|(i, a)| {
@@ -403,6 +436,7 @@ impl Driver {
             stalled: self.validator.engine().is_stalled(),
             escrow_checked: ledger.escrow().checked,
             xrpl_connected,
+            caught_up: self.caught_up,
         }
     }
 }

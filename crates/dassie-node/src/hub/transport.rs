@@ -21,6 +21,16 @@
 //! Over HTTPS the request is the body of `POST /hub`, and the reply is the
 //! frames with a status of 200, or 404, 503, 400 or 429 for the statuses
 //! below.
+//!
+//! A validator far behind fetches the state after a final block from
+//! another on a stream of its own, over QUIC only, which serves the hub's
+//! validators alone, with a bound of its own: a state can be far larger
+//! than a message.
+//!
+//! ```text
+//! state request = hub ID (32 bytes) || height (8 bytes, big-endian)
+//! state reply   = status (1 byte) || state     (the state only with 0)
+//! ```
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -42,6 +52,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::node::Node;
 use crate::peer_client::{PeerClient, WebError, WebRequest};
 use crate::quic::Quic;
+use crate::store::Store;
 
 /// The bytes of a hub's ID, ahead of each request.
 pub const HUB_ID_BYTES: usize = 32;
@@ -62,6 +73,13 @@ pub const MAX_REPLY_MESSAGES: usize = 256;
 /// validator gives a member, whichever is larger, with every frame's
 /// length and envelope.
 pub const MAX_REPLY_BYTES: usize = 2 * MAX_MESSAGE_BYTES;
+
+/// The bytes of a request for a state: the hub's ID and a height.
+pub const STATE_REQUEST_BYTES: usize = HUB_ID_BYTES + 8;
+
+/// The largest reply to a request for a state: its status and the largest
+/// state the node stores.
+pub const MAX_STATE_REPLY_BYTES: usize = 1 + crate::store::MAX_HUB_LEDGER_BYTES;
 
 /// The media type of `POST /hub`'s body and of its reply.
 pub const MEDIA_TYPE: &str = "application/dassie-hub";
@@ -279,6 +297,9 @@ pub struct HubStatus {
     pub escrow_checked: bool,
     /// Whether the node follows the escrow on its XRPL server now.
     pub xrpl_connected: bool,
+    /// How often it took a peer's state since it started, being further
+    /// behind than peers keep blocks.
+    pub caught_up: u64,
 }
 
 /// Where what arrives for one hub goes: what its validators send to a
@@ -422,6 +443,67 @@ impl Hubs {
             Ok(Err(_)) | Err(_) => HubAnswer::Busy,
         }
     }
+
+    /// Answers a request for the state after one of a hub's final blocks
+    /// from `from`, if it is a validator of the hub, with the state if
+    /// `store` keeps it.
+    #[must_use]
+    pub fn answer_state(&self, store: &Store, from: &PublicKey, request: &[u8]) -> Vec<u8> {
+        let Some((hub, height)) = decode_state_request(request) else {
+            return vec![StateStatus::Refused as u8];
+        };
+        let validator = self
+            .routes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&hub)
+            .map(|route| route.nodes.contains(&from.node_id()));
+        match validator {
+            None => return vec![StateStatus::UnknownHub as u8],
+            Some(false) => return vec![StateStatus::Refused as u8],
+            Some(true) => {}
+        }
+        match store.hub_state(hub.0.as_bytes(), height) {
+            Ok(Some(state)) => {
+                let mut reply = Vec::with_capacity(1 + state.len());
+                reply.push(StateStatus::Found as u8);
+                reply.extend_from_slice(&state);
+                reply
+            }
+            Ok(None) | Err(_) => vec![StateStatus::NotKept as u8],
+        }
+    }
+}
+
+/// How a validator answered a request for a state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum StateStatus {
+    /// The state follows.
+    Found = 0,
+    /// The node validates no hub of that ID.
+    UnknownHub = 1,
+    /// It keeps no state after the block at that height.
+    NotKept = 2,
+    /// The asker is no validator of the hub, or the request is broken.
+    Refused = 3,
+}
+
+/// A request for the state of `hub` after its block at `height`.
+#[must_use]
+pub fn encode_state_request(hub: &HubId, height: u64) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(STATE_REQUEST_BYTES);
+    bytes.extend_from_slice(hub.0.as_bytes());
+    bytes.extend_from_slice(&height.to_be_bytes());
+    bytes
+}
+
+/// The hub and height of a request for a state, if it is one.
+#[must_use]
+pub fn decode_state_request(bytes: &[u8]) -> Option<(HubId, u64)> {
+    let (hub, height) = bytes.split_first_chunk::<HUB_ID_BYTES>()?;
+    let height: [u8; 8] = height.try_into().ok()?;
+    Some((HubId(Digest(*hub)), u64::from_be_bytes(height)))
 }
 
 /// Why an exchange with a validator failed.
@@ -441,6 +523,8 @@ pub enum HubExchangeError {
     Busy,
     /// It answered with something that is no reply.
     BadReply,
+    /// It keeps no state after the block asked for.
+    NotKept,
 }
 
 impl fmt::Display for HubExchangeError {
@@ -451,6 +535,7 @@ impl fmt::Display for HubExchangeError {
             Self::Refused(answer) => write!(f, "the validator took nothing: {answer:?}"),
             Self::Busy => f.write_str("too many requests in flight"),
             Self::BadReply => f.write_str("the validator's reply is broken"),
+            Self::NotKept => f.write_str("the validator keeps no such state"),
         }
     }
 }
@@ -546,6 +631,39 @@ impl HubClient {
         tokio::time::timeout(timeout, sent)
             .await
             .unwrap_or_else(|_| Err(HubExchangeError::Failed("timed out".into())))
+    }
+
+    /// Asks the validator whose node is `node`, at `endpoint`, for the
+    /// state of `hub` after its block at `height`, over QUIC only: how a
+    /// validator far behind catches up. The state is the hub crate's
+    /// snapshot, which the asker checks against the block's root.
+    ///
+    /// # Errors
+    ///
+    /// See [`HubExchangeError`].
+    pub async fn fetch_state(
+        &self,
+        node: NodeId,
+        endpoint: &str,
+        hub: &HubId,
+        height: u64,
+        timeout: Duration,
+    ) -> Result<Vec<u8>, HubExchangeError> {
+        let Some(quic) = &self.quic else {
+            return Err(HubExchangeError::Unreachable);
+        };
+        let request = encode_state_request(hub, height);
+        let sent = quic.hub_state_exchange(node, endpoint, &request, &self.client, timeout / 2);
+        let reply = tokio::time::timeout(timeout, sent)
+            .await
+            .unwrap_or_else(|_| Err(HubExchangeError::Failed("timed out".into())))?;
+        match reply.split_first() {
+            Some((0, state)) => Ok(state.to_vec()),
+            Some((1, [])) => Err(HubExchangeError::Refused(HubAnswer::UnknownHub)),
+            Some((2, [])) => Err(HubExchangeError::NotKept),
+            Some((3, [])) => Err(HubExchangeError::Refused(HubAnswer::Malformed)),
+            _ => Err(HubExchangeError::BadReply),
+        }
     }
 
     async fn exchange_https(
@@ -682,5 +800,46 @@ mod tests {
                 .await,
             HubAnswer::Malformed
         );
+    }
+
+    // A state goes only to a validator of its hub, and only if it is kept.
+    #[test]
+    fn states_go_to_the_hubs_validators_only() {
+        let hubs = Hubs::default();
+        let hub = HubId(Digest([7; 32]));
+        let store = Store::open_in_memory().unwrap();
+        let step = crate::store::HubStep {
+            consensus: Some(&[1]),
+            ledger: Some((5, &[9, 9])),
+            boundaries: &[],
+        };
+        store.save_hub_step(hub.0.as_bytes(), 1, step).unwrap();
+        let co = dassie_identity::NodeKey::from_bytes(&[2; 32]).public_key();
+        let stranger = dassie_identity::NodeKey::from_bytes(&[3; 32]).public_key();
+        let request = encode_state_request(&hub, 5);
+        assert_eq!(
+            hubs.answer_state(&store, &co, &request),
+            vec![StateStatus::UnknownHub as u8]
+        );
+        let (validators, _theirs) = mpsc::channel(1);
+        let (members, _queue) = mpsc::channel(1);
+        let route = Route {
+            validators,
+            members,
+            nodes: BTreeSet::from([co.node_id()]),
+        };
+        hubs.register(hub, route);
+        assert_eq!(hubs.answer_state(&store, &co, &request), vec![0, 9, 9]);
+        assert_eq!(
+            hubs.answer_state(&store, &stranger, &request),
+            vec![StateStatus::Refused as u8]
+        );
+        let other = encode_state_request(&hub, 4);
+        assert_eq!(
+            hubs.answer_state(&store, &co, &other),
+            vec![StateStatus::NotKept as u8]
+        );
+        assert_eq!(decode_state_request(&request), Some((hub, 5)));
+        assert_eq!(decode_state_request(&request[1..]), None);
     }
 }
