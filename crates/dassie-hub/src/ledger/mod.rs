@@ -15,6 +15,7 @@ mod invariants;
 mod member;
 mod merkle;
 mod outcome;
+mod snapshot;
 mod state;
 mod validator;
 
