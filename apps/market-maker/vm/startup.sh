@@ -165,8 +165,14 @@ number() {
 }
 
 # The defaults are starting points. Amounts are in the nodes' ledger units,
-# a billionth of an XRP or a dollar; the XRP band's top is below the
-# faucet's grant, so the first rebalance buys DSUSD into the DSUSD node.
+# a billionth of an XRP or a dollar. The XRP band's top, 80 XRP, is below
+# the faucet's grant of 100 XRP (about 99 after the reserve), so the first
+# rebalance buys DSUSD into the DSUSD node: up to the DSUSD band's top of
+# 40, which costs about 32 XRP at the testnet pool's 0.76 XRP a DSUSD.
+# That leaves about 67 XRP, below the top with room for several trades
+# (and still below it at a DSUSD of half an XRP, 20 XRP for 40). So the
+# two bands together hold the whole grant, and neither node is left above
+# its band with the other full, where a rebalance has nowhere to go.
 target=$(setting mm-target-url https://boot1.dassie.xyz)
 target=${target%/}
 case "$target" in
@@ -179,7 +185,7 @@ esac
 # Each on its own, so that one that is not a number stops the script.
 xrp_trade_size=$(number mm-xrp-trade-size 2000000000)
 xrp_band_low=$(number mm-xrp-band-low 20000000000)
-xrp_band_high=$(number mm-xrp-band-high 60000000000)
+xrp_band_high=$(number mm-xrp-band-high 80000000000)
 dsusd_trade_size=$(number mm-dsusd-trade-size 2000000000)
 dsusd_band_low=$(number mm-dsusd-band-low 5000000000)
 dsusd_band_high=$(number mm-dsusd-band-high 40000000000)

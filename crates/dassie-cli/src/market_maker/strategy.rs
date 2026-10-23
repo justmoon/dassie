@@ -275,7 +275,8 @@ pub enum Hold {
     /// A rebalance would deliver nothing.
     Dust,
     /// A rebalance would take the other node above its band, which would
-    /// then be rebalanced back: both hold more than their bands allow.
+    /// then be rebalanced back: the other node has no room in its band, and
+    /// no trade from it clears the margin, or it is above its band too.
     Full,
     /// The pool cannot price it.
     Pool(SwapError),
@@ -296,24 +297,44 @@ pub enum Decision {
 
 /// What to do now: a rebalance if a node is above its band, else the trade
 /// that gains most beyond the margin, if any does.
+///
+/// A rebalance that can move nothing, since the other node has no room in
+/// its band or what it would deliver rounds to nothing, does not hold the
+/// trades up: the market maker trades instead, but only from the other
+/// node into the one above its band, and only while the other is not above
+/// its own band. That trade lowers the node that had no room, so the
+/// rebalance has room again at the next decision and comes first then; it
+/// never takes the other node above its band, so it never leaves both
+/// above theirs; and it takes no node below its band, as any trade. With
+/// no such trade, it holds for the rebalance's reason.
 #[must_use]
 pub fn decide(inputs: &Inputs<'_>) -> Decision {
     for side in Side::BOTH {
         if inputs.holdings.of(side).books > inputs.params.node(side).band.high {
             return match rebalance(inputs, side) {
                 Ok(rebalance) => Decision::Rebalance(rebalance),
+                Err(hold @ (Hold::Full | Hold::Dust)) => {
+                    let other = side.other();
+                    let within =
+                        inputs.holdings.of(other).books <= inputs.params.node(other).band.high;
+                    let from: &[Side] = if within { &[other] } else { &[] };
+                    match trade(inputs, from) {
+                        Decision::Hold(_) => Decision::Hold(hold),
+                        decision => decision,
+                    }
+                }
                 Err(hold) => Decision::Hold(hold),
             };
         }
     }
-    trade(inputs)
+    trade(inputs, &Side::BOTH)
 }
 
-/// The best trade, or why there is none.
-fn trade(inputs: &Inputs<'_>) -> Decision {
+/// The best trade from one of the nodes `from`, or why there is none.
+fn trade(inputs: &Inputs<'_>, from: &[Side]) -> Decision {
     let mut best: Option<Trade> = None;
     let mut hold = Hold::NoRate;
-    for from in Side::BOTH {
+    for &from in from {
         let Some(rate) = inputs.rates.from(from) else {
             continue;
         };
@@ -914,6 +935,189 @@ mod tests {
         assert_eq!(
             decide(&inputs(rates(1, 1), full, &params)),
             Decision::Hold(Hold::Full)
+        );
+    }
+
+    /// The bands and sizes the market maker's VM ran with when it stalled:
+    /// XRP 20–60, the token 5–40, trades of 2 of each.
+    fn vm_params() -> Params {
+        Params {
+            margin_ppm: 10_000,
+            slippage_ppm: 10_000,
+            xrp: NodeParams {
+                trade_size: 2 * ONE,
+                band: Band {
+                    low: 20 * ONE,
+                    high: 60 * ONE,
+                },
+            },
+            token: NodeParams {
+                trade_size: 2 * ONE,
+                band: Band {
+                    low: 5 * ONE,
+                    high: 40 * ONE,
+                },
+            },
+        }
+    }
+
+    /// The VM's rates, as its log has them: the target pays 0.8045 XRP for
+    /// the token, and 1.179 of the token for an XRP.
+    const VM_RATES: Rates = Rates {
+        fee_ppm: 0,
+        xrp_to_token_e15: Some(1_179_291_322_564_294),
+        token_to_xrp_e15: Some(804_523_721_956_600),
+    };
+
+    /// A pool at the testnet's price then: 0.76 XRP for the token, with a
+    /// fee of half a percent.
+    fn vm_inputs<'a>(holdings: Holdings, params: &'a Params) -> Inputs<'a> {
+        Inputs {
+            rates: VM_RATES,
+            pool: Pool {
+                drops: 7_600 * 1_000_000,
+                value: TokenValue::parse("10000").unwrap(),
+                token: token(),
+                trading_fee: 500,
+            },
+            holdings,
+            params,
+        }
+    }
+
+    /// The VM's holdings after its first rebalance: the XRP node above its
+    /// band's top of 60, the token node at its top of 40.
+    const VM_STALLED: Holdings = Holdings {
+        xrp: Holding {
+            books: 67_371_544_000,
+            on_ledger: 66_896_544_000,
+        },
+        token: Holding {
+            books: 40 * ONE,
+            on_ledger: 40 * ONE,
+        },
+    };
+
+    #[test]
+    fn a_rebalance_without_room_lets_a_trade_make_room() {
+        let params = vm_params();
+        let inputs = vm_inputs(VM_STALLED, &params);
+        // The XRP node's rebalance has no room in the token node's band:
+        // deciding on it alone held, every tick.
+        assert_eq!(rebalance(&inputs, Side::Xrp), Err(Hold::Full));
+        // The token node sells the token to the target for XRP, which buys
+        // more of it back on the pool than it sent: a trade that lowers the
+        // node without room.
+        let Decision::Trade(trade) = decide(&inputs) else {
+            panic!("a trade");
+        };
+        assert_eq!(trade.from, Side::Token);
+        assert_eq!(trade.debit, 2 * ONE);
+        assert_eq!(trade.receive, 1_609_047_443);
+        assert!(clears(trade.debit, trade.back, params.margin_ppm));
+
+        // Once the target has paid it, the token node has room, and the
+        // rebalance comes first again, delivering what fits.
+        let traded = Holdings {
+            xrp: Holding {
+                books: VM_STALLED.xrp.books + trade.receive,
+                on_ledger: VM_STALLED.xrp.on_ledger,
+            },
+            token: Holding {
+                books: 38 * ONE,
+                on_ledger: 38 * ONE,
+            },
+        };
+        let Decision::Rebalance(rebalance) = decide(&vm_inputs(traded, &params)) else {
+            panic!("a rebalance");
+        };
+        assert_eq!(rebalance.from, Side::Xrp);
+        assert_eq!(
+            rebalance.deliver,
+            to_amount(Side::Token, 2 * ONE, token()).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_rebalance_with_room_comes_before_a_trade() {
+        let params = vm_params();
+        // The token node has room for 10: the XRP node's rebalance moves
+        // funds, so it comes first, though the trade would clear the margin.
+        let mut room = VM_STALLED;
+        room.token = Holding {
+            books: 30 * ONE,
+            on_ledger: 30 * ONE,
+        };
+        let Decision::Rebalance(rebalance) = decide(&vm_inputs(room, &params)) else {
+            panic!("a rebalance");
+        };
+        assert_eq!(rebalance.from, Side::Xrp);
+        assert_eq!(
+            rebalance.deliver,
+            to_amount(Side::Token, 10 * ONE, token()).unwrap()
+        );
+        // Below its top, the XRP node makes the same trade as above.
+        let mut within = room;
+        within.xrp.books = 50 * ONE;
+        let Decision::Trade(trade) = decide(&vm_inputs(within, &params)) else {
+            panic!("a trade");
+        };
+        assert_eq!(trade.from, Side::Token);
+    }
+
+    #[test]
+    fn a_rebalance_without_room_never_trades_into_the_other_node() {
+        let params = vm_params();
+        // Only the trade the other way clears the margin: from the XRP node
+        // into the token node, which has no room. It would take the token
+        // node above its band, both above theirs: the rebalance holds.
+        let mut inputs = vm_inputs(VM_STALLED, &params);
+        inputs.rates = Rates {
+            fee_ppm: 0,
+            xrp_to_token_e15: Some(1_400_000_000_000_000),
+            token_to_xrp_e15: Some(700_000_000_000_000),
+        };
+        assert_eq!(decide(&inputs), Decision::Hold(Hold::Full));
+        // Within its band, the XRP node makes that trade.
+        inputs.holdings.xrp.books = 50 * ONE;
+        let Decision::Trade(trade) = decide(&inputs) else {
+            panic!("a trade");
+        };
+        assert_eq!(trade.from, Side::Xrp);
+
+        // Both above their bands: no trade either way, as no node could
+        // take a rebalance.
+        let mut both = VM_STALLED;
+        both.token.books = 45 * ONE;
+        assert_eq!(
+            decide(&vm_inputs(both, &params)),
+            Decision::Hold(Hold::Full)
+        );
+    }
+
+    #[test]
+    fn a_rebalance_that_can_spend_nothing_yet_lets_a_trade_go_on() {
+        let params = vm_params();
+        // The target has settled nothing of what the XRP node's books hold:
+        // its rebalance can spend nothing, and the token node still trades
+        // into it, within its band.
+        let mut unsettled = VM_STALLED;
+        unsettled.xrp.on_ledger = 0;
+        unsettled.token = Holding {
+            books: 30 * ONE,
+            on_ledger: 30 * ONE,
+        };
+        let inputs = vm_inputs(unsettled, &params);
+        assert_eq!(rebalance(&inputs, Side::Xrp), Err(Hold::Dust));
+        let Decision::Trade(trade) = decide(&inputs) else {
+            panic!("a trade");
+        };
+        assert_eq!(trade.from, Side::Token);
+        // Not below the token node's band.
+        unsettled.token.books = 5 * ONE;
+        assert_eq!(
+            decide(&vm_inputs(unsettled, &params)),
+            Decision::Hold(Hold::Dust)
         );
     }
 
