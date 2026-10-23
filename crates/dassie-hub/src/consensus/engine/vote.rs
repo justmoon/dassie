@@ -311,7 +311,7 @@ impl Engine {
                 from: None,
             });
         }
-        self.batch.blocks.push(block.clone());
+        self.persist_block(digest);
         if let Some(vote) = self.sign(VoteKind::Notarize, view, digest) {
             let proposal = Proposal {
                 block,
@@ -390,9 +390,7 @@ impl Engine {
         }
         match self.check_proposal(app, &proposed, leader) {
             Check::Valid => {
-                if let Some(block) = self.blocks.get(&proposed.block) {
-                    self.batch.blocks.push(block.clone());
-                }
+                self.persist_block(proposed.block);
                 assert!(
                     self.blocks
                         .get(&proposed.block)
@@ -497,7 +495,7 @@ impl Engine {
             return Err(Check::Invalid);
         }
         let Some(parent) = self.known_block(&block.parent).cloned() else {
-            return Err(Check::Missing(self.ask_below(block.parent_view)));
+            return Err(Check::Missing(block.parent_view));
         };
         if self
             .content_of(&block.parent)

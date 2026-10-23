@@ -28,13 +28,14 @@
 //! that ([`MIN_STALL_MS`], [`MAX_STALL_MS`]).
 
 use super::engine::{MAX_ROUNDS, MAX_UNFINALIZED_HEIGHTS, MAX_VIEWS_AHEAD};
-use crate::validators::MAX_VALIDATORS;
+use crate::validators::{MAX_VALIDATORS, MIN_VALIDATORS};
 
 /// The longest any view waits for its proposal or its notarization,
 /// however many views failed before it. Half a minute: long enough that a
-/// hub in a long outage enters a new view only twice a minute (its
-/// rebroadcasts aside, every `max_retry_ms`), so it sends a trickle and
-/// holds few views; short enough that once the network heals, the view in
+/// hub in a long outage enters a view led by a live validator only twice a
+/// minute (the views of up to f faulty leaders end at once, and its
+/// rebroadcasts go every `max_retry_ms`), so it sends a trickle and holds
+/// few views; short enough that once the network heals, the view in
 /// progress ends within it, so recovery takes about this long, not as long
 /// as the outage was. Against the views of a working hub (a quarter of a
 /// second) it is 120 of them; against the stall (an hour in the test terms)
@@ -63,12 +64,34 @@ const RESERVED_ROUNDS: u64 =
 /// The most [`Config::backoff_after_views`] may be.
 pub const MAX_BACKOFF_AFTER_VIEWS: u64 = 64;
 
+/// The smallest share of a set's validators that are not faulty, n − f of
+/// n, over every size a set may have: 11 of 16.
+const LIVE_SHARE: (u64, u64) = live_share();
+
+const fn live_share() -> (u64, u64) {
+    let mut worst = (1, 1);
+    let mut n = MIN_VALIDATORS as u64;
+    while n <= MAX_VALIDATORS as u64 {
+        let live = n - (n - 1) / 3;
+        if live * worst.1 < worst.0 * n {
+            worst = (live, n);
+        }
+        n += 1;
+    }
+    worst
+}
+
 /// The longest stall a hub's rules may set: an outage that long, in which
-/// a quorum keeps nullifying views, makes at most one view per
-/// [`MAX_VIEW_TIMEOUT_MS`], and all of them must fit in the views an engine
-/// holds (`MAX_ROUNDS`), or the engine could not enter the next one. A
-/// longer outage is a stall anyway.
-pub const MAX_STALL_MS: u64 = (MAX_ROUNDS as u64 - RESERVED_ROUNDS) * MAX_VIEW_TIMEOUT_MS;
+/// a quorum keeps nullifying views and nothing is notarized, must make no
+/// more views than an engine holds (`MAX_ROUNDS`), or the engine could not
+/// enter the next one; a longer outage is a stall anyway. A view led by a
+/// live validator lasts [`MAX_VIEW_TIMEOUT_MS`] then, but those of up to f
+/// faulty leaders (silent ones skipped, ones that give up their view or
+/// propose what is invalid) end at once: f views of each rotation of n
+/// take no time, so there are up to n / (n − f) views per longest view,
+/// 16 / 11 for the largest set.
+pub const MAX_STALL_MS: u64 =
+    (MAX_ROUNDS as u64 - RESERVED_ROUNDS) * MAX_VIEW_TIMEOUT_MS * LIVE_SHARE.0 / LIVE_SHARE.1;
 
 const _: () = assert!(
     MIN_STALL_MS < MAX_STALL_MS,
@@ -208,6 +231,9 @@ mod tests {
         // Recovery from the longest outage takes f + 1 of the longest views
         // at worst: six for the largest set, three minutes.
         assert_eq!(MIN_STALL_MS, 6 * 60_000);
+        // 384 longest views, of which 5 in 16 take no time: 2.2 hours.
+        assert_eq!(LIVE_SHARE, (11, 16));
+        assert_eq!(MAX_STALL_MS, 384 * 30_000 * 11 / 16);
         // The test terms' hour fits.
         assert!((MIN_STALL_MS..=MAX_STALL_MS).contains(&3_600_000));
     }

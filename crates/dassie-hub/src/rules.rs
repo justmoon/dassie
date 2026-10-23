@@ -772,5 +772,10 @@ pub(crate) mod tests {
             bad.timers.stall = stall;
             assert!(bad.check().is_err(), "{stall}");
         }
+        for stall in [MIN_STALL_MS, MAX_STALL_MS] {
+            let mut good = terms(&sponsor);
+            good.timers.stall = stall;
+            assert_eq!(good.check(), Ok(()), "{stall}");
+        }
     }
 }

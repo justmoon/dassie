@@ -168,16 +168,44 @@ impl Engine {
             || self.boundaries.iter().any(|end| end.block.height == height)
     }
 
+    /// The certificates of view `from_view` and after, with their blocks:
+    /// what an asker lacks to take part in those views. Below our floor,
+    /// only the views that certified the chain waiting to be final are
+    /// held: there, the asker lacks a block of that chain, built on through
+    /// `from_view` (by itself, or through a repeat of it), and gets the
+    /// chain from there down, so that each delivery brings blocks it lacks
+    /// however many the chain holds. A repeat comes with the view that
+    /// certified the block it repeats.
     fn add_certified(&self, delivery: &mut Delivery, from_view: u64, mut bytes: usize) {
-        let certificates = self.rounds.range(from_view..).flat_map(|(_, round)| {
-            [
+        let below = from_view < self.floor;
+        let rounds: Vec<&super::round::Round> = if below {
+            self.rounds
+                .range(..=from_view)
+                .rev()
+                .map(|(_, round)| round)
+                .collect()
+        } else {
+            self.rounds
+                .range(from_view..)
+                .map(|(_, round)| round)
+                .collect()
+        };
+        let mut certificates: Vec<&Certificate> = Vec::new();
+        for round in rounds {
+            for certificate in [
                 &round.notarization,
                 &round.nullification,
                 &round.finalization,
             ]
             .into_iter()
             .flatten()
-        });
+            {
+                certificates.push(certificate);
+                if let Some(repeated) = self.repeated_certificate(certificate) {
+                    certificates.push(repeated);
+                }
+            }
+        }
         for certificate in certificates {
             let block = if certificate.kind == VoteKind::Nullify {
                 None
@@ -196,14 +224,32 @@ impl Engine {
         }
     }
 
+    /// If `certificate` names a repeat, the certificate held of the block
+    /// it repeats.
+    fn repeated_certificate(&self, certificate: &Certificate) -> Option<&Certificate> {
+        let repeat = self.blocks.get(&certificate.block)?;
+        let (content, _) = self.content_of(&certificate.block)?;
+        if content == certificate.block || repeat.parent != content {
+            return None;
+        }
+        self.rounds.values().find_map(|round| {
+            [&round.notarization, &round.finalization]
+                .into_iter()
+                .flatten()
+                .find(|held| held.block == content)
+        })
+    }
+
     /// Takes in a delivery: its finalized blocks, then its certificates.
     pub(super) fn on_delivery(&mut self, app: &mut dyn Application, delivery: Delivery) {
         if let Some(finalization) = &delivery.finalization {
             self.take_finalized(app, &delivery.finalized, finalization);
         }
-        // The highest first: a block the chain lacks is taken below the
-        // floor only once the block that builds on it is held.
-        for certified in delivery.certified.into_iter().rev() {
+        // The highest view first: a block the chain lacks is taken below
+        // the floor only once the block that builds on it is held.
+        let mut certified = delivery.certified;
+        certified.sort_by_key(|certified| core::cmp::Reverse(certified.certificate.view));
+        for certified in certified {
             self.on_certificate(certified.certificate, certified.block);
         }
     }

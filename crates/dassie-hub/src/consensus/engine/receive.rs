@@ -271,8 +271,14 @@ impl Engine {
             VoteKind::Nullify => self.event(Event::Nullified { view }),
             VoteKind::Finalize => {}
         }
-        if certificate.kind != VoteKind::Nullify && !self.blocks.contains_key(&certificate.block) {
-            self.want_from_any(view);
+        if certificate.kind != VoteKind::Nullify {
+            if self.blocks.contains_key(&certificate.block) {
+                // Held as a proposal: certified, it is kept across a
+                // restart now.
+                self.persist_block(certificate.block);
+            } else {
+                self.want_from_any(view);
+            }
         }
         for evidence in conflicts {
             self.evidence(evidence);

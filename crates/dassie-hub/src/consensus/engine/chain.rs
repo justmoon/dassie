@@ -75,12 +75,23 @@ impl Engine {
             Hold::Certified | Hold::Restored => true,
         };
         if admitted && held < BLOCKS_PER_VIEW {
-            // Kept across a restart: the chain to the highest notarized
-            // view must survive one, even below the floor.
-            self.batch.blocks.push(block.clone());
             self.blocks.insert(digest, block);
+            // A certified block is kept across a restart: the chain to the
+            // highest notarized view must survive one, even below the
+            // floor. A proposal is, once we notarize it.
+            if why == Hold::Certified {
+                self.persist_block(digest);
+            }
         }
         digest
+    }
+
+    /// Writes block `digest`, held, in the batch: one we notarize, or one a
+    /// certificate names.
+    pub(super) fn persist_block(&mut self, digest: Digest) {
+        if let Some(block) = self.blocks.get(&digest) {
+            self.batch.blocks.push((digest, block.clone()));
+        }
     }
 
     /// Whether `block` could extend the tip: of the running epoch, in a
@@ -131,19 +142,10 @@ impl Engine {
             if block.height <= self.tip.block.height {
                 return Ancestry::Forks;
             }
-            view = self.ask_below(block.parent_view);
+            view = block.parent_view;
             at = block.parent;
         }
         Ancestry::Forks
-    }
-
-    /// The view to ask from for a block's parent that is not held, built on
-    /// through view `parent_view`: that view may have notarized only a
-    /// repeat of the parent, and the views between may be let go of, here
-    /// and at the peer, but those that certified the chain. So from the
-    /// lowest view the parent may be of: the first after the tip.
-    pub(super) fn ask_below(&self, parent_view: u64) -> u64 {
-        parent_view.min(self.tip_view().saturating_add(1))
     }
 
     /// The content block a block stands for: itself, or the block its

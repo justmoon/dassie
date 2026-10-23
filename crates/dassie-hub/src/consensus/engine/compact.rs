@@ -16,6 +16,7 @@
 //! nullified in a row past a few waits twice as long as the one before.
 
 use alloc::collections::BTreeSet;
+use alloc::vec::Vec;
 
 use super::super::types::{Block, Certificate, VoteKind, verify_certificate};
 use super::chain::Ancestry;
@@ -96,8 +97,8 @@ impl Engine {
             return false;
         };
         if let Some(block) = block.filter(|_| gap) {
-            self.batch.blocks.push(block.clone());
             self.blocks.insert(certificate.block, block.clone());
+            self.persist_block(certificate.block);
         }
         self.batch.certificates.push(certificate.clone());
         self.rounds
@@ -170,9 +171,17 @@ impl Engine {
             .map(|(digest, _)| *digest)
             .collect();
         if keep.len() < self.blocks.len() {
+            let let_go: Vec<Digest> = self
+                .blocks
+                .keys()
+                .filter(|digest| !keep.contains(*digest))
+                .copied()
+                .collect();
             self.blocks.retain(|digest, _| keep.contains(digest));
-            self.batch.blocks_held = Some(self.blocks.values().cloned().collect());
-            self.batch.blocks.clear();
+            self.batch
+                .blocks
+                .retain(|(digest, _)| keep.contains(digest));
+            self.batch.blocks_let_go.extend(let_go);
         }
         let blocks = &self.blocks;
         self.executed.retain(|digest| blocks.contains_key(digest));

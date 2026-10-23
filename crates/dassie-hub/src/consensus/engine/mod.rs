@@ -205,7 +205,7 @@ impl Engine {
             events: VecDeque::new(),
             stats: Stats::default(),
         };
-        for block in stored.blocks {
+        for (_, block) in stored.blocks {
             engine.hold_block(block, Hold::Restored);
         }
         let epoch = engine.epoch();
@@ -272,6 +272,12 @@ impl Engine {
     #[must_use]
     pub fn backoff(&self) -> u64 {
         self.backoff_at(self.view)
+    }
+
+    /// How many views it holds, at most [`MAX_ROUNDS`].
+    #[must_use]
+    pub fn rounds_held(&self) -> usize {
+        self.rounds.len()
     }
 
     /// The last finalized block.
@@ -634,7 +640,7 @@ impl Engine {
                 .and_then(|digest| self.blocks.get(&digest));
             assert!(
                 notarized.is_none_or(|block| self.repeat_shaped(block)),
-                "we notarize a repeat only of an epoch's last block"
+                "we notarize a repeat only of an epoch's last block or of the highest that may wait to be final"
             );
             assert!(
                 !(round.voted_nullify() && round.voted_finalize().is_some()),

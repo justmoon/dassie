@@ -50,11 +50,12 @@ pub struct Stored {
     pub floor: u64,
     /// For each height above the tip, the block we voted to finalize there.
     pub finalize_heights: Vec<(u64, Digest)>,
-    /// The blocks we hold above the tip: those of the views held, and the
-    /// chain from the tip to the highest notarized view, so that a notarized
-    /// block, and what a later one needs to be final, survive even if every
-    /// validator restarts.
-    pub blocks: Vec<Block>,
+    /// The blocks we notarized or saw certified above the tip, with their
+    /// digests, while the engine holds them: the chain from the tip to the
+    /// highest notarized view among them, so that a notarized block, and
+    /// what a later one needs to be final, survive even if every validator
+    /// restarts. At most `MAX_BLOCKS`.
+    pub blocks: Vec<(Digest, Block)>,
     /// The certificates we hold of views above the tip.
     pub certificates: Vec<Certificate>,
     /// The last block of each recent epoch that ended, with its
@@ -75,10 +76,13 @@ pub struct Batch {
     pub floor: Option<u64>,
     /// Heights we voted to finalize a block at.
     pub finalize_heights: Vec<(u64, Digest)>,
-    /// Blocks we came to hold.
-    pub blocks: Vec<Block>,
-    /// All the blocks we hold, when we let go of some.
-    pub blocks_held: Option<Vec<Block>>,
+    /// Blocks we notarized or saw certified, with their digests. A step
+    /// writes only these and the digests of the blocks it let go of, never
+    /// what it already wrote: at most the blocks it took in, each at most
+    /// `MAX_PAYLOAD_BYTES`.
+    pub blocks: Vec<(Digest, Block)>,
+    /// The blocks we let go of.
+    pub blocks_let_go: Vec<Digest>,
     /// Certificates we took.
     pub certificates: Vec<Certificate>,
     /// The last blocks of epochs that ended.
@@ -100,7 +104,7 @@ impl Batch {
             && self.floor.is_none()
             && self.finalize_heights.is_empty()
             && self.blocks.is_empty()
-            && self.blocks_held.is_none()
+            && self.blocks_let_go.is_empty()
             && self.certificates.is_empty()
             && self.boundaries.is_empty()
             && self.tip.is_none()
@@ -140,12 +144,11 @@ impl Stored {
         }
         self.votes.extend(batch.votes);
         self.finalize_heights.extend(batch.finalize_heights);
-        if let Some(held) = batch.blocks_held {
-            self.blocks = held;
-        }
-        for block in batch.blocks {
-            if !self.blocks.contains(&block) {
-                self.blocks.push(block);
+        let let_go = batch.blocks_let_go;
+        self.blocks.retain(|(digest, _)| !let_go.contains(digest));
+        for (digest, block) in batch.blocks {
+            if !self.blocks.iter().any(|(held, _)| *held == digest) {
+                self.blocks.push((digest, block));
             }
         }
         self.certificates.extend(batch.certificates);
@@ -177,8 +180,9 @@ impl Stored {
         self.finalize_heights.retain(|(at, _)| *at > height);
         // Blocks below the floor stay while the engine holds them: the chain
         // to the highest notarized view. Repeats of the tip may stay as well.
-        self.blocks
-            .retain(|block| block.epoch == epoch && block.view > view && block.height >= height);
+        self.blocks.retain(|(_, block)| {
+            block.epoch == epoch && block.view > view && block.height >= height
+        });
         // Below the floor, the certificates of the chain's blocks stay with
         // them, for validators behind on it.
         let blocks = &self.blocks;
@@ -187,7 +191,9 @@ impl Stored {
                 || (certificate.epoch == epoch
                     && certificate.view > view
                     && certificate.kind != VoteKind::Nullify
-                    && blocks.iter().any(|block| block.view == certificate.view))
+                    && blocks
+                        .iter()
+                        .any(|(digest, _)| *digest == certificate.block))
         });
     }
 

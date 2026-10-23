@@ -1162,6 +1162,72 @@ fn finality_returns_within_the_longest_view_before_the_hub_stalls() {
 }
 
 #[test]
+fn a_validator_away_while_nothing_is_final_takes_a_chain_of_full_blocks() {
+    // As below, with blocks as large as the ledger's: the chain waiting to
+    // be final takes several deliveries, which must each bring what the
+    // validator still lacks.
+    let mut network = honest(4);
+    for sim in &mut network.validators {
+        sim.app.pad = dassie_hub::consensus::MAX_PAYLOAD_BYTES - 16 * 1024;
+    }
+    run_for(&mut network, 1_000);
+    let before = network.honest_floor();
+    network.lose_every_finalize = true;
+    network.partition(&[3]);
+    run_for(&mut network, 6_000);
+    network.heal();
+    run_for(&mut network, 4_000);
+    network.crash(0);
+    network.lose_every_finalize = false;
+    run_for(&mut network, 6_000);
+    assert_safe(&network);
+    for index in 1..4 {
+        assert!(
+            network.height(index) > before + 31,
+            "validator {index}: {} after, {before} before",
+            network.height(index)
+        );
+    }
+}
+
+#[test]
+fn the_longest_stall_holds_the_views_of_an_outage_with_f_silent_leaders() {
+    // The largest set, f of it silent: their views end at once, so views
+    // come faster than one per longest view. Every proposal is lost for as
+    // long as the longest stall the rules allow, but the recovery: the
+    // views made fit in what an engine holds, and blocks are final again
+    // once proposals go through.
+    use dassie_hub::consensus::{MAX_ROUNDS, MAX_STALL_MS, MAX_VIEW_TIMEOUT_MS, MIN_STALL_MS};
+    let count = dassie_hub::validators::MAX_VALIDATORS;
+    let faults = (count - 1) / 3;
+    let mut network = Network::new(1, &roles(count, &vec![Role::Silent; faults]), CONFIG);
+    run_for(&mut network, 3_000);
+    let before = network.honest_floor();
+    let outage_from = network.now;
+    network.lose_proposals = true;
+    let mut most = 0;
+    while network.now < outage_from + MAX_STALL_MS - MIN_STALL_MS / 2 {
+        run_for(&mut network, MAX_VIEW_TIMEOUT_MS);
+        let held = network
+            .honest()
+            .map(|index| network.engine(index).rounds_held())
+            .max()
+            .unwrap_or(0);
+        most = most.max(held);
+    }
+    assert_eq!(network.honest_floor(), before);
+    assert!(most < MAX_ROUNDS, "{most} views held");
+    network.lose_proposals = false;
+    let healed = network.now;
+    while network.honest_floor() <= before && network.now < healed + MIN_STALL_MS {
+        run_for(&mut network, 1_000);
+    }
+    assert_safe(&network);
+    assert!(network.honest_floor() > before, "final again");
+    assert!(network.now - outage_from < MAX_STALL_MS, "no stall");
+}
+
+#[test]
 fn a_validator_away_while_nothing_is_final_takes_the_chain_from_others() {
     // While every finalize vote is lost, one validator is cut off as the
     // chain grows, and comes back while it is still not final: it takes

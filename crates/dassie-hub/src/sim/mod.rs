@@ -157,6 +157,9 @@ pub struct SimApp {
     /// letting go of the lowest first, as an application bounded in memory
     /// would.
     pub keep_states: Option<usize>,
+    /// How many bytes of padding its payloads carry: a full block's worth
+    /// makes blocks as large as the ledger's.
+    pub pad: usize,
     /// The digest of the last finalized block, whose state it always keeps.
     last_final: Option<Digest>,
     /// How many times the engine had it verify a block, again or not.
@@ -169,6 +172,34 @@ const ROOT_AT: usize = 10;
 
 /// Where the operation scheduling a change starts, after the root.
 const OPERATION_AT: usize = ROOT_AT + 32;
+
+/// The marker of a padded payload: its operation's length, as four bytes,
+/// then the operation, then the padding.
+const PADDED: u8 = 2;
+
+/// The operation a payload carries, padded or not.
+fn operation_of(payload: &[u8]) -> &[u8] {
+    if payload.first() != Some(&PADDED) {
+        return payload.get(OPERATION_AT..).unwrap_or_default();
+    }
+    let length = payload
+        .get(OPERATION_AT..OPERATION_AT + 4)
+        .and_then(|bytes| bytes.try_into().ok())
+        .map_or(0, |bytes| u32::from_be_bytes(bytes) as usize);
+    payload
+        .get(OPERATION_AT + 4..OPERATION_AT + 4 + length)
+        .unwrap_or_default()
+}
+
+/// `payload` with `pad` bytes of padding.
+fn padded(mut payload: Vec<u8>, pad: usize) -> Vec<u8> {
+    let operation = payload.split_off(OPERATION_AT);
+    payload[0] = PADDED;
+    payload.extend_from_slice(&u32::try_from(operation.len()).unwrap().to_be_bytes());
+    payload.extend_from_slice(&operation);
+    payload.resize(payload.len() + pad, 0xee);
+    payload
+}
 
 /// The root of a simulated state: the change scheduled and not yet made.
 #[must_use]
@@ -255,11 +286,12 @@ impl Application for SimApp {
         context: &ProposeContext<'_>,
         payload: &mut Vec<u8>,
     ) -> Result<(), Declined> {
-        payload.extend(self::payload(
-            context.height,
-            self.index,
-            self.schedule.as_ref(),
-        ));
+        let made = self::payload(context.height, self.index, self.schedule.as_ref());
+        payload.extend(if self.pad > 0 {
+            padded(made, self.pad)
+        } else {
+            made
+        });
         if self.invalid {
             payload[0] = INVALID;
         }
@@ -279,7 +311,7 @@ impl Application for SimApp {
             .and_then(|(_, pending)| pending.clone());
         let valid = self.valid(context, payload);
         if valid {
-            let operation = payload.get(OPERATION_AT..).unwrap_or_default();
+            let operation = operation_of(payload);
             let pending = decode_change(operation)
                 .or(parent)
                 .filter(|(from, _)| context.height < *from);
@@ -300,7 +332,7 @@ impl Application for SimApp {
             .map_or(1, |(height, _)| height + 1);
         assert_eq!(block.height, expected, "blocks are finalized in order");
         self.finalized.insert(block.height, *digest);
-        let operation = block.payload.get(OPERATION_AT..).unwrap_or_default();
+        let operation = operation_of(&block.payload);
         if let Some(change) = decode_change(operation) {
             self.learned.insert(block.height, change.clone());
             self.scheduled = Some(change);
@@ -367,7 +399,7 @@ impl SimApp {
     fn valid(&self, context: &VerifyContext, payload: &[u8]) -> bool {
         let schedule = self.schedule.as_ref();
         let pending = schedule.and_then(|schedule| schedule.pending(context.height));
-        let operation = payload.get(OPERATION_AT..).unwrap_or_default();
+        let operation = operation_of(payload);
         let scheduled = schedule
             .filter(|schedule| schedule.at == context.height)
             .map(|schedule| (schedule.from, schedule.set.clone()));
@@ -727,6 +759,10 @@ impl Network {
         engine.check_invariants();
         let batch = engine.take_batch();
         sim.stored.apply(batch);
+        assert!(
+            sim.stored.blocks.len() <= crate::consensus::MAX_BLOCKS,
+            "the blocks persisted stay within bound"
+        );
         let mut behind = None;
         let mut outputs = Vec::new();
         while let Some(output) = engine.poll_output() {
