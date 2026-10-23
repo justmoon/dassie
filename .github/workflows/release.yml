@@ -48,7 +48,9 @@ jobs:
   # Everything the jobs below need, built once on the Vorstand Nix cloud:
   # the install tests' mirror; the tree of nix/release.nix; static-binaries,
   # which checks that the binaries are static and run, the arm64 one under
-  # qemu; and dassie-release.
+  # qemu; and dassie-release. Beside them, the desktop app's package, which
+  # no job needs and every PR checks only in a cheaper profile (flake.nix),
+  # so that a tag's app is known to build as owners build it.
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -65,7 +67,8 @@ jobs:
             packages.x86_64-linux.install-test-mirror \
             packages.x86_64-linux.release \
             packages.x86_64-linux.static-binaries \
-            packages.x86_64-linux.release-tool
+            packages.x86_64-linux.release-tool \
+            packages.x86_64-linux.desktop
       - name: Cancel the build on the Nix cloud
         if: cancelled()
         env:
