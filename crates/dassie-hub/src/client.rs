@@ -251,59 +251,233 @@ impl SignedStatement {
     }
 }
 
-/// Gathers signed statements until f + 1 validators agree on one. Bounded:
-/// it keeps at most `capacity` distinct statements, dropping the lowest
-/// heights first, which are the stalest.
+/// How far above the height f + 1 validators have reached a statement may
+/// be: no honest validator signs one further ahead than the hub is, and at
+/// least one of any f + 1 is honest.
+pub const MAX_HEIGHTS_AHEAD: u64 = 1 << 16;
+
+/// Signatures [`Agreement`] gave up on before their statement agreed: the
+/// lowest height of them, and whose they were. A member that counted on one
+/// of them, as part of an answer up to a `Final`, reads from below that
+/// height again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Dropped {
+    /// The lowest height of a signature dropped.
+    pub lowest: u64,
+    /// Whose signatures were dropped.
+    pub signers: Signers,
+}
+
+/// A statement some validators signed.
+#[derive(Clone, Debug)]
+struct Pending {
+    statement: Statement,
+    signers: Signers,
+    agreed: bool,
+}
+
+/// Gathers signed statements until f + 1 validators agree on one.
+///
+/// Bounded per signer, so no validator can push out another's signatures:
+/// each signer has at most `capacity / n` signatures on statements still
+/// waiting for agreement, and one over that drops the signer's own lowest.
+/// Statements that agreed are kept, up to `capacity`, so that each agrees
+/// once; the lowest go first. A statement further than
+/// [`MAX_HEIGHTS_AHEAD`] above the height f + 1 validators have reached is
+/// refused. What it drops or refuses of a statement still waiting it
+/// reports ([`Agreement::take_dropped`]).
 #[derive(Clone, Debug)]
 pub struct Agreement {
     hub: HubId,
     set: ValidatorSet,
     capacity: usize,
-    pending: BTreeMap<(u64, Digest), (Statement, Signers)>,
+    quota: usize,
+    pending: BTreeMap<(u64, Digest), Pending>,
+    /// Per signer, its signatures on statements still waiting.
+    waiting: Vec<usize>,
+    /// Per signer, the highest height it signed a statement at.
+    reached: Vec<u64>,
+    dropped: Option<Dropped>,
 }
 
 impl Agreement {
     /// A collector for statements of hub `hub` by `set`, keeping at most
-    /// `capacity` undecided ones.
+    /// `capacity` statements that agreed and `capacity / n` signatures per
+    /// validator on statements that wait.
     #[must_use]
     pub fn new(hub: HubId, set: ValidatorSet, capacity: usize) -> Self {
+        let n = set.len();
+        let capacity = capacity.max(1);
         Self {
             hub,
-            set,
-            capacity: capacity.max(1),
+            quota: (capacity / n.max(1)).max(1),
+            capacity,
             pending: BTreeMap::new(),
+            waiting: alloc::vec![0; n],
+            reached: alloc::vec![0; n],
+            dropped: None,
+            set,
         }
     }
 
     /// Takes in a signed statement. Returns the statement once f + 1
-    /// validators signed it, exactly once; a statement that does not verify
-    /// is dropped.
+    /// validators signed it, exactly once while it is kept; a statement
+    /// that does not verify is dropped.
     pub fn add(&mut self, signed: SignedStatement) -> Option<Statement> {
         if !signed.verifies(&self.hub, &self.set) {
             return None;
         }
-        let key = (
-            signed.statement.height(),
-            signed.statement.digest(&self.hub),
-        );
-        let needed = self.set.one_honest();
-        let entry = self
-            .pending
-            .entry(key)
-            .or_insert_with(|| (signed.statement, Signers::NONE));
-        let before = entry.1.count();
-        entry.1 = entry.1.with(signed.validator);
-        let reached = before < needed && entry.1.count() >= needed;
-        let agreed = reached.then(|| entry.0.clone());
-        while self.pending.len() > self.capacity {
-            self.pending.pop_first();
+        let signer = signed.validator;
+        let height = signed.statement.height();
+        if let Some(reached) = self.reached.get_mut(signer.get()) {
+            *reached = (*reached).max(height);
         }
-        agreed
+        if height > self.expected().saturating_add(MAX_HEIGHTS_AHEAD) {
+            self.drop_signature(height, signer);
+            return None;
+        }
+        let key = (height, signed.statement.digest(&self.hub));
+        match self.pending.get(&key) {
+            Some(entry) if entry.signers.contains(signer) => return None,
+            Some(entry) if entry.agreed => {
+                let signers = entry.signers.with(signer);
+                if let Some(entry) = self.pending.get_mut(&key) {
+                    entry.signers = signers;
+                }
+                return None;
+            }
+            _ => {}
+        }
+        self.make_room(signer);
+        let entry = self.pending.entry(key).or_insert_with(|| Pending {
+            statement: signed.statement,
+            signers: Signers::NONE,
+            agreed: false,
+        });
+        entry.signers = entry.signers.with(signer);
+        if let Some(count) = self.waiting.get_mut(signer.get()) {
+            *count = count.saturating_add(1);
+        }
+        self.agree(key)
+    }
+
+    /// The highest height f + 1 validators have each reached: one of them
+    /// is honest, so the hub has reached it.
+    fn expected(&self) -> u64 {
+        let mut reached = self.reached.clone();
+        reached.sort_unstable_by(|a, b| b.cmp(a));
+        reached
+            .get(self.set.one_honest().saturating_sub(1))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// Marks the statement at `key` agreed if f + 1 signed it, and takes
+    /// its signatures off their signers' counts.
+    fn agree(&mut self, key: (u64, Digest)) -> Option<Statement> {
+        let needed = self.set.one_honest();
+        let entry = self.pending.get_mut(&key)?;
+        if entry.agreed || entry.signers.count() < needed {
+            return None;
+        }
+        entry.agreed = true;
+        let (statement, signers) = (entry.statement.clone(), entry.signers);
+        for index in signers.iter() {
+            if let Some(count) = self.waiting.get_mut(index.get()) {
+                *count = count.saturating_sub(1);
+            }
+        }
+        // One more agreed: at most one over the bound.
+        if self.pending.values().filter(|p| p.agreed).count() > self.capacity {
+            let lowest = self.pending.iter().find(|(_, p)| p.agreed).map(|(k, _)| *k);
+            if let Some(lowest) = lowest {
+                self.pending.remove(&lowest);
+            }
+        }
+        Some(statement)
+    }
+
+    /// Drops `signer`'s own lowest signature on a statement still waiting,
+    /// if it has its quota of them.
+    fn make_room(&mut self, signer: ValidatorIndex) {
+        let full = self
+            .waiting
+            .get(signer.get())
+            .is_some_and(|count| *count >= self.quota);
+        if !full {
+            return;
+        }
+        let lowest = self
+            .pending
+            .iter()
+            .find(|(_, p)| !p.agreed && p.signers.contains(signer))
+            .map(|(key, _)| *key);
+        let Some(key) = lowest else { return };
+        if let Some(entry) = self.pending.get_mut(&key) {
+            entry.signers =
+                Signers::from_bits(entry.signers.bits() & !Signers::NONE.with(signer).bits());
+            if entry.signers.count() == 0 {
+                self.pending.remove(&key);
+            }
+        }
+        if let Some(count) = self.waiting.get_mut(signer.get()) {
+            *count = count.saturating_sub(1);
+        }
+        self.drop_signature(key.0, signer);
+    }
+
+    fn drop_signature(&mut self, height: u64, signer: ValidatorIndex) {
+        self.dropped = Some(match self.dropped {
+            Some(dropped) => Dropped {
+                lowest: dropped.lowest.min(height),
+                signers: dropped.signers.with(signer),
+            },
+            None => Dropped {
+                lowest: height,
+                signers: Signers::NONE.with(signer),
+            },
+        });
+    }
+
+    /// What was dropped or refused of statements still waiting since the
+    /// last call, if anything.
+    pub fn take_dropped(&mut self) -> Option<Dropped> {
+        self.dropped.take()
     }
 
     /// Forgets statements below `height`.
     pub fn forget_below(&mut self, height: u64) {
         self.pending = self.pending.split_off(&(height, Digest::default()));
+        self.waiting = self.count_waiting();
+    }
+
+    fn count_waiting(&self) -> Vec<usize> {
+        let mut waiting = alloc::vec![0usize; self.set.len()];
+        for entry in self.pending.values().filter(|p| !p.agreed) {
+            for index in entry.signers.iter() {
+                if let Some(count) = waiting.get_mut(index.get()) {
+                    *count = count.saturating_add(1);
+                }
+            }
+        }
+        waiting
+    }
+
+    /// Asserts its bounds.
+    pub fn check_invariants(&self) {
+        assert_eq!(
+            self.waiting,
+            self.count_waiting(),
+            "agreement counts out of step"
+        );
+        assert!(
+            self.waiting.iter().all(|count| *count <= self.quota),
+            "a signer over its quota"
+        );
+        assert!(
+            self.pending.values().filter(|p| p.agreed).count() <= self.capacity,
+            "agreed statements over their bound"
+        );
     }
 }
 
@@ -642,6 +816,65 @@ mod tests {
         let mut forged = sign(0, &fact);
         forged.validator = ValidatorIndex::new(3).unwrap();
         assert_eq!(agreement.add(forged), None);
+    }
+
+    #[test]
+    fn one_validators_flood_never_pushes_out_anothers_signatures() {
+        let hub = HubId(Digest([1; 32]));
+        let (set, keys) = set();
+        let mut agreement = Agreement::new(hub, set, 16);
+        let sign = |i: usize, s: Statement| {
+            SignedStatement::sign(&hub, ValidatorIndex::new(i).unwrap(), s, &keys[i])
+        };
+        let fact = Statement::Final {
+            height: 5,
+            timestamp: 100,
+        };
+        assert_eq!(agreement.add(sign(1, fact.clone())), None);
+        // Validator 0 signs many statements, near and far ahead.
+        for k in 0..1_000u64 {
+            for height in [6 + k, u64::MAX - k] {
+                let flood = Statement::Final {
+                    height,
+                    timestamp: k,
+                };
+                assert_eq!(agreement.add(sign(0, flood)), None);
+            }
+            agreement.check_invariants();
+        }
+        let dropped = agreement.take_dropped().unwrap();
+        assert_eq!(
+            dropped.signers,
+            Signers::NONE.with(ValidatorIndex::new(0).unwrap())
+        );
+        assert_eq!(agreement.add(sign(2, fact.clone())), Some(fact));
+        agreement.check_invariants();
+    }
+
+    #[test]
+    fn a_signer_over_its_quota_drops_its_own_lowest_and_says_so() {
+        let hub = HubId(Digest([1; 32]));
+        let (set, keys) = set();
+        // Four signatures per validator wait at most.
+        let mut agreement = Agreement::new(hub, set, 16);
+        let final_at = |height: u64| Statement::Final {
+            height,
+            timestamp: height,
+        };
+        let sign = |i: usize, s: Statement| {
+            SignedStatement::sign(&hub, ValidatorIndex::new(i).unwrap(), s, &keys[i])
+        };
+        for height in 10..14 {
+            assert_eq!(agreement.add(sign(1, final_at(height))), None);
+        }
+        assert_eq!(agreement.take_dropped(), None);
+        assert_eq!(agreement.add(sign(1, final_at(14))), None);
+        let dropped = agreement.take_dropped().unwrap();
+        assert_eq!(dropped.lowest, 10);
+        // Height 10 waits for two signatures again; 11 still has one.
+        assert_eq!(agreement.add(sign(2, final_at(10))), None);
+        assert_eq!(agreement.add(sign(2, final_at(11))), Some(final_at(11)));
+        agreement.check_invariants();
     }
 
     #[test]
