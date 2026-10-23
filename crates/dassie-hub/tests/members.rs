@@ -116,6 +116,8 @@ enum Fault {
 struct Entry {
     height: u64,
     timestamp: Millis,
+    /// Its place in its block.
+    index: u32,
     operation: Operation,
     outcome: Outcome,
 }
@@ -251,7 +253,7 @@ impl Validators {
         };
         let outcomes = self.ledger.apply(&block).unwrap();
         self.stamps.insert(height, timestamp);
-        for (operation, outcome) in operations.into_iter().zip(outcomes) {
+        for ((index, operation), outcome) in (0u32..).zip(operations).zip(outcomes) {
             if let (
                 Operation::Member(signed),
                 Outcome::Applied {
@@ -267,6 +269,7 @@ impl Validators {
             self.log.push(Entry {
                 height,
                 timestamp,
+                index,
                 operation,
                 outcome,
             });
@@ -321,6 +324,7 @@ impl Validators {
             statements.push(Statement::Executed {
                 height: entry.height,
                 timestamp: entry.timestamp,
+                index: entry.index,
                 operation: entry.operation.clone(),
                 outcome: entry.outcome,
             });

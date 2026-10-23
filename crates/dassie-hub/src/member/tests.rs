@@ -101,6 +101,7 @@ impl Hub {
         Statement::Executed {
             height: 10 + sequence,
             timestamp: 1_000 + sequence,
+            index: 0,
             operation: Operation::Member(signed),
             outcome: Outcome::Applied {
                 fee: 10,
@@ -112,6 +113,88 @@ impl Hub {
 
 fn from(account: &mut HubAccount, endpoint: usize, message: &[u8]) {
     account.on_ledger(0, LedgerInput::From { endpoint, message });
+}
+
+/// The member operations `account` submitted since effects were taken.
+fn submitted(account: &mut HubAccount) -> Vec<SignedMemberOperation> {
+    let mut effects = Vec::new();
+    account.take_effects(&mut effects);
+    effects
+        .iter()
+        .filter_map(|effect| match effect {
+            AssetEffect::SendTo { message, .. } => match Request::decode_exact(message) {
+                Ok(Request::Submit(Operation::Member(signed))) => Some(signed),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
+/// An account known to validators 0 and 1, as of the block at 5.
+fn synced(hub: &Hub) -> HubAccount {
+    let mut account = hub.account();
+    for v in 0..2 {
+        from(
+            &mut account,
+            v,
+            &hub.says(v, &[hub.account_statement(5, true)]),
+        );
+    }
+    account.told();
+    account
+}
+
+// A faulty leader can put our operation in a block twice: applied, then
+// refused for its sequence. The account reads both, in the log's order,
+// and takes the first for what became of it.
+#[test]
+fn an_operation_twice_in_a_block_is_read_as_applied() {
+    let hub = Hub::new();
+    let mut account = synced(&hub);
+    let settlement = Name::new("s").unwrap();
+    let fund = MemberOperation::HoldFund {
+        hold: crate::promise::HoldNumber(1),
+        amount: 1,
+    };
+    account.prepare(settlement, fund).unwrap();
+    assert!(account.execute(settlement));
+    let sent = submitted(&mut account);
+    let ours = sent[0].clone();
+    let copy = |index: u32, outcome: Outcome| Statement::Executed {
+        height: 10,
+        timestamp: 1_000,
+        index,
+        operation: Operation::Member(ours.clone()),
+        outcome,
+    };
+    let applied = Outcome::Applied {
+        fee: 10,
+        detail: crate::ledger::Detail::None,
+    };
+    let refused = Outcome::Refused(crate::ledger::Refusal::Sequence);
+    let final_block = Statement::Final {
+        height: 20,
+        timestamp: 2_000,
+    };
+    for v in 0..3 {
+        let answer = [copy(0, applied), copy(1, refused), final_block.clone()];
+        from(&mut account, v, &hub.says(v, &answer));
+    }
+    assert_eq!(account.cursor(), 20);
+    let read: Vec<Option<Purpose>> = account
+        .news()
+        .iter()
+        .filter_map(|news| match news {
+            News::Executed { ours, .. } => Some(*ours),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(read, [Some(Purpose::Settle(settlement))], "read as applied");
+    assert!(!account.has(Purpose::Settle(settlement)));
+    account.on_timer(10_000);
+    assert!(submitted(&mut account).is_empty(), "never signed again");
+    account.check_invariants();
 }
 
 #[test]

@@ -54,7 +54,7 @@ use dassie_settlement::{
 
 use super::mirror::HoldMirror;
 use crate::client::{AccountView, Agreement, MAX_STATEMENTS, Request, SignedStatement, Statement};
-use crate::digest::Digest;
+
 use crate::ledger::{Detail, Outcome, Refusal};
 use crate::operation::{
     AccountNumber, Destination, MemberOperation, Operation, SignedMemberOperation,
@@ -262,7 +262,9 @@ pub struct HubAccount {
     covered: Vec<u64>,
     finals: BTreeMap<u64, Millis>,
     told_final: u64,
-    buffer: BTreeMap<(u64, Digest), Executed>,
+    /// Operations agreed executed, by block and their place in it: the
+    /// order of the log.
+    buffer: BTreeMap<(u64, u32), Executed>,
     failed: Option<&'static str>,
     stopped: bool,
     now_ms: u64,
@@ -740,9 +742,12 @@ impl HubAccount {
             }
             // Whether it touches the account is read in order: a hold
             // opened toward it makes the operations on it its own.
+            // Keyed by its place in the block: a faulty leader can put one
+            // operation in a block twice, applied and then refused.
             Statement::Executed {
                 height,
                 timestamp,
+                index,
                 operation: Operation::Member(operation),
                 outcome,
             } if height > self.cursor => {
@@ -752,9 +757,8 @@ impl HubAccount {
                     self.agreement = Agreement::new(self.hub, self.set.clone(), AGREEMENT_CAPACITY);
                     return;
                 }
-                let key = (height, Operation::Member(operation.clone()).hash());
                 self.buffer.insert(
-                    key,
+                    (height, index),
                     Executed {
                         timestamp,
                         operation,
@@ -869,9 +873,7 @@ impl HubAccount {
         if covered <= self.cursor || self.number.is_none() || self.resync {
             return;
         }
-        let later = self
-            .buffer
-            .split_off(&(covered.saturating_add(1), Digest::default()));
+        let later = self.buffer.split_off(&(covered.saturating_add(1), 0));
         let ready = core::mem::replace(&mut self.buffer, later);
         for ((height, _), executed) in ready {
             self.read(height, executed);
@@ -1076,9 +1078,7 @@ impl HubAccount {
         self.view = Some((height, view));
         self.cursor = height;
         self.last_touch = height;
-        self.buffer = self
-            .buffer
-            .split_off(&(height.saturating_add(1), Digest::default()));
+        self.buffer = self.buffer.split_off(&(height.saturating_add(1), 0));
         self.agreement.forget_below(height.saturating_add(1));
         self.resync = false;
         self.told_final = height;
