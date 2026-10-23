@@ -625,6 +625,7 @@ fn a_failed_commit_hands_nothing_over() {
             incoming_amount: Some(10),
             expires_at_ms: None,
             metadata: None,
+            uplink: None,
         })
         .unwrap();
     let request = ildcp::request(Timestamp::from_unix_ms(NOW)).to_vec();
@@ -656,6 +657,7 @@ fn a_broken_invariant_never_reaches_the_disk() {
             incoming_amount: Some(10),
             expires_at_ms: None,
             metadata: None,
+            uplink: None,
         })
         .unwrap();
     // A bug: more payments open than the bound allows.
@@ -1018,6 +1020,7 @@ fn a_restarted_receiver_tells_a_reconnecting_sender_what_got_there() {
                 incoming_amount: Some(100),
                 expires_at_ms: None,
                 metadata: None,
+                uplink: None,
             })
             .unwrap();
         core.incoming_received(IncomingPaid {
@@ -1085,6 +1088,7 @@ fn a_payment_completed_short_tells_its_senders_so() {
                     incoming_amount,
                     expires_at_ms: None,
                     metadata: None,
+                    uplink: None,
                 })
                 .unwrap();
             core.incoming_received(IncomingPaid {
@@ -1170,6 +1174,7 @@ fn a_payment_within_its_tolerance_is_paid_in_full() {
                     incoming_amount: Some(DOLLAR),
                     expires_at_ms: None,
                     metadata: None,
+                    uplink: None,
                 })
                 .unwrap();
             let open = Admission::Accept {
@@ -1222,6 +1227,7 @@ fn payment_paid_by_every_connection(core: &mut Core) -> crate::store::PaymentId 
             incoming_amount: Some(1_000_000),
             expires_at_ms: None,
             metadata: None,
+            uplink: None,
         })
         .unwrap();
     for n in 1..=MAX_CONNECTIONS_PER_PAYMENT {
@@ -2227,4 +2233,87 @@ fn a_transfer_fee_asks_no_peer_and_ends_none_for_room() {
         "asked once the fee is gone"
     );
     assert!(core.peer.peering_of(&id).unwrap().short_reached_ms > reached);
+}
+
+/// A new incoming payment on the stub ledger, of the owner's or a
+/// client's, beneath `uplink` if any.
+fn new_incoming(
+    client: Option<&str>,
+    uplink: Option<dassie_identity::NodeId>,
+) -> super::NewIncoming {
+    super::NewIncoming {
+        ledger: dassie_ledger::LedgerId::StubUsd,
+        wallet_address: "https://node.example/.well-known/pay".into(),
+        client: client.map(Into::into),
+        incoming_amount: None,
+        expires_at_ms: None,
+        metadata: None,
+        uplink,
+    }
+}
+
+// spec/areas/payments.md#receiving: a core node is paid at its own
+// address, so an uplink named for it is refused, and nothing is created.
+#[test]
+fn a_core_node_refuses_an_uplink() {
+    let mut core = core(12);
+    core.add_scheme("stub", String::new()).unwrap();
+    assert!(!core.peer.is_periphery());
+    let uplink = NodeKey::from_bytes(&[11; 32]).node_id();
+    let refused = core.create_incoming_payment(new_incoming(None, Some(uplink)));
+    assert!(
+        matches!(refused, Err(super::EngineError::Precondition(_))),
+        "{refused:?}"
+    );
+    assert!(core.incoming.is_empty());
+    let own = core.connector.own_address().to_string();
+    let payment = core
+        .create_incoming_payment(new_incoming(None, None))
+        .unwrap();
+    assert!(payment.ilp_address.starts_with(&format!("{own}.")));
+}
+
+// spec/areas/payments.md#receiving: a periphery node is paid beneath an
+// uplink its owner names only if it is one confirmed now; a refused
+// request closes no other payment to make room for itself.
+#[test]
+fn a_periphery_node_refuses_an_uplink_it_has_not() {
+    let mut core = Core::start(
+        CoreParts {
+            store: Arc::new(Store::open_in_memory().unwrap()),
+            key: Arc::new(NodeKey::from_bytes(&[7; 32])),
+            realm: Realm::Test,
+            policies: Policies::DEFAULT,
+            rng: Box::new(SeededRng::new(13)),
+            peer_rng: Box::new(SeededRng::new(14)),
+            own_info: dassie_peer::OwnInfo {
+                url: None,
+                alias: String::new(),
+                quic: true,
+                feed_port: None,
+                hub: None,
+            },
+            bootstrap: Vec::new(),
+            uplinks: Vec::new(),
+        },
+        NOW,
+    )
+    .unwrap();
+    core.add_scheme("stub", String::new()).unwrap();
+    assert!(core.peer.is_periphery());
+    // The clients' share is full, with a payment that received nothing.
+    core.incoming_policy.max_open_clients = 1;
+    let unpaid = core
+        .create_incoming_payment(new_incoming(Some("client"), None))
+        .unwrap();
+    let unknown = NodeKey::from_bytes(&[11; 32]).node_id();
+    let refused = core.create_incoming_payment(new_incoming(Some("client"), Some(unknown)));
+    let Err(super::EngineError::Precondition(message)) = refused else {
+        panic!("{refused:?}");
+    };
+    assert!(message.contains("not a confirmed uplink"), "{message}");
+    assert_eq!(core.incoming.keys().collect::<Vec<_>>(), [&unpaid.id]);
+    let refused = core.create_incoming_payment(new_incoming(None, Some(unknown)));
+    assert!(matches!(refused, Err(super::EngineError::Precondition(_))));
+    assert_eq!(core.incoming.len(), 1);
 }

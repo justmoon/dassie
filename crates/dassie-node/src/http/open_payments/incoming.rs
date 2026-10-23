@@ -161,6 +161,7 @@ fn new_incoming(
         incoming_amount,
         expires_at_ms,
         metadata,
+        uplink: None,
     })
 }
 

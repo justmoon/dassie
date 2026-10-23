@@ -19,7 +19,7 @@ use dassie_ledger::LedgerId;
 use dassie_node::clock::ManualClock;
 use dassie_node::engine::NewIncoming;
 use dassie_node::node::Policies;
-use dassie_node::rpc::proto::{self, request::Method, response};
+use dassie_node::rpc::proto::{self, ErrorCode, request::Method, response};
 use support::btp_client::{BtpClient, pay_stream};
 use support::pair::{CA, bootstrap, key, peered, prepare, settle, until};
 use support::{Bound, START_MS, TestNode, set_up};
@@ -220,6 +220,99 @@ async fn a_pinned_periphery_node_asks_only_its_uplink() {
     p.stop().await;
 }
 
+// spec/areas/payments.md#receiving: a periphery node with two uplinks
+// hands out credentials beneath the one its owner names, and a payment to
+// each arrives through that uplink. One it has not is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_periphery_node_is_paid_beneath_the_uplink_it_names() {
+    let (key_a, key_b, key_p) = (key(46), key(47), key(48));
+    let (bound_a, bound_b, bound_p) = (Bound::new(), Bound::new(), Bound::new());
+    let nodes = bootstrap(&key_a, bound_a.https_port());
+    let env = [
+        ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
+        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+    ];
+    let pinned = format!("{},{}", key_a.node_id(), key_b.node_id());
+    let mut env_p = env.to_vec();
+    env_p.push(("DASSIE_UPLINKS", pinned.as_str()));
+    let clock = ManualClock::new(START_MS);
+    let a = bound_a.start(clock.clone(), 6, Policies::DEV, &env).await;
+    let b = bound_b.start(clock.clone(), 7, Policies::DEV, &env).await;
+    let p = bound_p.start(clock.clone(), 8, Policies::DEV, &env_p).await;
+    prepare(&a, &key_a).await;
+    prepare(&b, &key_b).await;
+    prepare_periphery(&p, &key_p).await;
+    // Both uplinks confirmed, which is when the node is paid beneath them.
+    let confirmed = [key_a.node_id().to_string(), key_b.node_id().to_string()];
+    until(&clock, async || {
+        let at_p = peers(&p).await;
+        confirmed
+            .iter()
+            .all(|id| at_p.iter().any(|peer| &peer.node == id && peer.advertised))
+            && peered(&a, &key_p).await
+            && peered(&b, &key_p).await
+    })
+    .await;
+    for (uplink, key_uplink) in [(&a, &key_a), (&b, &key_b)] {
+        let payment = create(&p, Some(key_uplink.node_id().to_string()))
+            .await
+            .unwrap();
+        let child = format!("test.das.{}.{}.", key_uplink.node_id(), key_p.node_id());
+        assert!(
+            payment.destination_account.starts_with(&child),
+            "{}",
+            payment.destination_account
+        );
+        // The uplink's client pays it there, through that uplink.
+        let before = owes(&p, key_uplink).await;
+        let mut paying = client(uplink).await;
+        pay_stream(
+            &clock,
+            &mut paying,
+            &payment.destination_account,
+            &payment.shared_secret,
+            PAYMENT,
+        )
+        .await;
+        assert_eq!(owes(&p, key_uplink).await, before - i128::from(PAYMENT));
+    }
+    // A node that is no uplink of its, and no node at all, are refused.
+    let refused = create(&p, Some(key(49).node_id().to_string())).await;
+    assert_eq!(refused.unwrap_err().code(), ErrorCode::FailedPrecondition);
+    let refused = create(&p, Some("not a node".into())).await;
+    assert_eq!(refused.unwrap_err().code(), ErrorCode::InvalidArgument);
+    a.stop().await;
+    b.stop().await;
+    p.stop().await;
+}
+
+/// The owner's incoming payment on `node`, beneath `uplink` if named,
+/// made over RPC.
+async fn create(
+    node: &TestNode,
+    uplink: Option<String>,
+) -> Result<proto::IncomingPayment, proto::Error> {
+    let created = node
+        .ipc()
+        .await
+        .call(Method::CreateIncomingPayment(
+            proto::CreateIncomingPaymentRequest {
+                ledger: "stub+usd".into(),
+                uplink,
+                ..proto::CreateIncomingPaymentRequest::default()
+            },
+        ))
+        .await?;
+    let response::Method::CreateIncomingPayment(proto::CreateIncomingPaymentResponse {
+        payment: Some(payment),
+    }) = created
+    else {
+        panic!("answered out of turn: {created:?}")
+    };
+    Ok(payment)
+}
+
 /// Waits until `downlink`'s connection holds a downlink's place at its
 /// uplink, apart from anyone else's (spec/areas/peer-protocol.md#quic).
 async fn holds_a_downlinks_place(uplink: &TestNode, downlink: &NodeKey) {
@@ -242,8 +335,7 @@ async fn holds_a_downlinks_place(uplink: &TestNode, downlink: &NodeKey) {
     assert_eq!((places.core, places.downlinks), (0, 1), "{places:?}");
 }
 
-/// An incoming payment of the owner of `node`, made through its engine:
-/// the RPC makes one only at a hostname, which a periphery node lacks.
+/// An incoming payment of the owner of `node`, made through its engine.
 async fn incoming(node: &TestNode) -> dassie_node::store::IncomingRow {
     let engine = node.node.upgrade().unwrap().engine().unwrap();
     engine
@@ -254,6 +346,7 @@ async fn incoming(node: &TestNode) -> dassie_node::store::IncomingRow {
             incoming_amount: None,
             expires_at_ms: None,
             metadata: None,
+            uplink: None,
         })
         .await
         .unwrap()

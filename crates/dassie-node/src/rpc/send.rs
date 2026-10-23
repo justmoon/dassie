@@ -523,6 +523,7 @@ async fn create_receiver(
                 incoming_amount: amount,
                 expires_at_ms: Some(expires_at_ms),
                 metadata: metadata.map(|metadata| serde_json::Value::Object(metadata).to_string()),
+                uplink: None,
             })
             .await?;
         let payment = spending::local_receiver(node, urls, &row.id.to_string()).await?;

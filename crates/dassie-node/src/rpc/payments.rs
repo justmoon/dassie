@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use dassie_identity::NodeId;
 use dassie_ledger::LedgerId;
 
 use super::RpcError;
@@ -174,6 +175,12 @@ async fn create(
     if request.description.chars().count() > MAX_DESCRIPTION_CHARS {
         return Err(RpcError::invalid("the description is too long"));
     }
+    let uplink = request
+        .uplink
+        .as_deref()
+        .map(NodeId::parse)
+        .transpose()
+        .map_err(|_| RpcError::invalid("the uplink is not a node ID"))?;
     let metadata = (!request.description.is_empty())
         .then(|| serde_json::json!({ "description": request.description }).to_string());
     let new = NewIncoming {
@@ -183,6 +190,7 @@ async fn create(
         incoming_amount: request.incoming_amount,
         expires_at_ms: (request.expires_at_ms != 0).then_some(request.expires_at_ms),
         metadata,
+        uplink,
     };
     node.store()
         .prune_incoming(node.now_ms())
