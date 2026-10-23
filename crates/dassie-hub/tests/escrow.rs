@@ -480,6 +480,9 @@ fn a_change_of_validators_reaches_the_escrows_signer_list() {
     hub.attest(move |_| ValidatorOperation::Reconfigure(votes.clone()));
     let at = hub.ledger.timestamp() + hub.rules.terms.timers.reconfigure_notice;
     hub.block_at(at, vec![]);
+    // The new set takes over two blocks after its notice passed.
+    hub.block(vec![]);
+    hub.block(vec![]);
     let sequence = hub.ledger.escrow().signer_list.unwrap();
     // The old set signs the change of signers it owes.
     let list = signer_list_set(&rules, sequence);

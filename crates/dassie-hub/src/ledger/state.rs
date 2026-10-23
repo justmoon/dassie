@@ -156,8 +156,12 @@ pub struct FeePool {
 pub struct PendingRules {
     /// The new rules.
     pub rules: Rules,
-    /// The first block timestamp at which they take effect.
+    /// The first block timestamp at which they are due.
     pub at: Millis,
+    /// Once due, the height from which they are in force: two blocks after
+    /// the one they fell due in, so consensus learns of the new validators
+    /// before it certifies by them, and both hand over at one height.
+    pub from_height: Option<u64>,
 }
 
 /// What is known about each validator.

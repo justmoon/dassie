@@ -90,6 +90,8 @@ pub struct Chain {
     heights: BTreeMap<Digest, u64>,
     pub(super) mempool: Mempool,
     pub(super) finals: VecDeque<FinalBlock>,
+    /// The change of validators reported to consensus, by its height.
+    reported: Option<u64>,
 }
 
 impl Chain {
@@ -106,6 +108,7 @@ impl Chain {
             heights,
             mempool: Mempool::new(mempool_capacity),
             finals: VecDeque::new(),
+            reported: None,
         }
     }
 
@@ -121,7 +124,7 @@ impl Chain {
     /// within the vote window that no block recorded yet.
     fn votes_to_record(&self, base: &Ledger, height: u64, votes: &[Vote]) -> Vec<(u64, Signers)> {
         let window = u64::from(base.terms().limits.vote_window);
-        let floor = height.saturating_sub(window).max(1);
+        let floor = height.saturating_sub(window).max(base.set_since());
         let mut by_height: BTreeMap<u64, Signers> = BTreeMap::new();
         for vote in votes {
             let Some(voted) = self.heights.get(&vote.block).copied() else {
@@ -215,6 +218,15 @@ impl Chain {
 }
 
 impl Application for Chain {
+    fn reconfiguration(&mut self) -> Option<(u64, crate::validators::ValidatorSet)> {
+        let (from, set) = self.ledger.scheduled_change()?;
+        if self.reported == Some(from) {
+            return None;
+        }
+        self.reported = Some(from);
+        Some((from, set))
+    }
+
     fn propose(
         &mut self,
         context: &ProposeContext<'_>,

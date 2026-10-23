@@ -97,6 +97,9 @@ pub struct Ledger {
     pub(crate) signer_list_votes: Vec<(u32, Signers)>,
     pub(crate) shutdown_votes: Signers,
     pub(crate) reset_votes: Vec<(u32, Signers)>,
+    /// The height from which the validators in force sign blocks: no block
+    /// records votes for blocks before it, signed by others.
+    pub(crate) set_since: u64,
 }
 
 /// The XRP Ledger testnet's network ID, the one network on which the hub
@@ -140,6 +143,7 @@ impl Ledger {
             signer_list_votes: Vec::new(),
             shutdown_votes: Signers::NONE,
             reset_votes: Vec::new(),
+            set_since: 1,
             rules,
         };
         ledger.open_validator_accounts(timestamp);
@@ -351,6 +355,20 @@ impl Ledger {
             .iter()
             .find(|pool| pool.height == height)
             .map_or(Signers::NONE, |pool| pool.voters)
+    }
+
+    /// A change of validators the log scheduled: the height from which the
+    /// new set signs, and the set.
+    #[must_use]
+    pub fn scheduled_change(&self) -> Option<(u64, ValidatorSet)> {
+        let pending = self.pending_rules.as_ref()?;
+        Some((pending.from_height?, pending.rules.validator_set()?))
+    }
+
+    /// The height from which the validators in force sign blocks.
+    #[must_use]
+    pub const fn set_since(&self) -> u64 {
+        self.set_since
     }
 
     /// What the reserve account holds.
