@@ -115,7 +115,7 @@ A subscriber needs the feed's port and the node's key; it takes the host from th
 
 ## Market maker
 
-`dassie market-maker` trades through one core node, the target, when the rates its feed publishes and an AMM pool on the XRP Ledger disagree by more than a margin, and so moves the target's holdings back toward balance, as passive rebalancing intends ([passive-rebalancing](../decisions/passive-rebalancing.md)). An end-to-end test runs the whole loop against the fake ledger's pool ([Testing](testing.md#end-to-end)). It is a client of nodes, not one: it holds no books, and every amount it moves is moved by a node or by the ledger. It reads one JSON config, checked whole before anything connects (`config.rs`); the decision is a pure function of the feed, the pool and the holdings (`strategy.rs`), and everything around it is bounded in time and size.
+`dassie market-maker` trades through one core node, the target, when the rates its feed publishes and an AMM pool on the XRP Ledger disagree by more than a margin, and so moves the target's holdings back toward balance, as passive rebalancing intends ([passive-rebalancing](../decisions/passive-rebalancing.md)). An end-to-end test runs the whole loop against the fake ledger's pool ([Testing](testing.md#end-to-end)), and a VM of our own runs it on the testnet ([Market maker VM](market-maker-vm.md)). It is a client of nodes, not one: it holds no books, and every amount it moves is moved by a node or by the ledger. It reads one JSON config, checked whole before anything connects (`config.rs`); the decision is a pure function of the feed, the pool and the holdings (`strategy.rs`), and everything around it is bounded in time and size.
 
 ### Two nodes, pinned to the target
 

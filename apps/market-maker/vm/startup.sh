@@ -1,0 +1,236 @@
+#!/bin/sh
+# The boot script of the market maker's VM
+# (spec/areas/market-maker-vm.md), which GCE runs as root at every boot
+# from the instance metadata (provision.sh puts it there). It is
+# idempotent.
+#
+# 1. Installs curl, Git, jq and minisign, and makes the system user
+#    dassie-mm, which the nodes and the market maker run as.
+# 2. Clones the repository, or brings it to the newest `main`: the units
+#    and the scripts they run come from there.
+# 3. Installs the newest release, if there is no install yet, as install.sh
+#    lays it out (spec/areas/release.md#install-layout), so that
+#    `dassie update` keeps it current. install.sh itself would also set up
+#    dassie.service on ports 80 and 443, which this VM does not run.
+# 4. Writes the settings from the instance metadata, and the target's node
+#    ID, which pins both nodes to it.
+# 5. Installs the units, and (re)starts both nodes, the market maker and
+#    the daily update.
+#
+# A change to this script reaches the VM only through its metadata
+# (`gcloud compute instances add-metadata dassie-mm --zone=us-east1-b
+# --metadata-from-file=startup-script=apps/market-maker/vm/startup.sh`); a
+# change to the units, the other scripts or the settings, at its next boot
+# (`gcloud compute instances reset dassie-mm --zone=us-east1-b`).
+set -eu
+# GCE runs this without a home, which Git needs.
+export HOME=/root
+
+repository=https://github.com/justmoon/dassie.git
+checkout=/opt/dassie-mm/repo
+vm="$checkout/apps/market-maker/vm"
+base=/opt/dassie
+mirror=https://get.dassie.land
+config=/etc/dassie-mm
+metadata=http://metadata.google.internal/computeMetadata/v1
+
+fail() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -q
+apt-get install -qy --no-install-recommends ca-certificates curl git jq minisign xz-utils
+
+id -u dassie-mm > /dev/null 2>&1 ||
+  useradd --system --user-group --no-create-home --home-dir /nonexistent \
+    --shell /usr/sbin/nologin dassie-mm
+
+# --- The repository -----------------------------------------------------------
+
+umask 022
+mkdir -p "$(dirname "$checkout")"
+if [ ! -d "$checkout/.git" ]; then
+  rm -rf "$checkout"
+  git clone --quiet "$repository" "$checkout"
+fi
+git -C "$checkout" fetch --quiet origin main
+git -C "$checkout" checkout --quiet --force --detach origin/main
+
+# --- The release ----------------------------------------------------------------
+
+# Fetches a URL into a file, HTTPS only, failing on any error status.
+download() {
+  curl --proto =https --tlsv1.2 --fail --silent --show-error --location \
+    --retry 3 --retry-delay 5 --max-time 600 --output "$2" "$1"
+}
+
+# Installs the newest release into $base/<version> and points
+# $base/current at it, with install.sh's checks
+# (resources/installer/install.sh, spec/decisions/release-integrity.md):
+# nothing is unpacked before SHA256SUMS carries the release key's
+# signature for the version, and the bundle matches its sum; nothing is
+# installed that does not name that version and pass verify-install.
+install_release() {
+  case "$(uname -m)" in
+    x86_64) arch=x64 ;;
+    aarch64) arch=arm64 ;;
+    *) fail "there are no releases for $(uname -m)" ;;
+  esac
+  key=$(sed -n 2p "$checkout/resources/minisign.pub")
+  temp=$(mktemp -d -t dassie-mm-install-XXXXXXXXXX)
+  download "$mirror/meta/latest" "$temp/meta" || fail "cannot read $mirror/meta/latest"
+  version=$(head -c 128 "$temp/meta" | tr -d ' \r\n')
+  # meta/latest is not signed, so it names only a version of its channel;
+  # the signature then says whether the release is that version.
+  printf '%s\n' "$version" | grep -Eqx '(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)' ||
+    fail "the mirror's meta/latest names no version"
+  echo "Installing dassie $version"
+  bundle="dassie-$version-linux-$arch.tar.xz"
+  for file in SHA256SUMS SHA256SUMS.minisig "$bundle"; do
+    download "$mirror/$version/$file" "$temp/$file" || fail "cannot download $mirror/$version/$file"
+  done
+  comment=$(minisign -V -H -Q -P "$key" -m "$temp/SHA256SUMS" -x "$temp/SHA256SUMS.minisig" 2> /dev/null) ||
+    fail "SHA256SUMS is not signed with the release key"
+  [ "$comment" = "dassie $version" ] ||
+    fail "SHA256SUMS is signed for another version ($comment), not $version"
+  expected=$(awk -v name="$bundle" '$2 == name || $2 == "*" name { print $1 }' "$temp/SHA256SUMS")
+  actual=$(sha256sum "$temp/$bundle" | awk '{ print $1 }')
+  [ -n "$expected" ] && [ "$actual" = "$expected" ] ||
+    fail "$bundle does not match its signed sum: refusing it"
+  mkdir "$temp/unpacked"
+  tar -xJf "$temp/$bundle" -C "$temp/unpacked" || fail "cannot unpack $bundle"
+  unpacked="$temp/unpacked/dassie"
+  [ -z "$(find "$temp/unpacked" ! -type f ! -type d)" ] && [ -x "$unpacked/bin/dassie" ] ||
+    fail "$bundle does not hold what a release holds"
+  [ "$("$unpacked/bin/dassie" --version)" = "dassie $version" ] ||
+    fail "the binary in $bundle is not dassie $version"
+  "$unpacked/bin/dassie" verify-install > /dev/null || fail "dassie $version fails verify-install here"
+
+  # One at a time with `dassie update`, under its lock, as install.sh.
+  mkdir -p "$base"
+  touch "$base/.update.lock"
+  exec 9< "$base/.update.lock"
+  flock -w 600 9 || fail "an update is running"
+  rm -rf "$base/.install-$version"
+  cp -R "$unpacked" "$base/.install-$version"
+  if [ -e "$base/$version" ]; then
+    mv -T "$base/$version" "$base/.replaced-$version-$$"
+  fi
+  mv -T "$base/.install-$version" "$base/$version"
+  rm -rf "$base/.replaced-$version-$$"
+  # On disk before current names it; then one rename points current at it.
+  sync
+  ln -sfn "$version" "$base/.current-$$"
+  mv -T "$base/.current-$$" "$base/current"
+  sync
+  exec 9<&-
+  # For the owner's `dassie status` with DASSIE_IPC_SOCKET_PATH.
+  ln -sfn "$base/current/bin/dassie" /usr/local/bin/dassie
+  rm -rf "$temp"
+}
+
+# An install whose binary names no version is taken for none, as
+# install.sh takes it.
+if ! "$base/current/bin/dassie" --version > /dev/null 2>&1; then
+  install_release
+fi
+
+# --- The settings ---------------------------------------------------------------
+
+attributes=$(curl -fsS --max-time 10 -H "Metadata-Flavor: Google" \
+  "$metadata/instance/attributes/?recursive=true&alt=json") ||
+  fail "cannot read the instance metadata"
+
+# setting <name> <default>: the instance metadata's attribute, or the
+# default where there is none.
+setting() {
+  printf '%s' "$attributes" |
+    jq -r --arg name "$1" --arg default "$2" '.[$name] // $default'
+}
+
+# number <name> <default>: a setting that is a whole number.
+number() {
+  value=$(setting "$1" "$2")
+  case "$value" in
+    "" | *[!0-9]*) fail "the metadata's $1 is not a whole number" ;;
+  esac
+  [ "${#value}" -le 19 ] || fail "the metadata's $1 is too large"
+  printf '%s' "$value"
+}
+
+# The defaults are starting points. Amounts are in the nodes' ledger units,
+# a billionth of an XRP or a dollar; the XRP band's top is below the
+# faucet's grant, so the first rebalance buys DSUSD into the DSUSD node.
+target=$(setting mm-target-url https://boot1.dassie.xyz)
+target=${target%/}
+case "$target" in
+  https://*) ;;
+  *) fail "the metadata's mm-target-url is not an https:// URL" ;;
+esac
+case "$target" in
+  *[!A-Za-z0-9.:/-]*) fail "the metadata's mm-target-url is not a plain URL" ;;
+esac
+# Each on its own, so that one that is not a number stops the script.
+xrp_trade_size=$(number mm-xrp-trade-size 2000000000)
+xrp_band_low=$(number mm-xrp-band-low 20000000000)
+xrp_band_high=$(number mm-xrp-band-high 60000000000)
+dsusd_trade_size=$(number mm-dsusd-trade-size 2000000000)
+dsusd_band_low=$(number mm-dsusd-band-low 5000000000)
+dsusd_band_high=$(number mm-dsusd-band-high 40000000000)
+margin_ppm=$(number mm-margin-ppm 10000)
+slippage_ppm=$(number mm-slippage-ppm 10000)
+umask 022
+mkdir -p "$config"
+cat > "$config/settings.env.new" <<EOF
+MM_TARGET_URL=$target
+MM_XRP_TRADE_SIZE=$xrp_trade_size
+MM_XRP_BAND_LOW=$xrp_band_low
+MM_XRP_BAND_HIGH=$xrp_band_high
+MM_DSUSD_TRADE_SIZE=$dsusd_trade_size
+MM_DSUSD_BAND_LOW=$dsusd_band_low
+MM_DSUSD_BAND_HIGH=$dsusd_band_high
+MM_MARGIN_PPM=$margin_ppm
+MM_SLIPPAGE_PPM=$slippage_ppm
+EOF
+mv -f "$config/settings.env.new" "$config/settings.env"
+
+# The target's node ID, which both nodes pin as their only uplink: the
+# metadata's mm-uplink, or else what the target's /stats names, which is
+# where the market maker reads the target's ID and key too. Should the
+# target not answer, the ID read for it before stands.
+uplink=$(setting mm-uplink "")
+if [ -z "$uplink" ]; then
+  uplink=$(curl --proto =https -fsS --max-time 20 "$target/stats" | jq -er .node.id) || uplink=""
+fi
+if [ -z "$uplink" ] && [ -f "$config/uplink.env" ] &&
+  grep -qxF "DASSIE_MM_UPLINK_OF=$target" "$config/uplink.env"; then
+  echo "Note: $target/stats does not answer; its node ID stays as it was read before"
+else
+  case "$uplink" in
+    "" | *[!A-Za-z0-9_-]*) fail "no node ID for $target: set the metadata's mm-uplink" ;;
+  esac
+  [ "${#uplink}" -le 64 ] || fail "the node ID for $target is too long"
+  printf 'DASSIE_UPLINKS=%s\nDASSIE_MM_UPLINK_OF=%s\n' "$uplink" "$target" > "$config/uplink.env.new"
+  mv -f "$config/uplink.env.new" "$config/uplink.env"
+fi
+
+for node in xrp dsusd; do
+  install -m 644 "$vm/$node.env" "$config/$node.env"
+done
+
+# --- The units ------------------------------------------------------------------
+
+for unit in dassie-mm-node@.service dassie-mm.service dassie-mm-update.service dassie-mm-update.timer; do
+  install -m 644 "$vm/$unit" "/etc/systemd/system/$unit"
+done
+systemctl daemon-reload
+systemctl enable dassie-mm.service dassie-mm-update.timer
+systemctl restart dassie-mm-update.timer
+# The market maker stops first, so that it does not restart with each node;
+# then both nodes start on the units and settings just written, and it
+# after them.
+systemctl stop dassie-mm.service
+systemctl restart dassie-mm-node@xrp.service dassie-mm-node@dsusd.service
+systemctl start dassie-mm.service

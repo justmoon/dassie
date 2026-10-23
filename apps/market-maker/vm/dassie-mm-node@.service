@@ -1,0 +1,77 @@
+# One of the market maker's two nodes (spec/areas/market-maker-vm.md), on
+# its VM, which startup.sh installs: dassie-mm-node@xrp settles in XRP,
+# dassie-mm-node@dsusd in DSUSD. Each is a periphery node with
+# no hostname, pinned to the target as its only uplink
+# (spec/areas/rate-feed.md#two-nodes-pinned-to-the-target).
+#
+# It runs standalone and binds its own ports, from /etc/dassie-mm/%i.env,
+# on every address: QUIC binds the HTTPS listener's address, and must reach
+# the target. Nothing reaches them from outside, since the VM's network has
+# no firewall rule. Its rate feed's socket is on loopback, at a port of the
+# system's choosing: a periphery node publishes no feed, and the two must
+# not both take 7768.
+[Unit]
+Description=Dassie market maker's %i node
+Documentation=https://dassie.land
+Wants=network-online.target
+After=network-online.target time-set.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+EnvironmentFile=/etc/dassie-mm/%i.env
+# DASSIE_UPLINKS: the target's node ID, which startup.sh reads from the
+# target's /stats.
+EnvironmentFile=/etc/dassie-mm/uplink.env
+ExecStart=/opt/dassie/current/bin/dassie daemon --runtime standalone \
+  --http-port ${DASSIE_MM_HTTP_PORT} --https-port ${DASSIE_MM_HTTPS_PORT} \
+  --feed-listen 127.0.0.1:0
+User=dassie-mm
+Group=dassie-mm
+# The node's database (0700, spec/decisions/secrets-at-rest.md).
+StateDirectory=dassie-mm/%i
+StateDirectoryMode=0700
+Environment=DASSIE_STATE_DIRECTORY=/var/lib/dassie-mm/%i
+# The IPC socket, which the market maker and `dassie setup` use; only
+# dassie-mm reaches it.
+RuntimeDirectory=dassie-mm-%i
+RuntimeDirectoryMode=0700
+Environment=DASSIE_IPC_SOCKET_PATH=/run/dassie-mm-%i/dassie.sock
+# No front door: nobody pays these nodes at a name.
+Environment=DASSIE_RELAY=
+WorkingDirectory=/var/lib/dassie-mm/%i
+Environment=DASSIE_LOG_LEVEL=info
+Restart=always
+RestartSec=5
+# Bounded, so that an update whose node never comes up is rolled back.
+TimeoutStartSec=5min
+StandardOutput=journal+console
+StandardError=journal+console
+
+# As dassie.service: nothing the node does needs more than this.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+ProtectProc=invisible
+ProcSubset=pid
+PrivateUsers=yes
+UMask=0077

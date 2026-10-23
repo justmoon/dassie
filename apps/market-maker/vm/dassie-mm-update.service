@@ -1,0 +1,39 @@
+# Updates Dassie on the market maker's VM (spec/areas/market-maker-vm.md)
+# when dassie-mm-update.timer says so: `dassie update --no-restart`, then a
+# restart of both nodes and the market maker on the new version, or back to
+# the old one if a node does not come up (update.sh).
+#
+# It runs as root: it writes /opt/dassie and restarts the units.
+[Unit]
+Description=Dassie market maker's updater
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=30min
+# The units a release brings go here, where nothing reads them.
+StateDirectory=dassie-mm-update
+ExecStart=/bin/sh /opt/dassie-mm/repo/apps/market-maker/vm/update.sh
+StandardOutput=journal+console
+StandardError=journal+console
+
+ProtectSystem=strict
+ReadWritePaths=/opt/dassie
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
