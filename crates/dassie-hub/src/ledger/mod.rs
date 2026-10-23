@@ -332,6 +332,14 @@ impl Ledger {
         self.withdrawals.iter().map(|(sequence, w)| (*sequence, w))
     }
 
+    /// How many accounts were opened as members': the rules' bound on
+    /// accounts counts only these, so a change of validators never finds
+    /// the table full or overfills it.
+    #[must_use]
+    pub fn members(&self) -> usize {
+        self.accounts.values().filter(|a| a.member_slot).count()
+    }
+
     /// What the reserve account holds.
     #[must_use]
     pub const fn reserve_account(&self) -> Amount {

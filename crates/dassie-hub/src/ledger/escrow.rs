@@ -39,7 +39,9 @@ impl Ledger {
         if pending.is_none() && deposit.ledger < self.escrow.deposit_floor {
             return Err(Ok(Failure::Stale));
         }
-        if self.attested_pending(index) >= self.deposit_share() {
+        let table = usize::try_from(self.rules.terms.limits.pending_deposits).unwrap_or(usize::MAX);
+        let table_full = pending.is_none() && self.pending_deposits.len() >= table;
+        if table_full || self.attested_pending(index) >= self.deposit_share() {
             return Err(Ok(Failure::Full));
         }
         let pending = self.pending_deposits.entry(hash).or_default();

@@ -29,7 +29,13 @@ struct Hub {
 
 impl Hub {
     fn new() -> Self {
+        Self::with(|_| {})
+    }
+
+    /// A hub whose rules `change` changed.
+    fn with(change: impl FnOnce(&mut Rules)) -> Self {
         let (rules, validators) = rules(4);
+        let rules = resigned(rules, change);
         let ledger = Ledger::genesis(rules, START).unwrap();
         let mut hub = Self {
             ledger,
@@ -1012,6 +1018,119 @@ fn terms_that_would_trap_the_ledger_are_refused() {
         change(&mut terms);
         assert!(terms.check().is_err(), "{terms:?}");
     }
+}
+
+#[test]
+fn a_full_accounts_table_still_takes_a_new_validator() {
+    let mut hub = Hub::with(|rules| rules.terms.limits.accounts = 2);
+    hub.join(1, 10_000_000);
+    hub.join(2, 10_000_000);
+    let newcomer = NodeKey::from_bytes(&[77; 32]);
+    let (rules, _) = rules(4);
+    let rules = resigned(rules, |rules| {
+        rules.terms.limits.accounts = 2;
+        rules.validators[3].consensus = newcomer.public_key();
+    });
+    reconfigure(&mut hub, &rules);
+    let number = hub.ledger.account_of(&newcomer.public_key()).unwrap();
+    assert!(hub.ledger.account(number).unwrap().validator);
+    // The validator that left keeps its account, outside the bound.
+    assert!(!hub.ledger.account(AccountNumber(4)).unwrap().validator);
+    assert_eq!(hub.ledger.members(), 2);
+}
+
+#[test]
+fn a_closing_account_that_becomes_a_validators_stays_open() {
+    let mut hub = Hub::new();
+    let newcomer = NodeKey::from_bytes(&[77; 32]);
+    let (rules, _) = rules(4);
+    let rules = resigned(rules, |rules| {
+        rules.validators[3].consensus = newcomer.public_key();
+    });
+    hub.deposit(0, Some(&newcomer), 5_000_000);
+    let number = hub.ledger.account_of(&newcomer.public_key()).unwrap();
+    let to = Destination {
+        account: [7; 20],
+        tag: None,
+    };
+    hub.run(number, &newcomer, MemberOperation::SetDisbursal(to));
+    hub.run(
+        number,
+        &newcomer,
+        MemberOperation::Close(CloseTo::Ledger(to)),
+    );
+    assert!(hub.ledger.account(number).unwrap().closing);
+    reconfigure(&mut hub, &rules);
+    assert!(!hub.ledger.account(number).unwrap().closing);
+    assert!(hub.ledger.withdrawals().all(|(_, w)| !w.closes));
+    // Fees reach it while its payout is still out.
+    for _ in 0..40 {
+        hub.block(vec![]);
+    }
+    let (sequence, _) = hub.ledger.withdrawals().next().unwrap();
+    hub.all_validators(|_| ValidatorOperation::AttestWithdrawal {
+        escrow_sequence: sequence,
+        delivered: true,
+    });
+    assert!(hub.ledger.account(number).is_some());
+}
+
+#[test]
+fn attestations_follow_their_validators_through_a_change_of_set() {
+    let mut hub = Hub::new();
+    let key = NodeKey::from_bytes(&[5; 32]);
+    let deposit = Deposit {
+        transaction: Digest([42; 32]),
+        ledger: 3,
+        amount: 5_000_000,
+        sender: [1; 20],
+        tag: 0,
+        key: Some(key.public_key()),
+    };
+    let ops: Vec<Operation> = (0..2)
+        .map(|i| hub.validator_op(i, ValidatorOperation::AttestDeposit(deposit)))
+        .collect();
+    hub.block(ops);
+    let (rules, _) = rules(4);
+    let rules = resigned(rules, |rules| {
+        rules.validators[3].consensus = NodeKey::from_bytes(&[78; 32]).public_key();
+    });
+    reconfigure(&mut hub, &rules);
+    // Validators 0 and 1 stayed: one more attestation makes a quorum.
+    let third = hub.validator_op(2, ValidatorOperation::AttestDeposit(deposit));
+    hub.block(vec![third]);
+    assert!(hub.ledger.account_of(&key.public_key()).is_some());
+}
+
+#[test]
+fn a_validator_may_change_its_reset_vote() {
+    let mut hub = Hub::new();
+    hub.join(1, 10_000_000);
+    let ops = vec![
+        hub.validator_op(0, ValidatorOperation::AttestReset { ledger: 1 }),
+        hub.validator_op(1, ValidatorOperation::AttestReset { ledger: 1 }),
+        hub.validator_op(2, ValidatorOperation::AttestReset { ledger: 2 }),
+    ];
+    hub.block(ops);
+    assert!(hub.ledger.supply() > 0);
+    let changed = hub.validator_op(2, ValidatorOperation::AttestReset { ledger: 1 });
+    hub.block(vec![changed]);
+    assert_eq!(hub.ledger.supply(), 0);
+}
+
+#[test]
+fn new_rules_wait_for_the_old_sets_change_of_signers() {
+    let mut hub = Hub::new();
+    let (rules, _) = rules(4);
+    let first = resigned(rules.clone(), |rules| {
+        rules.validators[3].escrow = [200; 33];
+    });
+    reconfigure(&mut hub, &first);
+    // Only escrow keys changed, and the old set still owes the signer list.
+    assert_eq!(hub.ledger.escrow().signer_list, Some(100));
+    let second = resigned(rules, |rules| rules.terms.fees.operation = 20);
+    let outcomes = reconfigure(&mut hub, &second);
+    assert!(outcomes.iter().all(|o| matches!(o, Outcome::Failed { .. })));
 }
 
 mod properties {

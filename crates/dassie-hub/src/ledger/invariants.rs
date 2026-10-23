@@ -80,7 +80,7 @@ impl Ledger {
         let bound = |limit: u32| usize::try_from(limit).unwrap_or(usize::MAX);
         // New rules never shrink a table (`Terms::keeps_tables_of`).
         assert!(
-            self.accounts.len() <= bound(limits.accounts),
+            self.members() <= bound(limits.accounts),
             "accounts beyond their bound"
         );
         assert!(

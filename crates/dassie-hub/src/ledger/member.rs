@@ -158,7 +158,7 @@ impl Ledger {
     /// room.
     pub(super) fn open_account(&mut self, key: PublicKey) -> Option<AccountNumber> {
         let limit = usize::try_from(self.rules.terms.limits.accounts).unwrap_or(usize::MAX);
-        if self.accounts.len() >= limit || key.is_weak() || self.keys.contains_key(key.as_bytes()) {
+        if self.members() >= limit || key.is_weak() || self.keys.contains_key(key.as_bytes()) {
             return None;
         }
         // Account numbers fit a destination tag, and 0 is kept for new
@@ -179,6 +179,7 @@ impl Ledger {
                 paying: 0,
                 withdrawals: 0,
                 validator: false,
+                member_slot: true,
             },
         );
         Some(number)

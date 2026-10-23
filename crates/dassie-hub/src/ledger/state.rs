@@ -40,6 +40,11 @@ pub struct Account {
     /// Whether it is a validator's: those lock no reserve and need no
     /// disbursal address before they act.
     pub validator: bool,
+    /// Whether it was opened as a member's, and so takes a place under the
+    /// rules' bound on accounts. One opened for a validator never does,
+    /// even once that validator leaves, so a change of validators never
+    /// finds the table full or overfills it.
+    pub member_slot: bool,
 }
 
 /// A reduction of a hold the payer asked for, and when it takes effect.
@@ -170,7 +175,7 @@ pub struct ValidatorState {
 
 impl Encode for Account {
     fn encoded_len(&self) -> usize {
-        KEY_LEN + 8 * 3 + 1 + DESTINATION_LEN + 1 + 2 + 2 + 2 + 1
+        KEY_LEN + 8 * 3 + 1 + DESTINATION_LEN + 1 + 2 + 2 + 2 + 1 + 1
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
@@ -184,6 +189,7 @@ impl Encode for Account {
         writer.write_u16(self.paying);
         writer.write_u16(self.withdrawals);
         writer.write_bool(self.validator);
+        writer.write_bool(self.member_slot);
     }
 }
 

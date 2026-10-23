@@ -44,7 +44,8 @@ Deposits, withdrawal outcomes, the escrow's setup and resets of the test network
 - **A deposit is credited once.** The hub remembers credited transactions back to a floor that rises as its table fills, and a deposit below the floor that is not pending already is not taken: it may have been credited and forgotten. One that is pending was never credited, and is attested whatever its ledger.
 - **Each validator has its own share of the pending deposits,** so a faulty one that attests made-up deposits fills only its own share, and honest attestations still fit.
 - **Deposits wait until a quorum attested the escrow,** at genesis and again after a reset.
-- **A change of validators drops every attestation and vote,** since indices now name other validators; validators attest again what is still pending. The new set keeps the escrow's next sequence for the old set's change of the signer list. A validator may change its vote for new rules.
+- **A change of validators moves attestations to their validators' new indices** and drops those of validators that left, so they never count toward the new set's quorum; votes start again. A validator may change its vote, for a reset as for new rules. When the consensus or escrow keys change, the new set keeps the escrow's next sequence for the old set's change of the signer list, and no new rules are taken until it is made.
+- **Validators' accounts are outside the bound on accounts,** which counts only accounts opened as members', so a change of validators never finds the table full; an account a validator joins with stays open, a payout that would have closed it a plain withdrawal.
 
 A reset writes off every balance, reserve, hold and pending payment, and keeps the accounts, which lock their reserve again from what they next receive. Only the testnet's network ID allows it ([ledger-resets](../decisions/ledger-resets.md)).
 
