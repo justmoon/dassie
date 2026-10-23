@@ -23,7 +23,7 @@ use dassie_connector::PriceTable;
 use dassie_connector::pricing::MAX_PRICED_LEDGERS;
 use dassie_feed::{
     CookieSecret, Decision, FEED_MIN_INTERVAL_MS, Feed, Ledger, Limits, MAX_DATAGRAM_BYTES,
-    MAX_LEDGERS, Poll, Rate, Schedule, SubscriberTable,
+    MAX_LEDGERS, Poll, Rate, Refused, Schedule, SubscriberTable,
 };
 use dassie_identity::NodeKey;
 use dassie_ledger::LedgerId;
@@ -51,9 +51,13 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 const _: () = assert!(MAX_PRICED_LEDGERS <= MAX_LEDGERS);
 
 /// What the feed has done since the node started, counted rather than
-/// logged.
+/// logged, and how many addresses it sends to now. The owner reads them in
+/// `GetStatus`, each on its own and without a lock
+/// (spec/areas/rate-feed.md#what-the-owner-sees).
 #[derive(Debug, Default)]
 pub struct FeedStats {
+    /// Addresses in the subscriber table, as the service last left it.
+    pub subscribers: AtomicU64,
     /// Datagrams taken.
     pub received: AtomicU64,
     /// Challenges sent.
@@ -62,8 +66,10 @@ pub struct FeedStats {
     pub subscribed: AtomicU64,
     /// Subscriptions renewed.
     pub renewed: AtomicU64,
-    /// Proven addresses refused for want of room.
-    pub refused: AtomicU64,
+    /// Proven addresses refused because the table was full.
+    pub refused_full: AtomicU64,
+    /// Proven addresses refused because their client had its share.
+    pub refused_client: AtomicU64,
     /// Datagrams that got no answer: not a Subscribe, broken, or from an
     /// address a feed cannot go to.
     pub ignored: AtomicU64,
@@ -81,6 +87,19 @@ pub struct FeedStats {
 
 fn count(counter: &AtomicU64, by: u64) {
     counter.fetch_add(by, Ordering::Relaxed);
+}
+
+/// Notes how many addresses `table` holds, for the owner.
+fn note_subscribers(stats: &FeedStats, table: &SubscriberTable) {
+    let subscribers = u64::try_from(table.len()).unwrap_or(u64::MAX);
+    stats.subscribers.store(subscribers, Ordering::Relaxed);
+}
+
+/// Whether `node` serves its feed: it has the feed's socket, a URL, at
+/// whose host subscribers find the feed, and a key to sign with.
+#[must_use]
+pub fn serving(node: &Node) -> bool {
+    node.feed().is_some() && node.own_info().url.is_some() && node.node_key().is_some()
 }
 
 /// The feed's socket, and what outlives a restart of its service.
@@ -233,6 +252,8 @@ pub struct Answer {
     /// Whether to send the latest feed back: the address is newly
     /// subscribed, and there is one that still counts.
     pub latest: bool,
+    /// Subscriptions that lapsed and were dropped to make room.
+    pub expired: u64,
 }
 
 /// A feed to send to each of its recipients.
@@ -285,7 +306,11 @@ impl Publisher {
 
     /// What to do about `datagram`, which came from `from` at `now_ms`.
     pub fn receive(&mut self, from: SocketAddr, datagram: &[u8], now_ms: u64) -> Answer {
+        // A full table drops what lapsed to make room, so a Subscribe can
+        // expire entries too.
+        let expired_before = self.table.stats().expired;
         let decision = self.table.handle(from, datagram, now_ms);
+        let expired = self.table.stats().expired.saturating_sub(expired_before);
         let (challenge, latest) = match decision {
             Decision::Challenge(cookie) => (Some(cookie), false),
             Decision::Subscribed { new, refresh } => {
@@ -297,6 +322,7 @@ impl Publisher {
             decision,
             challenge,
             latest,
+            expired,
         }
     }
 
@@ -420,6 +446,8 @@ struct Service {
 
 impl Service {
     fn new(node: Arc<Node>, endpoint: Arc<FeedEndpoint>, publisher: Publisher) -> Self {
+        // A service that starts again starts with an empty table.
+        note_subscribers(&endpoint.stats, publisher.table());
         Self {
             node,
             endpoint,
@@ -489,8 +517,7 @@ impl Service {
     /// The node key, while the node serves a feed: it has a URL, at whose
     /// host subscribers find it, and a key to sign with.
     fn serving_key(&self) -> Option<Arc<NodeKey>> {
-        let core = self.node.own_info().url.is_some();
-        self.node.node_key().filter(|_| core)
+        self.node.node_key().filter(|_| serving(&self.node))
     }
 
     /// Follows a new engine, or none.
@@ -542,6 +569,7 @@ impl Service {
             &stats.expired,
             u64::try_from(polled.expired).unwrap_or(u64::MAX),
         );
+        note_subscribers(stats, self.publisher.table());
         self.next_poll_ms = polled.next_ms;
         if let Some(publish) = polled.publish {
             count(&stats.published, 1);
@@ -613,10 +641,13 @@ impl Service {
             Decision::Challenge(_) => &stats.challenged,
             Decision::Subscribed { new: true, .. } => &stats.subscribed,
             Decision::Subscribed { new: false, .. } => &stats.renewed,
-            Decision::Refused(_) => &stats.refused,
+            Decision::Refused(Refused::Full) => &stats.refused_full,
+            Decision::Refused(Refused::ClientFull) => &stats.refused_client,
             Decision::Ignored(_) => &stats.ignored,
         };
         count(counter, 1);
+        count(&stats.expired, answer.expired);
+        note_subscribers(stats, self.publisher.table());
         let socket = &self.endpoint.socket;
         if let Some(cookie) = answer.challenge {
             let challenge = dassie_feed::encode_challenge(&cookie);
@@ -863,6 +894,27 @@ mod tests {
         assert_eq!(publisher.latest(later), None);
         let polled = publisher.poll(later + FEED_HEARTBEAT_MS, &key());
         assert_eq!((polled.publish, polled.next_ms), (None, None));
+    }
+
+    // A full table drops what lapsed to take a newcomer: the answer says
+    // so, for the owner's count of lapsed subscriptions.
+    #[test]
+    fn an_answer_counts_what_lapsed_to_make_room() {
+        let secret = CookieSecret::from_bytes([3; 32]);
+        let limits = Limits {
+            max_subscribers: 1,
+            ..Limits::DEFAULT
+        };
+        let mut publisher = Publisher::new(limits, secret, Schedule::new());
+        assert_eq!(subscribe(&mut publisher, address(4000), NOW).expired, 0);
+        let later = NOW + SUBSCRIPTION_TTL_MS;
+        let answer = subscribe(&mut publisher, address(4001), later);
+        assert!(matches!(
+            answer.decision,
+            Decision::Subscribed { new: true, .. }
+        ));
+        assert_eq!(answer.expired, 1);
+        assert_eq!(publisher.table().len(), 1);
     }
 
     // A restarted service goes on from the schedule it kept: its sequence

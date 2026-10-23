@@ -439,7 +439,45 @@ fn status(node: &Node) -> proto::GetStatusResponse {
         open_payments_origins: crate::open_payments::Names::of(node)
             .map(|names| names.origins())
             .unwrap_or_default(),
+        feed: feed_status(node),
     }
+}
+
+/// The rate feed's state, where the node has its socket: its counters read
+/// one by one, without a lock (spec/areas/rate-feed.md#what-the-owner-sees).
+fn feed_status(node: &Node) -> Option<proto::RateFeed> {
+    let endpoint = node.feed()?;
+    let serving = crate::feed::serving(node);
+    let stats = endpoint.stats();
+    let read =
+        |counter: &std::sync::atomic::AtomicU64| counter.load(std::sync::atomic::Ordering::Relaxed);
+    // The table holds at most `MAX_SUBSCRIBERS`; those of a feed that does
+    // not serve get nothing.
+    let subscribers = if serving {
+        u32::try_from(read(&stats.subscribers)).unwrap_or(u32::MAX)
+    } else {
+        0
+    };
+    Some(proto::RateFeed {
+        serving,
+        address: endpoint
+            .local_addr()
+            .map(|address| address.to_string())
+            .unwrap_or_default(),
+        subscribers,
+        published: read(&stats.published),
+        sent: read(&stats.sent),
+        send_failed: read(&stats.send_failed),
+        unsent: read(&stats.unsent),
+        received: read(&stats.received),
+        challenged: read(&stats.challenged),
+        subscribed: read(&stats.subscribed),
+        renewed: read(&stats.renewed),
+        refused_full: read(&stats.refused_full),
+        refused_client: read(&stats.refused_client),
+        ignored: read(&stats.ignored),
+        expired: read(&stats.expired),
+    })
 }
 
 fn get_config(node: &Node) -> proto::GetConfigResponse {

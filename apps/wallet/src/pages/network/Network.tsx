@@ -36,6 +36,7 @@ import { Link, type RouteProps, useRouter } from "@dassie/ui/router";
 import { useToast } from "@dassie/ui/toast";
 import { Badge, Card, ConfirmButton, LiveNote, PageTitle } from "@dassie/ui/ui";
 import { useStatus } from "../../status.ts";
+import { feedView } from "./feed.ts";
 import {
   NO_UPLINKS,
   relayState,
@@ -78,7 +79,10 @@ export function Network(props: RouteProps): JSX.Element {
 
 
               <Show when={status()}>
-                <Show when={periphery()} fallback={<OwnNode />}>
+                <Show
+                  when={periphery()}
+                  fallback={<OwnNode status={status()} />}
+                >
                   <PeripheryNode nodes={nodes()} status={status()} />
                 </Show>
               </Show>
@@ -131,8 +135,13 @@ function Listing(
   );
 }
 
-/** This node's standing: registered with the bootstrap nodes or not. */
-function OwnNode(): JSX.Element {
+/**
+ * This node's standing: registered with the bootstrap nodes or not, and its
+ * rate feed.
+ */
+function OwnNode(
+  props: { status: GetStatusResponse | undefined },
+): JSX.Element {
   const registration = createLiveValue(
     "subscribeRegistration",
     () => ({}),
@@ -173,6 +182,22 @@ function OwnNode(): JSX.Element {
             </Link>
           </>
         )}
+      </Show>
+      <h3>Rate Feed</h3>
+      <Show when={props.status} fallback={<p class="muted">Asking…</p>}>
+        {(status) => {
+          const feed = () => feedView(status().feed);
+          return (
+            <div data-testid="rate-feed">
+              <p>
+                <Badge tone={feed().tone}>{feed().badge}</Badge> {feed().text}
+              </p>
+              <For each={feed().details}>
+                {(detail) => <p class="muted">{detail}</p>}
+              </For>
+            </div>
+          );
+        }}
       </Show>
     </Card>
   );

@@ -61,6 +61,8 @@ pub struct Bound {
     quic: std::net::UdpSocket,
     /// The rate feed's socket, as systemd would pass it.
     feed: std::net::UdpSocket,
+    /// Whether the daemon gets the feed's socket.
+    with_feed: bool,
     notify: Option<PathBuf>,
 }
 
@@ -96,6 +98,7 @@ impl Bound {
             https,
             quic,
             feed,
+            with_feed: true,
             ipc_path,
             ipc,
             notify: None,
@@ -105,6 +108,13 @@ impl Bound {
     /// Where the daemon's rate feed will take datagrams.
     pub fn feed_address(&self) -> SocketAddr {
         self.feed.local_addr().unwrap()
+    }
+
+    /// The daemon gets no socket for the rate feed, as under systemd
+    /// without `dassie-feed.socket`.
+    pub fn without_feed(mut self) -> Self {
+        self.with_feed = false;
+        self
     }
 
     /// The daemon reports readiness to the datagram socket at `path`, as to
@@ -133,6 +143,7 @@ impl Bound {
             https,
             quic,
             feed,
+            with_feed,
             ipc_path,
             ipc,
             notify,
@@ -155,9 +166,11 @@ impl Bound {
         let (node_out, node_handed) = tokio::sync::oneshot::channel();
         let mut prepared = Prepared::from_parts(settings, store, http, https, ipc)
             .with_quic(quic)
-            .with_feed(feed)
             .handing_out(hand_out)
             .handing_out_node(node_out);
+        if with_feed {
+            prepared = prepared.with_feed(feed);
+        }
         if let Some(path) = notify {
             prepared = prepared.notifying(Notifier::Path(path));
         }

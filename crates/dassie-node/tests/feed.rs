@@ -219,7 +219,7 @@ async fn proven_subscribers_get_the_nodes_prices_until_they_lapse() {
         let stats = node.feed().unwrap().stats();
         (
             stats.renewed.load(Ordering::Relaxed),
-            stats.refused.load(Ordering::Relaxed),
+            stats.refused_full.load(Ordering::Relaxed),
         )
     };
     let id = owner.node_id();
@@ -262,6 +262,22 @@ async fn proven_subscribers_get_the_nodes_prices_until_they_lapse() {
     assert!(c.quiet(now()).await);
     assert_eq!(stats().1, 1);
 
+    // The owner sees it in the node's status: two subscribers, three
+    // challenged, C refused for want of room, and the feeds that went out
+    // (spec/areas/rate-feed.md#what-the-owner-sees).
+    let feed = feed_status(&node).await.unwrap();
+    assert!(feed.serving);
+    assert_eq!(feed.address, node.feed.to_string());
+    assert_eq!(feed.subscribers, 2);
+    assert_eq!((feed.challenged, feed.subscribed), (3, 2));
+    assert_eq!((feed.refused_full, feed.refused_client), (1, 0));
+    assert_eq!((feed.renewed, feed.ignored), (0, 0));
+    assert_eq!(feed.received, 6);
+    assert!(feed.published >= 1, "{feed:?}");
+    // Three challenges, and at least one feed to each of A and B.
+    assert!(feed.sent >= 5, "{feed:?}");
+    assert_eq!((feed.send_failed, feed.unsent), (0, 0));
+
     // C sends A's cookie from its own address: it is challenged, not
     // taken.
     let spoofed = a.receiver.subscribe();
@@ -297,9 +313,25 @@ async fn proven_subscribers_get_the_nodes_prices_until_they_lapse() {
     assert!(b.quiet(now()).await);
     c.prove(now()).await;
     c.feed(now()).await;
+    let feed = feed_status(&node).await.unwrap();
+    assert_eq!(feed.subscribers, 2);
+    assert!(feed.expired >= 1 && feed.renewed >= 1, "{feed:?}");
 
     node.stop().await;
     server.stop();
+}
+
+/// The rate feed in the node's status, as its owner reads it.
+async fn feed_status(node: &TestNode) -> Option<proto::RateFeed> {
+    match node
+        .ipc()
+        .await
+        .call(Method::GetStatus(proto::GetStatusRequest {}))
+        .await
+    {
+        Ok(proto::response::Method::GetStatus(status)) => status.feed,
+        other => panic!("{other:?}"),
+    }
 }
 
 /// `GET /stats`'s answer.
@@ -330,6 +362,11 @@ async fn a_core_node_names_its_feed_port() {
     let mut subscriber = Subscriber::new(node.feed, owner.node_id()).await;
     subscriber.subscribe().await;
     assert!(subscriber.quiet(clock.now_ms()).await);
+    // Its owner sees the socket, and that the feed does not serve.
+    let feed = feed_status(&node).await.unwrap();
+    assert!(!feed.serving);
+    assert_eq!(feed.address, node.feed.to_string());
+    assert_eq!((feed.subscribers, feed.received, feed.published), (0, 0, 0));
 
     // With a hostname, the node is a core node: it names the port, and
     // the feed answers.
@@ -348,5 +385,31 @@ async fn a_core_node_names_its_feed_port() {
         subscriber.next(ARRIVES, clock.now_ms()).await,
         Some(Taken::Challenge)
     );
+    let feed = feed_status(&node).await.unwrap();
+    assert!(feed.serving);
+    // The Subscribe sent before waited in the socket, and is answered too.
+    assert_eq!((feed.received, feed.challenged, feed.sent), (2, 2, 2));
+    node.stop().await;
+}
+
+// A node without the feed's socket publishes no feed, and its status has
+// none.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_node_without_the_socket_reports_no_feed() {
+    let owner = key(63);
+    let clock = ManualClock::new(START_MS);
+    let node = Bound::new()
+        .without_feed()
+        .start(clock.clone(), 63, Policies::DEV, &[])
+        .await;
+    support::set_up(&node, &owner).await;
+    let mut ipc = node.ipc().await;
+    ipc.call(Method::SetHostname(proto::SetHostnameRequest {
+        hostname: "localhost".into(),
+    }))
+    .await
+    .unwrap();
+    assert!(node_of(&node).feed().is_none());
+    assert_eq!(feed_status(&node).await, None);
     node.stop().await;
 }
