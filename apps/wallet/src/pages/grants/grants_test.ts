@@ -61,18 +61,25 @@ test("limits read as a sentence", () => {
 test("a limit on what is delivered says so", () => {
   const limits = {
     receiver: "",
-    interval: "",
+    interval: "R/2024-01-01T00:00:00Z/P1D",
+    debitAmount: usd(10_000_000_000n),
     receiveAmount: usd(5_000_000_000n),
-    spentDebit: 0n,
+    spentDebit: 1_500_000_000n,
     spentReceive: 1_000_000_000n,
   };
-  assertEquals(limitText(limits), " delivering up to $ 5.00");
-  assertEquals(spentText(limits), "$ 1.00 of $ 5.00 delivered");
-  // Grants stored before the node refused both still show both.
   assertEquals(
-    limitText({ ...limits, debitAmount: usd(10_000_000_000n) }),
-    " of up to $ 10.00, delivering up to $ 5.00",
+    limitText(limits),
+    " of up to $ 10.00, delivering up to $ 5.00 a day",
   );
+  assertEquals(
+    spentText(limits),
+    "$ 1.50 of $ 10.00 spent, $ 1.00 of $ 5.00 delivered this period",
+  );
+  // Grants stored before the node refused a receive limit alone still
+  // show it.
+  const alone = { ...limits, interval: "", debitAmount: undefined };
+  assertEquals(limitText(alone), " delivering up to $ 5.00");
+  assertEquals(spentText(alone), "$ 1.00 of $ 5.00 delivered");
 });
 
 test("an item that only reads shows only its receiver", () => {
@@ -170,41 +177,48 @@ test("A: a fixed send, renewed for ever", () => {
   );
 });
 
-test("B: a fixed receive in another currency, with an end", () => {
+test("B: a capped receive in another currency, with an end", () => {
+  const limits = {
+    ...none,
+    interval: "R11/2026-10-01T00:00:00Z/P1M",
+    debitAmount: usd(6_000_000_000n),
+    receiveAmount: eur(500n),
+    startsAtMs: at("2026-10-01T00:00:00Z"),
+    endsAtMs: at("2027-10-01T00:00:00Z"),
+  };
+  assertEquals(facts(limits), {
+    send:
+      "Up to $ 6.00 a month from your USD wallet, fees and currency exchange included",
+    receive: "Up to € 5.00 a month, in EUR",
+    to: "Anyone the app chooses",
+    lasts:
+      "Until Oct 1, 2027 (12 months from Oct 1, 2026). The limit renews every month.",
+  });
+  // A request made before the node refused a receive limit alone.
   assertEquals(
-    facts({
-      ...none,
-      interval: "R11/2026-10-01T00:00:00Z/P1M",
-      receiveAmount: eur(500n),
-      startsAtMs: at("2026-10-01T00:00:00Z"),
-      endsAtMs: at("2027-10-01T00:00:00Z"),
-    }),
-    {
-      send: noLimit,
-      receive: "Up to € 5.00 a month, in EUR",
-      to: "Anyone the app chooses",
-      lasts:
-        "Until Oct 1, 2027 (12 months from Oct 1, 2026). The limit renews every month.",
-    },
+    facts({ ...limits, debitAmount: undefined }).send,
+    noLimit,
   );
 });
 
-test("C: a fixed receive, once, to one payment request", () => {
+test("C: a capped receive, once, to one payment request", () => {
   assertEquals(
     facts({
       ...none,
       receiver: SHOP,
+      debitAmount: usd(25_000_000_000n),
       receiveAmount: eur(2000n),
       receiverPayment: shopRead,
     }),
     {
-      send: noLimit,
+      send:
+        "Up to $ 25.00 in total from your USD wallet, fees and currency exchange included",
       receive:
         "Up to € 20.00 in total, in EUR. This payment request still asks for € 20.00.",
       to:
         "One payment request at shop.example, open until Oct 16, 2026, 6:30 PM",
       lasts:
-        "Until the payment request is paid or closes. The € 20.00 is a total, not renewed.",
+        "Until the payment request is paid or closes. The $ 25.00 is a total, not renewed.",
     },
   );
 });

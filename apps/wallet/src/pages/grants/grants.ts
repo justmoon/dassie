@@ -176,8 +176,9 @@ function walletText(access: AccessFields): string {
 
 /**
  * The limits of an outgoing-payment grant, after "Send payments". They
- * limit what is debited or what is delivered: both only on grants stored
- * before the node refused that, which still keep to both.
+ * limit what is debited, and may also limit what is delivered: what is
+ * delivered alone only on grants stored before the node refused that,
+ * which still keep to it.
  */
 export function limitText(limits: LimitFields): string {
   const debit = limits.debitAmount && amountText(limits.debitAmount);
@@ -199,29 +200,28 @@ function receiverText(limits: LimitFields): string {
   return limits.receiver === "" ? "" : ", to one payment request only";
 }
 
-/** What it spent in the current window, against its limit, if it has one. */
+/** What it spent in the current window, against its limits, if it has any. */
 export function spentText(limits: LimitFields): string | undefined {
   const period = limits.interval === "" ? "" : " this period";
-  if (limits.debitAmount) {
-    const spent = amountText(limits.debitAmount, limits.spentDebit);
-    const of = amountText(limits.debitAmount);
-    return `${spent} of ${of} spent${period}`;
-  }
-  if (limits.receiveAmount) {
-    const delivered = amountText(limits.receiveAmount, limits.spentReceive);
-    const of = amountText(limits.receiveAmount);
-    return `${delivered} of ${of} delivered${period}`;
-  }
-  return undefined;
+  const spent = limits.debitAmount &&
+    `${amountText(limits.debitAmount, limits.spentDebit)} of ${
+      amountText(limits.debitAmount)
+    } spent`;
+  const delivered = limits.receiveAmount &&
+    `${amountText(limits.receiveAmount, limits.spentReceive)} of ${
+      amountText(limits.receiveAmount)
+    } delivered`;
+  const both = [spent, delivered].filter(Boolean).join(", ");
+  return both === "" ? undefined : both + period;
 }
 
 /*
  * The consent page's facts about an item that sends payments: what the
  * owner sends, what the receiver gets, to whom, and for how long. A grant
- * caps what is debited or what is delivered, never both
- * (spec/decisions/open-payments.md), so one side is firm and the other is
- * said as far as it is known: fees and exchange along the way are only known
- * once a payment is quoted.
+ * that caps an amount caps what is debited, and may also cap what is
+ * delivered (spec/decisions/open-payments.md), so the debit is firm and what
+ * is delivered is said as far as it is known: fees and exchange along the
+ * way are only known once a payment is quoted.
  */
 
 /** "a day", or "in total" for a limit over all time. */
@@ -246,6 +246,7 @@ export function sendText(access: AccessFields): string {
       perText(limits)
     }${wallet}, fees and currency exchange included`;
   }
+  // Only a request made before the node refused a receive limit alone.
   if (limits?.receiveAmount) {
     const from = wallet === "" ? "" : `,${wallet}`;
     return `No set limit: whatever it costs to deliver the amount below${from}, including fees and currency exchange`;
