@@ -4,6 +4,7 @@ members = [
   "crates/dassie-connector",
   "crates/dassie-desktop",
   "crates/dassie-feed",
+  "crates/dassie-hub",
   "crates/dassie-identity",
   "crates/dassie-ilp",
   "crates/dassie-ledger",

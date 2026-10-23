@@ -1,0 +1,31 @@
+[package]
+name = "dassie-hub"
+version = "0.2.5"
+description = "Settlement hubs for Dassie as sans-IO code: the hub's rules, its ledger and operations, Simplex consensus and the escrow's payout sets"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# The simulated hub, for this crate's tests and the simulation runner,
+# dassie-sim (spec/decisions/random-seed-simulations.md).
+sim = ["dep:dassie-node-core"]
+
+[dependencies]
+dassie-identity = { path = "../dassie-identity" }
+dassie-node-core = { path = "../dassie-node-core", features = ["testing"], optional = true }
+dassie-oer = { path = "../dassie-oer", default-features = false, features = ["alloc"] }
+# The RNG trait only: the caller injects the generator
+# (spec/decisions/tigerstyle.md).
+rand_core = { version = "0.10", default-features = false }
+sha2 = { version = "0.11", default-features = false }
+
+[dev-dependencies]
+dassie-hub = { path = ".", features = ["sim"] }
+dassie-node-core = { path = "../dassie-node-core", features = ["testing"] }
+proptest = "1.12"
