@@ -2729,8 +2729,8 @@ mod tests {
     // line of the new one; the issuer read again on it says what holds.
     #[test]
     fn a_write_off_forgets_the_issuers_with_the_chain() {
-        let rlusd = dassie_ledger::name!(crate::rlusd::SCHEME_ID);
-        let issuer = crate::rlusd::ISSUER;
+        let dsusd = dassie_ledger::name!(crate::dsusd::SCHEME_ID);
+        let issuer = crate::dsusd::ISSUER;
         let answer = |flags: u32, ledger: u32| {
             Ok(json!({
                 "account_data": { "Flags": flags },
@@ -2739,10 +2739,10 @@ mod tests {
             }))
         };
         for restarted in [true, false] {
-            let mut account = synced_account(&[rlusd]);
+            let mut account = synced_account(&[dsusd]);
             account.network_id = Some(TESTNET_NETWORK_ID);
             account.newest = Some(NEWEST);
-            account.follow_line(crate::rlusd::LINE);
+            account.follow_line(crate::dsusd::LINE);
             account.issuer_read(
                 issuer,
                 answer(api::account_flags::GLOBAL_FREEZE, NEWEST.index),

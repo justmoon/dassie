@@ -856,7 +856,7 @@ fn check_prices(sim: &Sim) -> Result<(), String> {
 fn check_assets(sim: &Sim) -> Result<(), String> {
     let count = sim.nodes.len();
     let ledgers: &[LedgerId] = match sim.settling {
-        Settling::XrpRlusd => &[RLUSD, XRP],
+        Settling::XrpRlusd => &[RLUSD, LIVE_XRP],
         Settling::XrpDsusd => &[DSUSD, XRP],
         _ => &[USD, XRP],
     };

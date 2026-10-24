@@ -203,6 +203,12 @@ fn a_scheme_refuses_an_account_of_another_network() {
         Some(SchemeError::InvalidConfig)
     );
     assert!(XrplMainnetScheme::new(&mainnet, node, None, &[]).is_ok());
+    // And mainnet's RLUSD scheme.
+    assert_eq!(
+        dassie_xrpl::RlusdScheme::new(&testnet, node, None, &[]).err(),
+        Some(SchemeError::InvalidConfig)
+    );
+    assert!(dassie_xrpl::RlusdScheme::new(&mainnet, node, None, &[]).is_ok());
     // An asset of no XRPL network is no account.
     let hub = dassie_settlement::AssetId {
         kind: dassie_settlement::AssetKind::HubTestnetAccount,
