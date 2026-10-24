@@ -31,7 +31,7 @@ use tokio_util::task::TaskTracker;
 
 use super::response::{self, Body};
 use super::ws::{handshake_key, not_a_handshake, switching_protocols};
-use crate::engine::{Engine, Outbound};
+use crate::engine::{Engine, EngineError, Outbound};
 use crate::log::target;
 use crate::node::Node;
 
@@ -190,7 +190,14 @@ async fn authenticate(
     let session = engine
         .btp_connect(token.to_string(), outbound)
         .await
-        .map_err(|_| failed("authentication failed"))?;
+        .map_err(|error| match error {
+            // A good token whose ledger does not run: not a failed login.
+            EngineError::Precondition(_) => Refused {
+                reason: "the token's ledger does not run",
+                failed: false,
+            },
+            _ => failed("authentication failed"),
+        })?;
     let accepted = btp::Packet {
         request_id: packet.request_id,
         body: BtpBody::Response(ProtocolData::EMPTY),

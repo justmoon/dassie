@@ -3314,6 +3314,134 @@ fn a_peering_on_a_scheme_of_another_realm_ends_and_the_pair_peers_on_another() {
     xrpl_downlink_peers_on(&mut live, &mut ledger, ended + 1_000, "xrpl-rlusd");
 }
 
+/// What the books hold on `ledger`: its accounts with their balances, and
+/// the transfers pending on it.
+fn books_on(
+    core: &Core,
+    ledger: dassie_ledger::LedgerId,
+) -> (
+    Vec<(dassie_ledger::AccountPath, dassie_ledger::Balance)>,
+    Vec<dassie_ledger::Transfer>,
+) {
+    let accounts = core
+        .account_list()
+        .into_iter()
+        .filter(|(_, account)| account.path().ledger == ledger)
+        .map(|(_, account)| (*account.path(), *account.balance()))
+        .collect();
+    let pending = core
+        .ledger
+        .pending_transfers()
+        .filter(|transfer| {
+            core.ledger
+                .account(transfer.debit)
+                .is_some_and(|account| account.path().ledger == ledger)
+        })
+        .copied()
+        .collect();
+    (accounts, pending)
+}
+
+// spec/decisions/mainnet-schemes.md: a test node that peered with a
+// downlink on the stub, with a BTP token on the stub's ledger and a
+// settlement to the downlink pending, starts in the live realm by the dev
+// switch. The stub does not run: the peering ends as one on a scheme the
+// node no longer runs, collecting nothing
+// (spec/areas/settlement.md#schemes-and-ledgers); the settlement stays
+// pending, the token stays but connects no client, and the books on the
+// stub's ledger stay as they are, in memory and on disk. Back in the test
+// realm, the stub runs again, the token connects, and the stub reconciles
+// the settlement, which it never executed.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn a_stored_scheme_of_another_realm_keeps_what_is_pending_on_its_ledger() {
+    use dassie_ledger::{AccountName, LedgerId, Name, Reference, TransferSpec};
+    use dassie_node_core::config::LiveRealm;
+
+    let on = LedgerId::StubUsd;
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut test, id) = stub_core_with_downlink(Arc::clone(&store));
+    let token = test
+        .create_token("wallet".into(), "stub+usd", None)
+        .unwrap();
+    let peer = Name::new(id.as_str()).unwrap();
+    // The books take a settlement to it as one over a hub: the credit we
+    // extend it is raised first.
+    let now = test.now_ms();
+    super::growth::raise_trust(&mut test.ledger, now, on, peer, 400).unwrap();
+    let pending = TransferSpec {
+        debit: test
+            .account(on, AccountName::AssetsInterledger(peer))
+            .unwrap(),
+        credit: test.account(on, AccountName::AssetsSettlement).unwrap(),
+        amount: 400,
+        pending: true,
+        reference: Reference::Settlement {
+            scheme: Name::new("stub").unwrap(),
+            id: Name::new("0123456789abcdef0123456789abcdef").unwrap(),
+        },
+    };
+    test.ledger.create(now, &pending).unwrap();
+    // On disk, and then the realm changes: never executed.
+    test.flush();
+    let before = books_on(&test, on);
+    assert_eq!(before.1.len(), 1);
+    let start = test.now_ms() + 1_000;
+    drop(test);
+    let written = store.transfers_after(None, 1_000, None).unwrap().len();
+
+    let mut live =
+        core_taking_downlinks(Arc::clone(&store), Realm::Live, LiveRealm::DevSwitch, start);
+    assert!(live.schemes.is_empty(), "the stub does not run");
+    assert!(live.ledger_views().is_empty());
+    assert_eq!(books_on(&live, on), before);
+    assert_eq!(
+        live.token_views()
+            .iter()
+            .map(|view| (view.id, view.ledger))
+            .collect::<Vec<_>>(),
+        [(token.view.id, on)],
+        "the token stays, for the owner to see and revoke"
+    );
+    // Its clients are refused: their packets to each other would move the
+    // books of a ledger the node does not run.
+    assert!(matches!(
+        live.btp_connect(&token.secret),
+        Err(super::EngineError::Precondition(_))
+    ));
+    let ended = until_unrun_ended(&mut live, &id, start);
+    assert_eq!(
+        books_on(&live, on),
+        before,
+        "nothing settled or written off"
+    );
+    live.flush();
+    drop(live);
+    assert_eq!(store.load_ledger().unwrap().pending.len(), 1);
+    assert_eq!(
+        store.transfers_after(None, 1_000, None).unwrap().len(),
+        written,
+        "nothing booked"
+    );
+
+    let refused = LiveRealm::Refused;
+    let mut back = core_taking_downlinks(Arc::clone(&store), Realm::Test, refused, ended + 1_000);
+    assert!(
+        back.btp_connect(&token.secret).is_ok(),
+        "the token connects again"
+    );
+    assert_eq!(back.active_schemes(), ["stub"]);
+    let (accounts, pending) = books_on(&back, on);
+    assert!(pending.is_empty(), "the stub voided what it never executed");
+    let posted = |accounts: &[(dassie_ledger::AccountPath, dassie_ledger::Balance)]| {
+        accounts
+            .iter()
+            .map(|(path, balance)| (*path, balance.debits_posted, balance.credits_posted))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(posted(&accounts), posted(&before.0));
+}
+
 /// A core node at `https://core.test` that takes QUIC, over the stub with
 /// commitments, with a downlink peered on it: the downlink's ID.
 fn hub_core_with_downlink(seed: u64) -> (Core, dassie_identity::NodeId) {
