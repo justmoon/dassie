@@ -20,8 +20,12 @@
 //!   rippled's `ValidatorList::updateTrusted` has it: with one or two
 //!   publishers, the union. There is none while [`unavailable_limit`]
 //!   publishers or more have no list in effect, as rippled then has no
-//!   quorum, nor while it names no validator. Quorum is [`quorum`], with
-//!   the whole UNL effective: there is no negative UNL.
+//!   quorum, nor while it names no validator, nor while it is UNL-blocked,
+//!   as rippled's `NetworkOPs` has it: from when a list in effect expires
+//!   or the lists name no validator, as before the first came, until every
+//!   publisher has a list in effect; a publisher that revokes its key sets
+//!   no block, though it keeps one already set. Quorum is [`quorum`], with the whole UNL effective:
+//!   there is no negative UNL.
 //! - **A ledger is validated** when a quorum of the UNL signed its hash with
 //!   full, fully canonical validations, each signed by its master's current
 //!   signing key at a time fresh by the node's clock. A master counts once,
@@ -199,6 +203,10 @@ pub enum UnlError {
         /// Why.
         why: Unavailable,
     },
+    /// UNL-blocked, as rippled is: a list in effect expired, or the lists
+    /// named no validator, and not every publisher has had a list in
+    /// effect since.
+    Blocked,
     /// Enough lists are in effect, but they name no validator often
     /// enough that has not revoked its key.
     Empty,
@@ -411,6 +419,17 @@ impl PublisherState {
         self.current.iter().chain(self.pending.iter())
     }
 
+    /// Whether the list that is in effect, or that becomes so by `now_s`,
+    /// has expired by then: as rippled's `updateTrusted` sees an available
+    /// publisher's list expire, once it has moved a due pending list in.
+    fn lapsed(&self, now_s: u64) -> bool {
+        let due = (self.pending.as_ref()).filter(|pending| {
+            (pending.list.effective).is_some_and(|effective| u64::from(effective) <= now_s)
+        });
+        due.or(self.current.as_ref())
+            .is_some_and(|kept| kept.expired(now_s))
+    }
+
     /// Its list in effect at `now_s`.
     fn in_effect(&self, now_s: u64) -> Result<&Kept, Unavailable> {
         if self.revoked() {
@@ -444,10 +463,16 @@ pub struct Unl {
     manifests: BTreeMap<PublicKey, Manifest>,
     /// Each signing key of a manifest kept, and its master.
     signers: BTreeMap<PublicKey, PublicKey>,
+    /// UNL-blocked, as rippled's `NetworkOPs` has it: set when a list in
+    /// effect expires or the lists name no validator, and cleared only
+    /// once every publisher has a list in effect. While set, there is no
+    /// UNL.
+    blocked: bool,
 }
 
 impl Unl {
-    /// One that holds no list yet. A config that does not pass
+    /// One that holds no list yet, and so is UNL-blocked, as rippled is
+    /// once it finds no validator to trust. A config that does not pass
     /// [`UnlConfig::check`] is a bug.
     #[must_use]
     pub fn new(config: UnlConfig) -> Self {
@@ -457,6 +482,27 @@ impl Unl {
             config,
             manifests: BTreeMap::new(),
             signers: BTreeMap::new(),
+            blocked: true,
+        }
+    }
+
+    /// Whether it is UNL-blocked at `now_ms`: blocked already, or a list in
+    /// effect expired since.
+    #[must_use]
+    pub fn blocked(&self, now_ms: u64) -> bool {
+        let now_s = ledger_seconds(now_ms);
+        self.blocked || self.publishers.iter().any(|state| state.lapsed(now_s))
+    }
+
+    /// Clears the block once every publisher has a list in effect at
+    /// `now_s`, then sets it if the lists name no validator, as rippled's
+    /// `updateTrusted` does after it has moved the lists on.
+    fn settle(&mut self, now_s: u64) {
+        if (self.publishers.iter()).all(|state| state.in_effect(now_s).is_ok()) {
+            self.blocked = false;
+        }
+        if self.trusted_set(now_s).is_empty() {
+            self.blocked = true;
         }
     }
 
@@ -502,15 +548,22 @@ impl Unl {
         blobs.sort_by_key(|(list, _)| list.as_ref().map_or(0, |list| list.sequence));
         let now_s = ledger_seconds(now_ms);
         let mut best = None;
+        let mut accepted = false;
         for (list, signed) in blobs {
             let taken = self.take_signed(publisher, list, signed, now_s);
             best = Some(better(best, taken));
+            accepted |= taken == Ok(Taken::Current);
             if taken == Ok(Taken::Revoked) {
                 break;
             }
         }
         // Whatever was taken, before an error or not.
         self.prune();
+        // As rippled's `applyLists` lifts the block on an accepted list
+        // once every publisher has one.
+        if accepted && (self.publishers.iter()).all(|state| state.in_effect(now_s).is_ok()) {
+            self.blocked = false;
+        }
         best.unwrap_or(Err(ListError::Malformed))
     }
 
@@ -549,10 +602,13 @@ impl Unl {
         self.take_validator_manifest(manifest)
     }
 
-    /// Moves on to `now_ms`: a pending list that took effect becomes its
-    /// publisher's current one, and an expired list goes.
+    /// Moves on to `now_ms`, as rippled's `updateTrusted` does at a ledger:
+    /// a pending list that took effect becomes its publisher's current
+    /// one, and an expired list goes and UNL-blocks it; then the block is
+    /// settled.
     pub fn tick(&mut self, now_ms: u64) {
         let now_s = ledger_seconds(now_ms);
+        let mut lapsed = false;
         for state in &mut self.publishers {
             let due = (state.pending.as_ref()).is_some_and(|pending| {
                 (pending.list.effective).is_some_and(|effective| u64::from(effective) <= now_s)
@@ -560,6 +616,7 @@ impl Unl {
             if due {
                 state.current = state.pending.take();
             }
+            lapsed |= (state.current.as_ref()).is_some_and(|kept| kept.expired(now_s));
             for slot in [&mut state.current, &mut state.pending] {
                 if slot.as_ref().is_some_and(|kept| kept.expired(now_s)) {
                     *slot = None;
@@ -567,6 +624,10 @@ impl Unl {
             }
         }
         self.prune();
+        if lapsed {
+            self.blocked = true;
+        }
+        self.settle(now_s);
     }
 
     /// The UNL at `now_ms`: the masters at least [`list_threshold`] of the
@@ -576,40 +637,50 @@ impl Unl {
     /// # Errors
     ///
     /// Why there is none: [`unavailable_limit`] publishers or more without
-    /// a list in effect, or no validator.
+    /// a list in effect, UNL-blocked, or no validator.
     pub fn unl(&self, now_ms: u64) -> Result<Vec<PublicKey>, UnlError> {
         let now_s = ledger_seconds(now_ms);
-        let publishers = self.publishers.len();
         let mut unavailable = None;
         let mut missing = 0;
-        let mut listings: BTreeMap<PublicKey, usize> = BTreeMap::new();
         for (publisher, state) in self.publishers.iter().enumerate() {
-            match state.in_effect(now_s) {
-                Ok(kept) => {
-                    for master in kept.list.validators.keys() {
-                        *listings.entry(*master).or_default() += 1;
-                    }
-                }
-                Err(why) => {
-                    missing += 1;
-                    unavailable.get_or_insert(UnlError::Unavailable { publisher, why });
-                }
+            if let Err(why) = state.in_effect(now_s) {
+                missing += 1;
+                unavailable.get_or_insert(UnlError::Unavailable { publisher, why });
             }
         }
-        if let Some(error) = unavailable.filter(|_| missing >= unavailable_limit(publishers)) {
+        let limit = unavailable_limit(self.publishers.len());
+        if let Some(error) = unavailable.filter(|_| missing >= limit) {
             return Err(error);
         }
-        let threshold = list_threshold(publishers);
-        let revoked =
-            |master: &PublicKey| (self.manifests.get(master)).is_some_and(Manifest::is_revocation);
-        let validators: Vec<PublicKey> = (listings.into_iter())
-            .filter(|(master, lists)| *lists >= threshold && !revoked(master))
-            .map(|(master, _)| master)
-            .collect();
+        let validators = self.trusted_set(now_s);
         if validators.is_empty() {
             return Err(UnlError::Empty);
         }
+        if self.blocked(now_ms) {
+            return Err(UnlError::Blocked);
+        }
         Ok(validators)
+    }
+
+    /// The masters at least [`list_threshold`] of the lists in effect at
+    /// `now_s` name, less those whose newest manifest revokes them, in key
+    /// order: rippled's trusted set, whether or not there is a quorum.
+    fn trusted_set(&self, now_s: u64) -> Vec<PublicKey> {
+        let mut listings: BTreeMap<PublicKey, usize> = BTreeMap::new();
+        for state in &self.publishers {
+            if let Ok(kept) = state.in_effect(now_s) {
+                for master in kept.list.validators.keys() {
+                    *listings.entry(*master).or_default() += 1;
+                }
+            }
+        }
+        let threshold = list_threshold(self.publishers.len());
+        let revoked =
+            |master: &PublicKey| (self.manifests.get(master)).is_some_and(Manifest::is_revocation);
+        (listings.into_iter())
+            .filter(|(master, lists)| *lists >= threshold && !revoked(master))
+            .map(|(master, _)| master)
+            .collect()
     }
 
     /// The key a listed `master` signs with: its newest manifest's, none
@@ -1013,7 +1084,8 @@ impl Unl {
     /// master's newest manifest, also one a list carries, since the lists
     /// that carry it may not come back at a restart while another that
     /// carries an older one does, which would hand the master's signing
-    /// back to a key it rotated away from.
+    /// back to a key it rotated away from; and whether it is UNL-blocked,
+    /// so that a restart does not lift the block, as it does rippled's.
     #[must_use]
     pub fn state(&self) -> Value {
         let publishers: Vec<Value> = (self.config.publishers.iter())
@@ -1031,13 +1103,16 @@ impl Unl {
         let manifests: Vec<Value> = (self.manifests.values())
             .map(|manifest| hex_upper(&manifest.to_bytes()).into())
             .collect();
-        json!({ "publishers": publishers, "manifests": manifests })
+        json!({ "publishers": publishers, "manifests": manifests, "blocked": self.blocked })
     }
 
     /// What [`Self::state`] wrote, under `config` at `now_ms`, every list
     /// and manifest verified again. One that no longer verifies, because
     /// the publishers changed, or that expired, is dropped, to be fetched
-    /// again. `None` for a state the account never writes: a publisher
+    /// again; one that was in effect and expired blocks. The block holds
+    /// under the same publishers only, and a state without it, as written
+    /// before the node kept one, is not blocked but for what the lists
+    /// show. `None` for a state the account never writes: a publisher
     /// twice, more manifests than [`MAX_MANIFESTS`] or two of one master,
     /// a list above its publisher's highest sequence, a pending list not
     /// above the current one or not taking effect later, or lists of a
@@ -1050,6 +1125,10 @@ impl Unl {
         if publishers.len() > MAX_PUBLISHERS || manifests.len() > MAX_MANIFESTS {
             return None;
         }
+        let blocked = match state.get("blocked") {
+            None => false,
+            Some(blocked) => blocked.as_bool()?,
+        };
         let mut keys = BTreeSet::new();
         for entry in publishers {
             let key = from_hex(entry.get("key")?.as_str()?)?;
@@ -1057,6 +1136,16 @@ impl Unl {
             if !keys.insert(key) {
                 return None;
             }
+        }
+        // The block holds for the publishers it was set under; other
+        // publishers start afresh, as rippled does with a new config.
+        let configured: BTreeSet<PublicKey> = (unl.config.publishers.iter())
+            .map(|publisher| publisher.master_key)
+            .collect();
+        unl.blocked = blocked && keys == configured;
+        for entry in publishers {
+            let key = from_hex(entry.get("key")?.as_str()?)?;
+            let key = PublicKey::from_bytes(key.try_into().ok()?)?;
             if let Some(publisher) = unl.position(&key) {
                 unl.restore_publisher(publisher, entry, ledger_seconds(now_ms))?;
             }
@@ -1070,6 +1159,7 @@ impl Unl {
             let _ = unl.take_validator_manifest(manifest);
         }
         unl.prune();
+        unl.settle(ledger_seconds(now_ms));
         Some(unl)
     }
 
@@ -1100,6 +1190,17 @@ impl Unl {
             || (revoked && lists.count() > 0)
         {
             return None;
+        }
+        // A list in effect when it was kept that expired since blocks, as
+        // the tick at `now_s` would have had the node been running.
+        let due = (pending.as_ref()).filter(|pending| {
+            (pending.list.effective).is_some_and(|effective| u64::from(effective) <= now_s)
+        });
+        if due
+            .or(current.as_ref())
+            .is_some_and(|kept| kept.expired(now_s))
+        {
+            self.blocked = true;
         }
         let master_key = self.config.publishers.get(publisher)?.master_key;
         let state = self.publishers.get_mut(publisher)?;
@@ -1680,8 +1781,7 @@ mod tests {
     }
 
     // With three publishers or more, a validator needs a majority of the
-    // lists, and quorum holds while fewer publishers than
-    // `unavailable_limit` have no list.
+    // lists, and two publishers without a list leave no quorum.
     #[test]
     fn more_publishers_take_a_majority() {
         let publishers = [publisher(1), publisher(2), publisher(3), publisher(4)];
@@ -1691,9 +1791,11 @@ mod tests {
             publishers[1].body(&[list(1, &v[1..])]),
             // The same validators as v[0], v[2] and v[3].
             publishers[2].body(&[list(1, &[validator(10), validator(12), validator(13)])]),
+            // As v[2] and v[3].
+            publishers[3].body(&[list(1, &[validator(12), validator(13)])]),
         ];
-        // Three publishers: a validator needs two lists, and two without a
-        // list leave no quorum.
+        // Three publishers: a validator needs two lists, what one lists
+        // alone is not on it.
         let mut three = unl(&[&publishers[0], &publishers[1], &publishers[2]]);
         three.take_list(&bodies[0], NOW_MS).unwrap();
         assert_eq!(
@@ -1703,29 +1805,15 @@ mod tests {
                 why: Unavailable::NoList
             })
         );
-        // One publisher without a list: both others must list a validator.
         three.take_list(&bodies[1], NOW_MS).unwrap();
-        assert_eq!(
-            three.unl(NOW_MS).unwrap(),
-            keys(&[&v[1], &v[2], &v[3], &v[4]])
-        );
-        // All three: what two of them list, and not what one lists alone.
         three.take_list(&bodies[2], NOW_MS).unwrap();
         three.check_invariants();
         assert_eq!(
             three.unl(NOW_MS).unwrap(),
             keys(&[&v[0], &v[1], &v[2], &v[3], &v[4]])
         );
-        // Four publishers: a validator needs three lists, and two without
-        // a list leave no quorum.
+        // Four publishers: a validator needs three lists.
         let mut four = unl(&publishers.each_ref());
-        assert_eq!(
-            four.unl(NOW_MS),
-            Err(UnlError::Unavailable {
-                publisher: 0,
-                why: Unavailable::NoList
-            })
-        );
         four.take_list(&bodies[0], NOW_MS).unwrap();
         four.take_list(&bodies[1], NOW_MS).unwrap();
         assert_eq!(
@@ -1736,7 +1824,127 @@ mod tests {
             })
         );
         four.take_list(&bodies[2], NOW_MS).unwrap();
+        four.take_list(&bodies[3], NOW_MS).unwrap();
         assert_eq!(four.unl(NOW_MS).unwrap(), keys(&[&v[2], &v[3]]));
+    }
+
+    /// Three publishers whose lists are all in effect: A lists v[..5], B
+    /// v[1..], and C all six, until `NOW_S + 600`.
+    fn three_publishers() -> (Unl, [TestPublisher; 3], Vec<TestValidator>) {
+        let publishers = [publisher(1), publisher(2), publisher(3)];
+        let v = validators(10..16);
+        let mut unl = unl(&publishers.each_ref());
+        let mut short = list(1, &v);
+        short.expiration = NOW_S + 600;
+        for body in [
+            publishers[0].body(&[list(1, &v[..5])]),
+            publishers[1].body(&[list(1, &v[1..])]),
+            publishers[2].body(&[short]),
+        ] {
+            assert_eq!(unl.take_list(&body, NOW_MS), Ok(Taken::Current));
+        }
+        let all: Vec<&TestValidator> = v.iter().collect();
+        assert_eq!(unl.unl(NOW_MS).unwrap(), keys(&all));
+        (unl, publishers, v)
+    }
+
+    // rippled's UNL-blocked state: once a list in effect expires, there is
+    // no UNL until every publisher has a list in effect again, however few
+    // the threshold needs. So with C's list expired, A alone cannot shrink
+    // the UNL to the one validator it shares with B.
+    #[test]
+    fn an_expired_list_blocks_until_every_publisher_has_one() {
+        let (mut unl, [a, _, c], v) = three_publishers();
+        let lapsed = NOW_MS + 600_000;
+        assert_eq!(unl.unl(lapsed), Err(UnlError::Blocked));
+        unl.tick(lapsed);
+        unl.check_invariants();
+        assert_eq!(unl.unl(lapsed), Err(UnlError::Blocked));
+        assert_eq!(
+            unl.take_list(&a.body(&[list(2, &v[1..2])]), lapsed),
+            Ok(Taken::Current)
+        );
+        assert_eq!(unl.unl(lapsed), Err(UnlError::Blocked));
+        // A restart keeps the block.
+        let restored = Unl::restore(unl.config.clone(), &unl.state(), lapsed).unwrap();
+        assert_eq!(restored, unl);
+        assert_eq!(restored.unl(lapsed), Err(UnlError::Blocked));
+        // C's next list lifts it: two of three lists name each validator.
+        assert_eq!(
+            unl.take_list(&c.body(&[list(2, &v)]), lapsed),
+            Ok(Taken::Current)
+        );
+        let left: Vec<&TestValidator> = v[1..].iter().collect();
+        assert_eq!(unl.unl(lapsed).unwrap(), keys(&left));
+        // Expired and then revoked, C never has a list again: blocked for
+        // good, under these publishers.
+        let (mut unl, [_, _, mut c], v) = three_publishers();
+        unl.tick(lapsed);
+        c.manifest = Manifest::sign(REVOKED, &c.master, None, None);
+        assert_eq!(
+            unl.take_list(&c.body(&[list(3, &v)]), lapsed),
+            Ok(Taken::Revoked)
+        );
+        unl.tick(lapsed);
+        assert_eq!(unl.unl(lapsed), Err(UnlError::Blocked));
+    }
+
+    // A publisher never fetched keeps the block that the empty UNL of a
+    // fresh start sets, as in rippled, until its list comes.
+    #[test]
+    fn a_publisher_never_fetched_keeps_the_start_blocked() {
+        let publishers = [publisher(1), publisher(2), publisher(3)];
+        let v = validators(10..16);
+        let mut unl = unl(&publishers.each_ref());
+        assert!(unl.blocked(NOW_MS));
+        unl.take_list(&publishers[0].body(&[list(1, &v[..5])]), NOW_MS)
+            .unwrap();
+        unl.take_list(&publishers[1].body(&[list(1, &v[1..])]), NOW_MS)
+            .unwrap();
+        unl.tick(NOW_MS);
+        assert_eq!(unl.unl(NOW_MS), Err(UnlError::Blocked));
+        let restored = Unl::restore(unl.config.clone(), &unl.state(), NOW_MS).unwrap();
+        assert_eq!(restored.unl(NOW_MS), Err(UnlError::Blocked));
+        unl.take_list(&publishers[2].body(&[list(1, &v)]), NOW_MS)
+            .unwrap();
+        let all: Vec<&TestValidator> = v.iter().collect();
+        assert_eq!(unl.unl(NOW_MS).unwrap(), keys(&all));
+        // A state kept before the node kept the block, with C's list never
+        // fetched, starts unblocked, as rippled restarts with the lists it
+        // cached.
+        let mut kept = restored.state();
+        kept.as_object_mut().unwrap().remove("blocked");
+        let restarted = Unl::restore(unl.config.clone(), &kept, NOW_MS).unwrap();
+        assert_eq!(
+            restarted.unl(NOW_MS).unwrap(),
+            keys(&[&v[1], &v[2], &v[3], &v[4]])
+        );
+    }
+
+    // A publisher that revokes its key leaves no list, but sets no block,
+    // as in rippled: the threshold then needs both other lists, and either
+    // of those publishers alone can shrink the UNL to what they share.
+    // This is rippled's exposure too, and only configs of three or four
+    // publishers, which only an owner names, meet it.
+    #[test]
+    fn a_revoked_publisher_sets_no_block() {
+        let (mut unl, [a, _, mut c], v) = three_publishers();
+        c.manifest = Manifest::sign(REVOKED, &c.master, None, None);
+        assert_eq!(
+            unl.take_list(&c.body(&[list(2, &v)]), NOW_MS),
+            Ok(Taken::Revoked)
+        );
+        unl.tick(NOW_MS);
+        unl.check_invariants();
+        assert_eq!(
+            unl.unl(NOW_MS).unwrap(),
+            keys(&[&v[1], &v[2], &v[3], &v[4]])
+        );
+        assert_eq!(
+            unl.take_list(&a.body(&[list(2, &v[1..2])]), NOW_MS),
+            Ok(Taken::Current)
+        );
+        assert_eq!(unl.unl(NOW_MS).unwrap(), keys(&[&v[1]]));
     }
 
     // Validators rotate their keys with manifests the lists lag behind:
