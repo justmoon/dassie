@@ -35,6 +35,10 @@ const UNAVAILABLE_WARN_MS: u64 = 10 * 60 * 1_000;
 pub enum Lie {
     /// It never settles what it owes.
     NeverSettle,
+    /// As a payer over a settlement hub, it sends its payee no claims: its
+    /// replies to the payee's Fulfills carry the verdict alone, so the
+    /// payee must claim on the hub (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+    NoClaims,
 }
 
 /// The settling side of the core.
@@ -68,6 +72,9 @@ pub(super) struct Settlements {
     pub unavailable_warned: BTreeMap<Name, u64>,
     /// Whether this node lies that it never settles, in a simulation.
     pub never_settles: bool,
+    /// Whether this node, as a payer over a hub, sends no claims, in a
+    /// simulation.
+    pub sends_no_claims: bool,
     /// The largest packet, which schemes that count in packets need.
     pub max_packet: u64,
 }
@@ -90,6 +97,7 @@ impl Settlements {
             announce: Vec::new(),
             unavailable_warned: BTreeMap::new(),
             never_settles: false,
+            sends_no_claims: false,
         }
     }
 }
@@ -121,6 +129,7 @@ impl Core {
     pub fn lie(&mut self, lie: Lie) {
         match lie {
             Lie::NeverSettle => self.settle.never_settles = true,
+            Lie::NoClaims => self.settle.sends_no_claims = true,
         }
     }
 

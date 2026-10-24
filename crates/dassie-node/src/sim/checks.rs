@@ -704,7 +704,7 @@ pub fn check_delivered(sim: &Sim) -> Result<(), String> {
 /// Node `index`'s books on `ledger` hold what its scheme holds, on the XRP
 /// Ledger exactly its account's balance less the reserve, and on a token
 /// exactly its line in whole units; returns what they hold.
-fn check_held(sim: &Sim, index: usize, ledger: LedgerId) -> Result<i128, String> {
+pub fn check_held(sim: &Sim, index: usize, ledger: LedgerId) -> Result<i128, String> {
     // The books follow the scheme's balance: what settled was posted.
     let view = sim
         .core(index)

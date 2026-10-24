@@ -32,7 +32,7 @@ pub struct Sim {
 /// run that takes a millisecond costs a campaign almost nothing, so the
 /// time goes to the simulations whose runs take seconds, and most of it to
 /// the `node` simulation.
-pub static SIMS: [Sim; 13] = [
+pub static SIMS: [Sim; 14] = [
     Sim {
         name: "node",
         about: "whole nodes' engine cores, with a network, faults and payments drawn per seed, \
@@ -57,6 +57,17 @@ pub static SIMS: [Sim; 13] = [
                 settlement hub",
         describe: dassie_node::sim::scripted::describe_stub_hub,
         run: dassie_node::sim::scripted::run_stub_hub,
+        weight: 5,
+    },
+    Sim {
+        name: "node-hub",
+        about: "whole nodes' engine cores peered over a settlement hub whose validators run in \
+                the simulation, faulty ones and a lying member among them, until the hub stalls \
+                and its escrow on a fake XRP Ledger pays out, or colluders fork it",
+        describe: dassie_node::sim::hubbed::describe,
+        run: dassie_node::sim::hubbed::run,
+        // A script, its runs among the longest: a hub's validators make a
+        // block every tenth of a second.
         weight: 5,
     },
     Sim {

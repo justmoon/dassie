@@ -149,6 +149,30 @@ impl Core {
         any.downcast_ref::<HubAccount>()
     }
 
+    /// The sequence the hub account's newest state says its next operation
+    /// carries, for a simulation to tell whether it read the operations of
+    /// its own the hub applied.
+    #[cfg(feature = "testing")]
+    #[must_use]
+    pub fn hub_sequence(&self) -> Option<u64> {
+        self.hub_account()?.view().map(|(_, view)| view.sequence)
+    }
+
+    /// How far the hub account read the hub, for a simulation to tell one
+    /// behind from one in step: the height through which it read every
+    /// operation that touched it, the height of the state it last heard of
+    /// itself, and whether it reads its state anew.
+    #[cfg(feature = "testing")]
+    #[must_use]
+    pub fn hub_reading(&self) -> Option<(u64, Option<u64>, bool)> {
+        let account = self.hub_account()?;
+        Some((
+            account.cursor(),
+            account.view().map(|(height, _)| *height),
+            account.is_resyncing(),
+        ))
+    }
+
     /// The hub peerings: each peer's node and its account in the hub.
     fn hub_peerings(&self, account: &HubAccount) -> Vec<(dassie_identity::NodeId, u32)> {
         let hub = account.hub();

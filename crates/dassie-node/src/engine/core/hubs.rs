@@ -425,6 +425,10 @@ impl Core {
                 c.claim(now, peer, request_id, taken, &mut claim)
             });
         }
+        // A payer that lies, in a simulation, keeps its claim to itself.
+        if self.settle.sends_no_claims {
+            claim.clear();
+        }
         claim
     }
 
