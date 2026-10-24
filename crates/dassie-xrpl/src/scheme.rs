@@ -342,9 +342,9 @@ impl<N: NativeXrp> XrpScheme<N> {
                 self.transaction(record, mine, other, effects);
             }
             News::Cancelled { scheme, hash, .. } if *scheme == id => {
-                // The account cancels only what can never apply: refused as
-                // malformed, not found where every ledger was searched, or
-                // written off. It moved nothing, not even a fee.
+                // The account cancels only what can never apply: proven
+                // absent past its last ledger, its number taken by another,
+                // or written off. It moved nothing, not even a fee.
                 if self.is_owner_payment(hash) {
                     self.owner_done(OwnerPaymentState::Cancelled, effects);
                 } else {

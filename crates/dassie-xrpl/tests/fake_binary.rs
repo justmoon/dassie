@@ -473,6 +473,38 @@ fn every_transaction_and_its_metadata_read_as_its_json() {
     }
 }
 
+// spec/designs/xrpl-validation.md#8-the-verifier: a transaction and its
+// metadata in binary decode into the record the schemes read, as the JSON
+// of the stream and `tx` gives it, for every kind the fake writes: what it
+// delivered too, from the metadata's `DeliveredAmount`, else a successful
+// Payment's `Amount`.
+#[test]
+fn every_transaction_decodes_as_the_record_its_json_gives() {
+    let (mut ledger, accounts) = every_kind();
+    let hashes = transactions(&mut ledger, &accounts);
+    let mut delivered = 0;
+    for hash in &hashes {
+        let json = ask(
+            &mut ledger,
+            &json!({ "command": "tx", "transaction": hash }),
+        );
+        let proof = ask(
+            &mut ledger,
+            &json!({ "command": "tx_proof", "tx_hash": hash }),
+        );
+        let blob = from_hex(proof["tx_blob"].as_str().unwrap()).unwrap();
+        let meta = from_hex(proof["meta_blob"].as_str().unwrap()).unwrap();
+        let index = u32::try_from(proof["ledger_index"].as_u64().unwrap()).unwrap();
+        let decoded = dassie_xrpl::records::transaction(&blob, &meta, index, &[]).unwrap();
+        let read = dassie_xrpl::api::tx_result(&json).unwrap();
+        assert_eq!(decoded.record, read, "{hash}");
+        if read.delivered.is_some() || read.delivered_token.is_some() {
+            delivered += 1;
+        }
+    }
+    assert!(delivered > 0);
+}
+
 fn state(ledger: &mut FakeLedger, key: &[u8; 32]) -> Vec<u8> {
     let answer = ask(
         ledger,

@@ -205,6 +205,11 @@ impl FakeLedger {
             }
             (Some(_), Some(_)) => return Err(invalid()),
         };
+        let within = |index: u32| index >= self.history_from && index <= self.ledger;
+        // A ledger beyond its history it cannot search.
+        if asked.is_some_and(|asked| !within(asked)) {
+            return Err(error("lgrNotFound"));
+        }
         let found = (self.history_index.get(&tx_hash))
             .and_then(|position| self.history.get(*position))
             .map(|applied| (applied.ledger, applied.blob.clone(), applied.meta.clone()));
@@ -217,15 +222,10 @@ impl FakeLedger {
             }
             return Err(error("txnNotFound"));
         };
-        let within = |index: u32| index >= self.history_from && index <= self.ledger;
         if let Some(asked) = asked
             && asked != ledger
         {
-            return Err(error(if within(asked) {
-                "txnNotFound"
-            } else {
-                "lgrNotFound"
-            }));
+            return Err(error("txnNotFound"));
         }
         let header = (self.chain.get(ledger))
             .filter(|_| within(ledger))
