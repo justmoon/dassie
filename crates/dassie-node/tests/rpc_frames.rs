@@ -50,6 +50,7 @@ fn node_on(store: Store) -> Arc<Node> {
         peer: PeerOptions::default(),
         dev_wallet_dir: None,
         public_names: Vec::new(),
+        live_realm: dassie_node_core::config::LiveRealm::Refused,
     })
     .unwrap()
 }

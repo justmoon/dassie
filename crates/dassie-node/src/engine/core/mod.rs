@@ -43,7 +43,7 @@ use dassie_connector::{
 use dassie_identity::NodeKey;
 use dassie_ilp::MAX_PACKET_LENGTH;
 use dassie_ledger::{Account, AccountId, AccountName, Ledger, Name, TraceId};
-use dassie_node_core::config::Realm;
+use dassie_node_core::config::{LiveRealm, Realm};
 use dassie_stream::BUFFER_LENGTH;
 
 pub use events::{
@@ -249,8 +249,11 @@ pub struct CoreParts {
     pub store: Arc<Store>,
     /// The node's key.
     pub key: Arc<NodeKey>,
-    /// The realm, for the node's address.
+    /// The realm: the node's address, and the only ledgers it runs.
     pub realm: Realm,
+    /// Whether it may be the live realm: by the dev switch only
+    /// (spec/decisions/mainnet-schemes.md).
+    pub live: LiveRealm,
     /// Its bounds.
     pub policies: Policies,
     /// Its randomness.
@@ -319,8 +322,11 @@ pub struct Core {
     peer_endpoints: BTreeMap<dassie_identity::NodeId, u64>,
     endpoint_peers: BTreeMap<u64, dassie_identity::NodeId>,
     next_peer_endpoint: u64,
-    /// `test` or `g`, for nodes' addresses.
-    allocation_scheme: &'static str,
+    /// The realm: `test` or `g` in nodes' addresses, and the realm of the
+    /// only ledgers the node runs.
+    realm: Realm,
+    /// Whether the live realm may run.
+    live: LiveRealm,
     /// The credit a junior extends to its senior, and a senior to its
     /// junior, at first (spec/decisions/earned-trust.md).
     peer_credit: u64,
@@ -419,6 +425,7 @@ impl Core {
     /// The database is unreadable or inconsistent.
     pub fn start(parts: CoreParts, now_ms: u64) -> Result<Self, String> {
         check_bounds(&parts.policies);
+        check_realm(parts.realm, parts.live)?;
         let peer = new_peer(
             &parts.store,
             &parts.key,
@@ -430,13 +437,12 @@ impl Core {
         let CoreParts {
             store,
             key,
-            realm,
             policies,
             rng,
             ..
         } = parts;
         let ledger = restore_ledger(&store, policies.ledger)?;
-        let connector = new_connector(&store, &key, realm, &policies)?;
+        let connector = new_connector(&store, &key, parts.realm, &policies)?;
         let (checkpoints, asset_checkpoints) = checkpoints(&store)?;
         let mut core = Self {
             store,
@@ -471,7 +477,8 @@ impl Core {
             peer_endpoints: BTreeMap::new(),
             endpoint_peers: BTreeMap::new(),
             next_peer_endpoint: 0,
-            allocation_scheme: realm.ilp_allocation_scheme(),
+            realm: parts.realm,
+            live: parts.live,
             peer_credit: policies.peer_credit,
             senior_credit: policies.senior_credit,
             outputs_peer: Vec::new(),
@@ -994,6 +1001,26 @@ fn new_peer(
     );
     peer.pin_uplinks(uplinks);
     Ok(peer)
+}
+
+/// Refuses a `live` realm the database names as where it is set: the realm
+/// gate would otherwise open mainnet to it
+/// (spec/decisions/mainnet-schemes.md).
+fn check_realm(realm: Realm, live: LiveRealm) -> Result<(), String> {
+    realm
+        .check_settable(live)
+        .map(|_| ())
+        .map_err(|error| format!("the realm {}: {error}", realm.as_str()))
+}
+
+/// The realm of the ledgers a node of `realm` runs: its own
+/// (spec/decisions/mainnet-schemes.md).
+#[must_use]
+pub const fn ledger_realm(realm: Realm) -> dassie_ledger::Realm {
+    match realm {
+        Realm::Test => dassie_ledger::Realm::Test,
+        Realm::Live => dassie_ledger::Realm::Live,
+    }
 }
 
 /// The connector, at the node's address, with this boot's epoch.

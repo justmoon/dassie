@@ -114,15 +114,46 @@ fn valid_label(label: &str) -> bool {
         && bytes.last() != Some(&b'-')
 }
 
-/// Which network the node belongs to.
+/// Which network the node belongs to. A node runs only its realm's ledgers
+/// (spec/decisions/mainnet-schemes.md).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Realm {
     /// The test network, with test assets. The only realm enabled.
     #[default]
     Test,
-    /// The real network. Refused by [`Realm::parse_settable`]
-    /// (spec/decisions/real-money.md).
+    /// The real network. Refused where it is set and where the node starts
+    /// ([`Realm::check_settable`]), but by the dev switch in a build with
+    /// debug assertions (spec/decisions/real-money.md).
     Live,
+}
+
+/// Whether the node may run in the live realm, which stays refused until
+/// the conditions of spec/decisions/real-money.md hold: only by the dev
+/// switch, for dev and the tests against a fake ledger, and only in a
+/// build with debug assertions, so a release build never runs it, however
+/// the switch was set (spec/decisions/mainnet-schemes.md).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LiveRealm {
+    /// Refused, as everywhere.
+    #[default]
+    Refused,
+    /// The dev switch is on.
+    DevSwitch,
+}
+
+impl LiveRealm {
+    /// Whether the live realm runs, in a build like this one.
+    #[must_use]
+    pub const fn allowed(self) -> bool {
+        self.allowed_in(cfg!(debug_assertions))
+    }
+
+    /// Whether the live realm runs in a build with debug assertions, or
+    /// without them.
+    #[must_use]
+    pub const fn allowed_in(self, debug_assertions: bool) -> bool {
+        matches!(self, Self::DevSwitch) && debug_assertions
+    }
 }
 
 impl Realm {
@@ -144,10 +175,13 @@ impl Realm {
         }
     }
 
-    /// Checks that the owner may switch to this realm.
-    pub const fn check_settable(self) -> Result<Self, ConfigError> {
+    /// Checks that the owner may switch to this realm, and that a node
+    /// whose database names it may start in it: `live` only as `live`
+    /// allows.
+    pub const fn check_settable(self, live: LiveRealm) -> Result<Self, ConfigError> {
         match self {
             Self::Test => Ok(self),
+            Self::Live if live.allowed() => Ok(self),
             Self::Live => Err(ConfigError::LiveRealmDisabled),
         }
     }
@@ -364,13 +398,32 @@ mod tests {
     #[test]
     fn realms() {
         assert_eq!(Realm::parse("test"), Ok(Realm::Test));
-        assert_eq!(Realm::Test.check_settable(), Ok(Realm::Test));
+        for live in [LiveRealm::Refused, LiveRealm::DevSwitch] {
+            assert_eq!(Realm::Test.check_settable(live), Ok(Realm::Test));
+        }
         assert_eq!(
-            Realm::Live.check_settable(),
+            Realm::Live.check_settable(LiveRealm::Refused),
             Err(ConfigError::LiveRealmDisabled)
+        );
+        // The dev switch, in a build with debug assertions, as tests are.
+        assert_eq!(
+            Realm::Live.check_settable(LiveRealm::DevSwitch),
+            Ok(Realm::Live)
         );
         assert_eq!(Realm::Live.ilp_allocation_scheme(), "g");
         assert_eq!(Realm::parse("main"), Err(ConfigError::InvalidRealm));
+    }
+
+    // spec/decisions/mainnet-schemes.md: only a build with debug
+    // assertions honours the dev switch; a release build runs no live
+    // realm, whatever it was told.
+    #[test]
+    fn only_a_build_with_debug_assertions_runs_the_live_realm() {
+        assert!(LiveRealm::DevSwitch.allowed_in(true));
+        assert!(!LiveRealm::DevSwitch.allowed_in(false));
+        assert!(!LiveRealm::Refused.allowed_in(true));
+        assert!(!LiveRealm::Refused.allowed_in(false));
+        assert_eq!(LiveRealm::default(), LiveRealm::Refused);
     }
 
     #[test]

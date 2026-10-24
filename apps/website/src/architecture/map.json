@@ -344,6 +344,7 @@
       "does": [
         "The database and its migrations, HTTPS and IPC listeners, TLS and ACME, the owner's login",
         "The engine: ledger, connector, BTP server and STREAM receiver",
+        "Runs only the ledgers of its realm, test or live; the live realm is refused where it is set, at start and as a ledger activates, unless a dev switch that only builds with debug assertions honour turns it on",
         "The peer protocol over QUIC, its only transport, with each node's key pinned, and a short backoff from a node it cannot reach; the settlement loop",
         "QUIC connections held apart by who opened them, as the key each proved says: core peers, downlinks and everyone else each have room of their own, so many downlinks never crowd out the links that carry the network",
         "Relayed streams: any QUIC node relays for the nodes connected to it, with TLS end to end, so a node without a public address that keeps a connection to a relay is still reached for Open Payments and by the owner's paired apps; a node without a hostname keeps one to the `dassiepay.net` front door unless `DASSIE_RELAY` names another or, empty, none",
@@ -405,9 +406,10 @@
       "x": 20,
       "y": 672,
       "w": 184,
-      "desc": "The node's XRP Ledger testnet account and the settlement schemes on it: one in XRP, and a token scheme in a dollar token, run in RLUSD, Ripple's, and in DSUSD, Dassie's own testnet dollar. Also the wallet, the transaction codec, the rippled API, the account that connects, signs and follows the ledger, and the schemes that book what the account tells them. It also prices the ledger's AMM pools and signs the Payments that swap through one. A fake ledger serves the tests and the dev network, with test RLUSD and DSUSD from issuers of its own and pools to swap through.",
+      "desc": "The node's XRP Ledger accounts, on the testnet and on mainnet, and the settlement schemes on them: one in each network's XRP, mainnet's with real money, which runs only in the live realm, and a token scheme in a dollar token, run in RLUSD, Ripple's, and in DSUSD, Dassie's own testnet dollar. Also the wallet, the transaction codec, the rippled API, the account that connects, signs and follows the ledger, and the schemes that book what the account tells them. It also prices the ledger's AMM pools and signs the Payments that swap through one. A fake ledger, the testnet or mainnet, serves the tests and the dev network, with test RLUSD and DSUSD from issuers of its own and pools to swap through.",
       "does": [
-        "Derives the node's XRP Ledger wallet from its key, so the same phrase finds the same funds",
+        "Derives the node's XRP Ledger wallets from its key, one per network, so the same phrase finds the same funds",
+        "Keeps the testnet and mainnet apart: each network's account has its own keys, and refuses a server of the other, and each scheme its own memo type and ledger",
         "Keeps one connection per account, and hands out its sequences so schemes on it never take the same one",
         "Signs Payments byte for byte as `xrpl.js` does, and writes token Payments, TrustSets and Payments with a `SendMax` the same way",
         "Writes what sets up an account several keys control, such as a settlement hub's escrow, and signs it with Ed25519 or secp256k1 keys, one key alone or several signers each alone, as `xrpl.js` does",
@@ -419,7 +421,7 @@
         "Pays a token scheme's fees in XRP: booked on the XRP ledger when the XRP scheme shares the account, off the books otherwise",
         "Stops settling while the issuer freezes the line, and stops asking peers to pay while the line cannot receive",
         "Never books the reserve, and catches up after a restart",
-        "Asks the testnet faucet when the account is new, or when the owner wants more test XRP",
+        "Asks the testnet faucet when the account is new, or when the owner wants more test XRP; mainnet has none, so its account waits for the owner's deposit",
         "Reports what the account holds, as the ledger says, for the wallet: XRP and its reserve, and each line with its freezes",
         "Fakes the ledger for tests: XRP, trust lines, token payments through the issuer and their failures, issuers of RLUSD and DSUSD that mint, freeze and claw back, AMM pools that Payments with a `SendMax` swap through, and signer lists, regular keys and destination tags, with who may sign checked again as a transaction applies"
       ]

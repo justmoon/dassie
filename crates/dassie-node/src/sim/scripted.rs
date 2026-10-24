@@ -138,6 +138,13 @@ pub fn run_xrpl(seed: u64) -> Run {
     run_on(seed, Settling::Xrpl)
 }
 
+/// A run in the live realm, over the XRP Ledger mainnet scheme against the
+/// fake ledger's mainnet (spec/decisions/mainnet-schemes.md).
+#[must_use]
+pub fn run_xrpl_live(seed: u64) -> Run {
+    run_on(seed, Settling::XrplLive)
+}
+
 /// A run over the RLUSD scheme alone, against the fake ledger, whose
 /// issuer claws back and freezes while payments are under way.
 #[must_use]

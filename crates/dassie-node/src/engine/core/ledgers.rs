@@ -104,9 +104,20 @@ pub(super) const OWN_ACCOUNTS: usize =
 
 impl Core {
     /// Activates the stored schemes, booking what changed while the node was
-    /// down.
+    /// down. One of another realm than the node's, which the node's realm
+    /// was changed past, is left as it is, and does not run: the owner is
+    /// told, and the node starts with the rest
+    /// (spec/decisions/mainnet-schemes.md).
     pub(super) fn load_schemes(&mut self, store: &Store) -> Result<(), String> {
         for (id, config) in store.settlement_schemes().map_err(|e| e.to_string())? {
+            let ledger = super::SCHEMES
+                .iter()
+                .find(|info| info.id == id.as_str())
+                .map(|info| info.ledger);
+            if ledger.is_some_and(|ledger| ledger.realm() != super::ledger_realm(self.realm)) {
+                self.report(SettlementEvent::OtherRealm { scheme: id });
+                continue;
+            }
             let checkpoint = self.checkpoints.get(&id).cloned();
             self.activate(id, config, checkpoint, false)
                 .map_err(|e| format!("settlement scheme {id}: {e}"))?;
@@ -183,7 +194,11 @@ impl Core {
 
     /// Opens the accounts of `scheme`'s ledger and books the difference
     /// between its balance and its checkpoint (ACC-6): only a ledger of the
-    /// test realm, and one no other scheme serves.
+    /// node's realm, and one no other scheme serves. The realm gate: a node
+    /// runs only its realm's ledgers, so test and live nodes never share a
+    /// scheme, and a ledger of real money runs only where the live realm
+    /// may, which it may not but by the dev switch
+    /// (spec/decisions/mainnet-schemes.md).
     fn open_ledger(
         &mut self,
         id: Name,
@@ -191,7 +206,12 @@ impl Core {
         checkpoint: Option<&Checkpoint>,
     ) -> Result<(), EngineError> {
         let ledger = scheme.ledger();
-        if ledger.realm() != Realm::Test {
+        if ledger.realm() != super::ledger_realm(self.realm) {
+            return Err(EngineError::Precondition(
+                "the scheme is of another realm than the node's".into(),
+            ));
+        }
+        if ledger.realm() == Realm::Live && !self.live.allowed() {
             return Err(EngineError::Precondition(
                 "real money is not supported yet (spec/decisions/real-money.md)".into(),
             ));
