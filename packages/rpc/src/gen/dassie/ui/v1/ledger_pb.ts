@@ -425,7 +425,7 @@ export type ExternalAsset = Message<"dassie.ui.v1.ExternalAsset"> & {
 
   /**
    * The settlement schemes that settle through it, for example
-   * "xrpl-testnet" and "xrpl-testnet-rlusd".
+   * "xrpl-testnet" and "xrpl-testnet-dsusd".
    *
    * @generated from field: repeated string settlement_schemes = 6;
    */
