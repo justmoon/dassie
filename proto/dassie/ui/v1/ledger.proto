@@ -135,7 +135,7 @@ message ExternalAsset {
   // Why, when it is FAILED.
   string connection_problem = 5;
   // The settlement schemes that settle through it, for example
-  // "xrpl-testnet" and "xrpl-testnet-rlusd".
+  // "xrpl-testnet" and "xrpl-testnet-dsusd".
   repeated string settlement_schemes = 6;
   // Whether the node can ask a faucet for test money on it: AskFaucet
   // with any of its schemes.
