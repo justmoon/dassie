@@ -56,6 +56,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_32,
     MIGRATION_33,
     MIGRATION_34,
+    MIGRATION_35,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -1072,6 +1073,15 @@ CREATE TABLE hub_payouts (
 ) STRICT, WITHOUT ROWID;
 ";
 
+/// Founding settlement hubs (spec/areas/hubs.md#founding-a-hub): why a
+/// sponsor stopped funding a founding's escrow for good, so that a restart
+/// never pays again what failed: too little to create the account, or a
+/// failure of another kind the ledger recorded.
+const MIGRATION_35: &str = "
+ALTER TABLE hub_foundings ADD COLUMN escrow_stop TEXT
+  CHECK (escrow_stop IN ('too-little', 'failed'));
+";
+
 /// Settlement hubs (spec/areas/hubs.md#in-the-node): whether the node moves
 /// funds between its XRPL account and its hub by itself, which the owner
 /// may turn off; until when an owner's move pauses that; and the move on
@@ -1648,6 +1658,7 @@ pub const TABLES: &[Table] = &[
             ("problem", "TEXT", false, false),
             ("created_at_ms", "INTEGER", true, false),
             ("updated_at_ms", "INTEGER", true, false),
+            ("escrow_stop", "TEXT", false, false),
         ],
     },
     Table {

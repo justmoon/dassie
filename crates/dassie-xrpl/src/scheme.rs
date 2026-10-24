@@ -37,7 +37,8 @@ use core::any::Any;
 use dassie_ledger::{LedgerId, MAX_TOTAL, Name};
 use dassie_settlement::{
     AssetId, Effect, ExternalAsset, LedgerStatus, MAX_OWNER_MEMO_BYTES, OwnerPayment,
-    OwnerPaymentState, PreparedSettlement, ReconcileCause, SchemeError, SettlementScheme,
+    OwnerPaymentState, PaymentFailure, PreparedSettlement, ReconcileCause, SchemeError,
+    SettlementScheme,
 };
 use rand_core::CryptoRng;
 use serde_json::{Value, json};
@@ -247,8 +248,11 @@ impl XrplScheme {
                 self.transaction(record, mine, other, effects);
             }
             News::Cancelled { scheme, hash, .. } if *scheme == id => {
+                // The account cancels only what can never apply: refused as
+                // malformed, not found where every ledger was searched, or
+                // written off. It moved nothing, not even a fee.
                 if self.is_owner_payment(hash) {
-                    self.owner_done(OwnerPaymentState::Failed, effects);
+                    self.owner_done(OwnerPaymentState::Cancelled, effects);
                 } else {
                     effects.push(Effect::Cancel {
                         settlement: hash_name(hash),
@@ -521,7 +525,7 @@ impl XrplScheme {
             booked -= i128::from(amount);
             self.owner_outcome = Some((hash, OwnerPaymentState::Applied));
         } else {
-            self.owner_outcome = Some((hash, OwnerPaymentState::Failed));
+            self.owner_outcome = Some((hash, OwnerPaymentState::Failed(failure_of(record))));
         }
         let fee = units(record.fee);
         effects.push(Effect::Fee {
@@ -543,7 +547,7 @@ impl XrplScheme {
             booked -= i128::from(units(drops));
             self.owner_done(OwnerPaymentState::Applied, effects);
         } else {
-            self.owner_done(OwnerPaymentState::Failed, effects);
+            self.owner_done(OwnerPaymentState::Failed(failure_of(record)), effects);
         }
         let fee = units(record.fee);
         effects.push(Effect::Fee {
@@ -765,12 +769,28 @@ impl XrplScheme {
     }
 }
 
-/// How a state writes what became of an owner's payment.
+/// The XRP Ledger's result of a payment to an account that does not exist,
+/// of less than the reserve that would create it.
+const TOO_LITTLE_RESULT: &str = "tecNO_DST_INSUF_XRP";
+
+/// Why the owner's payment `record`, which failed, failed.
+fn failure_of(record: &TxRecord) -> PaymentFailure {
+    if record.result == TOO_LITTLE_RESULT {
+        PaymentFailure::TooLittle
+    } else {
+        PaymentFailure::Other
+    }
+}
+
+/// How a state writes what became of an owner's payment. A failure written
+/// before failures were told apart reads as one of another kind.
 const fn outcome_code(outcome: OwnerPaymentState) -> u64 {
     match outcome {
         OwnerPaymentState::Unknown | OwnerPaymentState::InFlight => 0,
         OwnerPaymentState::Applied => 1,
-        OwnerPaymentState::Failed => 2,
+        OwnerPaymentState::Failed(PaymentFailure::Other) => 2,
+        OwnerPaymentState::Failed(PaymentFailure::TooLittle) => 3,
+        OwnerPaymentState::Cancelled => 4,
     }
 }
 
@@ -783,7 +803,9 @@ fn restore_owner_outcome(state: &Value) -> Option<Option<([u8; 32], OwnerPayment
             let outcome = match outcome.get(1)?.as_u64()? {
                 0 => OwnerPaymentState::Unknown,
                 1 => OwnerPaymentState::Applied,
-                2 => OwnerPaymentState::Failed,
+                2 => OwnerPaymentState::Failed(PaymentFailure::Other),
+                3 => OwnerPaymentState::Failed(PaymentFailure::TooLittle),
+                4 => OwnerPaymentState::Cancelled,
                 _ => return None,
             };
             Some(Some((hash, outcome)))

@@ -200,6 +200,7 @@ pub fn found(node: &Node, request: FoundRequest) -> Result<FoundingStatus, Found
         funding_drops,
         escrow_payment: None,
         problem: None,
+        escrow_stop: None,
         created_at_ms: now,
         updated_at_ms: now,
     };
@@ -472,7 +473,11 @@ impl Founding {
             xrpl: self.row.xrpl.clone(),
             funding_drops: self.row.funding_drops,
             payment: self.row.escrow_payment.clone(),
-            too_little: false,
+            stop: self
+                .row
+                .escrow_stop
+                .as_deref()
+                .and_then(escrow::Stop::from_code),
             events: events.clone(),
         };
         asks.spawn(setup.run(stop.clone()));
@@ -491,6 +496,11 @@ impl Founding {
                 tracing::info!(target: target::HUB, nonce = %hex(&self.row.nonce), "the hub's escrow is set up");
                 self.sponsor.set_escrow_set_up(self.node.now_ms());
                 self.row.problem = None;
+            }
+            escrow::Event::Stopped(stop) => {
+                tracing::warn!(target: target::HUB, nonce = %hex(&self.row.nonce), problem = stop.problem(), "funding the hub's escrow stopped");
+                self.row.escrow_stop = Some(stop.code().into());
+                self.row.problem = Some(stop.problem().into());
             }
             escrow::Event::Problem(problem) => {
                 let mut problem = problem;

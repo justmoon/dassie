@@ -12,7 +12,7 @@ use std::time::Duration;
 use dassie_hub::Rules;
 use dassie_hub::escrow::{EscrowSeen, SetupStep, escrow_master, setup_step};
 use dassie_identity::NodeKey;
-use dassie_settlement::OwnerPaymentState;
+use dassie_settlement::{OwnerPaymentState, PaymentFailure};
 use dassie_xrpl::{AccountId, Wallet, api};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -34,6 +34,8 @@ pub enum Event {
     Paid(String),
     /// The escrow is set up as the rules say.
     SetUp,
+    /// The payment that funds it failed on the ledger: none is made again.
+    Stopped(Stop),
     /// What stops it for now, for the owner.
     Problem(String),
 }
@@ -52,10 +54,10 @@ pub struct Setup {
     pub funding_drops: u64,
     /// The payment that funds it, if one went out already.
     pub payment: Option<String>,
-    /// Whether that payment failed for being too little to create the
-    /// account: no other is made, since it would fail alike and cost a fee
-    /// each time. The owner drops the founding and founds again.
-    pub too_little: bool,
+    /// Why no payment funds it again, if one failed on the ledger: the same
+    /// payment would fail alike and cost a fee each time. The owner drops
+    /// the founding and founds again.
+    pub stop: Option<Stop>,
     /// Where it reports.
     pub events: mpsc::Sender<Event>,
 }
@@ -111,7 +113,7 @@ impl Setup {
         let seen = read(session, escrow).await?;
         let fee = self.rules.terms.fees.ledger;
         match setup_step(&self.rules, master, seen.as_ref(), fee) {
-            SetupStep::Fund => self.fund(session, escrow).await?,
+            SetupStep::Fund => self.fund(escrow).await?,
             SetupStep::Wait => {}
             SetupStep::Submit(transactions) => {
                 for transaction in transactions {
@@ -137,11 +139,12 @@ impl Setup {
     }
 
     /// Funds the escrow from the XRPL testnet account, unless a payment that
-    /// does is still on its way or may yet arrive: never twice; and never
-    /// again after one that was too little to create the account.
-    async fn fund(&mut self, session: &mut Session, escrow: AccountId) -> Result<(), String> {
-        if self.too_little {
-            return Err(TOO_LITTLE.into());
+    /// does is still on its way or may yet arrive: never twice. One the XRP
+    /// scheme cancelled moved nothing, and is paid again; after one the
+    /// ledger recorded as failed, none is.
+    async fn fund(&mut self, escrow: AccountId) -> Result<(), String> {
+        if let Some(stop) = self.stop {
+            return Err(stop.problem().into());
         }
         let engine = self.node.engine().ok_or("the ledger is not running")?;
         if let Some(payment) = &self.payment {
@@ -150,11 +153,15 @@ impl Setup {
                 .await
                 .map_err(|error| error.to_string())?;
             match state {
-                OwnerPaymentState::Failed => {
-                    if failed_for_too_little(session, payment).await? {
-                        self.too_little = true;
-                        return Err(TOO_LITTLE.into());
-                    }
+                OwnerPaymentState::Cancelled => {}
+                OwnerPaymentState::Failed(failure) => {
+                    let stop = match failure {
+                        PaymentFailure::TooLittle => Stop::TooLittle,
+                        PaymentFailure::Other => Stop::Failed,
+                    };
+                    self.stop = Some(stop);
+                    let _ = self.events.send(Event::Stopped(stop)).await;
+                    return Err(stop.problem().into());
                 }
                 OwnerPaymentState::InFlight | OwnerPaymentState::Applied => return Ok(()),
                 OwnerPaymentState::Unknown => {
@@ -175,45 +182,51 @@ impl Setup {
     }
 }
 
-/// What stops a founding whose escrow's funding was too little.
-const TOO_LITTLE: &str = "the payment that funds the escrow was too little to create its account \
-     on the XRP Ledger: drop the founding and found again with more";
+/// Why no payment funds the escrow again: the ledger recorded the last as
+/// failed, and the same payment would fail alike, at a fee each time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stop {
+    /// Too little to create the account: the network's reserve is more
+    /// than the founding funds it with.
+    TooLittle,
+    /// A failure of another kind.
+    Failed,
+}
 
-/// The XRP Ledger's result of a payment to an account that does not exist,
-/// of less than its reserve.
-const TOO_LITTLE_RESULT: &str = "tecNO_DST_INSUF_XRP";
-
-/// Whether the failed payment `payment`, its ID the transaction's hash,
-/// failed for being too little to create the account it paid.
-///
-/// # Errors
-///
-/// What the ledger says of it cannot be read: no payment is made then.
-async fn failed_for_too_little(session: &mut Session, payment: &str) -> Result<bool, String> {
-    let digit = |byte: u8| {
-        char::from(byte)
-            .to_digit(16)
-            .and_then(|d| u8::try_from(d).ok())
-    };
-    let (pairs, rest) = payment.as_bytes().as_chunks::<2>();
-    let mut hash = [0_u8; 32];
-    let mut read = pairs.len() == 32 && rest.is_empty();
-    for (out, [high, low]) in hash.iter_mut().zip(pairs) {
-        match digit(*high).zip(digit(*low)) {
-            Some((high, low)) => *out = high * 16 + low,
-            None => read = false,
+impl Stop {
+    /// What the founding row keeps of it.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::TooLittle => "too-little",
+            Self::Failed => "failed",
         }
     }
-    if !read {
-        return Err("the payment that funds the escrow has no transaction hash".into());
+
+    /// The stop a founding row keeps as `code`.
+    #[must_use]
+    pub fn from_code(code: &str) -> Option<Self> {
+        match code {
+            "too-little" => Some(Self::TooLittle),
+            "failed" => Some(Self::Failed),
+            _ => None,
+        }
     }
-    let answer = session.call(|id| api::tx_anywhere(id, &hash)).await?;
-    let record = answer
-        .ok()
-        .as_ref()
-        .and_then(api::tx_result)
-        .ok_or("the XRPL server does not say how the escrow's funding failed")?;
-    Ok(record.result == TOO_LITTLE_RESULT)
+
+    /// What it means, for the owner.
+    #[must_use]
+    pub const fn problem(self) -> &'static str {
+        match self {
+            Self::TooLittle => {
+                "the payment that funds the escrow was too little to create its account \
+                 on the XRP Ledger: drop the founding and found again with more"
+            }
+            Self::Failed => {
+                "the payment that funds the escrow failed on the XRP Ledger: \
+                 drop the founding and found again once the owner knows why"
+            }
+        }
+    }
 }
 
 /// What the ledger shows of the escrow as of a validated ledger: `None`

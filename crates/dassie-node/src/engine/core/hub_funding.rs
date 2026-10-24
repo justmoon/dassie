@@ -231,7 +231,7 @@ impl Funding {
             return true;
         }
         match standing.paying {
-            OwnerPaymentState::Failed => {
+            OwnerPaymentState::Failed(_) | OwnerPaymentState::Cancelled => {
                 self.failed(now_ms);
                 true
             }
@@ -480,7 +480,7 @@ mod tests {
         let planned = funding.due(much_later, &low).unwrap();
         funding.start(much_later, planned, payment());
         let mut failed = low;
-        failed.paying = OwnerPaymentState::Failed;
+        failed.paying = OwnerPaymentState::Failed(dassie_settlement::PaymentFailure::Other);
         assert!(funding.follow(much_later, &failed));
         assert_eq!(funding.due(much_later + 1, &low), None, "backing off");
         let after = much_later + FIRST_BACKOFF_MS;

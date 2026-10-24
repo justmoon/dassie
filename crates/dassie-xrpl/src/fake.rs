@@ -473,6 +473,14 @@ impl FakeLedger {
         }
     }
 
+    /// Sets `account`'s flags ([`account_flags`]), as an `AccountSet` of
+    /// its owner's would.
+    pub fn set_account_flags(&mut self, account: AccountId, flags: u32) {
+        if let Some(account) = self.accounts.get_mut(&account) {
+            account.flags = flags;
+        }
+    }
+
     /// The faucet: funds `to` in the next ledger.
     pub fn fund(&mut self, to: AccountId) {
         self.deposit(to, FAUCET_DROPS);

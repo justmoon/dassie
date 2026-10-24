@@ -57,6 +57,9 @@ pub struct FoundingRow {
     pub escrow_payment: Option<String>,
     /// What went wrong last, for the owner.
     pub problem: Option<String>,
+    /// Why the escrow is funded no more, if it is not: `too-little` or
+    /// `failed`.
+    pub escrow_stop: Option<String>,
     /// When the owner asked for it.
     pub created_at_ms: u64,
     /// When it last changed.
@@ -187,7 +190,7 @@ impl Store {
         let connection = self.lock();
         let mut statement = connection.prepare(
             "SELECT nonce, state, xrpl, funding_drops, escrow_payment, problem, \
-             created_at_ms, updated_at_ms FROM hub_foundings \
+             created_at_ms, updated_at_ms, escrow_stop FROM hub_foundings \
              ORDER BY created_at_ms, nonce LIMIT ?1",
         )?;
         let rows = statement
@@ -201,12 +204,13 @@ impl Store {
                     row.get::<_, Option<String>>(5)?,
                     row.get::<_, i64>(6)?,
                     row.get::<_, i64>(7)?,
+                    row.get::<_, Option<String>>(8)?,
                 ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
         rows.into_iter()
             .map(
-                |(nonce, state, xrpl, drops, payment, problem, created, updated)| {
+                |(nonce, state, xrpl, drops, payment, problem, created, updated, stop)| {
                     Ok(FoundingRow {
                         nonce: array(&nonce)?,
                         state,
@@ -214,6 +218,7 @@ impl Store {
                         funding_drops: from_sql_time(drops),
                         escrow_payment: payment,
                         problem,
+                        escrow_stop: stop,
                         created_at_ms: from_sql_time(created),
                         updated_at_ms: from_sql_time(updated),
                     })
@@ -250,9 +255,10 @@ impl Store {
         }
         transaction.execute(
             "INSERT INTO hub_foundings (nonce, state, xrpl, funding_drops, escrow_payment, \
-             problem, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
+             problem, created_at_ms, updated_at_ms, escrow_stop) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) \
              ON CONFLICT (nonce) DO UPDATE SET state = ?2, xrpl = ?3, funding_drops = ?4, \
-             escrow_payment = ?5, problem = ?6, updated_at_ms = ?8",
+             escrow_payment = ?5, problem = ?6, updated_at_ms = ?8, escrow_stop = ?9",
             params![
                 &founding.nonce[..],
                 founding.state,
@@ -262,6 +268,7 @@ impl Store {
                 founding.problem,
                 to_sql_time(founding.created_at_ms),
                 to_sql_time(founding.updated_at_ms),
+                founding.escrow_stop,
             ],
         )?;
         transaction.commit()?;
@@ -280,13 +287,14 @@ impl Store {
         }
         let updated = self.lock().execute(
             "UPDATE hub_foundings SET state = ?2, escrow_payment = ?3, problem = ?4, \
-             updated_at_ms = ?5 WHERE nonce = ?1",
+             updated_at_ms = ?5, escrow_stop = ?6 WHERE nonce = ?1",
             params![
                 &founding.nonce[..],
                 founding.state,
                 founding.escrow_payment,
                 founding.problem,
                 to_sql_time(founding.updated_at_ms),
+                founding.escrow_stop,
             ],
         )?;
         Ok(updated > 0)
@@ -397,6 +405,7 @@ mod tests {
             funding_drops: 2_000_000,
             escrow_payment: None,
             problem: None,
+            escrow_stop: None,
             created_at_ms: u64::from(nonce),
             updated_at_ms: 1,
         };
@@ -406,6 +415,7 @@ mod tests {
         assert!(!store.put_hub_founding(&founding(100)).unwrap(), "full");
         let mut changed = founding(0);
         changed.escrow_payment = Some("ab".into());
+        changed.escrow_stop = Some("too-little".into());
         assert!(store.put_hub_founding(&changed).unwrap());
         assert_eq!(store.hub_foundings().unwrap()[0], changed);
         assert!(store.remove_hub_founding(&[0; 32]).unwrap());
