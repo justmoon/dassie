@@ -694,6 +694,9 @@ impl XrplAccount {
             Err(doubt) => return self.doubted(doubt),
         };
         self.keep_anchor(anchor, recent.as_ref());
+        self.counted.anchors = self.counted.anchors.saturating_add(1);
+        let absences = u64::try_from(proven.absences()).unwrap_or(u64::MAX);
+        self.counted.absences = self.counted.absences.saturating_add(absences);
         self.validated = self.validated.max(anchor.index);
         self.anchored_view(view);
     }
