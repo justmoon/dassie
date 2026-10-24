@@ -96,6 +96,14 @@ struct Own {
     again: u8,
 }
 
+/// How often a validator that declared the hub stalled passes the
+/// finalization of its last final block to the other validators: as often
+/// as a stuck view's nullify goes again at the longest
+/// (`Config::max_retry_ms`), so that one that missed it, and holds the
+/// block, finalizes it too (spec/designs/settlement-hubs.md#9-shutdown,
+/// "Passing views around").
+pub const PASS_TIP_EVERY_MS: Millis = Config::DEFAULT.max_retry_ms;
+
 /// What the host carries out. Taken apart at once: boxing would only
 /// allocate.
 #[allow(clippy::large_enum_variant)]
@@ -169,7 +177,11 @@ pub struct Validator {
     /// signer's place in the rules.
     shares: BTreeMap<u32, BTreeMap<usize, Signer>>,
     signed: BTreeMap<u32, ()>,
-    payout_signed: bool,
+    /// The height of the last block whose payout set we signed: never a
+    /// lower one after it.
+    payout_height: Option<u64>,
+    /// When a stalled validator next passes its last final block on.
+    pass_tip_at: Millis,
     /// The payout set we signed, for members that ask.
     payout: Option<PayoutBundle>,
     actions: VecDeque<Action>,
@@ -231,7 +243,8 @@ impl Validator {
             complete_from: 1,
             shares: BTreeMap::new(),
             signed: BTreeMap::new(),
-            payout_signed: false,
+            payout_height: None,
+            pass_tip_at: 0,
             payout: None,
             actions: VecDeque::new(),
             batches: Vec::new(),
@@ -310,7 +323,8 @@ impl Validator {
             complete_from,
             shares: BTreeMap::new(),
             signed: BTreeMap::new(),
-            payout_signed: false,
+            payout_height: None,
+            pass_tip_at: 0,
             payout: None,
             actions: VecDeque::new(),
             batches: Vec::new(),
@@ -389,10 +403,16 @@ impl Validator {
         &self.engine
     }
 
-    /// When [`tick`](Self::tick) is due next.
+    /// When [`tick`](Self::tick) is due next: the engine's next timer, or,
+    /// once we declared the hub stalled, when we pass our last final block
+    /// on again.
     #[must_use]
     pub fn poll_timeout(&self) -> Option<u64> {
-        self.engine.poll_timeout()
+        let pass = self.engine.is_stalled().then_some(self.pass_tip_at);
+        [self.engine.poll_timeout(), pass]
+            .into_iter()
+            .flatten()
+            .min()
     }
 
     /// The next thing for the host to do.
@@ -448,7 +468,26 @@ impl Validator {
             // again, and signs the payout set of the last final block.
             self.engine.declare_stalled(now);
         }
+        if self.engine.is_stalled() && now >= self.pass_tip_at {
+            self.pass_tip_at = now.saturating_add(PASS_TIP_EVERY_MS);
+            self.pass_tip();
+        }
         self.after(now);
+    }
+
+    /// Passes the finalization of our last final block to the other
+    /// validators, once we declared the hub stalled: we vote no more, so
+    /// nothing else would tell a validator that missed it, and validators
+    /// that stopped at different blocks would sign payout sets no quorum
+    /// shares. It proves itself; one that holds the block finalizes it, and
+    /// signs the payout set of that block in turn.
+    fn pass_tip(&mut self) {
+        let Some(finalization) = self.engine.tip().finalization.clone() else {
+            return;
+        };
+        let inner = crate::consensus::wire::Message::Certificate(finalization).to_vec();
+        self.actions
+            .push_back(Action::Validators(Message::Consensus(inner).to_vec()));
     }
 
     /// Signs and passes on one of our own operations: what we saw of the
@@ -697,8 +736,22 @@ impl Validator {
         self.take_finals();
         self.attest_passed(now);
         self.sign_withdrawals();
-        let ended = self.chain.ledger.phase() == Phase::Ended || self.engine.is_stalled();
-        if ended && !self.payout_signed {
+        // Once ended or stalled, we sign the payout set of our last final
+        // block, and again whenever we learn of a later one, never of an
+        // earlier one (spec/designs/settlement-hubs.md#9-shutdown). A later
+        // one only once the hub stopped there too, its block older than the
+        // stall: a hub that carries on without a validator that stalled
+        // alone never has it sign a set, each a bundle written, at every
+        // block it learns of.
+        let phase = self.chain.ledger.phase();
+        let ended = phase == Phase::Ended || self.engine.is_stalled();
+        let height = self.chain.ledger.height();
+        let stall = self.chain.ledger.terms().timers.stall;
+        let stopped = phase == Phase::Ended || self.engine.since_finalized_ms(now) > stall;
+        let due = self
+            .payout_height
+            .is_none_or(|signed| signed < height && stopped);
+        if ended && due {
             self.sign_payout();
         }
         self.chain.check_invariants();
@@ -836,7 +889,7 @@ impl Validator {
             return;
         };
         if let Some(signatures) = sign_payout_set(&set, &self.keys) {
-            self.payout_signed = true;
+            self.payout_height = Some(set.height);
             self.payout = Some(PayoutBundle::of(&set, &signatures));
             self.actions.push_back(Action::Payout(set, signatures));
         }
