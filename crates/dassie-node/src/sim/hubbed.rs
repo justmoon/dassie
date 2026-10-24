@@ -554,7 +554,8 @@ fn check_moved(sim: &Sim, liar: Option<usize>) -> Result<(), String> {
 /// Each owner's funds, on the XRP Ledger and in the hub together, moved by
 /// what its receivers took: what the faucet gave, less the XRP Ledger's
 /// reserve and the hub's account reserve, which neither the owner nor
-/// anyone else can spend.
+/// anyone else can spend. And each payment's token paid what it sent, as
+/// [`checks::check_owner_books`](super::checks::check_owner_books) has it.
 fn check_owners(sim: &Sim) -> Result<(), String> {
     let reserve = i128::from(dassie_hub::member::units(
         sim.hub.as_deref().unwrap().rules.terms.fees.account_reserve,
@@ -586,6 +587,23 @@ fn check_owners(sim: &Sim) -> Result<(), String> {
                 sim.balances_on(index, XRP),
                 sim.balances_on(index, HUB)
             ));
+        }
+        for payment in sim.payments.iter().filter(|payment| payment.from == index) {
+            let account = format!("equity/owner/btp/{}", payment.token.0);
+            let token = |ledger| {
+                sim.balances_on(index, ledger)
+                    .get(&account)
+                    .copied()
+                    .unwrap_or(0)
+            };
+            let paid = -(token(XRP) + token(HUB));
+            if paid != i128::from(super::sent(payment)) {
+                return Err(format!(
+                    "node {index}'s token {} paid {paid} for {} sent",
+                    payment.token.0,
+                    super::sent(payment)
+                ));
+            }
         }
     }
     Ok(())
