@@ -100,6 +100,8 @@ struct Network {
     behind: Vec<(usize, Box<dassie_hub::consensus::Finalized>)>,
     /// States taken that way.
     caught_up: usize,
+    /// Evidence each validator reported.
+    evidence: Vec<(usize, dassie_hub::consensus::Evidence)>,
     /// Whether every vote to finalize, finalization and catch-up is lost,
     /// so blocks are notarized and none becomes final.
     no_finality: bool,
@@ -157,6 +159,7 @@ impl Network {
             cut: None,
             behind: Vec::new(),
             caught_up: 0,
+            evidence: Vec::new(),
             no_finality: false,
             now: START,
         }
@@ -183,6 +186,7 @@ impl Network {
                 Action::Submit(blob) => self.submitted.push((from, blob)),
                 Action::Payout(..) => self.payouts += 1,
                 Action::Behind(finalized) => self.behind.push((from, finalized)),
+                Action::Evidence(evidence) => self.evidence.push((from, *evidence)),
             }
         }
         self.persist(from);
@@ -420,6 +424,39 @@ fn member(net: &mut Network, seed: u8) -> (AccountNumber, NodeKey) {
     net.request(&Request::Submit(op));
     net.run(1_000);
     (number, key)
+}
+
+// spec/designs/settlement-hubs.md#10-consensus: what the engine proves
+// against validators that broke the rules reaches the host, to publish. A
+// validator that votes for two blocks in one view is named, and no other.
+#[test]
+fn a_validator_reports_the_evidence_its_engine_finds() {
+    use dassie_hub::consensus::wire::Message as Consensus;
+    use dassie_hub::consensus::{Vote, VoteKind};
+    use dassie_hub::validators::ValidatorIndex;
+
+    let mut net = Network::new();
+    let hub = net.rules.id().0;
+    let liar = ValidatorKeys::derive(&net.node_keys[2], &NONCE)
+        .unwrap()
+        .consensus;
+    let signer = ValidatorIndex::new(2).unwrap();
+    for block in [Digest([1; 32]), Digest([2; 32])] {
+        let vote = Vote::sign(&hub, &liar, signer, VoteKind::Notarize, (0, 1), block);
+        let bytes = Message::Consensus(Consensus::Vote(vote).to_vec()).to_vec();
+        let node = net.nodes[2];
+        net.validators[0].handle(net.now, PeerId(2), Some(&node), &bytes);
+        net.collect(0);
+    }
+    let named: Vec<_> = net
+        .evidence
+        .iter()
+        .map(|(by, evidence)| (*by, evidence.culprits()))
+        .collect();
+    assert_eq!(
+        named,
+        [(0, dassie_hub::validators::Signers::NONE.with(signer))]
+    );
 }
 
 #[test]

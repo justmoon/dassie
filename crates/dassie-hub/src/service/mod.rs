@@ -27,7 +27,7 @@ pub use mempool::{MAX_GAPPED, Mempool, SEQUENCE_WINDOW, VALIDATOR_WINDOW};
 
 use crate::client::{Request, SignedStatement, Statement};
 use crate::consensus::{
-    Batch, Block, Config, Engine, Event, Finalized, Output, PeerId, Recipient, Stored,
+    Batch, Block, Config, Engine, Event, Evidence, Finalized, Output, PeerId, Recipient, Stored,
 };
 use crate::escrow::{
     PayoutBundle, PayoutSet, ValidatorKeys, payout_set, sign_payout_set, withdrawal_payment,
@@ -99,6 +99,10 @@ pub enum Action {
     /// validator, and hand it to [`Validator::catch_up`]
     /// (spec/areas/hubs.md#the-validators-service).
     Behind(Box<Finalized>),
+    /// Validators broke the rules no honest validator breaks: publish the
+    /// evidence, which names them and proves itself to anyone with the set
+    /// (spec/designs/settlement-hubs.md#10-consensus).
+    Evidence(Box<Evidence>),
 }
 
 /// Why [`Validator::catch_up`] did not take a state.
@@ -584,6 +588,7 @@ impl Validator {
             match event {
                 Event::Proposed { view, block, .. } => self.chain.adopt_proposal(view, block),
                 Event::Behind(finalized) => self.actions.push_back(Action::Behind(finalized)),
+                Event::Evidence(evidence) => self.actions.push_back(Action::Evidence(evidence)),
                 _ => {}
             }
         }
