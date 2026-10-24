@@ -426,6 +426,12 @@ impl HubAccount {
         &self.rules.terms
     }
 
+    /// The hub's rules, as the account was built with them.
+    #[must_use]
+    pub const fn rules(&self) -> &Rules {
+        &self.rules
+    }
+
     /// The account's key.
     #[must_use]
     pub fn key(&self) -> PublicKey {

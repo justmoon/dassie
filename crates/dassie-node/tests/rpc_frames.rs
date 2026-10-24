@@ -628,6 +628,26 @@ fn hub() -> BoxedStrategy<Method> {
             Method::SetHubAutomatic(proto::SetHubAutomaticRequest { automatic })
         }),
         Just(Method::HubGiveUp(proto::HubGiveUpRequest {})),
+        (
+            field(&["", "{}", "{\"fees\":{\"operation\":0}}", "["]),
+            number()
+        )
+            .prop_map(|(terms, drops)| {
+                let invite = |node: &str| proto::HubFoundingInvite {
+                    node: node.into(),
+                    endpoint: "v.example:443".into(),
+                };
+                Method::FoundHub(proto::FoundHubRequest {
+                    validators: vec![invite("dA"), invite("dB"), invite("dC"), invite("dD")],
+                    terms,
+                    escrow_funding_drops: Some(drops),
+                    xrpl_server: String::new(),
+                })
+            }),
+        field(&["", "00", "x; DROP TABLE x"])
+            .prop_map(|nonce| { Method::DropHubFounding(proto::DropHubFoundingRequest { nonce }) }),
+        Just(Method::ListHubFoundings(proto::ListHubFoundingsRequest {})),
+        Just(Method::GetHubPayout(proto::GetHubPayoutRequest {})),
     ]
     .boxed()
 }

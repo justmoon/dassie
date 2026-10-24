@@ -55,6 +55,7 @@ import "dassie/ui/v1/btp.proto";
 import "dassie/ui/v1/config.proto";
 import "dassie/ui/v1/debug.proto";
 import "dassie/ui/v1/devices.proto";
+import "dassie/ui/v1/hub_founding.proto";
 import "dassie/ui/v1/hub_member.proto";
 import "dassie/ui/v1/inspect.proto";
 import "dassie/ui/v1/ledger.proto";
@@ -191,6 +192,12 @@ message Request {
     HubWithdrawRequest hub_withdraw = 132;
     SetHubAutomaticRequest set_hub_automatic = 133;
     HubGiveUpRequest hub_give_up = 134;
+
+    // HubFoundingService (hub_founding.proto).
+    FoundHubRequest found_hub = 135;
+    DropHubFoundingRequest drop_hub_founding = 136;
+    ListHubFoundingsRequest list_hub_foundings = 137;
+    GetHubPayoutRequest get_hub_payout = 138;
   }
 }
 
@@ -291,6 +298,11 @@ message Response {
     HubWithdrawResponse hub_withdraw = 132;
     SetHubAutomaticResponse set_hub_automatic = 133;
     HubGiveUpResponse hub_give_up = 134;
+
+    FoundHubResponse found_hub = 135;
+    DropHubFoundingResponse drop_hub_founding = 136;
+    ListHubFoundingsResponse list_hub_foundings = 137;
+    GetHubPayoutResponse get_hub_payout = 138;
   }
 }
 

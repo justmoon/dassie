@@ -732,9 +732,17 @@ fn start_optional(
             Box::new(|node, shutdown| Box::pin(crate::feed::run(node, shutdown))),
         );
     }
+    // Founding hubs as a sponsor, and keeping the payout bundles of the
+    // hub the node is a member of (spec/areas/hubs.md#founding-a-hub).
+    spawn(
+        "hubs",
+        Box::new(|node, shutdown| Box::pin(crate::hub::sponsor::run(node, shutdown))),
+    );
     // Validating is something the owner turns on
-    // (spec/areas/hubs.md#the-validator-in-the-node).
-    if let Some(config) = validator.filter(|config| !config.hubs.is_empty()) {
+    // (spec/areas/hubs.md#the-validator-in-the-node): for the sponsors its
+    // file lists, with the hubs it names and those founded with the node.
+    if let Some(config) = validator {
+        node.attach_founding(Arc::new(crate::hub::founding::Founding::new(&config)));
         let config = Arc::new(config);
         spawn(
             "validator",

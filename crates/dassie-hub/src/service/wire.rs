@@ -13,6 +13,8 @@ use dassie_xrpl::keys::{PublicKey, Signature};
 
 use crate::client::{MAX_STATEMENTS, Request, SignedStatement};
 use crate::codec::HubDecodeError;
+use crate::escrow::PayoutEntry;
+use crate::escrow::payout::MAX_PAYOUT_TRANSACTION_BYTES;
 use crate::operation::Operation;
 
 /// The most bytes of one message's content: the largest consensus message,
@@ -65,6 +67,114 @@ pub fn split_statements(statements: Vec<SignedStatement>) -> Vec<Vec<SignedState
     lists
 }
 
+/// The most transactions of a payout set in one page of it.
+pub const MAX_PAYOUT_PAGE: usize = 1024;
+
+/// The most bytes of the transactions and signatures of one page.
+pub const MAX_PAYOUT_PAGE_BYTES: usize = 512 * 1024;
+
+const _: () = assert!(
+    MAX_PAYOUT_PAGE_BYTES + MAX_PAYOUT_TRANSACTION_BYTES + 256 < MAX_CONTENT,
+    "a page fits a message"
+);
+
+/// A page of the payout set a validator signed: from the transaction at
+/// `first` on, as many as fit a page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PayoutPage {
+    /// The height of the block the set pays out.
+    pub height: u64,
+    /// How many transactions the whole set has.
+    pub total: u32,
+    /// The place of this page's first in the set.
+    pub first: u32,
+    /// The transactions, each with the validator's signature.
+    pub entries: Vec<PayoutEntry>,
+}
+
+const SIGNATURE_SIZE: Size = Size::range(1, 72);
+/// The size of one transaction of a payout set.
+pub(crate) const TRANSACTION_SIZE: Size = Size::range(1, MAX_PAYOUT_TRANSACTION_BYTES);
+
+impl PayoutPage {
+    /// The page of `entries`, the whole set of `height`, from `first` on:
+    /// at least one transaction, if any is left, and at most a page's
+    /// count and bytes.
+    #[must_use]
+    pub fn of(height: u64, entries: &[PayoutEntry], first: u32) -> Self {
+        let mut bytes = 0_usize;
+        let page = entries
+            .iter()
+            .skip(usize::try_from(first).unwrap_or(usize::MAX))
+            .take(MAX_PAYOUT_PAGE)
+            .take_while(|entry| {
+                let fits =
+                    bytes == 0 || bytes.saturating_add(entry_len(entry)) <= MAX_PAYOUT_PAGE_BYTES;
+                bytes = bytes.saturating_add(entry_len(entry));
+                fits
+            })
+            .cloned()
+            .collect();
+        Self {
+            height,
+            total: u32::try_from(entries.len()).unwrap_or(u32::MAX),
+            first,
+            entries: page,
+        }
+    }
+}
+
+/// The encoded length of one entry of a payout set.
+pub(crate) fn entry_len(entry: &PayoutEntry) -> usize {
+    size::prefixed(entry.transaction.len())
+        + 20
+        + 33
+        + size::prefixed(entry.signer.signature.as_bytes().len())
+}
+
+impl Encode for PayoutPage {
+    fn encoded_len(&self) -> usize {
+        8 + 4
+            + 4
+            + size::quantity(self.entries.len())
+            + self.entries.iter().map(entry_len).sum::<usize>()
+    }
+
+    fn encode_to(&self, writer: &mut Writer<'_>) {
+        writer.write_u64(self.height);
+        writer.write_u32(self.total);
+        writer.write_u32(self.first);
+        writer.write_quantity(self.entries.len());
+        for entry in &self.entries {
+            writer.write_octets(&entry.transaction, TRANSACTION_SIZE);
+            write_signer(writer, &entry.signer);
+        }
+    }
+}
+
+impl PayoutPage {
+    fn decode(reader: &mut Reader<'_>) -> Result<Self, HubDecodeError> {
+        let height = reader.read_u64()?;
+        let total = reader.read_u32()?;
+        let first = reader.read_u32()?;
+        let count = reader.read_quantity(MAX_PAYOUT_PAGE)?;
+        let mut entries = Vec::with_capacity(count);
+        for _ in 0..count {
+            let transaction = reader.read_octets(TRANSACTION_SIZE)?.to_vec();
+            entries.push(PayoutEntry {
+                transaction,
+                signer: read_signer(reader)?,
+            });
+        }
+        Ok(Self {
+            height,
+            total,
+            first,
+            entries,
+        })
+    }
+}
+
 /// One message on a hub's stream.
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,6 +187,9 @@ pub enum Message {
     Request(Request),
     /// Statements, to a member.
     Statements(Vec<SignedStatement>),
+    /// A page of the payout set a validator signed, to a member that
+    /// asked for it.
+    Payout(PayoutPage),
     /// A validator's signature of the escrow's transaction at `sequence`.
     Share {
         /// The escrow sequence.
@@ -86,17 +199,19 @@ pub enum Message {
     },
 }
 
-fn write_signer(writer: &mut Writer<'_>, signer: &Signer) {
+/// Writes an escrow signature.
+pub(crate) fn write_signer(writer: &mut Writer<'_>, signer: &Signer) {
     writer.write_bytes(&signer.account.0);
     writer.write_bytes(signer.signing_pub_key.as_bytes());
-    writer.write_octets(signer.signature.as_bytes(), Size::range(1, 72));
+    writer.write_octets(signer.signature.as_bytes(), SIGNATURE_SIZE);
 }
 
-fn read_signer(reader: &mut Reader<'_>) -> Result<Signer, HubDecodeError> {
+/// Reads an escrow signature; whether it verifies is the caller's to check.
+pub(crate) fn read_signer(reader: &mut Reader<'_>) -> Result<Signer, HubDecodeError> {
     let account = AccountId(*reader.read_array::<20>()?);
     let key =
         PublicKey::from_bytes(*reader.read_array::<33>()?).ok_or(HubDecodeError::InvalidKey)?;
-    let signature = Signature::from_slice(reader.read_octets(Size::range(1, 72))?)
+    let signature = Signature::from_slice(reader.read_octets(SIGNATURE_SIZE)?)
         .ok_or(HubDecodeError::Invalid("signature"))?;
     Ok(Signer {
         account,
@@ -117,6 +232,7 @@ impl Encode for Message {
             Self::Share { signer, .. } => {
                 4 + 20 + 33 + size::prefixed(signer.signature.as_bytes().len())
             }
+            Self::Payout(page) => page.encoded_len(),
         }
     }
 
@@ -145,6 +261,10 @@ impl Encode for Message {
                 writer.write_u8(4);
                 writer.write_u32(*sequence);
                 write_signer(writer, signer);
+            }
+            Self::Payout(page) => {
+                writer.write_u8(5);
+                page.encode_to(writer);
             }
         }
     }
@@ -176,6 +296,7 @@ impl Message {
                 sequence: reader.read_u32()?,
                 signer: read_signer(&mut reader)?,
             },
+            5 => Self::Payout(PayoutPage::decode(&mut reader)?),
             other => return Err(HubDecodeError::UnknownChoice(u64::from(other))),
         };
         reader.finish()?;

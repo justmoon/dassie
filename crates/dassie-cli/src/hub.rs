@@ -9,6 +9,8 @@
 //! - `dassie hub auto on|off` turns the node's own moves on or off.
 //! - `dassie hub give-up` gives up a move that is late; the node's own
 //!   moves then wait for the owner.
+//! - `dassie hub found`, `foundings`, `drop` and `payout` found hubs, and
+//!   show the payout bundles kept ([`crate::founding`]).
 
 use dassie_node::env::Env;
 use dassie_node::rpc::proto::{self, request::Method, response};
@@ -21,7 +23,7 @@ use crate::status::{amount, date, entries, line, unexpected};
 const SCALE: u32 = 9;
 
 /// What `dassie hub` is asked to do.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
     /// Show the account.
     Status,
@@ -33,6 +35,8 @@ pub enum Command {
     Automatic(bool),
     /// Give up the late move.
     GiveUp,
+    /// Found a hub, or see the foundings or the payout bundles.
+    Founding(crate::founding::Command),
 }
 
 /// Reads `dassie hub`'s arguments.
@@ -53,6 +57,9 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Command, lexopt::Error> {
                 other => return Err(format!("`auto` takes on or off, not {other:?}").into()),
             },
             "give-up" => Command::GiveUp,
+            word @ ("found" | "foundings" | "drop" | "payout") => {
+                return crate::founding::args(word, parser).map(Command::Founding);
+            }
             other => return Err(format!("unknown hub command {other:?}").into()),
         },
         Some(other) => return Err(other.unexpected()),
@@ -64,7 +71,7 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Command, lexopt::Error> {
 }
 
 /// An amount of XRP, such as `2.5`, in the hub ledger's units.
-fn xrp(text: &str) -> Result<u64, String> {
+pub(crate) fn xrp(text: &str) -> Result<u64, String> {
     let invalid = || format!("{text:?} is not an amount of XRP, such as 2.5");
     let (whole, fraction) = text.split_once('.').unwrap_or((text, ""));
     let digits = |part: &str| part.bytes().all(|byte| byte.is_ascii_digit());
@@ -84,6 +91,9 @@ fn xrp(text: &str) -> Result<u64, String> {
 
 /// Runs `dassie hub`.
 pub async fn run(env: &Env, command: Command) -> Result<(), String> {
+    if let Command::Founding(command) = command {
+        return crate::founding::run(env, command).await;
+    }
     let mut client = Client::connect(env).await.map_err(|error| error.message)?;
     let method = match command {
         Command::Status => Method::GetHubStatus(proto::GetHubStatusRequest {}),
@@ -93,6 +103,7 @@ pub async fn run(env: &Env, command: Command) -> Result<(), String> {
             Method::SetHubAutomatic(proto::SetHubAutomaticRequest { automatic })
         }
         Command::GiveUp => Method::HubGiveUp(proto::HubGiveUpRequest {}),
+        Command::Founding(_) => return Err("not a move".into()),
     };
     let status = match client.call(method).await {
         Ok(

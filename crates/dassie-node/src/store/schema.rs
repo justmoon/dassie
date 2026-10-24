@@ -55,6 +55,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_31,
     MIGRATION_32,
     MIGRATION_33,
+    MIGRATION_34,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -1032,6 +1033,45 @@ CREATE TABLE hub_bundles (
 ) STRICT, WITHOUT ROWID;
 ";
 
+/// Founding settlement hubs (spec/areas/hubs.md#founding-a-hub): what a
+/// validator keeps of each founding it took part in, by the terms' nonce,
+/// the genesis it signed and whether it runs the hub; a sponsor's foundings
+/// and their escrow's funding; and the payout bundles a member read from
+/// its hub's validators, the newest of each.
+const MIGRATION_34: &str = "
+CREATE TABLE hub_founding_records (
+  nonce BLOB PRIMARY KEY CHECK (length(nonce) = 32),
+  sponsor BLOB NOT NULL CHECK (length(sponsor) = 32),
+  terms BLOB NOT NULL CHECK (length(terms) = 32),
+  accepted_at_ms INTEGER NOT NULL CHECK (accepted_at_ms >= 0),
+  rules BLOB CHECK (length(rules) BETWEEN 1 AND 65536),
+  genesis_ms INTEGER CHECK (genesis_ms >= 0),
+  running INTEGER NOT NULL CHECK (running IN (0, 1)),
+  CHECK ((rules IS NULL) = (genesis_ms IS NULL)),
+  CHECK (running = 0 OR rules IS NOT NULL)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE hub_foundings (
+  nonce BLOB PRIMARY KEY CHECK (length(nonce) = 32),
+  state BLOB NOT NULL CHECK (length(state) BETWEEN 1 AND 65536),
+  xrpl TEXT NOT NULL CHECK (length(xrpl) BETWEEN 1 AND 2048),
+  funding_drops INTEGER NOT NULL CHECK (funding_drops > 0),
+  escrow_payment TEXT CHECK (length(escrow_payment) BETWEEN 1 AND 64),
+  problem TEXT CHECK (length(problem) BETWEEN 1 AND 512),
+  created_at_ms INTEGER NOT NULL CHECK (created_at_ms >= 0),
+  updated_at_ms INTEGER NOT NULL CHECK (updated_at_ms >= 0)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE hub_payouts (
+  hub BLOB NOT NULL CHECK (length(hub) = 32),
+  validator INTEGER NOT NULL CHECK (validator BETWEEN 0 AND 15),
+  height INTEGER NOT NULL CHECK (height >= 0),
+  received_at_ms INTEGER NOT NULL CHECK (received_at_ms >= 0),
+  bundle BLOB NOT NULL CHECK (length(bundle) BETWEEN 1 AND 16777216),
+  PRIMARY KEY (hub, validator)
+) STRICT, WITHOUT ROWID;
+";
+
 /// Settlement hubs (spec/areas/hubs.md#in-the-node): whether the node moves
 /// funds between its XRPL account and its hub by itself, which the owner
 /// may turn off; until when an owner's move pauses that; and the move on
@@ -1580,6 +1620,44 @@ pub const TABLES: &[Table] = &[
             ("hub", "BLOB", true, true),
             ("height", "INTEGER", true, true),
             ("signed_at_ms", "INTEGER", true, false),
+            ("bundle", "BLOB", true, false),
+        ],
+    },
+    Table {
+        name: "hub_founding_records",
+        without_rowid: true,
+        columns: &[
+            ("nonce", "BLOB", true, true),
+            ("sponsor", "BLOB", true, false),
+            ("terms", "BLOB", true, false),
+            ("accepted_at_ms", "INTEGER", true, false),
+            ("rules", "BLOB", false, false),
+            ("genesis_ms", "INTEGER", false, false),
+            ("running", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "hub_foundings",
+        without_rowid: true,
+        columns: &[
+            ("nonce", "BLOB", true, true),
+            ("state", "BLOB", true, false),
+            ("xrpl", "TEXT", true, false),
+            ("funding_drops", "INTEGER", true, false),
+            ("escrow_payment", "TEXT", false, false),
+            ("problem", "TEXT", false, false),
+            ("created_at_ms", "INTEGER", true, false),
+            ("updated_at_ms", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "hub_payouts",
+        without_rowid: true,
+        columns: &[
+            ("hub", "BLOB", true, true),
+            ("validator", "INTEGER", true, true),
+            ("height", "INTEGER", true, false),
+            ("received_at_ms", "INTEGER", true, false),
             ("bundle", "BLOB", true, false),
         ],
     },

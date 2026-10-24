@@ -29,7 +29,9 @@ use crate::client::{Request, SignedStatement, Statement};
 use crate::consensus::{
     Batch, Block, Config, Engine, Event, Finalized, Output, PeerId, Recipient, Stored,
 };
-use crate::escrow::{PayoutSet, ValidatorKeys, payout_set, sign_payout_set, withdrawal_payment};
+use crate::escrow::{
+    PayoutBundle, PayoutSet, ValidatorKeys, payout_set, sign_payout_set, withdrawal_payment,
+};
 use crate::ledger::{Ledger, Phase};
 use crate::operation::{AccountNumber, Operation, SignedValidatorOperation, ValidatorOperation};
 use crate::rules::{HubId, Millis, Rules, RulesError};
@@ -146,6 +148,8 @@ pub struct Validator {
     shares: BTreeMap<u32, BTreeMap<usize, Signer>>,
     signed: BTreeMap<u32, ()>,
     payout_signed: bool,
+    /// The payout set we signed, for members that ask.
+    payout: Option<PayoutBundle>,
     actions: VecDeque<Action>,
     batches: Vec<Batch>,
 }
@@ -203,6 +207,7 @@ impl Validator {
             shares: BTreeMap::new(),
             signed: BTreeMap::new(),
             payout_signed: false,
+            payout: None,
             actions: VecDeque::new(),
             batches: Vec::new(),
         })
@@ -280,6 +285,7 @@ impl Validator {
             shares: BTreeMap::new(),
             signed: BTreeMap::new(),
             payout_signed: false,
+            payout: None,
             actions: VecDeque::new(),
             batches: Vec::new(),
         })
@@ -379,7 +385,7 @@ impl Validator {
             }
             Ok(Message::Request(request)) => self.answer(from, request),
             Ok(Message::Share { sequence, signer }) => self.take_share(sequence, signer),
-            Ok(Message::Statements(_)) | Err(_) => {}
+            Ok(Message::Statements(_) | Message::Payout(_)) | Err(_) => {}
         }
         self.after(now);
     }
@@ -463,6 +469,16 @@ impl Validator {
             } => {
                 self.subscribe(from, account);
                 self.since(account, height)
+            }
+            // The payout set we signed, a page at a time, to anyone: its
+            // signatures prove themselves. Nothing until we signed one.
+            Request::Payout { from: first } => {
+                if let Some(bundle) = &self.payout {
+                    let page = wire::PayoutPage::of(bundle.height, &bundle.entries, first);
+                    let message = Message::Payout(page).to_vec();
+                    self.actions.push_back(Action::Peer(from, message));
+                }
+                return;
             }
         };
         self.send_statements(from, statements);
@@ -713,6 +729,7 @@ impl Validator {
         };
         if let Some(signatures) = sign_payout_set(&set, &self.keys) {
             self.payout_signed = true;
+            self.payout = Some(PayoutBundle::of(&set, &signatures));
             self.actions.push_back(Action::Payout(set, signatures));
         }
     }

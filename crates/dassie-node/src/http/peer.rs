@@ -197,6 +197,31 @@ impl crate::quic::Handler for QuicHandler {
         })
     }
 
+    /// Founding requests are read only from a sponsor the validator file
+    /// lists, and only where the owner turned validating on.
+    fn hub_founding_access(
+        &self,
+        from: &dassie_identity::PublicKey,
+    ) -> crate::hub::founding::FoundingAccess {
+        self.0.founding().map_or(
+            crate::hub::founding::FoundingAccess::NotListed,
+            |founding| founding.access(from),
+        )
+    }
+
+    /// A listed sponsor's requests while it founds a hub with the node.
+    fn hub_founding<'a>(
+        &'a self,
+        from: dassie_identity::PublicKey,
+        request: Vec<u8>,
+        place: crate::hub::founding::FoundingPlace,
+    ) -> Pin<Box<dyn Future<Output = Option<Vec<u8>>> + Send + 'a>> {
+        Box::pin(async move {
+            let founding = self.0.founding()?;
+            founding.answer(&self.0, &from, &request, place).await
+        })
+    }
+
     /// Open Payments, and owner apps' RPC. The wallet, `/api/*` and `/rpc`
     /// are never relayed (spec/decisions/core-and-periphery.md): an owner
     /// app proves its device key instead of carrying a browser's cookie.

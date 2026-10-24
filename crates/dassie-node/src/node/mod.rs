@@ -426,6 +426,11 @@ pub struct Node {
     /// The settlement hubs the node validates, which the hub's stream
     /// reaches (spec/areas/hubs.md#the-validator-in-the-node).
     hubs: Arc<crate::hub::Hubs>,
+    /// The validator's side of founding hubs, where the owner turned
+    /// validating on (spec/areas/hubs.md#founding-a-hub).
+    founding: std::sync::OnceLock<Arc<crate::hub::founding::Founding>>,
+    /// The hubs the node founds as a sponsor.
+    sponsoring: crate::hub::sponsor::Sponsoring,
 }
 
 impl std::fmt::Debug for Node {
@@ -534,7 +539,28 @@ impl Node {
             quic: std::sync::OnceLock::new(),
             feed: std::sync::OnceLock::new(),
             hubs: Arc::new(crate::hub::Hubs::default()),
+            founding: std::sync::OnceLock::new(),
+            sponsoring: crate::hub::sponsor::Sponsoring::default(),
         }))
+    }
+
+    /// The validator's side of founding hubs, where the owner turned
+    /// validating on.
+    #[must_use]
+    pub fn founding(&self) -> Option<&Arc<crate::hub::founding::Founding>> {
+        self.founding.get()
+    }
+
+    /// Gives the node the validator's side of founding hubs, before its
+    /// services start.
+    pub fn attach_founding(&self, founding: Arc<crate::hub::founding::Founding>) {
+        let _ = self.founding.set(founding);
+    }
+
+    /// The hubs the node founds as a sponsor.
+    #[must_use]
+    pub const fn sponsoring(&self) -> &crate::hub::sponsor::Sponsoring {
+        &self.sponsoring
     }
 
     /// The settlement hubs the node validates.

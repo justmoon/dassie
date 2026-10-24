@@ -16,17 +16,19 @@
 )]
 
 use dassie_hub::escrow::{
-    EscrowFault, PayoutTransaction, ValidatorKeys, check_escrow, deposit_of, escrow_master,
-    outcome_of, payout_set, setup, sign_payout_set, signer_list_set, withdrawal_outcome,
-    withdrawal_payment,
+    EscrowFault, EscrowSeen, PayoutBundle, PayoutError, PayoutTransaction, SetupStep,
+    ValidatorKeys, check_escrow, deposit_of, escrow_master, outcome_of, payout_set, setup,
+    setup_step, sign_payout_set, signer_list_set, withdrawal_outcome, withdrawal_payment,
 };
 use dassie_hub::ledger::Failure;
 use dassie_hub::ledger::{Block, Detail, Outcome, Phase};
+use dassie_hub::member::{Payouts, Taken};
 use dassie_hub::operation::{
     AccountNumber, Destination, MemberOperation, Operation, SignedMemberOperation,
     SignedValidatorOperation, ValidatorOperation,
 };
 use dassie_hub::rules::{Acceptance, Fees, Limits, Rules, Terms, Timers};
+use dassie_hub::service::wire::PayoutPage;
 use dassie_hub::validators::{Signers, ValidatorIndex};
 use dassie_hub::{Ledger, Millis};
 use dassie_identity::NodeKey;
@@ -60,6 +62,48 @@ fn submit(ledger: &mut FakeLedger, blob: &[u8]) -> String {
 fn record(ledger: &mut FakeLedger, hash: &[u8; 32]) -> TxRecord {
     let result = request(ledger, &api::tx_anywhere(4, hash));
     api::tx_result(&result).unwrap()
+}
+
+/// What the ledger shows of the escrow, as the sponsor reads it: `None`
+/// while it has no account.
+fn seen(ledger: &mut FakeLedger, escrow: AccountId) -> Option<EscrowSeen> {
+    let info = match api::parse(&ledger.request(CONNECTION, &api::account_info(1, escrow))) {
+        api::Message::Response {
+            outcome: Ok(result),
+            ..
+        } => result,
+        _ => return None,
+    };
+    let objects = request(ledger, &api::account_objects(2, escrow, None));
+    Some(EscrowSeen {
+        sequence: api::account_info_result(&info)?.sequence,
+        settings: api::account_settings_result(&info)?,
+        objects: api::account_objects_result(&objects)?,
+    })
+}
+
+/// The sponsor sets the escrow up as `setup_step` says, step by step,
+/// until it is done: funded, then what is missing of the setup.
+fn set_up(xrpl: &mut FakeLedger, rules: &Rules, master: &Wallet) -> usize {
+    for steps in 0..4 {
+        match setup_step(
+            rules,
+            master,
+            seen(xrpl, master.account()).as_ref(),
+            FEE_BASE,
+        ) {
+            SetupStep::Fund => xrpl.fund(master.account()),
+            SetupStep::Submit(transactions) => {
+                for transaction in transactions {
+                    assert_eq!(submit(xrpl, transaction.blob()), "tesSUCCESS");
+                }
+            }
+            SetupStep::Done => return steps,
+            other => panic!("{other:?}"),
+        }
+        xrpl.close();
+    }
+    panic!("the escrow is not set up");
 }
 
 fn terms(sponsor: &NodeKey, escrow: AccountId) -> Terms {
@@ -142,13 +186,7 @@ impl Hub {
         rules.check().unwrap();
         // The escrow is created by funding it, then set up by its master
         // key, which it disables last.
-        xrpl.fund(master.account());
-        xrpl.close();
-        let first = sequence(&mut xrpl, master.account());
-        for transaction in setup(&rules, &master, first, FEE_BASE) {
-            assert_eq!(submit(&mut xrpl, transaction.blob()), "tesSUCCESS");
-        }
-        xrpl.close();
+        assert_eq!(set_up(&mut xrpl, &rules, &master), 2, "funded, then set up");
         let escrow = master.account();
         let settings =
             api::account_settings_result(&request(&mut xrpl, &api::account_info(1, escrow)))
@@ -345,24 +383,31 @@ fn a_hub_from_founding_to_payout() {
     let owed = hub.ledger.account(number).unwrap();
     let alice_total = owed.balance + owed.reserve - LEDGER_FEE;
     let before = hub.xrpl.balance(alice.account()).unwrap();
-    let mut alice_paid = false;
-    for (i, transaction) in set.transactions.iter().enumerate() {
-        let signers: Vec<Signer> = signatures.iter().map(|s| s[i]).collect();
-        match transaction {
-            PayoutTransaction::Payout(payment) => {
-                alice_paid |= payment.destination == alice.account();
-                hub.submit_signed(payment.clone(), signers);
-            }
-            PayoutTransaction::Selector(list) | PayoutTransaction::SignerList(list) => {
-                hub.submit_signed(list.clone(), signers);
-            }
-            PayoutTransaction::Withdrawal(payment) => {
-                hub.submit_signed(payment.clone(), signers);
-            }
+    let alice_paid = set.transactions.iter().any(|transaction| {
+        matches!(transaction, PayoutTransaction::Payout(payment)
+            if payment.destination == alice.account())
+    });
+    assert!(alice_paid);
+    // A member reads each validator's bundle, checks and keeps it; with a
+    // quorum's, it submits the set itself, in order.
+    let mut payouts = Payouts::new(hub.rules.clone());
+    for (offset, signed) in signatures.iter().enumerate() {
+        let bundle = PayoutBundle::of(&set, signed);
+        let page = PayoutPage::of(bundle.height, &bundle.entries, 0);
+        let taken = payouts.take(offset + 1, page.clone()).unwrap();
+        assert_eq!(taken, Taken::Kept(set.height));
+        assert_eq!(payouts.take(offset + 1, page).unwrap(), Taken::Nothing);
+        if offset < 1 {
+            assert!(payouts.assembled().is_none(), "not a quorum yet");
         }
+    }
+    let (height, blobs) = payouts.assembled().unwrap();
+    assert_eq!(height, set.height);
+    assert_eq!(blobs.len(), set.transactions.len());
+    for blob in &blobs {
+        assert_eq!(submit(&mut hub.xrpl, blob), "tesSUCCESS");
         hub.xrpl.close();
     }
-    assert!(alice_paid);
     assert_eq!(
         hub.xrpl.balance(alice.account()).unwrap(),
         before + alice_total
@@ -891,4 +936,141 @@ fn a_node_moves_its_funds_into_the_hub_and_out() {
     );
     let account = hub.ledger.account(number).unwrap();
     assert_eq!(account.withdrawn, 8_000_000 + LEDGER_FEE);
+}
+
+// spec/designs/settlement-hubs.md#2-founding-a-hub: the sponsor's setup goes
+// on from where it stopped, each missing transaction at the account's
+// next sequence, the master key disabled last; once disabled, nothing is
+// left for the master key to do.
+#[test]
+fn the_sponsor_sets_up_what_is_missing() {
+    let mut xrpl = FakeLedger::new();
+    let sponsor = NodeKey::from_bytes(&[100; 32]);
+    let master = escrow_master(&sponsor, &NONCE).unwrap();
+    let terms = terms(&sponsor, master.account());
+    let nodes: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
+    let validators = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, node)| {
+            ValidatorKeys::derive(node, &NONCE)
+                .unwrap()
+                .accept(node, &terms, format!("v{i}.example:443"))
+                .unwrap()
+        })
+        .collect();
+    let rules = Rules { terms, validators };
+    assert!(matches!(
+        setup_step(&rules, &master, None, FEE_BASE),
+        SetupStep::Fund
+    ));
+    xrpl.fund(master.account());
+    xrpl.close();
+    // Only the signer list made it before the sponsor stopped.
+    let first = sequence(&mut xrpl, master.account());
+    let [list, _, _] = setup(&rules, &master, first, FEE_BASE);
+    assert_eq!(submit(&mut xrpl, list.blob()), "tesSUCCESS");
+    xrpl.close();
+    let Some(now) = seen(&mut xrpl, master.account()) else {
+        panic!("funded");
+    };
+    let SetupStep::Submit(rest) = setup_step(&rules, &master, Some(&now), FEE_BASE) else {
+        panic!("more to do");
+    };
+    assert_eq!(rest.len(), 2, "RequireDest, then the master key");
+    let mut unvalidated = now.clone();
+    unvalidated.settings.validated = false;
+    assert!(matches!(
+        setup_step(&rules, &master, Some(&unvalidated), FEE_BASE),
+        SetupStep::Wait
+    ));
+    assert_eq!(set_up(&mut xrpl, &rules, &master), 1);
+    // Set up by another list, the master key disabled: the sponsor can no
+    // longer mend it, and the validators never take it.
+    let Some(done) = seen(&mut xrpl, master.account()) else {
+        panic!("funded");
+    };
+    let mut other = rules.clone();
+    other.validators.swap(0, 3);
+    other.validators[0].escrow = other.validators[1].escrow;
+    assert!(matches!(
+        setup_step(&other, &master, Some(&done), FEE_BASE),
+        SetupStep::Broken(EscrowFault::SignerList)
+    ));
+}
+
+// spec/designs/settlement-hubs.md#9-shutdown: a member takes a validator's
+// payout set only as that validator signed it, page by page, and keeps
+// the highest; a bundle signed by another key, or a set changed after it
+// was signed, is refused.
+#[test]
+fn members_keep_only_payout_sets_their_validators_signed() {
+    let mut hub = Hub::found();
+    let alice = Wallet::from_seed([31; 16]);
+    hub.xrpl.fund(alice.account());
+    hub.xrpl.close();
+    let alice_key = NodeKey::from_bytes(&[32; 32]);
+    let number = deposit(&mut hub, &alice, &alice_key, 50_000_000);
+    let to = Destination {
+        account: alice.account().0,
+        tag: None,
+    };
+    hub.member(number, &alice_key, MemberOperation::SetDisbursal(to));
+    let set = payout_set(&hub.ledger).unwrap();
+    assert!(
+        set.transactions.len() >= 2,
+        "the selector and alice's payout"
+    );
+    let signed = sign_payout_set(&set, &hub.validators[2]).unwrap();
+    let bundle = PayoutBundle::of(&set, &signed);
+    bundle.verify(&hub.rules, 2).unwrap();
+    assert_eq!(bundle.verify(&hub.rules, 1), Err(PayoutError::Signature(0)));
+    // A set whose payout was changed after it was signed.
+    let mut changed = bundle.clone();
+    let last = changed.entries.len() - 1;
+    let PayoutTransaction::Payout(mut payment) = set.transactions[last].clone() else {
+        panic!("a payout last");
+    };
+    payment.amount = Amount::Xrp(1_000_000_000);
+    changed.entries[last].transaction = payment.blob();
+    assert_eq!(
+        changed.verify(&hub.rules, 2),
+        Err(PayoutError::Signature(last))
+    );
+    // A payout signed with the escrow key rather than the set's own key.
+    let mut escrow_signed = bundle.clone();
+    let PayoutTransaction::Payout(payout) = &set.transactions[last] else {
+        panic!("a payout last");
+    };
+    let keys = &hub.validators[2];
+    escrow_signed.entries[last].signer = payout.multi_sign(keys.escrow.account(), &keys.escrow);
+    assert_eq!(
+        escrow_signed.verify(&hub.rules, 2),
+        Err(PayoutError::Signature(last))
+    );
+    // Page by page, in order; a page out of place is asked for again.
+    let mut payouts = Payouts::new(hub.rules.clone());
+    let page = |first: u32, count: usize| PayoutPage {
+        height: bundle.height,
+        total: u32::try_from(bundle.entries.len()).unwrap(),
+        first,
+        entries: bundle.entries[first as usize..first as usize + count].to_vec(),
+    };
+    assert_eq!(payouts.take(2, page(1, 1)).unwrap(), Taken::More(0));
+    assert_eq!(payouts.take(2, page(0, 1)).unwrap(), Taken::More(1));
+    assert_eq!(
+        payouts.request(2),
+        dassie_hub::client::Request::Payout { from: 1 }
+    );
+    let rest = bundle.entries.len() - 1;
+    assert_eq!(
+        payouts.take(2, page(1, rest)).unwrap(),
+        Taken::Kept(bundle.height)
+    );
+    assert_eq!(payouts.kept().count(), 1);
+    // A changed set is dropped whole, and the kept one stays.
+    let mut payouts = Payouts::new(hub.rules.clone());
+    let forged = PayoutPage::of(changed.height, &changed.entries, 0);
+    assert!(payouts.take(2, forged).is_err());
+    assert_eq!(payouts.kept().count(), 0);
 }

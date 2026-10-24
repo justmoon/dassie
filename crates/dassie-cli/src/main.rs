@@ -16,6 +16,7 @@
 //!   its own, from the node's rate feed.
 
 mod client;
+mod founding;
 mod front_door;
 mod hub;
 mod init;

@@ -188,6 +188,13 @@ pub enum Request {
         /// The first height of interest.
         from: u64,
     },
+    /// The payout set this validator signed, once the hub ended or
+    /// stalled, from its transaction at `from` on: a page at a time
+    /// (spec/designs/settlement-hubs.md#9-shutdown).
+    Payout {
+        /// The place in the set of the first transaction asked for.
+        from: u32,
+    },
 }
 
 impl AccountView {
@@ -914,6 +921,7 @@ impl Encode for Request {
             Self::Hold(_) => 8,
             Self::Holds(_) => 4,
             Self::Since { .. } => 4 + 8,
+            Self::Payout { .. } => 4,
         }
     }
 
@@ -940,6 +948,10 @@ impl Encode for Request {
                 writer.write_u8(4);
                 writer.write_u32(account.0);
             }
+            Self::Payout { from } => {
+                writer.write_u8(5);
+                writer.write_u32(*from);
+            }
         }
     }
 }
@@ -957,6 +969,9 @@ impl Request {
                 from: reader.read_u64()?,
             },
             4 => Self::Holds(AccountNumber(reader.read_u32()?)),
+            5 => Self::Payout {
+                from: reader.read_u32()?,
+            },
             other => return Err(HubDecodeError::UnknownChoice(u64::from(other))),
         };
         reader.finish()?;

@@ -16,6 +16,7 @@ mod devices;
 #[cfg(feature = "testing")]
 mod faults;
 mod gnap;
+mod hub_founding;
 mod hub_funding;
 mod hubs;
 mod inspect;
@@ -54,6 +55,9 @@ pub use devices::{
 #[cfg(feature = "testing")]
 pub use faults::{Aim, FailedCommit, Holds};
 pub use gnap::{GrantCounts, GrantRow, GrantState, MAX_GRANTS, TokenRow};
+pub use hub_founding::{
+    FoundingRecordRow, FoundingRow, MAX_FOUNDING_RECORDS, MAX_FOUNDINGS, MAX_PAYOUT_ROWS,
+};
 pub use hub_funding::{HubFundingRow, HubMoveRow};
 pub use hubs::{
     EscrowCursor, HubStep, KEPT_BOUNDARIES, KEPT_BUNDLES, KEPT_TIPS, MAX_HUB_BUNDLE_BYTES,

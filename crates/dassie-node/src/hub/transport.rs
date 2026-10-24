@@ -31,6 +31,17 @@
 //! state request = hub ID (32 bytes) || height (8 bytes, big-endian)
 //! state reply   = status (1 byte) || state     (the state only with 0)
 //! ```
+//!
+//! A sponsor founding a hub asks each validator it picked on a stream of
+//! its own, over QUIC only, pinned to the validator's node key, and the
+//! validator learns the sponsor from the key the connection proved
+//! (spec/areas/hubs.md#founding-a-hub). There is no hub ID yet: the
+//! request and the answer are `dassie_hub::founding`'s.
+//!
+//! ```text
+//! founding request = FoundingRequest
+//! founding answer  = FoundingAnswer
+//! ```
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -146,6 +157,9 @@ pub const STATE_REQUEST_BYTES: usize = HUB_ID_BYTES + 8;
 /// The largest reply to a request for a state: its status and the largest
 /// state the node stores.
 pub const MAX_STATE_REPLY_BYTES: usize = 1 + crate::store::MAX_HUB_LEDGER_BYTES;
+
+/// The largest founding request or answer.
+pub const MAX_FOUNDING_BYTES: usize = dassie_hub::founding::wire::MAX_FOUNDING_MESSAGE_BYTES;
 
 /// The media type of `POST /hub`'s body and of its reply.
 pub const MEDIA_TYPE: &str = "application/dassie-hub";
@@ -947,6 +961,29 @@ impl HubClient {
             Some((4, [])) => Err(HubExchangeError::Refused(HubAnswer::Busy)),
             _ => Err(HubExchangeError::BadReply),
         }
+    }
+
+    /// Sends a sponsor's founding request (a `FoundingRequest` encoded) to
+    /// the validator whose node is `node`, at `endpoint`, over QUIC only,
+    /// and returns its answer's bytes.
+    ///
+    /// # Errors
+    ///
+    /// See [`HubExchangeError`].
+    pub async fn found(
+        &self,
+        node: NodeId,
+        endpoint: &str,
+        request: &[u8],
+        timeout: Duration,
+    ) -> Result<Vec<u8>, HubExchangeError> {
+        let Some(quic) = &self.quic else {
+            return Err(HubExchangeError::Unreachable);
+        };
+        let sent = quic.hub_founding_exchange(node, endpoint, request, &self.client, timeout / 2);
+        tokio::time::timeout(timeout, sent)
+            .await
+            .unwrap_or_else(|_| Err(HubExchangeError::Failed("timed out".into())))
     }
 
     async fn exchange_https(

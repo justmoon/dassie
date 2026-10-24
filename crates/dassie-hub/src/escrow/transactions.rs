@@ -105,27 +105,22 @@ pub fn withdrawal_payment(rules: &Rules, sequence: u32, withdrawal: &Withdrawal)
 /// ordinary payment that creates it.
 #[must_use]
 pub fn setup(rules: &Rules, master: &Wallet, sequence: u32, fee: u64) -> [Transaction; 3] {
-    let list = SignerListSet {
-        fee,
-        signing: Signing::by(master.public_key()),
-        ..signer_list_set(rules, sequence)
-    };
-    let flag = |flag, sequence| AccountSet {
-        account: escrow_account(rules),
-        set_flag: Some(flag),
-        clear_flag: None,
-        fee,
-        sequence,
-        last_ledger_sequence: None,
-        flags: 0,
-        network_id: network_id(rules.terms.network),
-        memos: Vec::new(),
-        signing: Signing::by(master.public_key()),
-    };
     [
-        Transaction::List(list.sign(master)),
-        Transaction::Set(flag(ASF_REQUIRE_DEST, sequence.saturating_add(1)).sign(master)),
-        Transaction::Set(flag(ASF_DISABLE_MASTER, sequence.saturating_add(2)).sign(master)),
+        setup_transaction(rules, master, SetupKind::List, sequence, fee),
+        setup_transaction(
+            rules,
+            master,
+            SetupKind::RequireDest,
+            sequence.saturating_add(1),
+            fee,
+        ),
+        setup_transaction(
+            rules,
+            master,
+            SetupKind::DisableMaster,
+            sequence.saturating_add(2),
+            fee,
+        ),
     ]
 }
 
@@ -204,4 +199,123 @@ pub fn check_escrow(
         return Err(EscrowFault::SignerList);
     }
     Ok(())
+}
+
+/// What the sponsor does next to set up the escrow, from what the ledger
+/// shows of it (spec/designs/settlement-hubs.md#2-founding-a-hub).
+#[derive(Clone, Debug)]
+pub enum SetupStep {
+    /// The account does not exist yet: fund it, with a payment that
+    /// creates it.
+    Fund,
+    /// What was read is not as of a validated ledger: read it again.
+    Wait,
+    /// Submit these, signed by the master key, in order.
+    Submit(Vec<Transaction>),
+    /// It is set up as the rules say.
+    Done,
+    /// It is not, and the master key can no longer fix it, or never made
+    /// what is wrong: a regular key, or objects other than its signer list.
+    Broken(EscrowFault),
+}
+
+/// What the escrow's account shows, as of a validated ledger.
+#[derive(Clone, Debug)]
+pub struct EscrowSeen {
+    /// The sequence its next transaction uses.
+    pub sequence: u32,
+    /// Its settings.
+    pub settings: AccountSettings,
+    /// What it owns.
+    pub objects: AccountObjects,
+}
+
+/// The sponsor's next step in setting up the escrow of `rules`, whose
+/// master key is `master`, from what the ledger shows of it (`None`: no
+/// such account). The setup transactions it is still missing go from the
+/// account's sequence on, the master key disabled last; `fee` is the
+/// ledger's for one signature.
+#[must_use]
+pub fn setup_step(
+    rules: &Rules,
+    master: &Wallet,
+    seen: Option<&EscrowSeen>,
+    fee: u64,
+) -> SetupStep {
+    let Some(seen) = seen else {
+        return SetupStep::Fund;
+    };
+    let (settings, objects) = (&seen.settings, &seen.objects);
+    if !settings.validated || !objects.validated {
+        return SetupStep::Wait;
+    }
+    if settings.master_disabled() {
+        return match check_escrow(rules, settings, objects) {
+            Ok(()) => SetupStep::Done,
+            Err(EscrowFault::NotValidated) => SetupStep::Wait,
+            Err(fault) => SetupStep::Broken(fault),
+        };
+    }
+    if settings.regular_key.is_some() {
+        return SetupStep::Broken(EscrowFault::RegularKey);
+    }
+    if objects.others > 0 || objects.marker.is_some() {
+        return SetupStep::Broken(EscrowFault::Objects);
+    }
+    let listed = objects.signer_list.as_ref().is_some_and(|list| {
+        list.quorum == signer_quorum(rules) && list.entries == signer_entries(rules)
+    });
+    let missing = [
+        (!listed).then_some(SetupKind::List),
+        (!settings.requires_destination_tag()).then_some(SetupKind::RequireDest),
+        Some(SetupKind::DisableMaster),
+    ];
+    let mut sequence = seen.sequence;
+    let mut transactions = Vec::new();
+    for kind in missing.into_iter().flatten() {
+        transactions.push(setup_transaction(rules, master, kind, sequence, fee));
+        sequence = sequence.saturating_add(1);
+    }
+    SetupStep::Submit(transactions)
+}
+
+/// One of the setup's transactions.
+#[derive(Clone, Copy)]
+enum SetupKind {
+    List,
+    RequireDest,
+    DisableMaster,
+}
+
+fn setup_transaction(
+    rules: &Rules,
+    master: &Wallet,
+    kind: SetupKind,
+    sequence: u32,
+    fee: u64,
+) -> Transaction {
+    let flag = |flag| AccountSet {
+        account: escrow_account(rules),
+        set_flag: Some(flag),
+        clear_flag: None,
+        fee,
+        sequence,
+        last_ledger_sequence: None,
+        flags: 0,
+        network_id: network_id(rules.terms.network),
+        memos: Vec::new(),
+        signing: Signing::by(master.public_key()),
+    };
+    match kind {
+        SetupKind::List => Transaction::List(
+            SignerListSet {
+                fee,
+                signing: Signing::by(master.public_key()),
+                ..signer_list_set(rules, sequence)
+            }
+            .sign(master),
+        ),
+        SetupKind::RequireDest => Transaction::Set(flag(ASF_REQUIRE_DEST).sign(master)),
+        SetupKind::DisableMaster => Transaction::Set(flag(ASF_DISABLE_MASTER).sign(master)),
+    }
 }
