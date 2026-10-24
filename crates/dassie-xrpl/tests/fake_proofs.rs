@@ -17,10 +17,10 @@
 use std::collections::BTreeMap;
 
 use dassie_xrpl::binary::{FieldId, Fields, Type};
-use dassie_xrpl::codec::{Amount, Payment, Signing, Transact};
+use dassie_xrpl::codec::{Amount, Payment, Signing, TokenValue, Transact, TrustSet};
 use dassie_xrpl::fake::{
-    FEE_BASE, FIRST_LEDGER, FakeLedger, KeyedSignatures, Lie, MAX_STATE_PROOF_KEYS, UNL_FLOOR,
-    VALIDATORS,
+    FEE_BASE, FIRST_LEDGER, FakeLedger, KeyedSignatures, Lie, MAX_STATE_PROOF_KEYS, Token,
+    UNL_FLOOR, VALIDATORS,
 };
 use dassie_xrpl::header::LedgerHeader;
 use dassie_xrpl::keys::{AccountId, sha512_half};
@@ -476,8 +476,19 @@ fn walk(
     hashes: &BTreeMap<u32, [u8; 32]>,
 ) -> Vec<[u8; 32]> {
     let root = proven.objects[0].as_ref().unwrap();
-    let key = root_key(account);
-    let mut next = field(root, PREVIOUS_TXN_ID).map(|id| <[u8; 32]>::try_from(id).unwrap());
+    walk_object(ledger, connection, (&root_key(account), root), hashes)
+}
+
+/// The transactions that changed the object under `key`, newest first,
+/// from `object` as proven.
+fn walk_object(
+    ledger: &mut FakeLedger,
+    connection: u64,
+    (key, object): (&[u8; 32], &[u8]),
+    hashes: &BTreeMap<u32, [u8; 32]>,
+) -> Vec<[u8; 32]> {
+    let key = *key;
+    let mut next = field(object, PREVIOUS_TXN_ID).map(|id| <[u8; 32]>::try_from(id).unwrap());
     let mut walked = Vec::new();
     while let Some(tx_hash) = next.filter(|id| *id != [0; 32]) {
         assert!(walked.len() < 64, "a bounded walk");
@@ -699,6 +710,15 @@ fn catch(lie: Lie) {
             let caught = prove_tx(&mut ledger, LIAR, &payments[2], &hashes);
             assert!(matches!(caught, Err(Caught::Refused(ref error)) if error == "lgrNotFound"));
         }
+        Lie::WrongHeader => {
+            // The header's bytes are not those of the hash it names.
+            let request = json!({ "command": "state_proof", "keys": [hex_upper(&keys[0])] });
+            let lied = ask(&mut ledger, LIAR, &request).unwrap();
+            let header = LedgerHeader::from_bytes(&bytes(&lied["ledger_header"])).unwrap();
+            assert_ne!(hex_upper(&header.hash()), lied["ledger_hash"]);
+            let caught = anchor(&mut ledger, LIAR, &keys, (&unl, None, signatures));
+            assert!(anchoring_catches(lie, &caught), "{:?}", caught.err());
+        }
         Lie::OlderAnchor => {
             let kept = Some(&honest.anchored.anchor);
             let caught = anchor(&mut ledger, LIAR, &keys, (&unl, kept, signatures));
@@ -815,4 +835,209 @@ fn a_lie_names_itself() {
         assert_eq!(Lie::by_name(lie.name()), Some(lie));
     }
     assert_eq!(Lie::by_name("truth"), None);
+}
+
+#[test]
+fn a_state_proof_has_the_proof_api_s_shape() {
+    let (mut ledger, wallet, _) = scene();
+    let latest = ledger.ledger();
+    let header = ledger.header(latest).unwrap();
+    let stranger = Wallet::from_seed([9; 16]).account();
+    let keys = [
+        hex_upper(&root_key(wallet.account())),
+        hex_upper(&root_key(stranger)),
+    ];
+    // Naming no ledger is naming the newest validated one.
+    let proof = ask(
+        &mut ledger,
+        HONEST,
+        &json!({ "command": "state_proof", "keys": keys }),
+    )
+    .unwrap();
+    assert_eq!(proof["ledger_index"], latest);
+    assert_eq!(proof["ledger_hash"], hex_upper(&header.hash()));
+    assert_eq!(proof["ledger_header"], hex_upper(&header.to_bytes()));
+    assert_eq!(proof["validated"], true);
+    let entries = proof["entries"].as_array().unwrap();
+    assert_eq!(entries[0]["key"], keys[0]);
+    assert!(entries[0]["node_binary"].is_string());
+    // An absent key's entry has its branch and no object.
+    assert_eq!(entries[1]["key"], keys[1]);
+    let absent = entries[1].as_object().unwrap();
+    assert_eq!(
+        absent.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["key", "path"]
+    );
+    // Each node of a branch as rippled hashes it, deepest first: the root
+    // is an inner node that hashes to the header's state root.
+    let path = entries[0]["path"].as_array().unwrap();
+    assert!(bytes(&path[0]).starts_with(b"MLN\0"));
+    let root = bytes(path.last().unwrap());
+    assert!(root.starts_with(b"MIN\0") && root.len() == 4 + 16 * 32);
+    assert_eq!(sha512_half(&root), header.account_hash);
+    // A ledger by its hash.
+    let older = ledger.header(latest - 3).unwrap();
+    let by_hash = json!({
+        "command": "state_proof", "keys": keys, "ledger_hash": hex_upper(&older.hash()),
+    });
+    assert_eq!(
+        ask(&mut ledger, HONEST, &by_hash).unwrap()["ledger_index"],
+        latest - 3
+    );
+    // At most so many distinct keys, and a ledger named once.
+    let twice = json!({ "command": "state_proof", "keys": [keys[0], keys[0]] });
+    assert_eq!(
+        ask(&mut ledger, HONEST, &twice),
+        Err("invalidParams".into())
+    );
+    let both = json!({
+        "command": "state_proof", "keys": keys, "ledger_index": latest,
+        "ledger_hash": hex_upper(&header.hash()),
+    });
+    assert_eq!(ask(&mut ledger, HONEST, &both), Err("invalidParams".into()));
+}
+
+#[test]
+fn a_transaction_s_proof_has_the_proof_api_s_shape() {
+    let (mut ledger, _, payments) = scene();
+    let header = ledger.header(ledger.ledger()).unwrap();
+    // Found without its ledger, by its ledger's index, or by its ledger's
+    // hash.
+    let found = ask(
+        &mut ledger,
+        HONEST,
+        &json!({ "command": "tx_proof", "tx_hash": hex_upper(&payments[0]) }),
+    )
+    .unwrap();
+    let index = u32::try_from(found["ledger_index"].as_u64().unwrap()).unwrap();
+    let in_ledger = ledger.header(index).unwrap();
+    assert_eq!(found["ledger_hash"], hex_upper(&in_ledger.hash()));
+    assert_eq!(found["ledger_header"], hex_upper(&in_ledger.to_bytes()));
+    assert_eq!(found["validated"], true);
+    let path = found["path"].as_array().unwrap();
+    assert!(bytes(&path[0]).starts_with(b"SND\0"));
+    for named in [
+        json!({ "ledger_index": index }),
+        json!({ "ledger_hash": hex_upper(&in_ledger.hash()) }),
+    ] {
+        let mut request = json!({ "command": "tx_proof", "tx_hash": hex_upper(&payments[0]) });
+        request
+            .as_object_mut()
+            .unwrap()
+            .extend(named.as_object().unwrap().clone());
+        assert_eq!(ask(&mut ledger, HONEST, &request).unwrap(), found);
+    }
+    let elsewhere = json!({
+        "command": "tx_proof", "tx_hash": hex_upper(&payments[0]),
+        "ledger_hash": hex_upper(&header.hash()),
+    });
+    assert_eq!(
+        ask(&mut ledger, HONEST, &elsewhere),
+        Err("txnNotFound".into())
+    );
+    let unknown = json!({
+        "command": "tx_proof", "tx_hash": hex_upper(&payments[0]),
+        "ledger_hash": hex_upper(&[7; 32]),
+    });
+    assert_eq!(
+        ask(&mut ledger, HONEST, &unknown),
+        Err("lgrNotFound".into())
+    );
+}
+
+#[test]
+fn an_honest_server_holds_validations_for_ten_minutes() {
+    let (mut ledger, _, _) = scene();
+    let validations_of = |ledger: &mut FakeLedger, index: u32| {
+        let hash = ledger.ledger_hash(index).unwrap();
+        let request = json!({ "command": "validations", "ledger_hash": hex_upper(&hash) });
+        let answer = ask(ledger, HONEST, &request).unwrap();
+        assert_eq!(answer["ledger_hash"], hex_upper(&hash));
+        answer["validations"].as_array().unwrap().len()
+    };
+    let first = ledger.ledger();
+    assert_eq!(validations_of(&mut ledger, first), VALIDATORS);
+    // Ten minutes of ledgers, and one more: the first one's are gone.
+    for _ in 0..=600 / 4 {
+        ledger.close();
+    }
+    assert_eq!(validations_of(&mut ledger, first), 0);
+    assert_eq!(validations_of(&mut ledger, first + 1), VALIDATORS);
+    // A ledger it does not know gives none.
+    let request = json!({ "command": "validations", "ledger_hash": hex_upper(&[7; 32]) });
+    let answer = ask(&mut ledger, HONEST, &request).unwrap();
+    assert_eq!(answer["validations"], json!([]));
+}
+
+// History left out of a line: an issuer's payment changes the holder's
+// line and not its root, so walking the root never meets it, and walking
+// the line, proven at the anchor, does.
+#[test]
+fn history_left_out_of_a_line_is_found_by_walking_the_line() {
+    let mut ledger = FakeLedger::new();
+    let wallet = Wallet::from_seed([3; 16]);
+    ledger.deposit(wallet.account(), 100_000_000);
+    ledger.close();
+    let token = Token::DSUSD;
+    let trust = TrustSet {
+        account: wallet.account(),
+        limit: token.amount(TokenValue::new(false, 1_000, 0).unwrap()),
+        fee: FEE_BASE,
+        sequence: ledger.sequence(wallet.account()).unwrap(),
+        last_ledger_sequence: Some(ledger.ledger() + 10),
+        flags: 0,
+        network_id: None,
+        memos: Vec::new(),
+        signing: Signing::by(wallet.public_key()),
+    }
+    .sign(&wallet);
+    let submit = json!({ "command": "submit", "tx_blob": hex_upper(&trust.blob) });
+    assert_eq!(
+        ask(&mut ledger, HONEST, &submit).unwrap()["engine_result"],
+        "tesSUCCESS"
+    );
+    ledger.close();
+    ledger
+        .issue(
+            wallet.account(),
+            token.amount(TokenValue::new(false, 5, 0).unwrap()),
+        )
+        .unwrap();
+    ledger.close();
+    ledger.close();
+    let (low, high) = if wallet.account() < token.issuer {
+        (wallet.account(), token.issuer)
+    } else {
+        (token.issuer, wallet.account())
+    };
+    let line_key = key(b'r', &[&low.0, &high.0, &token.currency.0]);
+    let unl = unl(&ledger);
+    let keys = [root_key(wallet.account()), skip_key(), line_key];
+    let proven = anchor(
+        &mut ledger,
+        HONEST,
+        &keys,
+        (&unl, None, &Secp256k1Signatures),
+    )
+    .unwrap();
+    let hashes = proven_hashes(&proven, proven.objects[1].as_ref().unwrap());
+    ledger.set_lie(LIAR, Some(Lie::HistoryNewestLeftOut));
+    let account_tx = json!({ "command": "account_tx", "account": wallet.account().to_address() });
+    let lied: Vec<[u8; 32]> = ask(&mut ledger, LIAR, &account_tx).unwrap()["transactions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| bytes(&entry["tx"]["hash"]).try_into().unwrap())
+        .collect();
+    let by_root = walk(&mut ledger, LIAR, &proven, wallet.account(), &hashes);
+    let line = proven.objects[2].as_ref().unwrap();
+    let by_line = walk_object(&mut ledger, LIAR, (&line_key, line), &hashes);
+    // The newest change of the line is the issuer's payment: the liar left
+    // it out, and only the line's history names it.
+    let newest = by_line[0];
+    assert!(!lied.contains(&newest));
+    assert!(!by_root.contains(&newest));
+    assert_eq!(by_line.len(), 2);
+    assert_eq!(by_line[1], trust.hash);
+    assert!(ledger.lies_told(Lie::HistoryNewestLeftOut) > 0);
 }
