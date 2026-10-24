@@ -240,6 +240,7 @@ impl Core {
             withdrawal_fees: fees.operation.saturating_add(fees.ledger),
             least_deposit: drops_up(self.settle.max_packet),
             xrpl: self.xrpl_spendable(),
+            hub_owner: self.owner_available(LedgerId::HubXrpTestnetXrp) / UNITS_PER_DROP,
             paying: self.paying(),
         })
     }
@@ -483,6 +484,11 @@ impl Core {
         if drops.saturating_add(standing.withdrawal_fees) > held.balance {
             return Err(EngineError::Refused(
                 "more than the hub account can spend, with the fees".into(),
+            ));
+        }
+        if drops > standing.hub_owner {
+            return Err(EngineError::Refused(
+                "more than the owner's funds in the hub: the rest is owed to peers".into(),
             ));
         }
         let planned = Planned::withdraw(drops, standing.ledger_fee, held.withdrawn, true);

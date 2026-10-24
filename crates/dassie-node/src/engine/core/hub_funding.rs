@@ -167,6 +167,9 @@ pub struct Standing {
     /// The owner's funds on the XRPL account a deposit may take, in drops;
     /// `None` while its scheme does not run synced.
     pub xrpl: Option<u64>,
+    /// The owner's funds on the hub's ledger, in drops: what a withdrawal
+    /// may take. What the hub account holds beyond them is owed to peers.
+    pub hub_owner: u64,
     /// What became of the payment of the move on its way, as the scheme of
     /// the side it leaves says.
     pub paying: OwnerPaymentState,
@@ -302,7 +305,8 @@ impl Funding {
             let spare = held
                 .balance
                 .saturating_sub(standing.floor)
-                .saturating_sub(standing.withdrawal_fees);
+                .saturating_sub(standing.withdrawal_fees)
+                .min(standing.hub_owner);
             let drops = (held.exposure - middle).min(spare);
             return (drops >= standing.least_payout)
                 .then(|| Planned::withdraw(drops, standing.ledger_fee, held.withdrawn, false));
@@ -369,6 +373,7 @@ mod tests {
             withdrawal_fees: 110,
             least_deposit: 100_000,
             xrpl: Some(100_000_000),
+            hub_owner: 100_000_000,
             paying: OwnerPaymentState::Unknown,
         }
     }
@@ -523,6 +528,19 @@ mod tests {
         assert!(funding.due(late, &low).is_some());
         funding.start(late, Planned::deposit(5, 7, true), payment());
         assert_eq!(funding.given_up, None);
+    }
+
+    // A withdrawal never takes more than the owner's funds on the hub's
+    // ledger: what the account holds beyond them is owed to hub peers.
+    #[test]
+    fn a_withdrawal_takes_only_the_owners_funds() {
+        let funding = Funding::new(0, 4_000);
+        let mut high = standing(12_000_000, 14_000_000);
+        high.hub_owner = 2_000_000;
+        let planned = funding.due(1, &high).unwrap();
+        assert_eq!(planned.drops, 2_000_000);
+        high.hub_owner = 500_000;
+        assert_eq!(funding.due(1, &high), None, "less than the hub pays out");
     }
 
     // An owner's move pauses the automatic ones; turned off, none is made.

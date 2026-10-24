@@ -3589,3 +3589,48 @@ fn an_owner_payment_held_across_a_restart_is_posted_once() {
     let core = core_on(Arc::clone(&store), 11);
     assert_eq!(owner_xrp(&core).1, 0);
 }
+
+// spec/areas/settlement.md#the-scheme-interface: a withdrawal from the hub
+// takes only the owner's funds on the hub's ledger, never what the account
+// holds for what the node owes its hub peers.
+#[test]
+fn a_hub_withdrawal_takes_only_the_owners_funds() {
+    use dassie_ledger::{AccountName, LedgerId, Reference, TransferSpec};
+
+    let (mut ledger, _) = funded_ledger();
+    let mut core = funding_core(&mut ledger);
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    hub.no_account(&mut core);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let opening = deposits(&mut ledger, escrow)[0].amount;
+    // Only the floor, so nothing moves by itself.
+    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let floor = dassie_settlement::policy::hub_floor(p, Policies::DEFAULT.peer_credit, 0)
+        / dassie_xrpl::UNITS_PER_DROP;
+    let units = dassie_xrpl::UNITS_PER_DROP;
+    let balance = floor + 3_000_000;
+    hub.account(&mut core, balance, opening);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    // The node owes a hub peer most of it.
+    let hub_ledger = LedgerId::HubXrpTestnetXrp;
+    let peer = dassie_ledger::Name::new("dpeer").unwrap();
+    let (interledger, _) = core.ledger.open_peer(NOW, hub_ledger, peer, 0).unwrap();
+    let owner = core.account(hub_ledger, AccountName::EquityOwner).unwrap();
+    let owed = core.owner_available(hub_ledger) - 1_500_000 * units;
+    let spec = TransferSpec {
+        debit: owner,
+        credit: interledger,
+        amount: owed,
+        pending: false,
+        reference: Reference::Withdrawal,
+    };
+    core.ledger.create(NOW, &spec).unwrap();
+    let refused = core.hub_withdraw(2_000_000 * units);
+    assert!(
+        matches!(refused, Err(super::EngineError::Refused(_))),
+        "{refused:?}"
+    );
+    assert!(core.hub_status().unwrap().moving.is_none());
+    core.hub_withdraw(1_000_000 * units).unwrap();
+}
