@@ -109,11 +109,11 @@ pub enum Message {
     Delivery(Delivery),
 }
 
-fn unexpected(reader: &Reader<'_>) -> DecodeError {
+pub(super) fn unexpected(reader: &Reader<'_>) -> DecodeError {
     reader.error(DecodeErrorKind::UnexpectedValue)
 }
 
-fn read_digest(reader: &mut Reader<'_>) -> Result<Digest, DecodeError> {
+pub(super) fn read_digest(reader: &mut Reader<'_>) -> Result<Digest, DecodeError> {
     Ok(Digest(*reader.read_array::<DIGEST_BYTES>()?))
 }
 
@@ -273,11 +273,11 @@ impl<'a> Decode<'a> for Certificate {
 }
 
 /// The length of an optional value: a tag, and the value if present.
-fn optional_len<T: Encode>(value: Option<&T>) -> usize {
+pub(super) fn optional_len<T: Encode>(value: Option<&T>) -> usize {
     size::tag(0) + value.map_or(0, Encode::encoded_len)
 }
 
-fn write_optional<T: Encode>(writer: &mut Writer<'_>, value: Option<&T>) {
+pub(super) fn write_optional<T: Encode>(writer: &mut Writer<'_>, value: Option<&T>) {
     match value {
         None => writer.write_context_tag(0),
         Some(value) => {
@@ -287,7 +287,7 @@ fn write_optional<T: Encode>(writer: &mut Writer<'_>, value: Option<&T>) {
     }
 }
 
-fn read_optional<'a, T: Decode<'a, Error = DecodeError>>(
+pub(super) fn read_optional<'a, T: Decode<'a, Error = DecodeError>>(
     reader: &mut Reader<'a>,
 ) -> Result<Option<T>, DecodeError> {
     let offset = reader.offset();

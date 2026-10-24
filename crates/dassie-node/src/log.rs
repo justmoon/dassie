@@ -77,6 +77,8 @@ pub mod target {
     pub const SETTLEMENT: &str = "das:node:settlement";
     /// A front door: its listeners, certificate and the nodes it reaches.
     pub const FRONT_DOOR: &str = "das:front-door";
+    /// The settlement hubs the node validates.
+    pub const HUB: &str = "das:node:hub";
 }
 
 /// The lowest level shown.

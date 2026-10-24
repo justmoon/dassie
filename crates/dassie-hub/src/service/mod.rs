@@ -111,6 +111,17 @@ pub enum CatchUpError {
     Refused,
 }
 
+/// Why [`Validator::resume`] refused what the host persisted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResumeError {
+    /// The ledger is not at the stored tip's height.
+    Height,
+    /// The ledger's state is not the one the stored tip certifies.
+    State,
+    /// The keys are not a validator's of any set the stored state knows.
+    NotAValidator,
+}
+
 /// A hub's validator.
 pub struct Validator {
     hub: HubId,
@@ -195,6 +206,95 @@ impl Validator {
             actions: VecDeque::new(),
             batches: Vec::new(),
         })
+    }
+
+    /// The validator again after a restart, from what the host persisted:
+    /// the consensus state the steps' batches built, and the state after
+    /// its last final block, which the host wrote in the same transaction
+    /// (and restored against the root that block names). It knows no
+    /// history from before, so it answers a `Since` from further back with
+    /// `Trimmed`, and members read their state anew
+    /// (spec/areas/hubs.md#when-the-history-is-gone).
+    ///
+    /// # Errors
+    ///
+    /// The ledger is not the state after the stored tip, or `keys` are not
+    /// a validator's of it: what a host wrote together never is.
+    pub fn resume(
+        keys: ValidatorKeys,
+        stored: Stored,
+        ledger: Ledger,
+        now: Millis,
+    ) -> Result<Self, ResumeError> {
+        let tip = &stored.tip.block;
+        if ledger.height() != tip.height {
+            return Err(ResumeError::Height);
+        }
+        let same = if tip.height == 0 {
+            tip.payload == ledger.hub().0.as_bytes()
+        } else {
+            Payload::decode_exact(&tip.payload)
+                .is_ok_and(|payload| payload.state == ledger.state_root())
+        };
+        if !same {
+            return Err(ResumeError::State);
+        }
+        ledger.check_invariants();
+        let consensus_public = keys.consensus.public_key();
+        let in_set = stored
+            .epochs
+            .iter()
+            .any(|epoch| epoch.set.index_of(&consensus_public).is_some());
+        if !in_set {
+            return Err(ResumeError::NotAValidator);
+        }
+        // A change of validators the engine took in already is not
+        // reported to it again.
+        let reported = ledger
+            .scheduled_change()
+            .map(|(from, _)| from)
+            .filter(|from| stored.epochs.iter().any(|epoch| epoch.from_height == *from));
+        let hub = *ledger.hub();
+        let consensus_key = Arc::new(NodeKey::from_bytes(keys.consensus.as_bytes()));
+        let engine = Engine::new(Config::DEFAULT, hub.0, consensus_key.clone(), stored, now);
+        let tip = *engine.tip_digest();
+        // Our operations' sequence only grows, across restarts too.
+        let sequence = ledger
+            .validators()
+            .index_of(&consensus_public)
+            .and_then(|index| ledger.validator(index))
+            .map_or(0, |state| state.sequence);
+        let complete_from = ledger.height().saturating_add(1);
+        Ok(Self {
+            hub,
+            consensus_public,
+            consensus_key,
+            keys,
+            engine,
+            chain: Chain::resumed(ledger, tip, reported),
+            sequence: sequence.max(now),
+            subscribers: VecDeque::new(),
+            history: VecDeque::new(),
+            history_bytes: 0,
+            complete_from,
+            shares: BTreeMap::new(),
+            signed: BTreeMap::new(),
+            payout_signed: false,
+            actions: VecDeque::new(),
+            batches: Vec::new(),
+        })
+    }
+
+    /// The hub's ID.
+    #[must_use]
+    pub const fn hub(&self) -> &HubId {
+        &self.hub
+    }
+
+    /// Our index in the set in force, if we are in it.
+    #[must_use]
+    pub fn index_in_force(&self) -> Option<ValidatorIndex> {
+        self.index()
     }
 
     /// Takes the state after `finalized`, a block [`Action::Behind`] named,

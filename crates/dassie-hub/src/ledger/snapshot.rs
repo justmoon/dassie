@@ -155,7 +155,11 @@ impl Ledger {
         }
         out.votes(&self.escrow_votes);
         out.votes(&self.signer_list_votes);
-        out.votes(&self.reset_votes);
+        out.u16(self.reset_votes.bits());
+        out.bool(self.reset_votes_since.is_some());
+        out.u64(self.reset_votes_since.unwrap_or(0));
+        out.bool(self.written_off_at.is_some());
+        out.u64(self.written_off_at.unwrap_or(0));
         out.u16(self.shutdown_votes.bits());
     }
 
@@ -223,7 +227,9 @@ impl Ledger {
             escrow_votes: Vec::new(),
             signer_list_votes: Vec::new(),
             shutdown_votes: Signers::NONE,
-            reset_votes: Vec::new(),
+            reset_votes: Signers::NONE,
+            reset_votes_since: None,
+            written_off_at: None,
             set_since,
             rules,
         };
@@ -306,7 +312,13 @@ impl Ledger {
         }
         self.escrow_votes = read_votes(reader)?;
         self.signer_list_votes = read_votes(reader)?;
-        self.reset_votes = read_votes(reader)?;
+        self.reset_votes = Signers::from_bits(reader.read_u16()?);
+        let since = reader.read_bool()?;
+        let since_at = reader.read_u64()?;
+        self.reset_votes_since = since.then_some(since_at);
+        let written_off = reader.read_bool()?;
+        let at = reader.read_u64()?;
+        self.written_off_at = written_off.then_some(at);
         self.shutdown_votes = Signers::from_bits(reader.read_u16()?);
         Ok(())
     }

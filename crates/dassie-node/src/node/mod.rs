@@ -423,6 +423,9 @@ pub struct Node {
     quic: std::sync::OnceLock<Arc<crate::quic::Quic>>,
     /// The rate feed's socket, where the node has one.
     feed: std::sync::OnceLock<Arc<crate::feed::FeedEndpoint>>,
+    /// The settlement hubs the node validates, which the hub's stream
+    /// reaches (spec/areas/hubs.md#the-validator-in-the-node).
+    hubs: Arc<crate::hub::Hubs>,
 }
 
 impl std::fmt::Debug for Node {
@@ -530,7 +533,14 @@ impl Node {
             rates_wake: Notify::new(),
             quic: std::sync::OnceLock::new(),
             feed: std::sync::OnceLock::new(),
+            hubs: Arc::new(crate::hub::Hubs::default()),
         }))
+    }
+
+    /// The settlement hubs the node validates.
+    #[must_use]
+    pub const fn hubs(&self) -> &Arc<crate::hub::Hubs> {
+        &self.hubs
     }
 
     /// What Open Payments keeps beside the database.

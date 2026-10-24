@@ -5,7 +5,9 @@
 //! what it carries ([`StreamKind`]). A peer request is the envelope one
 //! way, then a two-byte status and the body back, with the same bytes and
 //! statuses as over HTTPS. The other kinds carry relayed streams
-//! ([`relay`]). Each side proves its node key in the TLS handshake
+//! ([`relay`]) and settlement hubs' messages (`hub.rs`,
+//! spec/areas/peer-protocol.md#the-hubs-stream). Each side proves its node
+//! key in the TLS handshake
 //! ([`keys`]), so a dialler knows it reached the node it meant, and a
 //! connection takes a place by who opened it ([`places`]).
 //!
@@ -14,6 +16,7 @@
 //! (UDP filtered, say) is asked over HTTPS for a while instead, until every
 //! node takes QUIC and `POST /peer` goes ([`send_peer`]).
 
+mod hub;
 pub mod keys;
 pub mod places;
 pub mod relay;
@@ -28,7 +31,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use dassie_identity::{NodeId, NodeKey, SeedPath};
+use dassie_identity::{NodeId, NodeKey, PublicKey, SeedPath};
 use dassie_node_core::address::is_public;
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
@@ -155,6 +158,12 @@ pub enum StreamKind {
     Relay = 1,
     /// A relayed stream, from a relay to the node it reaches ([`relay`]).
     Relayed = 2,
+    /// A settlement hub's message, then its reply
+    /// ([`crate::hub::transport`]).
+    Hub = 3,
+    /// A hub validator's request for the state after a final block, then
+    /// the state ([`crate::hub::transport`]).
+    HubState = 4,
 }
 
 impl StreamKind {
@@ -165,6 +174,8 @@ impl StreamKind {
             0 => Some(Self::Peer),
             1 => Some(Self::Relay),
             2 => Some(Self::Relayed),
+            3 => Some(Self::Hub),
+            4 => Some(Self::HubState),
             _ => None,
         }
     }
@@ -199,6 +210,48 @@ pub trait Handler: Send + Sync + 'static {
         client: IpAddr,
         body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>>;
+
+    /// Who `from` is to the hub `hub` names, read before anything else of
+    /// a request on the hub's stream: the stream is reset unless the node
+    /// validates the hub, and only a validator of it is read up to the
+    /// largest message ([`crate::hub::transport`]). No hub, unless a
+    /// handler says otherwise.
+    fn hub_access(&self, _from: &PublicKey, _hub: &[u8; 32]) -> crate::hub::HubAccess {
+        crate::hub::HubAccess::Unknown
+    }
+
+    /// A place for one request on the hub's stream from a sender of
+    /// `access`, taken before its message is read; `None` when there is
+    /// none, and the request is answered busy.
+    fn hub_permit(
+        &self,
+        _access: crate::hub::HubAccess,
+    ) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        None
+    }
+
+    /// Answers `request` on a settlement hub's stream from the node `from`,
+    /// whose key the connection proved ([`crate::hub::transport`]). `None`
+    /// resets the stream: a node that validates no hub, unless a handler
+    /// says otherwise.
+    fn hub<'a>(
+        &'a self,
+        _from: PublicKey,
+        _request: Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = Option<crate::hub::HubAnswer>> + Send + 'a>> {
+        Box::pin(async { None })
+    }
+
+    /// Answers a hub validator's request for the state after a final block
+    /// from the node `from` ([`crate::hub::transport`]): the reply's bytes.
+    /// `None` resets the stream, unless a handler says otherwise.
+    fn hub_state<'a>(
+        &'a self,
+        _from: PublicKey,
+        _request: Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = Option<crate::hub::transport::StateReply>> + Send + 'a>> {
+        Box::pin(async { None })
+    }
 
     /// Whether the node serves relayed streams for `purpose`. One it does
     /// not serve is refused before any TLS. None, unless a handler says so.
@@ -910,6 +963,8 @@ impl On {
             Some(StreamKind::Peer) => self.answer(send, recv).await,
             Some(StreamKind::Relay) => self.relay(send, recv).await,
             Some(StreamKind::Relayed) => self.serve_relayed(send, recv).await,
+            Some(StreamKind::Hub) => self.hub(send, recv).await,
+            Some(StreamKind::HubState) => self.hub_state(send, recv).await,
             None => {
                 let _ = send.reset(0u32.into());
                 let _ = recv.stop(0u32.into());

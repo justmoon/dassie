@@ -348,6 +348,7 @@ pub async fn run(
         ipc_socket,
         notifier,
     } = prepared;
+    let validator = settings.validator.clone();
     let parts = NodeParts {
         settings,
         store,
@@ -367,7 +368,7 @@ pub async fn run(
         }
     };
     let services = TaskTracker::new();
-    start_services(&node, &services, &shutdown, listeners, tls);
+    start_services(&node, &services, &shutdown, listeners, tls, validator);
     // Clients find the socket only now, when the daemon answers them and
     // handles signals; before, a CLI would hang or a SIGTERM go unhandled.
     let ipc_path = match ipc_socket.map(ipc::Unpublished::publish).transpose() {
@@ -391,8 +392,20 @@ pub async fn run(
         }
         Some(Start::Starting) | None => Ok(()),
     };
+    stop(node, &services, notifier.as_ref(), ipc_path).await;
+    outcome
+}
+
+/// Stops the services, within a bounded time, closes the database and
+/// removes the IPC socket the daemon made.
+async fn stop(
+    node: Arc<Node>,
+    services: &TaskTracker,
+    notifier: Option<&Notifier>,
+    ipc_path: Option<PathBuf>,
+) {
     tracing::info!(target: target::DAEMON, "shutting down");
-    if let Some(notifier) = &notifier {
+    if let Some(notifier) = notifier {
         let _ = notifier.notify("STOPPING=1");
     }
     services.close();
@@ -407,7 +420,6 @@ pub async fn run(
         let _ = std::fs::remove_file(path);
     }
     tracing::info!(target: target::DAEMON, "stopped");
-    outcome
 }
 
 /// Waits until the node is up or its start failed; `None` if shutdown came
@@ -635,6 +647,7 @@ fn start_services(
     shutdown: &CancellationToken,
     listeners: Listeners,
     tls: Arc<rustls::ServerConfig>,
+    validator: Option<crate::hub::config::ValidatorConfig>,
 ) {
     // A listener cannot be cloned for a restart, so the accept loops share
     // theirs; they only return at shutdown anyway.
@@ -700,10 +713,38 @@ fn start_services(
         "rates",
         Box::new(|node, shutdown| Box::pin(node.run_rates(shutdown))),
     );
+    start_optional(node, services, shutdown, validator);
+}
+
+/// The services a node runs only when it has their socket or its owner
+/// turned them on: the rate feed, and the validator role.
+fn start_optional(
+    node: &Arc<Node>,
+    services: &TaskTracker,
+    shutdown: &CancellationToken,
+    validator: Option<crate::hub::config::ValidatorConfig>,
+) {
+    let spawn =
+        |name, service| supervise(node, services, shutdown, name, BeforeUp::Restart, service);
     if node.feed().is_some() {
         spawn(
             "feed",
             Box::new(|node, shutdown| Box::pin(crate::feed::run(node, shutdown))),
+        );
+    }
+    // Validating is something the owner turns on
+    // (spec/areas/hubs.md#the-validator-in-the-node).
+    if let Some(config) = validator.filter(|config| !config.hubs.is_empty()) {
+        let config = Arc::new(config);
+        spawn(
+            "validator",
+            Box::new(move |node, shutdown| {
+                Box::pin(crate::hub::service::run(
+                    node,
+                    Arc::clone(&config),
+                    shutdown,
+                ))
+            }),
         );
     }
 }

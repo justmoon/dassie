@@ -9,6 +9,7 @@
 mod api;
 pub mod assets;
 mod btp;
+pub mod hub;
 pub mod mime;
 pub mod open_payments;
 pub mod peer;
@@ -322,6 +323,7 @@ async fn route_https(
         (&Method::POST, "/api/login") if set_up => api::login(node, peer, request).await,
         (&Method::POST, "/api/logout") if set_up => api::logout(node, &request),
         (&Method::POST, "/peer") => peer::handle(node, peer, request).await,
+        (&Method::POST, "/hub") => hub::handle(node, peer, request).await,
         (_, path) if open_payments::is_open_payments_path(path) => {
             open_payments::handle(node, peer, request).await
         }

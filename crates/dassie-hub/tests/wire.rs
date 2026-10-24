@@ -266,3 +266,48 @@ fn deliveries_are_bounded() {
     assert!(Message::decode_message(&bytes).is_err());
     let _ = MAX_DELIVERED_CERTIFICATES;
 }
+
+// A member's largest request, a submitted claim with the most commitments
+// any rules allow, fits the bound a host reads members' messages up to.
+#[test]
+fn a_members_largest_request_fits_the_member_bound() {
+    use dassie_hub::client::Request;
+    use dassie_hub::operation::{
+        AccountNumber, MAX_COMMITMENTS, MemberOperation, Operation, SignedMemberOperation,
+    };
+    use dassie_hub::promise::{Commitment, Fulfilled, HoldNumber, Signed};
+    use dassie_hub::service::wire::{MAX_MEMBER_MESSAGE, Message};
+    use dassie_identity::NodeKey;
+
+    let fulfilled = Fulfilled {
+        commitment: Signed {
+            value: Commitment {
+                hold: HoldNumber(u64::MAX),
+                sequence: u64::MAX,
+                amount: u64::MAX,
+                condition: [9; 32],
+                expiry: u64::MAX,
+            },
+            signature: Signature::from_bytes([1; 64]),
+        },
+        fulfillment: [2; 32],
+    };
+    let claim = MemberOperation::Claim {
+        hold: HoldNumber(u64::MAX),
+        fulfilled: vec![fulfilled; MAX_COMMITMENTS],
+    };
+    let operation = Operation::Member(SignedMemberOperation::sign(
+        &dassie_hub::HubId(Digest([3; 32])),
+        AccountNumber(u32::MAX),
+        u64::MAX,
+        u64::MAX,
+        claim,
+        &NodeKey::from_bytes(&[4; 32]),
+    ));
+    let message = Message::Request(Request::Submit(operation)).to_vec();
+    assert!(message.len() <= MAX_MEMBER_MESSAGE, "{}", message.len());
+    assert!(
+        MAX_MEMBER_MESSAGE - message.len() < 16,
+        "the bound is tight"
+    );
+}

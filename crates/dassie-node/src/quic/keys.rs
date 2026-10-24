@@ -106,12 +106,19 @@ pub fn node_key_of(certificate: &CertificateDer<'_>) -> Option<PublicKey> {
 /// certificate it presented.
 #[must_use]
 pub fn peer_node(connection: &quinn::Connection) -> Option<NodeId> {
+    peer_key(connection).map(|key| key.node_id())
+}
+
+/// The node key at the other end of an established connection, from the
+/// certificate it presented.
+#[must_use]
+pub fn peer_key(connection: &quinn::Connection) -> Option<PublicKey> {
     let identity = connection.peer_identity()?;
     let chain = identity.downcast::<Vec<CertificateDer<'static>>>().ok()?;
     let [leaf] = chain.as_slice() else {
         return None;
     };
-    node_key_of(leaf).map(|key| key.node_id())
+    node_key_of(leaf)
 }
 
 /// The key of a single self-signed certificate, or why it is refused.

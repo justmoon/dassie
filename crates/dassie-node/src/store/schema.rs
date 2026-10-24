@@ -53,6 +53,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_29,
     MIGRATION_30,
     MIGRATION_31,
+    MIGRATION_32,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -989,6 +990,47 @@ ALTER TABLE settlement_channels ADD COLUMN closed INTEGER NOT NULL DEFAULT 0
   CHECK (closed IN (0, 1) AND (closed = 0 OR outbox_sequence IS NULL));
 ";
 
+/// The settlement hubs the node validates (spec/areas/hubs.md#the-validator-in-the-node),
+/// each by its ID: its consensus state, and the states after its recent
+/// final blocks and after the last blocks of recent epochs, the newest
+/// written in a step's transaction before its messages go out, the others
+/// kept to serve validators far behind; how far it followed the escrow on
+/// the XRP Ledger, and the newest ledger it saw there, to tell a reset from
+/// a server behind (spec/decisions/ledger-resets.md); and the payout
+/// bundles it signed. The states are the hub crate's encodings
+/// (`store/hubs.rs` has the bounds).
+const MIGRATION_32: &str = "
+CREATE TABLE hub_consensus (
+  hub BLOB PRIMARY KEY CHECK (length(hub) = 32),
+  updated_at_ms INTEGER NOT NULL,
+  state BLOB NOT NULL CHECK (length(state) BETWEEN 1 AND 536870912)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE hub_states (
+  hub BLOB NOT NULL CHECK (length(hub) = 32),
+  height INTEGER NOT NULL CHECK (height >= 0),
+  -- Whether the block is the last of an epoch, kept longer than the others.
+  boundary INTEGER NOT NULL CHECK (boundary IN (0, 1)),
+  state BLOB NOT NULL CHECK (length(state) BETWEEN 1 AND 268435456),
+  PRIMARY KEY (hub, height)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE hub_escrow (
+  hub BLOB PRIMARY KEY CHECK (length(hub) = 32),
+  newest_ledger INTEGER NOT NULL CHECK (newest_ledger BETWEEN 0 AND 4294967295),
+  newest_close_time INTEGER NOT NULL CHECK (newest_close_time >= 0),
+  scanned_to INTEGER NOT NULL CHECK (scanned_to BETWEEN 0 AND 4294967295)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE hub_bundles (
+  hub BLOB NOT NULL CHECK (length(hub) = 32),
+  height INTEGER NOT NULL CHECK (height >= 0),
+  signed_at_ms INTEGER NOT NULL,
+  bundle BLOB NOT NULL CHECK (length(bundle) BETWEEN 1 AND 16777216),
+  PRIMARY KEY (hub, height)
+) STRICT, WITHOUT ROWID;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1411,6 +1453,45 @@ pub const TABLES: &[Table] = &[
         columns: &[
             ("id", "INTEGER", false, true),
             ("token", "BLOB", true, false),
+        ],
+    },
+    Table {
+        name: "hub_consensus",
+        without_rowid: true,
+        columns: &[
+            ("hub", "BLOB", true, true),
+            ("updated_at_ms", "INTEGER", true, false),
+            ("state", "BLOB", true, false),
+        ],
+    },
+    Table {
+        name: "hub_states",
+        without_rowid: true,
+        columns: &[
+            ("hub", "BLOB", true, true),
+            ("height", "INTEGER", true, true),
+            ("boundary", "INTEGER", true, false),
+            ("state", "BLOB", true, false),
+        ],
+    },
+    Table {
+        name: "hub_escrow",
+        without_rowid: true,
+        columns: &[
+            ("hub", "BLOB", true, true),
+            ("newest_ledger", "INTEGER", true, false),
+            ("newest_close_time", "INTEGER", true, false),
+            ("scanned_to", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "hub_bundles",
+        without_rowid: true,
+        columns: &[
+            ("hub", "BLOB", true, true),
+            ("height", "INTEGER", true, true),
+            ("signed_at_ms", "INTEGER", true, false),
+            ("bundle", "BLOB", true, false),
         ],
     },
 ];

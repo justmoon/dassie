@@ -921,16 +921,19 @@ impl Driver<'_> {
             Output::HubSend {
                 asset,
                 epoch,
+                hub,
                 endpoint,
                 node,
                 address,
                 message,
             } => links::hub_send(
-                self.node.quic().cloned(),
+                crate::hub::HubClient::of(self.node),
+                self.node.hubs(),
                 self.commands.clone(),
                 links::HubSend {
                     asset,
                     epoch,
+                    hub,
                     endpoint,
                     node: *node,
                     address,

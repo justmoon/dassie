@@ -29,6 +29,13 @@ pub const MAX_MESSAGE: usize = MAX_CONTENT + ENVELOPE;
 
 const _: () = assert!(MAX_CONTENT >= crate::consensus::wire::MAX_MESSAGE_BYTES);
 
+/// The most bytes of a member's message: a request, the largest of which
+/// submits a claim with the most commitments any rules allow. A host reads
+/// no more from anyone it does not know as a validator.
+pub const MAX_MEMBER_MESSAGE: usize = 1 + 1 + crate::service::payload::MAX_CLAIM_BYTES;
+
+const _: () = assert!(MAX_MEMBER_MESSAGE < MAX_MESSAGE);
+
 /// Splits signed statements into lists that each fit one message: at most
 /// [`MAX_STATEMENTS`] and [`MAX_CONTENT`] bytes each. A statement too large
 /// for a message alone is dropped; none is, since an operation fits a block

@@ -181,11 +181,10 @@ impl Ledger {
             bytes.extend_from_slice(digest.as_bytes());
             bytes.extend_from_slice(&signers.bits().to_be_bytes());
         }
-        for votes in [
-            &self.escrow_votes,
-            &self.reset_votes,
-            &self.signer_list_votes,
-        ] {
+        bytes.extend_from_slice(&self.reset_votes.bits().to_be_bytes());
+        push_option(bytes, self.reset_votes_since);
+        push_option(bytes, self.written_off_at);
+        for votes in [&self.escrow_votes, &self.signer_list_votes] {
             push_count(bytes, votes.len());
             for (value, signers) in votes {
                 bytes.extend_from_slice(&value.to_be_bytes());

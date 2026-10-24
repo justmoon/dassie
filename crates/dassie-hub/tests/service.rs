@@ -14,19 +14,21 @@
 use std::collections::VecDeque;
 
 use dassie_hub::client::{Agreement, Request, Statement};
-use dassie_hub::consensus::PeerId;
+use dassie_hub::consensus::{PeerId, Stored};
 use dassie_hub::digest::Digest;
 use dassie_hub::escrow::{ValidatorKeys, escrow_master};
+use dassie_hub::ledger::Ledger;
 use dassie_hub::ledger::Outcome;
 use dassie_hub::operation::{
     AccountNumber, Deposit, Destination, MemberOperation, Operation, SignedMemberOperation,
     ValidatorOperation,
 };
 use dassie_hub::rules::{Acceptance, Fees, Limits, Rules, Terms, Timers};
+use dassie_hub::service::payload::Payload;
 use dassie_hub::service::wire::Message;
-use dassie_hub::service::{Action, Validator};
+use dassie_hub::service::{Action, ResumeError, Validator, genesis_block};
 use dassie_identity::{NodeKey, PublicKey};
-use dassie_oer::Encode;
+use dassie_oer::{Decode, Encode};
 
 const NONCE: [u8; 32] = [7; 32];
 const START: u64 = 1_700_000_000_000;
@@ -76,6 +78,10 @@ fn terms(sponsor: &NodeKey) -> Terms {
 
 struct Network {
     validators: Vec<Validator>,
+    /// What each validator's host persisted: its consensus state, and the
+    /// state after its last final block.
+    stored: Vec<(Stored, Vec<u8>)>,
+    node_keys: Vec<NodeKey>,
     nodes: Vec<dassie_identity::PublicKey>,
     /// Each validator's consensus key, by its place in the network.
     consensus: Vec<dassie_identity::PublicKey>,
@@ -119,15 +125,26 @@ impl Network {
             terms,
             validators: acceptances,
         };
-        let validators = nodes
+        let validators: Vec<Validator> = nodes
             .iter()
             .map(|node| {
                 let keys = ValidatorKeys::derive(node, &NONCE).unwrap();
                 Validator::genesis(rules.clone(), keys, START, START).unwrap()
             })
             .collect();
+        let set = rules.validator_set().unwrap();
+        let genesis = Stored::genesis(genesis_block(&rules, START), set);
+        let stored = validators
+            .iter()
+            .map(|v| (genesis.clone(), v.ledger().snapshot()))
+            .collect();
         Self {
             validators,
+            stored,
+            node_keys: nodes
+                .iter()
+                .map(|n| NodeKey::from_bytes(n.as_bytes()))
+                .collect(),
             nodes: nodes.iter().map(NodeKey::public_key).collect(),
             consensus: rules.validators.iter().map(|a| a.consensus).collect(),
             rules,
@@ -168,7 +185,46 @@ impl Network {
                 Action::Behind(finalized) => self.behind.push((from, finalized)),
             }
         }
-        self.validators[from].take_batches();
+        self.persist(from);
+    }
+
+    /// Persists a step as a host does: its batches folded into the stored
+    /// consensus state, and the ledger after each final block.
+    fn persist(&mut self, from: usize) {
+        let (stored, snapshot) = &mut self.stored[from];
+        for batch in self.validators[from].take_batches() {
+            stored.apply(batch);
+        }
+        let ledger = self.validators[from].ledger();
+        assert_eq!(
+            ledger.height(),
+            stored.tip.block.height,
+            "the ledger and the stored tip are at one height after a step"
+        );
+        *snapshot = ledger.snapshot();
+    }
+
+    /// Restarts validator `index` from what its host persisted, its stored
+    /// state read back from its encoding, and its ledger restored against
+    /// the root its tip names.
+    fn restart(&mut self, index: usize) {
+        let (stored, snapshot) = &self.stored[index];
+        let stored = Stored::decode_exact(&stored.to_vec()).unwrap();
+        assert_eq!(
+            &stored, &self.stored[index].0,
+            "the stored state round-trips"
+        );
+        let keys = ValidatorKeys::derive(&self.node_keys[index], &NONCE).unwrap();
+        let ledger = if stored.tip.block.height == 0 {
+            Ledger::genesis(self.rules.clone(), START).unwrap()
+        } else {
+            let root = Payload::decode_exact(&stored.tip.block.payload)
+                .unwrap()
+                .state;
+            Ledger::restore(snapshot, &root).unwrap()
+        };
+        self.validators[index] = Validator::resume(keys, stored, ledger, self.now).unwrap();
+        self.collect(index);
     }
 
     /// Runs the network for `ms` of time, a millisecond at a time.
@@ -658,4 +714,95 @@ fn finality_returns_after_more_blocks_than_validators_keep_states_of() {
             validator.ledger().height()
         );
     }
+}
+
+#[test]
+fn a_validator_resumes_from_what_its_host_persisted() {
+    let mut net = Network::new();
+    let (number, key) = member(&mut net, 31);
+    let before = net.validators[2].ledger().height();
+    assert!(before > 3, "blocks became final");
+    // Validator 2 crashes: whatever it had not persisted is gone. It comes
+    // back from its stored state and its last snapshot.
+    net.restart(2);
+    assert_eq!(net.validators[2].ledger().height(), before);
+    net.run(1_000);
+    let hub = *net.validators[0].ledger().hub();
+    let disbursal = MemberOperation::SetDisbursal(Destination {
+        account: [8; 20],
+        tag: None,
+    });
+    let op = Operation::Member(SignedMemberOperation::sign(
+        &hub, number, 1, 10, disbursal, &key,
+    ));
+    net.request(&Request::Submit(op));
+    net.run(1_000);
+    for validator in &net.validators {
+        let account = validator.ledger().account(number).unwrap();
+        assert_eq!(account.disbursal.unwrap().account, [8; 20]);
+    }
+    assert!(net.validators[2].ledger().height() > before + 3);
+
+    // Every validator restarts at once, from what each persisted, and the
+    // hub goes on.
+    for index in 0..4 {
+        net.restart(index);
+    }
+    let height = net.validators[0].ledger().height();
+    net.run(2_000);
+    assert!(
+        net.validators
+            .iter()
+            .all(|v| v.ledger().height() > height + 3)
+    );
+
+    // A restarted validator vouches for nothing from before it: a member
+    // reads its state anew.
+    net.member.clear();
+    net.request(&Request::Since {
+        account: number,
+        from: 1,
+    });
+    assert_eq!(net.member.len(), 4);
+    for bytes in &net.member {
+        let Ok(Message::Statements(list)) = Message::decode_exact(bytes) else {
+            panic!("not statements");
+        };
+        assert!(
+            list.iter()
+                .all(|s| matches!(s.statement, Statement::Trimmed { .. }))
+        );
+    }
+}
+
+#[test]
+fn what_a_host_did_not_write_together_does_not_resume() {
+    let mut net = Network::new();
+    member(&mut net, 31);
+    let (stored, snapshot) = net.stored[1].clone();
+    let root = Payload::decode_exact(&stored.tip.block.payload)
+        .unwrap()
+        .state;
+    let ledger = Ledger::restore(&snapshot, &root).unwrap();
+    let keys = || ValidatorKeys::derive(&net.node_keys[1], &NONCE).unwrap();
+    // A snapshot of another height than the tip's.
+    let mut ahead = stored.clone();
+    ahead.tip.block.height += 1;
+    assert_eq!(
+        Validator::resume(keys(), ahead, ledger.clone(), net.now).err(),
+        Some(ResumeError::Height)
+    );
+    // Of the same height, but another state.
+    let mut other = stored.clone();
+    other.tip.block.payload = Vec::new();
+    assert_eq!(
+        Validator::resume(keys(), other, ledger.clone(), net.now).err(),
+        Some(ResumeError::State)
+    );
+    // Keys that are no validator's of the hub.
+    let stranger = ValidatorKeys::derive(&NodeKey::from_bytes(&[99; 32]), &NONCE).unwrap();
+    assert_eq!(
+        Validator::resume(stranger, stored, ledger, net.now).err(),
+        Some(ResumeError::NotAValidator)
+    );
 }

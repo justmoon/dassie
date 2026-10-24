@@ -254,21 +254,17 @@ impl Core {
         // However many peerings move in one step, each write finds the
         // journal empty: what came before is in the batch.
         self.take_journal();
-        let changed = match target.cmp(&credit) {
-            core::cmp::Ordering::Equal => return,
-            core::cmp::Ordering::Greater => {
-                super::growth::raise_trust(&mut self.ledger, now, ledger, name, target - credit)
-                    .map(|()| target)
+        let changed = if target > credit {
+            super::growth::raise_trust(&mut self.ledger, now, ledger, name, target - credit)
+                .map(|()| target)
+        } else {
+            let room = u64::try_from(position).unwrap_or(u64::MAX);
+            let lower = (credit - target).min(room);
+            if lower == 0 {
+                return;
             }
-            core::cmp::Ordering::Less => {
-                let room = u64::try_from(position).unwrap_or(u64::MAX);
-                let lower = (credit - target).min(room);
-                if lower == 0 {
-                    return;
-                }
-                super::growth::lower_trust(&mut self.ledger, now, ledger, name, lower)
-                    .map(|()| credit - lower)
-            }
+            super::growth::lower_trust(&mut self.ledger, now, ledger, name, lower)
+                .map(|()| credit - lower)
         };
         match changed {
             Ok(credit) => self.report(SettlementEvent::HubCredit {

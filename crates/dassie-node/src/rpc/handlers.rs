@@ -440,6 +440,32 @@ fn status(node: &Node) -> proto::GetStatusResponse {
             .map(|names| names.origins())
             .unwrap_or_default(),
         feed: feed_status(node),
+        validating: node.hubs().statuses().iter().map(hub_status).collect(),
+    }
+}
+
+/// How the node's validator of a hub stands
+/// (spec/areas/hubs.md#the-validator-in-the-node).
+fn hub_status(status: &crate::hub::HubStatus) -> proto::HubValidator {
+    use dassie_hub::ledger::Phase;
+    let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+    proto::HubValidator {
+        hub: crate::hub::driver::hex(status.hub.0.as_bytes()),
+        // The set's size when the node is no longer in it.
+        index: count(status.index.unwrap_or(status.validators)),
+        validators: count(status.validators),
+        height: status.height,
+        final_unix_ms: convert::time(status.timestamp_ms),
+        view: status.view,
+        phase: match status.phase {
+            Phase::Running => proto::HubPhase::Running,
+            Phase::ShuttingDown { .. } => proto::HubPhase::ShuttingDown,
+            Phase::Ended => proto::HubPhase::Ended,
+        }
+        .into(),
+        stalled: status.stalled,
+        escrow_checked: status.escrow_checked,
+        xrpl_connected: status.xrpl_connected,
     }
 }
 

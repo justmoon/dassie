@@ -673,6 +673,7 @@ impl Core {
         self.outputs_peer.push(Output::HubSend {
             asset: asset.to_string(),
             epoch,
+            hub: account.hub(),
             endpoint,
             node: Box::new(node),
             address,

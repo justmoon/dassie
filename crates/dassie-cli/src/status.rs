@@ -70,6 +70,9 @@ pub async fn status(env: &Env) -> Result<(), String> {
         if let Some(feed) = feed(&node) {
             line("Rate feed", &feed);
         }
+        for hub in &node.validating {
+            line("Validating", &validating(hub, now_ms));
+        }
     } else {
         line(
             "Setup",
@@ -396,6 +399,56 @@ fn feed(node: &proto::GetStatusResponse) -> Option<String> {
             feed.refused_full, feed.refused_client
         ),
     ]))
+}
+
+/// How long a hub may go without a final block before status says so: a
+/// block is final every fraction of a second while the hub runs.
+const HUB_QUIET_MS: i64 = 60_000;
+
+/// A hub the node validates (spec/areas/hubs.md#the-validator-in-the-node):
+/// which validator it is, the last final block, and a hint only where
+/// something is wrong.
+fn validating(hub: &proto::HubValidator, now_ms: i64) -> String {
+    let short = hub.hub.get(..16).unwrap_or(&hub.hub);
+    // The daemon names the set's size as the index of a node no longer in
+    // it.
+    let which = if hub.index < hub.validators {
+        format!(
+            "validator {} of {}",
+            u64::from(hub.index).saturating_add(1),
+            hub.validators
+        )
+    } else {
+        format!("no longer one of its {} validators", hub.validators)
+    };
+    let mut text = format!(
+        "hub {short}…, {which}, block {} in view {}",
+        hub.height, hub.view
+    );
+    let quiet_ms = now_ms.saturating_sub(hub.final_unix_ms);
+    let phase = proto::HubPhase::try_from(hub.phase).unwrap_or(proto::HubPhase::Unspecified);
+    match phase {
+        proto::HubPhase::ShuttingDown => text.push_str("; shutting down"),
+        proto::HubPhase::Ended => text.push_str("; ended: its payout set is signed"),
+        proto::HubPhase::Running | proto::HubPhase::Unspecified => {}
+    }
+    if hub.stalled {
+        text.push_str(
+            "; stalled: it never votes in the hub again, and signed the payout set of its last block",
+        );
+    } else if phase != proto::HubPhase::Ended && quiet_ms > HUB_QUIET_MS {
+        text.push_str(&format!(
+            "; no block final for {}: check that its co-validators reach it over QUIC",
+            duration(quiet_ms)
+        ));
+    }
+    if !hub.escrow_checked {
+        text.push_str("; its escrow is not checked yet, so no deposit is credited");
+    }
+    if !hub.xrpl_connected {
+        text.push_str("; not following the escrow: its XRPL server cannot be reached");
+    }
+    text
 }
 
 /// `n` of `unit`, in the plural unless one.
@@ -823,6 +876,46 @@ mod tests {
         };
         assert_eq!(feed(&at_the_edge(Some(waiting))), None);
         assert_eq!(feed(&at_the_edge(None)), None);
+    }
+
+    // spec/areas/hubs.md#the-validator-in-the-node: a hub that runs reads
+    // as one, with a hint only where something is wrong.
+    #[test]
+    fn a_validated_hub_gets_a_hint_only_when_something_is_wrong() {
+        let now = 1_800_000_000_000;
+        let running = proto::HubValidator {
+            hub: "ab".repeat(32),
+            index: 1,
+            validators: 4,
+            height: 1234,
+            final_unix_ms: now - 100,
+            view: 1300,
+            phase: proto::HubPhase::Running.into(),
+            stalled: false,
+            escrow_checked: true,
+            xrpl_connected: true,
+        };
+        assert_eq!(
+            validating(&running, now),
+            "hub abababababababab…, validator 2 of 4, block 1234 in view 1300"
+        );
+        let quiet = proto::HubValidator {
+            final_unix_ms: now - 5 * 60_000,
+            escrow_checked: false,
+            xrpl_connected: false,
+            ..running.clone()
+        };
+        let text = validating(&quiet, now);
+        assert!(text.contains("no block final for 5 minutes"), "{text}");
+        assert!(text.contains("no deposit is credited"), "{text}");
+        assert!(text.contains("XRPL server cannot be reached"), "{text}");
+        let stalled = proto::HubValidator {
+            stalled: true,
+            ..quiet
+        };
+        let text = validating(&stalled, now);
+        assert!(text.contains("stalled"), "{text}");
+        assert!(!text.contains("no block final"), "{text}");
     }
 
     #[test]
