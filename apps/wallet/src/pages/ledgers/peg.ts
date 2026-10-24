@@ -58,8 +58,15 @@ export function pegNotice(
         text:
           `The node has not read ${token}'s price from its ${pool} AMM pool for too long: the pool could not be read or holds too little, or the node's XRP rate is stale. ${effect} It runs again with the next price near a dollar.`,
       };
-    default:
+    case PegPause.UNSPECIFIED:
       return undefined;
+    default:
+      // A reason this wallet does not know, from a newer node: still a
+      // pause, never shown as running.
+      return {
+        title: `Paused: ${token} is held back by its peg guard`,
+        text: `${effect} It runs again once the guard lets it.`,
+      };
   }
 }
 
