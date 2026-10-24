@@ -2777,6 +2777,9 @@ impl ExternalAsset for XrplAccount {
             self.config.unl.publishers.len(),
             "one fetch for each publisher"
         );
+        for (fetching, publisher) in self.fetches.iter().zip(&self.config.unl.publishers) {
+            fetching.check_invariants(publisher.sites.len());
+        }
         assert_eq!(self.unl.config(), &self.config.unl, "the config's UNL");
         assert!(
             self.anchor.is_none() || self.hint.is_none(),

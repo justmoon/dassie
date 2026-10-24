@@ -61,6 +61,7 @@ pub(super) const REFUSED: &str = "the server refused to prove its ledger";
 pub(super) const NOT_ANSWERED: &str = "the server did not answer";
 pub(super) const OLDER: &str =
     "the server's validated ledger is older than the one the account acted on";
+pub(super) const NOT_FRESH: &str = "the server's validated ledger is not fresh by the node's clock: the server is behind, or the clock is wrong";
 pub(super) const NOT_PROVEN: &str = "the server's answers did not prove";
 pub(super) const HISTORY: &str = "the server's history is too short to prove the chain";
 
@@ -79,7 +80,8 @@ pub enum Doubt {
     NoQuorum,
     /// More validations than are read.
     TooMany,
-    /// A validated ledger older than the anchor kept.
+    /// A validated ledger older than the anchor kept, or one whose
+    /// validations are no longer fresh.
     Older,
     /// A validated ledger of an older chain: a higher index that closed
     /// earlier, or another of the index that closed no later.
@@ -135,6 +137,15 @@ impl Fetching {
     /// gone.
     pub(super) const fn forget(&mut self) {
         self.asked_ms = None;
+    }
+
+    /// Asserts what holds of it, for a publisher of `sites` sites.
+    pub(super) fn check_invariants(&self, sites: usize) {
+        assert!(self.site < sites, "the site asked next is the publisher's");
+        assert!(
+            !(self.failed && self.is_asked()),
+            "a fetch is asked only once its sites may be asked again"
+        );
     }
 }
 
@@ -463,6 +474,17 @@ impl XrplAccount {
                 self.round = None;
                 self.waiting = Some(unl_reason(error));
                 self.fetch_lists_now();
+            }
+            // An old ledger with its old validations, as a server behind
+            // gives, or a clock far off: never current, and no lie the
+            // account can tell, so it waits for a newer ledger, as for one
+            // older than its anchor, rather than leave the server.
+            Err(AnchorError::NoQuorum(tally))
+                if tally.stale > 0 && tally.counted.saturating_add(tally.stale) >= tally.quorum =>
+            {
+                self.count(Doubt::Older);
+                self.round = None;
+                self.waiting = Some(NOT_FRESH);
             }
             Err(AnchorError::NoQuorum(tally))
                 if ask && tally.unknown > 0 && !tally.missing.is_empty() =>

@@ -14,13 +14,16 @@
     clippy::panic
 )]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use dassie_settlement::{AssetEffect, ExternalAsset, LedgerInput, LedgerStatus};
 use dassie_xrpl::account::{Doubt, LIST_RETRY_MS, STALL_MS, XrplAccount};
+use dassie_xrpl::anchor::{Ancestry, KeptAnchor, ProvenLists, ancestry};
 use dassie_xrpl::fake::{FakeLedger, LIST_SITE, Lie, publisher_key};
 use dassie_xrpl::network::{MAINNET, Network, TESTNET};
-use dassie_xrpl::unl::ledger_seconds;
+use dassie_xrpl::skip_list::{FLAG_INTERVAL, SkipList, flag_above, flag_key, recent_key};
+use dassie_xrpl::unl::{Anchor, ledger_seconds};
+use proptest::prelude::*;
 use serde_json::{Value, json};
 
 /// Most rounds of requests and answers until the account asks nothing
@@ -43,6 +46,124 @@ struct Harness {
     /// The sites it fetched, in order.
     fetched: Vec<String>,
     reconnects: usize,
+    /// What the server does to its next answers to the proof methods, one
+    /// each, in order; honest once none is left.
+    tampers: VecDeque<Tamper>,
+    /// The first answer of each proof method, which a replay gives again.
+    first: BTreeMap<String, Value>,
+}
+
+/// The methods that prove, whose answers a server may tamper with.
+const PROOF_METHODS: [&str; 3] = ["state_proof", "validations", "manifest"];
+
+/// What a dishonest server does to an answer of a proof method.
+#[derive(Clone, Copy, Debug)]
+enum Tamper {
+    /// Nothing.
+    Keep,
+    /// Changes one hex digit of one of its byte strings: by `pick` among
+    /// them, at `at` within it.
+    Flip { pick: usize, at: usize },
+    /// Leaves an entry or a validation out.
+    Drop,
+    /// Says the state holds none of the objects.
+    Absent,
+    /// Answers with an error instead.
+    Refuse(&'static str),
+    /// Answers as it first did, for an older ledger.
+    Replay,
+}
+
+/// Every byte string in `result` an answer carries, in a fixed order.
+fn byte_strings(result: &mut Value) -> Vec<&mut String> {
+    let mut out = Vec::new();
+    let Some(object) = result.as_object_mut() else {
+        return out;
+    };
+    for (key, value) in object.iter_mut() {
+        match (key.as_str(), value) {
+            ("ledger_header" | "manifest", Value::String(text)) => out.push(text),
+            ("validations", Value::Array(validations)) => {
+                out.extend(validations.iter_mut().filter_map(|v| match v {
+                    Value::String(text) => Some(text),
+                    _ => None,
+                }));
+            }
+            ("entries", Value::Array(entries)) => {
+                for entry in entries {
+                    let Some(entry) = entry.as_object_mut() else {
+                        continue;
+                    };
+                    for (key, value) in entry.iter_mut() {
+                        match (key.as_str(), value) {
+                            ("node_binary", Value::String(text)) => out.push(text),
+                            ("path", Value::Array(nodes)) => {
+                                out.extend(nodes.iter_mut().filter_map(|n| match n {
+                                    Value::String(text) => Some(text),
+                                    _ => None,
+                                }));
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+impl Tamper {
+    /// `reply`, an answer to `command`, as a dishonest server gives it;
+    /// `first`, its first answer to the command.
+    fn apply(self, reply: Vec<u8>, first: Option<&Value>) -> Vec<u8> {
+        let mut reply: Value = serde_json::from_slice(&reply).unwrap();
+        let id = reply["id"].clone();
+        match self {
+            Self::Keep => {}
+            Self::Flip { pick, at } => {
+                let mut strings = byte_strings(&mut reply["result"]);
+                let count = strings.len();
+                if let Some(text) = strings.get_mut(pick % count.max(1))
+                    && !text.is_empty()
+                {
+                    let at = at % text.len();
+                    let digit = text.as_bytes()[at];
+                    let other = if digit == b'0' { 'F' } else { '0' };
+                    text.replace_range(at..=at, &other.to_string());
+                }
+            }
+            Self::Drop => {
+                for key in ["entries", "validations"] {
+                    if let Some(list) = reply["result"][key].as_array_mut() {
+                        list.pop();
+                    }
+                }
+            }
+            Self::Absent => {
+                if let Some(entries) = reply["result"]["entries"].as_array_mut() {
+                    for entry in entries {
+                        if let Some(entry) = entry.as_object_mut() {
+                            entry.remove("node_binary");
+                        }
+                    }
+                }
+            }
+            Self::Refuse(error) => {
+                reply = json!({
+                    "type": "response", "id": id, "status": "error", "error": error,
+                });
+            }
+            Self::Replay => {
+                if let Some(first) = first {
+                    reply = first.clone();
+                    reply["id"] = id;
+                }
+            }
+        }
+        serde_json::to_vec(&reply).unwrap()
+    }
 }
 
 /// A config trusting the fake's publisher of `network`, at `sites`.
@@ -89,6 +210,8 @@ impl Harness {
             asked: Vec::new(),
             fetched: Vec::new(),
             reconnects: 0,
+            tampers: VecDeque::new(),
+            first: BTreeMap::new(),
         };
         harness.failing.insert("https://second.example/vl".into());
         let address = harness.account.account();
@@ -139,7 +262,16 @@ impl Harness {
                 if self.unanswered.contains(command.as_str()) {
                     return;
                 }
-                let reply = self.ledger.request(self.connection, &message);
+                let mut reply = self.ledger.request(self.connection, &message);
+                if PROOF_METHODS.contains(&command.as_str()) {
+                    let first = self
+                        .first
+                        .entry(command)
+                        .or_insert_with(|| serde_json::from_slice(&reply).unwrap());
+                    if let Some(tamper) = self.tampers.pop_front() {
+                        reply = tamper.apply(reply, Some(first));
+                    }
+                }
                 self.account
                     .on_ledger(self.now, LedgerInput::Message(&reply));
             }
@@ -521,7 +653,9 @@ fn an_older_state_s_newest_ledger_is_a_hint() {
 }
 
 // The validations' freshness is by the node's clock: one that runs far
-// ahead sees none as fresh, and waits, saying why.
+// ahead sees none as fresh, and waits, saying why. That is no lie the
+// account can tell: it stays on its server, and anchors on the first
+// ledger whose validations are fresh again.
 #[test]
 fn a_clock_far_ahead_takes_no_anchor() {
     let mut harness = Harness::new(FakeLedger::new(), &[]);
@@ -529,5 +663,169 @@ fn a_clock_far_ahead_takes_no_anchor() {
     harness.connect();
     assert_eq!(harness.anchored_at(), None);
     assert_eq!(harness.account.status(), LedgerStatus::Syncing);
-    assert!(harness.account.doubts(Doubt::NoQuorum) > 0);
+    assert!(harness.account.waiting().unwrap().contains("not fresh"));
+    assert!(harness.account.doubts(Doubt::Older) > 0);
+    assert_eq!(harness.account.doubts(Doubt::NoQuorum), 0);
+    // The ledger catches up with the clock.
+    harness.close();
+    assert_eq!(harness.anchored_at(), Some(harness.ledger.ledger()));
+    assert_eq!(harness.account.status(), LedgerStatus::Synced);
+    assert_eq!(harness.reconnects, 0);
+}
+
+/// A tamper with an answer, drawn.
+fn tamper() -> impl Strategy<Value = Tamper> {
+    prop_oneof![
+        2 => Just(Tamper::Keep),
+        4 => (any::<usize>(), any::<usize>()).prop_map(|(pick, at)| Tamper::Flip { pick, at }),
+        1 => Just(Tamper::Drop),
+        1 => Just(Tamper::Absent),
+        1 => prop::sample::select(&["lgrNotFound", "unknownCmd", "tooBusy"][..])
+            .prop_map(Tamper::Refuse),
+        1 => Just(Tamper::Replay),
+    ]
+}
+
+/// A chain of ledgers from `first` on, by its `id`, for the ancestry's
+/// model: each ledger's hash names its chain and index, and its skip lists
+/// are as rippled keeps them.
+#[derive(Clone, Copy, Debug)]
+struct ModelChain {
+    id: u8,
+    first: u32,
+}
+
+impl ModelChain {
+    fn hash(self, index: u32) -> [u8; 32] {
+        let mut hash = [0; 32];
+        hash[0] = self.id;
+        hash[1..5].copy_from_slice(&index.to_be_bytes());
+        hash[31] = 1;
+        hash
+    }
+
+    /// The chain and ledger of `hash`.
+    fn of(hash: [u8; 32], chains: &[Self]) -> (Self, u32) {
+        let chain = *chains.iter().find(|chain| chain.id == hash[0]).unwrap();
+        (chain, u32::from_be_bytes(hash[1..5].try_into().unwrap()))
+    }
+
+    /// The list of the 256 ledgers before `index`: none for its first.
+    fn recent(self, index: u32) -> Option<SkipList> {
+        (index > self.first).then(|| SkipList {
+            last: index - 1,
+            hashes: (index.saturating_sub(256).max(self.first)..index)
+                .map(|ledger| self.hash(ledger))
+                .collect(),
+        })
+    }
+
+    /// The list of the flag ledgers of `group` before `index`: none if it
+    /// holds none yet.
+    fn flags(self, group: u32, index: u32) -> Option<SkipList> {
+        let flags: Vec<u32> = (0..256)
+            .map(|at| (group << 16) + at * FLAG_INTERVAL)
+            .filter(|&flag| flag >= self.first && flag < index)
+            .collect();
+        let last = *flags.last()?;
+        Some(SkipList {
+            last,
+            hashes: flags.iter().map(|&flag| self.hash(flag)).collect(),
+        })
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 24, ..ProptestConfig::default() })]
+
+    // spec/designs/xrpl-validation.md#1-the-rule: nothing a server answers
+    // to the proof methods, changed, cut, refused or replayed, moves the
+    // anchor off the ledger's own, writes anything off or stops the
+    // account, on either network; the account keeps its invariants
+    // throughout, and anchors again once the server is honest.
+    #[test]
+    fn no_answer_moves_the_anchor_off_the_ledger(
+        mainnet in any::<bool>(),
+        tampers in prop::collection::vec(tamper(), 1..24),
+    ) {
+        let ledger = if mainnet { FakeLedger::mainnet() } else { FakeLedger::new() };
+        let mut harness = Harness::new(ledger, &[]);
+        harness.connect();
+        harness.closes(2);
+        harness.tampers.extend(tampers);
+        // A tamper may stall the account for a while: enough ledgers for
+        // each to be told.
+        for _ in 0..256 {
+            if harness.tampers.is_empty() {
+                break;
+            }
+            harness.close();
+            prop_assert!(harness.anchor_is_the_ledgers());
+            prop_assert_eq!(harness.account.write_offs(), 0);
+            prop_assert!(!matches!(harness.account.status(), LedgerStatus::Failed(_)));
+            prop_assert!(harness.account.validated() <= harness.ledger.ledger());
+        }
+        prop_assert!(harness.tampers.is_empty());
+        harness.wait(STALL_MS);
+        harness.closes(2);
+        prop_assert_eq!(harness.anchored_at(), Some(harness.ledger.ledger()));
+        prop_assert_eq!(harness.account.status(), LedgerStatus::Synced);
+        prop_assert_eq!(harness.account.write_offs(), 0);
+    }
+
+    // spec/designs/xrpl-validation.md#7-resets-under-a-unl: a later anchor
+    // is on the kept one's chain exactly when it is, however far either
+    // chain grew and wherever the other began, told by at most three skip
+    // lists: the new anchor's own of recent ledgers, and two more.
+    #[test]
+    fn ancestry_tells_the_kept_chain_in_three_lists(
+        first in 1u32..400_000,
+        kept_after in 0u32..2_000,
+        later in prop_oneof![1u32..300, 1u32..200_000],
+        other in prop::option::of(0u32..250_000),
+    ) {
+        let a = ModelChain { id: 1, first };
+        let kept_index = first + kept_after;
+        let new_index = kept_index + later;
+        // Another chain began anywhere up to the new anchor: below the
+        // kept one, or after it.
+        let b = other.map_or(a, |start| ModelChain {
+            id: 2,
+            first: new_index.saturating_sub(start).max(1),
+        });
+        let chains = [a, b];
+        let kept = KeptAnchor::of(
+            Anchor { index: kept_index, close_time: kept_index, hash: a.hash(kept_index) },
+            a.recent(kept_index).as_ref(),
+        );
+        let new = Anchor { index: new_index, close_time: new_index, hash: b.hash(new_index) };
+        let group_of = |key: [u8; 32], at: u32| {
+            let candidates = kept.flag.map(|(flag, _)| flag).into_iter().chain(flag_above(kept_index));
+            candidates
+                .map(|flag| flag >> 16)
+                .find(|&group| flag_key(group << 16) == key)
+                .unwrap_or_else(|| panic!("a key of no flag list, at {at}"))
+        };
+        let mut lists = ProvenLists::new();
+        let mut proofs = 0;
+        let on_chain = loop {
+            match ancestry(&kept, &new, &lists) {
+                Ancestry::OnChain => break true,
+                Ancestry::OffChain => break false,
+                Ancestry::Prove { at, key } => {
+                    prop_assert!(!lists.contains_key(&(at, key)), "asked twice");
+                    proofs += 1;
+                    prop_assert!(proofs <= 3, "more than three lists");
+                    let (chain, index) = ModelChain::of(at, &chains);
+                    let list = if key == recent_key() {
+                        chain.recent(index)
+                    } else {
+                        chain.flags(group_of(key, index), index)
+                    };
+                    lists.insert((at, key), list);
+                }
+            }
+        };
+        prop_assert_eq!(on_chain, other.is_none());
+    }
 }
