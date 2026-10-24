@@ -42,8 +42,10 @@
 //!   (`xrpl-testnet-dsusd`); [`peg`] is the guard that pauses a dollar
 //!   token's scheme while its AMM pool prices it off a dollar.
 //! - `fake` (feature `fake`): a model of the ledger, with tokens, AMM
-//!   pools and signer lists, and a builder of its hash trees and their
-//!   branches, for simulations and tests.
+//!   pools and signer lists, real headers and hash trees of each ledger it
+//!   closes, validators that sign them and a publisher that lists them, the
+//!   proof methods of a patched rippled, and a server that lies on request,
+//!   for simulations and tests.
 //!
 //! Nothing here reads a clock or touches the network
 //! (spec/decisions/tigerstyle.md).

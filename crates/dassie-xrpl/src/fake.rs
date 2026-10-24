@@ -26,34 +26,55 @@
 //! at API version 1, as rippled does. It checks what it is sent with the
 //! node's own codec, so the codec is pinned by the xrpl.js vectors, not by
 //! this.
+//!
+//! Proofs (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation):
+//! each closed ledger has a real header, a transaction tree of every
+//! transaction it applied, the fake's own included, with its binary
+//! metadata, and a state tree of every object in rippled's binary form,
+//! with the skip lists and the fee settings (`fake/chain.rs`,
+//! `fake/objects.rs`, `fake/meta.rs`). Validators sign each ledger and a
+//! publisher lists them (`fake/validators.rs`); the fake serves
+//! `validations`, `tx_proof`, `state_proof` and `manifest` (`fake/proofs.rs`),
+//! and any connection can be made to lie ([`lies`]).
 
+mod chain;
+pub mod lies;
 mod meta;
+mod objects;
 pub mod pools;
+mod proofs;
 pub mod shamap;
 mod signers;
 pub mod tokens;
+mod validators;
 
 use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
-use alloc::string::ToString;
 use alloc::vec::Vec;
 
 use serde_json::{Value, json};
 
 use crate::api::{SignerList, account_flags};
 use crate::codec::{
-    Amount, Currency, Payment, Signing, TokenAmount, Transact, Transaction, hash, multi_signed_fee,
+    Amount, Currency, Payment, Signing, Transact, Transaction, hash, multi_signed_fee,
 };
 use crate::keys::AccountId;
 use crate::network::{MAINNET, Network, TESTNET};
 use crate::{DROPS_PER_XRP, from_hex, hex_upper};
 
+pub use chain::{MAX_KEPT_LEDGERS, MAX_STATE_LEDGERS, MAX_VALIDATED_LEDGERS};
+pub use lies::Lie;
 pub use pools::{POOL_ACCOUNT_FLAGS, PoolState, pool_account};
+pub use proofs::MAX_STATE_PROOF_KEYS;
 pub use tokens::{ExactSum, Token};
+pub use validators::{DEFAULT_SEED, KeyedSignatures, MAINNET_SEED, UNL_FLOOR, VALIDATORS};
 
+use chain::Chain;
 use meta::{Applied, Touched};
+use objects::{Thread, token_json};
 use pools::{Pool, PoolSet};
 use tokens::{Clawback, IssuerSet, LineKey};
+use validators::Validators;
 
 /// The reference fee, in drops.
 pub const FEE_BASE: u64 = 10;
@@ -256,7 +277,27 @@ pub struct FakeLedger {
     /// The network ID `server_state` reports: its network's, unless
     /// [`set_network_id`](Self::set_network_id) changes it.
     network_id: Option<u32>,
+    /// Where each transaction is in the history, by its hash.
+    history_index: BTreeMap<[u8; 32], usize>,
+    /// The transaction that last changed each object, by the object's key.
+    threads: BTreeMap<[u8; 32], Thread>,
+    /// The ledgers closed, with their trees.
+    chain: Chain,
+    /// The validators and their publisher.
+    validators: Validators,
+    /// Who lies how.
+    lies: lies::Lies,
+    /// The last transactions submitted that never applied, each with its
+    /// hash, newest last: what a lying server says applied.
+    never_applied: Vec<([u8; 32], Vec<u8>)>,
 }
+
+/// The most transactions remembered as never applied.
+const MAX_NEVER_APPLIED: usize = 64;
+
+/// When the fake's first list of validators expires: as late as the
+/// ledger's clock counts. A test that lets a list expire publishes another.
+const FIRST_LIST_EXPIRATION: u32 = u32::MAX;
 
 impl Default for FakeLedger {
     fn default() -> Self {
@@ -266,31 +307,39 @@ impl Default for FakeLedger {
 
 impl FakeLedger {
     /// The testnet: a ledger with only the genesis account and DSUSD's
-    /// issuer. Test RLUSD is not on it: no scheme settles in it
-    /// (spec/decisions/issued-assets.md).
+    /// issuer, with validators from [`DEFAULT_SEED`]. Test RLUSD is not on
+    /// it: no scheme settles in it (spec/decisions/issued-assets.md).
     #[must_use]
     pub fn new() -> Self {
-        let mut ledger = Self::on(&TESTNET);
-        ledger.add_issuer(DSUSD_ISSUER);
-        ledger
+        Self::with_seed(DEFAULT_SEED)
+    }
+
+    /// The testnet as [`new`](Self::new) makes it, with validators and
+    /// their publisher from `seed`: a ledger of another seed shares no key
+    /// with it.
+    #[must_use]
+    pub fn with_seed(seed: [u8; 32]) -> Self {
+        Self::on(&TESTNET, seed, DSUSD_ISSUER)
     }
 
     /// Mainnet: a ledger with only the genesis account and RLUSD's issuer,
     /// which reports mainnet's network ID, has no faucet and never resets.
-    /// The testnet's DSUSD is not on it.
+    /// The testnet's DSUSD is not on it. Its validators come from
+    /// [`MAINNET_SEED`], so its UNL shares no key with the testnet's, as
+    /// live.
     #[must_use]
     pub fn mainnet() -> Self {
-        let mut ledger = Self::on(&MAINNET);
-        ledger.add_issuer(RLUSD_ISSUER);
-        ledger
+        Self::on(&MAINNET, MAINNET_SEED, RLUSD_ISSUER)
     }
 
-    /// A ledger of `network` with only the genesis account.
-    fn on(network: &'static Network) -> Self {
+    /// A ledger of `network` with only the genesis account and `issuer`,
+    /// with validators and their publisher from `seed`, its first ledger
+    /// sealed.
+    fn on(network: &'static Network, seed: [u8; 32], issuer: AccountId) -> Self {
         let genesis = AccountId([0xAB; 20]);
         let mut accounts = BTreeMap::new();
         accounts.insert(genesis, Account::new(crate::MAX_DROPS, 1));
-        Self {
+        let mut ledger = Self {
             accounts,
             lines: BTreeMap::new(),
             issuers: BTreeSet::new(),
@@ -312,7 +361,16 @@ impl FakeLedger {
             reserve: (RESERVE_BASE, RESERVE_INC),
             network,
             network_id: Some(network.id),
-        }
+            history_index: BTreeMap::new(),
+            threads: BTreeMap::new(),
+            chain: Chain::new(),
+            validators: Validators::new(seed, FIRST_LIST_EXPIRATION),
+            lies: lies::Lies::default(),
+            never_applied: Vec::new(),
+        };
+        ledger.add_issuer(issuer);
+        ledger.seal_first();
+        ledger
     }
 
     /// The network it is.
@@ -357,6 +415,12 @@ impl FakeLedger {
         self.accounts.get(&account).map(|a| a.balance)
     }
 
+    /// The sequence an account uses next, if it exists.
+    #[must_use]
+    pub fn sequence(&self, account: AccountId) -> Option<u32> {
+        self.accounts.get(&account).map(|a| a.sequence)
+    }
+
     /// The objects an account owns, such as trust lines, if it exists.
     #[must_use]
     pub fn owner_count(&self, account: AccountId) -> Option<u32> {
@@ -393,6 +457,8 @@ impl FakeLedger {
         self.history_from = self.ledger.saturating_add(1);
         self.account_tx_from = self.history_from;
         self.history.clear();
+        self.history_index.clear();
+        self.chain.forget_before(self.history_from);
     }
 
     /// Cuts `account_tx` at the current ledger, while `tx` still finds
@@ -417,6 +483,7 @@ impl FakeLedger {
     /// later than every ledger of one before it, as after a reset.
     pub fn set_close_time(&mut self, close_time: u64) {
         self.close_time = close_time;
+        self.reseal();
     }
 
     /// Starts the chain again, as a testnet reset does: every account but
@@ -430,6 +497,9 @@ impl FakeLedger {
         self.history_from = self.ledger;
         self.account_tx_from = self.ledger;
         self.history.clear();
+        self.history_index.clear();
+        self.never_applied.clear();
+        self.threads.clear();
         let (genesis, issuers) = (self.genesis, &self.issuers);
         let kept = |id: &AccountId| *id == genesis || issuers.contains(id);
         let wiped: u64 = self
@@ -450,6 +520,7 @@ impl FakeLedger {
         self.signer_lists.clear();
         self.queued.clear();
         self.queued_hashes.clear();
+        self.seal_first();
     }
 
     /// Removes `account` and wipes its XRP, while the chain goes on: an
@@ -466,6 +537,7 @@ impl FakeLedger {
     pub fn disconnect(&mut self, connection: ConnectionId) {
         self.accounts_of.remove(&connection);
         self.ledger_stream.remove(&connection);
+        self.forget_liar(connection);
     }
 
     /// Pays `drops` from genesis to `to`, in the next ledger: a deposit from
@@ -528,15 +600,19 @@ impl FakeLedger {
         let id = request.get("id").cloned().unwrap_or(Value::Null);
         let command = request.get("command").and_then(Value::as_str).unwrap_or("");
         let outcome = match command {
-            "server_state" => Ok(self.server_state()),
+            "server_state" => Ok(self.server_state(connection)),
             "subscribe" => self.subscribe(connection, &request),
             "account_info" => self.account_info(&request),
-            "account_tx" => self.account_tx(&request),
+            "account_tx" => self.account_tx(connection, &request),
             "ledger_entry" => self.ledger_entry(&request),
             "account_objects" => self.account_objects(&request),
             "amm_info" => self.amm_info(&request),
-            "tx" => self.tx(&request),
+            "tx" => self.tx(connection, &request),
             "submit" => self.submit(&request),
+            "validations" => self.validations(connection, &request),
+            "tx_proof" => self.tx_proof(connection, &request),
+            "state_proof" => self.state_proof(connection, &request),
+            "manifest" => self.manifest(&request),
             _ => Err(json!({ "error": "unknownCmd" })),
         };
         let response = match outcome {
@@ -570,20 +646,27 @@ impl FakeLedger {
         let mut out = Vec::new();
         let queued = core::mem::take(&mut self.queued);
         self.queued_hashes.clear();
-        for (index, tx) in queued.into_iter().enumerate() {
-            let index = u32::try_from(index).unwrap_or(u32::MAX);
-            if let Some(applied) = self.apply(&tx, index) {
-                for (connection, accounts) in &self.accounts_of {
-                    if applied.accounts.iter().any(|a| accounts.contains(a)) {
-                        out.push((
-                            *connection,
-                            serde_json::to_vec(&applied.message).unwrap_or_default(),
-                        ));
-                    }
+        // Only what applies takes an index in the ledger.
+        let mut index = 0_u32;
+        for tx in queued {
+            let Some(applied) = self.apply(&tx, index) else {
+                self.never_applied(&tx);
+                continue;
+            };
+            index = index.saturating_add(1);
+            let hearing: Vec<ConnectionId> = (self.accounts_of.iter())
+                .filter(|(_, accounts)| applied.accounts.iter().any(|a| accounts.contains(a)))
+                .map(|(connection, _)| *connection)
+                .collect();
+            for connection in hearing {
+                if let Some(message) = self.streamed(connection, &applied.message) {
+                    out.push((connection, message));
                 }
-                self.history.push(applied);
             }
+            self.history_index.insert(applied.hash, self.history.len());
+            self.history.push(applied);
         }
+        self.seal_next();
         let closed = json!({
             "type": "ledgerClosed",
             "ledger_index": self.ledger,
@@ -592,12 +675,25 @@ impl FakeLedger {
             "reserve_base": self.reserve.0,
             "reserve_inc": self.reserve.1,
             "validated_ledgers": alloc::format!("{}-{}", self.history_from, self.ledger),
+            "ledger_hash": self.ledger_hash(self.ledger).map(|hash| hex_upper(&hash)),
         });
         let closed = serde_json::to_vec(&closed).unwrap_or_default();
         for connection in &self.ledger_stream {
             out.push((*connection, closed.clone()));
         }
         out
+    }
+
+    /// Remembers `tx`, submitted and dropped as a ledger closed, as one
+    /// that never applied.
+    fn never_applied(&mut self, tx: &Tx) {
+        let Some(blob) = tx.signed_blob() else {
+            return;
+        };
+        if self.never_applied.len() == MAX_NEVER_APPLIED {
+            self.never_applied.remove(0);
+        }
+        self.never_applied.push((hash(&blob), blob));
     }
 
     fn next_sequence(&self, account: AccountId) -> u32 {
@@ -618,7 +714,7 @@ impl FakeLedger {
         )
     }
 
-    fn server_state(&self) -> Value {
+    fn honest_server_state(&self) -> Value {
         let mut state = json!({
             "validated_ledger": {
                 "seq": self.ledger,
@@ -725,7 +821,7 @@ impl FakeLedger {
         }))
     }
 
-    fn account_tx(&self, request: &Value) -> Result<Value, Value> {
+    fn honest_account_tx(&self, request: &Value) -> Result<Value, Value> {
         let id = Self::account_of(request)?;
         let number = |key: &str| {
             request
@@ -781,7 +877,7 @@ impl FakeLedger {
         Ok(result)
     }
 
-    fn tx(&self, request: &Value) -> Result<Value, Value> {
+    fn honest_tx(&self, request: &Value) -> Result<Value, Value> {
         let hash: [u8; 32] = request
             .get("transaction")
             .and_then(Value::as_str)
@@ -801,7 +897,8 @@ impl FakeLedger {
                 return Err(json!({ "error": "excessiveLgrRange" }));
             }
         }
-        if let Some(applied) = self.history.iter().find(|a| a.hash == hash) {
+        let found = (self.history_index.get(&hash)).and_then(|at| self.history.get(*at));
+        if let Some(applied) = found {
             let mut result = applied
                 .message
                 .get("transaction")
@@ -841,7 +938,7 @@ impl FakeLedger {
             return result("temMALFORMED");
         };
         let tx_hash = hash(&blob);
-        if self.queued_hashes.contains(&tx_hash) || self.history.iter().any(|a| a.hash == tx_hash) {
+        if self.queued_hashes.contains(&tx_hash) || self.history_index.contains_key(&tx_hash) {
             return result("tefALREADY");
         }
         // Signatures are checked once: they cannot change. Whether the keys
@@ -1071,13 +1168,4 @@ fn preflight(tx: &Tx) -> Result<(), &'static str> {
         Transaction::SetRegularKey(set) => signers::preflight_set_regular_key(set),
         Transaction::SignerListSet(set) => signers::preflight_signer_list_set(set),
     }
-}
-
-/// A token amount as the ledger writes one.
-fn token_json(amount: &TokenAmount) -> Value {
-    json!({
-        "currency": amount.currency.to_string(),
-        "issuer": amount.issuer.to_address(),
-        "value": amount.value.to_string(),
-    })
 }
