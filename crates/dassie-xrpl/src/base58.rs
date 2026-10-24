@@ -1,4 +1,5 @@
-//! Base58Check in the XRP Ledger's alphabet: addresses and family seeds.
+//! Base58Check in the XRP Ledger's alphabet: addresses, family seeds and
+//! node public keys.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -12,7 +13,7 @@ const ALPHABET: &[u8; 58] = b"rpshnaf39wBUDNEGHJKLM4PQRST7VWXYZ2bcdeCg65jkm8oFqi
 const ZERO: u8 = b'r';
 
 /// The most bytes this encodes or decodes: a version, a payload of at most
-/// 32 bytes, and the checksum.
+/// 33 bytes (a node's public key), and the checksum.
 const MAX_BYTES: usize = 40;
 
 /// The first four bytes of SHA-256 of SHA-256.
