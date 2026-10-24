@@ -166,3 +166,64 @@ fn a_scheme_refuses_an_account_of_another_network() {
         Some(SchemeError::UnknownScheme)
     );
 }
+
+/// The requests `account` sends, in order, once told what it learnt.
+fn sent(account: &mut XrplAccount) -> Vec<serde_json::Value> {
+    account.told();
+    account.check_invariants();
+    let mut effects = Vec::new();
+    account.take_effects(&mut effects);
+    effects
+        .into_iter()
+        .map(|effect| match effect {
+            AssetEffect::Send { message } => serde_json::from_slice(&message).unwrap(),
+            other => panic!("{other:?}"),
+        })
+        .collect()
+}
+
+// The table's network IDs are the ones live servers report: `server_state`
+// as mainnet's public servers and the testnet's, and each network's proof
+// server, its default, answered it (tests/data/server-state.json). Each network's account goes
+// past the check on its own network's servers, and stops on the other's
+// before it reads the account.
+#[test]
+fn live_servers_report_the_tables_network_ids() {
+    let text = std::fs::read_to_string("tests/data/server-state.json").unwrap();
+    let fixture: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let servers = fixture["servers"].as_object().unwrap();
+    assert_eq!(servers.len(), 6);
+    assert!(servers.contains_key(MAINNET.server) && servers.contains_key(TESTNET.server));
+    for (server, reply) in servers {
+        let on = if server.contains("altnet") || server.contains("testnet") {
+            &TESTNET
+        } else {
+            &MAINNET
+        };
+        let state = dassie_xrpl::api::server_state_result(&reply["result"]).unwrap();
+        assert_eq!(state.network_id, Some(on.id), "{server}");
+        for network in NETWORKS {
+            let mut account = account_on(network, "").unwrap();
+            account.on_ledger(1_000, LedgerInput::Connected);
+            let requests = sent(&mut account);
+            assert_eq!(requests.len(), 1);
+            assert_eq!(requests[0]["command"], "server_state");
+            let mut answer = reply.clone();
+            answer["id"] = requests[0]["id"].clone();
+            let answer = serde_json::to_vec(&answer).unwrap();
+            account.on_ledger(1_000, LedgerInput::Message(&answer));
+            let requests = sent(&mut account);
+            if network == on {
+                assert_eq!(requests[0]["command"], "subscribe", "{server}");
+                assert!(!matches!(account.status(), LedgerStatus::Failed(_)));
+            } else {
+                assert!(requests.is_empty(), "{server}");
+                assert_eq!(
+                    account.status(),
+                    LedgerStatus::Failed(network.wrong_network),
+                    "{server}"
+                );
+            }
+        }
+    }
+}
