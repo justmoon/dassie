@@ -182,20 +182,17 @@ impl Guard {
 
     /// Takes the time. The first time is when the guard started. With no
     /// reading that counted for [`MAX_READING_AGE_MS`], a pegged guard is
-    /// unread, and one off its peg starts its recovery hold again.
+    /// unread, and any hold under way starts again: one toward tripping, or
+    /// one off its peg toward recovering.
     pub fn tick(&mut self, now_ms: u64) {
         let read_ms = *self.read_ms.get_or_insert(now_ms);
         if now_ms.saturating_sub(read_ms) <= MAX_READING_AGE_MS {
             return;
         }
-        match self.standing {
-            Standing::Pegged => {
-                self.standing = Standing::Unread;
-                self.crossing_ms = None;
-            }
-            Standing::Off => self.crossing_ms = None,
-            Standing::Unread => {}
+        if self.standing == Standing::Pegged {
+            self.standing = Standing::Unread;
         }
+        self.crossing_ms = None;
     }
 
     /// Takes the node's XRP rate, as it has it now.
@@ -343,10 +340,14 @@ impl Guard {
         guard.holds().then_some(guard)
     }
 
-    /// Whether what it keeps fits together: a reading counted, or a hold
-    /// started, only once it knew the time, and a price within bounds.
+    /// Whether what it keeps fits together: a reading counted, a hold
+    /// started or the guard left its peg only once it knew the time; off
+    /// its peg only on a reading; and a price within bounds.
     fn holds(&self) -> bool {
-        (self.read_ms.is_some() || (self.crossing_ms.is_none() && self.last.is_none()))
+        let timed =
+            self.crossing_ms.is_none() && self.last.is_none() && self.standing == Standing::Pegged;
+        (self.read_ms.is_some() || timed)
+            && (self.standing != Standing::Off || self.last.is_some())
             && self.last.is_none_or(|(price, _)| price <= MAX_PRICE_PPM)
     }
 
@@ -613,6 +614,32 @@ mod tests {
     }
 
     #[test]
+    fn a_gap_in_the_readings_starts_the_trip_hold_again() {
+        let mut guard = Guard::new(PEG);
+        guard.tick(0);
+        let start = MAX_READING_AGE_MS + 1;
+        hold(&mut guard, start, start + READ_EVERY_MS, 900_000);
+        assert_eq!(guard.paused(), Some(PegPause::OffPeg));
+        // No reading for too long: unread again, the hold forgotten.
+        let back = start + READ_EVERY_MS + MAX_READING_AGE_MS + 1;
+        guard.tick(back);
+        assert_eq!(guard.paused(), Some(PegPause::Stale));
+        hold(
+            &mut guard,
+            back,
+            back + TRIP_HOLD_MS - READ_EVERY_MS,
+            900_000,
+        );
+        // Not yet off its peg: back in the band, it is pegged at once.
+        let mut pegged = guard.clone();
+        read(&mut pegged, back + TRIP_HOLD_MS, PAR_PPM);
+        assert_eq!(pegged.paused(), None);
+        read(&mut guard, back + TRIP_HOLD_MS, 900_000);
+        read(&mut guard, back + TRIP_HOLD_MS + READ_EVERY_MS, PAR_PPM);
+        assert_eq!(guard.paused(), Some(PegPause::OffPeg));
+    }
+
+    #[test]
     fn a_gap_in_the_readings_starts_the_recovery_again() {
         let mut guard = Guard::new(PEG);
         hold(&mut guard, 0, TRIP_HOLD_MS, 900_000);
@@ -667,6 +694,20 @@ mod tests {
         let mut state = guard.state();
         state["last"] = json!([MAX_PRICE_PPM + 1, 3]);
         assert!(Guard::restore(PEG, &state).is_none());
+        // Off its peg with no reading, or unread before it knew the time.
+        let mut state = guard.state();
+        state["last"] = Value::Null;
+        assert!(Guard::restore(PEG, &state).is_none());
+        let unread = json!({
+            "standing": "unread",
+            "crossing_ms": null,
+            "read_ms": null,
+            "last": null,
+        });
+        assert!(Guard::restore(PEG, &unread).is_none());
+        let mut unread = unread;
+        unread["read_ms"] = json!(5);
+        assert!(Guard::restore(PEG, &unread).is_some());
         assert!(Guard::restore(PEG, &json!({})).is_none());
     }
 
