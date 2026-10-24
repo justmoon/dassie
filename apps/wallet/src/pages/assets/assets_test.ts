@@ -45,8 +45,10 @@ test("an asset is named by its kind, and numbered past the first", () => {
     assetName("xrpl-testnet-account/1"),
     "XRP Ledger Testnet account 2",
   );
+  assertEquals(assetName("xrpl-account/0"), "XRP Ledger account");
   assertEquals(assetName("bank/0"), "bank");
   assertEquals(nativeAsset("xrpl-testnet-account/0"), "XRP");
+  assertEquals(nativeAsset("xrpl-account/0"), "XRP");
   assertEquals(nativeAsset("bank/0"), undefined);
 });
 
