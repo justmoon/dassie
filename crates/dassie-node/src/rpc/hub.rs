@@ -77,6 +77,7 @@ fn hub_status(status: &HubStatus) -> proto::HubStatus {
         reserve: status.reserve,
         deposited: status.deposited,
         withdrawn: status.withdrawn,
+        returned: status.returned,
         paying: status.paying.iter().map(hold).collect(),
         taking: status.taking.iter().map(hold).collect(),
         floor: status.floor,

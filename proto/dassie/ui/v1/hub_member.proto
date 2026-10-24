@@ -63,7 +63,7 @@ message HubStatus {
   uint64 balance = 4;
   // Its account reserve: never spendable.
   uint64 reserve = 5;
-  // Everything deposits credited it, and withdrawals that came back.
+  // Everything deposits credited it.
   uint64 deposited = 6;
   // Everything its withdrawals took, ledger fees included.
   uint64 withdrawn = 7;
@@ -91,6 +91,9 @@ message HubStatus {
   // it, once. Cleared when the owner turns the node's own moves on again or
   // moves funds.
   HubMove given_up = 17;
+  // What withdrawals the escrow could not pay brought back: the owner's
+  // deposits too, counted apart.
+  uint64 returned = 18;
 }
 
 message GetHubStatusRequest {}

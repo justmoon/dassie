@@ -401,6 +401,7 @@ fn read_account(reader: &mut Reader<'_>) -> Result<Account, HubDecodeError> {
         member_slot: reader.read_bool()?,
         deposited: reader.read_u64()?,
         withdrawn: reader.read_u64()?,
+        returned: reader.read_u64()?,
     })
 }
 

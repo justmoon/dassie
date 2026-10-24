@@ -48,6 +48,8 @@ pub struct HubStatus {
     pub deposited: u64,
     /// What withdrawals took from it.
     pub withdrawn: u64,
+    /// What withdrawals that came back credited it.
+    pub returned: u64,
     /// Our holds toward peers.
     pub paying: Vec<HubHold>,
     /// Peers' holds toward us.
@@ -400,6 +402,7 @@ impl Core {
             reserve: units(view.map_or(0, |v| v.reserve)),
             deposited: units(view.map_or(0, |v| v.deposited)),
             withdrawn: units(view.map_or(0, |v| v.withdrawn)),
+            returned: units(view.map_or(0, |v| v.returned)),
             paying,
             taking,
             floor,

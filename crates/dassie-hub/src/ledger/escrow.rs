@@ -254,7 +254,7 @@ impl Ledger {
         } else if !delivered {
             // It came back: a deposit, as its member books it.
             self.credit(number, withdrawal.amount);
-            self.count_deposit(number, withdrawal.amount);
+            self.count_returned(number, withdrawal.amount);
         }
     }
 

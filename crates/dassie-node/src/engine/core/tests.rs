@@ -2930,6 +2930,12 @@ impl Validators {
     /// The node's account 5 holds `balance` drops, and deposits credited it
     /// `deposited`, as of a new final block.
     fn account(&mut self, core: &mut Core, balance: u64, deposited: u64) {
+        self.account_with(core, balance, deposited, 0);
+    }
+
+    /// As [`account`](Self::account), with `returned` brought back by
+    /// withdrawals the escrow could not pay.
+    fn account_with(&mut self, core: &mut Core, balance: u64, deposited: u64, returned: u64) {
         use dassie_hub::client::{AccountView, Statement};
         use dassie_hub::operation::AccountNumber;
 
@@ -2943,6 +2949,7 @@ impl Validators {
             closing: false,
             deposited,
             withdrawn: 0,
+            returned,
         };
         let statements = [
             Statement::Account {
@@ -2992,6 +2999,7 @@ impl Validators {
             closing: false,
             deposited,
             withdrawn: 0,
+            returned: 0,
         };
         let statements = [
             Statement::Executed {
@@ -3374,4 +3382,34 @@ fn our_holds_count_toward_the_hub_ceiling() {
         made[1].amount < floor.midpoint(ceiling) - balance,
         "less than the midpoint asks"
     );
+}
+
+// spec/areas/hubs.md#in-the-node: a deposit on its way is done only once
+// the account's deposits counter shows it: a withdrawal that came back in
+// the meantime counts apart, and does not end the move early.
+#[test]
+fn a_returned_withdrawal_does_not_end_a_deposit_early() {
+    let (mut ledger, _) = funded_ledger();
+    let mut core = funding_core(&mut ledger);
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    hub.no_account(&mut core);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let opening = deposits(&mut ledger, escrow)[0].amount;
+    hub.account(&mut core, 100_000, opening);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    let made = deposits(&mut ledger, escrow);
+    assert_eq!(made.len(), 2, "below the floor: {made:?}");
+    let amount = made[1].amount;
+    hub.account_with(&mut core, 100_000, opening, amount);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    let status = core.hub_status().unwrap();
+    assert!(
+        status.moving.is_some(),
+        "still waiting for the hub to credit it"
+    );
+    assert_eq!(status.returned, amount * dassie_xrpl::UNITS_PER_DROP);
+    hub.account_with(&mut core, 100_000 + amount, opening + amount, amount);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    assert_eq!(core.hub_status().unwrap().moving, None, "credited");
 }

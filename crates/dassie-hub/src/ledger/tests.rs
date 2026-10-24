@@ -607,8 +607,9 @@ fn a_withdrawal_settles_by_quorum_and_a_failed_one_comes_back() {
 
 // spec/areas/hubs.md#the-members-side: an account counts what deposits
 // credited it, opening it included, and what withdrawals took from it,
-// ledger fees included; a withdrawal that comes back counts as a deposit.
-// Fees, transfers and holds count as neither.
+// ledger fees included; a withdrawal that comes back counts apart, so a
+// deposit is told by its own counter. Fees, transfers and holds count as
+// none of them.
 #[test]
 fn an_account_counts_its_deposits_and_withdrawals() {
     let mut hub = Hub::new();
@@ -616,7 +617,7 @@ fn an_account_counts_its_deposits_and_withdrawals() {
     let (bob, _) = hub.join(2, 10_000_000);
     let counters = |hub: &Hub| {
         let account = hub.ledger.account(alice).unwrap();
-        (account.deposited, account.withdrawn)
+        (account.deposited + account.returned, account.withdrawn)
     };
     assert_eq!(counters(&hub), (10_000_000, 0));
     hub.deposit(alice.0, None, 4_000_000);
@@ -659,6 +660,11 @@ fn an_account_counts_its_deposits_and_withdrawals() {
         counters(&hub),
         (16_000_000, 2 * (2_000_000 + ledger_fee)),
         "the second came back"
+    );
+    let account = hub.ledger.account(alice).unwrap();
+    assert_eq!(
+        (account.deposited, account.returned),
+        (14_000_000, 2_000_000)
     );
     let restored = Ledger::restore(&hub.ledger.snapshot(), &hub.ledger.state_root()).unwrap();
     assert_eq!(restored, hub.ledger, "kept with the state");
@@ -1553,7 +1559,7 @@ mod properties {
                 self.hub
                     .ledger
                     .account(*number)
-                    .is_none_or(|a| (a.deposited, a.withdrawn) == *counted)
+                    .is_none_or(|a| (a.deposited + a.returned, a.withdrawn) == *counted)
             })
         }
     }

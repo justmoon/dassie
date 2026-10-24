@@ -1650,7 +1650,8 @@ fn deposits_and_withdrawals_are_the_owners() {
     assert_eq!(books.reserve, -i128::from(units(HOLD_RESERVE)));
     assert_eq!(world.members[a].scheme.balance(), world.truth(a));
     let account = world.validators.ledger.account(number).unwrap();
-    assert_eq!(account.deposited, 100 * XRP + 7 * XRP + 2 * XRP);
+    assert_eq!(account.deposited, 100 * XRP + 7 * XRP);
+    assert_eq!(account.returned, 2 * XRP, "the withdrawal that came back");
     assert_eq!(account.withdrawn, 5 * XRP + 2 * ledger_fee);
     world.restart(a);
     world.run(3_000);

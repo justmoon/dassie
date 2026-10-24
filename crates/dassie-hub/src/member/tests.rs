@@ -84,6 +84,7 @@ impl Hub {
                     closing: false,
                     deposited: 7_000_000,
                     withdrawn: 0,
+                    returned: 0,
                 },
             )),
         }

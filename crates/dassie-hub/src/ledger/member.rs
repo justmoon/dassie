@@ -122,11 +122,17 @@ impl Ledger {
         }
     }
 
-    /// Counts what a deposit, or a withdrawal that came back, credited an
-    /// account.
+    /// Counts what a deposit credited an account.
     pub(super) fn count_deposit(&mut self, to: AccountNumber, amount: Amount) {
         if let Some(account) = self.accounts.get_mut(&to) {
             account.deposited = account.deposited.saturating_add(amount);
+        }
+    }
+
+    /// Counts what a withdrawal that came back credited an account.
+    pub(super) fn count_returned(&mut self, to: AccountNumber, amount: Amount) {
+        if let Some(account) = self.accounts.get_mut(&to) {
+            account.returned = account.returned.saturating_add(amount);
         }
     }
 
@@ -197,6 +203,7 @@ impl Ledger {
                 member_slot: true,
                 deposited: 0,
                 withdrawn: 0,
+                returned: 0,
             },
         );
         Some(number)

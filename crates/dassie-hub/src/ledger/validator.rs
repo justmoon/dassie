@@ -374,6 +374,7 @@ impl Ledger {
                 member_slot: false,
                 deposited: 0,
                 withdrawn: 0,
+                returned: 0,
             },
         );
         number

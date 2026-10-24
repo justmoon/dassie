@@ -173,9 +173,10 @@ fn show(status: &proto::HubStatus, now_ms: i64) {
     line(
         "Moved",
         &format!(
-            "{} deposited, {} withdrawn",
+            "{} deposited, {} withdrawn, {} came back",
             xrp_text(status.deposited),
-            xrp_text(status.withdrawn)
+            xrp_text(status.withdrawn),
+            xrp_text(status.returned)
         ),
     );
     line("Keeps", &keeps(status, now_ms));

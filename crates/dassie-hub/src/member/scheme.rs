@@ -116,9 +116,10 @@ pub struct HubScheme {
     pub(super) account: Option<AccountNumber>,
     pub(super) peers: BTreeMap<Name, Peer>,
     pub(super) settling: BTreeMap<Name, Settling>,
-    /// What the account had been credited by deposits, and debited by
-    /// withdrawals, as of the last state the books were matched to.
-    pub(super) counters: Option<(Amount, Amount)>,
+    /// What the account had been credited by deposits, debited by
+    /// withdrawals, and credited by withdrawals that came back, as of the
+    /// last state the books were matched to.
+    pub(super) counters: Option<(Amount, Amount, Amount)>,
     // Learnt.
     reserve: Amount,
     /// The account reserve as of the last state the books were matched to.
@@ -337,8 +338,12 @@ impl HubScheme {
                 self.booked = target;
             }
         }
-        let (deposited, withdrawn) = self.counters.unwrap_or_default();
-        self.counters = Some((deposited.max(view.deposited), withdrawn.max(view.withdrawn)));
+        let (deposited, withdrawn, returned) = self.counters.unwrap_or_default();
+        self.counters = Some((
+            deposited.max(view.deposited),
+            withdrawn.max(view.withdrawn),
+            returned.max(view.returned),
+        ));
         let reserve_moved = self
             .account_reserve
             .is_some_and(|reserve| reserve != view.reserve);
@@ -364,10 +369,14 @@ impl HubScheme {
     /// from a difference nothing explains
     /// (spec/areas/hubs.md#the-members-side).
     fn book_moves(&mut self, view: &AccountView, effects: &mut Vec<Effect>) {
-        let Some((deposited, withdrawn)) = self.counters else {
+        let Some((deposited, withdrawn, returned)) = self.counters else {
             return;
         };
-        let added = units(view.deposited.saturating_sub(deposited));
+        let added = units(
+            view.deposited
+                .saturating_sub(deposited)
+                .saturating_add(view.returned.saturating_sub(returned)),
+        );
         if added > 0 {
             effects.push(Effect::Deposit { amount: added });
             self.booked = self.booked.saturating_add(added);
