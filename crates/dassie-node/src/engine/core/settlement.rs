@@ -145,6 +145,17 @@ impl Core {
         }
     }
 
+    /// This node's XRPL accounts, for a simulation to count what they
+    /// proved and caught
+    /// (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
+    #[cfg(feature = "testing")]
+    pub fn xrpl_accounts(&self) -> impl Iterator<Item = &dassie_xrpl::XrplAccount> {
+        self.assets.values().filter_map(|active| {
+            let any: &dyn core::any::Any = active.asset.as_ref();
+            any.downcast_ref::<dassie_xrpl::XrplAccount>()
+        })
+    }
+
     /// Whether the books hold a packet's money in flight, for a simulation
     /// to aim a fault at.
     #[cfg(feature = "testing")]

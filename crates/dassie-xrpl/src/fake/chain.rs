@@ -40,8 +40,11 @@ const _: () = assert!(
     MAX_KEPT_LEDGERS as u64 >= crate::account::HISTORY_BOUND as u64,
     "the fake keeps the history every proof server keeps"
 );
-/// The most recent ledgers whose state is kept, for proofs of their state.
-pub const MAX_STATE_LEDGERS: usize = 64;
+/// The most recent ledgers whose state is kept, for proofs of their state:
+/// more than close, at a ledger every three seconds, while a validation
+/// stays fresh and a minute after, so that a lie of an old anchor finds
+/// one between the flag ledgers.
+pub const MAX_STATE_LEDGERS: usize = 128;
 /// The most recent ledgers whose signers are kept, beside the flag
 /// ledgers': more than an honest server serves validations of.
 pub const MAX_VALIDATED_LEDGERS: usize = 256;

@@ -75,6 +75,15 @@ impl ProvenState {
     pub fn object(&self, key: &[u8; 32]) -> Option<Option<&[u8]>> {
         self.objects.get(key).map(Option::as_deref)
     }
+
+    /// How many of the keys proven it proves absent.
+    #[must_use]
+    pub fn absences(&self) -> usize {
+        self.objects
+            .values()
+            .filter(|object| object.is_none())
+            .count()
+    }
 }
 
 /// What `answer` proves of `keys`, each distinct, at the ledger of `at`,

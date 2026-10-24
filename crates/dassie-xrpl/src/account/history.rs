@@ -558,7 +558,7 @@ impl XrplAccount {
             && !walk.gap
         {
             walk.gap = true;
-            self.gaps = self.gaps.saturating_add(1);
+            self.counted.gaps = self.counted.gaps.saturating_add(1);
         }
     }
 
@@ -990,7 +990,10 @@ impl XrplAccount {
                     return self.doubted(Doubt::Unreadable);
                 };
                 match prove_transaction(&answer, &hash, &self.thread_keys()) {
-                    Ok(proven) => self.keep_proof(hash, proven),
+                    Ok(proven) => {
+                        self.counted.transactions = self.counted.transactions.saturating_add(1);
+                        self.keep_proof(hash, proven);
+                    }
                     Err(error) => return self.doubted(Doubt::of(error)),
                 }
             }
@@ -1015,7 +1018,7 @@ impl XrplAccount {
                 if self.in_flight.iter().any(|t| t.hash == hash) && self.tried.len() < MAX_IN_FLIGHT
                 {
                     self.tried.insert(hash);
-                    self.unproven = self.unproven.saturating_add(1);
+                    self.counted.unproven = self.counted.unproven.saturating_add(1);
                 }
                 true
             }
