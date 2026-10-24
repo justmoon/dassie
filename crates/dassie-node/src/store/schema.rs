@@ -57,6 +57,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_33,
     MIGRATION_34,
     MIGRATION_35,
+    MIGRATION_36,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -1150,6 +1151,38 @@ CREATE INDEX ledger_transfers_refusals ON ledger_transfers (credit, created_at_m
 CREATE INDEX ledger_transfers_by_packet ON ledger_transfers (packet_epoch, packet_sequence)
   WHERE packet_epoch IS NOT NULL;
 CREATE INDEX ledger_transfers_trust ON ledger_transfers (sequence) WHERE reference = 'trust';
+";
+
+/// A grant that creates outgoing payments under a receive limit alone
+/// bounds nothing the owner pays, so such grants are refused when asked
+/// for, and those kept from before, pending or approved, are revoked
+/// (spec/areas/payments.md#what-a-grant-allows): their tokens go, as when
+/// the owner revokes one, and each gets a revision of its own. A pending
+/// one counts as decided when it was asked for, since a migration has no
+/// clock; nothing reads when a revoked grant was decided. Items that only
+/// read keep their limits, which bound no payment.
+const MIGRATION_36: &str = "
+CREATE TEMP TABLE receive_alone_grants AS
+  SELECT g.id,
+    (SELECT coalesce(max(revision), 0) FROM gnap_grants) + row_number() OVER (ORDER BY g.id)
+      AS revision
+  FROM gnap_grants g
+  WHERE g.state IN ('pending', 'approved') AND EXISTS (
+    SELECT 1 FROM json_each(g.access) item
+    WHERE json_extract(item.value, '$.type') = 'outgoing-payment'
+      AND EXISTS (SELECT 1 FROM json_each(item.value, '$.actions') action
+        WHERE action.value = 'create')
+      AND json_extract(item.value, '$.limits.receiveAmount') IS NOT NULL
+      AND json_extract(item.value, '$.limits.debitAmount') IS NULL);
+
+DELETE FROM gnap_tokens WHERE grant_id IN (SELECT id FROM temp.receive_alone_grants);
+
+UPDATE gnap_grants SET state = 'revoked',
+  decided_at_ms = coalesce(decided_at_ms, created_at_ms),
+  revision = (SELECT r.revision FROM temp.receive_alone_grants r WHERE r.id = gnap_grants.id)
+WHERE id IN (SELECT id FROM temp.receive_alone_grants);
+
+DROP TABLE temp.receive_alone_grants;
 ";
 
 /// Columns that hold secrets: the database inspector never reads them.

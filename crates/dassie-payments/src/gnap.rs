@@ -165,7 +165,7 @@ impl Access {
 impl Limits {
     fn validate(&self) -> Result<(), ErrorCode> {
         let receiver_valid = self.receiver.as_deref().is_none_or(is_receiver);
-        let amounts_valid = (self.receive_amount.is_none() || self.debit_amount.is_some())
+        let amounts_valid = !self.receive_alone()
             && [&self.debit_amount, &self.receive_amount]
                 .into_iter()
                 .flatten()
@@ -178,6 +178,14 @@ impl Limits {
         } else {
             Err(ErrorCode::InvalidRequest)
         }
+    }
+
+    /// Whether the limits cap what is received but not what is debited,
+    /// which bounds nothing the owner pays: refused when a grant is asked
+    /// for, and when a payment is made under one stored so.
+    #[must_use]
+    pub const fn receive_alone(&self) -> bool {
+        self.receive_amount.is_some() && self.debit_amount.is_none()
     }
 
     /// The window of the limits' interval that holds `now_ms`, as

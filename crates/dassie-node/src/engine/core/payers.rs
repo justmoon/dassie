@@ -423,6 +423,14 @@ impl Core {
         now: u64,
     ) -> Result<(PaymentId, u64, (u64, u64)), EngineError> {
         let refused = |why: &str| Err(EngineError::Refused(why.to_string()));
+        // Such grants are revoked on upgrade and refused when asked for,
+        // so only a store from elsewhere can hold one
+        // (spec/areas/payments.md#what-a-grant-allows).
+        if limits.receive_alone() {
+            return refused(
+                "the grant limits what is received but not what is debited: ask for a new grant",
+            );
+        }
         if limits
             .receiver
             .as_ref()

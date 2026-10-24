@@ -827,3 +827,127 @@ fn devices_are_kept_after_the_upgrade_up_to_their_bound() {
     assert_eq!(store.device(&first).unwrap(), None);
     store.add_device(&device(200, 3_000)).unwrap();
 }
+
+/// Grants as a store at version 35 kept them, the `n`th with ID, revision
+/// and continuation hash of `n`, asked for at 10 and decided at 20; each
+/// approved one has a token whose hash is of `n + 100`. 1 and 6 to 9 create
+/// under a receive limit alone, 1 and 8 approved, 6 pending, 9 denied; 2
+/// to 4 create under a debit limit, both or none; 5 only reads under a
+/// receive limit; 7 creates incoming payments.
+fn grants_at_v35(dir: &Path) {
+    use serde_json::{Value, json};
+
+    database_at(dir, 35);
+    let usd = json!({ "value": "5", "assetCode": "USD", "assetScale": 9 });
+    let outgoing = |actions: Value, limits: Value| {
+        json!({
+            "type": "outgoing-payment",
+            "actions": actions,
+            "identifier": "https://a.example/.well-known/pay",
+            "limits": limits,
+        })
+    };
+    let create = json!(["create", "read"]);
+    let receive = json!({ "receiveAmount": usd });
+    let receive_alone = outgoing(create.clone(), receive.clone());
+    let debit_alone = outgoing(create.clone(), json!({ "debitAmount": usd }));
+    let both = outgoing(
+        create.clone(),
+        json!({ "debitAmount": usd, "receiveAmount": usd }),
+    );
+    let no_amount = outgoing(create, json!({ "interval": "R/2026-01-01T00:00:00Z/P1D" }));
+    let read_only = outgoing(json!(["read", "list"]), receive);
+    let incoming = json!({ "type": "incoming-payment", "actions": ["create", "read"] });
+    let quote = json!({ "type": "quote", "actions": ["create"] });
+    let grants: [(u8, &str, Value); 9] = [
+        (1, "approved", json!([receive_alone])),
+        (2, "approved", json!([debit_alone])),
+        (3, "approved", json!([both])),
+        (4, "approved", json!([no_amount])),
+        (5, "approved", json!([read_only])),
+        (6, "pending", json!([receive_alone])),
+        (7, "approved", json!([incoming])),
+        (8, "approved", json!([quote, receive_alone])),
+        (9, "denied", json!([receive_alone])),
+    ];
+    let connection = Connection::open(dir.join(DATABASE_FILE)).unwrap();
+    for (n, state, access) in &grants {
+        connection
+            .execute(
+                "INSERT INTO gnap_grants (id, state, client, client_key, access, needs_owner,
+                   continue_token_hash, interaction, created_at_ms, decided_at_ms, expires_at_ms,
+                   revision)
+                 VALUES (?1, ?2, 'https://client.example', '{}', ?3, 1, ?4, NULL, 10, ?5, 100, ?6)",
+                rusqlite::params![
+                    vec![*n; 16],
+                    state,
+                    access.to_string(),
+                    vec![*n; 32],
+                    (*state != "pending").then_some(20),
+                    i64::from(*n),
+                ],
+            )
+            .unwrap();
+        if *state == "approved" {
+            connection
+                .execute(
+                    "INSERT INTO gnap_tokens VALUES (?1, ?2, ?2, 20, 1000)",
+                    rusqlite::params![vec![*n + 100; 32], vec![*n; 16]],
+                )
+                .unwrap();
+        }
+    }
+}
+
+// Migration 36 (spec/areas/payments.md#what-a-grant-allows): a grant kept
+// from before that creates outgoing payments under a receive limit alone is
+// revoked, pending or approved, as the owner revokes one: its token stops
+// working, its client is refused, and the owner no longer sees it. Other
+// limits, items that only read, and other access types stay as they were.
+#[test]
+fn grants_that_limit_only_what_is_received_are_revoked_on_upgrade() {
+    let temp = tempfile::tempdir().unwrap();
+    grants_at_v35(temp.path());
+    let store = Store::open(temp.path()).unwrap();
+    let state_of = |n: u8| store.grant(PaymentId([n; 16])).unwrap().unwrap().state;
+    let token_works = |n: u8| store.access_token(&[n + 100; 32], 30).unwrap().is_some();
+    for n in [1, 8] {
+        assert_eq!(state_of(n), GrantState::Revoked, "grant {n}");
+        assert!(!token_works(n), "grant {n}");
+        // Its client, continuing it, is told it was not approved.
+        let continued = store.continued_grant(PaymentId([n; 16]), &[n; 32]).unwrap();
+        assert_eq!(continued.unwrap().state, GrantState::Revoked);
+    }
+    for n in [2, 3, 4, 5, 7] {
+        assert_eq!(state_of(n), GrantState::Approved, "grant {n}");
+        assert!(token_works(n), "grant {n}");
+    }
+    let pending = store.grant(PaymentId([6; 16])).unwrap().unwrap();
+    assert_eq!(
+        (pending.state, pending.decided_at_ms),
+        (GrantState::Revoked, Some(10))
+    );
+    assert_eq!(state_of(9), GrantState::Denied);
+    // The owner sees only the grants still approved.
+    let mut listed: Vec<u8> = store
+        .consented_grants(16)
+        .unwrap()
+        .iter()
+        .map(|grant| grant.id.0[0])
+        .collect();
+    listed.sort_unstable();
+    assert_eq!(listed, [2, 3, 4, 5, 7]);
+    // Each grant revoked has a revision of its own, past every other.
+    let revisions: Vec<i64> = store
+        .lock()
+        .prepare("SELECT revision FROM gnap_grants WHERE state = 'revoked' ORDER BY id")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(revisions, [10, 11, 12]);
+    // They go at the next pruning, as revoked grants do.
+    store.prune_grants(30).unwrap();
+    assert_eq!(store.grant(PaymentId([1; 16])).unwrap(), None);
+}
