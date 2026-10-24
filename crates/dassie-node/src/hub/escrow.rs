@@ -113,8 +113,11 @@ pub fn chain(newest: Option<(u32, u64)>, network: u32, index: u32, close_time: u
 pub enum Out {
     /// Send this on the WebSocket.
     Send(Vec<u8>),
-    /// Have the validator attest this.
-    Attest(ValidatorOperation),
+    /// Have the validator attest this, and tell [`Watcher::taken`] once
+    /// it took it, with the transaction it is about, if any: until then
+    /// the watcher neither remembers the transaction nor moves its cursor
+    /// past it.
+    Attest(ValidatorOperation, Option<[u8; 32]>),
     /// Persist how far it followed the escrow.
     Cursor(EscrowCursor),
     /// Something the owner should read in the log.
@@ -170,6 +173,10 @@ pub struct Watcher {
     attested_escrow: Option<u32>,
     /// When the hub last wrote off a reset, as the view last said.
     written_off_at: Option<u64>,
+    /// Transactions attested that the validator has not taken yet.
+    untaken: BTreeSet<[u8; 32]>,
+    /// The cursor to persist once they are taken.
+    held_cursor: Option<EscrowCursor>,
     out: VecDeque<Out>,
 }
 
@@ -192,6 +199,8 @@ impl Watcher {
             escrow_checked_ms: None,
             attested_escrow: None,
             written_off_at: None,
+            untaken: BTreeSet::new(),
+            held_cursor: None,
             out: VecDeque::new(),
         }
     }
@@ -211,6 +220,31 @@ impl Watcher {
     /// The next thing to do.
     pub fn poll(&mut self) -> Option<Out> {
         self.out.pop_front()
+    }
+
+    /// The validator took the attestation of `transaction`: it is
+    /// remembered, and the cursor moves on once none is waiting.
+    pub fn taken(&mut self, transaction: Option<[u8; 32]>) {
+        let Some(hash) = transaction else {
+            return;
+        };
+        self.untaken.remove(&hash);
+        self.remember(hash);
+        if self.untaken.is_empty()
+            && let Some(cursor) = self.held_cursor.take()
+        {
+            self.out.push_back(Out::Cursor(cursor));
+        }
+    }
+
+    /// Persists `cursor`, or holds it while attestations wait to be taken:
+    /// a crash then reads their transactions again.
+    fn move_cursor(&mut self, cursor: EscrowCursor) {
+        if self.untaken.is_empty() {
+            self.out.push_back(Out::Cursor(cursor));
+        } else {
+            self.held_cursor = Some(cursor);
+        }
     }
 
     /// A connection is up: ask where the server stands.
@@ -383,7 +417,7 @@ impl Watcher {
                     .saturating_mul(1_000);
                 if self.written_off_at.is_none_or(|at| at < closed_ms) {
                     let reset = ValidatorOperation::AttestReset { ledger: index };
-                    self.out.push_back(Out::Attest(reset));
+                    self.out.push_back(Out::Attest(reset, None));
                 }
                 self.out.push_back(Out::Problem(
                     "the XRP Ledger testnet was reset: the escrow is checked again",
@@ -394,7 +428,7 @@ impl Watcher {
                     scanned_to: 0,
                 };
                 self.cursor = Some(cursor);
-                self.out.push_back(Out::Cursor(cursor));
+                self.move_cursor(cursor);
                 self.escrow_checked_ms = None;
                 self.attested_escrow = None;
                 true
@@ -456,7 +490,7 @@ impl Watcher {
         };
         if previous != Some(cursor) {
             self.cursor = Some(cursor);
-            self.out.push_back(Out::Cursor(cursor));
+            self.move_cursor(cursor);
         }
     }
 
@@ -486,8 +520,10 @@ impl Watcher {
         match check_escrow(&view.rules, &settings, &objects) {
             Ok(()) if self.attested_escrow != Some(sequence) => {
                 self.attested_escrow = Some(sequence);
-                self.out
-                    .push_back(Out::Attest(ValidatorOperation::AttestEscrow { sequence }));
+                self.out.push_back(Out::Attest(
+                    ValidatorOperation::AttestEscrow { sequence },
+                    None,
+                ));
             }
             Ok(()) => {}
             Err(_) => self.out.push_back(Out::Problem(
@@ -498,7 +534,8 @@ impl Watcher {
 
     /// What a validated transaction of the escrow's attests.
     fn record(&mut self, record: &TxRecord, view: &EscrowView) {
-        if !record.validated || self.remembered.contains(&record.hash) {
+        let known = self.remembered.contains(&record.hash) || self.untaken.contains(&record.hash);
+        if !record.validated || known {
             return;
         }
         if let Some(deposit) = deposit_of(record, self.escrow) {
@@ -544,8 +581,8 @@ impl Watcher {
     }
 
     fn attest(&mut self, hash: [u8; 32], operation: ValidatorOperation) {
-        self.remember(hash);
-        self.out.push_back(Out::Attest(operation));
+        self.untaken.insert(hash);
+        self.out.push_back(Out::Attest(operation, Some(hash)));
     }
 
     fn remember(&mut self, hash: [u8; 32]) {

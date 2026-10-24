@@ -21,6 +21,10 @@ struct Setup {
     attested: Vec<ValidatorOperation>,
     cursor: Option<EscrowCursor>,
     now: u64,
+    /// Whether the validator takes each attestation at once.
+    taking: bool,
+    /// Attestations it has not taken yet.
+    untaken: Vec<Option<[u8; 32]>>,
 }
 
 impl Setup {
@@ -64,6 +68,8 @@ impl Setup {
             attested: Vec::new(),
             cursor: None,
             now: 1_000_000,
+            taking: true,
+            untaken: Vec::new(),
         }
     }
 
@@ -80,7 +86,14 @@ impl Setup {
                     let answer = self.xrpl.request(CONNECTION, &bytes);
                     self.watcher.message(self.now, &answer, &self.view);
                 }
-                Out::Attest(operation) => self.attested.push(operation),
+                Out::Attest(operation, transaction) => {
+                    self.attested.push(operation);
+                    if self.taking {
+                        self.watcher.taken(transaction);
+                    } else {
+                        self.untaken.push(transaction);
+                    }
+                }
                 Out::Cursor(cursor) => self.cursor = Some(cursor),
                 Out::Problem(_) => {}
             }
@@ -240,4 +253,32 @@ fn a_reset_counts_only_where_the_network_resets() {
     assert_eq!(chain(Some((100, 50)), 1, 10, 40), Chain::Behind);
     assert_eq!(chain(Some((100, 50)), 1, 100, 40), Chain::Current);
     assert_eq!(chain(None, 1, 1, 1), Chain::Current);
+}
+
+// An attestation the validator has not taken yet is attested no second
+// time, and holds the cursor back, so a crash reads its transaction again.
+#[test]
+fn an_attestation_counts_once_the_validator_took_it() {
+    let mut setup = Setup::new();
+    setup.connect();
+    setup.view.checked = true;
+    let before = setup.cursor.unwrap();
+    setup.taking = false;
+    setup.attested.clear();
+    let escrow = setup.escrow();
+    setup.xrpl.deposit_tagged(escrow, 5_000_000, Some(7));
+    setup.close();
+    setup.close();
+    assert_eq!(setup.attested.len(), 1);
+    assert_eq!(setup.cursor, Some(before), "the cursor waits");
+    // Read again, from a reconnect, it is not attested twice.
+    setup.watcher.disconnected();
+    setup.connect();
+    assert_eq!(setup.attested.len(), 1);
+    // Once taken, the cursor moves on.
+    for transaction in core::mem::take(&mut setup.untaken) {
+        setup.watcher.taken(transaction);
+    }
+    setup.run();
+    assert!(setup.cursor.unwrap().scanned_to > before.scanned_to);
 }

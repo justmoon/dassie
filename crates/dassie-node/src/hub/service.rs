@@ -148,6 +148,7 @@ fn start(
         client: node.peer_client().cloned(),
         clock: node.clock(),
         links,
+        retry: std::collections::VecDeque::new(),
     };
     let stop_ = stop.clone();
     tasks.spawn(async move {

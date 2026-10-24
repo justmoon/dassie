@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dassie_hub::HubId;
+use dassie_hub::operation::ValidatorOperation;
 use dassie_xrpl::AccountId;
 use futures_util::{SinkExt, StreamExt};
 use rustls::pki_types::ServerName;
@@ -34,6 +35,9 @@ const MAX_MESSAGE: usize = 1 << 20;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const BACKOFF_MIN: Duration = Duration::from_secs(1);
 const BACKOFF_MAX: Duration = Duration::from_secs(60);
+/// The most attestations waiting for room in the validator's queue.
+const MAX_WAITING_ATTESTATIONS: usize = 256;
+
 /// How often the watcher's timers are looked at.
 const TICK: Duration = Duration::from_secs(1);
 
@@ -51,6 +55,8 @@ pub struct Follow {
     pub clock: Arc<dyn Clock>,
     /// What it shares with the hub's validator.
     pub links: EscrowLinks,
+    /// Attestations the validator's queue had no room for yet, in order.
+    pub retry: std::collections::VecDeque<(ValidatorOperation, Option<[u8; 32]>)>,
 }
 
 impl Follow {
@@ -169,11 +175,27 @@ impl Follow {
         }
     }
 
+    /// Hands the attestations waiting to the validator, in order, while
+    /// its queue has room; each it took the watcher hears of.
+    fn hand_over(&mut self, watcher: &mut Watcher) {
+        while let Some((operation, transaction)) = self.retry.pop_front() {
+            match self.links.attest.try_send(operation) {
+                Ok(()) => watcher.taken(transaction),
+                Err(tokio::sync::mpsc::error::TrySendError::Full(operation)) => {
+                    self.retry.push_front((operation, transaction));
+                    return;
+                }
+                Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => return,
+            }
+        }
+    }
+
     /// Carries out what the watcher decided; false once the socket failed.
-    async fn flush<S>(&self, socket: &mut WebSocketStream<S>, watcher: &mut Watcher) -> bool
+    async fn flush<S>(&mut self, socket: &mut WebSocketStream<S>, watcher: &mut Watcher) -> bool
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
+        self.hand_over(watcher);
         while let Some(out) = watcher.poll() {
             match out {
                 Out::Send(bytes) => {
@@ -182,10 +204,15 @@ impl Follow {
                         return false;
                     }
                 }
-                Out::Attest(operation) => {
-                    if self.links.attest.try_send(operation).is_err() {
-                        tracing::warn!(target: target::HUB, "the hub's validator is not keeping up: an attestation was dropped");
+                Out::Attest(operation, transaction) => {
+                    // Past the bound the oldest goes: its transaction is
+                    // never taken, so the cursor stays before it, and a
+                    // restart reads it again.
+                    if self.retry.len() >= MAX_WAITING_ATTESTATIONS {
+                        self.retry.pop_front();
                     }
+                    self.retry.push_back((operation, transaction));
+                    self.hand_over(watcher);
                 }
                 Out::Cursor(cursor) => {
                     if let Err(error) = self.store.set_hub_escrow(self.hub.0.as_bytes(), &cursor) {
