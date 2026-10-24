@@ -299,3 +299,84 @@ fn host_and_port(authority: &str, default: u16) -> Result<(&str, u16), String> {
         None => Ok((authority, default)),
     }
 }
+
+/// How long a request to the XRPL server waits for its answer.
+const CALL_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The most messages read while waiting for one answer: those the server
+/// pushes unasked are skipped.
+const MAX_SKIPPED: usize = 1_024;
+
+/// What a request to the XRPL server came back with: its result, or the
+/// server's error.
+pub(super) type Answer = Result<serde_json::Value, dassie_xrpl::api::ApiError>;
+
+/// A WebSocket to an XRPL server that only asks and reads the answers: how
+/// a sponsor sets up its hub's escrow (spec/areas/hubs.md#founding-a-hub).
+pub(super) struct Session {
+    socket: Socket,
+    next_id: u64,
+}
+
+impl Session {
+    /// Connects to `url`, as the node connects to its ledgers.
+    pub(super) async fn connect(client: Option<&PeerClient>, url: &str) -> Result<Self, String> {
+        let socket = tokio::time::timeout(CONNECT_TIMEOUT, connect(client, url))
+            .await
+            .map_err(|_| "timed out".to_string())??;
+        Ok(Self { socket, next_id: 1 })
+    }
+
+    /// Sends the request `build` makes under a fresh ID, and reads until
+    /// its answer.
+    pub(super) async fn call(
+        &mut self,
+        build: impl FnOnce(u64) -> Vec<u8>,
+    ) -> Result<Answer, String> {
+        let id = self.next_id;
+        self.next_id = self.next_id.wrapping_add(1);
+        let text = String::from_utf8_lossy(&build(id)).into_owned();
+        let exchange = async {
+            match &mut self.socket {
+                Socket::Tls(socket) => answer_of(socket.as_mut(), id, text).await,
+                Socket::Plain(socket) => answer_of(socket.as_mut(), id, text).await,
+            }
+        };
+        tokio::time::timeout(CALL_TIMEOUT, exchange)
+            .await
+            .map_err(|_| "the XRPL server did not answer".to_string())?
+    }
+}
+
+async fn answer_of<S>(
+    socket: &mut WebSocketStream<S>,
+    id: u64,
+    text: String,
+) -> Result<Answer, String>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    socket
+        .send(Message::text(text))
+        .await
+        .map_err(|error| error.to_string())?;
+    for _ in 0..MAX_SKIPPED {
+        let bytes = match socket.next().await {
+            Some(Ok(Message::Text(text))) => text.as_bytes().to_vec(),
+            Some(Ok(Message::Binary(bytes))) => bytes.to_vec(),
+            Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => continue,
+            Some(Ok(Message::Close(_)) | Err(_)) | None => {
+                return Err("the XRPL server closed the connection".into());
+            }
+        };
+        if let dassie_xrpl::api::Message::Response {
+            id: answered,
+            outcome,
+        } = dassie_xrpl::api::parse(&bytes)
+            && answered == id
+        {
+            return Ok(outcome);
+        }
+    }
+    Err("the XRPL server did not answer".into())
+}

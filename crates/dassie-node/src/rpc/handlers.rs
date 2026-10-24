@@ -236,14 +236,20 @@ async fn dispatch_more(
             }
             response::Method::RevokeDevice(proto::RevokeDeviceResponse {})
         }
-        other => {
-            return match super::inspect::dispatch(node, other, items).await? {
-                Ok(reply) => Ok(reply),
-                Err(other) => super::ledger::dispatch(node, other, items).await,
-            };
-        }
+        other => return dispatch_rest(node, other, items).await,
     };
     Ok(Reply::Unary(reply))
+}
+
+/// The methods of the services beyond the node's own.
+async fn dispatch_rest(node: &Arc<Node>, method: Method, items: &Items) -> Result<Reply, RpcError> {
+    if super::founding::is_founding(&method) {
+        return super::founding::dispatch(node, method).await;
+    }
+    match super::inspect::dispatch(node, method, items).await? {
+        Ok(reply) => Ok(reply),
+        Err(other) => super::ledger::dispatch(node, other, items).await,
+    }
 }
 
 async fn obtain_certificate(
@@ -441,6 +447,7 @@ fn status(node: &Node) -> proto::GetStatusResponse {
             .unwrap_or_default(),
         feed: feed_status(node),
         validating: node.hubs().statuses().iter().map(hub_status).collect(),
+        founding: super::founding::foundings(node),
     }
 }
 

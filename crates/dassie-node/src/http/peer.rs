@@ -197,6 +197,26 @@ impl crate::quic::Handler for QuicHandler {
         })
     }
 
+    /// A sponsor's requests while it founds a hub with the node, if its
+    /// owner turned validating on; refused otherwise.
+    fn hub_founding<'a>(
+        &'a self,
+        from: dassie_identity::PublicKey,
+        request: Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = Option<Vec<u8>>> + Send + 'a>> {
+        Box::pin(async move {
+            match self.0.founding() {
+                Some(founding) => founding.answer(&self.0, &from, &request).await,
+                None => {
+                    use dassie_hub::founding::{FoundingAnswer, FoundingRequest, Refusal};
+                    use dassie_oer::{Decode, Encode};
+                    FoundingRequest::decode_exact(&request).ok()?;
+                    Some(FoundingAnswer::Refused(Refusal::NotAllowed).to_vec())
+                }
+            }
+        })
+    }
+
     /// Open Payments, and owner apps' RPC. The wallet, `/api/*` and `/rpc`
     /// are never relayed (spec/decisions/core-and-periphery.md): an owner
     /// app proves its device key instead of carrying a browser's cookie.

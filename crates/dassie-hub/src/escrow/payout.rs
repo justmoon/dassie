@@ -444,3 +444,48 @@ fn multi_signed(blob: &[u8], signers: Vec<Signer>) -> Option<Vec<u8>> {
         _ => return None,
     })
 }
+
+/// The most transactions a stored bundle holds: what fits its bytes.
+const MAX_BUNDLE_ENTRIES: usize = MAX_PAYOUT_BUNDLE_BYTES / SIGNER_BYTES;
+
+impl dassie_oer::Encode for PayoutBundle {
+    fn encoded_len(&self) -> usize {
+        8 + dassie_oer::size::quantity(self.entries.len())
+            + self
+                .entries
+                .iter()
+                .map(crate::service::wire::entry_len)
+                .sum::<usize>()
+    }
+
+    fn encode_to(&self, writer: &mut dassie_oer::Writer<'_>) {
+        writer.write_u64(self.height);
+        writer.write_quantity(self.entries.len());
+        for entry in &self.entries {
+            writer.write_octets(&entry.transaction, crate::service::wire::TRANSACTION_SIZE);
+            crate::service::wire::write_signer(writer, &entry.signer);
+        }
+    }
+}
+
+impl<'a> dassie_oer::Decode<'a> for PayoutBundle {
+    type Error = crate::codec::HubDecodeError;
+
+    /// Reads a bundle as a node keeps it; whether it verifies is the
+    /// caller's to check ([`PayoutBundle::verify`]).
+    fn decode(reader: &mut dassie_oer::Reader<'a>) -> Result<Self, Self::Error> {
+        let height = reader.read_u64()?;
+        let count = reader.read_quantity(MAX_BUNDLE_ENTRIES)?;
+        let mut entries = Vec::with_capacity(count.min(1024));
+        for _ in 0..count {
+            let transaction = reader
+                .read_octets(crate::service::wire::TRANSACTION_SIZE)?
+                .to_vec();
+            entries.push(PayoutEntry {
+                transaction,
+                signer: crate::service::wire::read_signer(reader)?,
+            });
+        }
+        Ok(Self { height, entries })
+    }
+}

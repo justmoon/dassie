@@ -1,0 +1,306 @@
+//! Founding a settlement hub between daemons on loopback, over real QUIC
+//! (spec/areas/hubs.md#founding-a-hub, spec/areas/hubs.md#payout-bundles):
+//! four validator daemons list the sponsor in their validator file; the
+//! sponsor's owner founds a hub with them through the RPC; they accept,
+//! sign its genesis and run it once the certificate reaches them; the
+//! sponsor funds and sets up the escrow on the fake XRP Ledger from its own
+//! account; the validators' watchers check it and attest it; and once the
+//! hub stalls, a member fetches its validators' payout bundles and checks
+//! them.
+
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::too_many_lines
+)]
+
+use std::time::Duration;
+
+use dassie_identity::NodeKey;
+use dassie_node::clock::ManualClock;
+use dassie_node::fake_ledger::{Options, Server};
+use dassie_node::node::Policies;
+use dassie_node::rpc::proto::{self, request::Method, response};
+use support::pair::{CA, CERT, KEY};
+use support::{Bound, START_MS, TestNode, set_up};
+
+mod support;
+
+/// Sets `node` up with `key`, a hostname and a certificate: what a
+/// validator needs to name its endpoint.
+async fn prepare(node: &TestNode, key: &NodeKey) {
+    set_up(node, key).await;
+    let mut owner = node.ipc().await;
+    let hostname = owner
+        .call(Method::SetHostname(proto::SetHostnameRequest {
+            hostname: "localhost".into(),
+        }))
+        .await;
+    assert!(hostname.is_ok(), "{hostname:?}");
+    let certificate = owner
+        .call(Method::SetCertificate(proto::SetCertificateRequest {
+            certificate_chain_pem: std::fs::read_to_string(CERT).unwrap(),
+            private_key_pem: std::fs::read_to_string(KEY).unwrap(),
+        }))
+        .await;
+    assert!(certificate.is_ok(), "{certificate:?}");
+}
+
+/// Adds settlement scheme `id` with `config`, once the engine takes it.
+async fn add_scheme(node: &TestNode, id: &str, config: &str) {
+    let mut owner = node.ipc().await;
+    for _ in 0..200 {
+        let reply = owner
+            .call(Method::AddSettlementScheme(
+                proto::AddSettlementSchemeRequest {
+                    id: id.into(),
+                    config: config.into(),
+                },
+            ))
+            .await;
+        if let Ok(response::Method::AddSettlementScheme(_)) = reply {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("{id} is not added");
+}
+
+async fn ledgers(node: &TestNode) -> Vec<proto::Ledger> {
+    match node
+        .ipc()
+        .await
+        .call(Method::ListLedgers(proto::ListLedgersRequest {}))
+        .await
+    {
+        Ok(response::Method::ListLedgers(list)) => list.ledgers,
+        other => panic!("{other:?}"),
+    }
+}
+
+async fn founding(node: &TestNode) -> proto::HubFounding {
+    match node
+        .ipc()
+        .await
+        .call(Method::ListHubFoundings(proto::ListHubFoundingsRequest {}))
+        .await
+    {
+        Ok(response::Method::ListHubFoundings(list)) => list.foundings[0].clone(),
+        other => panic!("{other:?}"),
+    }
+}
+
+async fn validating(node: &TestNode) -> Vec<proto::HubValidator> {
+    match node
+        .ipc()
+        .await
+        .call(Method::GetStatus(proto::GetStatusRequest {}))
+        .await
+    {
+        Ok(response::Method::GetStatus(status)) => status.validating,
+        other => panic!("{other:?}"),
+    }
+}
+
+/// Moves the shared clock on by `step_ms` at a time, giving the daemons
+/// real time to talk, until `done` holds.
+async fn until(clock: &ManualClock, step_ms: u64, mut done: impl AsyncFnMut() -> bool) {
+    for _ in 0..1_500 {
+        if done().await {
+            return;
+        }
+        clock.advance(step_ms);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("not reached in time");
+}
+
+/// What every validator's file says: the sponsor it validates for, no hub
+/// of its own, and the fake ledger to follow escrows on.
+fn validator_file(dir: &std::path::Path, sponsor: &NodeKey, xrpl: &str) -> String {
+    let path = dir.join("validator.json");
+    let file = serde_json::json!({
+        "sponsors": [sponsor.node_id().as_str()],
+        "hubs": [],
+        "xrpl": xrpl,
+    });
+    std::fs::write(&path, file.to_string()).unwrap();
+    path.to_str().unwrap().to_owned()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn a_sponsor_founds_a_hub_with_four_validator_daemons() {
+    let xrpl = Server::start(Options {
+        listen: "127.0.0.1:0".parse().unwrap(),
+        faucet: None,
+        close_every: Duration::from_millis(100),
+    })
+    .await
+    .unwrap();
+    let clock = ManualClock::new(START_MS);
+    let sponsor_key = NodeKey::from_bytes(&[70; 32]);
+    let files = tempfile::tempdir().unwrap();
+    let file = validator_file(files.path(), &sponsor_key, &xrpl.url);
+    let env = [
+        ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+        ("DASSIE_PEER_CA_FILE", CA),
+    ];
+    let validator_env = [
+        ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_VALIDATOR_CONFIG", file.as_str()),
+    ];
+    let mut validators = Vec::new();
+    let keys: Vec<NodeKey> = (71..=74)
+        .map(|seed| NodeKey::from_bytes(&[seed; 32]))
+        .collect();
+    for (key, seed) in keys.iter().zip(71_u64..) {
+        let node = Bound::new()
+            .start(clock.clone(), seed, Policies::DEV, &validator_env)
+            .await;
+        prepare(&node, key).await;
+        validators.push(node);
+    }
+    let sponsor = Bound::new()
+        .start(clock.clone(), 70, Policies::DEV, &env)
+        .await;
+    prepare(&sponsor, &sponsor_key).await;
+    let xrpl_config = serde_json::json!({ "server": xrpl.url, "faucet": null });
+    add_scheme(&sponsor, "xrpl-testnet", &xrpl_config.to_string()).await;
+    let address = ledgers(&sponsor)
+        .await
+        .into_iter()
+        .find(|l| l.id == "xrpl-testnet+xrp")
+        .unwrap()
+        .deposit_address;
+    xrpl.ledger()
+        .fund(dassie_xrpl::AccountId::parse(&address).unwrap());
+    until(&clock, 250, async || {
+        ledgers(&sponsor).await.iter().any(|l| {
+            l.id == "xrpl-testnet+xrp" && l.connection() == proto::LedgerConnection::Synced
+        })
+    })
+    .await;
+
+    // A stranger's founding is refused; the sponsor's goes through.
+    let invites: Vec<proto::HubFoundingInvite> = keys
+        .iter()
+        .zip(&validators)
+        .map(|(key, node)| proto::HubFoundingInvite {
+            node: key.node_id().as_str().into(),
+            endpoint: node.host(),
+        })
+        .collect();
+    let mut owner = sponsor.ipc().await;
+    let refused = owner
+        .call(Method::FoundHub(proto::FoundHubRequest {
+            validators: invites[..3].to_vec(),
+            terms: String::new(),
+            escrow_funding_drops: None,
+            xrpl_server: String::new(),
+        }))
+        .await;
+    assert_eq!(
+        refused.unwrap_err().code(),
+        proto::ErrorCode::InvalidArgument,
+        "three validators are no set"
+    );
+    // The shortest stall the rules allow, so that the hub stalls within
+    // the test once validators are gone.
+    let terms = serde_json::json!({ "timers": { "stall": dassie_hub::consensus::MIN_STALL_MS } });
+    let Ok(response::Method::FoundHub(found)) = owner
+        .call(Method::FoundHub(proto::FoundHubRequest {
+            validators: invites.clone(),
+            terms: terms.to_string(),
+            escrow_funding_drops: None,
+            xrpl_server: String::new(),
+        }))
+        .await
+    else {
+        panic!("not founding");
+    };
+    let started = found.founding.unwrap();
+    assert_eq!(started.stage(), proto::HubFoundingStage::Accepting);
+
+    // Every validator accepts, signs, runs the hub; the escrow is funded
+    // from the sponsor's account, set up, and checked by a quorum.
+    until(&clock, 250, async || {
+        let status = founding(&sponsor).await;
+        status.stage() == proto::HubFoundingStage::Founded
+    })
+    .await;
+    let founded = founding(&sponsor).await;
+    assert!(
+        founded.escrow_funded && founded.escrow_set_up,
+        "{founded:?}"
+    );
+    assert!(founded.validators.iter().all(|v| v.accepted && v.running));
+    let hub = founded.hub.clone();
+    for node in &validators {
+        let hubs = validating(node).await;
+        assert_eq!(hubs.len(), 1);
+        assert_eq!(hubs[0].hub, hub);
+    }
+    until(&clock, 250, async || {
+        let mut checked = 0;
+        for node in &validators {
+            checked += usize::from(validating(node).await.iter().all(|h| h.escrow_checked));
+        }
+        checked == validators.len()
+    })
+    .await;
+    // The escrow on the ledger is the rules': its master key disabled, and
+    // the validators' signer list.
+    let escrow = dassie_xrpl::AccountId::parse(&founded.escrow).unwrap();
+    assert!(xrpl.ledger().balance(escrow).is_some());
+
+    // A member: the sponsor takes the hub's scheme. Two validators go, and
+    // the two left declare the hub stalled once no block is final for the
+    // rules' stall, and sign the payout set; the member fetches each one's
+    // bundle and keeps it once it checks.
+    let hub_config = serde_json::json!({ "rules": founded.rules }).to_string();
+    add_scheme(&sponsor, dassie_hub::member::SCHEME_ID, &hub_config).await;
+    let mut validators = validators.into_iter();
+    let (first, second) = (validators.next().unwrap(), validators.next().unwrap());
+    let left: Vec<TestNode> = validators.collect();
+    first.stop().await;
+    second.stop().await;
+    until(&clock, 1_000, async || {
+        let reply = sponsor
+            .ipc()
+            .await
+            .call(Method::GetHubPayout(proto::GetHubPayoutRequest {}))
+            .await;
+        matches!(reply, Ok(response::Method::GetHubPayout(payout)) if payout.bundles.len() == 2)
+    })
+    .await;
+    let Ok(response::Method::GetHubPayout(payout)) = sponsor
+        .ipc()
+        .await
+        .call(Method::GetHubPayout(proto::GetHubPayoutRequest {}))
+        .await
+    else {
+        panic!("no payout");
+    };
+    assert_eq!(payout.hub, hub);
+    assert_eq!(payout.quorum, 3);
+    assert_eq!(
+        payout
+            .bundles
+            .iter()
+            .map(|b| b.validator)
+            .collect::<Vec<_>>(),
+        vec![2, 3]
+    );
+    assert!(payout.ready_height.is_none(), "two of three");
+    for node in &left {
+        assert!(validating(node).await[0].stalled);
+    }
+
+    sponsor.stop().await;
+    for node in left {
+        node.stop().await;
+    }
+}

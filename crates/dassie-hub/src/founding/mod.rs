@@ -57,3 +57,68 @@ pub fn genesis_digest(rules: &Rules, genesis_ms: Millis) -> Digest {
     let block = genesis_block(rules, genesis_ms).digest(&hub.0);
     Digest::of(Domain::Genesis, &[hub.0.as_bytes(), block.as_bytes()])
 }
+
+/// The terms a sponsor proposes unless it says otherwise: the starting
+/// values of the design, which the simulation is to set
+/// (spec/designs/settlement-hubs.md), with its escrow at `escrow` on
+/// `network`. The ledger fee covers every validator of the largest set
+/// signing, at twice the XRP Ledger's base fee.
+#[must_use]
+pub fn starting_terms(
+    nonce: [u8; 32],
+    sponsor: dassie_identity::PublicKey,
+    network: u32,
+    escrow: [u8; crate::rules::LEDGER_ACCOUNT_LEN],
+) -> crate::rules::Terms {
+    use crate::rules::{Fees, Limits, Terms, Timers};
+    let signers = u64::try_from(crate::validators::MAX_VALIDATORS).unwrap_or(u64::MAX);
+    Terms {
+        nonce,
+        sponsor,
+        network,
+        escrow,
+        fees: Fees {
+            operation: 10,
+            ledger: 20 * (signers + 1),
+            reserve_share_ppm: 100_000,
+            account_reserve: 2_000_000,
+            hold_reserve: 200_000,
+            starting_balance: 1_000,
+            least_payout: 1_000_000,
+        },
+        limits: Limits {
+            accounts: 1_000,
+            holds: 4_000,
+            holds_per_account: 64,
+            withdrawals: 256,
+            pending_deposits: 256,
+            recent_deposits: 4_096,
+            block_operations: 512,
+            deadline_operations: 128,
+            claimed_per_hold: 1_100,
+            commitments_per_claim: 64,
+            vote_window: 32,
+        },
+        timers: Timers {
+            hold_notice: 60_000,
+            shutdown_notice: 3_600_000,
+            reconfigure_notice: 86_400_000,
+            absence: 3 * 86_400_000,
+            stall: 3_600_000,
+            precision: 100,
+            margin: 500,
+            allowance: 300,
+            view_timeout: 200,
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_starting_terms_check() {
+        let sponsor = dassie_identity::NodeKey::from_bytes(&[1; 32]).public_key();
+        let terms = super::starting_terms([2; 32], sponsor, 1, [3; 20]);
+        assert_eq!(terms.check(), Ok(()));
+    }
+}

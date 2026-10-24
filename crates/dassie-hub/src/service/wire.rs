@@ -93,7 +93,8 @@ pub struct PayoutPage {
 }
 
 const SIGNATURE_SIZE: Size = Size::range(1, 72);
-const TRANSACTION_SIZE: Size = Size::range(1, MAX_PAYOUT_TRANSACTION_BYTES);
+/// The size of one transaction of a payout set.
+pub(crate) const TRANSACTION_SIZE: Size = Size::range(1, MAX_PAYOUT_TRANSACTION_BYTES);
 
 impl PayoutPage {
     /// The page of `entries`, the whole set of `height`, from `first` on:
@@ -123,7 +124,8 @@ impl PayoutPage {
     }
 }
 
-fn entry_len(entry: &PayoutEntry) -> usize {
+/// The encoded length of one entry of a payout set.
+pub(crate) fn entry_len(entry: &PayoutEntry) -> usize {
     size::prefixed(entry.transaction.len())
         + 20
         + 33
@@ -197,13 +199,15 @@ pub enum Message {
     },
 }
 
-fn write_signer(writer: &mut Writer<'_>, signer: &Signer) {
+/// Writes an escrow signature.
+pub(crate) fn write_signer(writer: &mut Writer<'_>, signer: &Signer) {
     writer.write_bytes(&signer.account.0);
     writer.write_bytes(signer.signing_pub_key.as_bytes());
     writer.write_octets(signer.signature.as_bytes(), SIGNATURE_SIZE);
 }
 
-fn read_signer(reader: &mut Reader<'_>) -> Result<Signer, HubDecodeError> {
+/// Reads an escrow signature; whether it verifies is the caller's to check.
+pub(crate) fn read_signer(reader: &mut Reader<'_>) -> Result<Signer, HubDecodeError> {
     let account = AccountId(*reader.read_array::<20>()?);
     let key =
         PublicKey::from_bytes(*reader.read_array::<33>()?).ok_or(HubDecodeError::InvalidKey)?;

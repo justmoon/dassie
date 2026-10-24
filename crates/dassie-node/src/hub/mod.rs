@@ -11,11 +11,20 @@
 //!   hub.
 //! - [`escrow`]: following a hub's escrow on the XRP Ledger, without IO,
 //!   and `xrpl`, its WebSocket.
+//! - [`founding`]: founding hubs on the validator's side: a sponsor's
+//!   requests, decided and written before they are answered.
+//! - [`sponsor`]: founding hubs as a sponsor: asking the validators, and
+//!   setting up the escrow.
+//! - [`payouts`]: a member's copies of its hub's validators' payout
+//!   bundles.
 
 pub mod config;
 pub mod driver;
 pub mod escrow;
+pub mod founding;
+pub mod payouts;
 pub mod service;
+pub mod sponsor;
 pub mod transport;
 mod xrpl;
 

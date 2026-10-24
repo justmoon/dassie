@@ -76,6 +76,9 @@ pub async fn status(env: &Env) -> Result<(), String> {
         for hub in &node.validating {
             line("Validating", &validating(hub, now_ms));
         }
+        for founding in &node.founding {
+            line("Founding", &founding_brief(founding));
+        }
     } else {
         line(
             "Setup",
@@ -450,6 +453,47 @@ fn validating(hub: &proto::HubValidator, now_ms: i64) -> String {
     }
     if !hub.xrpl_connected {
         text.push_str("; not following the escrow: its XRPL server cannot be reached");
+    }
+    text
+}
+
+/// A hub the node founds (spec/areas/hubs.md#founding-a-hub), in a few
+/// words: how far it is; `dassie hub foundings` says more.
+fn founding_brief(founding: &proto::HubFounding) -> String {
+    let count = |test: fn(&proto::HubFoundingValidator) -> bool| {
+        founding.validators.iter().filter(|v| test(v)).count()
+    };
+    let n = founding.validators.len();
+    let short = founding.nonce.get(..16).unwrap_or(&founding.nonce);
+    let stage = proto::HubFoundingStage::try_from(founding.stage)
+        .unwrap_or(proto::HubFoundingStage::Unspecified);
+    let text = match stage {
+        proto::HubFoundingStage::Accepting => {
+            format!("{} of {n} validators accepted", count(|v| v.accepted))
+        }
+        proto::HubFoundingStage::Signing => {
+            format!(
+                "{} of {n} validators signed the genesis",
+                count(|v| v.signed)
+            )
+        }
+        proto::HubFoundingStage::Certifying => {
+            format!(
+                "genesis certified; {} of {n} validators run the hub",
+                count(|v| v.running)
+            )
+        }
+        proto::HubFoundingStage::Escrow if founding.escrow_set_up => format!(
+            "escrow set up; {} of {n} validators say it is checked",
+            count(|v| v.escrow_checked)
+        ),
+        proto::HubFoundingStage::Escrow => "the hub runs; setting up its escrow".into(),
+        proto::HubFoundingStage::Founded => format!("founded: hub {}", founding.hub),
+        proto::HubFoundingStage::Unspecified => "unknown".into(),
+    };
+    let mut text = format!("{short}…, {text}");
+    if !founding.problem.is_empty() {
+        text.push_str(&format!("; {}", founding.problem));
     }
     text
 }

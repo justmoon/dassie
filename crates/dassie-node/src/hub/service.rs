@@ -60,9 +60,12 @@ const BACKOFF_MAX: Duration = Duration::from_secs(30);
 /// matters.
 const BUSY_RETRY: Duration = Duration::from_millis(50);
 
-/// Runs the validators of the hubs in `config` until `shutdown`, once the
-/// node has its key. A hub the node is not a validator of, or whose stored
-/// state is broken, is left out, and said so.
+/// Runs the validators of the hubs in `config`, and of those founded with
+/// the node (spec/areas/hubs.md#founding-a-hub), as each is founded, until
+/// `shutdown`, once the node has its key: at most
+/// [`MAX_VALIDATED_HUBS`](super::config::MAX_VALIDATED_HUBS). A hub the node
+/// is not a validator of, or whose stored state is broken, is left out,
+/// and said so.
 pub async fn run(node: Arc<Node>, config: Arc<ValidatorConfig>, shutdown: CancellationToken) {
     let Some(key) = identity(&node, &shutdown).await else {
         return;
@@ -76,30 +79,64 @@ pub async fn run(node: Arc<Node>, config: Arc<ValidatorConfig>, shutdown: Cancel
     }
     let tasks = TaskTracker::new();
     let stop = shutdown.child_token();
-    let mut started = 0_usize;
-    for hub in &config.hubs {
-        match start(&node, &key, hub, &client, &tasks, &stop) {
-            Ok(true) => started = started.saturating_add(1),
-            Ok(false) => {}
-            // The database failed: the service starts again.
-            Err(()) => stop.cancel(),
+    let mut founded = node.founding().map(|founding| founding.founded());
+    let mut seen: BTreeSet<HubId> = BTreeSet::new();
+    let mut running: Vec<HubId> = Vec::new();
+    while !stop.is_cancelled() {
+        if let Some(founded) = &mut founded {
+            founded.mark_unchanged();
+        }
+        for hub in hubs(&node, &config) {
+            let id = hub.rules.id();
+            if !seen.insert(id) {
+                continue;
+            }
+            if running.len() >= super::config::MAX_VALIDATED_HUBS {
+                tracing::warn!(target: target::HUB, hub = %hex(id.0.as_bytes()), "validating as many hubs as the node does: not this one");
+                continue;
+            }
+            match start(&node, &key, &hub, &client, &tasks, &stop) {
+                Ok(true) => running.push(id),
+                Ok(false) => {}
+                // The database failed: the service starts again.
+                Err(()) => stop.cancel(),
+            }
+        }
+        let changed = async {
+            match &mut founded {
+                Some(founded) => {
+                    if founded.changed().await.is_err() {
+                        std::future::pending::<()>().await;
+                    }
+                }
+                None => std::future::pending().await,
+            }
+        };
+        tokio::select! {
+            () = stop.cancelled() => {}
+            () = changed => {}
         }
     }
-    if started == 0 && !stop.is_cancelled() {
-        // Nothing to validate until the configuration changes, which
-        // takes a restart of the daemon.
-        return shutdown.cancelled().await;
-    }
     tasks.close();
-    tokio::select! {
-        () = stop.cancelled() => {}
-        () = tasks.wait() => {}
-    }
-    stop.cancel();
     tasks.wait().await;
-    for hub in &config.hubs {
-        node.hubs().unregister(&hub.rules.id());
+    for hub in &running {
+        node.hubs().unregister(hub);
     }
+}
+
+/// The hubs to validate: the owner's file's, then those founded with the
+/// node.
+fn hubs(node: &Node, config: &ValidatorConfig) -> Vec<HubConfig> {
+    let mut hubs = config.hubs.clone();
+    if let Some(founding) = node.founding() {
+        match founding.hubs(&node.store_handle()) {
+            Ok(founded) => hubs.extend(founded),
+            Err(error) => {
+                tracing::error!(target: target::HUB, %error, "cannot read the hubs founded with the node");
+            }
+        }
+    }
+    hubs
 }
 
 /// The node's key, once it has one; `None` at shutdown.

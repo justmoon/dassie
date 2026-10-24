@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package dassie.ui.v1;
 
+import "dassie/ui/v1/hub_founding.proto";
 import "dassie/ui/v1/tls.proto";
 
 message GetBasicStateRequest {}
@@ -64,6 +65,9 @@ message GetStatusResponse {
   // node that validates none, which is every node whose owner did not turn
   // validating on.
   repeated HubValidator validating = 12;
+  // The settlement hubs the node founds as their sponsor
+  // (spec/areas/hubs.md#founding-a-hub), the oldest first.
+  repeated HubFounding founding = 13;
 }
 
 // How the node's validator of one settlement hub stands.

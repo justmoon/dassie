@@ -6,7 +6,8 @@
 //! ```json
 //! {
 //!   "sponsors": ["<node ID>", ...],
-//!   "hubs": [{ "rules": "<hex>", "genesis_ms": 1800000000000, "xrpl": "wss://..." }]
+//!   "hubs": [{ "rules": "<hex>", "genesis_ms": 1800000000000, "xrpl": "wss://..." }],
+//!   "xrpl": "wss://..."
 //! }
 //! ```
 //!
@@ -16,7 +17,10 @@
 //! `rules` are the hub's genesis rules in canonical OER, as hex; every
 //! validator starts the hub from the same `genesis_ms`, the genesis block's
 //! timestamp, which is part of its digest; `xrpl` is the XRPL server the
-//! node follows the escrow on, the testnet's public one by default.
+//! node follows the escrow on: the hub's own, else the file's, which hubs
+//! founded through the node use too (spec/areas/hubs.md#founding-a-hub),
+//! else the testnet's public one. `hubs` may be empty: a sponsor the file
+//! lists founds hubs with the node over the hub's founding stream.
 
 use dassie_hub::Rules;
 use dassie_identity::NodeId;
@@ -43,6 +47,9 @@ pub struct ValidatorConfig {
     pub sponsors: Vec<NodeId>,
     /// The hubs it validates, each of a listed sponsor.
     pub hubs: Vec<HubConfig>,
+    /// The XRPL server it follows the escrows of hubs founded through it
+    /// on, and of hubs that name none.
+    pub xrpl: String,
 }
 
 /// One hub the node validates.
@@ -62,6 +69,7 @@ pub struct HubConfig {
 struct File {
     sponsors: Vec<String>,
     hubs: Vec<HubEntry>,
+    xrpl: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -90,18 +98,37 @@ pub fn parse(text: &str) -> Result<ValidatorConfig, String> {
     if file.hubs.len() > MAX_VALIDATED_HUBS {
         return Err(format!("lists more than {MAX_VALIDATED_HUBS} hubs"));
     }
+    let xrpl = server(
+        file.xrpl
+            .clone()
+            .unwrap_or_else(|| dassie_xrpl::account::DEFAULT_SERVER.into()),
+    )?;
     let mut hubs: Vec<HubConfig> = Vec::with_capacity(file.hubs.len());
     for (index, entry) in file.hubs.iter().enumerate() {
-        let hub = hub(entry, &sponsors).map_err(|problem| format!("hub {index}: {problem}"))?;
+        let hub =
+            hub(entry, &sponsors, &xrpl).map_err(|problem| format!("hub {index}: {problem}"))?;
         if hubs.iter().any(|other| other.rules.id() == hub.rules.id()) {
             return Err(format!("hub {index}: listed twice"));
         }
         hubs.push(hub);
     }
-    Ok(ValidatorConfig { sponsors, hubs })
+    Ok(ValidatorConfig {
+        sponsors,
+        hubs,
+        xrpl,
+    })
 }
 
-fn hub(entry: &HubEntry, sponsors: &[NodeId]) -> Result<HubConfig, String> {
+/// `url`, if it is a WebSocket URL the node connects to.
+fn server(url: String) -> Result<String, String> {
+    let websocket = url.starts_with("wss://") || url.starts_with("ws://");
+    if !websocket || url.len() > MAX_URL_BYTES {
+        return Err(format!("its XRPL server {url:?} is no WebSocket URL"));
+    }
+    Ok(url)
+}
+
+fn hub(entry: &HubEntry, sponsors: &[NodeId], xrpl: &str) -> Result<HubConfig, String> {
     let bytes = hex(&entry.rules).ok_or("its rules are not hex")?;
     let mut reader = Reader::new(&bytes);
     let rules = Rules::decode(&mut reader).map_err(|error| format!("its rules: {error:?}"))?;
@@ -120,14 +147,7 @@ fn hub(entry: &HubEntry, sponsors: &[NodeId]) -> Result<HubConfig, String> {
     if entry.genesis_ms == 0 {
         return Err("its genesis_ms is 0".into());
     }
-    let xrpl = entry
-        .xrpl
-        .clone()
-        .unwrap_or_else(|| dassie_xrpl::account::DEFAULT_SERVER.into());
-    let websocket = xrpl.starts_with("wss://") || xrpl.starts_with("ws://");
-    if !websocket || xrpl.len() > MAX_URL_BYTES {
-        return Err(format!("its XRPL server {xrpl:?} is no WebSocket URL"));
-    }
+    let xrpl = server(entry.xrpl.clone().unwrap_or_else(|| xrpl.into()))?;
     Ok(HubConfig {
         rules,
         genesis_ms: entry.genesis_ms,

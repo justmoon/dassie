@@ -164,6 +164,9 @@ pub enum StreamKind {
     /// A hub validator's request for the state after a final block, then
     /// the state ([`crate::hub::transport`]).
     HubState = 4,
+    /// A sponsor's request while it founds a hub, then the validator's
+    /// answer ([`crate::hub::transport`]).
+    HubFounding = 5,
 }
 
 impl StreamKind {
@@ -176,6 +179,7 @@ impl StreamKind {
             2 => Some(Self::Relayed),
             3 => Some(Self::Hub),
             4 => Some(Self::HubState),
+            5 => Some(Self::HubFounding),
             _ => None,
         }
     }
@@ -252,6 +256,17 @@ pub trait Handler: Send + Sync + 'static {
         _from: PublicKey,
         _request: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Option<crate::hub::transport::StateReply>> + Send + 'a>> {
+        Box::pin(async { None })
+    }
+
+    /// Answers a sponsor's request on a hub's founding stream from the node
+    /// `from` ([`crate::hub::transport`]): the answer's bytes. `None`
+    /// resets the stream, unless a handler says otherwise.
+    fn hub_founding<'a>(
+        &'a self,
+        _from: PublicKey,
+        _request: Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = Option<Vec<u8>>> + Send + 'a>> {
         Box::pin(async { None })
     }
 
@@ -967,6 +982,7 @@ impl On {
             Some(StreamKind::Relayed) => self.serve_relayed(send, recv).await,
             Some(StreamKind::Hub) => self.hub(send, recv).await,
             Some(StreamKind::HubState) => self.hub_state(send, recv).await,
+            Some(StreamKind::HubFounding) => self.hub_founding(send, recv).await,
             None => {
                 let _ = send.reset(0u32.into());
                 let _ = recv.stop(0u32.into());

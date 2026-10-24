@@ -425,6 +425,40 @@ impl Engine {
         self.call(move |core| core.hub_deposit(amount)).await
     }
 
+    /// Pays `drops` from the XRPL testnet account to `destination`: the
+    /// payment that creates the escrow of a hub the node founds. Its ID.
+    pub async fn pay_from_xrpl(
+        &self,
+        destination: String,
+        drops: u64,
+    ) -> Result<String, EngineError> {
+        self.call(move |core| {
+            core.pay_from_xrpl(&destination, drops)
+                .map(|id| id.as_str().to_owned())
+        })
+        .await
+    }
+
+    /// The rules of the hub the node is a member of, while its scheme
+    /// runs.
+    pub async fn hub_rules(&self) -> Result<Option<dassie_hub::Rules>, EngineError> {
+        self.call(|core| Ok(core.hub_rules())).await
+    }
+
+    /// What became of the owner's payment `id` out of the XRPL testnet
+    /// account.
+    pub async fn xrpl_owner_payment(
+        &self,
+        id: String,
+    ) -> Result<dassie_settlement::OwnerPaymentState, EngineError> {
+        self.call(move |core| {
+            let id = dassie_ledger::Name::new(&id)
+                .map_err(|_| EngineError::Invalid("a payment's ID".into()))?;
+            Ok(core.xrpl_owner_payment(id))
+        })
+        .await
+    }
+
     /// The owner withdraws from the hub to the XRPL account.
     pub async fn hub_withdraw(&self, amount: u64) -> Result<HubStatus, EngineError> {
         self.call(move |core| core.hub_withdraw(amount)).await

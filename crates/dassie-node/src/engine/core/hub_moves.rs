@@ -377,6 +377,66 @@ impl Core {
     }
 }
 
+/// Funding the escrow of a hub the node founds
+/// (spec/areas/hubs.md#founding-a-hub).
+impl Core {
+    /// Pays `drops` from the owner's funds on the XRPL testnet account to
+    /// `destination`, with no tag: the payment that creates the escrow of a
+    /// hub the node founds. Held against the owner's funds while it is on
+    /// its way, as any owner's payment. Its ID, to follow it by.
+    ///
+    /// # Errors
+    ///
+    /// The XRP scheme does not run synced, the owner's funds there do not
+    /// cover it with its fee, or the scheme has an owner's payment on its
+    /// way already.
+    pub fn pay_from_xrpl(&mut self, destination: &str, drops: u64) -> Result<Name, EngineError> {
+        let spendable = self.xrpl_spendable().ok_or_else(|| {
+            EngineError::Precondition("the XRP Ledger testnet scheme is not running synced".into())
+        })?;
+        if drops == 0 || drops > spendable {
+            return Err(EngineError::Refused(
+                "more than the owner's funds on the XRP Ledger, with its fee".into(),
+            ));
+        }
+        let amount = drops.saturating_mul(UNITS_PER_DROP);
+        let payment = OwnerPayment {
+            destination: destination.into(),
+            tag: None,
+            memo: None,
+            amount,
+        };
+        let fee = XRPL_FEE_DROPS.saturating_mul(UNITS_PER_DROP);
+        let refused = |error: SchemeError| {
+            EngineError::Exhausted(format!("the XRP scheme cannot pay now: {error:?}"))
+        };
+        self.check_owner_payment(XRPL, amount, fee)
+            .map_err(refused)?;
+        let id = self.pay_owner(XRPL, &payment).map_err(refused)?;
+        self.hold_owner_payment(XRPL, id, amount, fee);
+        Ok(id)
+    }
+
+    /// The rules of the hub the node is a member of, while its scheme
+    /// runs.
+    #[must_use]
+    pub fn hub_rules(&self) -> Option<dassie_hub::Rules> {
+        self.hub_account().map(|account| account.rules().clone())
+    }
+
+    /// What became of the owner's payment `id` out of the XRPL testnet
+    /// account, as the XRP scheme says; unknown while it does not run.
+    #[must_use]
+    pub fn xrpl_owner_payment(&self, id: Name) -> OwnerPaymentState {
+        self.schemes
+            .get(&XRPL)
+            .filter(|active| active.failed.is_none())
+            .map_or(OwnerPaymentState::Unknown, |active| {
+                active.scheme.owner_payment(id)
+            })
+    }
+}
+
 /// The owner's moves and view.
 impl Core {
     /// The node's hub account and its funding, while the hub scheme runs.
