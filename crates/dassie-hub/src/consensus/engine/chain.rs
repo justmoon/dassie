@@ -1,6 +1,7 @@
 //! The chain: blocks above the tip, finalizing them in order, the handover
 //! from one epoch to the next, and finding finalized blocks that conflict.
 
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 use super::super::hooks::Application;
@@ -130,22 +131,52 @@ impl Engine {
 
     /// How the block `digest`, of view `view`, relates to the tip.
     pub(super) fn ancestry(&self, digest: &Digest, view: u64) -> Ancestry {
+        self.ancestry_known(digest, view, &mut BTreeMap::new())
+    }
+
+    /// [`Self::ancestry`], for many blocks while neither the tip nor the
+    /// blocks held change: `known` keeps how each held block met on the way
+    /// relates to the tip, and a later walk stops at the first it reaches.
+    /// A held block's ancestry is the same whatever view it was asked with,
+    /// since only a block not held answers with the view, so each answer is
+    /// the one [`Self::ancestry`] gives; walks of many finalizations down
+    /// one chain then cost its length once, not once each.
+    fn ancestry_known(
+        &self,
+        digest: &Digest,
+        view: u64,
+        known: &mut BTreeMap<Digest, Ancestry>,
+    ) -> Ancestry {
         let mut at = *digest;
         let mut view = view;
+        let mut path = Vec::new();
+        let mut found = Ancestry::Forks;
         for _ in 0..=MAX_BLOCKS {
             if at == self.tip_digest {
-                return Ancestry::Extends;
+                found = Ancestry::Extends;
+                break;
+            }
+            if let Some(seen) = known.get(&at) {
+                found = *seen;
+                break;
             }
             let Some(block) = self.blocks.get(&at) else {
-                return Ancestry::Missing(view);
+                found = Ancestry::Missing(view);
+                break;
             };
             if block.height <= self.tip.block.height {
-                return Ancestry::Forks;
+                found = Ancestry::Forks;
+                break;
             }
+            path.push(at);
             view = block.parent_view;
             at = block.parent;
         }
-        Ancestry::Forks
+        for held in path {
+            known.insert(held, found);
+        }
+        assert!(known.len() <= MAX_BLOCKS, "more blocks known than held");
+        found
     }
 
     /// The content block a block stands for: itself, or the block its
@@ -216,8 +247,10 @@ impl Engine {
             .filter(|(_, round)| !round.forked)
             .filter_map(|(view, round)| Some((*view, round.finalization.as_ref()?.block)))
             .collect();
+        // Nothing below changes the tip or the blocks held but what returns.
+        let mut known = BTreeMap::new();
         for (view, digest) in finalized {
-            match self.ancestry(&digest, view) {
+            match self.ancestry_known(&digest, view, &mut known) {
                 Ancestry::Extends => {
                     let certificate = self
                         .rounds
