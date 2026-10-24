@@ -18,7 +18,7 @@ use std::sync::OnceLock;
 use dassie_xrpl::binary::{self, ARRAY_END, FieldId, Fields, OBJECT_END, Type};
 use dassie_xrpl::codec::DecodeError;
 use dassie_xrpl::header::{HEADER_BYTES, LedgerHeader};
-use dassie_xrpl::keys::PublicKey;
+use dassie_xrpl::keys::{PublicKey, sha512_half};
 use dassie_xrpl::manifest::Manifest;
 use dassie_xrpl::validation::{FULL, FULLY_CANONICAL, Validation};
 use dassie_xrpl::{from_hex, hex_upper};
@@ -201,12 +201,30 @@ fn manifests_verify_under_both_keys() {
         );
         assert!(manifest.verify());
         assert!(!manifest.is_revocation());
+        // Its hash is of all of it, signatures and all.
+        assert_eq!(
+            manifest.hash(),
+            sha512_half(&[b"MAN\0", &bytes[..]].concat())
+        );
         // Another sequence, or another domain, is not what its keys signed.
         let later = Manifest {
             sequence: manifest.sequence + 1,
             ..manifest.clone()
         };
         assert!(!later.verify());
+        let elsewhere = Manifest {
+            domain: Some("example.com".into()),
+            ..manifest.clone()
+        };
+        assert_ne!(elsewhere.domain, manifest.domain);
+        assert!(!elsewhere.verify());
+        // Nor is a signature by the master key alone: both must sign.
+        let (key, _) = manifest.signing.unwrap();
+        let one_key = Manifest {
+            signing: Some((key, manifest.master_signature)),
+            ..manifest.clone()
+        };
+        assert!(!one_key.verify());
         signing_keys.insert(text(entry, "signing_b58").to_owned());
     }
     let validations = read("tests/data/validations.json");

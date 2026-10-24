@@ -336,7 +336,7 @@ mod tests {
     use crate::from_hex;
 
     // A mainnet validation of ledger 107862130, as s1.ripple.com streamed it
-    // (testdata of `tests/golden_ledger.rs`).
+    // (testdata of `tests/ledger_binary.rs`).
     const DATA: &str = "228000000126066DD87229326ED58A3AA634B3860AC9C61C5151966685A066F132C7DBAC4B4FAFEE4BB04198FCF67A06005DC179AD63C1C7C25017698092EA3D07537EFA8A0EE1A92201702252EDA5ECD961FE8B9D0ECBCCD202DA5019DB32F9B497B62C9E467CF37ED9181A31AF823716E8809C07EA4E95B0BEBBA1737321034B2562011A5A06608454583621331D1234FC597177321E276242124CD1DF111A76473045022100BC3150D4776F4FB66E9962472669157CAE30149A960C358A8DB01804DEA5BD98022035575E983E35786483FA88B41C95B4D6123C02E8FBC616FC05C8B435C068A3A9";
 
     fn live() -> Validation {
@@ -384,6 +384,54 @@ mod tests {
             ..resigned
         };
         assert!(!swapped.verify());
+    }
+
+    #[test]
+    fn a_live_signature_made_malleable_does_not_verify() {
+        // The same signature with a high S, or its DER padded, is ECDSA's
+        // all the same, but not fully canonical: a relay that changes it
+        // gets nothing that counts.
+        let validation = live();
+        let parsed = k256::ecdsa::Signature::from_der(validation.signature.as_bytes()).unwrap();
+        let (r, s) = parsed.split_scalars();
+        let high = k256::ecdsa::Signature::from_scalars(r.to_bytes(), (-*s).to_bytes()).unwrap();
+        let high = Validation {
+            signature: Signature::from_slice(high.to_der().as_bytes()).unwrap(),
+            ..live()
+        };
+        assert!(!high.verify());
+        let der = validation.signature.as_bytes();
+        // SEQUENCE, then INTEGER r with a needless zero in front.
+        let r_length = usize::from(der[3]);
+        let mut padded = vec![0x30, der[1] + 1, 0x02, der[3] + 1, 0x00];
+        padded.extend_from_slice(&der[4..4 + r_length]);
+        padded.extend_from_slice(&der[4 + r_length..]);
+        let padded = Validation {
+            signature: Signature::from_slice(&padded).unwrap(),
+            ..live()
+        };
+        assert!(Validation::from_bytes(&padded.to_bytes()).is_ok());
+        assert!(!padded.verify());
+    }
+
+    #[test]
+    fn its_signing_bytes_are_its_bytes_without_the_signature() {
+        // Cut out of the bytes as received, field by field.
+        let bytes = from_hex(DATA).unwrap();
+        let mut cut = VALIDATION_PREFIX.to_vec();
+        for field in Fields::new(&bytes) {
+            let field = field.unwrap();
+            if field.id != SIGNATURE {
+                binary::write_field(&mut cut, field.id, field.value);
+            }
+        }
+        assert_eq!(live().signing_bytes(), cut);
+        // Less the signature, its header and its length.
+        let signature = live().signature.as_bytes().len();
+        assert_eq!(
+            cut.len(),
+            VALIDATION_PREFIX.len() + bytes.len() - signature - 2
+        );
     }
 
     #[test]
