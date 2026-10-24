@@ -103,11 +103,9 @@ A new owner opens a setup URL, enters a passphrase and chooses a first ledger ([
 
 The node proves what it books against rippled servers patched with three public methods: `validations` for a ledger, `tx_proof` for a transaction, and `state_proof` for ledger objects with proofs of absence. Their names and shapes are the contract the node is built against ([the design](designs/xrpl-validation.md#3-the-proof-api)). Every answer proves itself, so a proof server is relied on only to answer ([verified-ledgers](decisions/verified-ledgers.md)). A condition for [real money](#real-money).
 
-The patch, its build and a public server per network run ([Proof servers](areas/proof-servers.md)).
+The patch, its build and a public server per network run ([Proof servers](areas/proof-servers.md)), and each network's server is its account's default ([XRPL](areas/xrpl.md)).
 
-- **What is left:**
-  - each network's server in the node's defaults: the testnet's in the account's, mainnet's with the mainnet account type ([Mainnet schemes](#mainnet-schemes));
-  - offering the patch upstream, so that any rippled may serve proofs.
+- **What is left:** offering the patch upstream, so that any rippled may serve proofs.
 - **Done when:** the node's defaults name each network's proof server, and the patch is offered upstream.
 
 ### Checking XRP Ledger validators
@@ -130,7 +128,6 @@ The XRPL account takes its server's word on which ledgers are validated and what
 Settling with real money on the XRP Ledger's mainnet, in XRP and in RLUSD ([mainnet-schemes](decisions/mainnet-schemes.md)), with no DSUSD on mainnet, and DSUSD as the testnet's stand-in for RLUSD. A condition for [real money](#real-money); the `live` realm stays refused after it.
 
 - **Parts that can be built side by side:**
-  - the account by network: one account type that takes its network as a constant (network ID, asset kind, seed path, default proof server, faucet, realm), the testnet's values unchanged, and the mainnet wallet at `node/settlement-module/xrpl/seed-mainnet` derived for every golden vector;
   - `xrpl` and `xrpl-rlusd` on one mainnet account, with memo types of their own, and a test that every XRPL scheme's memo type, ledger and network are distinct;
   - test RLUSD disabled: the testnet's RLUSD scheme no longer offered or activated, the bootstrap nodes without it, and every run of it moved to mainnet RLUSD in the live realm on the fake, or to DSUSD: dev's and the end-to-end tests' scenarios, the `node` simulation's scripted runs and the in-process tests;
   - the realm gate: a ledger activates only in its node's realm, a node offers only its realm's schemes, a `live` realm stored in the database is refused at start, and the live realm runs in-process in tests, and in dev and the end-to-end tests through a switch only builds with debug assertions honour;

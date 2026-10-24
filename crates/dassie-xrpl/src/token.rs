@@ -1,14 +1,15 @@
 //! The token scheme (spec/areas/xrpl.md#the-token-scheme), sans-IO: a
 //! settlement scheme that settles in a dollar token on the trust line of
-//! the node's first XRPL testnet account ([`XrplAccount`]) to the token's
-//! issuer, and books on a dollar ledger of its own, whose unit is a
-//! millionth of a dollar. Each token it settles in is a [`Token`]: its
-//! scheme's ID, its memo type, its issuer, its currency and its ledger;
-//! `xrpl-testnet-rlusd` ([`crate::rlusd`]) and `xrpl-testnet-dsusd`
-//! ([`crate::dsusd`]) are this scheme with their own. It pays its fees and
-//! its line's reserve in the account's XRP, as gas: on the books of
-//! `xrpl-testnet+xrp` when that scheme settles from the same account, and
-//! off the books otherwise (spec/decisions/external-assets.md).
+//! the node's first XRPL account on the token's network ([`XrplAccount`])
+//! to the token's issuer, and books on a dollar ledger of its own, whose
+//! unit is a millionth of a dollar. Each token it settles in is a
+//! [`Token`]: its scheme's ID, its memo type, its issuer, its currency, its
+//! ledger and its network; `xrpl-testnet-rlusd` ([`crate::rlusd`]) and
+//! `xrpl-testnet-dsusd` ([`crate::dsusd`]) are this scheme with their own.
+//! It pays its fees and its line's reserve in the account's XRP, as gas: on
+//! the books of the network's XRP scheme, such as `xrpl-testnet+xrp`, when
+//! that scheme settles from the same account, and off the books otherwise
+//! (spec/decisions/external-assets.md).
 //!
 //! Before it counts as synced, the account has a line to the issuer with
 //! rippling disabled on its side and the largest limit; a line missing or
@@ -51,11 +52,12 @@ use dassie_settlement::{
 use rand_core::CryptoRng;
 use serde_json::{Value, json};
 
-use crate::account::{self, LineKey, News, Ours, Resumed, XrplAccount};
+use crate::account::{LineKey, News, Ours, Resumed, XrplAccount};
 use crate::amount::{Currency, TokenAmount, TokenValue};
 use crate::api::{AccountInfo, AccountSettings, LineView, TxRecord};
 use crate::codec::{Memo, TF_SET_NO_RIPPLE};
 use crate::keys::AccountId;
+use crate::network::Network;
 use crate::scheme::{
     MAX_PEERS, MAX_RECOVER_WAIT_LEDGERS, MAX_RECOVERING, Recovering, account_of, address_bytes,
     hash_name, missed_write_off, name_hash, narrow, parse_address, recover, restore_unread,
@@ -76,13 +78,15 @@ pub struct Token {
     /// The memo that marks a settlement in it: its own, so a Payment is
     /// never read as a settlement of another XRPL scheme.
     pub memo_type: &'static [u8],
-    /// Its issuer on the XRPL testnet.
+    /// Its issuer on its network.
     pub issuer: AccountId,
     /// Its currency code.
     pub currency: Currency,
     /// The ledger the scheme books on: a dollar ledger of its own, `USD` at
     /// par (spec/decisions/issued-assets.md).
     pub ledger: LedgerId,
+    /// The network it is issued on, whose account the scheme settles from.
+    pub network: &'static Network,
 }
 
 impl Token {
@@ -189,8 +193,9 @@ impl<T: IssuedToken> TokenScheme<T> {
     ///
     /// # Errors
     ///
-    /// If the state is invalid, or looks up a transaction the account has
-    /// in flight or remembers as never sent: a state the two never wrote.
+    /// If the account is on another network than the token, or the state is
+    /// invalid, or looks up a transaction the account has in flight or
+    /// remembers as never sent: a state the two never wrote.
     pub fn new(
         account: &XrplAccount,
         node: Name,
@@ -200,6 +205,10 @@ impl<T: IssuedToken> TokenScheme<T> {
         let token = T::TOKEN;
         assert_eq!(token.scheme.as_str(), token.scheme_id, "the token's name");
         assert_eq!(token.ledger.asset().code, "USD", "a dollar token");
+        assert_eq!(token.ledger.realm(), token.network.realm, "its realm");
+        if account.network() != token.network {
+            return Err(SchemeError::InvalidConfig);
+        }
         let mut scheme = Self {
             account: account.account(),
             node,
@@ -760,7 +769,7 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
     }
 
     fn asset(&self) -> Option<AssetId> {
-        Some(account::FIRST)
+        Some(T::TOKEN.network.first())
     }
 
     fn issuer(&self) -> Option<String> {
