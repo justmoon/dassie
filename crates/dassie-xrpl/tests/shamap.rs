@@ -105,7 +105,8 @@ fn a_mainnet_transaction_tree_rebuilds_its_root() {
 }
 
 // Branches taken from mainnet ledgers verify in the form rippled sends
-// them, and the tree builder gives the same bytes.
+// them, against the transaction roots of headers that hash to their
+// ledgers, and the tree builder gives the same bytes.
 #[test]
 fn mainnet_branches_verify() {
     let data = transaction_set();
@@ -142,6 +143,9 @@ fn mainnet_branches_verify() {
     let others = data["other_branches"].as_array().unwrap();
     assert_eq!(others.len(), 2);
     for other in others {
+        let header = LedgerHeader::from_bytes(&bytes(other, "ledger_data")).unwrap();
+        assert_eq!(header.hash(), hash(other, "ledger_hash"));
+        assert_eq!(header.transaction_hash, hash(other, "transaction_hash"));
         let (transaction, metadata) = (bytes(other, "tx_blob"), bytes(other, "meta"));
         let key = hash(other, "key");
         assert_eq!(codec::hash(&transaction), key);
@@ -274,6 +278,35 @@ fn an_empty_tree_and_a_tree_of_one() {
     }
     tree.remove(&[0x12; 32]);
     assert_eq!(tree.root(), [0; 32]);
+}
+
+// Two keys that differ only in their last nibble hang at the deepest
+// level, below an inner node for every nibble they share; a third key
+// that parts from them there is absent at that inner node's empty slot.
+#[test]
+fn keys_that_part_in_the_last_nibble_hang_at_the_deepest_level() {
+    let one = [0x5C; 32];
+    let other = neighbour(&one, MAX_DEPTH - 1);
+    let (tree, _) = state_tree(&[one, other]);
+    let root = tree.root();
+    for key in [one, other] {
+        let object = [&key[..], b"an object"].concat();
+        let branch = tree.branch(&key).unwrap();
+        assert_eq!(branch.len(), MAX_BRANCH_NODES);
+        assert_eq!(verify(&root, &key, Leaf::State(&object), &branch), Ok(()));
+    }
+    let mut beside = one;
+    beside[31] ^= 0x01;
+    let branch = tree.branch(&beside).unwrap();
+    assert_eq!(branch.len(), MAX_DEPTH);
+    assert_eq!(
+        verify(&root, &beside, Leaf::Absent(Tree::State), &branch),
+        Ok(())
+    );
+    assert_eq!(
+        verify(&root, &beside, Leaf::State(b"an object"), &branch),
+        Err(BranchError::Leaf)
+    );
 }
 
 // A branch is cut short, at the leaf or at the root, a node is cut, or

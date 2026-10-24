@@ -226,7 +226,8 @@ fn holds(leaf: Leaf<'_>, key: &[u8; 32], leaf_key: &[u8; 32], item: &[u8]) -> bo
 }
 
 /// A transaction leaf's item: the transaction and its metadata, each with
-/// its length prefix.
+/// its length prefix, so each at most [`crate::binary::MAX_VL_BYTES`] (a
+/// bug otherwise).
 #[must_use]
 pub fn transaction_item(transaction: &[u8], metadata: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(transaction.len() + metadata.len() + 6);
@@ -494,6 +495,13 @@ mod tests {
         assert!(refused(&leaf_wire(Tree::State, &EMPTY, &item)));
         assert!(refused(&leaf_wire(Tree::State, &[1; 32], &item[1..])));
         assert!(Node::from_wire(&leaf_wire(Tree::State, &[1; 32], &item), Tree::State).is_ok());
+        // The longest leaf rippled sends, and one a byte longer.
+        let longest = vec![1; MAX_LEAF_BYTES - KEY_BYTES - 1];
+        let wire = leaf_wire(Tree::State, &[1; 32], &longest);
+        assert_eq!(wire.len(), MAX_LEAF_BYTES);
+        assert!(Node::from_wire(&wire, Tree::State).is_ok());
+        let longer = [&longest[..], &[1]].concat();
+        assert!(refused(&leaf_wire(Tree::State, &[1; 32], &longer)));
     }
 
     #[test]
