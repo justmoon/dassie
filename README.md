@@ -34,7 +34,7 @@ Once set up, the wallet asks you for a first ledger:
 
 - **Stub** settles nothing, but gives you 100 test USD to play with.
 - **XRP Ledger Testnet** settles in test XRP. The testnet faucet funds the node's account. Over RPC, it is `addSettlementScheme` with `xrpl-testnet`, and an optional JSON config naming another `server` or `faucet`.
-- **RLUSD** and **DSUSD on the XRP Ledger Testnet** settle in a test dollar token from the same account, which pays their fees in XRP: `xrpl-testnet-rlusd` in Ripple's RLUSD, and `xrpl-testnet-dsusd` in DSUSD, Dassie's own testnet dollar, which you buy with test XRP on the testnet's XRP/DSUSD pool.
+- **DSUSD on the XRP Ledger Testnet**, `xrpl-testnet-dsusd`, settles in DSUSD, Dassie's own testnet dollar, from the same account, which pays its fees in XRP; you buy DSUSD with test XRP on the testnet's XRP/DSUSD pool. It stands in on the testnet for Ripple's RLUSD, whose testnet scheme, `xrpl-testnet-rlusd`, is disabled: a node that ran it starts without it, and its test RLUSD stays on its line.
 
 From there, the wallet sends and receives payments, shows their status and your activity, and manages everything below.
 
@@ -46,7 +46,7 @@ A node without a hostname answers Open Payments at `https://<label>.dassiepay.ne
 
 **Exchange rates.** When your ledgers hold different currencies, the node converts between them at rates it fetches from Coinbase, Kraken, Bitstamp and the European Central Bank, taking the median of the three that cover each currency. You can change the sources and the currency the wallet shows totals in, in the wallet's settings or with `setRateSources` and `setDisplayCurrency`.
 
-**Peers.** Nodes find each other through bootstrap nodes: by default the testnet's, `boot1`–`boot4.dassie.xyz`. A node needs a hostname to take part; it then registers with them by itself, and peers with nodes that share one of its settlement schemes. The bootstrap nodes run `xrpl-testnet` and `xrpl-testnet-rlusd`.
+**Peers.** Nodes find each other through bootstrap nodes: by default the testnet's, `boot1`–`boot4.dassie.xyz`. A node needs a hostname to take part; it then registers with them by itself, and peers with nodes that share one of its settlement schemes. The bootstrap nodes run `xrpl-testnet` and `xrpl-testnet-dsusd`.
 
 `DASSIE_BOOTSTRAP_NODES` replaces the list, as JSON: `[{"id": "d…", "url": "https://host:port", "publicKey": "<base64url>"}]`, or `[]` to run alone. Under systemd, set it in a drop-in, then `sudo systemctl daemon-reload && sudo systemctl restart dassie`; `dassie update` leaves drop-ins alone. Version 0.1.1 and earlier have no default list, so they join the testnet with this one:
 

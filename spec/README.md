@@ -69,7 +69,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [Network](areas/network.md) | The node table, flooding, membership and registration, bootstrap nodes, peering and its lifecycle, routing |
 | [Settlement](areas/settlement.md) | Settlement schemes, external assets, credit and its growth, thresholds, settling on request, settlement channels |
 | [Settlement hubs](areas/hubs.md) | A hub's rules and its ledger: accounts, holds, what validators attest, and who gets the fees |
-| [XRPL](areas/xrpl.md) | The XRP Ledger testnet account, the XRP scheme and the token scheme (RLUSD, DSUSD) on it, and the fake ledger |
+| [XRPL](areas/xrpl.md) | The XRP Ledger accounts on the testnet and mainnet, the XRP scheme and the token scheme (DSUSD, RLUSD) on them, and the fake ledger |
 | [Payments](areas/payments.md) | Open Payments: wallet addresses, GNAP, incoming and outgoing payments, quotes, the owner's Send |
 | [Rate feed](areas/rate-feed.md) | A core node's signed UDP feed of the rates it converts at: wire format, signing, the subscriber table and its cookies, when to publish |
 | [Node](areas/node.md) | The daemon: runtime, startup, configuration, environment, CLI, persistence, secrets, logging |

@@ -308,7 +308,7 @@ export class Scenario {
     return node;
   }
 
-  /** Asks the fake ledger's issuer of test RLUSD, or of the request's
+  /** Asks the fake ledger's issuer of test DSUSD, or of the request's
    * token, to act. */
   async askIssuer(request: IssuerRequest): Promise<void> {
     if (!this.ledger) throw new Error("the scenario runs no fake ledger");

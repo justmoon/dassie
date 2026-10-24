@@ -107,9 +107,15 @@ impl Core {
     /// down. One of another realm than the node's, which the node's realm
     /// was changed past, is left as it is, and does not run: the owner is
     /// told, and the node starts with the rest
-    /// (spec/decisions/mainnet-schemes.md).
+    /// (spec/decisions/mainnet-schemes.md). So is a disabled one, such as
+    /// test RLUSD: its books and its line stay as they are, and nothing is
+    /// written off (spec/decisions/issued-assets.md).
     pub(super) fn load_schemes(&mut self, store: &Store) -> Result<(), String> {
         for (id, config) in store.settlement_schemes().map_err(|e| e.to_string())? {
+            if super::schemes::DISABLED.contains(&id.as_str()) {
+                self.report(SettlementEvent::Disabled { scheme: id });
+                continue;
+            }
             let ledger = super::SCHEMES
                 .iter()
                 .find(|info| info.id == id.as_str())
@@ -130,8 +136,13 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// The scheme is unknown, refuses its config, or is active.
+    /// The scheme is unknown, disabled, refuses its config, or is active.
     pub fn add_scheme(&mut self, id: &str, config: String) -> Result<LedgerView, EngineError> {
+        if super::schemes::DISABLED.contains(&id) {
+            return Err(EngineError::Precondition(
+                "the scheme is disabled (spec/decisions/issued-assets.md)".into(),
+            ));
+        }
         let id =
             Name::new(id).map_err(|_| EngineError::Invalid("unknown settlement scheme".into()))?;
         if self.schemes.contains_key(&id) {

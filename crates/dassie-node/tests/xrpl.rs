@@ -380,9 +380,10 @@ async fn eventually(mut done: impl FnMut() -> bool) {
     panic!("never happened");
 }
 
-/// The issuer of the fake ledger's test RLUSD takes requests over HTTPS
-/// next to the faucet, for dev and the end-to-end tests: what it mints and
-/// claws back shows on the holder's line once a ledger closes.
+/// The issuer of the fake ledger's test DSUSD takes requests over HTTPS
+/// next to the faucet, for dev and the end-to-end tests, its token when a
+/// request names none: what it mints and claws back shows on the holder's
+/// line once a ledger closes.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_fake_issuer_mints_and_claws_back_over_https() {
     use dassie_xrpl::codec::{Signing, TF_SET_NO_RIPPLE, TokenValue, Transact, TrustSet};
@@ -402,7 +403,7 @@ async fn the_fake_issuer_mints_and_claws_back_over_https() {
     let ledger = server.ledger().ledger();
     let signed = TrustSet {
         account: holder,
-        limit: Token::RLUSD.amount(TokenValue::MAX),
+        limit: Token::DSUSD.amount(TokenValue::MAX),
         fee: FEE_BASE,
         sequence,
         last_ledger_sequence: Some(ledger + 20),
@@ -418,7 +419,7 @@ async fn the_fake_issuer_mints_and_claws_back_over_https() {
     eventually(|| {
         server
             .ledger()
-            .token_balance(holder, Token::RLUSD)
+            .token_balance(holder, Token::DSUSD)
             .is_some()
     })
     .await;
@@ -444,7 +445,7 @@ async fn the_fake_issuer_mints_and_claws_back_over_https() {
         hyper::StatusCode::OK
     );
     let held = |value: &str| {
-        server.ledger().token_balance(holder, Token::RLUSD) == TokenValue::parse(value)
+        server.ledger().token_balance(holder, Token::DSUSD) == TokenValue::parse(value)
     };
     eventually(|| held("12.5")).await;
     let claw = post(
@@ -468,8 +469,8 @@ async fn the_fake_issuer_mints_and_claws_back_over_https() {
     server.stop();
 }
 
-/// The RLUSD ledger.
-const RLUSD_LEDGER: &str = "xrpl-testnet-rlusd+usd";
+/// The DSUSD ledger.
+const DSUSD_LEDGER: &str = "xrpl-testnet-dsusd+usd";
 
 async fn ledger_named(node: &TestNode, id: &str) -> Option<proto::Ledger> {
     let reply = node
@@ -496,34 +497,34 @@ async fn external_asset(node: &TestNode) -> Option<proto::ExternalAsset> {
     }
 }
 
-/// What `key`'s account holds of RLUSD, in the ledger's internal units:
+/// What `key`'s account holds of DSUSD, in the ledger's internal units:
 /// whole millionths.
-fn rlusd_held(key: &NodeKey, server: &Server) -> Option<u64> {
+fn dsusd_held(key: &NodeKey, server: &Server) -> Option<u64> {
     use dassie_xrpl::fake::Token;
 
     let held = server
         .ledger()
-        .token_balance(account_of(key), Token::RLUSD)?;
+        .token_balance(account_of(key), Token::DSUSD)?;
     Some(u64::try_from(held.floor_units(6)?).ok()? * 1_000)
 }
 
-/// Whether the node is up to date with its RLUSD line, with its books
+/// Whether the node is up to date with its DSUSD line, with its books
 /// holding the line in whole millionths.
-async fn rlusd_in_step(node: &TestNode, key: &NodeKey, server: &Server) -> bool {
-    let Some(ledger) = ledger_named(node, RLUSD_LEDGER).await else {
+async fn dsusd_in_step(node: &TestNode, key: &NodeKey, server: &Server) -> bool {
+    let Some(ledger) = ledger_named(node, DSUSD_LEDGER).await else {
         return false;
     };
     ledger.connection() == proto::LedgerConnection::Synced
-        && rlusd_held(key, server).is_some_and(|held| ledger.on_ledger_balance == held)
+        && dsusd_held(key, server).is_some_and(|held| ledger.on_ledger_balance == held)
 }
 
-// spec/areas/xrpl.md#rlusd: two daemons on `xrpl-testnet-rlusd` alone, over
+// spec/areas/xrpl.md#dsusd: two daemons on `xrpl-testnet-dsusd` alone, over
 // the fake ledger: the faucet gives them XRP for gas, each sets its line,
-// the issuer mints test RLUSD to A, and A pays B several times the credit,
-// so it settles in RLUSD as it goes. After both restart, the books still
+// the issuer mints test DSUSD to A, and A pays B several times the credit,
+// so it settles in DSUSD as it goes. After both restart, the books still
 // hold each line, and nothing is booked twice.
 #[tokio::test(flavor = "multi_thread")]
-async fn two_daemons_settle_rlusd_across_restarts() {
+async fn two_daemons_settle_dsusd_across_restarts() {
     use dassie_xrpl::codec::TokenValue;
     use dassie_xrpl::fake::Token;
 
@@ -544,10 +545,10 @@ async fn two_daemons_settle_rlusd_across_restarts() {
     let clock = ManualClock::new(START_MS);
     let a = bound_a.start(clock.clone(), 1, Policies::DEV, &env).await;
     let b = bound_b.start(clock.clone(), 2, Policies::DEV, &env).await;
-    prepare_with(&a, &key_a, "xrpl-testnet-rlusd", &config).await;
-    prepare_with(&b, &key_b, "xrpl-testnet-rlusd", &config).await;
+    prepare_with(&a, &key_a, "xrpl-testnet-dsusd", &config).await;
+    prepare_with(&b, &key_b, "xrpl-testnet-dsusd", &config).await;
     until(&clock, async || {
-        rlusd_in_step(&a, &key_a, &server).await && rlusd_in_step(&b, &key_b, &server).await
+        dsusd_in_step(&a, &key_a, &server).await && dsusd_in_step(&b, &key_b, &server).await
     })
     .await;
     // No XRP ledger: the gas is off the books.
@@ -556,18 +557,18 @@ async fn two_daemons_settle_rlusd_across_restarts() {
         .ledger()
         .issue(
             account_of(&key_a),
-            Token::RLUSD.amount(TokenValue::parse("20").unwrap()),
+            Token::DSUSD.amount(TokenValue::parse("20").unwrap()),
         )
         .unwrap();
     until(&clock, async || {
-        rlusd_in_step(&a, &key_a, &server).await
-            && ledger_named(&a, RLUSD_LEDGER)
+        dsusd_in_step(&a, &key_a, &server).await
+            && ledger_named(&a, DSUSD_LEDGER)
                 .await
                 .is_some_and(|ledger| ledger.owner_balance == 20_000_000_000)
     })
     .await;
     until(&clock, async || {
-        peered_on(&a, &key_b, RLUSD_LEDGER).await && peered_on(&b, &key_a, RLUSD_LEDGER).await
+        peered_on(&a, &key_b, DSUSD_LEDGER).await && peered_on(&b, &key_a, DSUSD_LEDGER).await
     })
     .await;
     settle(&clock).await;
@@ -577,7 +578,7 @@ async fn two_daemons_settle_rlusd_across_restarts() {
         .await
         .call(Method::CreateBtpToken(proto::CreateBtpTokenRequest {
             label: "wallet".into(),
-            ledger: RLUSD_LEDGER.into(),
+            ledger: DSUSD_LEDGER.into(),
             cap: None,
         }))
         .await
@@ -597,21 +598,21 @@ async fn two_daemons_settle_rlusd_across_restarts() {
     )
     .await;
     until(&clock, async || {
-        rlusd_in_step(&a, &key_a, &server).await && rlusd_in_step(&b, &key_b, &server).await
+        dsusd_in_step(&a, &key_a, &server).await && dsusd_in_step(&b, &key_b, &server).await
     })
     .await;
-    let settled = rlusd_held(&key_b, &server).unwrap();
+    let settled = dsusd_held(&key_b, &server).unwrap();
     assert!(settled >= PAYMENT - 1_100_000_000, "settled {settled}");
-    let owner_a = ledger_named(&a, RLUSD_LEDGER).await.unwrap().owner_balance;
-    let owner_b = ledger_named(&b, RLUSD_LEDGER).await.unwrap().owner_balance;
-    // The fees were gas: no fee on the RLUSD ledger.
+    let owner_a = ledger_named(&a, DSUSD_LEDGER).await.unwrap().owner_balance;
+    let owner_b = ledger_named(&b, DSUSD_LEDGER).await.unwrap().owner_balance;
+    // The fees were gas: no fee on the DSUSD ledger.
     assert_eq!(fees(&a).await, 0);
     // The owner sees what the account holds as the ledger says: its XRP,
-    // with the reserve its line raises, and its RLUSD in millionths.
+    // with the reserve its line raises, and its DSUSD in millionths.
     let asset = external_asset(&a).await.unwrap();
     assert_eq!(asset.address, account_of(&key_a).to_address());
-    assert_eq!(asset.settlement_schemes, ["xrpl-testnet-rlusd"]);
-    let [xrp, rlusd] = asset.holdings.as_slice() else {
+    assert_eq!(asset.settlement_schemes, ["xrpl-testnet-dsusd"]);
+    let [xrp, dsusd] = asset.holdings.as_slice() else {
         panic!("{asset:?}")
     };
     assert_eq!(
@@ -631,13 +632,13 @@ async fn two_daemons_settle_rlusd_across_restarts() {
         dassie_xrpl::fake::RESERVE_BASE + dassie_xrpl::fake::RESERVE_INC
     );
     assert_eq!(
-        (rlusd.asset_code.as_str(), rlusd.asset_scale, rlusd.frozen),
-        ("RLUSD", 15, false)
+        (dsusd.asset_code.as_str(), dsusd.asset_scale, dsusd.frozen),
+        ("DSUSD", 15, false)
     );
-    assert_eq!(rlusd.issuer, dassie_xrpl::rlusd::ISSUER.to_address());
+    assert_eq!(dsusd.issuer, dassie_xrpl::dsusd::ISSUER.to_address());
     assert_eq!(
-        Some(rlusd.amount / 1_000_000_000 * 1_000),
-        rlusd_held(&key_a, &server)
+        Some(dsusd.amount / 1_000_000_000 * 1_000),
+        dsusd_held(&key_a, &server)
     );
 
     let (dir_a, _) = a.stop().await;
@@ -649,18 +650,18 @@ async fn two_daemons_settle_rlusd_across_restarts() {
         .start(clock.clone(), 4, Policies::DEV, &env)
         .await;
     until(&clock, async || {
-        rlusd_in_step(&a, &key_a, &server).await && rlusd_in_step(&b, &key_b, &server).await
+        dsusd_in_step(&a, &key_a, &server).await && dsusd_in_step(&b, &key_b, &server).await
     })
     .await;
     settle(&clock).await;
     assert_eq!(deposits(&a).await, [20_000_000_000]);
     assert!(deposits(&b).await.is_empty());
     assert_eq!(
-        ledger_named(&a, RLUSD_LEDGER).await.unwrap().owner_balance,
+        ledger_named(&a, DSUSD_LEDGER).await.unwrap().owner_balance,
         owner_a
     );
     assert_eq!(
-        ledger_named(&b, RLUSD_LEDGER).await.unwrap().owner_balance,
+        ledger_named(&b, DSUSD_LEDGER).await.unwrap().owner_balance,
         owner_b
     );
     a.stop().await;

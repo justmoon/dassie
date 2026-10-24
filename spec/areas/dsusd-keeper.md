@@ -1,6 +1,6 @@
 # DSUSD keeper
 
-DSUSD is the testnet dollar token of our own that nodes settle in beside RLUSD, and that owners get only by paying XRP for it through the XRP Ledger testnet's XRP/DSUSD pool ([dsusd](../decisions/dsusd.md)). The keeper is a small program, run every few minutes on a VM of its own, that keeps the token's issuer, its own account and the pool in place, and holds the pool at an exchange's XRP/USD price.
+DSUSD is the testnet dollar token of our own that nodes settle in, the testnet's stand-in for RLUSD, and that owners get only by paying XRP for it through the XRP Ledger testnet's XRP/DSUSD pool ([dsusd](../decisions/dsusd.md)). The keeper is a small program, run every few minutes on a VM of its own, that keeps the token's issuer, its own account and the pool in place, and holds the pool at an exchange's XRP/USD price.
 
 **Paths:** `apps/dsusd-keeper/`
 **Read with:** [XRPL](xrpl.md) (tokens, trust lines, the testnet), [Testing](testing.md)

@@ -56,20 +56,20 @@ pub struct Token {
 }
 
 impl Token {
-    /// RLUSD of its testnet issuer, which the fake ledger issues.
+    /// RLUSD of its mainnet issuer, which the fake ledger's mainnet issues.
     pub const RLUSD: Self = Self {
         issuer: RLUSD_ISSUER,
         currency: RLUSD_CURRENCY,
     };
 
-    /// DSUSD of its testnet issuer, which the fake ledger issues too.
+    /// DSUSD of its testnet issuer, which the fake ledger's testnet issues.
     pub const DSUSD: Self = Self {
         issuer: DSUSD_ISSUER,
         currency: DSUSD_CURRENCY,
     };
 
-    /// The token of the fake's own issuers whose currency code is `code`,
-    /// such as `"RLUSD"`.
+    /// The token of the fake's own issuers, on either network, whose
+    /// currency code is `code`, such as `"RLUSD"`.
     #[must_use]
     pub fn by_code(code: &str) -> Option<Self> {
         [Self::RLUSD, Self::DSUSD]

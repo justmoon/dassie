@@ -55,7 +55,7 @@ The network's members are the nodes that a majority of the bootstrap nodes list.
 
 - The bootstrap node list is `DASSIE_BOOTSTRAP_NODES` (format and validation in `crates/dassie-node/src/env.rs`). A bad entry stops the node at startup, as does a node listed twice, which would vote twice. The default is the public testnet's four nodes ([bootstrap-network](../decisions/bootstrap-network.md)); tests and the dev environment set their own, so they stay off the testnet. An empty list makes a node run alone.
 - Bootstrap nodes are always in the table, with their configured key, and always keep their replay state.
-- A node takes registrations only when it is one of its own bootstrap nodes, so each bootstrap node lists itself in its own configuration. Each testnet bootstrap node runs `xrpl-testnet` and `xrpl-testnet-rlusd`, so a new node on either has someone to peer with.
+- A node takes registrations only when it is one of its own bootstrap nodes, so each bootstrap node lists itself in its own configuration. Each testnet bootstrap node runs `xrpl-testnet` and `xrpl-testnet-dsusd`, so a new node on either has someone to peer with.
 
 ### Node lists and the majority
 

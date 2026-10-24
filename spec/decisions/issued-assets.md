@@ -1,6 +1,6 @@
 # An issued asset's issuer is the owner's counterparty, and a dollar token pauses off its peg
 
-**Areas:** [XRPL](../areas/xrpl.md#rlusd), [Settlement](../areas/settlement.md#when-peers-cannot-pay-us), [Connector](../areas/connector.md#inventory-pricing). Built in the RLUSD scheme; transfer fees ([roadmap](../roadmap.md#not-built-yet)), the peg guard and disabling test RLUSD ([roadmap](../roadmap.md#mainnet-schemes)) are not.
+**Areas:** [XRPL](../areas/xrpl.md#rlusd), [Settlement](../areas/settlement.md#when-peers-cannot-pay-us), [Connector](../areas/connector.md#inventory-pricing). Built in the token scheme, with test RLUSD disabled; transfer fees ([roadmap](../roadmap.md#not-built-yet)) and the peg guard ([roadmap](../roadmap.md#mainnet-schemes)) are not.
 
 ## Facts
 
