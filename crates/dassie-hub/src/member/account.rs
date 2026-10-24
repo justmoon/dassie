@@ -28,7 +28,7 @@
 //! - **When its history is gone.** Validators keep a bounded history; one
 //!   that no longer keeps what touched the account since its cursor says so
 //!   (`Trimmed`). Once f + 1 agree, or once one says so and its cursor
-//!   has not moved for a while (`STUCK_MS`), the account reads its state
+//!   has not moved for minutes (`STUCK_MS`), the account reads its state
 //!   and every hold it pays into or takes from anew, as of one block f + 1
 //!   agree on, and reads in order from there ([`News::Resynced`]).
 //! - **What it submits:** the member's operations, one at a time, to every
@@ -131,14 +131,25 @@ pub const IDLE_POLL_MS: u64 = 1_000;
 pub const RESUBMIT_MS: u64 = 1_000;
 /// How long the account waits for its cursor to move, once a validator
 /// said it no longer keeps the history since the cursor, before it reads
-/// its state anew: three of its slowest rounds of asking every validator
-/// (`IDLE_POLL_MS`), each of which would have moved the cursor had a
-/// quorum still kept that history. A quorum may not: with f validators
-/// silent and one honest one restarted past the cursor, too few cover it,
-/// and too few say `Trimmed` for f + 1 to agree. Reading anew takes only
-/// what f + 1 sign alike, so it is safe whatever starts it, and costs a
-/// `Holds` answer.
-pub const STUCK_MS: u64 = 3 * IDLE_POLL_MS;
+/// its state anew. A quorum may no longer keep that history: with f
+/// validators silent and an honest one restarted past the cursor, too few
+/// cover it, and too few say `Trimmed` for f + 1 to agree, so the cursor
+/// never moves.
+///
+/// Reading anew takes only what f + 1 sign alike, but it is not free: it
+/// skips the blocks between the cursor and the block it reads, so a claim
+/// a payee made on the hub there gives no fulfillment to pass upstream,
+/// and what the hub paid for those packets is a loss on the peer
+/// (`PaidLate`); the rest is reconciled through suspense rather than read
+/// in order (`member/resync.rs`). So it must not start on one `Trimmed`
+/// and an ordinary outage: a validator that restarts after the cursor
+/// while another is cut off for a moment, as in a rolling restart. Each
+/// heals within a few minutes: a node waits at most a minute before it
+/// restarts a failed service, or before it reaches a peer again, and a
+/// restarted validator catches up with its peers' last final block within
+/// seconds. Five minutes leaves room for both at once, each at its longest
+/// wait, and for the account's own asking (`IDLE_POLL_MS`).
+pub const STUCK_MS: u64 = 5 * 60_000;
 /// How often it asks for its own state, against which the scheme checks
 /// its books.
 pub const ACCOUNT_EVERY_MS: u64 = 2_000;
@@ -849,8 +860,11 @@ impl HubAccount {
             {
                 self.covers(endpoint, height);
             }
+            // Only for an account we know: the cursor of one we do not is
+            // set when we learn of it, from its state.
             if let Statement::Trimmed { below, .. } = signed.statement
                 && below > self.cursor.saturating_add(1)
+                && self.number.is_some()
                 && self.trimmed_since.is_none()
             {
                 self.trimmed_since = Some(self.now_ms);

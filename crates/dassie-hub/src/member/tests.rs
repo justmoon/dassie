@@ -317,6 +317,67 @@ fn an_account_stuck_behind_a_trimmed_history_reads_anew() {
     account.check_invariants();
 }
 
+// One validator that no longer keeps the history since the cursor, and
+// another cut off for a while, as in a rolling restart during a network
+// blip: too few cover the cursor until the second is back, well within
+// `STUCK_MS`, and the account reads in order, never anew, which would
+// skip the blocks in between and lose their claims' fulfillments.
+#[test]
+fn one_trimmed_and_a_short_outage_read_in_order() {
+    let hub = Hub::new();
+    let mut account = synced(&hub);
+    let trimmed = Statement::Trimmed {
+        height: 100,
+        below: 50,
+    };
+    let fin = Statement::Final {
+        height: 100,
+        timestamp: 9_000,
+    };
+    say_all(&hub, &mut account, 2, core::slice::from_ref(&trimmed));
+    for v in [0, 1] {
+        say_all(&hub, &mut account, v, core::slice::from_ref(&fin));
+    }
+    // Validator 3 is cut off for a minute.
+    for at in (1_000..=60_000).step_by(1_000) {
+        account.on_timer(at);
+        assert!(!account.is_resyncing(), "anew at {at}");
+    }
+    assert_eq!(account.cursor(), 5, "two of four cover 100");
+    from(&mut account, 3, &hub.says(3, core::slice::from_ref(&fin)));
+    assert_eq!(account.cursor(), 100, "read in order");
+    account.on_timer(account::STUCK_MS * 2);
+    assert!(!account.is_resyncing());
+    account.check_invariants();
+}
+
+// A `Trimmed` heard before the account is known starts nothing: the
+// cursor is set from the account's state once it is.
+#[test]
+fn a_trimmed_before_the_account_is_known_starts_nothing() {
+    let hub = Hub::new();
+    let mut account = hub.account();
+    let trimmed = Statement::Trimmed {
+        height: 100,
+        below: 50,
+    };
+    from(
+        &mut account,
+        2,
+        &hub.says(2, core::slice::from_ref(&trimmed)),
+    );
+    for v in 0..2 {
+        from(
+            &mut account,
+            v,
+            &hub.says(v, &[hub.account_statement(5, true)]),
+        );
+    }
+    account.on_timer(account::STUCK_MS);
+    assert!(!account.is_resyncing());
+    account.check_invariants();
+}
+
 // A validator that no longer keeps the history since the cursor is no
 // reason to read anew while a quorum still moves the cursor.
 #[test]
