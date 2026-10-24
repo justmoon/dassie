@@ -16,6 +16,7 @@
 )]
 
 pub mod chaos;
+pub mod names;
 
 use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -27,15 +28,19 @@ use alloc::vec::Vec;
 use core::net::IpAddr;
 
 use crate::auth::{PairKeys, response_mac};
+use crate::names::Name;
 use crate::wire::{
-    Authentication, Envelope, Kind, RefusalReason, ResponseEnvelope, SchemeId, encode_response,
+    Authentication, Envelope, Kind, NameHolding, NameListResponse, RefusalReason, ResponseEnvelope,
+    SchemeId, encode_response,
 };
 use crate::{
-    Agreed, Bootstrap, Config, Declined, Event, Failure, Inbound, InboundId, Output, OwnInfo,
-    PeerBatch, PeerNode, PeeringHooks, Request, RequestId, Response, Stored,
+    Agreed, Bootstrap, Config, Declined, Event, Failure, Inbound, InboundId, NameEvent, Output,
+    OwnInfo, PeerBatch, PeerNode, PeeringHooks, Request, RequestId, Response, Stored,
 };
 use dassie_identity::{NodeId, NodeKey};
 use dassie_node_core::testing::SeededRng;
+use dassie_oer::Encode;
+use sha2::{Digest, Sha256};
 
 /// When every simulation starts, on the network's clock.
 pub const START: u64 = 1_800_000_000_000;
@@ -185,6 +190,37 @@ pub type Forge = Box<dyn FnMut(usize, usize, Kind, &mut Vec<u8>)>;
 /// and its kind.
 type Sent = (usize, [u8; 32], Kind);
 
+/// What a simulated registrar does, a bootstrap node faulty in one of the
+/// ways the names' design allows for (spec/designs/names.md#6-why-it-holds).
+/// Its own state follows the protocol: what it does wrong is what it tells
+/// others.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Role {
+    /// Follows the protocol.
+    Honest,
+    /// Shows nodes different name lists, each a list it could have
+    /// served: to the registrars their own, so that each sees its side of a
+    /// split confirmed; to the other nodes, by the parity of their index,
+    /// for each name the holder an honest registrar lists that sorts first,
+    /// or last.
+    Equivocate,
+    /// Logs every commitment, and never answers one: a registrant never
+    /// holds every receipt.
+    Withhold,
+    /// Passes every name unsealed at it to [`Network::adversary`], which at
+    /// once registers it itself at every registrar, and lists the adversary
+    /// for every name it passed on.
+    TipOff,
+}
+
+impl Role {
+    /// Whether it follows the protocol.
+    #[must_use]
+    pub const fn is_honest(self) -> bool {
+        matches!(self, Self::Honest)
+    }
+}
+
 /// What the network does to a message.
 #[derive(Clone, Copy, Debug)]
 pub struct Faults {
@@ -222,6 +258,7 @@ enum Delivery {
         from: usize,
         to: usize,
         request: RequestId,
+        kind: Kind,
         body: Vec<u8>,
     },
     /// A request's outcome arriving back at `to`.
@@ -332,7 +369,8 @@ pub struct Network {
     /// that shows each node a list of its own. The MAC is made again.
     pub forge: Option<Forge>,
     /// While tampering or forging, each request's MAC, the node it went to
-    /// and its kind, by who sent it, in which generation, with which ID.
+    /// and its kind, by who sent it, in which generation, with which ID;
+    /// while a registrar is faulty, each name list request's.
     macs: BTreeMap<(usize, u64, RequestId), Sent>,
     /// Periphery nodes: without a URL, dialling out over QUIC, reached by
     /// node ID over the connections they opened. Their uplinks are the
@@ -344,6 +382,14 @@ pub struct Network {
     /// The uplinks each node is pinned to, kept across restarts
     /// (spec/areas/network.md#pinned-uplinks).
     pub pinned: BTreeMap<usize, Vec<NodeId>>,
+    /// What each bootstrap node does as a registrar of names: as the
+    /// protocol says, unless set here.
+    pub roles: BTreeMap<usize, Role>,
+    /// The node a registrar that tips off passes names to.
+    pub adversary: Option<usize>,
+    /// The names passed to the adversary, with the expiry the registrars
+    /// that tip off list it for each with.
+    pub tipped: BTreeMap<Name, u64>,
 }
 
 impl Network {
@@ -410,6 +456,9 @@ impl Network {
             periphery: (count..count + periphery).collect(),
             quic,
             pinned: BTreeMap::new(),
+            roles: BTreeMap::new(),
+            adversary: None,
+            tipped: BTreeMap::new(),
         };
         for index in 0..count + periphery {
             let skew = i64::try_from(rng.next_u64() % 20_001).unwrap() - 10_000;
@@ -600,8 +649,38 @@ impl Network {
         for output in outputs {
             self.carry(index, output);
         }
+        let tips: Vec<Name> = if self.role(index) == Role::TipOff {
+            events.iter().filter_map(tip).collect()
+        } else {
+            Vec::new()
+        };
         for event in events {
             self.events.push((index, event));
+        }
+        for name in tips {
+            self.tip_off(name);
+        }
+    }
+
+    /// What node `index` does as a registrar.
+    pub fn role(&self, index: usize) -> Role {
+        self.roles.get(&index).copied().unwrap_or(Role::Honest)
+    }
+
+    /// Passes `name` to the adversary, which registers it at once if it is
+    /// up, and lists the adversary for it from now on.
+    fn tip_off(&mut self, name: Name) {
+        let Some(adversary) = self.adversary else {
+            return;
+        };
+        let expires_ms = self.now + self.config.names.ttl_ms;
+        self.tipped.entry(name).or_insert(expires_ms);
+        self.trace
+            .push(format!("{} tips off {adversary}: {name}", self.now));
+        if self.is_up(adversary) {
+            self.act(adversary, |node, now| {
+                let _ = node.register_name(now, name);
+            });
         }
     }
 
@@ -685,7 +764,11 @@ impl Network {
             );
             return;
         };
-        if (self.tamper.is_some() || self.forge.is_some())
+        let listing = matches!(
+            request.kind,
+            Kind::NameListRequest | Kind::NameListHashRequest
+        );
+        if (self.tamper.is_some() || self.forge.is_some() || (listing && !self.roles.is_empty()))
             && let Ok(envelope) = Envelope::decode(&request.body)
             && let Authentication::Hmac(hmac) = envelope.authentication
         {
@@ -722,6 +805,7 @@ impl Network {
                     from,
                     to,
                     request: request.id,
+                    kind: request.kind,
                     body: request.body.clone(),
                 },
             );
@@ -734,8 +818,9 @@ impl Network {
                 from,
                 to,
                 request,
+                kind,
                 body,
-            } => self.arrive(from, to, request, &body),
+            } => self.arrive(from, to, request, kind, &body),
             Delivery::Result {
                 to,
                 generation,
@@ -784,6 +869,14 @@ impl Network {
         if let Some(forge) = self.forge.as_mut() {
             forge(responder, to, kind, &mut body);
         }
+        if let Some(list) = self.forged_list(responder, to) {
+            let list = list.to_vec();
+            match kind {
+                Kind::NameListRequest => body = list,
+                Kind::NameListHashRequest => body = Sha256::digest(&list).to_vec(),
+                _ => {}
+            }
+        }
         let keys = PairKeys::derive(&key(responder), &key(to).public_key()).unwrap();
         let mac = response_mac(&keys.incoming_response, &request_mac, &body);
         Ok(Response {
@@ -792,7 +885,7 @@ impl Network {
         })
     }
 
-    fn arrive(&mut self, from: usize, to: usize, request: RequestId, body: &[u8]) {
+    fn arrive(&mut self, from: usize, to: usize, request: RequestId, kind: Kind, body: &[u8]) {
         let generation = self.nodes[from].generation;
         let now = self.local_now(to);
         let sim = &mut self.nodes[to];
@@ -865,7 +958,10 @@ impl Network {
             }
         };
         self.drain(to);
-        if let Some(reply) = reply {
+        // A registrar that withholds receipts logged the commitment, and
+        // never answers.
+        let withheld = kind == Kind::NameCommit && self.role(to) == Role::Withhold;
+        if let Some(reply) = reply.filter(|_| !withheld) {
             let delay = self.latency();
             let response = Response {
                 status: reply.status,
@@ -1039,5 +1135,81 @@ impl Network {
         let now = self.local_now(index);
         f(self.nodes[index].node.as_mut().unwrap(), now);
         self.drain(index);
+    }
+}
+
+/// The name a registrar that tips off passes on: one unsealed at it.
+const fn tip(event: &Event) -> Option<Name> {
+    match event {
+        Event::Name(NameEvent::Unsealed { name, .. }) => Some(*name),
+        _ => None,
+    }
+}
+
+impl Network {
+    /// The names node `index` lists now, as a registrar, from what it
+    /// persisted, which is what it holds: whether it is up or down.
+    pub fn listed(&self, index: usize) -> BTreeMap<Name, NameHolding> {
+        let now = self.local_now(index);
+        self.nodes[index]
+            .stored_names
+            .values()
+            .filter(|granted| granted.is_listed(now))
+            .map(|granted| {
+                let holding = NameHolding {
+                    holder: granted.holder,
+                    expires_at_ms: granted.expires_ms,
+                };
+                (granted.name, holding)
+            })
+            .collect()
+    }
+
+    /// The name list a faulty registrar shows `requester` in place of its
+    /// own, if it shows one.
+    fn forged_list(&self, registrar: usize, requester: usize) -> Option<NameListResponse> {
+        match self.role(registrar) {
+            Role::Honest | Role::Withhold => None,
+            Role::Equivocate => Some(self.equivocated(registrar, requester)),
+            Role::TipOff => {
+                let adversary = key(self.adversary?).node_id();
+                let mut list = self.listed(registrar);
+                for (name, expires_ms) in &self.tipped {
+                    let holding = NameHolding {
+                        holder: adversary,
+                        expires_at_ms: *expires_ms,
+                    };
+                    list.insert(*name, holding);
+                }
+                Some(NameListResponse(list))
+            }
+        }
+    }
+
+    /// What a registrar that equivocates shows `requester`: a registrar its
+    /// own list; any other node, for each name an honest registrar lists,
+    /// the holder that sorts first among theirs if its index is even, and
+    /// last if it is odd.
+    fn equivocated(&self, registrar: usize, requester: usize) -> NameListResponse {
+        let registrars = self.bootstrap.len();
+        if requester < registrars {
+            return NameListResponse(self.listed(requester));
+        }
+        let mut shown: BTreeMap<Name, NameHolding> = BTreeMap::new();
+        for honest in (0..registrars).filter(|index| *index != registrar) {
+            for (name, holding) in self.listed(honest) {
+                let pick = shown.get(&name).is_none_or(|kept| {
+                    if requester.is_multiple_of(2) {
+                        holding.holder < kept.holder
+                    } else {
+                        holding.holder > kept.holder
+                    }
+                });
+                if pick {
+                    shown.insert(name, holding);
+                }
+            }
+        }
+        NameListResponse(shown)
     }
 }
