@@ -54,7 +54,7 @@ It makes, in project `dassie-390023`:
 - **A network open to TCP 80 and 443 only.**
 - **A VM per network** in us-east1, with a static address:
   - mainnet: e2-standard-8 with 250 GB of SSD;
-  - testnet: e2-standard-4 with 150 GB of balanced disk.
+  - testnet: e2-standard-4 with 150 GB of SSD. Both need SSD: xrpld writes thousands of small blocks a second while it syncs, and a balanced disk's IOPS cap held a first sync back for hours.
 - **The Cloud DNS zone `dassieland.net`,** with DNSSEC, and an `A` record per server. The domain's registrar must then delegate to the zone's name servers and publish its DS record (`gcloud dns dns-keys list --zone dassieland-net`).
 
 At every boot, `startup.sh` does the following, logging to the serial console (`gcloud compute instances get-serial-port-output xrpl-proofs-<network>`):

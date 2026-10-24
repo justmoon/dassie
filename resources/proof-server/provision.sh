@@ -91,9 +91,10 @@ else
     --description="Dassie's XRP Ledger proof servers"
 fi
 
-# Mainnet holds two days of state and history on SSD; the testnet, with
-# less traffic but a larger state, a little less on balanced disk.
-for server in mainnet:e2-standard-8:250GB:pd-ssd testnet:e2-standard-4:150GB:pd-balanced; do
+# Both on SSD: xrpld writes small blocks, thousands a second while it
+# syncs, and a balanced disk's IOPS cap held the testnet's first sync back
+# for hours. The testnet has less traffic but a larger state than mainnet.
+for server in mainnet:e2-standard-8:250GB:pd-ssd testnet:e2-standard-4:150GB:pd-ssd; do
   IFS=: read -r name machine_type disk_size disk_type <<EOF
 $server
 EOF
