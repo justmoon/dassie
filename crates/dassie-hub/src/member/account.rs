@@ -27,9 +27,10 @@
 //!   them; holds others open toward it in a small pool of their own.
 //! - **When its history is gone.** Validators keep a bounded history; one
 //!   that no longer keeps what touched the account since its cursor says so
-//!   (`Trimmed`). Once f + 1 agree, the account reads its state and every
-//!   hold it pays into or takes from anew, as of one block f + 1 agree on,
-//!   and reads in order from there ([`News::Resynced`]).
+//!   (`Trimmed`). Once f + 1 agree, or once one says so and its cursor
+//!   has not moved for a while (`STUCK_MS`), the account reads its state
+//!   and every hold it pays into or takes from anew, as of one block f + 1
+//!   agree on, and reads in order from there ([`News::Resynced`]).
 //! - **What it submits:** the member's operations, one at a time, to every
 //!   validator, again until one executes; signed with the account's next
 //!   sequence once sent, and again with the right one after a refusal for
@@ -128,6 +129,16 @@ pub const POLL_MS: u64 = 100;
 pub const IDLE_POLL_MS: u64 = 1_000;
 /// How long an operation sent waits before it is sent again.
 pub const RESUBMIT_MS: u64 = 1_000;
+/// How long the account waits for its cursor to move, once a validator
+/// said it no longer keeps the history since the cursor, before it reads
+/// its state anew: three of its slowest rounds of asking every validator
+/// (`IDLE_POLL_MS`), each of which would have moved the cursor had a
+/// quorum still kept that history. A quorum may not: with f validators
+/// silent and one honest one restarted past the cursor, too few cover it,
+/// and too few say `Trimmed` for f + 1 to agree. Reading anew takes only
+/// what f + 1 sign alike, so it is safe whatever starts it, and costs a
+/// `Holds` answer.
+pub const STUCK_MS: u64 = 3 * IDLE_POLL_MS;
 /// How often it asks for its own state, against which the scheme checks
 /// its books.
 pub const ACCOUNT_EVERY_MS: u64 = 2_000;
@@ -295,6 +306,9 @@ pub struct HubAccount {
     /// The validators no longer keep what touched the account since its
     /// cursor: it reads its state anew.
     resync: bool,
+    /// Since when a validator has said it no longer keeps what touched the
+    /// account since its cursor, the cursor not having moved since.
+    trimmed_since: Option<u64>,
     /// The holds read anew, waiting for the account as of the same block.
     resync_holds: Option<(u64, Millis, HoldList)>,
     /// The pages of the holds read anew agreed so far, as of one block, and
@@ -379,6 +393,7 @@ impl HubAccount {
             unfunded: false,
             heard: false,
             resync: false,
+            trimmed_since: None,
             resync_holds: None,
             hold_pages: None,
             recent_views: BTreeMap::new(),
@@ -723,6 +738,26 @@ impl HubAccount {
         self.next_poll_ms = self.now_ms.saturating_add(every);
     }
 
+    /// When the account reads its state anew for want of its cursor
+    /// moving since a validator said it no longer keeps the history since.
+    fn stuck_at(&self) -> Option<u64> {
+        if self.resync || self.number.is_none() {
+            return None;
+        }
+        self.trimmed_since
+            .map(|since| since.saturating_add(STUCK_MS))
+    }
+
+    /// One validator no longer keeps the history since the cursor, and the
+    /// others have not moved it for `STUCK_MS` since: too few may keep it,
+    /// so the account reads its state anew, asking at once.
+    fn check_stuck(&mut self) {
+        if self.stuck_at().is_some_and(|at| self.now_ms >= at) {
+            self.resync = true;
+            self.next_poll_ms = self.now_ms;
+        }
+    }
+
     /// Sends the next operation, or the one on its way again.
     fn pump(&mut self) {
         if self.stopped || self.failed.is_some() || !self.is_synced() {
@@ -813,6 +848,12 @@ impl HubAccount {
                 && signed.validator.get() == endpoint
             {
                 self.covers(endpoint, height);
+            }
+            if let Statement::Trimmed { below, .. } = signed.statement
+                && below > self.cursor.saturating_add(1)
+                && self.trimmed_since.is_none()
+            {
+                self.trimmed_since = Some(self.now_ms);
             }
             if let Some(agreed) = self.agreement.add(signed) {
                 self.agreed(agreed);
@@ -1028,6 +1069,7 @@ impl HubAccount {
             self.read(height, executed);
         }
         self.cursor = covered;
+        self.trimmed_since = None;
         self.agreement.forget_below(covered.saturating_add(1));
         self.tell_final();
         self.tell_view();
@@ -1294,6 +1336,7 @@ impl HubAccount {
         self.stale_sequence = None;
         self.view = Some((height, view));
         self.cursor = height;
+        self.trimmed_since = None;
         self.last_touch = height;
         self.buffer = self.buffer.split_off(&(height.saturating_add(1), 0));
         self.agreement.forget_below(height.saturating_add(1));
@@ -1404,10 +1447,15 @@ impl ExternalAsset for HubAccount {
             .find_map(|q| q.sent.as_ref())
             .filter(|_| self.is_synced())
             .map(|(_, sent)| sent.saturating_add(RESUBMIT_MS));
-        [Some(self.next_poll_ms), resend, self.wake_ms]
-            .into_iter()
-            .flatten()
-            .min()
+        [
+            Some(self.next_poll_ms),
+            resend,
+            self.wake_ms,
+            self.stuck_at(),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     fn on_timer(&mut self, now_ms: u64) {
@@ -1418,6 +1466,7 @@ impl ExternalAsset for HubAccount {
         if self.wake_ms.is_some_and(|at| at <= self.now_ms) {
             self.wake_ms = None;
         }
+        self.check_stuck();
         if self.now_ms >= self.next_poll_ms {
             self.poll();
         }
