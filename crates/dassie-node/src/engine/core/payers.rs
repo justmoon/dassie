@@ -48,6 +48,15 @@ const _: () = assert!(OUTGOING_DEADLINE_MS <= crate::store::FINISHED_RETENTION_M
 const MAX_RECONNECTS: u32 = 8;
 /// The wait before the first new connection; it doubles each time.
 const RECONNECT_MIN_MS: u64 = 1_000;
+/// The longest wait before a new connection after one whose money stopped,
+/// its packets failing again and again. Those connections are not counted
+/// against [`MAX_RECONNECTS`]: a payment tries again until its deadline,
+/// which bounds them, so a path or rate that comes back in time still
+/// carries it (spec/areas/payments.md#outgoing-payments). The wait doubles
+/// from [`RECONNECT_MIN_MS`] up to this, so a payment notices a recovery
+/// within about a minute, at no more than the STREAM bound's packets per
+/// connection.
+const STOPPED_WAIT_MAX_MS: u64 = 60_000;
 /// Most packets to the node's own receiver waiting, and handled per step.
 const MAX_LOCAL_QUEUE: usize = 1_024;
 const LOCAL_PER_STEP: usize = 256;
@@ -120,10 +129,38 @@ pub(super) struct Unfinished {
     /// the room it reports, says it is full
     /// (spec/decisions/close-rather-than-lower.md).
     receiver_full: bool,
-    /// How often it opened a new connection.
+    /// How often it opened a new connection after one closed early.
     reconnects: u32,
+    /// Whether its connection stopped sending money, its packets failing
+    /// again and again, rather than closed: `closed` says why.
+    money_stopped: bool,
+    /// How often that happened.
+    stops: u32,
+    /// Why it happened the last time.
+    last_stop: Option<String>,
     /// When it may start sending, while it waits to.
     start_at_ms: u64,
+}
+
+impl Unfinished {
+    /// How long to wait before a new connection, after the last one closed
+    /// or stopped its money for `reason`, or nothing if it may not have
+    /// one. After a close, a bounded number of times; after a stop, until
+    /// the deadline, which bounds them, with the wait capped.
+    fn reconnect_wait(&mut self, reason: &str) -> Option<u64> {
+        if core::mem::take(&mut self.money_stopped) {
+            let wait = (RECONNECT_MIN_MS << self.stops.min(16)).min(STOPPED_WAIT_MAX_MS);
+            self.stops = self.stops.saturating_add(1);
+            self.last_stop = Some(reason.into());
+            return Some(wait);
+        }
+        if self.reconnects >= MAX_RECONNECTS {
+            return None;
+        }
+        let wait = RECONNECT_MIN_MS << self.reconnects.min(16);
+        self.reconnects += 1;
+        Some(wait)
+    }
 }
 
 /// What an outgoing payment is to be.
@@ -238,6 +275,9 @@ impl Core {
                     closed: None,
                     receiver_full: false,
                     reconnects: 0,
+                    money_stopped: false,
+                    stops: 0,
+                    last_stop: None,
                     start_at_ms: self.now_ms,
                 },
             );
@@ -307,6 +347,9 @@ impl Core {
                 closed: None,
                 receiver_full: false,
                 reconnects: 0,
+                money_stopped: false,
+                stops: 0,
+                last_stop: None,
                 start_at_ms: now,
             },
         );
@@ -766,7 +809,10 @@ impl Core {
                 .insert(id, progress(&payment.row));
         }
         if now >= payment.row.deadline_ms && payment.stopping.is_none() {
-            payment.stopping = Some("the payment ran out of time".into());
+            payment.stopping = Some(match &payment.last_stop {
+                Some(why) => format!("the payment ran out of time: {why}"),
+                None => "the payment ran out of time".into(),
+            });
         }
         let full = payment.receiver_full || stream.is_some_and(|stream| stream.remote_room() == 0);
         let done = done(&payment.row, sent, delivered, full, cap_reached);
@@ -783,14 +829,12 @@ impl Core {
         } else if let Some(reason) = payment.stopping.clone() {
             self.finish_outgoing(id, now, Some(reason));
         } else if let Some(reason) = payment.closed.take() {
-            if payment.reconnects >= MAX_RECONNECTS {
+            // Again, for what is left, on a new connection, a while later.
+            let Some(wait) = payment.reconnect_wait(&reason) else {
                 payment.stopping = Some(reason.clone());
                 self.finish_outgoing(id, now, Some(reason));
                 return;
-            }
-            // Again, for what is left, on a new connection, a while later.
-            let wait = RECONNECT_MIN_MS << payment.reconnects.min(16);
-            payment.reconnects += 1;
+            };
             payment.connection = None;
             payment.stream = None;
             payment.base_sent = sent;
@@ -987,22 +1031,25 @@ impl Core {
 /// early or asked for no amount; a new connection would be closed too.
 /// The payment can only go by what the receiver says. A connection whose
 /// money stopped, its packets failing again and again, is reopened as one
-/// that closed: the payment keeps its rate, the one its quote measured,
-/// and a while later the paths may deliver at it again
+/// that closed, until the deadline: the payment keeps its rate, the one its
+/// quote measured, and a while later the paths may deliver at it again
 /// (spec/areas/stream.md#responses).
 fn closed_early(payment: &mut Unfinished) {
     let Some(connection) = payment.connection.as_mut() else {
         return;
     };
     while let Some(event) = connection.poll_event() {
+        // The connection cannot tell a receiver's refusal without a reply
+        // from a node's on the path, so the reason names neither.
         if let Event::MoneyStopped { too_low } = event
             && payment.stopping.is_none()
             && payment.closed.is_none()
         {
+            payment.money_stopped = true;
             payment.closed = Some(if too_low.is_some() {
-                "the payment's packets kept arriving short of its rate".into()
+                "the payment's packets kept failing, some arriving short of its rate".into()
             } else {
-                "nodes on the path kept failing the payment's packets".into()
+                "the payment's packets kept failing, at the receiver or on the path".into()
             });
             continue;
         }

@@ -265,9 +265,13 @@ impl Connection {
         }
         self.increase_concurrency();
         self.retry_delay_ms = self.policy.retry_delay_start_ms;
-        // Progress: a path delivered to the receiver.
-        self.failures_without_progress = 0;
-        self.failures_too_low = None;
+        // Progress: a path delivered money at the rate. A packet without
+        // money says nothing of that, or data flowing would keep a sender
+        // retrying money that no path delivers.
+        if slot.source_amount > 0 {
+            self.failures_without_progress = 0;
+            self.failures_too_low = None;
+        }
     }
 
     fn acknowledge_closes(&mut self, slot: &Slot) {

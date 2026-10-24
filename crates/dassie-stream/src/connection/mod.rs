@@ -48,9 +48,10 @@ const DEFAULT_REMOTE_MAX_STREAM_ID: u64 = 20;
 /// Most probes a rate measurement has outstanding.
 const MAX_PROBES: usize = 8;
 
-/// Most packets in a row that fail with no Fulfill in between, refused by
-/// the receiver for a rate below the minimum or failed by a node on the
-/// path, before money stops until the application sets a rate again
+/// Most packets in a row that fail with no Fulfill of a packet with money
+/// in between, refused by the receiver for a rate below the minimum or
+/// failed by a node on the path, before money stops until the application
+/// sets a rate again
 /// (spec/areas/stream.md#responses). Until then each one's money goes
 /// again in a later packet, which may take another path; this bounds how
 /// often a connection retries when no path delivers.
@@ -280,7 +281,8 @@ pub struct Connection {
     /// Whether a reply showed what a packet with money delivered: until
     /// then a stream with a delivery cap offers at most half of it.
     rate_seen: bool,
-    /// Packets failed in a row with no Fulfill in between: refused by the
+    /// Packets failed in a row with no Fulfill of a packet with money in
+    /// between: refused by the
     /// receiver for a rate below the minimum, or failed by a node on the
     /// path. Never more than [`MAX_FAILURES_WITHOUT_PROGRESS`].
     failures_without_progress: u32,

@@ -243,6 +243,31 @@ fn failures_without_progress_stop_money_until_a_rate_is_set() {
 }
 
 #[test]
+fn a_fulfill_without_money_does_not_end_a_run() {
+    // Data alone shows nothing of the rate: if its Fulfills ended a run, a
+    // connection that sends data would retry money that no path delivers
+    // for as long as the data flows.
+    let mut pair = Pair::new();
+    pair.client.set_send_max(pair.stream, 0).unwrap();
+    pair.client.write(pair.stream, b"hello").unwrap();
+    for _ in 1..MAX_FAILURES_WITHOUT_PROGRESS {
+        pair.fail_on_the_path(IlpErrorCode::F02_UNREACHABLE);
+    }
+    let (request_id, prepare) = pair.send(NOW).unwrap();
+    assert_eq!(Prepare::decode_exact(&prepare).unwrap().amount, 0);
+    let answer = pair.deliver(&prepare, 1000);
+    assert!(matches!(
+        Response::decode_exact(&answer),
+        Ok(Response::Fulfill(_))
+    ));
+    pair.answer(NOW, request_id, &answer);
+    pair.client.write(pair.stream, b"again").unwrap();
+    pair.fail_on_the_path(IlpErrorCode::F02_UNREACHABLE);
+    assert!(pair.client.money_stopped());
+    assert_eq!(stopped(&pair.events()), Some(None));
+}
+
+#[test]
 fn nodes_on_the_path_alone_stop_money_without_a_rate() {
     let mut pair = Pair::new();
     for _ in 0..MAX_FAILURES_WITHOUT_PROGRESS {
