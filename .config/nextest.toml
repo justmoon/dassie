@@ -1,0 +1,17 @@
+# cargo-nextest, which runs the workspace's tests in the Nix check
+# (flake.nix): every test in its own process, all of them at once, so that
+# the check takes as long as its build and its slowest test rather than the
+# sum of its test binaries. A local `cargo test` runs the same tests.
+
+# The Nix check's profile (NEXTEST_PROFILE in flake.nix).
+[profile.ci]
+# Every test runs, so that one run reports every failure.
+fail-fast = false
+# No retries: a test that passes only sometimes fails CI rather than hide.
+retries = 0
+# The slowest test takes about a minute. One still running after a minute is
+# named, and after five is stopped and fails, so that a hang fails the check
+# rather than run until CI's timeout.
+slow-timeout = { period = "60s", terminate-after = 5 }
+# A failure's output at once, and again at the end beside the others.
+failure-output = "immediate-final"
