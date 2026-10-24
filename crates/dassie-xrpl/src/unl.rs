@@ -896,8 +896,11 @@ fn fresh(signing_time: u32, now_ms: u64) -> bool {
 /// What is kept with the account's state, and the invariants.
 impl Unl {
     /// What it keeps: each publisher's newest manifest, highest sequence
-    /// seen, and current and pending lists as they came; and the validator
-    /// manifests newer than any kept list carries.
+    /// seen, and current and pending lists as they came; and each listed
+    /// master's newest manifest, also one a list carries, since the lists
+    /// that carry it may not come back at a restart while another that
+    /// carries an older one does, which would hand the master's signing
+    /// back to a key it rotated away from.
     #[must_use]
     pub fn state(&self) -> Value {
         let publishers: Vec<Value> = (self.config.publishers.iter())
@@ -912,15 +915,7 @@ impl Unl {
                 })
             })
             .collect();
-        let carried = |manifest: &Manifest| {
-            (self.publishers.iter())
-                .flat_map(PublisherState::kept)
-                .any(|kept| {
-                    kept.list.validators.get(&manifest.master_key) == Some(&Some(manifest.clone()))
-                })
-        };
         let manifests: Vec<Value> = (self.manifests.values())
-            .filter(|manifest| !carried(manifest))
             .map(|manifest| hex_upper(&manifest.to_bytes()).into())
             .collect();
         json!({ "publishers": publishers, "manifests": manifests })
@@ -1779,7 +1774,11 @@ mod tests {
     fn the_kept_state_round_trips() {
         let (unl, _, validators) = kept_state();
         let state = unl.state();
-        assert_eq!(state["manifests"].as_array().unwrap().len(), 1);
+        // Every listed master's newest manifest.
+        assert_eq!(
+            state["manifests"].as_array().unwrap().len(),
+            validators.len()
+        );
         let restored = Unl::restore(unl.config.clone(), &state, NOW_MS).unwrap();
         restored.check_invariants();
         assert_eq!(restored, unl);
@@ -1807,6 +1806,41 @@ mod tests {
         other.check_invariants();
         assert_eq!(other.lists(0).0.unwrap().sequence, 3);
         assert_eq!(other.unl(NOW_MS).unwrap().len(), validators.len());
+    }
+
+    // A master's newer manifest one list carries outlives that list at a
+    // restart, while another list still names the master with an older
+    // one: its signing never goes back to the key it rotated away from.
+    #[test]
+    fn a_restart_never_takes_a_master_back_to_an_older_key() {
+        let publishers = [publisher(1), publisher(2)];
+        let validators = validators(10..15);
+        let mut unl = unl(&[&publishers[0], &publishers[1]], 4);
+        let rotated = Secp256k1Key::from_secret(&[60; 32]).unwrap();
+        let first = &validators[0];
+        let newer = Manifest::sign(2, &first.master, Some(&rotated as &dyn Key), None);
+        let mut carrying = list(1, &validators);
+        carrying.expiration = NOW_S + 60;
+        carrying.validators.insert(first.key(), Some(newer));
+        unl.take_list(&publishers[0].body(&[carrying]), NOW_MS)
+            .unwrap();
+        unl.take_list(&publishers[1].body(&[list(1, &validators)]), NOW_MS)
+            .unwrap();
+        assert_eq!(unl.signing_key(&first.key()), Some(rotated.public_key()));
+        let state = unl.state();
+        // The list that carried it has expired by the restart.
+        let later = NOW_MS + 120_000;
+        unl.tick(later);
+        unl.check_invariants();
+        assert_eq!(unl.lists(0), (None, None));
+        let restored = Unl::restore(unl.config.clone(), &state, later).unwrap();
+        restored.check_invariants();
+        assert_eq!(restored, unl);
+        assert_eq!(
+            restored.signing_key(&first.key()),
+            Some(rotated.public_key())
+        );
+        assert_eq!(restored.master_of(&first.signing.public_key()), None);
     }
 
     #[test]

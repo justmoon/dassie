@@ -17,10 +17,13 @@ use std::collections::BTreeSet;
 use dassie_xrpl::header::LedgerHeader;
 use dassie_xrpl::keys::PublicKey;
 use dassie_xrpl::unl::{
-    AnchorError, FRESH_FOR_MS, RIPPLE_EPOCH_UNIX_S, Secp256k1Signatures, Taken, Unl, quorum,
+    AnchorError, FRESH_FOR_MS, RIPPLE_EPOCH_UNIX_S, Secp256k1Signatures, Taken, Unl,
+    ValidationSignatures, quorum,
 };
+use dassie_xrpl::validation::Validation;
 use dassie_xrpl::validator_list::{
-    MAINNET_FLOOR, Message, RIPPLE, TESTNET, TESTNET_FLOOR, UnlConfig, XRPLF,
+    ListError, MAINNET_FLOOR, Message, RIPPLE, RIPPLE_SITE, TESTNET, TESTNET_FLOOR, UnlConfig,
+    XRPLF,
 };
 use dassie_xrpl::{from_hex, hex_upper};
 use proptest::prelude::*;
@@ -116,6 +119,16 @@ fn with_lists(config: UnlConfig, network: &str, now_ms: u64) -> Unl {
     unl
 }
 
+/// Mainnet's built-in config with Ripple's publisher alone, as an owner
+/// may set it.
+fn ripple_only() -> UnlConfig {
+    UnlConfig::mainnet()
+        .with_override(&json!({
+            "publishers": [{"key": hex_upper(RIPPLE.as_bytes()), "sites": [RIPPLE_SITE]}],
+        }))
+        .unwrap()
+}
+
 /// The live manifests of `network`'s validators, from the `manifest`
 /// method.
 fn live_manifests(network: &str) -> Vec<Vec<u8>> {
@@ -195,10 +208,21 @@ fn the_real_lists_are_kept_and_verify_again() {
     restored.check_invariants();
     assert_eq!(restored, unl);
     assert_eq!(restored.state(), state);
-    // The manifests kept apart from the lists: those newer than both
-    // lists carry.
-    let kept = state["manifests"].as_array().unwrap().len();
-    assert!((4..35).contains(&kept), "{kept}");
+    // Every validator's newest manifest is kept, also one the lists carry.
+    assert_eq!(state["manifests"].as_array().unwrap().len(), 35);
+    // Kept under Ripple's list alone, which lags behind for five of them,
+    // the newer manifests come back all the same.
+    let ripple_only = ripple_only();
+    let alone = Unl::restore(ripple_only.clone(), &state, now_ms).unwrap();
+    alone.check_invariants();
+    let fresh = with_lists(ripple_only, "mainnet", now_ms);
+    let rotated = (alone.unl(now_ms).unwrap().iter())
+        .filter(|master| alone.signing_key(master) != fresh.signing_key(master))
+        .count();
+    assert_eq!(rotated, 5);
+    for master in alone.unl(now_ms).unwrap() {
+        assert_eq!(alone.signing_key(&master), unl.signing_key(&master));
+    }
 }
 
 // spec/designs/xrpl-validation.md#5-the-unl-from-its-publishers: five of
@@ -219,12 +243,7 @@ fn the_captured_mainnet_validations_reach_quorum() {
             &Secp256k1Signatures,
         )
     };
-    let ripple_only = UnlConfig::mainnet()
-        .with_override(&json!({
-            "publishers": [{"key": hex_upper(RIPPLE.as_bytes()), "sites": ["https://vl.ripple.com"]}],
-        }))
-        .unwrap();
-    let alone = with_lists(ripple_only, "mainnet", now_ms);
+    let alone = with_lists(ripple_only(), "mainnet", now_ms);
     let tally = anchor(&alone).unwrap().tally;
     assert_eq!((tally.counted, tally.quorum), (30, 28));
     assert_eq!(tally.missing.len(), 5);
@@ -301,6 +320,92 @@ fn the_captured_testnet_validations_reach_quorum() {
         unl.take_manifest(&manifest).unwrap();
     }
     assert_eq!(anchor(&unl).unwrap().tally.counted, 6);
+}
+
+/// Counts the signatures it checks.
+#[derive(Default)]
+struct Counting(std::cell::Cell<usize>);
+
+impl ValidationSignatures for Counting {
+    fn signed(&self, validation: &Validation) -> bool {
+        self.0.set(self.0.get() + 1);
+        Secp256k1Signatures.signed(validation)
+    }
+}
+
+// What a lying server or list site can make of the real data: a list
+// under another publisher's name, the real validations under a header of
+// its own, and a validation of the ledger forged in the name of a
+// validator of the UNL, which then only withholds that validator.
+#[test]
+fn lies_from_real_data_count_for_nothing() {
+    let (header, validations, ledger) = ledger("mainnet");
+    let now_ms = soon_after(&ledger);
+    // Ripple's list as XRPLF's: XRPLF's manifest, Ripple's blob.
+    let mut swapped = Message::parse(&bodies("mainnet")[1]).unwrap();
+    let ripple = Message::parse(&bodies("mainnet")[0]).unwrap();
+    swapped.blobs = ripple.blobs.clone();
+    let mut unl = Unl::new(UnlConfig::mainnet());
+    assert_eq!(
+        unl.take_list(&swapped.to_json(), now_ms),
+        Err(ListError::BadSignature)
+    );
+    // And under Ripple's key, with XRPLF's manifest.
+    let mut renamed = Message::parse(&bodies("mainnet")[1]).unwrap();
+    renamed.publisher = RIPPLE;
+    assert_eq!(
+        unl.take_list(&renamed.to_json(), now_ms),
+        Err(ListError::BadManifest)
+    );
+    unl.check_invariants();
+    assert_eq!((unl.lists(0), unl.lists(1)), ((None, None), (None, None)));
+
+    let mut unl = with_lists(UnlConfig::mainnet(), "mainnet", now_ms);
+    for manifest in live_manifests("mainnet") {
+        unl.take_manifest(&manifest).unwrap();
+    }
+    // The real validations under another header: no quorum, and not one
+    // signature checked.
+    let mut made_up = header;
+    made_up.account_hash[0] ^= 1;
+    let checks = Counting::default();
+    let anchored = unl.anchor(
+        &made_up,
+        validations.iter().map(Vec::as_slice),
+        now_ms,
+        None,
+        &checks,
+    );
+    let Err(AnchorError::NoQuorum(tally)) = anchored else {
+        panic!("{anchored:?}");
+    };
+    assert_eq!((tally.counted, checks.0.get()), (0, 0));
+    // Each validation of the UNL's validators changed in its signature,
+    // and sent before the real one: those validators are withheld, at one
+    // signature check each.
+    let unl_validations: Vec<Vec<u8>> = (validations.iter())
+        .filter(|bytes| {
+            let validation = Validation::from_bytes(bytes).unwrap();
+            unl.master_of(&validation.signing_key).is_some()
+        })
+        .cloned()
+        .collect();
+    assert_eq!(unl_validations.len(), 35);
+    let forged: Vec<Vec<u8>> = (unl_validations.iter().take(8))
+        .map(|bytes| {
+            let mut validation = Validation::from_bytes(bytes).unwrap();
+            validation.signing_time += 1;
+            validation.to_bytes()
+        })
+        .collect();
+    let checks = Counting::default();
+    let sent = forged.iter().chain(&validations).map(Vec::as_slice);
+    let anchored = unl.anchor(&header, sent, now_ms, None, &checks);
+    let Err(AnchorError::NoQuorum(tally)) = anchored else {
+        panic!("{anchored:?}");
+    };
+    assert_eq!((tally.counted, tally.refused, tally.quorum), (27, 8, 28));
+    assert_eq!(checks.0.get(), 35);
 }
 
 /// A byte of a list body changed, or the body cut short.
