@@ -295,6 +295,9 @@ pub enum RegisterError {
     /// As many registrations are under way as a registrar logs from one
     /// node.
     TooMany,
+    /// This node holds as many names, with its registrations under way, as
+    /// a registrar grants one node.
+    Names,
     /// The registrations are full, and none has finished.
     Full,
 }
@@ -451,8 +454,9 @@ impl Registrant {
     /// # Errors
     ///
     /// The name is reserved, there are no registrars, the name is held or
-    /// taken, a registration of it or too many are under way, or the
-    /// registrations are full.
+    /// taken, a registration of it or too many are under way, the node
+    /// holds as many names as a registrar grants it, or the registrations
+    /// are full.
     pub fn register(
         &mut self,
         name: Name,
@@ -485,12 +489,9 @@ impl Registrant {
         if listed {
             return Err(RegisterError::Taken);
         }
-        if let Some(entry) = self.entries.get(&name) {
-            if self.is_under_way(&entry.registration, now_ms) {
-                return Err(RegisterError::UnderWay);
-            }
-        } else {
-            self.make_room(now_ms)?;
+        let again = self.entries.get(&name);
+        if again.is_some_and(|entry| self.is_under_way(&entry.registration, now_ms)) {
+            return Err(RegisterError::UnderWay);
         }
         let under_way = self
             .entries
@@ -499,6 +500,15 @@ impl Registrant {
             .count();
         if under_way >= self.config.max_under_way {
             return Err(RegisterError::TooMany);
+        }
+        // A registrar refuses a commitment from a node whose commitments
+        // with the names it holds reach its cap.
+        if self.owned.len().saturating_add(under_way) >= self.config.max_names {
+            return Err(RegisterError::Names);
+        }
+        // Only once the registration starts does a finished one give way.
+        if again.is_none() {
+            self.make_room(now_ms)?;
         }
         let registration = NameRegistration {
             name,
@@ -1461,6 +1471,62 @@ mod tests {
         assert_eq!(
             (restarted.salt, restarted.stage),
             (again, Stage::Committing)
+        );
+    }
+
+    // A registration refused, as too many are under way, leaves the
+    // finished ones where they are.
+    #[test]
+    fn a_refused_registration_drops_nothing() {
+        let (mut registrant, view) = (registrant(1), view(1));
+        let salt = Salt([7; 32]);
+        let mut now = START;
+        let finished = MAX_REGISTRATIONS - CONFIG.max_under_way;
+        for index in 0..finished {
+            let text = alloc::format!("name{index}");
+            registrant.register(name(&text), salt, &view, now).unwrap();
+            now = CONFIG.unseal_by_ms(now);
+            requests(&mut registrant, &view, now);
+        }
+        for text in ["alice", "bob"] {
+            registrant.register(name(text), salt, &view, now).unwrap();
+        }
+        registrant.take_changes(&mut PeerBatch::default());
+        assert_eq!(
+            registrant.register(name("late"), salt, &view, now),
+            Err(RegisterError::TooMany)
+        );
+        assert_eq!(registrant.registrations().count(), MAX_REGISTRATIONS);
+        let mut batch = PeerBatch::default();
+        registrant.take_changes(&mut batch);
+        assert!(batch.registrations_removed.is_empty());
+        assert!(batch.registrations.is_empty());
+    }
+
+    // A node that holds, with its registrations under way, as many names as
+    // a registrar grants it registers no more: every registrar would refuse
+    // the commitment.
+    #[test]
+    fn a_node_at_its_cap_registers_no_more() {
+        let (mut registrant, mut view) = (registrant(1), view(1));
+        let salt = Salt([7; 32]);
+        let mut list = NameListResponse::default();
+        for text in ["held-a", "held-b", "held-c"] {
+            let holding = NameHolding {
+                holder: node(9),
+                expires_at_ms: START + 1_000_000,
+            };
+            list.0.insert(name(text), holding);
+        }
+        assert!(view.take_list(&node(1), list, [1; 32], START));
+        view.recompute(START, &mut Vec::new());
+        requests(&mut registrant, &view, START);
+        registrant
+            .register(name("alice"), salt, &view, START)
+            .unwrap();
+        assert_eq!(
+            registrant.register(name("bob"), salt, &view, START),
+            Err(RegisterError::Names)
         );
     }
 

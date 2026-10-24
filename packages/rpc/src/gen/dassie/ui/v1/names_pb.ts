@@ -21,7 +21,8 @@ export const file_dassie_ui_v1_names: GenFile = /*@__PURE__*/
  * hyphens, as a DNS label, or is reserved. FAILED_PRECONDITION if the node
  * holds it, the registrars' lists show it taken, the node has no bootstrap
  * nodes, or a registration of it is under way. RESOURCE_EXHAUSTED while too
- * many registrations are under way.
+ * many registrations are under way, or while the names the node holds, with
+ * those under way, reach what a registrar grants one node.
  *
  * @generated from message dassie.ui.v1.RegisterNameRequest
  */

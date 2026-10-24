@@ -47,8 +47,8 @@ impl Core {
     /// # Errors
     ///
     /// The name is not one an owner may register, the node holds it or
-    /// another does, it has no registrars, or too many registrations are
-    /// under way.
+    /// another does, it has no registrars, too many registrations are
+    /// under way, or it holds as many names as a registrar grants it.
     pub fn register_name(&mut self, name: &str) -> Result<(), EngineError> {
         let name =
             Name::registrable(name).map_err(|error| EngineError::Invalid(error.to_string()))?;
@@ -91,6 +91,9 @@ fn register_error(error: RegisterError) -> EngineError {
         }
         RegisterError::TooMany => {
             EngineError::Exhausted("too many registrations are under way".into())
+        }
+        RegisterError::Names => {
+            EngineError::Exhausted("the node holds as many names as a registrar grants it".into())
         }
         RegisterError::Full => {
             EngineError::Exhausted("too many registrations, none of them finished".into())

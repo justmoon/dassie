@@ -63,10 +63,13 @@ export function renewable(state: NameState): boolean {
   return state === NameState.HELD || state === NameState.LAPSING;
 }
 
-/** Whether the owner can register a name in this state again. */
+/**
+ * Whether the owner can register a name in this state again: not while it
+ * is split, as the lists that name a holder make the node refuse it until
+ * the registrars release it, when it is not held.
+ */
 export function registrable(state: NameState): boolean {
-  return state === NameState.NOT_HELD || state === NameState.ABANDONED ||
-    state === NameState.SPLIT;
+  return state === NameState.NOT_HELD || state === NameState.ABANDONED;
 }
 
 /** A refusal's status, in words. */

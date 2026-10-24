@@ -29,6 +29,8 @@ test("only names the node holds are renewed, and only finished ones registered a
   assertEquals(renewable(NameState.WAITING), false);
   assertEquals(registrable(NameState.ABANDONED), true);
   assertEquals(registrable(NameState.NOT_HELD), true);
+  // The node refuses a split name until the registrars release it.
+  assertEquals(registrable(NameState.SPLIT), false);
   assertEquals(registrable(NameState.COMMITTING), false);
   assertEquals(registrable(NameState.HELD), false);
 });

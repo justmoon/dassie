@@ -408,8 +408,8 @@ impl PeerNode {
     /// # Errors
     ///
     /// The name is reserved, held or taken, there are no registrars, a
-    /// registration of it or too many are under way, or the registrations
-    /// are full.
+    /// registration of it or too many are under way, the node holds as many
+    /// names as a registrar grants it, or the registrations are full.
     pub fn register_name(&mut self, now_ms: u64, name: Name) -> Result<(), RegisterError> {
         self.advance(now_ms);
         let mut salt = Salt([0; crate::names::SALT_BYTES]);
