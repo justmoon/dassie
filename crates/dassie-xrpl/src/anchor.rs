@@ -2,6 +2,11 @@
 //! on the chain of the one kept
 //! (spec/designs/xrpl-validation.md#7-resets-under-a-unl), sans-IO.
 //!
+//! - **A transaction proof** proves a transaction and its metadata, by its
+//!   branch to the transaction root of its ledger's header, and **a
+//!   ledger** is a proven one's when it is the anchor, or a skip list
+//!   proven from the anchor holds its hash: any ledger kept is at most two
+//!   lists from the anchor.
 //! - **A state proof** proves a ledger's header and, for each key asked,
 //!   the object its state holds under it or that it holds none, by the
 //!   key's branch to the header's state root. The header is a proven
@@ -24,11 +29,13 @@ use alloc::vec::Vec;
 
 use serde_json::{Value, json};
 
-use crate::api::{MAX_PROOF_KEYS, StateProof};
+use crate::api::{MAX_PROOF_KEYS, StateProof, TxProof};
 use crate::header::LedgerHeader;
+use crate::records::{self, Decoded};
 use crate::shamap::{BranchError, Leaf, Tree, verify};
 use crate::skip_list::{
-    FLAG_INTERVAL, SKIP_HASHES, SkipList, flag_above, flag_at_or_below, flag_key, recent_key,
+    FLAG_INTERVAL, SKIP_HASHES, SkipList, flag_above, flag_at_or_below, flag_key, is_flag,
+    recent_key,
 };
 use crate::unl::Anchor;
 use crate::{from_hex, hex_upper};
@@ -45,6 +52,9 @@ pub enum ProofError {
     Keys,
     /// A branch does not hold.
     Branch(BranchError),
+    /// A transaction of another hash than asked for, or with bytes or
+    /// metadata that do not read.
+    Transaction,
 }
 
 /// What a state proof proved: a ledger's header and hash, and each key's
@@ -106,6 +116,133 @@ pub fn prove_state(
         hash,
         objects,
     })
+}
+
+/// What a transaction proof proved: the transaction with its metadata, a
+/// leaf of the transaction tree of the ledger of its header. The ledger is
+/// a proven one's only once its hash is ([`ledger_proof`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProvenTx {
+    /// The ledger's header.
+    pub header: LedgerHeader,
+    /// Its hash.
+    pub ledger_hash: [u8; 32],
+    /// What the transaction and its metadata say, of the objects asked.
+    pub decoded: Decoded,
+}
+
+/// What `answer` proves of the transaction `hash`: its bytes, which hash to
+/// it, with their metadata, a leaf whose branch leads to the transaction
+/// root of the header the answer gives; read as a record of that ledger,
+/// with the threads of the objects of `keys`.
+///
+/// # Errors
+///
+/// Why it proves nothing.
+pub fn prove_transaction(
+    answer: &TxProof,
+    hash: &[u8; 32],
+    keys: &[[u8; 32]],
+) -> Result<ProvenTx, ProofError> {
+    let header = LedgerHeader::from_bytes(&answer.header).map_err(|_| ProofError::Header)?;
+    if crate::codec::hash(&answer.tx) != *hash {
+        return Err(ProofError::Transaction);
+    }
+    let leaf = Leaf::Transaction {
+        transaction: &answer.tx,
+        metadata: &answer.meta,
+    };
+    verify(&header.transaction_hash, hash, leaf, &answer.path).map_err(ProofError::Branch)?;
+    let decoded = records::transaction(&answer.tx, &answer.meta, header.sequence, keys)
+        .map_err(|_| ProofError::Transaction)?;
+    assert_eq!(decoded.record.hash, *hash, "the hash of its own bytes");
+    Ok(ProvenTx {
+        ledger_hash: header.hash(),
+        header,
+        decoded,
+    })
+}
+
+/// Whether a ledger is a proven one's, against an anchor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LedgerProof {
+    /// It is: the anchor, or a ledger its skip lists hold.
+    Holds,
+    /// It is not: a list holds another hash for its index, or none.
+    Wrong,
+    /// After the anchor: only a later anchor can tell.
+    Later,
+    /// To tell, prove the object of `key` at the ledger of `at`.
+    Prove {
+        /// The ledger, by its hash: the anchor, or a flag ledger its list
+        /// proved.
+        at: [u8; 32],
+        /// The skip list's key.
+        key: [u8; 32],
+    },
+}
+
+/// Whether the ledger of `index` is the one of `hash` on the chain of
+/// `anchor`, from the skip lists in `lists`, or which to prove next: its
+/// list of recent ledgers within 256 ledgers, and past them its list of
+/// flag ledgers, which holds the flag ledger at or after the ledger, and
+/// that flag ledger's own list of recent ledgers. At most two beyond the
+/// anchor's own.
+#[must_use]
+pub fn ledger_proof(
+    anchor: &Anchor,
+    index: u32,
+    hash: &[u8; 32],
+    lists: &ProvenLists,
+) -> LedgerProof {
+    let holds = |found: Option<[u8; 32]>| {
+        if found == Some(*hash) {
+            LedgerProof::Holds
+        } else {
+            LedgerProof::Wrong
+        }
+    };
+    let list = |at: [u8; 32], key: [u8; 32]| match lists.get(&(at, key)) {
+        None => Err(LedgerProof::Prove { at, key }),
+        Some(None) => Err(LedgerProof::Wrong),
+        Some(Some(list)) => Ok(list),
+    };
+    if index == anchor.index {
+        return holds(Some(anchor.hash));
+    }
+    if index > anchor.index {
+        return LedgerProof::Later;
+    }
+    if u64::from(anchor.index - index) <= SKIP_HASHES as u64 {
+        return match list(anchor.hash, recent_key()) {
+            Ok(recent) => holds(recent.hash_of(index, 1)),
+            Err(next) => next,
+        };
+    }
+    // Past the recent list: the flag ledger at or after it, below the
+    // anchor, as the anchor is more than 256 ledgers on.
+    let flag = if is_flag(index) {
+        index
+    } else {
+        match flag_above(index) {
+            Some(flag) => flag,
+            None => return LedgerProof::Wrong,
+        }
+    };
+    let flag_hash = match list(anchor.hash, flag_key(flag)) {
+        Ok(flags) => match flags.hash_of(flag, FLAG_INTERVAL) {
+            Some(flag_hash) => flag_hash,
+            None => return LedgerProof::Wrong,
+        },
+        Err(next) => return next,
+    };
+    if flag == index {
+        return holds(Some(flag_hash));
+    }
+    match list(flag_hash, recent_key()) {
+        Ok(recent) => holds(recent.hash_of(index, 1)),
+        Err(next) => next,
+    }
 }
 
 /// An anchor kept: the ledger, and the newest flag ledger at or below it

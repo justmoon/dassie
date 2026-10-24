@@ -1,6 +1,6 @@
 # The node books only what ledgers its own UNL validated prove
 
-**Areas:** [Checking the XRP Ledger's validators](../designs/xrpl-validation.md), [XRPL](../areas/xrpl.md#following-the-account), [Settlement hubs](../designs/settlement-hubs.md#6-deposits-and-withdrawals). A design, of which only the first parts are built ([roadmap](../roadmap.md#checking-xrp-ledger-validators)); its proof servers are an open area of their own ([roadmap](../roadmap.md#proof-servers)).
+**Areas:** [Checking the XRP Ledger's validators](../designs/xrpl-validation.md), [XRPL](../areas/xrpl.md#following-the-account), [Settlement hubs](../designs/settlement-hubs.md#6-deposits-and-withdrawals). A design, built in the account but for what the [roadmap](../roadmap.md#checking-xrp-ledger-validators) lists; its proof servers are an open area of their own ([roadmap](../roadmap.md#proof-servers)).
 
 ## Facts
 

@@ -616,6 +616,7 @@ async fn a_funding_too_little_for_the_escrow_is_paid_once() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn a_cancelled_funding_is_paid_again() {
     use dassie_xrpl::api;
+    use dassie_xrpl::codec::{Amount, Payment, Signing, Transact};
 
     let net = Net::start(|_| {}).await;
     let address = ledgers(&net.sponsor)
@@ -625,10 +626,10 @@ async fn a_cancelled_funding_is_paid_again() {
         .unwrap()
         .deposit_address;
     let sponsor = dassie_xrpl::AccountId::parse(&address).unwrap();
-    // The account's sequence moves on behind the scheme's back, as a
-    // transaction of another wallet of the owner's would: the funding
-    // payment the scheme signs next can never apply, and once past its
-    // last ledger the scheme cancels it.
+    // A transaction of another wallet of the owner's takes the account's
+    // next sequence behind the scheme's back, in the ledger its funding
+    // payment would go into: that payment can never apply, which the
+    // history proves once it tells the other, and the scheme cancels it.
     let reply = net
         .xrpl
         .ledger()
@@ -641,7 +642,27 @@ async fn a_cancelled_funding_is_paid_again() {
         panic!("no account");
     };
     let sequence = api::account_info_result(&result).unwrap().sequence;
-    net.xrpl.ledger().set_sequence(sponsor, sequence + 5);
+    let entropy = NodeKey::from_bytes(&[70; 32])
+        .settlement_entropy("xrpl-testnet", "seed-testnet")
+        .unwrap();
+    let wallet = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes());
+    assert_eq!(wallet.account(), sponsor);
+    let other = Payment {
+        account: sponsor,
+        destination: dassie_xrpl::Wallet::from_entropy(&[9; 32]).account(),
+        destination_tag: None,
+        amount: Amount::Xrp(10 * dassie_xrpl::DROPS_PER_XRP),
+        send_max: None,
+        fee: dassie_xrpl::fake::FEE_BASE,
+        sequence,
+        last_ledger_sequence: None,
+        flags: 0,
+        network_id: None,
+        memos: Vec::new(),
+        signing: Signing::by(wallet.public_key()),
+    }
+    .sign(&wallet);
+    net.xrpl.ledger().request(77, &api::submit(6, &other.blob));
     let mut owner = net.sponsor.ipc().await;
     let found = owner
         .call(Method::FoundHub(proto::FoundHubRequest {

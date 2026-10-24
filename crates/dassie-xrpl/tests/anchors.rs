@@ -54,7 +54,7 @@ struct Harness {
 }
 
 /// The methods that prove, whose answers a server may tamper with.
-const PROOF_METHODS: [&str; 3] = ["state_proof", "validations", "manifest"];
+const PROOF_METHODS: [&str; 4] = ["state_proof", "tx_proof", "validations", "manifest"];
 
 /// What a dishonest server does to an answer of a proof method.
 #[derive(Clone, Copy, Debug)]
@@ -82,7 +82,15 @@ fn byte_strings(result: &mut Value) -> Vec<&mut String> {
     };
     for (key, value) in object.iter_mut() {
         match (key.as_str(), value) {
-            ("ledger_header" | "manifest", Value::String(text)) => out.push(text),
+            ("ledger_header" | "manifest" | "tx_blob" | "meta_blob", Value::String(text)) => {
+                out.push(text);
+            }
+            ("path", Value::Array(nodes)) => {
+                out.extend(nodes.iter_mut().filter_map(|n| match n {
+                    Value::String(text) => Some(text),
+                    _ => None,
+                }));
+            }
             ("validations", Value::Array(validations)) => {
                 out.extend(validations.iter_mut().filter_map(|v| match v {
                     Value::String(text) => Some(text),
@@ -135,7 +143,7 @@ impl Tamper {
                 }
             }
             Self::Drop => {
-                for key in ["entries", "validations"] {
+                for key in ["entries", "validations", "path"] {
                     if let Some(list) = reply["result"][key].as_array_mut() {
                         list.pop();
                     }
@@ -342,9 +350,10 @@ impl Harness {
 }
 
 // spec/designs/xrpl-validation.md#1-the-rule: the account fetches its
-// publisher's list, anchors on the server's validated ledger once a quorum
-// of its UNL signed it, and only then reads the account; each closed ledger
-// moves the anchor, and what it takes as validated with it.
+// publisher's list, and anchors on the server's validated ledger once a
+// quorum of its UNL signed it: the anchor's state proof proves the account
+// too, which it never reads on the server's word. Each closed ledger moves
+// the anchor, and what it takes as validated with it.
 #[test]
 fn an_account_anchors_on_a_ledger_its_unl_validated() {
     let mut harness = Harness::new(FakeLedger::new(), &[]);
@@ -352,13 +361,7 @@ fn an_account_anchors_on_a_ledger_its_unl_validated() {
     assert_eq!(harness.fetched, [LIST_SITE]);
     assert_eq!(
         harness.asked,
-        [
-            "server_state",
-            "subscribe",
-            "state_proof",
-            "validations",
-            "account_info"
-        ]
+        ["server_state", "subscribe", "state_proof", "validations"]
     );
     assert_eq!(harness.account.status(), LedgerStatus::Synced);
     assert_eq!(harness.anchored_at(), Some(harness.ledger.ledger()));

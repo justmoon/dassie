@@ -18,7 +18,9 @@
 //!   validator or a list publisher signs with; [`shamap`], a ledger's
 //!   trees of transactions and of state, and the branch that proves a
 //!   leaf in either, or a key's absence; [`skip_list`], the lists of
-//!   earlier ledgers' hashes that prove older ledgers from a newer one.
+//!   earlier ledgers' hashes that prove older ledgers from a newer one;
+//!   [`records`], the keys of the ledger objects the account follows, those
+//!   objects, and a transaction with its metadata as the schemes read it.
 //! - [`validator_list`]: the publishers' signed validator lists, and the
 //!   publishers each network trusts; [`unl`], the validators every
 //!   publisher lists with their current keys, and the quorum of them that
@@ -76,6 +78,7 @@ pub mod keys;
 pub mod manifest;
 pub mod network;
 pub mod peg;
+pub mod records;
 pub mod rlusd;
 pub mod scheme;
 pub mod shamap;

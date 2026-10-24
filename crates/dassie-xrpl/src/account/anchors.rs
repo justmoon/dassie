@@ -6,12 +6,16 @@
 //! ancestry.
 //!
 //! **A round** is a state proof at the server's validated ledger of its
-//! list of recent ledgers, that ledger's validations, newer manifests of
-//! the validators that did not count if they fall short, and, for a ledger
-//! more than 256 past the kept anchor, at most two more state proofs of
-//! skip lists. The account starts one when it connects, and on each hint
-//! that a ledger closed while none is in flight: so it anchors at the
-//! ledger's own pace, and the schemes hear of closed ledgers as before.
+//! list of recent ledgers and of everything the account follows (its root,
+//! the lines its schemes follow, their issuers' roots and the fee
+//! settings), that ledger's validations, newer
+//! manifests of the validators that did not count if they fall short, and,
+//! for a ledger more than 256 past the kept anchor, at most two more state
+//! proofs of skip lists. The account starts one when it connects, and on
+//! each hint that a ledger closed while none is in flight and no history
+//! is being walked: so it anchors at the ledger's own pace, and the
+//! schemes hear of closed ledgers as before. What the anchor proves, the
+//! account takes as it is there ([`super::history`]).
 //!
 //! **What a server can do.** An answer that does not prove is a lie: it is
 //! counted by kind, and the account connects anew after a while
@@ -63,7 +67,7 @@ pub(super) const OLDER: &str =
     "the server's validated ledger is older than the one the account acted on";
 pub(super) const NOT_FRESH: &str = "the server's validated ledger is not fresh by the node's clock: the server is behind, or the clock is wrong";
 pub(super) const NOT_PROVEN: &str = "the server's answers did not prove";
-pub(super) const HISTORY: &str = "the server's history is too short to prove the chain";
+pub(super) const HISTORY: &str = "the server's history is too short to prove what the account follows; name a proof server that keeps more";
 
 /// A lie caught, by kind (spec/designs/xrpl-validation.md#6-the-account-on-proofs).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -86,13 +90,22 @@ pub enum Doubt {
     /// A validated ledger of an older chain: a higher index that closed
     /// earlier, or another of the index that closed no later.
     OlderChain,
-    /// A proven object that is no skip list.
+    /// A proven object that is no skip list, or not what its key holds.
     SkipList,
+    /// A transaction of another hash than asked for, or whose bytes or
+    /// metadata do not read.
+    Transaction,
+    /// A transaction in a ledger the anchor's chain does not hold.
+    Ledger,
+    /// A history the proven state proves wrong: a transaction an object
+    /// names that did not change it, or that the server says its proven
+    /// ledger does not hold.
+    History,
 }
 
 impl Doubt {
     /// Every kind.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 12] = [
         Self::Unreadable,
         Self::Header,
         Self::Keys,
@@ -102,13 +115,17 @@ impl Doubt {
         Self::Older,
         Self::OlderChain,
         Self::SkipList,
+        Self::Transaction,
+        Self::Ledger,
+        Self::History,
     ];
 
-    fn of(error: ProofError) -> Self {
+    pub(super) const fn of(error: ProofError) -> Self {
         match error {
             ProofError::Header | ProofError::Ledger => Self::Header,
             ProofError::Keys => Self::Keys,
             ProofError::Branch(_) => Self::Branch,
+            ProofError::Transaction => Self::Transaction,
         }
     }
 }
@@ -152,8 +169,9 @@ impl Fetching {
 /// An anchoring round in flight.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Round {
-    /// A state proof at the server's validated ledger is asked for.
-    Proving,
+    /// A state proof at the server's validated ledger is asked for, of
+    /// these keys.
+    Proving(Vec<[u8; 32]>),
     /// That ledger's validations are.
     Validating(ProvenState),
     /// Newer manifests of the validators that did not count are, `asked`
@@ -167,7 +185,7 @@ pub(super) enum Round {
     /// kept anchor's chain is asked for.
     Ancestry {
         anchor: Anchor,
-        recent: Option<SkipList>,
+        proven: ProvenState,
         lists: ProvenLists,
     },
 }
@@ -211,6 +229,15 @@ pub(super) fn judge(kept: Option<&Anchor>, hint: Option<Validated>, new: &Anchor
             }
         }
         _ => Judged::Take,
+    }
+}
+
+/// The list of recent ledgers a state proof proved: none for the first
+/// ledger of a chain.
+fn recent_list(proven: &ProvenState) -> Result<Option<SkipList>, ()> {
+    match proven.object(&recent_key()) {
+        Some(Some(object)) => SkipList::parse(object).map(Some).map_err(|_| ()),
+        _ => Ok(None),
     }
 }
 
@@ -395,6 +422,7 @@ impl XrplAccount {
             }
         );
         if self.round.is_some()
+            || self.walk.is_some()
             || self.phase == Phase::Disconnected
             || self.network_id.is_none()
             || !subscribed
@@ -408,7 +436,7 @@ impl XrplAccount {
             self.fetch_lists_now();
             return;
         }
-        self.round = Some(Round::Proving);
+        self.round = Some(Round::Proving(self.followed_keys()));
         self.send(Request::Anchor);
     }
 
@@ -424,13 +452,13 @@ impl XrplAccount {
 
     /// The round's state proof at the server's validated ledger.
     pub(super) fn proved_anchor(&mut self, outcome: Result<Value, ApiError>) {
-        let Some(Round::Proving) = self.round else {
+        let Some(Round::Proving(keys)) = self.round.clone() else {
             return;
         };
         let Some(answer) = self.answer(outcome, api::state_proof_result) else {
             return;
         };
-        let proven = match prove_state(&answer, &[recent_key()], None) {
+        let proven = match prove_state(&answer, &keys, None) {
             Ok(proven) => proven,
             Err(error) => return self.doubted(Doubt::of(error)),
         };
@@ -545,29 +573,25 @@ impl XrplAccount {
     /// The proven ledger is validated: taken as the anchor, after its
     /// ancestry is proven if it is later than the one kept.
     fn anchored(&mut self, proven: &ProvenState, anchor: Anchor) {
-        let recent = match proven.object(&recent_key()) {
-            Some(Some(object)) => match SkipList::parse(object) {
-                Ok(list) => Some(list),
-                Err(_) => return self.doubted(Doubt::SkipList),
-            },
-            _ => None,
+        let Ok(recent) = recent_list(proven) else {
+            return self.doubted(Doubt::SkipList);
         };
         let kept = self.anchor.as_ref().map(|kept| kept.anchor);
         match judge(kept.as_ref(), self.hint, &anchor) {
-            Judged::Take => self.take_anchor(anchor, recent.as_ref()),
+            Judged::Take => self.take_anchor(anchor, proven),
             Judged::Older => self.wait_for_newer(),
             Judged::Ignore => {
                 self.count(Doubt::OlderChain);
                 self.round = None;
                 self.waiting = Some(OLDER);
             }
-            Judged::Reset => self.off_chain(anchor, recent.as_ref(), CHAIN_WENT_BACK),
+            Judged::Reset => self.off_chain(anchor, proven, CHAIN_WENT_BACK),
             Judged::Later => {
                 let mut lists = ProvenLists::new();
-                lists.insert((anchor.hash, recent_key()), recent.clone());
+                lists.insert((anchor.hash, recent_key()), recent);
                 self.round = Some(Round::Ancestry {
                     anchor,
-                    recent,
+                    proven: proven.clone(),
                     lists,
                 });
                 self.trace_ancestry();
@@ -581,7 +605,7 @@ impl XrplAccount {
             Some(kept),
             Some(Round::Ancestry {
                 anchor,
-                recent,
+                proven,
                 lists,
             }),
         ) = (self.anchor, self.round.clone())
@@ -589,8 +613,8 @@ impl XrplAccount {
             return;
         };
         match ancestry(&kept, &anchor, &lists) {
-            Ancestry::OnChain => self.take_anchor(anchor, recent.as_ref()),
-            Ancestry::OffChain => self.off_chain(anchor, recent.as_ref(), CHAIN_FORKED),
+            Ancestry::OnChain => self.take_anchor(anchor, &proven),
+            Ancestry::OffChain => self.off_chain(anchor, &proven, CHAIN_FORKED),
             Ancestry::Prove { at, key } => self.send(Request::SkipList(at, key)),
         }
     }
@@ -635,12 +659,7 @@ impl XrplAccount {
     /// network that resets, a reset, which writes off what the books held
     /// and follows the new chain; on any other, the account stops as failed
     /// with `why`, nothing written off.
-    pub(super) fn off_chain(
-        &mut self,
-        anchor: Anchor,
-        recent: Option<&SkipList>,
-        why: &'static str,
-    ) {
+    pub(super) fn off_chain(&mut self, anchor: Anchor, proven: &ProvenState, why: &'static str) {
         self.round = None;
         // Whether a network resets is a constant of the account, never what a
         // server reports (spec/decisions/ledger-resets.md).
@@ -648,59 +667,35 @@ impl XrplAccount {
             // An older state's newest ledger, without a hash, is a hint:
             // only it can have been wrong.
             if self.anchor.is_none() {
-                return self.take_anchor(anchor, recent);
+                return self.take_anchor(anchor, proven);
             }
             self.failed = Some(why);
             self.disconnected();
             return;
         }
+        let recent = recent_list(proven).ok().flatten();
         self.write_off(true);
-        self.keep_anchor(anchor, recent);
+        self.keep_anchor(anchor, recent.as_ref());
         self.validated = anchor.index;
         // Everything is read anew, on the new chain: an answer still on its
         // way may be of the chain gone.
         self.reconnect();
     }
 
-    /// Anchored while it starts: the account is read, or, read already,
-    /// it goes on.
-    fn anchored_while_starting(&mut self) {
-        let Phase::Starting { anchored, info, .. } = &mut self.phase else {
-            return;
-        };
-        *anchored = true;
-        if info.is_none() {
-            self.account_info_once();
-        } else {
-            self.start();
-        }
-    }
-
-    /// `anchor` is current: what waited on a validated ledger goes on.
-    fn take_anchor(&mut self, anchor: Anchor, recent: Option<&SkipList>) {
+    /// `anchor` is current: what it proves is what the account follows
+    /// ([`super::history`]). State it cannot read is no anchor.
+    fn take_anchor(&mut self, anchor: Anchor, proven: &ProvenState) {
         self.round = None;
-        let moved = anchor.index > self.validated;
-        self.keep_anchor(anchor, recent);
+        let Ok(recent) = recent_list(proven) else {
+            return self.doubted(Doubt::SkipList);
+        };
+        let view = match self.read_view(anchor, proven, recent.clone()) {
+            Ok(view) => view,
+            Err(doubt) => return self.doubted(doubt),
+        };
+        self.keep_anchor(anchor, recent.as_ref());
         self.validated = self.validated.max(anchor.index);
-        match &mut self.phase {
-            Phase::Starting { .. } => self.anchored_while_starting(),
-            Phase::Unfunded => self.account_info_once(),
-            Phase::Synced => {
-                // The schemes hear of each anchor past the last.
-                if moved || self.reserve_changed {
-                    let reserve_changed = core::mem::take(&mut self.reserve_changed);
-                    self.tell(super::News::LedgerClosed { reserve_changed });
-                }
-                // An answer older than what the account had seen was
-                // dropped, such as the sequence read again after a
-                // settlement was given up: asked again.
-                if core::mem::take(&mut self.ask_account) {
-                    self.account_info_once();
-                }
-                self.expire();
-            }
-            Phase::CatchingUp { .. } | Phase::Disconnected => {}
-        }
+        self.anchored_view(view);
     }
 
     fn keep_anchor(&mut self, anchor: Anchor, recent: Option<&SkipList>) {
@@ -708,14 +703,6 @@ impl XrplAccount {
         self.hint = None;
         self.waiting = None;
         self.stalled_until_ms = 0;
-    }
-
-    /// Asks for the account's state, unless it is being asked already.
-    fn account_info_once(&mut self) {
-        let asking = (self.pending.values()).any(|(request, _)| *request == Request::AccountInfo);
-        if !asking {
-            self.send(Request::AccountInfo);
-        }
     }
 
     /// The server's validated ledger is older than the anchor kept: never
@@ -729,7 +716,7 @@ impl XrplAccount {
     /// What a proof method answered, read by `read`; `None` after a refusal,
     /// which stalls the account, or an answer that does not read, which is a
     /// lie.
-    fn answer<T>(
+    pub(super) fn answer<T>(
         &mut self,
         outcome: Result<Value, ApiError>,
         read: impl FnOnce(&Value) -> Option<T>,
@@ -754,19 +741,28 @@ impl XrplAccount {
     }
 
     /// A lie caught: counted, and the connection made anew.
-    fn doubted(&mut self, doubt: Doubt) {
+    pub(super) fn doubted(&mut self, doubt: Doubt) {
         self.count(doubt);
         self.stall(NOT_PROVEN);
     }
 
     /// The account waits, for `why`, and connects anew after [`STALL_MS`].
-    fn stall(&mut self, why: &'static str) {
+    pub(super) fn stall(&mut self, why: &'static str) {
         self.round = None;
+        // A walk goes with it: the next connection walks again from its
+        // anchor.
+        self.walk = None;
+        if let Phase::CatchingUp { .. } = self.phase {
+            self.phase = Phase::Starting {
+                subscribed: true,
+                state: true,
+            };
+        }
         self.waiting = Some(why);
         self.stalled_until_ms = self.now_ms.saturating_add(STALL_MS);
     }
 
-    fn count(&mut self, doubt: Doubt) {
+    pub(super) fn count(&mut self, doubt: Doubt) {
         let count = self.doubts.entry(doubt).or_insert(0);
         *count = count.saturating_add(1);
     }
