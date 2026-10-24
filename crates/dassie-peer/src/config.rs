@@ -3,7 +3,7 @@
 
 use crate::auth::AuthConfig;
 use crate::names::RegistrarConfig;
-use crate::names::registrar::{least_release_ms, least_window_ms};
+use crate::names::registrar::{late_renewal_ms, least_release_ms, least_window_ms};
 use crate::node::{MAX_UPLINKS, own_link_state_fits};
 use crate::wire::MAX_NAME_LIST;
 
@@ -12,6 +12,9 @@ const DEV_REGISTRATION_TTL_MS: u64 = 120_000;
 
 /// The shortest backoff in dev.
 const DEV_MIN_BACKOFF_MS: u64 = 1_000;
+
+/// The longest backoff in dev.
+const DEV_MAX_BACKOFF_MS: u64 = 30_000;
 
 /// How often the bootstrap nodes' lists are polled in dev.
 const DEV_LIST_POLL_INTERVAL_MS: u64 = 1_000;
@@ -260,7 +263,7 @@ impl Config {
         bridge_check_ms: 2_000,
         unreachable_grace_ms: 4_000,
         min_backoff_ms: DEV_MIN_BACKOFF_MS,
-        max_backoff_ms: 30_000,
+        max_backoff_ms: DEV_MAX_BACKOFF_MS,
         peer_dead_ms: 120_000,
         advertise_hold_min_ms: 5_000,
         advertise_hold_max_ms: 60_000,
@@ -277,7 +280,7 @@ impl Config {
         // and the time to renew it 30 each; the window is the least that
         // lets a registrant retry (`validate`), as dev registrars run side
         // by side, and a split is released after the least wait that lets
-        // a registration reach every list.
+        // a registration, or a renewal that arrived late, reach every list.
         names: RegistrarConfig {
             window_ms: DEV_NAME_WINDOW_MS,
             ttl_ms: 365 * DEV_REGISTRATION_TTL_MS,
@@ -285,6 +288,7 @@ impl Config {
             renew_before_ms: 30 * DEV_REGISTRATION_TTL_MS,
             release_after_ms: least_release_ms(
                 DEV_NAME_WINDOW_MS,
+                late_renewal_ms(Self::DEFAULT.request_timeout_ms, DEV_MAX_BACKOFF_MS),
                 DEV_LIST_FRESH_MS,
                 DEV_LIST_POLL_INTERVAL_MS,
                 Self::DEFAULT.poll_timeout_ms + Self::DEFAULT.request_timeout_ms,
@@ -398,27 +402,34 @@ impl Config {
         // A renewal is retried after the longest backoff before the name
         // expires, and one that reached a registrar late still lands in
         // its grace.
-        let retry_ms = 2 * (self.request_timeout_ms + self.max_backoff_ms);
+        let late_ms = late_renewal_ms(self.request_timeout_ms, self.max_backoff_ms);
         assert!(
-            names.renew_before_ms >= retry_ms && names.grace_ms >= retry_ms,
+            names.renew_before_ms >= late_ms && names.grace_ms >= late_ms,
             "renewals have time for their retries"
         );
-        // A registration reaches every registrar's list before the others
-        // count as lacking it.
+        // A registration, and a renewal that reached a registrar late,
+        // reach every registrar's list before the others count as lacking
+        // them.
         let fetch_ms = self.poll_timeout_ms + self.request_timeout_ms;
         assert!(
             names.release_after_ms
                 >= least_release_ms(
                     names.window_ms,
+                    late_ms,
                     self.list_fresh_ms,
                     self.list_poll_interval_ms,
                     fetch_ms
                 ),
-            "a split is released only after a registration reaches every list"
+            "a split is released only after a registration or a renewal reaches every list"
         );
+        // Only fresh lists vote for holders, and what a list shows was
+        // current up to a hash poll's and a download's time before it was
+        // fetched. An honest registrar lists a new holder for a name a
+        // window at least after it stopped listing the last, so no two
+        // fresh lists from it name different holders.
         assert!(
-            self.list_fresh_ms <= self.list_expiry_ms,
-            "a fresh list votes"
+            names.window_ms > self.list_fresh_ms + fetch_ms,
+            "a registrar's fresh lists name one holder"
         );
         assert!(
             names.max_names <= MAX_NAME_LIST && names.max_commitments < names.max_names,

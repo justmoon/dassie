@@ -80,8 +80,8 @@ pub struct RegistrarConfig {
     pub max_names_per_node: usize,
     /// How long more than f of the other registrars' fresh lists must lack
     /// a name's holder before the name is released: longer than a
-    /// registration takes to reach every registrar's list
-    /// ([`least_release_ms`]).
+    /// registration, or a renewal that arrived late, takes to reach every
+    /// registrar's list ([`least_release_ms`]).
     pub release_after_ms: u64,
 }
 
@@ -92,20 +92,35 @@ pub const fn least_window_ms(request_timeout_ms: u64, min_backoff_ms: u64) -> u6
     4 * (request_timeout_ms + min_backoff_ms)
 }
 
+/// How late a renewal may reach a registrar: it is retried after the
+/// longest backoff, and gets a request's time, twice over. A registrar's
+/// grace period, and the time to renew, are at least this.
+#[must_use]
+pub const fn late_renewal_ms(request_timeout_ms: u64, max_backoff_ms: u64) -> u64 {
+    2 * (request_timeout_ms + max_backoff_ms)
+}
+
 /// The least wait before a split is released: a registration is granted at
 /// every registrar within a window of the first grant, since its
-/// commitments are all logged within the first one's window; a list that
-/// lacks it is fetched within a poll and a hash poll's and a download's
-/// time after, or it is one fetched before the grant, which stays fresh
-/// for `list_fresh_ms` at most.
+/// commitments are all logged within the first one's window, and a renewal
+/// that reached a registrar late, `late_renewal_ms` at most after the name
+/// expired there, lists it there again; a list that lacks it is fetched
+/// within a poll and a hash poll's and a download's time after, or it is
+/// one fetched before, which stays fresh for `list_fresh_ms` at most.
 #[must_use]
 pub const fn least_release_ms(
     window_ms: u64,
+    late_renewal_ms: u64,
     list_fresh_ms: u64,
     list_poll_interval_ms: u64,
     fetch_ms: u64,
 ) -> u64 {
-    window_ms + list_fresh_ms + list_poll_interval_ms + fetch_ms
+    let late_ms = if window_ms > late_renewal_ms {
+        window_ms
+    } else {
+        late_renewal_ms
+    };
+    late_ms + list_fresh_ms + list_poll_interval_ms + fetch_ms
 }
 
 impl RegistrarConfig {
@@ -124,7 +139,7 @@ impl RegistrarConfig {
         max_commitments_per_network: 8,
         max_commitments_per_node: 4,
         max_names_per_node: 8,
-        release_after_ms: 7_200_000,
+        release_after_ms: 8_100_000,
     };
 }
 

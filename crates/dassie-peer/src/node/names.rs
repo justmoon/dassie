@@ -349,12 +349,11 @@ impl PeerNode {
 }
 
 /// A view of the lists of the registrars, the bootstrap nodes, starting from
-/// `held`, as persisted (spec/areas/network.md#holders). Lists vote and are
-/// fresh as long as node lists do.
+/// `held`, as persisted (spec/areas/network.md#holders). Lists are fresh as
+/// long as node lists are, and vote only while they are.
 pub(super) fn holders(config: &Config, bootstrap: &[Bootstrap], held: Vec<HeldName>) -> Holders {
     let lists = HoldersConfig {
         list_fresh_ms: config.list_fresh_ms,
-        list_expiry_ms: config.list_expiry_ms,
     };
     Holders::new(lists, bootstrap.iter().map(|node| node.id), held)
 }

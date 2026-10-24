@@ -367,3 +367,46 @@ fn late_lists_release_nothing() {
         );
     }
 }
+
+// spec/areas/network.md#holders: only fresh lists vote, so a list read
+// before a release cannot help a faulty registrar give a name two holders.
+// Four registrars, the fourth faulty, after an honest split of two to one:
+// the faulty one shows registrar 1 Carol, so that it releases Alice, and
+// registrar 0 Alice, so that it keeps her. Node 4 is cut off from
+// registrar 1 before that release, with its list naming Alice. Carol then
+// registers at registrars 1 and 2, which have the name free, and node 5,
+// shown Carol, holds her; node 4, shown Alice, has three fresh lists but
+// never holds Alice with the one it read from registrar 1 before.
+#[test]
+fn a_list_read_before_a_release_does_not_vote() {
+    let mut network = start(22, 6, 4);
+    let (mut alice, mut bob) = (Registrant::new(71), Registrant::new(72));
+    let mut carol = Registrant::new(73);
+    let alice_name = name("alice");
+    commit(&mut network, &mut alice, &[0, 1], &alice_name);
+    commit(&mut network, &mut bob, &[0, 1, 2], &alice_name);
+    commit(&mut network, &mut alice, &[2], &alice_name);
+    unseal(&mut network, &mut alice, &[0, 1, 2], &alice_name);
+    unseal(&mut network, &mut bob, &[0, 1, 2], &alice_name);
+    let (alice_id, carol_id) = (alice.id(), carol.id());
+    network.forge = Some(forge(&[3], move |requester| {
+        let shown = if matches!(requester, 0 | 4) {
+            alice_id
+        } else {
+            carol_id
+        };
+        Some(listing(&alice_name, Some(shown)))
+    }));
+    windows(&mut network);
+    network.cut.insert((4, 1));
+    let honest = [0, 1, 2, 4, 5];
+    let ms = CONFIG.names.release_after_ms + 2 * CONFIG.list_fresh_ms;
+    run_watched(&mut network, ms, &honest, &alice_name);
+    assert_eq!(released(&network, &alice_name), BTreeSet::from([1, 2]));
+    commit(&mut network, &mut carol, &[1, 2], &alice_name);
+    unseal(&mut network, &mut carol, &[1, 2], &alice_name);
+    let ms = CONFIG.names.window_ms + 10_000;
+    let seen = run_watched(&mut network, ms, &honest, &alice_name);
+    assert!(seen.contains(&(5, Some(carol.id()))), "node 5 holds Carol");
+    assert!(!network.node(4).holders().is_frozen());
+}

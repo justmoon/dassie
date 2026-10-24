@@ -9,8 +9,13 @@
 //!   faulty registrar that shows nodes different lists can lead two of
 //!   them to different holders. Up to three registrars tolerate none, and
 //!   need all of them.
-//! - **A list votes** while it was fetched within the expiry window; one not
-//!   fetched for longer counts for nothing.
+//! - **A list votes** only while it is fresh. An honest registrar lists
+//!   another holder for a name only a window or more after it stopped
+//!   listing the last, when it released the name or its grace ended, and
+//!   a list stays fresh for less than a window (`Config::validate`), so
+//!   the lists two nodes vote with show such a registrar listing one holder
+//!   at most. A list read before a release would otherwise lend a faulty
+//!   registrar the honest one's vote for a holder it no longer lists.
 //! - **The view freezes** while fewer than a quorum of the lists are fresh:
 //!   it keeps the holders it had, as membership does, so registrars going
 //!   down, or a node cut off from them, do not take every name away.
@@ -53,11 +58,10 @@ pub const fn quorum(registrars: usize) -> usize {
 /// How long a registrar's list counts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HoldersConfig {
-    /// A list fetched this recently is fresh: holders are taken only while
-    /// a quorum of the lists are.
+    /// A list fetched this recently is fresh: only fresh lists vote, and
+    /// holders are taken only while a quorum of the lists are fresh. With
+    /// the time a fetch takes, less than the registrars' window.
     pub list_fresh_ms: u64,
-    /// A list not fetched for this long no longer votes.
-    pub list_expiry_ms: u64,
 }
 
 /// A name and its holder, in a node's view.
@@ -202,14 +206,9 @@ impl Holders {
             .is_some_and(|at| at.saturating_add(self.config.list_fresh_ms) >= now_ms)
     }
 
-    fn votes_at(&self, list: &Fetched, now_ms: u64) -> bool {
-        list.fetched_ms
-            .is_some_and(|at| at.saturating_add(self.config.list_expiry_ms) >= now_ms)
-    }
-
-    /// Takes the holders again at `now_ms`, from the lists that vote, unless
-    /// fewer than a quorum of them are fresh: then the view stays as it is.
-    /// What changed goes to `changes`.
+    /// Takes the holders again at `now_ms`, from the fresh lists, unless
+    /// fewer than a quorum of them are: then the view stays as it is. What
+    /// changed goes to `changes`.
     pub fn recompute(&mut self, now_ms: u64, changes: &mut Vec<HolderChange>) {
         let total = self.lists.len();
         if total == 0 {
@@ -230,7 +229,7 @@ impl Holders {
         for list in self
             .lists
             .values()
-            .filter(|list| self.votes_at(list, now_ms))
+            .filter(|list| self.is_fresh(list, now_ms))
         {
             for (name, holding) in &list.names {
                 votes
@@ -308,12 +307,12 @@ impl Holders {
         lacking > faults_tolerated(self.lists.len())
     }
 
-    /// How many of the lists that vote at `now_ms` name `holder` for `name`.
+    /// How many of the lists fresh at `now_ms` name `holder` for `name`.
     #[must_use]
     pub fn votes(&self, name: &Name, holder: &NodeId, now_ms: u64) -> usize {
         self.lists
             .values()
-            .filter(|list| self.votes_at(list, now_ms))
+            .filter(|list| self.is_fresh(list, now_ms))
             .filter(|list| list.names.get(name).is_some_and(|h| h.holder == *holder))
             .count()
     }
@@ -393,7 +392,6 @@ mod tests {
 
     const CONFIG: HoldersConfig = HoldersConfig {
         list_fresh_ms: 10_000,
-        list_expiry_ms: 100_000,
     };
 
     fn node(seed: u8) -> NodeId {
@@ -522,14 +520,15 @@ mod tests {
         assert_eq!(holder(&view), Some(node(8)));
     }
 
-    // A list not fetched within the expiry window no longer votes, though
-    // the others are fresh.
+    // A list votes only while it is fresh: once one of the three that name
+    // the holder is not, the other two are too few, though a quorum of the
+    // lists are fresh.
     #[test]
-    fn a_list_votes_only_while_fetched_within_the_expiry_window() {
+    fn a_list_votes_only_while_fresh() {
         let mut view = holders(4);
         take(&mut view, &[Some(7), Some(7), Some(7), None], START);
         assert_eq!(holder(&view), Some(node(7)));
-        let later = START + CONFIG.list_expiry_ms;
+        let later = START + CONFIG.list_fresh_ms;
         for registrar in [2, 3, 4] {
             view.confirm(&node(registrar), later);
         }
