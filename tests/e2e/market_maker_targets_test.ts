@@ -52,7 +52,15 @@ const SCENARIO = "market-maker-two-targets";
  * its band it swaps back through the pool before it trades again.
  */
 const RUN_MS = 600_000;
-const PORT_OFFSET = SCENARIO_PORT_OFFSET + 1_000;
+/**
+ * Clear of every other file's ports, which run beside these: the other
+ * files take offsets of `SCENARIO_PORT_OFFSET` up to 900 more, so their
+ * nodes' HTTP, HTTPS (and QUIC) and feed ports fill 18000–20999 and their
+ * fake ledgers and rate servers 24200–25210. A thousand more would put
+ * this file's HTTP on another file's HTTPS, and its HTTPS and QUIC on
+ * another's feed.
+ */
+const PORT_OFFSET = SCENARIO_PORT_OFFSET + 3_000;
 /**
  * The peer accounts once settled, both sides of each: d3 and d4 with d1
  * and d2, at least; d1 and d2 peer with each other too.
