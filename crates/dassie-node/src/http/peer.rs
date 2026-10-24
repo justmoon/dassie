@@ -187,8 +187,11 @@ impl crate::quic::Handler for QuicHandler {
         &'a self,
         from: dassie_identity::PublicKey,
         request: Vec<u8>,
-    ) -> Pin<Box<dyn Future<Output = Option<Vec<u8>>> + Send + 'a>> {
-        Box::pin(async move { Some(self.0.hubs().answer_state(self.0.store(), &from, &request)) })
+    ) -> Pin<Box<dyn Future<Output = Option<crate::hub::transport::StateReply>> + Send + 'a>> {
+        Box::pin(async move {
+            let store = self.0.store_handle();
+            Some(self.0.hubs().answer_state(store, &from, &request).await)
+        })
     }
 
     /// Open Payments, and owner apps' RPC. The wallet, `/api/*` and `/rpc`

@@ -396,6 +396,8 @@ pub struct Hubs {
     incoming_validators: Arc<tokio::sync::Semaphore>,
     /// The rate of `POST /hub` per address ([`HUB_RATE`]).
     limiter: Mutex<RateLimiter>,
+    /// Places for states being served ([`MAX_STATE_SERVES`]).
+    state_serves: Arc<tokio::sync::Semaphore>,
 }
 
 impl Default for Hubs {
@@ -407,6 +409,7 @@ impl Default for Hubs {
             incoming_members: Arc::new(tokio::sync::Semaphore::new(MAX_MEMBER_REQUESTS)),
             incoming_validators: Arc::new(tokio::sync::Semaphore::new(MAX_VALIDATOR_REQUESTS)),
             limiter: Mutex::new(RateLimiter::new(HUB_RATE)),
+            state_serves: Arc::new(tokio::sync::Semaphore::new(MAX_STATE_SERVES)),
         }
     }
 }
@@ -561,9 +564,18 @@ impl Hubs {
     /// from `from`, if it is a validator of the hub, with the state if
     /// `store` keeps it.
     #[must_use]
-    pub fn answer_state(&self, store: &Store, from: &PublicKey, request: &[u8]) -> Vec<u8> {
+    pub async fn answer_state(
+        &self,
+        store: Arc<Store>,
+        from: &PublicKey,
+        request: &[u8],
+    ) -> StateReply {
+        let status = |status: StateStatus| StateReply {
+            bytes: vec![status as u8],
+            _place: None,
+        };
         let Some((hub, height)) = decode_state_request(request) else {
-            return vec![StateStatus::Refused as u8];
+            return status(StateStatus::Refused);
         };
         let validator = self
             .routes
@@ -572,20 +584,42 @@ impl Hubs {
             .get(&hub)
             .map(|route| route.nodes.contains(&from.node_id()));
         match validator {
-            None => return vec![StateStatus::UnknownHub as u8],
-            Some(false) => return vec![StateStatus::Refused as u8],
+            None => return status(StateStatus::UnknownHub),
+            Some(false) => return status(StateStatus::Refused),
             Some(true) => {}
         }
-        match store.hub_state(hub.0.as_bytes(), height) {
-            Ok(Some(state)) => {
-                let mut reply = Vec::with_capacity(1 + state.len());
-                reply.push(StateStatus::Found as u8);
-                reply.extend_from_slice(&state);
-                reply
+        // A state may be hundreds of MiB: few are read and held at once, off
+        // the runtime, and the place goes only once the reply is written.
+        let Ok(place) = Arc::clone(&self.state_serves).try_acquire_owned() else {
+            return status(StateStatus::Busy);
+        };
+        let read = tokio::task::spawn_blocking(move || store.hub_state(hub.0.as_bytes(), height));
+        match read.await {
+            Ok(Ok(Some(state))) => {
+                let mut bytes = Vec::with_capacity(1 + state.len());
+                bytes.push(StateStatus::Found as u8);
+                bytes.extend_from_slice(&state);
+                StateReply {
+                    bytes,
+                    _place: Some(place),
+                }
             }
-            Ok(None) | Err(_) => vec![StateStatus::NotKept as u8],
+            Ok(Ok(None) | Err(_)) | Err(_) => status(StateStatus::NotKept),
         }
     }
+}
+
+/// The most states a node reads and serves at once: a state may be
+/// hundreds of MiB, and a validator far behind needs one.
+pub const MAX_STATE_SERVES: usize = 2;
+
+/// A reply to a request for a state, holding its place among
+/// [`MAX_STATE_SERVES`] until it is written.
+#[derive(Debug)]
+pub struct StateReply {
+    /// The reply's bytes.
+    pub bytes: Vec<u8>,
+    _place: Option<tokio::sync::OwnedSemaphorePermit>,
 }
 
 /// How a validator answered a request for a state.
@@ -600,6 +634,8 @@ pub enum StateStatus {
     NotKept = 2,
     /// The asker is no validator of the hub, or the request is broken.
     Refused = 3,
+    /// It serves as many states as it does at once already.
+    Busy = 4,
 }
 
 /// A request for the state of `hub` after its block at `height`.
@@ -775,6 +811,7 @@ impl HubClient {
             Some((1, [])) => Err(HubExchangeError::Refused(HubAnswer::UnknownHub)),
             Some((2, [])) => Err(HubExchangeError::NotKept),
             Some((3, [])) => Err(HubExchangeError::Refused(HubAnswer::Malformed)),
+            Some((4, [])) => Err(HubExchangeError::Refused(HubAnswer::Busy)),
             _ => Err(HubExchangeError::BadReply),
         }
     }
@@ -915,12 +952,13 @@ mod tests {
         );
     }
 
-    // A state goes only to a validator of its hub, and only if it is kept.
-    #[test]
-    fn states_go_to_the_hubs_validators_only() {
+    // A state goes only to a validator of its hub, only if it is kept, and
+    // to no more askers at once than MAX_STATE_SERVES.
+    #[tokio::test]
+    async fn states_go_to_the_hubs_validators_only() {
         let hubs = Hubs::default();
         let hub = HubId(Digest([7; 32]));
-        let store = Store::open_in_memory().unwrap();
+        let store = Arc::new(Store::open_in_memory().unwrap());
         let step = crate::store::HubStep {
             consensus: Some(&[1]),
             ledger: Some((5, &[9, 9])),
@@ -930,10 +968,12 @@ mod tests {
         let co = dassie_identity::NodeKey::from_bytes(&[2; 32]).public_key();
         let stranger = dassie_identity::NodeKey::from_bytes(&[3; 32]).public_key();
         let request = encode_state_request(&hub, 5);
-        assert_eq!(
-            hubs.answer_state(&store, &co, &request),
-            vec![StateStatus::UnknownHub as u8]
-        );
+        let ask = |from, request: Vec<u8>| {
+            let (hubs, store) = (&hubs, Arc::clone(&store));
+            async move { hubs.answer_state(store, from, &request).await }
+        };
+        let unknown = ask(&co, request.clone()).await;
+        assert_eq!(unknown.bytes, vec![StateStatus::UnknownHub as u8]);
         let (validators, _theirs) = mpsc::channel(1);
         let (members, _queue) = mpsc::channel(1);
         let route = Route {
@@ -942,16 +982,19 @@ mod tests {
             nodes: BTreeSet::from([co.node_id()]),
         };
         hubs.register(hub, route);
-        assert_eq!(hubs.answer_state(&store, &co, &request), vec![0, 9, 9]);
-        assert_eq!(
-            hubs.answer_state(&store, &stranger, &request),
-            vec![StateStatus::Refused as u8]
-        );
-        let other = encode_state_request(&hub, 4);
-        assert_eq!(
-            hubs.answer_state(&store, &co, &other),
-            vec![StateStatus::NotKept as u8]
-        );
+        let found = ask(&co, request.clone()).await;
+        assert_eq!(found.bytes, vec![0, 9, 9]);
+        let refused = ask(&stranger, request.clone()).await;
+        assert_eq!(refused.bytes, vec![StateStatus::Refused as u8]);
+        let other = ask(&co, encode_state_request(&hub, 4)).await;
+        assert_eq!(other.bytes, vec![StateStatus::NotKept as u8]);
+        // While as many replies as it serves at once are being written, it
+        // serves no more.
+        let second = ask(&co, request.clone()).await;
+        let busy = ask(&co, request.clone()).await;
+        assert_eq!(busy.bytes, vec![StateStatus::Busy as u8]);
+        drop((found, second));
+        assert_eq!(ask(&co, request.clone()).await.bytes, vec![0, 9, 9]);
         assert_eq!(decode_state_request(&request), Some((hub, 5)));
         assert_eq!(decode_state_request(&request[1..]), None);
     }

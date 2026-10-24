@@ -249,7 +249,7 @@ pub trait Handler: Send + Sync + 'static {
         &'a self,
         _from: PublicKey,
         _request: Vec<u8>,
-    ) -> Pin<Box<dyn Future<Output = Option<Vec<u8>>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Option<crate::hub::transport::StateReply>> + Send + 'a>> {
         Box::pin(async { None })
     }
 

@@ -35,7 +35,9 @@ use dassie_node::clock::{Clock, SystemClock};
 use dassie_node::http::peer::Answer;
 use dassie_node::hub::driver::Driver;
 use dassie_node::hub::service::{EscrowLinks, HubTask};
-use dassie_node::hub::transport::{MAX_MEMBER_MESSAGE_BYTES, MEDIA_TYPE, Route, encode_request};
+use dassie_node::hub::transport::{
+    MAX_MEMBER_MESSAGE_BYTES, MEDIA_TYPE, Route, StateReply, encode_request,
+};
 use dassie_node::hub::{HubAccess, HubAnswer, HubClient, HubExchangeError, Hubs, Sender};
 use dassie_node::peer_client::PeerClient;
 use dassie_node::quic::{Body, Handler, Quic};
@@ -100,8 +102,14 @@ impl Handler for HubHandler {
         &'a self,
         from: PublicKey,
         request: Vec<u8>,
-    ) -> Pin<Box<dyn Future<Output = Option<Vec<u8>>> + Send + 'a>> {
-        Box::pin(async move { Some(self.0.answer_state(&self.1, &from, &request)) })
+    ) -> Pin<Box<dyn Future<Output = Option<StateReply>> + Send + 'a>> {
+        Box::pin(async move {
+            Some(
+                self.0
+                    .answer_state(Arc::clone(&self.1), &from, &request)
+                    .await,
+            )
+        })
     }
 }
 

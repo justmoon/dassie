@@ -219,33 +219,7 @@ impl On {
     }
 
     /// Answers a request on the hub's state stream with the handler.
-    pub(super) async fn hub_state(self, send: quinn::SendStream, recv: quinn::RecvStream) {
-        let handler = std::sync::Arc::clone(&self.handler);
-        self.serve_hub(
-            send,
-            recv,
-            (STATE_REQUEST_BYTES, STATE_TIMEOUT),
-            move |from, request| Box::pin(async move { handler.hub_state(from, request).await }),
-        )
-        .await;
-    }
-
-    /// Reads a request of at most `limit` bytes, answers it with `answer`,
-    /// and writes the reply within `write_within`; resets the stream when
-    /// there is none.
-    async fn serve_hub<F>(
-        self,
-        mut send: quinn::SendStream,
-        mut recv: quinn::RecvStream,
-        (limit, write_within): (usize, Duration),
-        answer: F,
-    ) where
-        F: FnOnce(
-            dassie_identity::PublicKey,
-            Vec<u8>,
-        )
-            -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<Vec<u8>>> + Send>>,
-    {
+    pub(super) async fn hub_state(self, mut send: quinn::SendStream, mut recv: quinn::RecvStream) {
         let reset = |send: &mut quinn::SendStream, recv: &mut quinn::RecvStream| {
             let _ = send.reset(0u32.into());
             let _ = recv.stop(0u32.into());
@@ -254,16 +228,18 @@ impl On {
             reset(&mut send, &mut recv);
             return;
         };
-        let read = tokio::time::timeout(REQUEST_TIMEOUT, recv.read_to_end(limit)).await;
+        let read =
+            tokio::time::timeout(REQUEST_TIMEOUT, recv.read_to_end(STATE_REQUEST_BYTES)).await;
         let Ok(Ok(request)) = read else {
             reset(&mut send, &mut recv);
             return;
         };
-        let Some(reply) = answer(from, request).await else {
+        let Some(reply) = self.handler.hub_state(from, request).await else {
             reset(&mut send, &mut recv);
             return;
         };
-        write_reply(&mut send, &reply, write_within).await;
+        // The reply holds its place until it is written.
+        write_reply(&mut send, &reply.bytes, STATE_TIMEOUT).await;
     }
 }
 
