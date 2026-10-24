@@ -5,7 +5,9 @@
 //! [`Registrar`]'s; here is who may ask what, what each answer is, the
 //! replay state of the nodes a registrar involves, and the events. At every
 //! node: polling the registrars' name lists, and taking from them who holds
-//! each name, which is [`Holders`]'.
+//! each name, which is [`Holders`]'; and registering names for the node and
+//! renewing them, which is [`Registrant`]'s: here they are sent, to our own
+//! registrar too, if we are one.
 
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
@@ -19,14 +21,20 @@ use super::{Bootstrap, PeerNode, Problem, Purpose};
 use crate::auth::Accepted;
 use crate::config::Config;
 use crate::io::{Event, NameEvent, Reply};
+use crate::names::registrant::{
+    Message, NameRequest, Progress, RegisterError, RenewError as RenewNowError,
+};
 use crate::names::registrar::{
     CommitError, Committed, Happened, RenewError, UnsealError, Unsealed,
 };
 use crate::names::{
-    Commitment, HeldName, HolderChange, Holders, HoldersConfig, Name, Registrar, Salt,
+    Commitment, HeldName, HolderChange, Holders, HoldersConfig, Name, NameRegistration, NameStatus,
+    Registrant, RegistrantConfig, Registrar, Salt,
 };
 use crate::table::Network;
-use crate::wire::{Content, NameListResponse, decode_hash, encode_expiry};
+use crate::wire::{
+    Content, NameListResponse, NameReceipt, decode_expiry, decode_hash, encode_expiry,
+};
 
 /// What a node that is no registrar answers to a name message, as to a
 /// registration.
@@ -41,6 +49,11 @@ const MAX_REGISTRAR_EVENTS: u64 = 1;
 /// Most events a taking of the view queues, however many names change: one
 /// for the view and one for a registrar's releases.
 const MAX_HOLDERS_EVENTS: u64 = 2;
+
+/// Most rounds of sending what our registrations have due in one step:
+/// commitments, then, once our own registrar's receipt completed them,
+/// unsealings, and their answers from our own registrar.
+const SEND_ROUNDS: usize = 3;
 
 impl PeerNode {
     /// The registrar's state, if this node is one: one of its own bootstrap
@@ -59,64 +72,103 @@ impl PeerNode {
         commitment: Commitment,
         network: Option<Network>,
     ) -> Reply {
-        let (sender, now) = (accepted.sender, self.now_ms);
+        match self.commit_here(accepted.sender, commitment, network) {
+            Ok(receipt) => ok(accepted, &receipt.to_vec()),
+            Err(refusal) => refusal,
+        }
+    }
+
+    /// Logs `commitment` from `sender` at our registrar: its receipt, or the
+    /// answer that refuses it.
+    fn commit_here(
+        &mut self,
+        sender: NodeId,
+        commitment: Commitment,
+        network: Option<Network>,
+    ) -> Result<NameReceipt, Reply> {
+        let (own, now) = (self.own, self.now_ms);
         let Some(registrar) = self.registrar.as_mut() else {
-            return Reply::refuse(409, NOT_REGISTRAR);
+            return Err(Reply::refuse(409, NOT_REGISTRAR));
         };
-        let receipt = match registrar.commit(commitment, sender, network, now) {
-            Ok(Committed::Again(receipt)) => receipt,
+        match registrar.commit(commitment, sender, network, now) {
+            Ok(Committed::Again(receipt)) => Ok(receipt),
             Ok(Committed::New(receipt)) => {
                 // Its unsealing must get through however many strangers
                 // write to us, and its floor is persisted with the
                 // commitment (spec/areas/peer-protocol.md#replay-protection).
-                self.auth.pin(sender);
+                if sender != own {
+                    self.auth.pin(sender);
+                }
                 self.stats.commitments_logged += 1;
                 self.event(Event::Name(NameEvent::Committed {
                     committer: sender,
                     position: receipt.position,
                 }));
-                receipt
+                Ok(receipt)
             }
-            Err(error) => return commit_refusal(error),
-        };
-        ok(accepted, &receipt.to_vec())
+            Err(error) => Err(commit_refusal(error)),
+        }
     }
 
     /// A `nameUnseal`: the sender opens its own commitment. A valid one is
     /// answered alike whether it contends for the name or has lost, so the
     /// answer tells nothing of commitments still sealed.
     pub(super) fn name_unseal(&mut self, accepted: &Accepted, name: Name, salt: &Salt) -> Reply {
-        let (sender, now) = (accepted.sender, self.now_ms);
+        match self.unseal_here(accepted.sender, name, salt) {
+            Ok(()) => ok(accepted, &[]),
+            Err(refusal) => refusal,
+        }
+    }
+
+    /// Takes `sender`'s unsealing at our registrar, or the answer that
+    /// refuses it.
+    fn unseal_here(&mut self, sender: NodeId, name: Name, salt: &Salt) -> Result<(), Reply> {
+        let (own, now) = (self.own, self.now_ms);
         let Some(registrar) = self.registrar.as_mut() else {
-            return Reply::refuse(409, NOT_REGISTRAR);
+            return Err(Reply::refuse(409, NOT_REGISTRAR));
         };
         match registrar.unseal(sender, name, salt, now) {
             Ok(Unsealed::Again) => {}
             Ok(Unsealed::New { contends }) => {
                 // A copied commitment may have been logged by another node:
                 // the holder has a part of its own now.
-                self.auth.pin(sender);
+                if sender != own {
+                    self.auth.pin(sender);
+                }
                 self.event(Event::Name(NameEvent::Unsealed {
                     name,
                     holder: sender,
                     contends,
                 }));
             }
-            Err(error) => return Reply::refuse(409, unseal_refusal(error)),
+            Err(error) => return Err(Reply::refuse(409, unseal_refusal(error))),
         }
-        ok(accepted, &[])
+        Ok(())
     }
 
     /// A `nameRenew`, from the name's holder: answered with its expiry.
     pub(super) fn name_renew(&mut self, accepted: &Accepted, name: Name) -> Reply {
-        let (sender, now) = (accepted.sender, self.now_ms);
+        match self.renew_here(accepted.sender, name) {
+            Ok(expires_ms) => ok(accepted, &encode_expiry(expires_ms)),
+            Err(refusal) => refusal,
+        }
+    }
+
+    /// Renews `name` for `sender` at our registrar: its expiry, or the
+    /// answer that refuses it.
+    fn renew_here(&mut self, sender: NodeId, name: Name) -> Result<u64, Reply> {
+        let now = self.now_ms;
         let Some(registrar) = self.registrar.as_mut() else {
-            return Reply::refuse(409, NOT_REGISTRAR);
+            return Err(Reply::refuse(409, NOT_REGISTRAR));
         };
         let renewal = match registrar.renew(&sender, &name, now) {
             Ok(renewal) => renewal,
-            Err(RenewError::NotHeld) => return Reply::refuse(409, "the name is not held here"),
-            Err(RenewError::NotHolder) => return Reply::refuse(409, "another node holds the name"),
+            Err(RenewError::NotHeld) => {
+                return Err(Reply::refuse(409, "the name is not held here"));
+            }
+            Err(RenewError::NotHolder) => {
+                return Err(Reply::refuse(409, "another node holds the name"));
+            }
         };
         if renewal.extended {
             self.stats.names_renewed += 1;
@@ -126,7 +178,7 @@ impl PeerNode {
                 expires_ms: renewal.expires_ms,
             }));
         }
-        ok(accepted, &encode_expiry(renewal.expires_ms))
+        Ok(renewal.expires_ms)
     }
 
     /// The name list we serve, or its hash: a registrar's names listed now.
@@ -343,10 +395,229 @@ impl PeerNode {
         }
     }
 
+    /// Our registrations of names, and the renewals of the names we hold.
+    #[must_use]
+    pub const fn registrant(&self) -> &Registrant {
+        &self.registrant
+    }
+
+    /// Starts registering `name` for this node at every registrar
+    /// (spec/areas/network.md#the-registrant): with a salt of its own,
+    /// persisted with the next batch, before its first commitment leaves.
+    ///
+    /// # Errors
+    ///
+    /// The name is reserved, held or taken, there are no registrars, a
+    /// registration of it or too many are under way, or the registrations
+    /// are full.
+    pub fn register_name(&mut self, now_ms: u64, name: Name) -> Result<(), RegisterError> {
+        self.advance(now_ms);
+        let mut salt = Salt([0; crate::names::SALT_BYTES]);
+        self.rng.fill_bytes(&mut salt.0);
+        self.registrant
+            .register(name, salt, &self.holders, self.now_ms)?;
+        self.stats.registrations_started += 1;
+        self.event(Event::Name(NameEvent::Registering { name }));
+        self.send_names();
+        Ok(())
+    }
+
+    /// Renews `name`, which this node holds, at every registrar now.
+    ///
+    /// # Errors
+    ///
+    /// This node does not hold the name in its view.
+    pub fn renew_name(&mut self, now_ms: u64, name: &Name) -> Result<(), RenewNowError> {
+        self.advance(now_ms);
+        self.registrant.renew_now(name, &self.holders)?;
+        self.send_names();
+        Ok(())
+    }
+
+    /// How each name of ours stands at `now_ms`: those we register, and
+    /// those we hold.
+    #[must_use]
+    pub fn name_statuses(&self, now_ms: u64) -> Vec<NameStatus> {
+        self.registrant
+            .statuses(&self.holders, self.now_ms.max(now_ms))
+    }
+
+    /// Sends what our registrations and renewals have due. Our own
+    /// registrar, if we are one, answers at once, which may make more due.
+    pub(super) fn send_names(&mut self) {
+        let own = self.own;
+        for _ in 0..SEND_ROUNDS {
+            let (mut progress, mut requests) = (Vec::new(), Vec::new());
+            self.registrant
+                .requests(&self.holders, self.now_ms, &mut progress, &mut requests);
+            self.progress(progress);
+            let local = requests.iter().any(|request| request.to == own);
+            for request in requests {
+                self.send_name(request);
+            }
+            if !local {
+                break;
+            }
+        }
+    }
+
+    /// Sends `request` to its registrar, or asks our own.
+    fn send_name(&mut self, request: NameRequest) {
+        if request.to == self.own {
+            self.ask_own_registrar(request.message);
+            return;
+        }
+        let (content, purpose) = match request.message {
+            Message::Commit(commitment) => (
+                Content::NameCommit(commitment),
+                Purpose::NameCommit(commitment),
+            ),
+            Message::Unseal {
+                commitment,
+                name,
+                salt,
+            } => (
+                Content::NameUnseal { name, salt },
+                Purpose::NameUnseal(commitment),
+            ),
+            Message::Renew(name) => {
+                self.stats.renewals_sent += 1;
+                (Content::NameRenew(name), Purpose::NameRenew(name))
+            }
+        };
+        let timeout = self.config.request_timeout_ms;
+        if self.send(request.to, &content, purpose, timeout).is_none() {
+            self.registrant.not_sent(&request, self.now_ms);
+        }
+    }
+
+    /// Takes `message` at our own registrar, as a node that registers with
+    /// itself: a commitment comes from no network.
+    fn ask_own_registrar(&mut self, message: Message) {
+        let (own, now) = (self.own, self.now_ms);
+        let refused = |reply: Reply| Some(reply.status);
+        let mut progress = Vec::new();
+        match message {
+            Message::Commit(commitment) => {
+                let result = self.commit_here(own, commitment, None).map_err(refused);
+                self.registrant
+                    .on_commit(&own, &commitment, result, now, &mut progress);
+            }
+            Message::Unseal {
+                commitment,
+                name,
+                salt,
+            } => {
+                let result = self.unseal_here(own, name, &salt).map_err(refused);
+                self.registrant
+                    .on_unseal(&own, &commitment, result, now, &mut progress);
+            }
+            Message::Renew(name) => {
+                self.stats.renewals_sent += 1;
+                let result = self.renew_here(own, name).map_err(refused);
+                self.registrant
+                    .on_renew(&own, &name, result, now, &mut progress);
+            }
+        }
+        self.progress(progress);
+    }
+
+    /// A registrar's answer to our commitment: its receipt.
+    pub(super) fn on_name_commit(
+        &mut self,
+        from: NodeId,
+        commitment: &Commitment,
+        result: Result<Vec<u8>, Problem>,
+    ) {
+        let result = result.map_err(refusal).and_then(|body| {
+            NameReceipt::decode_exact(&body).map_err(|_| refusal(Problem::Invalid))
+        });
+        let mut progress = Vec::new();
+        self.registrant
+            .on_commit(&from, commitment, result, self.now_ms, &mut progress);
+        self.progress(progress);
+        self.send_names();
+    }
+
+    /// A registrar's answer to our unsealing: empty.
+    pub(super) fn on_name_unseal(
+        &mut self,
+        from: NodeId,
+        commitment: &Commitment,
+        result: Result<Vec<u8>, Problem>,
+    ) {
+        let result = result.map(|_| ()).map_err(refusal);
+        let mut progress = Vec::new();
+        self.registrant
+            .on_unseal(&from, commitment, result, self.now_ms, &mut progress);
+        self.progress(progress);
+    }
+
+    /// A registrar's answer to our renewal: the name's expiry there.
+    pub(super) fn on_name_renew(
+        &mut self,
+        from: NodeId,
+        name: &Name,
+        result: Result<Vec<u8>, Problem>,
+    ) {
+        let result = result
+            .map_err(refusal)
+            .and_then(|body| decode_expiry(&body).map_err(|_| refusal(Problem::Invalid)));
+        let mut progress = Vec::new();
+        self.registrant
+            .on_renew(&from, name, result, self.now_ms, &mut progress);
+        self.progress(progress);
+    }
+
+    /// Reports what our registrations and renewals did.
+    fn progress(&mut self, progress: Vec<Progress>) {
+        for step in progress {
+            let event = match step {
+                Progress::Receipt {
+                    name,
+                    registrar,
+                    position,
+                } => NameEvent::Receipt {
+                    name,
+                    registrar,
+                    position,
+                },
+                Progress::Unsealing { name } => NameEvent::Unsealing { name },
+                Progress::UnsealedAt { name, registrar } => {
+                    NameEvent::UnsealedAt { name, registrar }
+                }
+                Progress::Refused {
+                    name,
+                    registrar,
+                    status,
+                } => NameEvent::Refused {
+                    name,
+                    registrar,
+                    status,
+                },
+                Progress::Abandoned { name } => {
+                    self.stats.registrations_abandoned += 1;
+                    NameEvent::Abandoned { name }
+                }
+                Progress::RenewedAt {
+                    name,
+                    registrar,
+                    expires_ms,
+                } => NameEvent::RenewedAt {
+                    name,
+                    registrar,
+                    expires_ms,
+                },
+            };
+            self.event(Event::Name(event));
+        }
+    }
+
     /// The view's invariants, the registrar's, and that every node it
     /// involves keeps its replay state.
     pub(super) fn check_names(&self) {
         self.holders.check_invariants();
+        self.registrant.check_invariants();
         assert!(
             self.name_polling
                 .iter()
@@ -374,6 +645,44 @@ pub(super) fn holders(config: &Config, bootstrap: &[Bootstrap], held: Vec<HeldNa
         list_fresh_ms: config.list_fresh_ms,
     };
     Holders::new(lists, bootstrap.iter().map(|node| node.id), held)
+}
+
+/// Our registrant, at the bootstrap nodes, from the registrations persisted.
+/// It foresees the registrars by our own configuration of one, which every
+/// node shares (spec/areas/network.md#the-registrant).
+pub(super) fn registrant(
+    config: &Config,
+    own: NodeId,
+    bootstrap: &[Bootstrap],
+    registrations: Vec<NameRegistration>,
+) -> Registrant {
+    let names = &config.names;
+    let registrant = RegistrantConfig {
+        window_ms: names.window_ms,
+        request_timeout_ms: config.request_timeout_ms,
+        min_backoff_ms: config.min_backoff_ms,
+        max_backoff_ms: config.max_backoff_ms,
+        renew_before_ms: names.renew_before_ms,
+        grace_ms: names.grace_ms,
+        release_after_ms: names.release_after_ms,
+        max_under_way: names.max_commitments_per_node,
+        max_names: names.max_names_per_node,
+    };
+    Registrant::new(
+        registrant,
+        own,
+        bootstrap.iter().map(|node| node.id),
+        registrations,
+    )
+}
+
+/// The status a registrar refused one of our requests with, if it answered
+/// with one.
+const fn refusal(problem: Problem) -> Option<u16> {
+    match problem {
+        Problem::Status(status) => Some(status),
+        Problem::Failed(_) | Problem::Invalid => None,
+    }
 }
 
 /// The answer to a commitment that is not logged, with the statuses a

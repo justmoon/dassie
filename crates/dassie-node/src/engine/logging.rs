@@ -161,6 +161,55 @@ fn peer_names(severity: Severity, event: &dassie_peer::NameEvent) {
         Event::HoldersChanged { held, unheld } => {
             emit!(severity, target: target::PEER, held, unheld, "names changed holders in our view of the registrars' lists");
         }
+        Event::Registering { .. }
+        | Event::Receipt { .. }
+        | Event::Unsealing { .. }
+        | Event::UnsealedAt { .. }
+        | Event::Refused { .. }
+        | Event::Abandoned { .. }
+        | Event::RenewedAt { .. } => own_names(severity, event),
+    }
+}
+
+/// The peer node's events about the names it registers and renews for
+/// itself (spec/areas/network.md#the-registrant).
+fn own_names(severity: Severity, event: &dassie_peer::NameEvent) {
+    use dassie_peer::NameEvent as Event;
+    match event {
+        Event::Registering { name } => {
+            emit!(severity, target: target::PEER, %name, "registering a name at every registrar");
+        }
+        Event::Receipt {
+            name,
+            registrar,
+            position,
+        } => {
+            emit!(severity, target: target::PEER, %name, %registrar, position, "a registrar logged our commitment to a name");
+        }
+        Event::Unsealing { name } => {
+            emit!(severity, target: target::PEER, %name, "every registrar logged our commitment: unsealing it");
+        }
+        Event::UnsealedAt { name, registrar } => {
+            emit!(severity, target: target::PEER, %name, %registrar, "a registrar took our unsealing");
+        }
+        Event::Refused {
+            name,
+            registrar,
+            status,
+        } => {
+            emit!(severity, target: target::PEER, %name, %registrar, status, "a registrar refused our request about a name");
+        }
+        Event::Abandoned { name } => {
+            emit!(severity, target: target::PEER, %name, "not every registrar logged our commitment in time: the registration ends, and no registrar learned the name");
+        }
+        Event::RenewedAt {
+            name,
+            registrar,
+            expires_ms,
+        } => {
+            emit!(severity, target: target::PEER, %name, %registrar, expires_ms, "a registrar answered our renewal of a name");
+        }
+        _ => {}
     }
 }
 

@@ -60,6 +60,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_36,
     MIGRATION_37,
     MIGRATION_38,
+    MIGRATION_39,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -1235,6 +1236,19 @@ CREATE TABLE name_holders (
 ) STRICT, WITHOUT ROWID;
 ";
 
+/// The node's registrations of names (spec/areas/network.md#the-registrant):
+/// each with the salt its commitment is sealed with, written before its
+/// first commitment leaves, so a restart commits to the same commitment
+/// again.
+const MIGRATION_39: &str = "
+CREATE TABLE name_registrations (
+  name TEXT PRIMARY KEY CHECK (length(name) BETWEEN 3 AND 32),
+  salt BLOB NOT NULL CHECK (length(salt) = 32),
+  started_ms INTEGER NOT NULL,
+  stage TEXT NOT NULL CHECK (stage IN ('committing', 'unsealing', 'abandoned'))
+) STRICT, WITHOUT ROWID;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1249,6 +1263,8 @@ pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("quotes", "shared_secret"),
     ("outgoing_payments", "shared_secret"),
     ("setup_token", "token"),
+    // With the name, it opens a commitment still sealed.
+    ("name_registrations", "salt"),
 ];
 
 /// A column as the code expects it: name, type, NOT NULL, part of the
@@ -1537,6 +1553,16 @@ pub const TABLES: &[Table] = &[
             ("name", "TEXT", true, true),
             ("holder", "TEXT", true, false),
             ("expires_ms", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "name_registrations",
+        without_rowid: true,
+        columns: &[
+            ("name", "TEXT", true, true),
+            ("salt", "BLOB", true, false),
+            ("started_ms", "INTEGER", true, false),
+            ("stage", "TEXT", true, false),
         ],
     },
     Table {

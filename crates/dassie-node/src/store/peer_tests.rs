@@ -537,3 +537,57 @@ fn migration_38_starts_with_no_holders() {
     let stored = Store::open(temp.path()).unwrap().load_peer().unwrap();
     assert!(stored.holders.is_empty());
 }
+
+// The node's registrations come back as written, salt and all
+// (spec/areas/network.md#the-registrant), a batch's removals first, so a
+// registration dropped and started again in one batch stays.
+#[test]
+fn the_registrations_round_trip() {
+    use dassie_peer::names::{Name, NameRegistration, Salt, Stage};
+    let store = Store::open_in_memory().unwrap();
+    assert!(store.load_peer().unwrap().registrations.is_empty());
+    let registration = |name: &str, seed: u8, stage| NameRegistration {
+        name: Name::parse(name).unwrap(),
+        salt: Salt([seed; 32]),
+        started_ms: 5_000 + u64::from(seed),
+        stage,
+    };
+    let alice = registration("alice", 1, Stage::Committing);
+    let bob = registration("bob", 2, Stage::Abandoned);
+    let carol = registration("carol", 3, Stage::Unsealing);
+    commit(
+        &store,
+        PeerBatch {
+            registrations: vec![alice, bob, carol],
+            ..PeerBatch::default()
+        },
+    );
+    assert_eq!(
+        store.load_peer().unwrap().registrations,
+        [alice, bob, carol]
+    );
+    let again = registration("bob", 4, Stage::Committing);
+    commit(
+        &store,
+        PeerBatch {
+            registrations_removed: vec![alice.name, bob.name],
+            registrations: vec![again],
+            ..PeerBatch::default()
+        },
+    );
+    assert_eq!(store.load_peer().unwrap().registrations, [again, carol]);
+}
+
+// Migration 39 gives a node that ran before registrants no registrations.
+#[test]
+fn migration_39_starts_with_no_registrations() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+    connection
+        .pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap();
+    schema::migrate_until(&mut connection, 38).unwrap();
+    drop(connection);
+    let stored = Store::open(temp.path()).unwrap().load_peer().unwrap();
+    assert!(stored.registrations.is_empty());
+}

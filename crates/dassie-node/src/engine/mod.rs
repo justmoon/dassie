@@ -36,9 +36,9 @@ pub use self::core::HubPeer;
 pub use self::core::{
     AssetView, BtpEvent, BtpSession, Changes, Core, CoreParts, CreatedOutgoing, Direction,
     EngineError, EngineEvent, Event, HubHold, HubStatus, IncomingPolicy, LedgerEvent, LedgerView,
-    Lie, Measured, Move, NetworkView, NewIncoming, NewOutgoing, NewToken, Outbound, Output,
-    PaymentEvent, PeerEvent, PeerView, Prober, RemovalBlocker, SCHEMES, SettlementEvent, Severity,
-    TokenView, ledger_realm, ledger_slug, offered,
+    Lie, Measured, Move, NamesView, NetworkView, NewIncoming, NewOutgoing, NewToken, Outbound,
+    Output, PaymentEvent, PeerEvent, PeerView, Prober, RemovalBlocker, SCHEMES, SettlementEvent,
+    Severity, TokenView, ledger_realm, ledger_slug, offered,
 };
 
 use crate::log::target;
@@ -298,6 +298,21 @@ impl Engine {
     /// The network: the node table, peers and registrations.
     pub async fn network(&self) -> Result<NetworkView, EngineError> {
         self.call(|core| Ok(core.network())).await
+    }
+
+    /// The owner's names: those the node registers or holds.
+    pub async fn names(&self) -> Result<NamesView, EngineError> {
+        self.call(|core| Ok(core.names())).await
+    }
+
+    /// Registers `name` for the node at every registrar.
+    pub async fn register_name(&self, name: String) -> Result<(), EngineError> {
+        self.call(move |core| core.register_name(&name)).await
+    }
+
+    /// Renews `name`, which the node holds, at every registrar now.
+    pub async fn renew_name(&self, name: String) -> Result<(), EngineError> {
+        self.call(move |core| core.renew_name(&name)).await
     }
 
     /// Ends the peering with `node`, as its owner.

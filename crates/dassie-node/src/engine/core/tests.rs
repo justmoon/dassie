@@ -4554,3 +4554,70 @@ fn an_owner_payment_outlives_its_scheme_removed_and_added_again() {
         "posted once, with its fee"
     );
 }
+
+// spec/areas/network.md#the-registrant: the owner's registration is on disk,
+// salt and all, by the time its first commitment leaves, so that a node
+// restarted from it commits to the same commitment; and only names an
+// owner may register are registered, at the bootstrap nodes.
+#[test]
+fn a_registration_is_on_disk_before_its_commitment_leaves() {
+    use crate::engine::EngineError;
+    use dassie_peer::wire::Kind;
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let registrar = NodeKey::from_bytes(&[8; 32]);
+    let parts = |bootstrap: Vec<dassie_peer::Bootstrap>| CoreParts {
+        store: Arc::clone(&store),
+        key: Arc::new(NodeKey::from_bytes(&[7; 32])),
+        realm: Realm::Test,
+        live: dassie_node_core::config::LiveRealm::Refused,
+        policies: Policies::DEFAULT,
+        rng: Box::new(SeededRng::new(14)),
+        peer_rng: Box::new(SeededRng::new(15)),
+        own_info: dassie_peer::OwnInfo {
+            url: None,
+            alias: String::new(),
+            quic: false,
+            feed_port: None,
+            hub: None,
+        },
+        bootstrap,
+        uplinks: Vec::new(),
+    };
+    let mut alone = Core::start(parts(Vec::new()), NOW).unwrap();
+    assert!(matches!(
+        alone.register_name("alice"),
+        Err(EngineError::Precondition(_))
+    ));
+    drop(alone);
+    let bootstrap = vec![dassie_peer::Bootstrap {
+        id: registrar.node_id(),
+        url: "https://registrar.example".into(),
+        key: registrar.public_key(),
+    }];
+    let mut core = Core::start(parts(bootstrap), NOW).unwrap();
+    for refused in ["www", "Alice", "a"] {
+        assert!(
+            matches!(core.register_name(refused), Err(EngineError::Invalid(_))),
+            "{refused}"
+        );
+    }
+    core.register_name("alice").unwrap();
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    let commits = outputs
+        .iter()
+        .filter(|output| matches!(output, Output::PeerRequest(request) if request.kind == Kind::NameCommit))
+        .count();
+    assert_eq!(commits, 1);
+    let stored = store.load_peer().unwrap().registrations;
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].name.as_str(), "alice");
+    assert!(matches!(
+        core.renew_name("alice"),
+        Err(EngineError::NotFound(_))
+    ));
+    let names = core.names();
+    assert_eq!(names.registrars, [registrar.node_id()]);
+    assert_eq!(names.names.len(), 1);
+}

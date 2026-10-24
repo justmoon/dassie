@@ -484,6 +484,10 @@ fn cap() -> BoxedStrategy<Option<proto::SpendingCap>> {
     .boxed()
 }
 
+/// Names an owner may register, or not: reserved, too short, with a
+/// hyphen where a name has none.
+const NAMES: &[&str] = &["alice", "www", "ab", "-alice", "xn--alice", ""];
+
 /// The methods without fields.
 fn bare() -> BoxedStrategy<Method> {
     proptest::sample::select(vec![
@@ -515,6 +519,7 @@ fn bare() -> BoxedStrategy<Method> {
         Method::ListServices(proto::ListServicesRequest {}),
         Method::ListGrants(proto::ListGrantsRequest {}),
         Method::SubscribeGrants(proto::SubscribeGrantsRequest {}),
+        Method::SubscribeNames(proto::SubscribeNamesRequest {}),
         Method::GetPeerSettings(proto::GetPeerSettingsRequest {}),
         Method::GetRateSources(proto::GetRateSourcesRequest {}),
     ])
@@ -747,6 +752,8 @@ fn sending() -> BoxedStrategy<Method> {
             .prop_map(|node| Method::TerminatePeering(proto::TerminatePeeringRequest { node })),
         node_id().prop_map(|node| Method::BanNode(proto::BanNodeRequest { node })),
         node_id().prop_map(|node| Method::UnbanNode(proto::UnbanNodeRequest { node })),
+        field(NAMES).prop_map(|name| Method::RegisterName(proto::RegisterNameRequest { name })),
+        field(NAMES).prop_map(|name| Method::RenewName(proto::RenewNameRequest { name })),
         proptest::option::of((small(), small(), proptest::option::of(small()))).prop_map(
             |settings| {
                 Method::SetPeerSettings(proto::SetPeerSettingsRequest {

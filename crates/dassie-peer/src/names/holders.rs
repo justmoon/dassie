@@ -322,6 +322,21 @@ impl Holders {
             .count()
     }
 
+    /// What `registrar`'s list, as last fetched, says of `name`: whom it
+    /// lists for it, and until when.
+    #[must_use]
+    pub fn listing(&self, registrar: &NodeId, name: &Name) -> Option<&NameHolding> {
+        self.lists.get(registrar)?.names.get(name)
+    }
+
+    /// Whether `registrar`'s list is fresh at `now_ms`, and so votes.
+    #[must_use]
+    pub fn is_fresh_list(&self, registrar: &NodeId, now_ms: u64) -> bool {
+        self.lists
+            .get(registrar)
+            .is_some_and(|list| self.is_fresh(list, now_ms))
+    }
+
     /// The holder of `name`, if the view has one.
     #[must_use]
     pub fn holder(&self, name: &Name) -> Option<&HeldName> {

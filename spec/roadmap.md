@@ -66,10 +66,9 @@ Registration is free, and throttled instead ([Network](areas/network.md#registra
 
 ### Names
 
-Names that people can say, held for a node ID by a quorum of the bootstrap nodes' lists: a registrant commits to a name sealed, and paid, at every registrar, and unseals it once it holds every receipt; the earliest commitment wins. The design is [designs/names.md](designs/names.md); the reasons are [names-by-earliest-commitment](decisions/names-by-earliest-commitment.md). Names, commitments and their messages are built ([Peer protocol](areas/peer-protocol.md#names)), and so are the registrar's side, its log, the rule, granting, renewal and grace, its list and releasing a split ([Network](areas/network.md#names)), and every node's view of who holds a name, by a quorum of the lists ([Network](areas/network.md#holders)).
+Names that people can say, held for a node ID by a quorum of the bootstrap nodes' lists: a registrant commits to a name sealed, and paid, at every registrar, and unseals it once it holds every receipt; the earliest commitment wins. The design is [designs/names.md](designs/names.md); the reasons are [names-by-earliest-commitment](decisions/names-by-earliest-commitment.md). Names, commitments and their messages are built ([Peer protocol](areas/peer-protocol.md#names)), and so are the registrar's side, its log, the rule, granting, renewal and grace, its list and releasing a split ([Network](areas/network.md#names)), every node's view of who holds a name, by a quorum of the lists ([Network](areas/network.md#holders)), and the registrant, which registers the node's names and renews them, as the owner asks in the wallet ([Network](areas/network.md#the-registrant)).
 
 - **Parts that can be built side by side:**
-  - the registrant: committing at every registrar, unsealing once it holds every receipt, renewing, and the owner's view of it in the wallet;
   - the holders in the owner's view: the names the node takes holders for, over RPC, in the wallet and `dassie status`;
   - the quote and payment, shared with [registration fees](#registration-fees);
   - what uses a name: front doors serving it, the node answering to it, and Dassie's client checking a signed answer against its holder ([designs/names.md §8](designs/names.md#8-open-questions)).

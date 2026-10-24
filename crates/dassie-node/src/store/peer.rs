@@ -1,13 +1,15 @@
 //! The peer protocol's tables (spec/areas/network.md#persistence): the node
 //! table with each node's link state, registration and peering, our own
 //! link-state sequence, settlement channels, bans and replay floors (NET-1,
-//! NET-2, NET-7, ACC-18), a registrar's log and names, and the node's view
-//! of who holds each name. They are written in the same transaction as the
-//! ledger, so a peering and its accounts, or a settlement and its message,
-//! land together.
+//! NET-2, NET-7, ACC-18), a registrar's log and names, the node's view of
+//! who holds each name, and its own registrations of names. They are
+//! written in the same transaction as the ledger, so a peering and its
+//! accounts, or a settlement and its message, land together.
 
 use dassie_identity::{NodeId, PublicKey};
-use dassie_peer::names::{Commitment, Granted, HeldName, LogHead, Logged, Name, Unsealing};
+use dassie_peer::names::{
+    Commitment, Granted, HeldName, LogHead, Logged, Name, NameRegistration, Salt, Stage, Unsealing,
+};
 use dassie_peer::wire::{SchemeId, TerminationReason};
 use dassie_peer::{
     Channel, Closed, Depeering, Network, Outgoing, PeerBatch, Peering, Registration, Sources,
@@ -64,6 +66,7 @@ impl Store {
             commitments: load_commitments(&connection)?,
             names: load_names(&connection)?,
             holders: load_holders(&connection)?,
+            registrations: load_registrations(&connection)?,
         })
     }
 
@@ -288,6 +291,40 @@ fn load_holders(connection: &Connection) -> Result<Vec<HeldName>, StoreError> {
     Ok(holders)
 }
 
+/// The node's registrations of names, by name
+/// (spec/areas/network.md#the-registrant).
+fn load_registrations(connection: &Connection) -> Result<Vec<NameRegistration>, StoreError> {
+    let mut statement = connection
+        .prepare("SELECT name, salt, started_ms, stage FROM name_registrations ORDER BY name")?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Vec<u8>>(1)?,
+            row.get::<_, i64>(2)?,
+            row.get::<_, String>(3)?,
+        ))
+    })?;
+    let mut registrations = Vec::new();
+    for row in rows {
+        let (name, salt, started_ms, stage) = row?;
+        let salt = <[u8; 32]>::try_from(salt.as_slice())
+            .map_err(|_| StoreError::Corrupt("registration salt"))?;
+        let stage = match stage.as_str() {
+            "committing" => Stage::Committing,
+            "unsealing" => Stage::Unsealing,
+            "abandoned" => Stage::Abandoned,
+            _ => return Err(StoreError::Corrupt("registration stage")),
+        };
+        registrations.push(NameRegistration {
+            name: parse_name(&name)?,
+            salt: Salt(salt),
+            started_ms: from_sql_time(started_ms),
+            stage,
+        });
+    }
+    Ok(registrations)
+}
+
 /// A row of the node table, joined with its peering.
 fn read_node(row: &Row<'_>) -> rusqlite::Result<Result<StoredNode, StoreError>> {
     let id: String = row.get(0)?;
@@ -423,7 +460,40 @@ pub(super) fn write_peer(
         )?;
     }
     write_registrar(transaction, batch)?;
-    write_holders(transaction, batch)
+    write_holders(transaction, batch)?;
+    write_registrations(transaction, batch)
+}
+
+/// Writes what changed in the node's registrations of names
+/// (spec/areas/network.md#the-registrant).
+fn write_registrations(transaction: &Transaction<'_>, batch: &PeerBatch) -> Result<(), StoreError> {
+    // Removals first, as for nodes: a registration dropped and started
+    // again in one batch stays.
+    for removed in &batch.registrations_removed {
+        transaction.execute(
+            "DELETE FROM name_registrations WHERE name = ?1",
+            [removed.as_str()],
+        )?;
+    }
+    for registration in &batch.registrations {
+        let stage = match registration.stage {
+            Stage::Committing => "committing",
+            Stage::Unsealing => "unsealing",
+            Stage::Abandoned => "abandoned",
+        };
+        transaction.execute(
+            "INSERT INTO name_registrations (name, salt, started_ms, stage)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (name) DO UPDATE SET salt = ?2, started_ms = ?3, stage = ?4",
+            params![
+                registration.name.as_str(),
+                registration.salt.0.as_slice(),
+                to_sql_time(registration.started_ms),
+                stage,
+            ],
+        )?;
+    }
+    Ok(())
 }
 
 /// Writes what changed in the node's view of who holds each name

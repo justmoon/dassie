@@ -435,6 +435,57 @@ pub enum NameEvent {
         /// Names that have none any more.
         unheld: usize,
     },
+    /// We started registering a name for ourselves
+    /// (spec/areas/network.md#the-registrant).
+    Registering {
+        /// The name.
+        name: Name,
+    },
+    /// A registrar logged our commitment.
+    Receipt {
+        /// The name.
+        name: Name,
+        /// The registrar.
+        registrar: NodeId,
+        /// The commitment's position in its log.
+        position: u64,
+    },
+    /// Every registrar logged our commitment in time: we unseal it at each.
+    Unsealing {
+        /// The name.
+        name: Name,
+    },
+    /// A registrar took our unsealing.
+    UnsealedAt {
+        /// The name.
+        name: Name,
+        /// The registrar.
+        registrar: NodeId,
+    },
+    /// A registrar refused a commitment, an unsealing or a renewal of ours.
+    Refused {
+        /// The name.
+        name: Name,
+        /// The registrar.
+        registrar: NodeId,
+        /// Its status.
+        status: u16,
+    },
+    /// Not every registrar logged our commitment in time to unseal it: the
+    /// registration ends, and no registrar was told the name.
+    Abandoned {
+        /// The name.
+        name: Name,
+    },
+    /// A registrar answered our renewal of a name we hold.
+    RenewedAt {
+        /// The name.
+        name: Name,
+        /// The registrar.
+        registrar: NodeId,
+        /// The expiry it gives the name now, by its clock.
+        expires_ms: u64,
+    },
 }
 
 /// What the node has counted, for the logs and the simulations.
@@ -481,4 +532,10 @@ pub struct Stats {
     pub names_freed: u64,
     /// Names released for a split.
     pub names_released: u64,
+    /// Registrations of our own started.
+    pub registrations_started: u64,
+    /// Registrations of our own abandoned, short of a receipt.
+    pub registrations_abandoned: u64,
+    /// Renewals of our names sent.
+    pub renewals_sent: u64,
 }

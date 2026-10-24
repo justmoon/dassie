@@ -17,6 +17,7 @@ mod hub;
 mod inspect;
 mod ledger;
 mod live;
+mod names;
 mod network;
 mod payments;
 mod rates;
@@ -62,6 +63,7 @@ pub const fn is_live(method: &proto::request::Method) -> bool {
             | Method::SubscribeOutgoingPayments(_)
             | Method::SubscribeGrants(_)
             | Method::SubscribeOutgoingPayment(_)
+            | Method::SubscribeNames(_)
     )
 }
 

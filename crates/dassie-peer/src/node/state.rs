@@ -297,6 +297,7 @@ impl PeerNode {
         }
         self.holders
             .take_changes(&mut batch.holders, &mut batch.holders_removed);
+        self.registrant.take_changes(batch);
         if self.gossip.sequence_dirty {
             self.gossip.sequence_dirty = false;
             batch.own_sequence = Some(self.gossip.own_sequence);

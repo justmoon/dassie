@@ -27,7 +27,7 @@ use crate::channel::{Channel, Closed, Retry};
 use crate::config::Config;
 use crate::io::VERDICT_ACCEPTED;
 use crate::io::{Event, Failure, Output, Request, RequestId, Response, Stats};
-use crate::names::{Holders, Registrar};
+use crate::names::{Commitment, Holders, Name, Registrant, Registrar};
 use crate::routing::Routes;
 use crate::table::{Bucket, Entry, NetworkBuckets, Sources};
 use crate::wire::{
@@ -158,6 +158,12 @@ pub(crate) enum Purpose {
     NameHashPoll,
     /// A name-list download.
     NameListDownload,
+    /// Our commitment to a name, at a registrar.
+    NameCommit(Commitment),
+    /// Our unsealing of the commitment, at a registrar.
+    NameUnseal(Commitment),
+    /// Our renewal of a name, at a registrar.
+    NameRenew(Name),
     /// Registering with a bootstrap node.
     Registration,
     /// Refreshing these nodes' link states.
@@ -287,6 +293,9 @@ pub struct PeerNode {
     pub(crate) holders: Holders,
     /// The registrars whose name lists we are polling or downloading.
     pub(crate) name_polling: BTreeSet<NodeId>,
+    /// Our registrations of names, and the renewals of those we hold
+    /// (spec/areas/network.md#the-registrant).
+    pub(crate) registrant: Registrant,
 }
 
 impl PeerNode {
@@ -317,6 +326,12 @@ impl PeerNode {
             table: BTreeMap::new(),
             lists: Lists::new(&bootstrap),
             holders: names::holders(&config, &bootstrap, core::mem::take(&mut stored.holders)),
+            registrant: names::registrant(
+                &config,
+                own,
+                &bootstrap,
+                core::mem::take(&mut stored.registrations),
+            ),
             bootstrap,
             gossip: gossip::Gossip::new(now_ms, stored.own_sequence),
             peering: peering::Peering::new(now_ms),
@@ -356,16 +371,21 @@ impl PeerNode {
             config,
         };
         node.restore(stored);
-        // Bootstrap nodes, nodes registered with us, and those our
-        // registrar involves keep their replay state
-        // (spec/areas/peer-protocol.md#replay-protection).
-        let registered = node
+        node.pin_restored();
+        node
+    }
+
+    /// Pins what was restored: bootstrap nodes, nodes registered with us,
+    /// and those our registrar involves keep their replay state
+    /// (spec/areas/peer-protocol.md#replay-protection).
+    fn pin_restored(&mut self) {
+        let registered = self
             .table
             .iter()
             .filter(|(_, entry)| entry.registration.is_some())
             .map(|(id, _)| *id);
-        let parties = node.registrar.iter().flat_map(Registrar::parties);
-        let pinned: Vec<NodeId> = node
+        let parties = self.registrar.iter().flat_map(Registrar::parties);
+        let pinned: Vec<NodeId> = self
             .bootstrap
             .iter()
             .map(|b| b.id)
@@ -373,9 +393,8 @@ impl PeerNode {
             .chain(parties)
             .collect();
         for id in pinned {
-            node.auth.pin(id);
+            self.auth.pin(id);
         }
-        node
     }
 
     /// Our node ID.
@@ -704,6 +723,9 @@ impl PeerNode {
             Purpose::ListDownload => self.on_list(to, result),
             Purpose::NameHashPoll => self.on_name_hash(to, result),
             Purpose::NameListDownload => self.on_name_list(to, result),
+            Purpose::NameCommit(commitment) => self.on_name_commit(to, &commitment, result),
+            Purpose::NameUnseal(commitment) => self.on_name_unseal(to, &commitment, result),
+            Purpose::NameRenew(name) => self.on_name_renew(to, &name, result),
             Purpose::Registration => self.on_registered(to, result),
             Purpose::Refresh(ids) => self.on_refresh(to, &ids, result),
             Purpose::Sweep(ids) => self.on_sweep(&ids, result),
@@ -797,6 +819,7 @@ impl PeerNode {
         self.refresh();
         self.maintain();
         self.tend_names();
+        self.send_names();
         self.seek_peers(hooks);
         self.update_routes();
     }
@@ -815,6 +838,7 @@ impl PeerNode {
             self.answers.iter().map(|(at, _)| *at).min(),
             self.next_settlement_retry(),
             self.registrar.as_ref().and_then(Registrar::next_due),
+            self.registrant.next_due(&self.holders, self.now_ms),
         ];
         candidates.into_iter().flatten().min()
     }

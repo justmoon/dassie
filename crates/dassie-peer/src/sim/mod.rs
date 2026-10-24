@@ -247,6 +247,7 @@ pub struct SimNode {
     stored_commitments: BTreeMap<crate::names::Commitment, crate::names::Logged>,
     stored_names: BTreeMap<crate::names::Name, crate::names::Granted>,
     stored_holders: BTreeMap<crate::names::Name, crate::names::HeldName>,
+    stored_registrations: BTreeMap<crate::names::Name, crate::names::NameRegistration>,
     /// How far its clock is off the network's.
     pub skew_ms: i64,
     generation: u64,
@@ -425,6 +426,7 @@ impl Network {
                 stored_commitments: BTreeMap::new(),
                 stored_names: BTreeMap::new(),
                 stored_holders: BTreeMap::new(),
+                stored_registrations: BTreeMap::new(),
                 skew_ms: skew,
                 generation: 0,
                 next_inbound: 0,
@@ -461,6 +463,7 @@ impl Network {
         sim.stored.commitments = sim.stored_commitments.values().copied().collect();
         sim.stored.names = sim.stored_names.values().copied().collect();
         sim.stored.holders = sim.stored_holders.values().copied().collect();
+        sim.stored.registrations = sim.stored_registrations.values().copied().collect();
         let periphery = self.periphery.contains(&index);
         let mut node = PeerNode::new(
             self.config,
@@ -586,6 +589,13 @@ impl Network {
         }
         for held in batch.holders {
             sim.stored_holders.insert(held.name, held);
+        }
+        for removed in batch.registrations_removed {
+            sim.stored_registrations.remove(&removed);
+        }
+        for registration in batch.registrations {
+            sim.stored_registrations
+                .insert(registration.name, registration);
         }
         for output in outputs {
             self.carry(index, output);

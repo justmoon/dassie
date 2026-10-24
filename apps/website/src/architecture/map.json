@@ -109,6 +109,7 @@
         "Wallet addresses and payment requests for Open Payments",
         "The consent page for apps, the apps it has let in, and their grants",
         "The network as the node routes over it, its peers online and offline, bans, and the node's settings",
+        "Names for the node: registering one, how it stands with each registrar, and renewing it",
         "The owner's sessions and paired devices, and on the node's own machine a QR code that pairs a new app",
         "Debug pages, and live data over RPC streams everywhere"
       ]
@@ -297,6 +298,7 @@
         "The node's account in its settlement hub, and the owner's moves into it and out of it",
         "Founding a settlement hub as its sponsor, and the payout bundles the node keeps of its hub",
         "Nodes, peers, routes, settlements and bans",
+        "The owner's names: registering and renewing them, and how each stands with each registrar",
         "Wallet addresses, payments, grants and Send, to a wallet, a payment request or STREAM credentials",
         "`Subscribe*` streams: a snapshot, then changes, at most 4 a second",
         "Carried over a WebSocket (browsers) or the IPC socket (the CLI and Node), at most 1 MiB a message"
@@ -355,6 +357,7 @@
         "Relayed streams: any QUIC node relays for the nodes connected to it, with TLS end to end, so a node without a public address that keeps a connection to a relay is still reached for Open Payments and by the owner's paired apps; a node without a hostname keeps one to the `dassiepay.net` front door unless `DASSIE_RELAY` names another or, empty, none",
         "Front doors: a server with a key of its own and a wildcard certificate that takes Open Payments requests for `<label>.<domain>` and passes them to the node the label names, over relayed streams it opens on the connection the node keeps to it; it returns only the node's signed JSON, under a policy that lets nothing run, and never a node's page or a cookie; at the root of a name it shows a short static page of its own, saying what the name is and whether the node is connected",
         "RPC with live streams, the log ring, the database inspector and `GET /stats`",
+        "The owner's names, registered and renewed through the peer node, and how each stands with each registrar, streamed to the wallet",
         "Owner apps paired by the owner on the node's own machine: each proves a device key on a relayed stream and calls the RPC as the owner until it is revoked",
         "Open Payments over HTTPS and relayed streams: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments, each answer signed with the node key and written under the name the request came through",
         "Exchange rates, fetched from several sources, the fee and spread on what passes between peers, and the price table rebuilt from them and the owner's funds whenever either changes",
@@ -508,7 +511,8 @@
         "Settlement channels that close once idle, kept on disk so a late settlement still counts once",
         "Over a settlement hub, each Prepare with the payer's commitment, and the payer's claim in its reply to a Fulfill",
         "Names people can say, at the bootstrap nodes as registrars: a log of sealed commitments, each name granted to the earliest one unsealed once every earlier window has closed, renewed by its holder, and a name list served as the node list is",
-        "Every node takes as a name's holder the node that more than two thirds of the registrars list, so one registrar that shows nodes different lists cannot give a name two holders, and keeps what it had while too few lists are fresh; a registrar releases a name that the others' lists show split"
+        "Every node takes as a name's holder the node that more than two thirds of the registrars list, so one registrar that shows nodes different lists cannot give a name two holders, and keeps what it had while too few lists are fresh; a registrar releases a name that the others' lists show split",
+        "A registrant for the node's own names: the registration and its salt on disk before its sealed commitment goes to every registrar at once, the name unsealed only with every receipt and while the window allows, and renewed before it expires, in a registrar's grace period too"
       ]
     },
     "connector": {
@@ -1567,6 +1571,46 @@
             "xrpl"
           ],
           "text": "Once the XRP node holds more than its band, the market maker swaps the surplus back into dollars through the pool: one Payment from that node's account to the other's, whose `SendMax` bounds the price. The core node holds more dollars than before, and the market maker more value."
+        }
+      ]
+    },
+    {
+      "id": "name",
+      "button": "An owner registers a name",
+      "title": "An owner registers a name for their node",
+      "steps": [
+        {
+          "ids": [
+            "wallet",
+            "proto-ui"
+          ],
+          "text": "On the wallet's Names page, the owner asks for a name. The node checks that it is one, and that no registrar's fresh list names anyone for it."
+        },
+        {
+          "ids": [
+            "node",
+            "peer"
+          ],
+          "text": "The node draws a salt and writes the registration to its database, and only then sends the sealed commitment, a hash of the name, its node ID and the salt, to every bootstrap node at once."
+        },
+        {
+          "ids": [
+            "peer"
+          ],
+          "text": "Each bootstrap node, a registrar, logs the commitment at the next place in its log, writes it to disk and answers with a receipt. None of them learns the name."
+        },
+        {
+          "ids": [
+            "peer"
+          ],
+          "text": "With every receipt in hand, and time left in the window, the node sends each registrar the name and the salt. Each registrar grants the name to the commitment it logged first, once that commitment's window closes, and lists it."
+        },
+        {
+          "ids": [
+            "peer",
+            "wallet"
+          ],
+          "text": "Every node reads the registrars' name lists and takes as the holder the node that more than two thirds of them list. The wallet shows the name as the owner's, and the node renews it before it expires."
         }
       ]
     }

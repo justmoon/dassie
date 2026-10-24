@@ -11,6 +11,7 @@ export * from "./src/gen/dassie/ui/v1/debug_pb.ts";
 export * from "./src/gen/dassie/ui/v1/devices_pb.ts";
 export * from "./src/gen/dassie/ui/v1/inspect_pb.ts";
 export * from "./src/gen/dassie/ui/v1/ledger_pb.ts";
+export * from "./src/gen/dassie/ui/v1/names_pb.ts";
 export * from "./src/gen/dassie/ui/v1/network_pb.ts";
 export * from "./src/gen/dassie/ui/v1/node_pb.ts";
 export * from "./src/gen/dassie/ui/v1/payments_pb.ts";
