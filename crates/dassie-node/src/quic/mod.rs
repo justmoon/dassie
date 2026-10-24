@@ -16,6 +16,11 @@
 //! (UDP filtered, say) is asked over HTTPS for a while instead, until every
 //! node takes QUIC and `POST /peer` goes ([`send_peer`]).
 
+// Denied here, though allowed in the rest of the daemon, for quinn's
+// `read_to_end` (see clippy.toml and `read_in_order`); this module needs
+// none of the other methods it lists.
+#![deny(clippy::disallowed_methods)]
+
 mod hub;
 pub mod keys;
 pub mod places;
@@ -1002,7 +1007,7 @@ impl On {
     /// Answers a peer request: its envelope, then the stream's end.
     async fn answer(self, mut send: quinn::SendStream, mut recv: quinn::RecvStream) {
         let body: Body<'_> = Box::pin(async move {
-            recv.read_to_end(MAX_MESSAGE_BYTES)
+            read_in_order(&mut recv, MAX_MESSAGE_BYTES)
                 .await
                 .map_err(|error| match error {
                     ReadToEndError::TooLong => BodyError::TooLarge,
@@ -1027,6 +1032,29 @@ impl On {
     }
 }
 
+/// Reads `recv` in order to its end, failing with
+/// [`ReadToEndError::TooLong`] past `limit` bytes. Not quinn's
+/// `read_to_end`, which reads out of order: quinn-proto 0.11.19 miscounts
+/// a stream read first in order, as for its kind byte, then out of order
+/// while a retransmitted copy of its start is still buffered
+/// (quinn-rs/quinn#2885). It hands the copy back, counts more bytes read
+/// than the stream holds, never sees its end, and underflows when the
+/// stream is dropped, which aborts the node
+/// (spec/areas/peer-protocol.md#quic).
+async fn read_in_order(
+    recv: &mut quinn::RecvStream,
+    limit: usize,
+) -> Result<Vec<u8>, ReadToEndError> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = recv.read_chunk(usize::MAX, true).await? {
+        if chunk.bytes.len() > limit.saturating_sub(bytes.len()) {
+            return Err(ReadToEndError::TooLong);
+        }
+        bytes.extend_from_slice(&chunk.bytes);
+    }
+    Ok(bytes)
+}
+
 /// Whether the other side closed `connection` for want of room
 /// ([`NO_ROOM`]), before it read anything sent on it.
 fn no_room(connection: &Connection) -> bool {
@@ -1047,8 +1075,7 @@ async fn exchange(connection: &Connection, body: &[u8]) -> Result<Response, Fail
         .map_err(|_| Failure::Unknown)?;
     send.write_all(body).await.map_err(|_| Failure::Unknown)?;
     send.finish().map_err(|_| Failure::Unknown)?;
-    let bytes = recv
-        .read_to_end(MAX_RESPONSE_BYTES)
+    let bytes = read_in_order(&mut recv, MAX_RESPONSE_BYTES)
         .await
         .map_err(|_| Failure::Unknown)?;
     let Some((status, body)) = bytes.split_first_chunk::<STATUS_BYTES>() else {
@@ -1185,5 +1212,138 @@ mod tests {
         let key = NodeKey::from_bytes(&[1; 32]);
         let path = SeedPath::parse(RESET_KEY_PATH).unwrap();
         assert!(key.derive(&path).is_ok());
+    }
+
+    /// Answers each request with its body.
+    struct Echo;
+
+    impl Handler for Echo {
+        fn client(&self, _address: IpAddr) -> Option<ClientKey> {
+            None
+        }
+
+        fn limits(&self) -> ConnectionLimits {
+            ConnectionLimits {
+                max_total: 16,
+                max_per_client: 16,
+            }
+        }
+
+        fn answer<'a>(
+            &'a self,
+            _client: IpAddr,
+            body: Body<'a>,
+        ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
+            Box::pin(async move {
+                match body.await {
+                    Ok(body) => Answer { status: 200, body },
+                    Err(_) => Answer {
+                        status: 400,
+                        body: Vec::new(),
+                    },
+                }
+            })
+        }
+    }
+
+    /// Least size of a datagram that carries the request in
+    /// [`a_request_sent_again_before_it_is_read_is_answered`], and more than
+    /// any other the client sends.
+    const REQUEST_DATAGRAM_BYTES: usize = 1_000;
+
+    /// The size of the datagrams that set up a connection, padded to it.
+    const INITIAL_DATAGRAM_BYTES: usize = 1_200;
+
+    /// A UDP relay to `server`, and its address. It passes everything but,
+    /// once `armed`, the first two datagrams from its client that carry a
+    /// request, and sends those two together once it has both.
+    fn delaying(server: SocketAddr, armed: Arc<AtomicBool>) -> SocketAddr {
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket.set_nonblocking(true).unwrap();
+        let socket = tokio::net::UdpSocket::from_std(socket).unwrap();
+        let address = socket.local_addr().unwrap();
+        tokio::spawn(async move {
+            let mut client: Option<SocketAddr> = None;
+            let mut held: Vec<Vec<u8>> = Vec::new();
+            let mut buffer = vec![0_u8; 65_536];
+            while let Ok((length, from)) = socket.recv_from(&mut buffer).await {
+                let datagram = &buffer[..length];
+                if from == server {
+                    if let Some(client) = client {
+                        let _ = socket.send_to(datagram, client).await;
+                    }
+                    continue;
+                }
+                client = Some(from);
+                if armed.load(Ordering::SeqCst)
+                    && held.len() < 2
+                    && (REQUEST_DATAGRAM_BYTES..INITIAL_DATAGRAM_BYTES).contains(&length)
+                {
+                    held.push(datagram.to_vec());
+                    if held.len() == 2 {
+                        for datagram in &held {
+                            let _ = socket.send_to(datagram, server).await;
+                        }
+                    }
+                    continue;
+                }
+                let _ = socket.send_to(datagram, server).await;
+            }
+        });
+        address
+    }
+
+    // A request whose datagram and its retransmission reach the node
+    // together is answered with its body. Both copies of the stream's start
+    // are buffered when the node reads the kind byte. Read in order for that
+    // byte and out of order for the rest, quinn-proto 0.11.19 gave the
+    // copy back as well, counted more bytes read than the stream holds,
+    // never saw its end, and underflowed when the stream was dropped, which
+    // aborted the node.
+    #[tokio::test]
+    async fn a_request_sent_again_before_it_is_read_is_answered() {
+        let shutdown = CancellationToken::new();
+        let key = Arc::new(NodeKey::from_bytes(&[1; 32]));
+        let server_id = key.node_id();
+        let (_server_key, receiver) = watch::channel(Some(key));
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let server = Arc::new(Quic::new(socket, receiver, true).unwrap());
+        tokio::spawn(Arc::clone(&server).serve(Arc::new(Echo), shutdown.clone()));
+        let armed = Arc::new(AtomicBool::new(false));
+        let relay = delaying(server.local_addr().unwrap(), Arc::clone(&armed));
+
+        let (_client_key, receiver) = watch::channel(Some(Arc::new(NodeKey::from_bytes(&[2; 32]))));
+        let keys = Arc::new(Keys::new(receiver));
+        let mut config = client_config(&keys, server_id, IDLE_TIMEOUT, false).unwrap();
+        // Datagrams of the initial size only, so that only the request's
+        // reach the relay's threshold.
+        let mut transport = transport_config(IDLE_TIMEOUT);
+        transport.mtu_discovery_config(None);
+        config.transport_config(Arc::new(transport));
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let runtime = quinn::default_runtime().unwrap();
+        let client = Endpoint::new(EndpointConfig::default(), None, socket, runtime).unwrap();
+        let connection = client
+            .connect_with(config, relay, "dassie")
+            .unwrap()
+            .await
+            .unwrap();
+
+        // Past the handshake, whose datagrams are padded to the initial size.
+        armed.store(true, Ordering::SeqCst);
+        // One datagram's worth, sent as a node sends a request.
+        let body = vec![7_u8; REQUEST_DATAGRAM_BYTES];
+        let (mut send, mut recv) = connection.open_bi().await.unwrap();
+        send.write_all(&[StreamKind::Peer.byte()]).await.unwrap();
+        send.write_all(&body).await.unwrap();
+        send.finish().unwrap();
+        let answer = tokio::time::timeout(Duration::from_secs(5), read_in_order(&mut recv, 4096))
+            .await
+            .expect("no answer")
+            .unwrap();
+        let (status, answered) = answer.split_at(STATUS_BYTES);
+        assert_eq!(status, 200_u16.to_be_bytes());
+        assert_eq!(answered, body);
+        shutdown.cancel();
     }
 }
