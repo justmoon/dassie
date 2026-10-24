@@ -1,5 +1,5 @@
 {
- "source": "Every validation the validations stream carried for one ledger on each network, each as the stream gave it: data is the serialized STValidation. unl is the network's UNL from its publisher's list, each validator with its live signing key from the manifest method; quorum is rippled's. Captured 2026-10-24 between 02:31 and 02:45 UTC from wss://s1.ripple.com and wss://s2.ripple.com (rippled API v1). Captured 2026-10-24 between 02:31 and 02:45 UTC from wss://s.altnet.rippletest.net:51233 (rippled API v1).",
+ "source": "Every validation the validations stream carried for one ledger on each network, each as the stream gave it: data is the serialized STValidation. unl is the network's UNL from its publisher's list, each validator with its live signing key from the manifest method; quorum is rippled's. Captured 2026-10-24 between 02:31 and 02:45 UTC from wss://s1.ripple.com and wss://s2.ripple.com (rippled API v1). Captured 2026-10-24 between 02:31 and 02:45 UTC from wss://s.altnet.rippletest.net:51233 (rippled API v1). testdata/xrpl/capture-validations.mjs captures them anew, of another ledger.",
  "ledgers": [
   {
    "network": "mainnet",

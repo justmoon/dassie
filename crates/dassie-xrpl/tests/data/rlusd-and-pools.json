@@ -1,4 +1,5 @@
 {
+  "source": "Answers of mainnet's ledger 107862238 and the testnet's ledger 21775861, whole, from mainnet's and the testnet's public servers (rippled API v1): RLUSD's issuer by account_info and gateway_balances, the XRP/RLUSD pool by amm_info and its objects by ledger_entry with binary, and the testnet's XRP pools of DSUSD and of RLUSD by amm_info. Reproduced by testdata/xrpl/capture-rlusd-and-pools.mjs --mainnet 107862238 --testnet 21775861.",
   "issuer_account_info": {
     "account_data": {
       "Account": "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De",

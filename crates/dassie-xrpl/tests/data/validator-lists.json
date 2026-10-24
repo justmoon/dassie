@@ -1,5 +1,5 @@
 {
- "source": "The signed validator lists the publishers' sites served, each body as it came: https://vl.ripple.com and https://unl.xrplf.org for mainnet, https://vl.altnet.rippletest.net for the testnet. Captured 2026-10-24 between 02:31 and 02:45 UTC.",
+ "source": "The signed validator lists the publishers' sites served, each body as it came: https://vl.ripple.com and https://unl.xrplf.org for mainnet, https://vl.altnet.rippletest.net for the testnet. Captured 2026-10-24 between 02:31 and 02:45 UTC. testdata/xrpl/capture-validator-lists.sh captures them anew.",
  "lists": [
   {
    "network": "mainnet",

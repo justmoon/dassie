@@ -1,5 +1,5 @@
 {
-  "source": "server_state from public servers, 2026-10-24 02:31 UTC, and from the project's proof servers, 2026-10-24 19:06 UTC (rippled API v1)",
+  "source": "server_state from public servers, 2026-10-24 02:31 UTC, and from the project's proof servers, 2026-10-24 19:06 UTC (rippled API v1); testdata/xrpl/capture-server-state.mjs captures them anew.",
   "servers": {
     "wss://s1.ripple.com": {
       "id": 2,

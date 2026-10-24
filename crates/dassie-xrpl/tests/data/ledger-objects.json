@@ -1,5 +1,5 @@
 {
-  "source": "Mainnet ledger 107873057 (ledger with binary) and, from ledger_entry with binary as of it, its skip list of recent ledgers, the skip list that holds its newest flag ledger, and the fee settings. Captured 2026-10-24 from wss://s1.ripple.com (rippled API v1).",
+  "source": "Mainnet ledger 107873057 (ledger with binary) and, from ledger_entry with binary as of it, its skip list of recent ledgers, the skip list that holds its newest flag ledger, and the fee settings. Captured 2026-10-24 from wss://s1.ripple.com (rippled API v1). Reproduced by testdata/xrpl/capture-ledger-objects.mjs --ledger 107873057.",
   "ledger_index": 107873057,
   "ledger_hash": "634D91496BC45B1DFB09A9ECF716814BAD7ACF680592F6C66F976FF3C58CFBF9",
   "ledger_data": "066E03210163385BFCDF51F37A8853FECAE2CFD6B0A5A8A489ABCBB26799E94245332A809643D1896D405F563AEF458863CCE417E3CD3A4F32D83254FA3CBB88F6527E76E0896119CE296E9FFC589A35EF1347D6642104FE7A3C74C4710F6460424392B77495E95719B8F580326F7BF7326F7BF80A00",
