@@ -879,3 +879,25 @@ impl Core {
         merged_status(asset, active.scheme.status())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // spec/decisions/real-money.md: until mainnet has schemes of its own, no
+    // scheme settles through a mainnet account, and none is made, whatever
+    // the books name.
+    #[test]
+    fn no_mainnet_account_is_made() {
+        let key = NodeKey::from_bytes(&[7; 32]);
+        let mainnet = dassie_xrpl::network::MAINNET.first();
+        assert!(matches!(
+            create_asset(mainnet, "", &[], (&key, 0)),
+            Err(SchemeError::UnknownScheme)
+        ));
+        assert!(create_asset(dassie_xrpl::account::FIRST, "", &[], (&key, 0)).is_ok());
+        for info in SCHEMES {
+            assert_ne!(asset_of(info.id), Some(mainnet), "{}", info.id);
+        }
+    }
+}

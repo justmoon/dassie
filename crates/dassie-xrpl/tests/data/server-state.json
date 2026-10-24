@@ -1,0 +1,343 @@
+{
+  "source": "server_state from public servers, 2026-10-24 02:31 UTC (rippled API v1)",
+  "servers": {
+    "wss://s1.ripple.com": {
+      "id": 2,
+      "result": {
+        "state": {
+          "build_version": "3.4.1",
+          "complete_ledgers": "106699639-107862101",
+          "initial_sync_duration_us": "515237700",
+          "io_latency_ms": 1,
+          "jq_trans_overflow": "21805",
+          "last_close": {
+            "converge_time": 3002,
+            "proposers": 35
+          },
+          "load_base": 256,
+          "load_factor": 256,
+          "load_factor_fee_escalation": 256,
+          "load_factor_fee_queue": 256,
+          "load_factor_fee_reference": 256,
+          "load_factor_server": 256,
+          "network_id": 0,
+          "peer_disconnects": "12474",
+          "peer_disconnects_resources": "346",
+          "peers": 258,
+          "ports": [
+            {
+              "port": "2459",
+              "protocol": [
+                "peer"
+              ]
+            },
+            {
+              "port": "51233",
+              "protocol": [
+                "ws2",
+                "wss2"
+              ]
+            },
+            {
+              "port": "50051",
+              "protocol": [
+                "grpc"
+              ]
+            }
+          ],
+          "pubkey_node": "n9LLkueSNK3kjX73NrhjCmaMDV5wUTzn6cge75h6feL3wt2d63RR",
+          "server_domain": "ripple.com",
+          "server_state": "full",
+          "server_state_duration_us": "197861158966",
+          "state_accounting": {
+            "connected": {
+              "duration_us": "73681546",
+              "transitions": "2"
+            },
+            "disconnected": {
+              "duration_us": "434674772",
+              "transitions": "2"
+            },
+            "full": {
+              "duration_us": "197861158966",
+              "transitions": "1"
+            },
+            "syncing": {
+              "duration_us": "6881371",
+              "transitions": "1"
+            },
+            "tracking": {
+              "duration_us": "9",
+              "transitions": "1"
+            }
+          },
+          "time": "2026-Oct-24 02:31:57.337957 UTC",
+          "uptime": 198376,
+          "validated_ledger": {
+            "base_fee": 10,
+            "close_time": 846124311,
+            "hash": "96FBE0EB96837471EAA8E77BA3D8801E8E0D227167AA98ED3A8A6A63148ED609",
+            "reserve_base": 1000000,
+            "reserve_inc": 200000,
+            "seq": 107862101
+          },
+          "validation_quorum": 28
+        }
+      },
+      "status": "success",
+      "type": "response",
+      "forwarded": true,
+      "warnings": [
+        {
+          "id": 2001,
+          "message": "This is a clio server. clio only serves validated data. If you want to talk to rippled, include 'ledger_index':'current' in your request"
+        }
+      ]
+    },
+    "wss://s2.ripple.com": {
+      "id": 2,
+      "result": {
+        "state": {
+          "build_version": "3.4.1",
+          "complete_ledgers": "106923000-107862102",
+          "initial_sync_duration_us": "439322472",
+          "io_latency_ms": 1,
+          "jq_trans_overflow": "19669",
+          "last_close": {
+            "converge_time": 2005,
+            "proposers": 35
+          },
+          "load_base": 256,
+          "load_factor": 256,
+          "load_factor_fee_escalation": 256,
+          "load_factor_fee_queue": 256,
+          "load_factor_fee_reference": 256,
+          "load_factor_server": 256,
+          "network_id": 0,
+          "peer_disconnects": "12800",
+          "peer_disconnects_resources": "415",
+          "peers": 254,
+          "ports": [
+            {
+              "port": "2459",
+              "protocol": [
+                "peer"
+              ]
+            },
+            {
+              "port": "51233",
+              "protocol": [
+                "ws2",
+                "wss2"
+              ]
+            },
+            {
+              "port": "50051",
+              "protocol": [
+                "grpc"
+              ]
+            }
+          ],
+          "pubkey_node": "n9MAKwz7hK5wG4CHLD3zSo1Lp7TefDCA9ajZVZVuUp1E2nLtd79j",
+          "server_domain": "ripple.com",
+          "server_state": "full",
+          "server_state_duration_us": "197365226900",
+          "state_accounting": {
+            "connected": {
+              "duration_us": "66244275",
+              "transitions": "2"
+            },
+            "disconnected": {
+              "duration_us": "367655648",
+              "transitions": "2"
+            },
+            "full": {
+              "duration_us": "197365226900",
+              "transitions": "1"
+            },
+            "syncing": {
+              "duration_us": "5422542",
+              "transitions": "1"
+            },
+            "tracking": {
+              "duration_us": "5",
+              "transitions": "1"
+            }
+          },
+          "time": "2026-Oct-24 02:31:58.847682 UTC",
+          "uptime": 197804,
+          "validated_ledger": {
+            "base_fee": 10,
+            "close_time": 846124320,
+            "hash": "57956C2763B8708B8C6A35B23CF0E047F30CBB6762226085292DA79B091EA998",
+            "reserve_base": 1000000,
+            "reserve_inc": 200000,
+            "seq": 107862102
+          },
+          "validation_quorum": 28
+        }
+      },
+      "status": "success",
+      "type": "response",
+      "forwarded": true,
+      "warnings": [
+        {
+          "id": 2001,
+          "message": "This is a clio server. clio only serves validated data. If you want to talk to rippled, include 'ledger_index':'current' in your request"
+        }
+      ]
+    },
+    "wss://xrplcluster.com": {
+      "id": 2,
+      "result": {
+        "state": {
+          "build_version": "3.4.1",
+          "complete_ledgers": "32570-107862102",
+          "server_state": "full",
+          "server_state_duration_us": "5265826000",
+          "load_factor": 256,
+          "io_latency_ms": 1,
+          "jq_trans_overflow": "0",
+          "peer_disconnects": "0",
+          "peer_disconnects_resources": "0",
+          "uptime": 5265,
+          "network_id": 0,
+          "validation_quorum": 0,
+          "published_ledger": 107862102,
+          "time": "2026-Oct-24 02:31:59.423000 UTC",
+          "initial_sync_duration_us": "967000",
+          "load_factor_server": 256,
+          "state_accounting": {
+            "connected": {
+              "duration_us": "0",
+              "transitions": "0"
+            },
+            "disconnected": {
+              "duration_us": "0",
+              "transitions": "0"
+            },
+            "full": {
+              "duration_us": "5265826000",
+              "transitions": "1"
+            },
+            "syncing": {
+              "duration_us": "0",
+              "transitions": "0"
+            },
+            "tracking": {
+              "duration_us": "0",
+              "transitions": "0"
+            }
+          },
+          "last_close": {
+            "converge_time": 3001,
+            "proposers": 35
+          },
+          "load_factor_fee_escalation": 256,
+          "load_factor_fee_queue": 256,
+          "load_factor_fee_reference": 256,
+          "peers": 151,
+          "ports": [
+            {
+              "port": "4000",
+              "protocol": [
+                "ws",
+                "http"
+              ]
+            }
+          ],
+          "pubkey_node": "n9JYyEykXivfrxhBS1wUs7Nqjy9QHaMp3aU288ojpQNWNyarL3hA",
+          "validated_ledger": {
+            "seq": 107862102,
+            "hash": "57956C2763B8708B8C6A35B23CF0E047F30CBB6762226085292DA79B091EA998",
+            "base_fee": 10,
+            "reserve_base": 1000000,
+            "reserve_inc": 200000,
+            "close_time": 846124320
+          },
+          "load_base": 256
+        }
+      },
+      "status": "success",
+      "type": "response"
+    },
+    "wss://s.altnet.rippletest.net:51233": {
+      "id": 2,
+      "result": {
+        "state": {
+          "build_version": "3.4.1",
+          "complete_ledgers": "13075065-21775700",
+          "initial_sync_duration_us": "421391478",
+          "io_latency_ms": 1,
+          "jq_trans_overflow": "589284",
+          "last_close": {
+            "converge_time": 2000,
+            "proposers": 6
+          },
+          "load_base": 256,
+          "load_factor": 256,
+          "load_factor_fee_escalation": 256,
+          "load_factor_fee_queue": 256,
+          "load_factor_fee_reference": 256,
+          "load_factor_server": 256,
+          "network_id": 1,
+          "peer_disconnects": "37219",
+          "peer_disconnects_resources": "625",
+          "peers": 105,
+          "ports": [
+            {
+              "port": "2459",
+              "protocol": [
+                "peer"
+              ]
+            },
+            {
+              "port": "50051",
+              "protocol": [
+                "grpc"
+              ]
+            }
+          ],
+          "pubkey_node": "n94RCuzJCrPizJkeUjqWJUGSyosy3AQYFjxf98deMrZyQqSosRAz",
+          "server_state": "full",
+          "server_state_duration_us": "47658008137",
+          "state_accounting": {
+            "connected": {
+              "duration_us": "416324040",
+              "transitions": "2"
+            },
+            "disconnected": {
+              "duration_us": "1057242",
+              "transitions": "2"
+            },
+            "full": {
+              "duration_us": "2198992195673",
+              "transitions": "31"
+            },
+            "syncing": {
+              "duration_us": "98409722",
+              "transitions": "31"
+            },
+            "tracking": {
+              "duration_us": "1666",
+              "transitions": "31"
+            }
+          },
+          "time": "2026-Oct-24 02:32:00.085852 UTC",
+          "uptime": 2199507,
+          "validated_ledger": {
+            "base_fee": 10,
+            "close_time": 846124320,
+            "hash": "7A445801ED2A64D90D1B314DD2289F718352243CDD1B55403F3735CAD4544A21",
+            "reserve_base": 1000000,
+            "reserve_inc": 200000,
+            "seq": 21775700
+          },
+          "validation_quorum": 5
+        }
+      },
+      "status": "success",
+      "type": "response"
+    }
+  }
+}
