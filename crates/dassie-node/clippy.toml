@@ -22,6 +22,7 @@ disallowed-methods = [
   { path = "std::env::var_os", reason = "configuration is an input (spec/decisions/tigerstyle.md)" },
   { path = "std::thread::spawn", reason = "a state machine is driven from one thread (spec/decisions/tigerstyle.md)" },
   { path = "tokio::sync::mpsc::unbounded_channel", reason = "every queue has a limit (spec/decisions/tigerstyle.md)" },
+  { path = "quinn::RecvStream::read_to_end", reason = "reads out of order, which quinn-proto miscounts after an ordered read; denied in `quic`, which reads with `read_in_order` (spec/areas/peer-protocol.md#quic)" },
 ]
 
 # Allowed in the daemon, denied in the engine's core like the types and

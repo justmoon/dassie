@@ -12,7 +12,7 @@ use std::time::Duration;
 use dassie_identity::NodeId;
 use quinn::Connection;
 
-use super::{ANSWER_TIMEOUT, On, Quic, StreamKind, keys, no_room};
+use super::{ANSWER_TIMEOUT, On, Quic, StreamKind, keys, no_room, read_in_order};
 use dassie_hub::founding::{FoundingAnswer, Refusal};
 use dassie_oer::Encode;
 
@@ -196,7 +196,7 @@ async fn exchange(
     {
         return failed("the request could not be sent");
     }
-    match recv.read_to_end(limit).await {
+    match read_in_order(&mut recv, limit).await {
         Ok(bytes) => Exchanged::Done(Ok(bytes)),
         Err(_) => failed("no reply, or one too long"),
     }
@@ -236,7 +236,7 @@ impl On {
             write_reply(&mut send, &HubAnswer::Busy.encode(), ANSWER_TIMEOUT).await;
             return;
         };
-        let read = tokio::time::timeout(REQUEST_TIMEOUT, recv.read_to_end(limit)).await;
+        let read = tokio::time::timeout(REQUEST_TIMEOUT, read_in_order(&mut recv, limit)).await;
         let Ok(Ok(message)) = read else {
             reset(&mut send, &mut recv);
             return;
@@ -260,8 +260,11 @@ impl On {
             reset(&mut send, &mut recv);
             return;
         };
-        let read =
-            tokio::time::timeout(REQUEST_TIMEOUT, recv.read_to_end(STATE_REQUEST_BYTES)).await;
+        let read = tokio::time::timeout(
+            REQUEST_TIMEOUT,
+            read_in_order(&mut recv, STATE_REQUEST_BYTES),
+        )
+        .await;
         let Ok(Ok(request)) = read else {
             reset(&mut send, &mut recv);
             return;
@@ -308,8 +311,11 @@ impl On {
             }
             FoundingAccess::Place(place) => place,
         };
-        let read =
-            tokio::time::timeout(REQUEST_TIMEOUT, recv.read_to_end(MAX_FOUNDING_BYTES)).await;
+        let read = tokio::time::timeout(
+            REQUEST_TIMEOUT,
+            read_in_order(&mut recv, MAX_FOUNDING_BYTES),
+        )
+        .await;
         let Ok(Ok(request)) = read else {
             reset(&mut send, &mut recv);
             return;
