@@ -282,3 +282,41 @@ fn an_attestation_counts_once_the_validator_took_it() {
     setup.run();
     assert!(setup.cursor.unwrap().scanned_to > before.scanned_to);
 }
+
+// An attestation the host drops waits no more: the cursor moves on, but
+// never past the dropped transaction's ledger, and the transaction is
+// attested again when read again.
+#[test]
+fn a_dropped_attestation_holds_the_cursor_only_below_it() {
+    let mut setup = Setup::new();
+    setup.connect();
+    setup.view.checked = true;
+    setup.taking = false;
+    setup.attested.clear();
+    let escrow = setup.escrow();
+    setup.xrpl.deposit_tagged(escrow, 5_000_000, Some(7));
+    setup.close();
+    let deposit_ledger = setup.watcher.cursor().unwrap().newest_ledger;
+    setup.close();
+    setup.close();
+    let held = setup.cursor;
+    for transaction in core::mem::take(&mut setup.untaken) {
+        setup.watcher.dropped(transaction);
+    }
+    setup.run();
+    let cursor = setup.cursor.unwrap();
+    assert_ne!(setup.cursor, held, "the cursor is written again");
+    assert!(
+        cursor.scanned_to < deposit_ledger,
+        "never past the dropped one"
+    );
+    assert!(cursor.newest_ledger > deposit_ledger);
+    // Later ledgers move it no further than that.
+    setup.close();
+    assert_eq!(setup.cursor.unwrap().scanned_to, cursor.scanned_to);
+    // Read again, it is attested again.
+    setup.attested.clear();
+    setup.watcher.disconnected();
+    setup.connect();
+    assert_eq!(setup.attested.len(), 1);
+}
