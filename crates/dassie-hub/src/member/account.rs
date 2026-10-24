@@ -129,7 +129,7 @@ pub const IDLE_POLL_MS: u64 = 1_000;
 pub const RESUBMIT_MS: u64 = 1_000;
 /// How often it asks for its own state, against which the scheme checks
 /// its books.
-const ACCOUNT_EVERY_MS: u64 = 2_000;
+pub const ACCOUNT_EVERY_MS: u64 = 2_000;
 /// Most keys looked up at once.
 pub const MAX_LOOKUPS: usize = 16;
 /// Most recent states of the account kept, to match the holds read anew

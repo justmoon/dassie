@@ -46,6 +46,7 @@ use dassie_hub::ledger::Phase;
 use dassie_hub::service::MAX_SINCE_ANSWER_BYTES;
 use dassie_hub::service::wire::{ENVELOPE, MAX_MEMBER_MESSAGE, MAX_MESSAGE, Message};
 use dassie_identity::{NodeId, PublicKey};
+use dassie_node_core::rate_limit::{ClientKey, RateLimitPolicy, RateLimiter};
 use sha2::{Digest as _, Sha256};
 use tokio::sync::{mpsc, oneshot};
 
@@ -78,6 +79,36 @@ pub const MAX_MEMBER_REQUEST_BYTES: usize = HUB_ID_BYTES + MAX_MEMBER_MESSAGE_BY
 /// [`MAX_MEMBER_REQUEST_BYTES`], so together a few tens of MiB, about what
 /// the peer protocol's requests may hold.
 pub const MAX_MEMBER_REQUESTS: usize = 128;
+
+/// The members one address may stand for at a validator, for the rate of
+/// `POST /hub`: a few nodes behind one NAT.
+const MEMBERS_PER_ADDRESS: u64 = 4;
+
+/// The requests a member sends one validator a second at most, in
+/// thousandths: a poll every `POLL_MS` while it has holds or operations
+/// (one every `IDLE_POLL_MS` otherwise), its own account every
+/// `ACCOUNT_EVERY_MS`, and an operation again every `RESUBMIT_MS`. Lookups
+/// of peers' keys come in short bursts, which the burst covers.
+const MEMBER_MILLI_REQUESTS_PER_S: u64 = 1_000_000 / dassie_hub::member::account::POLL_MS
+    + 1_000_000 / dassie_hub::member::account::ACCOUNT_EVERY_MS
+    + 1_000_000 / dassie_hub::member::account::RESUBMIT_MS;
+
+/// Requests to `POST /hub` per address: [`MEMBERS_PER_ADDRESS`] members
+/// polling at their full rate, with two seconds of them at once. It is a
+/// limiter of its own: a member on the HTTPS fallback never takes the
+/// rate, places or charges of the peer protocol from its address.
+pub const HUB_RATE: RateLimitPolicy = RateLimitPolicy {
+    client_burst: HUB_BURST,
+    client_refill_ms: 1_000_000 / (MEMBERS_PER_ADDRESS * MEMBER_MILLI_REQUESTS_PER_S),
+    client_slots: 1024,
+};
+
+/// Two seconds of [`HUB_RATE`].
+const HUB_BURST: u32 = 92;
+
+const _: () =
+    assert!(HUB_BURST as u64 == MEMBERS_PER_ADDRESS * MEMBER_MILLI_REQUESTS_PER_S * 2 / 1_000);
+const _: () = assert!(HUB_RATE.client_refill_ms > 0);
 
 /// The most requests from hubs' validators read and waiting at once,
 /// node-wide: each holds at most [`MAX_REQUEST_BYTES`], a consensus
@@ -363,6 +394,8 @@ pub struct Hubs {
     /// Places for requests from members, and from validators.
     incoming_members: Arc<tokio::sync::Semaphore>,
     incoming_validators: Arc<tokio::sync::Semaphore>,
+    /// The rate of `POST /hub` per address ([`HUB_RATE`]).
+    limiter: Mutex<RateLimiter>,
 }
 
 impl Default for Hubs {
@@ -373,6 +406,7 @@ impl Default for Hubs {
             members: Arc::new(tokio::sync::Semaphore::new(MAX_MEMBER_EXCHANGES)),
             incoming_members: Arc::new(tokio::sync::Semaphore::new(MAX_MEMBER_REQUESTS)),
             incoming_validators: Arc::new(tokio::sync::Semaphore::new(MAX_VALIDATOR_REQUESTS)),
+            limiter: Mutex::new(RateLimiter::new(HUB_RATE)),
         }
     }
 }
@@ -382,6 +416,16 @@ impl Hubs {
     #[must_use]
     pub fn member_permit(&self) -> Option<tokio::sync::OwnedSemaphorePermit> {
         Arc::clone(&self.members).try_acquire_owned().ok()
+    }
+
+    /// Charges `client` for a request to `POST /hub` at `now`: whether it
+    /// may make one ([`HUB_RATE`]).
+    pub fn charge(&self, client: IpAddr, now_ms: u64) -> bool {
+        self.limiter
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .check(ClientKey::from_ip(client), now_ms)
+            .is_ok()
     }
 
     /// Who `from` is to the hub named `hub`: whether the node validates it,

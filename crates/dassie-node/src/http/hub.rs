@@ -3,7 +3,9 @@
 //! Validators never use it, so it takes only a member's request.
 //!
 //! A client proves no key here, so every request is charged to its address
-//! at the rate of the peer protocol's unauthenticated requests. Its body is
+//! at a rate of the hub's own, sized for members polling validators
+//! (`HUB_RATE`): never the peer protocol's, so a member on this fallback
+//! keeps its peer requests to the same node unrefused. Its body is
 //! read up to the largest member's request, holding one of the places for
 //! members' hub requests, node-wide.
 //!
@@ -34,13 +36,12 @@ pub async fn handle(node: &Node, peer: SocketAddr, request: Request<Incoming>) -
         );
     }
     let client = peer.ip();
-    if node.peer_limited(client) {
+    if !node.hubs().charge(client, node.now_ms()) {
         return response::text(StatusCode::TOO_MANY_REQUESTS, "Too Many Requests");
     }
     let Some(_permit) = node.hubs().request_permit(HubAccess::Member) else {
         return response::text(StatusCode::SERVICE_UNAVAILABLE, "Service Unavailable");
     };
-    node.peer_charge(client);
     let timeout = Duration::from_millis(node.policies().body_timeout_ms);
     let body = Limited::new(request.into_body(), MAX_MEMBER_REQUEST_BYTES).collect();
     let body = match tokio::time::timeout(timeout, body).await {

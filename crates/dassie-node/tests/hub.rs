@@ -604,3 +604,37 @@ async fn a_strangers_request_is_cut_at_the_member_bound() {
     assert_eq!(taken.load(std::sync::atomic::Ordering::Relaxed), 0);
     shutdown.cancel();
 }
+
+// spec/areas/peer-protocol.md#the-hubs-stream: `POST /hub` has a rate of
+// its own, so a member polling a validator over HTTPS at its full rate
+// leaves its peer requests to the same node unrefused.
+#[tokio::test]
+async fn a_member_polling_hub_leaves_its_peer_requests_alone() {
+    use dassie_peer::wire::MESSAGE_CONTENT_TYPE;
+
+    let node = support::TestNode::start().await;
+    let hub = HubId(dassie_hub::Digest([9; 32]));
+    let key = NodeKey::from_bytes(&[1; 32]).public_key();
+    let request = Message::Request(Request::Account(key)).to_vec();
+    // More than the peer protocol's burst for an address, within a hub's.
+    for _ in 0..40 {
+        let post = hyper::Request::post("/hub")
+            .header("host", node.host())
+            .header("content-type", MEDIA_TYPE)
+            .body(http_body_util::Full::new(bytes::Bytes::from(
+                encode_request(&hub, &request),
+            )))
+            .unwrap();
+        let reply = support::send(node.https, true, post).await;
+        assert_eq!(reply.status, 404);
+    }
+    let peer = hyper::Request::post("/peer")
+        .header("host", node.host())
+        .header("content-type", MESSAGE_CONTENT_TYPE)
+        .header("accept", MESSAGE_CONTENT_TYPE)
+        .body(http_body_util::Full::new(bytes::Bytes::from_static(b"x")))
+        .unwrap();
+    let reply = support::send(node.https, true, peer).await;
+    assert_ne!(reply.status, 429, "the peer protocol's rate is untouched");
+    node.stop().await;
+}
