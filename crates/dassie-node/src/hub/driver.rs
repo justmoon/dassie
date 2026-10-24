@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use dassie_hub::consensus::{Finalized, PeerId, Stored};
+use dassie_hub::consensus::{Evidence, Finalized, PeerId, Stored};
 use dassie_hub::escrow::{PayoutSet, ValidatorKeys};
 use dassie_hub::ledger::Ledger;
 use dassie_hub::operation::ValidatorOperation;
@@ -56,6 +56,8 @@ pub struct Effects {
     /// We are further behind than peers keep blocks: the final block whose
     /// state to fetch from a validator, for [`Driver::catch_up`].
     pub behind: Option<Box<Finalized>>,
+    /// Evidence that validators broke the rules, which the step logged.
+    pub evidence: Vec<Evidence>,
 }
 
 /// What a step writes before any of its actions go out: one transaction
@@ -340,6 +342,15 @@ impl Driver {
                     effects.bundles.push(set.height);
                 }
                 Action::Behind(finalized) => effects.behind = Some(finalized),
+                Action::Evidence(evidence) => {
+                    tracing::warn!(
+                        target: crate::log::target::HUB,
+                        hub = %hex(self.hub.0.as_bytes()),
+                        culprits = ?evidence.culprits(),
+                        "validators of the hub broke the rules: evidence names them"
+                    );
+                    effects.evidence.push(*evidence);
+                }
             }
         }
         Ok(Step { write, effects })
