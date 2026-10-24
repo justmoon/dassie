@@ -563,6 +563,9 @@ fn transfer(row: &JournalRow) -> proto::Transfer {
         Reference::Loss { scheme, id } => {
             proto::transfer::Reference::Loss(format!("{scheme}:{id}"))
         }
+        Reference::OwnerPayment { scheme, id } => {
+            proto::transfer::Reference::OwnerPayment(format!("{scheme}:{id}"))
+        }
     };
     let state = match row.state {
         TransferState::Pending => proto::TransferState::Pending,

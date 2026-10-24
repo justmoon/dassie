@@ -58,6 +58,18 @@ pub enum Reference {
         /// What on the underlying ledger it comes from.
         id: Name,
     },
+    /// The owner's payment out of a scheme's account, such as a deposit
+    /// into a settlement hub (spec/areas/settlement.md#the-scheme-interface):
+    /// pending while it is on its way, so the owner's funds are held for
+    /// it, posted when it applied, voided when it moved nothing. Journaled
+    /// while pending too, as a settlement is: it may be on its way when the
+    /// node restarts.
+    OwnerPayment {
+        /// The settlement scheme that pays it.
+        scheme: Name,
+        /// The scheme's ID for it.
+        id: Name,
+    },
 }
 
 impl Reference {
@@ -81,6 +93,6 @@ impl Reference {
     /// restart.
     #[must_use]
     pub const fn is_durable_while_pending(&self) -> bool {
-        matches!(self, Self::Settlement { .. })
+        matches!(self, Self::Settlement { .. } | Self::OwnerPayment { .. })
     }
 }

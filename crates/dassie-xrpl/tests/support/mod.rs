@@ -40,6 +40,10 @@ pub enum Effect {
     Withdrawal {
         amount: u64,
     },
+    OwnerPaid {
+        id: Name,
+        applied: bool,
+    },
     SendMessage {
         peer: Name,
         message: Vec<u8>,
@@ -74,6 +78,7 @@ impl From<dassie_settlement::Effect> for Effect {
             E::Cancel { settlement } => Self::Cancel { settlement },
             E::Deposit { amount } => Self::Deposit { amount },
             E::Withdrawal { amount } => Self::Withdrawal { amount },
+            E::OwnerPaid { id, applied } => Self::OwnerPaid { id, applied },
             E::SendMessage { peer, message } => Self::SendMessage { peer, message },
             E::Fee { amount, id } => Self::Fee { amount, id },
             E::Reconcile {

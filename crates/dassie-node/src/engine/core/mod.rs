@@ -20,6 +20,7 @@ mod hubs;
 mod incoming;
 mod invariants;
 mod ledgers;
+mod owner_payments;
 mod packets;
 mod payers;
 mod peers;
@@ -529,6 +530,7 @@ impl Core {
             }
         }
         self.reconcile_settlements(None);
+        self.reconcile_owner_payments();
         self.update_routes();
         self.after_peer();
         self.flush();

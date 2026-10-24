@@ -441,6 +441,9 @@ struct Books {
     cancelled: Vec<Name>,
     losses: Vec<(Name, u64, LossCause)>,
     ids: BTreeSet<Name>,
+    /// The owner's payments held while on their way, as the node holds
+    /// them: by ID, what each pays.
+    held: BTreeMap<Name, u64>,
 }
 
 impl Books {
@@ -453,6 +456,13 @@ impl Books {
             Effect::Withdrawal { amount } => {
                 self.settlement -= i128::from(amount);
                 self.owner -= i128::from(amount);
+            }
+            Effect::OwnerPaid { id, applied } => {
+                let amount = self.held.remove(&id).unwrap();
+                if applied {
+                    self.settlement -= i128::from(amount);
+                    self.owner -= i128::from(amount);
+                }
             }
             Effect::IncomingSettlement { peer, amount, id } => {
                 assert!(self.ids.insert(id.unwrap()), "a settlement booked once");
@@ -1688,6 +1698,7 @@ fn the_owner_withdraws_through_the_scheme() {
         .scheme
         .pay_owner(Some(&mut member.account), &payment([9; 20], 2 * XRP))
         .unwrap();
+    member.books.held.insert(id, units(2 * XRP));
     assert_eq!(member.scheme.owner_payment(id), OwnerPaymentState::InFlight);
     assert_eq!(
         member
@@ -1698,14 +1709,13 @@ fn the_owner_withdraws_through_the_scheme() {
     );
     world.heard(a);
     // Executed, and then a restart before an agreed state shows what it
-    // took: the ledger fee booked ahead is kept.
+    // took: its hold is posted and its ledger fee booked, once, the counter
+    // still to show them.
     world.run(500);
     let member = &world.members[a];
     assert_eq!(member.scheme.owner_payment(id), OwnerPaymentState::Applied);
-    assert_eq!(
-        member.books.owner, owner,
-        "the counter has not shown it yet"
-    );
+    assert!(member.books.held.is_empty(), "the hold is posted");
+    assert_eq!(member.books.owner, owner - i128::from(units(2 * XRP)));
     world.restart(a);
     world.run(3_000);
     let member = &world.members[a];

@@ -248,7 +248,7 @@ impl XrplScheme {
             }
             News::Cancelled { scheme, hash, .. } if *scheme == id => {
                 if self.is_owner_payment(hash) {
-                    self.owner_done(OwnerPaymentState::Failed);
+                    self.owner_done(OwnerPaymentState::Failed, effects);
                 } else {
                     effects.push(Effect::Cancel {
                         settlement: hash_name(hash),
@@ -265,7 +265,7 @@ impl XrplScheme {
             }
             // What became of it is in the balance the sync matched.
             News::Unread { hash, .. } if self.is_owner_payment(hash) => {
-                self.owner_done(OwnerPaymentState::Unknown);
+                self.owner_done(OwnerPaymentState::Unknown, effects);
             }
             News::Unread { hash, ours } if ours.scheme == id => self.unread(*hash),
             News::Unread { .. } => {}
@@ -473,28 +473,33 @@ impl XrplScheme {
         self.owner_payment.is_some_and(|(owner, _)| owner == *hash)
     }
 
-    /// The owner's payment on its way is no longer: what became of it.
-    fn owner_done(&mut self, outcome: OwnerPaymentState) {
+    /// The owner's payment on its way is no longer: what became of it,
+    /// which posts the node's hold on the owner's funds if it applied, and
+    /// voids it otherwise. One whose outcome the scheme never read is in
+    /// the balance it synced to.
+    fn owner_done(&mut self, outcome: OwnerPaymentState, effects: &mut Vec<Effect>) {
         if let Some((hash, _)) = self.owner_payment.take() {
             self.owner_outcome = Some((hash, outcome));
+            effects.push(Effect::OwnerPaid {
+                id: hash_name(&hash),
+                applied: outcome == OwnerPaymentState::Applied,
+            });
         }
     }
 
-    /// Books the owner's payment the ledger validated: what it paid as the
-    /// owner's withdrawal when it succeeded, and its fee either way.
-    /// Returns what the books then hold.
+    /// Books the owner's payment the ledger validated: the hold on the
+    /// owner's funds posted when it succeeded, voided when it failed, and
+    /// its fee either way. Returns what the books then hold.
     fn owner_paid(&mut self, record: &TxRecord, effects: &mut Vec<Effect>) -> i128 {
         let mut booked = i128::from(self.booked);
         let Some((_, drops)) = self.owner_payment else {
             return booked;
         };
         if record.succeeded() {
-            let amount = units(drops);
-            effects.push(Effect::Withdrawal { amount });
-            booked -= i128::from(amount);
-            self.owner_done(OwnerPaymentState::Applied);
+            booked -= i128::from(units(drops));
+            self.owner_done(OwnerPaymentState::Applied, effects);
         } else {
-            self.owner_done(OwnerPaymentState::Failed);
+            self.owner_done(OwnerPaymentState::Failed, effects);
         }
         let fee = units(record.fee);
         effects.push(Effect::Fee {
@@ -938,7 +943,7 @@ impl SettlementScheme for XrplScheme {
         if let Some((hash, _)) = self.owner_payment
             && !account.holds_transaction(&hash)
         {
-            self.owner_done(OwnerPaymentState::Unknown);
+            self.owner_done(OwnerPaymentState::Unknown, effects);
         }
         account.follow(self.id(), self.cursor, self.holds_anything());
     }

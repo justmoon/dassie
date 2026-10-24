@@ -1037,7 +1037,9 @@ CREATE TABLE hub_bundles (
 /// may turn off; until when an owner's move pauses that; and the move on
 /// its way, with the counter value that shows it done and its payment, so
 /// that a restart never pays it twice; and the move the owner gave up,
-/// while it holds the node's own moves back.
+/// while it holds the node's own moves back. The journal is rebuilt, as its
+/// CHECKs change: the owner's payment on its way is a pending transfer of
+/// its own kind, which outlives a restart.
 const MIGRATION_33: &str = "
 CREATE TABLE hub_funding (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -1061,6 +1063,43 @@ CREATE TABLE hub_funding (
     AND (move_kind IS NOT NULL OR move_applied_ms IS NULL))
 ) STRICT;
 INSERT INTO hub_funding (id, automatic, paused_until_ms) VALUES (1, 1, 0);
+
+CREATE TABLE ledger_transfers_new (
+  id INTEGER PRIMARY KEY CHECK (id >= 0),
+  debit INTEGER NOT NULL REFERENCES ledger_accounts (id),
+  credit INTEGER NOT NULL REFERENCES ledger_accounts (id) CHECK (credit != debit),
+  amount INTEGER NOT NULL CHECK (amount > 0),
+  state TEXT NOT NULL CHECK (state IN ('pending', 'posted', 'voided')),
+  created_at_ms INTEGER NOT NULL,
+  resolved_at_ms INTEGER CHECK ((state = 'pending') = (resolved_at_ms IS NULL)),
+  reference TEXT NOT NULL CHECK (reference IN
+    ('packet', 'settlement', 'trust', 'deposit', 'withdrawal', 'reconciliation', 'refusal', 'fee',
+     'loss', 'owner_payment')),
+  packet_epoch INTEGER CHECK ((reference IN ('packet', 'refusal')) = (packet_epoch IS NOT NULL)),
+  packet_sequence INTEGER CHECK ((reference IN ('packet', 'refusal')) = (packet_sequence IS NOT NULL)),
+  settlement_scheme TEXT
+    CHECK ((reference IN ('settlement', 'fee', 'loss', 'owner_payment'))
+      = (settlement_scheme IS NOT NULL)),
+  settlement_id TEXT
+    CHECK ((reference IN ('settlement', 'fee', 'loss', 'owner_payment'))
+      = (settlement_id IS NOT NULL)),
+  sequence INTEGER NOT NULL UNIQUE CHECK (sequence > 0)
+) STRICT;
+
+INSERT INTO ledger_transfers_new SELECT * FROM ledger_transfers;
+DROP TABLE ledger_transfers;
+ALTER TABLE ledger_transfers_new RENAME TO ledger_transfers;
+
+CREATE INDEX ledger_transfers_by_debit ON ledger_transfers (debit, state);
+CREATE INDEX ledger_transfers_by_credit ON ledger_transfers (credit, state);
+CREATE INDEX ledger_transfers_pending ON ledger_transfers (state) WHERE state = 'pending';
+CREATE INDEX ledger_transfers_by_debit_sequence ON ledger_transfers (debit, sequence);
+CREATE INDEX ledger_transfers_by_credit_sequence ON ledger_transfers (credit, sequence);
+CREATE INDEX ledger_transfers_refusals ON ledger_transfers (credit, created_at_ms)
+  WHERE reference = 'refusal';
+CREATE INDEX ledger_transfers_by_packet ON ledger_transfers (packet_epoch, packet_sequence)
+  WHERE packet_epoch IS NOT NULL;
+CREATE INDEX ledger_transfers_trust ON ledger_transfers (sequence) WHERE reference = 'trust';
 ";
 
 /// Columns that hold secrets: the database inspector never reads them.

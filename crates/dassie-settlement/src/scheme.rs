@@ -46,6 +46,18 @@ pub enum Effect {
         /// How much.
         amount: u64,
     },
+    /// The owner's payment `id` out of the scheme's account
+    /// ([`SettlementScheme::pay_owner`]) is no longer on its way: the node
+    /// posts the pending transfer it held the owner's funds with (Dr
+    /// `equity/owner`, Cr `assets/settlement`) if it applied, and voids it
+    /// if it moved nothing, or if the scheme cannot tell, in which case its
+    /// ledger's balance said what it did.
+    OwnerPaid {
+        /// The payment.
+        id: Name,
+        /// Whether it applied.
+        applied: bool,
+    },
     /// Send a scheme message to a peer.
     SendMessage {
         /// The peer.
@@ -478,12 +490,14 @@ pub trait SettlementScheme: Send {
     fn deposit(&mut self, amount: u64, effects: &mut Vec<Effect>) -> Result<(), SchemeError>;
 
     /// Pays `payment` out of the owner's funds, through the scheme's asset:
-    /// one at a time. The node checks first that the owner's funds on the
-    /// scheme's ledger cover it, and its fee. Nothing is booked now: the
-    /// scheme books the owner's withdrawal once its ledger applied the
-    /// payment, and its fee either way. Returns the payment's ID, which
+    /// one at a time. Returns the payment's ID, which
     /// [`owner_payment`](Self::owner_payment) answers for, also after a
-    /// restart.
+    /// restart. The node holds the payment against the owner's funds as a
+    /// pending transfer under that ID, booked in the batch that keeps the
+    /// payment, so the books refuse it if the owner's funds do not cover it.
+    /// The scheme reports once the payment is no longer on its way
+    /// ([`Effect::OwnerPaid`]), which posts or voids the hold, and books its
+    /// fee either way.
     ///
     /// # Errors
     ///

@@ -128,10 +128,11 @@ pub struct HubScheme {
     pub(super) withdrawal: Option<(u64, OwnerPaymentState)>,
     /// How many withdrawals the owner made: the next one's number.
     pub(super) withdrawals_made: u64,
-    /// The ledger fees of our withdrawals the scheme booked as fees when
-    /// the hub executed them, which the account's withdrawals counter has
-    /// not shown yet: that much of its growth is no withdrawal.
-    pub(super) fees_ahead: Amount,
+    /// What our withdrawals took that the scheme booked when the hub
+    /// executed them (what each paid out, as the owner's, and its ledger
+    /// fee, as a fee), which the account's withdrawals counter has not
+    /// shown yet: that much of its growth is booked already.
+    pub(super) booked_ahead: Amount,
     strangers: BTreeMap<HoldNumber, SignedMemberOperation>,
     losses: VecDeque<(Name, Loss)>,
     decided: VecDeque<Decided>,
@@ -216,7 +217,7 @@ impl HubScheme {
             account_reserve: None,
             withdrawal: None,
             withdrawals_made: 0,
-            fees_ahead: 0,
+            booked_ahead: 0,
             strangers: BTreeMap::new(),
             losses: VecDeque::new(),
             decided: VecDeque::new(),
@@ -382,27 +383,44 @@ impl HubScheme {
             self.booked = self.booked.saturating_add(added);
         }
         let grown = view.withdrawn.saturating_sub(withdrawn);
-        let fees = grown.min(self.fees_ahead);
-        self.fees_ahead -= fees;
-        let taken = units(grown - fees);
+        let ahead = grown.min(self.booked_ahead);
+        self.booked_ahead -= ahead;
+        let taken = units(grown - ahead);
         if taken > 0 {
             effects.push(Effect::Withdrawal { amount: taken });
             self.booked = self.booked.saturating_sub(taken);
         }
     }
 
-    /// What became of the owner's withdrawal on its way.
-    pub(super) fn withdrawal_done(&mut self, outcome: OwnerPaymentState) {
-        if let Some((number, OwnerPaymentState::InFlight)) = self.withdrawal {
-            self.withdrawal = Some((number, outcome));
-        }
+    /// What became of the owner's withdrawal on its way, which posts the
+    /// node's hold on the owner's funds if it applied, and voids it
+    /// otherwise: one whose outcome the scheme cannot tell, the account's
+    /// counters book. Whether one was on its way.
+    pub(super) fn withdrawal_done(
+        &mut self,
+        outcome: OwnerPaymentState,
+        effects: &mut Vec<Effect>,
+    ) -> bool {
+        let Some((number, OwnerPaymentState::InFlight)) = self.withdrawal else {
+            return false;
+        };
+        self.withdrawal = Some((number, outcome));
+        effects.push(Effect::OwnerPaid {
+            id: withdrawal_name(number),
+            applied: outcome == OwnerPaymentState::Applied,
+        });
+        true
     }
 
-    /// The hub executed our withdrawal: its ledger fee is a fee, booked
-    /// now, and kept back from the growth of the withdrawals counter that
-    /// shows it; what it paid out is the owner's withdrawal from the
-    /// counter.
-    fn withdrew(&mut self, operation: Digest, effects: &mut Vec<Effect>) {
+    /// The hub executed our withdrawal of `amount`: what it paid out is the
+    /// owner's withdrawal, its hold posted now, and its ledger fee a fee,
+    /// both kept back from the growth of the withdrawals counter that shows
+    /// them.
+    fn withdrew(&mut self, operation: Digest, amount: Amount, effects: &mut Vec<Effect>) {
+        if self.withdrawal_done(OwnerPaymentState::Applied, effects) {
+            self.booked = self.booked.saturating_sub(units(amount));
+            self.booked_ahead = self.booked_ahead.saturating_add(amount);
+        }
         let fee = self.terms.fees.ledger;
         if fee > 0 {
             effects.push(Effect::Fee {
@@ -410,7 +428,7 @@ impl HubScheme {
                 id: ledger_fee_id(&operation),
             });
             self.booked = self.booked.saturating_sub(units(fee));
-            self.fees_ahead = self.fees_ahead.saturating_add(fee);
+            self.booked_ahead = self.booked_ahead.saturating_add(fee);
         }
     }
 
@@ -449,11 +467,12 @@ impl HubScheme {
                 }
             }
             Purpose::Withdraw => {
-                if applied {
-                    self.withdrew(id, effects);
-                    self.withdrawal_done(OwnerPaymentState::Applied);
+                if let (true, MemberOperation::Withdraw { amount, .. }) =
+                    (applied, &operation.operation)
+                {
+                    self.withdrew(id, *amount, effects);
                 } else {
-                    self.withdrawal_done(OwnerPaymentState::Failed);
+                    self.withdrawal_done(OwnerPaymentState::Failed, effects);
                 }
             }
             Purpose::Redeem(_) | Purpose::Disbursal => {}
@@ -575,7 +594,9 @@ impl HubScheme {
                     }
                 }
             }
-            Purpose::Withdraw => self.withdrawal_done(OwnerPaymentState::Failed),
+            Purpose::Withdraw => {
+                self.withdrawal_done(OwnerPaymentState::Failed, effects);
+            }
             Purpose::Redeem(_) | Purpose::Disbursal => {}
         }
     }
@@ -938,7 +959,7 @@ impl SettlementScheme for HubScheme {
         account.follow(self.peers.values().map(|peer| peer.account));
         if !account.has(Purpose::Withdraw) {
             // Not queued, and not told: only the counters can say.
-            self.withdrawal_done(OwnerPaymentState::Unknown);
+            self.withdrawal_done(OwnerPaymentState::Unknown, effects);
         }
         self.refresh(account);
         self.adopt_holds(account, effects);

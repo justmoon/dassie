@@ -37,6 +37,9 @@ struct Books {
     reconciled: Vec<(i128, ReconcileCause)>,
     /// The transaction of each fee, in order.
     fee_ids: Vec<Name>,
+    /// The owner's payments held while on their way, as the node holds
+    /// them: by ID, what each pays.
+    held: BTreeMap<Name, u64>,
 }
 
 struct Node {
@@ -180,6 +183,13 @@ impl World {
                     books.settlement -= i128::from(amount);
                     books.owner -= i128::from(amount);
                 }
+                Effect::OwnerPaid { id, applied } => {
+                    let amount = books.held.remove(&id).unwrap();
+                    if applied {
+                        books.settlement -= i128::from(amount);
+                        books.owner -= i128::from(amount);
+                    }
+                }
                 Effect::Reconcile {
                     amount,
                     gain,
@@ -307,6 +317,22 @@ impl World {
         self.nodes[b].scheme.on_peered(name_a, &state_at_b);
         self.nodes[a].scheme.on_peered(name_b, &state_at_a);
         (state_at_a, state_at_b)
+    }
+
+    /// Node `index`'s owner pays `payment` out of the account, which the
+    /// node holds against the owner's funds while it is on its way.
+    fn pay_owner(
+        &mut self,
+        index: usize,
+        payment: &dassie_settlement::OwnerPayment,
+        effects: &mut Vec<Effect>,
+    ) -> Result<Name, SchemeError> {
+        let id = self.nodes[index].scheme.pay_owner(payment, effects)?;
+        self.nodes[index]
+            .books
+            .held
+            .insert(id, payment.amount / UNITS_PER_DROP * UNITS_PER_DROP);
+        Ok(id)
     }
 
     /// `from` settles `amount` with `to`, whose state at `from` is
@@ -1302,16 +1328,13 @@ fn the_owner_pays_out_of_the_account() {
         amount: 3_000_000_999,
     };
     let mut effects = Vec::new();
-    let id = world.nodes[0]
-        .scheme
-        .pay_owner(&payment, &mut effects)
-        .unwrap();
+    let id = world.pay_owner(0, &payment, &mut effects).unwrap();
     assert_eq!(
         world.nodes[0].scheme.owner_payment(id),
         OwnerPaymentState::InFlight
     );
     assert_eq!(
-        world.nodes[0].scheme.pay_owner(&payment, &mut Vec::new()),
+        world.pay_owner(0, &payment, &mut Vec::new()),
         Err(SchemeError::Unavailable),
         "one at a time"
     );
@@ -1355,18 +1378,12 @@ fn the_owners_payment_outlives_a_restart() {
         amount: 3_000_000_000,
     };
     let mut effects = Vec::new();
-    let id = world.nodes[0]
-        .scheme
-        .pay_owner(&payment, &mut effects)
-        .unwrap();
+    let id = world.pay_owner(0, &payment, &mut effects).unwrap();
     world.apply(0, effects);
     world.close();
     let fee = 10 * i128::from(UNITS_PER_DROP);
     world.nodes[0].drop_submits = true;
-    let second = world.nodes[0]
-        .scheme
-        .pay_owner(&payment, &mut Vec::new())
-        .unwrap();
+    let second = world.pay_owner(0, &payment, &mut Vec::new()).unwrap();
     let state = world.nodes[0].scheme.state();
     let checkpoint = world.nodes[0].scheme.balance();
     world.disconnect(0);
@@ -1422,15 +1439,14 @@ fn a_failed_owner_payment_costs_only_its_fee() {
         payment(nobody, 1_000_000, 65),
     ] {
         assert_eq!(
-            world.nodes[0].scheme.pay_owner(&refused, &mut Vec::new()),
+            world.pay_owner(0, &refused, &mut Vec::new()),
             Err(SchemeError::InvalidData)
         );
     }
     // Too little to make a new account.
     let mut effects = Vec::new();
-    let id = world.nodes[0]
-        .scheme
-        .pay_owner(&payment(nobody, 1_000_000, 0), &mut effects)
+    let id = world
+        .pay_owner(0, &payment(nobody, 1_000_000, 0), &mut effects)
         .unwrap();
     world.apply(0, effects);
     world.close();

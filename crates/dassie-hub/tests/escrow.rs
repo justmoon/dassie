@@ -693,6 +693,9 @@ struct Node {
     /// The owner's funds on the XRP Ledger, as the scheme booked them.
     owner: i128,
     fees: i128,
+    /// The owner's payments held while on their way, as the node holds
+    /// them: by ID, what each pays.
+    held: std::collections::BTreeMap<dassie_ledger::Name, u64>,
 }
 
 /// The node's connection to the fake ledger.
@@ -722,6 +725,7 @@ impl Node {
             scheme,
             owner: 0,
             fees: 0,
+            held: std::collections::BTreeMap::new(),
         };
         node.follow(xrpl);
         node
@@ -742,6 +746,12 @@ impl Node {
                 match effect {
                     Effect::Deposit { amount } => self.owner += i128::from(amount),
                     Effect::Withdrawal { amount } => self.owner -= i128::from(amount),
+                    Effect::OwnerPaid { id, applied } => {
+                        let amount = self.held.remove(&id).unwrap();
+                        if applied {
+                            self.owner -= i128::from(amount);
+                        }
+                    }
                     Effect::Fee { amount, .. } => self.fees += i128::from(amount),
                     Effect::Reconcile { .. } => panic!("nothing to reconcile: {effect:?}"),
                     other => panic!("not the owner's: {other:?}"),
@@ -796,6 +806,7 @@ impl Node {
             .scheme
             .pay_owner(Some(&mut self.account), &payment)
             .unwrap();
+        self.held.insert(id, payment.amount);
         self.follow(xrpl);
         let before = xrpl.balance(destination).unwrap();
         self.close(xrpl);

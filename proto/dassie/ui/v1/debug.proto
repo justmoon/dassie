@@ -65,6 +65,10 @@ message Transfer {
     // "<scheme>:<ID>": what a peering over a settlement hub cost this node
     // beyond its hold.
     string loss = 16;
+    // "<scheme>:<payment ID>": the owner's payment out of a scheme's
+    // account, such as a deposit into a settlement hub, held against the
+    // owner's funds while pending.
+    string owner_payment = 17;
   }
   // Where the row is in the order rows were written or last changed: a
   // packet's transfer is written when it is posted, after transfers with

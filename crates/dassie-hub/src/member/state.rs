@@ -332,7 +332,7 @@ pub(super) fn scheme_state(scheme: &HubScheme) -> Vec<u8> {
             OwnerPaymentState::Failed => 3,
         });
     });
-    out.u64(scheme.fees_ahead);
+    out.u64(scheme.booked_ahead);
     out.0
 }
 
@@ -532,7 +532,7 @@ pub(super) fn restore_scheme(scheme: &mut HubScheme, state: &[u8]) -> Option<()>
         };
         (number <= scheme.withdrawals_made).then_some((number, outcome))
     })?;
-    scheme.fees_ahead = reader.read_u64().ok()?;
+    scheme.booked_ahead = reader.read_u64().ok()?;
     reader.finish().ok()?;
     Some(())
 }

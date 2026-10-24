@@ -405,6 +405,7 @@ impl Core {
                     }
                 }
                 Effect::Finalize { settlement: id } => self.settlement_done(scheme, *id),
+                Effect::OwnerPaid { id, applied } => self.owner_paid(scheme, *id, *applied),
                 Effect::Cancel { settlement: id } => self.settlement_cancelled(scheme, *id),
                 Effect::SendMessage { peer, message } => {
                     let peer = dassie_identity::NodeId::parse(peer.as_str());
@@ -427,7 +428,8 @@ impl Core {
     /// The transfer each of a scheme's effects books, if any, once the
     /// books have checked them all: each as they would find the accounts
     /// with the ones before it booked. Posting or voiding one of our
-    /// settlements (`Finalize`, `Cancel`) is not checked: it raises no
+    /// settlements (`Finalize`, `Cancel`) or the hold of an owner's payment
+    /// (`OwnerPaid`) is not checked: it raises no
     /// account's total and tightens no limit, so it cannot make a later
     /// transfer fail, and it is never refused itself.
     fn check_effects(
@@ -523,7 +525,10 @@ impl Core {
                 cause,
                 id,
             } => self.loss_transfer(scheme, ledger, settlement, *peer, *cause, *amount, *id)?,
-            Effect::Finalize { .. } | Effect::Cancel { .. } | Effect::SendMessage { .. } => {
+            Effect::Finalize { .. }
+            | Effect::Cancel { .. }
+            | Effect::OwnerPaid { .. }
+            | Effect::SendMessage { .. } => {
                 return Ok(None);
             }
         };

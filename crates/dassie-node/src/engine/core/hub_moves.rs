@@ -307,7 +307,9 @@ impl Core {
     /// its payment's ID, in the batch that keeps the payment.
     fn make_move(&mut self, planned: Planned, standing: &Standing) -> Result<(), SchemeError> {
         let (scheme, payment) = self.payment_for(planned, standing)?;
+        self.check_owner_payment(scheme, payment.amount)?;
         let id = self.pay_owner(scheme, &payment)?;
+        self.hold_owner_payment(scheme, id, payment.amount);
         self.funding.start(self.now_ms, planned, id);
         self.keep_funding();
         Ok(())

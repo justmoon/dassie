@@ -3413,3 +3413,179 @@ fn a_returned_withdrawal_does_not_end_a_deposit_early() {
     wait_and_close(&mut core, &mut ledger, 4_000);
     assert_eq!(core.hub_status().unwrap().moving, None, "credited");
 }
+
+/// A core with both schemes on `store`, whose hub says it has no account
+/// for the node, and the hub.
+fn holding_core(
+    store: &Arc<Store>,
+    ledger: &mut dassie_xrpl::fake::FakeLedger,
+) -> (Core, Validators) {
+    let mut core = core_on(Arc::clone(store), 9);
+    core.add_scheme("xrpl-testnet", SHARED_CONFIG.into())
+        .unwrap();
+    follow_xrpl(&mut core, ledger);
+    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 300))
+        .unwrap();
+    follow_xrpl(&mut core, ledger);
+    let mut hub = Validators::new();
+    hub.no_account(&mut core);
+    (core, hub)
+}
+
+/// Whether the books would let the owner's funds on the XRP Ledger pay
+/// `amount` now, as a conversion or a payer's packet takes them: a pending
+/// debit of the owner's group toward an account outside it.
+fn owner_could_pay(core: &Core, amount: u64) -> bool {
+    use dassie_ledger::{AccountName, LedgerId, Reference, TraceId, TransferSpec};
+
+    let ledger = LedgerId::XrplTestnetXrp;
+    let spec = TransferSpec {
+        debit: core.account(ledger, AccountName::EquityOwner).unwrap(),
+        credit: core.account(ledger, AccountName::AssetsSettlement).unwrap(),
+        amount,
+        pending: true,
+        reference: Reference::Packet(TraceId {
+            epoch: 0,
+            sequence: 1,
+        }),
+    };
+    core.ledger.validate(&spec).is_ok()
+}
+
+/// The owner's group on the XRP Ledger: posted, net, and still pending out.
+fn owner_xrp(core: &Core) -> (i128, u128) {
+    use dassie_ledger::{AccountName, LedgerId};
+
+    let owner = core
+        .account(LedgerId::XrplTestnetXrp, AccountName::EquityOwner)
+        .unwrap();
+    let balance = core.ledger.group_balance(owner).unwrap();
+    let posted = i128::try_from(balance.credits_posted).unwrap()
+        - i128::try_from(balance.debits_posted).unwrap();
+    (posted, balance.debits_pending)
+}
+
+// spec/areas/settlement.md#the-scheme-interface: an owner's payment out of
+// the XRP Ledger account, here a deposit into the hub that takes all the
+// owner's XRP, is held against the owner's funds from the moment it is
+// made: what a conversion or a payer's packet would spend meanwhile is
+// refused, and once the payment applied the owner's funds are not below
+// zero.
+#[test]
+fn a_deposit_holds_the_owners_funds_while_on_its_way() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut ledger, _) = funded_ledger();
+    let (mut core, _hub) = holding_core(&store, &mut ledger);
+    let units = dassie_xrpl::UNITS_PER_DROP;
+    let funds = core.owner_available(dassie_ledger::LedgerId::XrplTestnetXrp);
+    let all = funds / units - dassie_xrpl::account::MAX_FEE_DROPS;
+    assert!(owner_could_pay(&core, all * units));
+    core.hub_deposit(all * units).unwrap();
+    let (posted, pending) = owner_xrp(&core);
+    assert_eq!(pending, u128::from(all * units), "held while on its way");
+    assert!(!owner_could_pay(&core, all * units), "a packet is refused");
+    assert!(!owner_could_pay(&core, funds - all * units + 1));
+    follow_xrpl(&mut core, &mut ledger);
+    close_xrpl(&mut core, &mut ledger);
+    let (after, pending) = owner_xrp(&core);
+    assert_eq!(pending, 0, "posted once it applied");
+    assert!(after >= 0, "the owner's funds are not below zero: {after}");
+    assert_eq!(
+        after,
+        posted - i128::from(all * units) - i128::from(10 * units),
+        "the deposit and its fee"
+    );
+}
+
+/// Carries the XRP Ledger account's requests to `ledger`, but loses every
+/// submission, until it has nothing more to say.
+fn follow_xrpl_losing_submits(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger) {
+    use super::LedgerEvent;
+
+    for _ in 0..50 {
+        let mut outputs = Vec::new();
+        core.finish_step(&mut outputs);
+        let events: Vec<(u64, LedgerEvent)> = outputs
+            .iter()
+            .filter_map(|output| match output {
+                Output::LedgerConnect { epoch, .. } => Some((*epoch, LedgerEvent::Connected)),
+                Output::LedgerSend { epoch, message, .. } => {
+                    let request: serde_json::Value = serde_json::from_slice(message).unwrap();
+                    (request["command"] != "submit")
+                        .then(|| (*epoch, LedgerEvent::Message(ledger.request(1, message))))
+                }
+                _ => None,
+            })
+            .collect();
+        if events.is_empty() {
+            return;
+        }
+        for (epoch, event) in &events {
+            core.ledger_event(XRPL_ACCOUNT, *epoch, event);
+        }
+    }
+    panic!("the scheme kept talking");
+}
+
+// spec/areas/settlement.md#the-scheme-interface: an owner's payment that
+// never applies releases its hold, and costs no fee.
+#[test]
+fn a_failed_owner_payment_releases_its_hold() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut ledger, _) = funded_ledger();
+    let (mut core, _hub) = holding_core(&store, &mut ledger);
+    let units = dassie_xrpl::UNITS_PER_DROP;
+    let funds = core.owner_available(dassie_ledger::LedgerId::XrplTestnetXrp);
+    core.hub_deposit(3_000_000 * units).unwrap();
+    assert_eq!(owner_xrp(&core).1, u128::from(3_000_000 * units));
+    let epoch = core.assets[&dassie_xrpl::account::FIRST].epoch;
+    for _ in 0..30 {
+        follow_xrpl_losing_submits(&mut core, &mut ledger);
+        for (_, message) in ledger.close() {
+            core.ledger_event(XRPL_ACCOUNT, epoch, &super::LedgerEvent::Message(message));
+        }
+    }
+    follow_xrpl_losing_submits(&mut core, &mut ledger);
+    assert_eq!(owner_xrp(&core).1, 0, "released");
+    assert_eq!(
+        core.owner_available(dassie_ledger::LedgerId::XrplTestnetXrp),
+        funds,
+        "the owner's funds are whole again"
+    );
+}
+
+// spec/areas/settlement.md#the-scheme-interface: the hold outlives a
+// restart between the payment leaving and the XRP Ledger applying it, and is
+// posted once after it.
+#[test]
+fn an_owner_payment_held_across_a_restart_is_posted_once() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut ledger, _) = funded_ledger();
+    let (mut core, _hub) = holding_core(&store, &mut ledger);
+    let units = dassie_xrpl::UNITS_PER_DROP;
+    let (posted, _) = owner_xrp(&core);
+    core.hub_deposit(3_000_000 * units).unwrap();
+    core.flush();
+    drop(core);
+    let mut core = core_on(Arc::clone(&store), 10);
+    assert_eq!(
+        owner_xrp(&core),
+        (posted, u128::from(3_000_000 * units)),
+        "still held"
+    );
+    follow_xrpl(&mut core, &mut ledger);
+    close_xrpl(&mut core, &mut ledger);
+    close_xrpl(&mut core, &mut ledger);
+    assert_eq!(
+        owner_xrp(&core),
+        (
+            posted - i128::from(3_000_000 * units) - i128::from(10 * units),
+            0
+        ),
+        "posted once, with its fee"
+    );
+    core.flush();
+    drop(core);
+    let core = core_on(Arc::clone(&store), 11);
+    assert_eq!(owner_xrp(&core).1, 0);
+}

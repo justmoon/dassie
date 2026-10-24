@@ -84,7 +84,7 @@ impl HubScheme {
             // Whether it applied, only the account's counters say, and
             // they book it, its ledger fee with it.
             Some((Purpose::Withdraw, _)) => {
-                self.withdrawal_done(OwnerPaymentState::Unknown);
+                self.withdrawal_done(OwnerPaymentState::Unknown, effects);
                 None
             }
             _ => None,
