@@ -642,8 +642,8 @@ export class Simulation {
           ["code", String(code)],
           ["by", byRemote ? "the other end" : "this end"],
         ]);
-      case "exchangeRateTooLow":
-        return this.#log(side, "warn", "exchange rate too low", [
+      case "moneyStopped":
+        return this.#log(side, "warn", "money stopped: packets kept failing", [
           ["expected", String(first)],
           ["received", String(second)],
         ]);

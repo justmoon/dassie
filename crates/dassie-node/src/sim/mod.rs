@@ -2313,19 +2313,21 @@ impl Sim {
                     .get_or_insert(self.now + RATE_RETRY_MS);
             }
             // A measurement of the rate fails when no probe gets through,
-            // as across a cut link. And money stops once the receiver got
-            // less than the rate promises: the path got dearer, as when a
-            // route through a hop that charges less is withdrawn and the
-            // packets go through one that charges more. The library reports
-            // either and leaves the rest to its user: this sender, which
-            // pays an amount whatever the path delivers, measures the rate
-            // again a while later, and sends at what the path delivers now.
+            // as across a cut link. And money stops once packets kept
+            // failing: the receiver got less than the rate promises, as
+            // when a route through a hop that charges less is withdrawn and
+            // the packets go through one that charges more, or nodes on the
+            // path failed them, as when no route is left. The library
+            // reports either and leaves the rest to its user: this sender,
+            // which pays an amount whatever the path delivers, measures the
+            // rate again a while later, and sends at what the path delivers
+            // now.
             let mut taken_all = false;
             while let Some(event) = payment.connection.poll_event() {
                 if matches!(
                     event,
                     dassie_stream::Event::ExchangeRateMeasurementFailed
-                        | dassie_stream::Event::ExchangeRateTooLow { .. }
+                        | dassie_stream::Event::MoneyStopped { .. }
                 ) {
                     payment.rate_retry_at = Some(self.now + RATE_RETRY_MS);
                 }

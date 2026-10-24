@@ -9,8 +9,8 @@
 
 use dassie_node_core::testing::{Outcome, assert_seeds_pass};
 use dassie_stream::sim::payment::{self, LOSSY, STEPS};
-use dassie_stream::sim::{Path, Side, Simulation};
-use dassie_stream::{ErrorCode, Event, Policy, Rate};
+use dassie_stream::sim::{Detour, Path, Side, Simulation};
+use dassie_stream::{ErrorCode, Event, MAX_FAILURES_WITHOUT_PROGRESS, Policy, Rate};
 
 fn measured_rate(path: Path) -> Rate {
     let mut sim = Simulation::new(1, path, Policy::DEFAULT);
@@ -392,6 +392,8 @@ fn closed_streams_free_their_ids() {
 
 #[test]
 fn rejects_a_rate_below_the_minimum() {
+    // Every packet arrives short: each goes again, until the bound on
+    // failures without progress stops money and tells the application.
     let path = Path {
         rate: (1, 2),
         ..Path::default()
@@ -400,9 +402,56 @@ fn rejects_a_rate_below_the_minimum() {
     sim.client.set_exchange_rate(Rate::ONE);
     let stream = sim.client.open_stream().unwrap();
     sim.client.set_send_max(stream, 10_000).unwrap();
-    sim.run_until(STEPS, |sim| sim.trace.contains("ExchangeRateTooLow"));
+    sim.run_until(STEPS, |sim| sim.trace.contains("MoneyStopped"));
+    assert!(sim.trace.contains("too_low: Some((10000, 5000))"));
     assert_eq!(server_received(&sim), 0);
     assert_eq!(sim.client.stream(stream).unwrap().total_sent(), 0);
+    assert_eq!(
+        sim.client.stats().packets_rejected,
+        u64::from(MAX_FAILURES_WITHOUT_PROGRESS)
+    );
+    // Nothing more goes until the application sets a rate, and the idle
+    // timeout ends a connection it leaves.
+    sim.run_to_idle(STEPS);
+    assert_eq!(
+        sim.client.stats().packets_sent,
+        u64::from(MAX_FAILURES_WITHOUT_PROGRESS)
+    );
+}
+
+/// Pays `amount` at one to one over a path that sends a share of the
+/// client's packets over `detour`, in packets of at most 1,000.
+fn pay_with_detour(detour: Detour, amount: u64) -> Simulation {
+    let path = Path {
+        max_packet_amount: 1_000,
+        detour_permille: 300,
+        detour,
+        ..Path::default()
+    };
+    let sim = pay(path, Policy::DEFAULT, amount);
+    assert_eq!(server_received(&sim), amount, "{}", sim.trace);
+    assert!(sim.trace.contains("detour"));
+    assert!(sim.client.stats().packets_rejected > 0);
+    assert!(!sim.trace.contains("MoneyStopped"), "{}", sim.trace);
+    sim
+}
+
+// A route that delivers less than the minimum takes a share of the
+// packets: the receiver refuses those, their money goes again, and the
+// payment completes over the route that delivers at the rate. Only
+// packets that got the rate are paid for.
+#[test]
+fn a_dearer_route_does_not_stop_a_payment() {
+    let sim = pay_with_detour(Detour::Rate(1, 2), 100_000);
+    assert_eq!(sim.client.stats().amount_sent, 100_000);
+    assert_eq!(sim.client.stats().amount_delivered, 100_000);
+}
+
+// A node on another route cannot reach the receiver: the packets it
+// fails go again, and the payment completes over the route that works.
+#[test]
+fn a_node_that_fails_packets_does_not_stop_a_payment() {
+    pay_with_detour(Detour::Unreachable, 100_000);
 }
 
 #[test]
@@ -499,12 +548,16 @@ fn a_limit_holds_across_a_server_restart() {
 
 #[test]
 fn a_refused_connection_never_opens() {
+    // The refusal carries no reply, so the sender cannot tell it from a
+    // node on the path: it tries again, until the bound on failures
+    // without progress stops its money.
     let mut sim = Simulation::new(12, Path::default(), Policy::DEFAULT);
     sim.refusal = Some(dassie_ilp::ErrorCode::F99_APPLICATION_ERROR);
     sim.client.set_exchange_rate(Rate::ONE);
     let stream = sim.client.open_stream().unwrap();
     sim.client.set_send_max(stream, 1_000).unwrap();
-    sim.run_until(STEPS, |sim| sim.client.is_closed());
+    sim.run_until(STEPS, |sim| sim.client.money_stopped());
+    assert!(sim.trace.contains("MoneyStopped { too_low: None }"));
     assert!(sim.server.connections().next().is_none());
     assert_eq!(sim.client.stats().amount_sent, 0);
     assert!(!sim.admitted_tags.is_empty());

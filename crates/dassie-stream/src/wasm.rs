@@ -64,7 +64,7 @@ pub struct StreamEvent {
 impl StreamEvent {
     /// `connected`, `streamOpened`, `moneyReceived`, `moneySent`,
     /// `dataReadable`, `streamClosed`, `exchangeRateMeasured`,
-    /// `exchangeRateMeasurementFailed`, `exchangeRateTooLow` or
+    /// `exchangeRateMeasurementFailed`, `moneyStopped` or
     /// `connectionClosed`.
     #[wasm_bindgen(getter)]
     #[must_use]
@@ -93,16 +93,17 @@ impl StreamEvent {
         self.by_remote
     }
 
-    /// Total sent of a closed stream, a rate's numerator, or the expected
-    /// amount of a too-low rate.
+    /// Total sent of a closed stream, a rate's numerator, or, when money
+    /// stopped, what the latest packet refused for too low a rate asked
+    /// for at least (zero if nodes on the path failed them all).
     #[wasm_bindgen(getter)]
     #[must_use]
     pub fn first(&self) -> u64 {
         self.first
     }
 
-    /// Total received of a closed stream, a rate's denominator, or the
-    /// received amount of a too-low rate.
+    /// Total received of a closed stream, a rate's denominator, or, when
+    /// money stopped, what arrived of that packet.
     #[wasm_bindgen(getter)]
     #[must_use]
     pub fn second(&self) -> u64 {
@@ -150,9 +151,9 @@ impl From<Event> for StreamEvent {
                 (view.first, view.second) = (rate.numerator(), rate.denominator());
             }
             Event::ExchangeRateMeasurementFailed => view.kind = "exchangeRateMeasurementFailed",
-            Event::ExchangeRateTooLow { expected, received } => {
-                view.kind = "exchangeRateTooLow";
-                (view.first, view.second) = (expected, received);
+            Event::MoneyStopped { too_low } => {
+                view.kind = "moneyStopped";
+                (view.first, view.second) = too_low.unwrap_or_default();
             }
             Event::ConnectionClosed { code, by_remote } => {
                 view.kind = "connectionClosed";

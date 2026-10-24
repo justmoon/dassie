@@ -156,8 +156,7 @@ A packet's next hop drawn at random among its first hops, weighted by the fees e
 
 - **Parts that can be built side by side:**
   - the connector: a draw per packet from the node's random number generator, among the usable first hops that keep the packet's ledger, or among all of them, unweighted, when none does; the owner's own packets only among those on the ledger their route starts on, picked once per quote or payment;
-  - the weights: per peer and ledger, the fees earned on packets that kept that ledger and were fulfilled through the peer, decaying, in memory, with a fixed share of the draws even;
-  - STREAM senders that send money again after a Reject from a node on the path or a rate below the minimum, rather than stopping, within a bound on retries that make no progress.
+  - the weights: per peer and ledger, the fees earned on packets that kept that ledger and were fulfilled through the peer, decaying, in memory, with a fixed share of the draws even.
 - **Done when:** in the `node` simulation, a payment to a destination with two paths, one through a node that refuses its packets or converts below the sender's minimum, completes through the other, and that node earns nothing; packets an attacker sends itself through a hop and rejects leave its weight as it was, and raising a hop's weight costs the node's fee on every unit; a hop short of room answers T04 and keeps its weight for longer than a settlement takes.
 
 ## Not built yet

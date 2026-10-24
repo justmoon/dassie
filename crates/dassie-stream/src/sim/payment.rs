@@ -1,15 +1,16 @@
 //! STREAM's random run (spec/areas/testing.md#the-simulations,
 //! spec/decisions/random-seed-simulations.md): a client pays and sends data
 //! to a server over a lossy path with an exchange rate and a maximum packet
-//! amount, then closes. Both sides check their invariants at every step, and
-//! the payment must arrive and the connection close.
+//! amount, a share of its packets taking a dearer route, then closes. Both
+//! sides check their invariants at every step, and the payment must arrive
+//! and the connection close.
 
 use alloc::format;
 use alloc::string::{String, ToString};
 
 use dassie_node_core::testing::{Outcome, Run};
 
-use super::{Path, Simulation};
+use super::{Detour, Path, Simulation};
 use crate::{ErrorCode, Policy};
 
 /// How many steps a run may take to finish what it set out to do.
@@ -26,16 +27,22 @@ pub const LOSSY: Policy = Policy {
 /// How much the client sends.
 const AMOUNT: u64 = 300_000;
 
-/// The path every run takes.
+/// The path every run takes. A fifth of the packets take a route that
+/// delivers less: a measurement may find either rate, and at the better
+/// one the receiver refuses what the dearer route delivers, which must go
+/// again rather than stop the payment (spec/areas/stream.md#responses).
 const PATH: Path = Path {
     loss_permille: 100,
     max_packet_amount: 7_000,
     rate: (3, 2),
     latency_ms: 10,
+    detour_permille: 200,
+    detour: Detour::Rate(1, 1),
 };
 
 /// What the seed draws, before the run starts: only which packets are
-/// lost, since every run takes the same path.
+/// lost and which take the dearer route, since every run takes the same
+/// path.
 #[must_use]
 pub fn describe(_seed: u64) -> String {
     format!("{PATH:?}, sending {AMOUNT}")

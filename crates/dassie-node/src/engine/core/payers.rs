@@ -11,10 +11,11 @@
 //! credentials. A payment completes once it sent its debit amount, or once
 //! the receiver says it has what it was to get, which a hop that lost a
 //! Fulfill may have paid for (spec/decisions/own-fulfills.md); it fails when
-//! the receiver says it takes no more or stopped it short, keeps closing it,
-//! or its deadline passes. It ends only once none of its packets is in
-//! flight, so what it says it sent is final. A packet to the node's own
-//! receiver waits in a bounded queue the step drains, so nothing recurses.
+//! the receiver says it takes no more or stopped it short, keeps closing it
+//! or stopping its money, or its deadline passes. It ends only once none of
+//! its packets is in flight, so what it says it sent is final. A packet to
+//! the node's own receiver waits in a bounded queue the step drains, so
+//! nothing recurses.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -111,7 +112,8 @@ pub(super) struct Unfinished {
     delivered: u64,
     /// Why it stops, once it does: it fails once nothing is in flight.
     stopping: Option<String>,
-    /// Why its connection closed before it was done, if it did.
+    /// Why its connection closed, or stopped sending money, before it was
+    /// done, if it did.
     closed: Option<String>,
     /// Whether the receiver closed its connection because it takes no
     /// more: a receiver never lowers the maximum it told, so this, not
@@ -983,12 +985,27 @@ impl Core {
 /// possibly from another payment, and with `ApplicationError` once it
 /// stopped short of that, as when its incoming payment was completed
 /// early or asked for no amount; a new connection would be closed too.
-/// The payment can only go by what the receiver says.
+/// The payment can only go by what the receiver says. A connection whose
+/// money stopped, its packets failing again and again, is reopened as one
+/// that closed: the payment keeps its rate, the one its quote measured,
+/// and a while later the paths may deliver at it again
+/// (spec/areas/stream.md#responses).
 fn closed_early(payment: &mut Unfinished) {
     let Some(connection) = payment.connection.as_mut() else {
         return;
     };
     while let Some(event) = connection.poll_event() {
+        if let Event::MoneyStopped { too_low } = event
+            && payment.stopping.is_none()
+            && payment.closed.is_none()
+        {
+            payment.closed = Some(if too_low.is_some() {
+                "the payment's packets kept arriving short of its rate".into()
+            } else {
+                "nodes on the path kept failing the payment's packets".into()
+            });
+            continue;
+        }
         if let Event::ConnectionClosed { code, by_remote } = event
             && payment.stopping.is_none()
         {
