@@ -63,6 +63,9 @@ pub struct StubHooks {
     pub closed: BTreeMap<NodeId, crate::Closed>,
     /// Nodes whose channels the books hold open.
     pub holding: BTreeSet<NodeId>,
+    /// Whether the node no longer runs the stub scheme, as one disabled or
+    /// of the other realm: it speaks no version of it.
+    pub unrun: bool,
 }
 
 impl StubHooks {
@@ -80,11 +83,15 @@ impl StubHooks {
 
 impl PeeringHooks for StubHooks {
     fn versions(&self, scheme: SchemeId) -> &'static [u16] {
-        if scheme.as_str() == "stub" { &[1] } else { &[] }
+        if scheme.as_str() == "stub" && !self.unrun {
+            &[1]
+        } else {
+            &[]
+        }
     }
 
     fn peering_info(&mut self, scheme: SchemeId, _: &mut Vec<u8>) -> Result<(), Declined> {
-        if scheme.as_str() == "stub" {
+        if scheme.as_str() == "stub" && !self.unrun {
             Ok(())
         } else {
             Err(Declined)

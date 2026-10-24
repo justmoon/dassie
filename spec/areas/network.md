@@ -124,7 +124,7 @@ The **junior** is the node whose peering request was accepted, the **senior** th
 
 A peering is `requesting`, `peered` or `terminating` ([peering-lifecycle](../decisions/peering-lifecycle.md)). "Peered" in other documents covers `peered` and `terminating`; "active" means `peered`.
 
-**Withdrawing is prompt, ending is not.** A node takes a peer out of its link state moderately soon, weighing route flaps against stale routes that lose packets: a withdrawn peer stays peered, and comes back once it is healthy and its hold-down is over. Ending a peering is for good, and needs much stronger evidence: the owner's word, or a peer silent or short of room for as long as a silent peer is kept ([Termination](#termination)). Nothing that withdraws a peer ends it.
+**Withdrawing is prompt, ending is not.** A node takes a peer out of its link state moderately soon, weighing route flaps against stale routes that lose packets: a withdrawn peer stays peered, and comes back once it is healthy and its hold-down is over. Ending a peering is for good, and needs much stronger evidence: the owner's word, a peer silent or short of room for as long as a silent peer is kept, or a scheme the node no longer runs ([Termination](#termination)). Nothing that withdraws a peer ends it.
 
 ### Advertised peers
 
@@ -138,9 +138,9 @@ A node lists a peer as a neighbor in its link state, and routing uses the edge, 
 
 ### Termination
 
-Termination starts when the owner asks, when the owner bans the node, when the peer has not been heard from for a long time (counted from the later of its last message and the node's start, so our own downtime ends nothing), or when its room has stayed short, without a settlement, for as long while it could be reached ([Advertised peers](#advertised-peers)). A peer cut off from the node is ended for its silence, if at all, never for room.
+Termination starts when the owner asks, when the owner bans the node, when the peer has not been heard from for a long time (counted from the later of its last message and the node's start, so our own downtime ends nothing), when its room has stayed short, without a settlement, for as long while it could be reached ([Advertised peers](#advertised-peers)), or when the node does not run the peering's scheme, as one disabled or of the other realm ([Settlement](settlement.md#schemes-and-ledgers)). A peer cut off from the node is ended for its silence, if at all, never for room. A peering on a scheme the node does not run collects nothing, since no settlement on that scheme could be booked: the node tells the peer at once, as in step 3, giving no reason, so no cooldown follows; a peering it was already ending keeps the reason it had.
 
-The node that ends a peering collects first, and tells the peer only then, unless its owner banned the peer ([ending-a-peering](../decisions/ending-a-peering.md)):
+The node that ends a peering collects first, and tells the peer only then, unless its owner banned the peer or the node does not run the peering's scheme ([ending-a-peering](../decisions/ending-a-peering.md)):
 
 1. **It decides privately.** Nothing the peer can see changes: a peer it advertised stays advertised, and our own Prepares still go to it. Its owner sees it terminating. Its new Prepares are refused, as for want of liquidity ([Connector](connector.md#responses-and-expiry)), and its requests to settle are answered as ones that settle nothing.
 2. **It waits for its own settlements to the peer under way,** so the peer counts them; then asks the peer to settle, once. The answer says what the peer has on its way ([Settlement](settlement.md#settling-on-request)), and the node waits until that is booked. Each wait lasts at most a time a settlement takes to reach the ledger and be announced (`depeer_wait_ms`). A peer that does not answer is waited out.

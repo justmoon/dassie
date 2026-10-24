@@ -32,9 +32,11 @@ Ending a peering is run by the node that ends it, which collects first and pays 
 
 **A settlement that arrives after the peering ended** is treated as any unexpected payment on the underlying ledger is today. A payment from a node we hold accounts with is credited to its account, once, as [peering-lifecycle](peering-lifecycle.md) has it. On the XRP Ledger that is the ledger payment, which books the settlement. Its `settlement` message is acknowledged, so the sender's channel moves on.
 
-**Every way a peering ends follows this but a ban,** whether the owner ends it or the node ends it for silence or for staying short of room. A step that needs an answer from an unresponsive peer times out.
+**Every way a peering ends follows this but a ban and a scheme not run,** whether the owner ends it or the node ends it for silence or for staying short of room. A step that needs an answer from an unresponsive peer times out.
 
 **A ban collects nothing.** The node goes straight to step 6: it withdraws the peer from its link state and sends `peeringTermination` at once, without waiting for its own settlements under way or asking the peer to settle. A ban is the owner's emphatic word, often about misbehaviour; the owner wants the peer out of its routes now, and a peer it bans has little reason to settle. What the peer owes stays on the books, as for a peer that does not answer the last request. The node's own settlements to the peer that are under way still land, and the peer credits them once, as any settlement after the end.
+
+**A peering on a scheme the node does not run collects nothing either,** as one disabled or of the other realm, which the node starts without ([Settlement](../areas/settlement.md#schemes-and-ledgers)). The node could not book what the peer settled on it, and the peer would have paid for nothing; its own settlements on the scheme cannot move. So it goes straight to step 6, as for a ban, but gives no reason, so the pair is not kept apart and may peer at once on a scheme both run. A peering it was already ending keeps the reason it had.
 
 ## Accepted
 
@@ -44,6 +46,7 @@ Ending a peering is run by the node that ends it, which collects first and pays 
 - **The end is no longer prompt.** It waits for the node's own settlements under way and for the peer's answer, so a slow ledger delays it, by at most two of those waits. A ban does not wait.
 - **A ban gives up the last request.** What the banned peer would have settled on it stays owed on our books, to be collected only if the owner lifts the ban and the pair peers again.
 - **The node being ended learns late.** Until `peeringTermination` arrives, it sees only refused Prepares and a settlement it was asked for.
+- **A scheme not run gives up the last request.** What the peer owes on it stays on our books, and is collected only if the node runs the scheme again and the pair peers on it.
 - **A peer that probes can tell it is being ended.** The refusal comes before the connector's other checks, so a Prepare that could never lack liquidity (oversized, unroutable, expiring too soon, or of no amount) gets T04 where any other peer gets another answer or is forwarded. Such a peer can then answer the last request with nothing. It keeps at most that one settlement, half the way to its trigger, which stays owed on our books as when a peer does not answer at all, within the credit we extend ([own-fulfills](own-fulfills.md)).
 
 ## Rejected

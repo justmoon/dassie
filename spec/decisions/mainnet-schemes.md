@@ -28,7 +28,7 @@
 
 - **A dev switch that turns on the live realm,** guarded only by the build profile. Without it, the first time a binary ran a mainnet scheme would be with real money.
 - **A live node starts alone** until a mainnet bootstrap node list exists, unless its owner names one.
-- **A node whose realm changed** with schemes of the other realm active starts without them and tells the owner; they stay stored, and run again if the realm changes back. Changing the realm with schemes active stays out of scope while `live` cannot be set.
+- **A node whose realm changed** with schemes of the other realm active starts without them and tells the owner; they stay stored, and run again if the realm changes back. Their peerings end, since test and live nodes never peer ([Settlement](../areas/settlement.md#schemes-and-ledgers)). Changing the realm with schemes active stays out of scope while `live` cannot be set.
 - **RLUSD's issuer is a counterparty** on mainnet as on the testnet ([issued-assets](issued-assets.md)), there with real money; the peg guard bounds what a de-peg costs at the boundaries.
 
 ## Rejected
