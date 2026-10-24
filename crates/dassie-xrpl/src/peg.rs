@@ -100,6 +100,17 @@ impl Timings {
     /// production, so the rate's bound stays.
     pub const DEV: Self = Self::reading_every(1_000);
 
+    /// Whether the rule holds on these timings: the pool read at all, a
+    /// trip hold of more than one reading, recovering slower than
+    /// tripping, and a gap as long as a trip pausing.
+    #[must_use]
+    pub const fn holds(&self) -> bool {
+        self.read_every_ms > 0
+            && self.trip_hold_ms > self.read_every_ms
+            && self.recover_hold_ms > self.trip_hold_ms
+            && self.max_reading_age_ms == self.trip_hold_ms
+    }
+
     /// The production rule with the pool read every `read_every_ms`.
     const fn reading_every(read_every_ms: u64) -> Self {
         Self {
@@ -119,10 +130,9 @@ const _: () = assert!(MAX_READING_AGE_MS.is_multiple_of(READ_EVERY_MS));
 const _: () = assert!(Timings::DEFAULT.trip_hold_ms == TRIP_HOLD_MS);
 const _: () = assert!(Timings::DEFAULT.recover_hold_ms == RECOVER_HOLD_MS);
 const _: () = assert!(Timings::DEFAULT.max_reading_age_ms == MAX_READING_AGE_MS);
-// Recovering takes longer than tripping, and a gap as long as a trip
-// pauses, on either timings.
-const _: () = assert!(Timings::DEV.recover_hold_ms > Timings::DEV.trip_hold_ms);
-const _: () = assert!(Timings::DEV.max_reading_age_ms == Timings::DEV.trip_hold_ms);
+// The rule holds on either timings.
+const _: () = assert!(Timings::DEFAULT.holds());
+const _: () = assert!(Timings::DEV.holds());
 
 /// The highest price the guard tells apart, in millionths of a dollar: a
 /// million dollars. Any price above is as far off its peg.
@@ -241,13 +251,19 @@ impl Guard {
     }
 
     /// The guard on `timings`, which are not kept with its state.
+    ///
+    /// # Panics
+    ///
+    /// If the rule does not hold on `timings` ([`Timings::holds`]).
     #[must_use]
     pub const fn timed(self, timings: Timings) -> Self {
+        assert!(timings.holds(), "the peg guard's rule holds on its timings");
         Self { timings, ..self }
     }
 
     /// Takes the time. The first time is when the guard started. With no
-    /// reading that counted for [`MAX_READING_AGE_MS`], a pegged guard is
+    /// reading that counted for its timings' staleness bound
+    /// ([`MAX_READING_AGE_MS`] in production), a pegged guard is
     /// unread, and any hold under way starts again: one toward tripping, or
     /// one off its peg toward recovering.
     pub fn tick(&mut self, now_ms: u64) {
@@ -267,7 +283,8 @@ impl Guard {
     }
 
     /// Whether the pool is due to be read at `now_ms`: never read yet, or
-    /// last asked for [`READ_EVERY_MS`] ago. Once due, it counts as asked.
+    /// last asked for a read interval ago ([`READ_EVERY_MS`] in
+    /// production). Once due, it counts as asked.
     pub fn ask(&mut self, now_ms: u64) -> bool {
         let due = self.asked_ms.is_none_or(|at| {
             now_ms < at || now_ms.saturating_sub(at) >= self.timings.read_every_ms
@@ -431,6 +448,7 @@ impl Guard {
     /// If its state is inconsistent.
     pub fn check_invariants(&self) {
         assert!(self.holds(), "the guard's state fits together");
+        assert!(self.timings.holds(), "the rule holds on its timings");
     }
 }
 
@@ -813,6 +831,28 @@ mod tests {
             (10_000, 60_000, 10_000)
         );
         assert_eq!(dev.max_rate_age_ms, MAX_RATE_AGE_MS);
+        // Timings the rule does not hold on are refused.
+        for broken in [
+            Timings {
+                read_every_ms: 0,
+                ..dev
+            },
+            Timings {
+                recover_hold_ms: dev.trip_hold_ms,
+                ..dev
+            },
+            Timings {
+                max_reading_age_ms: dev.trip_hold_ms + 1,
+                ..dev
+            },
+            Timings {
+                trip_hold_ms: dev.read_every_ms,
+                max_reading_age_ms: dev.read_every_ms,
+                ..dev
+            },
+        ] {
+            assert!(!broken.holds(), "{broken:?}");
+        }
         let readings = |timings: Timings, hold_ms: u64| hold_ms / timings.read_every_ms;
         let production = Timings::DEFAULT;
         assert_eq!(

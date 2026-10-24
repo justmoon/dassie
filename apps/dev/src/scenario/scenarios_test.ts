@@ -149,3 +149,16 @@ test("a live scenario runs mainnet's schemes on the fake ledger's mainnet only",
   assertEquals(unavailable(xrp, true), undefined);
   assertEquals(unavailable(rlusd, true), undefined);
 });
+
+// spec/areas/xrpl.md#the-peg-guard: a dollar token's guard fails closed
+// without a price, which dev timers make seconds, so every scenario whose
+// nodes settle in a token makes that token's pool, priced at the dev rates.
+test("every scenario that settles in a dollar token has its pool", () => {
+  for (const def of SCENARIOS) {
+    const schemes = [...def.schemes, def.addedSchemes].flat();
+    for (const [token, scheme] of Object.entries(TOKEN_SCHEMES)) {
+      if (!schemes.includes(scheme)) continue;
+      assertEquals(def.pool?.token, token, `${def.id} has no ${token} pool`);
+    }
+  }
+});
