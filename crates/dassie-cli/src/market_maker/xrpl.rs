@@ -438,6 +438,7 @@ mod tests {
 
     async fn fake_ledger() -> Server {
         Server::start(Options {
+            network: &dassie_xrpl::network::TESTNET,
             listen: ([127, 0, 0, 1], 0).into(),
             faucet: Some((
                 ([127, 0, 0, 1], 0).into(),

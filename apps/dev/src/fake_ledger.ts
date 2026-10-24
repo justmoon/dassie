@@ -2,10 +2,12 @@
  * The fake XRP Ledger: the node's own model of the ledger, served over
  * WebSocket with a faucet over HTTPS, for scenarios that settle on the XRP
  * Ledger without the public testnet. CI's end-to-end tests run against it,
- * and `node --run dev -- --xrpl fake`. Next to its faucet, the issuer of
- * its test DSUSD mints, freezes and claws back on request
- * (spec/areas/xrpl.md#tokens-in-the-fake-ledger): the only source of test
- * tokens a scenario has.
+ * and `node --run dev -- --xrpl fake`. It is the testnet, or mainnet, which
+ * has no faucet: there, XRP arrives as a deposit from outside, as an owner
+ * sends it. Next to its faucet, the issuer of its network's dollar, DSUSD
+ * on the testnet and RLUSD on mainnet, mints, freezes and claws back on
+ * request (spec/areas/xrpl.md#tokens-in-the-fake-ledger): the only source
+ * of dollar tokens a scenario has.
  *
  * @module
  */
@@ -32,21 +34,29 @@ const START_TIMEOUT_MS = 30_000;
  */
 export const FAKE_LEDGER_PORT = 10200;
 
+/** The XRP Ledger networks the fake ledger can be. */
+export type XrplNetwork = "testnet" | "mainnet";
+
 /** A running fake ledger. */
 export interface FakeLedger {
+  /** The network it is. */
+  readonly network: XrplNetwork;
   /** Its WebSocket URL. */
   readonly url: string;
-  /** Its faucet's URL. */
+  /** Its faucet's URL; mainnet has none. */
   readonly faucet: string | null;
-  /** Where the issuers of its test tokens take requests, with the faucet. */
+  /** Where the issuer of its dollar takes requests, with the faucet. */
   readonly tokens: string | null;
+  /** Where XRP is deposited from outside, with the faucet. */
+  readonly deposit: string | null;
   /** The process, for the PID file. */
   readonly pid: number;
   /** Stops it. */
   stop(): Promise<void>;
 }
 
-/** What an `xrpl-testnet` scheme is set up with to use `ledger`. */
+/** What an XRPL scheme is set up with to use `ledger`: its server, and its
+ * faucet, `null` on mainnet. */
 export function xrplConfig(ledger: Pick<FakeLedger, "url" | "faucet">): string {
   return JSON.stringify({ server: ledger.url, faucet: ledger.faucet });
 }
@@ -71,20 +81,25 @@ export async function buildFakeLedger(): Promise<void> {
 }
 
 /**
- * Starts `binary` on {@linkcode FAKE_LEDGER_PORT} plus `portOffset`, with
- * its faucet on HTTPS under the certificate in `certificateFile` and
- * `keyFile`, closing a ledger every `closeMs`. It is a new ledger every
- * time: nodes that knew an earlier one find their accounts gone, as after
- * a testnet reset, and the faucet funds them again.
+ * Starts `binary` as `network` on {@linkcode FAKE_LEDGER_PORT} plus
+ * `portOffset`, with its faucet on HTTPS under the certificate in
+ * `certificateFile` and `keyFile`, closing a ledger every `closeMs`. It is
+ * a new ledger every time: on the testnet, nodes that knew an earlier one
+ * find their accounts gone, as after a testnet reset, and the faucet funds
+ * them again. Mainnet never resets, so a node that knew an earlier one
+ * stops: a scenario on it starts its nodes from scratch.
  */
 export async function startFakeLedger(
   binary: string,
   certificate: { certificateFile: string; keyFile: string },
   portOffset = 0,
   closeMs = 1_000,
+  network: XrplNetwork = "testnet",
 ): Promise<FakeLedger> {
   const port = FAKE_LEDGER_PORT + portOffset;
   const child = spawn(binary, [
+    "--network",
+    network,
     "--listen",
     `127.0.0.1:${port}`,
     "--faucet-listen",
@@ -116,15 +131,18 @@ export async function startFakeLedger(
     await status;
     throw new Error("the fake ledger did not start");
   }
-  const { url, faucet, tokens } = JSON.parse(first) as {
+  const { url, faucet, tokens, deposit } = JSON.parse(first) as {
     url: string;
     faucet: string | null;
     tokens: string | null;
+    deposit: string | null;
   };
   return {
+    network,
     url,
     faucet,
     tokens,
+    deposit,
     pid,
     async stop() {
       // Closing stdin stops it; a kill if it does not.
@@ -144,15 +162,15 @@ export async function startFakeLedger(
   };
 }
 
-/** What the fake ledger's issuer of test DSUSD, or of the token `token`
- * names, can be asked to do, each in the next ledger: mint to an
+/** What the fake ledger's issuer of its network's dollar, or of the token
+ * `token` names, can be asked to do, each in the next ledger: mint to an
  * address, freeze or deep-freeze a line or lift that, freeze every line,
  * set a transfer fee in billionths, claw back, or make or set the token's
  * pool with XRP (spec/areas/xrpl.md#pools-in-the-fake-ledger), its
  * trading fee in hundred-thousandths. Values are decimal dollars, such as
- * `"12.5"`. */
+ * `"12.5"`. DSUSD is on the testnet only, RLUSD on mainnet only. */
 export type IssuerRequest =
-  & { token?: "DSUSD" }
+  & { token?: "DSUSD" | "RLUSD" }
   & (
     | { action: "mint"; destination: string; value: string }
     | { action: "freeze" | "deep-freeze"; account: string; on: boolean }
@@ -163,10 +181,10 @@ export type IssuerRequest =
   );
 
 /**
- * Asks the issuer of `ledger`'s test DSUSD (or of `request.token`), whose
- * certificate comes from the CA in `caFile`. It is queued once this returns, and applies in the
- * next ledger; one the ledger refuses, such as a mint to an account
- * without a line, changes nothing.
+ * Asks the issuer of `ledger`'s dollar (or of `request.token`), whose
+ * certificate comes from the CA in `caFile`. It is queued once this
+ * returns, and applies in the next ledger; one the ledger refuses, such as
+ * a mint to an account without a line, changes nothing.
  */
 export async function askIssuer(
   ledger: Pick<FakeLedger, "tokens">,
@@ -175,11 +193,47 @@ export async function askIssuer(
 ): Promise<void> {
   if (!ledger.tokens) throw new Error("the fake ledger has no issuer");
   const { action, ...body } = request;
+  await post(
+    `${ledger.tokens}/${action}`,
+    caFile,
+    body,
+    `the issuer ${action}`,
+  );
+}
+
+/**
+ * Sends `drops` of XRP to `destination` on `ledger` from outside, as an
+ * owner funds an account: on mainnet, which has no faucet, the only way. It
+ * is queued once this returns, and applies in the next ledger.
+ */
+export async function depositXrp(
+  ledger: Pick<FakeLedger, "deposit">,
+  caFile: string,
+  destination: string,
+  drops: bigint,
+): Promise<void> {
+  if (!ledger.deposit) throw new Error("the fake ledger takes no deposits");
+  await post(
+    ledger.deposit,
+    caFile,
+    { destination, drops: `${drops}` },
+    "a deposit",
+  );
+}
+
+/** Posts `body` as JSON to `url`, under the CA in `caFile`; `what` names it
+ * when it is refused. */
+async function post(
+  url: string,
+  caFile: string,
+  body: unknown,
+  what: string,
+): Promise<void> {
   const agent = new Agent({
     connect: { ca: await readFile(caFile, "utf8") },
   });
   try {
-    const response = await fetch(`${ledger.tokens}/${action}`, {
+    const response = await fetch(url, {
       method: "POST",
       dispatcher: agent,
       headers: { "content-type": "application/json" },
@@ -187,9 +241,7 @@ export async function askIssuer(
     });
     const text = await response.text();
     if (response.status !== 200) {
-      throw new Error(
-        `the issuer refused ${action} (${response.status}) ${text}`,
-      );
+      throw new Error(`refused: ${what} (${response.status}) ${text}`);
     }
   } finally {
     await agent.close();

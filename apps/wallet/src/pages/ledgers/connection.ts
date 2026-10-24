@@ -10,6 +10,8 @@ import { LedgerConnection } from "@dassie/rpc/proto";
 export function connectionText(ledger: {
   connection: LedgerConnection;
   connectionProblem: string;
+  /** Whether a faucet funds it: the testnet's; mainnet has none. */
+  faucet: boolean;
 }): string | undefined {
   switch (ledger.connection) {
     case LedgerConnection.CONNECTING:
@@ -17,7 +19,9 @@ export function connectionText(ledger: {
     case LedgerConnection.SYNCING:
       return "Catching up with the ledger…";
     case LedgerConnection.UNFUNDED:
-      return "The account does not exist yet: send it XRP, or wait for the testnet faucet.";
+      return ledger.faucet
+        ? "The account does not exist yet: send it XRP, or wait for the testnet faucet."
+        : "The account does not exist yet: send it XRP.";
     case LedgerConnection.FAILED:
       return `Something is wrong with the ledger: ${
         ledger.connectionProblem || "unknown"

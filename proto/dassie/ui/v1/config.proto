@@ -51,7 +51,10 @@ message SetHostnameResponse {
   NodeConfig config = 1;
 }
 
-// FAILED_PRECONDITION for REALM_LIVE (spec/decisions/real-money.md).
+// FAILED_PRECONDITION for REALM_LIVE (spec/decisions/real-money.md), but
+// on a node the dev switch lets run it, which only a build with debug
+// assertions honours (spec/decisions/mainnet-schemes.md). It takes effect
+// when the engine starts again.
 message SetRealmRequest {
   Realm realm = 1;
 }

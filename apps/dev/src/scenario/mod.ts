@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { caFile, certificate } from "../certs.ts";
 import {
   askIssuer,
+  depositXrp,
   type FakeLedger,
   type IssuerRequest,
   startFakeLedger,
@@ -28,6 +29,9 @@ import {
   findScenario,
   invalid,
   type IssuedToken,
+  ledgerNetwork,
+  live,
+  MAINNET_DEPOSIT_DROPS,
   MAX_NODES,
   minted,
   peripheryOf,
@@ -43,10 +47,13 @@ export {
   DEFAULT_SCENARIO,
   findScenario,
   type IssuedToken,
+  live,
+  MAINNET_DEPOSIT_DROPS,
   MAX_NODES,
   type Periphery,
   type PoolDef,
   poolDrops,
+  resumes,
   type ScenarioDef,
   SCENARIOS,
   TOKEN_SCHEMES,
@@ -55,7 +62,11 @@ export {
 } from "./scenarios.ts";
 export { type Layout, layout, socketPath } from "../paths.ts";
 export { caFile, certificate } from "../certs.ts";
-export { fakeLedgerBinary, type IssuerRequest } from "../fake_ledger.ts";
+export {
+  fakeLedgerBinary,
+  type IssuerRequest,
+  type XrplNetwork,
+} from "../fake_ledger.ts";
 export { DEV_RATES, RATES_PORT, type RateTable } from "../rates.ts";
 export { until, waitForPort, waitForSocket } from "../wait.ts";
 export type { Exit } from "../process.ts";
@@ -65,6 +76,10 @@ export type { Exit } from "../process.ts";
  * account in the next ledger, and its `TrustSet` applies in the one after.
  */
 const LINE_WITHIN_MS = 60_000;
+
+/** How long a node may take to show its mainnet account's address, once
+ * its scheme is added. */
+const ADDRESS_WITHIN_MS = 30_000;
 
 /** How a scenario runs. */
 export interface ScenarioOptions {
@@ -189,6 +204,8 @@ export class Scenario {
           options.fakeLedger,
           faucet,
           options.portOffset ?? 0,
+          undefined,
+          ledgerNetwork(def),
         );
         // Every XRPL scheme settles through the node's one account, which
         // they set up alike.
@@ -211,6 +228,9 @@ export class Scenario {
       for (let index = 0; index < def.schemes.length; index++) {
         await scenario.#startNode(index);
       }
+      // Mainnet has no faucet: each account is funded as an owner funds
+      // it, before its token's line can exist.
+      await Promise.all(scenario.nodes.map((node) => scenario.#fund(node)));
       const mint = def.mint;
       if (mint !== undefined) {
         await Promise.all(
@@ -256,13 +276,16 @@ export class Scenario {
   }
 
   /**
-   * The environment of node `index`: the bootstrap nodes, and for a
-   * periphery node the IDs of the nodes it is pinned to.
+   * The environment of node `index`: the bootstrap nodes, for a periphery
+   * node the IDs of the nodes it is pinned to, and in a live scenario the
+   * dev switch that lets the node run in the live realm, which only a build
+   * with debug assertions honours (spec/decisions/mainnet-schemes.md).
    */
   #nodeEnv(index: number): Record<string, string> {
     const env: Record<string, string> = {
       DASSIE_BOOTSTRAP_NODES: this.#bootstrapNodes(),
     };
+    if (live(this.def)) env.DASSIE_DEV_LIVE_REALM = "1";
     const periphery = peripheryOf(this.def, index);
     if (periphery !== undefined) {
       env.DASSIE_UPLINKS = periphery.uplinks
@@ -286,7 +309,12 @@ export class Scenario {
       report(node, "starting");
       await node.start();
       report(node, "setting-up");
-      await node.setUp(this.#schemes(index), this.#configs, this.rates?.url);
+      await node.setUp(
+        this.#schemes(index),
+        this.#configs,
+        this.rates?.url,
+        this.def.realm ?? "test",
+      );
     } catch (error) {
       // A node that failed is stopped and dropped, so its index is free.
       const exit = await node.stop();
@@ -302,14 +330,43 @@ export class Scenario {
   /** Starts one more node, with the scenario's schemes for added nodes. */
   async addNode(): Promise<ScenarioNode> {
     const node = await this.#startNode(this.nodes.length);
+    await this.#fund(node);
     if (this.def.mint !== undefined && this.#minted(node.index)) {
       await this.mintToken(node, this.def.mint.token, this.def.mint.value);
     }
     return node;
   }
 
-  /** Asks the fake ledger's issuer of test DSUSD, or of the request's
-   * token, to act. */
+  /**
+   * In a live scenario, deposits {@linkcode MAINNET_DEPOSIT_DROPS} into
+   * `node`'s mainnet account once it shows its address, as its owner would:
+   * mainnet has no faucet. Nothing for a node of a test scenario, or one
+   * without a scheme on the XRP Ledger.
+   */
+  async #fund(node: ScenarioNode): Promise<void> {
+    if (!live(this.def) || !this.ledger) return;
+    const schemes = this.#schemes(node.index);
+    if (!schemes.some((scheme) => XRPL_SCHEMES.includes(scheme))) return;
+    let address = "";
+    await until(`${node.name}'s mainnet address`, async () => {
+      const { externalAssets } = await node.rpc.call("listLedgers", {});
+      const account = externalAssets.find((asset) =>
+        asset.id.startsWith("xrpl-account/")
+      );
+      address = account?.address ?? "";
+      return address !== "";
+    }, ADDRESS_WITHIN_MS);
+    await this.deposit(address, MAINNET_DEPOSIT_DROPS);
+  }
+
+  /** Sends `drops` of XRP to `address` on the fake ledger, from outside. */
+  async deposit(address: string, drops: bigint): Promise<void> {
+    if (!this.ledger) throw new Error("the scenario runs no fake ledger");
+    await depositXrp(this.ledger, this.caFile, address, drops);
+  }
+
+  /** Asks the fake ledger's issuer of its network's dollar, or of the
+   * request's token, to act. */
   async askIssuer(request: IssuerRequest): Promise<void> {
     if (!this.ledger) throw new Error("the scenario runs no fake ledger");
     await askIssuer(this.ledger, this.caFile, request);

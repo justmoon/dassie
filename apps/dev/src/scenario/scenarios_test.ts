@@ -4,12 +4,16 @@ import { DEV_RATES } from "../rates.ts";
 import {
   findScenario,
   invalid,
+  ledgerNetwork,
+  live,
   micros,
   minted,
   peripheryOf,
   poolDrops,
+  resumes,
   type ScenarioDef,
   SCENARIOS,
+  TOKEN_SCHEMES,
   unavailable,
 } from "./scenarios.ts";
 
@@ -65,7 +69,7 @@ test("the market maker's scenario: a core node and two pinned to it", () => {
   assertEquals(minted(def, def.addedSchemes), true);
   assertEquals(
     unavailable(def, false),
-    "needs --xrpl fake: only the fake ledger's issuer mints test DSUSD on demand",
+    "needs --xrpl fake: only the fake ledger's issuer mints DSUSD on demand",
   );
   assertEquals(
     unavailable({ ...def, mint: undefined }, false)?.includes("pool"),
@@ -102,4 +106,59 @@ test("a pool is priced at the dev rates, exactly", () => {
   // Below a drop rounds down.
   assertEquals(poolDrops("0.000001", "0.5"), 0n);
   assertThrows(() => poolDrops("lots", "2"), Error, "no pool");
+});
+
+// spec/decisions/mainnet-schemes.md: a node runs only its realm's schemes,
+// so a live scenario's nodes run only mainnet's, and a test scenario's none
+// of them; its token is its network's dollar. The live realm runs only
+// against the fake ledger's mainnet, and a live scenario's nodes start from
+// scratch each run, since mainnet never resets.
+test("a live scenario runs mainnet's schemes on the fake ledger's mainnet only", () => {
+  const mainnet = ["xrpl", "xrpl-rlusd"];
+  const ids = SCENARIOS.filter(live).map((def) => def.id);
+  assertEquals(ids, ["xrpl-live-settlement", "rlusd-live-settlement"]);
+  for (const def of SCENARIOS) {
+    for (const schemes of [...def.schemes, def.addedSchemes]) {
+      for (const scheme of schemes) {
+        if (scheme === "stub") continue;
+        assertEquals(
+          mainnet.includes(scheme),
+          live(def),
+          `${def.id} ${scheme}`,
+        );
+      }
+    }
+    for (const token of [def.mint?.token, def.pool?.token]) {
+      if (token === undefined) continue;
+      assertEquals(token === "RLUSD", live(def), def.id);
+    }
+    assertEquals(ledgerNetwork(def), live(def) ? "mainnet" : "testnet");
+    assertEquals(resumes(def), !live(def));
+  }
+  const rlusd = findScenario("rlusd-live-settlement")!;
+  assertEquals(TOKEN_SCHEMES.RLUSD, "xrpl-rlusd");
+  assertEquals(rlusd.schemes.map((schemes) => minted(rlusd, schemes)), [
+    true,
+    true,
+  ]);
+  const xrp = findScenario("xrpl-live-settlement")!;
+  assertEquals(
+    unavailable(xrp, false),
+    "needs --xrpl fake: the live realm runs only against the fake ledger's mainnet, never with real money",
+  );
+  assertEquals(unavailable(xrp, true), undefined);
+  assertEquals(unavailable(rlusd, true), undefined);
+});
+
+// spec/areas/xrpl.md#the-peg-guard: a dollar token's guard fails closed
+// without a price, which dev timers make seconds, so every scenario whose
+// nodes settle in a token makes that token's pool, priced at the dev rates.
+test("every scenario that settles in a dollar token has its pool", () => {
+  for (const def of SCENARIOS) {
+    const schemes = [...def.schemes, def.addedSchemes].flat();
+    for (const [token, scheme] of Object.entries(TOKEN_SCHEMES)) {
+      if (!schemes.includes(scheme)) continue;
+      assertEquals(def.pool?.token, token, `${def.id} has no ${token} pool`);
+    }
+  }
 });

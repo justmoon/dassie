@@ -182,7 +182,10 @@ export const SetHostnameResponseSchema: GenMessage<SetHostnameResponse> = /*@__P
   messageDesc(file_dassie_ui_v1_config, 6);
 
 /**
- * FAILED_PRECONDITION for REALM_LIVE (spec/decisions/real-money.md).
+ * FAILED_PRECONDITION for REALM_LIVE (spec/decisions/real-money.md), but
+ * on a node the dev switch lets run it, which only a build with debug
+ * assertions honours (spec/decisions/mainnet-schemes.md). It takes effect
+ * when the engine starts again.
  *
  * @generated from message dassie.ui.v1.SetRealmRequest
  */
