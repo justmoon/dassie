@@ -7,6 +7,7 @@ use dassie_ilp::{Timestamp, ildcp};
 use dassie_node_core::config::Realm;
 use dassie_node_core::testing::SeededRng;
 use dassie_oer::Encode;
+use dassie_xrpl::network::{MAINNET, TESTNET};
 
 use super::{Core, CoreParts, Outbound, Output};
 use crate::node::Policies;
@@ -340,7 +341,7 @@ fn a_refused_batch_read_again_is_never_booked_twice() {
     const XRP: u64 = 1_000_000;
     let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
     let entropy = NodeKey::from_bytes(&[7; 32])
-        .settlement_entropy(SCHEME, "seed-testnet")
+        .settlement_entropy(TESTNET.seed.module, TESTNET.seed.path)
         .unwrap();
     let account = Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(false);
@@ -418,7 +419,7 @@ fn a_reserve_change_is_reconciled_as_information() {
     const SCHEME: &str = "xrpl-testnet";
     let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
     let entropy = NodeKey::from_bytes(&[7; 32])
-        .settlement_entropy(SCHEME, "seed-testnet")
+        .settlement_entropy(TESTNET.seed.module, TESTNET.seed.path)
         .unwrap();
     let account = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(false);
@@ -1699,7 +1700,7 @@ fn a_database_from_before_external_assets_restarts_and_books_nothing_anew() {
 
     // The ledger as the node left it: the account funded, nothing sent.
     let entropy = NodeKey::from_bytes(&[7; 32])
-        .settlement_entropy("xrpl-testnet", "seed-testnet")
+        .settlement_entropy(TESTNET.seed.module, TESTNET.seed.path)
         .unwrap();
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(false);
@@ -1880,7 +1881,7 @@ const SHARED_CONFIG: &str = r#"{"server":"ws://ledger.test","faucet":null}"#;
 /// account's address.
 fn funded_ledger() -> (dassie_xrpl::fake::FakeLedger, dassie_xrpl::AccountId) {
     let entropy = NodeKey::from_bytes(&[7; 32])
-        .settlement_entropy("xrpl-testnet", "seed-testnet")
+        .settlement_entropy(TESTNET.seed.module, TESTNET.seed.path)
         .unwrap();
     let account = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(false);
@@ -2051,7 +2052,7 @@ fn rlusd_beside_xrp_on_one_account() {
 
     let config = r#"{"server":"ws://ledger.test"}"#;
     let entropy = NodeKey::from_bytes(&[7; 32])
-        .settlement_entropy("xrpl", "seed-mainnet")
+        .settlement_entropy(MAINNET.seed.module, MAINNET.seed.path)
         .unwrap();
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(true);
@@ -2172,7 +2173,7 @@ fn dsusd_beside_xrp_and_no_test_rlusd() {
 
     let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
     let entropy = NodeKey::from_bytes(&[7; 32])
-        .settlement_entropy("xrpl-testnet", "seed-testnet")
+        .settlement_entropy(TESTNET.seed.module, TESTNET.seed.path)
         .unwrap();
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(false);
@@ -2271,7 +2272,7 @@ fn rlusd_off_its_peg_converts_nothing() {
 
     let config = r#"{"server":"ws://ledger.test"}"#;
     let entropy = NodeKey::from_bytes(&[7; 32])
-        .settlement_entropy("xrpl", "seed-mainnet")
+        .settlement_entropy(MAINNET.seed.module, MAINNET.seed.path)
         .unwrap();
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(true);
@@ -2419,7 +2420,7 @@ fn on_dev_timers_the_peg_guard_trips_in_seconds() {
 
     let config = r#"{"server":"ws://ledger.test"}"#;
     let entropy = NodeKey::from_bytes(&[7; 32])
-        .settlement_entropy("xrpl", "seed-mainnet")
+        .settlement_entropy(MAINNET.seed.module, MAINNET.seed.path)
         .unwrap();
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(true);
@@ -2521,7 +2522,7 @@ fn rlusd_core_on(store: Arc<Store>, ledger: &mut dassie_xrpl::fake::FakeLedger, 
 
     let address = Wallet::from_entropy(
         NodeKey::from_bytes(&[7; 32])
-            .settlement_entropy("xrpl", "seed-mainnet")
+            .settlement_entropy(MAINNET.seed.module, MAINNET.seed.path)
             .unwrap()
             .as_bytes(),
     )
@@ -3275,7 +3276,7 @@ fn a_peering_on_a_disabled_scheme_ends_and_the_pair_peers_on_another() {
 
     let address = Wallet::from_entropy(
         NodeKey::from_bytes(&[7; 32])
-            .settlement_entropy("xrpl-testnet", "seed-testnet")
+            .settlement_entropy(TESTNET.seed.module, TESTNET.seed.path)
             .unwrap()
             .as_bytes(),
     )

@@ -26,6 +26,7 @@ use dassie_node::rpc::proto::{self, request::Method, response};
 use dassie_node::store::StoredCertificate;
 use dassie_node_core::certificate::CertificateSource;
 use dassie_xrpl::fake::Lie;
+use dassie_xrpl::network::TESTNET;
 use dassie_xrpl::{AccountId, Wallet};
 use support::btp_client::{BtpClient, pay_stream_waiting};
 use support::pair::{CA, CERT, KEY, bootstrap, key, peered_on, prepare_with, settle, until};
@@ -91,7 +92,7 @@ fn port_of(url: &str) -> u16 {
 
 fn account_of(key: &NodeKey) -> AccountId {
     let entropy = key
-        .settlement_entropy("xrpl-testnet", "seed-testnet")
+        .settlement_entropy(TESTNET.seed.module, TESTNET.seed.path)
         .unwrap();
     Wallet::from_entropy(entropy.as_bytes()).account()
 }
