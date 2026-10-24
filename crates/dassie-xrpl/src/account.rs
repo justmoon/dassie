@@ -115,7 +115,7 @@ const MAX_LIST_ASKS: usize = 2;
 const LEDGER_WINDOW: u32 = 20;
 /// How long a request may go unanswered before the connection is made
 /// anew.
-const REQUEST_TIMEOUT_MS: u64 = 20_000;
+pub const REQUEST_TIMEOUT_MS: u64 = 20_000;
 /// How often the faucet is asked, while the account does not exist.
 const FUND_RETRY_MS: u64 = 60_000;
 /// Most requests waiting for an answer: a submission for each transaction
@@ -147,7 +147,7 @@ const MAX_EFFECTS: usize = MAX_PENDING + MAX_IN_FLIGHT + 4 + MAX_PUBLISHERS;
 const MAX_CONFIG: usize = 4096;
 /// How long the connection may say nothing, no ledger closing, before it
 /// is made anew: a ledger closes every few seconds.
-const LEDGER_SILENCE_MS: u64 = 30_000;
+pub const LEDGER_SILENCE_MS: u64 = 30_000;
 /// The most drops the books can hold for the account: [`MAX_TOTAL`] in
 /// units. A server that reports more for it is no ledger to follow.
 pub(crate) const MAX_ACCOUNT_DROPS: u64 = MAX_TOTAL / UNITS_PER_DROP;
@@ -517,6 +517,28 @@ enum Phase {
     Synced,
 }
 
+/// What an account proved since it was made, by kind, and what it could
+/// not: never kept.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Proofs {
+    /// Ledgers a quorum of its UNL validated that it took as its anchor.
+    pub anchors: u64,
+    /// Transactions proven in a ledger by their branches.
+    pub transactions: u64,
+    /// Objects an anchor proved absent: the account's root before it
+    /// exists, a line not yet made, an issuer gone.
+    pub absences: u64,
+    /// Transactions of its own proven never to apply, by its sequence at an
+    /// anchor past their last ledger.
+    pub never_applied: u64,
+    /// Gaps in the history it walked, beyond the history bound, that the
+    /// server no longer had.
+    pub gaps: u64,
+    /// Transactions of its own past their last ledger proven neither
+    /// applied nor absent.
+    pub unproven: u64,
+}
+
 /// An XRPL account, on the network its kind names.
 pub struct XrplAccount {
     id: AssetId,
@@ -562,6 +584,8 @@ pub struct XrplAccount {
     waiting: Option<&'static str>,
     /// The lies it caught, by kind.
     doubts: BTreeMap<Doubt, u64>,
+    /// What it proved, by kind, and what it could not.
+    counted: Proofs,
     /// Where in the UNL's validators that did not count the next round's
     /// questions for newer manifests start.
     manifests_from: usize,
@@ -592,12 +616,7 @@ pub struct XrplAccount {
     /// The pools the schemes asked for, each with the account its `AMM`
     /// object last named: told with the next anchor that proves it.
     pools: BTreeMap<LineKey, history::PoolWatch>,
-    /// How often the history had a gap beyond the history bound, which the
-    /// server no longer had.
-    gaps: u64,
     /// How often one of our transactions could be proven neither applied
-    /// nor absent.
-    unproven: u64,
     /// The network the connection's server is on, once checked.
     network_id: Option<u32>,
     next_id: u64,
@@ -682,6 +701,7 @@ impl XrplAccount {
             stalled_until_ms: 0,
             waiting: None,
             doubts: BTreeMap::new(),
+            counted: Proofs::default(),
             manifests_from: 0,
             reserve_changed: false,
             walk: None,
@@ -694,8 +714,6 @@ impl XrplAccount {
             issuers_asked: BTreeSet::new(),
             reading: None,
             pools: BTreeMap::new(),
-            gaps: 0,
-            unproven: 0,
             phase: Phase::Disconnected,
             network_id: None,
             next_id: 1,
@@ -788,12 +806,21 @@ impl XrplAccount {
         self.doubts.get(&doubt).copied().unwrap_or(0)
     }
 
+    /// What it proved since it was made, by kind, and what it could not
+    /// (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation):
+    /// a simulation counts it, so that a change that quietly bypasses the
+    /// verifier fails its coverage.
+    #[must_use]
+    pub const fn proofs(&self) -> Proofs {
+        self.counted
+    }
+
     /// How often the history it walked had a gap beyond the history bound
     /// that the server no longer had: what fell in it, its schemes matched
     /// through suspense ([`HISTORY_BOUND`]).
     #[must_use]
     pub const fn history_gaps(&self) -> u64 {
-        self.gaps
+        self.counted.gaps
     }
 
     /// How often one of its transactions past its last ledger could be
@@ -801,7 +828,7 @@ impl XrplAccount {
     /// the account: it stays pending, for the owner.
     #[must_use]
     pub const fn unproven(&self) -> u64 {
-        self.unproven
+        self.counted.unproven
     }
 
     /// Checks validation signatures with `signatures` from now on, as a
@@ -1678,6 +1705,9 @@ impl XrplAccount {
             .map(|t| t.hash)
             .collect();
         for hash in absent {
+            if self.in_flight.iter().any(|t| t.hash == hash) {
+                self.counted.never_applied = self.counted.never_applied.saturating_add(1);
+            }
             self.give_up(hash);
         }
         for transaction in &mut self.in_flight {

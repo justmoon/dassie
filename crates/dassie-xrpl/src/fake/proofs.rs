@@ -52,6 +52,10 @@ pub const MAX_STATE_PROOF_KEYS: usize = crate::api::MAX_PROOF_KEYS;
 /// How much longer before the newest ledger than its validations stay
 /// fresh an old anchor closed, in seconds.
 const STALE_BY_S: u32 = 60;
+const _: () = assert!(
+    super::MAX_STATE_LEDGERS as u64 * 3 > FRESH_FOR_MS / 1_000 + STALE_BY_S as u64,
+    "an old anchor's state is kept"
+);
 /// How many ledgers back an anchor older than a newer one is: its
 /// validations are still fresh.
 const OLDER_ANCHOR_LEDGERS: u32 = 2;

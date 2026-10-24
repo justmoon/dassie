@@ -5,7 +5,8 @@
 //! `dassie-sim explain node-stub <seed>` prints its trace, and `dassie-sim run
 //! node-stub <from>..<to>` runs others
 //! (spec/decisions/random-seed-simulations.md); so do `node-xrpl`,
-//! `node-xrpl-live`, `node-currencies`, `node-rlusd` and `node-xrp-rlusd`.
+//! `node-xrpl-lies`, `node-xrpl-live`, `node-currencies`, `node-rlusd` and
+//! `node-xrp-rlusd`.
 //!
 //! The targeted tests below set up one situation each: a hop that crashes
 //! after posting, a late Fulfill, lying peers, a junior paying its senior
@@ -32,7 +33,7 @@ use dassie_node::sim::{
     xrpl_account,
 };
 use dassie_node::store::{Aim, ForeignAmount, OutgoingRow, OutgoingState, PaymentId, PeerSettings};
-use dassie_node_core::testing::{Outcome, assert_seeds_pass};
+use dassie_node_core::testing::{Outcome, assert_seeds_pass, caught};
 use dassie_payments::amount::Amount;
 use dassie_payments::gnap::Limits;
 use dassie_settlement::LedgerStatus;
@@ -47,6 +48,41 @@ fn simulated_networks_pay_across_restarts() {
 #[test]
 fn simulated_networks_settle_on_the_xrp_ledger() {
     assert_seeds_pass(0..6, scripted::run_xrpl);
+}
+
+// spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation:
+// the nodes' servers tell each kind of lie in turn while payments settle,
+// then a validator rotates its key, a quorum is withheld and a list lapses.
+// Each node's books hold to the fake ledger's truth, every node anchored,
+// and the network settles as before. Between them, the seeds tell every
+// kind of lie, and the nodes catch what the verifier catches.
+#[test]
+fn simulated_networks_settle_through_lying_servers() {
+    let mut reached: BTreeMap<&str, u64> = BTreeMap::new();
+    for seed in 0..4 {
+        let run = caught(|| scripted::run_lies(seed));
+        assert!(!run.outcome.is_failure(), "seed {seed}: {}", run.outcome);
+        for (what, count) in run.counts {
+            *reached.entry(what).or_default() += count;
+        }
+    }
+    let lies = dassie_xrpl::fake::Lie::ALL.map(dassie_node::sim::told_as);
+    for (what, least) in lies.iter().map(|lie| (*lie, 1)).chain([
+        ("lies caught", 100),
+        ("anchors", 1_000),
+        ("transactions proven", 100),
+        ("absences proven", 10),
+        ("validator lists fetched", 10),
+        ("validator keys rotated", 4),
+        ("quorums withheld", 4),
+        ("validator lists lapsed", 4),
+    ]) {
+        let count = reached.get(what).copied().unwrap_or(0);
+        assert!(
+            count >= least,
+            "the seeds reached {what} {count} times, not {least}: {reached:?}"
+        );
+    }
 }
 
 // spec/decisions/mainnet-schemes.md: the same runs in the live realm, on

@@ -6,9 +6,10 @@
 //!
 //! A run has two phases. In the chaos, payments start while nodes crash
 //! or fail a commit and restart, links are cut and healed, messages are
-//! lost, requests are replayed, ledger connections drop, and owners end
-//! peerings and ban peers; each node's clock is off the network's by up
-//! to 10 s, throughout. The network may also split in two, for minutes
+//! lost, requests are replayed, ledger connections drop or come back to a
+//! server that lies, validators rotate their keys, and owners end peerings
+//! and ban peers; each node's clock is off the network's by up to 10 s,
+//! throughout. The network may also split in two, for minutes
 //! or for days: a partition that outlasts the chaos keeps the network as
 //! the chaos left it, its cuts too, until it ends. Then the network heals:
 //! every node runs, no link is cut, nothing is lost or replayed, and within
@@ -37,6 +38,8 @@ use super::{Delivery, START, Settling, Sim, key};
 use crate::engine::LedgerEvent;
 use crate::node::Policies;
 use crate::store::{Aim, OutgoingState};
+use dassie_xrpl::account::{LEDGER_SILENCE_MS, REQUEST_TIMEOUT_MS, STALL_MS};
+use dassie_xrpl::fake::{Lie, VALIDATORS};
 
 /// How long a healed network has to settle down, from the production rules
 /// it runs: the longest a wait begun before the heal may still run after
@@ -94,6 +97,12 @@ pub struct Weights {
     pub heal: u64,
     /// Dropping a node's connection to the XRP Ledger.
     pub ledger_drop: u64,
+    /// Dropping a node's connection to the XRP Ledger, which comes back to
+    /// a server that lies for a while
+    /// (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
+    pub lie: u64,
+    /// A validator of the fake ledger rotating its signing key.
+    pub rotate: u64,
     /// Making one of a node's next commits fail
     /// (spec/decisions/random-seed-simulations.md).
     pub fail_commit: u64,
@@ -228,6 +237,7 @@ impl Options {
         let loss_per_mille = switched(&mut rng, 31);
         let chaos_ms = 30_000 + rng.below(210_001);
         let step_ms = 500 + rng.below(5_000);
+        let (lie, rotate) = proof_faults(seed, settling);
         let weights = Weights {
             pay: 1 + rng.below(10),
             crash: switched(&mut rng, 11),
@@ -239,6 +249,8 @@ impl Options {
             } else {
                 0
             },
+            lie,
+            rotate,
             fail_commit: switched(&mut rng, 11),
             end: switched(&mut rng, 4),
             ban: switched(&mut rng, 4),
@@ -291,6 +303,31 @@ fn stub_or_hub(seed: u64) -> Settling {
     }
 }
 
+/// How often a run on the XRP Ledger draws a lying server and a validator's
+/// new key, each off in a third of the seeds; never on the stub. Their own
+/// generator, so that they draw nothing else's.
+fn proof_faults(seed: u64, settling: Settling) -> (u64, u64) {
+    if settling != Settling::Xrpl {
+        return (0, 0);
+    }
+    let mut rng = SeededRng::new(seed ^ 0x11e5_0000);
+    (switched(&mut rng, 11), switched(&mut rng, 4))
+}
+
+/// The longest a server lies to a node before its connection drops again:
+/// twice the longest of the production timings that end a connection, so
+/// that some lies end first and some outlast the node's own reconnect.
+const LONGEST_LIE_MS: u64 = 2 * {
+    let mut longest = STALL_MS;
+    if REQUEST_TIMEOUT_MS > longest {
+        longest = REQUEST_TIMEOUT_MS;
+    }
+    if LEDGER_SILENCE_MS > longest {
+        longest = LEDGER_SILENCE_MS;
+    }
+    longest
+};
+
 /// Off in a third of the seeds, and below `bound` in the rest.
 fn switched(rng: &mut SeededRng, bound: u64) -> u64 {
     if rng.below(3) == 0 {
@@ -308,7 +345,7 @@ impl fmt::Display for Options {
             "{} nodes, {} bootstrap, {:?}; latency {}–{} ms, loss {}‰, replays {}‰, \
              clocks off by up to {} ms; chaos {} s, \
              every ~{} ms: pay {} crash {} restart {} cut {} heal {} ledger drop {} \
-             fail commit {} end {} ban {} idle {}; \
+             lie {} rotate {} fail commit {} end {} ban {} idle {}; \
              {} payments and {} outgoing, up to {}",
             self.nodes,
             self.bootstraps,
@@ -326,6 +363,8 @@ impl fmt::Display for Options {
             w.cut,
             w.heal,
             w.ledger_drop,
+            w.lie,
+            w.rotate,
             w.fail_commit,
             w.end,
             w.ban,
@@ -387,8 +426,11 @@ pub fn run(seed: u64) -> Run {
     sim.replay_per_mille = options.replay_per_mille;
     let mut left = options.payments;
     let mut ends = Vec::new();
-    let result = chaos(&mut sim, &options, &mut rng, &mut left, &mut ends)
-        .and_then(|split| heal(&mut sim, &options, &mut rng, &mut left, &ends, split));
+    let mut lies = Lies::new(seed);
+    let result = chaos(
+        &mut sim, &options, &mut rng, &mut lies, &mut left, &mut ends,
+    )
+    .and_then(|split| heal(&mut sim, &options, &mut rng, &mut left, &ends, split));
     ended(sim, result)
 }
 
@@ -401,6 +443,8 @@ enum Act {
     Cut,
     Heal,
     LedgerDrop,
+    Lie,
+    Rotate,
     FailCommit,
     End,
     Ban,
@@ -414,6 +458,7 @@ fn chaos(
     sim: &mut Sim,
     options: &Options,
     rng: &mut SeededRng,
+    lies: &mut Lies,
     left: &mut (u64, u64),
     ends: &mut Vec<End>,
 ) -> Result<bool, Outcome> {
@@ -445,6 +490,14 @@ fn chaos(
                     sim.drop_ledger_link(index);
                     sim.count("ledger drops");
                 }
+            }
+            Act::Lie => lie(sim, rng, lies),
+            Act::Rotate => {
+                let validator = usize::try_from(rng.below(VALIDATORS as u64)).unwrap();
+                sim.ledger.rotate_validator(validator);
+                sim.count("validator keys rotated");
+                sim.trace
+                    .push(format!("{} validator {validator} rotates its key", sim.now));
             }
             Act::FailCommit => fail_commit(sim, rng),
             Act::End => owner_ends(sim, rng, ends, false),
@@ -545,6 +598,8 @@ fn pick(weights: &Weights, rng: &mut SeededRng) -> Act {
         (weights.cut, Act::Cut),
         (weights.heal, Act::Heal),
         (weights.ledger_drop, Act::LedgerDrop),
+        (weights.lie, Act::Lie),
+        (weights.rotate, Act::Rotate),
         (weights.fail_commit, Act::FailCommit),
         (weights.end, Act::End),
         (weights.ban, Act::Ban),
@@ -654,6 +709,47 @@ fn crash(sim: &mut Sim, rng: &mut SeededRng) {
         }
         sim.crash(victim);
     }
+}
+
+/// The kinds of lie a run's servers tell, in an order its seed shuffles,
+/// each in turn: a run with as many lying servers as there are kinds tells
+/// every kind, and the fixed seeds reach them all between them.
+struct Lies {
+    order: [Lie; Lie::ALL.len()],
+    next: usize,
+}
+
+impl Lies {
+    /// The order `seed` shuffles. Its own generator, so that it draws
+    /// nothing else's.
+    fn new(seed: u64) -> Self {
+        let mut rng = SeededRng::new(seed ^ 0x11e5_0001);
+        let mut order = Lie::ALL;
+        for at in (1..order.len()).rev() {
+            let other = usize::try_from(rng.below(u64::try_from(at).unwrap() + 1)).unwrap();
+            order.swap(at, other);
+        }
+        Self { order, next: 0 }
+    }
+
+    /// The next kind.
+    fn next(&mut self) -> Lie {
+        let lie = self.order[self.next % self.order.len()];
+        self.next += 1;
+        lie
+    }
+}
+
+/// A linked node's connection to the ledger drops and comes back to a
+/// server that tells the next kind of lie, for a time drawn up to
+/// [`LONGEST_LIE_MS`]; the next connection is honest.
+fn lie(sim: &mut Sim, rng: &mut SeededRng, lies: &mut Lies) {
+    let linked: Vec<usize> = sim.links.keys().copied().collect();
+    let Some(&index) = choose(&linked, rng) else {
+        return;
+    };
+    let for_ms = 1 + rng.below(LONGEST_LIE_MS);
+    sim.lie_to(index, lies.next(), for_ms);
 }
 
 /// Makes a running node fail one of its commits, aimed at a moment that
@@ -834,6 +930,7 @@ fn heal(
         }
     }
     sim.cut.clear();
+    sim.end_lies();
     assert!(sim.apart.is_empty(), "the partition ends in the chaos");
     sim.loss_per_mille = 0;
     sim.replay_per_mille = 0;

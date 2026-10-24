@@ -104,8 +104,9 @@ use dassie_peer::{Bootstrap, Failure, InboundId, OwnInfo, RequestId, Response};
 use dassie_settlement::policy;
 use dassie_stream::{AssetDetails, BUFFER_LENGTH, Config, Connection, Policy, Role};
 use dassie_xrpl::DROPS_PER_XRP;
+use dassie_xrpl::account::{Doubt, Proofs};
 use dassie_xrpl::codec::TokenValue;
-use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, Token};
+use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, Lie, Token};
 use dassie_xrpl::network::{MAINNET, Network, TESTNET};
 
 use crate::engine::{
@@ -561,6 +562,9 @@ enum Delivery {
         finalized: Box<dassie_hub::consensus::Finalized>,
         state: Vec<u8>,
     },
+    /// A node's connection to a lying server ends, if it is still open:
+    /// the next is honest.
+    Honest { to: usize, connection: u64 },
 }
 
 /// What became of a replayed request's original.
@@ -731,6 +735,10 @@ pub struct Sim {
     /// Each freeze of the issuer, from when it applied to when it was
     /// lifted, if it was.
     pub freezes: Vec<(IssuerFreeze, u64, Option<u64>)>,
+    /// Each stretch in which the ledger's servers and validators failed
+    /// the nodes, from when it began to when it ended: lying, withholding
+    /// a quorum or letting a list lapse.
+    pub outages: Vec<(u64, u64)>,
     /// The payments under way or done, of nodes that did not crash.
     pub payments: Vec<Payment>,
     /// Payments whose sender's node crashed: its client is gone.
@@ -774,6 +782,15 @@ pub struct Sim {
     pub hub_credit_off: Vec<String>,
     /// Nodes whose connection to the ledger carries nothing.
     pub ledger_down: BTreeSet<usize>,
+    /// Each node's connection to a lying server, while it has one.
+    lying: BTreeMap<usize, u64>,
+    /// What each node's XRPL accounts proved, and how many lies they
+    /// caught, as last counted, with the generation of the core that did:
+    /// a core counts from nothing when it starts.
+    proofs_seen: BTreeMap<usize, (u64, Proofs, u64)>,
+    /// Differences between a node's books and its ledger that no reserve
+    /// explains (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
+    pub unexplained: Vec<String>,
     /// The peer protocol's settings.
     peer: dassie_peer::Config,
     /// Each withdrawal of a peer short of room.
@@ -907,6 +924,7 @@ impl Sim {
                 .collect(),
             issued: BTreeMap::new(),
             freezes: Vec::new(),
+            outages: Vec::new(),
             payments: Vec::new(),
             abandoned: Vec::new(),
             outgoing: Vec::new(),
@@ -927,6 +945,9 @@ impl Sim {
             hub_leaks: Vec::new(),
             hub_credit_off: Vec::new(),
             ledger_down: BTreeSet::new(),
+            lying: BTreeMap::new(),
+            proofs_seen: BTreeMap::new(),
+            unexplained: Vec::new(),
             peer,
             withdrawn: Vec::new(),
             latency_ms: (1, 200),
@@ -1339,6 +1360,9 @@ impl Sim {
         if matches!(self.settling, Settling::StubHub(_) | Settling::Hub(_)) {
             self.watch_hub(index);
         }
+        if self.settling.on_xrpl() {
+            self.watch_proofs(index);
+        }
         for output in outputs {
             self.carry(index, output);
         }
@@ -1393,6 +1417,78 @@ impl Sim {
                     self.now, peer.peer, peer.holds.toward, peer.settling,
                 );
                 record_once(&mut self.hub_credit_off, index, peer.peer, off);
+            }
+        }
+    }
+
+    /// Counts what node `index`'s XRPL accounts proved, and the lies they
+    /// caught, since its last step: so a run shows that it reached the
+    /// verifier, and a change that quietly bypasses it fails its coverage
+    /// (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
+    fn watch_proofs(&mut self, index: usize) {
+        let node = &self.nodes[index];
+        let Some(core) = node.core.as_ref() else {
+            return;
+        };
+        let mut proven = Proofs::default();
+        let mut caught = 0u64;
+        for account in core.xrpl_accounts() {
+            let more = account.proofs();
+            proven.anchors += more.anchors;
+            proven.transactions += more.transactions;
+            proven.absences += more.absences;
+            proven.never_applied += more.never_applied;
+            caught += Doubt::ALL
+                .iter()
+                .map(|doubt| account.doubts(*doubt))
+                .sum::<u64>();
+        }
+        let generation = node.generation;
+        let (before, caught_before) = match self.proofs_seen.get(&index) {
+            Some(&(seen, before, caught)) if seen == generation => (before, caught),
+            _ => (Proofs::default(), 0),
+        };
+        self.proofs_seen.insert(index, (generation, proven, caught));
+        for (what, then, now) in [
+            ("anchors", before.anchors, proven.anchors),
+            (
+                "transactions proven",
+                before.transactions,
+                proven.transactions,
+            ),
+            ("absences proven", before.absences, proven.absences),
+            (
+                "transactions proven never to apply",
+                before.never_applied,
+                proven.never_applied,
+            ),
+            ("lies caught", caught_before, caught),
+        ] {
+            if now > then {
+                *self.counts.entry(what).or_default() += now - then;
+            }
+        }
+    }
+
+    /// Counts, as a run ends, the lies the fake ledger's servers told, by
+    /// kind, and the nodes running on it whose account anchored.
+    pub fn count_xrpl(&mut self) {
+        let anchored = (self.nodes.iter())
+            .filter_map(|node| node.core.as_ref())
+            .filter(|core| {
+                let mut accounts = core.xrpl_accounts().peekable();
+                accounts.peek().is_some() && accounts.all(|account| account.anchor().is_some())
+            })
+            .count();
+        if anchored > 0 {
+            *self.counts.entry("XRPL nodes anchored").or_default() +=
+                u64::try_from(anchored).unwrap();
+        }
+        for lie in Lie::ALL {
+            let told = self.ledger.lies_told(lie);
+            if told > 0 {
+                *self.counts.entry(told_as(lie)).or_default() += told;
+                *self.counts.entry("lies told").or_default() += told;
             }
         }
     }
@@ -1493,6 +1589,14 @@ impl Sim {
                 peer: *peer,
                 scheme,
             });
+        }
+        if let Event::Settlement(SettlementEvent::Reconciled {
+            cause: dassie_settlement::ReconcileCause::Unexplained,
+            ..
+        }) = event
+        {
+            self.unexplained
+                .push(format!("{} node {index}: {event:?}", self.now));
         }
         let lost = matches!(event, Event::Engine(EngineEvent::EventsDropped { .. }));
         if event.severity() == Severity::Error || lost {
@@ -1627,6 +1731,7 @@ impl Sim {
                 ..
             } => self.hub_send(index, asset, epoch, endpoint, message),
             Output::Fetch { epoch, url, .. } => {
+                self.count("validator lists fetched");
                 let body = self.ledger.fetch(&url);
                 let generation = self.nodes[index].generation;
                 let delay = self.latency();
@@ -1713,6 +1818,15 @@ impl Sim {
             let rates = RATES.map(|(c, r)| (c, r, now));
             self.step(index, |core| core.set_rates(&rates));
         }
+    }
+
+    /// The faucet funds node `index` once more, in the next ledger, as its
+    /// owner may ask it: a deposit of the owner's.
+    pub fn fund(&mut self, index: usize) {
+        self.ledger.fund(self.xrpl_account(index));
+        *self.fundings.entry(index).or_default() += 1;
+        self.trace
+            .push(format!("{} the faucet funds {index}", self.now));
     }
 
     /// The issuer mints [`MINT_MICROS`] of its token to each node it has
@@ -1809,10 +1923,11 @@ impl Sim {
     }
 
     /// A node's connection to the ledger drops; it comes back after a
-    /// while, as the driver's would.
-    pub fn drop_ledger_link(&mut self, index: usize) {
+    /// while, as the driver's would. Returns whether it did: not while the
+    /// node has no connection, nor when the step failed its commit.
+    pub fn drop_ledger_link(&mut self, index: usize) -> bool {
         let Some(link) = self.links.get(&index).copied() else {
-            return;
+            return false;
         };
         self.ledger.disconnect(link.connection);
         let generation = self.nodes[index].generation;
@@ -1821,7 +1936,7 @@ impl Sim {
             core.ledger_event(&asset, link.epoch, &LedgerEvent::Disconnected);
         });
         if !stepped {
-            return;
+            return false;
         }
         self.trace
             .push(format!("{} ledger link {index} drops", self.now));
@@ -1843,6 +1958,57 @@ impl Sim {
                 event: LedgerEvent::Connected,
             },
         );
+        true
+    }
+
+    /// A node's connection to the ledger drops, and comes back to a server
+    /// that tells `lie` for `for_ms`; then it drops again, and the next is
+    /// honest. The node may leave it sooner, for a lie it caught or a
+    /// request it never got answered: its next connection is honest too
+    /// (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
+    pub fn lie_to(&mut self, index: usize, lie: Lie, for_ms: u64) {
+        if !self.drop_ledger_link(index) {
+            return;
+        }
+        let connection = self.links[&index].connection;
+        self.ledger.set_lie(connection, Some(lie));
+        self.lying.insert(index, connection);
+        self.count("lying servers");
+        self.trace.push(format!(
+            "{} ledger link {index} lies for {} s: {lie:?}",
+            self.now,
+            for_ms / 1_000
+        ));
+        self.schedule(
+            5_000 + for_ms,
+            Delivery::Honest {
+                to: index,
+                connection,
+            },
+        );
+    }
+
+    /// Every connection to a lying server ends now: the next is honest.
+    pub fn end_lies(&mut self) {
+        for (index, connection) in std::mem::take(&mut self.lying) {
+            self.honest(index, connection);
+        }
+    }
+
+    /// Node `index`'s connection to a lying server, `connection`, ends if
+    /// it is still open.
+    fn honest(&mut self, index: usize, connection: u64) {
+        if self.lying.get(&index) == Some(&connection) {
+            self.lying.remove(&index);
+        }
+        if self
+            .links
+            .get(&index)
+            .is_some_and(|link| link.connection == connection)
+        {
+            self.ledger.set_lie(connection, None);
+            self.drop_ledger_link(index);
+        }
     }
 
     /// The fake ledger closes a ledger, and its streams go out. The issuer
@@ -2045,6 +2211,7 @@ impl Sim {
                 finalized,
                 state,
             } => self.validator_state(validator, generation, finalized, state),
+            Delivery::Honest { to, connection } => self.honest(to, connection),
             Delivery::Result {
                 to,
                 generation,
@@ -2694,6 +2861,29 @@ fn lapsed(nodes: &[SimNode], now: u64, payment: &Payment) -> bool {
             row.completed_at_ms.is_none()
                 && row.expires_at_ms <= now.saturating_add_signed(to.skew_ms)
         })
+}
+
+/// What a run counts `lie` as, once a server told it.
+pub const fn told_as(lie: Lie) -> &'static str {
+    match lie {
+        Lie::Transaction => "lies told: transaction",
+        Lie::AlteredObject => "lies told: altered-object",
+        Lie::FalseAbsence => "lies told: false-absence",
+        Lie::OtherBranch => "lies told: other-branch",
+        Lie::OldAnchor => "lies told: old-anchor",
+        Lie::OlderAnchor => "lies told: older-anchor",
+        Lie::ForgedValidations => "lies told: forged-validations",
+        Lie::ReplayedValidations => "lies told: replayed-validations",
+        Lie::WithheldValidations => "lies told: withheld-validations",
+        Lie::WrongHeader => "lies told: wrong-header",
+        Lie::OtherChainSkipList => "lies told: other-chain-skip-list",
+        Lie::HistoryNewestLeftOut => "lies told: history-newest-left-out",
+        Lie::HistoryMiddleLeftOut => "lies told: history-middle-left-out",
+        Lie::OldLedgerHint => "lies told: old-ledger-hint",
+        Lie::Refusal => "lies told: refusal",
+        Lie::MadeUpReset => "lies told: made-up-reset",
+        Lie::NoProofs => "lies told: no-proofs",
+    }
 }
 
 /// What an incoming payment received.

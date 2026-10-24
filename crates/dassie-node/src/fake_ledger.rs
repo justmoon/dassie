@@ -86,6 +86,9 @@ pub struct Server {
     /// Where its validators' publisher serves its list, with the faucet:
     /// `…/vl`.
     pub validator_list_url: Option<String>,
+    /// Where its validators and its servers take requests, with the
+    /// faucet: `…/validators/…` and `…/lie` under it.
+    pub control_url: Option<String>,
     /// The master key of its validators' publisher.
     pub publisher_key: PublicKey,
 }
@@ -125,30 +128,32 @@ impl Server {
             Arc::clone(&shared),
             cancel.clone(),
         ));
-        let (faucet_url, tokens_url, deposit_url, validator_list_url) = match options.faucet {
-            Some((listen, certificate)) => {
-                let listener = TcpListener::bind(listen).await.map_err(|e| e.to_string())?;
-                let address = listener.local_addr().map_err(|e| e.to_string())?;
-                let loaded = crate::tls::load(&certificate).map_err(|e| e.to_string())?;
-                let slot = Arc::new(crate::tls::CertificateSlot::new(loaded));
-                let config = crate::tls::server_config(slot).map_err(|e| e.to_string())?;
-                let acceptor = tokio_rustls::TlsAcceptor::from(config);
-                tokio::spawn(serve_faucet(
-                    listener,
-                    acceptor,
-                    Arc::clone(&shared),
-                    cancel.clone(),
-                ));
-                let base = format!("https://localhost:{}", address.port());
-                (
-                    options.network.faucet.map(|_| format!("{base}/accounts")),
-                    Some(format!("{base}/tokens")),
-                    Some(format!("{base}/deposit")),
-                    Some(format!("{base}/vl")),
-                )
-            }
-            None => (None, None, None, None),
-        };
+        let (faucet_url, tokens_url, deposit_url, validator_list_url, control_url) =
+            match options.faucet {
+                Some((listen, certificate)) => {
+                    let listener = TcpListener::bind(listen).await.map_err(|e| e.to_string())?;
+                    let address = listener.local_addr().map_err(|e| e.to_string())?;
+                    let loaded = crate::tls::load(&certificate).map_err(|e| e.to_string())?;
+                    let slot = Arc::new(crate::tls::CertificateSlot::new(loaded));
+                    let config = crate::tls::server_config(slot).map_err(|e| e.to_string())?;
+                    let acceptor = tokio_rustls::TlsAcceptor::from(config);
+                    tokio::spawn(serve_faucet(
+                        listener,
+                        acceptor,
+                        Arc::clone(&shared),
+                        cancel.clone(),
+                    ));
+                    let base = format!("https://localhost:{}", address.port());
+                    (
+                        options.network.faucet.map(|_| format!("{base}/accounts")),
+                        Some(format!("{base}/tokens")),
+                        Some(format!("{base}/deposit")),
+                        Some(format!("{base}/vl")),
+                        Some(base),
+                    )
+                }
+                None => (None, None, None, None, None),
+            };
         Ok(Self {
             shared,
             cancel,
@@ -157,6 +162,7 @@ impl Server {
             tokens_url,
             deposit_url,
             validator_list_url,
+            control_url,
             publisher_key,
         })
     }
