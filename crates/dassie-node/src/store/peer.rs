@@ -1,12 +1,13 @@
 //! The peer protocol's tables (spec/areas/network.md#persistence): the node
 //! table with each node's link state, registration and peering, our own
 //! link-state sequence, settlement channels, bans and replay floors (NET-1,
-//! NET-2, NET-7, ACC-18), and a registrar's log and names. They are written
-//! in the same transaction as the ledger, so a peering and its accounts, or
-//! a settlement and its message, land together.
+//! NET-2, NET-7, ACC-18), a registrar's log and names, and the node's view
+//! of who holds each name. They are written in the same transaction as the
+//! ledger, so a peering and its accounts, or a settlement and its message,
+//! land together.
 
 use dassie_identity::{NodeId, PublicKey};
-use dassie_peer::names::{Commitment, Granted, LogHead, Logged, Name, Unsealing};
+use dassie_peer::names::{Commitment, Granted, HeldName, LogHead, Logged, Name, Unsealing};
 use dassie_peer::wire::{SchemeId, TerminationReason};
 use dassie_peer::{
     Channel, Closed, Depeering, Network, Outgoing, PeerBatch, Peering, Registration, Sources,
@@ -62,6 +63,7 @@ impl Store {
             name_log: load_name_log(&connection)?,
             commitments: load_commitments(&connection)?,
             names: load_names(&connection)?,
+            holders: load_holders(&connection)?,
         })
     }
 
@@ -262,6 +264,30 @@ fn load_names(connection: &Connection) -> Result<Vec<Granted>, StoreError> {
     Ok(names)
 }
 
+/// Who holds each name, in the node's view, by name
+/// (spec/areas/network.md#holders).
+fn load_holders(connection: &Connection) -> Result<Vec<HeldName>, StoreError> {
+    let mut statement =
+        connection.prepare("SELECT name, holder, expires_ms FROM name_holders ORDER BY name")?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, i64>(2)?,
+        ))
+    })?;
+    let mut holders = Vec::new();
+    for row in rows {
+        let (name, holder, expires_ms) = row?;
+        holders.push(HeldName {
+            name: parse_name(&name)?,
+            holder: parse_node(&holder)?,
+            expires_ms: from_sql_time(expires_ms),
+        });
+    }
+    Ok(holders)
+}
+
 /// A row of the node table, joined with its peering.
 fn read_node(row: &Row<'_>) -> rusqlite::Result<Result<StoredNode, StoreError>> {
     let id: String = row.get(0)?;
@@ -396,7 +422,32 @@ pub(super) fn write_peer(
             params![floor.node.as_str(), to_sql_time(floor.floor_ms)],
         )?;
     }
-    write_registrar(transaction, batch)
+    write_registrar(transaction, batch)?;
+    write_holders(transaction, batch)
+}
+
+/// Writes what changed in the node's view of who holds each name
+/// (spec/areas/network.md#holders).
+fn write_holders(transaction: &Transaction<'_>, batch: &PeerBatch) -> Result<(), StoreError> {
+    // Removals first, as for nodes.
+    for removed in &batch.holders_removed {
+        transaction.execute(
+            "DELETE FROM name_holders WHERE name = ?1",
+            [removed.as_str()],
+        )?;
+    }
+    for held in &batch.holders {
+        transaction.execute(
+            "INSERT INTO name_holders (name, holder, expires_ms) VALUES (?1, ?2, ?3)
+             ON CONFLICT (name) DO UPDATE SET holder = ?2, expires_ms = ?3",
+            params![
+                held.name.as_str(),
+                held.holder.as_str(),
+                to_sql_time(held.expires_ms)
+            ],
+        )?;
+    }
+    Ok(())
 }
 
 /// Writes what a registrar changed: its log's head, the commitments in the

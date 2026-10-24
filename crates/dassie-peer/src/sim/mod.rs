@@ -28,7 +28,7 @@ use core::net::IpAddr;
 
 use crate::auth::{PairKeys, response_mac};
 use crate::wire::{
-    Authentication, Envelope, RefusalReason, ResponseEnvelope, SchemeId, encode_response,
+    Authentication, Envelope, Kind, RefusalReason, ResponseEnvelope, SchemeId, encode_response,
 };
 use crate::{
     Agreed, Bootstrap, Config, Declined, Event, Failure, Inbound, InboundId, Output, OwnInfo,
@@ -176,6 +176,15 @@ pub fn url(index: usize) -> String {
 /// Rewrites a response's body.
 pub type Tamper = Box<dyn FnMut(&mut Vec<u8>)>;
 
+/// Rewrites the body of a response from one node to another, as a faulty
+/// node would that tells each asker something else: given the node that
+/// answers, the node that asked and the kind of request.
+pub type Forge = Box<dyn FnMut(usize, usize, Kind, &mut Vec<u8>)>;
+
+/// A request sent while tampering or forging: the node it went to, its MAC
+/// and its kind.
+type Sent = (usize, [u8; 32], Kind);
+
 /// What the network does to a message.
 #[derive(Clone, Copy, Debug)]
 pub struct Faults {
@@ -237,6 +246,7 @@ pub struct SimNode {
     stored_floors: BTreeMap<NodeId, u64>,
     stored_commitments: BTreeMap<crate::names::Commitment, crate::names::Logged>,
     stored_names: BTreeMap<crate::names::Name, crate::names::Granted>,
+    stored_holders: BTreeMap<crate::names::Name, crate::names::HeldName>,
     /// How far its clock is off the network's.
     pub skew_ms: i64,
     generation: u64,
@@ -316,9 +326,13 @@ pub struct Network {
     /// arrives, as a node would that answers anything it likes: the MAC is
     /// made again, so the body gets past it to what reads it.
     pub tamper: Option<Tamper>,
-    /// While tampering, each request's MAC and the node it went to, by who
-    /// sent it, in which generation, with which ID.
-    macs: BTreeMap<(usize, u64, RequestId), (usize, [u8; 32])>,
+    /// Rewrites the body of every response with status 200 after
+    /// `tamper`, knowing who answers whom and what: a faulty node, say,
+    /// that shows each node a list of its own. The MAC is made again.
+    pub forge: Option<Forge>,
+    /// While tampering or forging, each request's MAC, the node it went to
+    /// and its kind, by who sent it, in which generation, with which ID.
+    macs: BTreeMap<(usize, u64, RequestId), Sent>,
     /// Periphery nodes: without a URL, dialling out over QUIC, reached by
     /// node ID over the connections they opened. Their uplinks are the
     /// other nodes, which then take QUIC too.
@@ -390,6 +404,7 @@ impl Network {
             promise: BTreeMap::new(),
             settlements_refused: 0,
             tamper: None,
+            forge: None,
             macs: BTreeMap::new(),
             periphery: (count..count + periphery).collect(),
             quic,
@@ -409,6 +424,7 @@ impl Network {
                 stored_floors: BTreeMap::new(),
                 stored_commitments: BTreeMap::new(),
                 stored_names: BTreeMap::new(),
+                stored_holders: BTreeMap::new(),
                 skew_ms: skew,
                 generation: 0,
                 next_inbound: 0,
@@ -444,6 +460,7 @@ impl Network {
             .collect();
         sim.stored.commitments = sim.stored_commitments.values().copied().collect();
         sim.stored.names = sim.stored_names.values().copied().collect();
+        sim.stored.holders = sim.stored_holders.values().copied().collect();
         let periphery = self.periphery.contains(&index);
         let mut node = PeerNode::new(
             self.config,
@@ -564,6 +581,12 @@ impl Network {
         for granted in batch.names {
             sim.stored_names.insert(granted.name, granted);
         }
+        for removed in batch.holders_removed {
+            sim.stored_holders.remove(&removed);
+        }
+        for held in batch.holders {
+            sim.stored_holders.insert(held.name, held);
+        }
         for output in outputs {
             self.carry(index, output);
         }
@@ -652,12 +675,12 @@ impl Network {
             );
             return;
         };
-        if self.tamper.is_some()
+        if (self.tamper.is_some() || self.forge.is_some())
             && let Ok(envelope) = Envelope::decode(&request.body)
             && let Authentication::Hmac(hmac) = envelope.authentication
         {
             self.macs
-                .insert((from, generation, request.id), (to, hmac.mac));
+                .insert((from, generation, request.id), (to, hmac.mac, request.kind));
         }
         if self.cut.contains(&(from, to))
             || self.cut.contains(&(to, from))
@@ -723,7 +746,7 @@ impl Network {
         }
     }
 
-    /// `result`, its body rewritten and MACed again if tampering.
+    /// `result`, its body rewritten and MACed again if tampering or forging.
     fn tampered(
         &mut self,
         to: usize,
@@ -731,10 +754,11 @@ impl Network {
         request: RequestId,
         result: Result<Response, Failure>,
     ) -> Result<Response, Failure> {
-        let (Some(tamper), Ok(response)) = (self.tamper.as_mut(), &result) else {
+        let Ok(response) = &result else {
             return result;
         };
-        let Some(&(responder, request_mac)) = self.macs.get(&(to, generation, request)) else {
+        let Some(&(responder, request_mac, kind)) = self.macs.get(&(to, generation, request))
+        else {
             return result;
         };
         let Ok(envelope) = ResponseEnvelope::decode(&response.body) else {
@@ -744,7 +768,12 @@ impl Network {
             return result;
         }
         let mut body = envelope.body.to_vec();
-        tamper(&mut body);
+        if let Some(tamper) = self.tamper.as_mut() {
+            tamper(&mut body);
+        }
+        if let Some(forge) = self.forge.as_mut() {
+            forge(responder, to, kind, &mut body);
+        }
         let keys = PairKeys::derive(&key(responder), &key(to).public_key()).unwrap();
         let mac = response_mac(&keys.incoming_response, &request_mac, &body);
         Ok(Response {

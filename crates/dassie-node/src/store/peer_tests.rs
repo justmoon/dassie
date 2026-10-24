@@ -489,3 +489,51 @@ fn migration_37_starts_with_an_empty_log() {
     assert_eq!(stored.name_log, dassie_peer::names::LogHead::default());
     assert!(stored.commitments.is_empty() && stored.names.is_empty());
 }
+
+// The node's view of who holds each name comes back as written
+// (spec/areas/network.md#holders), a batch's removals first.
+#[test]
+fn the_holders_round_trip() {
+    use dassie_peer::names::{HeldName, Name};
+    let store = Store::open_in_memory().unwrap();
+    assert!(store.load_peer().unwrap().holders.is_empty());
+    let held = |name: &str, seed: u8| HeldName {
+        name: Name::parse(name).unwrap(),
+        holder: NodeKey::from_bytes(&[seed; 32]).node_id(),
+        expires_ms: 4_000 + u64::from(seed),
+    };
+    let (alice, bob) = (held("alice", 1), held("bob", 2));
+    commit(
+        &store,
+        PeerBatch {
+            holders: vec![alice, bob],
+            ..PeerBatch::default()
+        },
+    );
+    assert_eq!(store.load_peer().unwrap().holders, [alice, bob]);
+    let moved = held("alice", 3);
+    commit(
+        &store,
+        PeerBatch {
+            holders_removed: vec![alice.name, bob.name],
+            holders: vec![moved],
+            ..PeerBatch::default()
+        },
+    );
+    assert_eq!(store.load_peer().unwrap().holders, [moved]);
+}
+
+// Migration 38 gives a node that ran before holders an empty view, which
+// it takes from the lists once a quorum of them are fresh.
+#[test]
+fn migration_38_starts_with_no_holders() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+    connection
+        .pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap();
+    schema::migrate_until(&mut connection, 37).unwrap();
+    drop(connection);
+    let stored = Store::open(temp.path()).unwrap().load_peer().unwrap();
+    assert!(stored.holders.is_empty());
+}

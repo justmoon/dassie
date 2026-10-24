@@ -507,7 +507,8 @@
         "Delivering settlements and requests to settle, ending peerings, at once on a scheme the node no longer runs, bans",
         "Settlement channels that close once idle, kept on disk so a late settlement still counts once",
         "Over a settlement hub, each Prepare with the payer's commitment, and the payer's claim in its reply to a Fulfill",
-        "Names people can say, at the bootstrap nodes as registrars: a log of sealed commitments, each name granted to the earliest one unsealed once every earlier window has closed, renewed by its holder, and a name list served as the node list is"
+        "Names people can say, at the bootstrap nodes as registrars: a log of sealed commitments, each name granted to the earliest one unsealed once every earlier window has closed, renewed by its holder, and a name list served as the node list is",
+        "Every node takes as a name's holder the node that more than two thirds of the registrars list, so one registrar that shows nodes different lists cannot give a name two holders, and keeps what it had while too few lists are fresh; a registrar releases a name that the others' lists show split"
       ]
     },
     "connector": {

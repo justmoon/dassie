@@ -3,7 +3,7 @@
 
 use crate::auth::AuthConfig;
 use crate::names::RegistrarConfig;
-use crate::names::registrar::least_window_ms;
+use crate::names::registrar::{least_release_ms, least_window_ms};
 use crate::node::{MAX_UPLINKS, own_link_state_fits};
 use crate::wire::MAX_NAME_LIST;
 
@@ -12,6 +12,16 @@ const DEV_REGISTRATION_TTL_MS: u64 = 120_000;
 
 /// The shortest backoff in dev.
 const DEV_MIN_BACKOFF_MS: u64 = 1_000;
+
+/// How often the bootstrap nodes' lists are polled in dev.
+const DEV_LIST_POLL_INTERVAL_MS: u64 = 1_000;
+
+/// How long a list stays fresh in dev.
+const DEV_LIST_FRESH_MS: u64 = 10_000;
+
+/// A commitment's window in dev: the least that lets a registrant retry.
+const DEV_NAME_WINDOW_MS: u64 =
+    least_window_ms(Config::DEFAULT.request_timeout_ms, DEV_MIN_BACKOFF_MS);
 
 /// A token bucket's shape: how many at once, and how fast they refill.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -240,8 +250,8 @@ impl Config {
     /// The dev settings: the same rules, faster, for what runs on a real
     /// clock. The network simulations run [`Config::DEFAULT`].
     pub const DEV: Self = Self {
-        list_poll_interval_ms: 1_000,
-        list_fresh_ms: 10_000,
+        list_poll_interval_ms: DEV_LIST_POLL_INTERVAL_MS,
+        list_fresh_ms: DEV_LIST_FRESH_MS,
         issue_debounce_ms: 500,
         sweep_interval_ms: 1_000,
         registration_ttl_ms: DEV_REGISTRATION_TTL_MS,
@@ -266,12 +276,19 @@ impl Config {
         // As in production, a name lasts 365 registrations, and its grace
         // and the time to renew it 30 each; the window is the least that
         // lets a registrant retry (`validate`), as dev registrars run side
-        // by side.
+        // by side, and a split is released after the least wait that lets
+        // a registration reach every list.
         names: RegistrarConfig {
-            window_ms: least_window_ms(Self::DEFAULT.request_timeout_ms, DEV_MIN_BACKOFF_MS),
+            window_ms: DEV_NAME_WINDOW_MS,
             ttl_ms: 365 * DEV_REGISTRATION_TTL_MS,
             grace_ms: 30 * DEV_REGISTRATION_TTL_MS,
             renew_before_ms: 30 * DEV_REGISTRATION_TTL_MS,
+            release_after_ms: least_release_ms(
+                DEV_NAME_WINDOW_MS,
+                DEV_LIST_FRESH_MS,
+                DEV_LIST_POLL_INTERVAL_MS,
+                Self::DEFAULT.poll_timeout_ms + Self::DEFAULT.request_timeout_ms,
+            ),
             ..RegistrarConfig::DEFAULT
         },
         ..Self::DEFAULT
@@ -385,6 +402,23 @@ impl Config {
         assert!(
             names.renew_before_ms >= retry_ms && names.grace_ms >= retry_ms,
             "renewals have time for their retries"
+        );
+        // A registration reaches every registrar's list before the others
+        // count as lacking it.
+        let fetch_ms = self.poll_timeout_ms + self.request_timeout_ms;
+        assert!(
+            names.release_after_ms
+                >= least_release_ms(
+                    names.window_ms,
+                    self.list_fresh_ms,
+                    self.list_poll_interval_ms,
+                    fetch_ms
+                ),
+            "a split is released only after a registration reaches every list"
+        );
+        assert!(
+            self.list_fresh_ms <= self.list_expiry_ms,
+            "a fresh list votes"
         );
         assert!(
             names.max_names <= MAX_NAME_LIST && names.max_commitments < names.max_names,

@@ -44,8 +44,11 @@ pub const DEFAULT_BOOTSTRAP_NODES: &str = r#"[
 /// startup, like any entry. `DASSIE_RELAY=` (empty) keeps no relay.
 pub const DEFAULT_RELAY: &str = r#"{"id":"ddTEO6qzWIorLvNGybj0uyK-mhlVJNa-q","url":"https://relay.dassiepay.net","publicKey":"DliIZHngMG7GTDqfHBSP_dfSTmn8ziA9OE37FnxC7eo"}"#;
 
-/// Most bootstrap nodes accepted.
+/// Most bootstrap nodes accepted: each a registrar whose name list every
+/// node reads (spec/areas/network.md#holders).
 pub const MAX_BOOTSTRAP_NODES: usize = 64;
+
+const _: () = assert!(MAX_BOOTSTRAP_NODES <= dassie_peer::names::MAX_REGISTRARS);
 
 /// Most names the owner adds for Open Payments.
 pub const MAX_PUBLIC_NAMES: usize = 16;

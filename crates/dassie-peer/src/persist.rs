@@ -1,16 +1,17 @@
 //! What the peer node persists (spec/areas/network.md#persistence): the
 //! table's nodes with their link states, registrations and peerings, our
 //! own sequence, the settlement channels, the bans and the replay floors
-//! (NET-1, NET-2, NET-7, ACC-18), and a registrar's log and names
-//! (spec/areas/network.md#names). Changes come out as snapshots of what
-//! changed, written in the same transaction as the ledger.
+//! (NET-1, NET-2, NET-7, ACC-18), a registrar's log and names, and the
+//! node's view of who holds each name (spec/areas/network.md#names).
+//! Changes come out as snapshots of what changed, written in the same
+//! transaction as the ledger.
 
 use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
 
 use crate::channel::{Channel, Closed};
-use crate::names::{Commitment, Granted, LogHead, Logged, Name};
+use crate::names::{Commitment, Granted, HeldName, LogHead, Logged, Name};
 use crate::table::{Peering, Registration, Sources, Termination};
 
 /// A node, as stored.
@@ -84,6 +85,9 @@ pub struct Stored {
     pub commitments: Vec<Logged>,
     /// The names a registrar granted, held or freed a short while ago.
     pub names: Vec<Granted>,
+    /// Who holds each name, in the node's view: kept while the view is
+    /// frozen, across restarts too.
+    pub holders: Vec<HeldName>,
 }
 
 /// What changed since the last batch.
@@ -119,6 +123,11 @@ pub struct PeerBatch {
     pub names: Vec<Granted>,
     /// Names forgotten.
     pub names_removed: Vec<Name>,
+    /// Names whose holder, or its expiry, changed in the node's view, as
+    /// they are now.
+    pub holders: Vec<HeldName>,
+    /// Names without a holder any more in the node's view.
+    pub holders_removed: Vec<Name>,
 }
 
 impl PeerBatch {
@@ -139,5 +148,7 @@ impl PeerBatch {
             && self.commitments_removed.is_empty()
             && self.names.is_empty()
             && self.names_removed.is_empty()
+            && self.holders.is_empty()
+            && self.holders_removed.is_empty()
     }
 }

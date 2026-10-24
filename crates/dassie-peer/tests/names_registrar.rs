@@ -10,110 +10,27 @@
     clippy::panic
 )]
 
+#[path = "support/registrant.rs"]
+mod registrant;
+
 use std::net::IpAddr;
-use std::sync::Arc;
 
 use dassie_identity::{NodeId, NodeKey};
-use dassie_node_core::testing::SeededRng;
 use dassie_oer::{Decode, Encode};
-use dassie_peer::auth::{AuthConfig, Authenticator};
-use dassie_peer::names::{Commitment, Name, Salt};
-use dassie_peer::sim::{Network, START, key};
+use dassie_peer::names::Name;
+use dassie_peer::sim::Network;
 use dassie_peer::wire::{
-    Authentication, Content, NameListResponse, NameReceipt, ResponseEnvelope, decode_expiry,
-    decode_hash, encode_envelope,
+    Authentication, Content, NameListResponse, NameReceipt, decode_expiry, decode_hash,
+    encode_envelope,
 };
-use dassie_peer::{Config, Event, NameEvent, Reply};
+use dassie_peer::{Config, Event, NameEvent};
+use registrant::{Registrant, body, name, receipt};
 
 const CONFIG: Config = Config::DEV;
 
 fn settle(network: &mut Network, ms: u64) {
     let until = network.now + ms;
     network.run_until(until);
-}
-
-/// A registrant: a key with sessions of its own.
-struct Registrant {
-    auth: Authenticator,
-    rng: SeededRng,
-}
-
-impl Registrant {
-    fn new(seed: u8) -> Self {
-        let key = Arc::new(NodeKey::from_bytes(&[seed; 32]));
-        Self {
-            auth: Authenticator::new(key, AuthConfig::DEFAULT, START - 1),
-            rng: SeededRng::new(u64::from(seed)),
-        }
-    }
-
-    fn id(&self) -> NodeId {
-        self.auth.node_key().node_id()
-    }
-
-    fn salt(&self) -> Salt {
-        Salt([self.id().as_str().as_bytes()[0]; 32])
-    }
-
-    fn commitment(&self, name: &Name) -> Commitment {
-        Commitment::seal(name, &self.id(), &self.salt())
-    }
-
-    /// Sends `content` to node `to`, authenticated, from `source`.
-    fn send(
-        &mut self,
-        network: &mut Network,
-        to: usize,
-        content: &Content<'_>,
-        source: Option<IpAddr>,
-    ) -> Reply {
-        let bytes = content.to_vec();
-        let target = key(to);
-        let (hmac, _) = self
-            .auth
-            .authenticate(
-                network.clock(to),
-                &mut self.rng,
-                &target.node_id(),
-                &target.public_key(),
-                &bytes,
-            )
-            .unwrap();
-        let body = encode_envelope(&self.id(), &Authentication::Hmac(hmac), &bytes);
-        network.inbound_from(to, &body, source)
-    }
-
-    fn commit(&mut self, network: &mut Network, name: &Name) -> Reply {
-        let content = Content::NameCommit(self.commitment(name));
-        self.send(network, 0, &content, None)
-    }
-
-    fn unseal(&mut self, network: &mut Network, name: &Name) -> Reply {
-        let content = Content::NameUnseal {
-            name: *name,
-            salt: self.salt(),
-        };
-        self.send(network, 0, &content, None)
-    }
-
-    fn renew(&mut self, network: &mut Network, name: &Name) -> Reply {
-        self.send(network, 0, &Content::NameRenew(*name), None)
-    }
-}
-
-/// The body of a 200.
-fn body(reply: &Reply) -> Vec<u8> {
-    assert_eq!(
-        reply.status,
-        200,
-        "{}",
-        String::from_utf8_lossy(&reply.body)
-    );
-    ResponseEnvelope::decode(&reply.body).unwrap().body.to_vec()
-}
-
-fn receipt(reply: &Reply) -> NameReceipt {
-    NameReceipt::decode_exact(&body(reply)).unwrap()
 }
 
 /// Node 0's name list, as anyone reads it: without authentication.
@@ -135,10 +52,6 @@ fn list(network: &mut Network) -> NameListResponse {
 
 fn holder(network: &mut Network, name: &Name) -> Option<NodeId> {
     list(network).0.get(name).map(|holding| holding.holder)
-}
-
-fn name(text: &str) -> Name {
-    Name::parse(text).unwrap()
 }
 
 /// Crashes node 0 and starts it again, and lets time pass: a node that

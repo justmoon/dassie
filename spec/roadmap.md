@@ -66,12 +66,11 @@ Registration is free, and throttled instead ([Network](areas/network.md#registra
 
 ### Names
 
-Names that people can say, held for a node ID by a quorum of the bootstrap nodes' lists: a registrant commits to a name sealed, and paid, at every registrar, and unseals it once it holds every receipt; the earliest commitment wins. The design is [designs/names.md](designs/names.md); the reasons are [names-by-earliest-commitment](decisions/names-by-earliest-commitment.md). Names, commitments and their messages are built ([Peer protocol](areas/peer-protocol.md#names)), and so is the registrar's side: its log, the rule, granting, renewal and grace, and its list ([Network](areas/network.md#names)).
+Names that people can say, held for a node ID by a quorum of the bootstrap nodes' lists: a registrant commits to a name sealed, and paid, at every registrar, and unseals it once it holds every receipt; the earliest commitment wins. The design is [designs/names.md](designs/names.md); the reasons are [names-by-earliest-commitment](decisions/names-by-earliest-commitment.md). Names, commitments and their messages are built ([Peer protocol](areas/peer-protocol.md#names)), and so are the registrar's side, its log, the rule, granting, renewal and grace, its list and releasing a split ([Network](areas/network.md#names)), and every node's view of who holds a name, by a quorum of the lists ([Network](areas/network.md#holders)).
 
 - **Parts that can be built side by side:**
-  - releasing a split: registrars polling each other's name lists, and dropping a name that more than f of the others' fresh lists lack ([designs/names.md §5](designs/names.md#5-holding-a-name));
   - the registrant: committing at every registrar, unsealing once it holds every receipt, renewing, and the owner's view of it in the wallet;
-  - holding: every node reading the lists and computing each name's holder by a quorum, frozen when fewer than a quorum of the lists are fresh, in a bounded table;
+  - the holders in the owner's view: the names the node takes holders for, over RPC, in the wallet and `dassie status`;
   - the quote and payment, shared with [registration fees](#registration-fees);
   - what uses a name: front doors serving it, the node answering to it, and Dassie's client checking a signed answer against its holder ([designs/names.md §8](designs/names.md#8-open-questions)).
 - **Done when:** in the `peer` simulation, with one faulty registrar of four and a rough network, a registrant that unseals with every receipt and no rival commitment before it holds the name on every node; a node that commits to a name after seeing it unsealed never holds it; registrants that collide leave at most one holder across all nodes, even with the faulty registrar showing nodes different lists, and a split is released; and the bounds hold.

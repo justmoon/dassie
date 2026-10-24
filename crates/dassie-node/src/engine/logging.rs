@@ -122,7 +122,8 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
     }
 }
 
-/// The peer node's events as a registrar (spec/areas/network.md#names).
+/// The peer node's events about names: as a registrar, and its view of who
+/// holds each name (spec/areas/network.md#names).
 fn peer_names(severity: Severity, event: &dassie_peer::NameEvent) {
     use dassie_peer::NameEvent as Event;
     match event {
@@ -153,6 +154,15 @@ fn peer_names(severity: Severity, event: &dassie_peer::NameEvent) {
             freed,
         } => {
             emit!(severity, target: target::PEER, granted, lost, lapsed, freed, "windows closed and names freed at our registrar: names granted, unsealings that lost, commitments that lapsed, names freed");
+        }
+        Event::Released { name, holder } => {
+            emit!(severity, target: target::PEER, %name, %holder, "released a name the other registrars' lists show split: it is free");
+        }
+        Event::Held { name, holder } => {
+            emit!(severity, target: target::PEER, %name, %holder, "a quorum of the registrars list a name's holder");
+        }
+        Event::Unheld { name, holder } => {
+            emit!(severity, target: target::PEER, %name, %holder, "a name has no holder any more");
         }
     }
 }

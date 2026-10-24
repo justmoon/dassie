@@ -59,6 +59,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_35,
     MIGRATION_36,
     MIGRATION_37,
+    MIGRATION_38,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -1223,6 +1224,17 @@ CREATE TABLE granted_names (
 ) STRICT, WITHOUT ROWID;
 ";
 
+/// Who holds each name, in the node's view (spec/areas/network.md#holders):
+/// the holder a quorum of the registrars' lists name, kept while the view
+/// is frozen, across restarts too.
+const MIGRATION_38: &str = "
+CREATE TABLE name_holders (
+  name TEXT PRIMARY KEY CHECK (length(name) BETWEEN 3 AND 32),
+  holder TEXT NOT NULL CHECK (length(holder) BETWEEN 2 AND 45),
+  expires_ms INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1516,6 +1528,15 @@ pub const TABLES: &[Table] = &[
             ("granted_ms", "INTEGER", true, false),
             ("expires_ms", "INTEGER", true, false),
             ("freed_ms", "INTEGER", false, false),
+        ],
+    },
+    Table {
+        name: "name_holders",
+        without_rowid: true,
+        columns: &[
+            ("name", "TEXT", true, true),
+            ("holder", "TEXT", true, false),
+            ("expires_ms", "INTEGER", true, false),
         ],
     },
     Table {

@@ -27,7 +27,7 @@ use crate::channel::{Channel, Closed, Retry};
 use crate::config::Config;
 use crate::io::VERDICT_ACCEPTED;
 use crate::io::{Event, Failure, Output, Request, RequestId, Response, Stats};
-use crate::names::Registrar;
+use crate::names::{Holders, Registrar};
 use crate::routing::Routes;
 use crate::table::{Bucket, Entry, NetworkBuckets, Sources};
 use crate::wire::{
@@ -154,6 +154,10 @@ pub(crate) enum Purpose {
     HashPoll,
     /// A node-list download.
     ListDownload,
+    /// A name-list hash poll.
+    NameHashPoll,
+    /// A name-list download.
+    NameListDownload,
     /// Registering with a bootstrap node.
     Registration,
     /// Refreshing these nodes' link states.
@@ -278,6 +282,11 @@ pub struct PeerNode {
     /// The registrar's state, if this node is one of its own bootstrap
     /// nodes (spec/areas/network.md#names).
     pub(crate) registrar: Option<Registrar>,
+    /// Who holds each name, from the registrars' lists
+    /// (spec/areas/network.md#holders).
+    pub(crate) holders: Holders,
+    /// The registrars whose name lists we are polling or downloading.
+    pub(crate) name_polling: BTreeSet<NodeId>,
 }
 
 impl PeerNode {
@@ -292,7 +301,7 @@ impl PeerNode {
         key: Arc<NodeKey>,
         own_info: OwnInfo,
         bootstrap: Vec<Bootstrap>,
-        stored: crate::persist::Stored,
+        mut stored: crate::persist::Stored,
         rng: Box<dyn CryptoRng + Send>,
         now_ms: u64,
     ) -> Self {
@@ -307,6 +316,7 @@ impl PeerNode {
             now_ms,
             table: BTreeMap::new(),
             lists: Lists::new(&bootstrap),
+            holders: names::holders(&config, &bootstrap, core::mem::take(&mut stored.holders)),
             bootstrap,
             gossip: gossip::Gossip::new(now_ms, stored.own_sequence),
             peering: peering::Peering::new(now_ms),
@@ -342,6 +352,7 @@ impl PeerNode {
             told_not_peered: BTreeMap::new(),
             pinned: Vec::new(),
             registrar: None,
+            name_polling: BTreeSet::new(),
             config,
         };
         node.restore(stored);
@@ -691,6 +702,8 @@ impl PeerNode {
             }
             Purpose::HashPoll => self.on_hash(to, result),
             Purpose::ListDownload => self.on_list(to, result),
+            Purpose::NameHashPoll => self.on_name_hash(to, result),
+            Purpose::NameListDownload => self.on_name_list(to, result),
             Purpose::Registration => self.on_registered(to, result),
             Purpose::Refresh(ids) => self.on_refresh(to, &ids, result),
             Purpose::Sweep(ids) => self.on_sweep(&ids, result),

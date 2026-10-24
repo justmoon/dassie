@@ -1,25 +1,32 @@
-//! Names at a registrar (spec/areas/network.md#names): a node that is one
-//! of its own bootstrap nodes logs commitments, takes their unsealings and
-//! renewals, grants names as windows close, and serves its name list. The
-//! rule is [`Registrar`]'s; here is who may ask what, what each answer is,
-//! the replay state of the nodes a registrar involves, and the events.
+//! Names (spec/areas/network.md#names). At a registrar, a node that is one
+//! of its own bootstrap nodes: it logs commitments, takes their unsealings
+//! and renewals, grants names as windows close, serves its name list, and
+//! releases the names the other registrars' lists show split. The rule is
+//! [`Registrar`]'s; here is who may ask what, what each answer is, the
+//! replay state of the nodes a registrar involves, and the events. At every
+//! node: polling the registrars' name lists, and taking from them who holds
+//! each name, which is [`Holders`]'.
 
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
-use dassie_oer::Encode;
+use dassie_oer::{Decode, Encode};
+use sha2::{Digest, Sha256};
 
-use super::PeerNode;
 use super::inbound::ok;
+use super::{Bootstrap, PeerNode, Problem, Purpose};
 use crate::auth::Accepted;
+use crate::config::Config;
 use crate::io::{Event, NameEvent, Reply};
 use crate::names::registrar::{
     CommitError, Committed, Happened, RenewError, UnsealError, Unsealed,
 };
-use crate::names::{Commitment, Name, Registrar, Salt};
+use crate::names::{
+    Commitment, HeldName, HolderChange, Holders, HoldersConfig, Name, Registrar, Salt,
+};
 use crate::table::Network;
-use crate::wire::encode_expiry;
+use crate::wire::{Content, NameListResponse, decode_hash, encode_expiry};
 
 /// What a node that is no registrar answers to a name message, as to a
 /// registration.
@@ -172,6 +179,8 @@ impl PeerNode {
                 Happened::Lost { .. } => lost += 1,
                 Happened::Lapsed { .. } => lapsed += 1,
                 Happened::Freed { .. } => freed += 1,
+                // Only `release_splits` releases.
+                Happened::Released { .. } => {}
             }
         }
         if happened.is_empty() {
@@ -189,9 +198,143 @@ impl PeerNode {
         }));
     }
 
-    /// The registrar's invariants, and that every node it involves keeps
-    /// its replay state.
+    /// Who holds each name, in our view (spec/areas/network.md#holders).
+    #[must_use]
+    pub const fn holders(&self) -> &Holders {
+        &self.holders
+    }
+
+    /// Polls every registrar's name list hash, with the node lists: our own
+    /// list, if we are one, is ours without asking. Then takes the holders
+    /// again, which time alone can freeze.
+    pub(super) fn poll_names(&mut self) {
+        self.take_own_names();
+        let own = self.own;
+        let targets: Vec<NodeId> = self
+            .bootstrap
+            .iter()
+            .map(|node| node.id)
+            .filter(|id| *id != own && !self.name_polling.contains(id))
+            .collect();
+        let timeout = self.config.poll_timeout_ms;
+        for target in targets {
+            let sent = self.send(
+                target,
+                &Content::NameListHashRequest,
+                Purpose::NameHashPoll,
+                timeout,
+            );
+            if sent.is_some() {
+                self.name_polling.insert(target);
+            }
+        }
+        self.update_holders();
+    }
+
+    /// Our own name list, as a registrar, into our view.
+    fn take_own_names(&mut self) {
+        let (own, now) = (self.own, self.now_ms);
+        let Some(registrar) = self.registrar.as_mut() else {
+            return;
+        };
+        let (served, hash) = registrar.served(now);
+        if self.holders.hash(&own) == Some(hash) {
+            self.holders.confirm(&own, now);
+        } else if let Ok(list) = NameListResponse::decode_exact(served) {
+            self.holders.take_list(&own, list, hash, now);
+        }
+    }
+
+    pub(super) fn on_name_hash(&mut self, from: NodeId, result: Result<Vec<u8>, Problem>) {
+        self.name_polling.remove(&from);
+        let Ok(hash) = result.and_then(|body| decode_hash(&body).map_err(|_| Problem::Invalid))
+        else {
+            return;
+        };
+        if self.holders.hash(&from) == Some(hash) {
+            self.holders.confirm(&from, self.now_ms);
+            self.update_holders();
+            return;
+        }
+        let timeout = self.config.request_timeout_ms;
+        let sent = self.send(
+            from,
+            &Content::NameListRequest,
+            Purpose::NameListDownload,
+            timeout,
+        );
+        if sent.is_some() {
+            self.name_polling.insert(from);
+        }
+    }
+
+    /// A downloaded name list. Its authenticity comes from the response MAC
+    /// under the registrar's configured key, as a node list's; its hash is
+    /// that of what was received.
+    pub(super) fn on_name_list(&mut self, from: NodeId, result: Result<Vec<u8>, Problem>) {
+        self.name_polling.remove(&from);
+        let Ok(body) = result else {
+            return;
+        };
+        let Ok(list) = NameListResponse::decode_exact(&body) else {
+            return;
+        };
+        let hash = Sha256::digest(&body).into();
+        if self.holders.take_list(&from, list, hash, self.now_ms) {
+            self.update_holders();
+        }
+    }
+
+    /// Takes the holders again, and, at a registrar, releases the names the
+    /// other registrars' lists show split.
+    fn update_holders(&mut self) {
+        let mut changes = Vec::new();
+        self.holders.recompute(self.now_ms, &mut changes);
+        for change in changes {
+            let event = match change {
+                HolderChange::Held { name, holder } => NameEvent::Held { name, holder },
+                HolderChange::Unheld { name, holder } => NameEvent::Unheld { name, holder },
+            };
+            self.event(Event::Name(event));
+        }
+        self.release_splits();
+    }
+
+    /// Releases the names we list that more than f of the other registrars'
+    /// fresh lists have lacked the holder of for long enough
+    /// (spec/areas/network.md#releasing-a-split). A holder left with no part
+    /// here lets its replay state go, unless it is kept for another reason.
+    fn release_splits(&mut self) {
+        let (own, now) = (self.own, self.now_ms);
+        let holders = &self.holders;
+        let Some(registrar) = self.registrar.as_mut() else {
+            return;
+        };
+        let mut happened = Vec::new();
+        let is_split = |name: &Name, holder: &NodeId| holders.is_split(&own, name, holder, now);
+        registrar.release_splits(now, is_split, &mut happened);
+        for happening in happened {
+            let Happened::Released { name, holder } = happening else {
+                continue;
+            };
+            if !self.keeps_replay_state(&holder) {
+                self.auth.unpin(now, &holder);
+            }
+            self.stats.names_released += 1;
+            self.event(Event::Name(NameEvent::Released { name, holder }));
+        }
+    }
+
+    /// The view's invariants, the registrar's, and that every node it
+    /// involves keeps its replay state.
     pub(super) fn check_names(&self) {
+        self.holders.check_invariants();
+        assert!(
+            self.name_polling
+                .iter()
+                .all(|id| self.bootstrap.iter().any(|node| node.id == *id)),
+            "only registrars' name lists are polled"
+        );
         let Some(registrar) = &self.registrar else {
             return;
         };
@@ -203,6 +346,17 @@ impl PeerNode {
             );
         }
     }
+}
+
+/// A view of the lists of the registrars, the bootstrap nodes, starting from
+/// `held`, as persisted (spec/areas/network.md#holders). Lists vote and are
+/// fresh as long as node lists do.
+pub(super) fn holders(config: &Config, bootstrap: &[Bootstrap], held: Vec<HeldName>) -> Holders {
+    let lists = HoldersConfig {
+        list_fresh_ms: config.list_fresh_ms,
+        list_expiry_ms: config.list_expiry_ms,
+    };
+    Holders::new(lists, bootstrap.iter().map(|node| node.id), held)
 }
 
 /// The answer to a commitment that is not logged, with the statuses a

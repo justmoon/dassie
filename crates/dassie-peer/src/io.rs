@@ -360,12 +360,13 @@ pub enum Event {
         /// The status.
         status: u16,
     },
-    /// As a registrar, something happened to a name or a commitment
-    /// (spec/areas/network.md#names).
+    /// As a registrar, something happened to a name or a commitment; or a
+    /// name's holder changed in our view (spec/areas/network.md#names).
     Name(NameEvent),
 }
 
-/// What happened at a registrar (spec/areas/network.md#names).
+/// What happened at a registrar, or to our view of who holds a name
+/// (spec/areas/network.md#names).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NameEvent {
     /// We logged a commitment.
@@ -414,6 +415,29 @@ pub enum NameEvent {
         /// Names freed.
         freed: usize,
     },
+    /// We released a name we listed: more than f of the other registrars'
+    /// fresh lists lacked its holder for long enough. It is free.
+    Released {
+        /// The name.
+        name: Name,
+        /// Its holder until now.
+        holder: NodeId,
+    },
+    /// In our view, a name has this holder now: a quorum of the registrars'
+    /// lists name it.
+    Held {
+        /// The name.
+        name: Name,
+        /// Its holder.
+        holder: NodeId,
+    },
+    /// In our view, a name has no holder any more.
+    Unheld {
+        /// The name.
+        name: Name,
+        /// Its holder until now.
+        holder: NodeId,
+    },
 }
 
 /// What the node has counted, for the logs and the simulations.
@@ -458,4 +482,6 @@ pub struct Stats {
     pub names_renewed: u64,
     /// Names freed after their grace period.
     pub names_freed: u64,
+    /// Names released for a split.
+    pub names_released: u64,
 }

@@ -23,7 +23,9 @@
 //!
 //! A granted name is listed until it expires, kept for its holder alone for
 //! a grace period after, and then free; what it was is kept a while longer,
-//! so that a commitment logged while it was held stays void for it.
+//! so that a commitment logged while it was held stays void for it. A name
+//! that the other registrars' lists show split is released: free at once
+//! (spec/areas/network.md#releasing-a-split).
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
@@ -76,6 +78,11 @@ pub struct RegistrarConfig {
     /// contend, so that commitments other nodes log for it raise it no
     /// higher.
     pub max_names_per_node: usize,
+    /// How long more than f of the other registrars' fresh lists must lack
+    /// a name's holder before the name is released: longer than a
+    /// registration takes to reach every registrar's list
+    /// ([`least_release_ms`]).
+    pub release_after_ms: u64,
 }
 
 /// The least window that gives a commitment and its unsealing each a
@@ -83,6 +90,22 @@ pub struct RegistrarConfig {
 #[must_use]
 pub const fn least_window_ms(request_timeout_ms: u64, min_backoff_ms: u64) -> u64 {
     4 * (request_timeout_ms + min_backoff_ms)
+}
+
+/// The least wait before a split is released: a registration is granted at
+/// every registrar within a window of the first grant, since its
+/// commitments are all logged within the first one's window; a list that
+/// lacks it is fetched within a poll and a hash poll's and a download's
+/// time after, or it is one fetched before the grant, which stays fresh
+/// for `list_fresh_ms` at most.
+#[must_use]
+pub const fn least_release_ms(
+    window_ms: u64,
+    list_fresh_ms: u64,
+    list_poll_interval_ms: u64,
+    fetch_ms: u64,
+) -> u64 {
+    window_ms + list_fresh_ms + list_poll_interval_ms + fetch_ms
 }
 
 impl RegistrarConfig {
@@ -101,6 +124,7 @@ impl RegistrarConfig {
         max_commitments_per_network: 8,
         max_commitments_per_node: 4,
         max_names_per_node: 8,
+        release_after_ms: 7_200_000,
     };
 }
 
@@ -292,6 +316,14 @@ pub enum Happened {
         /// Its holder until now.
         holder: NodeId,
     },
+    /// A name was released: more than f of the other registrars' fresh
+    /// lists lacked its holder for long enough. It is free.
+    Released {
+        /// The name.
+        name: Name,
+        /// Its holder until now.
+        holder: NodeId,
+    },
 }
 
 /// A registrar's state: the log, the names granted, and the list served.
@@ -315,6 +347,10 @@ pub struct Registrar {
     logged_removed: Vec<Commitment>,
     names_dirty: BTreeSet<Name>,
     names_removed: Vec<Name>,
+    /// Since when each name listed has been lacking from more than f of
+    /// the other registrars' fresh lists, as last checked. Not persisted:
+    /// after a restart, the wait starts again.
+    splits: BTreeMap<Name, u64>,
 }
 
 impl Registrar {
@@ -346,6 +382,7 @@ impl Registrar {
             logged_removed: Vec::new(),
             names_dirty: BTreeSet::new(),
             names_removed: Vec::new(),
+            splits: BTreeMap::new(),
         };
         for granted in names.into_iter().take(config.max_names) {
             registrar.names.insert(granted.name, granted);
@@ -607,6 +644,48 @@ impl Registrar {
         })
     }
 
+    /// Releases the names listed here that `is_split` says more than f of
+    /// the other registrars' fresh lists lack the holder of, once they have
+    /// for longer than [`RegistrarConfig::release_after_ms`] by the checks
+    /// made: a check that finds a name not split starts its wait again. A
+    /// name released is free at once, and a commitment logged while it was
+    /// held stays void for it (spec/areas/network.md#releasing-a-split).
+    pub fn release_splits(
+        &mut self,
+        now_ms: u64,
+        is_split: impl Fn(&Name, &NodeId) -> bool,
+        happened: &mut Vec<Happened>,
+    ) {
+        let after = self.config.release_after_ms;
+        let split: Vec<(Name, NodeId)> = self
+            .names
+            .values()
+            .filter(|granted| granted.is_listed(now_ms))
+            .filter(|granted| is_split(&granted.name, &granted.holder))
+            .map(|granted| (granted.name, granted.holder))
+            .collect();
+        let before = core::mem::take(&mut self.splits);
+        for (name, holder) in split {
+            let since = before.get(&name).copied().unwrap_or(now_ms);
+            if now_ms.saturating_sub(since) > after {
+                self.release(name, now_ms);
+                happened.push(Happened::Released { name, holder });
+            } else {
+                self.splits.insert(name, since);
+            }
+        }
+    }
+
+    /// Frees `name` now, as at the end of its grace.
+    fn release(&mut self, name: Name, now_ms: u64) {
+        if let Some(granted) = self.names.get_mut(&name) {
+            granted.freed_ms = Some(now_ms);
+            self.names_dirty.insert(name);
+            self.served_changed = true;
+            self.recompute_due();
+        }
+    }
+
     /// Takes in the passing of time up to `now_ms`: frees names whose grace
     /// ended, decides the commitments whose windows closed, and forgets
     /// freed names no commitment in the log can be void for any more.
@@ -617,6 +696,9 @@ impl Registrar {
         self.free_names(now_ms, happened);
         self.close_windows(now_ms, happened);
         self.forget_freed();
+        let names = &self.names;
+        self.splits
+            .retain(|name, _| names.get(name).is_some_and(|g| g.freed_ms.is_none()));
         self.processed_ms = self.processed_ms.max(now_ms);
         self.recompute_due();
     }
@@ -862,6 +944,12 @@ impl Registrar {
                 "a name expires after it is granted"
             );
         }
+        assert!(
+            self.splits
+                .keys()
+                .all(|name| self.names.get(name).is_some_and(|g| g.freed_ms.is_none())),
+            "only names held wait to be released"
+        );
     }
 }
 
@@ -880,6 +968,7 @@ mod tests {
         ttl_ms: 100_000,
         grace_ms: 10_000,
         renew_before_ms: 10_000,
+        release_after_ms: 5_000,
         ..RegistrarConfig::DEFAULT
     };
 
@@ -1284,6 +1373,60 @@ mod tests {
         assert!(commit(7, 4, None).is_ok());
         assert!(commit(8, 5, None).is_ok());
         assert_eq!(commit(9, 6, None), Err(CommitError::Rate));
+    }
+
+    // spec/areas/network.md#releasing-a-split: a name the others' lists
+    // show split for longer than the wait, check after check, is free at
+    // once; a check that finds it whole starts the wait again, and a
+    // commitment logged while it was held stays void for it.
+    #[test]
+    fn a_split_is_released_after_the_wait() {
+        let mut registrar = registrar();
+        let won = commit(&mut registrar, 1, &alice(), START);
+        unseal(&mut registrar, 1, &alice(), START + 1).unwrap();
+        let granted_at = won.window_end_ms;
+        run(&mut registrar, granted_at);
+        let void = commit(&mut registrar, 2, &alice(), granted_at + 1);
+        let after = CONFIG.release_after_ms;
+        let mut happened = Vec::new();
+        let mut check = |registrar: &mut Registrar, split: bool, now: u64| {
+            registrar.release_splits(now, |_, _| split, &mut happened);
+            registrar.check_invariants();
+            core::mem::take(&mut happened)
+        };
+        assert!(check(&mut registrar, true, granted_at).is_empty());
+        assert!(check(&mut registrar, true, granted_at + after).is_empty());
+        // Whole for a moment: the wait starts again.
+        assert!(check(&mut registrar, false, granted_at + after).is_empty());
+        let again = granted_at + after + 1;
+        assert!(check(&mut registrar, true, again).is_empty());
+        assert!(check(&mut registrar, true, again + after).is_empty());
+        assert_eq!(
+            check(&mut registrar, true, again + after + 1),
+            [Happened::Released {
+                name: alice(),
+                holder: node(1)
+            }]
+        );
+        let released = again + after + 1;
+        assert_eq!(holder(&mut registrar, &alice(), released), None);
+        assert!(!registrar.involves(&node(1)));
+        assert_eq!(
+            registrar.renew(&node(1), &alice(), released),
+            Err(RenewError::NotHeld)
+        );
+        assert_eq!(
+            unseal(&mut registrar, 2, &alice(), void.window_end_ms - 1),
+            Err(UnsealError::Taken)
+        );
+        // Free: a commitment logged now may have it.
+        let late = commit(&mut registrar, 3, &alice(), released + 1);
+        unseal(&mut registrar, 3, &alice(), released + 2).unwrap();
+        run(&mut registrar, late.window_end_ms);
+        assert_eq!(
+            holder(&mut registrar, &alice(), late.window_end_ms),
+            Some(node(3))
+        );
     }
 
     // The log and the names it may become stay within their bounds.

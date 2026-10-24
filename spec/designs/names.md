@@ -2,7 +2,7 @@
 
 A node is known by its ID, and in DNS by its 39-character [label](../areas/identity.md#node-label). That is fine for machines, not for people: `$alice.dassiepay.net` is an address someone can say aloud, `$<39 characters>.dassiepay.net` is not. This design lets a node's owner register a **name** on the network, held for the node's ID by the bootstrap nodes that decide membership ([Network](../areas/network.md#membership)), so that every core node agrees who holds it.
 
-Registering a name is a race that anyone watching could join, so a registrant first commits to the name sealed, and pays, and reveals it only once its commitments are in place everywhere. The reasons are [names-by-earliest-commitment](../decisions/names-by-earliest-commitment.md). Names, commitments and their messages are built ([Peer protocol](../areas/peer-protocol.md#names)), and so is the registrar's side of §3 to §5: its log, the rule, granting, expiry, renewal and grace, and its list ([Network](../areas/network.md#names)); the rest of the design is not built yet ([roadmap](../roadmap.md#names)). Durations and sizes are starting points, to be set from the simulation when it is built.
+Registering a name is a race that anyone watching could join, so a registrant first commits to the name sealed, and pays, and reveals it only once its commitments are in place everywhere. The reasons are [names-by-earliest-commitment](../decisions/names-by-earliest-commitment.md). Names, commitments and their messages are built ([Peer protocol](../areas/peer-protocol.md#names)), and so is the registrar's side of §3 to §5: its log, the rule, granting, expiry, renewal and grace, its list and releasing a split ([Network](../areas/network.md#names)); so is every node's view of who holds a name (§5, [Network](../areas/network.md#holders)). The rest of the design is not built yet ([roadmap](../roadmap.md#names)). Durations and sizes are starting points, to be set from the simulation when it is built.
 
 ## 1. What it guarantees
 
@@ -41,6 +41,8 @@ No wait is needed between committing and unsealing: the receipts are what protec
 - **Taken names.** A commitment logged while the name was listed or in its grace period at this registrar is void for that name. Each registrar decides by its own state: a split is resolved by releasing it (§5), not by registrars deferring to each other.
 
 ## 5. Holding a name
+
+All of this is built except the fees ([Network](../areas/network.md#holders), [roadmap](../roadmap.md#registration-fees)).
 
 - **Lists.** Each registrar serves the names it granted and has not seen expire, with their holders, as it serves its node list: polled by hash, downloaded when it changes, trusted only in a response authenticated under the registrar's configured key ([Network](../areas/network.md#node-lists-and-the-majority)).
 - **The holder** of a name, in every node's view, is the node that a quorum of the *configured* registrars list for it: n - f of them. A list is authenticated only to the node that fetched it, so a faulty registrar can show different nodes different lists. Any two quorums share n - 2f ≥ f + 1 registrars, at least one of them honest, which names one holder; so no faulty registrar can lead two nodes to different holders. When fewer than a quorum of the lists are fresh, the view freezes, as membership does, and may keep a holder whose name has expired since.
