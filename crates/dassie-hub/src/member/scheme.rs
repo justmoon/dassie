@@ -864,9 +864,15 @@ impl HubScheme {
     /// When the next claim of ours falls due.
     fn next_due(&self) -> Option<u64> {
         let timing = (self.terms.timers.allowance, self.margin());
+        let now = self.now_ms;
+        // What was due by now and is still waiting could not be claimed now,
+        // as when a claim on its hold is already on its way: it is claimed
+        // with the next news or poll, not by waking the account at once,
+        // over and over.
         self.peers
             .values()
-            .filter_map(|peer| peer.payee.next_due(timing))
+            .filter_map(|peer| peer.payee.next_due(now, timing))
+            .filter(|at| *at > now)
             .min()
     }
 

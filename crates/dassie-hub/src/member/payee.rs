@@ -350,12 +350,19 @@ impl Payee {
     }
 
     /// When the next packet falls due to be claimed on the hub.
-    pub(super) fn next_due(&self, (allowance, margin): (Millis, Millis)) -> Option<u64> {
+    pub(super) fn next_due(
+        &self,
+        now_ms: u64,
+        (allowance, margin): (Millis, Millis),
+    ) -> Option<u64> {
+        // A packet whose commitment expired can no longer be claimed, as
+        // [`due`](Self::due) says: nothing is due for it.
         self.taken
             .values()
             .filter_map(|taken| {
                 let done = taken.done?;
-                (done.claiming == Claiming::No).then(|| deadline(taken, &done, allowance, margin))
+                (done.claiming == Claiming::No && taken.commitment.value.expiry > now_ms)
+                    .then(|| deadline(taken, &done, allowance, margin))
             })
             .min()
     }
@@ -537,6 +544,22 @@ mod tests {
         payee.check_invariants();
     }
 
+    // A packet whose commitment expired before we claimed it can no longer
+    // be claimed: nothing is due for it, so the host is not woken for it
+    // over and over until a final block says it is lost.
+    #[test]
+    fn an_expired_packet_is_never_due() {
+        let mut payee = payee(10);
+        take(&mut payee, 1, 1, 4_000).unwrap();
+        payee.fulfilled(0, 1, [1; 32]);
+        let timing = (ALLOWANCE, MARGIN);
+        assert_eq!(payee.next_due(0, timing), Some(ALLOWANCE));
+        let expired = 10_000 - MARGIN;
+        assert!(payee.due(expired, timing, 16).is_empty());
+        assert_eq!(payee.next_due(expired, timing), None);
+        payee.check_invariants();
+    }
+
     #[test]
     fn an_unconfirmed_key_takes_nothing() {
         let mut payee = payee(1_000);
@@ -656,9 +679,9 @@ mod tests {
         payee.fulfilled(1_000, 2, [2; 32]);
         let context = (ALLOWANCE, MARGIN);
         // 1 is in flight: the payer cannot cover 2 yet.
-        assert_eq!(payee.next_due(context), Some(10_000 - 2 * MARGIN));
+        assert_eq!(payee.next_due(1_000, context), Some(10_000 - 2 * MARGIN));
         payee.released(2_000, 1);
-        assert_eq!(payee.next_due(context), Some(2_000 + ALLOWANCE));
+        assert_eq!(payee.next_due(2_000, context), Some(2_000 + ALLOWANCE));
         assert!(payee.due(2_299, context, 8).is_empty());
         let due = payee.due(2_300, context, 8);
         assert_eq!(due.len(), 1);
