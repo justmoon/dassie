@@ -31,6 +31,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [mainnet-schemes](mainnet-schemes.md) | Mainnet has schemes of its own, and a ledger runs only in its node's realm (not built) | xrpl, settlement, ledger, node, identity |
 | [membership-economics](membership-economics.md) | Network membership economics (fee not built) | network |
 | [named-decisions](named-decisions.md) | Decisions are named, not numbered | engineering |
+| [names-by-earliest-commitment](names-by-earliest-commitment.md) | A name goes to its earliest sealed commitment, held by a quorum of the bootstrap nodes' lists (not built) | designs/names, network, peer-protocol |
 | [nix-flake-on-the-mirror](nix-flake-on-the-mirror.md) | NixOS takes a release from a flake on the mirror | release |
 | [node-and-pnpm](node-and-pnpm.md) | Tooling on Node and pnpm, not Deno | engineering |
 | [open-payments](open-payments.md) | Open Payments, fully, and no SPSP | payments, http |
