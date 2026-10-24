@@ -10,7 +10,7 @@ Each bootstrap node names all of them, itself included, in its own configuration
 
 ## Accepted
 
-- Losing the zone that holds two of them leaves two of four lists, short of a majority: membership freezes, no new node becomes a member, and the default hub, which loses f + 1 of its validators, halts until the zone is back. Five nodes over three zones would not avoid it either (two zones with two each); the testnet takes the risk.
+- Losing the zone that holds two of them leaves two of four lists, short of a majority: membership freezes, no new node becomes a member, and the default hub, which loses f + 1 of its validators, halts until the zone is back. A fifth node would keep a majority through any one zone's loss (three of five), but not the hub, whose four validators tolerate one down; the testnet takes the risk.
 - One region's failure blocks majority and registrations for the whole network, and halts the default hub with them. Running the hub's validators apart from the bootstrap nodes would avoid that at the cost of more nodes to run; the testnet takes the risk.
 
 ## Operations
