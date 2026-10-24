@@ -33,7 +33,7 @@ use super::{CHAIN_FORKED, CHAIN_WENT_BACK, Phase, Request, Validated, XrplAccoun
 use crate::anchor::{
     Ancestry, KeptAnchor, ProofError, ProvenLists, ProvenState, ancestry, prove_state,
 };
-use crate::api::{self, ApiError};
+use crate::api::{self, ApiError, Validations};
 use crate::skip_list::{SkipList, recent_key};
 use crate::unl::{Anchor, AnchorError, RIPPLE_EPOCH_UNIX_S, Relation, Unavailable, UnlError};
 use crate::validator_list::MAX_LIST_BYTES;
@@ -60,6 +60,7 @@ pub(super) const LIST_EXPIRED: &str =
 pub(super) const PUBLISHER_REVOKED: &str = "a validator list publisher revoked its key";
 pub(super) const BELOW_FLOOR: &str = "the validator lists name fewer validators than the floor";
 pub(super) const NO_QUORUM: &str = "no quorum of validators signed the server's validated ledger";
+pub(super) const CUT: &str = "the server cut its validations short before a quorum of the account's validators; name a proof server that trusts them";
 pub(super) const NO_PROOFS: &str = "the server serves no proofs; name a proof server";
 pub(super) const REFUSED: &str = "the server refused to prove its ledger";
 pub(super) const NOT_ANSWERED: &str = "the server did not answer";
@@ -178,7 +179,7 @@ pub(super) enum Round {
     /// of them still unanswered.
     Manifests {
         proven: ProvenState,
-        validations: Vec<Vec<u8>>,
+        validations: Validations,
         asked: usize,
     },
     /// The ledger is validated; a skip list that tells whether it is on the
@@ -296,26 +297,51 @@ impl XrplAccount {
         self.fetch_lists();
     }
 
-    /// A fetch of `url` answered with `body`, or failed.
+    /// A fetch of `url` answered with `body`, or failed. It answers every
+    /// publisher that asked that site: two publishers may share one, whose
+    /// fetches the node may make as one. The list in it is a publisher's
+    /// own by its key, and the others' fetch failed.
     pub(super) fn fetched(&mut self, url: &str, body: Option<&[u8]>) {
         let now = self.now_ms;
         let publishers = &self.config.unl.publishers;
-        let Some(publisher) = self.fetches.iter().zip(publishers).position(|(f, p)| {
-            f.asked_ms.is_some() && p.sites.get(f.site).is_some_and(|site| site == url)
-        }) else {
+        let asked: Vec<usize> = (self.fetches.iter().zip(publishers).enumerate())
+            .filter(|(_, (f, p))| {
+                f.asked_ms.is_some() && p.sites.get(f.site).is_some_and(|site| site == url)
+            })
+            .map(|(publisher, _)| publisher)
+            .collect();
+        if asked.is_empty() {
             return;
-        };
+        }
         // An expired list is no list, nor the same one again.
         self.tick_lists();
-        let publishers = &self.config.unl.publishers;
         let taken = body.map(|body| self.unl.take_list(body, now));
-        let next = match taken {
-            Some(Ok(_)) => Some(now.saturating_add(self.refresh_after(publisher))),
-            _ => None,
-        };
         if matches!(taken, Some(Ok(taken)) if taken != crate::unl::Taken::Same) {
             self.unl_changes = self.unl_changes.wrapping_add(1);
         }
+        let by = (body.filter(|_| matches!(taken, Some(Ok(_)))))
+            .and_then(|body| crate::validator_list::Message::parse(body).ok())
+            .map(|message| message.publisher);
+        for publisher in asked {
+            self.fetched_for(publisher, by);
+        }
+        self.fetch_lists();
+        let ready = self.unl.unl(now).is_ok();
+        if ready && self.round.is_none() && self.waiting.is_some() {
+            self.anchor_now();
+        }
+    }
+
+    /// Publisher `publisher`'s fetch answered, with a list taken of the
+    /// publisher `by`, if any: fetched again later if it is its own, else
+    /// from its next site.
+    fn fetched_for(&mut self, publisher: usize, by: Option<crate::keys::PublicKey>) {
+        let now = self.now_ms;
+        let publishers = &self.config.unl.publishers;
+        let own = publishers
+            .get(publisher)
+            .is_some_and(|p| by == Some(p.master_key));
+        let next = own.then(|| now.saturating_add(self.refresh_after(publisher)));
         let sites = publishers.get(publisher).map_or(1, |p| p.sites.len());
         if let Some(fetching) = self.fetches.get_mut(publisher) {
             fetching.asked_ms = None;
@@ -332,11 +358,6 @@ impl XrplAccount {
                     now
                 };
             }
-        }
-        self.fetch_lists();
-        let ready = self.unl.unl(now).is_ok();
-        if ready && self.round.is_none() && self.waiting.is_some() {
-            self.anchor_now();
         }
     }
 
@@ -486,11 +507,15 @@ impl XrplAccount {
 
     /// Counts the UNL's validations of the proven ledger: an anchor, or
     /// newer manifests asked for those that did not count, once a round.
-    fn tally(&mut self, proven: ProvenState, validations: Vec<Vec<u8>>, ask: bool) {
+    /// Short of a quorum in an answer the server cut, the server chose
+    /// which validations to send, and trusts others than the account's
+    /// UNL: the account waits for a while, as after a refusal, and counts
+    /// no lie (spec/designs/xrpl-validation.md#3-the-proof-api).
+    fn tally(&mut self, proven: ProvenState, validations: Validations, ask: bool) {
         let kept = self.anchor.as_ref().map(|kept| kept.anchor);
         let anchored = self.unl.anchor(
             &proven.header,
-            validations.iter().map(Vec::as_slice),
+            validations.validations.iter().map(Vec::as_slice),
             self.now_ms,
             kept.as_ref(),
             self.signatures.as_ref(),
@@ -538,6 +563,10 @@ impl XrplAccount {
                 for master in asked {
                     self.send(Request::Manifest(master));
                 }
+            }
+            Err(AnchorError::NoQuorum(_)) if validations.truncated => {
+                self.fetch_lists_now();
+                self.stall(CUT);
             }
             Err(AnchorError::NoQuorum(_)) => {
                 self.fetch_lists_now();

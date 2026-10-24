@@ -467,8 +467,10 @@ impl World {
         if self.drop_lookups && proof && request.get("ledger_index").is_none() {
             return;
         }
+        // A lookup is its proof and the transaction's bytes, from `tx`.
+        let lookup = proof || request["command"] == "tx";
         let mut reply = self.ledger.request(self.nodes[index].connection, message);
-        if let (Some(tamper), true) = (self.tamper_lookup, proof) {
+        if let (Some(tamper), true) = (self.tamper_lookup, lookup) {
             let mut answer: serde_json::Value = serde_json::from_slice(&reply).unwrap();
             tamper(&mut answer);
             reply = serde_json::to_vec(&answer).unwrap();
@@ -1632,10 +1634,13 @@ fn a_settlement_whose_metadata_was_changed_books_nothing() {
     let id = world.settle(USD, 0, 1, usd(2_000_000), &usd_a);
     world.leave(0, USD, Detach::Stopped);
     world.closes(2);
+    // The metadata comes from `tx` in binary.
     world.tamper_lookup = Some(|answer| {
-        let meta = answer["result"]["meta_blob"].as_str().unwrap().to_owned();
+        let Some(meta) = answer["result"]["meta"].as_str() else {
+            return;
+        };
         let changed = meta.replacen("E5", "E6", 1);
-        answer["result"]["meta_blob"] = changed.into();
+        answer["result"]["meta"] = changed.into();
     });
     world.restart(0);
     world.closes(2);

@@ -53,8 +53,9 @@ struct Harness {
     first: BTreeMap<String, Value>,
 }
 
-/// The methods that prove, whose answers a server may tamper with.
-const PROOF_METHODS: [&str; 4] = ["state_proof", "tx_proof", "validations", "manifest"];
+/// The methods that prove, and `tx`, whose bytes build the leaves of
+/// transactions' proofs: their answers a server may tamper with.
+const PROOF_METHODS: [&str; 5] = ["state_proof", "tx_proof", "tx", "validations", "manifest"];
 
 /// What a dishonest server does to an answer of a proof method.
 #[derive(Clone, Copy, Debug)]
@@ -66,12 +67,16 @@ enum Tamper {
     Flip { pick: usize, at: usize },
     /// Leaves an entry or a validation out.
     Drop,
-    /// Says the state holds none of the objects.
+    /// Says the state holds none of the objects: each branch without the
+    /// leaf that holds its object.
     Absent,
     /// Answers with an error instead.
     Refuse(&'static str),
     /// Answers as it first did, for an older ledger.
     Replay,
+    /// Sends one validation alone, and says it cut the answer, as a proof
+    /// server that trusts other validators than the account's does.
+    Cut,
 }
 
 /// Every byte string in `result` an answer carries, in a fixed order.
@@ -82,7 +87,7 @@ fn byte_strings(result: &mut Value) -> Vec<&mut String> {
     };
     for (key, value) in object.iter_mut() {
         match (key.as_str(), value) {
-            ("ledger_header" | "manifest" | "tx_blob" | "meta_blob", Value::String(text)) => {
+            ("ledger_header" | "manifest" | "tx" | "meta", Value::String(text)) => {
                 out.push(text);
             }
             ("path", Value::Array(nodes)) => {
@@ -102,17 +107,11 @@ fn byte_strings(result: &mut Value) -> Vec<&mut String> {
                     let Some(entry) = entry.as_object_mut() else {
                         continue;
                     };
-                    for (key, value) in entry.iter_mut() {
-                        match (key.as_str(), value) {
-                            ("node_binary", Value::String(text)) => out.push(text),
-                            ("path", Value::Array(nodes)) => {
-                                out.extend(nodes.iter_mut().filter_map(|n| match n {
-                                    Value::String(text) => Some(text),
-                                    _ => None,
-                                }));
-                            }
-                            _ => {}
-                        }
+                    if let Some(Value::Array(nodes)) = entry.get_mut("path") {
+                        out.extend(nodes.iter_mut().filter_map(|n| match n {
+                            Value::String(text) => Some(text),
+                            _ => None,
+                        }));
                     }
                 }
             }
@@ -152,8 +151,16 @@ impl Tamper {
             Self::Absent => {
                 if let Some(entries) = reply["result"]["entries"].as_array_mut() {
                     for entry in entries {
-                        if let Some(entry) = entry.as_object_mut() {
-                            entry.remove("node_binary");
+                        let Some(path) = entry["path"].as_array_mut() else {
+                            continue;
+                        };
+                        // "MLN\0" in hex: a state leaf.
+                        if path
+                            .first()
+                            .and_then(Value::as_str)
+                            .is_some_and(|node| node.starts_with("4D4C4E00"))
+                        {
+                            path.remove(0);
                         }
                     }
                 }
@@ -167,6 +174,12 @@ impl Tamper {
                 if let Some(first) = first {
                     reply = first.clone();
                     reply["id"] = id;
+                }
+            }
+            Self::Cut => {
+                if let Some(validations) = reply["result"]["validations"].as_array_mut() {
+                    validations.truncate(1);
+                    reply["result"]["truncated"] = true.into();
                 }
             }
         }
@@ -541,6 +554,26 @@ fn a_lying_server_moves_no_anchor() {
     }
 }
 
+// spec/designs/xrpl-validation.md#3-the-proof-api: a `validations` answer
+// the server cut short of a quorum may be its choice of validators, not
+// too few of the account's signing: the account waits, says why, and
+// counts no lie; then anchors on an answer whole.
+#[test]
+fn a_cut_answer_short_of_a_quorum_is_no_lie() {
+    let mut harness = Harness::new(FakeLedger::new(), &[]);
+    harness.tampers.extend([Tamper::Keep, Tamper::Cut]);
+    harness.connect();
+    assert_eq!(harness.anchored_at(), None);
+    assert!(harness.account.waiting().unwrap().contains("cut"));
+    for doubt in Doubt::ALL {
+        assert_eq!(harness.account.doubts(doubt), 0, "{doubt:?}");
+    }
+    harness.wait(STALL_MS);
+    harness.close();
+    assert_eq!(harness.anchored_at(), Some(harness.ledger.ledger()));
+    assert_eq!(harness.account.status(), LedgerStatus::Synced);
+}
+
 // spec/designs/xrpl-validation.md#5-the-unl-from-its-publishers: validators
 // rotate their keys before the lists show it. When too few validations
 // count, the account asks the server for the newer manifests of the
@@ -714,6 +747,7 @@ fn tamper() -> impl Strategy<Value = Tamper> {
         1 => prop::sample::select(&["lgrNotFound", "unknownCmd", "tooBusy"][..])
             .prop_map(Tamper::Refuse),
         1 => Just(Tamper::Replay),
+        1 => Just(Tamper::Cut),
     ]
 }
 

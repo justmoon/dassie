@@ -1245,7 +1245,8 @@ pub fn state_proof(id: u64, keys: &[[u8; 32]], at: Option<&[u8; 32]>) -> Vec<u8>
 }
 
 /// `tx_proof` of the transaction `hash`: in ledger `ledger`, or wherever
-/// the server finds it.
+/// the server finds it. The answer starts its branch above the leaf, which
+/// the node builds from what [`tx_binary`] reads.
 #[must_use]
 pub fn tx_proof(id: u64, hash: &[u8; 32], ledger: Option<u32>) -> Vec<u8> {
     let mut params = json!({ "tx_hash": hex_upper(hash) });
@@ -1255,8 +1256,20 @@ pub fn tx_proof(id: u64, hash: &[u8; 32], ledger: Option<u32>) -> Vec<u8> {
     request(id, "tx_proof", params)
 }
 
-/// `validations` of the ledger of `hash`: every validation the server
-/// holds for it.
+/// The transaction `hash` and its metadata in binary, wherever the
+/// server's history has them: the bytes its ledger's transaction tree
+/// hashes, from which the node builds the leaf `tx_proof` proves.
+#[must_use]
+pub fn tx_binary(id: u64, hash: &[u8; 32]) -> Vec<u8> {
+    request(
+        id,
+        "tx",
+        json!({ "transaction": hex_upper(hash), "binary": true }),
+    )
+}
+
+/// `validations` of the ledger of `hash`: the validations the server
+/// holds for it, those it trusts first, perhaps cut.
 #[must_use]
 pub fn validations(id: u64, hash: &[u8; 32]) -> Vec<u8> {
     request(id, "validations", json!({ "ledger_hash": hex_upper(hash) }))
@@ -1278,10 +1291,9 @@ pub fn manifest(id: u64, key: &crate::keys::PublicKey) -> Vec<u8> {
 pub struct ProofEntry {
     /// The key.
     pub key: [u8; 32],
-    /// The object the state holds under it, as the server says; `None` for
-    /// one it says the state does not hold.
-    pub object: Option<Vec<u8>>,
-    /// Its branch, deepest node first.
+    /// Its branch, deepest node first: from the key's leaf, which holds
+    /// its object ([`crate::shamap::held_object`]), or, for a key the
+    /// state does not hold, from an empty slot or another key's leaf.
     pub path: Vec<Vec<u8>>,
 }
 
@@ -1296,20 +1308,38 @@ pub struct StateProof {
     pub entries: Vec<ProofEntry>,
 }
 
-/// A `tx_proof` answer, unchecked: a transaction and its metadata, its
-/// ledger's header, and its branch in that ledger's transaction tree. The
-/// ledger's index and hash and whether it is validated, which the server
-/// says too, are hints, and not read.
+/// A `tx_proof` answer, unchecked: a transaction's ledger's header, and
+/// its branch in that ledger's transaction tree from the inner node above
+/// its leaf. The ledger's index and hash and whether it is validated,
+/// which the server says too, are hints, and not read.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TxProof {
-    /// The transaction, in binary.
-    pub tx: Vec<u8>,
-    /// Its metadata, in binary.
-    pub meta: Vec<u8>,
     /// Its ledger's header, without its hash.
     pub header: Vec<u8>,
-    /// Its branch, deepest node first.
+    /// Its branch, deepest node first, without the leaf.
     pub path: Vec<Vec<u8>>,
+}
+
+/// A transaction and its metadata in binary, as `tx` gives them with
+/// `binary`, unchecked: the bytes the leaf a `tx_proof` proves is built
+/// from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TxBlobs {
+    /// The transaction, signed.
+    pub tx: Vec<u8>,
+    /// Its metadata.
+    pub meta: Vec<u8>,
+}
+
+/// A `validations` answer, unchecked.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Validations {
+    /// Each validation's bytes.
+    pub validations: Vec<Vec<u8>>,
+    /// Whether the server cut the answer: it held more than it sends, and
+    /// sent those it trusts first. Too few of the node's validators in a
+    /// cut answer may be the server's choice, not theirs.
+    pub truncated: bool,
 }
 
 /// Bytes in hex, at most `max` of them.
@@ -1336,10 +1366,6 @@ pub fn state_proof_result(result: &Value) -> Option<StateProof> {
     let mut out = Vec::with_capacity(entries.len());
     for entry in entries {
         let key = hex_bytes(entry.get("key"), 32)?.try_into().ok()?;
-        let object = match entry.get("node_binary") {
-            None => None,
-            Some(object) => Some(hex_bytes(Some(object), MAX_NODE_BYTES)?),
-        };
         let nodes = entry.get("path")?.as_array()?;
         if nodes.len() > MAX_BRANCH_NODES {
             return None;
@@ -1347,11 +1373,7 @@ pub fn state_proof_result(result: &Value) -> Option<StateProof> {
         let path: Option<Vec<Vec<u8>>> = (nodes.iter())
             .map(|node| hex_bytes(Some(node), MAX_NODE_BYTES))
             .collect();
-        out.push(ProofEntry {
-            key,
-            object,
-            path: path?,
-        });
+        out.push(ProofEntry { key, path: path? });
     }
     Some(StateProof {
         header,
@@ -1359,42 +1381,62 @@ pub fn state_proof_result(result: &Value) -> Option<StateProof> {
     })
 }
 
-/// Reads `tx_proof`'s result: a transaction and its metadata of at most
-/// [`MAX_VL_BYTES`](crate::binary::MAX_VL_BYTES) each, and a branch of at
-/// most [`MAX_BRANCH_NODES`](crate::shamap::MAX_BRANCH_NODES) nodes.
+/// Reads `tx_proof`'s result: a header, and a branch above the leaf of
+/// at most [`MAX_DEPTH`](crate::shamap::MAX_DEPTH) inner nodes. The leaf
+/// is not sent: the node builds it ([`tx_binary_result`]).
 #[must_use]
 pub fn tx_proof_result(result: &Value) -> Option<TxProof> {
-    use crate::binary::MAX_VL_BYTES;
-    use crate::shamap::{MAX_BRANCH_NODES, MAX_NODE_BYTES};
+    use crate::shamap::{MAX_DEPTH, MAX_NODE_BYTES};
 
     let nodes = result.get("path")?.as_array()?;
-    if nodes.len() > MAX_BRANCH_NODES {
+    if nodes.len() > MAX_DEPTH {
         return None;
     }
     let path: Option<Vec<Vec<u8>>> = (nodes.iter())
         .map(|node| hex_bytes(Some(node), MAX_NODE_BYTES))
         .collect();
     Some(TxProof {
-        tx: hex_bytes(result.get("tx_blob"), MAX_VL_BYTES)?,
-        meta: hex_bytes(result.get("meta_blob"), MAX_VL_BYTES)?,
         header: hex_bytes(result.get("ledger_header"), crate::header::HEADER_BYTES)?,
         path: path?,
     })
 }
 
-/// Reads `validations`' result: each validation's bytes, at most
-/// [`MAX_VALIDATIONS`](crate::unl::MAX_VALIDATIONS) of them.
+/// Reads the result of [`tx_binary`]: at API version 1, the transaction in
+/// `tx` and its metadata in `meta`, each in hex and at most
+/// [`MAX_VL_BYTES`](crate::binary::MAX_VL_BYTES), as a length prefix
+/// writes them in the leaf. `None` for one with its fields as JSON.
 #[must_use]
-pub fn validations_result(result: &Value) -> Option<Vec<Vec<u8>>> {
+pub fn tx_binary_result(result: &Value) -> Option<TxBlobs> {
+    use crate::binary::MAX_VL_BYTES;
+
+    Some(TxBlobs {
+        tx: hex_bytes(result.get("tx"), MAX_VL_BYTES)?,
+        meta: hex_bytes(result.get("meta"), MAX_VL_BYTES)?,
+    })
+}
+
+/// Reads `validations`' result: each validation's bytes, at most
+/// [`MAX_VALIDATIONS`](crate::unl::MAX_VALIDATIONS) of them, and whether
+/// the server cut it.
+#[must_use]
+pub fn validations_result(result: &Value) -> Option<Validations> {
     use crate::validation::MAX_VALIDATION_BYTES;
 
     let validations = result.get("validations")?.as_array()?;
     if validations.len() > crate::unl::MAX_VALIDATIONS {
         return None;
     }
-    (validations.iter())
+    let truncated = match result.get("truncated") {
+        None => false,
+        Some(truncated) => truncated.as_bool()?,
+    };
+    let validations = (validations.iter())
         .map(|validation| hex_bytes(Some(validation), MAX_VALIDATION_BYTES))
-        .collect()
+        .collect::<Option<_>>()?;
+    Some(Validations {
+        validations,
+        truncated,
+    })
 }
 
 /// Reads `manifest`'s result: the manifest's bytes, if the server knows
@@ -1692,8 +1734,7 @@ mod tests {
     // them is believed here.
     #[test]
     fn proof_answers_are_read_bounded() {
-        let entry =
-            |key: u8| json!({ "key": hex_upper(&[key; 32]), "node_binary": "AB", "path": ["CD"] });
+        let entry = |key: u8| json!({ "key": hex_upper(&[key; 32]), "path": ["AB", "CD"] });
         let header = hex_upper(&[0; crate::header::HEADER_BYTES]);
         let answer = |entries: Vec<Value>| {
             state_proof_result(&json!({ "ledger_header": header, "entries": entries }))
@@ -1703,9 +1744,15 @@ mod tests {
             json!({ "key": hex_upper(&[2; 32]), "path": [] })
         ])
         .unwrap();
-        assert_eq!(read.entries[0].object, Some(alloc::vec![0xAB]));
-        assert_eq!(read.entries[0].path, [alloc::vec![0xCD]]);
-        assert_eq!(read.entries[1].object, None);
+        assert_eq!(read.entries[0].path, [alloc::vec![0xAB], alloc::vec![0xCD]]);
+        assert!(read.entries[1].path.is_empty());
+        // The proof API's final shapes carry no object beside the branch:
+        // one sent anyway is not read.
+        let beside = json!({ "key": hex_upper(&[3; 32]), "node_binary": "EF", "path": ["AB"] });
+        assert_eq!(
+            answer(alloc::vec![beside]).unwrap().entries[0].path,
+            [[0xAB]]
+        );
         let most = (0..MAX_PROOF_KEYS).map(|key| entry(u8::try_from(key).unwrap()));
         assert!(answer(most.clone().collect()).is_some());
         assert!(answer(most.chain([entry(99)]).collect()).is_none());
@@ -1718,9 +1765,13 @@ mod tests {
         assert!(state_proof_result(&json!({ "ledger_header": long, "entries": [] })).is_none());
         let validations =
             |count: usize| validations_result(&json!({ "validations": alloc::vec!["AB"; count] }));
-        assert_eq!(validations(2).unwrap().len(), 2);
+        let two = validations(2).unwrap();
+        assert_eq!((two.validations.len(), two.truncated), (2, false));
         assert!(validations(crate::unl::MAX_VALIDATIONS + 1).is_none());
         assert!(validations_result(&json!({ "validations": ["XY"] })).is_none());
+        let cut = json!({ "validations": ["AB"], "truncated": true });
+        assert!(validations_result(&cut).unwrap().truncated);
+        assert!(validations_result(&json!({ "validations": [], "truncated": 1 })).is_none());
         assert_eq!(
             manifest_result(&json!({ "manifest": "AAEC" })),
             Some(alloc::vec![0, 1, 2])
@@ -1733,5 +1784,42 @@ mod tests {
             serde_json::from_slice(&state_proof(4, &[[1; 32]], Some(&[2; 32]))).unwrap();
         assert_eq!(at["ledger_hash"], hex_upper(&[2; 32]));
         assert!(at.get("ledger_index").is_none());
+    }
+
+    // spec/designs/xrpl-validation.md#3-the-proof-api: a transaction's
+    // proof is its header and its branch above the leaf, and the bytes the
+    // leaf is built from come from `tx` in binary, each read bounded.
+    #[test]
+    fn a_transaction_s_proof_and_its_bytes_are_read_bounded() {
+        let header = hex_upper(&[0; crate::header::HEADER_BYTES]);
+        // A transaction's proof starts above its leaf: no more inner nodes
+        // than a key has nibbles, and no bytes of the transaction.
+        let proof = |nodes: usize| {
+            tx_proof_result(&json!({
+                "ledger_header": header,
+                "path": alloc::vec!["CD"; nodes],
+                "tx_blob": "AB",
+            }))
+        };
+        assert_eq!(proof(2).unwrap().path.len(), 2);
+        assert!(proof(crate::shamap::MAX_DEPTH).is_some());
+        assert!(proof(crate::shamap::MAX_DEPTH + 1).is_none());
+        // The bytes come from `tx` with binary, at API version 1, bounded.
+        let blobs = tx_binary_result(&json!({ "tx": "1200", "meta": "201C" })).unwrap();
+        assert_eq!(
+            (blobs.tx, blobs.meta),
+            (alloc::vec![0x12, 0], alloc::vec![0x20, 0x1C])
+        );
+        assert!(tx_binary_result(&json!({ "tx": { "TransactionType": "Payment" } })).is_none());
+        let longest = "AB".repeat(crate::binary::MAX_VL_BYTES);
+        assert!(tx_binary_result(&json!({ "tx": longest, "meta": "AB" })).is_some());
+        let longer = "AB".repeat(crate::binary::MAX_VL_BYTES + 1);
+        assert!(tx_binary_result(&json!({ "tx": "AB", "meta": longer })).is_none());
+        let request: Value = serde_json::from_slice(&tx_binary(5, &[1; 32])).unwrap();
+        assert_eq!(
+            (&request["command"], &request["binary"]),
+            (&json!("tx"), &json!(true))
+        );
+        assert_eq!(request["api_version"], 1);
     }
 }

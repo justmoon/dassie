@@ -165,7 +165,9 @@ pub struct Tally {
     /// manifest names: the UNL's validators with keys not known yet, and
     /// every validator not on it.
     pub unknown: usize,
-    /// Validations of the UNL's validators signed at a time not fresh.
+    /// The UNL's validators that did not count, whose validation of the
+    /// ledger is signed, at a time not fresh: each once, however often it
+    /// came, and only once its signature checks.
     pub stale: usize,
     /// The UNL's validators that also signed another ledger of the index,
     /// and so count for neither.
@@ -739,6 +741,19 @@ struct Seen {
     counted: bool,
     /// One of another ledger of the index, not checked yet.
     other: Option<Validation>,
+    /// One of the ledger signed at a time not fresh, not checked yet.
+    stale: Option<Validation>,
+}
+
+/// What a tally reads of one validation.
+enum Read {
+    /// Of the index, by a validator of the UNL, full, fully canonical and
+    /// fresh.
+    Fresh(PublicKey, Validation),
+    /// So, but signed at a time not fresh.
+    Stale(PublicKey, Validation),
+    /// Counted in the tally for what it is.
+    Counted,
 }
 
 /// Validations and quorum.
@@ -772,11 +787,20 @@ impl Unl {
             if count >= MAX_VALIDATIONS {
                 return Err(TallyError::TooMany);
             }
-            let Some((master, validation)) =
-                self.trusted(bytes, ledger_index, &unl, now_ms, &mut tally)
-            else {
-                continue;
-            };
+            let (master, validation) =
+                match self.trusted(bytes, ledger_index, &unl, now_ms, &mut tally) {
+                    Read::Fresh(master, validation) => (master, validation),
+                    Read::Stale(master, validation) => {
+                        if validation.ledger_hash == ledger_hash {
+                            seen.entry(master)
+                                .or_default()
+                                .stale
+                                .get_or_insert(validation);
+                        }
+                        continue;
+                    }
+                    Read::Counted => continue,
+                };
             let master = seen.entry(master).or_default();
             if validation.ledger_hash != ledger_hash {
                 master.other.get_or_insert(validation);
@@ -794,6 +818,14 @@ impl Unl {
                 master.counted = false;
                 tally.conflicting += 1;
             }
+            // A stale validation is checked only for a master whose fresh
+            // one was not, so a master still costs two checks at most; and
+            // counts once, so a server cannot make a few stale validations,
+            // or unsigned ones, look like a quorum that signed too late.
+            let stale = master.stale.take().filter(|_| !master.checked);
+            if stale.is_some_and(|stale| signatures.signed(&stale)) {
+                tally.stale += 1;
+            }
         }
         let counted = |master: &PublicKey| seen.get(master).is_some_and(|seen| seen.counted);
         tally.missing = unl
@@ -809,9 +841,9 @@ impl Unl {
         Ok(tally)
     }
 
-    /// The validation in `bytes` and its master, if it is of the index and
-    /// by a validator of `unl`, full, fully canonical and fresh; counted in
-    /// `tally` otherwise. Its signature is not checked.
+    /// What the validation in `bytes` is: of the index and by a validator
+    /// of `unl`, full and fully canonical, with its master, fresh or not;
+    /// counted in `tally` otherwise. Its signature is not checked.
     fn trusted(
         &self,
         bytes: &[u8],
@@ -819,32 +851,31 @@ impl Unl {
         unl: &BTreeSet<PublicKey>,
         now_ms: u64,
         tally: &mut Tally,
-    ) -> Option<(PublicKey, Validation)> {
+    ) -> Read {
         let Ok(validation) = Validation::from_bytes(bytes) else {
             tally.refused += 1;
-            return None;
+            return Read::Counted;
         };
         if validation.ledger_sequence != ledger_index {
             tally.elsewhere += 1;
-            return None;
+            return Read::Counted;
         }
         let Some(master) = self.master_of(&validation.signing_key) else {
             tally.unknown += 1;
-            return None;
+            return Read::Counted;
         };
         if !unl.contains(&master) {
             tally.untrusted += 1;
-            return None;
+            return Read::Counted;
         }
         if validation.flags & (FULL | FULLY_CANONICAL) != FULL | FULLY_CANONICAL {
             tally.refused += 1;
-            return None;
+            return Read::Counted;
         }
         if !fresh(validation.signing_time, now_ms) {
-            tally.stale += 1;
-            return None;
+            return Read::Stale(master, validation);
         }
-        Some((master, validation))
+        Read::Fresh(master, validation)
     }
 
     /// The ledger of `header` as an anchor at `now_ms`, if a quorum of the
@@ -1643,6 +1674,37 @@ mod tests {
             assert_eq!(tallied.counted, counted, "{now_ms}");
             assert_eq!(tallied.stale, 5 - counted);
         }
+    }
+
+    // Stale validations count distinct masters whose signatures check: one
+    // validator's, repeated, or unsigned ones, never look like a quorum
+    // that signed too late.
+    #[test]
+    fn stale_validations_count_once_per_master_and_only_signed() {
+        let ours = publisher(1);
+        let validators = validators(10..15);
+        let mut unl = unl(&[&ours], 4);
+        unl.take_list(&ours.body(&[list(1, &validators)]), NOW_MS)
+            .unwrap();
+        let late = NOW_MS + FRESH_FOR_MS;
+        let one = validators[0].validation([7; 32], 100, NOW_S);
+        let repeated = vec![one; 10];
+        assert_eq!(tally(&unl, &repeated, late).stale, 1);
+        let mut unsigned =
+            Validation::from_bytes(&validators[1].validation([7; 32], 100, NOW_S)).unwrap();
+        unsigned.signature = validators[1].signing.sign(b"other");
+        let unsigned = vec![unsigned.to_bytes(); 10];
+        assert_eq!(tally(&unl, &unsigned, late).stale, 0);
+        // Of another ledger of the index: not this one's, stale or not.
+        let other = vec![validators[2].validation([8; 32], 100, NOW_S)];
+        assert_eq!(tally(&unl, &other, late).stale, 0);
+        // A master that counted is not stale too.
+        let both = vec![
+            validators[3].validation([7; 32], 100, NOW_S),
+            validators[3].validation([7; 32], 100, NOW_S + 60),
+        ];
+        let tallied = tally(&unl, &both, late);
+        assert_eq!((tallied.counted, tallied.stale), (1, 0));
     }
 
     // A flood costs at most two signature checks per master: its

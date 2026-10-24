@@ -25,7 +25,9 @@ use dassie_xrpl::fake::{
 use dassie_xrpl::header::LedgerHeader;
 use dassie_xrpl::keys::{AccountId, sha512_half};
 use dassie_xrpl::manifest::Manifest;
-use dassie_xrpl::shamap::{BranchError, Leaf, Tree, verify};
+use dassie_xrpl::shamap::{
+    BranchError, Leaf, Tree, held_object, leaf_node, transaction_item, verify, verify_transaction,
+};
 use dassie_xrpl::unl::{
     Anchor, AnchorError, Anchored, RIPPLE_EPOCH_UNIX_S, Relation, Secp256k1Signatures, Unl,
     ValidationSignatures,
@@ -174,7 +176,9 @@ fn anchor(
             .iter()
             .map(bytes)
             .collect();
-        let object = entry.get("node_binary").map(bytes);
+        // The object travels once, in the leaf the branch starts at.
+        assert_eq!(entry.as_object().unwrap().len(), 2, "{entry}");
+        let object = held_object(key, &path).map(<[u8]>::to_vec);
         let leaf = object
             .as_deref()
             .map_or(Leaf::Absent(Tree::State), Leaf::State);
@@ -206,7 +210,8 @@ fn proven_hashes(proven: &Proven, skip_list: &[u8]) -> BTreeMap<u32, [u8; 32]> {
 }
 
 /// The transaction of `tx_hash` and its metadata, if `connection` proves
-/// them in a ledger of `proven`.
+/// them in a ledger of `proven`: the bytes from `tx` in binary, the leaf
+/// built from them, and `tx_proof`'s branch above it.
 fn prove_tx(
     ledger: &mut FakeLedger,
     connection: u64,
@@ -220,18 +225,21 @@ fn prove_tx(
     if index != header.sequence || proven.get(&index) != Some(&header.hash()) {
         return Err(Caught::Unproven);
     }
-    let (transaction, metadata) = (bytes(&proof["tx_blob"]), bytes(&proof["meta_blob"]));
+    assert!(proof.get("tx_blob").is_none() && proof.get("meta_blob").is_none());
+    let request = json!({ "command": "tx", "transaction": hex_upper(tx_hash), "binary": true });
+    let binary = ask(ledger, connection, &request).map_err(Caught::Refused)?;
+    let (transaction, metadata) = (bytes(&binary["tx"]), bytes(&binary["meta"]));
+    if dassie_xrpl::codec::hash(&transaction) != *tx_hash {
+        return Err(Caught::Branch(BranchError::Leaf));
+    }
     let path: Vec<Vec<u8>> = proof["path"]
         .as_array()
         .unwrap()
         .iter()
         .map(bytes)
         .collect();
-    let leaf = Leaf::Transaction {
-        transaction: &transaction,
-        metadata: &metadata,
-    };
-    verify(&header.transaction_hash, tx_hash, leaf, &path).map_err(Caught::Branch)?;
+    verify_transaction(&header.transaction_hash, &transaction, &metadata, &path)
+        .map_err(Caught::Branch)?;
     Ok((transaction, metadata, index))
 }
 
@@ -441,13 +449,13 @@ fn a_ledger_past_the_skip_list_is_two_state_proofs_from_the_anchor() {
     let header = LedgerHeader::from_bytes(&bytes(&proof["ledger_header"])).unwrap();
     assert_eq!(flag_hashes.get(&flag), Some(&header.hash()));
     let entry = &proof["entries"][0];
-    let skip_list = bytes(&entry["node_binary"]);
     let path: Vec<Vec<u8>> = entry["path"]
         .as_array()
         .unwrap()
         .iter()
         .map(bytes)
         .collect();
+    let skip_list = held_object(&skip_key(), &path).unwrap().to_vec();
     verify(
         &header.account_hash,
         &skip_key(),
@@ -563,12 +571,13 @@ fn a_rotated_key_counts_once_its_manifest_is_taken() {
     let fresh = self::unl(&ledger);
     let proven = anchor(&mut ledger, HONEST, &keys, (&fresh, None, signatures)).unwrap();
     assert_eq!(proven.anchored.tally.counted, VALIDATORS);
-    // A key the fake does not know is its own master and signing key.
+    // A key the fake knows no manifest of is answered, as rippled answers
+    // it, with what was asked alone.
     let stranger = Wallet::from_seed([9; 16]).public_key().to_node_public();
     let request = json!({ "command": "manifest", "public_key": stranger });
     let answer = ask(&mut ledger, HONEST, &request).unwrap();
-    assert_eq!(answer["details"]["master_key"], stranger);
-    assert!(answer.get("manifest").is_none());
+    assert_eq!(answer, json!({ "requested": stranger }));
+    assert_eq!(dassie_xrpl::api::manifest_result(&answer), None);
 }
 
 #[test]
@@ -776,11 +785,14 @@ fn catch_made_up_transactions(
 fn anchoring_catches(lie: Lie, caught: &Result<Proven, Caught>) -> bool {
     let short = |counted: fn(&dassie_xrpl::unl::Tally) -> usize| matches!(caught, Err(Caught::Anchor(AnchorError::NoQuorum(tally))) if counted(tally) == VALIDATORS);
     match lie {
-        // The branch ends at the leaf the tree holds, which is not what the
-        // answer says.
-        Lie::AlteredObject | Lie::OtherChainSkipList | Lie::FalseAbsence => {
-            matches!(caught, Err(Caught::Branch(BranchError::Leaf)))
+        // The object travels in the leaf, so another object is another
+        // leaf, which hashes to what its parent does not name.
+        Lie::AlteredObject | Lie::OtherChainSkipList => {
+            matches!(caught, Err(Caught::Branch(BranchError::Hash)))
         }
+        // A branch without the key's leaf ends at an inner node whose slot
+        // for the key is taken.
+        Lie::FalseAbsence => matches!(caught, Err(Caught::Branch(BranchError::Length))),
         // Another key's path parts from this one's.
         Lie::OtherBranch => matches!(
             caught,
@@ -859,19 +871,40 @@ fn a_state_proof_has_the_proof_api_s_shape() {
     assert_eq!(proof["ledger_header"], hex_upper(&header.to_bytes()));
     assert_eq!(proof["validated"], true);
     let entries = proof["entries"].as_array().unwrap();
-    assert_eq!(entries[0]["key"], keys[0]);
-    assert!(entries[0]["node_binary"].is_string());
-    // An absent key's entry has its branch and no object.
-    assert_eq!(entries[1]["key"], keys[1]);
-    let absent = entries[1].as_object().unwrap();
-    assert_eq!(
-        absent.keys().map(String::as_str).collect::<Vec<_>>(),
-        ["key", "path"]
-    );
+    // Each entry is its key and its branch, nothing else: a present key's
+    // object is the leaf its branch starts at, and an absent key's branch
+    // ends at an empty slot or another key's leaf.
+    for (entry, key) in entries.iter().zip(&keys) {
+        assert_eq!(entry["key"], *key);
+        assert_eq!(
+            entry
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            ["key", "path"]
+        );
+    }
+    let path: Vec<Vec<u8>> = entries[0]["path"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(bytes)
+        .collect();
+    let object = held_object(&root_key(wallet.account()), &path).unwrap();
+    assert!(path[0].starts_with(b"MLN\0") && path[0].ends_with(&root_key(wallet.account())));
+    assert_eq!(&path[0][4..path[0].len() - 32], object);
+    let absent: Vec<Vec<u8>> = entries[1]["path"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(bytes)
+        .collect();
+    assert_eq!(held_object(&root_key(stranger), &absent), None);
     // Each node of a branch as rippled hashes it, deepest first: the root
     // is an inner node that hashes to the header's state root.
     let path = entries[0]["path"].as_array().unwrap();
-    assert!(bytes(&path[0]).starts_with(b"MLN\0"));
     let root = bytes(path.last().unwrap());
     assert!(root.starts_with(b"MIN\0") && root.len() == 4 + 16 * 32);
     assert_eq!(sha512_half(&root), header.account_hash);
@@ -914,8 +947,23 @@ fn a_transaction_s_proof_has_the_proof_api_s_shape() {
     assert_eq!(found["ledger_hash"], hex_upper(&in_ledger.hash()));
     assert_eq!(found["ledger_header"], hex_upper(&in_ledger.to_bytes()));
     assert_eq!(found["validated"], true);
-    let path = found["path"].as_array().unwrap();
-    assert!(bytes(&path[0]).starts_with(b"SND\0"));
+    // No bytes of the transaction: the branch starts at the inner node
+    // above its leaf, which the node builds from `tx` in binary.
+    assert_eq!(
+        found
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        [
+            "ledger_hash",
+            "ledger_header",
+            "ledger_index",
+            "path",
+            "validated"
+        ]
+    );
     for named in [
         json!({ "ledger_index": index }),
         json!({ "ledger_hash": hex_upper(&in_ledger.hash()) }),
@@ -942,6 +990,73 @@ fn a_transaction_s_proof_has_the_proof_api_s_shape() {
     assert_eq!(
         ask(&mut ledger, HONEST, &unknown),
         Err("lgrNotFound".into())
+    );
+}
+
+// spec/designs/xrpl-validation.md#3-the-proof-api: a transaction's branch
+// starts above its leaf, which the node builds from the bytes `tx` and
+// `account_tx` give in binary; a leaf in the branch, or other bytes, prove
+// nothing.
+#[test]
+fn a_transaction_proves_from_the_leaf_built_from_its_bytes() {
+    let (mut ledger, _, payments) = scene();
+    let found = ask(
+        &mut ledger,
+        HONEST,
+        &json!({ "command": "tx_proof", "tx_hash": hex_upper(&payments[0]) }),
+    )
+    .unwrap();
+    let index = u32::try_from(found["ledger_index"].as_u64().unwrap()).unwrap();
+    let in_ledger = ledger.header(index).unwrap();
+    let path: Vec<Vec<u8>> = found["path"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(bytes)
+        .collect();
+    assert!(path.iter().all(|node| node.starts_with(b"MIN\0")));
+    let request = json!({
+        "command": "tx", "transaction": hex_upper(&payments[0]), "binary": true,
+    });
+    let binary = ask(&mut ledger, HONEST, &request).unwrap();
+    assert_eq!(binary["ledger_index"], index);
+    let blobs = dassie_xrpl::api::tx_binary_result(&binary).unwrap();
+    verify_transaction(&in_ledger.transaction_hash, &blobs.tx, &blobs.meta, &path).unwrap();
+    // As `account_tx` lists it in binary, the same bytes.
+    let account = dassie_xrpl::codec::Transaction::decode(&blobs.tx)
+        .unwrap()
+        .sender();
+    let page = json!({
+        "command": "account_tx", "account": account.to_address(), "binary": true,
+    });
+    let page = ask(&mut ledger, HONEST, &page).unwrap();
+    let listed = (page["transactions"].as_array().unwrap().iter())
+        .find(|entry| bytes(&entry["tx_blob"]) == blobs.tx)
+        .unwrap();
+    assert_eq!(bytes(&listed["meta"]), blobs.meta);
+    assert_eq!(listed["ledger_index"], index);
+    // A leaf the server sent, in the branch, is a node too many.
+    let leaf = leaf_node(
+        Tree::Transactions,
+        &payments[0],
+        &transaction_item(&blobs.tx, &blobs.meta),
+    );
+    let with_leaf: Vec<Vec<u8>> = std::iter::once(leaf).chain(path.iter().cloned()).collect();
+    assert_eq!(
+        verify_transaction(
+            &in_ledger.transaction_hash,
+            &blobs.tx,
+            &blobs.meta,
+            &with_leaf
+        ),
+        Err(BranchError::Length)
+    );
+    // Other bytes, or other metadata, fail the branch.
+    let mut other = blobs.meta.clone();
+    *other.last_mut().unwrap() ^= 1;
+    assert_eq!(
+        verify_transaction(&in_ledger.transaction_hash, &blobs.tx, &other, &path),
+        Err(BranchError::Hash)
     );
 }
 

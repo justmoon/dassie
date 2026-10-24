@@ -13,10 +13,12 @@
 //!   object, which names the pool's account, and that account's root and
 //!   line, all at one ledger.
 //! - **Transactions.** A transaction is told only once `tx_proof` proves
-//!   it: its bytes hash to it, and its branch leads to the transaction root
-//!   of a header whose ledger is the anchor, or one the anchor's skip lists
-//!   hold ([`ledger_proof`]). What the schemes read is decoded from those
-//!   bytes ([`crate::records`]).
+//!   it: its bytes and metadata, which `tx` gives in binary once the proof
+//!   came, hash to it, and the leaf the account builds from them, with the
+//!   proof's branch above it, leads to the transaction root of a header
+//!   whose ledger is the anchor, or one the anchor's skip lists hold
+//!   ([`ledger_proof`]). What the schemes read is decoded from those bytes
+//!   ([`crate::records`]).
 //! - **The history.** Each object the account follows names the
 //!   transaction that last changed it, and each proven transaction's
 //!   metadata the one before. From each anchor, the account walks these
@@ -29,8 +31,10 @@
 //!   it as the anchor proves it. A walk finds at
 //!   most [`MAX_WALKED`] transactions; what lies beyond, and history the
 //!   server no longer has beyond [`HISTORY_BOUND`], is a gap the schemes
-//!   match through suspense. Whether a ledger is beyond the bound is judged
-//!   only on an index the account proved.
+//!   match through suspense, to the balance the anchor proves, which they
+//!   are told as when they sync once the walk ends, synced or not. Whether
+//!   a ledger is beyond the bound is judged only on an index the account
+//!   proved.
 //! - **Absences.** One of our transactions is cancelled only once proven
 //!   absent: the account's sequence, proven at an anchor past its last
 //!   ledger, is not past its own; or the history told another of the
@@ -632,6 +636,7 @@ impl XrplAccount {
         let Some(walk) = self.walk.take() else {
             return;
         };
+        let gap = walk.gap;
         let view = walk.view;
         let moved = self.at.is_none_or(|at| view.anchor.index > at.0);
         self.apply_view(&view);
@@ -647,6 +652,19 @@ impl XrplAccount {
             Phase::Synced => {
                 self.tell_issuers(&view.issuers, false);
                 self.tell_pools(&view.pools);
+                // A gap the walk left while synced, as a burst past what
+                // one walk finds leaves: the schemes match their books to
+                // the balance the anchor proves, as when they sync, rather
+                // than wait for the next connection.
+                if let (true, Some(root)) = (gap, view.root) {
+                    let info = AccountInfo {
+                        balance: root.balance,
+                        sequence: root.sequence,
+                        owner_count: root.owner_count,
+                        ledger_index: view.anchor.index,
+                    };
+                    self.synced(info, &view.lines);
+                }
                 if moved || self.reserve_changed {
                     let reserve_changed = core::mem::take(&mut self.reserve_changed);
                     self.tell(News::LedgerClosed { reserve_changed });
@@ -928,17 +946,22 @@ impl XrplAccount {
         wanted.extend(ours.map(|t| (t.hash, None)));
         wanted.extend(self.lookups.iter().map(|hash| (*hash, None)));
         wanted.extend(self.hints.iter().map(|hash| (*hash, None)));
+        // A proof is in flight from its request until its transaction's
+        // bytes came.
         let proving = |account: &Self| {
             (account.pending.values())
-                .filter(|(request, _)| matches!(request, Request::TxProof(..)))
+                .filter(|(request, _)| {
+                    matches!(request, Request::TxProof(..) | Request::TxBlobs(..))
+                })
                 .count()
         };
         for (hash, ledger) in wanted {
             if proving(self) >= MAX_PROVING {
                 return;
             }
-            let asked = (self.pending.values())
-                .any(|(request, _)| matches!(request, Request::TxProof(of, _) if *of == hash));
+            let asked = (self.pending.values()).any(|(request, _)| {
+                matches!(request, Request::TxProof(of, _) | Request::TxBlobs(of, _) if *of == hash)
+            });
             if !asked && !self.proofs.contains_key(&hash) {
                 self.send(Request::TxProof(hash, ledger));
             }
@@ -976,7 +999,8 @@ impl XrplAccount {
     }
 
     /// The proof of transaction `hash`, asked for in ledger `ledger` or
-    /// wherever the server finds it.
+    /// wherever the server finds it: its branch starts above the leaf, so
+    /// it waits for the transaction's bytes, which `tx` gives in binary.
     pub(super) fn tx_proof_read(
         &mut self,
         hash: [u8; 32],
@@ -989,7 +1013,36 @@ impl XrplAccount {
                 let Some(answer) = api::tx_proof_result(&result) else {
                     return self.doubted(Doubt::Unreadable);
                 };
-                match prove_transaction(&answer, &hash, &self.thread_keys()) {
+                self.branches.insert(hash, answer);
+                self.send(Request::TxBlobs(hash, ledger));
+            }
+            Err(error) => {
+                if self.not_proven(hash, ledger, &error) {
+                    self.advance();
+                }
+            }
+        }
+    }
+
+    /// The bytes and metadata of transaction `hash`, whose proof came: the
+    /// leaf built from them, with the proof's branch, proves them, or the
+    /// server lied. A server that proved the transaction and then does not
+    /// give it is taken as if it had not proven it.
+    pub(super) fn tx_blobs_read(
+        &mut self,
+        hash: [u8; 32],
+        ledger: Option<u32>,
+        outcome: Result<Value, ApiError>,
+    ) {
+        let Some(answer) = self.branches.remove(&hash) else {
+            return;
+        };
+        match outcome {
+            Ok(result) => {
+                let Some(blobs) = api::tx_binary_result(&result) else {
+                    return self.doubted(Doubt::Unreadable);
+                };
+                match prove_transaction(&answer, &blobs, &hash, &self.thread_keys()) {
                     Ok(proven) => {
                         self.counted.transactions = self.counted.transactions.saturating_add(1);
                         self.keep_proof(hash, proven);
@@ -1267,6 +1320,61 @@ mod tests {
             [News::Transaction { ours: Some(ours), .. }] if ours.scheme == scheme
         ));
         assert!(!account.holds_transaction(&hash));
+        account.check_invariants();
+    }
+
+    // A walk that left a gap while the account was synced tells the
+    // schemes the balance the anchor proves, as when they sync, so they
+    // match their books to it at once.
+    #[test]
+    fn a_gap_left_while_synced_syncs_the_schemes_again() {
+        let scheme = dassie_ledger::name!(crate::scheme::SCHEME_ID);
+        let mut account = synced_account(scheme);
+        anchor(&mut account);
+        account.told();
+        let root = Root {
+            account: account.account(),
+            balance: 900_000_000,
+            sequence: 5,
+            owner_count: 0,
+            flags: 0,
+            transfer_rate: 0,
+            regular_key: None,
+            thread: None,
+        };
+        let walk = |gap| Walk {
+            view: View {
+                anchor: ANCHOR,
+                recent: None,
+                root: Some(root),
+                lines: BTreeMap::new(),
+                threads: BTreeMap::new(),
+                issuers: BTreeMap::new(),
+                fees: None,
+                pools: BTreeMap::new(),
+            },
+            told: (10, u32::MAX),
+            chains: BTreeMap::new(),
+            found: BTreeMap::new(),
+            gap,
+        };
+        account.walk = Some(walk(false));
+        account.finish_walk();
+        assert!(
+            !account
+                .news()
+                .iter()
+                .any(|news| matches!(news, News::Synced(_))),
+            "{:?}",
+            account.news()
+        );
+        account.told();
+        account.walk = Some(walk(true));
+        account.finish_walk();
+        assert!(account.news().iter().any(|news| matches!(
+            news,
+            News::Synced(info) if info.balance == root.balance && info.ledger_index == ANCHOR.index
+        )));
         account.check_invariants();
     }
 

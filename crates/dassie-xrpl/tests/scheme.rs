@@ -165,6 +165,13 @@ impl World {
         if let Some(hash) = request["tx_hash"].as_str() {
             node.proved.push(hash.to_owned());
         }
+        // A transaction's bytes are read in binary, only to build the leaf
+        // of a proof asked for (spec/designs/xrpl-validation.md#4-what-is-proven-and-how).
+        if command == "tx" {
+            assert_eq!(request["binary"], true, "{request}");
+            let hash = request["transaction"].as_str().unwrap();
+            assert!(node.proved.iter().any(|proved| proved == hash), "{request}");
+        }
         if command == "submit" && node.drop_submits {
             return;
         }
@@ -1096,16 +1103,25 @@ fn a_settlement_never_sent_is_cancelled_after_a_restart() {
         }]
     );
     world.apply(0, effects);
-    world.nodes[0].asked.clear();
+    world.nodes[0].proved.clear();
     world.connect(0);
     world.closes(2);
     let books = &world.nodes[0].books;
     assert_eq!(books.cancelled, [prepared.id]);
     assert!(books.pending.is_empty());
-    assert!(
-        !world.nodes[0].asked.iter().any(|command| command == "tx"),
-        "looked for a transaction never sent"
-    );
+    // What it proved is the history the walk found, which the ledger
+    // holds: never a hash no ledger will.
+    for hash in world.nodes[0].proved.clone() {
+        let request = serde_json::json!({ "command": "tx", "transaction": hash });
+        let reply = world
+            .ledger
+            .request(99, &serde_json::to_vec(&request).unwrap());
+        let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+        assert_eq!(
+            reply["status"], "success",
+            "looked for a transaction never sent"
+        );
+    }
 }
 
 // Found in review: a connection that goes quiet is made anew, rather than
@@ -1302,7 +1318,9 @@ fn the_network_is_checked_before_the_account_is_read() {
         asked[..4],
         ["server_state", "subscribe", "state_proof", "validations"]
     );
-    for read in ["account_info", "tx", "ledger_entry", "amm_info"] {
+    // `tx` gives a transaction's bytes only once its proof came, which
+    // they must then prove (`World::request`).
+    for read in ["account_info", "ledger_entry", "amm_info"] {
         assert!(!asked.iter().any(|asked| asked == read), "{read}");
     }
 }

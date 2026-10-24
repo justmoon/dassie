@@ -857,11 +857,15 @@ impl FakeLedger {
             .iter()
             .filter(|a| a.ledger >= min && a.ledger <= max && a.accounts.contains(&id))
             .collect();
+        let binary = proofs::wants_binary(request);
         let page: Vec<Value> = matching
             .iter()
             .skip(skip)
             .take(limit)
             .map(|a| {
+                if binary {
+                    return proofs::binary_entry(&a.blob, &a.meta, a.ledger);
+                }
                 let mut tx = a.message.get("transaction").cloned().unwrap_or(Value::Null);
                 if let Some(object) = tx.as_object_mut() {
                     object.insert("ledger_index".into(), a.ledger.into());
@@ -905,6 +909,15 @@ impl FakeLedger {
             }
         }
         let found = (self.history_index.get(&hash)).and_then(|at| self.history.get(*at));
+        if let Some(applied) = found
+            && proofs::wants_binary(request)
+        {
+            return Ok(proofs::binary_tx(
+                &applied.blob,
+                &applied.meta,
+                applied.ledger,
+            ));
+        }
         if let Some(applied) = found {
             let mut result = applied
                 .message

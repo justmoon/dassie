@@ -61,7 +61,8 @@ use serde_json::{Value, json};
 use crate::amount::{Asset, Currency, TokenAmount, TokenValue};
 use crate::anchor::{KeptAnchor, ProvenLists};
 use crate::api::{
-    self, AccountInfo, AccountSettings, ApiError, LedgerClosed, Message, TrustLine, TxRecord,
+    self, AccountInfo, AccountSettings, ApiError, LedgerClosed, Message, TrustLine, TxProof,
+    TxRecord,
 };
 use crate::codec::{Amount, Memo, Payment, Signing, Transact, TrustSet};
 use crate::keys::{AccountId, PublicKey, Wallet};
@@ -478,6 +479,10 @@ enum Request {
     /// A transaction's proof: in the ledger of this index, which a proven
     /// object or transaction names, or wherever the server finds it.
     TxProof([u8; 32], Option<u32>),
+    /// The transaction and its metadata in binary, from `tx`, to build the
+    /// leaf of its proof, which came; with the ledger the proof was asked
+    /// in.
+    TxBlobs([u8; 32], Option<u32>),
     /// A skip list, by its key, at the ledger of a hash: to prove the
     /// ledger of a transaction.
     Ledger([u8; 32], [u8; 32]),
@@ -596,6 +601,10 @@ pub struct XrplAccount {
     walk: Option<Walk>,
     /// Transactions proven, by their hashes, until they are told.
     proofs: BTreeMap<[u8; 32], Proof>,
+    /// Transactions' proofs that came, by their hashes, until the bytes
+    /// their leaves are built from come: at most one for each proof in
+    /// flight.
+    branches: BTreeMap<[u8; 32], TxProof>,
     /// Skip lists proven to prove the ledgers of transactions.
     lists: ProvenLists,
     /// Transactions the hints named, to prove.
@@ -706,6 +715,7 @@ impl XrplAccount {
             reserve_changed: false,
             walk: None,
             proofs: BTreeMap::new(),
+            branches: BTreeMap::new(),
             lists: ProvenLists::new(),
             hints: BTreeSet::new(),
             lookups: BTreeSet::new(),
@@ -1390,6 +1400,7 @@ impl XrplAccount {
                 api::submit(id, &transaction.blob)
             }
             Request::TxProof(hash, ledger) => api::tx_proof(id, &hash, ledger),
+            Request::TxBlobs(hash, _) => api::tx_binary(id, &hash),
             Request::Ledger(at, key) | Request::SkipList(at, key) => {
                 api::state_proof(id, &[key], Some(&at))
             }
@@ -1436,6 +1447,7 @@ impl XrplAccount {
         // A proof whose ledger is not proven yet is proven again on the
         // next connection.
         self.proofs.retain(|_, proof| proof.holds);
+        self.branches.clear();
         for fetching in &mut self.fetches {
             fetching.forget();
         }
@@ -1486,6 +1498,7 @@ impl XrplAccount {
             Request::ServerState => self.server_state(outcome),
             Request::Submit(hash) => self.submitted(hash, outcome.ok().as_ref()),
             Request::TxProof(hash, ledger) => self.tx_proof_read(hash, ledger, outcome),
+            Request::TxBlobs(hash, ledger) => self.tx_blobs_read(hash, ledger, outcome),
             Request::Ledger(at, key) => self.ledger_list_read(at, key, outcome),
             Request::Anchor => self.proved_anchor(outcome),
             Request::Read(at) => self.read_answered(at, outcome),
@@ -2510,6 +2523,12 @@ impl ExternalAsset for XrplAccount {
         assert!(self.parked.len() <= MAX_PARKED);
         assert!(self.pending.len() <= MAX_PENDING);
         assert!(self.proofs.len() <= MAX_PROOFS);
+        assert!(self.branches.len() <= MAX_PROVING);
+        assert!(
+            self.branches.keys().all(|hash| (self.pending.values())
+                .any(|(request, _)| matches!(request, Request::TxBlobs(of, _) if of == hash))),
+            "a proof waits only for bytes asked for"
+        );
         assert!(self.hints.len() <= MAX_HINTS);
         assert!(self.lookups.len() <= MAX_LOOKUPS);
         assert!(self.lists.len() <= MAX_LISTS);

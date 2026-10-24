@@ -25,6 +25,14 @@
 //! rippled never builds, such as a leaf below an inner node with no other
 //! child, is refused, so a branch holds only if it is a path of a canonical
 //! tree. Untrusted bytes get an error, never a panic, and nothing recurses.
+//!
+//! The two proofs differ in where their branches start. `state_proof`'s
+//! starts at the key's leaf, which holds the object, so the object is read
+//! from the leaf ([`held_object`]) and sent nowhere else. `tx_proof`'s
+//! starts at the inner node above the leaf: the node builds the leaf itself
+//! from the transaction and its metadata, which it read in binary from
+//! `tx`, and [`verify_transaction`] checks the branch from that leaf, never
+//! from one a server sent.
 
 use alloc::vec::Vec;
 
@@ -223,6 +231,69 @@ pub fn verify<B: AsRef<[u8]>>(
     }
     // Each node above returns or descends, and the last always returns.
     Err(BranchError::Length)
+}
+
+/// Checks a transaction's branch as `tx_proof` gives it, deepest node
+/// first: from the inner node above the transaction's leaf up to `root`,
+/// the transaction root of its ledger's header. The leaf is built here
+/// from `transaction` and `metadata`, as read from `tx`, under the hash of
+/// `transaction`, so the branch proves exactly those bytes; a leaf the
+/// server put in the branch is one node too many.
+///
+/// # Errors
+///
+/// Why it does not hold: [`BranchError::Leaf`] for a transaction or
+/// metadata longer than a length prefix writes, and [`BranchError::Length`]
+/// for no nodes above the leaf, or more than [`MAX_DEPTH`].
+pub fn verify_transaction<B: AsRef<[u8]>>(
+    root: &[u8; 32],
+    transaction: &[u8],
+    metadata: &[u8],
+    above: &[B],
+) -> Result<(), BranchError> {
+    use crate::binary::MAX_VL_BYTES;
+
+    if transaction.len() > MAX_VL_BYTES || metadata.len() > MAX_VL_BYTES {
+        return Err(BranchError::Leaf);
+    }
+    // A tree that holds a transaction has an inner node at its root.
+    if above.is_empty() || above.len() > MAX_DEPTH {
+        return Err(BranchError::Length);
+    }
+    let key = crate::codec::hash(transaction);
+    let leaf = leaf_node(
+        Tree::Transactions,
+        &key,
+        &transaction_item(transaction, metadata),
+    );
+    let mut branch: Vec<&[u8]> = Vec::with_capacity(above.len() + 1);
+    branch.push(&leaf);
+    branch.extend(above.iter().map(AsRef::as_ref));
+    let leaf = Leaf::Transaction {
+        transaction,
+        metadata,
+    };
+    verify(root, &key, leaf, &branch)
+}
+
+/// The object a state branch, deepest node first, says the tree holds
+/// under `key`: the item of its first node, if that is a state leaf of
+/// `key`; `None` if it is not, as for a branch that proves `key` absent.
+/// What it reads is the server's word until [`verify`] proves the branch
+/// with it.
+#[must_use]
+pub fn held_object<'a, B: AsRef<[u8]>>(key: &[u8; 32], branch: &'a [B]) -> Option<&'a [u8]> {
+    let deepest = branch.first()?.as_ref();
+    if deepest.len() > MAX_NODE_BYTES {
+        return None;
+    }
+    match Node::parse(deepest, Tree::State) {
+        Ok(Node::Leaf {
+            key: leaf_key,
+            item,
+        }) if leaf_key == *key => Some(item),
+        _ => None,
+    }
 }
 
 /// Whether the leaf of `leaf_key` holding `item` is what `leaf` says of

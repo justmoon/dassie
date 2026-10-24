@@ -2,14 +2,16 @@
 //! on the chain of the one kept
 //! (spec/designs/xrpl-validation.md#7-resets-under-a-unl), sans-IO.
 //!
-//! - **A transaction proof** proves a transaction and its metadata, by its
-//!   branch to the transaction root of its ledger's header, and **a
+//! - **A transaction proof** proves a transaction and its metadata, read
+//!   in binary from `tx`, by the leaf the node builds from them and the
+//!   branch above it to the transaction root of its ledger's header, and **a
 //!   ledger** is a proven one's when it is the anchor, or a skip list
 //!   proven from the anchor holds its hash: any ledger kept is at most two
 //!   lists from the anchor.
 //! - **A state proof** proves a ledger's header and, for each key asked,
 //!   the object its state holds under it or that it holds none, by the
-//!   key's branch to the header's state root. The header is a proven
+//!   key's branch to the header's state root: the object is the leaf the
+//!   branch starts at. The header is a proven
 //!   ledger's only once its hash is: by a quorum's validations
 //!   ([`crate::unl`]), or by a skip list of a proven ledger.
 //! - **A kept anchor** keeps, beside its index, close time and hash, the
@@ -29,10 +31,10 @@ use alloc::vec::Vec;
 
 use serde_json::{Value, json};
 
-use crate::api::{MAX_PROOF_KEYS, StateProof, TxProof};
+use crate::api::{MAX_PROOF_KEYS, StateProof, TxBlobs, TxProof};
 use crate::header::LedgerHeader;
 use crate::records::{self, Decoded};
-use crate::shamap::{BranchError, Leaf, Tree, verify};
+use crate::shamap::{BranchError, Leaf, Tree, held_object, verify, verify_transaction};
 use crate::skip_list::{
     FLAG_INTERVAL, SKIP_HASHES, SkipList, flag_above, flag_at_or_below, flag_key, is_flag,
     recent_key,
@@ -89,7 +91,8 @@ impl ProvenState {
 /// What `answer` proves of `keys`, each distinct, at the ledger of `at`,
 /// or at whichever ledger it names when `at` is `None`: every key asked
 /// has one entry, and nothing else, whose branch leads to the header's
-/// state root.
+/// state root, from the key's leaf, whose object it proves, or from an
+/// empty slot or another key's leaf, which prove the key absent.
 ///
 /// # Errors
 ///
@@ -112,12 +115,10 @@ pub fn prove_state(
         if !keys.contains(&entry.key) || objects.contains_key(&entry.key) {
             return Err(ProofError::Keys);
         }
-        let leaf = entry
-            .object
-            .as_deref()
-            .map_or(Leaf::Absent(Tree::State), Leaf::State);
+        let object = held_object(&entry.key, &entry.path);
+        let leaf = object.map_or(Leaf::Absent(Tree::State), Leaf::State);
         verify(&header.account_hash, &entry.key, leaf, &entry.path).map_err(ProofError::Branch)?;
-        objects.insert(entry.key, entry.object.clone());
+        objects.insert(entry.key, object.map(<[u8]>::to_vec));
     }
     assert_eq!(objects.len(), keys.len(), "each key asked once");
     Ok(ProvenState {
@@ -140,29 +141,34 @@ pub struct ProvenTx {
     pub decoded: Decoded,
 }
 
-/// What `answer` proves of the transaction `hash`: its bytes, which hash to
-/// it, with their metadata, a leaf whose branch leads to the transaction
-/// root of the header the answer gives; read as a record of that ledger,
-/// with the threads of the objects of `keys`.
+/// What `answer` proves of the transaction `hash` with `blobs`, its bytes
+/// and metadata as `tx` read them: the bytes hash to it, and the leaf built
+/// from them, under that hash, with the branch above it leads to the
+/// transaction root of the header the answer gives; read as a record of
+/// that ledger, with the threads of the objects of `keys`. Bytes that are
+/// not the ledger's fail the branch.
 ///
 /// # Errors
 ///
 /// Why it proves nothing.
 pub fn prove_transaction(
     answer: &TxProof,
+    blobs: &TxBlobs,
     hash: &[u8; 32],
     keys: &[[u8; 32]],
 ) -> Result<ProvenTx, ProofError> {
     let header = LedgerHeader::from_bytes(&answer.header).map_err(|_| ProofError::Header)?;
-    if crate::codec::hash(&answer.tx) != *hash {
+    if crate::codec::hash(&blobs.tx) != *hash {
         return Err(ProofError::Transaction);
     }
-    let leaf = Leaf::Transaction {
-        transaction: &answer.tx,
-        metadata: &answer.meta,
-    };
-    verify(&header.transaction_hash, hash, leaf, &answer.path).map_err(ProofError::Branch)?;
-    let decoded = records::transaction(&answer.tx, &answer.meta, header.sequence, keys)
+    verify_transaction(
+        &header.transaction_hash,
+        &blobs.tx,
+        &blobs.meta,
+        &answer.path,
+    )
+    .map_err(ProofError::Branch)?;
+    let decoded = records::transaction(&blobs.tx, &blobs.meta, header.sequence, keys)
         .map_err(|_| ProofError::Transaction)?;
     assert_eq!(decoded.record.hash, *hash, "the hash of its own bytes");
     Ok(ProvenTx {

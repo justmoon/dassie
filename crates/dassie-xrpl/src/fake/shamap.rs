@@ -169,6 +169,17 @@ impl ShaMap {
         branch
     }
 
+    /// The branch of `key`, which the tree holds (a bug otherwise), as
+    /// `tx_proof` gives it: from the inner node above its leaf, deepest
+    /// first, since the node builds the leaf itself.
+    #[must_use]
+    pub fn branch_above(&self, key: &[u8; 32]) -> Vec<Vec<u8>> {
+        assert!(self.leaves.contains_key(key), "a branch above a leaf held");
+        let mut branch = self.branch(key);
+        branch.remove(0);
+        branch
+    }
+
     fn sorted(&self) -> Vec<Leaf<'_>> {
         self.leaves
             .iter()

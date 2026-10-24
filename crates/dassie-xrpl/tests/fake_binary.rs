@@ -20,7 +20,9 @@ use dassie_xrpl::codec::{
     TF_SET_NO_RIPPLE, TokenAmount, TokenValue, Transact, Transaction, TrustSet,
 };
 use dassie_xrpl::fake::{FEE_BASE, FakeLedger, Token};
+use dassie_xrpl::header::LedgerHeader;
 use dassie_xrpl::keys::{AccountId, sha512_half};
+use dassie_xrpl::shamap::{held_object, verify_transaction};
 use dassie_xrpl::{Wallet, from_hex, hex_upper};
 use serde_json::{Value, json};
 
@@ -208,6 +210,29 @@ fn ask(ledger: &mut FakeLedger, request: &Value) -> Value {
     let reply: Value = serde_json::from_slice(&reply).unwrap();
     assert_eq!(reply["status"], "success", "{request}: {reply}");
     reply["result"].clone()
+}
+
+/// The transaction `hash` and its metadata in binary, as `tx` gives them,
+/// and the ledger of its proof: the leaf built from them proves with
+/// `tx_proof`'s branch, which starts above it.
+fn proven_blobs(ledger: &mut FakeLedger, hash: &str) -> (Vec<u8>, Vec<u8>, Value) {
+    let binary = ask(
+        ledger,
+        &json!({ "command": "tx", "transaction": hash, "binary": true }),
+    );
+    let blobs = dassie_xrpl::api::tx_binary_result(&binary).unwrap();
+    let proof = ask(ledger, &json!({ "command": "tx_proof", "tx_hash": hash }));
+    let proof_read = dassie_xrpl::api::tx_proof_result(&proof).unwrap();
+    let header = LedgerHeader::from_bytes(&proof_read.header).unwrap();
+    verify_transaction(
+        &header.transaction_hash,
+        &blobs.tx,
+        &blobs.meta,
+        &proof_read.path,
+    )
+    .unwrap();
+    assert_eq!(binary["ledger_index"], proof["ledger_index"]);
+    (blobs.tx, blobs.meta, proof["ledger_index"].clone())
 }
 
 fn submit(ledger: &mut FakeLedger, blob: &[u8]) {
@@ -412,14 +437,9 @@ fn every_transaction_and_its_metadata_read_as_its_json() {
             &mut ledger,
             &json!({ "command": "tx", "transaction": hash }),
         );
-        let proof = ask(
-            &mut ledger,
-            &json!({ "command": "tx_proof", "tx_hash": hash }),
-        );
-        let blob = from_hex(proof["tx_blob"].as_str().unwrap()).unwrap();
-        let meta = from_hex(proof["meta_blob"].as_str().unwrap()).unwrap();
+        let (blob, meta, proven_in) = proven_blobs(&mut ledger, hash);
         assert_eq!(hex_upper(&dassie_xrpl::codec::hash(&blob)), *hash);
-        assert_eq!(json["ledger_index"], proof["ledger_index"]);
+        assert_eq!(json["ledger_index"], proven_in);
         let mut transaction = json.clone();
         let object = transaction.as_object_mut().unwrap();
         for key in ["hash", "ledger_index", "meta", "validated"] {
@@ -488,13 +508,8 @@ fn every_transaction_decodes_as_the_record_its_json_gives() {
             &mut ledger,
             &json!({ "command": "tx", "transaction": hash }),
         );
-        let proof = ask(
-            &mut ledger,
-            &json!({ "command": "tx_proof", "tx_hash": hash }),
-        );
-        let blob = from_hex(proof["tx_blob"].as_str().unwrap()).unwrap();
-        let meta = from_hex(proof["meta_blob"].as_str().unwrap()).unwrap();
-        let index = u32::try_from(proof["ledger_index"].as_u64().unwrap()).unwrap();
+        let (blob, meta, proven_in) = proven_blobs(&mut ledger, hash);
+        let index = u32::try_from(proven_in.as_u64().unwrap()).unwrap();
         let decoded = dassie_xrpl::records::transaction(&blob, &meta, index, &[]).unwrap();
         let read = dassie_xrpl::api::tx_result(&json).unwrap();
         assert_eq!(decoded.record, read, "{hash}");
@@ -510,7 +525,13 @@ fn state(ledger: &mut FakeLedger, key: &[u8; 32]) -> Vec<u8> {
         ledger,
         &json!({ "command": "state_proof", "keys": [hex_upper(key)] }),
     );
-    from_hex(answer["entries"][0]["node_binary"].as_str().unwrap()).unwrap()
+    // The object is the leaf the branch starts at.
+    let entry = &answer["entries"][0];
+    assert_eq!(entry.as_object().unwrap().len(), 2, "{entry}");
+    let path: Vec<Vec<u8>> = (entry["path"].as_array().unwrap().iter())
+        .map(|node| from_hex(node.as_str().unwrap()).unwrap())
+        .collect();
+    held_object(key, &path).unwrap().to_vec()
 }
 
 #[test]

@@ -2,20 +2,24 @@
 //! (spec/designs/xrpl-validation.md#3-the-proof-api), and rippled's
 //! `manifest`:
 //!
-//! - `validations` `{ledger_hash}`: `{ledger_hash, validations}`, each the
-//!   hex of a validation the fake holds for that ledger: those of a ledger
-//!   that closed within [`VALIDATIONS_HELD_S`] of the newest, as rippled
-//!   holds them, and none for an older one.
-//! - `tx_proof` `{tx_hash, ledger_index | ledger_hash?}`: `{tx_blob,
-//!   meta_blob, ledger_index, ledger_hash, ledger_header, validated, path}`,
-//!   the branch in the ledger's transaction tree, each node in hex.
+//! - `validations` `{ledger_hash}`: `{ledger_hash, validations,
+//!   truncated?}`, each the hex of a validation the fake holds for that
+//!   ledger: those of a ledger that closed within [`VALIDATIONS_HELD_S`] of
+//!   the newest, as rippled holds them, and none for an older one; at most
+//!   as many as the patch sends.
+//! - `tx_proof` `{tx_hash, ledger_index | ledger_hash?}`: `{ledger_index,
+//!   ledger_hash, ledger_header, validated, path}`, the branch in the
+//!   ledger's transaction tree from the inner node above the transaction's
+//!   leaf, each node in hex. The node builds the leaf from the transaction
+//!   and its metadata, which `tx` and `account_tx` give with `binary`.
 //! - `state_proof` `{keys, ledger_index | ledger_hash}`, the newest
 //!   validated ledger when it names none (or `"validated"`):
 //!   `{ledger_index, ledger_hash, ledger_header, validated, entries}`, each
-//!   `{key, node_binary?, path}`, without `node_binary` for a key the state
-//!   does not hold, whose branch proves it absent. At most
-//!   [`MAX_STATE_PROOF_KEYS`] distinct keys.
-//! - `manifest` `{public_key}`: `{requested, manifest, details}`.
+//!   `{key, path}`: the branch starts at the key's leaf, which holds its
+//!   object, or, for a key the state does not hold, proves it absent. At
+//!   most [`MAX_STATE_PROOF_KEYS`] distinct keys.
+//! - `manifest` `{public_key}`: `{requested, manifest, details}`, or
+//!   `{requested}` alone for a key it knows no manifest of.
 //!
 //! A branch lists each node as rippled hashes it, deepest first
 //! ([`crate::shamap`]). `ledger_index`, `ledger_hash` and `validated` are
@@ -41,7 +45,7 @@ use crate::binary::{FieldId, Fields};
 use crate::codec::{Amount, Payment, TokenValue, Transact, Transaction, hash};
 use crate::header::LedgerHeader;
 use crate::keys::{AccountId, PublicKey, sha512_half};
-use crate::shamap::Tree;
+use crate::shamap::{Tree, leaf_node};
 use crate::unl::FRESH_FOR_MS;
 use crate::{DROPS_PER_XRP, MAX_DROPS, from_hex, hex_upper};
 
@@ -49,6 +53,9 @@ use crate::{DROPS_PER_XRP, MAX_DROPS, from_hex, hex_upper};
 /// them: an account's root, its lines, their issuers, the fee settings,
 /// the skip lists and a pool, with room.
 pub const MAX_STATE_PROOF_KEYS: usize = crate::api::MAX_PROOF_KEYS;
+/// The most validations one `validations` answer holds, as the patch
+/// bounds them (`kMaxValidations`).
+const MAX_VALIDATIONS_ANSWERED: usize = 256;
 /// How much longer before the newest ledger than its validations stay
 /// fresh an old anchor closed, in seconds.
 const STALE_BY_S: u32 = 60;
@@ -118,10 +125,18 @@ impl FakeLedger {
             }
             None => Vec::new(),
         };
+        // As the patch, a bounded number, and a cut answer says so: the
+        // fake's validators are all trusted, and never as many.
+        let truncated = validations.len() > MAX_VALIDATIONS_ANSWERED;
         let validations: Vec<Value> = (validations.iter())
+            .take(MAX_VALIDATIONS_ANSWERED)
             .map(|bytes| Value::from(hex_upper(bytes)))
             .collect();
-        Ok(json!({ "ledger_hash": hex_upper(&hash), "validations": validations }))
+        let mut answer = json!({ "ledger_hash": hex_upper(&hash), "validations": validations });
+        if let (true, Some(object)) = (truncated, answer.as_object_mut()) {
+            object.insert("truncated".into(), true.into());
+        }
+        Ok(answer)
     }
 
     /// The validations of the ledger of `index`, as `connection` has them.
@@ -216,8 +231,8 @@ impl FakeLedger {
         }
         let found = (self.history_index.get(&tx_hash))
             .and_then(|position| self.history.get(*position))
-            .map(|applied| (applied.ledger, applied.blob.clone(), applied.meta.clone()));
-        let Some((ledger, blob, meta)) = found else {
+            .map(|applied| applied.ledger);
+        let Some(ledger) = found else {
             if self.lies_with(connection, Lie::Transaction)
                 && let Some(answer) = self.made_up_proof(&tx_hash)
             {
@@ -238,13 +253,11 @@ impl FakeLedger {
         let tree = self.transactions(ledger);
         let (header, ledger_hash) = self.served_header(connection, header);
         Ok(json!({
-            "tx_blob": hex_upper(&blob),
-            "meta_blob": hex_upper(&meta),
             "ledger_index": ledger,
             "ledger_hash": ledger_hash,
             "ledger_header": header,
             "validated": true,
-            "path": path(&tree.branch(&tx_hash)),
+            "path": path(&tree.branch_above(&tx_hash)),
         }))
     }
 
@@ -390,53 +403,67 @@ impl FakeLedger {
     }
 
     /// The entry of `key` in `tree`, as `connection` gives it, and the lie
-    /// it told, if it told one.
+    /// it told, if it told one. The object travels only in the leaf the
+    /// branch starts at, so a lie about it is a branch with another leaf.
     fn entry(
         &self,
         connection: ConnectionId,
         tree: &ShaMap,
         key: &[u8; 32],
     ) -> (Value, Option<Lie>) {
-        let key_hex = hex_upper(key);
-        // `object` with the branch of `of`.
-        let held = |object: &[u8], of: &[u8; 32]| {
-            let path = path(&tree.branch(of));
-            json!({ "key": key_hex, "node_binary": hex_upper(object), "path": path })
-        };
-        let absent = || json!({ "key": key_hex, "path": path(&tree.branch(key)) });
+        let entry = |branch: &[Vec<u8>]| json!({ "key": hex_upper(key), "path": path(branch) });
+        let honest = tree.branch(key);
         let Some(object) = tree.object(key) else {
-            return (absent(), None);
+            return (entry(&honest), None);
+        };
+        // The honest branch with another object in the key's leaf.
+        let holding = |object: Vec<u8>| {
+            let mut branch = honest.clone();
+            if let Some(leaf) = branch.first_mut() {
+                *leaf = leaf_node(Tree::State, key, &object);
+            }
+            branch
         };
         let lie = self.lie(connection);
         let lied = match lie {
-            Some(Lie::AlteredObject) => altered(object).map(|altered| held(&altered, key)),
-            Some(Lie::FalseAbsence) => Some(absent()),
+            Some(Lie::AlteredObject) => altered(object).map(holding),
+            // The branch without the key's leaf: it ends at an inner node
+            // whose slot for the key is taken.
+            Some(Lie::FalseAbsence) => honest.get(1..).map(<[Vec<u8>]>::to_vec),
             Some(Lie::OtherBranch) => (tree.keys().find(|other| *other > key))
                 .or_else(|| tree.keys().find(|other| *other != key))
-                .and_then(|other| Some(held(tree.object(other)?, other))),
-            Some(Lie::OtherChainSkipList) => other_chain(object).map(|altered| held(&altered, key)),
+                .map(|other| tree.branch(other)),
+            Some(Lie::OtherChainSkipList) => other_chain(object).map(holding),
             _ => None,
         };
         match lied {
-            Some(entry) => (entry, lie),
-            None => (held(object, key), None),
+            Some(branch) => (entry(&branch), lie),
+            None => (entry(&honest), None),
         }
     }
 
-    /// A made-up proof of the transaction of `tx_hash`: a Payment of test
-    /// XRP to an account, or a transaction that never applied, said to have
-    /// succeeded, in the newest ledger with a header made up for it.
-    fn made_up_proof(&self, tx_hash: &[u8; 32]) -> Option<Value> {
+    /// The bytes and metadata of a made-up transaction of `tx_hash`: a
+    /// Payment of test XRP to an account, or a transaction that never
+    /// applied, said to have succeeded. `tx` gives them as a lie, and
+    /// [`Self::made_up_proof`] proves them.
+    pub(super) fn made_up_transaction(&self, tx_hash: &[u8; 32]) -> Option<(Vec<u8>, Vec<u8>)> {
         let made_up = (self.accounts.keys())
             .filter_map(|account| self.made_up_payment(*account))
             .find(|(blob, _)| hash(blob) == *tx_hash);
-        let (blob, meta) = match made_up {
-            Some(found) => found,
+        match made_up {
+            Some(found) => Some(found),
             None => {
                 let (_, blob) = (self.never_applied.iter()).find(|(hash, _)| hash == tx_hash)?;
-                (blob.clone(), self.made_up_success(blob)?)
+                Some((blob.clone(), self.made_up_success(blob)?))
             }
-        };
+        }
+    }
+
+    /// A made-up proof of the transaction of `tx_hash`
+    /// ([`Self::made_up_transaction`]), in the newest ledger with a header
+    /// made up for it.
+    fn made_up_proof(&self, tx_hash: &[u8; 32]) -> Option<Value> {
+        let (blob, meta) = self.made_up_transaction(tx_hash)?;
         let latest = self.chain.latest()?.header;
         let mut tree = self.transactions(latest.sequence);
         tree.insert_transaction(&blob, &meta);
@@ -445,13 +472,11 @@ impl FakeLedger {
             ..latest
         };
         Some(json!({
-            "tx_blob": hex_upper(&blob),
-            "meta_blob": hex_upper(&meta),
             "ledger_index": latest.sequence,
             "ledger_hash": hex_upper(&header.hash()),
             "ledger_header": hex_upper(&header.to_bytes()),
             "validated": true,
-            "path": path(&tree.branch(tx_hash)),
+            "path": path(&tree.branch_above(tx_hash)),
         }))
     }
 
@@ -540,10 +565,13 @@ impl FakeLedger {
         )
     }
 
-    /// The made-up Payment to `account` as `account_tx` lists it, if there
-    /// is one.
-    pub(super) fn made_up_entry(&self, account: AccountId) -> Option<Value> {
+    /// The made-up Payment to `account` as `account_tx` lists it, in
+    /// binary or not, if there is one.
+    pub(super) fn made_up_entry(&self, account: AccountId, binary: bool) -> Option<Value> {
         let (blob, meta) = self.made_up_payment(account)?;
+        if binary {
+            return Some(binary_entry(&blob, &meta, self.ledger));
+        }
         let delivered = Amount::Xrp(FAUCET_DROPS);
         let message = message(
             self.ledger,
@@ -568,11 +596,10 @@ impl FakeLedger {
             .and_then(Value::as_str)
             .ok_or_else(|| error("invalidParams"))?;
         let key = PublicKey::from_node_public(requested).ok_or_else(|| error("invalidParams"))?;
+        // As rippled, a key it knows no manifest of is answered with what
+        // was asked alone.
         let Some((manifest, master, signing, sequence)) = self.validators.manifest(&key) else {
-            return Ok(json!({
-                "requested": requested,
-                "details": { "master_key": requested, "ephemeral_key": requested },
-            }));
+            return Ok(json!({ "requested": requested }));
         };
         let mut details = json!({ "master_key": master.to_node_public(), "seq": sequence });
         if let (Some(signing), Some(object)) = (signing, details.as_object_mut()) {
@@ -584,6 +611,35 @@ impl FakeLedger {
             "details": details,
         }))
     }
+}
+
+/// Whether `request` asks for its transactions in binary.
+pub(super) fn wants_binary(request: &Value) -> bool {
+    request.get("binary").and_then(Value::as_bool) == Some(true)
+}
+
+/// A transaction as `tx` gives it with `binary`, at API version 1: the
+/// transaction and its metadata in hex, under `tx` and `meta`.
+pub(super) fn binary_tx(blob: &[u8], meta: &[u8], ledger: u32) -> Value {
+    json!({
+        "tx": hex_upper(blob),
+        "meta": hex_upper(meta),
+        "hash": hex_upper(&hash(blob)),
+        "ledger_index": ledger,
+        "inLedger": ledger,
+        "validated": true,
+    })
+}
+
+/// A transaction as `account_tx` lists it with `binary`, at API version 1:
+/// the transaction under `tx_blob`, its metadata under `meta`.
+pub(super) fn binary_entry(blob: &[u8], meta: &[u8], ledger: u32) -> Value {
+    json!({
+        "tx_blob": hex_upper(blob),
+        "meta": hex_upper(meta),
+        "ledger_index": ledger,
+        "validated": true,
+    })
 }
 
 /// `object` holding more than it does: a root's XRP or a line's balance

@@ -172,8 +172,10 @@ impl Shared {
         if self.drop_lookups && proof && request.get("ledger_index").is_none() {
             return;
         }
+        // A lookup is its proof and the transaction's bytes, from `tx`.
+        let lookup = proof || request["command"] == "tx";
         let mut reply = self.ledger.request(self.connection, message);
-        if let (Some(tamper), true) = (self.tamper_lookup, proof) {
+        if let (Some(tamper), true) = (self.tamper_lookup, lookup) {
             let mut answer: serde_json::Value = serde_json::from_slice(&reply).unwrap();
             tamper(&mut answer);
             reply = serde_json::to_vec(&answer).unwrap();
@@ -638,15 +640,15 @@ fn flip(answer: &mut serde_json::Value, key: &str) {
 
 // spec/designs/xrpl-validation.md#4-what-is-proven-and-how: a lookup is
 // told only once its proof holds. A settlement the scheme settled while the
-// node did not post it is looked up after a restart; answers whose bytes,
-// metadata, header or branch were changed prove nothing: the scheme books
-// nothing of them, and the account connects anew. Once the server is
-// honest, the settlement is posted once.
+// node did not post it is looked up after a restart; answers whose bytes
+// or metadata (from `tx` in binary), header or branch were changed prove
+// nothing: the scheme books nothing of them, and the account connects
+// anew. Once the server is honest, the settlement is posted once.
 #[test]
 fn a_lookup_that_does_not_prove_books_nothing() {
     let tampers: [fn(&mut serde_json::Value); 4] = [
-        |answer| flip(answer, "tx_blob"),
-        |answer| flip(answer, "meta_blob"),
+        |answer| flip(answer, "tx"),
+        |answer| flip(answer, "meta"),
         |answer| flip(answer, "ledger_header"),
         |answer| answer["result"]["path"] = serde_json::json!([]),
     ];

@@ -241,7 +241,7 @@ impl FakeLedger {
         let made_up = match lie {
             Lie::Transaction if last_page => Self::account_of(request)
                 .ok()
-                .and_then(|id| self.made_up_entry(id)),
+                .and_then(|id| self.made_up_entry(id, super::proofs::wants_binary(request))),
             _ => None,
         };
         let old = self.old_ledger();
@@ -261,8 +261,10 @@ impl FakeLedger {
             }
             Lie::OldLedgerHint if length > 0 => {
                 for entry in transactions.iter_mut() {
-                    if let Some(tx) = entry.get_mut("tx") {
-                        set(tx, "ledger_index", old.into());
+                    match entry.get_mut("tx") {
+                        Some(tx) if tx.is_object() => set(tx, "ledger_index", old.into()),
+                        // In binary, the entry names its ledger.
+                        _ => set(entry, "ledger_index", old.into()),
                     }
                 }
                 true
@@ -288,11 +290,22 @@ impl FakeLedger {
                 self.told(Lie::OldLedgerHint);
                 Ok(found)
             }
+            (Some(Lie::Transaction), Err(not_found)) if super::proofs::wants_binary(request) => {
+                let asked = (request.get("transaction").and_then(Value::as_str))
+                    .and_then(crate::from_hex)
+                    .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok());
+                let Some((blob, meta)) = asked.and_then(|hash| self.made_up_transaction(&hash))
+                else {
+                    return Err(not_found);
+                };
+                self.told(Lie::Transaction);
+                Ok(super::proofs::binary_tx(&blob, &meta, self.ledger))
+            }
             (Some(Lie::Transaction), Err(not_found)) => {
                 let asked =
                     (request.get("transaction").and_then(Value::as_str)).and_then(crate::from_hex);
                 let made_up = (self.accounts.keys())
-                    .filter_map(|account| self.made_up_entry(*account))
+                    .filter_map(|account| self.made_up_entry(*account, false))
                     .find(|entry| {
                         let hash = entry.get("tx").and_then(|tx| tx.get("hash"));
                         let hash = hash.and_then(Value::as_str).and_then(crate::from_hex);
