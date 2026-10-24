@@ -1,6 +1,6 @@
 # A testnet dollar of our own, bought only with XRP through a pool we keep at the market
 
-**Areas:** [DSUSD keeper](../areas/dsusd-keeper.md), [XRPL](../areas/xrpl.md), [Settlement](../areas/settlement.md). A stopgap for the testnet, until RLUSD's testnet price is fixed.
+**Areas:** [DSUSD keeper](../areas/dsusd-keeper.md), [XRPL](../areas/xrpl.md), [Settlement](../areas/settlement.md). The testnet's dollar token, and its stand-in for RLUSD.
 
 ## Facts
 
@@ -11,7 +11,7 @@
 
 ## Decision
 
-- **DSUSD, a testnet dollar token of our own,** issued by an account of ours, sits beside RLUSD: nodes settle in either, and book both as `USD` at par. It stands in for RLUSD until RLUSD's testnet price is fixed. Once the mainnet schemes disable test RLUSD, DSUSD is the testnet's only dollar token, and the one its peg guard runs on ([issued-assets](issued-assets.md)).
+- **DSUSD, a testnet dollar token of our own,** issued by an account of ours, is the testnet's dollar token and its stand-in for RLUSD: nodes settle in it and book it as `USD` at par, and the peg guard runs on it, with its own pool, as it runs on mainnet RLUSD ([issued-assets](issued-assets.md)). Test RLUSD is disabled ([mainnet-schemes](mainnet-schemes.md)); until that is built, nodes settle in either.
 - **DSUSD is had only by paying XRP for it, on the ledger, through the XRP/DSUSD pool.** The issuer mints only into the pool, never to a person, so it holds no XRP that anyone could drain, and there is no faucet. Every DSUSD outstanding was paid for with XRP that sits in the pool, or is still in the pool.
 - **A keeper holds the pool at one exchange's XRP/USD price.** On the testnet nothing of value rides on the price, so one source is enough. The keeper refuses a ticker that is stale, crossed, too wide or out of bounds, rather than move the pool on it.
 - **The keeper reprices as the pool's main liquidity provider, with DSUSD alone:** it deposits newly minted DSUSD to raise XRP's price, and withdraws DSUSD, which it gives back to the issuer to burn, to lower it. It never buys or sells XRP, so the pool's XRP is what buyers paid in, plus faucet XRP the keeper adds, with DSUSD beside it at the pool's price, to keep the pool deep.
@@ -29,4 +29,4 @@
 - *Buying DSUSD in the node:* a node that trades on a ledger takes a market risk its owner never chose, and needs paths, slippage and price checks of its own; an owner swaps XRP for DSUSD on the ledger as on any exchange.
 - *Several price sources, as the node's rates take:* more requests and more ways to fail, for a price that backs nothing real. Real money would need this decided again.
 - *Repricing by trading, or with both assets:* to lower XRP's price by selling XRP the keeper would need XRP it does not have, and to raise it by buying XRP with minted DSUSD it would take the XRP buyers paid in out of the pool. One-sided DSUSD leaves the XRP where buyers put it.
-- *Waiting for RLUSD's testnet price to be fixed:* nodes that hold both XRP and RLUSD could not be rebalanced until then.
+- *Test RLUSD as the testnet's dollar token:* its pool prices it nowhere near a dollar, and neither the issuer nor the pool is ours to correct, so nodes that hold both XRP and RLUSD could not be rebalanced, and a peg guard on it would never let it settle.
