@@ -15,12 +15,13 @@
 //! HTTPS, following no redirect (spec/designs/xrpl-validation.md#9-io).
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use rustls::pki_types::ServerName;
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_util::sync::CancellationToken;
@@ -34,6 +35,18 @@ use crate::peer_client::{PeerClient, WebRequest};
 /// ([`dassie_xrpl::api::MAX_ANSWER_BYTES`]). A server whose message is
 /// longer is cut off, and the asset connects anew.
 const MAX_LEDGER_MESSAGE: usize = dassie_xrpl::api::MAX_ANSWER_BYTES;
+/// Most bytes of a ledger's messages one link holds on their way to the
+/// core: two of the longest, so the core can work on one while the next
+/// waits. A link that holds as much reads nothing more from its server
+/// until the core has taken some, and the server, its socket full, waits
+/// too. Without it, a hostile or broken server could fill the engine's
+/// whole command queue with its longest messages while the core is
+/// busy. Beside these, a link holds at most the one message it is reading
+/// ([`MAX_LEDGER_MESSAGE`]).
+const MAX_HELD_BYTES: usize = 2 * MAX_LEDGER_MESSAGE;
+const _: () = assert!(MAX_LEDGER_MESSAGE <= MAX_HELD_BYTES);
+const _: () = assert!(MAX_HELD_BYTES <= u32::MAX as usize);
+const _: () = assert!(MAX_HELD_BYTES <= Semaphore::MAX_PERMITS);
 /// Messages waiting to go out on one connection; beyond, they are dropped,
 /// and the asset, hearing nothing, connects anew.
 const QUEUE: usize = 64;
@@ -82,6 +95,7 @@ impl Links {
             asset: asset.clone(),
             epoch,
             url,
+            held: Arc::new(Semaphore::new(MAX_HELD_BYTES)),
         };
         tokio::spawn(task.run(queue, cancel.clone()));
         self.by_asset.insert(
@@ -281,11 +295,23 @@ pub(super) fn hub_send(
 
 /// Feeds an event to the core.
 async fn report(commands: &mpsc::Sender<Command>, asset: String, epoch: u64, event: LedgerEvent) {
-    let call: super::Call = Box::new(move |core| {
+    let _ = commands.send(ledger_call(asset, epoch, event, None)).await;
+}
+
+/// The command that feeds an event to the core, holding `held` (its share
+/// of a link's [`MAX_HELD_BYTES`]) until the core has taken it, or the
+/// command is dropped.
+fn ledger_call(
+    asset: String,
+    epoch: u64,
+    event: LedgerEvent,
+    held: Option<OwnedSemaphorePermit>,
+) -> Command {
+    Command::Call(Box::new(move |core| {
         core.ledger_event(&asset, epoch, &event);
+        drop(held);
         Box::new(|| {})
-    });
-    let _ = commands.send(Command::Call(call)).await;
+    }))
 }
 
 struct Task {
@@ -294,6 +320,9 @@ struct Task {
     asset: String,
     epoch: u64,
     url: String,
+    /// What is left of [`MAX_HELD_BYTES`]: a message waiting for the core
+    /// holds its length.
+    held: Arc<Semaphore>,
 }
 
 impl Task {
@@ -361,16 +390,48 @@ impl Task {
                 incoming = socket.next() => {
                     match incoming {
                         Some(Ok(Message::Text(text))) => {
-                            self.event(LedgerEvent::Message(text.as_bytes().to_vec())).await;
+                            if !self.deliver(text.as_bytes(), cancel).await {
+                                let _ = socket.close(None).await;
+                                return;
+                            }
                         }
                         Some(Ok(Message::Binary(bytes))) => {
-                            self.event(LedgerEvent::Message(bytes.to_vec())).await;
+                            if !self.deliver(&bytes, cancel).await {
+                                let _ = socket.close(None).await;
+                                return;
+                            }
                         }
                         Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => {}
                         Some(Ok(Message::Close(_)) | Err(_)) | None => return,
                     }
                 }
             }
+        }
+    }
+
+    /// Feeds a message from the ledger to the core once the link has room
+    /// to hold it ([`MAX_HELD_BYTES`]); until then the link reads nothing
+    /// more. False if the link ends meanwhile, or the message could never
+    /// be held, and the connection is done.
+    async fn deliver(&self, message: &[u8], cancel: &CancellationToken) -> bool {
+        if message.len() > MAX_HELD_BYTES {
+            return false;
+        }
+        let Ok(bytes) = u32::try_from(message.len()) else {
+            return false;
+        };
+        let permit = tokio::select! {
+            () = cancel.cancelled() => return false,
+            permit = Arc::clone(&self.held).acquire_many_owned(bytes) => {
+                let Ok(permit) = permit else { return false };
+                permit
+            }
+        };
+        let event = LedgerEvent::Message(message.to_vec());
+        let command = ledger_call(self.asset.clone(), self.epoch, event, Some(permit));
+        tokio::select! {
+            () = cancel.cancelled() => false,
+            sent = self.commands.send(command) => sent.is_ok(),
         }
     }
 
@@ -461,7 +522,87 @@ fn host_and_port(authority: &str, default: u16) -> Result<(&str, u16), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::host_and_port;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use futures_util::SinkExt;
+    use tokio::sync::{Semaphore, mpsc};
+    use tokio_tungstenite::WebSocketStream;
+    use tokio_tungstenite::tungstenite::Message;
+    use tokio_tungstenite::tungstenite::protocol::{Role, WebSocketConfig};
+    use tokio_util::sync::CancellationToken;
+
+    use super::{MAX_HELD_BYTES, MAX_LEDGER_MESSAGE, Task, host_and_port};
+
+    /// Each of the flood's messages.
+    const FLOOD_MESSAGE: usize = 1 << 20;
+    /// As many as the link may hold.
+    const FLOOD_HELD: usize = MAX_HELD_BYTES / FLOOD_MESSAGE;
+    const _: () = assert!(FLOOD_HELD * FLOOD_MESSAGE == MAX_HELD_BYTES);
+
+    /// Waits, a bounded while, until `receiver` holds `count` commands.
+    async fn queued(receiver: &mpsc::Receiver<super::Command>, count: usize) {
+        for _ in 0..1000 {
+            assert!(receiver.len() <= count, "the link holds too much");
+            if receiver.len() == count {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("the link never delivered {count} messages");
+    }
+
+    #[tokio::test]
+    async fn a_flooding_server_never_makes_a_link_hold_more_than_the_bound() {
+        let (node_side, server_side) = tokio::io::duplex(64 * 1024);
+        let server = tokio::spawn(async move {
+            let mut socket =
+                WebSocketStream::from_raw_socket(server_side, Role::Server, None).await;
+            let flood = "x".repeat(FLOOD_MESSAGE);
+            while socket.send(Message::text(flood.clone())).await.is_ok() {}
+        });
+        let config = WebSocketConfig::default()
+            .max_message_size(Some(MAX_LEDGER_MESSAGE))
+            .max_frame_size(Some(MAX_LEDGER_MESSAGE));
+        let socket = WebSocketStream::from_raw_socket(node_side, Role::Client, Some(config)).await;
+        // The core is stalled: nothing takes the commands.
+        let (commands, mut receiver) = mpsc::channel(super::super::QUEUE);
+        let held = Arc::new(Semaphore::new(MAX_HELD_BYTES));
+        let task = Task {
+            client: None,
+            commands,
+            asset: "XRP".into(),
+            epoch: 1,
+            url: "ws://ledger.test".into(),
+            held: Arc::clone(&held),
+        };
+        let cancel = CancellationToken::new();
+        let (_outgoing, mut queue) = mpsc::channel(1);
+        let serving = tokio::spawn({
+            let cancel = cancel.clone();
+            async move { task.serve(socket, &mut queue, &cancel).await }
+        });
+
+        queued(&receiver, FLOOD_HELD).await;
+        // However long the server keeps on, the link reads no more.
+        for _ in 0..30 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            assert_eq!(receiver.len(), FLOOD_HELD);
+            assert_eq!(held.available_permits(), 0);
+        }
+
+        // Once the core takes them, the link reads on, as far as the bound.
+        while receiver.try_recv().is_ok() {}
+        queued(&receiver, FLOOD_HELD).await;
+
+        cancel.cancel();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(10), serving)
+                .await
+                .is_ok_and(|joined| joined.is_ok())
+        );
+        server.abort();
+    }
 
     #[test]
     fn hosts_and_ports_are_read_as_written() {
