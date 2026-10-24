@@ -738,10 +738,20 @@ impl Validator {
         self.sign_withdrawals();
         // Once ended or stalled, we sign the payout set of our last final
         // block, and again whenever we learn of a later one, never of an
-        // earlier one (spec/designs/settlement-hubs.md#9-shutdown).
-        let ended = self.chain.ledger.phase() == Phase::Ended || self.engine.is_stalled();
+        // earlier one (spec/designs/settlement-hubs.md#9-shutdown). A later
+        // one only once the hub stopped there too, its block older than the
+        // stall: a hub that carries on without a validator that stalled
+        // alone never has it sign a set, each a bundle written, at every
+        // block it learns of.
+        let phase = self.chain.ledger.phase();
+        let ended = phase == Phase::Ended || self.engine.is_stalled();
         let height = self.chain.ledger.height();
-        if ended && self.payout_height.is_none_or(|signed| signed < height) {
+        let stall = self.chain.ledger.terms().timers.stall;
+        let stopped = phase == Phase::Ended || self.engine.since_finalized_ms(now) > stall;
+        let due = self
+            .payout_height
+            .is_none_or(|signed| signed < height && stopped);
+        if ended && due {
             self.sign_payout();
         }
         self.chain.check_invariants();

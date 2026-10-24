@@ -831,6 +831,51 @@ fn validators_that_stalled_apart_come_to_sign_one_payout_set() {
     }
 }
 
+// A validator that stalled alone and hears again from a hub that carries
+// on without it signs no later payout set while the hub goes on: each
+// would be a whole set, and a bundle written, at every block it learns of.
+// Once the hub stops too, it signs the set of the hub's last block, once.
+#[test]
+fn a_validator_that_stalled_alone_signs_no_set_while_the_hub_goes_on() {
+    let mut net = Network::new();
+    net.attest_all(&ValidatorOperation::AttestEscrow { sequence: 5 });
+    net.run(2_000);
+    net.cut = Some(3);
+    net.run(1_000);
+    // Its clock alone runs past the stall: it declares the hub stalled.
+    let stall = net.rules.terms.timers.stall;
+    let later = net.now + stall + 1;
+    net.validators[3].tick(later);
+    net.collect(3);
+    assert!(net.validators[3].engine().is_stalled());
+    let signed = |net: &Network| net.payout_heights.iter().filter(|(v, _)| *v == 3).count();
+    assert_eq!(signed(&net), 1);
+    // The others carry on, and it hears from them again.
+    net.cut = None;
+    let height = net.validators[0].ledger().height();
+    net.run(5_000);
+    assert!(
+        net.validators[0].ledger().height() > height + 10,
+        "the hub goes on"
+    );
+    assert!(
+        net.validators[3].ledger().height() > height + 10,
+        "it learns of their blocks"
+    );
+    assert_eq!(signed(&net), 1, "no set while the hub goes on");
+    // The hub stops: its last block grows older than the stall.
+    net.no_finality = true;
+    net.now += stall + 1;
+    net.run(1);
+    let top = net.validators[3].ledger().height();
+    assert_eq!(
+        net.payout_heights.iter().rfind(|(v, _)| *v == 3),
+        Some(&(3, top)),
+        "the set of the hub's last block"
+    );
+    assert_eq!(signed(&net), 2);
+}
+
 // A state that is not the one the block names is refused, and nothing
 // changes.
 #[test]
