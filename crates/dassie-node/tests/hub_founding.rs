@@ -304,3 +304,129 @@ async fn a_sponsor_founds_a_hub_with_four_validator_daemons() {
         node.stop().await;
     }
 }
+
+/// A QUIC endpoint that only dials: a node of `key`'s, as a stranger or a
+/// sponsor would found from.
+struct Dialer;
+
+impl dassie_node::quic::Handler for Dialer {
+    fn client(
+        &self,
+        _address: std::net::IpAddr,
+    ) -> Option<dassie_node_core::rate_limit::ClientKey> {
+        None
+    }
+
+    fn limits(&self) -> dassie_node_core::connections::ConnectionLimits {
+        dassie_node_core::connections::ConnectionLimits {
+            max_total: 8,
+            max_per_client: 8,
+        }
+    }
+
+    fn answer<'a>(
+        &'a self,
+        _client: std::net::IpAddr,
+        _body: dassie_node::quic::Body<'a>,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = dassie_node::http::peer::Answer> + Send + 'a>,
+    > {
+        Box::pin(async {
+            dassie_node::http::peer::Answer {
+                status: 404,
+                body: Vec::new(),
+            }
+        })
+    }
+}
+
+/// Sends a founding request as the node of `key` to `to`, and returns the
+/// answer's bytes.
+async fn found_as(
+    key: &NodeKey,
+    to: (&NodeKey, &TestNode),
+    shutdown: &tokio_util::sync::CancellationToken,
+) -> Result<Vec<u8>, dassie_node::hub::HubExchangeError> {
+    use dassie_oer::Encode;
+    let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let (identity, receiver) = tokio::sync::watch::channel(Some(std::sync::Arc::new(
+        NodeKey::from_bytes(key.as_bytes()),
+    )));
+    let quic = std::sync::Arc::new(dassie_node::quic::Quic::new(socket, receiver, true).unwrap());
+    tokio::spawn(std::sync::Arc::clone(&quic).serve(std::sync::Arc::new(Dialer), shutdown.clone()));
+    let client =
+        dassie_node::peer_client::PeerClient::new(Some(std::path::Path::new(CA)), true).unwrap();
+    let terms = dassie_hub::founding::starting_terms([3; 32], key.public_key(), 1, [4; 20]);
+    let request = dassie_hub::founding::FoundingRequest::Propose(terms).to_vec();
+    let (node, endpoint) = (to.0.node_id(), to.1.host());
+    let answer = quic
+        .hub_founding_exchange(node, &endpoint, &request, &client, Duration::from_secs(5))
+        .await;
+    drop(identity);
+    answer
+}
+
+// spec/areas/peer-protocol.md#the-hubs-stream: a founding stream from a
+// node the validator's file does not list, or to a node with no validator
+// file, is reset before its request is read; a listed sponsor's is read and
+// answered.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_strangers_founding_stream_is_reset_unread() {
+    use dassie_node::hub::HubExchangeError;
+    use dassie_oer::Decode;
+
+    let shutdown = tokio_util::sync::CancellationToken::new();
+    let clock = ManualClock::new(START_MS);
+    let sponsor = NodeKey::from_bytes(&[80; 32]);
+    let stranger = NodeKey::from_bytes(&[81; 32]);
+    let files = tempfile::tempdir().unwrap();
+    let file = validator_file(files.path(), &sponsor, "ws://127.0.0.1:1");
+    let env = [
+        ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+        ("DASSIE_PEER_CA_FILE", CA),
+    ];
+    let validator_env = [
+        ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_VALIDATOR_CONFIG", file.as_str()),
+    ];
+    let (validator_key, plain_key) = (
+        NodeKey::from_bytes(&[82; 32]),
+        NodeKey::from_bytes(&[83; 32]),
+    );
+    let validator = Bound::new()
+        .start(clock.clone(), 82, Policies::DEV, &validator_env)
+        .await;
+    set_up(&validator, &validator_key).await;
+    let plain = Bound::new()
+        .start(clock.clone(), 83, Policies::DEV, &env)
+        .await;
+    set_up(&plain, &plain_key).await;
+
+    for to in [(&validator_key, &validator), (&plain_key, &plain)] {
+        let answer = found_as(&stranger, to, &shutdown).await;
+        assert!(
+            matches!(answer, Err(HubExchangeError::Failed(_))),
+            "{answer:?}"
+        );
+    }
+    let answer = found_as(&sponsor, (&plain_key, &plain), &shutdown).await;
+    assert!(
+        matches!(answer, Err(HubExchangeError::Failed(_))),
+        "no validator file: {answer:?}"
+    );
+    // The listed sponsor is read and answered: the node has no hostname
+    // yet to name in an acceptance.
+    let answer = found_as(&sponsor, (&validator_key, &validator), &shutdown).await;
+    let answer = dassie_hub::founding::FoundingAnswer::decode_exact(&answer.expect("answered"));
+    assert_eq!(
+        answer,
+        Ok(dassie_hub::founding::FoundingAnswer::Refused(
+            dassie_hub::founding::Refusal::NoEndpoint
+        ))
+    );
+
+    shutdown.cancel();
+    validator.stop().await;
+    plain.stop().await;
+}

@@ -31,6 +31,26 @@ pub const MAX_FOUNDING_REQUESTS: usize = 4;
 /// they hold no real money (spec/decisions/real-money.md).
 pub const TESTNET_NETWORK: u32 = 1;
 
+/// Whether a founding request from a node may be read, decided by the key
+/// its connection proved before anything of the request is read.
+#[derive(Debug)]
+pub enum FoundingAccess {
+    /// The node founds nothing with this one: the stream is reset unread.
+    NotListed,
+    /// A listed sponsor, but every place for a request is taken: answered
+    /// busy, unread.
+    Busy,
+    /// A listed sponsor, with the place its request is read and decided in.
+    Place(FoundingPlace),
+}
+
+/// One of the [`MAX_FOUNDING_REQUESTS`] places, held while a request is
+/// read and decided.
+#[derive(Debug)]
+pub struct FoundingPlace {
+    _permit: tokio::sync::OwnedSemaphorePermit,
+}
+
 /// The validator's side of founding hubs.
 #[derive(Debug)]
 pub struct Founding {
@@ -87,20 +107,36 @@ impl Founding {
         Ok(hubs)
     }
 
-    /// Answers `request` on the founding stream from `from`, whose key the
-    /// connection proved, with the encoded answer; `None` for bytes that
-    /// are no founding request.
-    pub async fn answer(&self, node: &Node, from: &PublicKey, request: &[u8]) -> Option<Vec<u8>> {
+    /// Whether a founding request of `from`, whose key the connection
+    /// proved, is read: only a listed sponsor's, and only in one of the
+    /// places for them, so nobody else makes the node buffer a request.
+    #[must_use]
+    pub fn access(&self, from: &PublicKey) -> FoundingAccess {
+        if !self.sponsors.contains(&from.node_id()) {
+            return FoundingAccess::NotListed;
+        }
+        match Arc::clone(&self.places).try_acquire_owned() {
+            Ok(permit) => FoundingAccess::Place(FoundingPlace { _permit: permit }),
+            Err(_) => FoundingAccess::Busy,
+        }
+    }
+
+    /// Answers `request` on the founding stream from `from`, read in
+    /// `place` ([`access`](Self::access)), with the encoded answer; `None`
+    /// for bytes that are no founding request.
+    pub async fn answer(
+        &self,
+        node: &Node,
+        from: &PublicKey,
+        request: &[u8],
+        place: FoundingPlace,
+    ) -> Option<Vec<u8>> {
+        let _place = place;
         let request = FoundingRequest::decode_exact(request).ok()?;
         let refused = |refusal| Some(FoundingAnswer::Refused(refusal).to_vec());
-        // Only a listed sponsor's requests are worth a look at the
-        // database, or a place.
         if !self.sponsors.contains(&from.node_id()) {
             return refused(Refusal::NotAllowed);
         }
-        let Ok(_place) = self.places.try_acquire() else {
-            return refused(Refusal::Busy);
-        };
         let Some(key) = node.node_key() else {
             return refused(Refusal::Busy);
         };

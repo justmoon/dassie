@@ -13,7 +13,11 @@ use dassie_identity::NodeId;
 use quinn::Connection;
 
 use super::{ANSWER_TIMEOUT, On, Quic, StreamKind, keys, no_room};
+use dassie_hub::founding::{FoundingAnswer, Refusal};
+use dassie_oer::Encode;
+
 use crate::hub::HubAccess;
+use crate::hub::founding::FoundingAccess;
 use crate::hub::transport::{
     HUB_ID_BYTES, HubAnswer, HubExchangeError, MAX_FOUNDING_BYTES, MAX_MEMBER_MESSAGE_BYTES,
     MAX_MESSAGE_BYTES, MAX_REPLY_BYTES, MAX_STATE_REPLY_BYTES, STATE_REQUEST_BYTES,
@@ -273,8 +277,11 @@ impl On {
 
 impl On {
     /// Answers a sponsor's request on a hub's founding stream with the
-    /// handler, from the node the connection proved: at most the largest
-    /// founding request is read.
+    /// handler, from the node the connection proved. Nothing is read until
+    /// the handler says the node founds hubs with that node and a place
+    /// for the request is taken: a stranger's stream is reset unread, and
+    /// a listed sponsor with no place free is answered busy. Then at most
+    /// the largest founding request is read.
     pub(super) async fn hub_founding(
         self,
         mut send: quinn::SendStream,
@@ -288,13 +295,26 @@ impl On {
             reset(&mut send, &mut recv);
             return;
         };
+        let place = match self.handler.hub_founding_access(&from) {
+            FoundingAccess::NotListed => {
+                reset(&mut send, &mut recv);
+                return;
+            }
+            FoundingAccess::Busy => {
+                let _ = recv.stop(0u32.into());
+                let busy = FoundingAnswer::Refused(Refusal::Busy).to_vec();
+                write_reply(&mut send, &busy, ANSWER_TIMEOUT).await;
+                return;
+            }
+            FoundingAccess::Place(place) => place,
+        };
         let read =
             tokio::time::timeout(REQUEST_TIMEOUT, recv.read_to_end(MAX_FOUNDING_BYTES)).await;
         let Ok(Ok(request)) = read else {
             reset(&mut send, &mut recv);
             return;
         };
-        match self.handler.hub_founding(from, request).await {
+        match self.handler.hub_founding(from, request, place).await {
             Some(answer) => write_reply(&mut send, &answer, ANSWER_TIMEOUT).await,
             None => reset(&mut send, &mut recv),
         }

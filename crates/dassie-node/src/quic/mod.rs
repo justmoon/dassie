@@ -259,13 +259,22 @@ pub trait Handler: Send + Sync + 'static {
         Box::pin(async { None })
     }
 
+    /// Whether a request on a hub's founding stream from the node `from`
+    /// is read, decided before anything of it is: the node founds nothing
+    /// with anyone, unless a handler says otherwise, and the stream is
+    /// reset unread.
+    fn hub_founding_access(&self, _from: &PublicKey) -> crate::hub::founding::FoundingAccess {
+        crate::hub::founding::FoundingAccess::NotListed
+    }
+
     /// Answers a sponsor's request on a hub's founding stream from the node
-    /// `from` ([`crate::hub::transport`]): the answer's bytes. `None`
-    /// resets the stream, unless a handler says otherwise.
+    /// `from`, read in `place` ([`crate::hub::transport`]): the answer's
+    /// bytes. `None` resets the stream, unless a handler says otherwise.
     fn hub_founding<'a>(
         &'a self,
         _from: PublicKey,
         _request: Vec<u8>,
+        _place: crate::hub::founding::FoundingPlace,
     ) -> Pin<Box<dyn Future<Output = Option<Vec<u8>>> + Send + 'a>> {
         Box::pin(async { None })
     }

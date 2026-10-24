@@ -197,23 +197,28 @@ impl crate::quic::Handler for QuicHandler {
         })
     }
 
-    /// A sponsor's requests while it founds a hub with the node, if its
-    /// owner turned validating on; refused otherwise.
+    /// Founding requests are read only from a sponsor the validator file
+    /// lists, and only where the owner turned validating on.
+    fn hub_founding_access(
+        &self,
+        from: &dassie_identity::PublicKey,
+    ) -> crate::hub::founding::FoundingAccess {
+        self.0.founding().map_or(
+            crate::hub::founding::FoundingAccess::NotListed,
+            |founding| founding.access(from),
+        )
+    }
+
+    /// A listed sponsor's requests while it founds a hub with the node.
     fn hub_founding<'a>(
         &'a self,
         from: dassie_identity::PublicKey,
         request: Vec<u8>,
+        place: crate::hub::founding::FoundingPlace,
     ) -> Pin<Box<dyn Future<Output = Option<Vec<u8>>> + Send + 'a>> {
         Box::pin(async move {
-            match self.0.founding() {
-                Some(founding) => founding.answer(&self.0, &from, &request).await,
-                None => {
-                    use dassie_hub::founding::{FoundingAnswer, FoundingRequest, Refusal};
-                    use dassie_oer::{Decode, Encode};
-                    FoundingRequest::decode_exact(&request).ok()?;
-                    Some(FoundingAnswer::Refused(Refusal::NotAllowed).to_vec())
-                }
-            }
+            let founding = self.0.founding()?;
+            founding.answer(&self.0, &from, &request, place).await
         })
     }
 
