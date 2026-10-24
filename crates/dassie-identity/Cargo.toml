@@ -1,6 +1,6 @@
 [package]
 name = "dassie-identity"
-version = "0.2.8"
+version = "0.2.9"
 description = "Dassie node identity: BIP-39 phrases, seed paths, Ed25519 node keys, node IDs and X25519"
 edition.workspace = true
 rust-version.workspace = true

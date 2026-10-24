@@ -1585,6 +1585,14 @@
   ],
   "releases": [
     {
+      "version": "0.2.9",
+      "date": "2026-10-24",
+      "changes": [
+        "The testnet's settlement hub runs, kept by the four bootstrap nodes as its validators, and is built in as the default hub. A node joins it when its owner adds the `hub-xrp-testnet` scheme, which the wallet now offers and describes: the node moves about 2.5 test XRP from its XRP Ledger testnet account into the hub, and then peers over the hub with other members of it.",
+        "Nothing changes for a node that doesn't add the scheme, and the peerings a node already has stay as they are."
+      ]
+    },
+    {
       "version": "0.2.8",
       "date": "2026-10-24",
       "changes": [
