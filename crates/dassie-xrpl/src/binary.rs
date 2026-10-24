@@ -10,8 +10,9 @@
 //! code and then field code, so none twice; every header in its shortest
 //! form; lengths by type, and a length prefix only in the form its length
 //! needs; objects and arrays nested at most [`MAX_DEPTH`] deep, an array
-//! holding only objects; and values in the one form rippled writes them in.
-//! Untrusted bytes get an error, never a panic, and nothing recurses: an
+//! holding only objects; and values in the one form rippled writes them in,
+//! but for a `Number`, whose form rippled's amendments set: it is taken as
+//! written, and a reader of one checks it. Untrusted bytes get an error, never a panic, and nothing recurses: an
 //! object's end is found with a stack of [`MAX_DEPTH`] frames.
 //!
 //! The strict codec for what the node signs (`codec`) stays apart.
@@ -54,7 +55,8 @@ pub enum Type {
     Blob,
     /// An account's 20 bytes, or none, with a length prefix.
     AccountId,
-    /// A decimal of a 64-bit mantissa and a 32-bit exponent.
+    /// A decimal of a 64-bit mantissa and a 32-bit exponent, taken as
+    /// written.
     Number,
     /// Four bytes, signed.
     Int32,
@@ -621,12 +623,7 @@ fn value(kind: Type, bytes: &[u8]) -> Result<(usize, usize), DecodeError> {
         Type::PathSet => (0, path_set_bytes(bytes)?),
         kind if kind.has_length_prefix() => {
             let (prefix, length) = length_prefix(bytes)?;
-            let fits = match kind {
-                Type::AccountId => length == 0 || length == 20,
-                Type::Vector256 => length.is_multiple_of(32),
-                _ => true,
-            };
-            if !fits {
+            if !fits(kind, length) {
                 return Err(DecodeError::Value);
             }
             (prefix, length)
@@ -638,6 +635,16 @@ fn value(kind: Type, bytes: &[u8]) -> Result<(usize, usize), DecodeError> {
         return Err(DecodeError::Truncated);
     }
     Ok((start, end))
+}
+
+/// Whether a value of type `kind`, which has a length prefix, may be
+/// `length` long: an account 20 bytes or none, hashes in whole.
+const fn fits(kind: Type, length: usize) -> bool {
+    match kind {
+        Type::AccountId => length == 0 || length == 20,
+        Type::Vector256 => length.is_multiple_of(32),
+        _ => true,
+    }
 }
 
 /// A length prefix's length, and the length it writes.
@@ -770,11 +777,12 @@ pub fn write_header(out: &mut Vec<u8>, id: FieldId) {
 
 /// Writes a field: its header, its value with a length prefix where its
 /// type has one, and an object's or array's end marker. The value is as
-/// [`Field::value`] holds it. A value that is not one of its type is a
-/// bug.
+/// [`Field::value`] holds it, an object's or array's as it is given. A
+/// value that is not one of its type is a bug.
 pub fn write_field(out: &mut Vec<u8>, id: FieldId, value: &[u8]) {
     write_header(out, id);
     if id.kind.has_length_prefix() {
+        assert!(fits(id.kind, value.len()), "one value of its type");
         write_length(out, value.len());
     } else if !id.kind.is_container() {
         let length = self::value(id.kind, value).map(|(_, end)| end);
@@ -924,14 +932,23 @@ mod tests {
         assert_eq!(read_one(amount, &token), Err(DecodeError::Value));
         token[..8].copy_from_slice(&0xD4C3_8D7E_A4C6_8000_u64.to_be_bytes());
         assert_eq!(read_one(amount, &token), Ok(()));
+        token[..8].copy_from_slice(&0x94C3_8D7E_A4C6_8000_u64.to_be_bytes());
+        assert_eq!(read_one(amount, &token), Ok(()));
+        let mut xrp_issuer = token;
+        xrp_issuer[28..].fill(0);
+        assert_eq!(read_one(amount, &xrp_issuer), Err(DecodeError::Value));
         token[8..28].fill(0);
         assert_eq!(read_one(amount, &token), Err(DecodeError::Value));
         // An MPT: its first byte only its kind and sign.
         let mut mpt = [0; 33];
         mpt[0] = 0x60;
         assert_eq!(read_one(amount, &mpt), Ok(()));
+        mpt[0] = 0x20;
+        assert_eq!(read_one(amount, &mpt), Ok(()));
         mpt[0] = 0x61;
         assert_eq!(read_one(amount, &mpt), Err(DecodeError::Value));
+        mpt[0] = 0x60;
+        assert_eq!(read_one(amount, &mpt[..32]), Err(DecodeError::Truncated));
         // An account of 20 bytes or none, hashes in whole.
         let account = FieldId::new(Type::AccountId, 1);
         assert_eq!(check(&field(account, &[7; 20])), Ok(()));
@@ -995,6 +1012,17 @@ mod tests {
         zero.extend_from_slice(&[0; 20]);
         zero.push(0);
         assert_eq!(read_one(&zero), Err(DecodeError::Value));
+        // An issuer of zeros too, but a currency of zeros is XRP's.
+        let mut zero = element(PATH_CURRENCY | PATH_ISSUER, 20);
+        zero.extend_from_slice(&[0; 20]);
+        zero.push(0);
+        assert_eq!(read_one(&zero), Err(DecodeError::Value));
+        let mut xrp = element(PATH_CURRENCY, 0);
+        xrp.extend_from_slice(&[0; 20]);
+        xrp.push(0);
+        assert_eq!(read_one(&xrp), Ok(()));
+        let mpt = [element(PATH_MPT | PATH_ISSUER, 44), vec![0]].concat();
+        assert_eq!(read_one(&mpt), Ok(()));
         assert_eq!(read_one(&account), Err(DecodeError::Truncated));
     }
 
@@ -1064,6 +1092,18 @@ mod tests {
             Err(DecodeError::Field)
         );
         assert_eq!(check(&bytes), Err(DecodeError::Truncated));
+    }
+
+    #[test]
+    #[should_panic(expected = "one value of its type")]
+    fn an_account_of_another_length_is_not_written() {
+        field(FieldId::new(Type::AccountId, 1), &[7; 19]);
+    }
+
+    #[test]
+    #[should_panic(expected = "one value of its type")]
+    fn hashes_not_whole_are_not_written() {
+        field(FieldId::new(Type::Vector256, 1), &[7; 33]);
     }
 
     #[test]
