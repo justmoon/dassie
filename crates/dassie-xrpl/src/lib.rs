@@ -18,6 +18,11 @@
 //!   validator or a list publisher signs with; [`shamap`], a ledger's
 //!   trees of transactions and of state, and the branch that proves a
 //!   leaf in either, or a key's absence.
+//! - [`validator_list`]: the publishers' signed validator lists, and the
+//!   publishers each network trusts; [`unl`], the validators every
+//!   publisher lists with their current keys, and the quorum of them that
+//!   validates a ledger and makes it an anchor; [`base64`], as the lists
+//!   carry their blobs.
 //! - [`api`]: the rippled WebSocket JSON the node speaks: requests, and
 //!   what comes back, parsed and bounded.
 //! - [`amm`]: an AMM pool's price, exact, for a client that swaps through
@@ -54,6 +59,7 @@ pub mod amm;
 pub mod amount;
 pub mod api;
 pub mod base58;
+pub mod base64;
 pub mod binary;
 pub mod codec;
 pub mod dsusd;
@@ -68,7 +74,9 @@ pub mod rlusd;
 pub mod scheme;
 pub mod shamap;
 pub mod token;
+pub mod unl;
 pub mod validation;
+pub mod validator_list;
 
 pub use account::{Config, XrplAccount};
 pub use dsusd::DsusdScheme;
