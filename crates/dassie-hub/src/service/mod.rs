@@ -78,6 +78,23 @@ pub const MAX_SINCE_ANSWER_BYTES: usize = MAX_ANSWER_BYTES + MAX_BLOCK_STATEMENT
 
 const _: () = assert!(MAX_SINCE_ANSWER_BYTES >= MAX_ANSWER_BYTES + MAX_BLOCK_STATEMENT_BYTES);
 
+/// The most of our own operations we follow until a block takes them: as
+/// many as our share of the pool holds.
+pub const MAX_OWN: usize = VALIDATOR_WINDOW;
+
+/// How many times one of our operations that a later one of ours passed
+/// before any block took it is attested again.
+pub const MAX_AGAIN: u8 = 4;
+
+/// One of our own operations, until a block takes it.
+#[derive(Clone, Debug)]
+struct Own {
+    sequence: u64,
+    operation: ValidatorOperation,
+    /// How many times it was attested again.
+    again: u8,
+}
+
 /// What the host carries out. Taken apart at once: boxing would only
 /// allocate.
 #[allow(clippy::large_enum_variant)]
@@ -156,6 +173,9 @@ pub struct Validator {
     payout: Option<PayoutBundle>,
     actions: VecDeque<Action>,
     batches: Vec<Batch>,
+    /// Our own operations passed on and not yet taken by a final block,
+    /// oldest first.
+    own: VecDeque<Own>,
 }
 
 /// The genesis block of a hub: its rules' digest, at the ledger's start.
@@ -214,6 +234,7 @@ impl Validator {
             payout: None,
             actions: VecDeque::new(),
             batches: Vec::new(),
+            own: VecDeque::new(),
         })
     }
 
@@ -292,6 +313,7 @@ impl Validator {
             payout: None,
             actions: VecDeque::new(),
             batches: Vec::new(),
+            own: VecDeque::new(),
         })
     }
 
@@ -425,6 +447,14 @@ impl Validator {
     /// ([`mempool::VALIDATOR_WINDOW`]) is not passed on, and the host
     /// attests it again later.
     pub fn attest(&mut self, now: Millis, operation: ValidatorOperation) -> bool {
+        let taken = self.pass_on(now, operation, 0);
+        self.after(now);
+        taken
+    }
+
+    /// Signs our `operation` with the next sequence, and passes it on if our
+    /// pool takes it, following it until a block does: whether it took it.
+    fn pass_on(&mut self, now: Millis, operation: ValidatorOperation, again: u8) -> bool {
         // A validator no longer in the set attests nothing.
         let Some(index) = self.index() else {
             return false;
@@ -434,16 +464,66 @@ impl Validator {
             &self.hub,
             index,
             self.sequence,
-            operation,
+            operation.clone(),
             &self.consensus_key,
         ));
         let message = Message::Operation(signed.clone()).to_vec();
         let taken = self.chain.mempool.admit(&self.chain.ledger, signed);
         if taken {
             self.actions.push_back(Action::Validators(message));
+            if self.own.len() >= MAX_OWN {
+                self.own.pop_front();
+            }
+            self.own.push_back(Own {
+                sequence: self.sequence,
+                operation,
+                again,
+            });
         }
-        self.after(now);
         taken
+    }
+
+    /// Our operations each final block took, as applied, failed or refused
+    /// for what they said, are done; one refused for its sequence was not
+    /// taken.
+    fn settle_own(&mut self, block: &FinalBlock) {
+        let Some(index) = self.index() else {
+            self.own.clear();
+            return;
+        };
+        for (operation, outcome) in block.operations.iter().zip(&block.outcomes) {
+            if let Operation::Validator(signed) = operation
+                && signed.validator == index
+                && *outcome != crate::ledger::Outcome::Refused(crate::ledger::Refusal::Sequence)
+            {
+                self.own.retain(|own| own.sequence != signed.sequence);
+            }
+        }
+    }
+
+    /// Attests again what a later operation of ours passed before any block
+    /// took it. Our operations reach the other validators each on its own,
+    /// in any order, and once one executed, none of ours with a lower
+    /// sequence ever can: a leader that had only the later one would lose
+    /// the earlier for good, a deposit's attestation among them. So each is
+    /// signed again with a sequence above the last executed, a bounded
+    /// number of times.
+    fn attest_passed(&mut self, now: Millis) {
+        let Some(last) = self
+            .index()
+            .and_then(|index| self.chain.ledger.validator(index))
+            .map(|state| state.sequence)
+        else {
+            return;
+        };
+        let (passed, kept): (VecDeque<Own>, VecDeque<Own>) =
+            self.own.drain(..).partition(|own| own.sequence <= last);
+        self.own = kept;
+        for own in passed {
+            if own.again < MAX_AGAIN {
+                self.pass_on(now, own.operation, own.again.saturating_add(1));
+            }
+        }
     }
 
     fn answer(&mut self, from: PeerId, request: Request) {
@@ -594,6 +674,7 @@ impl Validator {
         }
         self.batches.push(self.engine.take_batch());
         self.take_finals();
+        self.attest_passed(now);
         self.sign_withdrawals();
         let ended = self.chain.ledger.phase() == Phase::Ended || self.engine.is_stalled();
         if ended && !self.payout_signed {
@@ -611,6 +692,7 @@ impl Validator {
             self.complete_from = self.complete_from.max(lost.saturating_add(1));
         }
         while let Some(block) = self.chain.finals.pop_front() {
+            self.settle_own(&block);
             self.publish(&block);
             if !block.operations.is_empty() {
                 self.keep_history(block);
@@ -760,6 +842,7 @@ impl Validator {
             self.history.iter().map(FinalBlock::bytes).sum::<usize>(),
             "history bytes out of step"
         );
+        assert!(self.own.len() <= MAX_OWN, "our operations over their bound");
     }
 }
 

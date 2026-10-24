@@ -459,6 +459,44 @@ fn a_validator_reports_the_evidence_its_engine_finds() {
     );
 }
 
+// A validator's operations reach the others each on its own, in any order.
+// Should a leader take a later one of a validator's alone, the earlier one,
+// a deposit's attestation here, can never execute: each validator attests
+// it again, above its last executed sequence, and the deposit is credited.
+#[test]
+fn an_attestation_a_later_one_passed_is_attested_again() {
+    let mut net = Network::new();
+    net.attest_all(&ValidatorOperation::AttestEscrow { sequence: 5 });
+    net.run(2_000);
+    let deposit = |seed: u8| Deposit {
+        transaction: Digest([seed; 32]),
+        ledger: 10,
+        amount: 50_000_000,
+        sender: [3; 20],
+        tag: 0,
+        key: Some(NodeKey::from_bytes(&[seed; 32]).public_key()),
+    };
+    // Every validator's attestation of the first deposit is lost on its way
+    // to the others; that of the second is not.
+    for i in 0..net.validators.len() {
+        let now = net.now;
+        assert!(net.validators[i].attest(now, ValidatorOperation::AttestDeposit(deposit(41))));
+        while net.validators[i].poll().is_some() {}
+        net.persist(i);
+        net.validators[i].attest(now, ValidatorOperation::AttestDeposit(deposit(42)));
+        net.collect(i);
+    }
+    net.run(4_000);
+    let ledger = net.validators[0].ledger();
+    for seed in [41, 42] {
+        let key = NodeKey::from_bytes(&[seed; 32]).public_key();
+        assert!(
+            ledger.account_of(&key).is_some(),
+            "the deposit of {seed} was credited"
+        );
+    }
+}
+
 #[test]
 fn a_validator_whose_place_moves_still_attests() {
     let mut net = Network::new();
