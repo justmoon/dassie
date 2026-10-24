@@ -35,8 +35,8 @@ use dassie_node::clock::{Clock, SystemClock};
 use dassie_node::http::peer::Answer;
 use dassie_node::hub::driver::Driver;
 use dassie_node::hub::service::{EscrowLinks, HubTask};
-use dassie_node::hub::transport::{MEDIA_TYPE, encode_request};
-use dassie_node::hub::{HubAnswer, HubClient, HubExchangeError, Hubs, Sender};
+use dassie_node::hub::transport::{MAX_MEMBER_MESSAGE_BYTES, MEDIA_TYPE, Route, encode_request};
+use dassie_node::hub::{HubAccess, HubAnswer, HubClient, HubExchangeError, Hubs, Sender};
 use dassie_node::peer_client::PeerClient;
 use dassie_node::quic::{Body, Handler, Quic};
 use dassie_node::store::Store;
@@ -78,6 +78,14 @@ impl Handler for HubHandler {
                 body: Vec::new(),
             }
         })
+    }
+
+    fn hub_access(&self, from: &PublicKey, hub: &[u8; 32]) -> HubAccess {
+        self.0.access(Some(from), hub)
+    }
+
+    fn hub_permit(&self, access: HubAccess) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        self.0.request_permit(access)
     }
 
     fn hub<'a>(
@@ -335,7 +343,7 @@ async fn four_validators_finalize_blocks_over_quic_and_a_member_hears_them() {
 }
 
 #[tokio::test]
-async fn a_node_that_validates_no_such_hub_says_so() {
+async fn a_node_that_validates_no_such_hub_resets_the_stream() {
     let shutdown = CancellationToken::new();
     let validator = node(1, &shutdown);
     let member = node(2, &shutdown);
@@ -353,9 +361,10 @@ async fn a_node_that_validates_no_such_hub_says_so() {
             Duration::from_secs(5),
         )
         .await;
-    assert_eq!(
-        answer,
-        Err(HubExchangeError::Refused(HubAnswer::UnknownHub))
+    // Nothing past the hub's ID is read: the stream is reset.
+    assert!(
+        matches!(answer, Err(HubExchangeError::Failed(_))),
+        "{answer:?}"
     );
 
     // A key other than the validator's own is never reached.
@@ -392,9 +401,22 @@ async fn post_hub_takes_only_a_members_request() {
     let request = Message::Request(Request::Account(key)).to_vec();
     let reply = support::send(node.https, true, post(MEDIA_TYPE, request.clone())).await;
     assert_eq!(reply.status, 404, "the node validates no such hub");
+    // Once it validates the hub, a validator's message is still refused.
+    let (validators, _from_validators) = tokio::sync::mpsc::channel(1);
+    let (members, _from_members) = tokio::sync::mpsc::channel(1);
+    let route = Route {
+        validators,
+        members,
+        nodes: std::collections::BTreeSet::new(),
+    };
+    node.node.upgrade().unwrap().hubs().register(hub, route);
     let vote = Message::Consensus(vec![1]).to_vec();
     let reply = support::send(node.https, true, post(MEDIA_TYPE, vote)).await;
     assert_eq!(reply.status, 400, "validators never use HTTPS");
+    // A body past a member's largest request is not read.
+    let large = vec![0xff; MAX_MEMBER_MESSAGE_BYTES + 1];
+    let reply = support::send(node.https, true, post(MEDIA_TYPE, large)).await;
+    assert_eq!(reply.status, 413);
     let reply = support::send(node.https, true, post("application/json", request)).await;
     assert_eq!(reply.status, 415);
     node.stop().await;
@@ -519,4 +541,66 @@ async fn a_validator_far_behind_catches_up_from_a_peers_state() {
         validator.stop.cancel();
         validator.task.await.unwrap();
     }
+}
+
+// spec/areas/peer-protocol.md#the-hubs-stream: before it knows a sender as
+// a validator of the hub, a node reads no more than a member's largest
+// request; a validator's message may be as large as any.
+#[tokio::test]
+async fn a_strangers_request_is_cut_at_the_member_bound() {
+    let shutdown = CancellationToken::new();
+    let validator = node(1, &shutdown);
+    let co = node(2, &shutdown);
+    let stranger = node(3, &shutdown);
+    let hub = HubId(dassie_hub::Digest([9; 32]));
+    let (validators, mut from_validators) = tokio::sync::mpsc::channel(4);
+    let (members, mut from_members) = tokio::sync::mpsc::channel(4);
+    let route = Route {
+        validators,
+        members,
+        nodes: std::collections::BTreeSet::from([co.key.node_id()]),
+    };
+    validator.hubs.register(hub, route);
+    let taken = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = Arc::clone(&taken);
+    tokio::spawn(async move {
+        loop {
+            let inbound = tokio::select! {
+                Some(inbound) = from_validators.recv() => inbound,
+                Some(inbound) = from_members.recv() => inbound,
+                else => return,
+            };
+            counted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if let Some(reply) = inbound.reply {
+                let _ = reply.send(Vec::new());
+            }
+        }
+    });
+    let ask = |from: &Node, length: usize| {
+        let client = HubClient::new(Some(Arc::clone(&from.quic)), client());
+        let (to, endpoint) = (validator.key.node_id(), validator.endpoint.clone());
+        async move {
+            let message = vec![0xff; length];
+            client
+                .exchange_quic(to, &endpoint, &hub, &message, Duration::from_secs(5))
+                .await
+        }
+    };
+    // A stranger's request of a member's largest size is read, and found
+    // broken; one byte more is cut, and never reaches the validator.
+    let at_bound = ask(&stranger, MAX_MEMBER_MESSAGE_BYTES).await;
+    assert_eq!(
+        at_bound,
+        Err(HubExchangeError::Refused(HubAnswer::Malformed))
+    );
+    let past = ask(&stranger, MAX_MEMBER_MESSAGE_BYTES + 1).await;
+    assert!(matches!(past, Err(HubExchangeError::Failed(_))), "{past:?}");
+    // A validator of the hub is read further.
+    let from_validator = ask(&co, MAX_MEMBER_MESSAGE_BYTES + 1).await;
+    assert_eq!(
+        from_validator,
+        Err(HubExchangeError::Refused(HubAnswer::Malformed))
+    );
+    assert_eq!(taken.load(std::sync::atomic::Ordering::Relaxed), 0);
+    shutdown.cancel();
 }

@@ -19,4 +19,4 @@ pub mod service;
 pub mod transport;
 mod xrpl;
 
-pub use transport::{HubAnswer, HubClient, HubExchangeError, HubStatus, Hubs, Sender};
+pub use transport::{HubAccess, HubAnswer, HubClient, HubExchangeError, HubStatus, Hubs, Sender};

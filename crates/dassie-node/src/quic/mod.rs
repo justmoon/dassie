@@ -211,6 +211,25 @@ pub trait Handler: Send + Sync + 'static {
         body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>>;
 
+    /// Who `from` is to the hub `hub` names, read before anything else of
+    /// a request on the hub's stream: the stream is reset unless the node
+    /// validates the hub, and only a validator of it is read up to the
+    /// largest message ([`crate::hub::transport`]). No hub, unless a
+    /// handler says otherwise.
+    fn hub_access(&self, _from: &PublicKey, _hub: &[u8; 32]) -> crate::hub::HubAccess {
+        crate::hub::HubAccess::Unknown
+    }
+
+    /// A place for one request on the hub's stream from a sender of
+    /// `access`, taken before its message is read; `None` when there is
+    /// none, and the request is answered busy.
+    fn hub_permit(
+        &self,
+        _access: crate::hub::HubAccess,
+    ) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        None
+    }
+
     /// Answers `request` on a settlement hub's stream from the node `from`,
     /// whose key the connection proved ([`crate::hub::transport`]). `None`
     /// resets the stream: a node that validates no hub, unless a handler

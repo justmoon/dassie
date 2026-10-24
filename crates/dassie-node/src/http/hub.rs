@@ -3,8 +3,13 @@
 //! Validators never use it, so it takes only a member's request.
 //!
 //! A client proves no key here, so every request is charged to its address
-//! at the rate of the peer protocol's unauthenticated requests, and holds
-//! one of the places for requests waiting, as `POST /peer` does.
+//! at the rate of the peer protocol's unauthenticated requests. Its body is
+//! read up to the largest member's request, holding one of the places for
+//! members' hub requests, node-wide.
+//!
+//! The hub's ID leads the body, but a body is read whole, so the bound is
+//! on the whole body: a request for a hub the node does not validate costs
+//! at most a member's request.
 
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -15,7 +20,9 @@ use hyper::header;
 use hyper::{Request, Response, StatusCode};
 
 use super::response::{self, Body, header_str};
-use crate::hub::transport::{HubAnswer, MAX_REQUEST_BYTES, MEDIA_TYPE, Sender, encode_frames};
+use crate::hub::transport::{
+    HubAccess, HubAnswer, MAX_MEMBER_REQUEST_BYTES, MEDIA_TYPE, Sender, encode_frames,
+};
 use crate::node::Node;
 
 /// Handles a member's request to a hub the node validates.
@@ -30,12 +37,12 @@ pub async fn handle(node: &Node, peer: SocketAddr, request: Request<Incoming>) -
     if node.peer_limited(client) {
         return response::text(StatusCode::TOO_MANY_REQUESTS, "Too Many Requests");
     }
-    let Some(_permit) = node.peer_permit(client) else {
+    let Some(_permit) = node.hubs().request_permit(HubAccess::Member) else {
         return response::text(StatusCode::SERVICE_UNAVAILABLE, "Service Unavailable");
     };
     node.peer_charge(client);
     let timeout = Duration::from_millis(node.policies().body_timeout_ms);
-    let body = Limited::new(request.into_body(), MAX_REQUEST_BYTES).collect();
+    let body = Limited::new(request.into_body(), MAX_MEMBER_REQUEST_BYTES).collect();
     let body = match tokio::time::timeout(timeout, body).await {
         Ok(Ok(collected)) => collected.to_bytes(),
         Ok(Err(_)) => return response::text(StatusCode::PAYLOAD_TOO_LARGE, "Payload Too Large"),

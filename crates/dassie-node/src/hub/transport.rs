@@ -44,7 +44,7 @@ use dassie_hub::consensus::PeerId;
 use dassie_hub::digest::Digest;
 use dassie_hub::ledger::Phase;
 use dassie_hub::service::MAX_SINCE_ANSWER_BYTES;
-use dassie_hub::service::wire::{ENVELOPE, MAX_MESSAGE, Message};
+use dassie_hub::service::wire::{ENVELOPE, MAX_MEMBER_MESSAGE, MAX_MESSAGE, Message};
 use dassie_identity::{NodeId, PublicKey};
 use sha2::{Digest as _, Sha256};
 use tokio::sync::{mpsc, oneshot};
@@ -63,6 +63,27 @@ pub const MAX_MESSAGE_BYTES: usize = MAX_MESSAGE;
 
 /// The largest request: the hub's ID and one message.
 pub const MAX_REQUEST_BYTES: usize = HUB_ID_BYTES + MAX_MESSAGE_BYTES;
+
+/// The largest message read from anyone but a validator of the hub: a
+/// member's request, the largest of which submits a claim with the most
+/// commitments any rules allow.
+pub const MAX_MEMBER_MESSAGE_BYTES: usize = MAX_MEMBER_MESSAGE;
+
+/// The largest request read from anyone but a validator of the hub, over
+/// QUIC or as the body of `POST /hub`.
+pub const MAX_MEMBER_REQUEST_BYTES: usize = HUB_ID_BYTES + MAX_MEMBER_MESSAGE_BYTES;
+
+/// The most requests on the hub's stream and `POST /hub` from anyone but a
+/// hub's validators read and waiting at once, node-wide: each holds at most
+/// [`MAX_MEMBER_REQUEST_BYTES`], so together a few tens of MiB, about what
+/// the peer protocol's requests may hold.
+pub const MAX_MEMBER_REQUESTS: usize = 128;
+
+/// The most requests from hubs' validators read and waiting at once,
+/// node-wide: each holds at most [`MAX_REQUEST_BYTES`], a consensus
+/// message of up to 4 MiB, so together at most 64 MiB. A hub has at most
+/// 16 validators, which send one message per exchange.
+pub const MAX_VALIDATOR_REQUESTS: usize = 16;
 
 /// The most messages one reply carries: an answer to `Since` takes a few,
 /// one to `Holds` a page each, and a validator's answer to another's fetch
@@ -224,6 +245,18 @@ pub fn bounded(messages: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
         .collect()
 }
 
+/// Who a sender is to a hub, by the key its connection proved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HubAccess {
+    /// The node validates no hub of that ID.
+    Unknown,
+    /// The hub is the node's, and the sender none of its validators: a
+    /// member, or anyone.
+    Member,
+    /// A validator of a set of the hub the node knows.
+    Validator,
+}
+
 /// Who sent a message, as the transport proved it. Taken apart at once:
 /// boxing would only allocate.
 #[allow(clippy::large_enum_variant)]
@@ -327,6 +360,9 @@ pub struct Hubs {
     routes: Mutex<BTreeMap<HubId, Route>>,
     status: Mutex<BTreeMap<HubId, HubStatus>>,
     members: Arc<tokio::sync::Semaphore>,
+    /// Places for requests from members, and from validators.
+    incoming_members: Arc<tokio::sync::Semaphore>,
+    incoming_validators: Arc<tokio::sync::Semaphore>,
 }
 
 impl Default for Hubs {
@@ -335,6 +371,8 @@ impl Default for Hubs {
             routes: Mutex::default(),
             status: Mutex::default(),
             members: Arc::new(tokio::sync::Semaphore::new(MAX_MEMBER_EXCHANGES)),
+            incoming_members: Arc::new(tokio::sync::Semaphore::new(MAX_MEMBER_REQUESTS)),
+            incoming_validators: Arc::new(tokio::sync::Semaphore::new(MAX_VALIDATOR_REQUESTS)),
         }
     }
 }
@@ -344,6 +382,32 @@ impl Hubs {
     #[must_use]
     pub fn member_permit(&self) -> Option<tokio::sync::OwnedSemaphorePermit> {
         Arc::clone(&self.members).try_acquire_owned().ok()
+    }
+
+    /// Who `from` is to the hub named `hub`: whether the node validates it,
+    /// and whether `from` is one of its validators.
+    #[must_use]
+    pub fn access(&self, from: Option<&PublicKey>, hub: &[u8; 32]) -> HubAccess {
+        let routes = self.routes.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(route) = routes.get(&HubId(Digest(*hub))) else {
+            return HubAccess::Unknown;
+        };
+        match from {
+            Some(key) if route.nodes.contains(&key.node_id()) => HubAccess::Validator,
+            _ => HubAccess::Member,
+        }
+    }
+
+    /// A place for one incoming request from a sender of `access`, if one
+    /// is free: [`MAX_MEMBER_REQUESTS`] or [`MAX_VALIDATOR_REQUESTS`].
+    #[must_use]
+    pub fn request_permit(&self, access: HubAccess) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        let places = match access {
+            HubAccess::Unknown => return None,
+            HubAccess::Member => &self.incoming_members,
+            HubAccess::Validator => &self.incoming_validators,
+        };
+        Arc::clone(places).try_acquire_owned().ok()
     }
 
     /// Messages for `hub` go along `route` from now on.
@@ -404,25 +468,30 @@ impl Hubs {
         let Some((hub, message)) = decode_request(request) else {
             return HubAnswer::Malformed;
         };
-        match Message::decode_exact(message) {
-            Ok(Message::Request(_)) => {}
-            Ok(_) if !requests_only => {}
-            _ => return HubAnswer::Malformed,
-        }
-        let inbox = self
+        // Which hub, and who asks, before anything of the message is read:
+        // only a validator of the hub sends more than a member's request.
+        let route = self
             .routes
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .get(&hub)
             .map(|route| match from {
                 Sender::Node(node) if route.nodes.contains(&node.node_id()) => {
-                    route.validators.clone()
+                    (HubAccess::Validator, route.validators.clone())
                 }
-                Sender::Node(_) | Sender::Address(_) => route.members.clone(),
+                Sender::Node(_) | Sender::Address(_) => (HubAccess::Member, route.members.clone()),
             });
-        let Some(inbox) = inbox else {
+        let Some((access, inbox)) = route else {
             return HubAnswer::UnknownHub;
         };
+        if access == HubAccess::Member && message.len() > MAX_MEMBER_MESSAGE_BYTES {
+            return HubAnswer::Malformed;
+        }
+        match Message::decode_exact(message) {
+            Ok(Message::Request(_)) => {}
+            Ok(_) if !requests_only => {}
+            _ => return HubAnswer::Malformed,
+        }
         let (reply, replied) = oneshot::channel();
         let inbound = Inbound {
             from: from.peer(),

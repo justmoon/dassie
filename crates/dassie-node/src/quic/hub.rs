@@ -12,9 +12,10 @@ use dassie_identity::NodeId;
 use quinn::Connection;
 
 use super::{ANSWER_TIMEOUT, On, Quic, StreamKind, keys, no_room};
+use crate::hub::HubAccess;
 use crate::hub::transport::{
-    HubAnswer, HubExchangeError, MAX_REPLY_BYTES, MAX_REQUEST_BYTES, MAX_STATE_REPLY_BYTES,
-    STATE_REQUEST_BYTES,
+    HUB_ID_BYTES, HubAnswer, HubExchangeError, MAX_MEMBER_MESSAGE_BYTES, MAX_MESSAGE_BYTES,
+    MAX_REPLY_BYTES, MAX_STATE_REPLY_BYTES, STATE_REQUEST_BYTES,
 };
 use crate::peer_client::PeerClient;
 
@@ -171,23 +172,50 @@ async fn exchange(
 
 impl On {
     /// Answers a request on the hub's stream with the handler, from the
-    /// node the connection proved.
-    pub(super) async fn hub(self, send: quinn::SendStream, recv: quinn::RecvStream) {
-        let handler = std::sync::Arc::clone(&self.handler);
-        self.serve_hub(
-            send,
-            recv,
-            (MAX_REQUEST_BYTES, ANSWER_TIMEOUT),
-            move |from, request| {
-                Box::pin(async move {
-                    handler
-                        .hub(from, request)
-                        .await
-                        .map(|answer| answer.encode())
-                })
-            },
-        )
-        .await;
+    /// node the connection proved. Nothing is read beyond the hub's ID
+    /// until the node validates that hub and a place for the request is
+    /// taken; then at most the largest message from a validator of the
+    /// hub, and the largest member's request from anyone else.
+    pub(super) async fn hub(self, mut send: quinn::SendStream, mut recv: quinn::RecvStream) {
+        let reset = |send: &mut quinn::SendStream, recv: &mut quinn::RecvStream| {
+            let _ = send.reset(0u32.into());
+            let _ = recv.stop(0u32.into());
+        };
+        let Some(from) = keys::peer_key(&self.connection) else {
+            reset(&mut send, &mut recv);
+            return;
+        };
+        let mut hub = [0_u8; HUB_ID_BYTES];
+        let read = tokio::time::timeout(REQUEST_TIMEOUT, recv.read_exact(&mut hub)).await;
+        let access = match read {
+            Ok(Ok(())) => self.handler.hub_access(&from, &hub),
+            _ => HubAccess::Unknown,
+        };
+        let limit = match access {
+            HubAccess::Unknown => {
+                reset(&mut send, &mut recv);
+                return;
+            }
+            HubAccess::Member => MAX_MEMBER_MESSAGE_BYTES,
+            HubAccess::Validator => MAX_MESSAGE_BYTES,
+        };
+        let Some(_permit) = self.handler.hub_permit(access) else {
+            let _ = recv.stop(0u32.into());
+            write_reply(&mut send, &HubAnswer::Busy.encode(), ANSWER_TIMEOUT).await;
+            return;
+        };
+        let read = tokio::time::timeout(REQUEST_TIMEOUT, recv.read_to_end(limit)).await;
+        let Ok(Ok(message)) = read else {
+            reset(&mut send, &mut recv);
+            return;
+        };
+        let mut request = Vec::with_capacity(HUB_ID_BYTES.saturating_add(message.len()));
+        request.extend_from_slice(&hub);
+        request.extend_from_slice(&message);
+        match self.handler.hub(from, request).await {
+            Some(answer) => write_reply(&mut send, &answer.encode(), ANSWER_TIMEOUT).await,
+            None => reset(&mut send, &mut recv),
+        }
     }
 
     /// Answers a request on the hub's state stream with the handler.
@@ -235,16 +263,20 @@ impl On {
             reset(&mut send, &mut recv);
             return;
         };
-        // A client that does not read its reply holds nothing for longer
-        // than this.
-        match tokio::time::timeout(write_within, send.write_all(&reply)).await {
-            Ok(Ok(())) => {
-                let _ = send.finish();
-            }
-            Ok(Err(_)) => {}
-            Err(_) => {
-                let _ = send.reset(0u32.into());
-            }
+        write_reply(&mut send, &reply, write_within).await;
+    }
+}
+
+/// Writes `reply` and ends the stream; a client that does not read it holds
+/// nothing for longer than `within`.
+async fn write_reply(send: &mut quinn::SendStream, reply: &[u8], within: Duration) {
+    match tokio::time::timeout(within, send.write_all(reply)).await {
+        Ok(Ok(())) => {
+            let _ = send.finish();
+        }
+        Ok(Err(_)) => {}
+        Err(_) => {
+            let _ = send.reset(0u32.into());
         }
     }
 }

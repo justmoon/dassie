@@ -31,10 +31,11 @@ pub const FRAME_BYTES: usize = 2 * 9 + MAX_VOTE_HEIGHTS * (8 + 2) + 2 * DIGEST_L
 /// block by bytes as well as by count, below the bound by a margin.
 pub const OPERATION_BYTES: usize = MAX_PAYLOAD_BYTES - 16 * 1024;
 
-/// The encoding of a member's `claim` with [`MAX_COMMITMENTS`] commitments:
+/// The encoding of a member's `claim` with [`MAX_COMMITMENTS`] commitments,
+/// the largest operation a member signs:
 /// the operation's tag, account, sequence and fee, the claim's tag, hold and
 /// count, the commitments with their fulfillments, and the signature.
-const MAX_CLAIM_BYTES: usize = 1
+pub const MAX_CLAIM_BYTES: usize = 1
     + 4
     + 8
     + 8

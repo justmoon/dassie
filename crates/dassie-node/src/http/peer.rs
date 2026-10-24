@@ -166,6 +166,21 @@ impl crate::quic::Handler for QuicHandler {
         })
     }
 
+    fn hub_access(
+        &self,
+        from: &dassie_identity::PublicKey,
+        hub: &[u8; 32],
+    ) -> crate::hub::HubAccess {
+        self.0.hubs().access(Some(from), hub)
+    }
+
+    fn hub_permit(
+        &self,
+        access: crate::hub::HubAccess,
+    ) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        self.0.hubs().request_permit(access)
+    }
+
     /// The states the node keeps of the hubs it validates, for their other
     /// validators only.
     fn hub_state<'a>(
