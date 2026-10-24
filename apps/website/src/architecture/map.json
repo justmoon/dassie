@@ -1584,6 +1584,18 @@
   ],
   "releases": [
     {
+      "version": "0.2.8",
+      "date": "2026-10-24",
+      "changes": [
+        "A node can settle with its peers through a settlement hub: a small ledger kept by a few validators and backed by an escrow on the XRP Ledger testnet. Over a hub, a payer sets money aside in a hold toward its peer, and that hold is all the credit the peer extends, so neither side can walk away with what it owes. No hub runs on the testnet yet, so nothing changes for a node until one does, and the wallet doesn't offer the hub scheme until there is a default hub.",
+        "A node keeps its hub account funded from its XRP Ledger testnet account on its own, between a floor and a ceiling, and the owner can move money with `dassie hub deposit`, `dassie hub withdraw` and `dassie hub status`.",
+        "A node can run as one of a hub's validators: `DASSIE_VALIDATOR_CONFIG` names the sponsors it agrees to found hubs with, and `dassie hub found` founds a hub with validators that agreed, and sets up its escrow.",
+        "The testnet's bootstrap nodes now all run in us-east1, and a fourth, boot4.dassie.xyz, joins the default list.",
+        "A node no longer aborts when a QUIC stream is read first in order and then out of order, a bug in quinn-proto that the market maker's node ran into.",
+        "Open Payments grants approved earlier with a limit on what is received but none on what is debited are revoked, since nothing bounded what they could debit."
+      ]
+    },
+    {
       "version": "0.2.7",
       "date": "2026-10-24",
       "changes": [

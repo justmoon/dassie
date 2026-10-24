@@ -1,6 +1,6 @@
 [package]
 name = "dassie-cli"
-version = "0.2.7"
+version = "0.2.8"
 description = "The dassie binary: daemon, init, update, verify-install and the market maker"
 edition.workspace = true
 rust-version.workspace = true
