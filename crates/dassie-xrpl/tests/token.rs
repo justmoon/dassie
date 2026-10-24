@@ -26,7 +26,9 @@ use dassie_settlement::{
 use dassie_xrpl::account::{self, News, XrplAccount};
 use dassie_xrpl::codec::{Amount, Payment, Signing, TokenValue, Transact, TrustSet};
 use dassie_xrpl::dsusd::{self, DsusdScheme, UNITS_PER_MICRO};
-use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, FakeLedger, RESERVE_BASE, RESERVE_INC, Token};
+use dassie_xrpl::fake::{
+    FAUCET_DROPS, FEE_BASE, FakeLedger, Lie, RESERVE_BASE, RESERVE_INC, Token,
+};
 use dassie_xrpl::{AccountId, UNITS_PER_DROP, Wallet, XrplScheme, api};
 use proptest::prelude::*;
 
@@ -235,6 +237,8 @@ struct World {
     refuse_own: Option<usize>,
     /// What a server's answer to a lookup is changed to say.
     tamper_lookup: Option<fn(&mut serde_json::Value)>,
+    /// Whether the books may lag the ledger, as while a server lies.
+    lagging: bool,
 }
 
 fn name(text: &str) -> Name {
@@ -276,7 +280,25 @@ impl World {
             drop_lookups: false,
             refuse_own: None,
             tamper_lookup: None,
+            lagging: false,
         };
+        for (index, with_xrp) in xrp.iter().enumerate() {
+            let seed = u8::try_from(index).unwrap() + 1;
+            world.add(seed, *with_xrp);
+        }
+        world
+    }
+
+    /// As [`new`](Self::new), on a ledger past its chain's first flag
+    /// ledger, so that every anchor a node keeps keeps one.
+    fn past_a_flag_ledger(xrp: &[bool]) -> Self {
+        let mut world = Self::new(&[]);
+        for _ in 0..260 {
+            world.now += 4_000;
+            world
+                .ledger
+                .close_at(dassie_xrpl::unl::ledger_seconds(world.now));
+        }
         for (index, with_xrp) in xrp.iter().enumerate() {
             let seed = u8::try_from(index).unwrap() + 1;
             world.add(seed, *with_xrp);
@@ -441,11 +463,12 @@ impl World {
             return;
         }
         let request: serde_json::Value = serde_json::from_slice(message).unwrap();
-        if self.drop_lookups && request["command"] == "tx" {
+        let proof = request["command"] == "tx_proof";
+        if self.drop_lookups && proof && request.get("ledger_index").is_none() {
             return;
         }
         let mut reply = self.ledger.request(self.nodes[index].connection, message);
-        if let (Some(tamper), true) = (self.tamper_lookup, request["command"] == "tx") {
+        if let (Some(tamper), true) = (self.tamper_lookup, proof) {
             let mut answer: serde_json::Value = serde_json::from_slice(&reply).unwrap();
             tamper(&mut answer);
             reply = serde_json::to_vec(&answer).unwrap();
@@ -476,6 +499,34 @@ impl World {
         }
     }
 
+    /// Time passes, by `ms`, without a ledger closing.
+    fn wait(&mut self, ms: u64) {
+        self.now += ms;
+        for index in 0..self.nodes.len() {
+            if self.nodes[index].online {
+                dassie_settlement::ExternalAsset::on_timer(
+                    &mut self.nodes[index].account,
+                    self.now,
+                );
+                self.tell(index);
+            }
+        }
+    }
+
+    /// More ledgers than the history bound close while node `index` is
+    /// away, and its server forgets the ledgers past what it keeps.
+    fn away_beyond_the_bound(&mut self, index: usize) {
+        let connection = self.nodes[index].connection;
+        self.ledger.disconnect(connection);
+        self.input(index, LedgerInput::Disconnected);
+        self.nodes[index].online = false;
+        for _ in 0..account::HISTORY_BOUND + 300 {
+            self.now += 4_000;
+            self.ledger
+                .close_at(dassie_xrpl::unl::ledger_seconds(self.now));
+        }
+    }
+
     /// The node's settlement check: the DSUSD scheme reads the issuer.
     fn settlement_check(&mut self, index: usize) {
         let node = &mut self.nodes[index];
@@ -498,7 +549,7 @@ impl World {
                     "{}",
                     node.name
                 );
-                if node.status(USD) == LedgerStatus::Synced {
+                if node.status(USD) == LedgerStatus::Synced && !self.lagging {
                     let held = self
                         .ledger
                         .token_balance(address, Token::DSUSD)
@@ -518,7 +569,7 @@ impl World {
                     "{}",
                     node.name
                 );
-                if node.status(XRP) == LedgerStatus::Synced {
+                if node.status(XRP) == LedgerStatus::Synced && !self.lagging {
                     let balance = self.ledger.balance(address).unwrap();
                     let bookable = (balance * UNITS_PER_DROP).saturating_sub(xrp.reserve());
                     assert_eq!(xrp.balance(), bookable, "{}", node.name);
@@ -814,6 +865,7 @@ fn no_line_without_xrp_for_it() {
         drop_lookups: false,
         refuse_own: None,
         tamper_lookup: None,
+        lagging: false,
     };
     let seed = 9;
     let address = Wallet::from_entropy(&entropy(seed)).account();
@@ -898,6 +950,7 @@ fn a_line_made_outside_the_node_is_corrected() {
         drop_lookups: false,
         refuse_own: None,
         tamper_lookup: None,
+        lagging: false,
     };
     let node = name("outside");
     world.nodes.push(Node {
@@ -1055,7 +1108,7 @@ fn freezes_stop_settling_and_receiving() {
     assert!(world.nodes[0].dsusd().can_receive());
 
     // A global freeze changes only the issuer's account: seen at the next
-    // settlement check.
+    // settlement check, proven at the anchor.
     world.ledger.global_freeze(dsusd::ISSUER, true).unwrap();
     world.close();
     assert!(world.nodes[0].dsusd().can_receive());
@@ -1087,9 +1140,9 @@ fn freezes_stop_settling_and_receiving() {
     assert_eq!(world.nodes[0].books[USD].finalized, [id]);
 }
 
-// spec/decisions/ledger-resets.md: the issuer's account is taken only as
-// of a ledger at or past the newest the account has seen; an older answer
-// is dropped, and asked again at the next check.
+// spec/designs/xrpl-validation.md#4-what-is-proven-and-how: the issuer's
+// account is taken only as proven at the anchor, never on a server's word:
+// a server behind the anchor cannot prove it there, and nothing is told.
 #[test]
 fn an_old_answer_of_the_issuer_is_not_taken() {
     let (mut world, _, _) = synced(2);
@@ -1182,6 +1235,7 @@ fn gas_on_a_shared_account_is_the_owners_to_spend() {
         drop_lookups: false,
         refuse_own: None,
         tamper_lookup: None,
+        lagging: false,
     };
     world.add_with(1, true, Some(0));
     world.closes(3);
@@ -1460,10 +1514,10 @@ fn the_fee_of_a_scheme_away_is_booked_once() {
 }
 
 // Found in review: as above, with a server whose account history no longer
-// reaches back to the settlement once its scheme is back. The sync books
-// what the line lost through suspense; the settlement, looked up by its
-// hash, is posted once, and what the line booked comes back out of
-// suspense, so the books hold the line once, not the settlement twice.
+// reaches back to the settlement once its scheme is back: a hint the
+// account does not need, as the history of the line, which the proven
+// line names, finds it. It is posted once, and nothing goes through
+// suspense.
 #[test]
 fn a_settlement_of_a_scheme_away_is_booked_once_without_its_history() {
     for why in [Detach::Stopped, Detach::Removed] {
@@ -1493,12 +1547,15 @@ fn a_settlement_of_a_scheme_away_is_booked_once_without_its_history() {
     }
 }
 
-// As above, with the node restarting again after the sync and before the
-// lookup: the scheme keeps that it never read the settlement with its
-// state, so it still books it as one it never read.
+// spec/designs/xrpl-validation.md#6-the-account-on-proofs: a settlement of
+// the scheme while it was away, in history the server no longer has beyond
+// the history bound, is one it never reads again: the sync books what the
+// line lost through suspense, and the scheme keeps that it never read it
+// across another restart. No server has it to prove: it stays pending for
+// the owner, never cancelled, nor booked twice.
 #[test]
-fn a_settlement_never_read_is_booked_once_across_a_restart() {
-    let mut world = World::new(&[true, false]);
+fn a_settlement_never_read_stays_pending_across_a_restart() {
+    let mut world = World::past_a_flag_ledger(&[true, false]);
     world.closes(3);
     let (usd_a, _) = world.peer(USD, 0, 1);
     world.mint(0, "10");
@@ -1506,17 +1563,20 @@ fn a_settlement_never_read_is_booked_once_across_a_restart() {
     let id = world.settle(USD, 0, 1, usd(2_000_000), &usd_a);
     world.leave(0, USD, Detach::Stopped);
     world.closes(2);
-    world.ledger.shorten_account_history();
+    world.away_beyond_the_bound(0);
     world.drop_lookups = true;
     world.restart(0);
+    world.close();
     assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
+    assert_eq!(world.nodes[0].account.history_gaps(), 1);
     assert!(world.nodes[0].books[USD].finalized.is_empty());
     world.drop_lookups = false;
     world.restart(0);
     world.closes(2);
     let books = &world.nodes[0].books[USD];
-    assert_eq!(books.finalized, [id]);
-    assert_eq!(books.suspense, 0, "what suspense booked came back out");
+    assert!(books.finalized.is_empty() && books.cancelled.is_empty());
+    assert!(books.pending.contains_key(&id));
+    assert_eq!(books.suspense, -i128::from(usd(2_000_000)));
     assert_eq!(books.settlement, i128::from(usd(8_000_000)));
 }
 
@@ -1524,8 +1584,8 @@ fn a_settlement_never_read_is_booked_once_across_a_restart() {
 // own settlement, validated, and stop it, while the XRP scheme runs on and
 // has the account's state written. The account keeps the settlement for
 // the DSUSD scheme, so after a restart it is posted once, never also booked
-// as a withdrawal from the line; with a history that no longer reaches back
-// to it, it is looked up and booked once found.
+// as a withdrawal from the line, whether or not the server's account
+// history still reaches back to it.
 #[test]
 fn a_settlement_told_in_a_refused_batch_is_booked_once() {
     for short_history in [false, true] {
@@ -1557,12 +1617,13 @@ fn a_settlement_told_in_a_refused_batch_is_booked_once() {
     }
 }
 
-// Found in review: a server's answer to the lookup of a settlement the
-// DSUSD scheme never read says it delivered more DSUSD than any line holds.
-// The scheme books it by what it signed, which the books hold pending, so
-// the server's figure books nothing, and the node does not panic.
+// Found in review: a server's answer about a settlement the DSUSD scheme
+// missed while away says it delivered more DSUSD than any line holds. Its
+// metadata no longer proves: nothing of it is booked, and the account
+// connects anew. Once a server proves it, it is posted once, by what was
+// signed.
 #[test]
-fn a_settlement_never_read_is_booked_by_what_was_signed() {
+fn a_settlement_whose_metadata_was_changed_books_nothing() {
     let mut world = World::new(&[true, false]);
     world.closes(3);
     let (usd_a, _) = world.peer(USD, 0, 1);
@@ -1571,11 +1632,21 @@ fn a_settlement_never_read_is_booked_by_what_was_signed() {
     let id = world.settle(USD, 0, 1, usd(2_000_000), &usd_a);
     world.leave(0, USD, Detach::Stopped);
     world.closes(2);
-    world.ledger.shorten_account_history();
     world.tamper_lookup = Some(|answer| {
-        answer["result"]["meta"]["delivered_amount"]["value"] = "1e25".into();
+        let meta = answer["result"]["meta_blob"].as_str().unwrap().to_owned();
+        let changed = meta.replacen("E5", "E6", 1);
+        answer["result"]["meta_blob"] = changed.into();
     });
     world.restart(0);
+    world.closes(2);
+    let lies: u64 = account::Doubt::ALL
+        .iter()
+        .map(|doubt| world.nodes[0].account.doubts(*doubt))
+        .sum();
+    assert!(lies > 0);
+    assert!(world.nodes[0].books[USD].finalized.is_empty());
+    world.tamper_lookup = None;
+    world.wait(account::STALL_MS);
     world.closes(2);
     let books = &world.nodes[0].books[USD];
     assert_eq!(books.finalized, [id]);
@@ -1635,13 +1706,13 @@ fn a_token_payment_is_signed_only_within_the_line() {
     assert_eq!(world.nodes[0].books[USD].finalized, [first.id, second.id]);
 }
 
-// A Payment whose Amount names the payee as its issuer, any issuer the
-// payee trusts, may report what it delivered with the payee's account as
-// the issuer. That is no settlement in DSUSD: the line it raised is the
-// owner's deposit, and the peer is credited nothing. It is safe: the payee
-// credits less than arrived, never more, and its books still hold the line.
+// The stream is a hint: one that says a settlement delivered a token of
+// another issuer, here the payee's own, changes nothing of what is booked,
+// which is the transaction as its proof has it. (A Payment that does name
+// the payee as its issuer is no settlement: the scheme's own tests hold
+// that.)
 #[test]
-fn a_payment_naming_us_as_its_issuer_is_no_settlement() {
+fn a_stream_that_names_another_issuer_is_a_hint() {
     let (mut world, state_a, _) = synced(2);
     world.mint(0, "10");
     world.close();
@@ -1671,10 +1742,10 @@ fn a_payment_naming_us_as_its_issuer_is_no_settlement() {
     world.check();
     let payer = world.nodes[0].name;
     let books = &world.nodes[1].books[USD];
-    assert!(books.credited.is_empty());
-    assert_eq!(books.peers.get(&payer), None);
-    assert_eq!(books.deposits, [usd(4_000_000)]);
-    assert_eq!(books.owner, i128::from(usd(4_000_000)));
+    assert_eq!(books.credited.len(), 1);
+    assert_eq!(books.peers.get(&payer), Some(&i128::from(usd(4_000_000))));
+    assert!(books.deposits.is_empty());
+    assert_eq!(books.owner, 0);
     assert_eq!(world.nodes[0].books[USD].finalized, [id]);
 }
 
@@ -1789,5 +1860,82 @@ proptest! {
         for node in &world.nodes {
             prop_assert!(node.books[USD].pending.is_empty(), "{:?}", node.books[USD].pending);
         }
+    }
+}
+
+// spec/designs/xrpl-validation.md#6-the-account-on-proofs: a settlement in
+// a token changes the payee's line alone, never its account's root. One a
+// server leaves out of the history, at the newest end or in the middle, or
+// whose ledger it names wrong, keeps nothing from the payee, which finds
+// it by the history the line it follows names, proven: each is credited
+// once, and the books hold the line.
+#[test]
+fn a_token_settlement_left_out_of_the_history_is_found_by_the_line() {
+    for lie in [
+        Lie::HistoryNewestLeftOut,
+        Lie::HistoryMiddleLeftOut,
+        Lie::Transaction,
+    ] {
+        let (mut world, state_a, _) = synced(2);
+        world.mint(0, "10");
+        world.close();
+        let connection = world.nodes[1].connection;
+        world.ledger.disconnect(connection);
+        world.input(1, LedgerInput::Disconnected);
+        world.nodes[1].online = false;
+        let mut ids = Vec::new();
+        for _ in 0..3 {
+            ids.push(world.settle(USD, 0, 1, usd(1_000_000), &state_a));
+            world.close();
+        }
+        world.ledger.set_lie(world.next_connection + 1, Some(lie));
+        world.connect(1);
+        world.closes(2);
+        assert!(world.ledger.lies_told(lie) > 0, "{lie:?}");
+        let books = &world.nodes[1].books[USD];
+        assert_eq!(books.credited, ids.iter().copied().collect(), "{lie:?}");
+        assert!(books.reconciled.is_empty(), "{lie:?}");
+        assert_eq!(world.nodes[0].books[USD].finalized, ids, "{lie:?}");
+    }
+}
+
+// spec/designs/xrpl-validation.md#4-what-is-proven-and-how: the line, its
+// issuer's account and the pool are proven at the anchor. A server that
+// alters them, says they are absent, or answers with another's branch, has
+// nothing booked, frozen or written off: the scheme waits until an honest
+// server answers, and then books what the line holds.
+#[test]
+fn a_line_a_server_alters_books_nothing() {
+    for lie in [Lie::AlteredObject, Lie::FalseAbsence, Lie::OtherBranch] {
+        let (mut world, _, _) = synced(2);
+        world.mint(0, "10");
+        world.close();
+        let held = world.nodes[0].books[USD].settlement;
+        let write_offs = world.nodes[0].account.write_offs();
+        world.lagging = true;
+        world.ledger.set_lie_for_all(Some(lie));
+        world.mint(0, "5");
+        world.closes(2);
+        world.settlement_check(0);
+        assert!(world.ledger.lies_told(lie) > 0, "{lie:?}");
+        let books = &world.nodes[0].books[USD];
+        assert_eq!(books.settlement, held, "{lie:?}");
+        assert!(
+            books.reconciled.is_empty() && books.losses.is_empty(),
+            "{lie:?}"
+        );
+        assert!(world.nodes[0].dsusd().can_receive(), "{lie:?}");
+        assert_eq!(world.nodes[0].account.write_offs(), write_offs, "{lie:?}");
+        world.ledger.set_lie_for_all(None);
+        world.wait(account::STALL_MS);
+        world.closes(2);
+        world.lagging = false;
+        world.check();
+        assert_eq!(
+            world.nodes[0].books[USD].settlement,
+            held + i128::from(usd(5_000_000)),
+            "{lie:?}"
+        );
+        assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced, "{lie:?}");
     }
 }

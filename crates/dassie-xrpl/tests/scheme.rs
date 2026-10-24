@@ -9,8 +9,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use dassie_ledger::Name;
 use dassie_node_core::testing::SeededRng;
-use dassie_settlement::{LedgerInput, LedgerStatus, ReconcileCause, SchemeError};
-use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, RESERVE_BASE};
+use dassie_settlement::{ExternalAsset, LedgerInput, LedgerStatus, ReconcileCause, SchemeError};
+use dassie_xrpl::account::{Doubt, HISTORY_BOUND, STALL_MS};
+use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, Lie, RESERVE_BASE};
 use dassie_xrpl::scheme::MEMO_TYPE;
 use support::{Effect, XrplScheme};
 
@@ -55,6 +56,10 @@ struct Node {
     held: usize,
     /// The last request held.
     held_request: Option<serde_json::Value>,
+    /// The transactions it asked the proofs of, in order.
+    proved: Vec<String>,
+    /// Whether its books may lag the ledger, as while its server lies.
+    lagging: bool,
     /// A server behind the others, stopped where the ledger once was: the
     /// node's requests go to it while it is set.
     behind: Option<FakeLedger>,
@@ -106,6 +111,8 @@ impl World {
                 hold: None,
                 held: 0,
                 held_request: None,
+                proved: Vec::new(),
+                lagging: false,
                 behind: None,
                 reconnects: 0,
                 asked: Vec::new(),
@@ -155,6 +162,9 @@ impl World {
         let request: serde_json::Value = serde_json::from_slice(message).unwrap();
         let command = request["command"].as_str().unwrap_or_default();
         node.asked.push(command.to_string());
+        if let Some(hash) = request["tx_hash"].as_str() {
+            node.proved.push(hash.to_owned());
+        }
         if command == "submit" && node.drop_submits {
             return;
         }
@@ -269,6 +279,12 @@ impl World {
                 self.input(index, LedgerInput::Message(&message));
             }
         }
+        self.timers();
+        self.check();
+    }
+
+    /// Runs the nodes' timers that are due.
+    fn timers(&mut self) {
         for index in 0..self.nodes.len() {
             if self.nodes[index]
                 .scheme
@@ -280,12 +296,28 @@ impl World {
                 self.apply(index, effects);
             }
         }
-        self.check();
     }
 
     fn closes(&mut self, count: usize) {
         for _ in 0..count {
             self.close();
+        }
+    }
+
+    /// Time passes, by `ms`, without a ledger closing.
+    fn wait(&mut self, ms: u64) {
+        self.now += ms;
+        self.timers();
+        self.check();
+    }
+
+    /// `count` ledgers close while no node reads them, as fast as the fake
+    /// closes them.
+    fn pass(&mut self, count: u32) {
+        for _ in 0..count {
+            self.now += 4_000;
+            self.ledger
+                .close_at(dassie_xrpl::unl::ledger_seconds(self.now));
         }
     }
 
@@ -299,8 +331,10 @@ impl World {
                 "{}",
                 node.name
             );
-            // A reset the scheme has not seen yet is not its to know.
+            // A reset the scheme has not seen yet is not its to know, nor
+            // what its lying server keeps from it.
             if node.scheme.status() == LedgerStatus::Synced
+                && !node.lagging
                 && let Some(balance) = self.ledger.balance(node.scheme.account())
             {
                 let bookable = (balance * UNITS_PER_DROP).saturating_sub(node.scheme.reserve());
@@ -551,10 +585,12 @@ fn a_restart_resubmits_and_catches_up() {
     assert_eq!(books.suspense, 0);
 }
 
-// When the server's history does not reach back, the balance says what
-// changed: reconciled through suspense, exactly.
+// spec/designs/xrpl-validation.md#6-the-account-on-proofs: a server that no
+// longer has a ledger within the history bound, which the proven state
+// names, keeps too short a history: the account waits, says so, and books
+// nothing it cannot prove.
 #[test]
-fn a_short_history_reconciles_by_the_balance() {
+fn a_short_history_within_the_bound_stalls() {
     let (mut world, _, state_b) = funded_pair();
     world.disconnect(0);
     world.settle(1, 0, 4_000_000_000, &state_b);
@@ -562,6 +598,39 @@ fn a_short_history_reconciles_by_the_balance() {
     world.ledger.forget_history();
     world.connect(0);
     world.closes(1);
+    let books = &world.nodes[0].books;
+    assert!(books.credited.is_empty() && books.reconciled.is_empty());
+    assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Syncing);
+    let waiting = world.nodes[0].scheme.account.waiting().unwrap();
+    assert!(waiting.contains("history is too short"), "{waiting}");
+}
+
+/// Two funded, synced and peered nodes, the first of which settles `amount`
+/// with the second while it is away for longer than the history bound,
+/// past the first flag ledger. Its server has forgotten the settlement's
+/// ledger.
+fn away_beyond_the_bound(amount: u64) -> World {
+    let (mut world, _, state_b) = funded_pair();
+    world.closes(260);
+    world.disconnect(0);
+    world.settle(1, 0, amount, &state_b);
+    world.closes(3);
+    world.disconnect(1);
+    world.pass(HISTORY_BOUND + 300);
+    world
+}
+
+// spec/designs/xrpl-validation.md#6-the-account-on-proofs: history the
+// server no longer has, beyond the history bound as the proven state
+// names it, is history it does not have: the balance says what changed,
+// reconciled through suspense, exactly, and the gap is counted.
+#[test]
+fn history_beyond_the_bound_reconciles_by_the_balance() {
+    let mut world = away_beyond_the_bound(4_000_000_000);
+    world.connect(0);
+    world.closes(1);
+    assert_eq!(world.nodes[0].scheme.account.history_gaps(), 1);
+    assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
     assert_eq!(world.nodes[0].books.suspense, 4_000_000_000);
     assert!(world.nodes[0].books.credited.is_empty());
     // Nothing the scheme can name: a warning.
@@ -614,12 +683,9 @@ fn a_reserve_above_the_balance_explains_down_to_nothing() {
 // books match the balance.
 #[test]
 fn a_reserve_change_is_told_from_an_unexplained_difference() {
-    let (mut world, _, state_b) = funded_pair();
-    world.disconnect(0);
-    world.settle(1, 0, 4_000_000_000, &state_b);
-    world.closes(3);
-    world.ledger.forget_history();
+    let mut world = away_beyond_the_bound(4_000_000_000);
     world.ledger.set_reserve(2 * RESERVE_BASE, 0);
+    world.close();
     world.connect(0);
     world.closes(1);
     let reserve = i128::from(RESERVE_BASE * UNITS_PER_DROP);
@@ -742,35 +808,30 @@ fn a_reset_is_recognised_when_the_account_exists_again() {
     assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
 }
 
-// Found in review: after a reconnect, a server behind the newest ledger
-// seen answers that the account does not exist, as of a ledger before it
-// was made, while a settlement of ours applied since. Nothing is cancelled
-// or written off.
+// Found in review: after a reconnect, a server says the account does not
+// exist, while a settlement of ours applied. An absence counts only when
+// proven: nothing is cancelled or written off, and once the server is
+// honest the settlement is posted.
 #[test]
-fn an_absence_from_a_ledger_already_passed_cancels_nothing() {
+fn an_absence_the_server_made_up_cancels_nothing() {
     let (mut world, state_a, _) = funded_pair();
     let id = world.settle(0, 1, 5_000_000_000, &state_a);
     world.disconnect(0);
     world.close();
     assert!(world.nodes[1].books.credited.contains(&id));
-    world.nodes[0].hold = Some("account_info");
+    let write_offs = world.nodes[0].scheme.account.write_offs();
+    world.ledger.set_lie_for_all(Some(Lie::FalseAbsence));
     world.connect(0);
-    let request = world.nodes[0].held_request.as_ref().unwrap();
-    let reply = serde_json::to_vec(&serde_json::json!({
-        "type": "response", "status": "error", "id": request["id"],
-        "error": "actNotFound", "ledger_index": 1, "validated": true
-    }))
-    .unwrap();
-    let mut effects = Vec::new();
-    world.nodes[0]
-        .scheme
-        .on_ledger(world.now, LedgerInput::Message(&reply), &mut effects);
-    assert!(
-        !effects
-            .iter()
-            .any(|e| matches!(e, Effect::Cancel { settlement } if *settlement == id)),
-        "payment already credited by receiver was cancelled: {effects:?}"
-    );
+    world.closes(2);
+    world.ledger.set_lie_for_all(None);
+    assert!(world.ledger.lies_told(Lie::FalseAbsence) > 0);
+    let books = &world.nodes[0].books;
+    assert!(books.cancelled.is_empty() && books.reconciled.is_empty());
+    assert_eq!(world.nodes[0].scheme.account.write_offs(), write_offs);
+    world.wait(STALL_MS);
+    world.closes(2);
+    assert_eq!(world.nodes[0].books.finalized, [id]);
+    assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
 }
 
 // As above, against a server that stopped at the first ledger, before the
@@ -802,12 +863,11 @@ fn a_server_that_never_saw_the_account_writes_nothing_off() {
     assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
 }
 
-// Found in review: the account's state, asked for while synced (here its
-// sequence, read again once a settlement never executed is dropped), whose
-// answer is older than what the scheme has seen, is asked again as the
-// next ledger closes, not dropped for good.
+// A settlement never executed is dropped past its last ledger, and its
+// sequence is the next one's: the account's sequence as the anchor proves
+// it, so the next settlement applies.
 #[test]
-fn an_old_answer_while_synced_is_asked_again() {
+fn a_dropped_settlement_s_sequence_is_used_again() {
     let (mut world, state_a, _) = funded_pair();
     let peer = world.nodes[1].name;
     let mut rng = SeededRng::new(1);
@@ -815,30 +875,11 @@ fn an_old_answer_while_synced_is_asked_again() {
         .scheme
         .prepare_settlement(&mut rng, peer, 1_000_000_000, &state_a)
         .unwrap();
-    world.closes(20);
-    world.nodes[0].hold = Some("account_info");
+    world.closes(25);
+    let next = world.settle(0, 1, 1_000_000_000, &state_a);
     world.close();
-    let request = world.nodes[0].held_request.take().unwrap();
-    let reply = serde_json::to_vec(&serde_json::json!({
-        "type": "response", "status": "success", "id": request["id"],
-        "result": {
-            "account_data": { "Balance": "1000000000", "Sequence": 1, "OwnerCount": 0 },
-            "ledger_index": 1, "validated": true,
-        }
-    }))
-    .unwrap();
-    world.input(0, LedgerInput::Message(&reply));
-    world.nodes[0].hold = None;
-    let asked = |world: &World| {
-        let asked = &world.nodes[0].asked;
-        asked.iter().filter(|c| *c == "account_info").count()
-    };
-    let before = asked(&world);
-    world.close();
-    assert_eq!(asked(&world), before + 1);
+    assert_eq!(world.nodes[0].books.finalized, [next]);
     assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
-    world.close();
-    assert_eq!(asked(&world), before + 1, "asked once");
 }
 
 // spec/decisions/ledger-resets.md: a server behind what the scheme booked
@@ -1159,8 +1200,12 @@ fn a_settlement_no_history_holds_stays_pending_and_is_asked_less_often() {
     world.nodes[0]
         .scheme
         .reconcile(&[(id, 1_000_000_000)], &mut effects);
+    let lookups = |world: &World| {
+        let looked_up = dassie_xrpl::hex_upper(&[7; 32]);
+        let proved = world.nodes[0].proved.iter();
+        proved.filter(|hash| **hash == looked_up).count()
+    };
     world.connect(0);
-    let lookups = |world: &World| world.nodes[0].asked.iter().filter(|c| *c == "tx").count();
     world.closes(600);
     // Asked at once, then after 1, 2, 4 … 256 ledgers: 10 times in 600.
     assert_eq!(lookups(&world), 10);
@@ -1207,12 +1252,17 @@ fn many_settlements_to_recover_are_looked_up_a_few_at_a_time() {
         .collect();
     let mut effects = Vec::new();
     world.nodes[0].scheme.reconcile(&pending, &mut effects);
-    world.nodes[0].hold = Some("tx");
+    world.nodes[0].hold = Some("tx_proof");
+    let before = world.nodes[0].proved.len();
     world.connect(0);
     world.closes(2);
     assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
     assert_eq!(world.nodes[0].reconnects, 0);
-    assert_eq!(world.nodes[0].held, 8);
+    let looked_up: Vec<String> = (0..20)
+        .map(|byte| dassie_xrpl::hex_upper(&[byte; 32]))
+        .collect();
+    let asked = world.nodes[0].proved.iter().skip(before);
+    assert_eq!(asked.filter(|hash| looked_up.contains(hash)).count(), 8);
 }
 
 // An account at the last sequence there is can send nothing more: a
@@ -1222,6 +1272,7 @@ fn the_last_sequence_is_never_reused() {
     let (mut world, state_a, _) = funded_pair();
     let account = world.account(0);
     world.ledger.set_sequence(account, u32::MAX);
+    world.close();
     world.disconnect(0);
     world.connect(0);
     let peer = world.nodes[1].name;
@@ -1240,22 +1291,20 @@ fn failed(world: &World, index: usize) -> bool {
 
 // The network is checked first: the first request on a connection is
 // `server_state`, and the account is subscribed only after it, then
-// anchored on a ledger its UNL validated before it is read
+// anchored on a ledger its UNL validated, which proves it: it is never
+// read on the server's word
 // (spec/designs/xrpl-validation.md#6-the-account-on-proofs).
 #[test]
 fn the_network_is_checked_before_the_account_is_read() {
     let (world, _, _) = funded_pair();
     let asked = &world.nodes[0].asked;
     assert_eq!(
-        asked[..5],
-        [
-            "server_state",
-            "subscribe",
-            "state_proof",
-            "validations",
-            "account_info"
-        ]
+        asked[..4],
+        ["server_state", "subscribe", "state_proof", "validations"]
     );
+    for read in ["account_info", "tx", "ledger_entry", "amm_info"] {
+        assert!(!asked.iter().any(|asked| asked == read), "{read}");
+    }
 }
 
 // A server off the XRP Ledger testnet (mainnet 0, devnet 2, a network
@@ -1543,4 +1592,133 @@ fn a_lost_owners_payment_is_cancelled_not_failed() {
     let books = &world.nodes[0].books;
     assert_eq!(books.owner, i128::from(FUNDED));
     assert_eq!(books.fees, 0);
+}
+
+/// What node `index`'s books say happened: what was credited, finalized and
+/// cancelled, what suspense reconciled, and the account's write-offs.
+fn outcomes(world: &World, index: usize) -> (Vec<Name>, Vec<Name>, Vec<Name>, usize, u64) {
+    let node = &world.nodes[index];
+    let credited: Vec<Name> = node.books.credited.iter().copied().collect();
+    (
+        credited,
+        node.books.finalized.clone(),
+        node.books.cancelled.clone(),
+        node.books.reconciled.len(),
+        node.scheme.account.write_offs(),
+    )
+}
+
+// spec/designs/xrpl-validation.md#1-the-rule: whatever a server lies about,
+// in each way the lying fake ledger tells, nothing is booked that the
+// ledger did not apply, nothing it applied is cancelled, and nothing is
+// written off. A settlement of ours and one of the peer's applied while
+// node 0 was away, and it comes back to a server that lies; what it books
+// meanwhile, if anything, is what the ledger applied. Once its server is
+// honest, it settles both, once, and its books hold the ledger's.
+#[test]
+fn a_lying_server_books_cancels_and_writes_off_nothing() {
+    for lie in Lie::ALL {
+        let (mut world, state_a, state_b) = funded_pair();
+        // Ledgers enough that some closed long enough ago for their
+        // validations to be stale, which an old anchor is.
+        world.closes(70);
+        let before = outcomes(&world, 0);
+        let ours = world.settle(0, 1, 2_000_000_000, &state_a);
+        let theirs = world.settle(1, 0, 3_000_000_000, &state_b);
+        // And the owner's deposit: three transactions, one in the middle.
+        let account = world.account(0);
+        world.ledger.deposit(account, 5_000_000);
+        world.nodes[0].lagging = true;
+        world.disconnect(0);
+        world.close();
+        let lying = world.next_connection + 1;
+        world.ledger.set_lie(lying, Some(lie));
+        world.connect(0);
+        world.closes(3);
+        assert!(world.ledger.lies_told(lie) > 0, "{lie:?} never told");
+        let (credited, finalized, cancelled, reconciled, write_offs) = outcomes(&world, 0);
+        assert!(
+            credited
+                .iter()
+                .all(|id| *id == theirs || before.0.contains(id)),
+            "{lie:?}"
+        );
+        assert!(finalized.iter().all(|id| *id == ours), "{lie:?}");
+        assert_eq!(cancelled, before.2, "{lie:?}");
+        assert_eq!((reconciled, write_offs), (before.3, before.4), "{lie:?}");
+        assert!(!failed(&world, 0), "{lie:?}");
+        world.ledger.set_lie(lying, None);
+        world.wait(STALL_MS);
+        world.closes(3);
+        world.nodes[0].lagging = false;
+        world.check();
+        assert_eq!(
+            world.nodes[0].scheme.status(),
+            LedgerStatus::Synced,
+            "{lie:?}"
+        );
+        let (credited, finalized, cancelled, reconciled, write_offs) = outcomes(&world, 0);
+        assert_eq!(
+            credited.iter().filter(|id| **id == theirs).count(),
+            1,
+            "{lie:?}"
+        );
+        assert_eq!(finalized, [ours], "{lie:?}");
+        assert_eq!(cancelled, before.2, "{lie:?}");
+        assert_eq!((reconciled, write_offs), (before.3, before.4), "{lie:?}");
+    }
+}
+
+// spec/designs/xrpl-validation.md#4-what-is-proven-and-how: a settlement of
+// ours that never applied, while the account's sequence moved past it with
+// no transaction taking its number, as for an account deleted and made
+// again, can be proven neither applied nor absent. A server that proves it
+// applied, in a ledger the anchor's chain does not hold, is caught: it is
+// not booked. Nor is it cancelled once the server is honest: it stays
+// pending for the owner, and is counted.
+#[test]
+fn a_made_up_proof_of_ours_books_nothing() {
+    let (mut world, state_a, _) = funded_pair();
+    let account = world.account(0);
+    let sequence = world.ledger.sequence(account).unwrap();
+    let ours = world.settle(0, 1, 2_000_000_000, &state_a);
+    world.ledger.set_sequence(account, sequence + 5);
+    world.nodes[0].lagging = true;
+    world.ledger.set_lie_for_all(Some(Lie::Transaction));
+    world.closes(30);
+    assert!(world.ledger.lies_told(Lie::Transaction) > 0);
+    assert!(world.nodes[0].scheme.account.doubts(Doubt::Ledger) > 0);
+    let books = &world.nodes[0].books;
+    assert!(books.finalized.is_empty() && books.cancelled.is_empty());
+    world.ledger.set_lie_for_all(None);
+    world.wait(STALL_MS);
+    world.closes(3);
+    world.nodes[0].lagging = false;
+    let books = &world.nodes[0].books;
+    assert!(books.finalized.is_empty() && books.cancelled.is_empty());
+    assert!(books.pending.contains_key(&ours));
+    assert!(world.nodes[0].scheme.account.unproven() > 0);
+    // The next settlement takes the sequence the anchor proves, and applies.
+    let next = world.settle(0, 1, 1_000_000_000, &state_a);
+    world.close();
+    assert_eq!(world.nodes[0].books.finalized, [next]);
+}
+
+// spec/designs/xrpl-validation.md#4-what-is-proven-and-how: a settlement of
+// ours that never applied is cancelled only once proven absent: the
+// account's sequence, proven at an anchor past its last ledger, is not
+// past its own.
+#[test]
+fn a_settlement_is_cancelled_only_once_proven_absent() {
+    let (mut world, state_a, _) = funded_pair();
+    world.nodes[0].drop_submits = true;
+    let id = world.settle(0, 1, 3_000_000_000, &state_a);
+    world.closes(20);
+    assert!(
+        world.nodes[0].books.cancelled.is_empty(),
+        "not yet past its last ledger"
+    );
+    world.closes(2);
+    assert_eq!(world.nodes[0].books.cancelled, [id]);
+    assert_eq!(world.nodes[0].scheme.account.unproven(), 0);
 }

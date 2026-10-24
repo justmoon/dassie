@@ -1144,3 +1144,63 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         }
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use alloc::vec;
+
+    use super::*;
+    use crate::account::FIRST;
+    use crate::keys::Wallet;
+
+    // spec/areas/xrpl.md#the-token-scheme: a Payment whose Amount names the
+    // payee as its issuer, any issuer the payee trusts, may report what it
+    // delivered with the payee's account as the issuer. That is no
+    // settlement: the payee credits less than arrived, never more, and
+    // books what the line rose by as the owner's deposit.
+    #[test]
+    fn a_payment_naming_us_as_its_issuer_is_no_settlement() {
+        use dassie_settlement::SettlementScheme;
+
+        let id = dassie_ledger::name!(crate::dsusd::SCHEME_ID);
+        let account = XrplAccount::new(FIRST, &[id], "", &[1; 32], &[]).unwrap();
+        let node = dassie_ledger::name!("node");
+        let mut scheme = crate::DsusdScheme::new(&account, node, None, &[]).unwrap();
+        let peer = dassie_ledger::name!("peer");
+        let theirs = Wallet::from_entropy(&[2; 32]).account();
+        let address = theirs.to_address();
+        let mut state = vec![u8::try_from(address.len()).unwrap()];
+        state.extend_from_slice(address.as_bytes());
+        scheme.on_peered(peer, &state);
+        let delivered = |issuer| TokenAmount {
+            value: TokenValue::parse("4").unwrap(),
+            currency: crate::dsusd::CURRENCY,
+            issuer,
+        };
+        let mut record = TxRecord {
+            hash: [3; 32],
+            ledger_index: 10,
+            index: 0,
+            validated: true,
+            account: theirs,
+            is_payment: true,
+            destination: Some(account.account()),
+            destination_tag: None,
+            sequence: 1,
+            fee: 10,
+            result: "tesSUCCESS".into(),
+            delivered: None,
+            delivered_token: Some(delivered(crate::dsusd::ISSUER)),
+            memo: Some((crate::dsusd::MEMO_TYPE.to_vec(), b"peer".to_vec())),
+            changes: Vec::new(),
+            lines: Vec::new(),
+        };
+        assert_eq!(
+            scheme.settled_by(&record),
+            Some((peer, 4_000_000 * UNITS_PER_MICRO))
+        );
+        record.delivered_token = Some(delivered(account.account()));
+        assert_eq!(scheme.settled_by(&record), None);
+    }
+}

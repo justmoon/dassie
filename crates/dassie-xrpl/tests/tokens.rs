@@ -26,7 +26,9 @@ use dassie_settlement::{
 };
 use dassie_xrpl::account::XrplAccount;
 use dassie_xrpl::codec::{Amount, Memo, Payment, Signing, TokenValue, Transact};
-use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, FakeLedger, RESERVE_BASE, RESERVE_INC, Token};
+use dassie_xrpl::fake::{
+    FAUCET_DROPS, FEE_BASE, FakeLedger, Lie, RESERVE_BASE, RESERVE_INC, Token,
+};
 use dassie_xrpl::network::{MAINNET, Network, TESTNET};
 use dassie_xrpl::peg::{MAX_RATE_AGE_MS, MAX_READING_AGE_MS, RECOVER_HOLD_MS, TRIP_HOLD_MS};
 use dassie_xrpl::token::UNITS_PER_MICRO;
@@ -329,6 +331,17 @@ impl World {
     fn closes(&mut self, count: usize) {
         for _ in 0..count {
             self.close();
+        }
+    }
+
+    /// Runs every account's timers that are due.
+    fn timers(&mut self) {
+        for index in 0..self.nodes.len() {
+            let account = &mut self.nodes[index].account;
+            if account.deadline().is_some_and(|at| at <= self.now) {
+                account.on_timer(self.now);
+                self.tell(index);
+            }
         }
     }
 
@@ -834,10 +847,10 @@ fn without_a_reading_each_networks_dollar_pauses() {
     }
 }
 
-// spec/decisions/ledger-resets.md: the pool is taken only as of a ledger at
-// or past the newest the account has seen, with both its balances as of
-// that one ledger; a server behind, which still shows the pool at a dollar,
-// is not taken.
+// spec/designs/xrpl-validation.md#4-what-is-proven-and-how: the pool is
+// taken only as proven at the anchor, both its balances at that one ledger;
+// a server behind it, which still shows the pool at a dollar, cannot prove
+// it there, and its price is not taken.
 #[test]
 fn an_old_answer_of_the_pool_is_not_taken() {
     let (mut world, _) = guarded(TESTNET_NET);
@@ -876,5 +889,30 @@ fn the_guard_holds_across_a_restart() {
         // Pegged, a restart keeps it so.
         world.restart(0);
         assert_eq!(world.paused(0, &state), None);
+    }
+}
+
+// spec/designs/xrpl-validation.md#4-what-is-proven-and-how: the pool is
+// proven at the anchor: its AMM object, which names its account, and that
+// account's root and line, at one ledger. A server that alters them, or
+// says the pool is gone, moves no price: the guard reads nothing from it,
+// and the pool's own price once a server is honest.
+#[test]
+fn a_pool_a_server_lies_about_moves_no_price() {
+    for net in [TESTNET_NET, MAINNET_NET] {
+        for lie in [Lie::AlteredObject, Lie::FalseAbsence] {
+            let (mut world, _) = guarded(net);
+            world.ledger.set_lie_for_all(Some(lie));
+            world.pool(PAR_XRP * 9 / 10);
+            world.minutes(1, true);
+            assert!(world.ledger.lies_told(lie) > 0, "{lie:?}");
+            assert_eq!(world.price(0), Some(1_000_000), "{lie:?}");
+            // The account connects anew once it has waited.
+            world.ledger.set_lie_for_all(None);
+            world.now += dassie_xrpl::account::STALL_MS;
+            world.timers();
+            world.minutes(2, true);
+            assert_eq!(world.price(0), Some(900_000), "{lie:?}");
+        }
     }
 }
