@@ -66,7 +66,7 @@ Registration is free, and throttled instead ([Network](areas/network.md#registra
 
 ### Names
 
-Names that people can say, held for a node ID by a quorum of the bootstrap nodes' lists: a registrant commits to a name sealed, and paid, at every registrar, and unseals it once it holds every receipt; the earliest commitment wins. The design is [designs/names.md](designs/names.md); the reasons are [names-by-earliest-commitment](decisions/names-by-earliest-commitment.md).
+Names that people can say, held for a node ID by a quorum of the bootstrap nodes' lists: a registrant commits to a name sealed, and paid, at every registrar, and unseals it once it holds every receipt; the earliest commitment wins. The design is [designs/names.md](designs/names.md); the reasons are [names-by-earliest-commitment](decisions/names-by-earliest-commitment.md). Names, commitments and their messages are built, and every node refuses the messages until a registrar takes them ([Peer protocol](areas/peer-protocol.md#names)).
 
 - **Parts that can be built side by side:**
   - the registrar: its log of commitments, persisted before each receipt, windows, granting, renewal and grace, its list served as the node list is, and releasing a split;

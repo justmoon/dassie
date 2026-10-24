@@ -196,6 +196,45 @@ fn packets_need_a_peering() {
     );
 }
 
+// Names are on the wire before a node takes them
+// (spec/areas/peer-protocol.md#message-set): every name message is refused
+// with 409, which says it was not acted upon, at a bootstrap node too; one
+// that must be authenticated and is not gets 401 first.
+#[test]
+fn name_messages_are_refused_until_names_are_built() {
+    use dassie_peer::names::{Commitment, Name, Salt};
+    let mut network = Network::new(2, 2, 1, Config::DEV);
+    settle(&mut network, 30_000);
+    let stranger = Arc::new(NodeKey::from_bytes(&[79; 32]));
+    let alice = Name::parse("alice").unwrap();
+    let contents = [
+        Content::NameCommit(Commitment([1; 32])),
+        Content::NameUnseal {
+            name: alice,
+            salt: Salt([2; 32]),
+        },
+        Content::NameRenew(alice),
+        Content::NameListHashRequest,
+        Content::NameListRequest,
+    ];
+    let mut auth = Authenticator::new(Arc::clone(&stranger), AuthConfig::DEFAULT, START - 1);
+    for content in &contents {
+        let body = request_by(&mut auth, network.clock(0), 0, content);
+        assert_eq!(network.inbound(0, &body).status, 409, "{content:?}");
+        let bare = encode_envelope(
+            &stranger.node_id(),
+            &Authentication::None,
+            &content.to_vec(),
+        );
+        let status = if content.kind().requires_authentication() {
+            401
+        } else {
+            409
+        };
+        assert_eq!(network.inbound(0, &bare).status, status, "{content:?}");
+    }
+}
+
 // spec/decisions/membership-economics.md: registrations lapse without renewal
 // and leave the served list, so the node loses its majority place, and leaves
 // the table of every node that is not its peer after the grace period

@@ -13,7 +13,7 @@ mod scheme;
 mod url;
 
 use dassie_identity::NodeId;
-use dassie_oer::{Alphabet, DecodeError, DecodeErrorKind, Reader, Size, Writer, oid};
+use dassie_oer::{Alphabet, DecodeError, DecodeErrorKind, Reader, Size, Writer, oid, size};
 
 pub use content::{Content, PeeringRequest, TerminationReason};
 pub use envelope::{Authentication, Envelope, EnvelopeError, HmacAuthentication, encode_envelope};
@@ -22,9 +22,10 @@ pub use node_info::{
     sign_node_info,
 };
 pub use response::{
-    LinkStateResponse, NodeListResponse, PeeringResponse, RefusalReason, ResponseEnvelope,
-    decode_expiry, decode_hash, decode_octets, decode_settling, encode_expiry, encode_link_states,
-    encode_octets, encode_response, encode_settling,
+    LinkStateResponse, NameHolding, NameListResponse, NameReceipt, NodeListResponse,
+    PeeringResponse, RefusalReason, ResponseEnvelope, decode_expiry, decode_hash, decode_octets,
+    decode_settling, encode_expiry, encode_link_states, encode_octets, encode_response,
+    encode_settling,
 };
 pub use scheme::{MAX_SCHEME_ID, SchemeId};
 pub use url::is_valid_url;
@@ -93,8 +94,20 @@ pub const MAX_LINK_STATE_REQUEST_IDS: usize = 16;
 /// Most node IDs in a node list.
 pub const MAX_NODE_LIST: usize = 4096;
 
+/// Most names in a registrar's name list
+/// (spec/designs/names.md#5-holding-a-name).
+pub const MAX_NAME_LIST: usize = 2048;
+
+/// Most bytes of a name list: [`MAX_NAME_LIST`] entries of the longest
+/// name and node ID, which the transport's bound on a response must hold.
+pub const MAX_NAME_LIST_BYTES: usize = size::quantity(MAX_NAME_LIST)
+    + MAX_NAME_LIST
+        * (size::prefixed(crate::names::MAX_NAME_BYTES)
+            + size::prefixed(dassie_identity::MAX_NODE_ID_LENGTH)
+            + 8);
+
 /// Node IDs: 2 to 45 characters of base64url.
-const NODE_ID_SIZE: Size = Size::range(2, 45);
+const NODE_ID_SIZE: Size = Size::range(2, dassie_identity::MAX_NODE_ID_LENGTH);
 
 /// The characters of a node ID.
 const NODE_ID_ALPHABET: Alphabet = Alphabet::EMPTY
@@ -132,6 +145,16 @@ pub enum Kind {
     SettlementRequest,
     /// `hubPacket [12]`.
     HubPacket,
+    /// `nameCommit [13]`.
+    NameCommit,
+    /// `nameUnseal [14]`.
+    NameUnseal,
+    /// `nameRenew [15]`.
+    NameRenew,
+    /// `nameListHashRequest [16]`.
+    NameListHashRequest,
+    /// `nameListRequest [17]`.
+    NameListRequest,
 }
 
 impl Kind {
@@ -152,6 +175,11 @@ impl Kind {
             10 => Self::PeeringTermination,
             11 => Self::SettlementRequest,
             12 => Self::HubPacket,
+            13 => Self::NameCommit,
+            14 => Self::NameUnseal,
+            15 => Self::NameRenew,
+            16 => Self::NameListHashRequest,
+            17 => Self::NameListRequest,
             _ => return None,
         })
     }
@@ -173,6 +201,11 @@ impl Kind {
             Self::PeeringTermination => 10,
             Self::SettlementRequest => 11,
             Self::HubPacket => 12,
+            Self::NameCommit => 13,
+            Self::NameUnseal => 14,
+            Self::NameRenew => 15,
+            Self::NameListHashRequest => 16,
+            Self::NameListRequest => 17,
         }
     }
 
@@ -190,6 +223,9 @@ impl Kind {
                 | Self::PeeringTermination
                 | Self::SettlementRequest
                 | Self::HubPacket
+                | Self::NameCommit
+                | Self::NameUnseal
+                | Self::NameRenew
         )
     }
 
@@ -213,6 +249,8 @@ impl Kind {
                 | Self::NodeListHashRequest
                 | Self::NodeListRequest
                 | Self::PeeringInfoRequest
+                | Self::NameListHashRequest
+                | Self::NameListRequest
         )
     }
 }

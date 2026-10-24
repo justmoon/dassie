@@ -8,7 +8,10 @@ use dassie_oer::{Decode, DecodeError, DecodeErrorKind, Encode, Reader, Size, Wri
 
 use super::{
     Kind, MAX_COMMITMENT_BYTES, MAX_LINK_STATE_REQUEST_IDS, MAX_VERSIONS, SchemeId, SignedNodeInfo,
-    node_id_len, read_node_id, write_node_id,
+    node_id_len, read_fixed, read_node_id, write_node_id,
+};
+use crate::names::{
+    COMMITMENT_BYTES, Commitment, Name, SALT_BYTES, Salt, name_len, read_name, write_name,
 };
 
 /// The size of a `hubPacket`'s commitment: never empty, and bounded.
@@ -100,6 +103,26 @@ pub enum Content<'a> {
         /// it. Never empty, at most [`MAX_COMMITMENT_BYTES`].
         commitment: &'a [u8],
     },
+    /// `nameCommit [13]`: the sender commits to a name sealed, to be held
+    /// by itself (spec/designs/names.md#3-registering). Its answer is a
+    /// [`NameReceipt`](super::NameReceipt).
+    NameCommit(Commitment),
+    /// `nameUnseal [14]`: the sender opens a commitment it made, with the
+    /// name and salt it sealed; the holder is the sender.
+    NameUnseal {
+        /// The name.
+        name: Name,
+        /// The salt.
+        salt: Salt,
+    },
+    /// `nameRenew [15]`: the sender renews a name it holds. Its answer is
+    /// the name's new expiry, as a registration's.
+    NameRenew(Name),
+    /// `nameListHashRequest [16]`.
+    NameListHashRequest,
+    /// `nameListRequest [17]`: its answer is a
+    /// [`NameListResponse`](super::NameListResponse).
+    NameListRequest,
 }
 
 /// Why a peering is terminated. Unknown codes read as
@@ -165,6 +188,11 @@ impl Content<'_> {
             Self::PeeringTermination(_) => Kind::PeeringTermination,
             Self::SettlementRequest { .. } => Kind::SettlementRequest,
             Self::HubPacket { .. } => Kind::HubPacket,
+            Self::NameCommit(_) => Kind::NameCommit,
+            Self::NameUnseal { .. } => Kind::NameUnseal,
+            Self::NameRenew(_) => Kind::NameRenew,
+            Self::NameListHashRequest => Kind::NameListHashRequest,
+            Self::NameListRequest => Kind::NameListRequest,
         }
     }
 
@@ -191,7 +219,10 @@ impl Content<'_> {
             Self::SettlementMessage { scheme, message } => {
                 scheme.encoded_len() + size::prefixed(message.len())
             }
-            Self::NodeListHashRequest | Self::NodeListRequest => 0,
+            Self::NodeListHashRequest
+            | Self::NodeListRequest
+            | Self::NameListHashRequest
+            | Self::NameListRequest => 0,
             Self::PeeringInfoRequest { scheme } | Self::SettlementRequest { scheme } => {
                 scheme.encoded_len()
             }
@@ -199,6 +230,9 @@ impl Content<'_> {
             Self::HubPacket {
                 packet, commitment, ..
             } => 4 + size::prefixed(packet.len()) + size::prefixed(commitment.len()),
+            Self::NameCommit(_) => COMMITMENT_BYTES,
+            Self::NameUnseal { name, .. } => name_len(name) + SALT_BYTES,
+            Self::NameRenew(name) => name_len(name),
         }
     }
 }
@@ -251,7 +285,10 @@ impl Encode for Content<'_> {
                 scheme.write(writer);
                 writer.write_octets(message, Size::ANY);
             }
-            Self::NodeListHashRequest | Self::NodeListRequest => {}
+            Self::NodeListHashRequest
+            | Self::NodeListRequest
+            | Self::NameListHashRequest
+            | Self::NameListRequest => {}
             Self::PeeringInfoRequest { scheme } | Self::SettlementRequest { scheme } => {
                 scheme.write(writer);
             }
@@ -265,6 +302,12 @@ impl Encode for Content<'_> {
                 writer.write_octets(packet, Size::ANY);
                 writer.write_octets(commitment, COMMITMENT_SIZE);
             }
+            Self::NameCommit(commitment) => writer.write_bytes(&commitment.0),
+            Self::NameUnseal { name, salt } => {
+                write_name(writer, name);
+                writer.write_bytes(&salt.0);
+            }
+            Self::NameRenew(name) => write_name(writer, name),
         }
     }
 }
@@ -322,6 +365,14 @@ impl<'a> Decode<'a> for Content<'a> {
                 packet: reader.read_octets(Size::ANY)?,
                 commitment: reader.read_octets(COMMITMENT_SIZE)?,
             },
+            Kind::NameCommit => Self::NameCommit(Commitment(read_fixed(reader)?)),
+            Kind::NameUnseal => Self::NameUnseal {
+                name: read_name(reader)?,
+                salt: Salt(read_fixed(reader)?),
+            },
+            Kind::NameRenew => Self::NameRenew(read_name(reader)?),
+            Kind::NameListHashRequest => Self::NameListHashRequest,
+            Kind::NameListRequest => Self::NameListRequest,
         })
     }
 }

@@ -22,6 +22,7 @@ mod channel;
 mod config;
 mod hooks;
 mod io;
+pub mod names;
 mod node;
 mod persist;
 pub mod routing;

@@ -137,6 +137,13 @@ impl PeerNode {
                 Inbound::Reply(self.termination_request(&accepted, reason))
             }
             Content::SettlementRequest { scheme } => self.settle_on_request(accepted, scheme),
+            // Names are not taken yet (spec/roadmap.md#names): refused as
+            // not acted upon, so that a registrant takes nothing as done.
+            Content::NameCommit(_)
+            | Content::NameUnseal { .. }
+            | Content::NameRenew(_)
+            | Content::NameListHashRequest
+            | Content::NameListRequest => refuse(409, "names are not built"),
             other => Inbound::Reply(self.answer(hooks, &accepted, other)),
         }
     }
@@ -297,7 +304,12 @@ impl PeerNode {
             | Content::Settlement { .. }
             | Content::SettlementMessage { .. }
             | Content::SettlementRequest { .. }
-            | Content::PeeringTermination(_) => Reply::refuse(400, "unexpected"),
+            | Content::PeeringTermination(_)
+            | Content::NameCommit(_)
+            | Content::NameUnseal { .. }
+            | Content::NameRenew(_)
+            | Content::NameListHashRequest
+            | Content::NameListRequest => Reply::refuse(400, "unexpected"),
         }
     }
 

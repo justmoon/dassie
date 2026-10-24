@@ -2,7 +2,7 @@
 
 A node is known by its ID, and in DNS by its 39-character [label](../areas/identity.md#node-label). That is fine for machines, not for people: `$alice.dassiepay.net` is an address someone can say aloud, `$<39 characters>.dassiepay.net` is not. This design lets a node's owner register a **name** on the network, held for the node's ID by the bootstrap nodes that decide membership ([Network](../areas/network.md#membership)), so that every core node agrees who holds it.
 
-Registering a name is a race that anyone watching could join, so a registrant first commits to the name sealed, and pays, and reveals it only once its commitments are in place everywhere. The reasons are [names-by-earliest-commitment](../decisions/names-by-earliest-commitment.md); the design is not built yet ([roadmap](../roadmap.md#names)). Durations and sizes are starting points, to be set from the simulation when it is built.
+Registering a name is a race that anyone watching could join, so a registrant first commits to the name sealed, and pays, and reveals it only once its commitments are in place everywhere. The reasons are [names-by-earliest-commitment](../decisions/names-by-earliest-commitment.md). Names, commitments and their messages are built, and refused by every node until the rest is ([Peer protocol](../areas/peer-protocol.md#names)); the rest of the design is not built yet ([roadmap](../roadmap.md#names)). Durations and sizes are starting points, to be set from the simulation when it is built.
 
 ## 1. What it guarantees
 
@@ -22,7 +22,7 @@ They hold while at most f of the n configured bootstrap nodes are faulty, with n
 ## 3. Registering
 
 1. **Quote.** The registrant asks each registrar for the fee of one commitment. This is the quote and payment of [registration fees](../roadmap.md#registration-fees): one mechanism for both.
-2. **Commit.** It picks a random salt, keeps it on disk, and sends every registrar at once, paid, the commitment `C = H(tag ‖ name ‖ holder ID ‖ salt)`, with a domain tag of its own. The registrar appends `C` to its **log**, with its position and the registrar's own time, persists it, and only then answers. The answer is the receipt.
+2. **Commit.** It picks a random salt, keeps it on disk, and sends every registrar at once, paid, the commitment `C = H(tag ‖ name ‖ holder ID ‖ salt)`, with a domain tag of its own ([Peer protocol](../areas/peer-protocol.md#names) has its layout). The registrar appends `C` to its **log**, with its position and the registrar's own time, persists it, and only then answers. The answer is the receipt.
    - The salt keeps a dictionary of likely names from opening a commitment.
    - The holder's ID inside `C` makes a copied commitment useless: opening it registers the name only to the node that made it.
    - A commitment the registrar already holds is answered with its receipt, and is not paid again.
@@ -66,7 +66,7 @@ With n configured registrars of which at most f are faulty, n ≥ 3f + 1, and a 
 
 ## 7. Names
 
-A name is a DNS label, so that front doors can serve it: lowercase letters, digits and hyphens, not starting or ending with a hyphen, not starting with `xn--` (no internationalized names at first), and shorter than a node label, so that no name is ever read as a label, nor a label as a name. Some names are reserved, in a list in the code. The protocol does not depend on the syntax; the code holds it.
+A name is a DNS label, shorter than a node label, and some names are reserved: built, in [Peer protocol](../areas/peer-protocol.md#names) and `crates/dassie-peer/src/names/name.rs`. The rest of the protocol does not depend on the syntax.
 
 ## 8. Open questions
 
