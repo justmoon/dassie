@@ -173,10 +173,14 @@ pub struct Watcher {
     attested_escrow: Option<u32>,
     /// When the hub last wrote off a reset, as the view last said.
     written_off_at: Option<u64>,
-    /// Transactions attested that the validator has not taken yet.
-    untaken: BTreeSet<[u8; 32]>,
+    /// Transactions attested that the validator has not taken yet, with
+    /// the ledgers they are in.
+    untaken: BTreeMap<[u8; 32], u32>,
     /// The cursor to persist once they are taken.
     held_cursor: Option<EscrowCursor>,
+    /// The highest ledger a persisted cursor may name as attested, below a
+    /// transaction whose attestation was dropped: a restart reads it again.
+    ceiling: Option<u32>,
     out: VecDeque<Out>,
 }
 
@@ -199,8 +203,9 @@ impl Watcher {
             escrow_checked_ms: None,
             attested_escrow: None,
             written_off_at: None,
-            untaken: BTreeSet::new(),
+            untaken: BTreeMap::new(),
             held_cursor: None,
+            ceiling: None,
             out: VecDeque::new(),
         }
     }
@@ -230,21 +235,45 @@ impl Watcher {
         };
         self.untaken.remove(&hash);
         self.remember(hash);
+        self.release_cursor();
+    }
+
+    /// The host dropped the attestation of `transaction` before the
+    /// validator took it: it waits no more, and no cursor this watcher
+    /// persists passes its ledger, so a restart reads it again.
+    pub fn dropped(&mut self, transaction: Option<[u8; 32]>) {
+        let Some(ledger) = transaction.and_then(|hash| self.untaken.remove(&hash)) else {
+            return;
+        };
+        let below = ledger.saturating_sub(1);
+        self.ceiling = Some(self.ceiling.map_or(below, |ceiling| ceiling.min(below)));
+        self.release_cursor();
+    }
+
+    /// Persists the cursor held back, once no attestation waits.
+    fn release_cursor(&mut self) {
         if self.untaken.is_empty()
             && let Some(cursor) = self.held_cursor.take()
         {
-            self.out.push_back(Out::Cursor(cursor));
+            self.move_cursor(cursor);
         }
     }
 
     /// Persists `cursor`, or holds it while attestations wait to be taken:
-    /// a crash then reads their transactions again.
+    /// a crash then reads their transactions again. It never names as
+    /// attested a ledger past one whose attestation was dropped.
     fn move_cursor(&mut self, cursor: EscrowCursor) {
-        if self.untaken.is_empty() {
-            self.out.push_back(Out::Cursor(cursor));
-        } else {
+        if !self.untaken.is_empty() {
             self.held_cursor = Some(cursor);
+            return;
         }
+        let scanned_to = self
+            .ceiling
+            .map_or(cursor.scanned_to, |ceiling| cursor.scanned_to.min(ceiling));
+        self.out.push_back(Out::Cursor(EscrowCursor {
+            scanned_to,
+            ..cursor
+        }));
     }
 
     /// A connection is up: ask where the server stands.
@@ -534,12 +563,13 @@ impl Watcher {
 
     /// What a validated transaction of the escrow's attests.
     fn record(&mut self, record: &TxRecord, view: &EscrowView) {
-        let known = self.remembered.contains(&record.hash) || self.untaken.contains(&record.hash);
+        let known =
+            self.remembered.contains(&record.hash) || self.untaken.contains_key(&record.hash);
         if !record.validated || known {
             return;
         }
         if let Some(deposit) = deposit_of(record, self.escrow) {
-            self.attest(record.hash, ValidatorOperation::AttestDeposit(deposit));
+            self.attest(record, ValidatorOperation::AttestDeposit(deposit));
             return;
         }
         let Some((sequence, succeeded)) = outcome_of(record, self.escrow) else {
@@ -549,7 +579,7 @@ impl Watcher {
         if let Some((_, withdrawal)) = withdrawal {
             match withdrawal_outcome(record, self.escrow, sequence, withdrawal) {
                 Some(delivered) => self.attest(
-                    record.hash,
+                    record,
                     ValidatorOperation::AttestWithdrawal {
                         escrow_sequence: sequence,
                         delivered,
@@ -560,10 +590,7 @@ impl Watcher {
             }
         } else if view.signer_list == Some(sequence) {
             if succeeded {
-                self.attest(
-                    record.hash,
-                    ValidatorOperation::AttestSignerList { sequence },
-                );
+                self.attest(record, ValidatorOperation::AttestSignerList { sequence });
             } else {
                 self.remember(record.hash);
             }
@@ -580,9 +607,10 @@ impl Watcher {
         }
     }
 
-    fn attest(&mut self, hash: [u8; 32], operation: ValidatorOperation) {
-        self.untaken.insert(hash);
-        self.out.push_back(Out::Attest(operation, Some(hash)));
+    fn attest(&mut self, record: &TxRecord, operation: ValidatorOperation) {
+        self.untaken.insert(record.hash, record.ledger_index);
+        self.out
+            .push_back(Out::Attest(operation, Some(record.hash)));
     }
 
     fn remember(&mut self, hash: [u8; 32]) {
