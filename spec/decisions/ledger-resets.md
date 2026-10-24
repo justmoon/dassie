@@ -1,6 +1,6 @@
 # A ledger below the newest seen is a reset only on the testnet, and only once its UNL validates it
 
-**Areas:** [XRPL](../areas/xrpl.md#following-the-account), [Checking the XRP Ledger's validators](../designs/xrpl-validation.md#8-resets-under-a-unl). Built but for the UNL's part, which waits for the validators to be checked ([roadmap](../roadmap.md#checking-xrp-ledger-validators)).
+**Areas:** [XRPL](../areas/xrpl.md#following-the-account), [Checking the XRP Ledger's validators](../designs/xrpl-validation.md#8-resets-under-a-unl). Built: only what is newer, and a lower ledger that closed later as a reset on the testnet. Waiting for the validators to be checked ([roadmap](../roadmap.md#checking-xrp-ledger-validators)): the UNL's validation of a reset, the network's constant as the reset gate (today the gate is the network ID the server reports, which the account accepts only as the testnet's), the kept hash, a higher ledger that closed earlier ignored as an older chain, and an account gone only when proven.
 
 ## Facts
 
@@ -24,6 +24,7 @@
 - A reset that also gives the testnet new validator keys is seen only once the node has fetched the new validator list, which it does when quorum is lost.
 - A node whose clock is minutes off sees no validation as fresh, and sees no reset until its clock is right.
 - Until the validators are checked, a server that lies can still claim a reset on the testnet and have the node write off its balance; it can make the scheme book anything else it says too.
+- Until the validators are checked, on the testnet, an account absent as of a ledger the scheme has not seen past is still written off, as when its owner deletes it.
 
 ## Rejected
 

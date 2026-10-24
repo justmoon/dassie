@@ -106,11 +106,11 @@ The XRPL account takes its server's word on which ledgers are validated and what
   - the fake ledger: real headers, binary transactions and metadata, validators and a publisher, and a server that lies in each way [the design](designs/xrpl-validation.md#11-the-fake-ledger-and-the-lying-server) lists;
   - the account on the verifier: the proof engine, ties and each object's chain, the absence scan in place of a server's "not found", the reserve floor, resets under the UNL, the lists fetched over HTTPS through the node, the persisted state and its migration, and the connection's message bound raised to hold a transaction set;
   - the `node` simulation's lying server with its coverage minimums, and end-to-end tests against `fake_ledger`'s validators.
-- **Done when:** a server that reports a transaction, a balance or an absent account that no validated ledger holds, or a reset no quorum signed, gets nothing booked, written off or cancelled, and the scheme waits and reconnects until an honest server answers; a settlement that applied is never cancelled, whatever a server says of it; an expired or unreachable validator list stalls the scheme with its reason and never falls back to the server; with an honest server, the scheme settles as before, on both networks. In the simulation every XRPL node proves ledgers, and every kind of lie is reached.
+- **Done when:** a server that reports a transaction, a balance or an absent account that no validated ledger holds, or a reset no quorum signed, gets nothing booked, written off or cancelled, and the scheme waits and reconnects until an honest server answers; a server that refuses to serve what proves a peer's settlement moves it into the owner's suspense only once the next default server refused too; a settlement that applied is never cancelled, whatever a server says of it; an expired or unreachable validator list stalls the scheme with its reason and never falls back to the server; with an honest server, the scheme settles as before, on both networks. In the simulation every XRPL node proves ledgers, and every kind of lie is reached.
 - **Later:**
   - proofs from rippled's peer network (`TMProofPathRequest`) behind the same gate, which prove state too and end what a stale tie can do ([the design](designs/xrpl-validation.md#33-what-a-tie-cannot-prove));
-  - the negative UNL, so that a node rides out a fifth of the UNL offline as rippled does;
-  - hub validators observing the escrow through the verifier: see [Settlement hubs](#settlement-hubs).
+  - the negative UNL, so that a node rides out a fifth of the UNL offline as rippled does.
+- Hub validators use the verifier to observe the escrow for mainnet hubs, as part of the launch: see [Settlement hubs](#settlement-hubs).
 
 ### Mainnet schemes
 

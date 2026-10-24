@@ -25,7 +25,7 @@ The `live` realm stays refused until all of these hold:
 - there has been an external review;
 - a mainnet bootstrap node list exists.
 
-**Each network's account refuses another network's server.** The testnet account stops unless its server reports the testnet's network ID, so an owner who points it at a mainnet server gets a failed scheme, not mainnet XRP signed for with a testnet wallet. With the validators checked, the UNL is what binds an account to its network; the network ID stays the first, cheap refusal.
+**Each network's account refuses another network's server.** Today the testnet account stops unless its server reports the testnet's network ID, so an owner who points it at a mainnet server gets a failed scheme, not mainnet XRP signed for with a testnet wallet. With the validators checked, the UNL is what binds an account to its network, and the network ID stays the first, cheap refusal: a server the owner named that reports another network still fails the account, since only the owner can fix it, while a default server that does is left for the next default server, since default servers rotate and a wrong one should not stop a scheme the owner never pointed anywhere. Either way, a server on another network gets nothing booked.
 
 ## Accepted
 

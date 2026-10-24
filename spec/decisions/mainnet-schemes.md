@@ -7,7 +7,7 @@
 - The XRPL account is the testnet's in every constant: its network ID, its asset kind, its seed path, its server and faucet, and the scheme whose books hold its XRP. A scheme's ledger slug is its ID, and a ledger names its realm; `xrpl+xrp` exists in the live realm, and no scheme serves it.
 - A peering is on one scheme, and each XRPL scheme's memo type is a contract between peers, versioned with the peer protocol ([overview](../overview.md#frozen-surfaces)).
 - Transactions on the XRP Ledger's mainnet and testnet name no network: the same signed bytes apply on either, to an account of the same address. Only the UNL binds a ledger to a network ([verified-ledgers](verified-ledgers.md)).
-- The original derived a mainnet wallet at `node/settlement-module/xrpl/seed-mainnet`, with mainnet's own servers. The identity golden vectors pin that wallet for every entry.
+- The original derived a mainnet wallet at `node/settlement-module/xrpl/seed-mainnet`, with mainnet's own servers. The identity golden vectors pin the entropy at that path, from which that wallet derives, for every entry.
 - The realm sets a node's ILP addresses: `test.` in the test realm, `g.` in the live one. The node's realm is set by its owner, and `live` is refused only where it is set.
 - Mainnet has no faucet. RLUSD is Ripple's dollar token, on mainnet and the testnet; DSUSD is a testnet dollar of Dassie's own ([dsusd](dsusd.md)).
 
