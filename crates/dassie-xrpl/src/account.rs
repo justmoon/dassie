@@ -54,7 +54,7 @@ use alloc::vec::Vec;
 use dassie_ledger::{MAX_TOTAL, Name};
 use dassie_settlement::{
     AssetEffect, AssetId, Detach, ExternalAsset, Freeze, Holding, LedgerInput, LedgerStatus,
-    SchemeError,
+    SchemeError, Unproven,
 };
 use serde_json::{Value, json};
 
@@ -824,22 +824,6 @@ impl XrplAccount {
     #[must_use]
     pub const fn proofs(&self) -> Proofs {
         self.counted
-    }
-
-    /// How often the history it walked had a gap beyond the history bound
-    /// that the server no longer had: what fell in it, its schemes matched
-    /// through suspense ([`HISTORY_BOUND`]).
-    #[must_use]
-    pub const fn history_gaps(&self) -> u64 {
-        self.counted.gaps
-    }
-
-    /// How often one of its transactions past its last ledger could be
-    /// proven neither applied nor absent, as when someone else signed for
-    /// the account: it stays pending, for the owner.
-    #[must_use]
-    pub const fn unproven(&self) -> u64 {
-        self.counted.unproven
     }
 
     /// Checks validation signatures with `signatures` from now on, as a
@@ -2390,6 +2374,19 @@ impl ExternalAsset for XrplAccount {
     /// validated moves.
     fn waiting(&self) -> Option<&'static str> {
         self.waiting.filter(|_| self.failed.is_none())
+    }
+
+    /// How often the history it walked had a gap beyond the history bound
+    /// that the server no longer had: what fell in it, its schemes matched
+    /// through suspense ([`HISTORY_BOUND`]); and how often one of its
+    /// transactions past its last ledger could be proven neither applied
+    /// nor absent, as when someone else signed for the account: it stays
+    /// pending, for the owner.
+    fn unproven(&self) -> Unproven {
+        Unproven {
+            history_gaps: self.counted.gaps,
+            settlements: self.counted.unproven,
+        }
     }
 
     fn connection(&self) -> Option<&str> {

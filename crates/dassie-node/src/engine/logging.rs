@@ -250,9 +250,7 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
     match event {
         SettlementEvent::BalanceBooked { .. }
         | SettlementEvent::OtherRealm { .. }
-        | SettlementEvent::Disabled { .. } => {
-            activation(severity, event);
-        }
+        | SettlementEvent::Disabled { .. } => activation(severity, event),
         SettlementEvent::Reconciled {
             scheme,
             amount,
@@ -315,7 +313,39 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::CreditRaised { .. }
         | SettlementEvent::HubCredit { .. }
         | SettlementEvent::EarningsNotRead { .. } => settlement_outcome(severity, event),
+        SettlementEvent::HistoryGap { .. } | SettlementEvent::SettlementUnproven { .. } => {
+            unproven(severity, event);
+        }
     }
+}
+
+/// What an external asset could not prove of its ledger, with why.
+fn unproven(severity: Severity, event: &SettlementEvent) {
+    let (SettlementEvent::HistoryGap {
+        asset,
+        schemes,
+        total,
+    }
+    | SettlementEvent::SettlementUnproven {
+        asset,
+        schemes,
+        total,
+    }) = event
+    else {
+        return;
+    };
+    let schemes = names(schemes);
+    if matches!(event, SettlementEvent::HistoryGap { .. }) {
+        emit!(severity, target: target::SETTLEMENT, %asset, schemes, total, "the ledger server no longer had history beyond the history bound: what fell in the gap is matched through suspense, without who it was");
+    } else {
+        emit!(severity, target: target::SETTLEMENT, %asset, schemes, total, "a settlement past its last ledger is proven neither applied nor absent, as when someone else signed for the account: it stays pending, for the owner");
+    }
+}
+
+/// Names, comma-separated, for a field.
+fn names(names: &[dassie_ledger::Name]) -> String {
+    let names: Vec<String> = names.iter().map(ToString::to_string).collect();
+    names.join(",")
 }
 
 /// What became of settlements, ours and peers'.
@@ -377,7 +407,9 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::BooksCannotSettle { .. }
         | SettlementEvent::Settling { .. }
         | SettlementEvent::SchemeUnavailable { .. }
-        | SettlementEvent::PrepareFailed { .. } => {}
+        | SettlementEvent::PrepareFailed { .. }
+        | SettlementEvent::HistoryGap { .. }
+        | SettlementEvent::SettlementUnproven { .. } => {}
     }
 }
 
@@ -433,5 +465,50 @@ mod tests {
                 ("amount".to_string(), "5".to_string())
             ]
         );
+    }
+    // An external asset's history gap and its settlement proven neither
+    // applied nor absent are warnings, with the asset, its schemes, the
+    // total and, in the message, why.
+    #[test]
+    fn what_an_asset_could_not_prove_is_logged_as_a_warning() {
+        let asset = dassie_xrpl::account::FIRST;
+        let schemes = vec![
+            dassie_ledger::Name::new("xrpl-testnet").unwrap(),
+            dassie_ledger::Name::new("xrpl-testnet-dsusd").unwrap(),
+        ];
+        let lines = capture(|| {
+            log(&SettlementEvent::HistoryGap {
+                asset,
+                schemes: schemes.clone(),
+                total: 1,
+            }
+            .into());
+            log(&SettlementEvent::SettlementUnproven {
+                asset,
+                schemes,
+                total: 2,
+            }
+            .into());
+        });
+        assert_eq!(lines.len(), 2);
+        for (line, total) in lines.iter().zip(["1", "2"]) {
+            assert_eq!(
+                (line.level, line.target.as_str()),
+                (LogLevel::Warn, target::SETTLEMENT)
+            );
+            assert_eq!(
+                line.fields,
+                [
+                    ("asset".to_string(), asset.to_string()),
+                    (
+                        "schemes".to_string(),
+                        "xrpl-testnet,xrpl-testnet-dsusd".to_string()
+                    ),
+                    ("total".to_string(), total.to_string()),
+                ]
+            );
+        }
+        assert!(lines[0].message.contains("history"));
+        assert!(lines[1].message.contains("neither applied nor absent"));
     }
 }

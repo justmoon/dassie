@@ -8,7 +8,7 @@ use dassie_connector::{EndpointId, SpendingCap};
 use dassie_identity::NodeId;
 use dassie_ledger::{LedgerId, Name, Reference, TransferError};
 use dassie_peer::SendError;
-use dassie_settlement::{LedgerStatus, ReconcileCause, SchemeError};
+use dassie_settlement::{AssetId, LedgerStatus, ReconcileCause, SchemeError};
 
 use super::EngineError;
 use crate::store::{OutgoingState, PaymentId};
@@ -397,6 +397,30 @@ pub enum SettlementEvent {
         /// Why.
         error: EngineError,
     },
+    /// The history an external asset read had a gap its server no longer
+    /// had, beyond the history bound: what fell in it its schemes matched
+    /// through suspense, without who it was
+    /// (spec/areas/xrpl.md#what-it-could-not-prove).
+    HistoryGap {
+        /// The asset.
+        asset: AssetId,
+        /// The schemes that settle through it.
+        schemes: Vec<Name>,
+        /// How many gaps since the asset was made.
+        total: u64,
+    },
+    /// A settlement of an external asset's own, past its last ledger, was
+    /// proven neither applied nor absent, as when someone else signed for
+    /// the account: it stays pending, for the owner
+    /// (spec/areas/xrpl.md#what-it-could-not-prove).
+    SettlementUnproven {
+        /// The asset.
+        asset: AssetId,
+        /// The schemes that settle through it.
+        schemes: Vec<Name>,
+        /// How many since the asset was made.
+        total: u64,
+    },
 }
 
 impl Event {
@@ -511,7 +535,9 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
         | SettlementEvent::UnknownCancelled { .. }
         | SettlementEvent::Failed { .. }
         | SettlementEvent::PeerLoss { .. }
-        | SettlementEvent::PeerSettlementRefused { .. } => Severity::Warn,
+        | SettlementEvent::PeerSettlementRefused { .. }
+        | SettlementEvent::HistoryGap { .. }
+        | SettlementEvent::SettlementUnproven { .. } => Severity::Warn,
         SettlementEvent::SchemeStopped { .. }
         | SettlementEvent::AnnounceFailed { .. }
         | SettlementEvent::EarningsNotRead { .. } => Severity::Error,

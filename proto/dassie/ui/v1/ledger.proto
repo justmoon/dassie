@@ -169,6 +169,16 @@ message ExternalAsset {
   // Whether the node can ask a faucet for test money on it: AskFaucet
   // with any of its schemes.
   bool faucet = 7;
+  // How often, since the node started, the history it read had a gap its
+  // server no longer had, beyond the history bound: what fell in one its
+  // schemes matched through suspense, without who it was. Each is logged
+  // as a warning.
+  uint64 history_gaps = 8;
+  // How many of its settlements, since the node started, are past their
+  // last ledger and proven neither applied nor absent, as when someone
+  // else signed for the account: each stays pending, for the owner, and
+  // is logged as a warning.
+  uint64 unproven_settlements = 9;
 }
 
 // What an external asset holds of one asset, as its ledger last said.

@@ -636,7 +636,7 @@ fn history_beyond_the_bound_reconciles_by_the_balance() {
     let mut world = away_beyond_the_bound(4_000_000_000);
     world.connect(0);
     world.closes(1);
-    assert_eq!(world.nodes[0].scheme.account.history_gaps(), 1);
+    assert_eq!(world.nodes[0].scheme.account.unproven().history_gaps, 1);
     assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
     assert_eq!(world.nodes[0].books.suspense, 4_000_000_000);
     assert!(world.nodes[0].books.credited.is_empty());
@@ -1715,7 +1715,7 @@ fn a_made_up_proof_of_ours_books_nothing() {
     let books = &world.nodes[0].books;
     assert!(books.finalized.is_empty() && books.cancelled.is_empty());
     assert!(books.pending.contains_key(&ours));
-    assert!(world.nodes[0].scheme.account.unproven() > 0);
+    assert!(world.nodes[0].scheme.account.unproven().settlements > 0);
     // The next settlement takes the sequence the anchor proves, and applies.
     let next = world.settle(0, 1, 1_000_000_000, &state_a);
     world.close();
@@ -1738,5 +1738,5 @@ fn a_settlement_is_cancelled_only_once_proven_absent() {
     );
     world.closes(2);
     assert_eq!(world.nodes[0].books.cancelled, [id]);
-    assert_eq!(world.nodes[0].scheme.account.unproven(), 0);
+    assert_eq!(world.nodes[0].scheme.account.unproven().settlements, 0);
 }

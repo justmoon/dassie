@@ -524,7 +524,7 @@ fn a_settlement_never_read_stays_pending_across_a_restart() {
     // Synced, and told what it did not read, but not yet looked up.
     restarted.drop_lookups = true;
     restarted.connect();
-    assert_eq!(restarted.account.history_gaps(), 1);
+    assert_eq!(restarted.account.unproven().history_gaps, 1);
     let unread = |shared: &Shared| {
         let state: serde_json::Value = serde_json::from_slice(&shared.scheme().state()).unwrap();
         state["unread"].as_array().map_or(0, Vec::len)

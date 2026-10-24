@@ -15,7 +15,7 @@ use dassie_identity::NodeKey;
 use dassie_ledger::{AccountName, LedgerId, Name, Realm};
 use dassie_settlement::{
     AssetEffect, AssetId, AssetKind, Detach, Effect, ExternalAsset, Holding, LedgerInput,
-    LedgerStatus, SchemeError, SchemeInfo, SettlementScheme, Stub,
+    LedgerStatus, SchemeError, SchemeInfo, SettlementScheme, Stub, Unproven,
 };
 use dassie_xrpl::{DsusdScheme, RlusdScheme, XrplAccount, XrplMainnetScheme, XrplScheme};
 
@@ -307,6 +307,37 @@ fn create(
     }
 }
 
+/// The warnings for what an asset could not prove that grew from `seen` to
+/// `now`: one per kind, with its total. Counts only grow while the asset
+/// lives.
+fn unproven_warnings(
+    asset: AssetId,
+    schemes: &[Name],
+    seen: Unproven,
+    now: Unproven,
+) -> impl Iterator<Item = SettlementEvent> {
+    assert!(
+        now.history_gaps >= seen.history_gaps,
+        "history gaps only grow"
+    );
+    assert!(
+        now.settlements >= seen.settlements,
+        "unproven settlements only grow"
+    );
+    let gap = (now.history_gaps > seen.history_gaps).then(|| SettlementEvent::HistoryGap {
+        asset,
+        schemes: schemes.to_vec(),
+        total: now.history_gaps,
+    });
+    let unproven =
+        (now.settlements > seen.settlements).then(|| SettlementEvent::SettlementUnproven {
+            asset,
+            schemes: schemes.to_vec(),
+            total: now.settlements,
+        });
+    gap.into_iter().chain(unproven)
+}
+
 /// A scheme just made, and the asset it settles through.
 pub(super) type MadeScheme = (Box<dyn SettlementScheme>, Option<AssetId>);
 
@@ -320,6 +351,8 @@ pub(super) struct ActiveAsset {
     pub epoch: u64,
     /// The state version last written with a checkpoint.
     pub version: u64,
+    /// What it could not prove, as last warned of.
+    pub unproven: Unproven,
 }
 
 /// An external asset as the owner sees it: what it holds, as its ledger
@@ -341,6 +374,8 @@ pub struct AssetView {
     pub schemes: Vec<String>,
     /// Whether the node can ask a faucet for test money on it.
     pub faucet: bool,
+    /// What it could not prove of its ledger since the node started.
+    pub unproven: Unproven,
 }
 
 /// What comes for an asset from its connection or its faucet.
@@ -430,6 +465,7 @@ impl Core {
                     config: config.to_string(),
                     epoch: 0,
                     version: 0,
+                    unproven: Unproven::default(),
                 },
             );
         }
@@ -525,8 +561,25 @@ impl Core {
         if let Some(active) = self.assets.get_mut(&asset) {
             active.asset.told();
         }
+        self.warn_unproven(asset);
         self.carry_out(asset);
         self.update_peer_schemes();
+    }
+
+    /// Warns of each kind of what `asset` could not prove that grew since
+    /// the last warning, with the schemes on it
+    /// (spec/areas/xrpl.md#what-it-could-not-prove).
+    fn warn_unproven(&mut self, asset: AssetId) {
+        let schemes = self.live_schemes_on(asset);
+        let Some(active) = self.assets.get_mut(&asset) else {
+            return;
+        };
+        let now = active.asset.unproven();
+        let seen = std::mem::replace(&mut active.unproven, now);
+        for event in unproven_warnings(asset, &schemes, seen, now) {
+            self.changes.ledger = true;
+            self.report(event);
+        }
     }
 
     /// Tells `scheme` what `asset` learnt, and books what it says. A
@@ -839,6 +892,7 @@ impl Core {
                     .map(|(name, _)| name.as_str().to_string())
                     .collect(),
                 faucet: active.asset.has_faucet(),
+                unproven: active.asset.unproven(),
             })
             .collect()
     }
@@ -1003,6 +1057,51 @@ mod tests {
             create_asset(further, "", &[], (&key, 0)),
             Err(SchemeError::UnknownScheme)
         ));
+    }
+
+    // spec/areas/xrpl.md#what-it-could-not-prove: each history gap and each
+    // settlement proven neither applied nor absent is warned of once, with
+    // the asset's schemes and the total; nothing new, nothing warned.
+    #[test]
+    fn what_an_asset_could_not_prove_is_warned_of_once_as_it_grows() {
+        let asset = dassie_xrpl::account::FIRST;
+        let schemes = [Name::new("xrpl-testnet").unwrap()];
+        let counts = |history_gaps, settlements| Unproven {
+            history_gaps,
+            settlements,
+        };
+        let warned = |seen, now| unproven_warnings(asset, &schemes, seen, now).collect::<Vec<_>>();
+        assert!(warned(counts(0, 0), counts(0, 0)).is_empty());
+        assert!(warned(counts(2, 1), counts(2, 1)).is_empty());
+        assert_eq!(
+            warned(counts(0, 0), counts(1, 0)),
+            [SettlementEvent::HistoryGap {
+                asset,
+                schemes: schemes.to_vec(),
+                total: 1,
+            }]
+        );
+        assert_eq!(
+            warned(counts(1, 0), counts(3, 2)),
+            [
+                SettlementEvent::HistoryGap {
+                    asset,
+                    schemes: schemes.to_vec(),
+                    total: 3,
+                },
+                SettlementEvent::SettlementUnproven {
+                    asset,
+                    schemes: schemes.to_vec(),
+                    total: 2,
+                },
+            ]
+        );
+        let event = super::super::Event::from(SettlementEvent::SettlementUnproven {
+            asset,
+            schemes: schemes.to_vec(),
+            total: 1,
+        });
+        assert_eq!(event.severity(), super::super::Severity::Warn);
     }
 
     // A node offers only its realm's schemes.

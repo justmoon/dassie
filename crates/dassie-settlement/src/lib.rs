@@ -38,7 +38,7 @@ mod stub;
 
 pub use activation::{Activation, activation};
 pub use asset::{
-    AssetEffect, AssetId, AssetKind, Detach, ExternalAsset, Freeze, Holding, LedgerInput,
+    AssetEffect, AssetId, AssetKind, Detach, ExternalAsset, Freeze, Holding, LedgerInput, Unproven,
 };
 pub use commitments::{Commitments, Decided, Held, HoldsWith, Membership, Promised};
 pub use scheme::{

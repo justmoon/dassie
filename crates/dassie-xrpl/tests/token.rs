@@ -1570,7 +1570,7 @@ fn a_settlement_never_read_stays_pending_across_a_restart() {
     world.restart(0);
     world.close();
     assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
-    assert_eq!(world.nodes[0].account.history_gaps(), 1);
+    assert_eq!(world.nodes[0].account.unproven().history_gaps, 1);
     assert!(world.nodes[0].books[USD].finalized.is_empty());
     world.drop_lookups = false;
     world.restart(0);
