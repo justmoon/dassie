@@ -169,9 +169,9 @@ async fn a_periphery_node_is_paid_beneath_its_uplink() {
         BACK,
     )
     .await;
-    // By its books, its uplink owes it what it was paid, less what it paid
-    // back.
-    assert_eq!(owes(&p, &key_a).await, -i128::from(PAYMENT - BACK));
+    // By its books, its packets with its uplink came to what it was paid,
+    // less what it paid back.
+    assert_eq!(carried(&p, &key_a).await, -i128::from(PAYMENT - BACK));
     a.stop().await;
     p.stop().await;
 }
@@ -264,8 +264,9 @@ async fn a_periphery_node_is_paid_beneath_the_uplink_it_names() {
             "{}",
             payment.destination_account
         );
-        // The uplink's client pays it there, through that uplink.
-        let before = owes(&p, key_uplink).await;
+        // The uplink's client pays it there, through that uplink and not
+        // the other.
+        let before = [carried(&p, &key_a).await, carried(&p, &key_b).await];
         let mut paying = client(uplink).await;
         pay_stream(
             &clock,
@@ -275,7 +276,13 @@ async fn a_periphery_node_is_paid_beneath_the_uplink_it_names() {
             PAYMENT,
         )
         .await;
-        assert_eq!(owes(&p, key_uplink).await, before - i128::from(PAYMENT));
+        let after = [carried(&p, &key_a).await, carried(&p, &key_b).await];
+        let moved = if key_uplink.node_id() == key_a.node_id() {
+            [-i128::from(PAYMENT), 0]
+        } else {
+            [0, -i128::from(PAYMENT)]
+        };
+        assert_eq!([after[0] - before[0], after[1] - before[1]], moved);
     }
     // A node that is no uplink of its, and no node at all, are refused.
     let refused = create(&p, Some(key(49).node_id().to_string())).await;
@@ -352,21 +359,48 @@ async fn incoming(node: &TestNode) -> dassie_node::store::IncomingRow {
         .unwrap()
 }
 
-/// What `node` owes its peer `peer` net, by its own books: its position
-/// less the credit it extends; negative when the peer owes it.
-async fn owes(node: &TestNode, peer: &NodeKey) -> i128 {
-    let Ok(response::Method::ListAccounts(list)) = node
-        .ipc()
-        .await
-        .call(Method::ListAccounts(proto::ListAccountsRequest {}))
-        .await
-    else {
-        panic!("no accounts")
-    };
-    let net = |account: &str| {
-        let path = format!("stub+usd:{account}/{}", peer.node_id());
-        let found = list.accounts.iter().find(|a| a.path == path).unwrap();
-        i128::from(found.credits_posted) - i128::from(found.debits_posted)
-    };
-    net("assets/interledger") + net("contra/trust")
+/// What the packets between `node` and its peer `peer` moved net, by
+/// `node`'s own books: what it owes the peer for them, negative when the
+/// peer owes it. Settlements do not count: a senior extends its junior no
+/// credit and asks it to pay in advance at once
+/// (spec/decisions/earned-trust.md), at a time of its own, so what the
+/// node owes in all can move while a payment runs.
+async fn carried(node: &TestNode, peer: &NodeKey) -> i128 {
+    let path = format!("stub+usd:assets/interledger/{}", peer.node_id());
+    let mut owner = node.ipc().await;
+    let mut after = None;
+    let mut net = 0;
+    // A test's journal fits in a few pages.
+    for _ in 0..100 {
+        let Ok(response::Method::ListTransfers(list)) = owner
+            .call(Method::ListTransfers(proto::ListTransfersRequest {
+                after_sequence: after,
+                limit: 1000,
+                account: None,
+            }))
+            .await
+        else {
+            panic!("no journal")
+        };
+        let Some(last) = list.transfers.last() else {
+            return net;
+        };
+        after = Some(last.sequence);
+        for transfer in &list.transfers {
+            let packet = matches!(
+                transfer.reference,
+                Some(proto::transfer::Reference::Packet(_))
+            );
+            if !packet || transfer.state() != proto::TransferState::Posted {
+                continue;
+            }
+            if transfer.credit_path == path {
+                net += i128::from(transfer.amount);
+            }
+            if transfer.debit_path == path {
+                net -= i128::from(transfer.amount);
+            }
+        }
+    }
+    panic!("the journal did not end");
 }
