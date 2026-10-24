@@ -159,8 +159,8 @@ export type GetStatusResponse = Message<"dassie.ui.v1.GetStatusResponse"> & {
   /**
    * The origins it answers Open Payments under, the main one first
    * (spec/areas/payments.md#the-nodes-names): its hostname's, or else its
-   * name at the default front door and the names its owner added. Empty
-   * before setup on a node without a hostname.
+   * name at the default front door, the names its owner added, and the
+   * names it holds there. Empty before setup on a node without a hostname.
    *
    * @generated from field: repeated string open_payments_origins = 10;
    */

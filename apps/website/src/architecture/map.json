@@ -357,9 +357,9 @@
         "Relayed streams: any QUIC node relays for the nodes connected to it, with TLS end to end, so a node without a public address that keeps a connection to a relay is still reached for Open Payments and by the owner's paired apps; a node without a hostname keeps one to the `dassiepay.net` front door unless `DASSIE_RELAY` names another or, empty, none",
         "Front doors: a server with a key of its own and a wildcard certificate that takes Open Payments requests for `<label>.<domain>` and passes them to the node the label names, over relayed streams it opens on the connection the node keeps to it; it returns only the node's signed JSON, under a policy that lets nothing run, and never a node's page or a cookie; at the root of a name it shows a short static page of its own, saying what the name is and whether the node is connected",
         "RPC with live streams, the log ring, the database inspector and `GET /stats`",
-        "The owner's names, registered and renewed through the peer node, and how each stands with each registrar, streamed to the wallet",
+        "The owner's names, registered and renewed through the peer node, and how each stands with each registrar, streamed to the wallet; once the node holds a name, it answers Open Payments at `<name>.dassiepay.net` too, and stops when it no longer holds it",
         "Owner apps paired by the owner on the node's own machine: each proves a device key on a relayed stream and calls the RPC as the owner until it is revoked",
-        "Open Payments over HTTPS and relayed streams: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments, each answer signed with the node key and written under the name the request came through",
+        "Open Payments over HTTPS and relayed streams: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments, each answer signed with the node key and written under the name the request came through; as a client at `dassiepay.net`, the node takes only answers signed by the node a label names, or by a name's holder in its own view",
         "Exchange rates, fetched from several sources, the fee and spread on what passes between peers, and the price table rebuilt from them and the owner's funds whenever either changes",
         "A core node's rate feed: the price table, signed once and sent over UDP to every subscriber that proved its address, at most once a second while it changes, with the feed's port in `GET /stats` and the node's link state, and its counters in the owner's status rather than the log",
         "Credit to each peer that grows with the fees it earned the node, read from the journal; over a settlement hub, the credit is the node's own hold toward the peer, kept in step as the hold is funded and taken from, and nothing grows",
@@ -1611,6 +1611,13 @@
             "wallet"
           ],
           "text": "Every node reads the registrars' name lists and takes as the holder the node that more than two thirds of them list. The wallet shows the name as the owner's, and the node renews it before it expires."
+        },
+        {
+          "ids": [
+            "node",
+            "payments"
+          ],
+          "text": "The node now answers Open Payments at `<name>.dassiepay.net` as well, and signs every answer. Another Dassie node paying it there takes an answer only if the holder its own view names signed it."
         }
       ]
     }

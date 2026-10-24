@@ -7,6 +7,7 @@ use dassie_peer::names::registrant::{RegisterError, RenewError};
 use dassie_peer::names::{Name, NameStatus};
 
 use super::{Core, EngineError};
+use crate::open_payments::MAX_HELD_NAMES;
 
 /// The owner's names, as the node sees them.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,6 +40,33 @@ impl Core {
             frozen: holders.registrars() > 0 && holders.is_frozen(),
             names: self.peer.name_statuses(self.now_ms),
         }
+    }
+
+    /// The names the node holds in its own view, by name, at most
+    /// [`MAX_HELD_NAMES`]: those it answers Open Payments to
+    /// (spec/areas/payments.md#the-nodes-names).
+    pub fn held_names(&self) -> Vec<Name> {
+        let own = self.peer.own();
+        self.peer
+            .holders()
+            .held()
+            .filter(|held| held.holder == *own)
+            .map(|held| held.name)
+            .take(MAX_HELD_NAMES)
+            .collect()
+    }
+
+    /// Whether a name's holder changed in the node's view since the last
+    /// call, or, at the first, whether the view restored any.
+    pub fn take_held_names_changed(&mut self) -> bool {
+        std::mem::take(&mut self.held_names_changed)
+    }
+
+    /// The node that holds `name` in the node's view, if any: the node a
+    /// Dassie-aware client expects to sign the answers under it
+    /// (spec/areas/payments.md#signed-responses).
+    pub fn name_holder(&self, name: &Name) -> Option<NodeId> {
+        self.peer.holders().holder(name).map(|held| held.holder)
     }
 
     /// Registers `name` for the node at every registrar: committed sealed,

@@ -79,7 +79,7 @@ pub async fn incoming_payment(
                     format!("the receiver cannot be read: {failure}"),
                 ),
                 ClientError::Unavailable => OpError::unavailable(),
-                ClientError::Invalid(_) | ClientError::Refused(_) => {
+                ClientError::Invalid(_) | ClientError::Refused(_) | ClientError::UnknownName => {
                     OpError::invalid(format!("the receiver cannot be read: {failure}"))
                 }
             }),

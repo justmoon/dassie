@@ -215,8 +215,7 @@ fn continuation(urls: &Urls, id: PaymentId, token: String) -> Continue {
 /// The public name of the client's wallet address: what the consent page
 /// shows beside its URL. None if it has none or cannot be read.
 async fn public_name(node: &Node, client: &str) -> Option<String> {
-    let peer_client = node.peer_client()?;
-    let address = super::client::fetch_wallet_address(peer_client, client)
+    let address = super::client::fetch_wallet_address(node, client)
         .await
         .ok()?;
     let name = address.public_name?;

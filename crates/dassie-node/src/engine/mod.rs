@@ -305,6 +305,14 @@ impl Engine {
         self.call(|core| Ok(core.names())).await
     }
 
+    /// The node that holds `name` in the node's view, if any.
+    pub async fn name_holder(
+        &self,
+        name: dassie_peer::names::Name,
+    ) -> Result<Option<dassie_identity::NodeId>, EngineError> {
+        self.call(move |core| Ok(core.name_holder(&name))).await
+    }
+
     /// Registers `name` for the node at every registrar.
     pub async fn register_name(&self, name: String) -> Result<(), EngineError> {
         self.call(move |core| core.register_name(&name)).await
@@ -856,6 +864,11 @@ impl Driver<'_> {
             }
             self.node.set_peerings(classes);
         }
+        if self.core.take_held_names_changed() {
+            self.node
+                .open_payments()
+                .set_held_names(self.core.held_names());
+        }
         for reply in self.replies.drain(..) {
             reply();
         }
@@ -1048,6 +1061,9 @@ impl<'a> Published<'a> {
 impl Drop for Published<'_> {
     fn drop(&mut self) {
         self.node.publish_engine(None);
+        // The names held in this engine's view go with it; the next one
+        // says what it holds as it starts.
+        self.node.open_payments().set_held_names(Vec::new());
         self.generation.cancel();
     }
 }

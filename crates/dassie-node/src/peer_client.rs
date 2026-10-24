@@ -65,9 +65,20 @@ pub struct WebResponse {
     pub status: u16,
     /// The media type, without parameters, in lower case.
     pub media_type: Option<String>,
+    /// The fields a node's signature on its answer is in, each line as it
+    /// came: `signature`, `signature-input` and `content-digest`
+    /// (spec/areas/payments.md#signed-responses).
+    pub signature_fields: Vec<(String, String)>,
     /// The body.
     pub body: Vec<u8>,
 }
+
+/// The response fields [`WebResponse::signature_fields`] keeps.
+const SIGNATURE_FIELDS: [http::HeaderName; 3] = [
+    http::HeaderName::from_static("signature"),
+    http::HeaderName::from_static("signature-input"),
+    http::HeaderName::from_static("content-digest"),
+];
 
 /// Why a request to another server failed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -341,6 +352,7 @@ impl PeerClient {
             .map_err(|error| WebError::Failed(error.to_string()))?;
         let status = response.status().as_u16();
         let media_type = media_type(response.headers());
+        let signature_fields = signature_fields(response.headers());
         let body = Limited::new(response.into_body(), max_bytes)
             .collect()
             .await
@@ -350,9 +362,27 @@ impl PeerClient {
         Ok(WebResponse {
             status,
             media_type,
+            signature_fields,
             body,
         })
     }
+}
+
+/// The lines of [`SIGNATURE_FIELDS`] that are text, at most
+/// `httpsig::MAX_FIELD_LINES` of each, which is all a signature's check
+/// reads.
+fn signature_fields(headers: &http::HeaderMap) -> Vec<(String, String)> {
+    SIGNATURE_FIELDS
+        .iter()
+        .flat_map(|name| {
+            headers
+                .get_all(name)
+                .iter()
+                .filter_map(|value| value.to_str().ok())
+                .take(dassie_payments::httpsig::MAX_FIELD_LINES)
+                .map(|value| (name.as_str().to_string(), value.to_string()))
+        })
+        .collect()
 }
 
 /// The authority of an `https` URL, as the guard reads it: none if the URL
