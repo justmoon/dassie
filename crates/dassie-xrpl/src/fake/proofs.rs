@@ -3,25 +3,32 @@
 //! `manifest`:
 //!
 //! - `validations` `{ledger_hash}`: `{ledger_hash, validations}`, each the
-//!   hex of a validation the fake holds for that ledger.
-//! - `tx_proof` `{tx_hash, ledger_index?}`: `{tx_blob, meta_blob,
-//!   ledger_index, ledger_header, path}`, the branch in the ledger's
-//!   transaction tree leaf first, each node in hex.
-//! - `state_proof` `{keys, ledger_index | ledger_hash}`, `"validated"` or
-//!   none for the validated ledger: `{ledger_index, ledger_header,
-//!   entries}`, each `{key, node_binary, path}`, or `{key, absent, path}`
-//!   for a key the state does not hold, with the branch that proves it.
+//!   hex of a validation the fake holds for that ledger: those of a ledger
+//!   that closed within [`VALIDATIONS_HELD_S`] of the newest, as rippled
+//!   holds them, and none for an older one.
+//! - `tx_proof` `{tx_hash, ledger_index | ledger_hash?}`: `{tx_blob,
+//!   meta_blob, ledger_index, ledger_hash, ledger_header, validated, path}`,
+//!   the branch in the ledger's transaction tree, each node in hex.
+//! - `state_proof` `{keys, ledger_index | ledger_hash}`, the newest
+//!   validated ledger when it names none (or `"validated"`):
+//!   `{ledger_index, ledger_hash, ledger_header, validated, entries}`, each
+//!   `{key, node_binary?, path}`, without `node_binary` for a key the state
+//!   does not hold, whose branch proves it absent. At most
+//!   [`MAX_STATE_PROOF_KEYS`] distinct keys.
 //! - `manifest` `{public_key}`: `{requested, manifest, details}`.
 //!
-//! A ledger beyond what the fake keeps is `lgrNotFound`. A lying
-//! connection answers each as its lie has it ([`super::lies`]).
+//! A branch lists each node as rippled hashes it, deepest first
+//! ([`crate::shamap`]). `ledger_index`, `ledger_hash` and `validated` are
+//! hints: every ledger the fake closed is validated. A ledger beyond what
+//! the fake keeps is `lgrNotFound`. A lying connection answers each as its
+//! lie has it ([`super::lies`]).
 
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use serde_json::{Value, json};
 
-use super::chain::CLOSE_TIME_RESOLUTION_S;
+use super::chain::{CLOSE_TIME_RESOLUTION_S, Sealed, VALIDATIONS_HELD_S};
 use super::lies::Lie;
 use super::meta::{affected_node, message, metadata};
 use super::objects::{self, BALANCE, HASHES, Object};
@@ -38,8 +45,9 @@ use crate::shamap::Tree;
 use crate::unl::FRESH_FOR_MS;
 use crate::{DROPS_PER_XRP, MAX_DROPS, from_hex, hex_upper};
 
-/// The most keys one `state_proof` names: an account's root, its lines,
-/// their issuers, the fee settings, the skip lists and a pool, with room.
+/// The most distinct keys one `state_proof` names, as the proof API bounds
+/// them: an account's root, its lines, their issuers, the fee settings,
+/// the skip lists and a pool, with room.
 pub const MAX_STATE_PROOF_KEYS: usize = 32;
 /// How much longer before the newest ledger than its validations stay
 /// fresh an old anchor closed, in seconds.
@@ -59,8 +67,8 @@ fn hash_param(request: &Value, key: &str) -> Option<[u8; 32]> {
 }
 
 /// A branch as the answers write it: each node in hex.
-fn path(branch: Option<Vec<Vec<u8>>>) -> Value {
-    (branch.unwrap_or_default().iter())
+fn path(branch: &[Vec<u8>]) -> Value {
+    (branch.iter())
         .map(|node| Value::from(hex_upper(node)))
         .collect::<Vec<_>>()
         .into()
@@ -92,7 +100,12 @@ impl FakeLedger {
         self.serves_proofs(connection)?;
         let hash = hash_param(request, "ledger_hash").ok_or_else(|| error("invalidParams"))?;
         let validations = match self.chain.index_of(&hash) {
-            Some(index) => self.lied_validations(connection, index),
+            // A liar kept them, however old.
+            Some(index) if self.lie(connection).is_some() => {
+                self.lied_validations(connection, index)
+            }
+            Some(index) if self.validations_held(index) => self.validations_of(index),
+            Some(_) => Vec::new(),
             // None held. A liar shows the newest ledger's, which sign
             // another hash.
             None if self.lie(connection).is_some() => {
@@ -136,14 +149,33 @@ impl FakeLedger {
         }
     }
 
-    /// `header` as `connection` serves it.
-    fn served_header(&mut self, connection: ConnectionId, header: LedgerHeader) -> String {
+    /// Whether an honest server still holds the validations of the ledger
+    /// of `index`: it closed within [`VALIDATIONS_HELD_S`] of the newest.
+    fn validations_held(&self, index: u32) -> bool {
+        let close_time = |sealed: &Sealed| sealed.header.close_time;
+        match (self.chain.get(index), self.chain.latest()) {
+            (Some(ledger), Some(latest)) => {
+                close_time(ledger).saturating_add(VALIDATIONS_HELD_S) >= close_time(latest)
+            }
+            _ => false,
+        }
+    }
+
+    /// `header` as `connection` serves it, and its hash, a hint: a liar
+    /// that tells a header that hashes wrong names the honest header's
+    /// hash beside other bytes.
+    fn served_header(
+        &mut self,
+        connection: ConnectionId,
+        header: LedgerHeader,
+    ) -> (String, String) {
+        let hash = hex_upper(&header.hash());
         let mut header = header;
         if self.lies_with(connection, Lie::WrongHeader) {
             header.close_time = header.close_time.wrapping_add(1);
             self.told(Lie::WrongHeader);
         }
-        hex_upper(&header.to_bytes())
+        (hex_upper(&header.to_bytes()), hash)
     }
 
     /// `tx_proof`.
@@ -159,13 +191,19 @@ impl FakeLedger {
         }
         let invalid = || error("invalidParams");
         let tx_hash = hash_param(request, "tx_hash").ok_or_else(invalid)?;
-        let asked = match request.get("ledger_index") {
-            None => None,
-            Some(index) => Some(
+        let asked = match (request.get("ledger_index"), request.get("ledger_hash")) {
+            (None, None) => None,
+            (Some(index), None) => Some(
                 (index.as_u64())
                     .and_then(|index| u32::try_from(index).ok())
                     .ok_or_else(invalid)?,
             ),
+            // A ledger it does not keep is beyond its history.
+            (None, Some(_)) => {
+                let hash = hash_param(request, "ledger_hash").ok_or_else(invalid)?;
+                Some(self.chain.index_of(&hash).unwrap_or(0))
+            }
+            (Some(_), Some(_)) => return Err(invalid()),
         };
         let found = (self.history_index.get(&tx_hash))
             .and_then(|position| self.history.get(*position))
@@ -194,13 +232,15 @@ impl FakeLedger {
             .map(|sealed| sealed.header)
             .ok_or_else(|| error("lgrNotFound"))?;
         let tree = self.transactions(ledger);
-        let header = self.served_header(connection, header);
+        let (header, ledger_hash) = self.served_header(connection, header);
         Ok(json!({
             "tx_blob": hex_upper(&blob),
             "meta_blob": hex_upper(&meta),
             "ledger_index": ledger,
+            "ledger_hash": ledger_hash,
             "ledger_header": header,
-            "path": path(tree.branch(&tx_hash)),
+            "validated": true,
+            "path": path(&tree.branch(&tx_hash)),
         }))
     }
 
@@ -223,6 +263,10 @@ impl FakeLedger {
                 bytes.try_into().map_err(|_| invalid())
             })
             .collect::<Result<_, _>>()?;
+        let distinct: alloc::collections::BTreeSet<&[u8; 32]> = keys.iter().collect();
+        if distinct.len() != keys.len() {
+            return Err(invalid());
+        }
         let (header, tree) = self.proven_ledger(connection, request)?;
         let mut entries = Vec::new();
         let mut told = Vec::new();
@@ -235,10 +279,12 @@ impl FakeLedger {
             self.told(lie);
         }
         let ledger_index = header.sequence;
-        let header = self.served_header(connection, header);
+        let (header, ledger_hash) = self.served_header(connection, header);
         Ok(json!({
             "ledger_index": ledger_index,
+            "ledger_hash": ledger_hash,
             "ledger_header": header,
+            "validated": true,
             "entries": entries,
         }))
     }
@@ -252,10 +298,11 @@ impl FakeLedger {
     ) -> Result<(LedgerHeader, ShaMap), Value> {
         let not_found = || error("lgrNotFound");
         let invalid = || error("invalidParams");
-        let validated = match request.get("ledger_index") {
-            None => request.get("ledger_hash").is_none(),
-            Some(Value::String(text)) => text == "validated",
-            Some(_) => false,
+        let validated = match (request.get("ledger_index"), request.get("ledger_hash")) {
+            (None, None) => true,
+            (Some(Value::String(text)), None) => text == "validated",
+            (Some(_), Some(_)) => return Err(invalid()),
+            _ => false,
         };
         let index = if validated {
             match self.validated_lie(connection) {
@@ -349,10 +396,10 @@ impl FakeLedger {
         let key_hex = hex_upper(key);
         // `object` with the branch of `of`.
         let held = |object: &[u8], of: &[u8; 32]| {
-            let path = path(tree.branch(of));
+            let path = path(&tree.branch(of));
             json!({ "key": key_hex, "node_binary": hex_upper(object), "path": path })
         };
-        let absent = || json!({ "key": key_hex, "absent": true, "path": path(tree.branch(key)) });
+        let absent = || json!({ "key": key_hex, "path": path(&tree.branch(key)) });
         let Some(object) = tree.object(key) else {
             return (absent(), None);
         };
@@ -397,8 +444,10 @@ impl FakeLedger {
             "tx_blob": hex_upper(&blob),
             "meta_blob": hex_upper(&meta),
             "ledger_index": latest.sequence,
+            "ledger_hash": hex_upper(&header.hash()),
             "ledger_header": hex_upper(&header.to_bytes()),
-            "path": path(tree.branch(tx_hash)),
+            "validated": true,
+            "path": path(&tree.branch(tx_hash)),
         }))
     }
 

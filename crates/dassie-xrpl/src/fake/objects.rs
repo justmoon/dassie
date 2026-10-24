@@ -888,6 +888,38 @@ mod tests {
     }
 
     #[test]
+    fn a_pool_s_amm_object_is_rippled_s_but_its_slots() {
+        let captured = data("ledger-binary.json");
+        let amm_object = hex(&object(&captured, "blobs", "AMM object (XRP/RLUSD)"), "hex");
+        let read = fields(&amm_object);
+        let lp_tokens = amount_of(&read, LP_TOKEN_BALANCE);
+        let pool = Pool {
+            account: AccountId(read[&ACCOUNT].as_slice().try_into().unwrap()),
+            trading_fee: u32::from(u16::from_be_bytes(
+                read[&TRADING_FEE].as_slice().try_into().unwrap(),
+            )),
+            lp_tokens: lp_tokens.value,
+        };
+        let built = amm(MAINNET_RLUSD, &pool, thread_of(&read));
+        // The LP token's currency and issuer are derived as rippled
+        // derives them.
+        assert_eq!(
+            fields(&built.to_bytes())[&LP_TOKEN_BALANCE],
+            read[&LP_TOKEN_BALANCE]
+        );
+        // The fake holds no auction slot or votes; with mainnet's, the
+        // bytes are mainnet's.
+        let mut built = built;
+        for slots in [
+            FieldId::new(Type::Object, 26),
+            FieldId::new(Type::Array, 12),
+        ] {
+            built.put(slots, &read[&slots]);
+        }
+        assert_eq!(built.to_bytes(), amm_object);
+    }
+
+    #[test]
     fn json_is_rendered_as_rippled_writes_it() {
         // Mainnet ledger 107862214's transaction 1: its metadata changed
         // an account root, with the transaction before.
