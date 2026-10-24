@@ -488,6 +488,15 @@ impl HubAccount {
         self.view.as_ref()
     }
 
+    /// The sequence the account's next operation carries, as it learnt it:
+    /// from the operations of its own it read, which raise it as they used
+    /// theirs, and from the states the validators agree on. Never from
+    /// what it sent.
+    #[must_use]
+    pub const fn sequence(&self) -> Option<u64> {
+        self.sequence
+    }
+
     /// Every operation touching the account up to this height was read.
     #[must_use]
     pub const fn cursor(&self) -> u64 {

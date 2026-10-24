@@ -469,7 +469,7 @@ impl Sim {
             liar: None,
         }));
         self.trace.push(format!(
-            "{} the hub of {count} validators is founded: {roles:?}",
+            "{} the hub of {count} validators is founded",
             self.now
         ));
         for index in 0..count {

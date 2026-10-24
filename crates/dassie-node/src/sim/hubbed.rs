@@ -234,6 +234,8 @@ fn script(sim: &mut Sim, rng: &mut SeededRng, setup: &Setup) -> Result<(), Outco
     for (index, role) in setup.roles.iter().enumerate() {
         sim.hub.as_deref_mut().unwrap().validators[index].role = *role;
     }
+    sim.trace
+        .push(format!("{} the validators are {:?}", sim.now, setup.roles));
     if !sim.run_until_or(START + JOINED_WITHIN_MS, joined) {
         return Err(Outcome::liveness(
             "joined",
@@ -358,7 +360,7 @@ fn check_calm(sim: &Sim, liar: Option<(usize, MemberLie)>) -> Result<(), Outcome
             super::checks::check_hub_credit(sim)
                 .map_err(|problem| Outcome::safety("hub-credit", problem)),
             check_losses(sim).map_err(|problem| Outcome::safety("hub-losses", problem)),
-            check_hub_books(sim).map_err(|problem| {
+            check_hub_books(sim, liar.map(|(node, _)| node)).map_err(|problem| {
                 Outcome::safety("hub-books", format!("{problem}; {}", hub_standing(sim)))
             }),
             check_owners(sim).map_err(|problem| Outcome::safety("hub-owner-books", problem)),
@@ -442,7 +444,12 @@ fn check_losses(sim: &Sim) -> Result<(), String> {
 /// which is its account's balance and what its peers' holds toward it hold,
 /// as the hub's honest validators have it once the network is calm and
 /// it read the operations of its own they applied.
-fn check_hub_books(sim: &Sim) -> Result<(), String> {
+///
+/// Once the network is calm and an honest node read up to the hub's newest
+/// block, it has read every operation of its own the hub applied; only a
+/// liar's claims, held back to just before their commitments expire, may
+/// land after, and its books are checked once it read them.
+fn check_hub_books(sim: &Sim, liar: Option<usize>) -> Result<(), String> {
     let hub = sim.hub.as_deref().unwrap();
     let ledger = hub.ledger().ok_or("no honest validator runs")?;
     for index in 0..sim.nodes.len() {
@@ -460,11 +467,23 @@ fn check_hub_books(sim: &Sim) -> Result<(), String> {
             .ok_or_else(|| format!("node {index} has no account in the hub"))?;
         let account = ledger.account(number).unwrap();
         // An operation of its own the hub applied after the state it read
-        // is booked once it reads it. Once the network is calm only a
-        // liar's claims, held back to just before their commitments
-        // expire, still land.
-        if sim.core(index).hub_sequence() != Some(account.sequence) {
-            continue;
+        // is booked once it reads it.
+        // An honest node may be a block or so behind the newest, as it reads
+        // the hub every so often; once it read up to it, it read all.
+        let read = sim.core(index).hub_sequence();
+        if read != Some(account.sequence) {
+            let cursor = sim
+                .core(index)
+                .hub_reading()
+                .map_or(0, |(cursor, _, _)| cursor);
+            if Some(index) == liar || cursor < ledger.height() {
+                continue;
+            }
+            return Err(format!(
+                "node {index} read its hub account up to sequence {read:?}, where the hub \
+                 applied its operations up to {}",
+                account.sequence
+            ));
         }
         let toward: u64 = ledger
             .holds()
@@ -537,7 +556,10 @@ fn check_moved(sim: &Sim, liar: Option<usize>) -> Result<(), String> {
 /// Each owner's funds, on the XRP Ledger and in the hub together, moved by
 /// what its receivers took: what the faucet gave, less the XRP Ledger's
 /// reserve and the hub's account reserve, which neither the owner nor
-/// anyone else can spend.
+/// anyone else can spend. And each payment's token, every node's, the
+/// liar's among them, paid what it sent, as
+/// [`checks::check_owner_books`](super::checks::check_owner_books) has it:
+/// a token's books follow its packets, not what the node read of the hub.
 fn check_owners(sim: &Sim) -> Result<(), String> {
     let reserve = i128::from(dassie_hub::member::units(
         sim.hub.as_deref().unwrap().rules.terms.fees.account_reserve,
@@ -571,25 +593,56 @@ fn check_owners(sim: &Sim) -> Result<(), String> {
             ));
         }
     }
+    for payment in &sim.payments {
+        let index = payment.from;
+        let account = format!("equity/owner/btp/{}", payment.token.0);
+        let token = |ledger| {
+            sim.balances_on(index, ledger)
+                .get(&account)
+                .copied()
+                .unwrap_or(0)
+        };
+        let paid = -(token(XRP) + token(HUB));
+        if paid != i128::from(super::sent(payment)) {
+            return Err(format!(
+                "node {index}'s token {} paid {paid} for {} sent",
+                payment.token.0,
+                super::sent(payment)
+            ));
+        }
+    }
     Ok(())
 }
 
-/// The escrow holds what the hub owes and what the sponsor left in it, no
-/// more and no less, once nothing is on its way; and the fake ledger made
-/// or lost no XRP.
-fn check_escrow(sim: &Sim) -> Result<(), String> {
+/// The escrow holds what the hub owes and what the sponsor left in it, but
+/// for what is on its way between them; and the fake ledger made or lost no
+/// XRP.
+///
+/// A deposit on its way, a liar's among them, is in the escrow and not yet
+/// in the hub: the escrow holds more than the hub owes, by no more than the
+/// deposits the nodes are making. A withdrawal the hub queued is part of
+/// what it owes until a quorum attests that the escrow paid it: once the
+/// escrow paid it and until then, the escrow holds less than the hub owes,
+/// by no more than the queued withdrawals and their ledger fees, whatever
+/// the nodes think of their moves.
+pub(super) fn check_escrow(sim: &Sim) -> Result<(), String> {
     let hub = sim.hub.as_deref().unwrap();
     let ledger = hub.ledger().ok_or("no honest validator runs")?;
-    // A move on its way is in the escrow and not yet in the hub, or the
-    // other way round: [`check_moved`] says.
-    if (0..sim.nodes.len()).any(|index| moving(sim, index)) {
-        return Ok(());
-    }
+    let depositing: u64 = (0..sim.nodes.len())
+        .filter_map(|index| sim.core(index).hub_status()?.moving)
+        .filter(|moving| moving.direction == crate::engine::core::Direction::Deposit)
+        .map(|moving| moving.drops)
+        .sum();
+    let withdrawing: u64 = ledger
+        .withdrawals()
+        .map(|(_, withdrawal)| withdrawal.amount + withdrawal.ledger_fee)
+        .sum();
     let escrow = sim.ledger.balance(hub.escrow()).unwrap_or(0);
     let owed = hub.escrow_funding + ledger.supply();
-    if escrow != owed {
+    if escrow + withdrawing < owed || escrow > owed + depositing {
         return Err(format!(
-            "the escrow holds {escrow}, while the hub owes {} and the sponsor left {}",
+            "the escrow holds {escrow}, while the hub owes {} and the sponsor left {}, with \
+             {depositing} on its way in and {withdrawing} queued out",
             ledger.supply(),
             hub.escrow_funding
         ));
@@ -878,5 +931,47 @@ fn collude(sim: &mut Sim) -> Result<(), Outcome> {
             Ok(())
         }
         None => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A withdrawal the escrow paid and the hub has not settled yet: the
+    // hub still owes it until a quorum attests the payment, so the escrow
+    // holds less than the hub owes, by the withdrawal and its fee, and the
+    // check takes that, whatever the node thinks of its move.
+    #[test]
+    fn a_withdrawal_paid_and_not_yet_settled_passes_the_escrow_check() {
+        let mut sim = Sim::with(3, 2, 1, BTreeMap::new(), Settling::Hub(4));
+        sim.loss_per_mille = 0;
+        assert!(
+            sim.run_until_or(START + 600_000, joined),
+            "the members did not join the hub"
+        );
+        sim.run_until(sim.now + 30_000);
+        check_escrow(&sim).unwrap();
+        let hub = sim.hub.as_deref().unwrap();
+        let before = sim.ledger.balance(hub.escrow()).unwrap_or(0);
+        let least = hub.rules.terms.fees.least_payout;
+        sim.step(0, |core| {
+            core.hub_withdraw(least * dassie_xrpl::UNITS_PER_DROP)
+                .unwrap();
+        });
+        let paid_unsettled = |sim: &Sim| {
+            let hub = sim.hub.as_deref().unwrap();
+            let paid = sim.ledger.balance(hub.escrow()).unwrap_or(0) < before;
+            let queued = hub
+                .ledger()
+                .is_some_and(|ledger| ledger.withdrawals().next().is_some());
+            paid && queued
+        };
+        let deadline = sim.now + 120_000;
+        while !paid_unsettled(&sim) {
+            assert!(sim.now < deadline, "the escrow never paid the withdrawal");
+            sim.run_until(sim.now + 5);
+        }
+        check_escrow(&sim).unwrap();
     }
 }
