@@ -221,15 +221,14 @@ impl Stored {
         });
         // Below the floor, the certificates of the chain's blocks stay with
         // them, for validators behind on it.
-        let blocks = &self.blocks;
+        let blocks: alloc::collections::BTreeSet<Digest> =
+            self.blocks.iter().map(|(digest, _)| *digest).collect();
         self.certificates.retain(|certificate| {
             live(certificate.view, certificate.epoch)
                 || (certificate.epoch == epoch
                     && certificate.view > view
                     && certificate.kind != VoteKind::Nullify
-                    && blocks
-                        .iter()
-                        .any(|(digest, _)| *digest == certificate.block))
+                    && blocks.contains(&certificate.block))
         });
     }
 
