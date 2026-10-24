@@ -203,7 +203,6 @@ fn config(network: &Network, sites: &[&str]) -> String {
             "key": publisher_key(seed).to_node_public(),
             "sites": sites,
         }],
-        "floor": dassie_xrpl::fake::UNL_FLOOR,
     })
     .to_string()
 }

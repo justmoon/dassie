@@ -20,7 +20,7 @@ use dassie_xrpl::binary::{FieldId, Fields, Type};
 use dassie_xrpl::codec::{Amount, Payment, Signing, TokenValue, Transact, TrustSet};
 use dassie_xrpl::fake::{
     FEE_BASE, FIRST_LEDGER, FakeLedger, KeyedSignatures, Lie, MAX_STATE_PROOF_KEYS, Token,
-    UNL_FLOOR, VALIDATORS,
+    VALIDATORS,
 };
 use dassie_xrpl::header::LedgerHeader;
 use dassie_xrpl::keys::{AccountId, sha512_half};
@@ -108,7 +108,6 @@ fn unl(ledger: &FakeLedger) -> Unl {
                 "key": hex_upper(ledger.publisher_key().as_bytes()),
                 "sites": ["https://localhost/vl"],
             }],
-            "floor": UNL_FLOOR,
         }))
         .unwrap();
     let mut unl = Unl::new(config);

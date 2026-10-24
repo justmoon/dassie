@@ -187,8 +187,8 @@ impl Server {
     }
 
     /// What an account's config names to trust its validators: its
-    /// publisher, whose list it serves, and the floor its validators meet,
-    /// as an owner's publishers; `None` without the HTTPS listener that
+    /// publisher, whose list it serves, as an owner's publishers; `None`
+    /// without the HTTPS listener that
     /// serves the list.
     #[must_use]
     pub fn publishers(&self) -> Option<serde_json::Value> {

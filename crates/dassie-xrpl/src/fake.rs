@@ -78,7 +78,7 @@ pub use pools::{POOL_ACCOUNT_FLAGS, PoolState, pool_account};
 pub use proofs::MAX_STATE_PROOF_KEYS;
 pub use tokens::{ExactSum, Token};
 pub use validators::{
-    DEFAULT_SEED, KeyedSignatures, LIST_SITE, MAINNET_SEED, UNL_FLOOR, VALIDATORS, publisher_key,
+    DEFAULT_SEED, KeyedSignatures, LIST_SITE, MAINNET_SEED, VALIDATORS, publisher_key,
     with_publishers,
 };
 

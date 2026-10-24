@@ -223,8 +223,8 @@ pub struct Config {
     pub server: String,
     /// The faucet, an HTTPS URL; `None` to never ask.
     pub faucet: Option<String>,
-    /// The validator list publishers it trusts, and the floor on its UNL:
-    /// its network's, or the owner's, which replace them entirely
+    /// The validator list publishers it trusts: its network's, or the
+    /// owner's, which replace them entirely
     /// (spec/designs/xrpl-validation.md#10-configuration-and-state).
     pub unl: UnlConfig,
 }
@@ -242,11 +242,9 @@ impl Config {
 
     /// The config of an account on `network` in `text`: empty for the
     /// network's defaults, or JSON with `server` and `faucet` (a URL or
-    /// `null`), each optional, and the owner's validator list `publishers`
-    /// with perhaps a `floor`, as [`UnlConfig::with_override`] reads them.
-    /// A network without a faucet takes none but `null`
-    /// (spec/decisions/mainnet-schemes.md); a floor comes only with
-    /// publishers.
+    /// `null`), each optional, and the owner's validator list `publishers`,
+    /// as [`UnlConfig::with_override`] reads them. A network without a
+    /// faucet takes none but `null` (spec/decisions/mainnet-schemes.md).
     ///
     /// # Errors
     ///
@@ -269,7 +267,7 @@ impl Config {
         let mut unl = serde_json::Map::new();
         for (key, field) in object {
             match (key.as_str(), field) {
-                ("publishers" | "floor", _) => {
+                ("publishers", _) => {
                     unl.insert(key.clone(), field.clone());
                 }
                 ("server", Value::String(server))

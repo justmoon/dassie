@@ -22,8 +22,8 @@ use dassie_xrpl::unl::{
 };
 use dassie_xrpl::validation::Validation;
 use dassie_xrpl::validator_list::{
-    ListError, MAINNET_FLOOR, Message, RIPPLE, RIPPLE_SITE, TESTNET, TESTNET_FLOOR, UnlConfig,
-    XRPLF,
+    ListError, MAX_LIST_VALIDATORS, MAX_PUBLISHERS, Message, RIPPLE, RIPPLE_SITE, TESTNET,
+    UnlConfig, XRPLF,
 };
 use dassie_xrpl::{from_hex, hex_upper};
 use proptest::prelude::*;
@@ -142,7 +142,7 @@ fn live_manifests(network: &str) -> Vec<Vec<u8>> {
 
 // The lists the publishers serve verify under the keys built in, with the
 // sequences and expiries the sites served; mainnet's two name the same 35
-// validators, the testnet's 6, and each UNL meets its floor.
+// validators, so their union is those 35, and the testnet's 6.
 #[test]
 fn the_publishers_lists_verify_under_the_built_in_keys() {
     let (_, _, mainnet_ledger) = ledger("mainnet");
@@ -169,8 +169,9 @@ fn the_publishers_lists_verify_under_the_built_in_keys() {
         (860_349_094, 867_888_000)
     );
     let validators = unl.unl(now_ms).unwrap();
-    assert_eq!((validators.len(), quorum(validators.len())), (35, 28));
-    assert!(validators.len() >= MAINNET_FLOOR);
+    assert!(validators.iter().eq(ripple.validators.keys()));
+    let size = validators.len();
+    assert_eq!((size, quorum(size, size)), (35, 28));
 
     let mut testnet = Unl::new(UnlConfig::testnet());
     let body = &bodies("testnet")[0];
@@ -179,8 +180,8 @@ fn the_publishers_lists_verify_under_the_built_in_keys() {
     testnet.check_invariants();
     assert_eq!(testnet.lists(0).0.unwrap().sequence, 59);
     let validators = testnet.unl(now_ms).unwrap();
-    assert_eq!((validators.len(), quorum(validators.len())), (6, 5));
-    assert!(validators.len() >= TESTNET_FLOOR);
+    let size = validators.len();
+    assert_eq!((size, quorum(size, size)), (6, 5));
     // The networks' UNLs share no key: each binds its network.
     let mainnet: BTreeSet<PublicKey> = unl.unl(now_ms).unwrap().into_iter().collect();
     assert!(validators.iter().all(|key| !mainnet.contains(key)));
@@ -444,5 +445,28 @@ proptest! {
         let _ = unl.take_manifest(&body);
         let restored = Unl::restore(unl.config().clone(), &unl.state(), now_ms);
         prop_assert_eq!(restored.as_ref(), Some(&unl));
+    }
+}
+
+// rippled reckons its quorum in `f32`, `max(ceil(effective * 0.8f),
+// ceil(validators * 0.6f))`; for every UNL a node can keep, whatever part
+// of it is effective, the node's reckoning in whole numbers comes out the
+// same, also where `f32` is not the exact fraction.
+#[test]
+#[allow(clippy::float_arithmetic)]
+fn the_quorum_matches_rippled_s_f32_reckoning() {
+    let most = u16::try_from(MAX_PUBLISHERS * MAX_LIST_VALIDATORS).unwrap();
+    for validators in 0..=most {
+        for effective in 0..=validators {
+            let rippled = (f32::from(effective) * 0.8_f32)
+                .ceil()
+                .max((f32::from(validators) * 0.6_f32).ceil());
+            let ours = quorum(usize::from(validators), usize::from(effective));
+            assert_eq!(
+                f32::from(u16::try_from(ours).unwrap()),
+                rippled,
+                "{validators}, {effective}"
+            );
+        }
     }
 }

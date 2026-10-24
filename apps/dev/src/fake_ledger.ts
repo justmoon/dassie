@@ -56,8 +56,8 @@ export interface FakeLedger {
    * `/validators/…` and `/lie` under it. */
   readonly control: string | null;
   /** What a scheme's config names to trust its validators: their
-   * publisher, whose list it serves with the faucet, and the floor they
-   * meet (spec/designs/xrpl-validation.md#10-configuration-and-state). */
+   * publisher, whose list it serves with the faucet
+   * (spec/designs/xrpl-validation.md#10-configuration-and-state). */
   readonly publishers: Record<string, unknown> | null;
   /** The process, for the PID file. */
   readonly pid: number;

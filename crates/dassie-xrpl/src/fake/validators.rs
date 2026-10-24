@@ -31,10 +31,6 @@ use crate::validator_list::{List, Message, SignedBlob};
 /// of five, still validate.
 pub const VALIDATORS: usize = 5;
 
-/// The floor on the UNL a node that names the fake's publisher sets: one
-/// validator below all of them, so a revoked one still leaves a UNL.
-pub const UNL_FLOOR: usize = VALIDATORS - 1;
-
 /// The seed the fake testnet's keys come from, unless it is given another.
 pub const DEFAULT_SEED: [u8; 32] = *b"dassie fake ledger, testnet keys";
 
@@ -486,8 +482,8 @@ impl FakeLedger {
     }
 
     /// What an account's config names to trust this fake's validators: its
-    /// publisher, whose list `site` serves, and [`UNL_FLOOR`], as an
-    /// owner's publishers (spec/designs/xrpl-validation.md#10-configuration-and-state).
+    /// publisher, whose list `site` serves, as an owner's publishers
+    /// (spec/designs/xrpl-validation.md#10-configuration-and-state).
     #[must_use]
     pub fn publishers(&self, site: &str) -> serde_json::Value {
         publishers(self.publisher_key(), site)
@@ -535,14 +531,13 @@ pub fn publisher_key(seed: [u8; 32]) -> PublicKey {
 }
 
 /// The owner's publishers in a config that trusts `publisher`, whose list
-/// `site` serves, with [`UNL_FLOOR`].
+/// `site` serves.
 fn publishers(publisher: PublicKey, site: &str) -> serde_json::Value {
     serde_json::json!({
         "publishers": [{
             "key": crate::hex_upper(publisher.as_bytes()),
             "sites": [site],
         }],
-        "floor": UNL_FLOOR,
     })
 }
 

@@ -22,9 +22,10 @@
 //!   [`records`], the keys of the ledger objects the account follows, those
 //!   objects, and a transaction with its metadata as the schemes read it.
 //! - [`validator_list`]: the publishers' signed validator lists, and the
-//!   publishers each network trusts; [`unl`], the validators every
-//!   publisher lists with their current keys, and the quorum of them that
-//!   validates a ledger and makes it an anchor; [`base64`], as the lists
+//!   publishers each network trusts; [`unl`], the validators enough of
+//!   the lists name, as rippled's defaults combine them, with their current
+//!   keys, and the quorum of them that validates a ledger and makes it an
+//!   anchor; [`base64`], as the lists
 //!   carry their blobs; [`anchor`], what a state proof proves, and whether
 //!   a later anchor is on the chain of the one kept.
 //! - [`api`]: the rippled WebSocket JSON the node speaks: requests, and
