@@ -1,10 +1,9 @@
 /**
  * Depositing on a ledger that settles in a token (spec/areas/wallet.md#pages),
- * such as RLUSD or DSUSD on the XRP Ledger testnet: the account needs both the
- * token and the ledger's own asset, which pays its fees and its reserve as
- * gas, at the same address. The reserve is shown in that asset, as the
- * ledger holds it, never in the token
- * (spec/decisions/external-assets.md).
+ * such as DSUSD on the XRP Ledger testnet: the account needs both the token
+ * and the ledger's own asset, which pays its fees and its reserve as gas, at
+ * the same address. The reserve is shown in that asset, as the ledger holds
+ * it, never in the token (spec/decisions/external-assets.md).
  */
 
 import type { JSX } from "@solidjs/web";

@@ -2753,6 +2753,7 @@ fn a_stored_scheme_of_another_realm_does_not_run() {
 // books on `xrpl-testnet-rlusd+usd` stay as they were, nothing is written
 // off, and the testnet's XRP scheme on the same account runs.
 #[test]
+#[allow(clippy::too_many_lines)]
 fn a_stored_test_rlusd_scheme_does_not_run() {
     use dassie_ledger::{AccountName, AccountPath, LedgerId, Reference, TransferSpec};
 

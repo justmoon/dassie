@@ -1,0 +1,236 @@
+{
+  "issuer_account_info": {
+    "account_data": {
+      "Account": "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De",
+      "Balance": "99764185",
+      "Domain": "68747470733A2F2F726970706C652E636F6D2F",
+      "Flags": 2174353408,
+      "LedgerEntryType": "AccountRoot",
+      "OwnerCount": 19,
+      "PreviousTxnID": "A273118E96B0859CE2D7DEB671039E73BC66E522FBBB908F2BFEA8C5BA0E25DA",
+      "PreviousTxnLgrSeq": 107862226,
+      "Sequence": 89926505,
+      "index": "383BB05FBB110F9BE530B75C44DF100F86C5600F0F146593D3E7133FD1C99FF2"
+    },
+    "ledger_hash": "B20BF8EAE8472CF9F479DD8E4DE45C2879C55F4B9C5791E4639B2A747B15DE96",
+    "ledger_index": 107862238,
+    "validated": true,
+    "account_flags": {
+      "defaultRipple": true,
+      "depositAuth": true,
+      "disableMasterKey": true,
+      "disallowIncomingXRP": true,
+      "globalFreeze": false,
+      "noFreeze": false,
+      "passwordSpent": false,
+      "requireAuthorization": false,
+      "requireDestinationTag": true,
+      "disallowIncomingNFTokenOffer": false,
+      "disallowIncomingCheck": false,
+      "disallowIncomingPayChan": false,
+      "disallowIncomingTrustline": false,
+      "allowTrustLineClawback": true,
+      "allowTrustLineLocking": false
+    }
+  },
+  "gateway_balances": {
+    "obligations": {
+      "524C555344000000000000000000000000000000": "967573548.8615304"
+    },
+    "account": "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De",
+    "ledger_index": 107862238,
+    "ledger_hash": "B20BF8EAE8472CF9F479DD8E4DE45C2879C55F4B9C5791E4639B2A747B15DE96"
+  },
+  "amm_info": {
+    "amm": {
+      "lp_token": {
+        "currency": "03B245BE580EC4F4386A751C084489EC4B514A2F",
+        "issuer": "rhWTXC2m2gGGA9WozUaoMm6kLAVPb1tcS3",
+        "value": "1786818359.408132"
+      },
+      "amount": "1857021585932",
+      "amount2": {
+        "currency": "524C555344000000000000000000000000000000",
+        "issuer": "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De",
+        "value": "2396529.559723357"
+      },
+      "account": "rhWTXC2m2gGGA9WozUaoMm6kLAVPb1tcS3",
+      "trading_fee": 205,
+      "auction_slot": {
+        "time_interval": 20,
+        "price": {
+          "currency": "03B245BE580EC4F4386A751C084489EC4B514A2F",
+          "issuer": "rhWTXC2m2gGGA9WozUaoMm6kLAVPb1tcS3",
+          "value": "131482.3939333034"
+        },
+        "discounted_fee": 20,
+        "account": "r4uKh2rHuarMZdAgSBYqqicX7MxPBegttw",
+        "expiration": "2026-03-02T17:05:00+0000",
+        "auth_accounts": [
+          {
+            "account": "rNy92d5CrBQ1eC5HUokq1LDfcuLPvTfh4X"
+          },
+          {
+            "account": "rJrFQCQKgUJwG6bnDLyX33ea4DwWcjk6P3"
+          },
+          {
+            "account": "rGDuzDRHd7MEPHLykPt6Z2CkQuvBcDrdQZ"
+          },
+          {
+            "account": "rBJpahxkPrMenKYzKBKEFNGsd7KpBTPL5P"
+          }
+        ]
+      },
+      "vote_slots": [
+        {
+          "account": "rJ4XeEzorvsQp6un4h9CjtANEsB3Qcc8iA",
+          "trading_fee": 300,
+          "vote_weight": 2938
+        },
+        {
+          "account": "rDu4vMpZU5WcwVME6oorzSov4DMLWXUEDf",
+          "trading_fee": 0,
+          "vote_weight": 1952
+        },
+        {
+          "account": "rHq1hgWYgaiG9ycudXHoMbqGdJi75UTfzt",
+          "trading_fee": 200,
+          "vote_weight": 3521
+        },
+        {
+          "account": "rETg9RYxRAxgNjm33Q4tAWceKKVoMcpM7",
+          "trading_fee": 200,
+          "vote_weight": 3521
+        },
+        {
+          "account": "rnEQs55pWyvEfWXkjMCD2TNzCQ1uS7SBGS",
+          "trading_fee": 200,
+          "vote_weight": 3521
+        },
+        {
+          "account": "rwCdTmuSML5TizAMTAZFKC5ppkdxT5j24k",
+          "trading_fee": 200,
+          "vote_weight": 3521
+        },
+        {
+          "account": "rUaf9PLELm2gtui2pEivv7k9Xbue5c6yJ3",
+          "trading_fee": 200,
+          "vote_weight": 3521
+        },
+        {
+          "account": "r42VCs56CWH9eiS4EKBQB33ThbtPcBwN4",
+          "trading_fee": 1000,
+          "vote_weight": 271
+        }
+      ],
+      "asset2_frozen": false
+    },
+    "ledger_index": 107862238,
+    "ledger_hash": "B20BF8EAE8472CF9F479DD8E4DE45C2879C55F4B9C5791E4639B2A747B15DE96",
+    "validated": true
+  },
+  "amm_account_root": {
+    "ledger_hash": "B20BF8EAE8472CF9F479DD8E4DE45C2879C55F4B9C5791E4639B2A747B15DE96",
+    "ledger_index": 107862238,
+    "validated": true,
+    "index": "95F777A378AF9428695717149DDE4EC563BE9EB0C9186CCFDED9542240B9B915",
+    "node_binary": "11006122019000002405977E0525066DD8882D0000000155DFFBADE236569925C6A2A33F17033602451E6621DBF4E1D6E375409160BEDAAD5E160C6649399D6AF625ED94A66812944BDA1D8993445A503F6B5730DECC7D376762400001B05F1CAA0C8114267A95D5EDEE2C04EC20404AC40ED6BBF14BD209"
+  },
+  "amm_rlusd_line": {
+    "ledger_hash": "B20BF8EAE8472CF9F479DD8E4DE45C2879C55F4B9C5791E4639B2A747B15DE96",
+    "ledger_index": 107862238,
+    "validated": true,
+    "index": "2BCFBCB6565955DC4360705C247A4235D695FBFE197F6E8386E00136F2BB7E27",
+    "node_binary": "110072220101000025066DD88837000000000000000038000000000000061955DFFBADE236569925C6A2A33F17033602451E6621DBF4E1D6E375409160BEDAAD62D60883A18519DD5D524C5553440000000000000000000000000000000000000000000000000000000000000000000001668000000000000000524C555344000000000000000000000000000000267A95D5EDEE2C04EC20404AC40ED6BBF14BD209678000000000000000524C555344000000000000000000000000000000E5E961C6A025C9404AA7B662DD1DF975BE75D13E"
+  },
+  "amm_object": {
+    "ledger_hash": "B20BF8EAE8472CF9F479DD8E4DE45C2879C55F4B9C5791E4639B2A747B15DE96",
+    "ledger_index": 107862238,
+    "validated": true,
+    "index": "160C6649399D6AF625ED94A66812944BDA1D8993445A503F6B5730DECC7D3767",
+    "node_binary": "1100791500CD220000000025066DD83834000000000000000055ED2AF38737E84F1FC860083C72C3CA55C62CD9F433F5BD8C5A71504659C08DFC601FD6C6591A1197360403B245BE580EC4F4386A751C084489EC4B514A2F267A95D5EDEE2C04EC20404AC40ED6BBF14BD2098114267A95D5EDEE2C04EC20404AC40ED6BBF14BD209E01A1600142A31387FBC601CD5C4ABD34DD89BAA03B245BE580EC4F4386A751C084489EC4B514A2F267A95D5EDEE2C04EC20404AC40ED6BBF14BD2098114F03F59362BCDC14B887426D34D5D2B5145C3532CF019E01B8114993817571BB06745C3FE3DC66969D52D268BBB26E1E01B8114BAA1B6668EC54A48EAA573CDE927B4C4074DFA2FE1E01B8114A6FB1BF1DE739BB11C6987B86B26A64235F8CBAFE1E01B811470E93CA4E3557F11092C839F537E2C8753817B68E1F1E1FCE01915012C203000000B7A8114BE8C73D7094BD11F4BC872A31C24D65C79B3D374E1E0192030000007A081148D896FE5DCFC9496EF59E4355C5C6B8988B914CCE1E0191500C8203000000DC18114B8BFC5038FD5A2CD1E86D46FE68408140D8356F4E1E0191500C8203000000DC1811402BC172F44E5381131CE3A402DAD023EF631B839E1E0191500C8203000000DC181142E9990AED106132C791F25499C69F972A5E45E78E1E0191500C8203000000DC181146A07600F47D86DC5FFE298D26C1906F2420BEA79E1E0191500C8203000000DC1811479A097B87D2089682777DD9ED76AAF2B7E62B760E1E0191503E820300000010F81140414B1D3CC7629B16512005A433D67FA0E7D097EE1F1031800000000000000000000000000000000000000000418524C555344000000000000000000000000000000E5E961C6A025C9404AA7B662DD1DF975BE75D13E"
+  },
+  "testnet_DSUSD_amm_info": {
+    "amm": {
+      "account": "rEHay2mS1P7cxn982mMJ7p9uYyB7j3pymT",
+      "amount": "1104252431",
+      "amount2": {
+        "currency": "4453555344000000000000000000000000000000",
+        "issuer": "rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M",
+        "value": "1424.424902766646"
+      },
+      "asset2_frozen": false,
+      "auction_slot": {
+        "account": "rHRYBmGEqYYfQ5RE7iZLRexUyTjXmRehRF",
+        "discounted_fee": 30,
+        "expiration": "2026-10-23T15:09:31+0000",
+        "price": {
+          "currency": "036F81D4CB3018B9752DBFB1B2072DDC3BE91D53",
+          "issuer": "rEHay2mS1P7cxn982mMJ7p9uYyB7j3pymT",
+          "value": "0"
+        },
+        "time_interval": 20
+      },
+      "lp_token": {
+        "currency": "036F81D4CB3018B9752DBFB1B2072DDC3BE91D53",
+        "issuer": "rEHay2mS1P7cxn982mMJ7p9uYyB7j3pymT",
+        "value": "1253755.761574477"
+      },
+      "trading_fee": 300,
+      "vote_slots": [
+        {
+          "account": "rHRYBmGEqYYfQ5RE7iZLRexUyTjXmRehRF",
+          "trading_fee": 300,
+          "vote_weight": 100000
+        }
+      ]
+    },
+    "ledger_hash": "232D96AD2EF89B359DD40BB65D404C167E2D7D6D3C9C4AE83563CAABC5C5B352",
+    "ledger_index": 21775861,
+    "validated": true
+  },
+  "testnet_RLUSD-testnet_amm_info": {
+    "amm": {
+      "account": "rPn7kHwycXzS5XNj167CnKwC2t82yAAdNW",
+      "amount": "1448281366235",
+      "amount2": {
+        "currency": "524C555344000000000000000000000000000000",
+        "issuer": "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV",
+        "value": "119789.6220800913"
+      },
+      "asset2_frozen": false,
+      "auction_slot": {
+        "account": "rfjquSFSKXnDYdQyGWuXBSSSW87jfpX7Qm",
+        "discounted_fee": 50,
+        "expiration": "2026-06-30T11:47:32+0000",
+        "price": {
+          "currency": "03B245BE580EC4F4386A751C084489EC4B514A2F",
+          "issuer": "rPn7kHwycXzS5XNj167CnKwC2t82yAAdNW",
+          "value": "80120.7813935"
+        },
+        "time_interval": 20
+      },
+      "lp_token": {
+        "currency": "03B245BE580EC4F4386A751C084489EC4B514A2F",
+        "issuer": "rPn7kHwycXzS5XNj167CnKwC2t82yAAdNW",
+        "value": "400886599.2030299"
+      },
+      "trading_fee": 501,
+      "vote_slots": [
+        {
+          "account": "rMQpZ8VS2vWNqfLjLzMgJG6n4igMAYBJPQ",
+          "trading_fee": 500,
+          "vote_weight": 27
+        },
+        {
+          "account": "rfjquSFSKXnDYdQyGWuXBSSSW87jfpX7Qm",
+          "trading_fee": 600,
+          "vote_weight": 0
+        }
+      ]
+    },
+    "ledger_hash": "232D96AD2EF89B359DD40BB65D404C167E2D7D6D3C9C4AE83563CAABC5C5B352",
+    "ledger_index": 21775861,
+    "validated": true
+  }
+}

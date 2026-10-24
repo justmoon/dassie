@@ -550,7 +550,8 @@ fn a_node_runs_xrp_and_its_networks_dollar_on_one_account() {
 // type, so a Payment of RLUSD on mainnet that carries another XRPL scheme's
 // memo, from the peer's own address, is no settlement: test RLUSD's, the
 // same token's on the testnet, DSUSD's, or either network's XRP's. The
-// RLUSD scheme books each as a deposit.
+// RLUSD scheme books each as a deposit, and the same Payment with its own
+// memo type as a settlement.
 #[test]
 fn a_payment_with_another_schemes_memo_is_no_settlement() {
     let mut world = World::new(MAINNET_NET, &[&[TOKEN], &[TOKEN]]);
@@ -566,8 +567,7 @@ fn a_payment_with_another_schemes_memo_is_no_settlement() {
         scheme::MEMO_TYPE,
         scheme::MAINNET_MEMO_TYPE,
     ];
-    for memo_type in others {
-        assert_ne!(memo_type, rlusd::MEMO_TYPE);
+    for memo_type in others.into_iter().chain([rlusd::MEMO_TYPE]) {
         let info =
             serde_json::json!({ "command": "account_info", "account": address.to_address() });
         let reply: serde_json::Value =
@@ -599,10 +599,19 @@ fn a_payment_with_another_schemes_memo_is_no_settlement() {
         world.closes(2);
     }
     let b = &world.nodes[1];
-    assert!(b.books[TOKEN].credited.is_empty());
+    assert!(others.iter().all(|other| *other != rlusd::MEMO_TYPE));
     assert_eq!(b.books[TOKEN].deposits, [usd(1_000_000); 4]);
     assert_eq!(
+        b.books[TOKEN].credited.len(),
+        1,
+        "its own memo type settles"
+    );
+    assert_eq!(
+        b.books[TOKEN].peers[&world.nodes[0].name],
+        i128::from(usd(1_000_000))
+    );
+    assert_eq!(
         world.ledger.token_balance(world.address(1), Token::RLUSD),
-        Some(value("4"))
+        Some(value("5"))
     );
 }
