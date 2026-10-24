@@ -278,12 +278,30 @@ impl Core {
                 .is_none_or(|at| at.saturating_add(every) <= now);
             let close = self
                 .position(node, scheme)
-                .is_some_and(|at| policy::ask(at.position, self.settle.trigger));
+                .is_some_and(|at| policy::ask(at.position, self.settle.trigger))
+                || self
+                    .hub_room(node, scheme)
+                    .is_some_and(|room| policy::ask(u128::from(room), self.settle.trigger));
             if due && close && self.peer.request_settlement(now, &node, scheme).is_ok() {
                 self.settle.asked.insert(node, now);
             }
         }
         self.after_peer();
+    }
+
+    /// What `node`'s hold toward us over the hub of `scheme` has room for,
+    /// as our scheme reads it; None on a peering not over a hub. Over a hub
+    /// the peer can send us only what its hold has room for, so we ask it
+    /// to settle once that runs low, even while the books, which net what
+    /// we owe it the other way, show room enough
+    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+    fn hub_room(&mut self, node: NodeId, scheme: SchemeId) -> Option<u64> {
+        let scheme = Name::new(scheme.as_str()).ok()?;
+        if !self.schemes.get(&scheme)?.over_hub {
+            return None;
+        }
+        let peer = Name::new(node.as_str()).ok()?;
+        self.with_commitments(scheme, |c| c.room_from(peer))?
     }
 
     /// A peer asks us to settle on `scheme`: we settle half the way to our

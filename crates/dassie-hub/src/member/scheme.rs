@@ -1443,6 +1443,17 @@ impl Commitments for HubScheme {
             })
     }
 
+    /// The room the peer's hold toward us has for its packets, any
+    /// reduction waiting counted: none without a hold.
+    fn room_from(&self, peer: Name) -> Option<u64> {
+        let peer = self.peers.get(&peer)?;
+        let room = peer
+            .payee
+            .hold
+            .map_or(0, |_| peer.payee.room(crate::Millis::MAX));
+        Some(units(room))
+    }
+
     /// The hub, and our account in it once it has its number.
     fn membership(&self) -> Option<dassie_settlement::Membership> {
         Some(dassie_settlement::Membership {
