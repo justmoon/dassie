@@ -48,6 +48,9 @@ pub const MAX_BOOTSTRAP_NODES: usize = 64;
 /// Most names the owner adds for Open Payments.
 pub const MAX_PUBLIC_NAMES: usize = 16;
 
+/// Most node IDs `DASSIE_UPLINKS` names: the most uplinks a node pins.
+pub const MAX_UPLINKS: usize = dassie_peer::MAX_UPLINKS;
+
 /// A snapshot of environment variables.
 #[derive(Clone, Debug, Default)]
 pub struct Env(BTreeMap<String, OsString>);

@@ -1,8 +1,10 @@
 //! The market maker's two nodes, over their IPC sockets: what each holds,
-//! and a trade from one through the target to the other
-//! (spec/areas/rate-feed.md#market-maker).
+//! which targets each is peered with, and a trade from one through a
+//! target to the other (spec/areas/rate-feed.md#market-maker).
 //!
-//! A trade asks the receiving node for an incoming payment, quotes paying
+//! A trade asks the receiving node for an incoming payment beneath the
+//! target, so that the payment reaches it through that target and no
+//! other, quotes paying
 //! its STREAM credentials from the sending node with a fixed debit, and
 //! pays only if the quote still clears the margin: the feed decides only
 //! whether to quote, and the quote, whose rate every packet must then
@@ -10,9 +12,11 @@
 //! pay. Every call is bounded in time, and a connection that fails is made
 //! again at the next call.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use dassie_identity::NodeId;
 use dassie_node::rpc::proto::{self, request::Method, response, stream_item};
 
 use super::strategy::{Holding, Params, Pool, Side, Trade, check_quote};
@@ -164,25 +168,52 @@ impl Node {
             issuer: ledger.issuer,
         })
     }
+
+    /// The uplinks the node is confirmed with now: peerings it lists as
+    /// its neighbors, which is when it takes an incoming payment beneath
+    /// them (spec/areas/payments.md#receiving). The node's own list, so as
+    /// many as it may peer with.
+    ///
+    /// # Errors
+    ///
+    /// The call failed.
+    pub async fn confirmed_uplinks(&mut self) -> Result<BTreeSet<NodeId>, String> {
+        let response::Method::ListPeers(list) = self
+            .call(Method::ListPeers(proto::ListPeersRequest {}))
+            .await?
+        else {
+            return Err("ListPeers answered out of turn".into());
+        };
+        Ok(list
+            .peers
+            .iter()
+            .filter(|peer| peer.advertised && peer.state == "peered")
+            .filter_map(|peer| NodeId::parse(&peer.node).ok())
+            .collect())
+    }
 }
 
-/// Carries out `trade` from `from` to `to`, checking its quote against
-/// `pool` and `params` before paying, and follows the payment to its end
-/// or [`PAYMENT_TIMEOUT`].
+/// Carries out `trade` from `from` through `target` to `to`, checking its
+/// quote against `pool` and `params` before paying, and follows the
+/// payment to its end or [`PAYMENT_TIMEOUT`]. `to`'s credentials name the
+/// address beneath `target`, and `from` is peered with `target`, so the
+/// payment's first hop is `target`, and `target` converts it.
 ///
 /// # Errors
 ///
-/// A call failed before anything was paid, or while following.
+/// A call failed before anything was paid, or while following; `to`
+/// refuses a `target` that is not a confirmed uplink of its now.
 pub async fn trade(
     from: &mut Node,
     to: &mut Node,
+    target: NodeId,
     trade: &Trade,
     pool: &Pool,
     params: &Params,
     now_ms: u64,
 ) -> Result<TradeOutcome, String> {
     assert!(from.side == trade.from && to.side == trade.from.other());
-    let incoming = create_incoming(to, now_ms).await?;
+    let incoming = create_incoming(to, target, now_ms).await?;
     let outcome = quote_and_pay(from, &incoming, trade, pool, params).await;
     // The incoming payment takes no more, whatever happened: its
     // credentials were for this trade only.
@@ -195,13 +226,18 @@ pub async fn trade(
     outcome
 }
 
-async fn create_incoming(to: &mut Node, now_ms: u64) -> Result<proto::IncomingPayment, String> {
+/// An incoming payment on `to`, paid beneath `uplink`.
+async fn create_incoming(
+    to: &mut Node,
+    uplink: NodeId,
+    now_ms: u64,
+) -> Result<proto::IncomingPayment, String> {
     let request = proto::CreateIncomingPaymentRequest {
         ledger: to.ledger.clone(),
         incoming_amount: None,
         expires_at_ms: now_ms.saturating_add(INCOMING_TTL_MS),
         description: "market maker".into(),
-        uplink: None,
+        uplink: Some(uplink.to_string()),
     };
     match to.call(Method::CreateIncomingPayment(request)).await? {
         response::Method::CreateIncomingPayment(proto::CreateIncomingPaymentResponse {

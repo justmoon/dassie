@@ -74,6 +74,22 @@ test("the market maker's scenario: a core node and two pinned to it", () => {
   assertEquals(unavailable(def, true), undefined);
 });
 
+test("the market maker's scenario with two targets: both nodes pinned to both", () => {
+  const def = findScenario("market-maker-two-targets")!;
+  assertEquals(invalid(def), undefined);
+  assertEquals(peripheryOf(def, 0), undefined);
+  assertEquals(peripheryOf(def, 1), undefined);
+  assertEquals(peripheryOf(def, 2)?.uplinks, [0, 1]);
+  assertEquals(peripheryOf(def, 3)?.uplinks, [0, 1]);
+  assertEquals(def.schemes.map((schemes) => minted(def, schemes)), [
+    true,
+    true,
+    false,
+    true,
+  ]);
+  assertEquals(unavailable(def, true), undefined);
+});
+
 test("a pool is priced at the dev rates, exactly", () => {
   assertEquals(micros("0.92"), 920_000n);
   assertEquals(micros("50000"), 50_000_000_000n);

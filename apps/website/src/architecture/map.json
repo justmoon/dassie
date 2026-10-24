@@ -205,7 +205,7 @@
         "Builds the binary, starts the nodes on `dN.localhost` and restarts them when the Rust code changes",
         "An SNI proxy on port 443, local certificates, vanity node identities, a rates server",
         "Sets nodes up through their own RPC, the same way the end-to-end tests do",
-        "The scenario library: one node, two, six, the XRP Ledger ones, RLUSD or DSUSD that the fake ledger's issuers mint each node, and a core node with a market maker's two periphery nodes pinned to it, beside a pool"
+        "The scenario library: one node, two, six, the XRP Ledger ones, RLUSD or DSUSD that the fake ledger's issuers mint each node, and one or two core nodes with a market maker's two periphery nodes pinned to each, beside a pool"
       ]
     },
     "e2e": {
@@ -222,7 +222,7 @@
         "BTP payments, and the two-node and six-node scenarios settling every hop",
         "Open Payments, including a third party's full flow with consent in the wallet",
         "XRP Ledger settlement in XRP and in RLUSD, with the issuer freezing a line and clawing back, and payments across currencies",
-        "Passive rebalancing end to end: a market maker trades through a core node short of dollars and swaps back through the fake ledger's pool, which moves the node toward balance and earns the market maker",
+        "Passive rebalancing end to end: a market maker trades through a core node short of dollars and swaps back through the fake ledger's pool, which moves the node toward balance and earns the market maker; with two such core nodes, it trades through each",
         "The wallet, the dev dashboard and dassie.land in a browser",
         "The installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers"
       ]
@@ -268,7 +268,7 @@
       "x": 636,
       "y": 240,
       "w": 167,
-      "desc": "Runs `dassie market-maker` on a small VM of its own, so that a core node of the testnet is brought back toward balance. Its two periphery nodes, one in XRP and one in DSUSD, run beside it, pinned to that node.",
+      "desc": "Runs `dassie market-maker` on a small VM of its own, so that the testnet's core nodes are brought back toward balance. Its two periphery nodes, one in XRP and one in DSUSD, run beside it, each pinned to every core node it trades through.",
       "does": [
         "`provision.sh` makes the VM, a network that nothing reaches, and an account that can read only the two nodes' passphrases",
         "At each boot, installs the newest release as `install.sh` lays it out, checked against the release key, and the units from `main`",
@@ -326,7 +326,7 @@
         "`dassie update`: fetches, verifies and switches to a newer release, and goes back if it does not start",
         "`dassie verify-install`, which also names the release key",
         "`dassie front-door`: runs a front door, which is no node, and `--make-key` makes its key and prints the entry a node names it by",
-        "`dassie market-maker`: watches a core node's signed rate feed and, with two nodes of its own, pays through the core node when its rates and an AMM pool on the XRP Ledger leave a margin, after a quote confirms it; then swaps its funds back through the pool with a `SendMax` that bounds the price"
+        "`dassie market-maker`: watches the signed rate feeds of one or more core nodes and, with two nodes of its own that each keep an uplink to every one of them, pays through the core node whose rates leave the widest margin against an AMM pool on the XRP Ledger, after a quote confirms it; then swaps its funds back through the pool with a `SendMax` that bounds the price"
       ]
     },
     "node": {
@@ -1511,14 +1511,14 @@
             "feed",
             "xrpl"
           ],
-          "text": "`dassie market-maker` verifies the feed against the node's key from its `/stats`, and reads the XRP Ledger's AMM pool with `amm_info`. The node pays more for dollars than the pool does, by more than the market maker's margin."
+          "text": "`dassie market-maker` verifies the feed against the node's key from its `/stats`, as it does for each core node it trades through, and reads the XRP Ledger's AMM pool with `amm_info`. This node pays more for dollars than the pool and the others do, by more than the market maker's margin."
         },
         {
           "ids": [
             "proto-ui",
             "payments"
           ],
-          "text": "The market maker runs two periphery nodes pinned to the core node, one in each asset. Over their IPC sockets, one creates an incoming payment and the other quotes paying it a fixed amount, and pays only if the quote still clears the margin."
+          "text": "The market maker runs two periphery nodes, one in each asset, each pinned to every core node it trades through. Over their IPC sockets, one creates an incoming payment beneath this core node, and the other quotes paying it a fixed amount, and pays only if the quote still clears the margin."
         },
         {
           "ids": [

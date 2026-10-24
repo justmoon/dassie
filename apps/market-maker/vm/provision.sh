@@ -14,7 +14,7 @@
 #   project (which also holds the bootstrap nodes' phrases): it can read
 #   the two secrets with its nodes' passphrases, and nothing else;
 # - a network of its own with no firewall rule: nothing reaches the VM
-#   (GCP denies ingress by default), and the VM reaches out to the target,
+#   (GCP denies ingress by default), and the VM reaches out to the targets,
 #   the XRP Ledger testnet and its faucet, the mirror and GitHub;
 # - an e2-small VM whose startup script is startup.sh. It needs no SSH:
 #   the nodes and the market maker log to the serial console as well as
@@ -23,12 +23,16 @@
 #   shows them.
 #
 # The settings are instance metadata, each with a default in startup.sh:
-# mm-target-url, the core node to trade through, and mm-uplink, its node
-# ID, read from its /stats where it is not set; mm-xrp-trade-size,
+# mm-targets, the core nodes to trade through, URLs separated by commas
+# (the three bootstrap nodes by default; mm-target-url, a single one, is
+# read where it is not set), whose node IDs are read from their /stats
+# (mm-uplink names it for a single target); mm-xrp-trade-size,
 # mm-xrp-band-low and mm-xrp-band-high, the same for mm-dsusd-*, in the
 # nodes' ledger units; and mm-margin-ppm and mm-slippage-ppm. To change
 # one: `gcloud compute instances add-metadata dassie-mm --zone=us-east1-b
-# --metadata=mm-xrp-band-high=80000000000`, then reset the VM.
+# --metadata=mm-xrp-band-high=80000000000`, then reset the VM. A value
+# with commas needs another separator between settings (`gcloud topic
+# escaping`): `--metadata=^;^mm-targets=https://boot1.dassie.xyz,https://boot2.dassie.xyz`.
 #
 # The two secrets exist before this runs, each a BIP-39 passphrase of a
 # node of the market maker's own, which nobody else uses: whoever reads it
@@ -93,4 +97,4 @@ run gcloud compute instances create "$instance" --project="$project" \
   --boot-disk-type=pd-balanced \
   --shielded-secure-boot --shielded-vtpm --shielded-integrity-monitoring \
   --metadata-from-file=startup-script="$here/startup.sh" \
-  --metadata="block-project-ssh-keys=true,mm-target-url=https://boot1.dassie.xyz"
+  --metadata="block-project-ssh-keys=true"

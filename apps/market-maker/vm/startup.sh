@@ -12,8 +12,8 @@
 #    lays it out (spec/areas/release.md#install-layout), so that
 #    `dassie update` keeps it current. install.sh itself would also set up
 #    dassie.service on ports 80 and 443, which this VM does not run.
-# 4. Writes the settings from the instance metadata, and the target's node
-#    ID, which pins both nodes to it.
+# 4. Writes the settings from the instance metadata, and the targets' node
+#    IDs, which pin both nodes to every target.
 # 5. Installs the units, and (re)starts both nodes, the market maker and
 #    the daily update.
 #
@@ -173,15 +173,46 @@ number() {
 # (and still below it at a DSUSD of half an XRP, 20 XRP for 40). So the
 # two bands together hold the whole grant, and neither node is left above
 # its band with the other full, where a rebalance has nowhere to go.
-target=$(setting mm-target-url https://boot1.dassie.xyz)
-target=${target%/}
-case "$target" in
-  https://*) ;;
-  *) fail "the metadata's mm-target-url is not an https:// URL" ;;
-esac
-case "$target" in
-  *[!A-Za-z0-9.:/-]*) fail "the metadata's mm-target-url is not a plain URL" ;;
-esac
+#
+# The targets, the core nodes to trade through: the metadata's mm-targets,
+# URLs separated by commas, or else its mm-target-url, the one target of
+# the release before, or else the three bootstrap nodes. At most as many
+# as a node pins (MAX_TARGETS in crates/dassie-cli/src/market_maker/
+# config.rs), each once.
+max_targets=128
+listed=$(setting mm-targets "")
+source=mm-targets
+if [ -z "$listed" ]; then
+  listed=$(setting mm-target-url "https://boot1.dassie.xyz,https://boot2.dassie.xyz,https://boot3.dassie.xyz")
+  source=mm-target-url
+fi
+targets=""
+count=0
+old_ifs=$IFS
+IFS=,
+set -f
+for target in $listed; do
+  IFS=$old_ifs
+  target=$(printf '%s' "$target" | tr -d ' \t\r\n')
+  target=${target%/}
+  [ -n "$target" ] || continue
+  case "$target" in
+    https://?*) ;;
+    *) fail "the metadata's $source names $target, not an https:// URL" ;;
+  esac
+  case "$target" in
+    *[!A-Za-z0-9.:/-]*) fail "the metadata's $source names $target, not a plain URL" ;;
+  esac
+  case ",$targets," in
+    *",$target,"*) fail "the metadata's $source names $target twice" ;;
+  esac
+  count=$((count + 1))
+  [ "$count" -le "$max_targets" ] || fail "the metadata's $source names more than $max_targets targets"
+  targets=${targets:+$targets,}$target
+done
+IFS=$old_ifs
+set +f
+[ "$count" -ge 1 ] || fail "the metadata's $source names no target"
 # Each on its own, so that one that is not a number stops the script.
 xrp_trade_size=$(number mm-xrp-trade-size 2000000000)
 xrp_band_low=$(number mm-xrp-band-low 20000000000)
@@ -194,7 +225,7 @@ slippage_ppm=$(number mm-slippage-ppm 10000)
 umask 022
 mkdir -p "$config"
 cat > "$config/settings.env.new" <<EOF
-MM_TARGET_URL=$target
+MM_TARGETS=$targets
 MM_XRP_TRADE_SIZE=$xrp_trade_size
 MM_XRP_BAND_LOW=$xrp_band_low
 MM_XRP_BAND_HIGH=$xrp_band_high
@@ -206,27 +237,65 @@ MM_SLIPPAGE_PPM=$slippage_ppm
 EOF
 mv -f "$config/settings.env.new" "$config/settings.env"
 
-# The target's node ID, which both nodes pin as their only uplink: the
-# metadata's mm-uplink, or else what the target's /stats names, which is
-# where the market maker reads the target's ID and key too. Should the
-# target not answer, the ID read for it before stands.
-uplink=$(setting mm-uplink "")
-if [ -z "$uplink" ]; then
-  uplink=$(curl --proto =https -fsS --max-time 20 "$target/stats" | jq -er .node.id) || uplink=""
+# The targets' node IDs, which both nodes pin as their uplinks: what each
+# target's /stats names, which is where the market maker reads its ID and
+# key too; for a single target, the metadata's mm-uplink if it is set. A
+# target that does not answer keeps the ID read for it before
+# ($config/target-ids, a URL and its ID per line); one never read is left
+# out until a boot reads it, since the nodes would not start without
+# their IDs. Two URLs of one node pin it once.
+override=""
+if [ "$count" = 1 ]; then override=$(setting mm-uplink ""); fi
+# A VM set up for one target kept its ID in uplink.env instead: seed the
+# list from it once, so a target that does not answer at this boot keeps
+# the ID read before, as it did then.
+if [ ! -f "$config/target-ids" ] && [ -f "$config/uplink.env" ]; then
+  old_url=$(sed -n 's/^DASSIE_MM_UPLINK_OF=//p' "$config/uplink.env")
+  old_id=$(sed -n 's/^DASSIE_UPLINKS=//p' "$config/uplink.env")
+  case "$old_id" in
+    "" | *[!A-Za-z0-9_-]*) ;;
+    *) if [ -n "$old_url" ]; then printf '%s %s\n' "$old_url" "$old_id" > "$config/target-ids"; fi ;;
+  esac
 fi
-if [ -z "$uplink" ] && [ -f "$config/uplink.env" ] &&
-  grep -qxF "DASSIE_MM_UPLINK_OF=$target" "$config/uplink.env"; then
-  echo "Note: $target/stats does not answer; its node ID stays as it was read before"
-else
+uplinks=""
+: > "$config/target-ids.new"
+IFS=,
+set -f
+for target in $targets; do
+  IFS=$old_ifs
+  uplink=$override
+  if [ -z "$uplink" ]; then
+    uplink=$(curl --proto =https -fsS --max-time 20 "$target/stats" | jq -er .node.id) || uplink=""
+  fi
+  if [ -z "$uplink" ] && [ -f "$config/target-ids" ]; then
+    uplink=$(awk -v url="$target" '$1 == url { print $2; exit }' "$config/target-ids")
+    if [ -n "$uplink" ]; then
+      echo "Note: $target/stats does not answer; its node ID stays as it was read before"
+    fi
+  fi
+  if [ -z "$uplink" ]; then
+    echo "Note: no node ID for $target: neither node pins it until a boot reads it" >&2
+    continue
+  fi
   case "$uplink" in
-    "" | *[!A-Za-z0-9_-]*) fail "no node ID for $target: set the metadata's mm-uplink" ;;
+    *[!A-Za-z0-9_-]*) fail "the node ID for $target is not one a node takes" ;;
   esac
   # As long as a node ID may be (crates/dassie-identity/src/node_id.rs).
   [ "${#uplink}" -ge 2 ] && [ "${#uplink}" -le 45 ] ||
     fail "the node ID for $target is not one a node takes"
-  printf 'DASSIE_UPLINKS=%s\nDASSIE_MM_UPLINK_OF=%s\n' "$uplink" "$target" > "$config/uplink.env.new"
-  mv -f "$config/uplink.env.new" "$config/uplink.env"
-fi
+  printf '%s %s\n' "$target" "$uplink" >> "$config/target-ids.new"
+  case ",$uplinks," in
+    *",$uplink,"*) echo "Note: $target is a node another target is too; it is pinned once" ;;
+    *) uplinks=${uplinks:+$uplinks,}$uplink ;;
+  esac
+done
+IFS=$old_ifs
+set +f
+[ -n "$uplinks" ] ||
+  fail "no target named its node ID, and none was read before (mm-uplink names it for a single target)"
+mv -f "$config/target-ids.new" "$config/target-ids"
+printf 'DASSIE_UPLINKS=%s\n' "$uplinks" > "$config/uplink.env.new"
+mv -f "$config/uplink.env.new" "$config/uplink.env"
 
 for node in xrp dsusd; do
   install -m 644 "$vm/$node.env" "$config/$node.env"

@@ -156,6 +156,25 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     pool: { token: "DSUSD", value: "50000", tradingFee: 500 },
   },
   {
+    id: "market-maker-two-targets",
+    name: "Market Maker, Two Targets",
+    description:
+      "Two core nodes with XRP and DSUSD, most of their value in XRP, and a market maker's two periphery nodes each pinned to both, one with XRP and one with DSUSD, beside the fake ledger's XRP/DSUSD pool at the dev rate",
+    schemes: [
+      ["xrpl-testnet", "xrpl-testnet-dsusd"],
+      ["xrpl-testnet", "xrpl-testnet-dsusd"],
+      ["xrpl-testnet"],
+      ["xrpl-testnet-dsusd"],
+    ],
+    addedSchemes: ["xrpl-testnet", "xrpl-testnet-dsusd"],
+    bootstrap: [0, 1],
+    periphery: [{ node: 2, uplinks: [0, 1] }, { node: 3, uplinks: [0, 1] }],
+    // As in "market-maker": each core node holds about a twentieth of its
+    // value in DSUSD.
+    mint: { token: "DSUSD", value: "25" },
+    pool: { token: "DSUSD", value: "50000", tradingFee: 500 },
+  },
+  {
     id: "one-node",
     name: "One Node",
     description: "A single node with stub settlement and no peers",

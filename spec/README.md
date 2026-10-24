@@ -78,7 +78,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [Desktop](areas/desktop.md) | The desktop app: the owner's node in its process, the wallet's window, the tray and starting at login |
 | [Dev](areas/dev.md) | The local dev network and its dashboard |
 | [DSUSD keeper](areas/dsusd-keeper.md) | The testnet dollar token of our own: its issuer, its pool, and the keeper that holds the pool at the market |
-| [Market maker VM](areas/market-maker-vm.md) | The VM that runs a market maker and its two nodes against a testnet core node: secrets, releases and updates, settings |
+| [Market maker VM](areas/market-maker-vm.md) | The VM that runs a market maker and its two nodes against testnet core nodes: secrets, releases and updates, settings |
 | [Testing](areas/testing.md) | Test levels, golden vectors, simulations and the simulation runner |
 
 Not built yet: the [roadmap](roadmap.md), and the designs in `designs/`: what is not built of [settlement hubs](designs/settlement-hubs.md), and what is not built of the [periphery](designs/periphery.md).
