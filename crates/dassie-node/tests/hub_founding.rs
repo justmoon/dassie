@@ -130,69 +130,116 @@ fn validator_file(dir: &std::path::Path, sponsor: &NodeKey, xrpl: &str) -> Strin
     path.to_str().unwrap().to_owned()
 }
 
+/// A fake XRP Ledger, four validator daemons whose file lists the
+/// sponsor, and the sponsor's daemon, its XRP Ledger testnet account
+/// funded and synced, all at one clock.
+struct Net {
+    xrpl: Server,
+    clock: ManualClock,
+    sponsor: TestNode,
+    validators: Vec<TestNode>,
+    keys: Vec<NodeKey>,
+    _files: tempfile::TempDir,
+}
+
+impl Net {
+    async fn start(before_sync: impl FnOnce(&Server)) -> Self {
+        let xrpl = Server::start(Options {
+            listen: "127.0.0.1:0".parse().unwrap(),
+            faucet: None,
+            close_every: Duration::from_millis(100),
+        })
+        .await
+        .unwrap();
+        let clock = ManualClock::new(START_MS);
+        let sponsor_key = NodeKey::from_bytes(&[70; 32]);
+        let files = tempfile::tempdir().unwrap();
+        let file = validator_file(files.path(), &sponsor_key, &xrpl.url);
+        let env = [
+            ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+            ("DASSIE_PEER_CA_FILE", CA),
+        ];
+        let validator_env = [
+            ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+            ("DASSIE_PEER_CA_FILE", CA),
+            ("DASSIE_VALIDATOR_CONFIG", file.as_str()),
+        ];
+        let mut validators = Vec::new();
+        let keys: Vec<NodeKey> = (71..=74)
+            .map(|seed| NodeKey::from_bytes(&[seed; 32]))
+            .collect();
+        for (key, seed) in keys.iter().zip(71_u64..) {
+            let node = Bound::new()
+                .start(clock.clone(), seed, Policies::DEV, &validator_env)
+                .await;
+            prepare(&node, key).await;
+            validators.push(node);
+        }
+        let sponsor = Bound::new()
+            .start(clock.clone(), 70, Policies::DEV, &env)
+            .await;
+        prepare(&sponsor, &sponsor_key).await;
+        let xrpl_config = serde_json::json!({ "server": xrpl.url, "faucet": null });
+        add_scheme(&sponsor, "xrpl-testnet", &xrpl_config.to_string()).await;
+        let address = ledgers(&sponsor)
+            .await
+            .into_iter()
+            .find(|l| l.id == "xrpl-testnet+xrp")
+            .unwrap()
+            .deposit_address;
+        xrpl.ledger()
+            .fund(dassie_xrpl::AccountId::parse(&address).unwrap());
+        before_sync(&xrpl);
+        until(&clock, 250, async || {
+            ledgers(&sponsor).await.iter().any(|l| {
+                l.id == "xrpl-testnet+xrp" && l.connection() == proto::LedgerConnection::Synced
+            })
+        })
+        .await;
+        Self {
+            xrpl,
+            clock,
+            sponsor,
+            validators,
+            keys,
+            _files: files,
+        }
+    }
+
+    /// The validators, as the owner invites them.
+    fn invites(&self) -> Vec<proto::HubFoundingInvite> {
+        self.keys
+            .iter()
+            .zip(&self.validators)
+            .map(|(key, node)| proto::HubFoundingInvite {
+                node: key.node_id().as_str().into(),
+                endpoint: node.host(),
+            })
+            .collect()
+    }
+
+    async fn stop(self) {
+        self.sponsor.stop().await;
+        for node in self.validators {
+            node.stop().await;
+        }
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn a_sponsor_founds_a_hub_with_four_validator_daemons() {
-    let xrpl = Server::start(Options {
-        listen: "127.0.0.1:0".parse().unwrap(),
-        faucet: None,
-        close_every: Duration::from_millis(100),
-    })
-    .await
-    .unwrap();
-    let clock = ManualClock::new(START_MS);
-    let sponsor_key = NodeKey::from_bytes(&[70; 32]);
-    let files = tempfile::tempdir().unwrap();
-    let file = validator_file(files.path(), &sponsor_key, &xrpl.url);
-    let env = [
-        ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
-        ("DASSIE_PEER_CA_FILE", CA),
-    ];
-    let validator_env = [
-        ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
-        ("DASSIE_PEER_CA_FILE", CA),
-        ("DASSIE_VALIDATOR_CONFIG", file.as_str()),
-    ];
-    let mut validators = Vec::new();
-    let keys: Vec<NodeKey> = (71..=74)
-        .map(|seed| NodeKey::from_bytes(&[seed; 32]))
-        .collect();
-    for (key, seed) in keys.iter().zip(71_u64..) {
-        let node = Bound::new()
-            .start(clock.clone(), seed, Policies::DEV, &validator_env)
-            .await;
-        prepare(&node, key).await;
-        validators.push(node);
-    }
-    let sponsor = Bound::new()
-        .start(clock.clone(), 70, Policies::DEV, &env)
-        .await;
-    prepare(&sponsor, &sponsor_key).await;
-    let xrpl_config = serde_json::json!({ "server": xrpl.url, "faucet": null });
-    add_scheme(&sponsor, "xrpl-testnet", &xrpl_config.to_string()).await;
-    let address = ledgers(&sponsor)
-        .await
-        .into_iter()
-        .find(|l| l.id == "xrpl-testnet+xrp")
-        .unwrap()
-        .deposit_address;
-    xrpl.ledger()
-        .fund(dassie_xrpl::AccountId::parse(&address).unwrap());
-    until(&clock, 250, async || {
-        ledgers(&sponsor).await.iter().any(|l| {
-            l.id == "xrpl-testnet+xrp" && l.connection() == proto::LedgerConnection::Synced
-        })
-    })
-    .await;
+    let net = Net::start(|_| {}).await;
+    let invites = net.invites();
+    let Net {
+        xrpl,
+        clock,
+        sponsor,
+        validators,
+        _files,
+        ..
+    } = net;
 
     // A stranger's founding is refused; the sponsor's goes through.
-    let invites: Vec<proto::HubFoundingInvite> = keys
-        .iter()
-        .zip(&validators)
-        .map(|(key, node)| proto::HubFoundingInvite {
-            node: key.node_id().as_str().into(),
-            endpoint: node.host(),
-        })
-        .collect();
     let mut owner = sponsor.ipc().await;
     let refused = owner
         .call(Method::FoundHub(proto::FoundHubRequest {
@@ -206,6 +253,21 @@ async fn a_sponsor_founds_a_hub_with_four_validator_daemons() {
         refused.unwrap_err().code(),
         proto::ErrorCode::InvalidArgument,
         "three validators are no set"
+    );
+    // An escrow funded with less than the XRP Ledger needs to create it
+    // could never be set up.
+    let refused = owner
+        .call(Method::FoundHub(proto::FoundHubRequest {
+            validators: invites.clone(),
+            terms: String::new(),
+            escrow_funding_drops: Some(1_000),
+            xrpl_server: String::new(),
+        }))
+        .await;
+    assert_eq!(
+        refused.unwrap_err().code(),
+        proto::ErrorCode::InvalidArgument,
+        "too little to create the escrow"
     );
     // The shortest stall the rules allow, so that the hub stalls within
     // the test once validators are gone.
@@ -429,4 +491,79 @@ async fn a_strangers_founding_stream_is_reset_unread() {
     shutdown.cancel();
     validator.stop().await;
     plain.stop().await;
+}
+
+/// The payments from `from` to `to` the fake ledger holds, each with its
+/// result.
+fn payments(
+    xrpl: &Server,
+    from: dassie_xrpl::AccountId,
+    to: dassie_xrpl::AccountId,
+) -> Vec<String> {
+    use dassie_xrpl::api;
+    let reply = xrpl
+        .ledger()
+        .request(77, &api::account_tx(5, from, 0, u32::MAX, None));
+    let api::Message::Response {
+        outcome: Ok(result),
+        ..
+    } = api::parse(&reply)
+    else {
+        return Vec::new();
+    };
+    api::account_tx_result(&result).map_or_else(Vec::new, |records| {
+        records
+            .transactions
+            .iter()
+            .filter(|record| record.is_payment && record.destination == Some(to))
+            .map(|record| record.result.clone())
+            .collect()
+    })
+}
+
+// spec/areas/hubs.md#founding-a-hub: when the ledger's reserve is more
+// than the sponsor funds the escrow with, the payment fails for being too
+// little; the sponsor says so and pays nothing again, which would only fail
+// alike and cost a fee each time.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn a_funding_too_little_for_the_escrow_is_paid_once() {
+    // The network voted its reserve up to 5 XRP, past the 2 the sponsor
+    // funds the escrow with by default.
+    let net = Net::start(|xrpl| xrpl.ledger().set_reserve(5_000_000, 200_000)).await;
+    let mut owner = net.sponsor.ipc().await;
+    let found = owner
+        .call(Method::FoundHub(proto::FoundHubRequest {
+            validators: net.invites(),
+            terms: String::new(),
+            escrow_funding_drops: None,
+            xrpl_server: String::new(),
+        }))
+        .await;
+    assert!(found.is_ok(), "{found:?}");
+    until(&net.clock, 250, async || {
+        founding(&net.sponsor).await.problem.contains("too little")
+    })
+    .await;
+    let status = founding(&net.sponsor).await;
+    let escrow = dassie_xrpl::AccountId::parse(&status.escrow).unwrap();
+    let address = ledgers(&net.sponsor)
+        .await
+        .into_iter()
+        .find(|l| l.id == "xrpl-testnet+xrp")
+        .unwrap()
+        .deposit_address;
+    let sponsor = dassie_xrpl::AccountId::parse(&address).unwrap();
+    // A while longer, through several of the setup's polls.
+    for _ in 0..40 {
+        net.clock.advance(250);
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert_eq!(
+        payments(&net.xrpl, sponsor, escrow),
+        vec!["tecNO_DST_INSUF_XRP".to_string()],
+        "paid once"
+    );
+    assert!(!founding(&net.sponsor).await.escrow_set_up);
+    drop(owner);
+    net.stop().await;
 }

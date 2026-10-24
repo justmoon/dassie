@@ -38,6 +38,21 @@ use crate::store::{FoundingRow, StoreError};
 /// transactions.
 pub const ESCROW_FUNDING_DROPS: u64 = 2_000_000;
 
+/// The XRP Ledger testnet's reserve for each object an account owns, in
+/// drops: the escrow's signer list is one.
+pub const LEDGER_OWNER_RESERVE: u64 = 200_000;
+
+/// The least that funds the escrow of a hub of `terms`, in drops: the XRP
+/// Ledger's reserves for the account and its signer list, and the fees of
+/// its three setup transactions. Less, and the payment that should create
+/// it fails, or the setup cannot be paid.
+#[must_use]
+pub fn least_funding(terms: &dassie_hub::rules::Terms) -> u64 {
+    dassie_hub::rules::LEDGER_BASE_RESERVE
+        .saturating_add(LEDGER_OWNER_RESERVE)
+        .saturating_add(terms.fees.ledger.saturating_mul(3))
+}
+
 /// The longest one request to a validator takes.
 const EXCHANGE_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -156,6 +171,13 @@ pub fn found(node: &Node, request: FoundRequest) -> Result<FoundingStatus, Found
         master.account().0,
     );
     let terms = terms::terms(base, &request.terms).map_err(FoundError::Invalid)?;
+    let funding_drops = request.funding_drops.unwrap_or(ESCROW_FUNDING_DROPS);
+    let least = least_funding(&terms);
+    if funding_drops < least {
+        return Err(FoundError::Invalid(format!(
+            "the escrow needs at least {least} drops to be created and set up"
+        )));
+    }
     let sponsor = Sponsor::new(terms, request.validators).map_err(|error| {
         FoundError::Invalid(format!(
             "{error:?}: 4 to 16 validators, each once, at a host:port"
@@ -175,7 +197,7 @@ pub fn found(node: &Node, request: FoundRequest) -> Result<FoundingStatus, Found
         nonce,
         state: sponsor.to_vec(),
         xrpl,
-        funding_drops: request.funding_drops.unwrap_or(ESCROW_FUNDING_DROPS).max(1),
+        funding_drops,
         escrow_payment: None,
         problem: None,
         created_at_ms: now,
@@ -450,6 +472,7 @@ impl Founding {
             xrpl: self.row.xrpl.clone(),
             funding_drops: self.row.funding_drops,
             payment: self.row.escrow_payment.clone(),
+            too_little: false,
             events: events.clone(),
         };
         asks.spawn(setup.run(stop.clone()));
