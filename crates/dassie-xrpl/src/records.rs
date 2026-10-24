@@ -526,8 +526,9 @@ pub struct Decoded {
     /// none did.
     pub threads: Vec<([u8; 32], Option<Thread>)>,
     /// The sender's sequence numbers it used up: the first, and how many.
-    /// None for one that used a ticket; a `TicketCreate` uses its own and
-    /// those of the tickets it makes.
+    /// None, `(0, 0)`, for one that used a ticket; a `TicketCreate` that
+    /// succeeded uses its own and those of the tickets it made, and one
+    /// that failed only its own, as any failure that claims the fee does.
     pub uses: (u32, u32),
 }
 
@@ -801,9 +802,14 @@ pub fn transaction(
         let whole = is_payment && result == "tesSUCCESS" && fields.flags & TF_PARTIAL_PAYMENT == 0;
         fields.amount.filter(|_| whole)
     });
+    // A `TicketCreate` makes its tickets only if it succeeds: one that
+    // failed used up its own number alone, and the numbers after it are
+    // still free for a transaction of ours.
     let uses = match (sequence, kind) {
         (0, _) => (0, 0),
-        (first, TICKET_CREATE) => (first, fields.ticket_count.saturating_add(1)),
+        (first, TICKET_CREATE) if result == "tesSUCCESS" => {
+            (first, fields.ticket_count.saturating_add(1))
+        }
         (first, _) => (first, 1),
     };
     let record = TxRecord {
@@ -967,6 +973,39 @@ mod tests {
             .line(line.low, line.high, line.currency)
             .unwrap();
         assert_eq!(changed.after(), Some(&line));
+    }
+
+    // A `TicketCreate` uses up the numbers of the tickets it makes only if
+    // it succeeds: one that failed with a fee claimed (as for want of the
+    // reserve) used up its own number alone, so a transaction of ours with
+    // the next is not taken for one it made impossible.
+    #[test]
+    fn a_failed_ticket_create_uses_up_its_own_number_alone() {
+        use crate::binary::{write_field, xrp};
+
+        let account = crate::keys::Wallet::from_entropy(&[1; 32]).account();
+        let mut tx = Vec::new();
+        write_field(&mut tx, TRANSACTION_TYPE, &TICKET_CREATE.to_be_bytes());
+        write_field(&mut tx, FLAGS, &0u32.to_be_bytes());
+        write_field(&mut tx, SEQUENCE, &7u32.to_be_bytes());
+        write_field(&mut tx, TICKET_COUNT, &3u32.to_be_bytes());
+        write_field(&mut tx, FEE, &xrp(12));
+        write_field(&mut tx, ACCOUNT, &account.0);
+        let meta = |result: &str| {
+            let mut meta = Vec::new();
+            write_field(&mut meta, TRANSACTION_INDEX, &0u32.to_be_bytes());
+            write_field(&mut meta, AFFECTED_NODES, &[]);
+            write_field(
+                &mut meta,
+                TRANSACTION_RESULT,
+                &[result_code(result).unwrap()],
+            );
+            meta
+        };
+        let uses = |result| transaction(&tx, &meta(result), 20, &[]).unwrap().uses;
+        assert_eq!(uses("tesSUCCESS"), (7, 4));
+        assert_eq!(uses("tecINSUFFICIENT_RESERVE"), (7, 1));
+        assert_eq!(uses("tecDIR_FULL"), (7, 1));
     }
 
     #[test]
