@@ -611,28 +611,35 @@ fn check_owners(sim: &Sim) -> Result<(), String> {
     Ok(())
 }
 
-/// The escrow holds what the hub owes and what the sponsor left in it, and
-/// beyond that at most the moves on their way; and the fake ledger made or
-/// lost no XRP.
+/// The escrow holds what the hub owes and what the sponsor left in it, but
+/// for what is on its way between them; and the fake ledger made or lost no
+/// XRP.
 ///
-/// A move on its way, a liar's among them, is in the escrow and not yet in
-/// the hub, or has left the hub and not yet the escrow: the escrow then
-/// holds more than the hub owes, by no more than the move and its ledger
-/// fee, never less.
-fn check_escrow(sim: &Sim) -> Result<(), String> {
+/// A deposit on its way, a liar's among them, is in the escrow and not yet
+/// in the hub: the escrow holds more than the hub owes, by no more than the
+/// deposits the nodes are making. A withdrawal the hub queued is part of
+/// what it owes until a quorum attests that the escrow paid it: once the
+/// escrow paid it and until then, the escrow holds less than the hub owes,
+/// by no more than the queued withdrawals and their ledger fees, whatever
+/// the nodes think of their moves.
+pub(super) fn check_escrow(sim: &Sim) -> Result<(), String> {
     let hub = sim.hub.as_deref().unwrap();
     let ledger = hub.ledger().ok_or("no honest validator runs")?;
-    let fee = hub.rules.terms.fees.ledger;
-    let on_its_way: u64 = (0..sim.nodes.len())
+    let depositing: u64 = (0..sim.nodes.len())
         .filter_map(|index| sim.core(index).hub_status()?.moving)
-        .map(|moving| moving.drops + fee)
+        .filter(|moving| moving.direction == crate::engine::core::Direction::Deposit)
+        .map(|moving| moving.drops)
+        .sum();
+    let withdrawing: u64 = ledger
+        .withdrawals()
+        .map(|(_, withdrawal)| withdrawal.amount + withdrawal.ledger_fee)
         .sum();
     let escrow = sim.ledger.balance(hub.escrow()).unwrap_or(0);
     let owed = hub.escrow_funding + ledger.supply();
-    if escrow < owed || escrow - owed > on_its_way {
+    if escrow + withdrawing < owed || escrow > owed + depositing {
         return Err(format!(
-            "the escrow holds {escrow}, while the hub owes {} and the sponsor left {}, and \
-             {on_its_way} is on its way",
+            "the escrow holds {escrow}, while the hub owes {} and the sponsor left {}, with \
+             {depositing} on its way in and {withdrawing} queued out",
             ledger.supply(),
             hub.escrow_funding
         ));
@@ -921,5 +928,47 @@ fn collude(sim: &mut Sim) -> Result<(), Outcome> {
             Ok(())
         }
         None => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A withdrawal the escrow paid and the hub has not settled yet: the
+    // hub still owes it until a quorum attests the payment, so the escrow
+    // holds less than the hub owes, by the withdrawal and its fee, and the
+    // check takes that, whatever the node thinks of its move.
+    #[test]
+    fn a_withdrawal_paid_and_not_yet_settled_passes_the_escrow_check() {
+        let mut sim = Sim::with(3, 2, 1, BTreeMap::new(), Settling::Hub(4));
+        sim.loss_per_mille = 0;
+        assert!(
+            sim.run_until_or(START + 600_000, joined),
+            "the members did not join the hub"
+        );
+        sim.run_until(sim.now + 30_000);
+        check_escrow(&sim).unwrap();
+        let hub = sim.hub.as_deref().unwrap();
+        let before = sim.ledger.balance(hub.escrow()).unwrap_or(0);
+        let least = hub.rules.terms.fees.least_payout;
+        sim.step(0, |core| {
+            core.hub_withdraw(least * dassie_xrpl::UNITS_PER_DROP)
+                .unwrap();
+        });
+        let paid_unsettled = |sim: &Sim| {
+            let hub = sim.hub.as_deref().unwrap();
+            let paid = sim.ledger.balance(hub.escrow()).unwrap_or(0) < before;
+            let queued = hub
+                .ledger()
+                .is_some_and(|ledger| ledger.withdrawals().next().is_some());
+            paid && queued
+        };
+        let deadline = sim.now + 120_000;
+        while !paid_unsettled(&sim) {
+            assert!(sim.now < deadline, "the escrow never paid the withdrawal");
+            sim.run_until(sim.now + 5);
+        }
+        check_escrow(&sim).unwrap();
     }
 }
