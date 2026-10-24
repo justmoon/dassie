@@ -80,6 +80,20 @@ pub const MAX_MEMBER_REQUEST_BYTES: usize = HUB_ID_BYTES + MAX_MEMBER_MESSAGE_BY
 /// the peer protocol's requests may hold.
 pub const MAX_MEMBER_REQUESTS: usize = 128;
 
+/// Most of [`MAX_MEMBER_REQUESTS`] one sender may hold at once: one node's
+/// key over QUIC, or one address on `POST /hub`. A member keeps at most
+/// [`MAX_EXCHANGES_PER_VALIDATOR`] exchanges of an account in flight at a
+/// validator, so this is [`MEMBERS_PER_ADDRESS`] accounts of one node, or
+/// as many members behind one address; a key anyone can make, or one
+/// address, never takes every place, for up to the request timeout each.
+pub const MAX_MEMBER_REQUESTS_PER_SENDER: u32 = 16;
+
+const _: () = assert!(
+    MAX_MEMBER_REQUESTS_PER_SENDER as u64
+        == MEMBERS_PER_ADDRESS * MAX_EXCHANGES_PER_VALIDATOR as u64
+);
+const _: () = assert!(MAX_MEMBER_REQUESTS_PER_SENDER as usize * 4 <= MAX_MEMBER_REQUESTS);
+
 /// The members one address may stand for at a validator, for the rate of
 /// `POST /hub`: a few nodes behind one NAT.
 const MEMBERS_PER_ADDRESS: u64 = 4;
@@ -388,6 +402,48 @@ pub struct Route {
 /// never takes the room of another.
 pub const MAX_EXCHANGES_PER_VALIDATOR: u8 = 4;
 
+/// Who holds places among [`MAX_MEMBER_REQUESTS`]: a node by its key, or
+/// a client of `POST /hub` by its address.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Holder {
+    Node(NodeId),
+    Address(ClientKey),
+}
+
+impl Holder {
+    fn of(sender: &Sender) -> Self {
+        match sender {
+            Sender::Node(key) => Self::Node(key.node_id()),
+            Sender::Address(address) => Self::Address(ClientKey::from_ip(address.to_canonical())),
+        }
+    }
+}
+
+/// The places each sender holds among [`MAX_MEMBER_REQUESTS`].
+type HeldBySender = Arc<Mutex<BTreeMap<Holder, u32>>>;
+
+/// A place for one incoming request on the hub's stream or `POST /hub`,
+/// given back when it drops.
+#[derive(Debug)]
+pub struct HubPermit {
+    _place: tokio::sync::OwnedSemaphorePermit,
+    holder: Option<(HeldBySender, Holder)>,
+}
+
+impl Drop for HubPermit {
+    fn drop(&mut self) {
+        if let Some((held, holder)) = &self.holder {
+            let mut held = held.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(count) = held.get_mut(holder) {
+                *count = count.saturating_sub(1);
+                if *count == 0 {
+                    held.remove(holder);
+                }
+            }
+        }
+    }
+}
+
 /// The exchanges in flight, by account and validator.
 type InFlight = Arc<Mutex<BTreeMap<(String, usize), u8>>>;
 
@@ -425,6 +481,9 @@ pub struct Hubs {
     /// Places for requests from members, and from validators.
     incoming_members: Arc<tokio::sync::Semaphore>,
     incoming_validators: Arc<tokio::sync::Semaphore>,
+    /// The places among members' each sender holds
+    /// ([`MAX_MEMBER_REQUESTS_PER_SENDER`]).
+    members_held: HeldBySender,
     /// The rate of `POST /hub` per address ([`HUB_RATE`]).
     limiter: Mutex<RateLimiter>,
     /// Places for states being served ([`MAX_STATE_SERVES`]).
@@ -439,6 +498,7 @@ impl Default for Hubs {
             exchanges: Arc::default(),
             incoming_members: Arc::new(tokio::sync::Semaphore::new(MAX_MEMBER_REQUESTS)),
             incoming_validators: Arc::new(tokio::sync::Semaphore::new(MAX_VALIDATOR_REQUESTS)),
+            members_held: Arc::default(),
             limiter: Mutex::new(RateLimiter::new(HUB_RATE)),
             state_serves: Arc::new(tokio::sync::Semaphore::new(MAX_STATE_SERVES)),
         }
@@ -491,16 +551,43 @@ impl Hubs {
         }
     }
 
-    /// A place for one incoming request from a sender of `access`, if one
-    /// is free: [`MAX_MEMBER_REQUESTS`] or [`MAX_VALIDATOR_REQUESTS`].
+    /// A place for one incoming request from `sender`, of `access`, if one
+    /// is free: among [`MAX_MEMBER_REQUESTS`], of which `sender` holds
+    /// fewer than [`MAX_MEMBER_REQUESTS_PER_SENDER`], or among
+    /// [`MAX_VALIDATOR_REQUESTS`].
     #[must_use]
-    pub fn request_permit(&self, access: HubAccess) -> Option<tokio::sync::OwnedSemaphorePermit> {
-        let places = match access {
-            HubAccess::Unknown => return None,
-            HubAccess::Member => &self.incoming_members,
-            HubAccess::Validator => &self.incoming_validators,
-        };
-        Arc::clone(places).try_acquire_owned().ok()
+    pub fn request_permit(&self, access: HubAccess, sender: &Sender) -> Option<HubPermit> {
+        match access {
+            HubAccess::Unknown => None,
+            HubAccess::Validator => {
+                let place = Arc::clone(&self.incoming_validators)
+                    .try_acquire_owned()
+                    .ok()?;
+                Some(HubPermit {
+                    _place: place,
+                    holder: None,
+                })
+            }
+            HubAccess::Member => {
+                let holder = Holder::of(sender);
+                let mut held = self
+                    .members_held
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner);
+                let holds = held.get(&holder).copied().unwrap_or(0);
+                if holds >= MAX_MEMBER_REQUESTS_PER_SENDER {
+                    return None;
+                }
+                let place = Arc::clone(&self.incoming_members)
+                    .try_acquire_owned()
+                    .ok()?;
+                held.insert(holder, holds.saturating_add(1));
+                Some(HubPermit {
+                    _place: place,
+                    holder: Some((Arc::clone(&self.members_held), holder)),
+                })
+            }
+        }
     }
 
     /// Messages for `hub` go along `route` from now on.
@@ -938,6 +1025,52 @@ mod tests {
         assert_eq!(decode_request(&request), Some((hub, &[1_u8, 2][..])));
         assert_eq!(decode_request(&request[..32]), None, "no message");
         assert_eq!(decode_request(&request[..31]), None);
+    }
+
+    // One sender, by key or by address, holds at most its share of the
+    // members' places, whoever else is still served; its places come back
+    // as its requests end.
+    #[test]
+    fn a_sender_holds_only_its_share_of_members_places() {
+        let hubs = Hubs::default();
+        let key =
+            |seed| Sender::Node(dassie_identity::NodeKey::from_bytes(&[seed; 32]).public_key());
+        let share = MAX_MEMBER_REQUESTS_PER_SENDER as usize;
+        for one in [key(1), Sender::Address("192.0.2.1".parse().unwrap())] {
+            let held: Vec<HubPermit> = (0..share)
+                .map_while(|_| hubs.request_permit(HubAccess::Member, &one))
+                .collect();
+            assert_eq!(held.len(), share);
+            assert!(hubs.request_permit(HubAccess::Member, &one).is_none());
+            assert!(hubs.request_permit(HubAccess::Member, &key(2)).is_some());
+            assert!(hubs.request_permit(HubAccess::Validator, &one).is_some());
+            drop(held);
+            assert!(hubs.request_permit(HubAccess::Member, &one).is_some());
+        }
+        let same = Sender::Address("::ffff:192.0.2.1".parse().unwrap());
+        let held: Vec<HubPermit> = (0..share)
+            .map_while(|_| hubs.request_permit(HubAccess::Member, &same))
+            .collect();
+        assert!(
+            hubs.request_permit(
+                HubAccess::Member,
+                &Sender::Address("192.0.2.1".parse().unwrap())
+            )
+            .is_none(),
+            "an address is one however it came"
+        );
+        drop(held);
+        let mut all = Vec::new();
+        for seed in 0..MAX_MEMBER_REQUESTS / share {
+            let sender = key(10 + u8::try_from(seed).unwrap());
+            for _ in 0..share {
+                all.push(hubs.request_permit(HubAccess::Member, &sender).unwrap());
+            }
+        }
+        assert!(
+            hubs.request_permit(HubAccess::Member, &key(3)).is_none(),
+            "all taken"
+        );
     }
 
     #[test]

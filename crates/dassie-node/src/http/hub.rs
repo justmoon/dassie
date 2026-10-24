@@ -39,7 +39,10 @@ pub async fn handle(node: &Node, peer: SocketAddr, request: Request<Incoming>) -
     if !node.hubs().charge(client, node.now_ms()) {
         return response::text(StatusCode::TOO_MANY_REQUESTS, "Too Many Requests");
     }
-    let Some(_permit) = node.hubs().request_permit(HubAccess::Member) else {
+    let Some(_permit) = node
+        .hubs()
+        .request_permit(HubAccess::Member, &Sender::Address(client))
+    else {
         return response::text(StatusCode::SERVICE_UNAVAILABLE, "Service Unavailable");
     };
     let timeout = Duration::from_millis(node.policies().body_timeout_ms);
