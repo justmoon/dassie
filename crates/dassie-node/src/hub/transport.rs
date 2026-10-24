@@ -379,10 +379,40 @@ pub struct Route {
     pub nodes: BTreeSet<NodeId>,
 }
 
-/// The most exchanges the node's hub accounts have in flight with
-/// validators at once: an account asks every validator a few times a
-/// second, and what does not fit is asked again.
-pub const MAX_MEMBER_EXCHANGES: usize = 64;
+/// The most exchanges one of the node's hub accounts has in flight with
+/// one validator: what one step of the account asks a validator at once
+/// (its account, what was executed since its cursor, an operation, a
+/// lookup); while a validator is slow, a poll beyond it is skipped, and
+/// the account asks again. So the exchanges in flight are at most this
+/// many times the accounts times their validators, and a busy account
+/// never takes the room of another.
+pub const MAX_EXCHANGES_PER_VALIDATOR: u8 = 4;
+
+/// The exchanges in flight, by account and validator.
+type InFlight = Arc<Mutex<BTreeMap<(String, usize), u8>>>;
+
+/// A place for one exchange of an account's with a validator, given back
+/// when it drops.
+#[derive(Debug)]
+pub struct ExchangeSlot {
+    in_flight: InFlight,
+    key: (String, usize),
+}
+
+impl Drop for ExchangeSlot {
+    fn drop(&mut self) {
+        let mut in_flight = self
+            .in_flight
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(count) = in_flight.get_mut(&self.key) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                in_flight.remove(&self.key);
+            }
+        }
+    }
+}
 
 /// The hubs the node validates: where what arrives for each goes, and how
 /// each stands; and the places for its own exchanges as a member.
@@ -390,7 +420,8 @@ pub const MAX_MEMBER_EXCHANGES: usize = 64;
 pub struct Hubs {
     routes: Mutex<BTreeMap<HubId, Route>>,
     status: Mutex<BTreeMap<HubId, HubStatus>>,
-    members: Arc<tokio::sync::Semaphore>,
+    /// The node's own exchanges as a member, by account and validator.
+    exchanges: InFlight,
     /// Places for requests from members, and from validators.
     incoming_members: Arc<tokio::sync::Semaphore>,
     incoming_validators: Arc<tokio::sync::Semaphore>,
@@ -405,7 +436,7 @@ impl Default for Hubs {
         Self {
             routes: Mutex::default(),
             status: Mutex::default(),
-            members: Arc::new(tokio::sync::Semaphore::new(MAX_MEMBER_EXCHANGES)),
+            exchanges: Arc::default(),
             incoming_members: Arc::new(tokio::sync::Semaphore::new(MAX_MEMBER_REQUESTS)),
             incoming_validators: Arc::new(tokio::sync::Semaphore::new(MAX_VALIDATOR_REQUESTS)),
             limiter: Mutex::new(RateLimiter::new(HUB_RATE)),
@@ -415,10 +446,25 @@ impl Default for Hubs {
 }
 
 impl Hubs {
-    /// A place for one exchange of the node's as a member, if one is free.
+    /// A place for one exchange of the account `asset` with its validator
+    /// at `endpoint`, if it has fewer than [`MAX_EXCHANGES_PER_VALIDATOR`]
+    /// in flight there.
     #[must_use]
-    pub fn member_permit(&self) -> Option<tokio::sync::OwnedSemaphorePermit> {
-        Arc::clone(&self.members).try_acquire_owned().ok()
+    pub fn exchange_slot(&self, asset: &str, endpoint: usize) -> Option<ExchangeSlot> {
+        let key = (asset.to_string(), endpoint);
+        let mut in_flight = self
+            .exchanges
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let count = in_flight.entry(key.clone()).or_insert(0);
+        if *count >= MAX_EXCHANGES_PER_VALIDATOR {
+            return None;
+        }
+        *count = count.saturating_add(1);
+        Some(ExchangeSlot {
+            in_flight: Arc::clone(&self.exchanges),
+            key,
+        })
     }
 
     /// Charges `client` for a request to `POST /hub` at `now`: whether it
@@ -997,5 +1043,24 @@ mod tests {
         assert_eq!(ask(&co, request.clone()).await.bytes, vec![0, 9, 9]);
         assert_eq!(decode_state_request(&request), Some((hub, 5)));
         assert_eq!(decode_state_request(&request[1..]), None);
+    }
+
+    // An account's exchanges with a slow validator are bounded, and leave
+    // the room of its other validators and of other accounts alone.
+    #[test]
+    fn exchanges_are_bounded_per_account_and_validator() {
+        let hubs = Hubs::default();
+        let busy: Vec<ExchangeSlot> = (0..MAX_EXCHANGES_PER_VALIDATOR)
+            .map(|_| hubs.exchange_slot("hub-a", 0).unwrap())
+            .collect();
+        assert!(
+            hubs.exchange_slot("hub-a", 0).is_none(),
+            "a poll is skipped"
+        );
+        assert!(hubs.exchange_slot("hub-a", 1).is_some());
+        assert!(hubs.exchange_slot("hub-b", 0).is_some());
+        drop(busy);
+        assert!(hubs.exchange_slot("hub-a", 0).is_some());
+        assert!(hubs.exchanges.lock().unwrap().is_empty(), "nothing lingers");
     }
 }

@@ -170,15 +170,17 @@ const HUB_EXCHANGE_TIMEOUT: Duration =
 /// (spec/areas/peer-protocol.md#the-hubs-stream): QUIC pinned to its node
 /// key, or `POST /hub` when QUIC cannot reach it. Each message it sends
 /// back goes to the core as from that validator. What does not arrive, or
-/// finds no place among the node's exchanges, the account sends again.
+/// finds the account with as many exchanges in flight with that validator
+/// as it may have (`MAX_EXCHANGES_PER_VALIDATOR`), the account sends again.
 pub(super) fn hub_send(
     client: Option<crate::hub::HubClient>,
     hubs: &crate::hub::Hubs,
     commands: mpsc::Sender<Command>,
     send: HubSend,
 ) {
-    let (Some(client), Some(permit)) = (client, hubs.member_permit()) else {
-        tracing::debug!(target: target::SETTLEMENT, asset = %send.asset, "no place for a hub exchange: the account asks again");
+    let slot = hubs.exchange_slot(&send.asset, send.endpoint);
+    let (Some(client), Some(permit)) = (client, slot) else {
+        tracing::debug!(target: target::SETTLEMENT, asset = %send.asset, endpoint = send.endpoint, "a hub exchange still in flight: the account asks again");
         return;
     };
     tokio::spawn(async move {
