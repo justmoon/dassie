@@ -1,0 +1,1399 @@
+From 47122961853033190ce394aede927da015a5c8b8 Mon Sep 17 00:00:00 2001
+From: Stefan Thomas <justmoon@members.fsf.org>
+Date: Sat, 24 Oct 2026 09:44:09 -0400
+Subject: [PATCH 2/2] feat: Add validations, tx_proof and state_proof for light
+ clients
+
+Three public methods that let a client verify ledger data without trusting
+the server:
+
+- `validations {ledger_hash}`: every validation the server holds for the
+  ledger, trusted or not, each the hex of its serialized STValidation. The
+  client decides by its own UNL which ones count.
+- `tx_proof {tx_hash, ledger_hash | ledger_index?}`: the ledger's binary
+  header and the branch of its transaction tree from the inner node above
+  the transaction's leaf up to the root. The client builds the leaf from
+  the transaction and metadata it gets from `tx` or `account_tx` in binary,
+  which are the bytes the tree hashes, so they are not sent again. Without
+  a ledger, the server finds the one that holds the transaction.
+- `state_proof {keys, ledger_hash | ledger_index?}`: for up to 32 keys, the
+  branch of a closed ledger's state tree towards each key, under one binary
+  header. A branch proves the ledger entry, which is its leaf, or that there
+  is none. Without a ledger, the latest validated one.
+
+Every node in a branch is serialized as it is hashed, so a client hashes
+each and reads one child hash per level, up to the root the header holds.
+The open ledger is refused, since it has no hash to prove anything against.
+A node missing from the node store is reported as `lgrNotFound`. All three
+are charged as medium-burden requests.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ API-CHANGELOG.md                              |   3 +
+ include/xrpl/protocol/jss.h                   |   8 +-
+ src/test/rpc/LedgerProofs_test.cpp            | 736 ++++++++++++++++++
+ src/xrpld/rpc/MethodNames.h                   |   3 +
+ src/xrpld/rpc/detail/Handler.cpp              |  21 +
+ src/xrpld/rpc/detail/ProofHelpers.cpp         |  77 ++
+ src/xrpld/rpc/detail/ProofHelpers.h           |  61 ++
+ src/xrpld/rpc/detail/Tuning.h                 |   5 +
+ src/xrpld/rpc/handlers/Handlers.h             |   6 +
+ src/xrpld/rpc/handlers/ledger/StateProof.cpp  |  97 +++
+ src/xrpld/rpc/handlers/ledger/Validations.cpp |  48 ++
+ .../rpc/handlers/transaction/TxProof.cpp      | 107 +++
+ 12 files changed, 1170 insertions(+), 2 deletions(-)
+ create mode 100644 src/test/rpc/LedgerProofs_test.cpp
+ create mode 100644 src/xrpld/rpc/detail/ProofHelpers.cpp
+ create mode 100644 src/xrpld/rpc/detail/ProofHelpers.h
+ create mode 100644 src/xrpld/rpc/handlers/ledger/StateProof.cpp
+ create mode 100644 src/xrpld/rpc/handlers/ledger/Validations.cpp
+ create mode 100644 src/xrpld/rpc/handlers/transaction/TxProof.cpp
+
+diff --git a/API-CHANGELOG.md b/API-CHANGELOG.md
+index fa4f113dd8..4fda9612c2 100644
+--- a/API-CHANGELOG.md
++++ b/API-CHANGELOG.md
+@@ -30,6 +30,9 @@ Version 3.5.0 is not yet released.
+ 
+ - `subscribe`, `unsubscribe`: Added an optional `mpt_issuances` request field, an array of MPT issuance IDs (hex strings). Subscribers receive the same `transaction` message as the `transactions` stream for each validated transaction whose metadata affects a subscribed issuance. MPT issuance subscriptions count toward the per-connection subscription limit. An empty array, a non-array value, or an invalid ID returns `invalidParams`. ([#5671](https://github.com/XRPLF/rippled/pull/5671))
+ - `ledger_entry`: Add full support for checks, NFT offers, payment channels, and signer lists. ([#6319](https://github.com/XRPLF/rippled/pull/6319))
++- `validations`: New RPC method that returns every validation the server holds for a ledger hash, trusted or not, each as the hex of its serialized `STValidation`. Validations are held for about ten minutes, so this serves recent ledgers.
++- `tx_proof`: New RPC method that returns a transaction's ledger's binary header and the branch of the ledger's transaction tree from the inner node above the transaction's leaf up to the tree's root. A client builds the leaf from the transaction and metadata that `tx` or `account_tx` return in binary, so it can verify them against the ledger's hash without trusting the server.
++- `state_proof`: New RPC method that returns, for up to 32 keys, the branch of a closed ledger's state tree towards each key, with the ledger's binary header. A branch proves either the ledger entry under the key, which is its first node, or that there is none. Every node in a branch is serialized as it is hashed.
+ 
+ ### Bugfixes in 3.5.0
+ 
+diff --git a/include/xrpl/protocol/jss.h b/include/xrpl/protocol/jss.h
+index 3f91fbfb69..46b9a9bed9 100644
+--- a/include/xrpl/protocol/jss.h
++++ b/include/xrpl/protocol/jss.h
+@@ -240,6 +240,7 @@ JSS(engine_result);                  // out: NetworkOPs, TransactionSign, Submit
+ JSS(engine_result_code);             // out: NetworkOPs, TransactionSign, Submit
+ JSS(engine_result_message);          // out: NetworkOPs, TransactionSign, Submit
+ JSS(entire_set);                     // out: get_aggregate_price
++JSS(entries);                        // out: StateProof
+ JSS(ephemeral_key);                  // out: ValidatorInfo
+                                      // in/out: Manifest
+ JSS(error);                          // out: error
+@@ -328,6 +329,7 @@ JSS(jq_trans_overflow);              // JobQueue transaction limit overflow.
+ JSS(kept);                           // out: SubmitTransaction
+ JSS(key);                            // out
+ JSS(key_type);                       // in/out: WalletPropose, TransactionSign
++JSS(keys);                           // in: StateProof
+ JSS(latency);                        // out: PeerImp
+ JSS(last);                           // out: RPCVersion
+ JSS(last_close);                     // out: NetworkOPs
+@@ -343,6 +345,7 @@ JSS(ledger_hash);                    // in: RPCHelpers, LedgerRequest, RipplePat
+                                      //     TransactionEntry, handlers/Ledger
+                                      // out: NetworkOPs, RPCHelpers, LedgerClosed, LedgerData,
+                                      //      AccountLines
++JSS(ledger_header);                  // out: StateProof, TxProof
+ JSS(ledger_hit_rate);                // out: GetCounts
+ JSS(ledger_index);                   // in/out: many
+ JSS(ledger_index_max);               // in, out: AccountTx*
+@@ -471,6 +474,7 @@ JSS(parent_hash);                 // out: LedgerToJson
+ JSS(partition);                   // in: LogLevel
+ JSS(passphrase);                  // in: WalletPropose
+ JSS(password);                    // in: Subscribe
++JSS(path);                        // out: StateProof, TxProof
+ JSS(paths);                       // in: RipplePathFind
+ JSS(paths_canonical);             // out: RipplePathFind
+ JSS(paths_computed);              // out: PathRequest, RipplePathFind
+@@ -634,7 +638,7 @@ JSS(trusted_validator_keys);      // out: ValidatorList
+ JSS(tx);                          // out: STTx, AccountTx*
+ JSS(tx_blob);                     // in/out: Submit,
+                                   // in: TransactionSign, AccountTx*
+-JSS(tx_hash);                     // in: TransactionEntry
++JSS(tx_hash);                     // in: TransactionEntry, TxProof
+ JSS(tx_json);                     // in/out: TransactionSign
+                                   // out: TransactionEntry
+ JSS(tx_signing_hash);             // out: TransactionSign
+@@ -681,7 +685,7 @@ JSS(validation_private_key);      // out: ValidationCreate
+ JSS(validation_public_key);       // out: ValidationCreate, ValidationSeed
+ JSS(validation_quorum);           // out: NetworkOPs
+ JSS(validation_seed);             // out: ValidationCreate, ValidationSeed
+-JSS(validations);                 // out: AmendmentTableImpl
++JSS(validations);                 // out: AmendmentTableImpl, Validations
+ JSS(validator_list_threshold);    // out: ValidatorList
+ JSS(validator_sites);             // out: ValidatorSites
+ JSS(value);                       // out: STAmount
+diff --git a/src/test/rpc/LedgerProofs_test.cpp b/src/test/rpc/LedgerProofs_test.cpp
+new file mode 100644
+index 0000000000..4acb688fa3
+--- /dev/null
++++ b/src/test/rpc/LedgerProofs_test.cpp
+@@ -0,0 +1,736 @@
++#include <test/jtx/Account.h>
++#include <test/jtx/Env.h>
++#include <test/jtx/amount.h>
++#include <test/jtx/pay.h>
++
++#include <xrpld/app/consensus/RCLValidations.h>
++#include <xrpld/app/ledger/LedgerMaster.h>
++
++#include <xrpl/basics/Blob.h>
++#include <xrpl/basics/Slice.h>
++#include <xrpl/basics/StringUtilities.h>
++#include <xrpl/basics/base_uint.h>
++#include <xrpl/basics/strHex.h>
++#include <xrpl/beast/unit_test/suite.h>
++#include <xrpl/consensus/Validations.h>
++#include <xrpl/json/json_value.h>
++#include <xrpl/json/to_string.h>
++#include <xrpl/protocol/ApiVersion.h>
++#include <xrpl/protocol/ErrorCodes.h>
++#include <xrpl/protocol/HashPrefix.h>
++#include <xrpl/protocol/Indexes.h>
++#include <xrpl/protocol/KeyType.h>
++#include <xrpl/protocol/PublicKey.h>
++#include <xrpl/protocol/SField.h>
++#include <xrpl/protocol/STValidation.h>
++#include <xrpl/protocol/SecretKey.h>
++#include <xrpl/protocol/Serializer.h>
++#include <xrpl/protocol/digest.h>
++#include <xrpl/protocol/jss.h>
++
++#include <cstddef>
++#include <cstdint>
++#include <memory>
++#include <optional>
++#include <set>
++#include <string>
++#include <utility>
++#include <vector>
++
++namespace xrpl::test {
++
++namespace {
++
++/**
++ * The fields of a ledger header that a proof is checked against, read from
++ * the `ledger_header` of an answer as a client would read them.
++ */
++struct ProvenHeader
++{
++    std::uint32_t seq = 0;
++    uint256 hash;
++    uint256 txRoot;
++    uint256 stateRoot;
++};
++
++[[nodiscard]] std::optional<ProvenHeader>
++readHeader(json::Value const& result)
++{
++    if (!result[jss::ledger_header].isString())
++        return std::nullopt;
++    auto const bytes = strUnHex(result[jss::ledger_header].asString());
++    if (!bytes || bytes->size() != 118)
++        return std::nullopt;
++
++    Serializer s;
++    s.add32(HashPrefix::LedgerMaster);
++    s.addRaw(makeSlice(*bytes));
++
++    ProvenHeader header;
++    header.hash = sha512Half(s.slice());
++    SerialIter sit{makeSlice(*bytes)};
++    header.seq = sit.get32();
++    (void)sit.get64();              // drops
++    (void)sit.getBitString<256>();  // parent hash
++    header.txRoot = sit.getBitString<256>();
++    header.stateRoot = sit.getBitString<256>();
++    return header;
++}
++
++/**
++ * What a branch proves about a key.
++ */
++enum class Proven : std::uint8_t { Present, AbsentAtEmptySlot, AbsentAtOtherLeaf, Invalid };
++
++/**
++ * Check a `path` against a root hash, from its bytes alone: each node must
++ * hash to the hash its parent names for the key, and the branch must end at
++ * the key's leaf, at another key's leaf, or at an empty slot.
++ */
++[[nodiscard]] Proven
++checkPath(uint256 const& root, uint256 const& key, json::Value const& path, Blob* leaf = nullptr)
++{
++    if (!path.isArray())
++        return Proven::Invalid;
++    if (path.size() == 0)
++        return root.isZero() ? Proven::AbsentAtEmptySlot : Proven::Invalid;
++
++    uint256 expected = root;
++    for (unsigned depth = 0; depth < path.size(); ++depth)
++    {
++        bool const last = depth + 1 == path.size();
++        auto const& hex = path[path.size() - 1 - depth];
++        auto const blob = hex.isString() ? strUnHex(hex.asString()) : std::nullopt;
++        if (!blob || blob->size() < 4 + 32 || sha512Half(makeSlice(*blob)) != expected)
++            return Proven::Invalid;
++
++        auto const prefix = SerialIter{makeSlice(*blob)}.get32();
++        if (prefix == static_cast<std::uint32_t>(HashPrefix::InnerNode))
++        {
++            if (blob->size() != 4 + (16 * 32) || depth >= 64)
++                return Proven::Invalid;
++            // The key's nibble at this depth.
++            auto const byte = key.data()[depth / 2];
++            auto const nibble = (depth % 2 == 0) ? (byte >> 4) : (byte & 0xf);
++            expected = uint256::fromVoid(blob->data() + 4 + (nibble * 32));
++            if (expected.isZero())
++                return last ? Proven::AbsentAtEmptySlot : Proven::Invalid;
++            if (last)
++                return Proven::Invalid;
++        }
++        else if (
++            prefix == static_cast<std::uint32_t>(HashPrefix::LeafNode) ||
++            prefix == static_cast<std::uint32_t>(HashPrefix::TxNode))
++        {
++            if (!last)
++                return Proven::Invalid;
++            if (leaf != nullptr)
++                *leaf = *blob;
++            return uint256::fromVoid(blob->data() + blob->size() - 32) == key
++                ? Proven::Present
++                : Proven::AbsentAtOtherLeaf;
++        }
++        else
++        {
++            return Proven::Invalid;
++        }
++    }
++    return Proven::Invalid;
++}
++
++void
++expectError(
++    beast::unit_test::Suite& suite,
++    json::Value const& result,
++    std::string const& error,
++    ErrorCodeI code,
++    std::string const& message)
++{
++    suite.expect(result[jss::status] == "error", "status");
++    suite.expect(result[jss::error] == error, "error: " + result[jss::error].asString());
++    suite.expect(result[jss::error_code] == code, "error_code");
++    suite.expect(
++        result[jss::error_message] == message,
++        "error_message: " + result[jss::error_message].asString());
++}
++
++}  // namespace
++
++class StateProof_test : public beast::unit_test::Suite
++{
++    static json::Value
++    stateProof(jtx::Env& env, unsigned apiVersion, json::Value const& params)
++    {
++        return env.rpc(apiVersion, "json", "state_proof", to_string(params))[jss::result];
++    }
++
++    static json::Value
++    keysOf(std::vector<uint256> const& keys)
++    {
++        json::Value array{json::ValueType::Array};
++        for (auto const& key : keys)
++            array.append(to_string(key));
++        return array;
++    }
++
++    void
++    testPresent(unsigned apiVersion)
++    {
++        testcase("Entries present, api " + std::to_string(apiVersion));
++        using namespace jtx;
++        Env env{*this};
++        Account const alice{"alice"};
++        env.fund(XRP(10000), alice);
++        env.close();
++
++        std::vector<uint256> const keys{
++            keylet::account(alice).key,
++            keylet::feeSettings().key,
++            keylet::skip().key,
++        };
++        json::Value params;
++        params[jss::keys] = keysOf(keys);
++        // No ledger named: the latest validated ledger.
++        auto const result = stateProof(env, apiVersion, params);
++        BEAST_EXPECT(result[jss::status] == "success");
++        BEAST_EXPECT(result[jss::validated] == true);
++
++        auto const header = readHeader(result);
++        BEAST_EXPECT(header.has_value());
++        if (!header)
++            return;
++        BEAST_EXPECT(to_string(header->hash) == result[jss::ledger_hash].asString());
++        BEAST_EXPECT(header->seq == result[jss::ledger_index].asUInt());
++        BEAST_EXPECT(
++            header->hash == env.app().getLedgerMaster().getValidatedLedger()->header().hash);
++
++        auto const& entries = result[jss::entries];
++        if (!BEAST_EXPECT(entries.isArray() && entries.size() == keys.size()))
++            return;
++        for (unsigned i = 0; i < keys.size(); ++i)
++        {
++            auto const& entry = entries[i];
++            BEAST_EXPECT(entry[jss::key] == to_string(keys[i]));
++            Blob leaf;
++            BEAST_EXPECT(
++                checkPath(header->stateRoot, keys[i], entry[jss::path], &leaf) == Proven::Present);
++
++            // The leaf is the prefix, the entry as ledger_entry gives it in
++            // binary, and its key.
++            json::Value entryParams;
++            entryParams[jss::index] = to_string(keys[i]);
++            entryParams[jss::binary] = true;
++            entryParams[jss::ledger_hash] = result[jss::ledger_hash];
++            auto const ledgerEntry =
++                env.rpc(apiVersion, "json", "ledger_entry", to_string(entryParams))[jss::result];
++            Serializer expected;
++            expected.add32(HashPrefix::LeafNode);
++            expected.addRaw(
++                makeSlice(strUnHex(ledgerEntry[jss::node_binary].asString()).value_or(Blob{})));
++            expected.addBitString(keys[i]);
++            BEAST_EXPECT(leaf == expected.peekData());
++        }
++    }
++
++    void
++    testAbsent(unsigned apiVersion)
++    {
++        testcase("Entries absent, api " + std::to_string(apiVersion));
++        using namespace jtx;
++        Env env{*this};
++        Account const alice{"alice"};
++        Account const bob{"bob"};
++        env.fund(XRP(10000), alice);
++        env.close();
++
++        // An account that does not exist; a key that differs from alice's
++        // only in its last nibble, which meets alice's leaf; and a key under
++        // each first nibble, of which some meet an empty slot in the root of
++        // this small tree. Before ledger 256, there is no skip list of flag
++        // ledgers either.
++        auto const aliceKey = keylet::account(alice).key;
++        auto nextToAlice = aliceKey;
++        nextToAlice.data()[31] ^= 0x01;
++        std::vector<uint256> keys{
++            keylet::account(bob).key,
++            nextToAlice,
++            keylet::skip(env.closed()->seq()).key,
++        };
++        for (std::uint8_t nibble = 0; nibble < 16; ++nibble)
++        {
++            uint256 key;
++            key.data()[0] = static_cast<std::uint8_t>(nibble << 4);
++            keys.push_back(key);
++        }
++
++        json::Value params;
++        params[jss::keys] = keysOf(keys);
++        params[jss::ledger_index] = "validated";
++        auto const result = stateProof(env, apiVersion, params);
++        BEAST_EXPECT(result[jss::status] == "success");
++        auto const header = readHeader(result);
++        BEAST_EXPECT(header.has_value());
++        if (!header)
++            return;
++
++        auto const& entries = result[jss::entries];
++        if (!BEAST_EXPECT(entries.isArray() && entries.size() == keys.size()))
++            return;
++        std::size_t emptySlots = 0;
++        std::size_t depthOne = 0;
++        for (unsigned i = 0; i < keys.size(); ++i)
++        {
++            auto const& entry = entries[i];
++            auto const proven = checkPath(header->stateRoot, keys[i], entry[jss::path]);
++            if (i < 3)
++            {
++                BEAST_EXPECT(
++                    proven == Proven::AbsentAtEmptySlot || proven == Proven::AbsentAtOtherLeaf);
++            }
++            BEAST_EXPECT(proven != Proven::Invalid && proven != Proven::Present);
++            if (proven == Proven::AbsentAtEmptySlot && entry[jss::path].size() == 1)
++                ++emptySlots;
++            if (proven == Proven::AbsentAtOtherLeaf && entry[jss::path].size() == 2)
++                ++depthOne;
++        }
++        BEAST_EXPECT(
++            checkPath(header->stateRoot, nextToAlice, entries[1u][jss::path]) ==
++            Proven::AbsentAtOtherLeaf);
++        BEAST_EXPECT(emptySlots > 0);
++        BEAST_EXPECT(depthOne > 0);
++
++        // The branch that proves the neighbour absent proves alice present.
++        BEAST_EXPECT(
++            checkPath(header->stateRoot, aliceKey, entries[1u][jss::path]) == Proven::Present);
++    }
++
++    void
++    testLedgers(unsigned apiVersion)
++    {
++        testcase("Ledgers, api " + std::to_string(apiVersion));
++        using namespace jtx;
++        Env env{*this};
++        Account const alice{"alice"};
++        env.fund(XRP(10000), alice);
++        env.close();
++        // A ledger with no transactions: its transaction tree is empty.
++        env.close();
++        auto const empty = env.closed();
++        BEAST_EXPECT(empty->header().txHash.isZero());
++
++        json::Value params;
++        params[jss::keys] = keysOf({keylet::account(alice).key});
++
++        // By index, by hash, closed
++        for (auto const& [field, value] : std::vector<std::pair<json::StaticString, json::Value>>{
++                 {jss::ledger_index, empty->seq()},
++                 {jss::ledger_hash, to_string(empty->header().hash)},
++                 {jss::ledger_index, "closed"},
++             })
++        {
++            auto request = params;
++            request[field] = value;
++            auto const result = stateProof(env, apiVersion, request);
++            BEAST_EXPECT(result[jss::status] == "success");
++            auto const header = readHeader(result);
++            BEAST_EXPECT(header.has_value());
++            if (!header)
++                continue;
++            BEAST_EXPECT(header->hash == empty->header().hash);
++            BEAST_EXPECT(header->txRoot.isZero());
++            BEAST_EXPECT(
++                checkPath(
++                    header->stateRoot,
++                    keylet::account(alice).key,
++                    result[jss::entries][0u][jss::path]) == Proven::Present);
++        }
++
++        {
++            auto request = params;
++            request[jss::ledger_index] = "current";
++            expectError(
++                *this,
++                stateProof(env, apiVersion, request),
++                "invalidParams",
++                RpcInvalidParams,
++                "A proof needs a closed ledger.");
++        }
++        {
++            auto request = params;
++            request[jss::ledger_index] = 1000000;
++            auto const result = stateProof(env, apiVersion, request);
++            BEAST_EXPECT(result[jss::error] == "lgrNotFound");
++            BEAST_EXPECT(result[jss::error_code] == RpcLgrNotFound);
++        }
++    }
++
++    void
++    testBadKeys(unsigned apiVersion)
++    {
++        testcase("Bad keys, api " + std::to_string(apiVersion));
++        using namespace jtx;
++        Env env{*this};
++
++        auto const key = to_string(keylet::feeSettings().key);
++        auto const check = [&](json::Value const& keys, std::string const& message) {
++            json::Value params;
++            if (!keys.isNull())
++                params[jss::keys] = keys;
++            expectError(
++                *this,
++                stateProof(env, apiVersion, params),
++                "invalidParams",
++                RpcInvalidParams,
++                message);
++        };
++
++        check(json::Value{}, "Missing field 'keys'.");
++        check(key, "Invalid field 'keys', not non-empty array.");
++        check(json::Value{json::ValueType::Array}, "Invalid field 'keys', not non-empty array.");
++
++        json::Value tooMany{json::ValueType::Array};
++        for (std::uint32_t i = 0; i < 33; ++i)
++            tooMany.append(to_string(sha512Half(i)));
++        check(tooMany, "Invalid field 'keys', not array too long.");
++
++        json::Value twice{json::ValueType::Array};
++        twice.append(key);
++        twice.append(key);
++        check(twice, "Invalid field 'keys', not array of distinct keys.");
++
++        for (auto const& bad : {json::Value{key.substr(1)}, json::Value{"zz"}, json::Value{7}})
++        {
++            json::Value keys{json::ValueType::Array};
++            keys.append(bad);
++            check(keys, "Invalid field 'keys', not array of hex strings.");
++        }
++
++        // The most keys a request may name.
++        json::Value most{json::ValueType::Array};
++        for (std::uint32_t i = 0; i < 32; ++i)
++            most.append(to_string(sha512Half(i)));
++        json::Value params;
++        params[jss::keys] = most;
++        auto const result = stateProof(env, apiVersion, params);
++        BEAST_EXPECT(result[jss::status] == "success");
++        BEAST_EXPECT(result[jss::entries].size() == 32);
++    }
++
++public:
++    void
++    run() override
++    {
++        forAllApiVersions([this](unsigned apiVersion) {
++            testPresent(apiVersion);
++            testAbsent(apiVersion);
++            testLedgers(apiVersion);
++            testBadKeys(apiVersion);
++        });
++    }
++};
++
++class TxProof_test : public beast::unit_test::Suite
++{
++    static json::Value
++    txProof(jtx::Env& env, unsigned apiVersion, json::Value const& params)
++    {
++        return env.rpc(apiVersion, "json", "tx_proof", to_string(params))[jss::result];
++    }
++
++    /**
++     * Check a tx_proof answer for a transaction as a client would: build the
++     * leaf from the transaction and metadata that `tx` gives in binary, and
++     * check it against the branch. Return the number of inner nodes in the
++     * branch, or zero if it does not prove the transaction.
++     */
++    std::size_t
++    checkProof(jtx::Env& env, unsigned apiVersion, json::Value const& result, uint256 const& txHash)
++    {
++        if (!BEAST_EXPECT(result[jss::status] == "success"))
++            return 0;
++        auto const header = readHeader(result);
++        BEAST_EXPECT(header.has_value());
++        if (!header)
++            return 0;
++        BEAST_EXPECT(to_string(header->hash) == result[jss::ledger_hash].asString());
++        BEAST_EXPECT(header->seq == result[jss::ledger_index].asUInt());
++
++        // API v1 names the blobs `tx` and `meta`, later versions `tx_blob` and
++        // `meta_blob`.
++        json::Value txParams;
++        txParams[jss::transaction] = to_string(txHash);
++        txParams[jss::binary] = true;
++        auto const found = env.rpc(apiVersion, "json", "tx", to_string(txParams))[jss::result];
++        auto const tx = strUnHex(
++            (found.isMember(jss::tx_blob) ? found[jss::tx_blob] : found[jss::tx]).asString());
++        auto const meta = strUnHex(
++            (found.isMember(jss::meta_blob) ? found[jss::meta_blob] : found[jss::meta]).asString());
++        BEAST_EXPECT(tx && meta);
++        if (!tx || !meta)
++            return 0;
++        BEAST_EXPECT(sha512Half(HashPrefix::TransactionId, makeSlice(*tx)) == txHash);
++
++        // The leaf is the prefix, the transaction and its metadata, each with
++        // its length, and the transaction's hash; the branch starts above it.
++        Serializer leaf;
++        leaf.add32(HashPrefix::TxNode);
++        leaf.addVL(makeSlice(*tx));
++        leaf.addVL(makeSlice(*meta));
++        leaf.addBitString(txHash);
++        json::Value withLeaf{json::ValueType::Array};
++        withLeaf.append(strHex(leaf.slice()));
++        for (auto const& node : result[jss::path])
++            withLeaf.append(node);
++        if (!BEAST_EXPECT(checkPath(header->txRoot, txHash, withLeaf) == Proven::Present))
++            return 0;
++        return result[jss::path].size();
++    }
++
++    void
++    testPresent(unsigned apiVersion)
++    {
++        testcase("Transactions present, api " + std::to_string(apiVersion));
++        using namespace jtx;
++        Env env{*this};
++        Account const alice{"alice"};
++        Account const bob{"bob"};
++        env.fund(XRP(10000), alice, bob);
++        env.close();
++
++        // A ledger with a single transaction: its leaf hangs off the root, which
++        // is all the branch holds.
++        env(pay(alice, bob, XRP(1)));
++        auto const single = env.tx()->getTransactionID();
++        env.close();
++        json::Value params;
++        params[jss::tx_hash] = to_string(single);
++        BEAST_EXPECT(checkProof(env, apiVersion, txProof(env, apiVersion, params), single) == 1);
++
++        // A ledger with several.
++        std::vector<uint256> hashes;
++        for (int i = 0; i < 20; ++i)
++        {
++            env(pay(alice, bob, XRP(1)));
++            hashes.push_back(env.tx()->getTransactionID());
++        }
++        env.close();
++        auto const seq = env.closed()->seq();
++        for (auto const& hash : hashes)
++        {
++            // Found by the server, or in the ledger named.
++            params[jss::tx_hash] = to_string(hash);
++            auto const found = txProof(env, apiVersion, params);
++            BEAST_EXPECT(checkProof(env, apiVersion, found, hash) >= 1);
++            BEAST_EXPECT(found[jss::ledger_index] == seq);
++            BEAST_EXPECT(found[jss::validated] == true);
++
++            auto named = params;
++            named[jss::ledger_index] = seq;
++            BEAST_EXPECT(checkProof(env, apiVersion, txProof(env, apiVersion, named), hash) >= 1);
++        }
++    }
++
++    void
++    testErrors(unsigned apiVersion)
++    {
++        testcase("Errors, api " + std::to_string(apiVersion));
++        using namespace jtx;
++        Env env{*this};
++        Account const alice{"alice"};
++        Account const bob{"bob"};
++        env.fund(XRP(10000), alice, bob);
++        env.close();
++        env(pay(alice, bob, XRP(1)));
++        auto const hash = env.tx()->getTransactionID();
++        env.close();
++        // A ledger with no transactions.
++        env.close();
++        auto const empty = env.closed()->seq();
++
++        {
++            expectError(
++                *this,
++                txProof(env, apiVersion, json::Value{json::ValueType::Object}),
++                "invalidParams",
++                RpcInvalidParams,
++                "Missing field 'tx_hash'.");
++        }
++        for (auto const& bad :
++             {json::Value{to_string(hash).substr(1)}, json::Value{7}, json::Value{"zz"}})
++        {
++            json::Value params;
++            params[jss::tx_hash] = bad;
++            expectError(
++                *this,
++                txProof(env, apiVersion, params),
++                "invalidParams",
++                RpcInvalidParams,
++                "Invalid field 'tx_hash', not hex string.");
++        }
++        {
++            json::Value params;
++            params[jss::tx_hash] = to_string(sha512Half(std::uint32_t{1}));
++            expectError(
++                *this,
++                txProof(env, apiVersion, params),
++                "txnNotFound",
++                RpcTxnNotFound,
++                "Transaction not found.");
++        }
++        {
++            // In another ledger than the one named, or in an empty one.
++            for (auto const seq : {empty, empty - 2})
++            {
++                json::Value params;
++                params[jss::tx_hash] = to_string(hash);
++                params[jss::ledger_index] = seq;
++                auto const result = txProof(env, apiVersion, params);
++                BEAST_EXPECT(result[jss::error] == "txnNotFound");
++                BEAST_EXPECT(result[jss::error_code] == RpcTxnNotFound);
++            }
++        }
++        {
++            json::Value params;
++            params[jss::tx_hash] = to_string(hash);
++            params[jss::ledger_index] = "current";
++            expectError(
++                *this,
++                txProof(env, apiVersion, params),
++                "invalidParams",
++                RpcInvalidParams,
++                "A proof needs a closed ledger.");
++        }
++        {
++            json::Value params;
++            params[jss::tx_hash] = to_string(hash);
++            params[jss::ledger_index] = 1000000;
++            auto const result = txProof(env, apiVersion, params);
++            BEAST_EXPECT(result[jss::error] == "lgrNotFound");
++            BEAST_EXPECT(result[jss::error_code] == RpcLgrNotFound);
++        }
++    }
++
++public:
++    void
++    run() override
++    {
++        forAllApiVersions([this](unsigned apiVersion) {
++            testPresent(apiVersion);
++            testErrors(apiVersion);
++        });
++    }
++};
++
++class ValidationsRPC_test : public beast::unit_test::Suite
++{
++    static json::Value
++    validations(jtx::Env& env, unsigned apiVersion, json::Value const& params)
++    {
++        return env.rpc(apiVersion, "json", "validations", to_string(params))[jss::result];
++    }
++
++    void
++    testValidations(unsigned apiVersion)
++    {
++        testcase("Validations, api " + std::to_string(apiVersion));
++        using namespace jtx;
++        Env env{*this};
++        env.close();
++        auto const ledger = env.closed();
++
++        auto const make = [&](bool trusted, bool full) {
++            auto const keys = randomKeyPair(KeyType::Secp256k1);
++            auto val = std::make_shared<STValidation>(
++                env.app().getTimeKeeper().now(),
++                keys.first,
++                keys.second,
++                calcNodeID(keys.first),
++                [&](STValidation& v) {
++                    v.setFieldH256(sfLedgerHash, ledger->header().hash);
++                    v.setFieldU32(sfLedgerSequence, ledger->seq());
++                    if (full)
++                        v.setFlag(kVfFullValidation);
++                });
++            if (!trusted)
++                val->setUntrusted();
++            return val;
++        };
++
++        // Trusted or not, full or partial, the server returns each.
++        std::set<std::string> expected;
++        for (auto const& val : {make(true, true), make(false, true), make(true, false)})
++        {
++            BEAST_EXPECT(
++                env.app().getValidations().add(
++                    calcNodeID(val->getSignerPublic()), RCLValidation{val}) == ValStatus::Current);
++            expected.insert(strHex(val->getSerializer().slice()));
++        }
++
++        json::Value params;
++        params[jss::ledger_hash] = to_string(ledger->header().hash);
++        auto const result = validations(env, apiVersion, params);
++        BEAST_EXPECT(result[jss::status] == "success");
++        BEAST_EXPECT(result[jss::ledger_hash] == to_string(ledger->header().hash));
++        auto const& array = result[jss::validations];
++        if (!BEAST_EXPECT(array.isArray() && array.size() == expected.size()))
++            return;
++        std::set<std::string> got;
++        for (auto const& hex : array)
++        {
++            got.insert(hex.asString());
++
++            // Each parses as a validation of the ledger, and its signature
++            // checks.
++            auto const blob = strUnHex(hex.asString());
++            BEAST_EXPECT(blob.has_value());
++            if (!blob)
++                continue;
++            SerialIter sit{makeSlice(*blob)};
++            STValidation const val{
++                sit,
++                [](PublicKey const& pk) { return calcNodeID(pk); },
++                STValidation::DeserializeOptions{
++                    .checkSignature = true,
++                    .requireCanonicalOrder = true,
++                }};
++            BEAST_EXPECT(val.getLedgerHash() == ledger->header().hash);
++        }
++        BEAST_EXPECT(got == expected);
++
++        // No validations held for a ledger
++        params[jss::ledger_hash] = to_string(sha512Half(std::uint32_t{1}));
++        auto const none = validations(env, apiVersion, params);
++        BEAST_EXPECT(none[jss::status] == "success");
++        BEAST_EXPECT(none[jss::validations].isArray() && none[jss::validations].size() == 0);
++
++        expectError(
++            *this,
++            validations(env, apiVersion, json::Value{json::ValueType::Object}),
++            "invalidParams",
++            RpcInvalidParams,
++            "Missing field 'ledger_hash'.");
++        for (auto const& bad : {json::Value{"zz"}, json::Value{7}})
++        {
++            params[jss::ledger_hash] = bad;
++            expectError(
++                *this,
++                validations(env, apiVersion, params),
++                "invalidParams",
++                RpcInvalidParams,
++                "Invalid field 'ledger_hash', not hex string.");
++        }
++    }
++
++public:
++    void
++    run() override
++    {
++        forAllApiVersions([this](unsigned apiVersion) { testValidations(apiVersion); });
++    }
++};
++
++BEAST_DEFINE_TESTSUITE(StateProof, rpc, xrpl);
++BEAST_DEFINE_TESTSUITE(TxProof, rpc, xrpl);
++BEAST_DEFINE_TESTSUITE(ValidationsRPC, rpc, xrpl);
++
++}  // namespace xrpl::test
+diff --git a/src/xrpld/rpc/MethodNames.h b/src/xrpld/rpc/MethodNames.h
+index 5dc2d9ff88..40834081aa 100644
+--- a/src/xrpld/rpc/MethodNames.h
++++ b/src/xrpld/rpc/MethodNames.h
+@@ -74,6 +74,7 @@ inline constexpr std::string_view kServerState{"server_state"};
+ inline constexpr std::string_view kSign{"sign"};
+ inline constexpr std::string_view kSignFor{"sign_for"};
+ inline constexpr std::string_view kSimulate{"simulate"};
++inline constexpr std::string_view kStateProof{"state_proof"};
+ inline constexpr std::string_view kStop{"stop"};
+ inline constexpr std::string_view kSubmit{"submit"};
+ inline constexpr std::string_view kSubmitMultisigned{"submit_multisigned"};
+@@ -81,10 +82,12 @@ inline constexpr std::string_view kSubscribe{"subscribe"};
+ inline constexpr std::string_view kTransactionEntry{"transaction_entry"};
+ inline constexpr std::string_view kTx{"tx"};
+ inline constexpr std::string_view kTxHistory{"tx_history"};
++inline constexpr std::string_view kTxProof{"tx_proof"};
+ inline constexpr std::string_view kTxReduceRelay{"tx_reduce_relay"};
+ inline constexpr std::string_view kUnlList{"unl_list"};
+ inline constexpr std::string_view kUnsubscribe{"unsubscribe"};
+ inline constexpr std::string_view kValidationCreate{"validation_create"};
++inline constexpr std::string_view kValidations{"validations"};
+ inline constexpr std::string_view kValidatorInfo{"validator_info"};
+ inline constexpr std::string_view kValidatorListSites{"validator_list_sites"};
+ inline constexpr std::string_view kValidators{"validators"};
+diff --git a/src/xrpld/rpc/detail/Handler.cpp b/src/xrpld/rpc/detail/Handler.cpp
+index a27f2990d5..4178ddd5b1 100644
+--- a/src/xrpld/rpc/detail/Handler.cpp
++++ b/src/xrpld/rpc/detail/Handler.cpp
+@@ -459,6 +459,13 @@ constexpr auto kHandlerArray = std::to_array<Handler>({
+         .role = Role::USER,
+         .condition = Condition::NeedsCurrentLedger,
+     },
++    {
++        .name = method::kStateProof,
++        .valueMethod = Method::of<&byRef<&doStateProof>>(),
++        .role = Role::USER,
++        .condition = Condition::NoCondition,
++        .hasCommandLineForm = false,
++    },
+     {
+         .name = method::kStop,
+         .valueMethod = Method::of<&byRef<&doStop>>(),
+@@ -497,6 +504,13 @@ constexpr auto kHandlerArray = std::to_array<Handler>({
+         .minApiVer = 1,
+         .maxApiVer = 1,
+     },
++    {
++        .name = method::kTxProof,
++        .valueMethod = Method::of<&byRef<&doTxProof>>(),
++        .role = Role::USER,
++        .condition = Condition::NoCondition,
++        .hasCommandLineForm = false,
++    },
+     {
+         .name = method::kTxReduceRelay,
+         .valueMethod = Method::of<&byRef<&doTxReduceRelay>>(),
+@@ -516,6 +530,13 @@ constexpr auto kHandlerArray = std::to_array<Handler>({
+         .role = Role::ADMIN,
+         .condition = Condition::NoCondition,
+     },
++    {
++        .name = method::kValidations,
++        .valueMethod = Method::of<&byRef<&doValidations>>(),
++        .role = Role::USER,
++        .condition = Condition::NoCondition,
++        .hasCommandLineForm = false,
++    },
+     {
+         .name = method::kValidators,
+         .valueMethod = Method::of<&byRef<&doValidators>>(),
+diff --git a/src/xrpld/rpc/detail/ProofHelpers.cpp b/src/xrpld/rpc/detail/ProofHelpers.cpp
+new file mode 100644
+index 0000000000..7ac4337cd7
+--- /dev/null
++++ b/src/xrpld/rpc/detail/ProofHelpers.cpp
+@@ -0,0 +1,77 @@
++#include <xrpld/rpc/detail/ProofHelpers.h>
++
++#include <xrpld/rpc/Context.h>
++#include <xrpld/rpc/detail/RPCLedgerHelpers.h>
++
++#include <xrpl/basics/Blob.h>
++#include <xrpl/basics/strHex.h>
++#include <xrpl/json/json_value.h>
++#include <xrpl/ledger/Ledger.h>
++#include <xrpl/ledger/ReadView.h>
++#include <xrpl/protocol/ErrorCodes.h>
++#include <xrpl/protocol/LedgerHeader.h>
++#include <xrpl/protocol/Serializer.h>
++#include <xrpl/protocol/jss.h>
++
++#include <rpcspec/Errors.hpp>
++#include <rpcspec/Ledger.hpp>
++
++#include <memory>
++#include <vector>
++
++namespace xrpl::rpc {
++
++::rpc::Status
++lookupProofLedger(
++    std::shared_ptr<Ledger const>& ledger,
++    JsonContext const& context,
++    json::Value& result)
++{
++    ledger.reset();
++
++    std::shared_ptr<ReadView const> view;
++    auto const& params = context.params;
++    if (params.isMember(jss::ledger) || params.isMember(jss::ledger_hash) ||
++        params.isMember(jss::ledger_index))
++    {
++        json::Value fields;
++        if (auto status = lookupLedger(view, context, fields))
++            return status;
++    }
++    else if (auto status = getLedger(view, ::rpc::spec::LedgerShortcut::Validated, context))
++    {
++        return status;
++    }
++
++    // Only a closed ledger is a Ledger: the open one is an OpenView.
++    ledger = std::dynamic_pointer_cast<Ledger const>(view);
++    if (!ledger || view->open())
++    {
++        ledger.reset();
++        return {RpcInvalidParams, "A proof needs a closed ledger."};
++    }
++
++    injectProofLedger(*ledger, context, result);
++    return ::rpc::Status::kOK;
++}
++
++void
++injectProofLedger(Ledger const& ledger, Context const& context, json::Value& result)
++{
++    injectLedgerFields(ledger, context, result);
++
++    Serializer s;
++    addRaw(ledger.header(), s);
++    result[jss::ledger_header] = strHex(s.peekData());
++}
++
++json::Value
++branchToJson(std::vector<Blob> const& branch)
++{
++    json::Value nodes{json::ValueType::Array};
++    for (auto const& node : branch)
++        nodes.append(strHex(node));
++    return nodes;
++}
++
++}  // namespace xrpl::rpc
+diff --git a/src/xrpld/rpc/detail/ProofHelpers.h b/src/xrpld/rpc/detail/ProofHelpers.h
+new file mode 100644
+index 0000000000..b4e643bc9a
+--- /dev/null
++++ b/src/xrpld/rpc/detail/ProofHelpers.h
+@@ -0,0 +1,61 @@
++#pragma once
++
++#include <xrpld/rpc/Context.h>
++
++#include <xrpl/basics/Blob.h>
++#include <xrpl/json/json_value.h>
++#include <xrpl/ledger/Ledger.h>
++
++#include <rpcspec/Errors.hpp>
++
++#include <memory>
++#include <vector>
++
++namespace xrpl::rpc {
++
++/**
++ * @brief Looks up the closed ledger a proof request names.
++ *
++ * The request names a ledger by `ledger_hash` or `ledger_index`, as for any
++ * other method. A request that names none means the latest validated ledger,
++ * not the current one: an open ledger has no hash to prove anything against,
++ * so it is refused.
++ *
++ * On success, the result gets the ledger's fields (see injectProofLedger).
++ *
++ * @param ledger Reference to the ledger pointer to be filled.
++ * @param context The RPC context.
++ * @param result Reference to a json::Value to be filled with ledger data.
++ * @return Status indicating success or failure of the operation.
++ */
++::rpc::Status
++lookupProofLedger(
++    std::shared_ptr<Ledger const>& ledger,
++    JsonContext const& context,
++    json::Value& result);
++
++/**
++ * @brief Writes the fields that identify a closed ledger into a proof.
++ *
++ * Besides `ledger_hash`, `ledger_index` and `validated`, the result gets
++ * `ledger_header`: the ledger's header serialized as it is hashed, without the
++ * hash prefix, so that a client can compute the ledger's hash itself and check
++ * the roots the proof leads to.
++ *
++ * @param ledger The ledger to describe.
++ * @param context The RPC context.
++ * @param result Reference to a json::Value to be filled with ledger data.
++ */
++void
++injectProofLedger(Ledger const& ledger, Context const& context, json::Value& result);
++
++/**
++ * @brief Converts a branch from SHAMap::getProofBranch to JSON.
++ *
++ * @param branch The branch, deepest node first.
++ * @return An array of the nodes as hex strings, in the same order.
++ */
++json::Value
++branchToJson(std::vector<Blob> const& branch);
++
++}  // namespace xrpl::rpc
+diff --git a/src/xrpld/rpc/detail/Tuning.h b/src/xrpld/rpc/detail/Tuning.h
+index 5c47ab4365..cb3a2c7ed3 100644
+--- a/src/xrpld/rpc/detail/Tuning.h
++++ b/src/xrpld/rpc/detail/Tuning.h
+@@ -79,6 +79,11 @@ static constexpr int kBinaryPageLength = 2048;
+  */
+ static constexpr int kJsonPageLength = 256;
+ 
++/**
++ * Maximum number of keys in one state_proof request.
++ */
++static constexpr unsigned int kMaxProofKeys = 32;
++
+ /**
+  * Maximum number of pages in a LedgerData response.
+  */
+diff --git a/src/xrpld/rpc/handlers/Handlers.h b/src/xrpld/rpc/handlers/Handlers.h
+index 5c2a5c8ccc..ee12e45f96 100644
+--- a/src/xrpld/rpc/handlers/Handlers.h
++++ b/src/xrpld/rpc/handlers/Handlers.h
+@@ -105,6 +105,8 @@ doSignFor(rpc::JsonContext&);
+ json::Value
+ doSimulate(rpc::JsonContext&);
+ json::Value
++doStateProof(rpc::JsonContext&);
++json::Value
+ doStop(rpc::JsonContext&);
+ json::Value
+ doSubmit(rpc::JsonContext&);
+@@ -117,6 +119,8 @@ doTxJson(rpc::JsonContext&);
+ json::Value
+ doTxHistory(rpc::JsonContext&);
+ json::Value
++doTxProof(rpc::JsonContext&);
++json::Value
+ doTxReduceRelay(rpc::JsonContext&);
+ json::Value
+ doUnlList(rpc::JsonContext&);
+@@ -127,6 +131,8 @@ doValidationCreate(rpc::JsonContext const&);
+ json::Value
+ doWalletPropose(rpc::JsonContext const&);
+ json::Value
++doValidations(rpc::JsonContext&);
++json::Value
+ doValidators(rpc::JsonContext&);
+ json::Value
+ doValidatorListSites(rpc::JsonContext&);
+diff --git a/src/xrpld/rpc/handlers/ledger/StateProof.cpp b/src/xrpld/rpc/handlers/ledger/StateProof.cpp
+new file mode 100644
+index 0000000000..ccd32c409d
+--- /dev/null
++++ b/src/xrpld/rpc/handlers/ledger/StateProof.cpp
+@@ -0,0 +1,97 @@
++#include <xrpld/rpc/Context.h>
++#include <xrpld/rpc/detail/ProofHelpers.h>
++#include <xrpld/rpc/detail/SpecBridge.hpp>
++#include <xrpld/rpc/detail/Tuning.h>
++
++#include <xrpl/basics/base_uint.h>
++#include <xrpl/json/json_value.h>
++#include <xrpl/ledger/Ledger.h>
++#include <xrpl/protocol/ErrorCodes.h>
++#include <xrpl/protocol/RPCErr.h>
++#include <xrpl/protocol/jss.h>
++#include <xrpl/resource/Fees.h>
++#include <xrpl/shamap/SHAMapMissingNode.h>
++
++#include <algorithm>
++#include <expected>
++#include <memory>
++#include <utility>
++#include <vector>
++
++namespace xrpl {
++
++static std::expected<std::vector<UInt256>, json::Value>
++parseKeys(json::Value const& params)
++{
++    if (!params.isMember(jss::keys))
++        return std::unexpected(rpc::missingFieldError(jss::keys));
++
++    auto const& keys = params[jss::keys];
++    if (!keys.isArray() || keys.size() == 0)
++        return std::unexpected(rpc::expectedFieldError(jss::keys, "non-empty array"));
++    if (keys.size() > rpc::tuning::kMaxProofKeys)
++        return std::unexpected(rpc::expectedFieldError(jss::keys, "array too long"));
++
++    std::vector<UInt256> parsed;
++    parsed.reserve(keys.size());
++    for (auto const& key : keys)
++    {
++        UInt256 k;
++        // asString() throws on an object or an array, so the type comes first.
++        if (!key.isString() || !k.parseHex(key.asString()))
++            return std::unexpected(rpc::expectedFieldError(jss::keys, "array of hex strings"));
++        if (std::ranges::find(parsed, k) != parsed.end())
++            return std::unexpected(rpc::expectedFieldError(jss::keys, "array of distinct keys"));
++        parsed.push_back(k);
++    }
++    return parsed;
++}
++
++// {
++//   keys: [<hex>, ...]
++//   ledger_hash : <ledger>
++//   ledger_index : <ledger_index>
++// }
++//
++// For each key, the branch of the ledger's state tree that proves the ledger
++// entry under it, or proves that there is none. The entry is the leaf the
++// branch starts at.
++json::Value
++doStateProof(rpc::JsonContext& context)
++{
++    context.loadType = resource::kFeeMediumBurdenRpc;
++
++    auto const keys = parseKeys(context.params);
++    if (!keys)
++        return keys.error();
++
++    json::Value jvResult;
++    std::shared_ptr<Ledger const> ledger;
++    if (auto const status = rpc::lookupProofLedger(ledger, context, jvResult))
++    {
++        rpc::injectSpecError(jvResult, status);
++        return jvResult;
++    }
++
++    try
++    {
++        json::Value entries{json::ValueType::Array};
++        for (auto const& key : *keys)
++        {
++            json::Value entry{json::ValueType::Object};
++            entry[jss::key] = to_string(key);
++            entry[jss::path] = rpc::branchToJson(ledger->stateMap().getProofBranch(key));
++            entries.append(std::move(entry));
++        }
++        jvResult[jss::entries] = std::move(entries);
++    }
++    catch (SHAMapMissingNode const&)
++    {
++        // The server has the ledger's header, but not all of its state.
++        return rpcError(RpcLgrNotFound);
++    }
++
++    return jvResult;
++}
++
++}  // namespace xrpl
+diff --git a/src/xrpld/rpc/handlers/ledger/Validations.cpp b/src/xrpld/rpc/handlers/ledger/Validations.cpp
+new file mode 100644
+index 0000000000..5540de1a88
+--- /dev/null
++++ b/src/xrpld/rpc/handlers/ledger/Validations.cpp
+@@ -0,0 +1,48 @@
++#include <xrpld/app/consensus/RCLValidations.h>
++#include <xrpld/app/main/Application.h>
++#include <xrpld/rpc/Context.h>
++
++#include <xrpl/basics/base_uint.h>
++#include <xrpl/basics/strHex.h>
++#include <xrpl/json/json_value.h>
++#include <xrpl/protocol/ErrorCodes.h>
++#include <xrpl/protocol/RippleLedgerHash.h>
++#include <xrpl/protocol/jss.h>
++#include <xrpl/resource/Fees.h>
++
++namespace xrpl {
++
++// {
++//   ledger_hash : <ledger>
++// }
++//
++// Every validation the server holds for the ledger, trusted or not, full or
++// partial, each serialized as it was signed. The client decides which
++// validators it trusts.
++json::Value
++doValidations(rpc::JsonContext& context)
++{
++    context.loadType = resource::kFeeMediumBurdenRpc;
++
++    auto const& params = context.params;
++    if (!params.isMember(jss::ledger_hash))
++        return rpc::missingFieldError(jss::ledger_hash);
++
++    // asString() throws on an object or an array, so the type comes first.
++    LedgerHash ledgerHash;
++    if (!params[jss::ledger_hash].isString() ||
++        !ledgerHash.parseHex(params[jss::ledger_hash].asString()))
++    {
++        return rpc::expectedFieldError(jss::ledger_hash, "hex string");
++    }
++
++    json::Value jvResult;
++    jvResult[jss::ledger_hash] = to_string(ledgerHash);
++    json::Value& validations = (jvResult[jss::validations] = json::Value{json::ValueType::Array});
++    for (auto const& validation : context.app.getValidations().getAllForLedger(ledgerHash))
++        validations.append(strHex(validation->getSerializer().slice()));
++
++    return jvResult;
++}
++
++}  // namespace xrpl
+diff --git a/src/xrpld/rpc/handlers/transaction/TxProof.cpp b/src/xrpld/rpc/handlers/transaction/TxProof.cpp
+new file mode 100644
+index 0000000000..59f965d51e
+--- /dev/null
++++ b/src/xrpld/rpc/handlers/transaction/TxProof.cpp
+@@ -0,0 +1,107 @@
++#include <xrpld/app/ledger/LedgerMaster.h>
++#include <xrpld/app/ledger/TransactionMaster.h>
++#include <xrpld/app/main/Application.h>
++#include <xrpld/app/misc/Transaction.h>
++#include <xrpld/rpc/Context.h>
++#include <xrpld/rpc/detail/ProofHelpers.h>
++#include <xrpld/rpc/detail/SpecBridge.hpp>
++
++#include <xrpl/basics/base_uint.h>
++#include <xrpl/beast/utility/instrumentation.h>
++#include <xrpl/json/json_value.h>
++#include <xrpl/ledger/Ledger.h>
++#include <xrpl/protocol/ErrorCodes.h>
++#include <xrpl/protocol/RPCErr.h>
++#include <xrpl/protocol/TxMeta.h>
++#include <xrpl/protocol/jss.h>
++#include <xrpl/resource/Fees.h>
++#include <xrpl/shamap/SHAMapMissingNode.h>
++
++#include <memory>
++#include <utility>
++#include <variant>
++
++namespace xrpl {
++
++// {
++//   tx_hash : <transaction hash>
++//   ledger_hash : <ledger>                 optional
++//   ledger_index : <ledger_index>          optional
++// }
++//
++// The branch of the ledger's transaction tree that proves a transaction and
++// its metadata, from the inner node above its leaf up to the root. Without a
++// ledger, the server looks up which ledger holds the transaction.
++json::Value
++doTxProof(rpc::JsonContext& context)
++{
++    context.loadType = resource::kFeeMediumBurdenRpc;
++
++    auto const& params = context.params;
++    if (!params.isMember(jss::tx_hash))
++        return rpc::missingFieldError(jss::tx_hash);
++
++    // asString() throws on an object or an array, so the type comes first.
++    UInt256 txHash;
++    if (!params[jss::tx_hash].isString() || !txHash.parseHex(params[jss::tx_hash].asString()))
++        return rpc::expectedFieldError(jss::tx_hash, "hex string");
++
++    json::Value jvResult;
++    std::shared_ptr<Ledger const> ledger;
++    if (params.isMember(jss::ledger) || params.isMember(jss::ledger_hash) ||
++        params.isMember(jss::ledger_index))
++    {
++        if (auto const status = rpc::lookupProofLedger(ledger, context, jvResult))
++        {
++            rpc::injectSpecError(jvResult, status);
++            return jvResult;
++        }
++    }
++    else
++    {
++        if (!context.app.config().useTxTables())
++            return rpcError(RpcNotEnabled);
++
++        using TxPair = std::pair<std::shared_ptr<Transaction>, std::shared_ptr<TxMeta>>;
++        auto ec{RpcSuccess};
++        auto const found = context.app.getMasterTransaction().fetch(txHash, ec);
++        if (ec == RpcDbDeserialization)
++            return rpcError(ec);
++
++        auto const* const pair = std::get_if<TxPair>(&found);
++        if ((pair == nullptr) || !pair->first || pair->first->getLedger() == 0)
++            return rpcError(RpcTxnNotFound);
++
++        ledger = context.ledgerMaster.getLedgerBySeq(pair->first->getLedger());
++        if (!ledger)
++            return rpcError(RpcLgrNotFound);
++
++        rpc::injectProofLedger(*ledger, context, jvResult);
++    }
++
++    try
++    {
++        if (!ledger->txMap().hasItem(txHash))
++        {
++            rpc::injectError(RpcTxnNotFound, jvResult);
++            return jvResult;
++        }
++
++        // The client has the transaction and its metadata already, from `tx`
++        // or `account_tx` in binary, and builds the leaf from them: the
++        // branch starts at the inner node above it.
++        auto branch = ledger->txMap().getProofBranch(txHash);
++        XRPL_ASSERT(branch.size() >= 2, "xrpl::doTxProof : branch holds a leaf and the root");
++        branch.erase(branch.begin());
++        jvResult[jss::path] = rpc::branchToJson(branch);
++    }
++    catch (SHAMapMissingNode const&)
++    {
++        // The server has the ledger's header, but not all of its transactions.
++        return rpcError(RpcLgrNotFound);
++    }
++
++    return jvResult;
++}
++
++}  // namespace xrpl

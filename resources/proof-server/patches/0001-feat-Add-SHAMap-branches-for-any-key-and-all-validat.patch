@@ -1,0 +1,436 @@
+From c7ea25480f437914a3c07572ae8c29fa1dad8607 Mon Sep 17 00:00:00 2001
+From: Stefan Thomas <justmoon@members.fsf.org>
+Date: Sat, 24 Oct 2026 09:44:09 -0400
+Subject: [PATCH 1/2] feat: Add SHAMap branches for any key and all validations
+ of a ledger
+
+`SHAMap::getProofBranch` returns the branch from the root towards a key,
+each node serialized with its hash prefix, so that the hash of each node is
+the SHA-512Half of its bytes. Unlike `getProofPath`, which serves the peer
+protocol and fails for a key the map does not hold, it answers for any key:
+the branch ends at the key's leaf, at the leaf of another key that stands
+where the key would be, or at the inner node whose branch for the key is
+empty. The last two prove the key absent, since a leaf sits at the
+shallowest depth at which its key is unique. An empty map gives an empty
+branch, as its root hashes to zero.
+
+`Validations::getAllForLedger` returns every validation held for a ledger,
+trusted or not, full or partial. Unlike the other accessors it does not
+refresh the ledger's entry, so a caller can read validations but not keep
+them alive.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ include/xrpl/consensus/Validations.h        |  24 ++
+ include/xrpl/shamap/SHAMap.h                |  23 ++
+ src/libxrpl/shamap/SHAMapSync.cpp           |  25 +++
+ src/tests/libxrpl/consensus/Validations.cpp |  42 ++++
+ src/tests/libxrpl/shamap/SHAMap.cpp         | 233 ++++++++++++++++++++
+ 5 files changed, 347 insertions(+)
+
+diff --git a/include/xrpl/consensus/Validations.h b/include/xrpl/consensus/Validations.h
+index e4917c9ece..3be7fe5dbc 100644
+--- a/include/xrpl/consensus/Validations.h
++++ b/include/xrpl/consensus/Validations.h
+@@ -1064,6 +1064,30 @@ public:
+         return res;
+     }
+ 
++    /**
++     * Get every validation held for a specific ledger
++     *
++     * Unlike the other accessors, this returns validations whether or not
++     * they are trusted or full, and does not extend how long the ledger's
++     * validations are kept: a caller can read them, but not keep them alive.
++     *
++     * @param ledgerID The identifier of ledger of interest
++     * @return Validations associated with ledger
++     */
++    std::vector<WrappedValidationType>
++    getAllForLedger(ID const& ledgerID)
++    {
++        std::vector<WrappedValidationType> res;
++        std::scoped_lock const lock{mutex_};
++        if (auto const it = byLedger_.find(ledgerID); it != byLedger_.end())
++        {
++            res.reserve(it->second.size());
++            for (auto const& [key, val] : it->second)
++                res.emplace_back(val.unwrap());
++        }
++        return res;
++    }
++
+     /**
+      * Returns fees reported by trusted full validators in the given ledger
+      *
+diff --git a/include/xrpl/shamap/SHAMap.h b/include/xrpl/shamap/SHAMap.h
+index 9a2b025156..620034c8d9 100644
+--- a/include/xrpl/shamap/SHAMap.h
++++ b/include/xrpl/shamap/SHAMap.h
+@@ -384,6 +384,29 @@ public:
+     static bool
+     verifyProofPath(UInt256 const& rootHash, UInt256 const& key, std::vector<Blob> const& path);
+ 
++    /**
++     * Get the branch from the root towards a key, which proves either that
++     * the key is in the map or that it is not.
++     *
++     * Each node is serialized with its hash prefix, as it is hashed, so the
++     * hash of a node is the SHA-512Half of its blob. The deepest node comes
++     * first and the root last. The deepest node is one of:
++     * - the leaf holding the key, which proves it present;
++     * - the leaf of another key, which stands where the key would be: a leaf
++     *   sits at the shallowest depth at which its key is unique, so the key
++     *   is absent;
++     * - the inner node whose branch towards the key is empty: the key is
++     *   absent.
++     *
++     * An empty map gives an empty branch. Its root hash is zero, which proves
++     * every key absent.
++     *
++     * @param key  key of the leaf
++     * @return the branch, deepest node first
++     */
++    std::vector<Blob>
++    getProofBranch(UInt256 const& key) const;
++
+     /**
+      * Serializes the root in a format appropriate for sending over the wire
+      */
+diff --git a/src/libxrpl/shamap/SHAMapSync.cpp b/src/libxrpl/shamap/SHAMapSync.cpp
+index d5abd6e484..d894f02b11 100644
+--- a/src/libxrpl/shamap/SHAMapSync.cpp
++++ b/src/libxrpl/shamap/SHAMapSync.cpp
+@@ -952,4 +952,29 @@ SHAMap::verifyProofPath(UInt256 const& rootHash, UInt256 const& key, std::vector
+     return false;
+ }
+ 
++std::vector<Blob>
++SHAMap::getProofBranch(UInt256 const& key) const
++{
++    // An empty inner node has no prefixed form: its hash is zero, not the
++    // hash of sixteen zero branches.
++    if (root_->isInner() && safeDowncast<SHAMapInnerNode const&>(*root_).isEmpty())
++        return {};
++
++    NodePathStack stack;
++    walkTowardsKey(key, &stack);
++
++    std::vector<Blob> branch;
++    branch.reserve(stack.size());
++    while (!stack.empty())
++    {
++        Serializer s;
++        stack.top().first->serializeWithPrefix(s);
++        branch.emplace_back(std::move(s.modData()));
++        stack.pop();
++    }
++
++    JLOG(journal_.debug()) << "getProofBranch for key " << key << ", length " << branch.size();
++    return branch;
++}
++
+ }  // namespace xrpl
+diff --git a/src/tests/libxrpl/consensus/Validations.cpp b/src/tests/libxrpl/consensus/Validations.cpp
+index 5b5830d5af..b1e6866081 100644
+--- a/src/tests/libxrpl/consensus/Validations.cpp
++++ b/src/tests/libxrpl/consensus/Validations.cpp
+@@ -925,6 +925,48 @@ TEST(ValidationsTest, num_trusted_for_ledger)
+     EXPECT_TRUE(harness.vals().numTrustedForLedger(ledgerA.id()) == 1);
+ }
+ 
++TEST(ValidationsTest, get_all_for_ledger)
++{
++    SCOPED_TRACE("GetAllForLedger");
++    LedgerHistoryHelper h;
++    TestHarness harness(h.oracle);
++    Node const a = harness.makeNode();
++    Node const b = harness.makeNode();
++    Node c = harness.makeNode();
++    c.untrust();
++    Node const d = harness.makeNode();
++    Ledger const ledgerA = h["a"];
++    Ledger const ledgerAB = h["ab"];
++
++    auto const sorted = [](auto vec) {
++        std::sort(vec.begin(), vec.end());
++        return vec;
++    };
++
++    // Trusted or not, full or partial: every validation held is returned
++    std::vector<Validation> const expected{
++        a.validate(ledgerA),
++        b.partial(ledgerA),
++        c.validate(ledgerA),
++    };
++    for (auto const& v : expected)
++        EXPECT_TRUE(ValStatus::Current == harness.add(v));
++    EXPECT_TRUE(sorted(harness.vals().getAllForLedger(ledgerA.id())) == sorted(expected));
++    EXPECT_TRUE(harness.vals().getAllForLedger(ledgerAB.id()).empty());
++    EXPECT_TRUE(harness.vals().numTrustedForLedger(ledgerA.id()) == 1);
++
++    // Reading them does not keep them from expiring, unlike the trusted
++    // accessors
++    EXPECT_TRUE(ValStatus::Current == harness.add(d.validate(ledgerAB)));
++    harness.clock().advance(harness.parms().validationSetExpires / 2);
++    EXPECT_TRUE(harness.vals().getAllForLedger(ledgerA.id()).size() == 3);
++    EXPECT_TRUE(harness.vals().numTrustedForLedger(ledgerAB.id()) == 1);
++    harness.clock().advance(harness.parms().validationSetExpires / 2);
++    expireValidations(harness.vals());
++    EXPECT_TRUE(harness.vals().getAllForLedger(ledgerA.id()).empty());
++    EXPECT_TRUE(harness.vals().getAllForLedger(ledgerAB.id()).size() == 1);
++}
++
+ TEST(ValidationsTest, seq_enforcer)
+ {
+     SCOPED_TRACE("SeqEnforcer");
+diff --git a/src/tests/libxrpl/shamap/SHAMap.cpp b/src/tests/libxrpl/shamap/SHAMap.cpp
+index f37013d47c..fa0b1f28f9 100644
+--- a/src/tests/libxrpl/shamap/SHAMap.cpp
++++ b/src/tests/libxrpl/shamap/SHAMap.cpp
+@@ -7,7 +7,9 @@
+ #include <xrpl/basics/base_uint.h>
+ #include <xrpl/beast/utility/Journal.h>
+ #include <xrpl/beast/utility/Zero.h>
++#include <xrpl/protocol/HashPrefix.h>
+ #include <xrpl/protocol/Serializer.h>
++#include <xrpl/protocol/digest.h>
+ #include <xrpl/shamap/SHAMapInnerNode.h>
+ #include <xrpl/shamap/SHAMapItem.h>
+ #include <xrpl/shamap/SHAMapLeafNode.h>
+@@ -992,4 +994,235 @@ TEST_F(SHAMapPathProof, substituted_leaf_for_other_key_is_rejected)
+     EXPECT_FALSE(SHAMap::verifyProofPath(badRoot, kKey, badPath));
+ }
+ 
++/**
++ * What a branch from getProofBranch proves about a key, checked byte by byte as a client would:
++ * each blob must hash to the hash its parent names, starting from the root hash.
++ */
++enum class BranchProof : std::uint8_t { Present, Absent, Invalid };
++
++[[nodiscard]] static BranchProof
++checkBranch(UInt256 const& rootHash, UInt256 const& key, std::vector<Blob> const& branch)
++{
++    if (branch.empty())
++        return rootHash.isZero() ? BranchProof::Absent : BranchProof::Invalid;
++
++    UInt256 expected = rootHash;
++    for (auto depth = 0u; depth < branch.size(); ++depth)
++    {
++        auto const& blob = branch[branch.size() - 1 - depth];
++        if (blob.size() < 4 + 32 || sha512Half(makeSlice(blob)) != expected)
++            return BranchProof::Invalid;
++
++        auto const prefix = SerialIter{makeSlice(blob)}.get32();
++        bool const last = depth + 1 == branch.size();
++        if (prefix == static_cast<std::uint32_t>(HashPrefix::InnerNode))
++        {
++            if (blob.size() != 4 + (SHAMap::kBranchFactor * 32) || depth >= SHAMap::kLeafDepth)
++                return BranchProof::Invalid;
++            auto const nibble = selectBranch(SHAMapNodeID::createID(depth, key), key);
++            expected = UInt256::fromVoid(blob.data() + 4 + (nibble * 32));
++            if (expected.isZero())
++                return last ? BranchProof::Absent : BranchProof::Invalid;
++            if (last)
++                return BranchProof::Invalid;
++        }
++        else if (
++            prefix == static_cast<std::uint32_t>(HashPrefix::LeafNode) ||
++            prefix == static_cast<std::uint32_t>(HashPrefix::TxNode))
++        {
++            if (!last)
++                return BranchProof::Invalid;
++            auto const leafKey = UInt256::fromVoid(blob.data() + blob.size() - 32);
++            return leafKey == key ? BranchProof::Present : BranchProof::Absent;
++        }
++        else
++        {
++            return BranchProof::Invalid;
++        }
++    }
++    return BranchProof::Invalid;
++}
++
++/**
++ * Whether the deepest node of a branch is an inner node, i.e. the key's slot in it is empty.
++ */
++[[nodiscard]] static bool
++endsAtEmptySlot(std::vector<Blob> const& branch)
++{
++    return !branch.empty() && branch.front().size() == 4 + (SHAMap::kBranchFactor * 32);
++}
++
++class SHAMapProofBranch : public ::testing::Test
++{
++protected:
++    beast::Journal const j_{TestSink::instance()};
++};
++
++TEST_F(SHAMapProofBranch, proves_presence_and_both_kinds_of_absence)
++{
++    tests::TestNodeFamily f{j_};
++    SHAMap map{SHAMapType::FREE, f};
++    map.setUnbacked();
++
++    std::vector<UInt256> present;
++    for (std::uint32_t i = 0; i < 100; ++i)
++    {
++        auto const k = sha512Half(i);
++        present.push_back(k);
++        ASSERT_TRUE(map.addItem(
++            SHAMapNodeType::TnAccountState, makeShamapitem(k, Slice{k.data(), k.size()})));
++    }
++    map.invariants();
++    auto const root = map.getHash().asUInt256();
++
++    for (auto const& k : present)
++    {
++        auto const branch = map.getProofBranch(k);
++        EXPECT_EQ(checkBranch(root, k, branch), BranchProof::Present);
++
++        // The leaf is hashed over its prefix, the item and the key.
++        Serializer leaf;
++        leaf.add32(HashPrefix::LeafNode);
++        leaf.addBitString(k);
++        leaf.addBitString(k);
++        ASSERT_FALSE(branch.empty());
++        EXPECT_EQ(branch.front(), leaf.getData());
++    }
++
++    std::size_t emptySlots = 0;
++    std::size_t otherLeaves = 0;
++    for (std::uint32_t i = 1000; i < 1100; ++i)
++    {
++        auto const k = sha512Half(i);
++        auto const branch = map.getProofBranch(k);
++        EXPECT_EQ(checkBranch(root, k, branch), BranchProof::Absent);
++        if (endsAtEmptySlot(branch))
++        {
++            ++emptySlots;
++        }
++        else
++        {
++            ++otherLeaves;
++        }
++    }
++    EXPECT_GT(emptySlots, 0u);
++    EXPECT_GT(otherLeaves, 0u);
++}
++
++TEST_F(SHAMapProofBranch, empty_map_gives_empty_branch)
++{
++    tests::TestNodeFamily f{j_};
++    SHAMap map{SHAMapType::FREE, f};
++    map.setUnbacked();
++
++    EXPECT_TRUE(map.getHash().isZero());
++    auto const branch = map.getProofBranch(sha512Half(std::uint32_t{1}));
++    EXPECT_TRUE(branch.empty());
++    EXPECT_EQ(
++        checkBranch(map.getHash().asUInt256(), sha512Half(std::uint32_t{1}), branch),
++        BranchProof::Absent);
++}
++
++TEST_F(SHAMapProofBranch, leaf_at_depth_one)
++{
++    tests::TestNodeFamily f{j_};
++    SHAMap map{SHAMapType::TRANSACTION, f};
++    map.setUnbacked();
++
++    constexpr UInt256 kKey("1c8cec8e5e9b0e5e0e0f5b3e2c9f7a1d6b4e8c2a0d7f3b9e5c1a8d4f2b6e0c93");
++    constexpr UInt256 kSameNibble(
++        "1e3f1a7d5b9c2e8f406a1d3b5c7e9f2a4d6b8c0e2f4a6d8b0c2e4f6a8d0b2c46");
++    constexpr UInt256 kOtherNibble(
++        "e3f1a7d5b9c2e8f406a1d3b5c7e9f2a4d6b8c0e2f4a6d8b0c2e4f6a8d0b2c4e6");
++
++    Serializer item;
++    item.addVL(Slice{kKey.data(), kKey.size()});
++    item.addVL(Slice{kKey.data(), 16});
++    ASSERT_TRUE(map.addItem(SHAMapNodeType::TnTransactionMd, makeShamapitem(kKey, item.slice())));
++    auto const root = map.getHash().asUInt256();
++
++    // The only leaf hangs off the root: the leaf and the root.
++    auto const branch = map.getProofBranch(kKey);
++    ASSERT_EQ(branch.size(), 2u);
++    EXPECT_EQ(checkBranch(root, kKey, branch), BranchProof::Present);
++    Serializer leaf;
++    leaf.add32(HashPrefix::TxNode);
++    leaf.addRaw(item.slice());
++    leaf.addBitString(kKey);
++    EXPECT_EQ(branch.front(), leaf.getData());
++
++    // A key under the same nibble meets the other key's leaf.
++    auto const sameNibble = map.getProofBranch(kSameNibble);
++    ASSERT_EQ(sameNibble.size(), 2u);
++    EXPECT_FALSE(endsAtEmptySlot(sameNibble));
++    EXPECT_EQ(checkBranch(root, kSameNibble, sameNibble), BranchProof::Absent);
++
++    // A key under another nibble meets an empty slot in the root.
++    auto const otherNibble = map.getProofBranch(kOtherNibble);
++    ASSERT_EQ(otherNibble.size(), 1u);
++    EXPECT_TRUE(endsAtEmptySlot(otherNibble));
++    EXPECT_EQ(checkBranch(root, kOtherNibble, otherNibble), BranchProof::Absent);
++}
++
++TEST_F(SHAMapProofBranch, deepest_branches)
++{
++    tests::TestNodeFamily f{j_};
++    SHAMap map{SHAMapType::FREE, f};
++    map.setUnbacked();
++
++    auto const kA = UInt256{std::string_view{std::format("{}1", std::string(63, 'a'))}};
++    auto const kB = UInt256{std::string_view{std::format("{}2", std::string(63, 'a'))}};
++    auto const kAbsent = UInt256{std::string_view{std::format("{}3", std::string(63, 'a'))}};
++    for (auto const& k : {kA, kB})
++    {
++        ASSERT_TRUE(map.addItem(
++            SHAMapNodeType::TnAccountState, makeShamapitem(k, Slice{k.data(), k.size()})));
++    }
++    auto const root = map.getHash().asUInt256();
++
++    // Inner nodes at depths 0 to 63, and the leaf at depth 64.
++    for (auto const& k : {kA, kB})
++    {
++        auto const branch = map.getProofBranch(k);
++        EXPECT_EQ(branch.size(), 65u);
++        EXPECT_EQ(checkBranch(root, k, branch), BranchProof::Present);
++    }
++
++    // The empty slot is in the inner node at depth 63.
++    auto const absent = map.getProofBranch(kAbsent);
++    EXPECT_EQ(absent.size(), 64u);
++    EXPECT_TRUE(endsAtEmptySlot(absent));
++    EXPECT_EQ(checkBranch(root, kAbsent, absent), BranchProof::Absent);
++}
++
++TEST_F(SHAMapProofBranch, tampered_branch_proves_nothing)
++{
++    tests::TestNodeFamily f{j_};
++    SHAMap map{SHAMapType::FREE, f};
++    map.setUnbacked();
++
++    for (std::uint32_t i = 0; i < 20; ++i)
++    {
++        auto const k = sha512Half(i);
++        ASSERT_TRUE(map.addItem(
++            SHAMapNodeType::TnAccountState, makeShamapitem(k, Slice{k.data(), k.size()})));
++    }
++    auto const root = map.getHash().asUInt256();
++    auto const key = sha512Half(std::uint32_t{7});
++    auto const branch = map.getProofBranch(key);
++    ASSERT_EQ(checkBranch(root, key, branch), BranchProof::Present);
++
++    auto changedLeaf = branch;
++    changedLeaf.front()[5] ^= 1;
++    EXPECT_EQ(checkBranch(root, key, changedLeaf), BranchProof::Invalid);
++
++    auto withoutRoot = branch;
++    withoutRoot.pop_back();
++    EXPECT_EQ(checkBranch(root, key, withoutRoot), BranchProof::Invalid);
++
++    // Another key's genuine branch says nothing about this key's presence.
++    auto const other = map.getProofBranch(sha512Half(std::uint32_t{8}));
++    EXPECT_NE(checkBranch(root, key, other), BranchProof::Present);
++}
++
+ }  // namespace xrpl::tests

@@ -1,0 +1,16 @@
+# The mainnet proof server's validator lists: the two publishers xrpld's
+# default configuration names. The server's own UNL only decides which
+# ledgers it follows; a Dassie node checks every answer against its own.
+
+[validator_list_sites]
+https://vl.ripple.com
+https://unl.xrplf.org
+
+[validator_list_keys]
+#vl.ripple.com
+ED2677ABFFD1B33AC6FBC3062B71F1E8397C1505E1C42C64D11AD1B28FF73F4734
+#unl.xrplf.org
+ED42AEC58B701EEBB77356FFFEC26F83C1F0407263530F068C7C73D392C7E06FD1
+
+[validator_list_threshold]
+0
