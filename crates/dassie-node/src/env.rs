@@ -294,7 +294,7 @@ fn public_names(env: &Env) -> Result<Vec<Hostname>, EnvError> {
 }
 
 /// Node IDs, comma-separated, each once, at most
-/// [`dassie_peer::MAX_PINNED_UPLINKS`] of them.
+/// [`dassie_peer::MAX_UPLINKS`] of them.
 fn uplinks(env: &Env) -> Result<Vec<NodeId>, EnvError> {
     let error = |problem: String| EnvError {
         variable: "DASSIE_UPLINKS",
@@ -309,10 +309,10 @@ fn uplinks(env: &Env) -> Result<Vec<NodeId>, EnvError> {
         .map(str::trim)
         .filter(|entry| !entry.is_empty())
     {
-        if uplinks.len() == dassie_peer::MAX_PINNED_UPLINKS {
+        if uplinks.len() == dassie_peer::MAX_UPLINKS {
             return Err(error(format!(
                 "lists more than {} nodes",
-                dassie_peer::MAX_PINNED_UPLINKS
+                dassie_peer::MAX_UPLINKS
             )));
         }
         let id =
@@ -543,15 +543,23 @@ mod tests {
             uplinks(&format!(" {boot2} , {boot1},")),
             Ok(vec![boot2.to_string(), boot1.to_string()])
         );
-        let many = [
-            boot1,
-            boot2,
-            "dtTay2e6AV4J940nFJ6_WPkVL-TyrVKGW",
-            "ddTEO6qzWIorLvNGybj0uyK-mhlVJNa-q",
-        ];
-        assert_eq!(many.len(), dassie_peer::MAX_PINNED_UPLINKS + 1);
+        // As many as a market maker's node may trade through, and no more.
+        let many: Vec<String> = (0..=dassie_peer::MAX_UPLINKS)
+            .map(|n| {
+                let seed = [u8::try_from(n).unwrap(); 32];
+                dassie_identity::NodeKey::from_bytes(&seed)
+                    .node_id()
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(many.len(), dassie_peer::MAX_UPLINKS + 1);
         assert!(uplinks(&many.join(",")).is_err());
-        assert!(uplinks(&many[1..].join(",")).is_ok());
+        assert_eq!(
+            uplinks(&many[1..].join(",")).map(|ids| ids.len()),
+            Ok(dassie_peer::MAX_UPLINKS)
+        );
+        let twice = format!("{boot1},{boot2},{boot1}");
+        assert!(uplinks(&twice).is_err());
         let unset = settings(&[("HOME", "/h")]).map(|s| s.uplinks.len());
         assert_eq!(unset, Ok(0));
     }

@@ -866,12 +866,19 @@ fn check_bounds(policies: &Policies) {
         policies.ledger.max_pending as usize >= connector.ledger_pending_needed() + 64,
         "the ledger needs room for every packet's transfers, and settlements"
     );
-    let peers = policies.peer.max_peers;
+    // Core peers: a periphery node pinned to many uplinks may hold more
+    // than `max_peers` (spec/areas/network.md#pinned-uplinks).
+    let peers = policies.peer.max_core_peers();
     let downlinks = policies.peer.max_downlinks;
     let local = MAX_LOCAL_ENDPOINTS;
     assert!(
-        peers <= dassie_connector::MAX_CHILD_ADDRESSES,
+        peers <= dassie_connector::MAX_CHILD_ADDRESSES
+            && dassie_connector::MAX_CHILD_ADDRESSES == dassie_peer::MAX_UPLINKS,
         "a periphery node's connector takes an address beneath each of its uplinks"
+    );
+    assert!(
+        SCHEMES.len() < dassie_peer::MAX_SCHEMES,
+        "every scheme the node runs fits its link state"
     );
     // A downlink sends only its own packets, and has a child's share.
     assert!(

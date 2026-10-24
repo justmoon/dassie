@@ -35,6 +35,7 @@ In tests and simulations a commit never holds a broken invariant, so what stops 
 `daemon.rs`. The rules that the order serves:
 
 - **Everything is checked before anything starts.** Every environment variable is read once, from a snapshot (`env.rs`), and a bad value stops the daemon with a message that names it. A daemon that cannot start exits 1 rather than running half-started, and leaves no IPC socket behind.
+- **Pinned uplinks** (`DASSIE_UPLINKS`, [Network](network.md#pinned-uplinks)) are node IDs, each once, at most as many as a periphery node may keep (`MAX_UPLINKS`); a longer list stops the daemon, as any bad value does.
 - **A setting the node's kind ignores is said at start.** A core node given [pinned uplinks](network.md#pinned-uplinks) warns that it ignores them: they are not wrong, since the node may turn periphery, but an owner who set them meant something the node does not do now.
 - **The database opens, and migrates, before anything is served,** so the copy taken before a migration holds everything a peer has seen ([Database](#database)).
 - **systemd's sockets are taken before the async runtime exists,** while the process has one thread.

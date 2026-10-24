@@ -18,7 +18,8 @@ use dassie_oer::{Alphabet, DecodeError, DecodeErrorKind, Reader, Size, Writer, o
 pub use content::{Content, PeeringRequest, TerminationReason};
 pub use envelope::{Authentication, Envelope, EnvelopeError, HmacAuthentication, encode_envelope};
 pub use node_info::{
-    Entry, HubMembership, InvalidNodeInfo, NodeInfo, SignedNodeInfo, sign_node_info,
+    Entry, HubMembership, InvalidNodeInfo, NodeInfo, SignedNodeInfo, max_node_info_bytes,
+    sign_node_info,
 };
 pub use response::{
     LinkStateResponse, NodeListResponse, PeeringResponse, RefusalReason, ResponseEnvelope,

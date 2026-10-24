@@ -7,17 +7,37 @@ use alloc::vec::Vec;
 use dassie_identity::NodeId;
 use dassie_oer::{Decode, Encode};
 
-use super::{PeerNode, Problem, Purpose};
+use super::{MAX_SCHEMES, PeerNode, Problem, Purpose};
 use crate::config::Config;
 use crate::table::{LinkState, Sources, backoff};
 use crate::wire::{
     Content, EXTENSION_FEED, EXTENSION_HUB, EXTENSION_PERIPHERY, EXTENSION_QUIC, Entry,
-    InvalidNodeInfo, LinkStateResponse, NodeInfo, SignedNodeInfo, TerminationReason,
-    sign_node_info,
+    HubMembership, InvalidNodeInfo, LinkStateResponse, MAX_ENTRIES, MAX_NODE_INFO_BYTES, NodeInfo,
+    SignedNodeInfo, TerminationReason, max_node_info_bytes, sign_node_info,
 };
 
 /// The routes are recomputed at least this often, as link states go stale.
 const ROUTES_PERIOD_MS: u64 = 60_000;
+
+/// Most extensions our own link state carries: the periphery or the QUIC
+/// one, a feed port and a hub ([`PeerNode::own_extensions`]).
+const MAX_OWN_EXTENSIONS: usize = 3;
+
+/// Most bytes their values take together: a feed port and a hub.
+const MAX_OWN_EXTENSION_BYTES: usize = 2 + HubMembership::ENCODED_BYTES;
+
+/// Whether our own link state, listing at most `neighbors` neighbors,
+/// always fits what every node decodes: in entries and in bytes, with
+/// every scheme, extension and the longest URL and alias it may carry.
+pub(crate) const fn own_link_state_fits(neighbors: usize) -> bool {
+    neighbors + MAX_SCHEMES + MAX_OWN_EXTENSIONS <= MAX_ENTRIES
+        && max_node_info_bytes(
+            neighbors,
+            MAX_SCHEMES,
+            MAX_OWN_EXTENSIONS,
+            MAX_OWN_EXTENSION_BYTES,
+        ) <= MAX_NODE_INFO_BYTES
+}
 
 /// The gossip side of the node's state.
 pub(crate) struct Gossip {
@@ -262,10 +282,18 @@ impl PeerNode {
         } else {
             now.max(high.saturating_add(1))
         };
-        // Only advertised peers: confirmed, and not held down
-        // (spec/decisions/peering-lifecycle.md).
-        let neighbors = self.advertised();
+        let neighbors = self.own_neighbors(periphery);
         let extensions = self.own_extensions(periphery);
+        assert!(
+            extensions.len() <= MAX_OWN_EXTENSIONS
+                && extensions
+                    .iter()
+                    .map(|(_, value)| value.len())
+                    .sum::<usize>()
+                    <= MAX_OWN_EXTENSION_BYTES
+                && self.schemes.len() <= MAX_SCHEMES,
+            "our own link state within its bounds"
+        );
         let entries = neighbors
             .iter()
             .map(|id| Entry::Neighbor(*id))
@@ -285,7 +313,11 @@ impl PeerNode {
             entries,
         };
         let bytes = sign_node_info(self.auth.node_key(), &info);
-        let Ok(signed) = SignedNodeInfo::decode_exact(&bytes) else {
+        // It fits by construction (`own_link_state_fits`, checked by
+        // `Config::validate`): one that did not would be kept by nobody.
+        let signed = SignedNodeInfo::decode_exact(&bytes);
+        assert!(signed.is_ok(), "our own link state decodes");
+        let Ok(signed) = signed else {
             return;
         };
         if let Some(entry) = self.table.get_mut(&self.own) {
@@ -297,6 +329,25 @@ impl PeerNode {
         self.gossip.own_changed = false;
         self.gossip.last_issue_ms = Some(now);
         self.push_to_bootstrap(&bytes);
+    }
+
+    /// The neighbors our link state lists. Only a core node lists any: its
+    /// advertised peers, confirmed and not held down
+    /// (spec/decisions/peering-lifecycle.md). A periphery node's link state
+    /// lists none: only its uplinks see it, which never route by it, and it
+    /// may keep more uplinks than a link state could list
+    /// (spec/decisions/periphery-lists-no-neighbors.md). A core node has at
+    /// most `max_peers` peers, but one that just stopped being a periphery
+    /// node may still hold more, made as a periphery node and ending now
+    /// (spec/areas/network.md#periphery-nodes): it lists only as many as
+    /// fit.
+    fn own_neighbors(&self, periphery: bool) -> Vec<NodeId> {
+        if periphery {
+            return Vec::new();
+        }
+        let mut neighbors = self.advertised();
+        neighbors.truncate(self.config.max_peers);
+        neighbors
     }
 
     /// The extensions our link state carries, in order, each a type and

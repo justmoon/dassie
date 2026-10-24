@@ -38,7 +38,7 @@ pub use io::{
     SettlementAnswer, Stats, VERDICT_ACCEPTED,
 };
 pub use node::{
-    BanError, Bootstrap, MAX_PINNED_UPLINKS, NodeView, OwnInfo, PeerNode, PeerStatus,
+    BanError, Bootstrap, MAX_SCHEMES, MAX_UPLINKS, NodeView, OwnInfo, PeerNode, PeerStatus,
     RegisterError, RegistrationStatus, SendError,
 };
 pub use persist::{PeerBatch, Stored, StoredChannel, StoredClosed, StoredFloor, StoredNode};

@@ -599,6 +599,10 @@ impl PeerNode {
             self.answers.len() <= self.config.max_requests,
             "retries within bounds"
         );
+        assert!(
+            self.told_not_peered.len() <= super::lifecycle::MAX_TOLD_NOT_PEERED,
+            "told not peered within bounds"
+        );
         let own = self.table.get(&self.own);
         assert!(
             own.is_some_and(|entry| entry.sources.contains(Sources::SELF)),
@@ -606,7 +610,7 @@ impl PeerNode {
         );
         let (peers, all) = (self.core_peers().count(), self.peers().count());
         assert!(
-            peers <= self.config.max_peers && all - peers <= self.config.max_downlinks,
+            peers <= self.config.max_core_peers() && all - peers <= self.config.max_downlinks,
             "peers within bounds"
         );
         // A peering that ends forgets the mark

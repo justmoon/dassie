@@ -27,7 +27,8 @@ The table holds what a node knows about other nodes: per node, its key, its newe
 - A node without a valid URL issues no link state ([Peer protocol](peer-protocol.md#verification)), unless it is a periphery node, whose link state has none ([Periphery nodes](#periphery-nodes)).
 - It is issued at start, when its neighbors, schemes, URL or alias change (debounced), and periodically regardless.
 - **Sequence:** `max(now, last + 1)`, with the last value persisted, so it only rises across restarts. If the persisted value is further ahead of the clock than any node accepts, it was issued under a wrong clock and no node holds it; the sequence starts again from `now`.
-- Its neighbors are the advertised peers ([Advertised peers](#advertised-peers)), and its schemes those the node peers on: active, synced with their ledger at least once, and able to receive a peer's settlement ([below](#asking-and-answering)).
+- A core node's neighbors are its advertised peers ([Advertised peers](#advertised-peers)); a periphery node lists none ([Periphery nodes](#periphery-nodes)). Its schemes are those the node peers on: active, synced with their ledger at least once, and able to receive a peer's settlement ([below](#asking-and-answering)).
+- **It always fits what every node decodes.** Its neighbors are bounded by the core peering slots and its schemes by `MAX_SCHEMES` (`crates/dassie-peer/src/node/mod.rs`), and the configuration is checked at start against the link state's bounds in entries and bytes ([Peer protocol](peer-protocol.md#link-states)), so a node never signs one that others refuse.
 - A new own link state is flooded to peers at once, and sent directly to the bootstrap nodes we are not peered with, so they can answer refreshes for it.
 
 ### Receiving a link state
@@ -156,7 +157,8 @@ A node that holds no peering with an authenticated sender, and is not asking for
 
 This repairs a peering whose `peeringTermination` never arrived while it was sent, as when the two were cut off for the whole termination timeout. The side left over would otherwise keep it until the peer had been silent for as long as a silent peer is kept, and, if the peer is short of room in its books, ask it to settle at every check, since a refusal for not being peered is also what a peer that has not taken in our acceptance yet answers ([peering-lifecycle](../decisions/peering-lifecycle.md)).
 
-- **What presumes a peering:** a Prepare, a request to settle, a scheme's message, another node's link state forwarded to us, since floods go only to peers, and a node's own link state that lists us as a neighbor. Its own link state that does not list us presumes nothing: a node also sends it to the bootstrap nodes it is not peered with ([How link states spread](#how-link-states-spread)), even to one it is asking for a peering.
+- **What presumes a peering:** a Prepare, a request to settle, a scheme's message, another node's link state forwarded to us, since floods go only to peers, a core node's own link state that lists us as a neighbor, and a periphery node's own link state. A core node's own link state that does not list us presumes nothing: it also sends it to the bootstrap nodes it is not peered with ([How link states spread](#how-link-states-spread)), even to one it is asking for a peering. A periphery node's lists nobody, but it sends it only to its uplinks, in heartbeats and when it issues a new one; to a node it asks, it goes inside the peering request.
+- **A former downlink is told too.** A downlink leaves the table when its peering ends ([Downlinks](#downlinks)), so the node tells it through the settlement channel it keeps with it, open for as long as the periphery node would keep a silent uplink ([Settlement channels](#settlement-channels)). Otherwise a periphery node whose uplink ended their peering while the two were cut off would keep it, unconfirmed, until the uplink had been silent for as long as a silent peer is kept, and never ask it again meanwhile. Who was told lately is a bounded list.
 - **Not while asking.** A node whose own peering request is under way answers nothing: the peer may have accepted it, and hold the peering before the acceptance arrives.
 
 ### Bans
@@ -175,7 +177,7 @@ A node without a public address joins as a periphery node ([core-and-periphery](
 
 - **Who is one.** A node with a QUIC endpoint and no hostname, so no URL. A node with a URL is a core node, and a core node that takes QUIC takes downlinks. The owner's hostname must make a URL peers take, with any port, so a node never turns periphery by a hostname too long ([Node](node.md#configuration)).
 - **Changing kind.** A core node that loses its URL ends the peerings with its downlinks, since a periphery node takes none, and asks for uplinks. A peer whose link state turns from core to periphery, or back, is a peer of the other kind, with another address and other bounds: the peering made as the old kind ends, and it may ask anew.
-- **Its link state** has no URL and the periphery extension ([Peer protocol](peer-protocol.md#link-states)), and lists its uplinks as its neighbors. Only its uplinks see it, in its peering requests and heartbeats: it is never forwarded or served, nor registered, so it is in no node list, and in no table but its uplinks'.
+- **Its link state** has no URL and the periphery extension ([Peer protocol](peer-protocol.md#link-states)), and lists no neighbors: only core nodes list theirs, since routing needs both ends of an edge and no node routes to a periphery node ([periphery-lists-no-neighbors](../decisions/periphery-lists-no-neighbors.md)). So its size does not grow with its uplinks. Only its uplinks see it, in its peering requests and heartbeats: it is never forwarded or served, nor registered, so it is in no node list, and in no table but its uplinks'.
 - **Peering.** It asks core nodes from the node list whose link states say they take QUIC, as junior ([Roles](#roles)), until it has the usual target of confirmed peers, or only the nodes it is pinned to ([below](#pinned-uplinks)). It accepts no peering request, and is never asked: no core node asks a periphery node. It seeks no bridge.
 - **Routes** go through its uplinks, which never list it: it reaches whatever they reach.
 - **Its addresses** lie beneath its uplinks', and it forwards nothing ([Connector](connector.md#a-periphery-node)).
@@ -185,8 +187,9 @@ A node without a public address joins as a periphery node ([core-and-periphery](
 An owner may pin a periphery node's uplinks, by node ID (`env.rs`), when it must reach the network through particular core nodes: a market maker's nodes trade through the core node whose rates they watch, and a node that peered with any other would route some of its payments elsewhere.
 
 - **Only those are asked,** each still under every rule of [Looking for peers](#looking-for-peers): fresh, taking QUIC, not banned, not in backoff. A pinned node the node does not know, or cannot ask, is waited for; no other is asked meanwhile, so a pin that names no reachable core node leaves the node without an uplink rather than with one the owner did not choose.
-- **The target is as many as it names,** and only peerings with them count toward it. A peering made before with another node stays, as one on a scheme left out does, until the owner ends it: it is not counted, and takes none of the places for peerings the node starts, so it never keeps a pinned node from being asked. Its routes still serve, so an owner who wants every payment through the pinned nodes ends it.
-- **Bounded** by `MAX_PINNED_UPLINKS` in `crates/dassie-peer/src/node/mod.rs`, no more than the peerings any configuration lets a node start, so every pinned node can be asked.
+- **The target is as many as it names,** and only peerings with them count toward it. A peering made before with another node stays, as one on a scheme left out does, until the owner ends it: it is not counted, and takes none of the places for peerings the node starts. Its routes still serve, so an owner who wants every payment through the pinned nodes ends it.
+- **Slots of their own.** A pinned node starts as many peerings as it pins, rather than the configured cap, still one attempt at a time, so every pinned node can be asked however many there are. Its core peers together, the pinned ones and those made before, stay within the larger of `MAX_UPLINKS` and the configured total; only a node pinned to nearly that many, with peerings from before, waits for the owner to end one before it asks the last. That bound is what every node's tables are sized for: its connector's addresses and packet table, its ledger and its settlement channels (`check_bounds` in `crates/dassie-node/src/engine/core/mod.rs`). An unpinned node, and every core node, keeps the configured slots.
+- **Bounded** by `MAX_UPLINKS` in `crates/dassie-peer/src/node/mod.rs`, high enough that a market maker's node can trade through many core nodes: a longer list stops the node at start ([Node](node.md#startup)).
 - **Only a periphery node uses the list.** A core node finds its peers itself, and warns at start that it ignores the list; one that turns periphery later uses it from then on, as a periphery node that turns core stops.
 
 ### Downlinks
@@ -206,7 +209,7 @@ Routing runs a breadth-first search from this node over edges that both ends adv
 - An edge counts only if both ends list each other, so no node can claim a link the other end does not confirm, and a node whose state went stale drops out.
 - Each reachable node's address gets a few first hops on shortest paths. There is no route for the node's own address: destinations under it go only to its own endpoints. Prefix matching, first-hop choice and never sending a packet back where it came from are the connector's ([Connector](connector.md#routing)).
 - Routes are recomputed when the graph may have changed, debounced, and periodically as states go stale.
-- A periphery node routes through its uplinks, whatever they list, and no route leads to a periphery node ([Periphery nodes](#periphery-nodes)).
+- A periphery node routes through its advertised uplinks, whatever they list, and recomputes its routes when one is withdrawn or comes back; no route leads to a periphery node ([Periphery nodes](#periphery-nodes)).
 
 ## Persistence
 
@@ -218,7 +221,7 @@ What is lost is either fetched again (bootstrap lists) or only paces the node's 
 
 The `peer` simulation (`dassie_peer::sim::chaos`) runs this protocol on a rough network with crashes, partitions, terminations and bans, and checks that link states and routes converge, peerings are two-sided, every termination finishes, and each settlement is applied exactly once ([Testing](testing.md#the-simulations)).
 
-Periphery nodes peer with their uplinks on the same simulated network in `crates/dassie-peer/tests/periphery.rs`, pinned ones too; `crates/dassie-node/tests/periphery.rs` has a periphery daemon peer with a core daemon over QUIC and get paid beneath it, one pinned to a core node ask only that one, and one pinned to two get paid beneath each, as its owner names it.
+Periphery nodes peer with their uplinks on the same simulated network in `crates/dassie-peer/tests/periphery.rs`, pinned ones too, to more uplinks than a link state could list; `crates/dassie-node/tests/periphery.rs` has a periphery daemon peer with a core daemon over QUIC and get paid beneath it, one pinned to a core node ask only that one, and one pinned to two get paid beneath each, as its owner names it.
 
 ## Decisions
 
@@ -233,3 +236,4 @@ Periphery nodes peer with their uplinks on the same simulated network in `crates
 - [closing-channels](../decisions/closing-channels.md): a settlement channel left idle closes to disk, freeing its place.
 - [core-and-periphery](../decisions/core-and-periphery.md): core and periphery; why periphery nodes are in no node list and no link state.
 - [places-by-proved-key](../decisions/places-by-proved-key.md): downlinks' connections hold places of their own.
+- [periphery-lists-no-neighbors](../decisions/periphery-lists-no-neighbors.md): a periphery node's link state lists no neighbors, so it may keep many uplinks.

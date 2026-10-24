@@ -80,6 +80,27 @@ fn the_same_seed_gives_the_same_steps() {
     assert_ne!(first, session(4), "the client's address comes from the RNG");
 }
 
+// spec/areas/network.md#pinned-uplinks: the production and dev bounds hold
+// a periphery node pinned to the most uplinks: an address beneath each,
+// an endpoint, and room in the packet table and the ledger for each one's
+// share; and a configuration sized for fewer is refused at start.
+#[test]
+fn the_bounds_hold_the_most_uplinks() {
+    for policies in [Policies::DEFAULT, Policies::DEV] {
+        assert!(policies.peer.max_core_peers() >= dassie_peer::MAX_UPLINKS);
+        super::check_bounds(&policies);
+    }
+    let short = Policies {
+        connector: dassie_connector::Config {
+            max_pending: Policies::DEFAULT.connector.max_pending - 512,
+            ..Policies::DEFAULT.connector
+        },
+        ..Policies::DEFAULT
+    };
+    let refused = std::panic::catch_unwind(|| super::check_bounds(&short));
+    assert!(refused.is_err());
+}
+
 // Time never goes back within a core, whatever its driver says.
 #[test]
 fn time_only_moves_forward() {

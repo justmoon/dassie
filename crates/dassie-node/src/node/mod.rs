@@ -141,17 +141,19 @@ impl Policies {
         // they stay when its channel closes (spec/roadmap.md#not-built-yet).
         ledger: dassie_ledger::Config {
             max_accounts: 8192,
-            max_pending: 205_312,
+            max_pending: 389_632,
             max_journal: 1024,
         },
         // Every BTP client, the 8 local endpoints, every downlink and every
-        // peer can fill their share of the packet table at once:
-        // 1072 × 60 + 8 × 512 fits its 68 416, and the ledger has three
+        // core peer, as many as a periphery node pinned to the most
+        // uplinks holds, can fill their share of the packet table at once:
+        // 1072 × 60 + 128 × 512 fits its 129 856, and the ledger has three
         // transfers for each (across ledgers, with our fee), and 64 more.
-        // Each of them is an endpoint.
+        // Each of them is an endpoint. The tables fill only as they are
+        // used.
         connector: dassie_connector::Config {
-            max_endpoints: 1088,
-            max_pending: 68_416,
+            max_endpoints: 1208,
+            max_pending: 129_856,
             max_pending_per_endpoint: 60,
             ..dassie_connector::Config::DEFAULT
         },
