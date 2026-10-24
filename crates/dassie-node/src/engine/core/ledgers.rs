@@ -109,7 +109,9 @@ impl Core {
     /// told, and the node starts with the rest
     /// (spec/decisions/mainnet-schemes.md). So is a disabled one, such as
     /// test RLUSD: its books and its line stay as they are, and nothing is
-    /// written off (spec/decisions/issued-assets.md).
+    /// written off (spec/decisions/issued-assets.md). The peerings on a
+    /// scheme left out are ended, collecting nothing, by the peer
+    /// protocol (spec/areas/settlement.md#schemes-and-ledgers).
     pub(super) fn load_schemes(&mut self, store: &Store) -> Result<(), String> {
         for (id, config) in store.settlement_schemes().map_err(|e| e.to_string())? {
             if super::schemes::DISABLED.contains(&id.as_str()) {

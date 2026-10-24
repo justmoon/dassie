@@ -514,9 +514,12 @@ impl Core {
         let active: std::collections::BTreeSet<dassie_identity::NodeId> =
             self.peer.active_peers().map(|(id, _)| *id).collect();
         for node in peers {
-            // A peer whose scheme is gone has no ledger to book on: it gets
-            // no endpoint, which the rest of the node does without. The
-            // original threw, and stopped what served that peer (ACC-25).
+            // A peer whose scheme does not run, as one disabled or of the
+            // other realm, has no ledger to book on: it gets no endpoint,
+            // which the rest of the node does without, and the peer
+            // protocol's first review ends the peering
+            // (spec/areas/settlement.md#schemes-and-ledgers). The original
+            // threw, and stopped what served that peer (ACC-25).
             if let Err(error) = self.add_peer_endpoint(node) {
                 self.report(PeerEvent::NoEndpoint { node, error });
             }
