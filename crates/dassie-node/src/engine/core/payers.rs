@@ -121,45 +121,66 @@ pub(super) struct Unfinished {
     delivered: u64,
     /// Why it stops, once it does: it fails once nothing is in flight.
     stopping: Option<String>,
-    /// Why its connection closed, or stopped sending money, before it was
-    /// done, if it did.
-    closed: Option<String>,
+    /// How its connection ended before it was done, if it did.
+    closed: Option<Ended>,
     /// Whether the receiver closed its connection because it takes no
     /// more: a receiver never lowers the maximum it told, so this, not
     /// the room it reports, says it is full
     /// (spec/decisions/close-rather-than-lower.md).
     receiver_full: bool,
-    /// How often it opened a new connection after one closed early.
-    reconnects: u32,
-    /// Whether its connection stopped sending money, its packets failing
-    /// again and again, rather than closed: `closed` says why.
-    money_stopped: bool,
-    /// How often that happened.
-    stops: u32,
-    /// Why it happened the last time.
-    last_stop: Option<String>,
+    /// How often it opened a new connection.
+    reconnects: Reconnects,
     /// When it may start sending, while it waits to.
     start_at_ms: u64,
 }
 
-impl Unfinished {
-    /// How long to wait before a new connection, after the last one closed
-    /// or stopped its money for `reason`, or nothing if it may not have
-    /// one. After a close, a bounded number of times; after a stop, until
-    /// the deadline, which bounds them, with the wait capped.
-    fn reconnect_wait(&mut self, reason: &str) -> Option<u64> {
-        if core::mem::take(&mut self.money_stopped) {
-            let wait = (RECONNECT_MIN_MS << self.stops.min(16)).min(STOPPED_WAIT_MAX_MS);
-            self.stops = self.stops.saturating_add(1);
-            self.last_stop = Some(reason.into());
-            return Some(wait);
+/// How a payment's connection ended before the payment was done, and why.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Ended {
+    /// It closed: a new one is opened a bounded number of times.
+    Closed(String),
+    /// Its money stopped, its packets failing again and again: a new one
+    /// is opened until the deadline (spec/areas/stream.md#responses).
+    Stopped(String),
+}
+
+impl Ended {
+    fn reason(&self) -> &str {
+        match self {
+            Self::Closed(reason) | Self::Stopped(reason) => reason,
         }
-        if self.reconnects >= MAX_RECONNECTS {
-            return None;
+    }
+}
+
+/// How often a payment opened a new connection, after closes and after
+/// stops, and why money stopped the last time.
+#[derive(Debug, Default)]
+struct Reconnects {
+    closes: u32,
+    stops: u32,
+    last_stop: Option<String>,
+}
+
+impl Reconnects {
+    /// How long to wait before a new connection after one `ended`, or
+    /// nothing if no new one may open. After a close, a bounded number of
+    /// times; after a stop, until the deadline, which bounds them, with
+    /// the wait capped.
+    fn wait(&mut self, ended: &Ended) -> Option<u64> {
+        match ended {
+            Ended::Stopped(reason) => {
+                let wait = (RECONNECT_MIN_MS << self.stops.min(16)).min(STOPPED_WAIT_MAX_MS);
+                self.stops = self.stops.saturating_add(1);
+                self.last_stop = Some(reason.clone());
+                Some(wait)
+            }
+            Ended::Closed(_) if self.closes >= MAX_RECONNECTS => None,
+            Ended::Closed(_) => {
+                let wait = RECONNECT_MIN_MS << self.closes.min(16);
+                self.closes += 1;
+                Some(wait)
+            }
         }
-        let wait = RECONNECT_MIN_MS << self.reconnects.min(16);
-        self.reconnects += 1;
-        Some(wait)
     }
 }
 
@@ -274,10 +295,7 @@ impl Core {
                     stopping: None,
                     closed: None,
                     receiver_full: false,
-                    reconnects: 0,
-                    money_stopped: false,
-                    stops: 0,
-                    last_stop: None,
+                    reconnects: Reconnects::default(),
                     start_at_ms: self.now_ms,
                 },
             );
@@ -346,10 +364,7 @@ impl Core {
                 stopping: None,
                 closed: None,
                 receiver_full: false,
-                reconnects: 0,
-                money_stopped: false,
-                stops: 0,
-                last_stop: None,
+                reconnects: Reconnects::default(),
                 start_at_ms: now,
             },
         );
@@ -809,7 +824,7 @@ impl Core {
                 .insert(id, progress(&payment.row));
         }
         if now >= payment.row.deadline_ms && payment.stopping.is_none() {
-            payment.stopping = Some(match &payment.last_stop {
+            payment.stopping = Some(match &payment.reconnects.last_stop {
                 Some(why) => format!("the payment ran out of time: {why}"),
                 None => "the payment ran out of time".into(),
             });
@@ -828,9 +843,10 @@ impl Core {
             self.finish_outgoing(id, now, None);
         } else if let Some(reason) = payment.stopping.clone() {
             self.finish_outgoing(id, now, Some(reason));
-        } else if let Some(reason) = payment.closed.take() {
+        } else if let Some(ended) = payment.closed.take() {
             // Again, for what is left, on a new connection, a while later.
-            let Some(wait) = payment.reconnect_wait(&reason) else {
+            let reason = ended.reason().to_owned();
+            let Some(wait) = payment.reconnects.wait(&ended) else {
                 payment.stopping = Some(reason.clone());
                 self.finish_outgoing(id, now, Some(reason));
                 return;
@@ -1039,39 +1055,60 @@ fn closed_early(payment: &mut Unfinished) {
         return;
     };
     while let Some(event) = connection.poll_event() {
+        note_ending(
+            event,
+            &mut payment.stopping,
+            &mut payment.receiver_full,
+            &mut payment.closed,
+        );
+    }
+}
+
+/// Takes in what `event` says of how a payment's connection ended: into
+/// `stopping` if the payment is to stop, with `receiver_full` if because
+/// the receiver takes no more, or into `closed` if it is to open a new
+/// connection. A close always counts as one, also after money stopped on
+/// the same connection, so that closes stay bounded.
+fn note_ending(
+    event: Event,
+    stopping: &mut Option<String>,
+    receiver_full: &mut bool,
+    closed: &mut Option<Ended>,
+) {
+    if stopping.is_some() {
+        return;
+    }
+    match event {
         // The connection cannot tell a receiver's refusal without a reply
         // from a node's on the path, so the reason names neither.
-        if let Event::MoneyStopped { too_low } = event
-            && payment.stopping.is_none()
-            && payment.closed.is_none()
-        {
-            payment.money_stopped = true;
-            payment.closed = Some(if too_low.is_some() {
+        Event::MoneyStopped { too_low } if closed.is_none() => {
+            *closed = Some(Ended::Stopped(if too_low.is_some() {
                 "the payment's packets kept failing, some arriving short of its rate".into()
             } else {
                 "the payment's packets kept failing, at the receiver or on the path".into()
-            });
-            continue;
+            }));
         }
-        if let Event::ConnectionClosed { code, by_remote } = event
-            && payment.stopping.is_none()
-        {
-            if by_remote && code == ErrorCode::NO_ERROR {
-                payment.receiver_full = true;
-                payment.stopping = Some("the receiver takes no more".into());
-                continue;
-            }
-            if by_remote && code == ErrorCode::APPLICATION_ERROR {
-                payment.stopping =
-                    Some("the receiver stopped the payment before it was complete".into());
-                continue;
-            }
-            payment.closed = Some(if by_remote {
+        Event::ConnectionClosed {
+            code: ErrorCode::NO_ERROR,
+            by_remote: true,
+        } => {
+            *receiver_full = true;
+            *stopping = Some("the receiver takes no more".into());
+        }
+        Event::ConnectionClosed {
+            code: ErrorCode::APPLICATION_ERROR,
+            by_remote: true,
+        } => {
+            *stopping = Some("the receiver stopped the payment before it was complete".into());
+        }
+        Event::ConnectionClosed { code, by_remote } => {
+            *closed = Some(Ended::Closed(if by_remote {
                 format!("the receiver closed the payment ({code:?})")
             } else {
                 format!("the payment's connection closed ({code:?})")
-            });
+            }));
         }
+        _ => {}
     }
 }
 
@@ -1186,7 +1223,67 @@ fn progress(row: &OutgoingRow) -> OutgoingProgress {
 
 #[cfg(test)]
 mod tests {
-    use super::delivered_at_least;
+    use super::{
+        ErrorCode, Event, MAX_RECONNECTS, Reconnects, STOPPED_WAIT_MAX_MS, delivered_at_least,
+        note_ending,
+    };
+
+    /// What a connection that saw `events` leaves the payment to do: stop
+    /// with a reason, or open a new connection after how long, or neither.
+    fn after(reconnects: &mut Reconnects, events: &[Event]) -> Result<Option<u64>, String> {
+        let (mut stopping, mut full, mut closed) = (None, false, None);
+        for &event in events {
+            note_ending(event, &mut stopping, &mut full, &mut closed);
+        }
+        if let Some(reason) = stopping {
+            return Err(reason);
+        }
+        Ok(closed.and_then(|ended| reconnects.wait(&ended)))
+    }
+
+    const STOPPED: Event = Event::MoneyStopped { too_low: None };
+    const CLOSED: Event = Event::ConnectionClosed {
+        code: ErrorCode::INTERNAL_ERROR,
+        by_remote: false,
+    };
+
+    // spec/areas/payments.md#outgoing-payments: a connection whose money
+    // stopped is opened again until the deadline, with the wait capped; one
+    // that closed, a bounded number of times, also when its money stopped
+    // first, as a packet still in flight may close it.
+    #[test]
+    fn stops_reconnect_until_the_deadline_and_closes_a_bounded_number_of_times() {
+        let mut reconnects = Reconnects::default();
+        for _ in 0..100 {
+            let wait = after(&mut reconnects, &[STOPPED]).unwrap().unwrap();
+            assert!(wait <= STOPPED_WAIT_MAX_MS);
+        }
+        assert_eq!(
+            after(&mut reconnects, &[STOPPED]),
+            Ok(Some(STOPPED_WAIT_MAX_MS))
+        );
+        let mut reconnects = Reconnects::default();
+        for _ in 0..MAX_RECONNECTS {
+            assert!(
+                after(&mut reconnects, &[STOPPED, CLOSED])
+                    .unwrap()
+                    .is_some()
+            );
+        }
+        assert_eq!(after(&mut reconnects, &[STOPPED, CLOSED]), Ok(None));
+        assert_eq!(after(&mut reconnects, &[CLOSED]), Ok(None));
+        // A stop after a close does not undo it.
+        assert_eq!(after(&mut reconnects, &[CLOSED, STOPPED]), Ok(None));
+        // A receiver's own close stops the payment, whatever came before.
+        let full = Event::ConnectionClosed {
+            code: ErrorCode::NO_ERROR,
+            by_remote: true,
+        };
+        assert_eq!(
+            after(&mut Reconnects::default(), &[STOPPED, full]),
+            Err("the receiver takes no more".into())
+        );
+    }
 
     // What a payment is known to have delivered, which a failed one keeps
     // of its grant and a new connection starts its cap from: at least what
