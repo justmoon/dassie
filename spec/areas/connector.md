@@ -152,6 +152,7 @@ ILP clients such as `ilp-plugin-btp` connect with `btp+wss://:<token>@<host>/btp
 
 - A token's secret is shown once at creation; the database keeps its SHA-256 ([secrets-at-rest](../decisions/secrets-at-rest.md)).
 - A token is bound to one ledger that an active scheme serves, and gets a sub-account under the owner's pool on it, by the token's number. Numbers are never reused, and a revoked token keeps its account, since the journal refers to it.
+- **A client connects only while a scheme serves the token's ledger.** A stored scheme that does not run, as one disabled or of the other realm, keeps its tokens, for the owner to see and revoke, but they connect no client until it runs again: two clients on its ledger could otherwise pay each other and move the books of a ledger the node does not run ([Settlement](settlement.md#schemes-and-ledgers)). Such a refusal is not a failed login.
 
 ## Local endpoints
 

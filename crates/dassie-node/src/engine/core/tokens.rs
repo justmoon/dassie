@@ -324,7 +324,11 @@ impl Core {
     }
 
     /// Checks a client's token and gives its connection an address of its
-    /// own below the node's, which ILDCP will hand it.
+    /// own below the node's, which ILDCP will hand it. A token whose ledger
+    /// no active scheme serves, as one of a stored scheme that does not run
+    /// (disabled, or of the other realm), connects no client: its packets
+    /// would move the books of a ledger the node does not run
+    /// (spec/areas/connector.md#btp-tokens).
     pub fn btp_connect(&mut self, token: &str) -> Result<BtpSession, EngineError> {
         let Some(&id) = self.by_hash.get(&token_hash(token)) else {
             return Err(EngineError::NotFound("unknown token".into()));
@@ -333,6 +337,15 @@ impl Core {
             return Err(EngineError::NotFound("unknown token".into()));
         };
         let (account, ledger) = (state.account, state.row.ledger);
+        if !self
+            .schemes
+            .values()
+            .any(|active| active.scheme.ledger() == ledger)
+        {
+            return Err(EngineError::Precondition(
+                "no active scheme serves the token's ledger".into(),
+            ));
+        }
         let link = self.next_link;
         self.next_link += 1;
         let address = self.link_address(link, account, ledger)?;
