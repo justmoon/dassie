@@ -1009,6 +1009,21 @@ fn the_default_testnet_hub_is_the_one_founded() {
         "4c5ef2ba22cd3007174e95a080fae47c01538937e989876f322a26090c02cd60"
     );
     assert_eq!(rules.terms.network, 1, "the XRP Ledger testnet");
+    // Each validator is the bootstrap node it names, by its node key.
+    let nodes: Vec<alloc::string::String> = rules
+        .validators
+        .iter()
+        .map(|acceptance| acceptance.node.node_id().as_str().into())
+        .collect();
+    assert_eq!(
+        nodes,
+        [
+            "dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk",
+            "dE0GE90-9QCQI78S2_h5QaG81oo_cVKz1",
+            "dtTay2e6AV4J940nFJ6_WPkVL-TyrVKGW",
+            "dxZ8EFGaoQLvgSQacinFm64zjWeA0BzV-"
+        ]
+    );
     let endpoints: Vec<&str> = rules
         .validators
         .iter()
