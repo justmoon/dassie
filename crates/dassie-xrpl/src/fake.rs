@@ -560,6 +560,26 @@ impl FakeLedger {
         self.signer_lists.remove(&account);
     }
 
+    /// Moves `drops` from genesis to `to`, which exists, as of the next
+    /// ledger and in no transaction: a balance changed behind its
+    /// account's back, which no real ledger does, so that a test shows the
+    /// books notice what nothing explains. No XRP is made or lost.
+    pub fn move_unrecorded(&mut self, to: AccountId, drops: u64) {
+        assert_ne!(to, self.genesis, "genesis pays");
+        assert!(self.accounts.contains_key(&to), "to an account that exists");
+        assert!(
+            self.balance(self.genesis)
+                .is_some_and(|balance| balance >= drops),
+            "genesis has the drops"
+        );
+        if let Some(genesis) = self.accounts.get_mut(&self.genesis) {
+            genesis.balance -= drops;
+        }
+        if let Some(account) = self.accounts.get_mut(&to) {
+            account.balance = account.balance.saturating_add(drops);
+        }
+    }
+
     /// A connection went away.
     pub fn disconnect(&mut self, connection: ConnectionId) {
         self.accounts_of.remove(&connection);
