@@ -93,6 +93,11 @@ impl Founding {
     pub async fn answer(&self, node: &Node, from: &PublicKey, request: &[u8]) -> Option<Vec<u8>> {
         let request = FoundingRequest::decode_exact(request).ok()?;
         let refused = |refusal| Some(FoundingAnswer::Refused(refusal).to_vec());
+        // Only a listed sponsor's requests are worth a look at the
+        // database, or a place.
+        if !self.sponsors.contains(&from.node_id()) {
+            return refused(Refusal::NotAllowed);
+        }
         let Ok(_place) = self.places.try_acquire() else {
             return refused(Refusal::Busy);
         };
