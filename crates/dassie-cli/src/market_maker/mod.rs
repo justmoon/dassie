@@ -310,11 +310,13 @@ impl MarketMaker {
             }
             self.unbooked = None;
         }
+        // A rebalance needs no target, so peers it cannot read only keep it
+        // from trading: every target counts as not peered this tick.
         let peered = match self.peered().await {
             Ok(peered) => peered,
             Err(problem) => {
-                tracing::warn!(target: TARGET, %problem, "hold: cannot read a node's peers");
-                return;
+                tracing::warn!(target: TARGET, %problem, "cannot read a node's peers: no trade this tick");
+                Default::default()
             }
         };
         let quotes: Vec<TargetQuote> = current

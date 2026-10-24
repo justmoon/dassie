@@ -246,6 +246,17 @@ mv -f "$config/settings.env.new" "$config/settings.env"
 # their IDs. Two URLs of one node pin it once.
 override=""
 if [ "$count" = 1 ]; then override=$(setting mm-uplink ""); fi
+# A VM set up for one target kept its ID in uplink.env instead: seed the
+# list from it once, so a target that does not answer at this boot keeps
+# the ID read before, as it did then.
+if [ ! -f "$config/target-ids" ] && [ -f "$config/uplink.env" ]; then
+  old_url=$(sed -n 's/^DASSIE_MM_UPLINK_OF=//p' "$config/uplink.env")
+  old_id=$(sed -n 's/^DASSIE_UPLINKS=//p' "$config/uplink.env")
+  case "$old_id" in
+    "" | *[!A-Za-z0-9_-]*) ;;
+    *) if [ -n "$old_url" ]; then printf '%s %s\n' "$old_url" "$old_id" > "$config/target-ids"; fi ;;
+  esac
+fi
 uplinks=""
 : > "$config/target-ids.new"
 IFS=,

@@ -22,7 +22,7 @@ After=network-online.target
 
 [Service]
 Type=exec
-# The target and the strategy's settings, which startup.sh writes from the
+# The targets and the strategy's settings, which startup.sh writes from the
 # instance metadata.
 EnvironmentFile=/etc/dassie-mm/settings.env
 User=dassie-mm
