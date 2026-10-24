@@ -13,6 +13,12 @@
 //! that a change to the generator that stops reaching one fails here rather
 //! than going quiet. They run at once, as many at a time as the machine
 //! runs threads.
+//!
+//! What they cost the `nix` check, in its `ci` profile: the fixed seeds
+//! and the replay pair take about three minutes of CPU, and about 30 s of
+//! wall time on a machine of 48 threads, the slowest seed's; the file's
+//! other tests run beside them within that. On a machine of few threads
+//! the wall time comes closer to the CPU time.
 
 #![allow(
     clippy::unwrap_used,
