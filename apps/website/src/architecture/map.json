@@ -1575,6 +1575,18 @@
   ],
   "releases": [
     {
+      "version": "0.2.7",
+      "date": "2026-10-24",
+      "changes": [
+        "A market maker's periphery node may keep up to 128 uplinks: list them in `DASSIE_UPLINKS`. A periphery node's self-description to its uplinks no longer lists them as neighbors, since only core nodes have neighbors.",
+        "`dassie market-maker` trades through several core nodes with its same two nodes. It follows each one's feed and takes the best trade each time, and its VM trades through boot1, boot2 and boot3 by default.",
+        "An incoming payment on a periphery node can be received beneath a chosen uplink, with `uplink` in the owner's `CreateIncomingPayment`.",
+        "A settlement channel with a node the node no longer peers with closes after a day idle, once nothing of it is pending. Its place is freed for new peers, and its accounts and sequences stay, so peering again carries on where it left off.",
+        "An Open Payments grant may limit what is debited and what is received together, but no longer what is received alone, and a receive limit now caps what payments actually deliver.",
+        "The groundwork for settlement hubs is in the code. No hub runs yet, and nothing changes for a node until one does."
+      ]
+    },
+    {
       "version": "0.2.6",
       "date": "2026-10-23",
       "changes": [

@@ -1,6 +1,6 @@
 [package]
 name = "dassie-settlement"
-version = "0.2.6"
+version = "0.2.7"
 description = "Settlement schemes for Dassie: the scheme interface, activation reconciliation and the stub module"
 edition.workspace = true
 rust-version.workspace = true

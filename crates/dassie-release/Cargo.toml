@@ -1,6 +1,6 @@
 [package]
 name = "dassie-release"
-version = "0.2.6"
+version = "0.2.7"
 description = "What a Dassie release is and how to trust one: versions, the mirror's layout, SHA256SUMS and its minisign signature"
 edition.workspace = true
 rust-version.workspace = true
