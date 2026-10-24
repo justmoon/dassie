@@ -13,17 +13,18 @@
 //! metadata each with its length prefix, and the key; a ledger object's
 //! hashes `MLN\0`, the object and its key.
 //!
-//! A branch is what rippled's `SHAMap::getProofPath` gives: the nodes on the
-//! key's path, leaf first and root last, each as rippled sends a node to
-//! its peers (`serializeForWire`). [`verify`] reads it from the root down, as
-//! rippled's `verifyProofPath` does, and also takes a branch that proves the
-//! key absent: one that ends at an inner node whose slot for the key is
-//! empty, or at the leaf of another key. Either proves it, since had the
-//! key been in the tree, an inner node would stand in that place. Every
-//! node is read in the one form rippled writes, and a shape rippled never
-//! builds, such as a leaf below an inner node with no other child, is
-//! refused, so a branch holds only if it is a path of a canonical tree.
-//! Untrusted bytes get an error, never a panic, and nothing recurses.
+//! A branch is what a proof server gives
+//! (spec/designs/xrpl-validation.md#3-the-proof-api): the nodes on the
+//! key's path from the deepest one reached up to the root, each as rippled
+//! hashes it, prefix included. [`verify`] hashes each and reads it from the
+//! root down, and takes a branch that proves the key absent: one that ends
+//! at an inner node whose slot for the key is empty, or at the leaf of
+//! another key. Either proves it, since had the key been in the tree, an
+//! inner node would stand in that place. An empty tree's branch is empty.
+//! A node is read by its prefix, so it is of one kind only, and a shape
+//! rippled never builds, such as a leaf below an inner node with no other
+//! child, is refused, so a branch holds only if it is a path of a canonical
+//! tree. Untrusted bytes get an error, never a panic, and nothing recurses.
 
 use alloc::vec::Vec;
 
@@ -38,10 +39,13 @@ pub const MAX_DEPTH: usize = 64;
 /// The most nodes in a branch: its inner nodes and a leaf.
 pub const MAX_BRANCH_NODES: usize = MAX_DEPTH + 1;
 
-/// The longest leaf as it is sent: a transaction and its metadata, each the
-/// most a length prefix writes, its key and its type. No ledger object is
-/// as long.
-pub const MAX_LEAF_BYTES: usize = 2 * (3 + crate::binary::MAX_VL_BYTES) + KEY_BYTES + 1;
+/// The longest item a leaf holds: a transaction and its metadata, each
+/// the most a length prefix writes. No ledger object is as long.
+pub const MAX_ITEM_BYTES: usize = 2 * (3 + crate::binary::MAX_VL_BYTES);
+
+/// The longest node in a branch: a leaf with the longest item, its prefix
+/// and its key.
+pub const MAX_NODE_BYTES: usize = PREFIX_BYTES + MAX_ITEM_BYTES + KEY_BYTES;
 
 /// The children of an inner node.
 pub const BRANCH_FACTOR: usize = 16;
@@ -49,27 +53,16 @@ pub const BRANCH_FACTOR: usize = 16;
 /// The bytes of a key and of a hash.
 const KEY_BYTES: usize = 32;
 
+/// The bytes of a hash prefix.
+const PREFIX_BYTES: usize = 4;
+
 /// The shortest item a leaf holds, as rippled reads them.
 pub const MIN_ITEM_BYTES: usize = 12;
 
-/// rippled sends an inner node with fewer children than this compressed:
-/// each child's hash with its slot. With more, all sixteen hashes.
-const COMPRESS_BELOW: usize = 12;
+/// An inner node as it is hashed: its prefix and sixteen hashes.
+const INNER_NODE_BYTES: usize = PREFIX_BYTES + BRANCH_FACTOR * KEY_BYTES;
 
-/// The longest inner node as it is sent: all sixteen hashes and its type.
-const FULL_INNER_BYTES: usize = BRANCH_FACTOR * KEY_BYTES + 1;
-
-/// A compressed inner node's child: its hash and its slot.
-const COMPRESSED_CHILD_BYTES: usize = KEY_BYTES + 1;
-
-// The last byte of a node as it is sent: its type (`SHAMapTreeNode.h`). A
-// transaction without its metadata is only in sets not yet in a ledger.
-const WIRE_STATE: u8 = 1;
-const WIRE_INNER: u8 = 2;
-const WIRE_COMPRESSED_INNER: u8 = 3;
-const WIRE_TRANSACTION_WITH_META: u8 = 4;
-
-// What each node's hash covers first.
+// What each node's hash covers first (`HashPrefix.h`).
 const INNER_PREFIX: [u8; 4] = *b"MIN\0";
 const TRANSACTION_LEAF_PREFIX: [u8; 4] = *b"SND\0";
 const STATE_LEAF_PREFIX: [u8; 4] = *b"MLN\0";
@@ -83,6 +76,16 @@ pub enum Tree {
     Transactions,
     /// Its ledger objects, by their keys.
     State,
+}
+
+impl Tree {
+    /// The prefix its leaves are hashed with.
+    const fn leaf_prefix(self) -> [u8; 4] {
+        match self {
+            Self::Transactions => TRANSACTION_LEAF_PREFIX,
+            Self::State => STATE_LEAF_PREFIX,
+        }
+    }
 }
 
 /// What a branch is to prove of its key.
@@ -117,10 +120,11 @@ impl Leaf<'_> {
 /// Why a branch proves nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BranchError {
-    /// No nodes, more than [`MAX_BRANCH_NODES`], one missing below the last,
-    /// or nodes left over below a leaf or an empty slot.
+    /// No nodes for a tree that is not empty, more than
+    /// [`MAX_BRANCH_NODES`], one missing below the last, or nodes left over
+    /// below a leaf or an empty slot.
     Length,
-    /// A node is not one rippled writes, or not of this tree.
+    /// A node is not one rippled hashes, or not of this tree.
     Node,
     /// A node does not hash to what the one above names at the key's
     /// nibble, or the top one to the root.
@@ -135,10 +139,10 @@ pub enum BranchError {
     Leaf,
 }
 
-/// Checks that `branch`, leaf first, leads from what `leaf` says of `key`
-/// to `root`: that the tree holds the leaf under the key, or, for
-/// [`Leaf::Absent`], nothing. An empty tree, whose root is zero, has no
-/// branch, so nothing is proven of it; a ledger's state is never empty.
+/// Checks that `branch`, deepest node first, leads from what `leaf` says
+/// of `key` to `root`: that the tree holds the leaf under the key, or, for
+/// [`Leaf::Absent`], nothing. An empty tree, whose root is zero, has an
+/// empty branch, which proves every key absent and nothing held.
 ///
 /// # Errors
 ///
@@ -149,8 +153,14 @@ pub fn verify<B: AsRef<[u8]>>(
     leaf: Leaf<'_>,
     branch: &[B],
 ) -> Result<(), BranchError> {
-    if branch.is_empty() || branch.len() > MAX_BRANCH_NODES {
+    if branch.len() > MAX_BRANCH_NODES {
         return Err(BranchError::Length);
+    }
+    if branch.is_empty() {
+        return match leaf {
+            Leaf::Absent(_) if *root == EMPTY => Ok(()),
+            _ => Err(BranchError::Length),
+        };
     }
     if let Leaf::Transaction { transaction, .. } = leaf
         && crate::codec::hash(transaction) != *key
@@ -162,12 +172,18 @@ pub fn verify<B: AsRef<[u8]>>(
     // The children of the inner node above, once there is one.
     let mut above = 0;
     for (depth, bytes) in branch.iter().rev().enumerate() {
+        let bytes = bytes.as_ref();
         let last = depth + 1 == branch.len();
-        match Node::from_wire(bytes.as_ref(), tree)? {
+        // Bounded before it is hashed, so a node costs at most the longest
+        // leaf.
+        if bytes.len() > MAX_NODE_BYTES {
+            return Err(BranchError::Node);
+        }
+        if node_hash(bytes) != expected {
+            return Err(BranchError::Hash);
+        }
+        match Node::parse(bytes, tree)? {
             Node::Inner(children) => {
-                if inner_hash(&children) != expected {
-                    return Err(BranchError::Hash);
-                }
                 if depth >= MAX_DEPTH {
                     return Err(BranchError::Shape);
                 }
@@ -191,9 +207,6 @@ pub fn verify<B: AsRef<[u8]>>(
                 key: leaf_key,
                 item,
             } => {
-                if leaf_hash(tree, &leaf_key, item) != expected {
-                    return Err(BranchError::Hash);
-                }
                 if depth == 0 || (depth > 1 && above < 2) || !same_path(&leaf_key, key, depth) {
                     return Err(BranchError::Shape);
                 }
@@ -248,7 +261,7 @@ fn split_transaction_item(item: &[u8]) -> Option<(&[u8], &[u8])> {
     (metadata.len() == length).then_some((transaction, metadata))
 }
 
-/// A node of a tree, as it is sent. One at a time, on the stack.
+/// A node of a tree, as it is hashed. One at a time, on the stack.
 #[allow(clippy::large_enum_variant)]
 enum Node<'a> {
     /// An inner node's children's hashes, zero where empty.
@@ -258,110 +271,62 @@ enum Node<'a> {
 }
 
 impl<'a> Node<'a> {
-    /// The node in `bytes`, in the form rippled sends it: an inner node
-    /// with children, compressed exactly when it has fewer than
-    /// [`COMPRESS_BELOW`], its children in order; or a leaf of `tree`, at
-    /// most [`MAX_LEAF_BYTES`], with an item of at least
-    /// [`MIN_ITEM_BYTES`] and a key that is not zero.
-    fn from_wire(bytes: &'a [u8], tree: Tree) -> Result<Self, BranchError> {
-        let (&kind, body) = bytes.split_last().ok_or(BranchError::Node)?;
-        match (kind, tree) {
-            (WIRE_INNER, _) => {
-                let children = full_inner(body).ok_or(BranchError::Node)?;
-                if child_count(&children) < COMPRESS_BELOW {
-                    return Err(BranchError::Node);
-                }
-                Ok(Self::Inner(children))
+    /// The node in `bytes`, as rippled hashes it: an inner node, its
+    /// prefix and sixteen hashes, at least one of them not zero; or a leaf
+    /// of `tree`, its prefix, an item of at least [`MIN_ITEM_BYTES`] and
+    /// at most [`MAX_ITEM_BYTES`], and a key that is not zero.
+    fn parse(bytes: &'a [u8], tree: Tree) -> Result<Self, BranchError> {
+        let (prefix, body) = bytes
+            .split_first_chunk::<PREFIX_BYTES>()
+            .ok_or(BranchError::Node)?;
+        if *prefix == INNER_PREFIX {
+            if bytes.len() != INNER_NODE_BYTES {
+                return Err(BranchError::Node);
             }
-            (WIRE_COMPRESSED_INNER, _) => {
-                let children = compressed_inner(body).ok_or(BranchError::Node)?;
-                Ok(Self::Inner(children))
+            let mut children = [EMPTY; BRANCH_FACTOR];
+            for (child, hash) in children.iter_mut().zip(body.as_chunks::<KEY_BYTES>().0) {
+                *child = *hash;
             }
-            (WIRE_TRANSACTION_WITH_META, Tree::Transactions) | (WIRE_STATE, Tree::State) => {
-                if bytes.len() > MAX_LEAF_BYTES {
-                    return Err(BranchError::Node);
-                }
-                let (item, key) = body
-                    .split_last_chunk::<KEY_BYTES>()
-                    .ok_or(BranchError::Node)?;
-                if item.len() < MIN_ITEM_BYTES || *key == EMPTY {
-                    return Err(BranchError::Node);
-                }
-                Ok(Self::Leaf { key: *key, item })
+            if child_count(&children) == 0 {
+                return Err(BranchError::Node);
             }
-            _ => Err(BranchError::Node),
+            return Ok(Self::Inner(children));
         }
-    }
-}
-
-/// All sixteen children's hashes, at least one of them not zero.
-fn full_inner(body: &[u8]) -> Option<[[u8; 32]; BRANCH_FACTOR]> {
-    if body.len() != FULL_INNER_BYTES - 1 {
-        return None;
-    }
-    let mut children = [EMPTY; BRANCH_FACTOR];
-    for (child, hash) in children.iter_mut().zip(body.as_chunks::<KEY_BYTES>().0) {
-        *child = *hash;
-    }
-    (child_count(&children) > 0).then_some(children)
-}
-
-/// From one to [`COMPRESS_BELOW`] less one children, each its hash, not
-/// zero, and its slot, the slots ascending.
-fn compressed_inner(body: &[u8]) -> Option<[[u8; 32]; BRANCH_FACTOR]> {
-    let (chunks, rest) = body.as_chunks::<COMPRESSED_CHILD_BYTES>();
-    if !rest.is_empty() || chunks.is_empty() || chunks.len() >= COMPRESS_BELOW {
-        return None;
-    }
-    let mut children = [EMPTY; BRANCH_FACTOR];
-    let mut next = 0;
-    for chunk in chunks {
-        let (hash, slot) = chunk.split_first_chunk::<KEY_BYTES>()?;
-        let slot = usize::from(*slot.first()?);
-        if slot < next || *hash == EMPTY {
-            return None;
+        if *prefix != tree.leaf_prefix() {
+            return Err(BranchError::Node);
         }
-        *children.get_mut(slot)? = *hash;
-        next = slot + 1;
+        let (item, key) = body
+            .split_last_chunk::<KEY_BYTES>()
+            .ok_or(BranchError::Node)?;
+        if item.len() < MIN_ITEM_BYTES || item.len() > MAX_ITEM_BYTES || *key == EMPTY {
+            return Err(BranchError::Node);
+        }
+        Ok(Self::Leaf { key: *key, item })
     }
-    Some(children)
 }
 
-/// An inner node as rippled sends it: compressed with fewer than twelve
-/// children, else all sixteen. An inner node without children is never
-/// sent (a bug).
+/// An inner node as rippled hashes it: its prefix and its sixteen
+/// children's hashes. An inner node without children is never hashed so
+/// (a bug).
 #[must_use]
-pub fn inner_wire(children: &[[u8; 32]; BRANCH_FACTOR]) -> Vec<u8> {
-    let count = child_count(children);
-    assert!(count > 0, "an inner node sent has children");
-    let mut out = Vec::with_capacity(FULL_INNER_BYTES);
-    if count < COMPRESS_BELOW {
-        for (slot, hash) in (0u8..).zip(children) {
-            if *hash != EMPTY {
-                out.extend_from_slice(hash);
-                out.push(slot);
-            }
-        }
-        out.push(WIRE_COMPRESSED_INNER);
-    } else {
-        for hash in children {
-            out.extend_from_slice(hash);
-        }
-        out.push(WIRE_INNER);
+pub fn inner_node(children: &[[u8; 32]; BRANCH_FACTOR]) -> Vec<u8> {
+    assert!(child_count(children) > 0, "an inner node sent has children");
+    let mut out = Vec::with_capacity(INNER_NODE_BYTES);
+    out.extend_from_slice(&INNER_PREFIX);
+    for hash in children {
+        out.extend_from_slice(hash);
     }
     out
 }
 
-/// A leaf of `tree` as rippled sends it: its item, its key and its type.
+/// A leaf of `tree` as rippled hashes it: its prefix, its item and its
+/// key.
 #[must_use]
-pub fn leaf_wire(tree: Tree, key: &[u8; 32], item: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(item.len() + KEY_BYTES + 1);
+pub fn leaf_node(tree: Tree, key: &[u8; 32], item: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(PREFIX_BYTES + item.len() + KEY_BYTES);
+    out.extend_from_slice(&tree.leaf_prefix());
     out.extend_from_slice(item);
     out.extend_from_slice(key);
-    out.push(match tree {
-        Tree::Transactions => WIRE_TRANSACTION_WITH_META,
-        Tree::State => WIRE_STATE,
-    });
     out
 }
 
@@ -383,13 +348,15 @@ pub fn inner_hash(children: &[[u8; 32]; BRANCH_FACTOR]) -> [u8; 32] {
 #[must_use]
 pub fn leaf_hash(tree: Tree, key: &[u8; 32], item: &[u8]) -> [u8; 32] {
     let mut hasher = Sha512::new();
-    hasher.update(match tree {
-        Tree::Transactions => TRANSACTION_LEAF_PREFIX,
-        Tree::State => STATE_LEAF_PREFIX,
-    });
+    hasher.update(tree.leaf_prefix());
     hasher.update(item);
     hasher.update(key);
     half(&hasher.finalize())
+}
+
+/// The hash of a node as it is hashed, prefix included.
+fn node_hash(bytes: &[u8]) -> [u8; 32] {
+    half(&Sha512::digest(bytes))
 }
 
 fn half(digest: &[u8]) -> [u8; 32] {
@@ -440,73 +407,95 @@ mod tests {
     }
 
     #[test]
-    fn inner_nodes_are_sent_compressed_below_twelve_children() {
+    fn a_node_hashes_as_its_bytes() {
         let mut children = [EMPTY; BRANCH_FACTOR];
-        for (slot, child) in children.iter_mut().enumerate().take(11) {
-            *child = [u8::try_from(slot).unwrap() + 1; 32];
+        children[3] = [3; 32];
+        let inner = inner_node(&children);
+        assert_eq!(inner.len(), INNER_NODE_BYTES);
+        assert_eq!(node_hash(&inner), inner_hash(&children));
+        let item = [1; MIN_ITEM_BYTES];
+        for tree in [Tree::State, Tree::Transactions] {
+            let leaf = leaf_node(tree, &[1; 32], &item);
+            assert_eq!(node_hash(&leaf), leaf_hash(tree, &[1; 32], &item));
         }
-        let wire = inner_wire(&children);
-        assert_eq!(wire.len(), 11 * COMPRESSED_CHILD_BYTES + 1);
-        assert!(matches!(
-            Node::from_wire(&wire, Tree::State),
-            Ok(Node::Inner(read)) if read == children
-        ));
-        children[11] = [12; 32];
-        let wire = inner_wire(&children);
-        assert_eq!(wire.len(), FULL_INNER_BYTES);
-        assert!(matches!(
-            Node::from_wire(&wire, Tree::State),
-            Ok(Node::Inner(read)) if read == children
-        ));
     }
 
     #[test]
-    fn only_the_form_rippled_sends_reads() {
+    fn only_the_form_rippled_hashes_reads() {
         let mut children = [EMPTY; BRANCH_FACTOR];
         children[3] = [3; 32];
         children[9] = [9; 32];
-        let wire = inner_wire(&children);
+        let inner = inner_node(&children);
+        assert!(matches!(
+            Node::parse(&inner, Tree::State),
+            Ok(Node::Inner(read)) if read == children
+        ));
         let refused =
-            |bytes: &[u8]| matches!(Node::from_wire(bytes, Tree::State), Err(BranchError::Node));
-        // Slots out of order, the same twice, beyond sixteen, a zero hash.
-        let mut swapped = [&wire[33..66], &wire[..33], &wire[66..]].concat();
-        assert!(refused(&swapped));
-        swapped[32] = 3;
-        assert!(refused(&swapped));
-        let mut beyond = wire.clone();
-        beyond[65] = 16;
-        assert!(refused(&beyond));
-        let mut zero = wire.clone();
-        zero[..32].fill(0);
-        assert!(refused(&zero));
-        // A few children in full, none, a byte short, no type, another type.
-        let mut full = vec![0; FULL_INNER_BYTES - 1];
-        full[..32].copy_from_slice(&[3; 32]);
-        full.push(WIRE_INNER);
-        assert!(refused(&full));
-        assert!(refused(&[WIRE_COMPRESSED_INNER]));
-        assert!(refused(&wire[1..]));
-        assert!(refused(&[]));
-        assert!(refused(&[&wire[..wire.len() - 1], &[7]].concat()));
-        // A leaf of the other tree, without its metadata, or keyed zero.
+            |bytes: &[u8], tree| matches!(Node::parse(bytes, tree), Err(BranchError::Node));
+        // A byte short or long, no children, no prefix, another prefix.
+        assert!(refused(&inner[..inner.len() - 1], Tree::State));
+        assert!(refused(&[&inner[..], &[0]].concat(), Tree::State));
+        assert!(refused(
+            &[&INNER_PREFIX[..], &[0; BRANCH_FACTOR * KEY_BYTES]].concat(),
+            Tree::State
+        ));
+        assert!(refused(&[], Tree::State));
+        assert!(refused(b"MIN", Tree::State));
+        assert!(refused(&[b"NIM\0", &inner[4..]].concat(), Tree::State));
+        // A leaf of the other tree, keyed zero, or with too short an item.
         let item = [1; MIN_ITEM_BYTES];
-        assert!(refused(&leaf_wire(Tree::Transactions, &[1; 32], &item)));
-        assert!(refused(&[&item[..], &[1; 32], &[0]].concat()));
-        assert!(refused(&leaf_wire(Tree::State, &EMPTY, &item)));
-        assert!(refused(&leaf_wire(Tree::State, &[1; 32], &item[1..])));
-        assert!(Node::from_wire(&leaf_wire(Tree::State, &[1; 32], &item), Tree::State).is_ok());
-        // The longest leaf rippled sends, and one a byte longer.
-        let longest = vec![1; MAX_LEAF_BYTES - KEY_BYTES - 1];
-        let wire = leaf_wire(Tree::State, &[1; 32], &longest);
-        assert_eq!(wire.len(), MAX_LEAF_BYTES);
-        assert!(Node::from_wire(&wire, Tree::State).is_ok());
+        assert!(refused(
+            &leaf_node(Tree::Transactions, &[1; 32], &item),
+            Tree::State
+        ));
+        assert!(refused(
+            &leaf_node(Tree::State, &[1; 32], &item),
+            Tree::Transactions
+        ));
+        assert!(refused(&leaf_node(Tree::State, &EMPTY, &item), Tree::State));
+        assert!(refused(
+            &leaf_node(Tree::State, &[1; 32], &item[1..]),
+            Tree::State
+        ));
+        assert!(Node::parse(&leaf_node(Tree::State, &[1; 32], &item), Tree::State).is_ok());
+        // The longest leaf rippled hashes, and one a byte longer.
+        let longest = vec![1; MAX_ITEM_BYTES];
+        let leaf = leaf_node(Tree::State, &[1; 32], &longest);
+        assert_eq!(leaf.len(), MAX_NODE_BYTES);
+        assert!(Node::parse(&leaf, Tree::State).is_ok());
         let longer = [&longest[..], &[1]].concat();
-        assert!(refused(&leaf_wire(Tree::State, &[1; 32], &longer)));
+        assert!(refused(
+            &leaf_node(Tree::State, &[1; 32], &longer),
+            Tree::State
+        ));
     }
 
     #[test]
-    fn an_empty_inner_node_hashes_to_zero() {
+    fn an_empty_tree_proves_every_key_absent_and_nothing_held() {
         assert_eq!(inner_hash(&[EMPTY; BRANCH_FACTOR]), EMPTY);
+        let empty: [&[u8]; 0] = [];
+        assert_eq!(
+            verify(&EMPTY, &[1; 32], Leaf::Absent(Tree::State), &empty),
+            Ok(())
+        );
+        assert_eq!(
+            verify(&EMPTY, &[1; 32], Leaf::State(&[1; 20]), &empty),
+            Err(BranchError::Length)
+        );
+        assert_eq!(
+            verify(&[1; 32], &[1; 32], Leaf::Absent(Tree::State), &empty),
+            Err(BranchError::Length)
+        );
+    }
+
+    #[test]
+    fn a_node_longer_than_any_is_refused_before_it_is_hashed() {
+        let long = vec![0; MAX_NODE_BYTES + 1];
+        let hash = node_hash(&long);
+        assert_eq!(
+            verify(&hash, &[1; 32], Leaf::Absent(Tree::State), &[long]),
+            Err(BranchError::Node)
+        );
     }
 
     #[test]

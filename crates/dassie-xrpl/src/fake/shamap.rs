@@ -1,7 +1,8 @@
 //! A ledger's hash tree built as rippled builds it, for the fake ledger and
-//! tests: its root, and the branch of any key in the form rippled's
-//! `SHAMap::getProofPath` gives it, leaf first, which proves the key's leaf,
-//! or for a key the tree does not hold, its absence ([`crate::shamap`]).
+//! tests: its root, and the branch of any key as a proof server gives it,
+//! each node as rippled hashes it, deepest first, which proves the key's
+//! leaf, or for a key the tree does not hold, its absence
+//! ([`crate::shamap`]).
 //!
 //! It keeps only the leaves, by key, each with its hash, and builds the
 //! inner nodes from them when asked, with a stack of at most [`MAX_DEPTH`]
@@ -17,8 +18,8 @@ use alloc::vec::Vec;
 
 use crate::codec::hash;
 use crate::shamap::{
-    BRANCH_FACTOR, MAX_DEPTH, MAX_LEAF_BYTES, MIN_ITEM_BYTES, Tree, inner_hash, inner_wire,
-    leaf_hash, leaf_wire, nibble, transaction_item,
+    BRANCH_FACTOR, MAX_DEPTH, MAX_ITEM_BYTES, MIN_ITEM_BYTES, Tree, inner_hash, inner_node,
+    leaf_hash, leaf_node, nibble, transaction_item,
 };
 
 /// The most leaves a tree holds: far more than a test or a simulation
@@ -118,7 +119,7 @@ impl ShaMap {
     fn insert(&mut self, key: [u8; 32], item: Vec<u8>) {
         assert_ne!(key, EMPTY, "no leaf is keyed zero");
         assert!(
-            item.len() >= MIN_ITEM_BYTES && item.len() < MAX_LEAF_BYTES - 32,
+            item.len() >= MIN_ITEM_BYTES && item.len() <= MAX_ITEM_BYTES,
             "a leaf's item is as long as rippled's are"
         );
         let leaf = leaf_hash(self.tree, &key, &item);
@@ -136,27 +137,28 @@ impl ShaMap {
         inner_hash(&children(&leaves, 0, leaves.len(), 0))
     }
 
-    /// The branch of `key`, leaf first: down to its leaf if the tree holds
-    /// it, else to the empty slot where it would hang or the leaf of
-    /// another key that hangs there. None while the tree is empty.
+    /// The branch of `key`, deepest node first: down to its leaf if the
+    /// tree holds it, else to the empty slot where it would hang or the
+    /// leaf of another key that hangs there. Empty while the tree is.
     #[must_use]
-    pub fn branch(&self, key: &[u8; 32]) -> Option<Vec<Vec<u8>>> {
+    pub fn branch(&self, key: &[u8; 32]) -> Vec<Vec<u8>> {
         let leaves = self.sorted();
         let mut branch = Vec::new();
         let (mut low, mut high) = (0, leaves.len());
         // Each turn goes a level down, and a key has MAX_DEPTH nibbles.
         for depth in 0..MAX_DEPTH {
             if low == high {
-                return None;
+                break;
             }
-            branch.push(inner_wire(&children(&leaves, low, high, depth)));
+            branch.push(inner_node(&children(&leaves, low, high, depth)));
             let slot = nibble(key, depth);
             let (start, end) = group_of(&leaves, low, high, depth, slot);
             match end - start {
                 0 => break,
                 1 => {
-                    let (leaf_key, item, _) = leaves.get(start)?;
-                    branch.push(leaf_wire(self.tree, leaf_key, item));
+                    if let Some((leaf_key, item, _)) = leaves.get(start) {
+                        branch.push(leaf_node(self.tree, leaf_key, item));
+                    }
                     break;
                 }
                 _ => (low, high) = (start, end),
@@ -164,7 +166,7 @@ impl ShaMap {
         }
         assert!(branch.len() <= MAX_DEPTH + 1, "a branch is a path");
         branch.reverse();
-        Some(branch)
+        branch
     }
 
     fn sorted(&self) -> Vec<Leaf<'_>> {

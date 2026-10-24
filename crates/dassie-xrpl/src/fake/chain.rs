@@ -13,10 +13,11 @@
 //! What is kept is bounded: headers for [`MAX_KEPT_LEDGERS`]; the state of
 //! each of the last [`MAX_STATE_LEDGERS`], and of each flag ledger among
 //! those kept, so that any ledger kept is two state proofs from the
-//! newest; and who signed each of the last [`MAX_VALIDATED_LEDGERS`],
-//! enough that the skip list reaches anything older, as a proof server
-//! keeps validations, and each flag ledger, whose validations a lying
-//! server replays as an old anchor's.
+//! newest; and who signed each of the last [`MAX_VALIDATED_LEDGERS`] and
+//! each flag ledger, whose validations a lying server replays as an old
+//! anchor's. An honest server gives only those of the ledgers that closed
+//! within [`VALIDATIONS_HELD_S`], as rippled holds them; the skip list
+//! reaches anything older.
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -36,16 +37,18 @@ use crate::shamap::Tree;
 pub const MAX_KEPT_LEDGERS: usize = 1 << 16;
 /// The most recent ledgers whose state is kept, for proofs of their state.
 pub const MAX_STATE_LEDGERS: usize = 64;
-/// The most recent ledgers whose validations are kept, as a proof server
-/// keeps them: the skip list of the newest proves every one older.
+/// The most recent ledgers whose signers are kept, beside the flag
+/// ledgers': more than an honest server serves validations of.
 pub const MAX_VALIDATED_LEDGERS: usize = 256;
+/// How long rippled holds a ledger's validations, in seconds: an honest
+/// server serves those of the ledgers that closed this long before the
+/// newest, or since.
+pub const VALIDATIONS_HELD_S: u32 = 600;
 /// The hashes a skip list holds: of the last 256 ledgers, or of 256 flag
 /// ledgers.
 pub const SKIP_HASHES: usize = 256;
 /// Every 256th ledger is a flag ledger.
 const FLAG_INTERVAL: u32 = 256;
-/// The same, to count ledgers.
-const FLAG_LEDGERS: usize = 256;
 /// How finely close times are rounded, in seconds, as on mainnet.
 pub(super) const CLOSE_TIME_RESOLUTION_S: u8 = 10;
 
@@ -78,6 +81,8 @@ pub(super) struct Chain {
     flags: BTreeMap<u32, (u32, Vec<[u8; 32]>)>,
     /// The ledgers kept, by index.
     ledgers: BTreeMap<u32, Sealed>,
+    /// The index of each ledger kept, by its hash.
+    by_hash: BTreeMap<[u8; 32], u32>,
 }
 
 impl Chain {
@@ -87,6 +92,7 @@ impl Chain {
             recent: (0, Vec::new()),
             flags: BTreeMap::new(),
             ledgers: BTreeMap::new(),
+            by_hash: BTreeMap::new(),
         }
     }
 
@@ -107,9 +113,7 @@ impl Chain {
 
     /// The index of the ledger of `hash`, if it is kept.
     pub fn index_of(&self, hash: &[u8; 32]) -> Option<u32> {
-        (self.ledgers.iter().rev())
-            .find(|(_, sealed)| sealed.hash == *hash)
-            .map(|(index, _)| *index)
+        self.by_hash.get(hash).copied()
     }
 
     /// The newest ledger kept with its state and its signers that closed
@@ -129,6 +133,30 @@ impl Chain {
         let last = self.ledgers.last_key_value().map(|(last, _)| *last);
         self.ledgers
             .retain(|kept, _| *kept >= index || Some(*kept) == last);
+        self.by_hash
+            .retain(|_, kept| *kept >= index || Some(*kept) == last);
+        self.check_invariants();
+    }
+
+    /// Keeps `sealed` as the ledger of its index, and forgets the oldest
+    /// beyond [`MAX_KEPT_LEDGERS`].
+    fn insert(&mut self, sealed: Sealed) {
+        let index = sealed.header.sequence;
+        self.remove(index);
+        self.by_hash.insert(sealed.hash, index);
+        self.ledgers.insert(index, sealed);
+        while self.ledgers.len() > MAX_KEPT_LEDGERS {
+            if let Some((_, oldest)) = self.ledgers.pop_first() {
+                self.by_hash.remove(&oldest.hash);
+            }
+        }
+    }
+
+    /// Forgets the ledger of `index`, if it is kept.
+    fn remove(&mut self, index: u32) {
+        if let Some(sealed) = self.ledgers.remove(&index) {
+            self.by_hash.remove(&sealed.hash);
+        }
     }
 
     /// The skip lists as objects.
@@ -167,29 +195,22 @@ impl Chain {
         *last = previous;
     }
 
+    /// What holds after every change. What each ledger keeps is trimmed as
+    /// it crosses a bound ([`FakeLedger::seal`]), so this walks no chain.
     fn check_invariants(&self) {
         assert!(
             self.ledgers.len() <= MAX_KEPT_LEDGERS,
             "a bounded chain of headers"
         );
+        assert_eq!(
+            self.by_hash.len(),
+            self.ledgers.len(),
+            "each ledger kept found by its hash"
+        );
         assert!(self.recent.1.len() <= SKIP_HASHES, "a skip list's bound");
         assert!(
             (self.flags.values()).all(|(_, hashes)| hashes.len() <= SKIP_HASHES),
             "a flag skip list's bound: 65,536 ledgers hold 256 flag ledgers"
-        );
-        let states = self.ledgers.values().filter(|l| l.state.is_some()).count();
-        assert!(
-            states <= MAX_STATE_LEDGERS + MAX_KEPT_LEDGERS / FLAG_LEDGERS + 1,
-            "a bounded number of states"
-        );
-        let signed = self
-            .ledgers
-            .values()
-            .filter(|l| !l.signers.is_empty())
-            .count();
-        assert!(
-            signed <= MAX_VALIDATED_LEDGERS + MAX_KEPT_LEDGERS / FLAG_LEDGERS + 1,
-            "a bounded number of validated ledgers"
         );
     }
 }
@@ -221,7 +242,7 @@ impl FakeLedger {
             return;
         };
         let parent = (latest.header.parent_hash, latest.header.parent_close_time);
-        self.chain.ledgers.remove(&self.ledger);
+        self.chain.remove(self.ledger);
         self.seal(parent);
     }
 
@@ -256,14 +277,18 @@ impl FakeLedger {
             validations: None,
         };
         let chain = &mut self.chain;
-        chain.ledgers.insert(self.ledger, sealed);
-        while chain.ledgers.len() > MAX_KEPT_LEDGERS {
-            chain.ledgers.pop_first();
-        }
+        chain.insert(sealed);
         // What each close leaves behind; older ledgers were trimmed as the
-        // ones after them closed.
+        // ones after them closed, so only flag ledgers keep a state or
+        // signers past their bounds.
         let ledgers = chain.ledgers.values_mut().rev();
         for (age, sealed) in ledgers.enumerate() {
+            // Past the newest ledger beyond the bound, one trimmed already,
+            // and the flag ledgers on the way.
+            assert!(
+                age <= MAX_VALIDATED_LEDGERS + 3,
+                "only the ledgers that crossed a bound are trimmed"
+            );
             if sealed.header.sequence.is_multiple_of(FLAG_INTERVAL) {
                 continue;
             }
