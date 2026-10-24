@@ -1,8 +1,8 @@
 /**
  * The scenarios (spec/areas/dev.md#scenarios): how many nodes, which are
- * bootstrap nodes, which are periphery nodes, and which settlement schemes
- * they use. Nodes added later join as core nodes with the scenario's
- * default schemes.
+ * bootstrap nodes, which are periphery nodes, which settlement schemes
+ * they use, and their realm. Nodes added later join as core nodes with the
+ * scenario's default schemes.
  *
  * @module
  */
@@ -25,7 +25,7 @@ export interface ScenarioDef {
   /**
    * What the fake ledger's issuers mint each node that runs the token's
    * scheme, once its trust line exists: a token and its value in dollars,
-   * such as RLUSD `"100"`. Only the fake ledger mints on demand, so such a
+   * such as DSUSD `"100"`. Only the fake ledger mints on demand, so such a
    * scenario needs it.
    */
   readonly mint?: { readonly token: IssuedToken; readonly value: string };
@@ -41,6 +41,13 @@ export interface ScenarioDef {
    * makes one on demand, so such a scenario needs it.
    */
   readonly pool?: PoolDef;
+  /**
+   * The realm its nodes run in: `test` unless it says `live`. Live nodes
+   * run mainnet's schemes, by the node's dev switch, which only a build
+   * with debug assertions honours (spec/decisions/mainnet-schemes.md), and
+   * only against the fake ledger's mainnet, never with real money.
+   */
+  readonly realm?: "test" | "live";
 }
 
 /** A periphery node of a scenario, and the nodes it is pinned to. */
@@ -63,22 +70,33 @@ export interface PoolDef {
   readonly tradingFee: number;
 }
 
-/** The dollar tokens the fake ledger issues, by their currency codes. */
-export type IssuedToken = "RLUSD" | "DSUSD";
+/** The dollar tokens the fake ledger issues, by their currency codes:
+ * DSUSD on its testnet, the stand-in for RLUSD, whose test token's scheme
+ * is disabled (spec/decisions/issued-assets.md), and RLUSD on its mainnet.
+ */
+export type IssuedToken = "DSUSD" | "RLUSD";
 
 /** The settlement scheme that settles in each token. */
 export const TOKEN_SCHEMES: Readonly<Record<IssuedToken, string>> = {
-  RLUSD: "xrpl-testnet-rlusd",
   DSUSD: "xrpl-testnet-dsusd",
+  RLUSD: "xrpl-rlusd",
 };
 
 /** The settlement schemes on the XRP Ledger: their nodes' account is on
- * the testnet, or on the fake ledger. */
+ * the testnet, or on the fake ledger, its testnet or its mainnet. */
 export const XRPL_SCHEMES: readonly string[] = [
   "xrpl-testnet",
-  "xrpl-testnet-rlusd",
   "xrpl-testnet-dsusd",
+  "xrpl",
+  "xrpl-rlusd",
 ];
+
+/**
+ * What a live scenario deposits into each node's mainnet account, in drops,
+ * since mainnet has no faucet: as much as the testnet faucet gives, 1000
+ * XRP.
+ */
+export const MAINNET_DEPOSIT_DROPS = 1_000_000_000n;
 
 export const SCENARIOS: readonly ScenarioDef[] = [
   {
@@ -108,24 +126,39 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     bootstrap: [0, 1],
   },
   {
-    id: "rlusd-settlement",
-    name: "RLUSD Settlement",
-    description:
-      "Network with two nodes settling in test RLUSD on the XRP Ledger, minted by the fake ledger's issuer",
-    schemes: [["xrpl-testnet-rlusd"], ["xrpl-testnet-rlusd"]],
-    addedSchemes: ["xrpl-testnet-rlusd"],
-    bootstrap: [0, 1],
-    mint: { token: "RLUSD", value: "100" },
-  },
-  {
     id: "dsusd-settlement",
     name: "DSUSD Settlement",
     description:
-      "Network with two nodes settling in test DSUSD on the XRP Ledger, minted by the fake ledger's issuer",
+      "Network with two nodes settling in test DSUSD on the XRP Ledger, minted by the fake ledger's issuer, beside the fake ledger's XRP/DSUSD pool at the dev rate, which keeps DSUSD on its peg",
     schemes: [["xrpl-testnet-dsusd"], ["xrpl-testnet-dsusd"]],
     addedSchemes: ["xrpl-testnet-dsusd"],
     bootstrap: [0, 1],
     mint: { token: "DSUSD", value: "100" },
+    pool: { token: "DSUSD", value: "50000", tradingFee: 500 },
+  },
+  {
+    id: "xrpl-live-settlement",
+    name: "XRPL Mainnet Settlement, Fake",
+    description:
+      "Network with two nodes in the live realm settling in XRP on the fake ledger's mainnet, by the dev switch; each node's account is funded by a deposit, as mainnet has no faucet",
+    schemes: [["xrpl"], ["xrpl"]],
+    addedSchemes: ["xrpl"],
+    bootstrap: [0, 1],
+    realm: "live",
+  },
+  {
+    id: "rlusd-live-settlement",
+    name: "RLUSD Mainnet Settlement, Fake",
+    description:
+      "Network with two nodes in the live realm settling in RLUSD on the fake ledger's mainnet, by the dev switch, minted by its RLUSD issuer, beside its XRP/RLUSD pool at the dev rate, which keeps RLUSD on its peg",
+    schemes: [["xrpl-rlusd"], ["xrpl-rlusd"]],
+    addedSchemes: ["xrpl-rlusd"],
+    bootstrap: [0, 1],
+    mint: { token: "RLUSD", value: "100" },
+    // 200,000 XRP at the dev rate: deeper than RLUSD's floor of 100,000
+    // XRP, below which its peg guard reads no price, even 5% off its peg.
+    pool: { token: "RLUSD", value: "100000", tradingFee: 500 },
+    realm: "live",
   },
   {
     id: "cross-currency",
@@ -190,6 +223,27 @@ export const DEFAULT_SCENARIO = "two-nodes";
 /** The scenario `id`, if there is one. */
 export function findScenario(id: string): ScenarioDef | undefined {
   return SCENARIOS.find((scenario) => scenario.id === id);
+}
+
+/** Whether `def`'s nodes run in the live realm. */
+export function live(def: ScenarioDef): boolean {
+  return def.realm === "live";
+}
+
+/** The network of the fake ledger `def` settles on: mainnet for a live
+ * scenario, else the testnet. */
+export function ledgerNetwork(def: ScenarioDef): "testnet" | "mainnet" {
+  return live(def) ? "mainnet" : "testnet";
+}
+
+/**
+ * Whether `def`'s nodes resume with their data after a restart. Not a live
+ * scenario's: the fake ledger is a new chain on every run, and mainnet
+ * never resets, so a mainnet account that knew an earlier chain stops
+ * (spec/areas/xrpl.md#real-money). Its nodes start from scratch.
+ */
+export function resumes(def: ScenarioDef): boolean {
+  return !live(def);
 }
 
 /** Whether `def` settles on the XRP Ledger, with any of its nodes. */
@@ -280,11 +334,14 @@ export function unavailable(
   fakeLedger: boolean,
 ): string | undefined {
   if (def.unavailable) return def.unavailable;
+  if (live(def) && !fakeLedger) {
+    return "needs --xrpl fake: the live realm runs only against the fake ledger's mainnet, never with real money";
+  }
   if (def.mint !== undefined && !fakeLedger) {
-    return `needs --xrpl fake: only the fake ledger's issuer mints test ${def.mint.token} on demand`;
+    return `needs --xrpl fake: only the fake ledger's issuer mints ${def.mint.token} on demand`;
   }
   if (def.pool !== undefined && !fakeLedger) {
-    return `needs --xrpl fake: only the fake ledger's issuer makes a pool of test ${def.pool.token}`;
+    return `needs --xrpl fake: only the fake ledger's issuer makes a pool of ${def.pool.token}`;
   }
   return undefined;
 }

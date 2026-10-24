@@ -2,14 +2,17 @@
 //! balances, sequences and reserves, Payments of XRP checked as the ledger
 //! checks them (signature, sequence, fee, last ledger, funds), ledgers that
 //! close on command with real result codes and close times, the metadata,
-//! streams and history the node reads, resets, and a faucet.
+//! streams and history the node reads, resets, and a faucet. It is the
+//! testnet ([`FakeLedger::new`]) or mainnet ([`FakeLedger::mainnet`]),
+//! whose network ID it reports, which has no faucet and never resets
+//! (spec/decisions/mainnet-schemes.md).
 //!
 //! Tokens on trust lines ([`tokens`]): lines as `RippleState` entries with
 //! their owner reserve, `TrustSet`, token Payments that ripple through the
 //! issuer with the ledger's failures, and issuers that mint, freeze, set a
-//! transfer fee and claw back. The fake is the only source of test RLUSD
-//! and DSUSD on demand: [`FakeLedger::new`] makes RLUSD's and DSUSD's
-//! testnet issuers, at their addresses.
+//! transfer fee and claw back. The fake is the only source of dollar tokens
+//! on demand: [`FakeLedger::new`] makes DSUSD's testnet issuer, and
+//! [`FakeLedger::mainnet`] RLUSD's mainnet issuer, each at its address.
 //!
 //! AMM pools ([`pools`]): a constant-product pool of XRP and a token with a
 //! trading fee, `amm_info`, and Payments with `SendMax` that cross it.
@@ -23,32 +26,68 @@
 //! at API version 1, as rippled does. It checks what it is sent with the
 //! node's own codec, so the codec is pinned by the xrpl.js vectors, not by
 //! this.
+//!
+//! Proofs (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation):
+//! each closed ledger has a real header, a transaction tree of every
+//! transaction it applied, the fake's own included, with its binary
+//! metadata, and a state tree of every object in rippled's binary form,
+//! with the skip lists and the fee settings (`fake/chain.rs`,
+//! `fake/objects.rs`, `fake/meta.rs`). Validators sign each ledger and a
+//! publisher lists them (`fake/validators.rs`); the fake serves
+//! `validations`, `tx_proof`, `state_proof` and `manifest` (`fake/proofs.rs`),
+//! and any connection can be made to lie ([`lies`]).
 
+mod chain;
+pub mod lies;
 mod meta;
+mod objects;
 pub mod pools;
+mod proofs;
+pub mod shamap;
 mod signers;
 pub mod tokens;
+mod validators;
 
 use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
-use alloc::string::ToString;
 use alloc::vec::Vec;
 
 use serde_json::{Value, json};
 
 use crate::api::{SignerList, account_flags};
 use crate::codec::{
-    Amount, Currency, Payment, Signing, TokenAmount, Transact, Transaction, hash, multi_signed_fee,
+    Amount, Currency, Payment, Signing, Transact, Transaction, hash, multi_signed_fee,
 };
 use crate::keys::AccountId;
+use crate::network::{MAINNET, Network, TESTNET};
 use crate::{DROPS_PER_XRP, from_hex, hex_upper};
 
-pub use pools::{POOL_ACCOUNT_FLAGS, PoolState, pool_account};
-pub use tokens::{ExactSum, Token};
+pub use chain::{MAX_KEPT_LEDGERS, MAX_STATE_LEDGERS, MAX_VALIDATED_LEDGERS};
 
+/// How a `tx` answer comes for a transaction a server has not saved with
+/// its ledger yet ([`FakeLedger::answer_unsaved`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unsaved {
+    /// From the server's cache, without its metadata, not validated.
+    WithoutMeta,
+    /// `txnNotFound`: not in its cache, and not saved.
+    NotFound,
+}
+pub use lies::Lie;
+pub use pools::{POOL_ACCOUNT_FLAGS, PoolState, pool_account};
+pub use proofs::MAX_STATE_PROOF_KEYS;
+pub use tokens::{ExactSum, Token};
+pub use validators::{
+    DEFAULT_SEED, KeyedSignatures, LIST_SITE, MAINNET_SEED, UNL_FLOOR, VALIDATORS, publisher_key,
+    with_publishers,
+};
+
+use chain::Chain;
 use meta::{Applied, Touched};
+use objects::{Thread, token_json};
 use pools::{Pool, PoolSet};
 use tokens::{Clawback, IssuerSet, LineKey};
+use validators::Validators;
 
 /// The reference fee, in drops.
 pub const FEE_BASE: u64 = 10;
@@ -63,6 +102,9 @@ pub const FAUCET_DROPS: u64 = 1_000_000_000;
 pub const FIRST_LEDGER: u32 = 5_000_000;
 /// When the first ledger closed, in seconds since the XRP Ledger's epoch.
 pub const FIRST_CLOSE_TIME: u64 = 800_000_000;
+/// The same, by a node's clock: milliseconds since 1970. A test whose clock
+/// starts here reads the fake's validations as fresh.
+pub const FIRST_CLOSE_MS: u64 = (FIRST_CLOSE_TIME + crate::unl::RIPPLE_EPOCH_UNIX_S) * 1_000;
 /// The seconds between one ledger's close and the next's.
 pub const CLOSE_INTERVAL_S: u64 = 4;
 /// The ledger a reset starts the chain again from: far below where it was,
@@ -73,7 +115,7 @@ const MAX_TX_RANGE_LEDGERS: u64 = 1_000;
 /// The ledgers an issuer's or genesis's own transaction may wait.
 const OWN_TX_LEDGERS: u32 = 20;
 
-/// RLUSD's issuer on the XRPL testnet: the fake ledger issues its test
+/// RLUSD's issuer on the XRPL mainnet: the fake ledger's mainnet issues
 /// RLUSD at the same address, so the scheme runs on it unchanged.
 pub const RLUSD_ISSUER: AccountId = crate::rlusd::ISSUER;
 /// RLUSD's currency code: "RLUSD" in 40 hex digits.
@@ -85,7 +127,7 @@ pub const DSUSD_ISSUER: AccountId = crate::dsusd::ISSUER;
 pub const DSUSD_CURRENCY: Currency = crate::dsusd::CURRENCY;
 /// What an issuer is given from genesis, in drops, to pay its fees.
 pub const ISSUER_DROPS: u64 = 1_000 * DROPS_PER_XRP;
-/// An issuer's flags, as RLUSD's on the testnet: lines ripple through it,
+/// An issuer's flags, as RLUSD's: lines ripple through it,
 /// it may claw back, it requires no authorisation and keeps the right to
 /// freeze.
 pub const ISSUER_FLAGS: u32 =
@@ -246,10 +288,35 @@ pub struct FakeLedger {
     wiped: u64,
     /// The reserve, which [`set_reserve`](Self::set_reserve) changes.
     reserve: (u64, u64),
-    /// The network ID `server_state` reports: the testnet's, unless
+    /// The network it is: whether it has a faucet, and whether it resets.
+    network: &'static Network,
+    /// The network ID `server_state` reports: its network's, unless
     /// [`set_network_id`](Self::set_network_id) changes it.
     network_id: Option<u32>,
+    /// Where each transaction is in the history, by its hash.
+    history_index: BTreeMap<[u8; 32], usize>,
+    /// The transaction that last changed each object, by the object's key.
+    threads: BTreeMap<[u8; 32], Thread>,
+    /// The ledgers closed, with their trees.
+    chain: Chain,
+    /// The validators and their publisher.
+    validators: Validators,
+    /// Who lies how.
+    lies: lies::Lies,
+    /// The last transactions submitted that never applied, each with its
+    /// hash, newest last: what a lying server says applied.
+    never_applied: Vec<([u8; 32], Vec<u8>)>,
+    /// How many more `tx` answers in binary come as rippled's do between
+    /// validating a ledger and saving it, and how.
+    unsaved_answers: (u32, Unsaved),
 }
+
+/// The most transactions remembered as never applied.
+const MAX_NEVER_APPLIED: usize = 64;
+
+/// When the fake's first list of validators expires: as late as the
+/// ledger's clock counts. A test that lets a list expire publishes another.
+const FIRST_LIST_EXPIRATION: u32 = u32::MAX;
 
 impl Default for FakeLedger {
     fn default() -> Self {
@@ -258,10 +325,36 @@ impl Default for FakeLedger {
 }
 
 impl FakeLedger {
-    /// A ledger with only the genesis account and the issuers of RLUSD and
-    /// DSUSD.
+    /// The testnet: a ledger with only the genesis account and DSUSD's
+    /// issuer, with validators from [`DEFAULT_SEED`]. Test RLUSD is not on
+    /// it: no scheme settles in it (spec/decisions/issued-assets.md).
     #[must_use]
     pub fn new() -> Self {
+        Self::with_seed(DEFAULT_SEED)
+    }
+
+    /// The testnet as [`new`](Self::new) makes it, with validators and
+    /// their publisher from `seed`: a ledger of another seed shares no key
+    /// with it.
+    #[must_use]
+    pub fn with_seed(seed: [u8; 32]) -> Self {
+        Self::on(&TESTNET, seed, DSUSD_ISSUER)
+    }
+
+    /// Mainnet: a ledger with only the genesis account and RLUSD's issuer,
+    /// which reports mainnet's network ID, has no faucet and never resets.
+    /// The testnet's DSUSD is not on it. Its validators come from
+    /// [`MAINNET_SEED`], so its UNL shares no key with the testnet's, as
+    /// live.
+    #[must_use]
+    pub fn mainnet() -> Self {
+        Self::on(&MAINNET, MAINNET_SEED, RLUSD_ISSUER)
+    }
+
+    /// A ledger of `network` with only the genesis account and `issuer`,
+    /// with validators and their publisher from `seed`, its first ledger
+    /// sealed.
+    fn on(network: &'static Network, seed: [u8; 32], issuer: AccountId) -> Self {
         let genesis = AccountId([0xAB; 20]);
         let mut accounts = BTreeMap::new();
         accounts.insert(genesis, Account::new(crate::MAX_DROPS, 1));
@@ -285,11 +378,25 @@ impl FakeLedger {
             burned: 0,
             wiped: 0,
             reserve: (RESERVE_BASE, RESERVE_INC),
-            network_id: Some(1),
+            network,
+            network_id: Some(network.id),
+            history_index: BTreeMap::new(),
+            threads: BTreeMap::new(),
+            chain: Chain::new(),
+            validators: Validators::new(seed, FIRST_LIST_EXPIRATION),
+            lies: lies::Lies::default(),
+            unsaved_answers: (0, Unsaved::WithoutMeta),
+            never_applied: Vec::new(),
         };
-        ledger.add_issuer(RLUSD_ISSUER);
-        ledger.add_issuer(DSUSD_ISSUER);
+        ledger.add_issuer(issuer);
+        ledger.seal_first();
         ledger
+    }
+
+    /// The network it is.
+    #[must_use]
+    pub const fn network(&self) -> &'static Network {
+        self.network
     }
 
     /// Makes `issuer` an account the fake acts as, with [`ISSUER_FLAGS`]
@@ -328,6 +435,12 @@ impl FakeLedger {
         self.accounts.get(&account).map(|a| a.balance)
     }
 
+    /// The sequence an account uses next, if it exists.
+    #[must_use]
+    pub fn sequence(&self, account: AccountId) -> Option<u32> {
+        self.accounts.get(&account).map(|a| a.sequence)
+    }
+
     /// The objects an account owns, such as trust lines, if it exists.
     #[must_use]
     pub fn owner_count(&self, account: AccountId) -> Option<u32> {
@@ -364,6 +477,8 @@ impl FakeLedger {
         self.history_from = self.ledger.saturating_add(1);
         self.account_tx_from = self.history_from;
         self.history.clear();
+        self.history_index.clear();
+        self.chain.forget_before(self.history_from);
     }
 
     /// Cuts `account_tx` at the current ledger, while `tx` still finds
@@ -377,6 +492,13 @@ impl FakeLedger {
         self.reserve = (base, increment);
     }
 
+    /// Makes the next `answers` answers of `tx` in binary come as an honest
+    /// rippled's do for a moment after it validated or acquired a ledger
+    /// and before it saved it, as `how` says.
+    pub fn answer_unsaved(&mut self, answers: u32, how: Unsaved) {
+        self.unsaved_answers = (answers, how);
+    }
+
     /// Changes the network ID the server reports, as a server of another
     /// network would; `None` leaves it out.
     pub fn set_network_id(&mut self, id: Option<u32>) {
@@ -388,17 +510,23 @@ impl FakeLedger {
     /// later than every ledger of one before it, as after a reset.
     pub fn set_close_time(&mut self, close_time: u64) {
         self.close_time = close_time;
+        self.reseal();
     }
 
     /// Starts the chain again, as a testnet reset does: every account but
     /// genesis and the issuers, every trust line, signer list and pool, and
     /// all history wiped, from a ledger below the last, which closes later.
+    /// Only the testnet resets.
     pub fn reset(&mut self) {
+        assert!(self.network.resets(), "only the testnet resets");
         self.ledger = RESTART_LEDGER.min(self.ledger.saturating_sub(1));
         self.close_time = self.close_time.saturating_add(CLOSE_INTERVAL_S);
         self.history_from = self.ledger;
         self.account_tx_from = self.ledger;
         self.history.clear();
+        self.history_index.clear();
+        self.never_applied.clear();
+        self.threads.clear();
         let (genesis, issuers) = (self.genesis, &self.issuers);
         let kept = |id: &AccountId| *id == genesis || issuers.contains(id);
         let wiped: u64 = self
@@ -419,6 +547,7 @@ impl FakeLedger {
         self.signer_lists.clear();
         self.queued.clear();
         self.queued_hashes.clear();
+        self.seal_first();
     }
 
     /// Removes `account` and wipes its XRP, while the chain goes on: an
@@ -435,6 +564,7 @@ impl FakeLedger {
     pub fn disconnect(&mut self, connection: ConnectionId) {
         self.accounts_of.remove(&connection);
         self.ledger_stream.remove(&connection);
+        self.forget_liar(connection);
     }
 
     /// Pays `drops` from genesis to `to`, in the next ledger: a deposit from
@@ -481,8 +611,10 @@ impl FakeLedger {
         }
     }
 
-    /// The faucet: funds `to` in the next ledger.
+    /// The faucet: funds `to` in the next ledger. Only the testnet has
+    /// one; on mainnet, the owner deposits ([`deposit`](Self::deposit)).
     pub fn fund(&mut self, to: AccountId) {
+        assert!(self.network.faucet.is_some(), "mainnet has no faucet");
         self.deposit(to, FAUCET_DROPS);
     }
 
@@ -495,15 +627,19 @@ impl FakeLedger {
         let id = request.get("id").cloned().unwrap_or(Value::Null);
         let command = request.get("command").and_then(Value::as_str).unwrap_or("");
         let outcome = match command {
-            "server_state" => Ok(self.server_state()),
+            "server_state" => Ok(self.server_state(connection)),
             "subscribe" => self.subscribe(connection, &request),
             "account_info" => self.account_info(&request),
-            "account_tx" => self.account_tx(&request),
+            "account_tx" => self.account_tx(connection, &request),
             "ledger_entry" => self.ledger_entry(&request),
             "account_objects" => self.account_objects(&request),
             "amm_info" => self.amm_info(&request),
-            "tx" => self.tx(&request),
+            "tx" => self.tx(connection, &request),
             "submit" => self.submit(&request),
+            "validations" => self.validations(connection, &request),
+            "tx_proof" => self.tx_proof(connection, &request),
+            "state_proof" => self.state_proof(connection, &request),
+            "manifest" => self.manifest(&request),
             _ => Err(json!({ "error": "unknownCmd" })),
         };
         let response = match outcome {
@@ -529,28 +665,36 @@ impl FakeLedger {
     }
 
     /// Closes a ledger at `close_time`, in seconds since the XRP Ledger's
-    /// epoch, or with the last if that is later: close times never go
-    /// back along a chain.
+    /// epoch, or a second after the last if that is later: close times
+    /// grow along a chain, as rippled makes each ledger's close at least a
+    /// second after its parent's.
     pub fn close_at(&mut self, close_time: u64) -> Vec<(ConnectionId, Vec<u8>)> {
         self.ledger = self.ledger.saturating_add(1);
-        self.close_time = self.close_time.max(close_time);
+        self.close_time = close_time.max(self.close_time.saturating_add(1));
         let mut out = Vec::new();
         let queued = core::mem::take(&mut self.queued);
         self.queued_hashes.clear();
-        for (index, tx) in queued.into_iter().enumerate() {
-            let index = u32::try_from(index).unwrap_or(u32::MAX);
-            if let Some(applied) = self.apply(&tx, index) {
-                for (connection, accounts) in &self.accounts_of {
-                    if applied.accounts.iter().any(|a| accounts.contains(a)) {
-                        out.push((
-                            *connection,
-                            serde_json::to_vec(&applied.message).unwrap_or_default(),
-                        ));
-                    }
+        // Only what applies takes an index in the ledger.
+        let mut index = 0_u32;
+        for tx in queued {
+            let Some(applied) = self.apply(&tx, index) else {
+                self.never_applied(&tx);
+                continue;
+            };
+            index = index.saturating_add(1);
+            let hearing: Vec<ConnectionId> = (self.accounts_of.iter())
+                .filter(|(_, accounts)| applied.accounts.iter().any(|a| accounts.contains(a)))
+                .map(|(connection, _)| *connection)
+                .collect();
+            for connection in hearing {
+                if let Some(message) = self.streamed(connection, &applied.message) {
+                    out.push((connection, message));
                 }
-                self.history.push(applied);
             }
+            self.history_index.insert(applied.hash, self.history.len());
+            self.history.push(applied);
         }
+        self.seal_next();
         let closed = json!({
             "type": "ledgerClosed",
             "ledger_index": self.ledger,
@@ -559,12 +703,25 @@ impl FakeLedger {
             "reserve_base": self.reserve.0,
             "reserve_inc": self.reserve.1,
             "validated_ledgers": alloc::format!("{}-{}", self.history_from, self.ledger),
+            "ledger_hash": self.ledger_hash(self.ledger).map(|hash| hex_upper(&hash)),
         });
         let closed = serde_json::to_vec(&closed).unwrap_or_default();
         for connection in &self.ledger_stream {
             out.push((*connection, closed.clone()));
         }
         out
+    }
+
+    /// Remembers `tx`, submitted and dropped as a ledger closed, as one
+    /// that never applied.
+    fn never_applied(&mut self, tx: &Tx) {
+        let Some(blob) = tx.signed_blob() else {
+            return;
+        };
+        if self.never_applied.len() == MAX_NEVER_APPLIED {
+            self.never_applied.remove(0);
+        }
+        self.never_applied.push((hash(&blob), blob));
     }
 
     fn next_sequence(&self, account: AccountId) -> u32 {
@@ -585,7 +742,7 @@ impl FakeLedger {
         )
     }
 
-    fn server_state(&self) -> Value {
+    fn honest_server_state(&self) -> Value {
         let mut state = json!({
             "validated_ledger": {
                 "seq": self.ledger,
@@ -692,7 +849,7 @@ impl FakeLedger {
         }))
     }
 
-    fn account_tx(&self, request: &Value) -> Result<Value, Value> {
+    fn honest_account_tx(&self, request: &Value) -> Result<Value, Value> {
         let id = Self::account_of(request)?;
         let number = |key: &str| {
             request
@@ -721,11 +878,15 @@ impl FakeLedger {
             .iter()
             .filter(|a| a.ledger >= min && a.ledger <= max && a.accounts.contains(&id))
             .collect();
+        let binary = proofs::wants_binary(request);
         let page: Vec<Value> = matching
             .iter()
             .skip(skip)
             .take(limit)
             .map(|a| {
+                if binary {
+                    return proofs::binary_entry(&a.blob, &a.meta, a.ledger);
+                }
                 let mut tx = a.message.get("transaction").cloned().unwrap_or(Value::Null);
                 if let Some(object) = tx.as_object_mut() {
                     object.insert("ledger_index".into(), a.ledger.into());
@@ -748,7 +909,7 @@ impl FakeLedger {
         Ok(result)
     }
 
-    fn tx(&self, request: &Value) -> Result<Value, Value> {
+    fn honest_tx(&self, request: &Value) -> Result<Value, Value> {
         let hash: [u8; 32] = request
             .get("transaction")
             .and_then(Value::as_str)
@@ -768,7 +929,17 @@ impl FakeLedger {
                 return Err(json!({ "error": "excessiveLgrRange" }));
             }
         }
-        if let Some(applied) = self.history.iter().find(|a| a.hash == hash) {
+        let found = (self.history_index.get(&hash)).and_then(|at| self.history.get(*at));
+        if let Some(applied) = found
+            && proofs::wants_binary(request)
+        {
+            return Ok(proofs::binary_tx(
+                &applied.blob,
+                &applied.meta,
+                applied.ledger,
+            ));
+        }
+        if let Some(applied) = found {
             let mut result = applied
                 .message
                 .get("transaction")
@@ -808,7 +979,7 @@ impl FakeLedger {
             return result("temMALFORMED");
         };
         let tx_hash = hash(&blob);
-        if self.queued_hashes.contains(&tx_hash) || self.history.iter().any(|a| a.hash == tx_hash) {
+        if self.queued_hashes.contains(&tx_hash) || self.history_index.contains_key(&tx_hash) {
             return result("tefALREADY");
         }
         // Signatures are checked once: they cannot change. Whether the keys
@@ -1038,13 +1209,4 @@ fn preflight(tx: &Tx) -> Result<(), &'static str> {
         Transaction::SetRegularKey(set) => signers::preflight_set_regular_key(set),
         Transaction::SignerListSet(set) => signers::preflight_signer_list_set(set),
     }
-}
-
-/// A token amount as the ledger writes one.
-fn token_json(amount: &TokenAmount) -> Value {
-    json!({
-        "currency": amount.currency.to_string(),
-        "issuer": amount.issuer.to_address(),
-        "value": amount.value.to_string(),
-    })
 }

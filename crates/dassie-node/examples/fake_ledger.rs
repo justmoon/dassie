@@ -2,14 +2,21 @@
 //! `node --run dev -- --xrpl fake`:
 //!
 //! ```text
-//! fake_ledger [--listen 127.0.0.1:0] [--close-ms 1000]
+//! fake_ledger [--listen 127.0.0.1:0] [--close-ms 1000] [--network mainnet]
 //!             [--faucet-listen 127.0.0.1:0 --cert cert.pem --key key.pem]
 //! ```
 //!
 //! Once up, it prints one line of JSON, `{"url": "ws://…", "faucet":
-//! "https://…" | null, "tokens": "https://…" | null}`, and serves until
-//! stdin closes or it is killed. `tokens` is where the issuers of its test
-//! RLUSD and DSUSD mint, freeze and claw back on request.
+//! "https://…" | null, "tokens": "https://…" | null, "deposit": "https://…"
+//! | null, "control": "https://…" | null, "publishers": {…} | null}`, and
+//! serves until stdin closes or it is killed. It is the testnet, or with
+//! `--network mainnet` mainnet, which has no faucet. `tokens` is where the
+//! issuer of its network's dollar, DSUSD or RLUSD, mints, freezes and claws
+//! back on request, `deposit` where XRP arrives from outside, `control`
+//! where its validators rotate, withhold and publish, and its servers lie,
+//! on request (`/validators/…` and `/lie`), and `publishers` what a
+//! scheme's config names to trust its validators: their publisher, whose
+//! list it serves with the faucet.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 // A process for the end-to-end tests: it watches stdin from a thread, and
@@ -33,6 +40,12 @@ async fn main() {
     let args: Vec<String> = std::env::args().collect();
     let listen = argument(&args, "--listen").unwrap_or_else(|| "127.0.0.1:0".into());
     let close_ms: u64 = argument(&args, "--close-ms").map_or(1_000, |ms| ms.parse().unwrap());
+    let network = match argument(&args, "--network").as_deref() {
+        None | Some("testnet") => Some(&dassie_xrpl::network::TESTNET),
+        Some("mainnet") => Some(&dassie_xrpl::network::MAINNET),
+        Some(_) => None,
+    }
+    .expect("--network is testnet or mainnet");
     let faucet = match (
         argument(&args, "--faucet-listen"),
         argument(&args, "--cert"),
@@ -49,6 +62,7 @@ async fn main() {
         _ => None,
     };
     let server = Server::start(Options {
+        network,
         listen: listen.parse().unwrap(),
         faucet,
         close_every: Duration::from_millis(close_ms),
@@ -61,6 +75,9 @@ async fn main() {
             "url": server.url,
             "faucet": server.faucet_url,
             "tokens": server.tokens_url,
+            "deposit": server.deposit_url,
+            "control": server.control_url,
+            "publishers": server.publishers(),
         })
     );
     // Until stdin closes (the parent went away), or a signal.

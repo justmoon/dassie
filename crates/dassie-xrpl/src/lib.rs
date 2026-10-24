@@ -2,7 +2,7 @@
 //!
 //! - [`keys`]: the original's wallet, derived from the node's settlement
 //!   entropy, so the same phrase finds the same funds; secp256k1 keys;
-//!   account IDs and their addresses ([`base58`]).
+//!   account IDs and their addresses, and validators' keys ([`base58`]).
 //! - [`amount`]: amounts of XRP and of tokens, exact, and their
 //!   conversion to and from whole units.
 //! - [`codec`]: the binary form of the transactions the node sends, a
@@ -11,21 +11,46 @@
 //!   account several keys control (`AccountSet`, `SetRegularKey`,
 //!   `SignerListSet`); their signing by one key or by several, each
 //!   alone, and their hash.
+//! - [`binary`]: the ledger's binary format, any of it, read in its
+//!   canonical form only, for what the node proves rather than signs:
+//!   [`header`], a ledger's header and its hash; [`validation`], a
+//!   validator's signature on a ledger; [`manifest`], the keys a
+//!   validator or a list publisher signs with; [`shamap`], a ledger's
+//!   trees of transactions and of state, and the branch that proves a
+//!   leaf in either, or a key's absence; [`skip_list`], the lists of
+//!   earlier ledgers' hashes that prove older ledgers from a newer one;
+//!   [`records`], the keys of the ledger objects the account follows, those
+//!   objects, and a transaction with its metadata as the schemes read it.
+//! - [`validator_list`]: the publishers' signed validator lists, and the
+//!   publishers each network trusts; [`unl`], the validators every
+//!   publisher lists with their current keys, and the quorum of them that
+//!   validates a ledger and makes it an anchor; [`base64`], as the lists
+//!   carry their blobs; [`anchor`], what a state proof proves, and whether
+//!   a later anchor is on the chain of the one kept.
 //! - [`api`]: the rippled WebSocket JSON the node speaks: requests, and
 //!   what comes back, parsed and bounded.
 //! - [`amm`]: an AMM pool's price, exact, for a client that swaps through
 //!   one; no scheme does.
-//! - [`account`]: the node's XRPL testnet account, an external asset: it
-//!   says what to send its ledger, signs, keeps the sequence and what is in
-//!   flight, and tells the schemes on it what the ledger says.
-//! - [`scheme`]: the `xrpl-testnet` settlement scheme, which settles in the
-//!   account's XRP and books what the account tells it.
+//! - [`network`]: the XRP Ledger's networks, the testnet and mainnet, and
+//!   everything that tells one from the other to an account on it.
+//! - [`account`]: the node's XRPL account on a network, an external asset:
+//!   it says what to send its ledger, fetches its validator lists and
+//!   anchors on ledgers its UNL validated, signs, keeps the sequence and
+//!   what is in flight, and tells the schemes on it what the ledger says.
+//! - [`scheme`]: the XRP scheme, which settles in the account's XRP and
+//!   books what the account tells it: `xrpl-testnet` on the testnet, `xrpl`
+//!   on mainnet.
 //! - [`token`]: the token scheme, which settles in a dollar token on the
 //!   account's trust line to its issuer, with the account's XRP as gas;
-//!   [`rlusd`] is it in RLUSD (`xrpl-testnet-rlusd`), [`dsusd`] in DSUSD
-//!   (`xrpl-testnet-dsusd`).
+//!   [`rlusd`] is it in RLUSD on mainnet (`xrpl-rlusd`), and keeps disabled
+//!   test RLUSD's constants; [`dsusd`] is it in DSUSD on the testnet
+//!   (`xrpl-testnet-dsusd`); [`peg`] is the guard that pauses a dollar
+//!   token's scheme while its AMM pool prices it off a dollar.
 //! - `fake` (feature `fake`): a model of the ledger, with tokens, AMM
-//!   pools and signer lists, for simulations and tests.
+//!   pools and signer lists, real headers and hash trees of each ledger it
+//!   closes, validators that sign them and a publisher that lists them, the
+//!   proof methods of a patched rippled, and a server that lies on request,
+//!   for simulations and tests.
 //!
 //! Nothing here reads a clock or touches the network
 //! (spec/decisions/tigerstyle.md).
@@ -39,22 +64,36 @@ extern crate std;
 pub mod account;
 pub mod amm;
 pub mod amount;
+pub mod anchor;
 pub mod api;
 pub mod base58;
+pub mod base64;
+pub mod binary;
 pub mod codec;
 pub mod dsusd;
 #[cfg(feature = "fake")]
 pub mod fake;
+pub mod header;
 pub mod keys;
+pub mod manifest;
+pub mod network;
+pub mod peg;
+pub mod records;
 pub mod rlusd;
 pub mod scheme;
+pub mod shamap;
+pub mod skip_list;
 pub mod token;
+pub mod unl;
+pub mod validation;
+pub mod validator_list;
 
 pub use account::{Config, XrplAccount};
 pub use dsusd::DsusdScheme;
 pub use keys::{AccountId, Wallet};
+pub use network::Network;
 pub use rlusd::RlusdScheme;
-pub use scheme::XrplScheme;
+pub use scheme::{NativeXrp, Xrp, XrpScheme, XrplMainnetScheme, XrplScheme};
 pub use token::{IssuedToken, Token, TokenScheme};
 
 /// Drops per XRP. The ledger counts in drops, at scale 6.

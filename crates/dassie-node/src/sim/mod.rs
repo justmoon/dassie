@@ -36,7 +36,10 @@
 //! Each run settles over the stub, or over the XRP Ledger testnet scheme
 //! against a fake ledger in the same process (M7b): its connections lag,
 //! lose requests and drop, and the books must still match every node's
-//! account, less its reserve, with no XRP made or lost.
+//! account, less its reserve, with no XRP made or lost. A run in the live
+//! realm settles over mainnet's schemes, `xrpl` and `xrpl-rlusd`, against
+//! the fake ledger's mainnet, which has no faucet: each node's owner
+//! deposits (spec/decisions/mainnet-schemes.md).
 //!
 //! Runs across currencies (M7c) give some nodes dollars, some XRP and
 //! some both, at a fixed snapshot of rates, one charging a fee and a
@@ -47,14 +50,16 @@
 //! its curve allows, takes anything out of a ledger it holds nothing on, or
 //! is better than at what its owner has posted alone.
 //!
-//! Runs on RLUSD settle in the fake ledger's test RLUSD
-//! (spec/areas/xrpl.md#rlusd), alone or across XRP and RLUSD, with both
-//! schemes on one account; runs across XRP and DSUSD do the same in the
-//! fake ledger's test DSUSD (spec/areas/xrpl.md#dsusd). The issuer mints
-//! each node its token once its line exists, then claws some back and
-//! freezes lines, deep or for every holder; each node's books count what
-//! the issuer did as its owner's deposits and withdrawals, and hold its
-//! line.
+//! Runs on RLUSD settle in RLUSD of the fake ledger's mainnet, in the live
+//! realm (spec/areas/xrpl.md#rlusd), alone or across XRP and RLUSD, with
+//! both schemes on one account; runs across XRP and DSUSD do the same in
+//! the fake ledger's testnet DSUSD (spec/areas/xrpl.md#dsusd). The issuer
+//! mints each node its token once its line exists, then claws some back
+//! and freezes lines, deep or for every holder; each node's books count
+//! what the issuer did as its owner's deposits and withdrawals, and hold
+//! its line. The token's pool stays at a dollar at the run's rates, which
+//! nodes learn every minute, so its peg guard lets it settle throughout
+//! (spec/decisions/issued-assets.md).
 //!
 //! A node that never settles, or spends the credit it was given and
 //! vanishes, costs its peer no more than that credit
@@ -90,7 +95,7 @@ use dassie_connector::SpendingCap;
 use dassie_identity::{NodeId, NodeKey};
 use dassie_ilp::{Address, Prepare, Timestamp};
 use dassie_ledger::LedgerId;
-use dassie_node_core::config::Realm;
+use dassie_node_core::config::{LiveRealm, Realm};
 use dassie_node_core::testing::SeededRng;
 use dassie_oer::Decode;
 use dassie_payments::amount::paid_in_full;
@@ -98,8 +103,11 @@ use dassie_peer::wire::SchemeId;
 use dassie_peer::{Bootstrap, Failure, InboundId, OwnInfo, RequestId, Response};
 use dassie_settlement::policy;
 use dassie_stream::{AssetDetails, BUFFER_LENGTH, Config, Connection, Policy, Role};
+use dassie_xrpl::DROPS_PER_XRP;
+use dassie_xrpl::account::{Doubt, LEDGER_SILENCE_MS, Proofs, REQUEST_TIMEOUT_MS, STALL_MS};
 use dassie_xrpl::codec::TokenValue;
-use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, Token};
+use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, Lie, Token};
+use dassie_xrpl::network::{MAINNET, Network, TESTNET};
 
 use crate::engine::{
     Core, CoreParts, EngineEvent, Event, LedgerEvent, NewIncoming, NewOutgoing, Outbound, Output,
@@ -107,10 +115,6 @@ use crate::engine::{
 };
 use crate::node::Policies;
 use crate::store::{Aim, FailedCommit, ForeignAmount, Holds, PaymentId, PeerSettings, Store};
-
-/// The node's first XRPL testnet account, which the XRP Ledger scheme
-/// settles through: the connection to the fake ledger is the account's.
-const XRPL_ACCOUNT: &str = "xrpl-testnet-account/0";
 
 /// When every simulation starts.
 pub const START: u64 = 1_800_000_000_000;
@@ -123,6 +127,23 @@ pub const TRIGGER: u64 = policy::trigger(Policies::DEFAULT.connector.max_packet_
 /// after a measurement failed or a rate too low stopped its money, or to
 /// connect again, after its connection closed.
 pub const RATE_RETRY_MS: u64 = 5_000;
+/// How long a node's connection to the ledger takes to come back after it
+/// dropped, as the driver's would.
+pub const LEDGER_RECONNECT_MS: u64 = 5_000;
+/// The longest a server lies to a node before its connection drops again:
+/// twice the longest of the production timings that end a connection, so
+/// that a node meets the lie however it asks, and some lies end before the
+/// node leaves for one it caught while others outlast it.
+pub const LONGEST_LIE_MS: u64 = 2 * {
+    let mut longest = STALL_MS;
+    if REQUEST_TIMEOUT_MS > longest {
+        longest = REQUEST_TIMEOUT_MS;
+    }
+    if LEDGER_SILENCE_MS > longest {
+        longest = LEDGER_SILENCE_MS;
+    }
+    longest
+};
 /// How often the fake ledger closes a ledger.
 pub const LEDGER_CLOSE_MS: u64 = 3_500;
 /// The shortest and the longest a message takes in a run over a hub: its
@@ -146,15 +167,20 @@ pub enum Settling {
     StubHub(usize),
     /// The XRP Ledger testnet scheme, against the fake ledger.
     Xrpl,
+    /// The XRP Ledger mainnet scheme, `xrpl`, in the live realm, against
+    /// the fake ledger's mainnet.
+    XrplLive,
     /// Node 0 on the stub, 2 on the XRP Ledger, 1 and 3 on both (M7c).
     Cross,
-    /// The RLUSD scheme alone, against the fake ledger and its issuer: the
-    /// account's XRP is gas, off the books.
+    /// The RLUSD scheme alone, `xrpl-rlusd`, in the live realm, against the
+    /// fake ledger's mainnet and its issuer: the account's XRP is gas, off
+    /// the books.
     Rlusd,
-    /// Node 0 on RLUSD, 2 on XRP, 1 and 3 on both, through one account:
-    /// the RLUSD scheme's gas is on the XRP ledger's books there.
+    /// Node 0 on RLUSD, 2 on XRP, 1 and 3 on both, through one account, in
+    /// the live realm on the fake ledger's mainnet: the RLUSD scheme's gas
+    /// is on the XRP ledger's books there.
     XrpRlusd,
-    /// As [`Self::XrpRlusd`], in DSUSD.
+    /// As [`Self::XrpRlusd`], in DSUSD and XRP on the testnet.
     XrpDsusd,
     /// A settlement hub of this many validators, run in the simulation,
     /// whose escrow is on the fake ledger: each node funds its account in
@@ -167,8 +193,11 @@ pub enum Settling {
 pub const USD: LedgerId = LedgerId::StubUsd;
 /// The XRP Ledger testnet.
 pub const XRP: LedgerId = LedgerId::XrplTestnetXrp;
-/// RLUSD on the XRP Ledger testnet, in dollars.
-pub const RLUSD: LedgerId = LedgerId::XrplTestnetRlusdUsd;
+/// The XRP Ledger mainnet: real money, in the live realm.
+pub const LIVE_XRP: LedgerId = LedgerId::XrplXrp;
+/// RLUSD on the XRP Ledger mainnet, in dollars: real money, in the live
+/// realm.
+pub const RLUSD: LedgerId = LedgerId::XrplRlusdUsd;
 /// DSUSD on the XRP Ledger testnet, in dollars.
 pub const DSUSD: LedgerId = LedgerId::XrplTestnetDsusdUsd;
 /// XRP in a settlement hub on the XRP Ledger testnet.
@@ -178,10 +207,20 @@ pub const HUB: LedgerId = LedgerId::HubXrpTestnetXrp;
 /// through one account.
 const XRPL_CONFIG: &str =
     r#"{"server":"ws://ledger.test","faucet":"https://faucet.test/accounts"}"#;
+/// The config of mainnet's scheme: mainnet has no faucet.
+const XRPL_LIVE_CONFIG: &str = r#"{"server":"ws://ledger.test"}"#;
+/// The secret the fake ledger's validators sign under, and the nodes check
+/// their validations by: a keyed hash, much cheaper than signatures, and as
+/// unforgeable to a server without it
+/// (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
+const VALIDATION_SECRET: [u8; 32] = *b"dassie simulation validations ok";
 
 /// What the fake ledger's issuer mints each node on its token's ledger once
 /// its line exists, in millionths of a dollar: as much as the stub gives.
 pub const MINT_MICROS: u64 = 100_000_000;
+/// What a token's pool holds of it, in whole tokens: beside twice as many
+/// XRP, a dollar at [`RATES`], and deep enough for either network's floor.
+pub const POOL_TOKENS: u64 = 100_000;
 
 impl Settling {
     /// The ledger a run of one ledger settles over.
@@ -189,6 +228,7 @@ impl Settling {
         match self {
             Self::Stub | Self::StubHub(_) => USD,
             Self::Xrpl => XRP,
+            Self::XrplLive => LIVE_XRP,
             Self::Rlusd => RLUSD,
             Self::Hub(_) => HUB,
             Self::Cross | Self::XrpRlusd | Self::XrpDsusd => {
@@ -201,10 +241,11 @@ impl Settling {
     pub fn ledgers(self, index: usize) -> &'static [LedgerId] {
         match (self, index % 4) {
             (Self::Stub | Self::StubHub(_), _) | (Self::Cross, 0) => &[USD],
-            (Self::Xrpl, _) | (Self::Cross | Self::XrpRlusd | Self::XrpDsusd, 2) => &[XRP],
+            (Self::Xrpl, _) | (Self::Cross | Self::XrpDsusd, 2) => &[XRP],
+            (Self::XrplLive, _) | (Self::XrpRlusd, 2) => &[LIVE_XRP],
             (Self::Cross, _) => &[USD, XRP],
             (Self::Rlusd, _) | (Self::XrpRlusd, 0) => &[RLUSD],
-            (Self::XrpRlusd, _) => &[RLUSD, XRP],
+            (Self::XrpRlusd, _) => &[RLUSD, LIVE_XRP],
             (Self::XrpDsusd, 0) => &[DSUSD],
             (Self::XrpDsusd, _) => &[DSUSD, XRP],
             (Self::Hub(_), _) => &[HUB],
@@ -227,7 +268,29 @@ impl Settling {
         match self {
             Self::Rlusd | Self::XrpRlusd => Some((RLUSD, Token::RLUSD)),
             Self::XrpDsusd => Some((DSUSD, Token::DSUSD)),
-            Self::Stub | Self::StubHub(_) | Self::Xrpl | Self::Cross | Self::Hub(_) => None,
+            Self::Stub
+            | Self::StubHub(_)
+            | Self::Xrpl
+            | Self::XrplLive
+            | Self::Cross
+            | Self::Hub(_) => None,
+        }
+    }
+
+    /// The XRP Ledger network its nodes settle on, if they do.
+    pub const fn network(self) -> &'static Network {
+        match self {
+            Self::XrplLive | Self::Rlusd | Self::XrpRlusd => &MAINNET,
+            _ => &TESTNET,
+        }
+    }
+
+    /// The realm of its nodes: live on mainnet, which they run by the dev
+    /// switch, as tests do (spec/decisions/mainnet-schemes.md).
+    pub const fn realm(self) -> (Realm, LiveRealm) {
+        match self.network().realm {
+            dassie_ledger::Realm::Live => (Realm::Live, LiveRealm::DevSwitch),
+            dassie_ledger::Realm::Test => (Realm::Test, LiveRealm::Refused),
         }
     }
 
@@ -240,10 +303,10 @@ impl Settling {
     /// what the faucet gives above the reserve, or what the issuer mints.
     pub const fn deposit(ledger: LedgerId) -> i128 {
         match ledger {
-            LedgerId::XrplTestnetXrp => (FAUCET_DROPS as i128 - 1_000_000) * 1_000,
-            LedgerId::XrplTestnetRlusdUsd | LedgerId::XrplTestnetDsusdUsd => {
-                MINT_MICROS as i128 * 1_000
+            LedgerId::XrplTestnetXrp | LedgerId::XrplXrp => {
+                (FAUCET_DROPS as i128 - 1_000_000) * 1_000
             }
+            LedgerId::XrplRlusdUsd | LedgerId::XrplTestnetDsusdUsd => MINT_MICROS as i128 * 1_000,
             _ => 100_000_000_000,
         }
     }
@@ -252,7 +315,8 @@ impl Settling {
     pub const fn scheme(ledger: LedgerId) -> (&'static str, &'static str) {
         match ledger {
             LedgerId::XrplTestnetXrp => ("xrpl-testnet", XRPL_CONFIG),
-            LedgerId::XrplTestnetRlusdUsd => ("xrpl-testnet-rlusd", XRPL_CONFIG),
+            LedgerId::XrplXrp => ("xrpl", XRPL_LIVE_CONFIG),
+            LedgerId::XrplRlusdUsd => ("xrpl-rlusd", XRPL_LIVE_CONFIG),
             LedgerId::XrplTestnetDsusdUsd => ("xrpl-testnet-dsusd", XRPL_CONFIG),
             LedgerId::HubXrpTestnetXrp => (dassie_hub::member::SCHEME_ID, ""),
             _ => ("stub", ""),
@@ -260,14 +324,30 @@ impl Settling {
     }
 
     /// The configuration its nodes give the scheme of `ledger`: the stub
-    /// with commitments in a run over it.
+    /// with commitments in a run over it; an XRPL scheme trusting the fake
+    /// ledger's validators.
     pub fn config(self, ledger: LedgerId) -> String {
         match self {
             Self::StubHub(limit) if ledger == USD => format!(r#"{{"commitments":{limit}}}"#),
             Self::Hub(validators) if ledger == HUB => hub::config(validators),
+            _ if self.on_xrpl() && Self::scheme(ledger).0 != "stub" => {
+                dassie_xrpl::fake::with_publishers(Self::scheme(ledger).1, self.network())
+            }
             _ => Self::scheme(ledger).1.into(),
         }
     }
+}
+
+/// The fake ledger of `network`, its clock at the simulation's start and
+/// its validations signed under [`VALIDATION_SECRET`].
+fn fake_ledger(network: &Network) -> FakeLedger {
+    let mut ledger = match network.faucet {
+        None => FakeLedger::mainnet(),
+        Some(_) => FakeLedger::new(),
+    };
+    ledger.set_close_time(dassie_xrpl::unl::ledger_seconds(START));
+    ledger.sign_validations_with(VALIDATION_SECRET);
+    ledger
 }
 
 /// A withdrawal of a peer short of room.
@@ -305,8 +385,10 @@ impl IssuerFreeze {
     }
 }
 
-/// The rates of runs across currencies: a dollar buys two XRP. A node
-/// learns them when it starts, and a run is shorter than they take to age.
+/// The rates of runs across currencies and on a token: a dollar buys two
+/// XRP. A node learns them when it starts, and again every minute, as a
+/// node fetches them, so a token's peg guard reads its pool at a fresh
+/// rate.
 pub const RATES: [(&str, u128); 2] = [
     ("USD", 1_000_000_000_000_000),
     ("XRP", 2_000_000_000_000_000),
@@ -497,6 +579,9 @@ enum Delivery {
         finalized: Box<dassie_hub::consensus::Finalized>,
         state: Vec<u8>,
     },
+    /// A node's connection to a lying server ends, if it is still open:
+    /// the next is honest.
+    Honest { to: usize, connection: u64 },
 }
 
 /// What became of a replayed request's original.
@@ -667,6 +752,10 @@ pub struct Sim {
     /// Each freeze of the issuer, from when it applied to when it was
     /// lifted, if it was.
     pub freezes: Vec<(IssuerFreeze, u64, Option<u64>)>,
+    /// Each stretch in which the ledger's servers or validators failed a
+    /// node, or every node, from when it began to when it ended: a server
+    /// lying to one node, or a quorum withheld or a list lapsed for all.
+    pub outages: Vec<(Option<usize>, u64, u64)>,
     /// The payments under way or done, of nodes that did not crash.
     pub payments: Vec<Payment>,
     /// Payments whose sender's node crashed: its client is gone.
@@ -691,6 +780,8 @@ pub struct Sim {
     fifo: BTreeMap<(usize, bool), u64>,
     next_connection: u64,
     next_close: u64,
+    /// When the nodes next learn [`RATES`] again, in a run that needs them.
+    next_rates: u64,
     /// What happened, a line per event, to compare runs by.
     pub trace: Vec<String>,
     /// What the nodes reported as errors, or the events they lost.
@@ -708,6 +799,15 @@ pub struct Sim {
     pub hub_credit_off: Vec<String>,
     /// Nodes whose connection to the ledger carries nothing.
     pub ledger_down: BTreeSet<usize>,
+    /// Each node's connection to a lying server, while it has one.
+    lying: BTreeMap<usize, u64>,
+    /// What each node's XRPL accounts proved, and how many lies they
+    /// caught, as last counted, with the generation of the core that did:
+    /// a core counts from nothing when it starts.
+    proofs_seen: BTreeMap<usize, (u64, Proofs, u64)>,
+    /// Differences between a node's books and its ledger that no reserve
+    /// explains (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
+    pub unexplained: Vec<String>,
     /// The peer protocol's settings.
     peer: dassie_peer::Config,
     /// Each withdrawal of a peer short of room.
@@ -841,6 +941,7 @@ impl Sim {
                 .collect(),
             issued: BTreeMap::new(),
             freezes: Vec::new(),
+            outages: Vec::new(),
             payments: Vec::new(),
             abandoned: Vec::new(),
             outgoing: Vec::new(),
@@ -848,11 +949,12 @@ impl Sim {
             apart: BTreeSet::new(),
             credits,
             settling,
-            ledger: FakeLedger::new(),
+            ledger: fake_ledger(settling.network()),
             links: BTreeMap::new(),
             fifo: BTreeMap::new(),
             next_connection: 0,
             next_close: START + LEDGER_CLOSE_MS,
+            next_rates: START + Policies::DEFAULT.rates_every_ms,
             trace: Vec::new(),
             errors: Vec::new(),
             refused: Vec::new(),
@@ -860,6 +962,9 @@ impl Sim {
             hub_leaks: Vec::new(),
             hub_credit_off: Vec::new(),
             ledger_down: BTreeSet::new(),
+            lying: BTreeMap::new(),
+            proofs_seen: BTreeMap::new(),
+            unexplained: Vec::new(),
             peer,
             withdrawn: Vec::new(),
             latency_ms: (1, 200),
@@ -877,6 +982,13 @@ impl Sim {
             hub_losses: BTreeMap::new(),
             hub_most_held: BTreeMap::new(),
         };
+        // The token's pool, at a dollar at the run's rates.
+        if let Some((_, token)) = settling.token() {
+            let tokens = TokenValue::from_units(POOL_TOKENS, 0).unwrap();
+            sim.ledger
+                .set_pool(token, 2 * POOL_TOKENS * DROPS_PER_XRP, tokens, 300)
+                .unwrap();
+        }
         for &skew_ms in skews_ms {
             sim.nodes.push(SimNode {
                 store: Arc::new(Store::open_in_memory().unwrap()),
@@ -900,8 +1012,9 @@ impl Sim {
             // A member of a hub funds its account there from its XRP Ledger
             // testnet account.
             if matches!(settling, Settling::Hub(_)) {
+                let config = settling.config(XRP);
                 sim.step(index, |core| {
-                    core.add_scheme("xrpl-testnet", XRPL_CONFIG.into()).unwrap();
+                    core.add_scheme("xrpl-testnet", config).unwrap();
                 });
             }
             for &ledger in settling.ledgers(index) {
@@ -913,6 +1026,12 @@ impl Sim {
             }
             if settling.across() && index == 1 {
                 sim.step(index, |core| core.set_peer_settings(CHARGES).unwrap());
+            }
+            // Mainnet has no faucet: the owner deposits as much as the
+            // testnet's gives.
+            if settling.network().faucet.is_none() {
+                sim.ledger.deposit(sim.xrpl_account(index), FAUCET_DROPS);
+                *sim.fundings.entry(index).or_default() += 1;
             }
         }
         sim
@@ -928,10 +1047,12 @@ impl Sim {
         node.copied.clear();
         node.replays.clear();
         node.fulfills.clear();
+        let (realm, live) = self.settling.realm();
         let parts = CoreParts {
             store: Arc::clone(&node.store),
             key: key(index),
-            realm: Realm::Test,
+            realm,
+            live,
             policies: Policies {
                 peer_credit: self
                     .credits
@@ -953,12 +1074,11 @@ impl Sim {
             bootstrap: self.bootstrap.clone(),
             uplinks: Vec::new(),
         };
-        node.core = Some(Core::start(parts, now).unwrap());
+        let mut core = Core::start(parts, now).unwrap();
+        core.check_validations_with(VALIDATION_SECRET);
+        node.core = Some(core);
         self.trace.push(format!("{} start {index}", self.now));
-        let rates = self
-            .settling
-            .across()
-            .then(|| RATES.map(|(c, r)| (c, r, now)));
+        let rates = self.needs_rates().then(|| RATES.map(|(c, r)| (c, r, now)));
         self.step(index, |core| {
             if let Some(rates) = rates {
                 core.set_rates(&rates);
@@ -1257,6 +1377,9 @@ impl Sim {
         if matches!(self.settling, Settling::StubHub(_) | Settling::Hub(_)) {
             self.watch_hub(index);
         }
+        if self.settling.on_xrpl() {
+            self.watch_proofs(index);
+        }
         for output in outputs {
             self.carry(index, output);
         }
@@ -1311,6 +1434,78 @@ impl Sim {
                     self.now, peer.peer, peer.holds.toward, peer.settling,
                 );
                 record_once(&mut self.hub_credit_off, index, peer.peer, off);
+            }
+        }
+    }
+
+    /// Counts what node `index`'s XRPL accounts proved, and the lies they
+    /// caught, since its last step: so a run shows that it reached the
+    /// verifier, and a change that quietly bypasses it fails its coverage
+    /// (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
+    fn watch_proofs(&mut self, index: usize) {
+        let node = &self.nodes[index];
+        let Some(core) = node.core.as_ref() else {
+            return;
+        };
+        let mut proven = Proofs::default();
+        let mut caught = 0u64;
+        for account in core.xrpl_accounts() {
+            let more = account.proofs();
+            proven.anchors += more.anchors;
+            proven.transactions += more.transactions;
+            proven.absences += more.absences;
+            proven.never_applied += more.never_applied;
+            caught += Doubt::ALL
+                .iter()
+                .map(|doubt| account.doubts(*doubt))
+                .sum::<u64>();
+        }
+        let generation = node.generation;
+        let (before, caught_before) = match self.proofs_seen.get(&index) {
+            Some(&(seen, before, caught)) if seen == generation => (before, caught),
+            _ => (Proofs::default(), 0),
+        };
+        self.proofs_seen.insert(index, (generation, proven, caught));
+        for (what, then, now) in [
+            ("anchors", before.anchors, proven.anchors),
+            (
+                "transactions proven",
+                before.transactions,
+                proven.transactions,
+            ),
+            ("absences proven", before.absences, proven.absences),
+            (
+                "transactions proven never to apply",
+                before.never_applied,
+                proven.never_applied,
+            ),
+            ("lies caught", caught_before, caught),
+        ] {
+            if now > then {
+                *self.counts.entry(what).or_default() += now - then;
+            }
+        }
+    }
+
+    /// Counts, as a run ends, the lies the fake ledger's servers told, by
+    /// kind, and the nodes running on it whose account anchored.
+    pub fn count_xrpl(&mut self) {
+        let anchored = (self.nodes.iter())
+            .filter_map(|node| node.core.as_ref())
+            .filter(|core| {
+                let mut accounts = core.xrpl_accounts().peekable();
+                accounts.peek().is_some() && accounts.all(|account| account.anchor().is_some())
+            })
+            .count();
+        if anchored > 0 {
+            *self.counts.entry("XRPL nodes anchored").or_default() +=
+                u64::try_from(anchored).unwrap();
+        }
+        for lie in Lie::ALL {
+            let told = self.ledger.lies_told(lie);
+            if told > 0 {
+                *self.counts.entry(told_as(lie)).or_default() += told;
+                *self.counts.entry("lies told").or_default() += told;
             }
         }
     }
@@ -1411,6 +1606,14 @@ impl Sim {
                 peer: *peer,
                 scheme,
             });
+        }
+        if let Event::Settlement(SettlementEvent::Reconciled {
+            cause: dassie_settlement::ReconcileCause::Unexplained,
+            ..
+        }) = event
+        {
+            self.unexplained
+                .push(format!("{} node {index}: {event:?}", self.now));
         }
         let lost = matches!(event, Event::Engine(EngineEvent::EventsDropped { .. }));
         if event.severity() == Severity::Error || lost {
@@ -1544,6 +1747,21 @@ impl Sim {
                 message,
                 ..
             } => self.hub_send(index, asset, epoch, endpoint, message),
+            Output::Fetch { epoch, url, .. } => {
+                self.count("validator lists fetched");
+                let body = self.ledger.fetch(&url);
+                let generation = self.nodes[index].generation;
+                let delay = self.latency();
+                self.schedule(
+                    delay,
+                    Delivery::LedgerEvent {
+                        to: index,
+                        generation,
+                        epoch,
+                        event: LedgerEvent::Fetched { url, body },
+                    },
+                );
+            }
             Output::Fund { epoch, body, .. } => {
                 let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
                 let to = dassie_xrpl::AccountId::parse(request["destination"].as_str().unwrap())
@@ -1586,12 +1804,46 @@ impl Sim {
         );
     }
 
-    /// The token the run's issuer issues: RLUSD unless the run is on
-    /// another.
+    /// The token the run's issuer issues: its network's dollar unless the
+    /// run is on another.
     fn token(&self) -> Token {
-        self.settling
-            .token()
-            .map_or(Token::RLUSD, |(_, token)| token)
+        self.settling.token().map_or(
+            if self.settling.network().faucet.is_some() {
+                Token::DSUSD
+            } else {
+                Token::RLUSD
+            },
+            |(_, token)| token,
+        )
+    }
+
+    /// Whether the run's nodes need rates: to convert across currencies,
+    /// or for a token's peg guard.
+    const fn needs_rates(&self) -> bool {
+        self.settling.across() || self.settling.token().is_some()
+    }
+
+    /// Every running node learns [`RATES`] again, once a minute, as a node
+    /// fetches them, in a run that needs them.
+    fn learn_rates(&mut self) {
+        if !self.needs_rates() || self.now < self.next_rates {
+            return;
+        }
+        self.next_rates = self.now + Policies::DEFAULT.rates_every_ms;
+        for index in 0..self.nodes.len() {
+            let now = self.local_now(index);
+            let rates = RATES.map(|(c, r)| (c, r, now));
+            self.step(index, |core| core.set_rates(&rates));
+        }
+    }
+
+    /// The faucet funds node `index` once more, in the next ledger, as its
+    /// owner may ask it: a deposit of the owner's.
+    pub fn fund(&mut self, index: usize) {
+        self.ledger.fund(self.xrpl_account(index));
+        *self.fundings.entry(index).or_default() += 1;
+        self.trace
+            .push(format!("{} the faucet funds {index}", self.now));
     }
 
     /// The issuer mints [`MINT_MICROS`] of its token to each node it has
@@ -1607,7 +1859,7 @@ impl Sim {
         for index in lined {
             let value = TokenValue::from_units(MINT_MICROS, 6).unwrap();
             self.ledger
-                .issue(xrpl_account(index), token.amount(value))
+                .issue(self.xrpl_account(index), token.amount(value))
                 .unwrap();
             self.to_mint.remove(&index);
             self.issued.entry(index).or_default().0 += MINT_MICROS as i128 * 1_000;
@@ -1625,7 +1877,7 @@ impl Sim {
     pub fn line(&self, index: usize) -> Option<i128> {
         let held = self
             .ledger
-            .token_balance(xrpl_account(index), self.token())?;
+            .token_balance(self.xrpl_account(index), self.token())?;
         Some(held.floor_units(6)? * 1_000)
     }
 
@@ -1638,7 +1890,7 @@ impl Sim {
         let value = TokenValue::from_units(micros, 6).unwrap();
         let token = self.token();
         self.ledger
-            .claw_back(xrpl_account(index), token.amount(value))
+            .claw_back(self.xrpl_account(index), token.amount(value))
             .unwrap();
         self.issued.entry(index).or_default().1 += units;
         self.count("issuer clawbacks");
@@ -1653,12 +1905,13 @@ impl Sim {
     pub fn issuer_freeze(&mut self, freeze: IssuerFreeze, on: bool) {
         let token = self.token();
         match freeze {
-            IssuerFreeze::Line(index) => self.ledger.freeze(xrpl_account(index), token, on),
+            IssuerFreeze::Line(index) => self.ledger.freeze(self.xrpl_account(index), token, on),
             IssuerFreeze::Deep(index) if on => {
-                self.ledger.deep_freeze(xrpl_account(index), token, true)
+                self.ledger
+                    .deep_freeze(self.xrpl_account(index), token, true)
             }
             // Lifted whole, the freeze with the deep freeze.
-            IssuerFreeze::Deep(index) => self.ledger.freeze(xrpl_account(index), token, false),
+            IssuerFreeze::Deep(index) => self.ledger.freeze(self.xrpl_account(index), token, false),
             IssuerFreeze::Global => self.ledger.global_freeze(token.issuer, on),
         }
         .unwrap();
@@ -1687,18 +1940,20 @@ impl Sim {
     }
 
     /// A node's connection to the ledger drops; it comes back after a
-    /// while, as the driver's would.
-    pub fn drop_ledger_link(&mut self, index: usize) {
+    /// while, as the driver's would. Returns whether it did: not while the
+    /// node has no connection, nor when the step failed its commit.
+    pub fn drop_ledger_link(&mut self, index: usize) -> bool {
         let Some(link) = self.links.get(&index).copied() else {
-            return;
+            return false;
         };
         self.ledger.disconnect(link.connection);
         let generation = self.nodes[index].generation;
+        let asset = self.xrpl_asset();
         let stepped = self.step(index, |core| {
-            core.ledger_event(XRPL_ACCOUNT, link.epoch, &LedgerEvent::Disconnected);
+            core.ledger_event(&asset, link.epoch, &LedgerEvent::Disconnected);
         });
         if !stepped {
-            return;
+            return false;
         }
         self.trace
             .push(format!("{} ledger link {index} drops", self.now));
@@ -1712,7 +1967,7 @@ impl Sim {
             },
         );
         self.schedule(
-            5_000,
+            LEDGER_RECONNECT_MS,
             Delivery::LedgerEvent {
                 to: index,
                 generation,
@@ -1720,15 +1975,68 @@ impl Sim {
                 event: LedgerEvent::Connected,
             },
         );
+        true
+    }
+
+    /// A node's connection to the ledger drops, and comes back to a server
+    /// that tells `lie` for `for_ms`; then it drops again, and the next is
+    /// honest. The node may leave it sooner, for a lie it caught or a
+    /// request it never got answered: its next connection is honest too
+    /// (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
+    pub fn lie_to(&mut self, index: usize, lie: Lie, for_ms: u64) {
+        if !self.drop_ledger_link(index) {
+            return;
+        }
+        let connection = self.links[&index].connection;
+        self.ledger.set_lie(connection, Some(lie));
+        self.lying.insert(index, connection);
+        self.count("lying servers");
+        self.trace.push(format!(
+            "{} ledger link {index} lies for {} s: {lie:?}",
+            self.now,
+            for_ms / 1_000
+        ));
+        self.schedule(
+            LEDGER_RECONNECT_MS + for_ms,
+            Delivery::Honest {
+                to: index,
+                connection,
+            },
+        );
+    }
+
+    /// Every connection to a lying server ends now: the next is honest.
+    pub fn end_lies(&mut self) {
+        for (index, connection) in std::mem::take(&mut self.lying) {
+            self.honest(index, connection);
+        }
+    }
+
+    /// Node `index`'s connection to a lying server, `connection`, ends if
+    /// it is still open.
+    fn honest(&mut self, index: usize, connection: u64) {
+        if self.lying.get(&index) == Some(&connection) {
+            self.lying.remove(&index);
+        }
+        if self
+            .links
+            .get(&index)
+            .is_some_and(|link| link.connection == connection)
+        {
+            self.ledger.set_lie(connection, None);
+            self.drop_ledger_link(index);
+        }
     }
 
     /// The fake ledger closes a ledger, and its streams go out. The issuer
     /// mints first to each node whose line has come to exist.
     fn close_ledger(&mut self) {
         self.next_close = self.now + LEDGER_CLOSE_MS;
+        self.learn_rates();
         self.mint();
         self.submit_payout();
-        let closed = self.ledger.close();
+        let close_time = dassie_xrpl::unl::ledger_seconds(self.now);
+        let closed = self.ledger.close_at(close_time);
         self.payout_closed();
         for (connection, message) in closed {
             if self.validator_stream(connection, message.clone()) {
@@ -1869,7 +2177,8 @@ impl Sim {
                 event,
             } => {
                 if self.nodes[to].generation == generation {
-                    self.step(to, |core| core.ledger_event(XRPL_ACCOUNT, epoch, &event));
+                    let asset = self.xrpl_asset();
+                    self.step(to, |core| core.ledger_event(&asset, epoch, &event));
                 }
             }
             Delivery::HubRequest {
@@ -1919,6 +2228,7 @@ impl Sim {
                 finalized,
                 state,
             } => self.validator_state(validator, generation, finalized, state),
+            Delivery::Honest { to, connection } => self.honest(to, connection),
             Delivery::Result {
                 to,
                 generation,
@@ -2474,11 +2784,11 @@ impl Sim {
     /// back, which is the owner's withdrawal.
     pub fn deposit(&self, index: usize) -> i128 {
         match self.settling.ledger() {
-            LedgerId::XrplTestnetXrp => {
+            LedgerId::XrplTestnetXrp | LedgerId::XrplXrp => {
                 let fundings = i128::from(self.fundings.get(&index).copied().unwrap_or(0));
                 (fundings * i128::from(FAUCET_DROPS) - 1_000_000).max(0) * 1_000
             }
-            LedgerId::XrplTestnetRlusdUsd | LedgerId::XrplTestnetDsusdUsd => {
+            LedgerId::XrplRlusdUsd | LedgerId::XrplTestnetDsusdUsd => {
                 let (minted, clawed) = self.issued.get(&index).copied().unwrap_or((0, 0));
                 minted - clawed
             }
@@ -2570,6 +2880,29 @@ fn lapsed(nodes: &[SimNode], now: u64, payment: &Payment) -> bool {
         })
 }
 
+/// What a run counts `lie` as, once a server told it.
+pub const fn told_as(lie: Lie) -> &'static str {
+    match lie {
+        Lie::Transaction => "lies told: transaction",
+        Lie::AlteredObject => "lies told: altered-object",
+        Lie::FalseAbsence => "lies told: false-absence",
+        Lie::OtherBranch => "lies told: other-branch",
+        Lie::OldAnchor => "lies told: old-anchor",
+        Lie::OlderAnchor => "lies told: older-anchor",
+        Lie::ForgedValidations => "lies told: forged-validations",
+        Lie::ReplayedValidations => "lies told: replayed-validations",
+        Lie::WithheldValidations => "lies told: withheld-validations",
+        Lie::WrongHeader => "lies told: wrong-header",
+        Lie::OtherChainSkipList => "lies told: other-chain-skip-list",
+        Lie::HistoryNewestLeftOut => "lies told: history-newest-left-out",
+        Lie::HistoryMiddleLeftOut => "lies told: history-middle-left-out",
+        Lie::OldLedgerHint => "lies told: old-ledger-hint",
+        Lie::Refusal => "lies told: refusal",
+        Lie::MadeUpReset => "lies told: made-up-reset",
+        Lie::NoProofs => "lies told: no-proofs",
+    }
+}
+
 /// What an incoming payment received.
 pub fn received(sim: &Sim, payment: &Payment) -> u64 {
     sim.nodes[payment.to]
@@ -2608,13 +2941,32 @@ pub fn client(credentials: &(String, String, [u8; 32]), ledger: LedgerId) -> Con
     connection
 }
 
-/// Node `index`'s account on the XRP Ledger: the original's wallet of its
-/// key.
+/// Node `index`'s account on the XRP Ledger testnet: the original's
+/// wallet of its key.
 pub fn xrpl_account(index: usize) -> dassie_xrpl::AccountId {
+    xrpl_account_on(index, &TESTNET)
+}
+
+/// Node `index`'s account on `network`: the original's wallet of its key,
+/// at the network's seed path.
+pub fn xrpl_account_on(index: usize, network: &Network) -> dassie_xrpl::AccountId {
     let entropy = key(index)
-        .settlement_entropy("xrpl-testnet", "seed-testnet")
+        .settlement_entropy(network.seed.module, network.seed.path)
         .unwrap();
     dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account()
+}
+
+impl Sim {
+    /// Node `index`'s account on the run's network.
+    pub fn xrpl_account(&self, index: usize) -> dassie_xrpl::AccountId {
+        xrpl_account_on(index, self.settling.network())
+    }
+
+    /// The external asset of the nodes' first account on the run's
+    /// network, whose connection to the fake ledger the account keeps.
+    fn xrpl_asset(&self) -> String {
+        self.settling.network().first().to_string()
+    }
 }
 
 impl Sim {

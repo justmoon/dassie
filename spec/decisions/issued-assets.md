@@ -1,6 +1,6 @@
 # An issued asset's issuer is the owner's counterparty, and a dollar token pauses off its peg
 
-**Areas:** [XRPL](../areas/xrpl.md#rlusd), [Settlement](../areas/settlement.md#when-peers-cannot-pay-us), [Connector](../areas/connector.md#inventory-pricing). Built in the RLUSD scheme; transfer fees ([roadmap](../roadmap.md#not-built-yet)), the peg guard and disabling test RLUSD ([roadmap](../roadmap.md#mainnet-schemes)) are not.
+**Areas:** [XRPL](../areas/xrpl.md#rlusd), [Settlement](../areas/settlement.md#when-peers-cannot-pay-us), [Connector](../areas/connector.md#inventory-pricing). Built in the token scheme, with test RLUSD disabled, and the peg guard, which reads its pool proven at the account's anchor ([XRPL](../areas/xrpl.md#the-peg-guard)) and is not yet shown in the wallet ([roadmap](../roadmap.md#mainnet-schemes)); transfer fees ([roadmap](../roadmap.md#not-built-yet)) are not.
 
 ## Facts
 
@@ -28,6 +28,7 @@
 ## Accepted
 
 - **A de-peg inside the band goes unseen,** and one outside it costs what converts at par before the guard trips.
+- **A scheme new to the guard runs from its start, as if read in the band then.** A de-peg already under way when the scheme starts costs what converts before the guard trips, as one that starts a moment later would; without a reading for as long, it pauses as any guard does. A restart keeps the guard's state, so only a scheme added anew, or one kept from before the guard, starts so.
 - **A pause halts the token's routing** once the rooms of its peerings are used, and a node can take no conversion into or out of it until it recovers.
 - **A lying server can show the guard a reading** as old as an anchor may be, and so hold it on the wrong side for that long, or pause it by refusing to answer ([verified-ledgers](verified-ledgers.md)).
 - **A problem reading the pool pauses the scheme:** a busy server, a pool too thin, a stale rate.

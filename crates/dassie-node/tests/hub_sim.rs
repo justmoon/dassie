@@ -37,8 +37,11 @@ use dassie_node::sim::{START, Settling, Sim, hubbed, key};
 use dassie_node_core::testing::{Run, caught};
 
 /// The seeds CI runs: between them, every validator fault and member lie
-/// the run draws, restarts, hubs of 4, 5 and 7, and a collusion.
-const SEEDS: [u64; 10] = [8, 13, 16, 27, 30, 42, 46, 47, 56, 62];
+/// the run draws, restarts, hubs of 4, 5 and 7, and collusions, of which
+/// one forks: whether colluders split the honest validators depends on
+/// the run's timing, which a change to what the nodes ask their ledger
+/// moves.
+const SEEDS: [u64; 11] = [8, 13, 16, 18, 30, 42, 46, 47, 56, 62, 147];
 
 /// What the seeds must reach between them, at least.
 const LEAST: [(&str, u64); 16] = [

@@ -1402,9 +1402,14 @@ fn drops_number() -> BoxedStrategy<Leaf> {
 }
 
 /// The scheme, driven as the node drives it, against a ledger that says
-/// anything.
+/// anything, but for the proofs that anchor the account and prove what it
+/// holds, which an honest fake ledger gives: anything else could never be
+/// validated, and the account would read nothing past them. What it says
+/// to the proofs of transactions is anything, which proves nothing.
 struct Run {
     scheme: XrplScheme,
+    /// What answers the proofs, and serves the validator list.
+    proofs: dassie_xrpl::fake::FakeLedger,
     now: u64,
     /// Requests sent and not yet answered: ID, and the hash it names.
     sent: Vec<(u64, Option<[u8; 32]>)>,
@@ -1429,12 +1434,17 @@ impl Run {
             .iter()
             .map(|h| from_hex(h.as_str().unwrap()).unwrap().try_into().unwrap());
         let hashes = blobs.chain(recovering).collect();
+        // The account exists, with 1,000 XRP.
+        let mut proofs = dassie_xrpl::fake::FakeLedger::new();
+        proofs.fund(ours());
+        proofs.close();
         Self {
             scheme,
-            now: 1,
+            now: proofs.now_ms(),
+            ledger: u64::from(proofs.ledger()),
+            proofs,
             sent: Vec::new(),
             hashes,
-            ledger: 16,
             rng: SeededRng::new(1),
         }
     }
@@ -1461,11 +1471,26 @@ impl Run {
             match effect {
                 Effect::LedgerSend { message } => {
                     let request: Value = serde_json::from_slice(&message).unwrap();
+                    let proof = ["state_proof", "validations", "manifest"]
+                        .contains(&request["command"].as_str().unwrap_or_default());
+                    if proof {
+                        let reply = self.proofs.request(1, &message);
+                        self.input(LedgerInput::Message(&reply));
+                        continue;
+                    }
                     let hash = request["transaction"]
                         .as_str()
                         .and_then(from_hex)
                         .and_then(|hash| hash.try_into().ok());
                     self.sent.push((request["id"].as_u64().unwrap(), hash));
+                }
+                Effect::Fetch { url } => {
+                    let body = self.proofs.fetch(&url);
+                    let fetched = LedgerInput::Fetched {
+                        url: &url,
+                        body: body.as_deref(),
+                    };
+                    self.input(fetched);
                 }
                 Effect::Reconnect => {
                     self.sent.clear();
@@ -1578,17 +1603,17 @@ impl Run {
     }
 }
 
-/// A scheme up to date with a ledger on which its account holds 1,000 XRP.
+/// A scheme up to date with a ledger on which its account holds 1,000 XRP,
+/// as the anchor proves it.
 fn synced_scheme() -> XrplScheme {
     let mut run = Run::new(scheme());
     run.input(LedgerInput::Connected);
+    let ledger = run.ledger;
     let results = [
         json!({ "state": { "network_id": 1, "validated_ledger":
-            { "seq": 10, "close_time": 10, "base_fee": 10, "reserve_base": 1_000_000,
+            { "seq": ledger, "close_time": 10, "base_fee": 10, "reserve_base": 1_000_000,
               "reserve_inc": 200_000 } } }),
         json!({}),
-        json!({ "account_data": { "Balance": "1000000000", "Sequence": 5, "OwnerCount": 0 },
-            "ledger_index": 10 }),
     ];
     for result in results {
         let (id, _) = run.sent.remove(0);
@@ -1869,7 +1894,9 @@ proptest! {
                 prop_assert!(config.faucet.as_ref().is_none_or(|faucet| faucet.starts_with("https://")));
                 let scheme = scheme.unwrap();
                 scheme.check_invariants();
-                prop_assert_eq!(scheme.config(), &config);
+                // The harness has it trust the fake ledger's validators.
+                prop_assert_eq!(&scheme.config().server, &config.server);
+                prop_assert_eq!(&scheme.config().faucet, &config.faucet);
             }
             Err(_) => prop_assert!(scheme.is_err()),
         }

@@ -117,6 +117,9 @@ pub struct Policies {
     /// How often exchange rates are fetched
     /// (spec/decisions/exchange-rates.md).
     pub rates_every_ms: u64,
+    /// How often a dollar token's peg guard reads its pool, and how long
+    /// its holds are (spec/areas/xrpl.md#the-peg-guard).
+    pub peg: dassie_xrpl::peg::Timings,
     /// The rate feed's subscriber table (spec/areas/rate-feed.md#the-table).
     pub feed: dassie_feed::Limits,
 }
@@ -164,16 +167,18 @@ impl Policies {
         settlement_request_every_ms: 60_000,
         incoming: crate::engine::IncomingPolicy::DEFAULT,
         rates_every_ms: 60_000,
+        peg: dassie_xrpl::peg::Timings::DEFAULT,
         feed: dassie_feed::Limits::DEFAULT,
     };
 
-    /// The production values with the peer protocol's dev timers, for what
-    /// runs on a real clock: dev environments and the end-to-end tests. The
-    /// network simulation runs [`Policies::DEFAULT`].
+    /// The production values with the peer protocol's dev timers, and the
+    /// peg guard's, for what runs on a real clock: dev environments and the
+    /// end-to-end tests. The network simulation runs [`Policies::DEFAULT`].
     pub const DEV: Self = Self {
         peer: dassie_peer::Config::DEV,
         settlement_interval_ms: 1_000,
         settlement_request_every_ms: 5_000,
+        peg: dassie_xrpl::peg::Timings::DEV,
         ..Self::DEFAULT
     };
 
@@ -218,6 +223,9 @@ pub struct NodeOptions {
     /// The names the owner added, which a node without a hostname answers
     /// Open Payments to.
     pub public_names: Vec<dassie_node_core::config::Hostname>,
+    /// Whether the live realm may be set and run: by the dev switch only
+    /// (spec/decisions/mainnet-schemes.md).
+    pub live_realm: dassie_node_core::config::LiveRealm,
 }
 
 /// The peer protocol's settings, from the environment.
@@ -431,6 +439,8 @@ pub struct Node {
     founding: std::sync::OnceLock<Arc<crate::hub::founding::Founding>>,
     /// The hubs the node founds as a sponsor.
     sponsoring: crate::hub::sponsor::Sponsoring,
+    /// Whether the live realm may be set and run.
+    live_realm: dassie_node_core::config::LiveRealm,
 }
 
 impl std::fmt::Debug for Node {
@@ -484,6 +494,7 @@ impl Node {
             peer,
             dev_wallet_dir,
             public_names,
+            live_realm,
         } = options;
         let peer = PeerSide::new(peer)?;
         let now_ms = clock.now_ms();
@@ -541,7 +552,15 @@ impl Node {
             hubs: Arc::new(crate::hub::Hubs::default()),
             founding: std::sync::OnceLock::new(),
             sponsoring: crate::hub::sponsor::Sponsoring::default(),
+            live_realm,
         }))
+    }
+
+    /// Whether the live realm may be set and run: by the dev switch, in a
+    /// build with debug assertions only (spec/decisions/mainnet-schemes.md).
+    #[must_use]
+    pub const fn live_realm(&self) -> dassie_node_core::config::LiveRealm {
+        self.live_realm
     }
 
     /// The validator's side of founding hubs, where the owner turned

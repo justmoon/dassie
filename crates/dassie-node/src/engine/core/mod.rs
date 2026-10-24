@@ -43,7 +43,7 @@ use dassie_connector::{
 use dassie_identity::NodeKey;
 use dassie_ilp::MAX_PACKET_LENGTH;
 use dassie_ledger::{Account, AccountId, AccountName, Ledger, Name, TraceId};
-use dassie_node_core::config::Realm;
+use dassie_node_core::config::{LiveRealm, Realm};
 use dassie_stream::BUFFER_LENGTH;
 
 pub use events::{
@@ -226,6 +226,19 @@ pub enum Output {
         /// What to post.
         body: Vec<u8>,
     },
+    /// Fetch a document for an asset, such as a validator list: an HTTPS
+    /// GET that follows no redirect, whose body comes back as
+    /// [`LedgerEvent::Fetched`].
+    Fetch {
+        /// The asset's ID.
+        asset: String,
+        /// Its connection, which the answer is for.
+        epoch: u64,
+        /// What to fetch.
+        url: String,
+        /// The longest body taken.
+        max_bytes: usize,
+    },
 }
 
 /// What a step changed that live views show: they fetch again when it
@@ -249,8 +262,11 @@ pub struct CoreParts {
     pub store: Arc<Store>,
     /// The node's key.
     pub key: Arc<NodeKey>,
-    /// The realm, for the node's address.
+    /// The realm: the node's address, and the only ledgers it runs.
     pub realm: Realm,
+    /// Whether it may be the live realm: by the dev switch only
+    /// (spec/decisions/mainnet-schemes.md).
+    pub live: LiveRealm,
     /// Its bounds.
     pub policies: Policies,
     /// Its randomness.
@@ -319,8 +335,11 @@ pub struct Core {
     peer_endpoints: BTreeMap<dassie_identity::NodeId, u64>,
     endpoint_peers: BTreeMap<u64, dassie_identity::NodeId>,
     next_peer_endpoint: u64,
-    /// `test` or `g`, for nodes' addresses.
-    allocation_scheme: &'static str,
+    /// The realm: `test` or `g` in nodes' addresses, and the realm of the
+    /// only ledgers the node runs.
+    realm: Realm,
+    /// Whether the live realm may run.
+    live: LiveRealm,
     /// The credit a junior extends to its senior, and a senior to its
     /// junior, at first (spec/decisions/earned-trust.md).
     peer_credit: u64,
@@ -419,6 +438,7 @@ impl Core {
     /// The database is unreadable or inconsistent.
     pub fn start(parts: CoreParts, now_ms: u64) -> Result<Self, String> {
         check_bounds(&parts.policies);
+        check_realm(parts.realm, parts.live)?;
         let peer = new_peer(
             &parts.store,
             &parts.key,
@@ -430,13 +450,12 @@ impl Core {
         let CoreParts {
             store,
             key,
-            realm,
             policies,
             rng,
             ..
         } = parts;
         let ledger = restore_ledger(&store, policies.ledger)?;
-        let connector = new_connector(&store, &key, realm, &policies)?;
+        let connector = new_connector(&store, &key, parts.realm, &policies)?;
         let (checkpoints, asset_checkpoints) = checkpoints(&store)?;
         let mut core = Self {
             store,
@@ -471,7 +490,8 @@ impl Core {
             peer_endpoints: BTreeMap::new(),
             endpoint_peers: BTreeMap::new(),
             next_peer_endpoint: 0,
-            allocation_scheme: realm.ilp_allocation_scheme(),
+            realm: parts.realm,
+            live: parts.live,
             peer_credit: policies.peer_credit,
             senior_credit: policies.senior_credit,
             outputs_peer: Vec::new(),
@@ -507,9 +527,12 @@ impl Core {
         let active: std::collections::BTreeSet<dassie_identity::NodeId> =
             self.peer.active_peers().map(|(id, _)| *id).collect();
         for node in peers {
-            // A peer whose scheme is gone has no ledger to book on: it gets
-            // no endpoint, which the rest of the node does without. The
-            // original threw, and stopped what served that peer (ACC-25).
+            // A peer whose scheme does not run, as one disabled or of the
+            // other realm, has no ledger to book on: it gets no endpoint,
+            // which the rest of the node does without, and the peer
+            // protocol's first review ends the peering
+            // (spec/areas/settlement.md#schemes-and-ledgers). The original
+            // threw, and stopped what served that peer (ACC-25).
             if let Err(error) = self.add_peer_endpoint(node) {
                 self.report(PeerEvent::NoEndpoint { node, error });
             }
@@ -719,6 +742,9 @@ impl Core {
         {
             self.prices.due = true;
         }
+        // A guard that paused or resumed its scheme on a reading: the
+        // prices leave its ledger out, or take it back.
+        self.follow_pegs();
         self.price_if_due();
     }
 
@@ -741,7 +767,14 @@ impl Core {
         };
         let mut inventories = [none; MAX_PRICED_LEDGERS];
         let mut count = 0;
-        let ledgers = self.schemes.values().map(|active| active.scheme.ledger());
+        // A ledger whose scheme converts nothing now, such as a dollar
+        // token off its peg, is left out, as one whose rate is stale: its
+        // pairs convert nothing (spec/decisions/issued-assets.md).
+        let ledgers = self
+            .schemes
+            .values()
+            .filter(|active| active.converts_now())
+            .map(|active| active.scheme.ledger());
         for ledger in ledgers {
             let Ok(owner) = self.account(ledger, AccountName::EquityOwner) else {
                 continue;
@@ -758,13 +791,22 @@ impl Core {
                 count += 1;
             }
         }
-        let table = PriceTable::build(
+        let mut table = PriceTable::build(
             &self.prices.rates,
             inventories.get(..count).unwrap_or_default(),
             self.peer_settings.pricing(),
             self.now_ms,
             self.connector.config().max_rate_age_ms,
         );
+        // Nor does it convert at spot into the owner's own endpoints, which
+        // in the same currency needs no rate.
+        for active in self
+            .schemes
+            .values()
+            .filter(|active| !active.converts_now())
+        {
+            table.halt(active.scheme.ledger());
+        }
         // What a feed says: the charges, the ledgers and the prices. The
         // holdings move with every packet, and only move the prices.
         let old = &self.prices.table;
@@ -812,12 +854,17 @@ impl Core {
             .map(|(hop, ledger)| (ledger, !hop.is_peer()))
     }
 
-    /// The currencies of the active ledgers.
+    /// The currencies of the active ledgers, and those their schemes read,
+    /// such as XRP for a dollar token's peg guard.
     pub fn rate_currencies(&self) -> Vec<&'static str> {
         let mut codes: Vec<&'static str> = self
             .schemes
             .values()
-            .map(|active| active.scheme.ledger().asset().code)
+            .flat_map(|active| {
+                let own = active.scheme.ledger().asset().code;
+                let read = active.scheme.rate_currencies().iter().copied();
+                core::iter::once(own).chain(read)
+            })
             .collect();
         codes.sort_unstable();
         codes.dedup();
@@ -994,6 +1041,26 @@ fn new_peer(
     );
     peer.pin_uplinks(uplinks);
     Ok(peer)
+}
+
+/// Refuses a `live` realm the database names as where it is set: the realm
+/// gate would otherwise open mainnet to it
+/// (spec/decisions/mainnet-schemes.md).
+fn check_realm(realm: Realm, live: LiveRealm) -> Result<(), String> {
+    realm
+        .check_settable(live)
+        .map(|_| ())
+        .map_err(|error| format!("the realm {}: {error}", realm.as_str()))
+}
+
+/// The realm of the ledgers a node of `realm` runs: its own
+/// (spec/decisions/mainnet-schemes.md).
+#[must_use]
+pub const fn ledger_realm(realm: Realm) -> dassie_ledger::Realm {
+    match realm {
+        Realm::Test => dassie_ledger::Realm::Test,
+        Realm::Live => dassie_ledger::Realm::Live,
+    }
 }
 
 /// The connector, at the node's address, with this boot's epoch.

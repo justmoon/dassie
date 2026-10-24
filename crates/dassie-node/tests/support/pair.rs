@@ -23,6 +23,21 @@ pub const CERT: &str = concat!(
 );
 pub const KEY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/pebble/key.pem");
 
+/// The config of an XRPL scheme on the fake ledger `server`: its server
+/// and faucet, and the publisher of its validators, whose list it serves.
+pub fn xrpl_config(server: &dassie_node::fake_ledger::Server) -> String {
+    let mut config = serde_json::json!({
+        "server": server.url,
+        "faucet": server.faucet_url,
+    });
+    if let (Some(object), Some(serde_json::Value::Object(publishers))) =
+        (config.as_object_mut(), server.publishers())
+    {
+        object.extend(publishers);
+    }
+    config.to_string()
+}
+
 pub fn key(seed: u8) -> NodeKey {
     NodeKey::from_bytes(&[seed; 32])
 }

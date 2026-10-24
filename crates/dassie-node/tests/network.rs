@@ -5,7 +5,8 @@
 //! `dassie-sim explain node-stub <seed>` prints its trace, and `dassie-sim run
 //! node-stub <from>..<to>` runs others
 //! (spec/decisions/random-seed-simulations.md); so do `node-xrpl`,
-//! `node-currencies`, `node-rlusd` and `node-xrp-rlusd`.
+//! `node-xrpl-lies`, `node-xrpl-live`, `node-currencies`, `node-rlusd` and
+//! `node-xrp-rlusd`.
 //!
 //! The targeted tests below set up one situation each: a hop that crashes
 //! after posting, a late Fulfill, lying peers, a junior paying its senior
@@ -28,10 +29,11 @@ use dassie_node::sim::checks::{
     check, check_across, check_books, check_events, check_ledgers, drifted_past, not_settled_down,
 };
 use dassie_node::sim::{
-    CHARGES, CREDIT, START, Settling, Sim, USD, XRP, key, received, scripted, sent, xrpl_account,
+    CHARGES, CREDIT, LIVE_XRP, START, Settling, Sim, USD, XRP, key, received, scripted, sent,
+    xrpl_account,
 };
 use dassie_node::store::{Aim, ForeignAmount, OutgoingRow, OutgoingState, PaymentId, PeerSettings};
-use dassie_node_core::testing::{Outcome, assert_seeds_pass};
+use dassie_node_core::testing::{Outcome, assert_seeds_pass, caught};
 use dassie_payments::amount::Amount;
 use dassie_payments::gnap::Limits;
 use dassie_settlement::LedgerStatus;
@@ -48,23 +50,106 @@ fn simulated_networks_settle_on_the_xrp_ledger() {
     assert_seeds_pass(0..6, scripted::run_xrpl);
 }
 
+// spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation:
+// the nodes' servers tell each kind of lie in turn while payments settle,
+// then a validator rotates its key, a quorum is withheld and a list lapses.
+// Each node's books hold to the fake ledger's truth, every node anchored,
+// and the network settles as before. Between them, the seeds tell every
+// kind of lie, and the nodes catch what the verifier catches.
+#[test]
+fn simulated_networks_settle_through_lying_servers() {
+    let mut reached: BTreeMap<&str, u64> = BTreeMap::new();
+    for seed in 0..4 {
+        let run = caught(|| scripted::run_lies(seed));
+        assert!(!run.outcome.is_failure(), "seed {seed}: {}", run.outcome);
+        for (what, count) in run.counts {
+            *reached.entry(what).or_default() += count;
+        }
+    }
+    let lies = dassie_xrpl::fake::Lie::ALL.map(dassie_node::sim::told_as);
+    for (what, least) in lies.iter().map(|lie| (*lie, 1)).chain([
+        ("lies caught", 100),
+        ("anchors", 1_000),
+        ("transactions proven", 100),
+        ("absences proven", 10),
+        ("validator lists fetched", 10),
+        ("validator keys rotated", 4),
+        ("quorums withheld", 4),
+        ("validator lists lapsed", 4),
+    ]) {
+        let count = reached.get(what).copied().unwrap_or(0);
+        assert!(
+            count >= least,
+            "the seeds reached {what} {count} times, not {least}: {reached:?}"
+        );
+    }
+}
+
+// spec/decisions/mainnet-schemes.md: the same runs in the live realm, on
+// mainnet's scheme against the fake ledger's mainnet, funded by their
+// owners' deposits.
+#[test]
+fn simulated_networks_settle_on_mainnet_in_the_live_realm() {
+    assert_seeds_pass(0..6, scripted::run_xrpl_live);
+}
+
+// spec/decisions/mainnet-schemes.md: two nodes in the live realm, at
+// addresses under `g.`, settle real XRP on the fake ledger's mainnet, which
+// has no faucet: each owner's deposit is what the books start from. Node 1
+// pays node 0 past the credit node 0 extends, so it settles as it goes.
+#[test]
+fn two_live_nodes_settle_xrp_on_mainnet() {
+    let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::XrplLive);
+    sim.loss_per_mille = 0;
+    let (zero, one) = (key(0).node_id(), key(1).node_id());
+    let peered = |sim: &Sim| sim.peers(0).contains(&one) && sim.peers(1).contains(&zero);
+    assert!(
+        sim.run_until_or(START + 5 * 60_000, peered),
+        "the nodes did not peer"
+    );
+    for index in 0..2 {
+        let core = sim.core(index);
+        assert!(core.own_address().starts_with("g.das."), "{index}");
+        let ledgers: Vec<LedgerId> = core.ledger_views().iter().map(|view| view.id).collect();
+        assert_eq!(ledgers, [LIVE_XRP]);
+        assert_eq!(sim.fundings.get(&index), Some(&1), "the owner deposited");
+    }
+    assert!(
+        sim.ledger.balance(xrpl_account(0)).is_none(),
+        "on the testnet"
+    );
+    sim.pay(1, 0, 3_000_000_000, None, None);
+    sim.run_until(sim.now + 120_000);
+    assert!(sim.payments[0].done, "the payment did not finish");
+    let settled = sim
+        .core(1)
+        .network()
+        .channels
+        .iter()
+        .find(|(node, _)| *node == zero)
+        .map_or(0, |(_, channel)| channel.settled_out);
+    assert!(settled > 0, "node 1 never settled");
+    check(&sim).unwrap();
+}
+
 #[test]
 fn simulated_networks_pay_across_currencies() {
     assert_seeds_pass(0..6, scripted::run_across);
 }
 
-// spec/areas/xrpl.md#rlusd: the same runs settling in RLUSD, with the
-// issuer clawing back and freezing while payments are under way; each
-// node's books count what the issuer did as its owner's deposits and
-// withdrawals, and hold its line.
+// spec/areas/xrpl.md#rlusd: the same runs settling in RLUSD, in the live
+// realm on the fake ledger's mainnet, with the issuer clawing back and
+// freezing while payments are under way; each node's books count what the
+// issuer did as its owner's deposits and withdrawals, and hold its line.
 #[test]
 fn simulated_networks_settle_in_rlusd_through_the_issuers_acts() {
     assert_seeds_pass(0..6, scripted::run_rlusd);
 }
 
-// spec/areas/xrpl.md#the-account: across RLUSD and XRP, with both schemes on
-// one account at the nodes that run both: no sequence is taken twice, and
-// every XRP fee is booked once, which the books against the account show.
+// spec/areas/xrpl.md#the-account: across RLUSD and XRP in the live realm,
+// with both schemes on one mainnet account at the nodes that run both: no
+// sequence is taken twice, and every XRP fee is booked once, which the
+// books against the account show.
 #[test]
 fn simulated_networks_pay_across_rlusd_and_xrp() {
     assert_seeds_pass(0..6, scripted::run_xrp_rlusd);

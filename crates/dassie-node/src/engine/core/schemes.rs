@@ -12,12 +12,12 @@
 //! every ledger and a module's failure reached them all (ACC-26).
 
 use dassie_identity::NodeKey;
-use dassie_ledger::{AccountName, LedgerId, Name};
+use dassie_ledger::{AccountName, LedgerId, Name, Realm};
 use dassie_settlement::{
     AssetEffect, AssetId, AssetKind, Detach, Effect, ExternalAsset, Holding, LedgerInput,
     LedgerStatus, SchemeError, SchemeInfo, SettlementScheme, Stub,
 };
-use dassie_xrpl::{DsusdScheme, RlusdScheme, XrplAccount, XrplScheme};
+use dassie_xrpl::{DsusdScheme, RlusdScheme, XrplAccount, XrplMainnetScheme, XrplScheme};
 
 use super::events::SettlementEvent;
 use super::ledgers::ActiveScheme;
@@ -37,9 +37,14 @@ pub const SCHEMES: &[SchemeInfo] = &[
         ledger: LedgerId::XrplTestnetXrp,
     },
     SchemeInfo {
+        id: dassie_xrpl::scheme::MAINNET_SCHEME_ID,
+        name: "XRP Ledger",
+        ledger: LedgerId::XrplXrp,
+    },
+    SchemeInfo {
         id: dassie_xrpl::rlusd::SCHEME_ID,
-        name: "RLUSD on the XRP Ledger Testnet",
-        ledger: LedgerId::XrplTestnetRlusdUsd,
+        name: "RLUSD on the XRP Ledger",
+        ledger: LedgerId::XrplRlusdUsd,
     },
     SchemeInfo {
         id: dassie_xrpl::dsusd::SCHEME_ID,
@@ -53,20 +58,35 @@ pub const SCHEMES: &[SchemeInfo] = &[
     },
 ];
 
-/// Whether the scheme `id` is offered to the owner to add: a settlement
-/// hub's only once the node knows a hub to join without being told one, so
-/// the wallet never offers what it cannot add with nothing to fill in. One
-/// added with a config of its own is listed as any active scheme.
+/// The schemes the node no longer runs: test RLUSD, for which DSUSD stands
+/// in on the testnet (spec/decisions/issued-assets.md). None is in
+/// [`SCHEMES`], so none is offered, and none can be added. One stored by a
+/// node that ran it does not start, and is left as it is: its books, its
+/// checkpoint and its line on the ledger, with nothing written off. It
+/// still names a scheme of the account it settled through, so what the
+/// account kept for it loads, as for any scheme not on the account.
+pub const DISABLED: &[&str] = &[dassie_xrpl::rlusd::TESTNET_SCHEME_ID];
+
+/// Whether the scheme `info` is offered to the owner of a node of `realm`
+/// to add: only one of the node's realm, which is the only realm it runs
+/// (spec/decisions/mainnet-schemes.md), and a settlement hub's only once
+/// the node knows a hub to join without being told one, so the wallet never
+/// offers what it cannot add with nothing to fill in. One added with a
+/// config of its own is listed as any active scheme.
 #[must_use]
-pub fn offered(id: &str) -> bool {
-    id != dassie_hub::member::SCHEME_ID || dassie_hub::member::DEFAULT_TESTNET_HUB.is_some()
+pub fn offered(info: &SchemeInfo, realm: Realm) -> bool {
+    info.ledger.realm() == realm
+        && (info.id != dassie_hub::member::SCHEME_ID
+            || dassie_hub::member::DEFAULT_TESTNET_HUB.is_some())
 }
 
 /// The external asset scheme `id` settles through, if any, and the config
 /// the asset is made with: for the XRPL schemes, the server and the faucet
-/// their config names, which are the account's. All settle through the
-/// node's first XRPL testnet account, so one address holds the XRP of one
-/// and the gas of the others (spec/areas/xrpl.md#the-account).
+/// their config names, which are the account's. Those of a network settle
+/// through the node's first XRPL account on it, so one address holds the
+/// XRP of one and the gas of the others (spec/areas/xrpl.md#the-account):
+/// the testnet's, or mainnet's for `xrpl` and `xrpl-rlusd`. Disabled test
+/// RLUSD's is the testnet's.
 fn asset_of(id: &str) -> Option<AssetId> {
     #[cfg(test)]
     if id == super::tests::WITNESS {
@@ -75,9 +95,17 @@ fn asset_of(id: &str) -> Option<AssetId> {
     if id == dassie_hub::member::SCHEME_ID {
         return Some(dassie_hub::member::FIRST);
     }
+    if [
+        dassie_xrpl::scheme::MAINNET_SCHEME_ID,
+        dassie_xrpl::rlusd::SCHEME_ID,
+    ]
+    .contains(&id)
+    {
+        return Some(dassie_xrpl::network::MAINNET.first());
+    }
     [
         dassie_xrpl::scheme::SCHEME_ID,
-        dassie_xrpl::rlusd::SCHEME_ID,
+        dassie_xrpl::rlusd::TESTNET_SCHEME_ID,
         dassie_xrpl::dsusd::SCHEME_ID,
     ]
     .contains(&id)
@@ -153,9 +181,12 @@ pub(super) fn own_xrpl_account(key: &NodeKey) -> Result<dassie_xrpl::AccountId, 
     Ok(dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account())
 }
 
-/// The schemes that may settle through `asset`.
+/// The schemes that may settle through `asset`, disabled ones included.
 fn schemes_on(asset: AssetId) -> Vec<Name> {
-    let ids = SCHEMES.iter().map(|info| info.id);
+    let ids = SCHEMES
+        .iter()
+        .map(|info| info.id)
+        .chain(DISABLED.iter().copied());
     #[cfg(test)]
     let ids = ids.chain([super::tests::WITNESS]);
     ids.filter(|id| asset_of(id) == Some(asset))
@@ -164,10 +195,12 @@ fn schemes_on(asset: AssetId) -> Vec<Name> {
 }
 
 /// Makes the external asset `id` with its config, and the state the books
-/// kept for it. The node's first XRPL testnet account derives its keys at
-/// `node/settlement-module/xrpl-testnet/seed-testnet`, which is frozen
-/// (spec/areas/identity.md#derivation-chain); further accounts are not
-/// built.
+/// kept for it. The node's first XRPL account on a network derives its keys
+/// at its network's seed path, which is frozen
+/// (spec/areas/identity.md#derivation-chain): the testnet's at
+/// `node/settlement-module/xrpl-testnet/seed-testnet`, mainnet's at
+/// `node/settlement-module/xrpl/seed-mainnet`, the original's. Further
+/// accounts are not built.
 ///
 /// # Errors
 ///
@@ -179,9 +212,12 @@ fn create_asset(
     (key, window_ms): (&NodeKey, u64),
 ) -> Result<Box<dyn ExternalAsset>, SchemeError> {
     match (id.kind, id.index) {
-        (AssetKind::XrplTestnetAccount, 0) => {
+        (AssetKind::XrplTestnetAccount | AssetKind::XrplAccount, 0) => {
+            let network =
+                dassie_xrpl::network::Network::of(id.kind).ok_or(SchemeError::UnknownScheme)?;
+            let seed = network.seed;
             let entropy = key
-                .settlement_entropy(dassie_xrpl::scheme::SCHEME_ID, "seed-testnet")
+                .settlement_entropy(seed.module, seed.path)
                 .map_err(|_| SchemeError::InvalidConfig)?;
             Ok(Box::new(XrplAccount::new(
                 id,
@@ -198,9 +234,20 @@ fn create_asset(
     }
 }
 
+/// Has `asset`, if it is an XRPL account, check validations by the fake
+/// ledger's keyed hash under `secret`, as in a simulation.
+#[cfg(feature = "testing")]
+pub(super) fn check_validations_with(asset: &mut dyn ExternalAsset, secret: [u8; 32]) {
+    let any: &mut dyn core::any::Any = asset;
+    if let Some(account) = any.downcast_mut::<XrplAccount>() {
+        account.check_validations_with(dassie_xrpl::fake::KeyedSignatures::new(secret));
+    }
+}
+
 /// Makes the scheme `id` with its config, what the books last kept for it,
-/// and the asset it settles through. The original's RPC dropped every key of
-/// the config (RT-21), and it never passed on what it stored (ACC-12).
+/// and the asset it settles through; a dollar token's peg guard runs on
+/// `peg`. The original's RPC dropped every key of the config (RT-21), and it
+/// never passed on what it stored (ACC-12).
 ///
 /// # Errors
 ///
@@ -212,6 +259,7 @@ fn create(
     key: &NodeKey,
     asset: Option<&dyn ExternalAsset>,
     max_packet: u64,
+    peg: dassie_xrpl::peg::Timings,
 ) -> Result<Box<dyn SettlementScheme>, SchemeError> {
     let balance = checkpoint.map(|c| c.balance);
     let account = || {
@@ -229,18 +277,22 @@ fn create(
             balance,
             state,
         )?)),
-        dassie_xrpl::rlusd::SCHEME_ID => Ok(Box::new(RlusdScheme::new(
+        dassie_xrpl::scheme::MAINNET_SCHEME_ID => Ok(Box::new(XrplMainnetScheme::new(
             account()?,
             node()?,
             balance,
             state,
         )?)),
-        dassie_xrpl::dsusd::SCHEME_ID => Ok(Box::new(DsusdScheme::new(
-            account()?,
-            node()?,
-            balance,
-            state,
-        )?)),
+        dassie_xrpl::rlusd::SCHEME_ID => {
+            let mut scheme = RlusdScheme::new(account()?, node()?, balance, state)?;
+            scheme.set_peg_timings(peg);
+            Ok(Box::new(scheme))
+        }
+        dassie_xrpl::dsusd::SCHEME_ID => {
+            let mut scheme = DsusdScheme::new(account()?, node()?, balance, state)?;
+            scheme.set_peg_timings(peg);
+            Ok(Box::new(scheme))
+        }
         dassie_hub::member::SCHEME_ID => {
             let any: Option<&dyn core::any::Any> = asset.map(|asset| asset as _);
             let account = any
@@ -283,6 +335,9 @@ pub struct AssetView {
     pub holdings: Vec<Holding>,
     /// How it stands with its ledger.
     pub status: LedgerStatus,
+    /// What it waits for, if something keeps it from going on, such as a
+    /// validator list.
+    pub waiting: Option<&'static str>,
     /// The schemes that settle through it.
     pub schemes: Vec<String>,
     /// Whether the node can ask a faucet for test money on it.
@@ -300,6 +355,13 @@ pub enum LedgerEvent {
     Disconnected,
     /// The faucet answered, or did not.
     Funded(bool),
+    /// A fetch of `url` answered with `body`, or failed: `None`.
+    Fetched {
+        /// What was fetched.
+        url: String,
+        /// What came.
+        body: Option<Vec<u8>>,
+    },
     /// A hub's validator at `endpoint` answered.
     From {
         /// Its place in the hub's rules.
@@ -342,6 +404,7 @@ impl Core {
                 &self.key,
                 None,
                 self.settle.max_packet,
+                self.settle.peg,
             )
             .map_err(invalid)?;
             return Ok((scheme, None));
@@ -354,8 +417,13 @@ impl Core {
                 .cloned()
                 .unwrap_or_default();
             let window_ms = self.connector.config().message_window_ms;
-            let made =
+            #[allow(unused_mut)]
+            let mut made =
                 create_asset(asset, config, &state, (&self.key, window_ms)).map_err(invalid)?;
+            #[cfg(feature = "testing")]
+            if let Some(secret) = self.settle.validation_secret {
+                check_validations_with(made.as_mut(), secret);
+            }
             self.assets.insert(
                 asset,
                 ActiveAsset {
@@ -374,6 +442,7 @@ impl Core {
                 &self.key,
                 Some(active.asset.as_ref()),
                 self.settle.max_packet,
+                self.settle.peg,
             )
             .map_err(invalid),
             _ => Err(EngineError::Precondition(
@@ -431,6 +500,10 @@ impl Core {
             LedgerEvent::Message(bytes) => LedgerInput::Message(bytes),
             LedgerEvent::Disconnected => LedgerInput::Disconnected,
             LedgerEvent::Funded(ok) => LedgerInput::Funded(*ok),
+            LedgerEvent::Fetched { url, body } => LedgerInput::Fetched {
+                url,
+                body: body.as_deref(),
+            },
             LedgerEvent::From { endpoint, message } => LedgerInput::From {
                 endpoint: *endpoint,
                 message,
@@ -545,6 +618,12 @@ impl Core {
                     epoch,
                     url,
                     body,
+                }),
+                AssetEffect::Fetch { url, max_bytes } => self.outputs_peer.push(Output::Fetch {
+                    asset: asset.to_string(),
+                    epoch,
+                    url,
+                    max_bytes,
                 }),
             }
         }
@@ -753,6 +832,7 @@ impl Core {
                 address: active.asset.address(),
                 holdings: active.asset.holdings(),
                 status: active.asset.status(),
+                waiting: active.asset.waiting(),
                 schemes: self
                     .schemes
                     .iter()
@@ -876,5 +956,104 @@ impl Core {
             .and_then(|id| self.assets.get(&id))
             .map(|asset| asset.asset.status());
         merged_status(asset, active.scheme.status())
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    // spec/decisions/mainnet-schemes.md: each XRPL scheme settles through
+    // the first account on its own network, whose keys are at that
+    // network's seed path, mainnet's the original's; only `xrpl` and
+    // `xrpl-rlusd`, the live realm's, settle through mainnet's.
+    #[test]
+    fn each_xrpl_scheme_settles_through_its_networks_account() {
+        use dassie_xrpl::network::{MAINNET, Network, TESTNET};
+        let key = NodeKey::from_bytes(&[7; 32]);
+        for network in [&TESTNET, &MAINNET] {
+            let asset = create_asset(network.first(), "", &[], (&key, 0)).unwrap();
+            let any: &dyn core::any::Any = asset.as_ref();
+            let account = any.downcast_ref::<XrplAccount>().unwrap();
+            assert_eq!(account.network(), network);
+            let entropy = key
+                .settlement_entropy(network.seed.module, network.seed.path)
+                .unwrap();
+            let wallet = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes());
+            assert_eq!(account.account(), wallet.account());
+        }
+        assert_eq!(MAINNET.seed.module, "xrpl");
+        assert_eq!(MAINNET.seed.path, "seed-mainnet");
+        for info in SCHEMES {
+            let network = asset_of(info.id).and_then(|asset| Network::of(asset.kind));
+            match network {
+                Some(network) => assert_eq!(network.realm, info.ledger.realm(), "{}", info.id),
+                None => assert!(!info.id.starts_with("xrpl"), "{}", info.id),
+            }
+            assert_eq!(
+                asset_of(info.id) == Some(MAINNET.first()),
+                info.ledger.realm() == Realm::Live,
+                "{}",
+                info.id
+            );
+        }
+        let further = AssetId {
+            kind: AssetKind::XrplAccount,
+            index: 1,
+        };
+        assert!(matches!(
+            create_asset(further, "", &[], (&key, 0)),
+            Err(SchemeError::UnknownScheme)
+        ));
+    }
+
+    // A node offers only its realm's schemes.
+    #[test]
+    fn a_node_offers_only_its_realms_schemes() {
+        for realm in [Realm::Test, Realm::Live] {
+            for info in SCHEMES {
+                if offered(info, realm) {
+                    assert_eq!(info.ledger.realm(), realm, "{}", info.id);
+                }
+            }
+        }
+        let xrpl = |id: &str| SCHEMES.iter().find(|info| info.id == id).unwrap();
+        let mainnet = xrpl(dassie_xrpl::scheme::MAINNET_SCHEME_ID);
+        let testnet = xrpl(dassie_xrpl::scheme::SCHEME_ID);
+        assert!(offered(mainnet, Realm::Live) && !offered(mainnet, Realm::Test));
+        assert!(offered(testnet, Realm::Test) && !offered(testnet, Realm::Live));
+    }
+
+    // spec/decisions/issued-assets.md: test RLUSD is neither offered nor
+    // made, in either realm; it still names a scheme of the testnet's
+    // account, so what the account kept for it loads.
+    #[test]
+    fn test_rlusd_is_disabled() {
+        let id = dassie_xrpl::rlusd::TESTNET_SCHEME_ID;
+        assert!(DISABLED.contains(&id));
+        for disabled in DISABLED {
+            assert!(SCHEMES.iter().all(|info| info.id != *disabled));
+        }
+        let key = NodeKey::from_bytes(&[7; 32]);
+        let asset = create_asset(dassie_xrpl::account::FIRST, "", &[], (&key, 0)).unwrap();
+        assert!(matches!(
+            create(
+                id,
+                "",
+                None,
+                &key,
+                Some(asset.as_ref()),
+                0,
+                dassie_xrpl::peg::Timings::DEFAULT
+            ),
+            Err(SchemeError::UnknownScheme)
+        ));
+        assert_eq!(asset_of(id), Some(dassie_xrpl::account::FIRST));
+        assert!(
+            schemes_on(dassie_xrpl::account::FIRST)
+                .iter()
+                .any(|scheme| scheme.as_str() == id)
+        );
     }
 }

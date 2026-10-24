@@ -29,6 +29,7 @@ const RECEIVE: u64 = 2_000_000_000;
 
 async fn fake_ledger() -> Server {
     Server::start(Options {
+        network: &dassie_xrpl::network::TESTNET,
         listen: "127.0.0.1:0".parse().unwrap(),
         faucet: Some((
             "127.0.0.1:0".parse().unwrap(),
@@ -84,6 +85,7 @@ async fn dollars_arrive_as_xrp() {
     let server = fake_ledger().await;
     let rates = RatesServer::start(coinbase(&[("XRP", "2")])).await;
     let pair = Pair::start(51, 52).await;
+    server.close_on(std::sync::Arc::new(pair.clock.clone()));
     let (a, b) = (&pair.a, &pair.b);
     let mut owner_b = b.ipc().await;
     owner_b
@@ -95,7 +97,7 @@ async fn dollars_arrive_as_xrp() {
         }))
         .await
         .unwrap();
-    let config = serde_json::json!({ "server": server.url, "faucet": server.faucet_url });
+    let config = support::pair::xrpl_config(&server);
     owner_b
         .call(Method::AddSettlementScheme(
             proto::AddSettlementSchemeRequest {

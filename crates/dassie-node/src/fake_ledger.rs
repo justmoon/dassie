@@ -2,12 +2,21 @@
 //! one: its WebSocket API on `ws://`, its faucet on HTTPS, and a ledger
 //! closed every so often. For tests and dev environments only (feature
 //! `testing`): CI and `node --run dev -- --xrpl fake` settle against it.
+//! It is the testnet, or mainnet, which has no faucet
+//! (spec/decisions/mainnet-schemes.md).
 //!
-//! Next to the faucet, under `/tokens/`, the issuers of its test RLUSD and
-//! DSUSD take requests: each mints to an address, freezes, deep-freezes and
+//! Next to the faucet, under `/tokens/`, the issuer of its network's dollar
+//! takes requests: it mints to an address, freezes, deep-freezes and
 //! globally freezes, sets a transfer fee and claws back, and makes or sets
-//! an AMM pool of XRP and its token, each in the next ledger
-//! (spec/areas/xrpl.md#the-fake-ledger).
+//! an AMM pool of XRP and its token, each in the next ledger. At `/deposit`,
+//! XRP arrives from outside, as an owner sends it to fund an account on
+//! mainnet (spec/areas/xrpl.md#the-fake-ledger).
+//!
+//! Its validators sign every ledger, and their publisher's list is served
+//! at `/vl`, as a list site serves one; under `/validators/` a validator's
+//! key rotates, it is withheld or revokes its key, and a new list is
+//! published; and `/lie` makes every connection lie in one way, or be
+//! honest again (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
 
 use std::collections::BTreeMap;
 use std::convert::Infallible;
@@ -19,7 +28,9 @@ use std::time::Duration;
 use bytes::Bytes;
 use dassie_xrpl::AccountId;
 use dassie_xrpl::codec::{Currency, TokenValue};
-use dassie_xrpl::fake::{FakeLedger, Token};
+use dassie_xrpl::fake::{FakeLedger, Lie, Token};
+use dassie_xrpl::keys::PublicKey;
+use dassie_xrpl::network::{MAINNET, Network};
 use futures_util::{SinkExt, StreamExt};
 use http_body_util::{BodyExt, Full, Limited};
 use hyper::server::conn::http1;
@@ -37,18 +48,27 @@ use crate::store::StoredCertificate;
 /// How the fake ledger is served.
 #[derive(Clone, Debug)]
 pub struct Options {
+    /// The network it is: the testnet or mainnet.
+    pub network: &'static Network,
     /// Where its WebSocket API listens.
     pub listen: SocketAddr,
-    /// Where its faucet listens, over HTTPS with this certificate.
+    /// Where its faucet, its issuer and its deposits listen, over HTTPS
+    /// with this certificate. Mainnet's has no faucet.
     pub faucet: Option<(SocketAddr, StoredCertificate)>,
     /// How often a ledger closes.
     pub close_every: Duration,
 }
 
+/// The most XRP one request to `/deposit` sends, in drops: a hundred
+/// thousand XRP, more than any test needs and far less than genesis holds.
+pub const MAX_DEPOSIT_DROPS: u64 = 100_000 * dassie_xrpl::DROPS_PER_XRP;
+
 struct Shared {
     ledger: Mutex<FakeLedger>,
     connections: Mutex<BTreeMap<u64, mpsc::Sender<Vec<u8>>>>,
     next: AtomicU64,
+    /// The clock its ledgers close on.
+    clock: Mutex<Arc<dyn Clock>>,
 }
 
 /// A running fake ledger.
@@ -57,10 +77,20 @@ pub struct Server {
     cancel: CancellationToken,
     /// Its WebSocket URL.
     pub url: String,
-    /// Its faucet's URL, if it has one.
+    /// Its faucet's URL, if it has one: never on mainnet.
     pub faucet_url: Option<String>,
     /// Where its issuer takes requests, with the faucet: `…/tokens`.
     pub tokens_url: Option<String>,
+    /// Where XRP is deposited from outside, with the faucet: `…/deposit`.
+    pub deposit_url: Option<String>,
+    /// Where its validators' publisher serves its list, with the faucet:
+    /// `…/vl`.
+    pub validator_list_url: Option<String>,
+    /// Where its validators and its servers take requests, with the
+    /// faucet: `…/validators/…` and `…/lie` under it.
+    pub control_url: Option<String>,
+    /// The master key of its validators' publisher.
+    pub publisher_key: PublicKey,
 }
 
 impl Server {
@@ -73,12 +103,19 @@ impl Server {
         // Its ledgers close on the wall clock, the first a second after
         // any ledger of a server before it: a new server is a new chain,
         // and nodes that knew an earlier one see a testnet reset.
-        let mut ledger = FakeLedger::new();
-        ledger.set_close_time(close_time_now().saturating_add(1));
+        let mut ledger = if *options.network == MAINNET {
+            FakeLedger::mainnet()
+        } else {
+            FakeLedger::new()
+        };
+        let clock: Arc<dyn Clock> = Arc::new(SystemClock);
+        ledger.set_close_time(close_time_of(clock.as_ref()).saturating_add(1));
+        let publisher_key = ledger.publisher_key();
         let shared = Arc::new(Shared {
             ledger: Mutex::new(ledger),
             connections: Mutex::new(BTreeMap::new()),
             next: AtomicU64::new(1),
+            clock: Mutex::new(clock),
         });
         let cancel = CancellationToken::new();
         let listener = TcpListener::bind(options.listen)
@@ -91,33 +128,42 @@ impl Server {
             Arc::clone(&shared),
             cancel.clone(),
         ));
-        let (faucet_url, tokens_url) = match options.faucet {
-            Some((listen, certificate)) => {
-                let listener = TcpListener::bind(listen).await.map_err(|e| e.to_string())?;
-                let address = listener.local_addr().map_err(|e| e.to_string())?;
-                let loaded = crate::tls::load(&certificate).map_err(|e| e.to_string())?;
-                let slot = Arc::new(crate::tls::CertificateSlot::new(loaded));
-                let config = crate::tls::server_config(slot).map_err(|e| e.to_string())?;
-                let acceptor = tokio_rustls::TlsAcceptor::from(config);
-                tokio::spawn(serve_faucet(
-                    listener,
-                    acceptor,
-                    Arc::clone(&shared),
-                    cancel.clone(),
-                ));
-                (
-                    Some(format!("https://localhost:{}/accounts", address.port())),
-                    Some(format!("https://localhost:{}/tokens", address.port())),
-                )
-            }
-            None => (None, None),
-        };
+        let (faucet_url, tokens_url, deposit_url, validator_list_url, control_url) =
+            match options.faucet {
+                Some((listen, certificate)) => {
+                    let listener = TcpListener::bind(listen).await.map_err(|e| e.to_string())?;
+                    let address = listener.local_addr().map_err(|e| e.to_string())?;
+                    let loaded = crate::tls::load(&certificate).map_err(|e| e.to_string())?;
+                    let slot = Arc::new(crate::tls::CertificateSlot::new(loaded));
+                    let config = crate::tls::server_config(slot).map_err(|e| e.to_string())?;
+                    let acceptor = tokio_rustls::TlsAcceptor::from(config);
+                    tokio::spawn(serve_faucet(
+                        listener,
+                        acceptor,
+                        Arc::clone(&shared),
+                        cancel.clone(),
+                    ));
+                    let base = format!("https://localhost:{}", address.port());
+                    (
+                        options.network.faucet.map(|_| format!("{base}/accounts")),
+                        Some(format!("{base}/tokens")),
+                        Some(format!("{base}/deposit")),
+                        Some(format!("{base}/vl")),
+                        Some(base),
+                    )
+                }
+                None => (None, None, None, None, None),
+            };
         Ok(Self {
             shared,
             cancel,
             url: format!("ws://{address}"),
             faucet_url,
             tokens_url,
+            deposit_url,
+            validator_list_url,
+            control_url,
+            publisher_key,
         })
     }
 
@@ -127,6 +173,27 @@ impl Server {
             .ledger
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Closes its ledgers on `clock` from now on, a test's, whose nodes then
+    /// read its validations as fresh: a second after the last at least, so
+    /// a ledger never closes before its parent.
+    pub fn close_on(&self, clock: Arc<dyn Clock>) {
+        *self
+            .shared
+            .clock
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = clock;
+    }
+
+    /// What an account's config names to trust its validators: its
+    /// publisher, whose list it serves, and the floor its validators meet,
+    /// as an owner's publishers; `None` without the HTTPS listener that
+    /// serves the list.
+    #[must_use]
+    pub fn publishers(&self) -> Option<serde_json::Value> {
+        let site = self.validator_list_url.as_ref()?;
+        Some(self.ledger().publishers(site))
     }
 
     /// Stops serving, and drops every connection.
@@ -148,7 +215,12 @@ const RIPPLE_EPOCH_UNIX_S: u64 = 946_684_800;
 /// fake ledger's servers close their ledgers then.
 #[must_use]
 pub fn close_time_now() -> u64 {
-    (SystemClock.now_ms() / 1_000).saturating_sub(RIPPLE_EPOCH_UNIX_S)
+    close_time_of(&SystemClock)
+}
+
+/// Now by `clock`, as the XRP Ledger counts close times.
+fn close_time_of(clock: &dyn Clock) -> u64 {
+    (clock.now_ms() / 1_000).saturating_sub(RIPPLE_EPOCH_UNIX_S)
 }
 
 async fn close_ledgers(every: Duration, shared: Arc<Shared>, cancel: CancellationToken) {
@@ -158,11 +230,12 @@ async fn close_ledgers(every: Duration, shared: Arc<Shared>, cancel: Cancellatio
             () = cancel.cancelled() => return,
             _ = interval.tick() => {}
         }
+        let clock = Arc::clone(&shared.clock.lock().unwrap_or_else(PoisonError::into_inner));
         let out = shared
             .ledger
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .close_at(close_time_now());
+            .close_at(close_time_of(clock.as_ref()));
         let connections = shared
             .connections
             .lock()
@@ -292,22 +365,60 @@ async fn serve_request(
     response
 }
 
-/// What a request to `path` with `body` gets, done to `ledger`: an
-/// issuer's request under `/tokens/`, else the faucet's.
+/// What a request to `path` with `body` gets, done to `ledger`: the
+/// validator list, a validator's or a lie's under `/validators/` and
+/// `/lie`, an issuer's request under `/tokens/`, a deposit at `/deposit`,
+/// else the faucet's, which mainnet does not have.
 fn answer(ledger: &mut FakeLedger, path: &str, body: &[u8]) -> (StatusCode, String) {
     let body = serde_json::from_slice::<serde_json::Value>(body).unwrap_or_default();
-    let Some(action) = path.strip_prefix("/tokens/") else {
-        // The faucet: `{"destination": "r…"}` gets 1000 test XRP in the
-        // next ledger.
-        let destination = body
-            .get("destination")
+    if path == "/vl" {
+        let list = String::from_utf8_lossy(&ledger.validator_list()).into_owned();
+        return (StatusCode::OK, list);
+    }
+    if let Some(answered) = validators_request(ledger, path, &body) {
+        return match answered {
+            Ok(()) => (StatusCode::OK, "{}".into()),
+            Err(error) => (
+                StatusCode::BAD_REQUEST,
+                serde_json::json!({ "error": error }).to_string(),
+            ),
+        };
+    }
+    let destination = body
+        .get("destination")
+        .and_then(serde_json::Value::as_str)
+        .and_then(AccountId::parse);
+    let no_destination = || {
+        (
+            StatusCode::BAD_REQUEST,
+            r#"{"error":"no destination"}"#.to_string(),
+        )
+    };
+    if path == "/deposit" {
+        // `{"destination": "r…", "drops": "1000000"}`: XRP from outside,
+        // in the next ledger, as an owner funds an account.
+        let drops = body
+            .get("drops")
             .and_then(serde_json::Value::as_str)
-            .and_then(AccountId::parse);
-        let Some(destination) = destination else {
+            .and_then(|drops| drops.parse::<u64>().ok())
+            .filter(|drops| (1..=MAX_DEPOSIT_DROPS).contains(drops));
+        let (Some(destination), Some(drops)) = (destination, drops) else {
             return (
                 StatusCode::BAD_REQUEST,
-                r#"{"error":"no destination"}"#.into(),
+                r#"{"error":"no destination or drops"}"#.into(),
             );
+        };
+        ledger.deposit(destination, drops);
+        return (StatusCode::OK, r#"{"queued":true}"#.into());
+    }
+    let Some(action) = path.strip_prefix("/tokens/") else {
+        // The faucet: `{"destination": "r…"}` gets 1000 test XRP in the
+        // next ledger. Mainnet has none.
+        if ledger.network().faucet.is_none() {
+            return (StatusCode::NOT_FOUND, r#"{"error":"no faucet"}"#.into());
+        }
+        let Some(destination) = destination else {
+            return no_destination();
         };
         ledger.fund(destination);
         return (
@@ -325,7 +436,63 @@ fn answer(ledger: &mut FakeLedger, path: &str, body: &[u8]) -> (StatusCode, Stri
     }
 }
 
-/// The issuer of the fake's test RLUSD, or of the token `"token"` names
+/// What the validators and the server do on request, at once; `None` if
+/// `path` is none of theirs.
+///
+/// - `/lie`, `{"kind": "altered-object"}`: every connection, open or to
+///   come, tells that lie ([`Lie::name`]); `"honest"` ends it.
+/// - `/validators/rotate`, `{"validator": 0}`: the validator signs with a
+///   new key from the next ledger.
+/// - `/validators/withhold`, `{"validator": 0, "on": true}`: it signs
+///   nothing while on.
+/// - `/validators/revoke`, `{"validator": 0}`: it revokes its master key.
+/// - `/validators/publish`, `{"expiration": 900000000}`: the publisher
+///   publishes a list of the validators as their keys stand, expiring
+///   then, in seconds since 2000-01-01, and in effect from `"effective"`,
+///   if given.
+fn validators_request(
+    ledger: &mut FakeLedger,
+    path: &str,
+    body: &serde_json::Value,
+) -> Option<Result<(), &'static str>> {
+    let validator = || {
+        body.get("validator")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|index| usize::try_from(index).ok())
+            .filter(|index| *index < dassie_xrpl::fake::VALIDATORS)
+            .ok_or("no validator")
+    };
+    let seconds = |key: &str| {
+        body.get(key)
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|seconds| u32::try_from(seconds).ok())
+    };
+    Some(match path {
+        "/lie" => match body.get("kind").and_then(serde_json::Value::as_str) {
+            Some("honest") => {
+                ledger.set_lie_for_all(None);
+                Ok(())
+            }
+            Some(kind) => Lie::by_name(kind)
+                .map(|lie| ledger.set_lie_for_all(Some(lie)))
+                .ok_or("no such lie"),
+            None => Err("no kind"),
+        },
+        "/validators/rotate" => validator().map(|index| ledger.rotate_validator(index)),
+        "/validators/revoke" => validator().map(|index| ledger.revoke_validator(index)),
+        "/validators/withhold" => validator().and_then(|index| {
+            let on = body.get("on").and_then(serde_json::Value::as_bool);
+            on.map(|on| ledger.withhold_validator(index, on))
+                .ok_or("no on")
+        }),
+        "/validators/publish" => seconds("expiration")
+            .map(|expiration| ledger.publish_validator_list(expiration, seconds("effective")))
+            .ok_or("no expiration"),
+        _ => return None,
+    })
+}
+
+/// The issuer of the fake's dollar token, or of the token `"token"` names
 /// (`"RLUSD"` or `"DSUSD"`), does `action`, in the next ledger; `None` if
 /// there is no such action.
 ///
@@ -348,7 +515,7 @@ fn issuer_request(
     body: &serde_json::Value,
 ) -> Option<Result<(), &'static str>> {
     let token = match body.get("token") {
-        None => Token::RLUSD,
+        None => dollar(ledger),
         Some(code) => match code.as_str().and_then(Token::by_code) {
             Some(token) => token,
             None => return Some(Err("no such token")),
@@ -416,6 +583,17 @@ fn issuer_request(
     })
 }
 
+/// The dollar token of the fake's network, which a request to its issuer
+/// is of unless it names another: DSUSD on the testnet, RLUSD on mainnet,
+/// where only RLUSD runs (spec/decisions/mainnet-schemes.md).
+fn dollar(ledger: &FakeLedger) -> Token {
+    if *ledger.network() == dassie_xrpl::network::MAINNET {
+        Token::RLUSD
+    } else {
+        Token::DSUSD
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::indexing_slicing)]
 mod tests {
@@ -431,14 +609,15 @@ mod tests {
         TokenValue::parse(text).unwrap()
     }
 
-    /// A holder with a line to the issuer, as the scheme makes it.
-    fn holder(ledger: &mut FakeLedger) -> AccountId {
+    /// A holder with a line to the issuer of `token`, as the scheme makes
+    /// it.
+    fn holder(ledger: &mut FakeLedger, token: Token) -> AccountId {
         let wallet = Wallet::from_seed([1; 16]);
         ledger.deposit(wallet.account(), 100_000_000);
         ledger.close();
         let signed = TrustSet {
             account: wallet.account(),
-            limit: Token::RLUSD.amount(TokenValue::MAX),
+            limit: token.amount(TokenValue::MAX),
             fee: FEE_BASE,
             // A new account's first sequence is the ledger it was made in.
             sequence: ledger.ledger(),
@@ -464,15 +643,16 @@ mod tests {
         status
     }
 
+    // A request that names no token is of DSUSD's issuer, the testnet's.
     #[test]
     fn the_issuer_mints_freezes_and_claws_back_on_request() {
         let mut ledger = FakeLedger::new();
-        let holder = holder(&mut ledger);
+        let holder = holder(&mut ledger, Token::DSUSD);
         let address = holder.to_address();
-        let held = |ledger: &FakeLedger| ledger.token_balance(holder, Token::RLUSD);
+        let held = |ledger: &FakeLedger| ledger.token_balance(holder, Token::DSUSD);
         let theirs = |ledger: &FakeLedger| {
             let line = ledger
-                .line(holder, RLUSD_ISSUER, Token::RLUSD.currency)
+                .line(holder, DSUSD_ISSUER, Token::DSUSD.currency)
                 .unwrap();
             line.view(holder).unwrap().theirs
         };
@@ -492,7 +672,7 @@ mod tests {
             ask(&mut ledger, "/tokens/global-freeze", &global),
             StatusCode::OK
         );
-        let flags = ledger.account_flags(RLUSD_ISSUER).unwrap();
+        let flags = ledger.account_flags(DSUSD_ISSUER).unwrap();
         assert_ne!(flags & account_flags::GLOBAL_FREEZE, 0);
         let rate = json!({ "rate": 1_002_000_000 });
         assert_eq!(
@@ -535,6 +715,12 @@ mod tests {
             Some(value("7"))
         );
         assert_eq!(ledger.token_balance(wallet.account(), Token::RLUSD), None);
+        // RLUSD's issuer is mainnet's, which the testnet does not have.
+        let rlusd = json!({ "token": "RLUSD", "destination": address, "value": "7" });
+        assert_eq!(
+            ask(&mut ledger, "/tokens/mint", &rlusd),
+            StatusCode::BAD_REQUEST
+        );
         let on = json!({ "token": "DSUSD", "account": address, "on": true });
         assert_eq!(ask(&mut ledger, "/tokens/freeze", &on), StatusCode::OK);
         let line = ledger
@@ -549,12 +735,35 @@ mod tests {
         assert!(ledger.tokens_conserved());
     }
 
+    // On mainnet, a request that names no token is of RLUSD's issuer, at
+    // its mainnet address; DSUSD is not there.
+    #[test]
+    fn on_mainnet_the_rlusd_issuer_takes_requests() {
+        let mut ledger = FakeLedger::mainnet();
+        let holder = holder(&mut ledger, Token::RLUSD);
+        let address = holder.to_address();
+        let mint = json!({ "destination": address, "value": "3" });
+        assert_eq!(ask(&mut ledger, "/tokens/mint", &mint), StatusCode::OK);
+        assert_eq!(ledger.token_balance(holder, Token::RLUSD), Some(value("3")));
+        assert!(
+            ledger
+                .line(holder, RLUSD_ISSUER, Token::RLUSD.currency)
+                .is_some()
+        );
+        let dsusd = json!({ "token": "DSUSD", "destination": address, "value": "3" });
+        assert_eq!(
+            ask(&mut ledger, "/tokens/mint", &dsusd),
+            StatusCode::BAD_REQUEST
+        );
+        assert!(ledger.tokens_conserved());
+    }
+
     #[test]
     fn the_issuer_makes_and_sets_a_pool_on_request() {
         let mut ledger = FakeLedger::new();
         let pool = json!({ "drops": "1000000000", "value": "500", "fee": 500 });
         assert_eq!(ask(&mut ledger, "/tokens/amm", &pool), StatusCode::OK);
-        let state = ledger.pool(Token::RLUSD).unwrap();
+        let state = ledger.pool(Token::DSUSD).unwrap();
         assert_eq!(
             (state.drops, state.value, state.trading_fee),
             (1_000_000_000, value("500"), 500)
@@ -564,16 +773,16 @@ mod tests {
             "drops": "2000000000",
             "value": "250.5",
             "fee": 0,
-            "currency": Token::RLUSD.currency.to_string(),
-            "issuer": RLUSD_ISSUER.to_address(),
+            "currency": Token::DSUSD.currency.to_string(),
+            "issuer": DSUSD_ISSUER.to_address(),
         });
         assert_eq!(ask(&mut ledger, "/tokens/amm", &again), StatusCode::OK);
-        let state = ledger.pool(Token::RLUSD).unwrap();
+        let state = ledger.pool(Token::DSUSD).unwrap();
         assert_eq!(
             (state.drops, state.value, state.trading_fee),
             (2_000_000_000, value("250.5"), 0)
         );
-        // The DSUSD issuer's pool, named by its code.
+        // Named by its code.
         let dsusd = json!({ "token": "DSUSD", "drops": "3000000000", "value": "4", "fee": 300 });
         assert_eq!(ask(&mut ledger, "/tokens/amm", &dsusd), StatusCode::OK);
         let state = ledger.pool(Token::DSUSD).unwrap();
@@ -639,5 +848,109 @@ mod tests {
         let fund = json!({ "destination": address });
         assert_eq!(ask(&mut ledger, "/accounts", &fund), StatusCode::OK);
         assert!(ledger.balance(someone).is_some());
+    }
+
+    // Mainnet has no faucet: an account there is funded by a deposit from
+    // outside, as an owner sends XRP, which either network takes.
+    #[test]
+    fn mainnet_takes_deposits_and_has_no_faucet() {
+        let mut ledger = FakeLedger::mainnet();
+        let someone = AccountId([7; 20]);
+        let address = someone.to_address();
+        let fund = json!({ "destination": address });
+        assert_eq!(ask(&mut ledger, "/accounts", &fund), StatusCode::NOT_FOUND);
+        assert_eq!(ledger.balance(someone), None);
+        for refused in [
+            json!({ "destination": address }),
+            json!({ "destination": address, "drops": 5 }),
+            json!({ "destination": address, "drops": "0" }),
+            json!({ "destination": address, "drops": (MAX_DEPOSIT_DROPS + 1).to_string() }),
+            json!({ "drops": "5" }),
+        ] {
+            assert_eq!(
+                ask(&mut ledger, "/deposit", &refused),
+                StatusCode::BAD_REQUEST,
+                "{refused}"
+            );
+        }
+        assert_eq!(ledger.queued(), 0);
+        let deposit = json!({ "destination": address, "drops": "50000000" });
+        assert_eq!(ask(&mut ledger, "/deposit", &deposit), StatusCode::OK);
+        assert_eq!(ledger.balance(someone), Some(50_000_000));
+        let mut testnet = FakeLedger::new();
+        assert_eq!(ask(&mut testnet, "/deposit", &deposit), StatusCode::OK);
+        assert_eq!(testnet.balance(someone), Some(50_000_000));
+    }
+
+    /// What the ledger answers `request` on connection 1.
+    fn command(ledger: &mut FakeLedger, request: &serde_json::Value) -> serde_json::Value {
+        let reply = ledger.request(1, &serde_json::to_vec(request).unwrap());
+        serde_json::from_slice(&reply).unwrap()
+    }
+
+    #[test]
+    fn the_list_is_served_and_the_validators_and_lies_change_on_request() {
+        let mut ledger = FakeLedger::new();
+        let (status, list) = answer(&mut ledger, "/vl", b"");
+        assert_eq!(status, StatusCode::OK);
+        let message = dassie_xrpl::validator_list::Message::parse(list.as_bytes()).unwrap();
+        assert_eq!(message.publisher, ledger.publisher_key());
+        // A validator's key rotates at once, and a list carries it once
+        // published.
+        let rotate = json!({ "validator": 0 });
+        assert_eq!(
+            ask(&mut ledger, "/validators/rotate", &rotate),
+            StatusCode::OK
+        );
+        let master = ledger.validator_keys()[0].to_node_public();
+        let manifest = command(
+            &mut ledger,
+            &json!({ "command": "manifest", "public_key": master }),
+        );
+        assert_eq!(manifest["result"]["details"]["seq"], 2);
+        let publish = json!({ "expiration": 900_000_000 });
+        assert_eq!(
+            ask(&mut ledger, "/validators/publish", &publish),
+            StatusCode::OK
+        );
+        let (_, list) = answer(&mut ledger, "/vl", b"");
+        let message = dassie_xrpl::validator_list::Message::parse(list.as_bytes()).unwrap();
+        let blob = dassie_xrpl::validator_list::List::parse(&message.blobs[0].blob).unwrap();
+        assert_eq!((blob.sequence, blob.expiration), (2, 900_000_000));
+        let withhold = json!({ "validator": 1, "on": true });
+        assert_eq!(
+            ask(&mut ledger, "/validators/withhold", &withhold),
+            StatusCode::OK
+        );
+        let revoke = json!({ "validator": 2 });
+        assert_eq!(
+            ask(&mut ledger, "/validators/revoke", &revoke),
+            StatusCode::OK
+        );
+        // Every connection lies, then is honest again.
+        let proof = json!({ "command": "state_proof", "keys": [dassie_xrpl::hex_upper(&[1; 32])] });
+        assert_eq!(
+            ask(&mut ledger, "/lie", &json!({ "kind": "refusal" })),
+            StatusCode::OK
+        );
+        assert_eq!(command(&mut ledger, &proof)["error"], "tooBusy");
+        assert_eq!(
+            ask(&mut ledger, "/lie", &json!({ "kind": "honest" })),
+            StatusCode::OK
+        );
+        assert_eq!(command(&mut ledger, &proof)["status"], "success");
+        for (path, body) in [
+            ("/lie", json!({ "kind": "truth" })),
+            ("/lie", json!({})),
+            ("/validators/rotate", json!({ "validator": 9 })),
+            ("/validators/withhold", json!({ "validator": 0 })),
+            ("/validators/publish", json!({})),
+        ] {
+            assert_eq!(
+                ask(&mut ledger, path, &body),
+                StatusCode::BAD_REQUEST,
+                "{path} {body}"
+            );
+        }
     }
 }

@@ -32,7 +32,8 @@ message Ledger {
   string deposit_address = 10;
   // How the scheme stands with its underlying ledger.
   LedgerConnection connection = 11;
-  // Why, when it is FAILED.
+  // Why, when it is FAILED; otherwise what it waits for, if something
+  // keeps it from going on, such as a validator list it has none of.
   string connection_problem = 12;
   // Whether the node can ask a faucet for test money on it: AskFaucet.
   bool faucet = 13;
@@ -42,6 +43,33 @@ message Ledger {
   // underlying ledger, which what the owner deposits must name. Empty for
   // the ledger's own asset.
   string issuer = 15;
+  // What the peg guard of a dollar token's scheme says
+  // (spec/areas/xrpl.md#the-peg-guard); absent for a scheme without one.
+  LedgerPeg peg = 16;
+}
+
+// A dollar token's peg guard: whether it pauses the scheme, and the token's
+// price at the last reading of its AMM pool that counted.
+message LedgerPeg {
+  // Why the scheme is paused; UNSPECIFIED while it runs. Paused, it
+  // settles nothing, peers are not asked to pay on it, and nothing
+  // converts to or from its ledger; what arrives is still booked.
+  PegPause paused = 1;
+  // The token's price at the last reading that counted, in millionths of
+  // a dollar; absent before one counted.
+  optional uint64 price_ppm = 2;
+  // The validated ledger that reading is as of.
+  uint32 ledger_index = 3;
+}
+
+enum PegPause {
+  // Not paused.
+  PEG_PAUSE_UNSPECIFIED = 0;
+  // Its pool prices the token off a dollar, and has for the guard's hold.
+  PEG_PAUSE_OFF_PEG = 1;
+  // No reading of its pool has counted for too long: the pool unread or
+  // too thin, or the node's XRP rate stale. The guard fails closed.
+  PEG_PAUSE_STALE = 2;
 }
 
 enum LedgerConnection {
@@ -132,10 +160,11 @@ message ExternalAsset {
   repeated Holding holdings = 3;
   // How it stands with its ledger.
   LedgerConnection connection = 4;
-  // Why, when it is FAILED.
+  // Why, when it is FAILED; otherwise what it waits for, if something
+  // keeps it from going on, such as a validator list it has none of.
   string connection_problem = 5;
   // The settlement schemes that settle through it, for example
-  // "xrpl-testnet" and "xrpl-testnet-rlusd".
+  // "xrpl-testnet" and "xrpl-testnet-dsusd".
   repeated string settlement_schemes = 6;
   // Whether the node can ask a faucet for test money on it: AskFaucet
   // with any of its schemes.

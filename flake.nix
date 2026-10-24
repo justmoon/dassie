@@ -84,9 +84,10 @@
           # generates its messages from, the test certificates two
           # in-process daemons peer with, minisign's signatures with the
           # release test key, and the release's resources: its key, once
-          # made, the systemd units and install.sh. Not the proof servers'
-          # files, which no crate reads, so that changing them rebuilds
-          # nothing.
+          # made, the systemd units and install.sh. Of the proof servers'
+          # files only their xrpld configs, whose history a test holds
+          # above the account's history bound, so that changing the rest
+          # rebuilds nothing.
           src = lib.fileset.toSource {
             root = ./.;
             fileset = lib.fileset.unions [
@@ -97,6 +98,8 @@
               ./crates
               ./proto
               (lib.fileset.difference ./resources ./resources/proof-server)
+              ./resources/proof-server/xrpld-mainnet.cfg
+              ./resources/proof-server/xrpld-testnet.cfg
               ./testdata/feed
               ./testdata/pebble
               ./testdata/release

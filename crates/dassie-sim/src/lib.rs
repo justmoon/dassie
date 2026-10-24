@@ -32,7 +32,7 @@ pub struct Sim {
 /// run that takes a millisecond costs a campaign almost nothing, so the
 /// time goes to the simulations whose runs take seconds, and most of it to
 /// the `node` simulation.
-pub static SIMS: [Sim; 14] = [
+pub static SIMS: [Sim; 16] = [
     Sim {
         name: "node",
         about: "whole nodes' engine cores, with a network, faults and payments drawn per seed, \
@@ -78,6 +78,21 @@ pub static SIMS: [Sim; 14] = [
         weight: 5,
     },
     Sim {
+        name: "node-xrpl-lies",
+        about: "the same on the fake XRP Ledger, its servers telling each kind of lie in turn, \
+                while its validators rotate a key, withhold a quorum and let a list lapse",
+        describe: dassie_node::sim::scripted::describe,
+        run: dassie_node::sim::scripted::run_lies,
+        weight: 5,
+    },
+    Sim {
+        name: "node-xrpl-live",
+        about: "the same in the live realm, settling on the fake XRP Ledger's mainnet",
+        describe: dassie_node::sim::scripted::describe,
+        run: dassie_node::sim::scripted::run_xrpl_live,
+        weight: 5,
+    },
+    Sim {
         name: "node-currencies",
         about: "the same across dollars and XRP, through a node that converts and charges",
         describe: dassie_node::sim::scripted::describe_across,
@@ -88,14 +103,14 @@ pub static SIMS: [Sim; 14] = [
     },
     Sim {
         name: "node-rlusd",
-        about: "the same, settling in RLUSD, while its issuer claws back and freezes lines",
+        about: "the same in the live realm, settling in RLUSD on the fake mainnet, while its issuer claws back and freezes lines",
         describe: dassie_node::sim::scripted::describe,
         run: dassie_node::sim::scripted::run_rlusd,
         weight: 5,
     },
     Sim {
         name: "node-xrp-rlusd",
-        about: "the same across RLUSD and XRP, both schemes on one account at the nodes that run both",
+        about: "the same across RLUSD and XRP in the live realm, both schemes on one mainnet account at the nodes that run both",
         describe: dassie_node::sim::scripted::describe_xrp_rlusd,
         run: dassie_node::sim::scripted::run_xrp_rlusd,
         weight: 5,

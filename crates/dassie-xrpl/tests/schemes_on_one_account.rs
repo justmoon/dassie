@@ -1,5 +1,5 @@
 //! Two schemes on the node's first XRPL testnet account, against the fake
-//! ledger, as RLUSD shares it with `xrpl-testnet`
+//! ledger, as DSUSD shares it with `xrpl-testnet`
 //! (spec/areas/settlement.md#external-assets): the `xrpl-testnet` scheme,
 //! and a witness that books nothing and keeps the account running while
 //! the other is away. What a scheme misses while it is not on the account,
@@ -47,12 +47,14 @@ struct Shared {
     connection: u64,
     /// Whether the network loses submissions.
     drop_submits: bool,
-    /// Whether the server answers no lookup of a transaction.
+    /// Whether the server answers no lookup of a transaction: no proof
+    /// asked for without its ledger.
     drop_lookups: bool,
     /// Whether the books refuse what the `xrpl-testnet` scheme is next told
     /// of its own, which stops it.
     refuse_own: bool,
-    /// What a server's answer to a lookup is changed to say.
+    /// What a server's answer to a proof of a transaction is changed to
+    /// say.
     tamper_lookup: Option<fn(&mut serde_json::Value)>,
     now: u64,
 }
@@ -60,7 +62,9 @@ struct Shared {
 impl Shared {
     fn new(ledger: FakeLedger, state: &[u8], witness: Option<(u32, u32)>) -> Self {
         let schemes = [XRPL, WITNESS];
-        let account = XrplAccount::new(account::FIRST, &schemes, "", &ENTROPY, state).unwrap();
+        // It trusts the fake ledger's validators.
+        let config = dassie_xrpl::fake::with_publishers("", &dassie_xrpl::network::TESTNET);
+        let account = XrplAccount::new(account::FIRST, &schemes, &config, &ENTROPY, state).unwrap();
         Self {
             ledger,
             account,
@@ -74,7 +78,7 @@ impl Shared {
             drop_lookups: false,
             refuse_own: false,
             tamper_lookup: None,
-            now: 1_000,
+            now: dassie_xrpl::fake::FIRST_CLOSE_MS,
         }
     }
 
@@ -139,12 +143,22 @@ impl Shared {
                 AssetEffect::Send { message } => self.request(&message),
                 AssetEffect::Reconnect => self.connect(),
                 AssetEffect::Fund { .. } => panic!("the account exists"),
+                AssetEffect::Fetch { url, .. } => {
+                    let body = self.ledger.fetch(&url);
+                    let fetched = LedgerInput::Fetched {
+                        url: &url,
+                        body: body.as_deref(),
+                    };
+                    self.input(fetched);
+                }
                 AssetEffect::SendTo { .. } => panic!("an XRPL account names no endpoints"),
             }
         }
     }
 
     fn input(&mut self, input: LedgerInput<'_>) {
+        // The node's clock reads the ledger's validations as fresh.
+        self.now = self.now.max(self.ledger.now_ms());
         self.account.on_ledger(self.now, input);
         self.tell();
     }
@@ -154,11 +168,14 @@ impl Shared {
         if self.drop_submits && request["command"] == "submit" {
             return;
         }
-        if self.drop_lookups && request["command"] == "tx" {
+        let proof = request["command"] == "tx_proof";
+        if self.drop_lookups && proof && request.get("ledger_index").is_none() {
             return;
         }
+        // A lookup is its proof and the transaction's bytes, from `tx`.
+        let lookup = proof || request["command"] == "tx";
         let mut reply = self.ledger.request(self.connection, message);
-        if let (Some(tamper), true) = (self.tamper_lookup, request["command"] == "tx") {
+        if let (Some(tamper), true) = (self.tamper_lookup, lookup) {
             let mut answer: serde_json::Value = serde_json::from_slice(&reply).unwrap();
             tamper(&mut answer);
             reply = serde_json::to_vec(&answer).unwrap();
@@ -177,10 +194,36 @@ impl Shared {
 
     fn close(&mut self) {
         self.now += 4_000;
-        for (connection, message) in self.ledger.close() {
+        let close_time = dassie_xrpl::unl::ledger_seconds(self.now);
+        for (connection, message) in self.ledger.close_at(close_time) {
             if connection == self.connection {
                 self.input(LedgerInput::Message(&message));
             }
+        }
+    }
+
+    fn closes(&mut self, count: usize) {
+        for _ in 0..count {
+            self.close();
+        }
+    }
+
+    /// Time passes, by `ms`, without a ledger closing.
+    fn wait(&mut self, ms: u64) {
+        self.now += ms;
+        self.account.on_timer(self.now);
+        self.tell();
+    }
+
+    /// More ledgers than the history bound close while the account is
+    /// away, and its server forgets the ledgers past what it keeps: the
+    /// history the account walks has a gap.
+    fn away_beyond_the_bound(&mut self) {
+        self.account.on_ledger(self.now, LedgerInput::Disconnected);
+        for _ in 0..account::HISTORY_BOUND + 300 {
+            self.now += 4_000;
+            self.ledger
+                .close_at(dassie_xrpl::unl::ledger_seconds(self.now));
         }
     }
 
@@ -273,8 +316,9 @@ fn synced() -> (Shared, AccountId) {
 /// on its way; what happens to it then, `meanwhile` makes. The node then
 /// restarts: the account from what the witness had it write, the scheme
 /// from what it wrote before it stopped, with its settlement still pending
-/// in the books. With `short_history`, the server's account history no
-/// longer reaches back to the settlement when it does.
+/// in the books. With `short_history`, the server's account history
+/// (`account_tx`) no longer reaches back to the settlement when it does:
+/// a hint the account does not need.
 fn stopped_while_settling(
     drop_submits: bool,
     meanwhile: usize,
@@ -421,10 +465,9 @@ fn a_settlement_validated_while_its_scheme_stopped_is_booked_once() {
 }
 
 // Found in review: as above, with a server whose account history no longer
-// reaches back to the settlement. The sync books what the balance lost
-// through suspense; the settlement, looked up by its hash, is posted with
-// its fee, and what the balance booked comes back out of suspense, so the
-// books hold the balance once, not the settlement twice.
+// reaches back to the settlement. The account walks the history the proven
+// state names, which finds the settlement by its hash: it is posted once
+// with its fee, and nothing goes through suspense.
 #[test]
 fn a_settlement_validated_while_its_scheme_stopped_is_booked_once_without_its_history() {
     let (shared, id) = stopped_while_settling(false, 2, true);
@@ -457,18 +500,23 @@ fn a_settlement_validated_while_its_scheme_stopped_is_booked_once_without_its_hi
     assert_eq!(shared.scheme().status(), LedgerStatus::Synced);
 }
 
-// As above, with the node restarting again after the sync and before the
-// lookup: the scheme keeps that it never read the settlement with its
-// state, so it still books it as one it never read.
+// spec/designs/xrpl-validation.md#6-the-account-on-proofs: a settlement
+// validated while its scheme was stopped, in history the server no longer
+// has beyond the history bound, is one the scheme never reads again: the
+// account tells it so, the sync books what the balance lost through
+// suspense, and the scheme keeps that it never read it with its state,
+// across another restart. No server has it to prove, so it stays pending
+// for the owner: never cancelled, nor booked twice.
 #[test]
-fn a_settlement_never_read_is_booked_once_across_a_restart() {
+fn a_settlement_never_read_stays_pending_across_a_restart() {
     let (mut shared, theirs) = synced();
+    shared.closes(260);
     let id = shared.settle(theirs);
     let (state, checkpoint) = (shared.scheme().state(), shared.scheme().balance());
     shared.stop();
     shared.close();
     shared.close();
-    shared.ledger.shorten_account_history();
+    shared.away_beyond_the_bound();
     let kept = shared.account.state();
     let mut restarted = Shared::new(shared.ledger, &kept, None);
     restarted.activate(Some(checkpoint), &state);
@@ -476,6 +524,12 @@ fn a_settlement_never_read_is_booked_once_across_a_restart() {
     // Synced, and told what it did not read, but not yet looked up.
     restarted.drop_lookups = true;
     restarted.connect();
+    assert_eq!(restarted.account.history_gaps(), 1);
+    let unread = |shared: &Shared| {
+        let state: serde_json::Value = serde_json::from_slice(&shared.scheme().state()).unwrap();
+        state["unread"].as_array().map_or(0, Vec::len)
+    };
+    assert_eq!(unread(&restarted), 1);
     let synced_books = restarted.books();
     let (state, checkpoint) = (restarted.scheme().state(), restarted.scheme().balance());
     assert_eq!(synced_books, i128::from(checkpoint));
@@ -486,8 +540,11 @@ fn a_settlement_never_read_is_booked_once_across_a_restart() {
     again.connect();
     again.close();
     again.close();
-    let finalized = again.count(|e| *e == Effect::Finalize { settlement: id });
-    assert_eq!(finalized, 1, "{:?}", again.booked);
+    assert_eq!(unread(&again), 1);
+    let settled = again.count(|e| {
+        matches!(e, Effect::Finalize { settlement } | Effect::Cancel { settlement } if *settlement == id)
+    });
+    assert_eq!(settled, 0, "{:?}", again.booked);
     assert_eq!(again.scheme().balance(), again.bookable());
     assert_eq!(
         again.books(),
@@ -523,8 +580,8 @@ fn a_settlement_told_in_a_refused_batch_is_booked_once() {
 }
 
 // As above, with a server whose account history no longer reaches back to
-// the settlement: the scheme is told it did not read it again, and books it
-// once found.
+// the settlement: a hint the account does not need, as the history the
+// proven state names finds it, and it is booked once.
 #[test]
 fn a_settlement_told_in_a_refused_batch_is_booked_once_without_its_history() {
     let (shared, id) = refused_while_settling(false, true);
@@ -569,41 +626,66 @@ fn a_settlement_given_up_in_a_refused_batch_is_cancelled() {
     assert_eq!(shared.scheme().balance(), shared.bookable());
 }
 
-/// Past what the books can hold for the account, within what the parser
-/// takes.
-const TOO_MANY_DROPS: &str = "99999999999999999";
+/// Changes the last hex digit of `answer`'s `key`.
+fn flip(answer: &mut serde_json::Value, key: &str) {
+    let Some(text) = answer["result"][key].as_str() else {
+        return;
+    };
+    let mut text = text.to_owned();
+    let last = if text.ends_with('0') { "1" } else { "0" };
+    text.pop();
+    text.push_str(last);
+    answer["result"][key] = text.into();
+}
 
-// Found in review: a server's answer to a lookup names more XRP than the
-// books can hold, for its fee or for what it delivered. The account stops,
-// as it does for such a transaction from the stream, and the scheme books
-// nothing of it, rather than the node panicking.
+// spec/designs/xrpl-validation.md#4-what-is-proven-and-how: a lookup is
+// told only once its proof holds. A settlement the scheme settled while the
+// node did not post it is looked up after a restart; answers whose bytes
+// or metadata (from `tx` in binary), header or branch were changed prove
+// nothing: the scheme books nothing of them, and the account connects
+// anew. Once the server is honest, the settlement is posted once.
 #[test]
-fn a_lookup_past_what_the_books_hold_stops_the_account() {
-    let tampers: [fn(&mut serde_json::Value); 2] = [
-        |answer| answer["result"]["Fee"] = TOO_MANY_DROPS.into(),
-        |answer| answer["result"]["meta"]["delivered_amount"] = TOO_MANY_DROPS.into(),
+fn a_lookup_that_does_not_prove_books_nothing() {
+    let tampers: [fn(&mut serde_json::Value); 4] = [
+        |answer| flip(answer, "tx"),
+        |answer| flip(answer, "meta"),
+        |answer| flip(answer, "ledger_header"),
+        |answer| answer["result"]["path"] = serde_json::json!([]),
     ];
     for tamper in tampers {
         let (mut shared, theirs) = synced();
         let id = shared.settle(theirs);
-        let (state, checkpoint) = (shared.scheme().state(), shared.scheme().balance());
-        shared.stop();
         shared.close();
-        shared.close();
-        shared.ledger.shorten_account_history();
-        shared.tamper_lookup = Some(tamper);
-        let restarted = restart(shared, checkpoint, &state, id);
-        assert!(
-            matches!(restarted.account.status(), LedgerStatus::Failed(_)),
-            "{:?}",
-            restarted.account.status()
+        assert_eq!(
+            shared.count(|e| *e == Effect::Finalize { settlement: id }),
+            1
         );
+        let (state, checkpoint) = (shared.scheme().state(), shared.scheme().balance());
+        // The node did not post it, and still holds it pending.
+        let kept = shared.account.state();
+        let mut restarted = Shared::new(shared.ledger, &kept, None);
+        restarted.tamper_lookup = Some(tamper);
+        restarted.activate(Some(checkpoint + AMOUNT), &state);
+        restarted.reconcile(&[(id, AMOUNT)]);
+        restarted.connect();
+        restarted.closes(2);
+        let lies: u64 = account::Doubt::ALL
+            .iter()
+            .map(|doubt| restarted.account.doubts(*doubt))
+            .sum();
+        assert!(lies > 0);
         let settled = restarted.count(|e| match e {
             Effect::Finalize { settlement } | Effect::Cancel { settlement } => *settlement == id,
             Effect::Fee { id: fee, .. } => *fee == id,
             _ => false,
         });
         assert_eq!(settled, 0, "{:?}", restarted.booked);
+        restarted.tamper_lookup = None;
+        restarted.wait(account::STALL_MS);
+        restarted.closes(2);
+        let finalized = restarted.count(|e| *e == Effect::Finalize { settlement: id });
+        assert_eq!(finalized, 1, "{:?}", restarted.booked);
+        assert_eq!(restarted.scheme().balance(), restarted.bookable());
     }
 }
 

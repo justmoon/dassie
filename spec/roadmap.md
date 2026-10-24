@@ -115,24 +115,16 @@ A new owner opens a setup URL, enters a passphrase and chooses a first ledger ([
 
 The node proves what it books against rippled servers patched with three public methods: `validations` for a ledger, `tx_proof` for a transaction, and `state_proof` for ledger objects with proofs of absence. Their names and shapes are the contract the node is built against ([the design](designs/xrpl-validation.md#3-the-proof-api)). Every answer proves itself, so a proof server is relied on only to answer ([verified-ledgers](decisions/verified-ledgers.md)). A condition for [real money](#real-money).
 
-The patch, its build and a public server per network run ([Proof servers](areas/proof-servers.md)).
+The patch, its build and a public server per network run ([Proof servers](areas/proof-servers.md)), and each network's server is its account's default ([XRPL](areas/xrpl.md)).
 
-- **What is left:**
-  - each network's server in the node's defaults: the testnet's in the account's, mainnet's with the mainnet account type ([Mainnet schemes](#mainnet-schemes));
-  - offering the patch upstream, so that any rippled may serve proofs.
+- **What is left:** offering the patch upstream, so that any rippled may serve proofs.
 - **Done when:** the node's defaults name each network's proof server, and the patch is offered upstream.
 
 ### Checking XRP Ledger validators
 
-The XRPL account takes its server's word on which ledgers are validated and what they hold ([XRPL](areas/xrpl.md#following-the-account)). Acting only on ledgers past the newest seen ([ledger-resets](decisions/ledger-resets.md)) protects against a server that lags, not one that lies: a dishonest server can make a scheme book a settlement that never arrived, cancel one that applied by calling it absent, or, on the testnet, claim a reset that writes off the node's balance. The node is to check the XRP Ledger's validators itself, on both networks, against proofs from [proof servers](#proof-servers), so that nothing is booked, cancelled or written off on a server's word. The design is [designs/xrpl-validation.md](designs/xrpl-validation.md); the reasons are [verified-ledgers](decisions/verified-ledgers.md). It is a condition for [real money](#real-money).
+The XRPL account anchors on ledgers its own UNL validated, and proves at each anchor what it reads ([XRPL](areas/xrpl.md#following-the-account)): a server that took its word could have a scheme book a settlement that never arrived, or cancel one that applied by calling it absent. The node checks the XRP Ledger's validators itself, on both networks, against proofs from [proof servers](#proof-servers), so that nothing is booked, cancelled or written off on a server's word. The design is [designs/xrpl-validation.md](designs/xrpl-validation.md); the reasons are [verified-ledgers](decisions/verified-ledgers.md). It is a condition for [real money](#real-money).
 
-- **Parts, each building on the one before:**
-  - the codec: a generic walker of canonical serializations, binary transactions, metadata and the ledger objects the account reads, and the ledger header, pinned field by field against golden captures from mainnet and the testnet;
-  - the branches: one check for both trees, proofs of absence, and the skip list;
-  - the UNL: signed validator lists fetched from their publishers, built-in publishers and a floor on the UNL per network, the owner's override, manifests, validations and quorum, with validation signatures behind the interface a simulation substitutes;
-  - the fake ledger: real headers and a real state tree, the three methods, validators and a publisher, and a server that lies in each way [the design](designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation) lists;
-  - the account on proofs: anchors, the state it follows proven at each, its history proven and checked complete, a transaction's absence by its account's sequence, the history bound, resets under the UNL, the lists fetched over HTTPS through the node, a default proof server per network, and the kept state and its migration;
-  - the `node` simulation's lying server with its coverage minimums, and end-to-end tests against `fake_ledger`'s validators.
+- **Left to build:** signing only from a fresh anchor; anchoring on fewer hints than each closed ledger's, as the design's triggers have it, once the schemes no longer need to hear of each ledger; and in the `node` simulation, testnet resets under the UNL, one of them while a node is down until the new chain has passed its anchor. The rest is built: each network's proof server as its default ([Proof servers](#proof-servers)), the verifier ([XRPL](areas/xrpl.md#the-validators-records)), the account on proofs ([XRPL](areas/xrpl.md#anchors), [XRPL](areas/xrpl.md#following-the-account)), the fake ledger's proofs and lying server, and the simulation and end-to-end tests against them ([XRPL](areas/xrpl.md#proofs-in-the-fake-ledger), [Testing](areas/testing.md#the-simulations)).
 - **Done when:** a server that reports a transaction, a balance, an issuer's flag, a pool or an absent account that no validated ledger holds, or a reset no quorum signed, gets nothing booked, written off or cancelled, and the scheme waits and reconnects until an honest server answers; a settlement that applied is never cancelled, whatever a server says of it; a transaction left out of the history is found by the next anchor; an expired or unreachable validator list, or a server that serves no proofs, stalls the scheme with its reason and never falls back to the server's word; with an honest proof server, the scheme settles as before, on both networks. In the simulation every XRPL node anchors, and every kind of lie is reached.
 - **Later:** the negative UNL, so that a node rides out a fifth of the UNL offline as rippled does.
 - Hub validators use the verifier to observe the escrow for mainnet hubs, as part of the launch: see [Settlement hubs](#settlement-hubs).
@@ -141,14 +133,7 @@ The XRPL account takes its server's word on which ledgers are validated and what
 
 Settling with real money on the XRP Ledger's mainnet, in XRP and in RLUSD ([mainnet-schemes](decisions/mainnet-schemes.md)), with no DSUSD on mainnet, and DSUSD as the testnet's stand-in for RLUSD. A condition for [real money](#real-money); the `live` realm stays refused after it.
 
-- **Parts that can be built side by side:**
-  - the account by network: one account type that takes its network as a constant (network ID, asset kind, seed path, default proof server, faucet, realm), the testnet's values unchanged, and the mainnet wallet at `node/settlement-module/xrpl/seed-mainnet` derived for every golden vector;
-  - `xrpl` and `xrpl-rlusd` on one mainnet account, with memo types of their own, and a test that every XRPL scheme's memo type, ledger and network are distinct;
-  - test RLUSD disabled: the testnet's RLUSD scheme no longer offered or activated, the bootstrap nodes without it, and every run of it moved to mainnet RLUSD in the live realm on the fake, or to DSUSD: dev's and the end-to-end tests' scenarios, the `node` simulation's scripted runs and the in-process tests;
-  - the realm gate: a ledger activates only in its node's realm, a node offers only its realm's schemes, a `live` realm stored in the database is refused at start, and the live realm runs in-process in tests, and in dev and the end-to-end tests through a switch only builds with debug assertions honour;
-  - the fake ledger's mainnet mode: mainnet's network ID, no faucet, RLUSD's mainnet issuer and a pool, never a reset;
-  - **the peg guard** ([issued-assets](decisions/issued-assets.md)), on one state proof of its pool ([above](#checking-xrp-ledger-validators)): mainnet RLUSD priced by mainnet's RLUSD/XRP pool and testnet DSUSD by its DSUSD/XRP pool, the scheme and the connector pausing both ways off the peg and when the reading is stale, the guard's state kept and shown to the owner;
-  - the wallet, dev and the end-to-end tests: the mainnet schemes' names, Receive without a faucet and with the reserve to send, the guard's state, a mainnet scenario on the fake, and a pool moved off its peg.
+- **Left to build:** a live node that takes none of the test network's defaults, its bootstrap nodes and its relay.
 - **Done when:** live-realm nodes against the mainnet fake settle in XRP and in RLUSD at addresses under `g.`; a test-realm node never activates a mainnet scheme, nor a live-realm node a testnet one; no node activates test RLUSD; a release binary refuses the dev switch; a pool moved off its peg pauses the token's scheme and its conversions once the guard's hold has passed, on mainnet RLUSD and on testnet DSUSD, and they resume after recovery, with nothing converted at par meanwhile, while what arrives is still booked; the guard pauses the scheme when its reading is stale.
 
 ### Settlement methods
@@ -186,7 +171,7 @@ Gaps between what the spec's contract or decisions ask for and what `main` does.
 
 ## Real money
 
-The `live` realm is refused, and the XRP Ledger mainnet has no scheme ([real-money](decisions/real-money.md), [XRP Ledger](areas/xrpl.md#real-money)). `live` is enabled only when all of these hold:
+The `live` realm is refused, so the XRP Ledger mainnet's scheme, `xrpl`, runs only by a dev switch no release build honours ([real-money](decisions/real-money.md), [XRP Ledger](areas/xrpl.md#real-money)). `live` is enabled only when all of these hold:
 
 - the peer protocol's sender authentication is in place ([Peer protocol](areas/peer-protocol.md));
 - the ledger is durable: journal and reconciliation ([Ledger](areas/ledger.md));
@@ -199,7 +184,7 @@ The `live` realm is refused, and the XRP Ledger mainnet has no scheme ([real-mon
 - there has been an external review;
 - a mainnet bootstrap node list exists.
 
-The first four are on `main`. Until the rest are, the testnet account stops unless its server reports the testnet's network ID, so a mainnet server never gets XRP booked or signed for with a testnet wallet; and the account still takes its server's word on what is validated. The issuer's conditions for a dollar token are decided ([issued-assets](decisions/issued-assets.md)): the issuer is the owner's counterparty, its freezes and clawbacks are booked as built, and the scheme pauses while its pool prices it off its peg, once the guard is built.
+The first four are on `main`, and so is each network's proof server, named in the node's defaults. Until the rest are, the testnet account stops unless its server reports the testnet's network ID, so a mainnet server never gets XRP booked or signed for with a testnet wallet; and the account proves what it reads against ledgers its UNL validated, from the project's proof servers by default ([Proof servers](#proof-servers)). The issuer's conditions for a dollar token are decided ([issued-assets](decisions/issued-assets.md)): the issuer is the owner's counterparty, its freezes and clawbacks are booked as built, and the scheme pauses while its pool prices it off its peg.
 
 ## Smaller open points
 
@@ -236,6 +221,6 @@ Designs that stay future work. The architecture must not preclude them.
 - [random-seed-simulations](decisions/random-seed-simulations.md): the simulation campaign.
 - [ledger-resets](decisions/ledger-resets.md): a lagging server is handled; a reset counts once the testnet's UNL validates it.
 - [default-relay](decisions/default-relay.md): the default relay, until an onboarding asks.
-- [issued-assets](decisions/issued-assets.md): the peg guard, test RLUSD disabled; transfer fees.
+- [issued-assets](decisions/issued-assets.md): the peg guard; transfer fees.
 - [settlement-methods](decisions/settlement-methods.md): settlement methods within a peering, and packets that keep their ledger.
 - [weighted-next-hops](decisions/weighted-next-hops.md): random next hops weighted by fees.

@@ -38,7 +38,7 @@ pub use self::core::{
     EngineError, EngineEvent, Event, HubHold, HubStatus, IncomingPolicy, LedgerEvent, LedgerView,
     Lie, Measured, Move, NetworkView, NewIncoming, NewOutgoing, NewToken, Outbound, Output,
     PaymentEvent, PeerEvent, PeerView, Prober, RemovalBlocker, SCHEMES, SettlementEvent, Severity,
-    TokenView, ledger_slug, offered,
+    TokenView, ledger_realm, ledger_slug, offered,
 };
 
 use crate::log::target;
@@ -615,6 +615,7 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         store: node.store_handle(),
         key,
         realm: node.config().realm,
+        live: node.live_realm(),
         policies: *node.policies(),
         rng: node.shared_rng(),
         peer_rng: node.shared_rng(),
@@ -878,7 +879,8 @@ impl Driver<'_> {
                 | Output::LedgerClose { .. }
                 | Output::LedgerSend { .. }
                 | Output::HubSend { .. }
-                | Output::Fund { .. } => {
+                | Output::Fund { .. }
+                | Output::Fetch { .. } => {
                     self.ledger_output(output);
                     continue;
                 }
@@ -939,6 +941,21 @@ impl Driver<'_> {
             } => {
                 let client = self.node.peer_client().cloned();
                 links::fund(client, self.commands.clone(), asset, epoch, url, body);
+            }
+            Output::Fetch {
+                asset,
+                epoch,
+                url,
+                max_bytes,
+            } => {
+                let client = self.node.peer_client().cloned();
+                let fetch = links::Fetch {
+                    asset,
+                    epoch,
+                    url,
+                    max_bytes,
+                };
+                links::fetch(client, self.commands.clone(), fetch);
             }
             Output::HubSend {
                 asset,

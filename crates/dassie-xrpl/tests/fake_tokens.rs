@@ -18,7 +18,7 @@ use dassie_xrpl::codec::{
     TokenAmount, TokenValue, Transact, TrustSet,
 };
 use dassie_xrpl::fake::{
-    ExactSum, FEE_BASE, FakeLedger, RESERVE_BASE, RESERVE_INC, RLUSD_CURRENCY, RLUSD_ISSUER, Token,
+    DSUSD_CURRENCY, DSUSD_ISSUER, ExactSum, FEE_BASE, FakeLedger, RESERVE_BASE, RESERVE_INC, Token,
 };
 use dassie_xrpl::{AccountId, Wallet, hex_upper};
 use proptest::prelude::*;
@@ -31,8 +31,8 @@ fn value(text: &str) -> TokenValue {
     TokenValue::parse(text).unwrap()
 }
 
-fn rlusd(text: &str) -> TokenAmount {
-    Token::RLUSD.amount(value(text))
+fn dsusd(text: &str) -> TokenAmount {
+    Token::DSUSD.amount(value(text))
 }
 
 fn wallet(seed: u8) -> Wallet {
@@ -151,12 +151,12 @@ fn pay(ledger: &mut FakeLedger, wallet: &Wallet, to: AccountId, amount: Amount) 
 
 /// The result of a validated Payment from `wallet`.
 fn paid(ledger: &mut FakeLedger, wallet: &Wallet, to: AccountId, amount: &str) -> TxRecord {
-    let hash = pay(ledger, wallet, to, Amount::Token(rlusd(amount)));
+    let hash = pay(ledger, wallet, to, Amount::Token(dsusd(amount)));
     close(ledger);
     tx(ledger, &hash)
 }
 
-/// Accounts funded with XRP, each with a line to RLUSD's issuer of the
+/// Accounts funded with XRP, each with a line to DSUSD's issuer of the
 /// largest limit, with NoRipple, as the scheme makes it.
 fn holders(ledger: &mut FakeLedger, seeds: &[u8]) -> Vec<Wallet> {
     let wallets: Vec<Wallet> = seeds.iter().map(|seed| wallet(*seed)).collect();
@@ -165,7 +165,7 @@ fn holders(ledger: &mut FakeLedger, seeds: &[u8]) -> Vec<Wallet> {
     }
     close(ledger);
     for wallet in &wallets {
-        let limit = Token::RLUSD.amount(TokenValue::MAX);
+        let limit = Token::DSUSD.amount(TokenValue::MAX);
         assert_eq!(
             trust(ledger, wallet, limit, TF_SET_NO_RIPPLE).0,
             "tesSUCCESS"
@@ -176,39 +176,66 @@ fn holders(ledger: &mut FakeLedger, seeds: &[u8]) -> Vec<Wallet> {
 }
 
 fn balance(ledger: &FakeLedger, holder: &Wallet) -> Option<TokenValue> {
-    ledger.token_balance(holder.account(), Token::RLUSD)
+    ledger.token_balance(holder.account(), Token::DSUSD)
 }
 
-/// Mints `amount` of RLUSD to `to` and closes.
+/// Mints `amount` of DSUSD to `to` and closes.
 fn mint(ledger: &mut FakeLedger, to: AccountId, amount: &str) -> TxRecord {
-    ledger.issue(to, rlusd(amount)).unwrap();
+    ledger.issue(to, dsusd(amount)).unwrap();
     close(ledger);
-    last(ledger, RLUSD_ISSUER)
+    last(ledger, DSUSD_ISSUER)
 }
 
+// spec/areas/xrpl.md#tokens-in-the-fake-ledger: the testnet's fake issues
+// DSUSD at its testnet address, mainnet's RLUSD at its mainnet address, and
+// neither the other's; test RLUSD, whose scheme is disabled, is on neither.
 #[test]
-fn the_fake_issues_rlusd_at_its_testnet_address() {
+fn each_network_issues_its_dollar_at_its_address() {
+    use dassie_xrpl::fake::{RLUSD_CURRENCY, RLUSD_ISSUER};
+
+    assert_eq!(
+        DSUSD_ISSUER.to_address(),
+        "rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M"
+    );
+    assert_eq!(
+        DSUSD_CURRENCY.to_string(),
+        "4453555344000000000000000000000000000000"
+    );
     assert_eq!(
         RLUSD_ISSUER.to_address(),
-        "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV"
+        "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De"
     );
     assert_eq!(
         RLUSD_CURRENCY.to_string(),
         "524C555344000000000000000000000000000000"
     );
-    let mut ledger = FakeLedger::new();
-    let result = request(
-        &mut ledger,
-        &json!({ "id": 1, "command": "account_info", "account": RLUSD_ISSUER.to_address() }),
-    )
-    .unwrap();
-    let settings = api::account_settings_result(&result).unwrap();
-    assert_eq!(
-        settings.flags,
-        account_flags::DEFAULT_RIPPLE | account_flags::ALLOW_TRUST_LINE_CLAWBACK
-    );
-    assert!(!settings.global_freeze() && !settings.charges_transfer_fee());
-    assert_eq!(ledger.total(), dassie_xrpl::MAX_DROPS);
+    let info = |ledger: &mut FakeLedger, issuer: AccountId| {
+        request(
+            ledger,
+            &json!({ "id": 1, "command": "account_info", "account": issuer.to_address() }),
+        )
+    };
+    let test_rlusd = dassie_xrpl::rlusd::TESTNET_ISSUER;
+    for (mut ledger, issuer, others) in [
+        (FakeLedger::new(), DSUSD_ISSUER, [RLUSD_ISSUER, test_rlusd]),
+        (
+            FakeLedger::mainnet(),
+            RLUSD_ISSUER,
+            [DSUSD_ISSUER, test_rlusd],
+        ),
+    ] {
+        let result = info(&mut ledger, issuer).unwrap();
+        let settings = api::account_settings_result(&result).unwrap();
+        assert_eq!(
+            settings.flags,
+            account_flags::DEFAULT_RIPPLE | account_flags::ALLOW_TRUST_LINE_CLAWBACK
+        );
+        assert!(!settings.global_freeze() && !settings.charges_transfer_fee());
+        for other in others {
+            assert!(info(&mut ledger, other).is_err(), "{other:?}");
+        }
+        assert_eq!(ledger.total(), dassie_xrpl::MAX_DROPS);
+    }
 }
 
 #[test]
@@ -217,18 +244,18 @@ fn a_line_is_the_holders_and_holds_its_reserve() {
     let holder = wallet(1);
     ledger.deposit(holder.account(), 100 * RESERVE_BASE);
     close(&mut ledger);
-    let limit = Token::RLUSD.amount(TokenValue::MAX);
+    let limit = Token::DSUSD.amount(TokenValue::MAX);
     let (code, hash) = trust(&mut ledger, &holder, limit, TF_SET_NO_RIPPLE);
     assert_eq!(code, "tesSUCCESS");
     let streamed = close(&mut ledger);
     assert_eq!(ledger.owner_count(holder.account()), Some(1));
-    assert_eq!(ledger.owner_count(RLUSD_ISSUER), Some(0));
+    assert_eq!(ledger.owner_count(DSUSD_ISSUER), Some(0));
     // The metadata says the line was made, and the holder's side holds
     // the reserve and disabled rippling; the issuer's ripples by default.
     let record = tx(&mut ledger, &hash);
     assert!(record.succeeded());
     let change = record
-        .line(holder.account(), RLUSD_ISSUER, RLUSD_CURRENCY)
+        .line(holder.account(), DSUSD_ISSUER, DSUSD_CURRENCY)
         .unwrap();
     assert!(change.before().is_none());
     let view = change.after().unwrap().view(holder.account()).unwrap();
@@ -245,8 +272,8 @@ fn a_line_is_the_holders_and_holds_its_reserve() {
         &serde_json::from_slice(&api::ripple_state(
             5,
             holder.account(),
-            RLUSD_ISSUER,
-            RLUSD_CURRENCY,
+            DSUSD_ISSUER,
+            DSUSD_CURRENCY,
         ))
         .unwrap(),
     )
@@ -254,7 +281,7 @@ fn a_line_is_the_holders_and_holds_its_reserve() {
     let entry = api::ripple_state_result(&entry).unwrap();
     assert_eq!(
         Some(entry.line),
-        ledger.line(RLUSD_ISSUER, holder.account(), RLUSD_CURRENCY)
+        ledger.line(DSUSD_ISSUER, holder.account(), DSUSD_CURRENCY)
     );
     assert_eq!(
         (entry.ledger_index, entry.validated),
@@ -267,8 +294,8 @@ fn a_line_is_the_holders_and_holds_its_reserve() {
         &serde_json::from_slice(&api::ripple_state(
             6,
             wallet(2).account(),
-            RLUSD_ISSUER,
-            RLUSD_CURRENCY,
+            DSUSD_ISSUER,
+            DSUSD_CURRENCY,
         ))
         .unwrap(),
     );
@@ -288,7 +315,7 @@ fn the_first_two_lines_need_no_reserve_and_the_third_does() {
     close(&mut ledger);
     let token = |issuer| Token {
         issuer,
-        currency: RLUSD_CURRENCY,
+        currency: DSUSD_CURRENCY,
     };
     for issuer in [issuers[0], issuers[1]] {
         let limit = token(issuer).amount(value("100"));
@@ -296,7 +323,7 @@ fn the_first_two_lines_need_no_reserve_and_the_third_does() {
         close(&mut ledger);
         assert!(last(&mut ledger, holder.account()).succeeded());
     }
-    let (_, hash) = trust(&mut ledger, &holder, rlusd("100"), 0);
+    let (_, hash) = trust(&mut ledger, &holder, dsusd("100"), 0);
     close(&mut ledger);
     let record = tx(&mut ledger, &hash);
     assert_eq!(record.result, "tecNO_LINE_INSUF_RESERVE");
@@ -306,7 +333,7 @@ fn the_first_two_lines_need_no_reserve_and_the_third_does() {
     // With the reserve of a third object, it goes.
     ledger.deposit(holder.account(), 3 * RESERVE_INC);
     close(&mut ledger);
-    assert_eq!(trust(&mut ledger, &holder, rlusd("100"), 0).0, "tesSUCCESS");
+    assert_eq!(trust(&mut ledger, &holder, dsusd("100"), 0).0, "tesSUCCESS");
     close(&mut ledger);
     assert_eq!(ledger.owner_count(holder.account()), Some(3));
 }
@@ -320,14 +347,14 @@ fn trust_sets_are_refused_as_the_ledger_refuses_them() {
     // To oneself, or with flags that contradict, nothing is queued.
     let own = TokenAmount {
         issuer: holder.account(),
-        ..rlusd("1")
+        ..dsusd("1")
     };
     assert_eq!(trust(&mut ledger, &holder, own, 0).0, "temDST_IS_SRC");
     assert_eq!(
         trust(
             &mut ledger,
             &holder,
-            rlusd("1"),
+            dsusd("1"),
             TF_SET_FREEZE | TF_CLEAR_FREEZE
         )
         .0,
@@ -337,25 +364,25 @@ fn trust_sets_are_refused_as_the_ledger_refuses_them() {
     // A line to no one, and a line in its default state, are not made.
     let nobody = TokenAmount {
         issuer: AccountId([0x33; 20]),
-        ..rlusd("1")
+        ..dsusd("1")
     };
     let (_, to_nobody) = trust(&mut ledger, &holder, nobody, 0);
     close(&mut ledger);
     assert_eq!(tx(&mut ledger, &to_nobody).result, "tecNO_DST");
-    let (_, redundant) = trust(&mut ledger, &holder, rlusd("0"), TF_SET_NO_RIPPLE);
+    let (_, redundant) = trust(&mut ledger, &holder, dsusd("0"), TF_SET_NO_RIPPLE);
     close(&mut ledger);
     assert_eq!(tx(&mut ledger, &redundant).result, "tecNO_LINE_REDUNDANT");
     // A deep freeze only on a frozen line, and no freeze lifted under one.
-    let (_, deep) = trust(&mut ledger, &holder, rlusd("5"), TF_SET_DEEP_FREEZE);
+    let (_, deep) = trust(&mut ledger, &holder, dsusd("5"), TF_SET_DEEP_FREEZE);
     close(&mut ledger);
     assert_eq!(tx(&mut ledger, &deep).result, "tecNO_PERMISSION");
     let both = TF_SET_FREEZE | TF_SET_DEEP_FREEZE;
     assert_eq!(
-        trust(&mut ledger, &holder, rlusd("5"), both).0,
+        trust(&mut ledger, &holder, dsusd("5"), both).0,
         "tesSUCCESS"
     );
     close(&mut ledger);
-    let (_, lift) = trust(&mut ledger, &holder, rlusd("5"), TF_CLEAR_FREEZE);
+    let (_, lift) = trust(&mut ledger, &holder, dsusd("5"), TF_CLEAR_FREEZE);
     close(&mut ledger);
     assert_eq!(tx(&mut ledger, &lift).result, "tecNO_PERMISSION");
     // Each cost its fee, and only the one line was made.
@@ -368,22 +395,22 @@ fn a_line_back_in_its_default_state_is_deleted() {
     let holder = wallet(1);
     ledger.deposit(holder.account(), 100 * RESERVE_BASE);
     close(&mut ledger);
-    assert_eq!(trust(&mut ledger, &holder, rlusd("10"), 0).0, "tesSUCCESS");
+    assert_eq!(trust(&mut ledger, &holder, dsusd("10"), 0).0, "tesSUCCESS");
     close(&mut ledger);
     mint(&mut ledger, holder.account(), "4");
     // A limit of zero while it holds keeps the line, and its reserve.
     assert_eq!(
-        trust(&mut ledger, &holder, rlusd("0"), TF_SET_NO_RIPPLE).0,
+        trust(&mut ledger, &holder, dsusd("0"), TF_SET_NO_RIPPLE).0,
         "tesSUCCESS"
     );
     close(&mut ledger);
     assert_eq!(balance(&ledger, &holder), Some(value("4")));
     assert_eq!(ledger.owner_count(holder.account()), Some(1));
     // Paying it all back leaves it in its default state: it goes.
-    let record = paid(&mut ledger, &holder, RLUSD_ISSUER, "4");
+    let record = paid(&mut ledger, &holder, DSUSD_ISSUER, "4");
     assert!(record.succeeded());
     let change = record
-        .line(holder.account(), RLUSD_ISSUER, RLUSD_CURRENCY)
+        .line(holder.account(), DSUSD_ISSUER, DSUSD_CURRENCY)
         .unwrap();
     assert!(change.after().is_none());
     assert_eq!(
@@ -407,20 +434,20 @@ fn tokens_ripple_through_the_issuer_and_both_streams_carry_them() {
     // Minting is the issuer paying a holder.
     let minted = mint(&mut ledger, a.account(), "100.5");
     assert!(minted.succeeded());
-    assert_eq!(minted.delivered_token, Some(rlusd("100.5")));
+    assert_eq!(minted.delivered_token, Some(dsusd("100.5")));
     assert_eq!(balance(&ledger, a), Some(value("100.5")));
     // A pays B: through the issuer, both lines change.
-    let hash = pay(&mut ledger, a, b.account(), Amount::Token(rlusd("40.25")));
+    let hash = pay(&mut ledger, a, b.account(), Amount::Token(dsusd("40.25")));
     let streamed = close(&mut ledger);
     assert_eq!(streamed.len(), 1, "one message for the one connection");
     let record = tx(&mut ledger, &hash);
     assert_eq!(streamed[0], record);
     assert!(record.succeeded());
-    assert_eq!(record.delivered_token, Some(rlusd("40.25")));
+    assert_eq!(record.delivered_token, Some(dsusd("40.25")));
     assert_eq!(record.delivered, None);
     let line_of = |wallet: &Wallet| {
         record
-            .line(wallet.account(), RLUSD_ISSUER, RLUSD_CURRENCY)
+            .line(wallet.account(), DSUSD_ISSUER, DSUSD_CURRENCY)
             .unwrap()
             .balance_of(wallet.account())
             .unwrap()
@@ -428,7 +455,7 @@ fn tokens_ripple_through_the_issuer_and_both_streams_carry_them() {
     assert_eq!(line_of(a), (value("100.5"), value("60.25")));
     assert_eq!(line_of(b), (TokenValue::ZERO, value("40.25")));
     // Each side's history has it, and the issuer's.
-    for account in [a.account(), b.account(), RLUSD_ISSUER] {
+    for account in [a.account(), b.account(), DSUSD_ISSUER] {
         assert_eq!(last(&mut ledger, account).hash, record.hash, "{account}");
     }
     // Only its fee left in XRP.
@@ -467,7 +494,7 @@ fn a_payment_that_cannot_deliver_it_all_fails_and_costs_its_fee() {
         account: a.account(),
         destination: b.account(),
         destination_tag: None,
-        amount: Amount::Token(rlusd("1")),
+        amount: Amount::Token(dsusd("1")),
         send_max: None,
         fee: FEE_BASE,
         sequence: sequence(&mut ledger, a.account()),
@@ -491,7 +518,7 @@ fn a_limit_stops_what_would_go_above_it() {
     ledger.deposit(holder.account(), 100 * RESERVE_BASE);
     close(&mut ledger);
     assert_eq!(
-        trust(&mut ledger, &holder, rlusd("10"), TF_SET_NO_RIPPLE).0,
+        trust(&mut ledger, &holder, dsusd("10"), TF_SET_NO_RIPPLE).0,
         "tesSUCCESS"
     );
     close(&mut ledger);
@@ -526,12 +553,12 @@ fn a_frozen_line_pays_only_the_issuer_and_still_receives() {
         &json!({ "id": 9, "command": "subscribe", "accounts": [a.account().to_address()] }),
     )
     .unwrap();
-    ledger.freeze(a.account(), Token::RLUSD, true).unwrap();
+    ledger.freeze(a.account(), Token::DSUSD, true).unwrap();
     // The holder's stream carries the issuer's freeze of its line.
     let streamed = close(&mut ledger);
     assert_eq!(streamed.len(), 1);
     let view = streamed[0]
-        .line(a.account(), RLUSD_ISSUER, RLUSD_CURRENCY)
+        .line(a.account(), DSUSD_ISSUER, DSUSD_CURRENCY)
         .unwrap()
         .after()
         .unwrap()
@@ -540,15 +567,15 @@ fn a_frozen_line_pays_only_the_issuer_and_still_receives() {
     assert!(view.theirs.freeze && !view.theirs.deep_freeze && view.theirs.reserve);
     assert_eq!(paid(&mut ledger, a, b.account(), "1").result, "tecPATH_DRY");
     assert!(paid(&mut ledger, b, a.account(), "1").succeeded());
-    assert!(paid(&mut ledger, a, RLUSD_ISSUER, "1").succeeded());
+    assert!(paid(&mut ledger, a, DSUSD_ISSUER, "1").succeeded());
     assert!(mint(&mut ledger, a.account(), "1").succeeded());
     assert_eq!(balance(&ledger, a), Some(value("11")));
     // Lifted, it pays anyone again.
-    ledger.freeze(a.account(), Token::RLUSD, false).unwrap();
+    ledger.freeze(a.account(), Token::DSUSD, false).unwrap();
     close(&mut ledger);
     assert!(paid(&mut ledger, a, b.account(), "1").succeeded());
     let line = ledger
-        .line(a.account(), RLUSD_ISSUER, RLUSD_CURRENCY)
+        .line(a.account(), DSUSD_ISSUER, DSUSD_CURRENCY)
         .unwrap();
     assert!(!line.view(a.account()).unwrap().theirs.reserve);
 }
@@ -560,10 +587,10 @@ fn a_deep_frozen_line_neither_pays_nor_receives_but_with_the_issuer() {
     let (a, b) = (&wallets[0], &wallets[1]);
     mint(&mut ledger, a.account(), "10");
     mint(&mut ledger, b.account(), "10");
-    ledger.deep_freeze(a.account(), Token::RLUSD, true).unwrap();
+    ledger.deep_freeze(a.account(), Token::DSUSD, true).unwrap();
     close(&mut ledger);
     let view = ledger
-        .line(a.account(), RLUSD_ISSUER, RLUSD_CURRENCY)
+        .line(a.account(), DSUSD_ISSUER, DSUSD_CURRENCY)
         .unwrap()
         .view(a.account())
         .unwrap();
@@ -571,12 +598,12 @@ fn a_deep_frozen_line_neither_pays_nor_receives_but_with_the_issuer() {
     assert_eq!(paid(&mut ledger, b, a.account(), "1").result, "tecPATH_DRY");
     assert_eq!(paid(&mut ledger, a, b.account(), "1").result, "tecPATH_DRY");
     assert!(mint(&mut ledger, a.account(), "1").succeeded());
-    assert!(paid(&mut ledger, a, RLUSD_ISSUER, "2").succeeded());
+    assert!(paid(&mut ledger, a, DSUSD_ISSUER, "2").succeeded());
     assert_eq!(balance(&ledger, a), Some(value("9")));
     // The deep freeze lifted, the freeze stays: it receives, and pays
     // only the issuer.
     ledger
-        .deep_freeze(a.account(), Token::RLUSD, false)
+        .deep_freeze(a.account(), Token::DSUSD, false)
         .unwrap();
     close(&mut ledger);
     assert!(paid(&mut ledger, b, a.account(), "1").succeeded());
@@ -594,21 +621,21 @@ fn a_global_freeze_stops_every_holder_but_toward_the_issuer() {
         &json!({ "id": 9, "command": "subscribe", "accounts": [a.account().to_address()] }),
     )
     .unwrap();
-    ledger.global_freeze(RLUSD_ISSUER, true).unwrap();
+    ledger.global_freeze(DSUSD_ISSUER, true).unwrap();
     // Only the issuer's account changes: the holder's stream says nothing.
     assert!(close(&mut ledger).is_empty());
-    let set = last(&mut ledger, RLUSD_ISSUER);
+    let set = last(&mut ledger, DSUSD_ISSUER);
     assert!(set.succeeded() && set.lines.is_empty());
     let info = request(
         &mut ledger,
-        &json!({ "id": 1, "command": "account_info", "account": RLUSD_ISSUER.to_address() }),
+        &json!({ "id": 1, "command": "account_info", "account": DSUSD_ISSUER.to_address() }),
     )
     .unwrap();
     assert!(api::account_settings_result(&info).unwrap().global_freeze());
     assert_eq!(paid(&mut ledger, a, b.account(), "1").result, "tecPATH_DRY");
-    assert!(paid(&mut ledger, a, RLUSD_ISSUER, "1").succeeded());
+    assert!(paid(&mut ledger, a, DSUSD_ISSUER, "1").succeeded());
     assert!(mint(&mut ledger, b.account(), "1").succeeded());
-    ledger.global_freeze(RLUSD_ISSUER, false).unwrap();
+    ledger.global_freeze(DSUSD_ISSUER, false).unwrap();
     close(&mut ledger);
     assert!(paid(&mut ledger, a, b.account(), "1").succeeded());
 }
@@ -620,16 +647,16 @@ fn a_transfer_fee_fails_payments_between_holders() {
     let (a, b) = (&wallets[0], &wallets[1]);
     mint(&mut ledger, a.account(), "10");
     assert_eq!(
-        ledger.set_transfer_rate(RLUSD_ISSUER, 999_999_999),
+        ledger.set_transfer_rate(DSUSD_ISSUER, 999_999_999),
         Err("temBAD_TRANSFER_RATE")
     );
     ledger
-        .set_transfer_rate(RLUSD_ISSUER, 1_002_000_000)
+        .set_transfer_rate(DSUSD_ISSUER, 1_002_000_000)
         .unwrap();
     close(&mut ledger);
     let info = request(
         &mut ledger,
-        &json!({ "id": 1, "command": "account_info", "account": RLUSD_ISSUER.to_address() }),
+        &json!({ "id": 1, "command": "account_info", "account": DSUSD_ISSUER.to_address() }),
     )
     .unwrap();
     let settings = api::account_settings_result(&info).unwrap();
@@ -641,9 +668,9 @@ fn a_transfer_fee_fails_payments_between_holders() {
         paid(&mut ledger, a, b.account(), "1").result,
         "tecPATH_PARTIAL"
     );
-    assert!(paid(&mut ledger, a, RLUSD_ISSUER, "1").succeeded());
+    assert!(paid(&mut ledger, a, DSUSD_ISSUER, "1").succeeded());
     assert!(mint(&mut ledger, b.account(), "1").succeeded());
-    ledger.set_transfer_rate(RLUSD_ISSUER, 0).unwrap();
+    ledger.set_transfer_rate(DSUSD_ISSUER, 0).unwrap();
     close(&mut ledger);
     assert!(paid(&mut ledger, a, b.account(), "1").succeeded());
 }
@@ -658,33 +685,33 @@ fn a_clawback_lowers_the_line_without_a_payment() {
         &json!({ "id": 9, "command": "subscribe", "accounts": [holder.account().to_address()] }),
     )
     .unwrap();
-    ledger.claw_back(holder.account(), rlusd("2.5")).unwrap();
+    ledger.claw_back(holder.account(), dsusd("2.5")).unwrap();
     let streamed = close(&mut ledger);
     assert_eq!(streamed.len(), 1);
     let record = &streamed[0];
     assert!(record.succeeded() && !record.is_payment);
-    assert_eq!(record.account, RLUSD_ISSUER);
+    assert_eq!(record.account, DSUSD_ISSUER);
     assert_eq!(record.delivered_token, None);
     assert_eq!(
         record
-            .line(holder.account(), RLUSD_ISSUER, RLUSD_CURRENCY)
+            .line(holder.account(), DSUSD_ISSUER, DSUSD_CURRENCY)
             .unwrap()
             .balance_of(holder.account()),
         Some((value("10"), value("7.5")))
     );
     // More than it holds takes what it holds; from nothing, nothing.
-    ledger.claw_back(holder.account(), rlusd("100")).unwrap();
+    ledger.claw_back(holder.account(), dsusd("100")).unwrap();
     close(&mut ledger);
     assert_eq!(balance(&ledger, holder), Some(TokenValue::ZERO));
-    ledger.claw_back(holder.account(), rlusd("1")).unwrap();
+    ledger.claw_back(holder.account(), dsusd("1")).unwrap();
     close(&mut ledger);
-    assert_eq!(last(&mut ledger, RLUSD_ISSUER).result, "tecNO_LINE");
+    assert_eq!(last(&mut ledger, DSUSD_ISSUER).result, "tecNO_LINE");
     assert_eq!(
-        ledger.claw_back(holder.account(), rlusd("0")),
+        ledger.claw_back(holder.account(), dsusd("0")),
         Err("temBAD_AMOUNT")
     );
     assert_eq!(
-        ledger.claw_back(RLUSD_ISSUER, rlusd("1")),
+        ledger.claw_back(DSUSD_ISSUER, dsusd("1")),
         Err("temBAD_AMOUNT")
     );
 }
@@ -694,7 +721,7 @@ fn only_the_fakes_issuers_act_without_a_signature() {
     let mut ledger = FakeLedger::new();
     let other = Token {
         issuer: wallet(9).account(),
-        currency: RLUSD_CURRENCY,
+        currency: DSUSD_CURRENCY,
     };
     let holder = wallet(1).account();
     assert_eq!(
@@ -702,10 +729,10 @@ fn only_the_fakes_issuers_act_without_a_signature() {
         Err("terNO_ACCOUNT")
     );
     assert_eq!(ledger.freeze(holder, other, true), Err("terNO_ACCOUNT"));
-    assert_eq!(ledger.issue(holder, rlusd("0")), Err("temBAD_AMOUNT"));
-    assert_eq!(ledger.issue(RLUSD_ISSUER, rlusd("1")), Err("temREDUNDANT"));
+    assert_eq!(ledger.issue(holder, dsusd("0")), Err("temBAD_AMOUNT"));
+    assert_eq!(ledger.issue(DSUSD_ISSUER, dsusd("1")), Err("temREDUNDANT"));
     assert_eq!(
-        ledger.freeze(RLUSD_ISSUER, Token::RLUSD, true),
+        ledger.freeze(DSUSD_ISSUER, Token::DSUSD, true),
         Err("temDST_IS_SRC")
     );
     assert_eq!(ledger.queued(), 0);
@@ -714,18 +741,23 @@ fn only_the_fakes_issuers_act_without_a_signature() {
 #[test]
 fn a_line_reads_the_same_whichever_side_is_low() {
     let mut ledger = FakeLedger::new();
-    // An issuer below every holder, where RLUSD's is above most.
-    let low_issuer = AccountId([0x01; 20]);
+    // An issuer below every holder, and one above every holder.
+    let (low_issuer, high_issuer) = (AccountId([0x01; 20]), AccountId([0xFE; 20]));
     ledger.add_issuer(low_issuer);
+    ledger.add_issuer(high_issuer);
     let token = Token {
         issuer: low_issuer,
-        currency: RLUSD_CURRENCY,
+        currency: DSUSD_CURRENCY,
+    };
+    let high = Token {
+        issuer: high_issuer,
+        ..token
     };
     let holder = wallet(1);
-    assert!(low_issuer < holder.account() && holder.account() < RLUSD_ISSUER);
+    assert!(low_issuer < holder.account() && holder.account() < high_issuer);
     ledger.deposit(holder.account(), 100 * RESERVE_BASE);
     close(&mut ledger);
-    for issuer in [low_issuer, RLUSD_ISSUER] {
+    for issuer in [low_issuer, high_issuer] {
         let limit = TokenAmount {
             issuer,
             ..token.amount(value("50"))
@@ -739,11 +771,13 @@ fn a_line_reads_the_same_whichever_side_is_low() {
     ledger
         .issue(holder.account(), token.amount(value("7")))
         .unwrap();
-    ledger.issue(holder.account(), rlusd("7")).unwrap();
+    ledger
+        .issue(holder.account(), high.amount(value("7")))
+        .unwrap();
     close(&mut ledger);
-    for issuer in [low_issuer, RLUSD_ISSUER] {
+    for issuer in [low_issuer, high_issuer] {
         let line = ledger
-            .line(holder.account(), issuer, RLUSD_CURRENCY)
+            .line(holder.account(), issuer, DSUSD_CURRENCY)
             .unwrap();
         let low_holds = line.low == holder.account();
         assert_eq!(
@@ -762,7 +796,7 @@ fn a_line_reads_the_same_whichever_side_is_low() {
         assert_eq!(line.flags, flags);
         let record = last(&mut ledger, issuer);
         let change = record
-            .line(holder.account(), issuer, RLUSD_CURRENCY)
+            .line(holder.account(), issuer, DSUSD_CURRENCY)
             .unwrap();
         assert_eq!(
             change.balance_of(holder.account()),
@@ -789,16 +823,16 @@ fn a_reset_takes_every_line_and_keeps_the_issuer() {
     let mut ledger = FakeLedger::new();
     let holder = &holders(&mut ledger, &[1])[0];
     mint(&mut ledger, holder.account(), "10");
-    ledger.freeze(holder.account(), Token::RLUSD, true).unwrap();
+    ledger.freeze(holder.account(), Token::DSUSD, true).unwrap();
     close(&mut ledger);
-    assert_eq!(ledger.owner_count(RLUSD_ISSUER), Some(1));
+    assert_eq!(ledger.owner_count(DSUSD_ISSUER), Some(1));
     ledger.reset();
     assert!(ledger.tokens_conserved());
     assert_eq!(ledger.balance(holder.account()), None);
     assert_eq!(balance(&ledger, holder), None);
-    assert_eq!(ledger.owner_count(RLUSD_ISSUER), Some(0));
+    assert_eq!(ledger.owner_count(DSUSD_ISSUER), Some(0));
     assert_eq!(
-        ledger.account_flags(RLUSD_ISSUER),
+        ledger.account_flags(DSUSD_ISSUER),
         Some(account_flags::DEFAULT_RIPPLE | account_flags::ALLOW_TRUST_LINE_CLAWBACK)
     );
     // The line is made again once the account is.
@@ -840,7 +874,7 @@ enum Op {
     Limit(usize, u64),
 }
 
-/// Millionths of RLUSD: what the scheme's ledger counts in.
+/// Millionths of DSUSD: what the scheme's ledger counts in.
 fn micros(units: u64) -> TokenValue {
     TokenValue::from_units(units, 6).unwrap()
 }
@@ -865,7 +899,7 @@ fn ops() -> impl Strategy<Value = Vec<Op>> {
 /// Applies `op`; a payment to oneself is skipped, as the ledger refuses
 /// it before it applies.
 fn run(ledger: &mut FakeLedger, wallets: &[Wallet], op: &Op) {
-    let token = |units| Token::RLUSD.amount(micros(units));
+    let token = |units| Token::DSUSD.amount(micros(units));
     match *op {
         Op::Mint(h, u) => ledger.issue(wallets[h].account(), token(u)).unwrap(),
         Op::Pay(a, b, u) if a != b => {
@@ -878,20 +912,20 @@ fn run(ledger: &mut FakeLedger, wallets: &[Wallet], op: &Op) {
         }
         Op::Pay(..) => {}
         Op::Redeem(h, u) => {
-            pay(ledger, &wallets[h], RLUSD_ISSUER, Amount::Token(token(u)));
+            pay(ledger, &wallets[h], DSUSD_ISSUER, Amount::Token(token(u)));
         }
         Op::Freeze(h, on) => ledger
-            .freeze(wallets[h].account(), Token::RLUSD, on)
+            .freeze(wallets[h].account(), Token::DSUSD, on)
             .unwrap(),
         Op::DeepFreeze(h, on) => {
             ledger
-                .deep_freeze(wallets[h].account(), Token::RLUSD, on)
+                .deep_freeze(wallets[h].account(), Token::DSUSD, on)
                 .unwrap();
         }
-        Op::GlobalFreeze(on) => ledger.global_freeze(RLUSD_ISSUER, on).unwrap(),
+        Op::GlobalFreeze(on) => ledger.global_freeze(DSUSD_ISSUER, on).unwrap(),
         Op::TransferFee(on) => {
             let rate = if on { 1_002_000_000 } else { 0 };
-            ledger.set_transfer_rate(RLUSD_ISSUER, rate).unwrap();
+            ledger.set_transfer_rate(DSUSD_ISSUER, rate).unwrap();
         }
         Op::ClawBack(h, u) => ledger.claw_back(wallets[h].account(), token(u)).unwrap(),
         Op::Limit(h, u) => {
@@ -910,7 +944,7 @@ proptest! {
         let mut ledger = FakeLedger::new();
         let wallets = holders(&mut ledger, &[1, 2, 3]);
         let mut accounts: Vec<String> = wallets.iter().map(|w| w.account().to_address()).collect();
-        accounts.push(RLUSD_ISSUER.to_address());
+        accounts.push(DSUSD_ISSUER.to_address());
         let subscribe = json!({ "id": 9, "command": "subscribe", "accounts": accounts });
         request(&mut ledger, &subscribe).unwrap();
         for op in &ops {
@@ -919,7 +953,7 @@ proptest! {
                 prop_assert!(record.succeeded() || record.lines.is_empty(), "{op:?}: {record:?}");
             }
             for wallet in &wallets {
-                let line = ledger.line(wallet.account(), RLUSD_ISSUER, RLUSD_CURRENCY);
+                let line = ledger.line(wallet.account(), DSUSD_ISSUER, DSUSD_CURRENCY);
                 let view = line.and_then(|line| line.view(wallet.account()));
                 let owned = u32::from(view.is_some_and(|view| view.ours.reserve));
                 prop_assert_eq!(ledger.owner_count(wallet.account()), Some(owned));

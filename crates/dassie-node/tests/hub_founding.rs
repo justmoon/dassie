@@ -144,14 +144,25 @@ struct Net {
 
 impl Net {
     async fn start(before_sync: impl FnOnce(&Server)) -> Self {
+        // Its HTTPS listener serves its validators' list; the sponsor asks
+        // no faucet.
         let xrpl = Server::start(Options {
+            network: &dassie_xrpl::network::TESTNET,
             listen: "127.0.0.1:0".parse().unwrap(),
-            faucet: None,
+            faucet: Some((
+                "127.0.0.1:0".parse().unwrap(),
+                dassie_node::store::StoredCertificate {
+                    source: dassie_node_core::certificate::CertificateSource::Manual,
+                    chain_pem: std::fs::read_to_string(CERT).unwrap(),
+                    key_pem: std::fs::read_to_string(KEY).unwrap(),
+                },
+            )),
             close_every: Duration::from_millis(100),
         })
         .await
         .unwrap();
         let clock = ManualClock::new(START_MS);
+        xrpl.close_on(std::sync::Arc::new(clock.clone()));
         let sponsor_key = NodeKey::from_bytes(&[70; 32]);
         let files = tempfile::tempdir().unwrap();
         let file = validator_file(files.path(), &sponsor_key, &xrpl.url);
@@ -179,7 +190,12 @@ impl Net {
             .start(clock.clone(), 70, Policies::DEV, &env)
             .await;
         prepare(&sponsor, &sponsor_key).await;
-        let xrpl_config = serde_json::json!({ "server": xrpl.url, "faucet": null });
+        let mut xrpl_config = serde_json::json!({ "server": xrpl.url, "faucet": null });
+        if let (Some(config), Some(serde_json::Value::Object(publishers))) =
+            (xrpl_config.as_object_mut(), xrpl.publishers())
+        {
+            config.extend(publishers);
+        }
         add_scheme(&sponsor, "xrpl-testnet", &xrpl_config.to_string()).await;
         let address = ledgers(&sponsor)
             .await
@@ -600,6 +616,7 @@ async fn a_funding_too_little_for_the_escrow_is_paid_once() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn a_cancelled_funding_is_paid_again() {
     use dassie_xrpl::api;
+    use dassie_xrpl::codec::{Amount, Payment, Signing, Transact};
 
     let net = Net::start(|_| {}).await;
     let address = ledgers(&net.sponsor)
@@ -609,10 +626,10 @@ async fn a_cancelled_funding_is_paid_again() {
         .unwrap()
         .deposit_address;
     let sponsor = dassie_xrpl::AccountId::parse(&address).unwrap();
-    // The account's sequence moves on behind the scheme's back, as a
-    // transaction of another wallet of the owner's would: the funding
-    // payment the scheme signs next can never apply, and once past its
-    // last ledger the scheme cancels it.
+    // A transaction of another wallet of the owner's takes the account's
+    // next sequence behind the scheme's back, in the ledger its funding
+    // payment would go into: that payment can never apply, which the
+    // history proves once it tells the other, and the scheme cancels it.
     let reply = net
         .xrpl
         .ledger()
@@ -625,7 +642,27 @@ async fn a_cancelled_funding_is_paid_again() {
         panic!("no account");
     };
     let sequence = api::account_info_result(&result).unwrap().sequence;
-    net.xrpl.ledger().set_sequence(sponsor, sequence + 5);
+    let entropy = NodeKey::from_bytes(&[70; 32])
+        .settlement_entropy("xrpl-testnet", "seed-testnet")
+        .unwrap();
+    let wallet = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes());
+    assert_eq!(wallet.account(), sponsor);
+    let other = Payment {
+        account: sponsor,
+        destination: dassie_xrpl::Wallet::from_entropy(&[9; 32]).account(),
+        destination_tag: None,
+        amount: Amount::Xrp(10 * dassie_xrpl::DROPS_PER_XRP),
+        send_max: None,
+        fee: dassie_xrpl::fake::FEE_BASE,
+        sequence,
+        last_ledger_sequence: None,
+        flags: 0,
+        network_id: None,
+        memos: Vec::new(),
+        signing: Signing::by(wallet.public_key()),
+    }
+    .sign(&wallet);
+    net.xrpl.ledger().request(77, &api::submit(6, &other.blob));
     let mut owner = net.sponsor.ipc().await;
     let found = owner
         .call(Method::FoundHub(proto::FoundHubRequest {

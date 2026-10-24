@@ -13,8 +13,8 @@ use dassie_settlement::policy;
 use dassie_ledger::LedgerId;
 
 use super::{
-    DSUSD, Drift, Payment, RLUSD, START, Settling, Sim, TRIGGER, USD, Withdrawal, XRP, key,
-    received, sent, xrpl_account,
+    DSUSD, Drift, LIVE_XRP, Payment, RLUSD, START, Settling, Sim, TRIGGER, USD, Withdrawal, XRP,
+    key, received, sent,
 };
 use crate::node::Policies;
 use crate::store::{OutgoingState, PaymentId};
@@ -348,7 +348,10 @@ pub fn not_settled_down(sim: &mut Sim, seconds: u64, what: &str) -> Outcome {
 /// stops what the nodes it touches pay or are paid in it, so while it
 /// holds, and for a grace after it is lifted, a pair it touches that
 /// settles in the token may be withdrawn; a pair that settles in XRP may not
-/// (spec/areas/settlement.md#when-peers-cannot-pay-us).
+/// (spec/areas/settlement.md#when-peers-cannot-pay-us). So does a stretch in
+/// which the ledger's servers or validators fail a node, or every node: a
+/// node that cannot see its ledger settles nothing, honestly, so a pair it
+/// is in may be withdrawn, until a grace after the stretch.
 pub fn check_withdrawn(sim: &Sim) -> Result<(), String> {
     let grace = sim.peer.advertise_short_grace_ms;
     let token = sim
@@ -370,7 +373,14 @@ pub fn check_withdrawn(sim: &Sim) -> Result<(), String> {
                     && until.is_none_or(|until| withdrawal.at <= until + grace)
             })
     };
-    match sim.withdrawn.iter().find(|withdrawal| !frozen(withdrawal)) {
+    let unseen = |withdrawal: &Withdrawal| {
+        sim.outages.iter().any(|&(node, from, until)| {
+            node.is_none_or(|index| index == withdrawal.by || id(index) == withdrawal.peer)
+                && withdrawal.at >= from
+                && withdrawal.at <= until + grace
+        })
+    };
+    match (sim.withdrawn.iter()).find(|withdrawal| !frozen(withdrawal) && !unseen(withdrawal)) {
         Some(withdrawal) => Err(format!(
             "node {} withdrew {} for room at {}",
             withdrawal.by,
@@ -648,10 +658,50 @@ pub fn check_books(sim: &Sim) -> Result<(), Outcome> {
     first_failure([
         check_owner_books(sim).map_err(|problem| Outcome::safety("owner-books", problem)),
         check_ledgers(sim).map_err(|problem| Outcome::safety("ledgers", problem)),
+        check_true(sim).map_err(|problem| Outcome::safety("proven", problem)),
         check_funded(sim).map_err(|problem| Outcome::liveness("funded", problem)),
+        check_anchored(sim).map_err(|problem| Outcome::liveness("anchored", problem)),
+        check_pegged(sim).map_err(|problem| Outcome::liveness("pegged", problem)),
         check_settled(sim).map_err(|problem| Outcome::liveness("settled", problem)),
         check_delivered(sim).map_err(|problem| Outcome::liveness("delivered", problem)),
     ])
+}
+
+/// Each node's books hold to the fake ledger's truth, whatever its servers
+/// lied (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation):
+/// nothing booked that the fake did not apply, no settlement cancelled that
+/// it applied, and nothing written off, since the fake never resets in a
+/// simulation. Each would leave the books apart from the account, which the
+/// scheme could only reconcile without a reason it can name: so no node
+/// reconciled anything but a change of the reserve.
+pub fn check_true(sim: &Sim) -> Result<(), String> {
+    match sim.unexplained.first() {
+        Some(first) => Err(format!(
+            "a node's books left its ledger, unexplained: {first}"
+        )),
+        None => Ok(()),
+    }
+}
+
+/// Every node on the XRP Ledger anchored: its account took a ledger its
+/// UNL validated, so it proved what it booked rather than taking a
+/// server's word (spec/designs/xrpl-validation.md#1-the-rule).
+pub fn check_anchored(sim: &Sim) -> Result<(), String> {
+    if !sim.settling.on_xrpl() {
+        return Ok(());
+    }
+    for index in 0..sim.nodes.len() {
+        let Some(core) = sim.nodes[index].core.as_ref() else {
+            continue;
+        };
+        if core
+            .xrpl_accounts()
+            .any(|account| account.anchor().is_none())
+        {
+            return Err(format!("node {index}'s XRPL account never anchored"));
+        }
+    }
+    Ok(())
 }
 
 /// On the XRP Ledger, the faucet funded every node, and on a token the
@@ -663,7 +713,7 @@ pub fn check_funded(sim: &Sim) -> Result<(), String> {
         sim.settling
             .ledgers(*index)
             .iter()
-            .any(|ledger| [XRP, RLUSD, DSUSD].contains(ledger))
+            .any(|ledger| [XRP, LIVE_XRP, RLUSD, DSUSD].contains(ledger))
     };
     if let Some(index) = (0..sim.nodes.len())
         .filter(on_xrpl)
@@ -682,6 +732,29 @@ pub fn check_funded(sim: &Sim) -> Result<(), String> {
         Some(index) => Err(format!("node {index} was never minted on {token}")),
         None => Ok(()),
     }
+}
+
+/// On a token, every node's peg guard read the token's pool, which stays at
+/// a dollar at the run's rates, and lets its scheme run
+/// (spec/decisions/issued-assets.md).
+pub fn check_pegged(sim: &Sim) -> Result<(), String> {
+    let Some((token, _)) = sim.settling.token() else {
+        return Ok(());
+    };
+    for index in (0..sim.nodes.len()).filter(|index| sim.settling.ledgers(*index).contains(&token))
+    {
+        let peg = sim
+            .core(index)
+            .ledger_views()
+            .into_iter()
+            .find(|view| view.id == token)
+            .and_then(|view| view.peg)
+            .ok_or_else(|| format!("node {index} has no peg guard on {token}"))?;
+        if peg.paused.is_some() || peg.last.map(|(price, _)| price) != Some(1_000_000) {
+            return Err(format!("node {index}'s peg guard on {token} says {peg:?}"));
+        }
+    }
+    Ok(())
 }
 
 /// No settlement is still on its way.
@@ -720,8 +793,8 @@ pub fn check_held(sim: &Sim, index: usize, ledger: LedgerId) -> Result<i128, Str
         ));
     }
     match ledger {
-        XRP => {
-            let drops = sim.ledger.balance(xrpl_account(index)).unwrap_or(0);
+        XRP | LIVE_XRP => {
+            let drops = sim.ledger.balance(sim.xrpl_account(index)).unwrap_or(0);
             let bookable = i128::from(drops) * 1_000 - i128::from(view.reserve);
             if booked != bookable.max(0) {
                 return Err(format!(
@@ -800,7 +873,10 @@ pub fn check_across(sim: &Sim) -> Result<(), Outcome> {
                 .map_err(|problem| Outcome::safety("received-across", problem)),
             check_prices(sim).map_err(|problem| Outcome::safety("prices", problem)),
             check_assets(sim).map_err(|problem| Outcome::safety("assets", problem)),
+            check_true(sim).map_err(|problem| Outcome::safety("proven", problem)),
             check_funded(sim).map_err(|problem| Outcome::liveness("funded", problem)),
+            check_anchored(sim).map_err(|problem| Outcome::liveness("anchored", problem)),
+            check_pegged(sim).map_err(|problem| Outcome::liveness("pegged", problem)),
             check_finished(sim).map_err(|problem| Outcome::liveness("finished", problem)),
             check_settled(sim).map_err(|problem| Outcome::liveness("settled", problem)),
         ]
@@ -856,7 +932,7 @@ fn check_prices(sim: &Sim) -> Result<(), String> {
 fn check_assets(sim: &Sim) -> Result<(), String> {
     let count = sim.nodes.len();
     let ledgers: &[LedgerId] = match sim.settling {
-        Settling::XrpRlusd => &[RLUSD, XRP],
+        Settling::XrpRlusd => &[RLUSD, LIVE_XRP],
         Settling::XrpDsusd => &[DSUSD, XRP],
         _ => &[USD, XRP],
     };

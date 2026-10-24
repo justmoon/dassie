@@ -4,8 +4,8 @@ use dassie_ledger::{
     AccountId, AccountName, AccountPath, LedgerId, Name, Realm, Reference, TransferSpec,
 };
 use dassie_settlement::{
-    Activation, AssetId, Detach, Effect, LedgerStatus, LossCause, SchemeError, SettlementScheme,
-    activation,
+    Activation, AssetId, Detach, Effect, LedgerStatus, LossCause, PegPause, PegView, SchemeError,
+    SettlementScheme, activation,
 };
 
 use super::Core;
@@ -27,6 +27,21 @@ pub(super) struct ActiveScheme {
     /// Whether its peerings are over a settlement hub: it signs and takes
     /// promises per packet ([`SettlementScheme::commitments`]).
     pub over_hub: bool,
+    /// Why its peg guard paused it, as the owner was last told.
+    pub paused: Option<PegPause>,
+    /// Whether it converted when the prices were last built
+    /// ([`ActiveScheme::converts_now`]).
+    pub converts: bool,
+}
+
+impl ActiveScheme {
+    /// Whether the connector converts to and from its ledger now
+    /// ([`SettlementScheme::converts`]). A dollar token's scheme the books
+    /// stopped does not: its peg guard is fed nothing more, so it can no
+    /// longer tell a token off its peg (spec/decisions/issued-assets.md).
+    pub fn converts_now(&self) -> bool {
+        self.scheme.converts() && (self.failed.is_none() || self.scheme.peg().is_none())
+    }
 }
 
 /// A ledger as the owner sees it.
@@ -55,6 +70,11 @@ pub struct LedgerView {
     pub faucet: bool,
     /// How the scheme stands with its ledger.
     pub status: LedgerStatus,
+    /// What its asset waits for, if something keeps it from going on, such
+    /// as a validator list.
+    pub waiting: Option<&'static str>,
+    /// What its peg guard says, for a dollar token's scheme that has one.
+    pub peg: Option<PegView>,
     /// What keeps the scheme from being removed now.
     pub removal_blockers: Vec<RemovalBlocker>,
 }
@@ -104,9 +124,28 @@ pub(super) const OWN_ACCOUNTS: usize =
 
 impl Core {
     /// Activates the stored schemes, booking what changed while the node was
-    /// down.
+    /// down. One of another realm than the node's, which the node's realm
+    /// was changed past, is left as it is, and does not run: the owner is
+    /// told, and the node starts with the rest
+    /// (spec/decisions/mainnet-schemes.md). So is a disabled one, such as
+    /// test RLUSD: its books and its line stay as they are, and nothing is
+    /// written off (spec/decisions/issued-assets.md). The peerings on a
+    /// scheme left out are ended, collecting nothing, by the peer
+    /// protocol (spec/areas/settlement.md#schemes-and-ledgers).
     pub(super) fn load_schemes(&mut self, store: &Store) -> Result<(), String> {
         for (id, config) in store.settlement_schemes().map_err(|e| e.to_string())? {
+            if super::schemes::DISABLED.contains(&id.as_str()) {
+                self.report(SettlementEvent::Disabled { scheme: id });
+                continue;
+            }
+            let ledger = super::SCHEMES
+                .iter()
+                .find(|info| info.id == id.as_str())
+                .map(|info| info.ledger);
+            if ledger.is_some_and(|ledger| ledger.realm() != super::ledger_realm(self.realm)) {
+                self.report(SettlementEvent::OtherRealm { scheme: id });
+                continue;
+            }
             let checkpoint = self.checkpoints.get(&id).cloned();
             self.activate(id, config, checkpoint, false)
                 .map_err(|e| format!("settlement scheme {id}: {e}"))?;
@@ -119,8 +158,13 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// The scheme is unknown, refuses its config, or is active.
+    /// The scheme is unknown, disabled, refuses its config, or is active.
     pub fn add_scheme(&mut self, id: &str, config: String) -> Result<LedgerView, EngineError> {
+        if super::schemes::DISABLED.contains(&id) {
+            return Err(EngineError::Precondition(
+                "the scheme is disabled (spec/decisions/issued-assets.md)".into(),
+            ));
+        }
         let id =
             Name::new(id).map_err(|_| EngineError::Invalid("unknown settlement scheme".into()))?;
         if self.schemes.contains_key(&id) {
@@ -147,6 +191,7 @@ impl Core {
     ) -> Result<LedgerId, EngineError> {
         let (mut scheme, asset) = self.make_scheme(id, &config, checkpoint.as_ref())?;
         let over_hub = scheme.commitments().is_some();
+        let converts = scheme.converts();
         let ledger = scheme.ledger();
         if let Err(error) = self.open_ledger(id, scheme.as_ref(), checkpoint.as_ref()) {
             if let Some(asset) = asset {
@@ -165,6 +210,9 @@ impl Core {
                 version: 0,
                 failed: None,
                 over_hub,
+                // A guard paused before a restart is told again.
+                paused: None,
+                converts,
             },
         );
         if let Some(asset) = asset {
@@ -183,7 +231,11 @@ impl Core {
 
     /// Opens the accounts of `scheme`'s ledger and books the difference
     /// between its balance and its checkpoint (ACC-6): only a ledger of the
-    /// test realm, and one no other scheme serves.
+    /// node's realm, and one no other scheme serves. The realm gate: a node
+    /// runs only its realm's ledgers, so test and live nodes never share a
+    /// scheme, and a ledger of real money runs only where the live realm
+    /// may, which it may not but by the dev switch
+    /// (spec/decisions/mainnet-schemes.md).
     fn open_ledger(
         &mut self,
         id: Name,
@@ -191,7 +243,12 @@ impl Core {
         checkpoint: Option<&Checkpoint>,
     ) -> Result<(), EngineError> {
         let ledger = scheme.ledger();
-        if ledger.realm() != Realm::Test {
+        if ledger.realm() != super::ledger_realm(self.realm) {
+            return Err(EngineError::Precondition(
+                "the scheme is of another realm than the node's".into(),
+            ));
+        }
+        if ledger.realm() == Realm::Live && !self.live.allowed() {
             return Err(EngineError::Precondition(
                 "real money is not supported yet (spec/decisions/real-money.md)".into(),
             ));
@@ -777,6 +834,8 @@ impl Core {
                 ),
                 None => self.scheme_status(active),
             },
+            waiting: asset.and_then(|asset| asset.asset.waiting()),
+            peg: active.scheme.peg(),
             removal_blockers: self.removal_blockers(*id, ledger),
         })
     }

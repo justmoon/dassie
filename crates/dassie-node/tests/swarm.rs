@@ -30,8 +30,12 @@ const SEEDS: Range<u64> = 0..16;
 /// after the end of its peering is too rare in the drawn runs, a seed in
 /// forty or so, for a fixed handful to be sure to reach it:
 /// `a_settlement_that_lands_after_the_end_is_credited_once` in
-/// `tests/network.rs` reaches it every time.
-const LEAST: [(&str, u64); 25] = [
+/// `tests/network.rs` reaches it every time. So does
+/// `simulated_networks_settle_through_lying_servers` every kind of lie,
+/// which a lying server's short connection may not reach here; the
+/// verifier's own counts show that every run on the XRP Ledger went
+/// through it (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
+const LEAST: [(&str, u64); 34] = [
     ("payments", 10),
     ("capped payments", 1),
     ("outgoing payments", 1),
@@ -57,6 +61,15 @@ const LEAST: [(&str, u64); 25] = [
     ("partitions longer than the silence that ends a peering", 1),
     ("peerings ended for silence", 5),
     ("prepares over a hub", 20),
+    ("lying servers", 20),
+    ("lies told", 20),
+    ("lies caught", 10),
+    ("validator keys rotated", 5),
+    ("validator lists fetched", 20),
+    ("anchors", 1_000),
+    ("transactions proven", 50),
+    ("absences proven", 20),
+    ("XRPL nodes anchored", 20),
 ];
 
 #[test]

@@ -47,6 +47,7 @@ const QUIET: Duration = Duration::from_millis(400);
 
 async fn fake_ledger() -> Server {
     Server::start(Options {
+        network: &dassie_xrpl::network::TESTNET,
         listen: "127.0.0.1:0".parse().unwrap(),
         faucet: Some((
             "127.0.0.1:0".parse().unwrap(),
@@ -175,9 +176,10 @@ async fn core_node(server: &Server, rates: &RatesServer, owner: &NodeKey) -> Tes
         ..Policies::DEV
     };
     let clock = ManualClock::new(START_MS);
+    server.close_on(std::sync::Arc::new(clock.clone()));
     let node = bound.start(clock.clone(), 61, policies, &env).await;
-    let config = serde_json::json!({ "server": server.url, "faucet": server.faucet_url });
-    prepare_with(&node, owner, "xrpl-testnet", &config.to_string()).await;
+    let config = support::pair::xrpl_config(server);
+    prepare_with(&node, owner, "xrpl-testnet", &config).await;
     let mut ipc = node.ipc().await;
     ipc.call(Method::AddSettlementScheme(
         proto::AddSettlementSchemeRequest {

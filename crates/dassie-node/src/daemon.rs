@@ -452,6 +452,7 @@ fn make_node(
             peer: Policies::DEV.peer,
             settlement_interval_ms: Policies::DEV.settlement_interval_ms,
             settlement_request_every_ms: Policies::DEV.settlement_request_every_ms,
+            peg: Policies::DEV.peg,
             ..parts.policies
         }
     } else {
@@ -469,6 +470,7 @@ fn make_node(
         peer: peer_options(settings),
         dev_wallet_dir: settings.dev_wallet_dir.clone(),
         public_names: settings.public_names.clone(),
+        live_realm: settings.live_realm,
     })
     .map_err(DaemonError::Node)?;
     if let Some(to) = extras.node_out {
@@ -566,7 +568,12 @@ const PEER_ALLOW_PRIVATE: DevFlag = DevFlag {
 
 const DEV_TIMINGS: DevFlag = DevFlag {
     variable: "DASSIE_DEV_TIMINGS",
-    effect: "the peer protocol runs on dev timers, polling and settling every second",
+    effect: "the peer protocol and the peg guard run on dev timers, polling, settling and reading pools every second",
+};
+
+const LIVE_REALM: DevFlag = DevFlag {
+    variable: "DASSIE_DEV_LIVE_REALM",
+    effect: "the node may run in the live realm, whose schemes settle real money on a mainnet server",
 };
 
 /// The development switches that are set, if the node listens beyond
@@ -580,6 +587,10 @@ fn exposed_dev_flags(settings: &Settings, bound: &[IpAddr]) -> Vec<DevFlag> {
     [
         (settings.peer_allow_private, PEER_ALLOW_PRIVATE),
         (settings.dev_timings, DEV_TIMINGS),
+        (
+            settings.live_realm == dassie_node_core::config::LiveRealm::DevSwitch,
+            LIVE_REALM,
+        ),
     ]
     .into_iter()
     .filter_map(|(set, flag)| set.then_some(flag))
@@ -831,7 +842,11 @@ fn log_listening(
 mod tests {
     use super::*;
 
-    const BOTH: [&str; 2] = ["DASSIE_PEER_ALLOW_PRIVATE", "DASSIE_DEV_TIMINGS"];
+    const ALL: [&str; 3] = [
+        "DASSIE_PEER_ALLOW_PRIVATE",
+        "DASSIE_DEV_TIMINGS",
+        "DASSIE_DEV_LIVE_REALM",
+    ];
 
     /// The variables `exposed_dev_flags` names, with `flags` set to 1 and
     /// the listeners bound to `bound`.
@@ -848,15 +863,15 @@ mod tests {
 
     #[test]
     fn dev_flags_on_loopback_are_quiet() {
-        assert!(exposed(&BOTH, &["127.0.0.1", "127.0.0.1"]).is_empty());
-        assert!(exposed(&BOTH, &["::1", "::1"]).is_empty());
-        assert!(exposed(&BOTH, &["::ffff:127.0.0.1", "127.0.0.2"]).is_empty());
+        assert!(exposed(&ALL, &["127.0.0.1", "127.0.0.1"]).is_empty());
+        assert!(exposed(&ALL, &["::1", "::1"]).is_empty());
+        assert!(exposed(&ALL, &["::ffff:127.0.0.1", "127.0.0.2"]).is_empty());
     }
 
     #[test]
     fn dev_flags_beyond_loopback_are_named() {
-        assert_eq!(exposed(&BOTH, &["0.0.0.0", "0.0.0.0"]), BOTH);
-        assert_eq!(exposed(&BOTH, &["::", "::"]), BOTH);
+        assert_eq!(exposed(&ALL, &["0.0.0.0", "0.0.0.0"]), ALL);
+        assert_eq!(exposed(&ALL, &["::", "::"]), ALL);
         assert_eq!(
             exposed(&["DASSIE_DEV_TIMINGS"], &["203.0.113.7", "203.0.113.7"]),
             ["DASSIE_DEV_TIMINGS"]

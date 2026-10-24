@@ -224,8 +224,8 @@ fn payment(severity: Severity, event: &PaymentEvent) {
     }
 }
 
-/// The schemes, and our settlements as they start.
-fn settlement(severity: Severity, event: &SettlementEvent) {
+/// The schemes as they activate.
+fn activation(severity: Severity, event: &SettlementEvent) {
     match event {
         SettlementEvent::BalanceBooked {
             scheme,
@@ -233,6 +233,25 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
             amount,
         } => {
             emit!(severity, target: target::SETTLEMENT, %scheme, ?reference, amount, "booked the scheme's balance");
+        }
+        SettlementEvent::OtherRealm { scheme } => {
+            emit!(severity, target: target::SETTLEMENT, %scheme, "the scheme is of another realm than the node's: it does not run");
+        }
+        SettlementEvent::Disabled { scheme } => {
+            emit!(severity, target: target::SETTLEMENT, %scheme, "the scheme is disabled: it does not run, and its books and its line stay as they are");
+        }
+        // `settlement` hands only these here.
+        _ => {}
+    }
+}
+
+/// The schemes, and our settlements as they start.
+fn settlement(severity: Severity, event: &SettlementEvent) {
+    match event {
+        SettlementEvent::BalanceBooked { .. }
+        | SettlementEvent::OtherRealm { .. }
+        | SettlementEvent::Disabled { .. } => {
+            activation(severity, event);
         }
         SettlementEvent::Reconciled {
             scheme,
@@ -291,6 +310,8 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::PeerSettled { .. }
         | SettlementEvent::SettlementBooked { .. }
         | SettlementEvent::PeerSettlementRefused { .. }
+        | SettlementEvent::PegPaused { .. }
+        | SettlementEvent::PegResumed { .. }
         | SettlementEvent::CreditRaised { .. }
         | SettlementEvent::HubCredit { .. }
         | SettlementEvent::EarningsNotRead { .. } => settlement_outcome(severity, event),
@@ -321,6 +342,13 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         SettlementEvent::PeerSettlementRefused { from, error } => {
             emit!(severity, target: target::SETTLEMENT, %from, %error, "a settlement was refused");
         }
+        SettlementEvent::PegPaused { scheme, why } => {
+            let why = why.message();
+            emit!(severity, target: target::SETTLEMENT, %scheme, why, "the scheme is paused: it settles nothing, and its ledger converts nothing");
+        }
+        SettlementEvent::PegResumed { scheme } => {
+            emit!(severity, target: target::SETTLEMENT, %scheme, "the token is back on its peg: the scheme runs again");
+        }
         SettlementEvent::CreditRaised { peer, credit } => {
             emit!(severity, target: target::SETTLEMENT, %peer, credit, "a peer earned more credit");
         }
@@ -343,6 +371,8 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::PeerLoss { .. }
         | SettlementEvent::MessageNotSent { .. }
         | SettlementEvent::DepositFromStranger { .. }
+        | SettlementEvent::OtherRealm { .. }
+        | SettlementEvent::Disabled { .. }
         | SettlementEvent::SchemeStopped { .. }
         | SettlementEvent::BooksCannotSettle { .. }
         | SettlementEvent::Settling { .. }

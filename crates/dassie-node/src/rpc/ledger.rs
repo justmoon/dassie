@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use dassie_connector::{EndpointId, PacketRecord, PacketState, TraceEvent};
 use dassie_ledger::{Reference, TraceId, TransferState};
-use dassie_settlement::{Holding, LedgerStatus};
+use dassie_settlement::{Holding, LedgerStatus, PegPause, PegView};
 use tokio::sync::broadcast::error::RecvError;
 
 use super::handlers::{Items, Reply};
@@ -312,9 +312,10 @@ fn list_schemes(node: &Node) -> Result<Reply, RpcError> {
         .settlement_schemes()
         .map_err(RpcError::internal)?;
     let is_active = |id: &str| active.iter().any(|(active, _)| active.as_str() == id);
+    let node_realm = crate::engine::ledger_realm(node.config().realm);
     let schemes = crate::engine::SCHEMES
         .iter()
-        .filter(|info| crate::engine::offered(info.id) || is_active(info.id))
+        .filter(|info| crate::engine::offered(info, node_realm) || is_active(info.id))
         .map(|info| {
             let asset = info.ledger.asset();
             proto::SettlementSchemeInfo {
@@ -429,10 +430,22 @@ pub(super) fn ledger(view: &LedgerView) -> proto::Ledger {
         faucet: view.faucet,
         realm: realm(view.id.realm()).into(),
         connection: connection(view.status).into(),
-        connection_problem: match view.status {
-            LedgerStatus::Failed(why) => why.into(),
-            _ => String::new(),
-        },
+        connection_problem: problem(view.status, view.waiting),
+        peg: view.peg.map(peg),
+    }
+}
+
+/// What a dollar token's peg guard says (spec/areas/xrpl.md#the-peg-guard).
+fn peg(view: PegView) -> proto::LedgerPeg {
+    let paused = match view.paused {
+        None => proto::PegPause::Unspecified,
+        Some(PegPause::OffPeg) => proto::PegPause::OffPeg,
+        Some(PegPause::Stale) => proto::PegPause::Stale,
+    };
+    proto::LedgerPeg {
+        paused: paused.into(),
+        price_ppm: view.last.map(|(price, _)| price),
+        ledger_index: view.last.map_or(0, |(_, ledger)| ledger),
     }
 }
 
@@ -444,10 +457,7 @@ pub(super) fn external_asset(view: &AssetView) -> proto::ExternalAsset {
         address: view.address.clone().unwrap_or_default(),
         holdings: view.holdings.iter().map(holding).collect(),
         connection: connection(view.status).into(),
-        connection_problem: match view.status {
-            LedgerStatus::Failed(why) => why.into(),
-            _ => String::new(),
-        },
+        connection_problem: problem(view.status, view.waiting),
         settlement_schemes: view.schemes.clone(),
         faucet: view.faucet,
     }
@@ -481,6 +491,14 @@ const fn realm(realm: dassie_ledger::Realm) -> proto::Realm {
     match realm {
         dassie_ledger::Realm::Test => proto::Realm::Test,
         dassie_ledger::Realm::Live => proto::Realm::Live,
+    }
+}
+
+/// Why a ledger is not in step: why it failed, or what it waits for.
+fn problem(status: LedgerStatus, waiting: Option<&'static str>) -> String {
+    match (status, waiting) {
+        (LedgerStatus::Failed(why), _) | (_, Some(why)) => why.into(),
+        (_, None) => String::new(),
     }
 }
 
@@ -654,5 +672,28 @@ mod tests {
         );
         let largest = holding(&token(u128::MAX));
         assert_eq!((largest.amount, largest.asset_scale), (u64::MAX, 0));
+    }
+
+    // The owner sees why a dollar token's scheme is paused, and the last
+    // price its guard read; a guard that read nothing yet shows no price.
+    #[test]
+    fn the_peg_guard_is_shown_with_its_reason_and_last_price() {
+        let off = peg(PegView {
+            paused: Some(PegPause::OffPeg),
+            last: Some((950_000, 42)),
+        });
+        assert_eq!(off.paused(), proto::PegPause::OffPeg);
+        assert_eq!((off.price_ppm, off.ledger_index), (Some(950_000), 42));
+        let stale = peg(PegView {
+            paused: Some(PegPause::Stale),
+            last: None,
+        });
+        assert_eq!(stale.paused(), proto::PegPause::Stale);
+        assert_eq!((stale.price_ppm, stale.ledger_index), (None, 0));
+        let running = peg(PegView {
+            paused: None,
+            last: Some((1_000_000, 7)),
+        });
+        assert_eq!(running.paused(), proto::PegPause::Unspecified);
     }
 }
