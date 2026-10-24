@@ -66,8 +66,10 @@ pub const FIRST: AssetId = AssetId {
     kind: AssetKind::XrplTestnetAccount,
     index: 0,
 };
-/// The testnet's public server.
-pub const DEFAULT_SERVER: &str = "wss://s.altnet.rippletest.net:51233";
+/// The testnet's proof server, which the project runs: a rippled that also
+/// serves the proof methods (spec/designs/xrpl-validation.md#3-the-proof-api)
+/// beside every method of a stock server.
+pub const DEFAULT_SERVER: &str = "wss://testnet.xrpl.dassieland.net";
 /// The testnet's faucet.
 pub const DEFAULT_FAUCET: &str = "https://faucet.altnet.rippletest.net/accounts";
 
