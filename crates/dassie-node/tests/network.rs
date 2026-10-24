@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 
 use dassie_identity::NodeId;
 use dassie_ledger::LedgerId;
-use dassie_node::engine::{EngineEvent, Lie, NewIncoming, NewOutgoing};
+use dassie_node::engine::{EngineError, EngineEvent, Lie, NewIncoming, NewOutgoing};
 use dassie_node::node::Policies;
 use dassie_node::sim::checks::{
     check, check_across, check_books, check_events, check_ledgers, drifted_past, not_settled_down,
@@ -32,6 +32,8 @@ use dassie_node::sim::{
 };
 use dassie_node::store::{Aim, ForeignAmount, OutgoingRow, OutgoingState, PaymentId, PeerSettings};
 use dassie_node_core::testing::{Outcome, assert_seeds_pass};
+use dassie_payments::amount::Amount;
+use dassie_payments::gnap::Limits;
 use dassie_settlement::LedgerStatus;
 
 #[test]
@@ -493,6 +495,69 @@ fn outgoing_payments_never_share_credentials() {
         let again =
             core.create_outgoing_payment(pay(&incoming.ilp_address, incoming.shared_secret));
         assert!(again.is_err());
+    });
+}
+
+// spec/areas/payments.md#what-a-grant-allows: a grant whose limits cap
+// what is received but not what is debited pays nothing, though a store
+// restored from elsewhere still holds it; with a debit limit beside its
+// receive limit, the same payment is made.
+#[test]
+fn a_grant_that_limits_only_what_is_received_pays_nothing() {
+    let mut sim = Sim::new(90, 1, 1);
+    sim.run_until(START + 1_000);
+    let ledger = sim.settling.ledger();
+    let asset = ledger.asset();
+    let mut incoming = None;
+    sim.step(0, |core| {
+        incoming = Some(
+            core.create_incoming_payment(NewIncoming {
+                ledger,
+                wallet_address: "https://sim.example/.well-known/pay".into(),
+                client: Some("https://client.example".into()),
+                incoming_amount: Some(20),
+                expires_at_ms: None,
+                metadata: None,
+                uplink: None,
+            })
+            .unwrap(),
+        );
+    });
+    let incoming = incoming.unwrap();
+    let pay = |debit_limit: Option<u64>| NewOutgoing {
+        ledger,
+        wallet_address: "https://sim.example/.well-known/pay".into(),
+        client: Some("https://client.example".into()),
+        grant: Some((
+            PaymentId([9; 16]),
+            Limits {
+                receiver: None,
+                interval: None,
+                debit_amount: debit_limit.map(|value| Amount::new(value, asset.code, asset.scale)),
+                receive_amount: Some(Amount::new(100, asset.code, asset.scale)),
+            },
+        )),
+        quote_id: None,
+        receiver: format!("https://n0.test/incoming-payments/{}", incoming.id),
+        destination: incoming.ilp_address.clone(),
+        shared_secret: incoming.shared_secret,
+        debit_amount: 10,
+        receive_amount: ForeignAmount {
+            value: 10,
+            asset_code: asset.code.into(),
+            asset_scale: asset.scale,
+        },
+        metadata: None,
+        recipient: None,
+        fixed_debit: false,
+    };
+    sim.step(0, |core| {
+        let refused = core.create_outgoing_payment(pay(None));
+        assert!(
+            matches!(&refused, Err(EngineError::Refused(why)) if why.contains("not what is debited")),
+            "{refused:?}"
+        );
+        assert!(core.create_outgoing_payment(pay(Some(100))).is_ok());
     });
 }
 
