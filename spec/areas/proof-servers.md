@@ -22,14 +22,14 @@ A proof server is relied on to answer, never trusted ([verified-ledgers](../deci
   - in xrpld, the three handlers.
 - **In rippled's own style,** with its own unit tests, and offered upstream on rippled's `develop`. The servers run a release tag with the patches applied. Once upstream takes it, any rippled serves proofs, and owners and hub validators can name servers of their own.
 - **Public and charged as other public methods are.** Each request costs as much as rippled's account queries, and `state_proof` names a bounded number of keys. So a client that floods a server gets `slowDown`, as from any rippled.
-- **Validations are rippled's:** what its consensus code holds anyway, for about ten minutes. Serving them keeps no more of them, and keeps none of them longer.
+- **Validations are rippled's:** what its consensus code holds anyway, for about ten minutes. Serving them keeps no more of them, and keeps none of them longer. An answer holds a bounded number, the server's trusted validations first: anyone can sign validations with keys nobody trusts, and those can then crowd out only each other.
 
 ## The servers
 
 - **One per network, on GCP,** each a VM with xrpld and Caddy, set up at every boot from the instance metadata (which build, by its hash) and from `main` (its configuration), as the [DSUSD keeper's](dsusd-keeper.md#its-vm) is. The builds are in a bucket anyone can read.
 - **History.** Each keeps a little more than the node's history bound, the age beyond which a node takes the server's `lgrNotFound` as history it no longer has ([the account on proofs](../designs/xrpl-validation.md#6-the-account-on-proofs)). A longer history costs disk; a shorter one sends more nodes that were away down that path.
 - **Per-client limits behind the proxy.** xrpld charges each request to an address. Behind Caddy, every request would come from one address, so one client could slow down all. xrpld therefore takes the client's address from Caddy, which sets it itself and drops what a client sends there, and drops the header with which a gateway lifts the limits.
-- **A testnet reset** leaves a server on a chain the network no longer has; it is wiped and syncs anew, once per request in the metadata, since nothing on the VM can tell a reset from a lying peer.
+- **A testnet reset** leaves a server on a chain the network no longer has, and xrpld never takes the new chain's lower ledgers. On the testnet, a watchdog wipes the database once a server that was in sync has gone half an hour without a fresh validated ledger, and it syncs the new chain. Nodes on it stall until then and book nothing wrong. A false alarm costs the same resync, and the server's history until it is backfilled, never a wrong answer. Only an xrpld that answers and has had no fresh validated ledger for that long within one run counts, since one that does not answer or keeps crashing is systemd's to restart; and only a testnet server is ever wiped. A wipe can also be asked for in the metadata.
 - **No SSH.** It logs to the serial console; a new build or configuration is new metadata and a restart, stopped cleanly so that xrpld closes its databases.
 
 ## Decisions

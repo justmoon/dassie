@@ -103,12 +103,12 @@ A new owner opens a setup URL, enters a passphrase and chooses a first ledger ([
 
 The node proves what it books against rippled servers patched with three public methods: `validations` for a ledger, `tx_proof` for a transaction, and `state_proof` for ledger objects with proofs of absence. Their names and shapes are the contract the node is built against ([the design](designs/xrpl-validation.md#3-the-proof-api)). Every answer proves itself, so a proof server is relied on only to answer ([verified-ledgers](decisions/verified-ledgers.md)). A condition for [real money](#real-money).
 
-- **What it covers:**
-  - the patch to rippled: the three methods, public, bounded and charged like rippled's other public methods, serving any ledger the server has, in rippled's own byte formats, with rippled's own unit tests, small enough to carry onto each release;
-  - offering it upstream, so that any rippled may serve proofs;
-  - a reproducible build, and one public server for mainnet and one for the testnet, each with recent history only;
-  - their hostnames in the node's defaults, per network.
-- **Done when:** a public patched server for each network answers the three methods, the node's defaults name it, and the patch is offered upstream.
+The patch, its build and a public server per network run ([Proof servers](areas/proof-servers.md)).
+
+- **What is left:**
+  - each network's server in the node's defaults: the testnet's in the account's, mainnet's with the mainnet account type ([Mainnet schemes](#mainnet-schemes));
+  - offering the patch upstream, so that any rippled may serve proofs.
+- **Done when:** the node's defaults name each network's proof server, and the patch is offered upstream.
 
 ### Checking XRP Ledger validators
 
