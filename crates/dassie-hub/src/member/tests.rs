@@ -767,3 +767,85 @@ fn an_operation_on_its_way_waits_for_the_restored_account_to_sync() {
     );
     restored.check_invariants();
 }
+
+// A deposit reaches the account's state before the scheme is told of it:
+// the attestations that credit it are no operation the account reads, so
+// the scheme books it with the state that follows. Until then, a
+// settlement spends only what the books hold of the balance: spent before
+// it was booked, it would take the books below nothing.
+#[test]
+fn a_settlement_spends_only_what_the_books_hold() {
+    let hub = Hub::new();
+    let mut account = hub.account();
+    let mut scheme = HubScheme::new(&account, 100_000_000, None, &[]).unwrap();
+    let caught_up = Statement::Final {
+        height: 5,
+        timestamp: 1_005,
+    };
+    for v in 0..3 {
+        from(
+            &mut account,
+            v,
+            &hub.says(v, &[hub.account_statement(5, true), caught_up.clone()]),
+        );
+    }
+    let mut effects = Vec::new();
+    scheme.on_asset(0, &mut account, &mut effects);
+    account.told();
+    assert_eq!(scheme.balance(), units(5_000_000), "the first state booked");
+    // The hub credits a deposit of 10 XRP; f + 1 validators say so before
+    // a quorum covered the block that did.
+    let mut newer = hub.account_statement(6, true);
+    if let Statement::Account {
+        account: Some((_, view)),
+        ..
+    } = &mut newer
+    {
+        view.balance += 10_000_000;
+        view.deposited += 10_000_000;
+    }
+    // A transfer toward us at 11 is read in order; the state at 6 is older
+    // than what touched the account since, so the scheme is not told it.
+    let read = [
+        newer,
+        hub.transfer(1),
+        Statement::Final {
+            height: 11,
+            timestamp: 1_011,
+        },
+    ];
+    for v in 0..3 {
+        from(&mut account, v, &hub.says(v, &read));
+    }
+    assert_eq!(account.view().map(|(h, _)| *h), Some(6));
+    assert!(account.is_synced());
+    let mut effects = Vec::new();
+    scheme.on_asset(0, &mut account, &mut effects);
+    account.told();
+    assert_eq!(scheme.balance(), units(5_000_000), "not told of it yet");
+    let peer = Name::new("peer").unwrap();
+    let mut state = Vec::new();
+    super::peering::Membership {
+        hub: hub.rules.id(),
+        account: AccountNumber(9),
+        key: NodeKey::from_bytes(&[9; 32]).public_key(),
+    }
+    .write(&mut state);
+    let mut rng = dassie_node_core::testing::SeededRng::new(1);
+    let prepared = scheme
+        .prepare_settlement(
+            &mut rng,
+            Some(&mut account),
+            peer,
+            units(12_000_000),
+            &state,
+        )
+        .unwrap();
+    assert!(
+        prepared.amount <= units(5_000_000),
+        "spent {} of the books' {}",
+        prepared.amount,
+        units(5_000_000)
+    );
+    scheme.check_invariants();
+}

@@ -309,6 +309,29 @@ impl HubScheme {
         }
     }
 
+    /// What holds toward us from our peers hold, as the account mirrors
+    /// them, in drops.
+    fn toward_us(&self, account: &HubAccount) -> Amount {
+        self.peers
+            .values()
+            .filter_map(|peer| peer.payee.hold)
+            .filter_map(|hold| account.hold(hold).map(|mirror| mirror.amount))
+            .fold(0, Amount::saturating_add)
+    }
+
+    /// What we may spend of the account's balance, in drops: what its
+    /// newest state says it holds, but never more than the books hold of
+    /// it. The account learns its state before the scheme is told what led
+    /// there (a deposit, whose attestations no operation shows, is told
+    /// with the state that follows it), and what we spend is booked when
+    /// the hub executes it: spending a deposit the books do not hold yet
+    /// would take them below nothing, where they cannot go.
+    fn spendable_balance(&self, account: &HubAccount) -> Amount {
+        let newest = account.view().map_or(0, |(_, view)| view.balance);
+        let booked = (self.booked / UNITS_PER_DROP).saturating_sub(self.toward_us(account));
+        newest.min(booked)
+    }
+
     /// Makes the books hold what the account and the holds toward us from
     /// our peers held as of a block: on the first sync, the owner's
     /// deposit; after, the owner's deposits and withdrawals since the last
@@ -322,13 +345,7 @@ impl HubScheme {
         effects: &mut Vec<Effect>,
     ) {
         self.account = account.number();
-        let toward_us: Amount = self
-            .peers
-            .values()
-            .filter_map(|peer| peer.payee.hold)
-            .filter_map(|hold| account.hold(hold).map(|mirror| mirror.amount))
-            .fold(0, Amount::saturating_add);
-        let target = units(view.balance.saturating_add(toward_us));
+        let target = units(view.balance.saturating_add(self.toward_us(account)));
         if self.synced {
             self.book_moves(view, effects);
         } else {
@@ -1107,7 +1124,7 @@ impl SettlementScheme for HubScheme {
             None if opening => return Err(SchemeError::Unavailable),
             None => self.terms.fees.hold_reserve,
         };
-        let balance = account.view().map_or(0, |(_, view)| view.balance);
+        let balance = self.spendable_balance(account);
         let spendable = balance
             .saturating_sub(account.committed())
             .saturating_sub(self.terms.fees.operation)
@@ -1244,7 +1261,7 @@ impl SettlementScheme for HubScheme {
         if account.has(Purpose::Withdraw) {
             return Err(SchemeError::Unavailable);
         }
-        let balance = account.view().map_or(0, |(_, view)| view.balance);
+        let balance = self.spendable_balance(account);
         let spendable = balance
             .saturating_sub(account.committed())
             .saturating_sub(fees.operation)
