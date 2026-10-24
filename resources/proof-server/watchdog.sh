@@ -38,6 +38,8 @@ info=$(curl -fsS -m 10 http://127.0.0.1:5005 -d '{"method":"server_info"}' || tr
 server_state=$(printf '%s' "$info" | jq -r '.result.info.server_state // "none"' 2> /dev/null || echo none)
 # Seconds since the newest validated ledger closed: in sync means a fresh one.
 age=$(printf '%s' "$info" | jq -r '.result.info.validated_ledger.age // 999999' 2> /dev/null || echo 999999)
+# Seconds this run of xrpld has been up.
+uptime=$(printf '%s' "$info" | jq -r '.result.info.uptime // 0' 2> /dev/null || echo 0)
 
 case "$server_state" in
   full | tracking | proposing | validating)
@@ -54,6 +56,13 @@ esac
 
 [ -f "$run/stuck-since" ] || echo "$now" > "$run/stuck-since"
 since=$(cat "$run/stuck-since")
+# A stretch counts within one run of xrpld only. One that restarts, from a
+# crash loop or by hand, starts it afresh: a reset leaves xrpld running on
+# the old chain, and a crashing xrpld is not helped by a wipe.
+if [ $((now - since)) -gt "$uptime" ]; then
+  since=$((now - uptime))
+  echo "$since" > "$run/stuck-since"
+fi
 if [ $((now - since)) -lt "$stuck_limit" ]; then
   exit 0
 fi
