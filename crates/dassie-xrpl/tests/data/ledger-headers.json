@@ -1,5 +1,5 @@
 {
- "source": "The ledger method, as JSON and with binary: true; ledger_data is the 118-byte header without its hash. Captured 2026-10-24 between 02:31 and 02:45 UTC from wss://s1.ripple.com and wss://s2.ripple.com (rippled API v1). Captured 2026-10-24 between 02:31 and 02:45 UTC from wss://s.altnet.rippletest.net:51233 (rippled API v1).",
+ "source": "The ledger method, as JSON and with binary: true; ledger_data is the 118-byte header without its hash. Captured 2026-10-24 between 02:31 and 02:45 UTC from wss://s1.ripple.com and wss://s2.ripple.com (rippled API v1). Captured 2026-10-24 between 02:31 and 02:45 UTC from wss://s.altnet.rippletest.net:51233 (rippled API v1). Reproduced by testdata/xrpl/capture-ledger-headers.mjs --mainnet 107862101 --testnet 21775700.",
  "ledgers": [
   {
    "network": "mainnet",

@@ -1,5 +1,5 @@
 {
- "source": "Transactions and metadata of mainnet ledger 107862214 (ledger with transactions, expand and binary), and ledger objects from ledger_entry with binary: the XRP/RLUSD pool's account root, its RLUSD trust line and its AMM object, and RLUSD's issuer's account root. Captured 2026-10-24 between 02:31 and 02:45 UTC from wss://s1.ripple.com and wss://s2.ripple.com (rippled API v1).",
+ "source": "Transactions and metadata of mainnet ledger 107862214 (ledger with transactions, expand and binary), and ledger objects from ledger_entry with binary: the XRP/RLUSD pool's account root, its RLUSD trust line and its AMM object, and RLUSD's issuer's account root. Captured 2026-10-24 between 02:31 and 02:45 UTC from wss://s1.ripple.com and wss://s2.ripple.com (rippled API v1). Reproduced by testdata/xrpl/capture-ledger-binary.mjs --ledger 107862214 --transactions 1,53,58,80,125 --objects 107862238.",
  "blobs": [
   {
    "label": "ledger 107862214, transaction 1, tx_blob",

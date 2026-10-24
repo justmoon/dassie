@@ -1,5 +1,5 @@
 {
- "source": "The publishers' manifests from their signed validator lists, and each UNL validator's live manifest from the manifest method; signed_bytes is MAN\\0 and the fields without the signatures. Captured 2026-10-24 from https://vl.ripple.com, https://unl.xrplf.org, https://vl.altnet.rippletest.net, wss://s1.ripple.com and wss://s.altnet.rippletest.net:51233.",
+ "source": "The publishers' manifests from their signed validator lists, and each UNL validator's live manifest from the manifest method; signed_bytes is MAN\\0 and the fields without the signatures. Captured 2026-10-24 from https://vl.ripple.com, https://unl.xrplf.org, https://vl.altnet.rippletest.net, wss://s1.ripple.com and wss://s.altnet.rippletest.net:51233. testdata/xrpl/capture-manifests.mjs captures them anew.",
  "manifests": [
   {
    "kind": "publisher",
