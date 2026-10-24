@@ -140,19 +140,15 @@ impl Founding {
         let Some(key) = node.node_key() else {
             return refused(Refusal::Busy);
         };
-        let _deciding = self.deciding.lock().await;
-        let store = node.store_handle();
         let endpoint = node
             .own_info()
             .url
             .and_then(|url| url.strip_prefix("https://").map(str::to_owned));
-        let decision = Decision {
-            founding: self,
-            key: &key,
-            endpoint: endpoint.as_deref(),
-            now: node.now_ms(),
-        };
-        let answer = match decision.decide(&store, from, &request) {
+        let decision = self.decision(key, endpoint, node.now_ms());
+        let decided = self
+            .decide(decision, node.store_handle(), *from, request.clone())
+            .await;
+        let answer = match decided {
             Ok(answer) => answer,
             Err(error) => {
                 tracing::error!(target: target::HUB, %error, "cannot keep what a hub founding needs");
@@ -177,22 +173,80 @@ impl Founding {
     }
 }
 
-/// One decision, with what it needs.
-struct Decision<'a> {
-    founding: &'a Founding,
-    key: &'a NodeKey,
-    endpoint: Option<&'a str>,
+impl Founding {
+    /// What a decision at `now` needs, as the node of `key` reached at
+    /// `endpoint`.
+    fn decision(&self, key: Arc<NodeKey>, endpoint: Option<String>, now: u64) -> Decision {
+        Decision {
+            sponsors: self.sponsors.clone(),
+            configured: self.configured.clone(),
+            key,
+            endpoint,
+            now,
+        }
+    }
+
+    /// Decides `request` from `from` and writes what it changed, one
+    /// decision at a time, off the async runtime as the validator's steps
+    /// are written: the database's work never holds up the node's other
+    /// tasks.
+    async fn decide(
+        &self,
+        decision: Decision,
+        store: Arc<Store>,
+        from: PublicKey,
+        request: FoundingRequest,
+    ) -> Result<FoundingAnswer, StoreError> {
+        let _deciding = self.deciding.lock().await;
+        let decided =
+            tokio::task::spawn_blocking(move || decision.decide(&store, &from, &request)).await;
+        let (answer, changed) =
+            decided.map_err(|_| StoreError::Corrupt("a founding decision did not finish"))??;
+        if let Some((known, record)) = changed {
+            self.log(known.as_ref(), &record);
+        }
+        Ok(answer)
+    }
+
+    /// Says what changed, and has the validator role start a hub founded
+    /// now.
+    fn log(&self, known: Option<&Record>, record: &Record) {
+        let nonce = hex(&record.nonce);
+        let sponsor = record.sponsor.node_id();
+        if record.running && !known.is_some_and(|r| r.running) {
+            let hub = record.hub().map(|hub| hex(hub.0.as_bytes()));
+            tracing::info!(target: target::HUB, %sponsor, hub = hub.as_deref().unwrap_or_default(), "a hub founded with its genesis certificate: validating it");
+            self.founded
+                .send_modify(|count| *count = count.wrapping_add(1));
+        } else if record.genesis.is_some() && known.is_none_or(|r| r.genesis.is_none()) {
+            tracing::info!(target: target::HUB, %sponsor, %nonce, "signed the genesis of a hub");
+        } else if known.is_none() {
+            tracing::info!(target: target::HUB, %sponsor, %nonce, "accepted the terms of a hub");
+        }
+    }
+}
+
+/// What a founding decision changed: the record of its nonce as it was, if
+/// there was one, and as it is now.
+type Changed = Option<(Option<Record>, Record)>;
+
+/// One decision, with what it needs, owned: it runs off the async runtime.
+struct Decision {
+    sponsors: Vec<NodeId>,
+    configured: Vec<HubId>,
+    key: Arc<NodeKey>,
+    endpoint: Option<String>,
     now: u64,
 }
 
-impl Decision<'_> {
-    /// Decides `request` from `from` and writes what it changed.
+impl Decision {
+    /// Decides `request` from `from`, writes what it changed, and says so.
     fn decide(
         &self,
         store: &Store,
         from: &PublicKey,
         request: &FoundingRequest,
-    ) -> Result<FoundingAnswer, StoreError> {
+    ) -> Result<(FoundingAnswer, Changed), StoreError> {
         let rows = store.hub_founding_records()?;
         let mut records = Vec::with_capacity(rows.len());
         let mut lapsed = Vec::new();
@@ -205,7 +259,6 @@ impl Decision<'_> {
             }
         }
         let running_elsewhere = self
-            .founding
             .configured
             .iter()
             .filter(|hub| {
@@ -215,29 +268,29 @@ impl Decision<'_> {
             })
             .count();
         let policy = Policy {
-            sponsors: &self.founding.sponsors,
+            sponsors: &self.sponsors,
             max_hubs: MAX_VALIDATED_HUBS,
-            endpoint: self.endpoint,
+            endpoint: self.endpoint.as_deref(),
             network: TESTNET_NETWORK,
         };
         let held = (records.as_slice(), running_elsewhere);
         let (answer, record) = match request {
             FoundingRequest::Propose(terms) => {
-                match validator::accept(self.key, &policy, held, from, terms, self.now) {
+                match validator::accept(&self.key, &policy, held, from, terms, self.now) {
                     Ok((acceptance, record)) => (FoundingAnswer::Accepted(acceptance), record),
-                    Err(refusal) => return Ok(FoundingAnswer::Refused(refusal)),
+                    Err(refusal) => return Ok((FoundingAnswer::Refused(refusal), None)),
                 }
             }
             FoundingRequest::Genesis { rules, genesis_ms } => {
                 let genesis = (rules, *genesis_ms);
-                match validator::sign_genesis(self.key, &policy, held, from, genesis, self.now) {
+                match validator::sign_genesis(&self.key, &policy, held, from, genesis, self.now) {
                     Ok((signature, record)) => (FoundingAnswer::Signed(signature), record),
-                    Err(refusal) => return Ok(FoundingAnswer::Refused(refusal)),
+                    Err(refusal) => return Ok((FoundingAnswer::Refused(refusal), None)),
                 }
             }
             FoundingRequest::Certificate(certificate) => {
                 let taken = validator::take_certificate(
-                    self.key,
+                    &self.key,
                     &policy,
                     held,
                     from,
@@ -251,35 +304,17 @@ impl Decision<'_> {
                         },
                         record,
                     ),
-                    Err(refusal) => return Ok(FoundingAnswer::Refused(refusal)),
+                    Err(refusal) => return Ok((FoundingAnswer::Refused(refusal), None)),
                 }
             }
-            FoundingRequest::Status(hub) => return Ok(status(&records, from, hub)),
+            FoundingRequest::Status(hub) => return Ok((status(&records, from, hub), None)),
         };
         let known = records.iter().find(|r| r.nonce == record.nonce);
-        if known != Some(&record) {
-            store.put_hub_founding_record(&row_of(&record), &lapsed)?;
-            self.log(known, &record);
+        if known == Some(&record) {
+            return Ok((answer, None));
         }
-        Ok(answer)
-    }
-
-    /// Says what changed, and has the validator role start a hub founded
-    /// now.
-    fn log(&self, known: Option<&Record>, record: &Record) {
-        let nonce = hex(&record.nonce);
-        let sponsor = record.sponsor.node_id();
-        if record.running && !known.is_some_and(|r| r.running) {
-            let hub = record.hub().map(|hub| hex(hub.0.as_bytes()));
-            tracing::info!(target: target::HUB, %sponsor, hub = hub.as_deref().unwrap_or_default(), "a hub founded with its genesis certificate: validating it");
-            self.founding
-                .founded
-                .send_modify(|count| *count = count.wrapping_add(1));
-        } else if record.genesis.is_some() && known.is_none_or(|r| r.genesis.is_none()) {
-            tracing::info!(target: target::HUB, %sponsor, %nonce, "signed the genesis of a hub");
-        } else if known.is_none() {
-            tracing::info!(target: target::HUB, %sponsor, %nonce, "accepted the terms of a hub");
-        }
+        store.put_hub_founding_record(&row_of(&record), &lapsed)?;
+        Ok((answer, Some((known.cloned(), record))))
     }
 }
 
@@ -359,33 +394,40 @@ mod tests {
         }
     }
 
+    /// What `founding` answers `request` from `from`, as the node of `key`.
+    async fn decide(
+        founding: &Founding,
+        store: &Arc<Store>,
+        (key, from): (&NodeKey, &PublicKey),
+        request: &FoundingRequest,
+    ) -> FoundingAnswer {
+        let key = Arc::new(NodeKey::from_bytes(key.as_bytes()));
+        let decision = founding.decision(key, Some("v.example:443".into()), NOW);
+        founding
+            .decide(decision, Arc::clone(store), *from, request.clone())
+            .await
+            .unwrap()
+    }
+
     // A validator decides each request and writes it before it answers;
     // the hub a certificate founds is among the hubs it runs, and stays
     // so across a restart, which reads the same records.
-    #[test]
+    #[tokio::test]
     #[allow(clippy::too_many_lines)]
-    fn a_founded_hub_is_kept_and_run() {
+    async fn a_founded_hub_is_kept_and_run() {
         let sponsor = NodeKey::from_bytes(&[100; 32]);
-        let store = Store::open_in_memory().unwrap();
+        let store = Arc::new(Store::open_in_memory().unwrap());
         let founding = Founding::new(&config(&sponsor));
         let nodes: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
         let terms = terms(&sponsor);
         let from = sponsor.public_key();
-        let decide = |key: &NodeKey, request: &FoundingRequest| {
-            let decision = Decision {
-                founding: &founding,
-                key,
-                endpoint: Some("v.example:443"),
-                now: NOW,
-            };
-            decision.decide(&store, &from, request).unwrap()
-        };
-        let FoundingAnswer::Accepted(ours) =
-            decide(&nodes[0], &FoundingRequest::Propose(terms.clone()))
+        let ours = (&nodes[0], &from);
+        let propose = FoundingRequest::Propose(terms.clone());
+        let FoundingAnswer::Accepted(accepted) = decide(&founding, &store, ours, &propose).await
         else {
             panic!("accepted");
         };
-        let validators: Vec<_> = std::iter::once(ours)
+        let validators: Vec<_> = std::iter::once(accepted)
             .chain(nodes[1..].iter().map(|node| {
                 ValidatorKeys::derive(node, &terms.nonce)
                     .unwrap()
@@ -401,7 +443,8 @@ mod tests {
             rules: rules.clone(),
             genesis_ms: NOW,
         };
-        let FoundingAnswer::Signed(signature) = decide(&nodes[0], &genesis) else {
+        let FoundingAnswer::Signed(signature) = decide(&founding, &store, ours, &genesis).await
+        else {
             panic!("signed");
         };
         let digest = genesis_digest(&rules, NOW);
@@ -414,13 +457,13 @@ mod tests {
                 )
             }))
             .collect();
-        let certificate = GenesisCertificate {
+        let certificate = FoundingRequest::Certificate(GenesisCertificate {
             rules: rules.clone(),
             genesis_ms: NOW,
             signatures,
-        };
+        });
         let mut founded = founding.founded();
-        let answer = decide(&nodes[0], &FoundingRequest::Certificate(certificate));
+        let answer = decide(&founding, &store, ours, &certificate).await;
         assert!(matches!(answer, FoundingAnswer::Running { .. }));
         assert!(founded.has_changed().unwrap());
         founded.mark_unchanged();
@@ -428,24 +471,63 @@ mod tests {
         assert_eq!(hubs.len(), 1);
         assert_eq!(hubs[0].rules, rules);
         assert_eq!(hubs[0].genesis_ms, NOW);
-        let status = decide(&nodes[0], &FoundingRequest::Status(rules.id()));
+        let status = decide(
+            &founding,
+            &store,
+            ours,
+            &FoundingRequest::Status(rules.id()),
+        )
+        .await;
         assert!(matches!(status, FoundingAnswer::Running { .. }));
-        let unknown = decide(
-            &nodes[0],
-            &FoundingRequest::Status(HubId(dassie_hub::Digest([1; 32]))),
-        );
+        let unknown = FoundingRequest::Status(HubId(dassie_hub::Digest([1; 32])));
+        let unknown = decide(&founding, &store, ours, &unknown).await;
         assert_eq!(unknown, FoundingAnswer::Refused(Refusal::UnknownHub));
         // Another sponsor is not answered.
         let stranger = NodeKey::from_bytes(&[55; 32]).public_key();
-        let decision = Decision {
-            founding: &founding,
-            key: &nodes[0],
-            endpoint: Some("v.example:443"),
-            now: NOW,
-        };
-        let refused = decision
-            .decide(&store, &stranger, &FoundingRequest::Propose(terms))
-            .unwrap();
+        let refused = decide(&founding, &store, (&nodes[0], &stranger), &propose).await;
         assert_eq!(refused, FoundingAnswer::Refused(Refusal::NotAllowed));
+    }
+
+    // A decision reads and writes the database off the async runtime: while
+    // another connection holds the database's write lock, the decision
+    // waits for it on a blocking task, and the runtime's other tasks go on.
+    #[test]
+    #[allow(clippy::disallowed_methods)]
+    fn deciding_leaves_the_runtime_free() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let sponsor = NodeKey::from_bytes(&[100; 32]);
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(dir.path()).unwrap());
+        let other =
+            rusqlite::Connection::open(dir.path().join(crate::store::DATABASE_FILE)).unwrap();
+        other.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(400));
+            other.execute_batch("COMMIT").unwrap();
+        });
+        let founding = Founding::new(&config(&sponsor));
+        let ticks = Arc::new(AtomicU64::new(0));
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap();
+        let answer = runtime.block_on(async {
+            let counted = Arc::clone(&ticks);
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    counted.fetch_add(1, Ordering::Relaxed);
+                }
+            });
+            tokio::task::yield_now().await;
+            let node = NodeKey::from_bytes(&[1; 32]);
+            let propose = FoundingRequest::Propose(terms(&sponsor));
+            decide(&founding, &store, (&node, &sponsor.public_key()), &propose).await
+        });
+        release.join().unwrap();
+        assert!(matches!(answer, FoundingAnswer::Accepted(_)), "{answer:?}");
+        let ticked = ticks.load(Ordering::Relaxed);
+        assert!(ticked >= 10, "the runtime stood still: {ticked} ticks");
     }
 }
