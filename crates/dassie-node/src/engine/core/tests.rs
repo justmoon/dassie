@@ -235,8 +235,9 @@ fn a_stopped_scheme_is_not_peered_on() {
     assert_eq!(core.peer.schemes(), [stub]);
 }
 
-/// Carries the XRP Ledger scheme's requests to `ledger` and the answers
-/// back, until it has nothing more to say.
+/// Carries the XRP Ledger account's requests to `ledger` and the answers
+/// back, until it has nothing more to say: the account on the fake's
+/// network.
 fn follow_xrpl(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger) {
     follow_xrpl_outputs(core, ledger);
 }
@@ -245,6 +246,7 @@ fn follow_xrpl(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger) {
 fn follow_xrpl_outputs(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger) -> Vec<Output> {
     use super::LedgerEvent;
 
+    let asset = ledger.network().first().to_string();
     let mut all = Vec::new();
     for _ in 0..50 {
         let mut outputs = Vec::new();
@@ -252,8 +254,14 @@ fn follow_xrpl_outputs(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedg
         let events: Vec<(u64, LedgerEvent)> = outputs
             .iter()
             .filter_map(|output| match output {
-                Output::LedgerConnect { epoch, .. } => Some((*epoch, LedgerEvent::Connected)),
-                Output::LedgerSend { epoch, message, .. } => {
+                Output::LedgerConnect {
+                    epoch, asset: a, ..
+                } if *a == asset => Some((*epoch, LedgerEvent::Connected)),
+                Output::LedgerSend {
+                    epoch,
+                    message,
+                    asset: a,
+                } if *a == asset => {
                     Some((*epoch, LedgerEvent::Message(ledger.request(1, message))))
                 }
                 _ => None,
@@ -264,7 +272,7 @@ fn follow_xrpl_outputs(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedg
             return all;
         }
         for (epoch, event) in &events {
-            core.ledger_event(XRPL_ACCOUNT, *epoch, event);
+            core.ledger_event(&asset, *epoch, event);
         }
     }
     panic!("the scheme kept talking");
@@ -1506,28 +1514,8 @@ fn downlink_request_on(
 #[test]
 fn a_downlink_that_owes_nothing_is_never_short_of_room() {
     let store = Arc::new(Store::open_in_memory().unwrap());
-    let mut core = Core::start(
-        CoreParts {
-            store,
-            key: Arc::new(NodeKey::from_bytes(&[7; 32])),
-            realm: Realm::Test,
-            live: dassie_node_core::config::LiveRealm::Refused,
-            policies: Policies::DEFAULT,
-            rng: Box::new(SeededRng::new(5)),
-            peer_rng: Box::new(SeededRng::new(6)),
-            own_info: dassie_peer::OwnInfo {
-                url: Some("https://core.test".into()),
-                alias: String::new(),
-                quic: true,
-                feed_port: None,
-                hub: None,
-            },
-            bootstrap: Vec::new(),
-            uplinks: Vec::new(),
-        },
-        NOW,
-    )
-    .unwrap();
+    let refused = dassie_node_core::config::LiveRealm::Refused;
+    let mut core = core_taking_downlinks(store, Realm::Test, refused, NOW);
     core.add_scheme("stub", String::new()).unwrap();
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
@@ -1553,9 +1541,10 @@ fn a_downlink_that_owes_nothing_is_never_short_of_room() {
 fn close_xrpl(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger) {
     use super::LedgerEvent;
 
-    let epoch = core.assets[&dassie_xrpl::account::FIRST].epoch;
+    let asset = ledger.network().first();
+    let epoch = core.assets[&asset].epoch;
     for (_, message) in ledger.close() {
-        core.ledger_event(XRPL_ACCOUNT, epoch, &LedgerEvent::Message(message));
+        core.ledger_event(&asset.to_string(), epoch, &LedgerEvent::Message(message));
     }
     follow_xrpl(core, ledger);
 }
@@ -1974,12 +1963,12 @@ fn a_scheme_activated_on_a_closed_account_connects_it_again() {
     assert_eq!(core.asset_views()[0].status, LedgerStatus::Synced);
 }
 
-// spec/decisions/external-assets.md: the RLUSD scheme added
-// beside the XRP scheme settles through the same account. The account is
-// connected anew and reads the line, which is set with a TrustSet whose fee
-// is a ledger fee on `xrpl-testnet+xrp` and whose reserve is reconciled
-// there, and the wallet sees both holdings as the ledger says, a freeze
-// included.
+// spec/decisions/external-assets.md: the RLUSD scheme added beside the XRP
+// scheme settles through the same account, mainnet's, in a node of the live
+// realm (spec/decisions/mainnet-schemes.md). The account is connected anew
+// and reads the line, which is set with a TrustSet whose fee is a ledger fee
+// on `xrpl+xrp` and whose reserve is reconciled there, and the wallet sees
+// both holdings as the ledger says, a freeze included.
 // spec/areas/settlement.md#when-peers-cannot-pay-us: while the issuer froze
 // the line deep, or froze its token for every holder (read at the
 // settlement check), the link state leaves the scheme out; it stays synced.
@@ -1987,25 +1976,26 @@ fn a_scheme_activated_on_a_closed_account_connects_it_again() {
 #[allow(clippy::too_many_lines)]
 fn rlusd_beside_xrp_on_one_account() {
     use dassie_ledger::{LedgerId, Reference};
+    use dassie_node_core::config::LiveRealm;
     use dassie_settlement::LedgerStatus;
     use dassie_xrpl::Wallet;
     use dassie_xrpl::codec::TokenValue;
     use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, FakeLedger, RESERVE_BASE, RESERVE_INC, Token};
 
-    let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
+    let config = r#"{"server":"ws://ledger.test"}"#;
     let entropy = NodeKey::from_bytes(&[7; 32])
-        .settlement_entropy("xrpl-testnet", "seed-testnet")
+        .settlement_entropy("xrpl", "seed-mainnet")
         .unwrap();
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
-    let mut ledger = FakeLedger::new();
-    ledger.fund(address);
+    let mut ledger = FakeLedger::mainnet();
+    // Mainnet has no faucet: the owner deposits.
+    ledger.deposit(address, FAUCET_DROPS);
     ledger.close();
     let store = Arc::new(Store::open_in_memory().unwrap());
-    let mut core = core_on(Arc::clone(&store), 12);
-    core.add_scheme("xrpl-testnet", config.into()).unwrap();
+    let mut core = core_in(Arc::clone(&store), 12, Realm::Live, LiveRealm::DevSwitch).unwrap();
+    core.add_scheme("xrpl", config.into()).unwrap();
     follow_xrpl(&mut core, &mut ledger);
-    core.add_scheme("xrpl-testnet-rlusd", config.into())
-        .unwrap();
+    core.add_scheme("xrpl-rlusd", config.into()).unwrap();
     follow_xrpl(&mut core, &mut ledger);
     close_xrpl(&mut core, &mut ledger);
     let view = |core: &Core, ledger: LedgerId| {
@@ -2015,10 +2005,10 @@ fn rlusd_beside_xrp_on_one_account() {
             .unwrap()
     };
     assert_eq!(
-        view(&core, LedgerId::XrplTestnetRlusdUsd).status,
+        view(&core, LedgerId::XrplRlusdUsd).status,
         LedgerStatus::Synced
     );
-    let xrp = view(&core, LedgerId::XrplTestnetXrp);
+    let xrp = view(&core, LedgerId::XrplXrp);
     assert_eq!(xrp.status, LedgerStatus::Synced);
     let units = |drops: u64| drops * 1_000;
     assert_eq!(
@@ -2044,7 +2034,7 @@ fn rlusd_beside_xrp_on_one_account() {
         core.peer
             .schemes()
             .iter()
-            .any(|scheme| scheme.as_str() == "xrpl-testnet-rlusd")
+            .any(|scheme| scheme.as_str() == "xrpl-rlusd")
     };
     assert!(advertised(&core));
 
@@ -2055,7 +2045,7 @@ fn rlusd_beside_xrp_on_one_account() {
         )
         .unwrap();
     close_xrpl(&mut core, &mut ledger);
-    let usd = view(&core, LedgerId::XrplTestnetRlusdUsd);
+    let usd = view(&core, LedgerId::XrplRlusdUsd);
     assert_eq!(usd.owner_balance, 10_000_000_000);
 
     let freeze = |core: &Core| {
@@ -2074,7 +2064,7 @@ fn rlusd_beside_xrp_on_one_account() {
     let frozen = freeze(&core);
     assert!(frozen.line && frozen.deep && !frozen.global, "{frozen:?}");
     assert_eq!(
-        view(&core, LedgerId::XrplTestnetRlusdUsd).status,
+        view(&core, LedgerId::XrplRlusdUsd).status,
         LedgerStatus::Synced
     );
     ledger.freeze(address, Token::RLUSD, false).unwrap();
@@ -2095,15 +2085,16 @@ fn rlusd_beside_xrp_on_one_account() {
     assert!(!frozen.line && frozen.global, "{frozen:?}");
 }
 
-// spec/areas/xrpl.md#dsusd: the XRP, RLUSD and DSUSD schemes all settle
-// through the node's one XRPL account: each token scheme sets its own
-// line, whose TrustSet's fee is a ledger fee on `xrpl-testnet+xrp` and whose
-// reserve is held back there; each books only its own token, on a dollar
-// ledger of its own; the wallet sees the three holdings, and the link state
-// offers the three schemes.
+// spec/areas/xrpl.md#dsusd: the XRP and DSUSD schemes settle through the
+// node's one XRPL testnet account: the token scheme sets its line, whose
+// TrustSet's fee is a ledger fee on `xrpl-testnet+xrp` and whose reserve is
+// held back there; it books only its own token, on a dollar ledger of its
+// own; the wallet sees both holdings, and the link state offers both
+// schemes. Test RLUSD, disabled, is refused beside them
+// (spec/decisions/issued-assets.md), and has no ledger.
 #[test]
 #[allow(clippy::too_many_lines)]
-fn all_three_xrpl_schemes_on_one_account() {
+fn dsusd_beside_xrp_and_no_test_rlusd() {
     use dassie_ledger::{LedgerId, Reference};
     use dassie_settlement::LedgerStatus;
     use dassie_xrpl::Wallet;
@@ -2120,10 +2111,14 @@ fn all_three_xrpl_schemes_on_one_account() {
     ledger.close();
     let store = Arc::new(Store::open_in_memory().unwrap());
     let mut core = core_on(Arc::clone(&store), 12);
-    for scheme in ["xrpl-testnet", "xrpl-testnet-rlusd", "xrpl-testnet-dsusd"] {
+    for scheme in ["xrpl-testnet", "xrpl-testnet-dsusd"] {
         core.add_scheme(scheme, config.into()).unwrap();
         follow_xrpl(&mut core, &mut ledger);
     }
+    assert!(matches!(
+        core.add_scheme(dassie_xrpl::rlusd::TESTNET_SCHEME_ID, config.into()),
+        Err(super::EngineError::Precondition(_))
+    ));
     close_xrpl(&mut core, &mut ledger);
     close_xrpl(&mut core, &mut ledger);
     let view = |core: &Core, ledger: LedgerId| {
@@ -2132,17 +2127,13 @@ fn all_three_xrpl_schemes_on_one_account() {
             .find(|view| view.id == ledger)
             .unwrap()
     };
-    for id in [
-        LedgerId::XrplTestnetXrp,
-        LedgerId::XrplTestnetRlusdUsd,
-        LedgerId::XrplTestnetDsusdUsd,
-    ] {
+    for id in [LedgerId::XrplTestnetXrp, LedgerId::XrplTestnetDsusdUsd] {
         assert_eq!(view(&core, id).status, LedgerStatus::Synced, "{id}");
     }
     let units = |drops: u64| drops * 1_000;
     assert_eq!(
         view(&core, LedgerId::XrplTestnetXrp).on_ledger_balance,
-        units(FAUCET_DROPS - 2 * FEE_BASE - RESERVE_BASE - 2 * RESERVE_INC)
+        units(FAUCET_DROPS - FEE_BASE - RESERVE_BASE - RESERVE_INC)
     );
     core.flush();
     let rows = store.transfers_after(None, 100, None).unwrap();
@@ -2150,21 +2141,22 @@ fn all_three_xrpl_schemes_on_one_account() {
         .iter()
         .filter(|row| matches!(row.transfer.reference, Reference::Fee { .. }))
         .count();
-    assert_eq!(fees, 2, "each TrustSet's fee, once");
+    assert_eq!(fees, 1, "the TrustSet's fee, once");
     let views = core.asset_views();
     assert_eq!(views.len(), 1, "one account");
-    assert_eq!(views[0].schemes.len(), 3);
+    assert_eq!(views[0].schemes.len(), 2);
     let mut codes: Vec<&str> = views[0]
         .holdings
         .iter()
         .map(|holding| holding.code.as_str())
         .collect();
     codes.sort_unstable();
-    assert_eq!(codes, ["DSUSD", "RLUSD", "XRP"]);
+    assert_eq!(codes, ["DSUSD", "XRP"]);
     let advertised: Vec<&str> = core.peer.schemes().iter().map(|s| s.as_str()).collect();
-    for scheme in ["xrpl-testnet", "xrpl-testnet-rlusd", "xrpl-testnet-dsusd"] {
+    for scheme in ["xrpl-testnet", "xrpl-testnet-dsusd"] {
         assert!(advertised.contains(&scheme), "{scheme}: {advertised:?}");
     }
+    assert_eq!(advertised.len(), 2);
 
     ledger
         .issue(
@@ -2177,33 +2169,27 @@ fn all_three_xrpl_schemes_on_one_account() {
         view(&core, LedgerId::XrplTestnetDsusdUsd).owner_balance,
         10_000_000_000
     );
-    assert_eq!(view(&core, LedgerId::XrplTestnetRlusdUsd).owner_balance, 0);
+    assert!(
+        core.ledger_views()
+            .iter()
+            .all(|view| view.id != LedgerId::XrplTestnetRlusdUsd)
+    );
 }
 
-/// A core node that takes downlinks, on RLUSD alone, synced and holding $10
-/// on `ledger`.
-fn rlusd_core(ledger: &mut dassie_xrpl::fake::FakeLedger) -> Core {
-    use dassie_ledger::Name;
-    use dassie_settlement::LedgerStatus;
-    use dassie_xrpl::Wallet;
-    use dassie_xrpl::codec::TokenValue;
-    use dassie_xrpl::fake::Token;
-
-    let key = Arc::new(NodeKey::from_bytes(&[7; 32]));
-    let address = Wallet::from_entropy(
-        key.settlement_entropy("xrpl-testnet", "seed-testnet")
-            .unwrap()
-            .as_bytes(),
-    )
-    .account();
-    ledger.fund(address);
-    ledger.close();
-    let mut core = Core::start(
+/// A core node at `https://core.test` that takes QUIC, and so downlinks,
+/// on `store`, of `realm` as `live` allows, started at `now`.
+fn core_taking_downlinks(
+    store: Arc<Store>,
+    realm: Realm,
+    live: dassie_node_core::config::LiveRealm,
+    now: u64,
+) -> Core {
+    Core::start(
         CoreParts {
-            store: Arc::new(Store::open_in_memory().unwrap()),
-            key,
-            realm: Realm::Test,
-            live: dassie_node_core::config::LiveRealm::Refused,
+            store,
+            key: Arc::new(NodeKey::from_bytes(&[7; 32])),
+            realm,
+            live,
             policies: Policies::DEFAULT,
             rng: Box::new(SeededRng::new(5)),
             peer_rng: Box::new(SeededRng::new(6)),
@@ -2217,12 +2203,38 @@ fn rlusd_core(ledger: &mut dassie_xrpl::fake::FakeLedger) -> Core {
             bootstrap: Vec::new(),
             uplinks: Vec::new(),
         },
-        NOW,
+        now,
     )
-    .unwrap();
-    let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
-    core.add_scheme("xrpl-testnet-rlusd", config.into())
-        .unwrap();
+    .unwrap()
+}
+
+/// A core node of the live realm that takes downlinks, on RLUSD alone,
+/// synced and holding $10 on `ledger`, mainnet.
+fn rlusd_core(ledger: &mut dassie_xrpl::fake::FakeLedger) -> Core {
+    rlusd_core_on(Arc::new(Store::open_in_memory().unwrap()), ledger, NOW)
+}
+
+/// [`rlusd_core`] on `store`, started at `now`.
+fn rlusd_core_on(store: Arc<Store>, ledger: &mut dassie_xrpl::fake::FakeLedger, now: u64) -> Core {
+    use dassie_ledger::Name;
+    use dassie_settlement::LedgerStatus;
+    use dassie_xrpl::Wallet;
+    use dassie_xrpl::codec::TokenValue;
+    use dassie_xrpl::fake::{FAUCET_DROPS, Token};
+
+    let address = Wallet::from_entropy(
+        NodeKey::from_bytes(&[7; 32])
+            .settlement_entropy("xrpl", "seed-mainnet")
+            .unwrap()
+            .as_bytes(),
+    )
+    .account();
+    ledger.deposit(address, FAUCET_DROPS);
+    ledger.close();
+    let live = dassie_node_core::config::LiveRealm::DevSwitch;
+    let mut core = core_taking_downlinks(store, Realm::Live, live, now);
+    let config = r#"{"server":"ws://ledger.test"}"#;
+    core.add_scheme("xrpl-rlusd", config.into()).unwrap();
     follow_xrpl(&mut core, ledger);
     close_xrpl(&mut core, ledger);
     ledger
@@ -2232,9 +2244,33 @@ fn rlusd_core(ledger: &mut dassie_xrpl::fake::FakeLedger) -> Core {
         )
         .unwrap();
     close_xrpl(&mut core, ledger);
-    let rlusd = Name::new("xrpl-testnet-rlusd").unwrap();
+    let rlusd = Name::new("xrpl-rlusd").unwrap();
     assert_eq!(core.schemes[&rlusd].scheme.status(), LedgerStatus::Synced);
     core
+}
+
+/// The downlink of key `[11; 32]` asks `core` to peer on `scheme`, a
+/// scheme of the XRP Ledger on `ledger`, at `now`, and the peering is made.
+fn xrpl_downlink_peers_on(
+    core: &mut Core,
+    ledger: &mut dassie_xrpl::fake::FakeLedger,
+    now: u64,
+    scheme: &str,
+) -> dassie_identity::NodeId {
+    use dassie_xrpl::Wallet;
+
+    let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
+    let id = downlink.node_id();
+    let theirs = Wallet::from_entropy(&[11; 32]).account().to_address();
+    let mut data = vec![u8::try_from(theirs.len()).unwrap()];
+    data.extend_from_slice(theirs.as_bytes());
+    core.begin_step(now);
+    let body = downlink_request_on(core, &downlink, now, scheme, &data);
+    core.peer_inbound(dassie_peer::InboundId(1), &body, None);
+    follow_xrpl(core, ledger);
+    let peering = core.peer.peering_of(&id).expect("peered");
+    assert_eq!(peering.scheme.as_str(), scheme);
+    id
 }
 
 /// A downlink that peers with `core` on RLUSD at `now`, and uses up the
@@ -2245,20 +2281,10 @@ fn rlusd_downlink_owing(
     now: u64,
 ) -> dassie_identity::NodeId {
     use dassie_ledger::{AccountName, LedgerId, Name, Reference, TransferSpec};
-    use dassie_xrpl::Wallet;
 
-    let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
-    let id = downlink.node_id();
-    let theirs = Wallet::from_entropy(&[11; 32]).account().to_address();
-    let mut data = vec![u8::try_from(theirs.len()).unwrap()];
-    data.extend_from_slice(theirs.as_bytes());
-    core.begin_step(now);
-    let body = downlink_request_on(core, &downlink, now, "xrpl-testnet-rlusd", &data);
-    core.peer_inbound(dassie_peer::InboundId(1), &body, None);
-    follow_xrpl(core, ledger);
-    assert!(core.peer.peering_of(&id).is_some(), "peered");
+    let id = xrpl_downlink_peers_on(core, ledger, now, "xrpl-rlusd");
     let name = Name::new(id.as_str()).unwrap();
-    let on = LedgerId::XrplTestnetRlusdUsd;
+    let on = LedgerId::XrplRlusdUsd;
     let account = |core: &Core, name| core.account(on, name).unwrap();
     let interledger = account(core, AccountName::AssetsInterledger(name));
     let dollar = 1_000_000_000;
@@ -2299,9 +2325,9 @@ fn a_transfer_fee_asks_no_peer_and_ends_none_for_room() {
     use dassie_settlement::LedgerStatus;
     use dassie_xrpl::fake::FakeLedger;
 
-    let mut ledger = FakeLedger::new();
+    let mut ledger = FakeLedger::mainnet();
     let mut core = rlusd_core(&mut ledger);
-    let rlusd = Name::new("xrpl-testnet-rlusd").unwrap();
+    let rlusd = Name::new("xrpl-rlusd").unwrap();
     let mut now = NOW + 1_000;
     let id = rlusd_downlink_owing(&mut core, &mut ledger, now);
 
@@ -2325,7 +2351,7 @@ fn a_transfer_fee_asks_no_peer_and_ends_none_for_room() {
             .peer
             .schemes()
             .iter()
-            .any(|scheme| scheme.as_str() == "xrpl-testnet-rlusd"),
+            .any(|scheme| scheme.as_str() == "xrpl-rlusd"),
         "in the link state during a transfer fee"
     );
     core.settle.asked.remove(&id);
@@ -2653,10 +2679,15 @@ fn a_ledger_runs_only_in_its_nodes_realm() {
 
     let mainnet = dassie_xrpl::scheme::MAINNET_SCHEME_ID;
     let mut test = core(3);
-    assert!(matches!(
-        test.add_scheme(mainnet, String::new()),
-        Err(super::EngineError::Precondition(_))
-    ));
+    for id in [mainnet, dassie_xrpl::rlusd::SCHEME_ID] {
+        assert!(
+            matches!(
+                test.add_scheme(id, String::new()),
+                Err(super::EngineError::Precondition(_))
+            ),
+            "{id}"
+        );
+    }
     assert!(test.ledger_views().is_empty());
     assert!(test.assets.is_empty(), "the account was let go");
     let store = Arc::new(Store::open_in_memory().unwrap());
@@ -2665,7 +2696,8 @@ fn a_ledger_runs_only_in_its_nodes_realm() {
     for id in [
         "stub",
         dassie_xrpl::scheme::SCHEME_ID,
-        dassie_xrpl::rlusd::SCHEME_ID,
+        dassie_xrpl::dsusd::SCHEME_ID,
+        dassie_xrpl::rlusd::TESTNET_SCHEME_ID,
     ] {
         assert!(
             matches!(
@@ -2725,6 +2757,258 @@ fn a_stored_scheme_of_another_realm_does_not_run() {
     drop(live);
     let test = core_on(store, 4);
     assert_eq!(test.ledger_views().len(), 1);
+}
+
+// spec/decisions/issued-assets.md: a node that ran test RLUSD starts
+// without it, and says so. The scheme, what the books kept for it and its
+// books on `xrpl-testnet-rlusd+usd` stay as they were, nothing is written
+// off, and the testnet's XRP scheme on the same account runs.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn a_stored_test_rlusd_scheme_does_not_run() {
+    use dassie_ledger::{AccountName, AccountPath, LedgerId, Reference, TransferSpec};
+
+    use super::{Event, SettlementEvent};
+    use crate::store::{Checkpoint, LedgerBatch};
+
+    // What a node that ran test RLUSD left: the scheme, its checkpoint, and
+    // the owner's deposit of 7 dollars on its ledger.
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let rlusd = dassie_ledger::Name::new(dassie_xrpl::rlusd::TESTNET_SCHEME_ID).unwrap();
+    let on = LedgerId::XrplTestnetRlusdUsd;
+    let dollars = 7_000_000_000;
+    let mut books = dassie_ledger::Ledger::new(Policies::DEFAULT.ledger);
+    let mut open = |name| books.open(AccountPath::new(on, name)).unwrap();
+    let (settlement, owner) = (
+        open(AccountName::AssetsSettlement),
+        open(AccountName::EquityOwner),
+    );
+    let deposit = TransferSpec {
+        debit: settlement,
+        credit: owner,
+        amount: dollars,
+        pending: false,
+        reference: Reference::Deposit,
+    };
+    books.create(NOW, &deposit).unwrap();
+    let journal: Vec<_> = std::iter::from_fn(|| books.poll_journal()).collect();
+    let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
+    let checkpoint = Checkpoint {
+        balance: dollars,
+        state: b"{}".to_vec(),
+    };
+    store
+        .commit_ledger(&LedgerBatch {
+            at_ms: NOW,
+            journal,
+            schemes_added: vec![(rlusd, config.into())],
+            checkpoints: vec![(rlusd, checkpoint.clone())],
+            ..LedgerBatch::default()
+        })
+        .unwrap();
+    let held = |core: &Core| {
+        let owner = core.account(on, AccountName::EquityOwner).unwrap();
+        core.ledger.account(owner).unwrap().balance().net_credit()
+    };
+
+    let mut core = core_on(Arc::clone(&store), 4);
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    assert!(outputs.iter().any(|output| matches!(
+        output,
+        Output::Event(Event::Settlement(SettlementEvent::Disabled { scheme }))
+            if *scheme == rlusd
+    )));
+    assert!(core.ledger_views().is_empty());
+    assert!(core.assets.is_empty(), "no account made for it");
+    assert_eq!(held(&core), i128::from(dollars));
+    let view = core
+        .add_scheme(dassie_xrpl::scheme::SCHEME_ID, config.into())
+        .unwrap();
+    assert_eq!(view.id, LedgerId::XrplTestnetXrp);
+    core.flush();
+    drop(core);
+    let core = core_on(Arc::clone(&store), 4);
+    assert_eq!(held(&core), i128::from(dollars));
+    drop(core);
+    assert_eq!(
+        store.settlement_schemes().unwrap(),
+        [
+            (
+                dassie_ledger::Name::new("xrpl-testnet").unwrap(),
+                config.into()
+            ),
+            (rlusd, config.into())
+        ]
+    );
+    assert!(store.checkpoints().unwrap().contains(&(rlusd, checkpoint)));
+    let transfers = store.transfers_after(None, 100, None).unwrap();
+    assert_eq!(transfers.len(), 1, "the deposit alone: nothing written off");
+}
+
+/// A test node on `store` that takes downlinks, with the downlink of key
+/// `[11; 32]` peered on the stub at `NOW + 1_000`, and all of it written:
+/// the node, and the downlink's ID.
+fn stub_core_with_downlink(store: Arc<Store>) -> (Core, dassie_identity::NodeId) {
+    let refused = dassie_node_core::config::LiveRealm::Refused;
+    let mut core = core_taking_downlinks(store, Realm::Test, refused, NOW);
+    core.add_scheme("stub", String::new()).unwrap();
+    let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
+    let at = NOW + 1_000;
+    core.begin_step(at);
+    let body = downlink_request(&core, &downlink, at);
+    core.peer_inbound(dassie_peer::InboundId(1), &body, None);
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    let id = downlink.node_id();
+    assert_eq!(core.peer.peering_of(&id).unwrap().scheme.as_str(), "stub");
+    core.flush();
+    (core, id)
+}
+
+/// Steps `core` a second at a time from `from`, until its peering with
+/// `peer`, on a scheme it does not run, is over, and returns when. It is
+/// ended at once, collecting nothing: no request to settle goes to the peer
+/// (spec/areas/settlement.md#schemes-and-ledgers). The peer here never
+/// answers, so the end is told until the termination times out.
+fn until_unrun_ended(core: &mut Core, peer: &dassie_identity::NodeId, from: u64) -> u64 {
+    let config = Policies::DEFAULT.peer;
+    let asked = core.peer.stats().settlements_requested;
+    let mut outputs = Vec::new();
+    core.begin_step(from);
+    core.finish_step(&mut outputs);
+    assert!(
+        core.peer.active_peers().all(|(id, _)| id != peer),
+        "ended at the first review"
+    );
+    let most = from + config.termination_timeout_ms + config.heartbeat_min_ms;
+    let mut now = from;
+    while core.peer.peering_of(peer).is_some() {
+        assert!(now < most, "the end outlived its termination");
+        now += 1_000;
+        core.begin_step(now);
+        core.finish_step(&mut outputs);
+    }
+    assert_eq!(
+        core.peer.stats().settlements_requested,
+        asked,
+        "nothing collected"
+    );
+    now
+}
+
+// spec/areas/settlement.md#schemes-and-ledgers: a node that peered on test
+// RLUSD, whose scheme is disabled, starts without the scheme and ends the
+// peering, collecting nothing: no settlement on it could be booked. The
+// peer's accounts on the scheme's ledger stay as they were. The pair is not
+// kept apart: the same peer then peers on DSUSD, which both run.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn a_peering_on_a_disabled_scheme_ends_and_the_pair_peers_on_another() {
+    use dassie_ledger::{AccountName, LedgerId, Name};
+    use dassie_xrpl::Wallet;
+    use dassie_xrpl::fake::FakeLedger;
+
+    use crate::store::LedgerBatch;
+
+    // What a node that peered with a downlink on test RLUSD left: the
+    // scheme, the peering, and the peer's accounts on the scheme's ledger,
+    // with the credit extended. Made over the stub, then moved to test
+    // RLUSD, which can no longer be added.
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut core, id) = stub_core_with_downlink(Arc::clone(&store));
+    let name = Name::new(id.as_str()).unwrap();
+    let on = LedgerId::XrplTestnetRlusdUsd;
+    let at = core.now_ms();
+    core.ledger
+        .open_peer(at, on, name, Policies::DEFAULT.peer_credit)
+        .unwrap();
+    core.flush();
+    drop(core);
+    let rlusd = dassie_xrpl::rlusd::TESTNET_SCHEME_ID;
+    let mut node = store
+        .load_peer()
+        .unwrap()
+        .nodes
+        .into_iter()
+        .find(|node| node.id == id)
+        .unwrap();
+    node.peering.as_mut().unwrap().scheme = dassie_peer::wire::SchemeId::parse(rlusd).unwrap();
+    let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
+    store
+        .commit_ledger(&LedgerBatch {
+            at_ms: at,
+            schemes_removed: vec![Name::new("stub").unwrap()],
+            schemes_added: vec![(Name::new(rlusd).unwrap(), config.into())],
+            peer: dassie_peer::PeerBatch {
+                nodes: vec![node],
+                ..dassie_peer::PeerBatch::default()
+            },
+            ..LedgerBatch::default()
+        })
+        .unwrap();
+    let books = |core: &Core| {
+        [
+            AccountName::AssetsInterledger(name),
+            AccountName::ContraTrust(name),
+        ]
+        .map(|account| {
+            let account = core.account(on, account).unwrap();
+            core.ledger.account(account).unwrap().balance().net_credit()
+        })
+    };
+
+    let refused = dassie_node_core::config::LiveRealm::Refused;
+    let start = at + 1_000;
+    let mut core = core_taking_downlinks(Arc::clone(&store), Realm::Test, refused, start);
+    assert!(core.schemes.is_empty(), "test RLUSD does not run");
+    assert_eq!(
+        core.peer.peering_of(&id).unwrap().scheme.as_str(),
+        rlusd,
+        "its peering is loaded"
+    );
+    let before = books(&core);
+    assert_ne!(before, [0, 0]);
+    let ended = until_unrun_ended(&mut core, &id, start);
+    assert_eq!(books(&core), before, "nothing written off or settled");
+
+    let address = Wallet::from_entropy(
+        NodeKey::from_bytes(&[7; 32])
+            .settlement_entropy("xrpl-testnet", "seed-testnet")
+            .unwrap()
+            .as_bytes(),
+    )
+    .account();
+    let mut ledger = FakeLedger::new();
+    ledger.fund(address);
+    ledger.close();
+    for scheme in ["xrpl-testnet", "xrpl-testnet-dsusd"] {
+        core.add_scheme(scheme, config.into()).unwrap();
+        follow_xrpl(&mut core, &mut ledger);
+    }
+    close_xrpl(&mut core, &mut ledger);
+    close_xrpl(&mut core, &mut ledger);
+    xrpl_downlink_peers_on(&mut core, &mut ledger, ended + 1_000, "xrpl-testnet-dsusd");
+}
+
+// spec/areas/settlement.md#schemes-and-ledgers: so is a peering on a scheme
+// of the other realm, once the node's realm changed: here a test node's
+// peering on the stub, when the node starts in the live realm by the dev
+// switch. The same peer then peers on RLUSD, mainnet's.
+#[test]
+fn a_peering_on_a_scheme_of_another_realm_ends_and_the_pair_peers_on_another() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (test, id) = stub_core_with_downlink(Arc::clone(&store));
+    let start = test.now_ms() + 1_000;
+    drop(test);
+    let mut ledger = dassie_xrpl::fake::FakeLedger::mainnet();
+    let mut live = rlusd_core_on(Arc::clone(&store), &mut ledger, start);
+    assert!(
+        live.peer.peering_of(&id).is_some(),
+        "its peering is loaded, and ending"
+    );
+    let ended = until_unrun_ended(&mut live, &id, start);
+    xrpl_downlink_peers_on(&mut live, &mut ledger, ended + 1_000, "xrpl-rlusd");
 }
 
 /// A core node at `https://core.test` that takes QUIC, over the stub with

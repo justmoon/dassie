@@ -101,18 +101,19 @@ fn simulated_networks_pay_across_currencies() {
     assert_seeds_pass(0..6, scripted::run_across);
 }
 
-// spec/areas/xrpl.md#rlusd: the same runs settling in RLUSD, with the
-// issuer clawing back and freezing while payments are under way; each
-// node's books count what the issuer did as its owner's deposits and
-// withdrawals, and hold its line.
+// spec/areas/xrpl.md#rlusd: the same runs settling in RLUSD, in the live
+// realm on the fake ledger's mainnet, with the issuer clawing back and
+// freezing while payments are under way; each node's books count what the
+// issuer did as its owner's deposits and withdrawals, and hold its line.
 #[test]
 fn simulated_networks_settle_in_rlusd_through_the_issuers_acts() {
     assert_seeds_pass(0..6, scripted::run_rlusd);
 }
 
-// spec/areas/xrpl.md#the-account: across RLUSD and XRP, with both schemes on
-// one account at the nodes that run both: no sequence is taken twice, and
-// every XRP fee is booked once, which the books against the account show.
+// spec/areas/xrpl.md#the-account: across RLUSD and XRP in the live realm,
+// with both schemes on one mainnet account at the nodes that run both: no
+// sequence is taken twice, and every XRP fee is booked once, which the
+// books against the account show.
 #[test]
 fn simulated_networks_pay_across_rlusd_and_xrp() {
     assert_seeds_pass(0..6, scripted::run_xrp_rlusd);

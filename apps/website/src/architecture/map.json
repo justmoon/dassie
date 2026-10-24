@@ -205,7 +205,7 @@
         "Builds the binary, starts the nodes on `dN.localhost` and restarts them when the Rust code changes",
         "An SNI proxy on port 443, local certificates, vanity node identities, a rates server",
         "Sets nodes up through their own RPC, the same way the end-to-end tests do",
-        "The scenario library: one node, two, six, the XRP Ledger ones, RLUSD or DSUSD that the fake ledger's issuers mint each node, and one or two core nodes with a market maker's two periphery nodes pinned to each, beside a pool"
+        "The scenario library: one node, two, six, the XRP Ledger ones, DSUSD that the fake ledger's issuer mints each node, and one or two core nodes with a market maker's two periphery nodes pinned to each, beside a pool"
       ]
     },
     "e2e": {
@@ -221,7 +221,7 @@
         "A fresh install through `dassie init` and browser setup, with Pebble as the certificate authority",
         "BTP payments, and the two-node and six-node scenarios settling every hop",
         "Open Payments, including a third party's full flow with consent in the wallet",
-        "XRP Ledger settlement in XRP and in RLUSD, with the issuer freezing a line and clawing back, and payments across currencies",
+        "XRP Ledger settlement in XRP and in DSUSD, with the issuer freezing a line and clawing back, and payments across currencies",
         "Passive rebalancing end to end: a market maker trades through a core node short of dollars and swaps back through the fake ledger's pool, which moves the node toward balance and earns the market maker; with two such core nodes, it trades through each",
         "The wallet, the dev dashboard and dassie.land in a browser",
         "The installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers"
@@ -406,7 +406,7 @@
       "x": 20,
       "y": 672,
       "w": 184,
-      "desc": "The node's XRP Ledger accounts, on the testnet and on mainnet, and the settlement schemes on them: one in each network's XRP, mainnet's with real money, which runs only in the live realm, and a token scheme in a dollar token, run in RLUSD, Ripple's, and in DSUSD, Dassie's own testnet dollar. Also the wallet, the transaction codec, the rippled API, the account that connects, signs and follows the ledger, and the schemes that book what the account tells them. It also prices the ledger's AMM pools and signs the Payments that swap through one. A fake ledger, the testnet or mainnet, serves the tests and the dev network, with test RLUSD and DSUSD from issuers of its own and pools to swap through.",
+      "desc": "The node's XRP Ledger accounts, on the testnet and on mainnet, and the settlement schemes on them: one in each network's XRP, and a token scheme in each network's dollar token, DSUSD, Dassie's own testnet dollar, and on mainnet RLUSD, Ripple's. Mainnet's schemes settle real money and run only in the live realm; the testnet's RLUSD scheme is disabled. Also the wallet, the transaction codec, the rippled API, the account that connects, signs and follows the ledger, and the schemes that book what the account tells them. It also prices the ledger's AMM pools and signs the Payments that swap through one. A fake ledger, the testnet or mainnet, serves the tests and the dev network, with each network's dollar from an issuer at its address and pools to swap through.",
       "does": [
         "Derives the node's XRP Ledger wallets from its key, one per network, so the same phrase finds the same funds",
         "Keeps the testnet and mainnet apart: each network's account has its own keys, and refuses a server of the other, and each scheme its own memo type and ledger",
@@ -417,13 +417,13 @@
         "Reads token amounts exactly, and a trust line, its flags and its issuer from either side",
         "Books every validated transaction once: settlements, deposits, withdrawals and fees",
         "Pays out of the account for the owner, with a destination tag and a memo, as a deposit into a settlement hub is made, and books it as the owner's withdrawal once validated",
-        "Settles in a dollar token, RLUSD or DSUSD, on a trust line it sets up itself, booked in dollars by what reaches the line, the issuer's clawbacks included",
+        "Settles in a dollar token, DSUSD on the testnet or RLUSD on mainnet, on a trust line it sets up itself, booked in dollars by what reaches the line, the issuer's clawbacks included",
         "Pays a token scheme's fees in XRP: booked on the XRP ledger when the XRP scheme shares the account, off the books otherwise",
         "Stops settling while the issuer freezes the line, and stops asking peers to pay while the line cannot receive",
         "Never books the reserve, and catches up after a restart",
         "Asks the testnet faucet when the account is new, or when the owner wants more test XRP; mainnet has none, so its account waits for the owner's deposit",
         "Reports what the account holds, as the ledger says, for the wallet: XRP and its reserve, and each line with its freezes",
-        "Fakes the ledger for tests: XRP, trust lines, token payments through the issuer and their failures, issuers of RLUSD and DSUSD that mint, freeze and claw back, AMM pools that Payments with a `SendMax` swap through, and signer lists, regular keys and destination tags, with who may sign checked again as a transaction applies"
+        "Fakes the ledger for tests: XRP, trust lines, token payments through the issuer and their failures, issuers of DSUSD and RLUSD that mint, freeze and claw back, AMM pools that Payments with a `SendMax` swap through, and signer lists, regular keys and destination tags, with who may sign checked again as a transaction applies"
       ]
     },
     "settlement": {
@@ -486,7 +486,7 @@
         "Peering on its own, and routing",
         "Periphery nodes without a URL and with no neighbors in their link state, which peer only with core nodes as their downlinks, and only with those their owner pinned when it pinned any, as many as a market maker trades through",
         "Advertising only peers that are alive and not stuck short of room, never ending one for room it could not pay",
-        "Delivering settlements and requests to settle, ending peerings, bans",
+        "Delivering settlements and requests to settle, ending peerings, at once on a scheme the node no longer runs, bans",
         "Settlement channels that close once idle, kept on disk so a late settlement still counts once",
         "Over a settlement hub, each Prepare with the payer's commitment, and the payer's claim in its reply to a Fulfill"
       ]
@@ -1379,7 +1379,7 @@
             "settlement",
             "xrpl"
           ],
-          "text": "Once a peer comes close to the credit a node extends to it, the node asks it to settle, and the peer pays through a scheme they share, such as XRP or RLUSD on the XRP Ledger testnet."
+          "text": "Once a peer comes close to the credit a node extends to it, the node asks it to settle, and the peer pays through a scheme they share, such as XRP or DSUSD on the XRP Ledger testnet."
         },
         {
           "ids": [

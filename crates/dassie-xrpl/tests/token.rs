@@ -1,9 +1,11 @@
-//! The `xrpl-testnet-rlusd` scheme against the fake ledger, wired to its
-//! account as the node wires it, alone or next to `xrpl-testnet` on the
-//! same account (spec/areas/xrpl.md#rlusd): the line set before it syncs,
-//! settling, booking by the line, the issuer's freezes and clawbacks, gas,
-//! and restarts, with the books checked against the ledger after every
-//! ledger.
+//! The token scheme's rules in depth (spec/areas/xrpl.md#the-token-scheme),
+//! in DSUSD: `xrpl-testnet-dsusd` against the fake ledger's testnet, wired
+//! to its account as the node wires it, alone or next to `xrpl-testnet` on
+//! the same account: the line set before it syncs, settling, booking by the
+//! line, the issuer's freezes and clawbacks, gas, testnet resets and
+//! restarts, with the books checked against the ledger after every ledger.
+//! Every token scheme is this code; `tests/tokens.rs` pins that mainnet's
+//! RLUSD runs on it unchanged.
 
 #![allow(
     clippy::unwrap_used,
@@ -23,12 +25,12 @@ use dassie_settlement::{
 };
 use dassie_xrpl::account::{self, News, XrplAccount};
 use dassie_xrpl::codec::{Amount, Payment, Signing, TokenValue, Transact, TrustSet};
+use dassie_xrpl::dsusd::{self, DsusdScheme, UNITS_PER_MICRO};
 use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, FakeLedger, RESERVE_BASE, RESERVE_INC, Token};
-use dassie_xrpl::rlusd::{self, RlusdScheme, UNITS_PER_MICRO};
 use dassie_xrpl::{AccountId, UNITS_PER_DROP, Wallet, XrplScheme, api};
 use proptest::prelude::*;
 
-/// The XRP scheme's books and the RLUSD scheme's.
+/// The XRP scheme's books and the DSUSD scheme's.
 const XRP: usize = 0;
 const USD: usize = 1;
 
@@ -124,7 +126,7 @@ struct Node {
     seed: u8,
     account: XrplAccount,
     xrp: Option<XrplScheme>,
-    rlusd: Option<RlusdScheme>,
+    dsusd: Option<DsusdScheme>,
     books: [Books; 2],
     connection: u64,
     online: bool,
@@ -141,12 +143,12 @@ impl Node {
         if ledger == XRP {
             self.xrp.as_mut().unwrap()
         } else {
-            self.rlusd.as_mut().unwrap()
+            self.dsusd.as_mut().unwrap()
         }
     }
 
-    fn rlusd(&self) -> &RlusdScheme {
-        self.rlusd.as_ref().unwrap()
+    fn dsusd(&self) -> &DsusdScheme {
+        self.dsusd.as_ref().unwrap()
     }
 
     /// Whether the scheme of `ledger` runs on the account.
@@ -154,7 +156,7 @@ impl Node {
         let made = if ledger == XRP {
             self.xrp.is_some()
         } else {
-            self.rlusd.is_some()
+            self.dsusd.is_some()
         };
         made && !self.away[ledger]
     }
@@ -164,15 +166,15 @@ impl Node {
         if let Some(xrp) = &self.xrp {
             xrp.check_invariants();
         }
-        if let Some(rlusd) = &self.rlusd {
-            rlusd.check_invariants();
+        if let Some(dsusd) = &self.dsusd {
+            dsusd.check_invariants();
         }
     }
 
     fn status(&self, ledger: usize) -> LedgerStatus {
         match self.account.status() {
             LedgerStatus::Synced if ledger == XRP => self.xrp.as_ref().unwrap().status(),
-            LedgerStatus::Synced => self.rlusd().status(),
+            LedgerStatus::Synced => self.dsusd().status(),
             other => other,
         }
     }
@@ -184,7 +186,7 @@ impl Node {
             self.account.state(),
             [
                 self.xrp.as_ref().map(|s| (s.balance(), s.state())),
-                self.rlusd.as_ref().map(|s| (s.balance(), s.state())),
+                self.dsusd.as_ref().map(|s| (s.balance(), s.state())),
             ],
         )
     }
@@ -198,7 +200,7 @@ fn scheme_name(ledger: usize) -> Name {
     if ledger == XRP {
         name(dassie_xrpl::scheme::SCHEME_ID)
     } else {
-        name(rlusd::SCHEME_ID)
+        name(dsusd::SCHEME_ID)
     }
 }
 
@@ -213,8 +215,8 @@ impl Node {
             self.xrp =
                 Some(XrplScheme::new(&self.account, self.name, Some(*balance), state).unwrap());
         } else {
-            self.rlusd =
-                Some(RlusdScheme::new(&self.account, self.name, Some(*balance), state).unwrap());
+            self.dsusd =
+                Some(DsusdScheme::new(&self.account, self.name, Some(*balance), state).unwrap());
         }
         self.away[ledger] = true;
         self.account.detach(scheme_name(ledger), Detach::Stopped);
@@ -250,7 +252,7 @@ fn entropy(seed: u8) -> [u8; 32] {
 /// The account of `seed`, through which both XRPL schemes may settle, from
 /// `state`.
 fn new_account(seed: u8, state: &[u8]) -> XrplAccount {
-    let schemes = [name(dassie_xrpl::scheme::SCHEME_ID), name(rlusd::SCHEME_ID)];
+    let schemes = [name(dassie_xrpl::scheme::SCHEME_ID), name(dsusd::SCHEME_ID)];
     XrplAccount::new(account::FIRST, &schemes, "", &entropy(seed), state).unwrap()
 }
 
@@ -260,7 +262,7 @@ const fn usd(micros: u64) -> u64 {
 }
 
 impl World {
-    /// Nodes on a fresh fake ledger, each with the RLUSD scheme and, where
+    /// Nodes on a fresh fake ledger, each with the DSUSD scheme and, where
     /// `xrp` says, the XRP scheme on the same account; funded by the
     /// faucet.
     fn new(xrp: &[bool]) -> Self {
@@ -293,13 +295,13 @@ impl World {
         self.ledger.fund(address);
         self.close();
         let xrp = with_xrp.then(|| XrplScheme::new(&account, node, None, &[]).unwrap());
-        let rlusd = Some(RlusdScheme::new(&account, node, None, &[]).unwrap());
+        let dsusd = Some(DsusdScheme::new(&account, node, None, &[]).unwrap());
         self.nodes.push(Node {
             name: node,
             seed,
             account,
             xrp,
-            rlusd,
+            dsusd,
             books: [Books::default(), Books::default()],
             connection: 0,
             online: false,
@@ -348,7 +350,7 @@ impl World {
                 .owner_funds(name(dassie_xrpl::scheme::SCHEME_ID), xrp_funds);
         }
         if node.runs(USD) {
-            node.account.owner_funds(name(rlusd::SCHEME_ID), funds[USD]);
+            node.account.owner_funds(name(dsusd::SCHEME_ID), funds[USD]);
         }
         let mut booked: [Vec<Effect>; 2] = [Vec::new(), Vec::new()];
         let refused = self.refuse_own.filter(|ledger| {
@@ -372,8 +374,8 @@ impl World {
         if refused == Some(XRP) {
             node.stopped(XRP, kept.as_ref().unwrap(), &mut booked[XRP]);
         }
-        if let (Some(rlusd), false) = (&mut node.rlusd, node.away[USD]) {
-            rlusd.on_asset(now, &mut node.account, &mut booked[USD]);
+        if let (Some(dsusd), false) = (&mut node.dsusd, node.away[USD]) {
+            dsusd.on_asset(now, &mut node.account, &mut booked[USD]);
         }
         if refused == Some(USD) {
             node.stopped(USD, kept.as_ref().unwrap(), &mut booked[USD]);
@@ -384,7 +386,7 @@ impl World {
         node.account.told();
         for (ledger, effects) in booked.into_iter().enumerate() {
             for effect in effects {
-                // The line's reserve is XRP, off the RLUSD books.
+                // The line's reserve is XRP, off the DSUSD books.
                 assert!(
                     ledger == XRP
                         || !matches!(
@@ -461,11 +463,11 @@ impl World {
         }
     }
 
-    /// The node's settlement check: the RLUSD scheme reads the issuer.
+    /// The node's settlement check: the DSUSD scheme reads the issuer.
     fn settlement_check(&mut self, index: usize) {
         let node = &mut self.nodes[index];
-        if let Some(rlusd) = &mut node.rlusd {
-            rlusd.on_check(self.now, &mut node.account);
+        if let Some(dsusd) = &mut node.dsusd {
+            dsusd.on_check(self.now, &mut node.account);
         }
         self.carry_out(index);
     }
@@ -476,20 +478,20 @@ impl World {
     fn check(&self) {
         for node in &self.nodes {
             let address = node.account.account();
-            if let (Some(rlusd), false) = (&node.rlusd, node.away[USD]) {
+            if let (Some(dsusd), false) = (&node.dsusd, node.away[USD]) {
                 assert_eq!(
                     node.books[USD].settlement,
-                    i128::from(rlusd.balance()),
+                    i128::from(dsusd.balance()),
                     "{}",
                     node.name
                 );
                 if node.status(USD) == LedgerStatus::Synced {
                     let held = self
                         .ledger
-                        .token_balance(address, Token::RLUSD)
+                        .token_balance(address, Token::DSUSD)
                         .map_or(0, |value| value.floor_units(6).unwrap());
                     assert_eq!(
-                        i128::from(rlusd.balance()),
+                        i128::from(dsusd.balance()),
                         held.max(0) * i128::from(UNITS_PER_MICRO),
                         "{}",
                         node.name
@@ -567,7 +569,7 @@ impl World {
                 state,
             )
         } else {
-            node.rlusd.as_mut().unwrap().prepare_settlement(
+            node.dsusd.as_mut().unwrap().prepare_settlement(
                 &mut rng,
                 Some(&mut node.account),
                 peer,
@@ -599,7 +601,7 @@ impl World {
                 &mut effects,
             );
         } else {
-            node.rlusd.as_mut().unwrap().execute_settlement(
+            node.dsusd.as_mut().unwrap().execute_settlement(
                 Some(&mut node.account),
                 id,
                 &mut effects,
@@ -611,11 +613,11 @@ impl World {
         self.carry_out(from);
     }
 
-    /// The issuer mints `amount` of test RLUSD to node `index`.
+    /// The issuer mints `amount` of test DSUSD to node `index`.
     fn mint(&mut self, index: usize, amount: &str) {
         let to = self.address(index);
         self.ledger
-            .issue(to, Token::RLUSD.amount(value(amount)))
+            .issue(to, Token::DSUSD.amount(value(amount)))
             .unwrap();
     }
 
@@ -635,8 +637,8 @@ impl World {
                 Some(XrplScheme::new(&node.account, node.name, Some(*balance), state).unwrap());
         }
         if let Some((balance, state)) = &schemes[USD] {
-            node.rlusd =
-                Some(RlusdScheme::new(&node.account, node.name, Some(*balance), state).unwrap());
+            node.dsusd =
+                Some(DsusdScheme::new(&node.account, node.name, Some(*balance), state).unwrap());
         }
         self.tell(index);
         for ledger in [XRP, USD] {
@@ -657,7 +659,7 @@ impl World {
                     &mut effects,
                 );
             } else {
-                node.rlusd.as_mut().unwrap().reconcile(
+                node.dsusd.as_mut().unwrap().reconcile(
                     Some(&mut node.account),
                     &pending,
                     &mut effects,
@@ -686,7 +688,7 @@ impl World {
         let scheme = if ledger == XRP {
             name(dassie_xrpl::scheme::SCHEME_ID)
         } else {
-            name(rlusd::SCHEME_ID)
+            name(dsusd::SCHEME_ID)
         };
         let node = &mut self.nodes[index];
         node.away[ledger] = true;
@@ -714,11 +716,11 @@ impl World {
             xrp.reconcile(Some(&mut node.account), &pending, &mut effects);
             node.xrp = Some(xrp);
         } else {
-            let (balance, state) = (node.rlusd().balance(), node.rlusd().state());
-            let mut rlusd =
-                RlusdScheme::new(&node.account, node.name, Some(balance), &state).unwrap();
-            rlusd.reconcile(Some(&mut node.account), &pending, &mut effects);
-            node.rlusd = Some(rlusd);
+            let (balance, state) = (node.dsusd().balance(), node.dsusd().state());
+            let mut dsusd =
+                DsusdScheme::new(&node.account, node.name, Some(balance), &state).unwrap();
+            dsusd.reconcile(Some(&mut node.account), &pending, &mut effects);
+            node.dsusd = Some(dsusd);
         }
         for effect in effects {
             node.books[ledger].apply(effect);
@@ -731,46 +733,46 @@ impl World {
 /// What the faucet gives above the reserve, in internal units.
 const FUNDED: i128 = ((FAUCET_DROPS - RESERVE_BASE) * UNITS_PER_DROP) as i128;
 
-/// Nodes on RLUSD alone, synced with their lines set, and peered `0 → 1`.
+/// Nodes on DSUSD alone, synced with their lines set, and peered `0 → 1`.
 fn synced(count: usize) -> (World, Vec<u8>, Vec<u8>) {
     let mut world = World::new(&vec![false; count]);
     world.closes(3);
     for node in &world.nodes {
         assert_eq!(node.status(USD), LedgerStatus::Synced, "{}", node.name);
-        assert!(node.rlusd().has_synced());
+        assert!(node.dsusd().has_synced());
     }
     let (a, b) = world.peer(USD, 0, 1);
     (world, a, b)
 }
 
-// spec/areas/xrpl.md#rlusd: before the scheme counts as synced, the account
-// has a line to the issuer with rippling disabled on its side and the
-// largest limit: it signs the TrustSet once the account holds XRP for it,
-// and takes no peer before the ledger shows the line. Its fee and reserve
-// are gas, off the books without the XRP scheme.
+// spec/areas/xrpl.md#the-token-scheme: before the scheme counts as synced, the
+// account has a line to the issuer with rippling disabled on its side and the
+// largest limit: it signs the TrustSet once the account holds XRP for it, and
+// takes no peer before the ledger shows the line. Its fee and reserve are gas,
+// off the books without the XRP scheme.
 #[test]
 fn the_line_is_set_before_the_scheme_syncs() {
     let mut world = World::new(&[false]);
     let address = world.address(0);
     assert_eq!(world.nodes[0].status(USD), LedgerStatus::Syncing);
-    assert!(!world.nodes[0].rlusd().has_synced());
+    assert!(!world.nodes[0].dsusd().has_synced());
     assert!(
         world
             .ledger
-            .line(address, rlusd::ISSUER, rlusd::CURRENCY)
+            .line(address, dsusd::ISSUER, dsusd::CURRENCY)
             .is_none()
     );
     world.close();
     let line = world
         .ledger
-        .line(address, rlusd::ISSUER, rlusd::CURRENCY)
+        .line(address, dsusd::ISSUER, dsusd::CURRENCY)
         .unwrap()
         .view(address)
         .unwrap();
     assert!(line.ours.no_ripple);
     assert_eq!(line.limit, TokenValue::MAX);
     assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
-    assert!(world.nodes[0].rlusd().has_synced());
+    assert!(world.nodes[0].dsusd().has_synced());
     let books = &world.nodes[0].books[USD];
     assert_eq!((books.settlement, books.fees, books.suspense), (0, 0, 0));
     // The account spent the fee and holds the line's reserve, in XRP.
@@ -779,10 +781,10 @@ fn the_line_is_set_before_the_scheme_syncs() {
     // The wallet sees both holdings, as the ledger says.
     let holdings = world.nodes[0].account.holdings();
     assert_eq!(holdings.len(), 2);
-    assert_eq!(holdings[1].code, "RLUSD");
+    assert_eq!(holdings[1].code, "DSUSD");
     assert_eq!(
         holdings[1].issuer.as_deref(),
-        Some(rlusd::ISSUER.to_address().as_str())
+        Some(dsusd::ISSUER.to_address().as_str())
     );
     assert_eq!(holdings[0].reserve, u128::from(RESERVE_BASE + RESERVE_INC));
 }
@@ -808,7 +810,7 @@ fn no_line_without_xrp_for_it() {
     world.nodes.push(Node {
         name: node,
         seed,
-        rlusd: Some(RlusdScheme::new(&new_account(seed, &[]), node, None, &[]).unwrap()),
+        dsusd: Some(DsusdScheme::new(&new_account(seed, &[]), node, None, &[]).unwrap()),
         account: new_account(seed, &[]),
         xrp: None,
         books: [Books::default(), Books::default()],
@@ -827,8 +829,8 @@ fn no_line_without_xrp_for_it() {
     assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
 }
 
-// spec/areas/xrpl.md#rlusd: a line made outside the node, with rippling
-// enabled on our side and a lower limit, is corrected, and the scheme
+// spec/areas/xrpl.md#the-token-scheme: a line made outside the node, with
+// rippling enabled on our side and a lower limit, is corrected, and the scheme
 // syncs only once the ledger shows it so. What the line held then is the
 // owner's deposit, in whole millionths.
 #[test]
@@ -850,7 +852,7 @@ fn a_line_made_outside_the_node_is_corrected() {
     .unwrap();
     let signed = TrustSet {
         account: address,
-        limit: Token::RLUSD.amount(value("100")),
+        limit: Token::DSUSD.amount(value("100")),
         fee: FEE_BASE,
         sequence,
         last_ledger_sequence: Some(ledger.ledger() + 10),
@@ -865,11 +867,11 @@ fn a_line_made_outside_the_node_is_corrected() {
     ledger.request(0, submit.to_string().as_bytes());
     ledger.close();
     ledger
-        .issue(address, Token::RLUSD.amount(value("12.3456789")))
+        .issue(address, Token::DSUSD.amount(value("12.3456789")))
         .unwrap();
     ledger.close();
     let view = ledger
-        .line(address, rlusd::ISSUER, rlusd::CURRENCY)
+        .line(address, dsusd::ISSUER, dsusd::CURRENCY)
         .unwrap()
         .view(address)
         .unwrap();
@@ -888,7 +890,7 @@ fn a_line_made_outside_the_node_is_corrected() {
     world.nodes.push(Node {
         name: node,
         seed,
-        rlusd: Some(RlusdScheme::new(&new_account(seed, &[]), node, None, &[]).unwrap()),
+        dsusd: Some(DsusdScheme::new(&new_account(seed, &[]), node, None, &[]).unwrap()),
         account: new_account(seed, &[]),
         xrp: None,
         books: [Books::default(), Books::default()],
@@ -900,11 +902,11 @@ fn a_line_made_outside_the_node_is_corrected() {
     world.tell(0);
     world.connect(0);
     assert_eq!(world.nodes[0].status(USD), LedgerStatus::Syncing);
-    assert!(!world.nodes[0].rlusd().has_synced());
+    assert!(!world.nodes[0].dsusd().has_synced());
     world.close();
     let view = world
         .ledger
-        .line(address, rlusd::ISSUER, rlusd::CURRENCY)
+        .line(address, dsusd::ISSUER, dsusd::CURRENCY)
         .unwrap()
         .view(address)
         .unwrap();
@@ -920,11 +922,11 @@ fn a_line_made_outside_the_node_is_corrected() {
     assert_eq!(world.nodes[0].books[USD].owner, i128::from(usd(12_345_679)));
 }
 
-// spec/areas/xrpl.md#rlusd: two nodes settle RLUSD. The payer's settlement
-// is posted, the payee credits what was delivered, once, and both books
-// hold their lines; the fees are gas, off the books.
+// spec/areas/xrpl.md#the-token-scheme: two nodes settle DSUSD. The payer's
+// settlement is posted, the payee credits what was delivered, once, and both
+// books hold their lines; the fees are gas, off the books.
 #[test]
-fn two_nodes_settle_rlusd() {
+fn two_nodes_settle_dsusd() {
     let (mut world, state_a, state_b) = synced(2);
     world.mint(0, "50");
     world.close();
@@ -939,7 +941,7 @@ fn two_nodes_settle_rlusd() {
     assert_eq!(b.credited.len(), 1);
     assert_eq!((a.fees, b.fees), (0, 0));
     assert_eq!(
-        world.ledger.token_balance(world.address(1), Token::RLUSD),
+        world.ledger.token_balance(world.address(1), Token::DSUSD),
         Some(value("12.5"))
     );
     // And back.
@@ -952,10 +954,10 @@ fn two_nodes_settle_rlusd() {
     );
 }
 
-// spec/areas/xrpl.md#rlusd: what is not a peer's settlement moves the line
-// as a deposit or a withdrawal, an issuer's clawback included; a Payment
-// with our memo from an address that is not the peer's is a deposit; XRP
-// and other issuers' tokens move nothing on this ledger.
+// spec/areas/xrpl.md#the-token-scheme: what is not a peer's settlement moves
+// the line as a deposit or a withdrawal, an issuer's clawback included; a
+// Payment with our memo from an address that is not the peer's is a deposit;
+// XRP and other issuers' tokens move nothing on this ledger.
 #[test]
 fn the_line_books_deposits_withdrawals_and_clawbacks() {
     let (mut world, _, _) = synced(3);
@@ -963,7 +965,7 @@ fn the_line_books_deposits_withdrawals_and_clawbacks() {
     world.close();
     world
         .ledger
-        .claw_back(world.address(0), Token::RLUSD.amount(value("7.25")))
+        .claw_back(world.address(0), Token::DSUSD.amount(value("7.25")))
         .unwrap();
     world.close();
     let books = &world.nodes[0].books[USD];
@@ -974,14 +976,14 @@ fn the_line_books_deposits_withdrawals_and_clawbacks() {
     world.close();
     let mut info = Vec::new();
     world.nodes[0]
-        .rlusd
+        .dsusd
         .as_ref()
         .unwrap()
         .peering_info(&mut info);
     let impostor = world.nodes[1].name;
     let node = &mut world.nodes[2];
-    let (balance, state) = (node.rlusd().balance(), node.rlusd().state());
-    node.rlusd = Some(RlusdScheme::new(&node.account, impostor, Some(balance), &state).unwrap());
+    let (balance, state) = (node.dsusd().balance(), node.dsusd().state());
+    node.dsusd = Some(DsusdScheme::new(&node.account, impostor, Some(balance), &state).unwrap());
     world.reconnect(2);
     world.settle(USD, 2, 0, usd(1_000_000), &info);
     world.close();
@@ -994,10 +996,10 @@ fn the_line_books_deposits_withdrawals_and_clawbacks() {
     assert_eq!(world.nodes[0].books[USD].owner, i128::from(usd(13_750_000)));
 }
 
-// spec/areas/xrpl.md#rlusd: the issuer's freezes. A frozen line settles
-// nothing but stays synced and still receives; a deep-frozen line, or a
-// global freeze read at the settlement check, cannot receive either; a
-// transfer fee also stops settling. Lifted, it settles again.
+// spec/areas/xrpl.md#the-token-scheme: the issuer's freezes. A frozen line
+// settles nothing but stays synced and still receives; a deep-frozen line, or a
+// global freeze read at the settlement check, cannot receive either; a transfer
+// fee also stops settling. Lifted, it settles again.
 #[test]
 fn freezes_stop_settling_and_receiving() {
     let (mut world, state_a, _) = synced(2);
@@ -1009,7 +1011,7 @@ fn freezes_stop_settling_and_receiving() {
     let pending: Vec<Name> = world.nodes[0].books[USD].pending.keys().copied().collect();
     for id in pending {
         let node = &mut world.nodes[0];
-        node.rlusd
+        node.dsusd
             .as_mut()
             .unwrap()
             .discard_settlement(Some(&mut node.account), id);
@@ -1020,53 +1022,53 @@ fn freezes_stop_settling_and_receiving() {
         world.prepare(USD, 0, 1, usd(1), &state_a).unwrap_err() == SchemeError::Unavailable
     };
 
-    world.ledger.freeze(address, Token::RLUSD, true).unwrap();
+    world.ledger.freeze(address, Token::DSUSD, true).unwrap();
     world.close();
     assert!(unavailable(&mut world));
     assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
-    assert!(world.nodes[0].rlusd().can_receive());
+    assert!(world.nodes[0].dsusd().can_receive());
 
     world
         .ledger
-        .deep_freeze(address, Token::RLUSD, true)
+        .deep_freeze(address, Token::DSUSD, true)
         .unwrap();
     world.close();
     assert!(unavailable(&mut world));
-    assert!(!world.nodes[0].rlusd().can_receive());
+    assert!(!world.nodes[0].dsusd().can_receive());
     assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
 
-    world.ledger.freeze(address, Token::RLUSD, false).unwrap();
+    world.ledger.freeze(address, Token::DSUSD, false).unwrap();
     world.close();
-    assert!(world.nodes[0].rlusd().can_receive());
+    assert!(world.nodes[0].dsusd().can_receive());
 
     // A global freeze changes only the issuer's account: seen at the next
     // settlement check.
-    world.ledger.global_freeze(rlusd::ISSUER, true).unwrap();
+    world.ledger.global_freeze(dsusd::ISSUER, true).unwrap();
     world.close();
-    assert!(world.nodes[0].rlusd().can_receive());
+    assert!(world.nodes[0].dsusd().can_receive());
     world.settlement_check(0);
-    assert!(!world.nodes[0].rlusd().can_receive());
+    assert!(!world.nodes[0].dsusd().can_receive());
     assert!(unavailable(&mut world));
-    world.ledger.global_freeze(rlusd::ISSUER, false).unwrap();
+    world.ledger.global_freeze(dsusd::ISSUER, false).unwrap();
     world.close();
     world.settlement_check(0);
-    assert!(world.nodes[0].rlusd().can_receive());
+    assert!(world.nodes[0].dsusd().can_receive());
 
-    // A transfer fee no RLUSD node pays: no peer can pay us either
+    // A transfer fee no DSUSD node pays: no peer can pay us either
     // (spec/areas/settlement.md#when-peers-cannot-pay-us).
     world
         .ledger
-        .set_transfer_rate(rlusd::ISSUER, 1_002_000_000)
+        .set_transfer_rate(dsusd::ISSUER, 1_002_000_000)
         .unwrap();
     world.close();
     world.settlement_check(0);
     assert!(unavailable(&mut world));
-    assert!(!world.nodes[0].rlusd().can_receive());
+    assert!(!world.nodes[0].dsusd().can_receive());
     assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
-    world.ledger.set_transfer_rate(rlusd::ISSUER, 0).unwrap();
+    world.ledger.set_transfer_rate(dsusd::ISSUER, 0).unwrap();
     world.close();
     world.settlement_check(0);
-    assert!(world.nodes[0].rlusd().can_receive());
+    assert!(world.nodes[0].dsusd().can_receive());
     let id = world.settle(USD, 0, 1, usd(1_000_000), &state_a);
     world.close();
     assert_eq!(world.nodes[0].books[USD].finalized, [id]);
@@ -1078,25 +1080,25 @@ fn freezes_stop_settling_and_receiving() {
 #[test]
 fn an_old_answer_of_the_issuer_is_not_taken() {
     let (mut world, _, _) = synced(2);
-    world.ledger.global_freeze(rlusd::ISSUER, true).unwrap();
+    world.ledger.global_freeze(dsusd::ISSUER, true).unwrap();
     world.close();
     let behind = world.ledger.clone();
-    world.ledger.global_freeze(rlusd::ISSUER, false).unwrap();
+    world.ledger.global_freeze(dsusd::ISSUER, false).unwrap();
     world.closes(2);
     world.settlement_check(0);
-    assert!(world.nodes[0].rlusd().can_receive());
+    assert!(world.nodes[0].dsusd().can_receive());
     // A server behind says the token is still frozen: not taken.
     let mut current = std::mem::replace(&mut world.ledger, behind);
     world.settlement_check(0);
-    assert!(world.nodes[0].rlusd().can_receive());
+    assert!(world.nodes[0].dsusd().can_receive());
     std::mem::swap(&mut world.ledger, &mut current);
 }
 
 // spec/decisions/external-assets.md: on an account the XRP
 // scheme settles from too, the two never take the same sequence, and every
-// XRP fee is booked once, on the XRP ledger: the RLUSD scheme's as gas,
+// XRP fee is booked once, on the XRP ledger: the DSUSD scheme's as gas,
 // its line's reserve reconciled there. Its books match the account's XRP
-// less the reserve, and the RLUSD books the line.
+// less the reserve, and the DSUSD books the line.
 #[test]
 fn both_xrpl_schemes_share_one_account() {
     let mut world = World::new(&[true, true]);
@@ -1136,7 +1138,7 @@ fn both_xrpl_schemes_share_one_account() {
     let sequences: BTreeSet<u32> = ours.iter().map(|t| t.sequence).collect();
     assert_eq!(sequences.len(), ours.len(), "a sequence used twice");
     // Every fee the account paid: the TrustSet's, four XRP settlements',
-    // four RLUSD settlements', each booked once on the XRP ledger.
+    // four DSUSD settlements', each booked once on the XRP ledger.
     let paid: u64 = ours.iter().map(|t| t.fee).sum();
     assert_eq!(ours.len(), 9);
     let books = &world.nodes[0].books[XRP];
@@ -1154,7 +1156,7 @@ fn both_xrpl_schemes_share_one_account() {
 }
 
 // spec/decisions/external-assets.md: on a shared account the
-// gas is the owner's XRP on the XRP ledger: without funds there the RLUSD
+// gas is the owner's XRP on the XRP ledger: without funds there the DSUSD
 // scheme signs no TrustSet and settles nothing, though the account holds
 // XRP.
 #[test]
@@ -1196,7 +1198,7 @@ fn gas_on_a_shared_account_is_the_owners_to_spend() {
     assert_eq!(world.nodes[0].books[USD].finalized.len(), 1);
 }
 
-// spec/areas/xrpl.md#state-and-restarts: a node that stops with an RLUSD
+// spec/areas/xrpl.md#state-and-restarts: a node that stops with a DSUSD
 // settlement on its way and starts again submits it again and posts it
 // once; one that validated while it was down is found in the history and
 // posted once. Nothing is credited twice.
@@ -1233,12 +1235,12 @@ fn a_restart_mid_settlement_posts_it_once() {
     );
 }
 
-// spec/areas/xrpl.md#rlusd: a transaction read again after a restart, from
-// the cursor on, is booked by what it did to the line, from its own
-// metadata: one that moved no RLUSD, such as the issuer's freeze while the
-// node was down, books nothing, though the scheme has not been told the
-// line yet. The node simulation found a restart that booked the whole line
-// as a deposit here, and took it back through suspense.
+// spec/areas/xrpl.md#the-token-scheme: a transaction read again after a
+// restart, from the cursor on, is booked by what it did to the line, from its
+// own metadata: one that moved no DSUSD, such as the issuer's freeze while the
+// node was down, books nothing, though the scheme has not been told the line
+// yet. The node simulation found a restart that booked the whole line as a
+// deposit here, and took it back through suspense.
 #[test]
 fn a_restart_books_what_a_transaction_did_to_the_line_by_its_metadata() {
     let (mut world, _, _) = synced(2);
@@ -1251,7 +1253,7 @@ fn a_restart_books_what_a_transaction_did_to_the_line_by_its_metadata() {
     world.nodes[0].online = false;
     world.input(0, LedgerInput::Disconnected);
     let address = world.address(0);
-    world.ledger.freeze(address, Token::RLUSD, true).unwrap();
+    world.ledger.freeze(address, Token::DSUSD, true).unwrap();
     world.closes(2);
     world.restart(0);
     world.closes(3);
@@ -1261,8 +1263,8 @@ fn a_restart_books_what_a_transaction_did_to_the_line_by_its_metadata() {
     assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
 }
 
-// spec/areas/xrpl.md#rlusd: a testnet reset takes the line and what it
-// held: written off through suspense, and the line made again once the
+// spec/areas/xrpl.md#the-token-scheme: a testnet reset takes the line and what
+// it held: written off through suspense, and the line made again once the
 // account and the issuer are back.
 #[test]
 fn a_reset_writes_off_the_line_and_makes_it_again() {
@@ -1278,16 +1280,16 @@ fn a_reset_writes_off_the_line_and_makes_it_again() {
     assert!(
         world
             .ledger
-            .line(address, rlusd::ISSUER, rlusd::CURRENCY)
+            .line(address, dsusd::ISSUER, dsusd::CURRENCY)
             .is_some()
     );
 }
 
 // A Payment of XRP signed by hand on the shared account moves nothing on
-// the RLUSD ledger, and the XRP scheme books it as a withdrawal, as ever:
+// the DSUSD ledger, and the XRP scheme books it as a withdrawal, as ever:
 // only what a scheme on the account signed is booked as gas.
 #[test]
-fn xrp_paid_by_hand_is_a_withdrawal_and_moves_no_rlusd() {
+fn xrp_paid_by_hand_is_a_withdrawal_and_moves_no_dsusd() {
     let mut world = World::new(&[true, true]);
     world.closes(3);
     let (_, _) = world.peer(USD, 0, 1);
@@ -1330,12 +1332,12 @@ fn xrp_paid_by_hand_is_a_withdrawal_and_moves_no_rlusd() {
     assert_eq!(world.nodes[0].books[USD].owner, 0);
 }
 
-// spec/areas/xrpl.md#rlusd: what moved the line while the node was down is
-// booked after the restart by what each transaction did to the line, as
+// spec/areas/xrpl.md#the-token-scheme: what moved the line while the node was
+// down is booked after the restart by what each transaction did to the line, as
 // its metadata says, never against a line the scheme has not seen since it
 // started: the issuer's mint is a deposit of what it minted, its clawback a
-// withdrawal of what it took, and nothing goes through suspense; what is
-// left below a unit adds up with what comes next.
+// withdrawal of what it took, and nothing goes through suspense; what is left
+// below a unit adds up with what comes next.
 #[test]
 fn what_moved_the_line_while_down_is_booked_by_the_line() {
     let (mut world, _, _) = synced(2);
@@ -1347,7 +1349,7 @@ fn what_moved_the_line_while_down_is_booked_by_the_line() {
     let address = world.address(0);
     world
         .ledger
-        .claw_back(address, Token::RLUSD.amount(value("2")))
+        .claw_back(address, Token::DSUSD.amount(value("2")))
         .unwrap();
     world.close();
     world.restart(0);
@@ -1372,7 +1374,7 @@ fn what_moved_the_line_while_down_is_booked_by_the_line() {
 // and is told. The one away missed the write-off: back, after a restart or
 // added again, it writes off what it held through suspense and drops its
 // cursor on the chain gone, and the account syncs on the new chain for
-// both; the RLUSD scheme makes its line again.
+// both; the DSUSD scheme makes its line again.
 #[test]
 fn a_scheme_away_through_a_reset_writes_it_off_once_back() {
     for away in [USD, XRP] {
@@ -1399,14 +1401,14 @@ fn a_scheme_away_through_a_reset_writes_it_off_once_back() {
             for ledger in [XRP, USD] {
                 assert_eq!(node.status(ledger), LedgerStatus::Synced, "{away} {why:?}");
             }
-            assert!(node.rlusd().has_synced());
+            assert!(node.dsusd().has_synced());
             assert!(node.books[away].losses.contains(&held), "{away} {why:?}");
             assert_eq!(node.books[USD].suspense, -i128::from(usd(4_000_000)));
             let address = world.address(0);
             assert!(
                 world
                     .ledger
-                    .line(address, rlusd::ISSUER, rlusd::CURRENCY)
+                    .line(address, dsusd::ISSUER, dsusd::CURRENCY)
                     .is_some()
             );
         }
@@ -1414,9 +1416,9 @@ fn a_scheme_away_through_a_reset_writes_it_off_once_back() {
 }
 
 // spec/areas/xrpl.md#the-account: every XRP fee is booked
-// once. An RLUSD settlement that validates while its scheme is away has
+// once. A DSUSD settlement that validates while its scheme is away has
 // its fee booked by the XRP scheme then; back, after a restart or added
-// again, the RLUSD scheme reads it again as its own and posts it, and the
+// again, the DSUSD scheme reads it again as its own and posts it, and the
 // XRP scheme does not book its fee again.
 #[test]
 fn the_fee_of_a_scheme_away_is_booked_once() {
@@ -1505,10 +1507,10 @@ fn a_settlement_never_read_is_booked_once_across_a_restart() {
     assert_eq!(books.settlement, i128::from(usd(8_000_000)));
 }
 
-// Found in review: the books refuse what the RLUSD scheme is told with its
+// Found in review: the books refuse what the DSUSD scheme is told with its
 // own settlement, validated, and stop it, while the XRP scheme runs on and
 // has the account's state written. The account keeps the settlement for
-// the RLUSD scheme, so after a restart it is posted once, never also booked
+// the DSUSD scheme, so after a restart it is posted once, never also booked
 // as a withdrawal from the line; with a history that no longer reaches back
 // to it, it is looked up and booked once found.
 #[test]
@@ -1543,7 +1545,7 @@ fn a_settlement_told_in_a_refused_batch_is_booked_once() {
 }
 
 // Found in review: a server's answer to the lookup of a settlement the
-// RLUSD scheme never read says it delivered more RLUSD than any line holds.
+// DSUSD scheme never read says it delivered more DSUSD than any line holds.
 // The scheme books it by what it signed, which the books hold pending, so
 // the server's figure books nothing, and the node does not panic.
 #[test]
@@ -1569,7 +1571,7 @@ fn a_settlement_never_read_is_booked_by_what_was_signed() {
 }
 
 // spec/areas/xrpl.md#the-account: while the books stopped
-// `xrpl-testnet`, the account's XRP is still on its books: the RLUSD scheme
+// `xrpl-testnet`, the account's XRP is still on its books: the DSUSD scheme
 // spends none of it as gas, and settles nothing, until the XRP scheme is
 // back after a restart. Removed by the owner, it leaves the XRP off the
 // books, and only the reserve bounds the gas.
@@ -1622,7 +1624,7 @@ fn a_token_payment_is_signed_only_within_the_line() {
 
 // A Payment whose Amount names the payee as its issuer, any issuer the
 // payee trusts, may report what it delivered with the payee's account as
-// the issuer. That is no settlement in RLUSD: the line it raised is the
+// the issuer. That is no settlement in DSUSD: the line it raised is the
 // owner's deposit, and the peer is credited nothing. It is safe: the payee
 // credits less than arrived, never more, and its books still hold the line.
 #[test]
@@ -1698,7 +1700,7 @@ fn ops() -> impl Strategy<Value = Vec<Op>> {
     prop::collection::vec(op, 1..48)
 }
 
-/// Tenths of a millionth of RLUSD.
+/// Tenths of a millionth of DSUSD.
 fn tenths(count: u64) -> TokenValue {
     TokenValue::from_units(count, 7).unwrap()
 }
@@ -1722,11 +1724,11 @@ proptest! {
             match *op {
                 Op::Mint(n, t) => {
                     let to = world.address(n);
-                    world.ledger.issue(to, Token::RLUSD.amount(tenths(t))).unwrap();
+                    world.ledger.issue(to, Token::DSUSD.amount(tenths(t))).unwrap();
                 }
                 Op::ClawBack(n, t) => {
                     let from = world.address(n);
-                    world.ledger.claw_back(from, Token::RLUSD.amount(tenths(t))).unwrap();
+                    world.ledger.claw_back(from, Token::DSUSD.amount(tenths(t))).unwrap();
                 }
                 Op::Settle(n, t) => {
                     let state = states[n].clone();
@@ -1736,16 +1738,16 @@ proptest! {
                 }
                 Op::Freeze(n, on) => {
                     let holder = world.address(n);
-                    world.ledger.freeze(holder, Token::RLUSD, on).unwrap();
+                    world.ledger.freeze(holder, Token::DSUSD, on).unwrap();
                 }
                 Op::DeepFreeze(n, on) => {
                     let holder = world.address(n);
-                    world.ledger.deep_freeze(holder, Token::RLUSD, on).unwrap();
+                    world.ledger.deep_freeze(holder, Token::DSUSD, on).unwrap();
                 }
-                Op::GlobalFreeze(on) => world.ledger.global_freeze(rlusd::ISSUER, on).unwrap(),
+                Op::GlobalFreeze(on) => world.ledger.global_freeze(dsusd::ISSUER, on).unwrap(),
                 Op::TransferFee(on) => {
                     let rate = if on { 1_002_000_000 } else { 0 };
-                    world.ledger.set_transfer_rate(rlusd::ISSUER, rate).unwrap();
+                    world.ledger.set_transfer_rate(dsusd::ISSUER, rate).unwrap();
                 }
                 Op::Check(n) => world.settlement_check(n),
                 Op::Restart(n, closes) => {

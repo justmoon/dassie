@@ -10,9 +10,9 @@
 //! Tokens on trust lines ([`tokens`]): lines as `RippleState` entries with
 //! their owner reserve, `TrustSet`, token Payments that ripple through the
 //! issuer with the ledger's failures, and issuers that mint, freeze, set a
-//! transfer fee and claw back. The fake is the only source of test RLUSD
-//! and DSUSD on demand: [`FakeLedger::new`] makes RLUSD's and DSUSD's
-//! testnet issuers, at their addresses.
+//! transfer fee and claw back. The fake is the only source of dollar tokens
+//! on demand: [`FakeLedger::new`] makes DSUSD's testnet issuer, and
+//! [`FakeLedger::mainnet`] RLUSD's mainnet issuer, each at its address.
 //!
 //! AMM pools ([`pools`]): a constant-product pool of XRP and a token with a
 //! trading fee, `amm_info`, and Payments with `SendMax` that cross it.
@@ -77,7 +77,7 @@ const MAX_TX_RANGE_LEDGERS: u64 = 1_000;
 /// The ledgers an issuer's or genesis's own transaction may wait.
 const OWN_TX_LEDGERS: u32 = 20;
 
-/// RLUSD's issuer on the XRPL testnet: the fake ledger issues its test
+/// RLUSD's issuer on the XRPL mainnet: the fake ledger's mainnet issues
 /// RLUSD at the same address, so the scheme runs on it unchanged.
 pub const RLUSD_ISSUER: AccountId = crate::rlusd::ISSUER;
 /// RLUSD's currency code: "RLUSD" in 40 hex digits.
@@ -89,7 +89,7 @@ pub const DSUSD_ISSUER: AccountId = crate::dsusd::ISSUER;
 pub const DSUSD_CURRENCY: Currency = crate::dsusd::CURRENCY;
 /// What an issuer is given from genesis, in drops, to pay its fees.
 pub const ISSUER_DROPS: u64 = 1_000 * DROPS_PER_XRP;
-/// An issuer's flags, as RLUSD's on the testnet: lines ripple through it,
+/// An issuer's flags, as RLUSD's: lines ripple through it,
 /// it may claw back, it requires no authorisation and keeps the right to
 /// freeze.
 pub const ISSUER_FLAGS: u32 =
@@ -264,22 +264,24 @@ impl Default for FakeLedger {
 }
 
 impl FakeLedger {
-    /// The testnet: a ledger with only the genesis account and the
-    /// issuers of RLUSD and DSUSD.
+    /// The testnet: a ledger with only the genesis account and DSUSD's
+    /// issuer. Test RLUSD is not on it: no scheme settles in it
+    /// (spec/decisions/issued-assets.md).
     #[must_use]
     pub fn new() -> Self {
         let mut ledger = Self::on(&TESTNET);
-        ledger.add_issuer(RLUSD_ISSUER);
         ledger.add_issuer(DSUSD_ISSUER);
         ledger
     }
 
-    /// Mainnet: a ledger with only the genesis account, which reports
-    /// mainnet's network ID, has no faucet and never resets. The testnet's
-    /// test tokens are not on it.
+    /// Mainnet: a ledger with only the genesis account and RLUSD's issuer,
+    /// which reports mainnet's network ID, has no faucet and never resets.
+    /// The testnet's DSUSD is not on it.
     #[must_use]
     pub fn mainnet() -> Self {
-        Self::on(&MAINNET)
+        let mut ledger = Self::on(&MAINNET);
+        ledger.add_issuer(RLUSD_ISSUER);
+        ledger
     }
 
     /// A ledger of `network` with only the genesis account.

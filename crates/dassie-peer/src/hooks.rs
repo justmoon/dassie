@@ -26,7 +26,9 @@ pub struct Agreed {
 /// What peering needs from the node.
 pub trait PeeringHooks {
     /// The versions of `scheme` the node speaks, or none if it is not
-    /// active.
+    /// active. A scheme that speaks none is one the node does not run: its
+    /// peerings are ended (spec/areas/settlement.md#schemes-and-ledgers), so
+    /// an active scheme speaks at least one.
     fn versions(&self, scheme: SchemeId) -> &'static [u16];
 
     /// The scheme's peering info, for a node about to ask.

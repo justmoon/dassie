@@ -1,8 +1,9 @@
 //! The node simulation's scripted runs: the network forms, a node crashes
 //! and comes back, payments cross it while another node crashes, an owner
 //! ends a peering, and the books are checked. Over the stub, over the XRP
-//! Ledger, over RLUSD, and across currencies: dollars and XRP, or RLUSD and
-//! XRP on one account. On RLUSD the issuer claws back and freezes while
+//! Ledger, over RLUSD, and across currencies: dollars and XRP, or a dollar
+//! token and XRP on one account, RLUSD on mainnet in the live realm or DSUSD
+//! on the testnet. On a token the issuer claws back and freezes while
 //! payments are under way.
 
 use std::collections::BTreeMap;
@@ -145,8 +146,9 @@ pub fn run_xrpl_live(seed: u64) -> Run {
     run_on(seed, Settling::XrplLive)
 }
 
-/// A run over the RLUSD scheme alone, against the fake ledger, whose
-/// issuer claws back and freezes while payments are under way.
+/// A run over the RLUSD scheme alone, in the live realm against the fake
+/// ledger's mainnet, whose issuer claws back and freezes while payments
+/// are under way (spec/decisions/mainnet-schemes.md).
 #[must_use]
 pub fn run_rlusd(seed: u64) -> Run {
     run_on(seed, Settling::Rlusd)
@@ -174,17 +176,19 @@ pub fn run_across(seed: u64) -> Run {
     run_across_on(seed, Settling::Cross)
 }
 
-/// A run across RLUSD and XRP: node 0 has RLUSD, node 2 XRP, nodes 1 and 3
-/// both on one account, node 1 charging for what passes, so a node signs
-/// for both schemes and books every XRP fee once. Clients pay receivers in
-/// the other currency, and the issuer claws back and freezes meanwhile.
+/// A run across RLUSD and XRP, in the live realm against the fake ledger's
+/// mainnet: node 0 has RLUSD, node 2 XRP, nodes 1 and 3 both on one
+/// account, node 1 charging for what passes, so a node signs for both
+/// schemes and books every XRP fee once. Clients pay receivers in the other
+/// currency, and the issuer claws back and freezes meanwhile.
 #[must_use]
 pub fn run_xrp_rlusd(seed: u64) -> Run {
     run_across_on(seed, Settling::XrpRlusd)
 }
 
-/// A run across DSUSD and XRP, as [`run_xrp_rlusd`] with the token scheme
-/// in DSUSD, whose issuer claws back and freezes meanwhile.
+/// A run across DSUSD and XRP, as [`run_xrp_rlusd`] on the testnet, with
+/// the token scheme in DSUSD, whose issuer claws back and freezes
+/// meanwhile.
 #[must_use]
 pub fn run_xrp_dsusd(seed: u64) -> Run {
     run_across_on(seed, Settling::XrpDsusd)

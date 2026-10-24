@@ -4,12 +4,12 @@
 //! to the token's issuer, and books on a dollar ledger of its own, whose
 //! unit is a millionth of a dollar. Each token it settles in is a
 //! [`Token`]: its scheme's ID, its memo type, its issuer, its currency, its
-//! ledger and its network; `xrpl-testnet-rlusd` ([`crate::rlusd`]) and
-//! `xrpl-testnet-dsusd` ([`crate::dsusd`]) are this scheme with their own.
-//! It pays its fees and its line's reserve in the account's XRP, as gas: on
-//! the books of the network's XRP scheme, such as `xrpl-testnet+xrp`, when
-//! that scheme settles from the same account, and off the books otherwise
-//! (spec/decisions/external-assets.md).
+//! ledger and its network; `xrpl-rlusd` ([`crate::rlusd`]) on mainnet and
+//! `xrpl-testnet-dsusd` ([`crate::dsusd`]) on the testnet are this scheme
+//! with their own. It pays its fees and its line's reserve in the account's
+//! XRP, as gas: on the books of the network's XRP scheme, such as
+//! `xrpl-testnet+xrp`, when that scheme settles from the same account, and
+//! off the books otherwise (spec/decisions/external-assets.md).
 //!
 //! Before it counts as synced, the account has a line to the issuer with
 //! rippling disabled on its side and the largest limit; a line missing or

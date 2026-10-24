@@ -9,7 +9,7 @@ The ledger is sans-IO and bounded ([engineering](../engineering.md)): callers pa
 
 ## Ledgers and amounts
 
-A ledger is `<settlement family>+<currency>`, and the list is closed (`ledger_id.rs`): a new ledger comes with the settlement scheme that serves it. `xrpl+xrp` exists so that the live ledger has a name, and is refused ([XRPL](xrpl.md#real-money)). A ledger's family is its slug, which names its receiver, its seed path and its wallet address, so no two ledgers share one: each dollar token's is a dollar ledger of its own beside `xrpl-testnet+xrp`, RLUSD's `xrpl-testnet-rlusd+usd` and DSUSD's `xrpl-testnet-dsusd+usd` ([XRPL](xrpl.md#the-token-scheme)). Two tokens of one currency are two ledgers, never one: each has its own issuer, the owner's counterparty ([issued-assets](../decisions/issued-assets.md)).
+A ledger is `<settlement family>+<currency>`, and the list is closed (`ledger_id.rs`): a new ledger comes with the settlement scheme that serves it. `xrpl+xrp` and `xrpl-rlusd+usd` exist so that the live ledgers have names, and are refused ([XRPL](xrpl.md#real-money)). A ledger's family is its slug, which names its receiver, its seed path and its wallet address, so no two ledgers share one: each dollar token's is a dollar ledger of its own beside its network's XRP ledger, DSUSD's `xrpl-testnet-dsusd+usd` and RLUSD's `xrpl-rlusd+usd` ([XRPL](xrpl.md#the-token-scheme)). A ledger stays in the list after its scheme is disabled, as test RLUSD's `xrpl-testnet-rlusd+usd` does, so the books of a node that ran it keep their name ([XRPL](xrpl.md#rlusd)). Two tokens of one currency are two ledgers, never one: each has its own issuer, the owner's counterparty ([issued-assets](../decisions/issued-assets.md)).
 
 Every amount is an unsigned integer at scale 9 for every asset, and ILP packet amounts are applied to the books in these units without conversion: ILDCP tells each endpoint scale 9. So a ledger's scale is the books' choice, not its underlying ledger's; the XRPL scheme converts drops at its edge.
 
@@ -82,7 +82,7 @@ Asserted after every step (`ledger/invariants.rs`): every ledger balances, poste
 
 - [database-continuity](../decisions/database-continuity.md): no carried-over totals from v0 databases.
 - [owner-ledger](../decisions/owner-ledger.md): an owner account per ledger, the owner's group and its limit, sub-accounts instead of allocations.
-- [real-money](../decisions/real-money.md): `xrpl+xrp` stays refused.
+- [real-money](../decisions/real-money.md): the live ledgers, `xrpl+xrp` and `xrpl-rlusd+usd`, stay refused.
 - [tigerstyle](../decisions/tigerstyle.md): sans-IO, bounded, asserted.
 - [own-books](../decisions/own-books.md): each node keeps its own books.
 - [own-fulfills](../decisions/own-fulfills.md): Fulfills booked as final.

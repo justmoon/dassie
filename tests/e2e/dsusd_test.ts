@@ -1,15 +1,18 @@
 /**
  * End to end (spec/areas/testing.md#end-to-end): the `dsusd-settlement`
- * scenario settles in DSUSD (spec/areas/xrpl.md#dsusd). The nodes are the
- * real binary; the XRP Ledger is the node's fake, over WebSocket, with its
- * faucet and the issuer of its test DSUSD over HTTPS.
+ * scenario settles in DSUSD (spec/areas/xrpl.md#dsusd), the testnet's
+ * stand-in for RLUSD, whose test token's scheme is disabled
+ * (spec/decisions/issued-assets.md). The nodes are the real binary; the XRP
+ * Ledger is the node's fake, over WebSocket, with its faucet and the issuer
+ * of its test DSUSD over HTTPS: only the fake mints DSUSD on demand, and
+ * only it lets a test freeze and claw back.
  *
  * The faucet gives both nodes XRP for gas, each sets its trust line to
  * DSUSD's issuer, never RLUSD's, and the issuer mints them DSUSD. A client
  * of d1 pays d2's receiver several times the credit, so d1 settles in DSUSD
- * as it pays, and each node's books stay in step with its line. The token
- * scheme's freezes and clawbacks are RLUSD's code, which `rlusd_test.ts`
- * covers.
+ * as it pays. Then the issuer freezes d2's line, which the owner sees, and
+ * claws back some of d2's DSUSD, which d2 books as a withdrawal: each
+ * node's books stay in step with its line.
  */
 
 import { test } from "node:test";
@@ -40,6 +43,8 @@ const PAYMENT = 5_000_000_000n;
 const CREDIT = 1_100_000_000n;
 /** Every node's trigger: one and a half of the largest packets (spec/decisions/thresholds-in-packets.md). */
 const TRIGGER = 150_000_000n;
+/** What the issuer claws back from d2: 2 dollars. */
+const CLAWED = 2_000_000_000n;
 /** The ledger's unit, a millionth of a dollar, in internal units. */
 const UNIT = 1_000n;
 const PORT_OFFSET = SCENARIO_PORT_OFFSET + 200;
@@ -144,8 +149,20 @@ async function settled(scenario: Scenario): Promise<boolean> {
   );
 }
 
+/** The withdrawals a node booked on the ledger. */
+async function withdrawals(node: ScenarioNode): Promise<bigint[]> {
+  const { transfers } = await node.rpc.call("listTransfers", { limit: 1000 });
+  return transfers
+    .filter((transfer) =>
+      transfer.reference.case === "other" &&
+      transfer.reference.value === "withdrawal" &&
+      transfer.debitPath.startsWith(`${LEDGER}:`)
+    )
+    .map((transfer) => transfer.amount);
+}
+
 test(
-  "dsusd-settlement settles in DSUSD on DSUSD's own line and ledger",
+  "dsusd-settlement settles in DSUSD on DSUSD's own line and ledger, and books the issuer's clawback as a withdrawal",
   { skip: missing !== undefined },
   async () => {
     const scenario = await Scenario.temporary("dsusd-settlement", {
@@ -156,7 +173,7 @@ test(
     try {
       await scenario.until("funded", () => funded(scenario), 120_000);
       await scenario.until("peered", () => scenario.converged(), 120_000);
-      const [d1] = scenario.nodes;
+      const [d1, d2] = scenario.nodes;
       // The ledger names DSUSD's issuer, and the line is to it.
       for (const node of scenario.nodes) {
         const { holding } = await line(node);
@@ -172,7 +189,7 @@ test(
         label: "e2e",
         ledger: LEDGER,
       });
-      const { payment: credentials } = await scenario.nodes[1].rpc.call(
+      const { payment: credentials } = await d2.rpc.call(
         "createIncomingPayment",
         {},
       );
@@ -211,6 +228,53 @@ test(
       const owes = (await peerAccounts(scenario)).get("d1>d2")!;
       assert(owes <= CREDIT, `d1 still owes ${owes}`);
       assert(after.ownerBalance <= before.ownerBalance - PAYMENT);
+
+      // The issuer freezes d2's line: its owner sees it, as the ledger
+      // says, and the issuer lifts it again.
+      const { address } = (await d2.rpc.call("listLedgers", {}))
+        .externalAssets[0];
+      await scenario.askIssuer({
+        token: "DSUSD",
+        action: "freeze",
+        account: address,
+        on: true,
+      });
+      await scenario.until(
+        "the freeze shown",
+        async () => (await line(d2)).holding.frozen,
+        60_000,
+      );
+      await scenario.askIssuer({
+        token: "DSUSD",
+        action: "freeze",
+        account: address,
+        on: false,
+      });
+      await scenario.until(
+        "the freeze lifted",
+        async () => !(await line(d2)).holding.frozen,
+        60_000,
+      );
+
+      // A clawback lowers d2's line without a Payment: d2 books it as a
+      // withdrawal, and its books still hold its line.
+      const owned = (await ledger(d2)).ownerBalance;
+      const held = (await line(d2)).units;
+      await scenario.askIssuer({
+        token: "DSUSD",
+        action: "clawback",
+        account: address,
+        value: "2",
+      });
+      await scenario.until(
+        "the clawback booked",
+        async () =>
+          (await line(d2)).units === held - CLAWED && (await inStep(d2)),
+        60_000,
+      );
+      assertEquals((await ledger(d2)).ownerBalance, owned - CLAWED);
+      assertEquals(await withdrawals(d2), [CLAWED]);
+      assertEquals(await withdrawals(d1), []);
     } finally {
       const failures = await scenario.stop();
       assertEquals(failures, [], failures.join("\n"));

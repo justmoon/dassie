@@ -237,6 +237,9 @@ fn activation(severity: Severity, event: &SettlementEvent) {
         SettlementEvent::OtherRealm { scheme } => {
             emit!(severity, target: target::SETTLEMENT, %scheme, "the scheme is of another realm than the node's: it does not run");
         }
+        SettlementEvent::Disabled { scheme } => {
+            emit!(severity, target: target::SETTLEMENT, %scheme, "the scheme is disabled: it does not run, and its books and its line stay as they are");
+        }
         // `settlement` hands only these here.
         _ => {}
     }
@@ -245,7 +248,9 @@ fn activation(severity: Severity, event: &SettlementEvent) {
 /// The schemes, and our settlements as they start.
 fn settlement(severity: Severity, event: &SettlementEvent) {
     match event {
-        SettlementEvent::BalanceBooked { .. } | SettlementEvent::OtherRealm { .. } => {
+        SettlementEvent::BalanceBooked { .. }
+        | SettlementEvent::OtherRealm { .. }
+        | SettlementEvent::Disabled { .. } => {
             activation(severity, event);
         }
         SettlementEvent::Reconciled {
@@ -358,6 +363,7 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::MessageNotSent { .. }
         | SettlementEvent::DepositFromStranger { .. }
         | SettlementEvent::OtherRealm { .. }
+        | SettlementEvent::Disabled { .. }
         | SettlementEvent::SchemeStopped { .. }
         | SettlementEvent::BooksCannotSettle { .. }
         | SettlementEvent::Settling { .. }

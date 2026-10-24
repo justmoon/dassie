@@ -293,6 +293,69 @@ fn an_owner_ends_a_peering() {
     assert!(network.node(0).peering_of(&b).is_none(), "a cooldown");
 }
 
+// spec/areas/settlement.md#schemes-and-ledgers: a node that no longer runs
+// a peering's scheme, as one disabled, ends the peering at its next review
+// and collects nothing: no settlement on the scheme could be booked, so it
+// neither waits for its own settlement under way nor asks the peer to
+// settle, and tells it at once. The end gives no reason, so the pair is not
+// kept apart: once both run a scheme again, they peer after a backoff.
+#[test]
+fn a_peering_on_a_scheme_not_run_ends_at_once() {
+    let (mut network, a, b) = peered(52);
+    network.nodes[0].hooks.settling.insert(b);
+    network.nodes[0].hooks.unrun = true;
+    settle(
+        &mut network,
+        CONFIG.heartbeat_min_ms + CONFIG.heartbeat_jitter_ms,
+    );
+    let told = Event::Terminating {
+        peer: b,
+        reason: TerminationReason::Unspecified,
+        by_us: true,
+    };
+    assert!(network.events.contains(&(0, told)), "told at once");
+    assert!(network.node(1).peering_of(&a).is_none(), "it heard");
+    settle(&mut network, CONFIG.termination_timeout_ms);
+    assert_eq!(ended(&network, 0, &b), 1);
+    assert_eq!(ended(&network, 1, &a), 1);
+    assert!(network.settlement_requests.is_empty(), "nothing collected");
+    network.nodes[0].hooks.settling.clear();
+    network.nodes[0].hooks.unrun = false;
+    for _ in 0..60 {
+        if network.node(0).peering_of(&b).is_some() {
+            break;
+        }
+        settle(&mut network, 1_000);
+    }
+    assert!(network.node(0).peering_of(&b).is_some(), "peered again");
+    assert!(network.node(1).peering_of(&a).is_some());
+}
+
+// spec/areas/settlement.md#schemes-and-ledgers: a peering the owner was
+// ending when its scheme stopped running is told at once too, as the
+// owner's: the cooldown holds.
+#[test]
+fn an_owners_end_on_a_scheme_not_run_keeps_its_reason() {
+    let (mut network, a, b) = peered(53);
+    network.nodes[0].hooks.unrun = true;
+    network.act(0, |node, now| {
+        assert!(node.terminate(now, &b, TerminationReason::Owner));
+    });
+    settle(&mut network, CONFIG.termination_timeout_ms);
+    let told = Event::Terminating {
+        peer: b,
+        reason: TerminationReason::Owner,
+        by_us: true,
+    };
+    assert!(network.events.contains(&(0, told)));
+    assert_eq!(ended(&network, 0, &b), 1);
+    assert_eq!(ended(&network, 1, &a), 1);
+    assert!(network.settlement_requests.is_empty(), "nothing collected");
+    network.nodes[0].hooks.unrun = false;
+    settle(&mut network, 60_000);
+    assert!(network.node(0).peering_of(&b).is_none(), "a cooldown");
+}
+
 #[test]
 fn crossed_terminations_end_both_sides() {
     let (mut network, a, b) = peered(35);

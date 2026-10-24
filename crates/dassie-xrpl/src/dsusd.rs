@@ -72,21 +72,73 @@ mod tests {
         assert_eq!(TOKEN.scheme.as_str(), SCHEME_ID);
     }
 
+    // spec/decisions/mainnet-schemes.md: every XRPL scheme, on either
+    // network, disabled test RLUSD included, has an ID, a memo type and a
+    // ledger of its own, so a Payment is never taken for a settlement of
+    // another, nor test money booked with real; each books on a ledger of
+    // its network's realm whose slug is its ID; and no two settle in one
+    // asset on one network, nor two tokens on one issuer's line.
     #[test]
-    fn no_xrpl_scheme_shares_a_memo_type_issuer_or_ledger() {
-        let tokens = [crate::rlusd::TOKEN, TOKEN];
-        assert_ne!(tokens[0].memo_type, tokens[1].memo_type);
-        assert_ne!(tokens[0].line(), tokens[1].line());
-        assert_ne!(tokens[0].ledger, tokens[1].ledger);
-        for token in tokens {
-            assert_ne!(token.memo_type, crate::scheme::MEMO_TYPE);
-            assert_eq!(token.scheme.as_str(), token.scheme_id);
-            let slug = token.ledger.as_str().split('+').next();
-            assert_eq!(
-                slug,
-                Some(token.scheme_id),
-                "the ledger's slug is the scheme's"
-            );
+    fn no_two_xrpl_schemes_share_a_memo_type_an_issuer_or_a_ledger() {
+        use crate::network::Network;
+        use crate::rlusd;
+        use crate::scheme::{MAINNET_XRP, OWNER_MEMO_TYPE, TESTNET_XRP, Xrp};
+
+        struct Scheme {
+            id: &'static str,
+            name: dassie_ledger::Name,
+            memo_type: &'static [u8],
+            ledger: LedgerId,
+            network: &'static Network,
+            /// The token's line, or `None` for the network's XRP.
+            line: Option<LineKey>,
+        }
+        let xrp = |xrp: Xrp| Scheme {
+            id: xrp.scheme_id,
+            name: xrp.scheme,
+            memo_type: xrp.memo_type,
+            ledger: xrp.ledger,
+            network: xrp.network,
+            line: None,
+        };
+        let token = |token: Token| Scheme {
+            id: token.scheme_id,
+            name: token.scheme,
+            memo_type: token.memo_type,
+            ledger: token.ledger,
+            network: token.network,
+            line: Some(token.line()),
+        };
+        let schemes = [
+            xrp(TESTNET_XRP),
+            xrp(MAINNET_XRP),
+            token(rlusd::TOKEN),
+            token(rlusd::TESTNET_TOKEN),
+            token(TOKEN),
+        ];
+        for (index, scheme) in schemes.iter().enumerate() {
+            let id = scheme.id;
+            assert_eq!(scheme.name.as_str(), id);
+            assert_eq!(scheme.ledger.realm(), scheme.network.realm, "{id}");
+            let slug = scheme.ledger.as_str().split('+').next();
+            assert_eq!(slug, Some(id), "the ledger's slug is the scheme's");
+            assert_ne!(scheme.memo_type, OWNER_MEMO_TYPE, "{id}");
+            if scheme.line.is_some() {
+                assert_eq!(scheme.ledger.asset().code, "USD", "{id}");
+            }
+            for other in schemes.iter().skip(index + 1) {
+                let pair = (id, other.id);
+                assert_ne!(id, other.id);
+                assert_ne!(scheme.memo_type, other.memo_type, "{pair:?}");
+                assert_ne!(scheme.ledger, other.ledger, "{pair:?}");
+                assert!(
+                    scheme.network != other.network || scheme.line != other.line,
+                    "{pair:?} settle in one asset on one network"
+                );
+                if let (Some(line), Some(other_line)) = (scheme.line, other.line) {
+                    assert_ne!(line, other_line, "{pair:?}");
+                }
+            }
         }
     }
 }
