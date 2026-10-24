@@ -391,6 +391,24 @@ impl Validator {
         Ok(())
     }
 
+    /// A valid payload for the block at `height` on `parent`, stamped
+    /// `timestamp`, other than a leader's: no operations and no votes,
+    /// executed on the parent's state. For simulations of validators that
+    /// propose two blocks in one view; `None` if this validator does not
+    /// hold the parent's state.
+    #[cfg(feature = "sim")]
+    #[must_use]
+    pub fn empty_payload(
+        &self,
+        parent: &crate::digest::Digest,
+        height: u64,
+        timestamp: Millis,
+    ) -> Option<Vec<u8>> {
+        let base = self.chain.base(parent)?;
+        let executed = Chain::execute(base, height, timestamp, Vec::new(), Vec::new())?;
+        Some(executed.payload.to_vec())
+    }
+
     /// The final state.
     #[must_use]
     pub const fn ledger(&self) -> &Ledger {

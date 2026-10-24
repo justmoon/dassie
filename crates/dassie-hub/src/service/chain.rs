@@ -158,7 +158,7 @@ impl Chain {
     }
 
     /// The state a block on `parent` builds on.
-    fn base(&self, parent: &Digest) -> Option<&Ledger> {
+    pub(super) fn base(&self, parent: &Digest) -> Option<&Ledger> {
         if *parent == self.tip {
             return Some(&self.ledger);
         }

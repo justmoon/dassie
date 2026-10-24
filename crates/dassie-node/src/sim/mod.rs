@@ -76,6 +76,7 @@
 )]
 
 pub mod checks;
+pub mod hub;
 pub mod scripted;
 pub mod swarm;
 
@@ -123,6 +124,11 @@ pub const TRIGGER: u64 = policy::trigger(Policies::DEFAULT.connector.max_packet_
 pub const RATE_RETRY_MS: u64 = 5_000;
 /// How often the fake ledger closes a ledger.
 pub const LEDGER_CLOSE_MS: u64 = 3_500;
+/// The shortest and the longest a message takes in a run over a hub: its
+/// validators and members are in one region, within Δ of each other
+/// (`dassie_hub::consensus::Config`).
+pub const REGIONAL_LATENCY_MS: (u64, u64) =
+    (1, dassie_hub::consensus::Config::DEFAULT.max_delay_ms);
 /// The longest a replayed request arrives after the original: past the
 /// peer protocol's replay window of 60 s, so that some copies are refused
 /// for their age rather than as copies.
@@ -149,6 +155,11 @@ pub enum Settling {
     XrpRlusd,
     /// As [`Self::XrpRlusd`], in DSUSD.
     XrpDsusd,
+    /// A settlement hub of this many validators, run in the simulation,
+    /// whose escrow is on the fake ledger: each node funds its account in
+    /// the hub from its XRP Ledger testnet account, and peers over the hub
+    /// (spec/areas/hubs.md#in-the-node).
+    Hub(usize),
 }
 
 /// The stub ledger, in dollars.
@@ -159,6 +170,8 @@ pub const XRP: LedgerId = LedgerId::XrplTestnetXrp;
 pub const RLUSD: LedgerId = LedgerId::XrplTestnetRlusdUsd;
 /// DSUSD on the XRP Ledger testnet, in dollars.
 pub const DSUSD: LedgerId = LedgerId::XrplTestnetDsusdUsd;
+/// XRP in a settlement hub on the XRP Ledger testnet.
+pub const HUB: LedgerId = LedgerId::HubXrpTestnetXrp;
 
 /// The ledger's config of both XRPL schemes: the same, since they settle
 /// through one account.
@@ -176,6 +189,7 @@ impl Settling {
             Self::Stub | Self::StubHub(_) => USD,
             Self::Xrpl => XRP,
             Self::Rlusd => RLUSD,
+            Self::Hub(_) => HUB,
             Self::Cross | Self::XrpRlusd | Self::XrpDsusd => {
                 panic!("a run across currencies has two ledgers")
             }
@@ -192,6 +206,7 @@ impl Settling {
             (Self::XrpRlusd, _) => &[RLUSD, XRP],
             (Self::XrpDsusd, 0) => &[DSUSD],
             (Self::XrpDsusd, _) => &[DSUSD, XRP],
+            (Self::Hub(_), _) => &[HUB],
         }
     }
 
@@ -211,7 +226,7 @@ impl Settling {
         match self {
             Self::Rlusd | Self::XrpRlusd => Some((RLUSD, Token::RLUSD)),
             Self::XrpDsusd => Some((DSUSD, Token::DSUSD)),
-            Self::Stub | Self::StubHub(_) | Self::Xrpl | Self::Cross => None,
+            Self::Stub | Self::StubHub(_) | Self::Xrpl | Self::Cross | Self::Hub(_) => None,
         }
     }
 
@@ -238,6 +253,7 @@ impl Settling {
             LedgerId::XrplTestnetXrp => ("xrpl-testnet", XRPL_CONFIG),
             LedgerId::XrplTestnetRlusdUsd => ("xrpl-testnet-rlusd", XRPL_CONFIG),
             LedgerId::XrplTestnetDsusdUsd => ("xrpl-testnet-dsusd", XRPL_CONFIG),
+            LedgerId::HubXrpTestnetXrp => (dassie_hub::member::SCHEME_ID, ""),
             _ => ("stub", ""),
         }
     }
@@ -247,6 +263,7 @@ impl Settling {
     pub fn config(self, ledger: LedgerId) -> String {
         match self {
             Self::StubHub(limit) if ledger == USD => format!(r#"{{"commitments":{limit}}}"#),
+            Self::Hub(validators) if ledger == HUB => hub::config(validators),
             _ => Self::scheme(ledger).1.into(),
         }
     }
@@ -423,6 +440,61 @@ enum Delivery {
         generation: u64,
         epoch: u64,
         event: LedgerEvent,
+    },
+    /// A member's hub account asks a hub's validator.
+    HubRequest {
+        member: usize,
+        generation: u64,
+        asset: String,
+        epoch: u64,
+        endpoint: usize,
+        message: Vec<u8>,
+    },
+    /// A message of a validator's answer to a member.
+    HubAnswer {
+        member: usize,
+        generation: u64,
+        asset: String,
+        epoch: u64,
+        endpoint: usize,
+        message: Vec<u8>,
+    },
+    /// A member's exchange with a validator is over.
+    HubExchangeEnd { member: usize, endpoint: usize },
+    /// A member's submission to a validator outside its account's
+    /// exchanges, as a dishonest member makes them.
+    HubSubmit {
+        member: usize,
+        endpoint: usize,
+        message: Vec<u8>,
+    },
+    /// A message between two validators; a reply is answered by no one.
+    ValidatorMessage {
+        from: usize,
+        to: usize,
+        message: Vec<u8>,
+        reply: bool,
+    },
+    /// A request of a validator's escrow watcher to the fake ledger.
+    ValidatorLedgerRequest {
+        validator: usize,
+        connection: u64,
+        message: Vec<u8>,
+    },
+    /// What the fake ledger said to a validator's watcher, or, without a
+    /// message, that its connection is up.
+    ValidatorLedgerEvent {
+        validator: usize,
+        generation: u64,
+        connection: u64,
+        message: Option<Vec<u8>>,
+    },
+    /// The state a validator that is behind fetched from another.
+    ValidatorState {
+        validator: usize,
+        generation: u64,
+        finalized: Box<dassie_hub::consensus::Finalized>,
+        state: Vec<u8>,
     },
 }
 
@@ -668,6 +740,18 @@ pub struct Sim {
     fulfills_sent: BTreeMap<(usize, u64, RequestId), PacketKey>,
     /// How far each pair of nodes' books drifted, the lower index first.
     drift: BTreeMap<(usize, usize), Drift>,
+    /// The settlement hub of a run over one, with its validators.
+    pub hub: Option<Box<hub::HubNet>>,
+    /// The member request a validator is answering in the step under way:
+    /// the member, its generation, its hub account and connection, and the
+    /// validator.
+    answering: Option<(usize, u64, String, u64, usize)>,
+    /// What each node booked as lost on each peer over a hub
+    /// (`SettlementEvent::PeerLoss`), by node and peer.
+    pub hub_losses: BTreeMap<(usize, String), u64>,
+    /// The most each node's hold toward each peer over a hub held, and the
+    /// most the peer's hold toward it held, as its scheme read them.
+    pub hub_most_held: BTreeMap<(usize, String), (u64, u64)>,
 }
 
 // Every run, whatever it checks besides, ends without an error event: a
@@ -787,6 +871,10 @@ impl Sim {
             finals: BTreeSet::new(),
             fulfills_sent: BTreeMap::new(),
             drift: BTreeMap::new(),
+            hub: None,
+            answering: None,
+            hub_losses: BTreeMap::new(),
+            hub_most_held: BTreeMap::new(),
         };
         for &skew_ms in skews_ms {
             sim.nodes.push(SimNode {
@@ -802,8 +890,19 @@ impl Sim {
                 fulfills: BTreeMap::new(),
             });
         }
+        if let Settling::Hub(validators) = settling {
+            sim.latency_ms = REGIONAL_LATENCY_MS;
+            sim.found_hub(&vec![dassie_hub::sim::Role::Honest; validators]);
+        }
         for index in 0..count {
             sim.start(index);
+            // A member of a hub funds its account there from its XRP Ledger
+            // testnet account.
+            if matches!(settling, Settling::Hub(_)) {
+                sim.step(index, |core| {
+                    core.add_scheme("xrpl-testnet", XRPL_CONFIG.into()).unwrap();
+                });
+            }
             for &ledger in settling.ledgers(index) {
                 let scheme = Settling::scheme(ledger).0;
                 let config = settling.config(ledger);
@@ -864,6 +963,27 @@ impl Sim {
                 core.set_rates(&rates);
             }
         });
+    }
+
+    /// Gives every node the first `count` nodes as its bootstrap nodes, as
+    /// an owner does in its config, which takes a restart: each running
+    /// node stops and starts again from its database.
+    pub fn join_network(&mut self, count: usize) {
+        self.bootstrap = (0..count)
+            .map(|index| Bootstrap {
+                id: key(index).node_id(),
+                url: url(index),
+                key: key(index).public_key(),
+            })
+            .collect();
+        for index in 0..self.nodes.len() {
+            if self.nodes[index].core.is_some() {
+                self.stop(index);
+                self.start(index);
+            }
+        }
+        self.trace
+            .push(format!("{} the nodes join the network", self.now));
     }
 
     /// Crashes node `index`: its clients are gone, its database stays.
@@ -1018,6 +1138,12 @@ impl Sim {
         let fifo = match &delivery {
             Delivery::LedgerRequest { from, .. } => Some((*from, false)),
             Delivery::LedgerEvent { to, .. } => Some((*to, true)),
+            Delivery::ValidatorLedgerRequest { validator, .. } => {
+                Some((hub::VALIDATOR_FIFO + *validator, false))
+            }
+            Delivery::ValidatorLedgerEvent { validator, .. } => {
+                Some((hub::VALIDATOR_FIFO + *validator, true))
+            }
             _ => None,
         };
         if let Some(fifo) = fifo {
@@ -1127,7 +1253,7 @@ impl Sim {
         if self.settling.across() {
             self.watch_prices(index);
         }
-        if matches!(self.settling, Settling::StubHub(_)) {
+        if matches!(self.settling, Settling::StubHub(_) | Settling::Hub(_)) {
             self.watch_hub(index);
         }
         for output in outputs {
@@ -1160,10 +1286,23 @@ impl Sim {
                 );
                 record_once(&mut self.hub_leaks, index, peer.peer, leak);
             }
+            let most = self
+                .hub_most_held
+                .entry((index, peer.peer.to_string()))
+                .or_default();
+            most.0 = most.0.max(peer.holds.toward);
+            most.1 = most.1.max(peer.holds.from);
             let holds = peer.holds.toward.saturating_add(peer.settling);
+            // Over a real hub, a take from our hold reaches the books only
+            // once the hub reports it, and the credit is lowered only as far
+            // as what the peer may still owe us allows: it may stay above
+            // the holds for a while, never below them
+            // (spec/areas/hubs.md#in-the-node). The stub reports a take when
+            // the books take it, so there the two are always one.
+            let real = matches!(self.settling, Settling::Hub(_));
             if peer.peered
                 && let Some(credit) = peer.credit
-                && credit != holds
+                && (credit < holds || credit > holds && !real)
             {
                 let off = format!(
                     "{} node {index}'s stub extends {} credit of {credit}, while its hold \
@@ -1235,6 +1374,13 @@ impl Sim {
         ) {
             self.count("settlements taken");
         }
+        if let Event::Settlement(SettlementEvent::PeerLoss { peer, amount, .. }) = event {
+            self.count("losses booked over a hub");
+            *self
+                .hub_losses
+                .entry((index, peer.to_string()))
+                .or_default() += *amount;
+        }
         if let Event::PeerNode(dassie_peer::Event::Depeering { reason, .. }) = event {
             match reason {
                 dassie_peer::wire::TerminationReason::Unresponsive => {
@@ -1290,7 +1436,9 @@ impl Sim {
                     Some(dassie_peer::wire::Kind::HubPacket) => self.count("prepares over a hub"),
                     _ => {}
                 }
-                if self.rng.next_u64() % 1000 < self.loss_per_mille
+                let withheld = self.hub_intercept(index, to, &request.body);
+                if withheld
+                    || self.rng.next_u64() % 1000 < self.loss_per_mille
                     || self.cut.contains(&(index, to))
                     || self.apart.contains(&index) != self.apart.contains(&to)
                 {
@@ -1388,8 +1536,13 @@ impl Sim {
                     },
                 );
             }
-            // No simulated node is in a hub yet.
-            Output::HubSend { .. } => {}
+            Output::HubSend {
+                asset,
+                epoch,
+                endpoint,
+                message,
+                ..
+            } => self.hub_send(index, asset, epoch, endpoint, message),
             Output::Fund { epoch, body, .. } => {
                 let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
                 let to = dassie_xrpl::AccountId::parse(request["destination"].as_str().unwrap())
@@ -1573,7 +1726,13 @@ impl Sim {
     fn close_ledger(&mut self) {
         self.next_close = self.now + LEDGER_CLOSE_MS;
         self.mint();
-        for (connection, message) in self.ledger.close() {
+        self.submit_payout();
+        let closed = self.ledger.close();
+        self.payout_closed();
+        for (connection, message) in closed {
+            if self.validator_stream(connection, message.clone()) {
+                continue;
+            }
             let Some((&to, link)) = self
                 .links
                 .iter()
@@ -1712,6 +1871,53 @@ impl Sim {
                     self.step(to, |core| core.ledger_event(XRPL_ACCOUNT, epoch, &event));
                 }
             }
+            Delivery::HubRequest {
+                member,
+                generation,
+                asset,
+                epoch,
+                endpoint,
+                message,
+            } => self.hub_request(member, generation, asset, epoch, endpoint, message),
+            Delivery::HubAnswer {
+                member,
+                generation,
+                asset,
+                epoch,
+                endpoint,
+                message,
+            } => self.hub_answer(member, generation, &asset, epoch, endpoint, message),
+            Delivery::HubExchangeEnd { member, endpoint } => {
+                self.hub_exchange_end(member, endpoint);
+            }
+            Delivery::HubSubmit {
+                member,
+                endpoint,
+                message,
+            } => self.hub_submit(member, endpoint, message),
+            Delivery::ValidatorMessage {
+                from,
+                to,
+                message,
+                reply,
+            } => self.validator_message(from, to, message, reply),
+            Delivery::ValidatorLedgerRequest {
+                validator,
+                connection,
+                message,
+            } => self.validator_ledger_request(validator, connection, &message),
+            Delivery::ValidatorLedgerEvent {
+                validator,
+                generation,
+                connection,
+                message,
+            } => self.validator_ledger_event(validator, generation, connection, message),
+            Delivery::ValidatorState {
+                validator,
+                generation,
+                finalized,
+                state,
+            } => self.validator_state(validator, generation, finalized, state),
             Delivery::Result {
                 to,
                 generation,
@@ -1873,7 +2079,17 @@ impl Sim {
         let mut steps = 0u64;
         loop {
             steps += 1;
-            assert!(steps < 5_000_000, "no progress");
+            assert!(
+                steps < 5_000_000,
+                "no progress at {}: {:?}, queue {:?}, hub {:?}, nodes {:?}",
+                self.now,
+                self.counts,
+                self.queue.keys().next(),
+                self.hub_deadline(),
+                (0..self.nodes.len())
+                    .map(|i| self.deadline(i))
+                    .collect::<Vec<_>>()
+            );
             self.finalise_sent();
             if stop(self) {
                 return true;
@@ -1882,6 +2098,7 @@ impl Sim {
             let delivery = self.queue.keys().next().map(|(at, _)| *at);
             let timer = (0..self.nodes.len())
                 .filter_map(|index| self.deadline(index))
+                .chain(self.hub_deadline())
                 .min();
             let earliest = [delivery, timer].into_iter().flatten().min();
             let close = self.settling.on_xrpl().then_some(self.next_close);
@@ -1911,6 +2128,7 @@ impl Sim {
                     self.step(index, |_| {});
                 }
             }
+            self.hub_due();
         }
     }
 
