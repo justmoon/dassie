@@ -1,6 +1,6 @@
 [package]
 name = "dassie-feed"
-version = "0.2.8"
+version = "0.2.9"
 description = "Dassie's public rate feed as a sans-IO core: signed UDP datagrams, a bounded subscriber table proven by cookies, and when to publish"
 edition.workspace = true
 rust-version.workspace = true
