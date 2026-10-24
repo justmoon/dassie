@@ -1415,6 +1415,16 @@ pub fn tx_binary_result(result: &Value) -> Option<TxBlobs> {
     })
 }
 
+/// Whether the result of [`tx_binary`] is a transaction the server has not
+/// saved with its ledger yet: without its metadata, or not validated. An
+/// honest rippled answers so for a moment after it marks a ledger
+/// validated and before it saves it, while `tx_proof` at that ledger
+/// already proves; so it is no lie, only not yet.
+#[must_use]
+pub fn tx_not_yet(result: &Value) -> bool {
+    result.get("meta").is_none() || result.get("validated").and_then(Value::as_bool) != Some(true)
+}
+
 /// Reads `validations`' result: each validation's bytes, at most
 /// [`MAX_VALIDATIONS`](crate::unl::MAX_VALIDATIONS) of them, and whether
 /// the server cut it.
@@ -1815,6 +1825,14 @@ mod tests {
         assert!(tx_binary_result(&json!({ "tx": longest, "meta": "AB" })).is_some());
         let longer = "AB".repeat(crate::binary::MAX_VL_BYTES + 1);
         assert!(tx_binary_result(&json!({ "tx": "AB", "meta": longer })).is_none());
+        // Not saved with its ledger yet: no metadata, or not validated.
+        let saved = json!({ "tx": "1200", "meta": "201C", "validated": true });
+        assert!(!tx_not_yet(&saved));
+        assert!(tx_not_yet(&json!({ "tx": "1200", "validated": false })));
+        assert!(tx_not_yet(
+            &json!({ "tx": "1200", "meta": "201C", "validated": false })
+        ));
+        assert!(tx_not_yet(&json!({ "tx": "1200", "meta": "201C" })));
         let request: Value = serde_json::from_slice(&tx_binary(5, &[1; 32])).unwrap();
         assert_eq!(
             (&request["command"], &request["binary"]),

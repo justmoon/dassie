@@ -296,6 +296,9 @@ pub struct FakeLedger {
     /// The last transactions submitted that never applied, each with its
     /// hash, newest last: what a lying server says applied.
     never_applied: Vec<([u8; 32], Vec<u8>)>,
+    /// How many more `tx` answers in binary come as rippled's do between
+    /// validating a ledger and saving it: without metadata, not validated.
+    unsaved_answers: u32,
 }
 
 /// The most transactions remembered as never applied.
@@ -372,6 +375,7 @@ impl FakeLedger {
             chain: Chain::new(),
             validators: Validators::new(seed, FIRST_LIST_EXPIRATION),
             lies: lies::Lies::default(),
+            unsaved_answers: 0,
             never_applied: Vec::new(),
         };
         ledger.add_issuer(issuer);
@@ -476,6 +480,13 @@ impl FakeLedger {
     /// Changes the reserve, as the network may vote to.
     pub fn set_reserve(&mut self, base: u64, increment: u64) {
         self.reserve = (base, increment);
+    }
+
+    /// Makes the next `answers` answers of `tx` in binary come as an honest
+    /// rippled's do for a moment after it validated a ledger and before it
+    /// saved it: the transaction without its metadata, not validated.
+    pub fn answer_unsaved(&mut self, answers: u32) {
+        self.unsaved_answers = answers;
     }
 
     /// Changes the network ID the server reports, as a server of another

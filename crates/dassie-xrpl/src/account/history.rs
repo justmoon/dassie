@@ -67,12 +67,17 @@ use crate::records::{self, Fees, Root, Thread};
 use crate::skip_list::{SkipList, recent_key};
 use crate::unl::Anchor;
 
-/// The history every proof server keeps, in ledgers: about three days at
+/// The history every proof server keeps, in ledgers: about two days at
 /// four seconds a ledger. A transaction in a ledger further back than
 /// this from the anchor, as a proven index says, that the server no longer
 /// has, is history it does not have; one within it that it says it no
 /// longer has stalls the account, whose server keeps too short a history.
-pub const HISTORY_BOUND: u32 = 1 << 16;
+/// So it stays below what the proof servers keep even right after rippled
+/// deleted its oldest ledgers, when it holds only `online_delete` of them
+/// (`resources/proof-server/xrpld-*.cfg`), with a margin for the ledgers
+/// that close while the account walks; `tests/proof_servers.rs` reads
+/// both configs to hold the two apart.
+pub const HISTORY_BOUND: u32 = 40_000;
 /// Most transaction proofs asked for at once.
 pub const MAX_PROVING: usize = 16;
 /// Most proven transactions kept until they are told: what the walk found,
@@ -81,6 +86,13 @@ pub const MAX_PROOFS: usize = 256;
 /// Most transactions one walk of the history finds, by hash and place:
 /// beyond them, what the walk did not reach is a gap.
 pub const MAX_WALKED: usize = 4096;
+/// How long after a server answered that it had not saved a transaction
+/// with its ledger yet its bytes are asked again: rippled saves a ledger
+/// within moments of validating it.
+pub const UNSAVED_RETRY_MS: u64 = 1_000;
+/// How often the bytes of one transaction are asked again so: past it, the
+/// server is taken as refusing them.
+pub const MAX_UNSAVED_TRIES: u32 = 8;
 /// Most turns of one walk's progress at once: each finds a transaction or
 /// ends a chain, or tells one.
 const MAX_WALK_TURNS: usize = MAX_WALKED + MAX_SCHEMES + 2;
@@ -132,6 +144,18 @@ pub(super) struct Proof {
     proven: ProvenTx,
     /// Whether its ledger is proven on the anchor's chain.
     pub(super) holds: bool,
+}
+
+/// A transaction whose proof came, but whose bytes the server had not
+/// saved with its ledger yet.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Unsaved {
+    /// The ledger its proof was asked in.
+    pub ledger: Option<u32>,
+    /// When its bytes are asked again; none while they are asked.
+    pub due_ms: Option<u64>,
+    /// How often they were asked again.
+    pub tries: u32,
 }
 
 /// A walk of the history back from an anchor's state.
@@ -947,21 +971,20 @@ impl XrplAccount {
         wanted.extend(self.lookups.iter().map(|hash| (*hash, None)));
         wanted.extend(self.hints.iter().map(|hash| (*hash, None)));
         // A proof is in flight from its request until its transaction's
-        // bytes came.
+        // bytes came: its branch waits for them meanwhile.
         let proving = |account: &Self| {
             (account.pending.values())
-                .filter(|(request, _)| {
-                    matches!(request, Request::TxProof(..) | Request::TxBlobs(..))
-                })
+                .filter(|(request, _)| matches!(request, Request::TxProof(..)))
                 .count()
+                .saturating_add(account.branches.len())
         };
         for (hash, ledger) in wanted {
             if proving(self) >= MAX_PROVING {
                 return;
             }
-            let asked = (self.pending.values()).any(|(request, _)| {
-                matches!(request, Request::TxProof(of, _) | Request::TxBlobs(of, _) if *of == hash)
-            });
+            let asked = self.branches.contains_key(&hash)
+                || (self.pending.values())
+                    .any(|(request, _)| matches!(request, Request::TxProof(of, _) if *of == hash));
             if !asked && !self.proofs.contains_key(&hash) {
                 self.send(Request::TxProof(hash, ledger));
             }
@@ -1013,7 +1036,7 @@ impl XrplAccount {
                 let Some(answer) = api::tx_proof_result(&result) else {
                     return self.doubted(Doubt::Unreadable);
                 };
-                self.branches.insert(hash, answer);
+                self.branches.insert(hash, (answer, None));
                 self.send(Request::TxBlobs(hash, ledger));
             }
             Err(error) => {
@@ -1027,14 +1050,20 @@ impl XrplAccount {
     /// The bytes and metadata of transaction `hash`, whose proof came: the
     /// leaf built from them, with the proof's branch, proves them, or the
     /// server lied. A server that proved the transaction and then does not
-    /// give it is taken as if it had not proven it.
+    /// give it is taken as if it had not proven it. One that has not saved
+    /// it with its ledger yet is asked again a while later
+    /// ([`UNSAVED_RETRY_MS`]), at most [`MAX_UNSAVED_TRIES`] times, and
+    /// then taken as refusing it: never as a lie.
     pub(super) fn tx_blobs_read(
         &mut self,
         hash: [u8; 32],
         ledger: Option<u32>,
         outcome: Result<Value, ApiError>,
     ) {
-        let Some(answer) = self.branches.remove(&hash) else {
+        if matches!(&outcome, Ok(result) if api::tx_not_yet(result)) {
+            return self.unsaved_yet(hash, ledger);
+        }
+        let Some((answer, _)) = self.branches.remove(&hash) else {
             return;
         };
         match outcome {
@@ -1057,6 +1086,45 @@ impl XrplAccount {
             }
         }
         self.advance();
+    }
+
+    /// The server has not saved transaction `hash` with its ledger yet: its
+    /// bytes are asked again a while later, or, past the bound, the server
+    /// is taken as refusing them.
+    fn unsaved_yet(&mut self, hash: [u8; 32], ledger: Option<u32>) {
+        let now = self.now_ms;
+        let Some((_, unsaved)) = self.branches.get_mut(&hash) else {
+            return;
+        };
+        let tries = unsaved.map_or(0, |unsaved| unsaved.tries);
+        if tries >= MAX_UNSAVED_TRIES {
+            self.branches.remove(&hash);
+            return self.stall(REFUSED);
+        }
+        *unsaved = Some(Unsaved {
+            ledger,
+            due_ms: Some(now.saturating_add(UNSAVED_RETRY_MS)),
+            tries: tries.saturating_add(1),
+        });
+    }
+
+    /// Asks again for the bytes whose time came.
+    pub(super) fn ask_unsaved(&mut self) {
+        if self.phase == Phase::Disconnected {
+            return;
+        }
+        let now = self.now_ms;
+        let due: Vec<([u8; 32], Option<u32>)> = (self.branches.iter_mut())
+            .filter_map(|(hash, (_, unsaved))| {
+                let unsaved = unsaved.as_mut()?;
+                unsaved.due_ms.filter(|at| *at <= now)?;
+                unsaved.due_ms = None;
+                Some((*hash, unsaved.ledger))
+            })
+            .collect();
+        for (hash, ledger) in due {
+            self.send(Request::TxBlobs(hash, ledger));
+        }
     }
 
     /// The server did not prove transaction `hash`: returns whether the

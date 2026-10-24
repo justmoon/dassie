@@ -77,8 +77,10 @@ pub use anchors::{
     Doubt, FETCH_TIMEOUT_MS, LIST_REFRESH_MS, LIST_RETRY_MS, MAX_MANIFEST_ASKS, STALL_MS,
 };
 use anchors::{Fetching, Round};
-pub use history::{HISTORY_BOUND, MAX_PROOFS, MAX_PROVING, MAX_WALKED};
-use history::{Proof, Walk};
+pub use history::{
+    HISTORY_BOUND, MAX_PROOFS, MAX_PROVING, MAX_UNSAVED_TRIES, MAX_WALKED, UNSAVED_RETRY_MS,
+};
+use history::{Proof, Unsaved, Walk};
 
 /// The scale the account reports a token it holds at: fifteen decimals,
 /// the most a token's sixteen digits leave below a unit of it.
@@ -603,8 +605,9 @@ pub struct XrplAccount {
     proofs: BTreeMap<[u8; 32], Proof>,
     /// Transactions' proofs that came, by their hashes, until the bytes
     /// their leaves are built from come: at most one for each proof in
-    /// flight.
-    branches: BTreeMap<[u8; 32], TxProof>,
+    /// flight. With each, if the server had not saved its bytes yet, when
+    /// they are asked again, a bounded number of times.
+    branches: BTreeMap<[u8; 32], (TxProof, Option<Unsaved>)>,
     /// Skip lists proven to prove the ledgers of transactions.
     lists: ProvenLists,
     /// Transactions the hints named, to prove.
@@ -2429,10 +2432,20 @@ impl ExternalAsset for XrplAccount {
         let silence = (self.phase != Phase::Disconnected)
             .then_some(self.heard_ms.saturating_add(LEDGER_SILENCE_MS));
         let stall = (self.stalled_until_ms > 0).then_some(self.stalled_until_ms);
-        [request, fund, silence, stall, self.lists_deadline()]
-            .into_iter()
-            .flatten()
-            .min()
+        let unsaved = (self.branches.values())
+            .filter_map(|(_, unsaved)| unsaved.and_then(|u| u.due_ms))
+            .min();
+        [
+            request,
+            fund,
+            silence,
+            stall,
+            unsaved,
+            self.lists_deadline(),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     fn on_timer(&mut self, now_ms: u64) {
@@ -2457,6 +2470,7 @@ impl ExternalAsset for XrplAccount {
             return;
         }
         self.lists_on_timer();
+        self.ask_unsaved();
         if self.phase == Phase::Unfunded {
             self.fund();
         }
@@ -2525,9 +2539,13 @@ impl ExternalAsset for XrplAccount {
         assert!(self.proofs.len() <= MAX_PROOFS);
         assert!(self.branches.len() <= MAX_PROVING);
         assert!(
-            self.branches.keys().all(|hash| (self.pending.values())
-                .any(|(request, _)| matches!(request, Request::TxBlobs(of, _) if of == hash))),
-            "a proof waits only for bytes asked for"
+            self.branches.iter().all(|(hash, (_, unsaved))| {
+                let asked = (self.pending.values())
+                    .any(|(request, _)| matches!(request, Request::TxBlobs(of, _) if of == hash));
+                let later = unsaved.is_some_and(|u| u.due_ms.is_some());
+                asked != later && unsaved.is_none_or(|u| u.tries <= history::MAX_UNSAVED_TRIES)
+            }),
+            "a proof waits for bytes asked for, or to ask again a bounded number of times"
         );
         assert!(self.hints.len() <= MAX_HINTS);
         assert!(self.lookups.len() <= MAX_LOOKUPS);

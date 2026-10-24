@@ -283,7 +283,18 @@ impl FakeLedger {
 
     /// `tx`, as `connection` has it.
     pub(super) fn tx(&mut self, connection: ConnectionId, request: &Value) -> Result<Value, Value> {
-        let answer = self.honest_tx(request);
+        let mut answer = self.honest_tx(request);
+        if self.unsaved_answers > 0
+            && super::proofs::wants_binary(request)
+            && let Ok(found) = &mut answer
+            && let Some(object) = found.as_object_mut()
+        {
+            self.unsaved_answers -= 1;
+            for key in ["meta", "ledger_index", "inLedger"] {
+                object.remove(key);
+            }
+            object.insert("validated".into(), false.into());
+        }
         match (self.lie(connection), answer) {
             (Some(Lie::OldLedgerHint), Ok(mut found)) => {
                 set(&mut found, "ledger_index", self.old_ledger().into());

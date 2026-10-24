@@ -17,7 +17,9 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use dassie_settlement::{AssetEffect, ExternalAsset, LedgerInput, LedgerStatus};
-use dassie_xrpl::account::{Doubt, LIST_RETRY_MS, STALL_MS, XrplAccount};
+use dassie_xrpl::account::{
+    Doubt, LIST_RETRY_MS, MAX_UNSAVED_TRIES, STALL_MS, UNSAVED_RETRY_MS, XrplAccount,
+};
 use dassie_xrpl::anchor::{Ancestry, KeptAnchor, ProvenLists, ancestry};
 use dassie_xrpl::fake::{FakeLedger, LIST_SITE, Lie, publisher_key};
 use dassie_xrpl::network::{MAINNET, Network, TESTNET};
@@ -552,6 +554,54 @@ fn a_lying_server_moves_no_anchor() {
         );
         assert_eq!(harness.account.status(), LedgerStatus::Synced, "{lie:?}");
     }
+}
+
+// A transaction in the newest validated ledger: rippled proves it by
+// `tx_proof` at once, but for a moment, until it saved the ledger, `tx`
+// gives it without its metadata, not validated. That is no lie: the
+// account asks for its bytes again a while later, and proves it then,
+// with no doubt counted and no stall.
+#[test]
+fn bytes_a_server_has_not_saved_yet_are_asked_again() {
+    let mut harness = Harness::new(FakeLedger::new(), &[]);
+    harness.connect();
+    let address = harness.account.account();
+    let proven = harness.account.proofs().transactions;
+    harness.ledger.deposit(address, 1_000_000);
+    harness.ledger.answer_unsaved(1);
+    harness.asked.clear();
+    harness.close();
+    let asked = |harness: &Harness| harness.asked.iter().filter(|c| *c == "tx").count();
+    assert_eq!(asked(&harness), 1);
+    assert_eq!(harness.account.proofs().transactions, proven);
+    harness.wait(UNSAVED_RETRY_MS);
+    assert_eq!(asked(&harness), 2);
+    assert_eq!(harness.account.proofs().transactions, proven + 1);
+    for doubt in Doubt::ALL {
+        assert_eq!(harness.account.doubts(doubt), 0, "{doubt:?}");
+    }
+    assert_eq!((harness.reconnects, harness.account.waiting()), (0, None));
+    harness.close();
+    assert_eq!(harness.anchored_at(), Some(harness.ledger.ledger()));
+    assert_eq!(harness.account.status(), LedgerStatus::Synced);
+    // A server that never gives them is taken as refusing them, a bounded
+    // number of asks later: a stall, never a lie.
+    harness.ledger.deposit(address, 1_000_000);
+    harness.ledger.answer_unsaved(u32::MAX);
+    harness.asked.clear();
+    harness.close();
+    for _ in 0..MAX_UNSAVED_TRIES {
+        harness.wait(UNSAVED_RETRY_MS);
+    }
+    assert_eq!(asked(&harness), 1 + MAX_UNSAVED_TRIES as usize);
+    assert!(harness.account.waiting().unwrap().contains("refused"));
+    for doubt in Doubt::ALL {
+        assert_eq!(harness.account.doubts(doubt), 0, "{doubt:?}");
+    }
+    harness.ledger.answer_unsaved(0);
+    harness.wait(STALL_MS);
+    harness.close();
+    assert_eq!(harness.account.status(), LedgerStatus::Synced);
 }
 
 // spec/designs/xrpl-validation.md#3-the-proof-api: a `validations` answer

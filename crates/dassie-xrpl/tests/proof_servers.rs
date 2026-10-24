@@ -18,7 +18,7 @@
 )]
 
 use dassie_settlement::{AssetEffect, ExternalAsset, LedgerInput};
-use dassie_xrpl::account::{Doubt, XrplAccount};
+use dassie_xrpl::account::{Doubt, HISTORY_BOUND, XrplAccount};
 use dassie_xrpl::anchor::{ProofError, prove_state, prove_transaction};
 use dassie_xrpl::api::{state_proof_result, tx_binary_result, tx_proof_result, validations_result};
 use dassie_xrpl::header::LedgerHeader;
@@ -398,6 +398,48 @@ fn served_list(network: &str, url: &str) -> Vec<u8> {
         .into_iter()
         .find(|body| Message::parse(body).unwrap().publisher == publisher.master_key)
         .unwrap()
+}
+
+/// A number xrpld's config `cfg` sets: the value of `key = …`, or the
+/// line after the section `[key]`.
+fn cfg_number(cfg: &str, key: &str) -> u32 {
+    let lines: Vec<&str> = cfg.lines().map(str::trim).collect();
+    let section = format!("[{key}]");
+    let value = (lines.iter().enumerate())
+        .find_map(|(at, line)| {
+            if *line == section {
+                return lines.get(at + 1).copied();
+            }
+            let (name, value) = line.split_once('=')?;
+            (name.trim() == key).then(|| value.trim())
+        })
+        .unwrap_or_else(|| panic!("{key}"));
+    value.parse().unwrap_or_else(|_| panic!("{key}: {value}"))
+}
+
+// spec/areas/proof-servers.md#the-servers: the proof servers keep more
+// history than the account's bound, even right after xrpld deleted its
+// oldest ledgers and holds `online_delete` of them, with a margin for the
+// ledgers that close while an account walks. So within the bound, a
+// default server's `lgrNotFound` is never its retention, and code and
+// configs cannot drift apart.
+#[test]
+fn the_proof_servers_keep_more_than_the_history_bound() {
+    let margin = HISTORY_BOUND / 10;
+    for network in NETWORKS {
+        let path = format!(
+            "{}/../../resources/proof-server/xrpld-{network}.cfg",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let cfg = std::fs::read_to_string(&path).unwrap();
+        for key in ["online_delete", "ledger_history"] {
+            let kept = cfg_number(&cfg, key);
+            assert!(
+                kept >= HISTORY_BOUND + margin,
+                "{network}: {key} {kept} keeps no more than the bound {HISTORY_BOUND} and {margin}"
+            );
+        }
+    }
 }
 
 /// An account of `network`, of entropy [7; 32], driven by the captured
