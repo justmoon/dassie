@@ -21,6 +21,9 @@ mkdir -p "$state"
 now=$(date +%s)
 
 info=$(curl -fsS -m 10 http://127.0.0.1:5005 -d '{"method":"server_info"}' || true)
+# xrpld not answering is systemd's to restart, not a chain gone: a wipe
+# would not help, so it neither starts nor ends a stretch out of sync.
+[ -n "$info" ] || exit 0
 server_state=$(printf '%s' "$info" | jq -r '.result.info.server_state // "none"' 2> /dev/null || echo none)
 # Seconds since the newest validated ledger closed: in sync means a fresh one.
 age=$(printf '%s' "$info" | jq -r '.result.info.validated_ledger.age // 999999' 2> /dev/null || echo 999999)
