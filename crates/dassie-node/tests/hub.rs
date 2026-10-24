@@ -453,7 +453,14 @@ async fn a_member_node_hears_its_validators_through_its_engine() {
             dassie_node::clock::ManualClock::new(support::START_MS),
             1,
             dassie_node::node::Policies::DEFAULT,
-            &[("DASSIE_PEER_ALLOW_PRIVATE", "1")],
+            // The test roots, as the other nodes of these tests trust them:
+            // a test machine may have no roots of its own, and without
+            // roots a node makes no peer client, and so reaches no
+            // validator.
+            &[
+                ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+                ("DASSIE_PEER_CA_FILE", support::pair::CA),
+            ],
         )
         .await;
     support::set_up(&member, &NodeKey::from_bytes(&[60; 32])).await;

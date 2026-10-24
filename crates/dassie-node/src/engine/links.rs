@@ -178,8 +178,11 @@ pub(super) fn hub_send(
     commands: mpsc::Sender<Command>,
     send: HubSend,
 ) {
-    let slot = hubs.exchange_slot(&send.asset, send.endpoint);
-    let (Some(client), Some(permit)) = (client, slot) else {
+    let Some(client) = client else {
+        tracing::warn!(target: target::SETTLEMENT, asset = %send.asset, endpoint = send.endpoint, "no peer client, so no hub validator is reached");
+        return;
+    };
+    let Some(permit) = hubs.exchange_slot(&send.asset, send.endpoint) else {
         tracing::debug!(target: target::SETTLEMENT, asset = %send.asset, endpoint = send.endpoint, "a hub exchange still in flight: the account asks again");
         return;
     };
