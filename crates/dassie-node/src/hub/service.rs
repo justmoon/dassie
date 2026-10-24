@@ -24,7 +24,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use super::config::{HubConfig, ValidatorConfig};
-use super::driver::{Driver, DriverError, Effects, Peer, hex};
+use super::driver::{Driver, DriverError, Effects, Peer, Step, hex};
 use super::escrow::EscrowView;
 use super::transport::{Hubs, INBOX, Inbound, Route, Sender, bounded};
 use super::{HubClient, xrpl};
@@ -190,6 +190,14 @@ const MAX_RETRIED: usize = 64;
 /// A state fetched from a validator, for the block it is after.
 type Fetched = (Box<Finalized>, Vec<u8>);
 
+/// What a hub's task takes, one at a time.
+enum Input {
+    Tick,
+    Fetched(Box<Finalized>, Vec<u8>),
+    Message(Inbound),
+    Attest(ValidatorOperation),
+}
+
 /// When each validator that could not be reached is sent to again.
 type Backoffs = Arc<Mutex<BTreeMap<NodeId, (tokio::time::Instant, Duration)>>>;
 
@@ -314,73 +322,97 @@ impl HubTask {
             // In this order: the time, the other validators, what the
             // escrow showed, and only then members, who cannot hold up
             // consensus however much they send.
-            let effects = tokio::select! {
+            match tokio::select! {
                 biased;
                 () = shutdown.cancelled() => return Ok(()),
-                () = tokio::time::sleep(sleep) => self.tick()?,
-                Some((finalized, state)) = self.fetched.recv() => {
-                    self.catch_up(*finalized, &state)?
+                () = tokio::time::sleep(sleep) => Input::Tick,
+                Some((finalized, state)) = self.fetched.recv() => Input::Fetched(finalized, state),
+                Some(inbound) = self.from_validators.recv() => Input::Message(inbound),
+                Some(operation) = self.attestations.recv() => Input::Attest(operation),
+                Some(inbound) = self.from_members.recv() => Input::Message(inbound),
+            } {
+                Input::Tick => {
+                    let step = self.driver.tick(self.clock.now_ms())?;
+                    self.carry(step, None, shutdown).await?;
+                    // Attests again one of what found no room.
+                    if let Some(operation) = self.retried.pop_front() {
+                        self.attest(operation, shutdown).await?;
+                    }
                 }
-                Some(inbound) = self.from_validators.recv() => self.take(inbound)?,
-                Some(operation) = self.attestations.recv() => self.attest(operation)?,
-                Some(inbound) = self.from_members.recv() => self.take(inbound)?,
-            };
-            self.carry_out(effects, shutdown);
+                Input::Fetched(finalized, state) => {
+                    self.catch_up(*finalized, &state, shutdown).await?;
+                }
+                Input::Message(inbound) => {
+                    let now = self.clock.now_ms();
+                    let node = inbound.node.as_ref();
+                    let step = self
+                        .driver
+                        .handle(now, inbound.from, node, &inbound.message)?;
+                    self.carry(step, inbound.reply, shutdown).await?;
+                }
+                Input::Attest(operation) => self.attest(operation, shutdown).await?,
+            }
             self.publish();
         }
     }
 
-    /// Does what is due, and attests again one of what found no room.
-    fn tick(&mut self) -> Result<Effects, StoreError> {
-        let mut effects = self.driver.tick(self.clock.now_ms())?;
-        if let Some(operation) = self.retried.pop_front() {
-            let more = self.attest(operation)?;
-            effects.sends.extend(more.sends);
-            effects.submits.extend(more.submits);
-            effects.behind = effects.behind.or(more.behind);
+    /// Writes a step off the runtime, and only then answers whoever sent
+    /// its message and carries out its actions.
+    async fn carry(
+        &mut self,
+        step: Step,
+        reply: Option<tokio::sync::oneshot::Sender<Vec<Vec<u8>>>>,
+        shutdown: &CancellationToken,
+    ) -> Result<(), StoreError> {
+        if !step.write.is_empty() {
+            let store = Arc::clone(self.driver.store());
+            let write = step.write;
+            tokio::task::spawn_blocking(move || write.apply(&store))
+                .await
+                .map_err(|_| StoreError::Corrupt("a hub step's write did not finish"))??;
         }
-        Ok(effects)
+        if let Some(reply) = reply {
+            let _ = reply.send(bounded(step.effects.reply.clone()));
+        }
+        self.carry_out(step.effects, shutdown);
+        Ok(())
     }
 
     /// Attests `operation`, or keeps it to attest again later if the
     /// validator's pool has no room for it now.
-    fn attest(&mut self, operation: ValidatorOperation) -> Result<Effects, StoreError> {
-        let (effects, taken) = self.driver.attest(self.clock.now_ms(), operation.clone())?;
+    async fn attest(
+        &mut self,
+        operation: ValidatorOperation,
+        shutdown: &CancellationToken,
+    ) -> Result<(), StoreError> {
+        let (step, taken) = self.driver.attest(self.clock.now_ms(), operation.clone())?;
         if !taken && self.retried.len() < MAX_RETRIED {
             self.retried.push_back(operation);
         }
-        Ok(effects)
+        self.carry(step, None, shutdown).await
     }
 
     /// Takes the state a validator sent for catching up.
-    fn catch_up(&mut self, finalized: Finalized, state: &[u8]) -> Result<Effects, StoreError> {
+    async fn catch_up(
+        &mut self,
+        finalized: Finalized,
+        state: &[u8],
+        shutdown: &CancellationToken,
+    ) -> Result<(), StoreError> {
         let height = finalized.block.height;
         match self
             .driver
             .catch_up(self.clock.now_ms(), finalized, state)?
         {
-            Ok(effects) => {
+            Ok(step) => {
                 tracing::info!(target: target::HUB, hub = %hex(self.driver.hub().0.as_bytes()), height, "caught up from a validator's state");
-                Ok(effects)
+                self.carry(step, None, shutdown).await
             }
             Err(error) => {
                 tracing::warn!(target: target::HUB, height, ?error, "a validator's state was not the one its block names");
-                Ok(Effects::default())
+                Ok(())
             }
         }
-    }
-
-    /// Takes a message, and answers its sender once the step is on disk.
-    fn take(&mut self, inbound: Inbound) -> Result<Effects, StoreError> {
-        let now = self.clock.now_ms();
-        let node = inbound.node.as_ref();
-        let effects = self
-            .driver
-            .handle(now, inbound.from, node, &inbound.message)?;
-        if let Some(reply) = inbound.reply {
-            let _ = reply.send(bounded(effects.reply.clone()));
-        }
-        Ok(effects)
     }
 
     /// Tells the node how the validator stands after a step: its status,

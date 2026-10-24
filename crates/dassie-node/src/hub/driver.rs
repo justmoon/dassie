@@ -3,13 +3,14 @@
 //! asks the node to do.
 //!
 //! Every input is a step: a message, the time, or something seen on the
-//! escrow. After it, the step's consensus batches are folded into the
-//! stored state and written, with the ledger after a block that became
-//! final, in one transaction, and only then are its actions handed out
-//! ([`Effects`]): a validator never sends a vote it could forget in a
-//! crash, and comes back from the state after its last final block
+//! escrow. A step folds its consensus batches into the stored state, and
+//! returns what to write, with the ledger after a block that became final,
+//! in one transaction ([`Write`]), and its actions ([`Effects`]). Its host
+//! writes first, off the async runtime, and only then carries the actions
+//! out: a validator never sends a vote it could forget in a crash, and
+//! comes back from the state after its last final block
 //! (spec/areas/hubs.md#consensus). A write that fails ends the step with
-//! nothing handed out.
+//! nothing carried out.
 
 use std::sync::Arc;
 
@@ -55,6 +56,60 @@ pub struct Effects {
     /// We are further behind than peers keep blocks: the final block whose
     /// state to fetch from a validator, for [`Driver::catch_up`].
     pub behind: Option<Box<Finalized>>,
+}
+
+/// What a step writes before any of its actions go out: one transaction
+/// of its consensus state, the state after a block that became final and
+/// the blocks that ended epochs, then the payout bundles it signed.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Write {
+    hub: [u8; 32],
+    now: Millis,
+    consensus: Option<Vec<u8>>,
+    ledger: Option<(u64, Vec<u8>)>,
+    boundaries: Vec<u64>,
+    bundles: Vec<(u64, Vec<u8>)>,
+}
+
+impl Write {
+    /// Whether there is nothing to write.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.consensus.is_none()
+            && self.ledger.is_none()
+            && self.boundaries.is_empty()
+            && self.bundles.is_empty()
+    }
+
+    /// Writes it: a blocking call, for a task that may block.
+    ///
+    /// # Errors
+    ///
+    /// The store failed.
+    pub fn apply(&self, store: &Store) -> Result<(), StoreError> {
+        let step = HubStep {
+            consensus: self.consensus.as_deref(),
+            ledger: self
+                .ledger
+                .as_ref()
+                .map(|(height, state)| (*height, state.as_slice())),
+            boundaries: &self.boundaries,
+        };
+        store.save_hub_step(&self.hub, self.now, step)?;
+        for (height, bundle) in &self.bundles {
+            store.add_hub_bundle(&self.hub, *height, self.now, bundle)?;
+        }
+        Ok(())
+    }
+}
+
+/// A step: what to write, then what to do.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Step {
+    /// What to write first.
+    pub write: Write,
+    /// What to do once it is written.
+    pub effects: Effects,
 }
 
 /// Why a hub's validator cannot run.
@@ -175,6 +230,12 @@ impl Driver {
         &self.hub
     }
 
+    /// The store its steps are written to.
+    #[must_use]
+    pub const fn store(&self) -> &Arc<Store> {
+        &self.store
+    }
+
     /// The validator.
     #[must_use]
     pub const fn validator(&self) -> &Validator {
@@ -192,14 +253,14 @@ impl Driver {
     ///
     /// # Errors
     ///
-    /// The step could not be written: nothing of it goes out.
+    /// The step's state is over its bounds: nothing of it goes out.
     pub fn handle(
         &mut self,
         now: Millis,
         from: PeerId,
         node: Option<&PublicKey>,
         message: &[u8],
-    ) -> Result<Effects, StoreError> {
+    ) -> Result<Step, StoreError> {
         self.validator.handle(now, from, node, message);
         self.finish(now, Some(from))
     }
@@ -210,14 +271,14 @@ impl Driver {
     ///
     /// # Errors
     ///
-    /// The state was not taken, and nothing changed; or the step could not
-    /// be written, and nothing of it goes out.
+    /// The state was not taken, and nothing changed; or the step's state
+    /// is over its bounds, and nothing of it goes out.
     pub fn catch_up(
         &mut self,
         now: Millis,
         finalized: Finalized,
         snapshot: &[u8],
-    ) -> Result<Result<Effects, CatchUpError>, StoreError> {
+    ) -> Result<Result<Step, CatchUpError>, StoreError> {
         match self.validator.catch_up(now, finalized, snapshot) {
             Ok(()) => {
                 self.caught_up = self.caught_up.saturating_add(1);
@@ -231,8 +292,8 @@ impl Driver {
     ///
     /// # Errors
     ///
-    /// The step could not be written: nothing of it goes out.
-    pub fn tick(&mut self, now: Millis) -> Result<Effects, StoreError> {
+    /// The step's state is over its bounds: nothing of it goes out.
+    pub fn tick(&mut self, now: Millis) -> Result<Step, StoreError> {
         self.validator.tick(now);
         self.finish(now, None)
     }
@@ -242,19 +303,19 @@ impl Driver {
     ///
     /// # Errors
     ///
-    /// The step could not be written: nothing of it goes out.
+    /// The step's state is over its bounds: nothing of it goes out.
     pub fn attest(
         &mut self,
         now: Millis,
         operation: ValidatorOperation,
-    ) -> Result<(Effects, bool), StoreError> {
+    ) -> Result<(Step, bool), StoreError> {
         let taken = self.validator.attest(now, operation);
         Ok((self.finish(now, None)?, taken))
     }
 
-    /// Persists the step, then hands out its actions.
-    fn finish(&mut self, now: Millis, from: Option<PeerId>) -> Result<Effects, StoreError> {
-        self.persist(now)?;
+    /// What the step writes, and its actions.
+    fn finish(&mut self, now: Millis, from: Option<PeerId>) -> Result<Step, StoreError> {
+        let mut write = self.persist(now)?;
         let mut effects = Effects::default();
         while let Some(action) = self.validator.poll() {
             match action {
@@ -273,18 +334,25 @@ impl Driver {
                 }
                 Action::Submit(blob) => effects.submits.push(blob),
                 Action::Payout(set, signatures) => {
-                    self.keep_bundle(now, &set, &signatures)?;
+                    write
+                        .bundles
+                        .push((set.height, self.bundle(&set, &signatures)));
                     effects.bundles.push(set.height);
                 }
                 Action::Behind(finalized) => effects.behind = Some(finalized),
             }
         }
-        Ok(effects)
+        Ok(Step { write, effects })
     }
 
-    /// Folds the step's batches into the stored state and writes it, with
-    /// the ledger if a block became final.
-    fn persist(&mut self, now: Millis) -> Result<(), StoreError> {
+    /// Folds the step's batches into the stored state, and what to write
+    /// of it, with the ledger if a block became final.
+    fn persist(&mut self, now: Millis) -> Result<Write, StoreError> {
+        let mut write = Write {
+            hub: *self.hub.0.as_bytes(),
+            now,
+            ..Write::default()
+        };
         let mut changed = false;
         let mut boundaries = Vec::new();
         for batch in self.validator.take_batches() {
@@ -299,21 +367,16 @@ impl Driver {
             "the ledger and the stored tip are at one height after a step"
         );
         if !changed && height == self.written_height {
-            return Ok(());
+            return Ok(write);
         }
         if !self.stored.fits() {
             return Err(StoreError::Corrupt("hub consensus state over its bounds"));
         }
-        let consensus = changed.then(|| self.stored.to_vec());
-        let snapshot = (height != self.written_height).then(|| ledger.snapshot());
-        let step = HubStep {
-            consensus: consensus.as_deref(),
-            ledger: snapshot.as_deref().map(|bytes| (height, bytes)),
-            boundaries: &boundaries,
-        };
-        self.store.save_hub_step(self.hub.0.as_bytes(), now, step)?;
+        write.consensus = changed.then(|| self.stored.to_vec());
+        write.ledger = (height != self.written_height).then(|| (height, ledger.snapshot()));
+        write.boundaries = boundaries;
         self.written_height = height;
-        Ok(())
+        Ok(write)
     }
 
     /// Every other validator: of the set in force, and of new rules
@@ -371,14 +434,9 @@ impl Driver {
         self.peers().into_iter().find(|peer| peer.node == node)
     }
 
-    /// Keeps our signatures of a payout set, retrievable as the hub's
+    /// Our signatures of a payout set, to keep retrievable as the hub's
     /// `Share` messages in sequence order (spec/designs/settlement-hubs.md#9-shutdown).
-    fn keep_bundle(
-        &self,
-        now: Millis,
-        set: &PayoutSet,
-        signatures: &[Signer],
-    ) -> Result<(), StoreError> {
+    fn bundle(&self, set: &PayoutSet, signatures: &[Signer]) -> Vec<u8> {
         let shares: Vec<Vec<u8>> = set
             .transactions
             .iter()
@@ -398,9 +456,7 @@ impl Driver {
             transactions = set.transactions.len(),
             "signed the hub's payout set"
         );
-        let bundle = encode_frames(&shares);
-        self.store
-            .add_hub_bundle(self.hub.0.as_bytes(), set.height, now, &bundle)
+        encode_frames(&shares)
     }
 
     /// What the escrow's watcher needs of the ledger.
@@ -539,8 +595,9 @@ mod tests {
                 .unwrap()
         }
 
-        fn deliver(&mut self, from: usize, effects: Effects) {
-            for (peer, message) in effects.sends {
+        fn deliver(&mut self, from: usize, step: Step) {
+            step.write.apply(self.drivers[from].store()).unwrap();
+            for (peer, message) in step.effects.sends {
                 let to = self.index_of(&peer.node);
                 self.queue.push_back((to, from, message));
             }
@@ -551,20 +608,20 @@ mod tests {
                 self.now += 1;
                 for i in 0..self.drivers.len() {
                     if self.drivers[i].deadline().is_some_and(|at| at <= self.now) {
-                        let effects = self.drivers[i].tick(self.now).unwrap();
-                        self.deliver(i, effects);
+                        let step = self.drivers[i].tick(self.now).unwrap();
+                        self.deliver(i, step);
                     }
                 }
                 while let Some((to, from, message)) = self.queue.pop_front() {
                     let peer = PeerId(u64::try_from(from).unwrap());
                     let node = self.nodes[from].public_key();
-                    let effects = self.drivers[to]
+                    let step = self.drivers[to]
                         .handle(self.now, peer, Some(&node), &message)
                         .unwrap();
-                    for reply in &effects.reply {
+                    for reply in &step.effects.reply {
                         self.queue.push_back((from, to, reply.clone()));
                     }
-                    self.deliver(to, effects);
+                    self.deliver(to, step);
                 }
             }
         }
@@ -582,9 +639,9 @@ mod tests {
         let mut net = Net::new();
         for i in 0..net.drivers.len() {
             let attest = ValidatorOperation::AttestEscrow { sequence: 5 };
-            let (effects, taken) = net.drivers[i].attest(net.now, attest).unwrap();
+            let (step, taken) = net.drivers[i].attest(net.now, attest).unwrap();
             assert!(taken);
-            net.deliver(i, effects);
+            net.deliver(i, step);
         }
         net.run(2_000);
         let before = net.heights();
