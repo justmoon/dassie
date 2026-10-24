@@ -4,10 +4,15 @@
 //! receipts, or tipping off an adversary that registers every name unsealed
 //! at it), and core and periphery nodes that register names, now and then
 //! two of them the same name at once, through a stretch of chaos (a rough
-//! network, crashes, restarts and cuts), then a calm.
+//! network, crashes, restarts and cuts). Once every unsealing has arrived,
+//! the chaos comes back, without new registrations, while the names are
+//! granted and read and splits wait to be released, with an honest
+//! registrar restarted and cut off from the others for longer than that
+//! wait; then a calm, in which the splits are released.
 //!
 //! Checks, over the whole run: no two nodes ever take different holders for
-//! a name; the adversary never holds a name; every bound holds; and with a
+//! a name; the adversary never holds a name; no honest registrar releases a
+//! name that a registration must hold; every bound holds; and with a
 //! registrar that withholds receipts, no name is unsealed or held, which is
 //! the censorship the design accepts. After the calm: every registration
 //! that unsealed before any other registration of its name started is held
@@ -48,15 +53,36 @@ const _: () = assert!(
         < CONFIG.names.window_ms - CONFIG.names.window_ms / 100
 );
 
+/// How long the network then stays calm, with no registration started,
+/// until every unsealing has arrived or will never be sent: a registrant
+/// sends none later than a window after the registration started, by its
+/// own clock, which runs at the network's rate; and one sent then takes a
+/// request's time at most.
+const QUIET_MS: u64 = CONFIG.names.window_ms + CONFIG.request_timeout_ms;
+
+/// How long the network is rough again after the quiet, with no new
+/// registration: while the last commitments' windows close and their names
+/// are granted and read, a window, and a split's wait to be released after.
+const AFTERMATH_MS: u64 = CONFIG.names.window_ms + CONFIG.names.release_after_ms;
+
 /// How long a registrar takes to have a name in its list read by every
 /// node: a poll, and a hash poll's and a download's time.
 const LIST_MS: u64 =
     CONFIG.list_poll_interval_ms + CONFIG.poll_timeout_ms + CONFIG.request_timeout_ms;
 
-/// How long the calm lasts: a registration started at the heal is logged
-/// within a window, granted when that commitment's window closes, read by
-/// every node; a split is released after the wait, and its release read.
-const CALM_MS: u64 = 2 * CONFIG.names.window_ms + CONFIG.names.release_after_ms + 3 * LIST_MS;
+/// How long an honest registrar is cut off from the other registrars, from
+/// the start of the aftermath, when it restarts, and up: their lists, which
+/// it lost as it restarted, are missing or stale at it for longer than a
+/// split's wait to be released, and count for nothing, so it releases none
+/// of the names it lists (spec/areas/network.md#releasing-a-split).
+const ISOLATION_MS: u64 = CONFIG.list_fresh_ms + CONFIG.names.release_after_ms + LIST_MS;
+const _: () = assert!(ISOLATION_MS < AFTERMATH_MS);
+
+/// How long the calm lasts: at the heal every commitment's window has
+/// closed, so a registrar that restarts grants at once; every list is read
+/// again within a poll, a split is released after its wait, and its
+/// release read.
+const CALM_MS: u64 = CONFIG.names.release_after_ms + 3 * LIST_MS;
 
 /// What a seed draws.
 #[derive(Clone, Copy, Debug)]
@@ -67,6 +93,8 @@ pub struct Setup {
     pub ordinary: usize,
     /// Periphery nodes, which register names too.
     pub periphery: usize,
+    /// The honest registrar cut off from the others in the aftermath.
+    pub isolated: usize,
 }
 
 impl Setup {
@@ -121,10 +149,18 @@ pub fn setup(seed: u64) -> (SeededRng, Setup) {
     let roles = [Role::Honest, Role::Equivocate, Role::Withhold, Role::TipOff];
     let role = roles[usize::try_from(rng.below(roles.len() as u64)).unwrap()];
     let at = usize::try_from(rng.below(REGISTRARS as u64)).unwrap();
+    let faulty = (!role.is_honest()).then_some((at, role));
+    let ordinary = 2 + usize::try_from(rng.below(3)).unwrap();
+    let periphery = 1 + usize::try_from(rng.below(2)).unwrap();
+    let honest: Vec<usize> = (0..REGISTRARS)
+        .filter(|index| faulty.is_none_or(|(at, _)| at != *index))
+        .collect();
+    let isolated = honest[usize::try_from(rng.below(honest.len() as u64)).unwrap()];
     let setup = Setup {
-        faulty: (!role.is_honest()).then_some((at, role)),
-        ordinary: 2 + usize::try_from(rng.below(3)).unwrap(),
-        periphery: 1 + usize::try_from(rng.below(2)).unwrap(),
+        faulty,
+        ordinary,
+        periphery,
+        isolated,
     };
     (rng, setup)
 }
@@ -141,8 +177,9 @@ pub fn describe(seed: u64) -> String {
         .adversary()
         .map_or(String::new(), |index| format!(", adversary {index}"));
     format!(
-        "{registrars}, {} core and {} periphery nodes registering{adversary}",
-        setup.ordinary, setup.periphery
+        "{registrars}, {} core and {} periphery nodes registering{adversary}, registrar {} cut \
+         off",
+        setup.ordinary, setup.periphery, setup.isolated
     )
 }
 
@@ -150,17 +187,30 @@ pub fn describe(seed: u64) -> String {
 #[must_use]
 pub fn run(seed: u64) -> Run {
     let (_, setup) = setup(seed);
-    let (network, outcome) = network(seed);
-    let counts = counts(&network, &setup);
+    let (network, seen, outcome) = network(seed);
+    let counts = counts(&network, &setup, &seen);
     let mut run = Run::new(outcome, network.trace);
     run.counts = counts;
     run
 }
 
-/// Runs the seed: its chaos, then its calm. With it, how the run ended: a
-/// safety failure found during the chaos ends it there.
+/// What a run met on its way that its end no longer shows, for its counts.
+#[derive(Clone, Debug, Default)]
+pub struct Seen {
+    /// The judged nodes whose view was frozen while it held names, after a
+    /// step of the aftermath.
+    pub frozen: BTreeSet<usize>,
+    /// The restarts of nodes that held names in their views, as persisted.
+    pub restarts_holding: u64,
+    /// The names the registrar cut off listed when it was let back.
+    pub kept_isolated: u64,
+}
+
+/// Runs the seed: its chaos, its quiet, its aftermath, then its calm. With
+/// it, what it met on its way, and how it ended: a safety failure found
+/// before the calm ends it there.
 #[must_use]
-pub fn network(seed: u64) -> (Network, Outcome) {
+pub fn network(seed: u64) -> (Network, Seen, Outcome) {
     let (mut rng, setup) = setup(seed);
     let core = setup.core();
     let mut network = Network::with_periphery(seed, core, REGISTRARS, setup.periphery, CONFIG);
@@ -170,16 +220,71 @@ pub fn network(seed: u64) -> (Network, Outcome) {
     network.adversary = setup.adversary();
     network.faults = Faults::ROUGH;
     let registrants = setup.registrants();
+    let judged = setup.judged();
+    let mut seen = Seen::default();
     let mut names = 0u32;
     let mut at = START;
     while at < START + CHAOS_MS {
         at += 2_000 + rng.below(3_000);
         network.run_until(at);
         if let Err(outcome) = bounds(&network) {
-            return (network, outcome);
+            return (network, seen, outcome);
         }
-        chaos(&mut network, &mut rng, &registrants, &mut names);
+        chaos(
+            &mut network,
+            &mut rng,
+            &registrants,
+            &mut names,
+            &mut seen,
+            None,
+        );
     }
+    heal(&mut network);
+    let aftermath = START + CHAOS_MS + QUIET_MS;
+    network.run_until(aftermath);
+    if let Err(outcome) = bounds(&network) {
+        return (network, seen, outcome);
+    }
+    // Every unsealing has arrived, or never will: the chaos comes back,
+    // with no registration started, and an honest registrar restarts cut
+    // off from the others. It stays up while it is, so that its waits to
+    // release a split, which a restart starts again, run their course.
+    network.faults = Faults::ROUGH;
+    isolate(&mut network, setup.isolated, true);
+    if network.is_up(setup.isolated) {
+        network.crash(setup.isolated);
+    }
+    network.start(setup.isolated);
+    let mut isolated = true;
+    at = aftermath;
+    while at < aftermath + AFTERMATH_MS {
+        at += 2_000 + rng.below(3_000);
+        network.run_until(at);
+        if let Err(outcome) = bounds(&network) {
+            return (network, seen, outcome);
+        }
+        if isolated && at >= aftermath + ISOLATION_MS {
+            seen.kept_isolated = count(network.listed(setup.isolated).len());
+            isolate(&mut network, setup.isolated, false);
+            isolated = false;
+        }
+        for index in judged.iter().copied().filter(|index| network.is_up(*index)) {
+            let holders = network.node(index).holders();
+            if holders.is_frozen() && holders.held().next().is_some() {
+                seen.frozen.insert(index);
+            }
+        }
+        let spared = isolated.then_some(setup.isolated);
+        chaos(&mut network, &mut rng, &[], &mut names, &mut seen, spared);
+    }
+    heal(&mut network);
+    network.run_until(aftermath + AFTERMATH_MS + CALM_MS);
+    let outcome = check(&network, &setup).err().unwrap_or(Outcome::Pass);
+    (network, seen, outcome)
+}
+
+/// Ends the chaos: a calm network, every cut healed and every node up.
+fn heal(network: &mut Network) {
     network.faults = Faults::NONE;
     network.cut.clear();
     network.cut_one_way.clear();
@@ -188,22 +293,46 @@ pub fn network(seed: u64) -> (Network, Outcome) {
             network.start(index);
         }
     }
-    network.run_until(START + CHAOS_MS + CALM_MS);
-    let outcome = check(&network, &setup).err().unwrap_or(Outcome::Pass);
-    (network, outcome)
 }
 
-/// A step of chaos: a crash, a restart, a cut made or healed, or a name
-/// registered, by one node or by two at once.
-fn chaos(network: &mut Network, rng: &mut SeededRng, registrants: &[usize], names: &mut u32) {
+/// Cuts registrar `index` off from the other registrars, both ways, or
+/// lets it back. Every other node still reaches it, and it them.
+fn isolate(network: &mut Network, index: usize, cut: bool) {
+    for other in (0..REGISTRARS).filter(|other| *other != index) {
+        for pair in [(index, other), (other, index)] {
+            if cut {
+                network.cut_one_way.insert(pair);
+            } else {
+                network.cut_one_way.remove(&pair);
+            }
+        }
+    }
+}
+
+/// A step of chaos: a crash of any node but `spared`, a restart, a cut made
+/// or healed, or, with registrants, a name registered, by one node or by
+/// two at once.
+fn chaos(
+    network: &mut Network,
+    rng: &mut SeededRng,
+    registrants: &[usize],
+    names: &mut u32,
+    seen: &mut Seen,
+    spared: Option<usize>,
+) {
     let count = network.nodes.len();
     let pick = usize::try_from(rng.below(count as u64)).unwrap();
     let registrant = |rng: &mut SeededRng| {
         registrants[usize::try_from(rng.below(registrants.len() as u64)).unwrap()]
     };
     match rng.below(12) {
-        0 if network.up().count() * 3 > count * 2 => network.crash(pick),
-        1 if !network.is_up(pick) => network.start(pick),
+        0 if network.up().count() * 3 > count * 2 && spared != Some(pick) => network.crash(pick),
+        1 if !network.is_up(pick) => {
+            if !network.nodes[pick].stored_holders.is_empty() {
+                seen.restarts_holding += 1;
+            }
+            network.start(pick);
+        }
         2 => {
             let other = usize::try_from(rng.below(count as u64)).unwrap();
             if other != pick {
@@ -216,11 +345,11 @@ fn chaos(network: &mut Network, rng: &mut SeededRng, registrants: &[usize], name
                 network.cut.remove(&cut);
             }
         }
-        4 => {
+        4 if !registrants.is_empty() => {
             let name = fresh(names);
             register(network, registrant(rng), name);
         }
-        5 if rng.below(3) == 0 => {
+        5 if !registrants.is_empty() && rng.below(3) == 0 => {
             let name = fresh(names);
             let (first, second) = (registrant(rng), registrant(rng));
             register(network, first, name);
@@ -285,10 +414,11 @@ fn bounds(network: &Network) -> Result<(), Outcome> {
 }
 
 /// How the run ended: a safety failure if two nodes ever took different
-/// holders for a name, the adversary held one, a bound broke, or a
-/// registrar that withholds receipts let a name through; a liveness failure
-/// if, once calm, an honest registration is not held everywhere, or, with
-/// every registrar honest, a split is left.
+/// holders for a name, the adversary held one, an honest registrar released
+/// a name a registration must hold, a bound broke, or a registrar that
+/// withholds receipts let a name through; a liveness failure if, once calm,
+/// an honest registration is not held everywhere, or, with every registrar
+/// honest, a split is left.
 fn check(network: &Network, setup: &Setup) -> Result<(), Outcome> {
     let judged = setup.judged();
     bounds(network)?;
@@ -297,6 +427,7 @@ fn check(network: &Network, setup: &Setup) -> Result<(), Outcome> {
         not_adversary(network, &judged, adversary)
             .map_err(|problem| Outcome::safety("no-front-running", problem))?;
     }
+    kept(network, setup, &judged).map_err(|problem| Outcome::safety("kept", problem))?;
     if matches!(setup.faulty, Some((_, Role::Withhold))) {
         return withheld(network, setup);
     }
@@ -359,6 +490,23 @@ fn not_adversary(network: &Network, judged: &[usize], adversary: usize) -> Resul
     });
     match held {
         Some((index, event)) => Err(format!("node {index}: {event:?}, the adversary")),
+        None => Ok(()),
+    }
+}
+
+/// No honest registrar released a name that a registration must hold: every
+/// honest registrar grants it within a window of the others, so at most the
+/// faulty registrar's list lacks its holder, however stale or missing the
+/// others' lists are where it is listed
+/// (spec/areas/network.md#releasing-a-split).
+fn kept(network: &Network, setup: &Setup, judged: &[usize]) -> Result<(), String> {
+    let (registrations, _) = registrations(network, setup);
+    let released = name_events(network).find(|(index, event)| {
+        judged.contains(index)
+            && matches!(event, NameEvent::Released { name, .. } if registrations.contains_key(name))
+    });
+    match released {
+        Some((index, event)) => Err(format!("node {index}: {event:?}, which must hold")),
         None => Ok(()),
     }
 }
@@ -471,20 +619,36 @@ fn released(network: &Network) -> Result<(), String> {
     Ok(())
 }
 
+/// The names any node released, so far.
+fn released_names(network: &Network) -> u64 {
+    count(names(network, |event| match event {
+        NameEvent::Released { name, .. } => Some(*name),
+        _ => None,
+    }))
+}
+
+/// The names `pick` finds in the name events, each once.
+fn names(network: &Network, pick: fn(&NameEvent) -> Option<Name>) -> usize {
+    let names: BTreeSet<Name> = name_events(network)
+        .filter_map(|(_, event)| pick(event))
+        .collect();
+    names.len()
+}
+
+/// `n`, as a count.
+fn count(n: usize) -> u64 {
+    u64::try_from(n).unwrap()
+}
+
 /// How often a run reached what it counts, for the fixed seeds to show
 /// that between them they reach every case: what its registrars do, and
-/// what came of its registrations.
-fn counts(network: &Network, setup: &Setup) -> BTreeMap<&'static str, u64> {
-    let count = |n: usize| u64::try_from(n).unwrap();
-    let names = |pick: fn(&NameEvent) -> Option<Name>| -> u64 {
-        let names: BTreeSet<Name> = name_events(network)
-            .filter_map(|(_, event)| pick(event))
-            .collect();
-        count(names.len())
-    };
+/// what came of its registrations, and what the aftermath met.
+fn counts(network: &Network, setup: &Setup, seen: &Seen) -> BTreeMap<&'static str, u64> {
+    let named = |pick: fn(&NameEvent) -> Option<Name>| -> u64 { count(names(network, pick)) };
     let (held, contested) = registrations(network, setup);
     let adversary = setup.adversary();
     let role = |wanted: Option<Role>| u64::from(setup.faulty.map(|(_, role)| role) == wanted);
+    let released = released_names(network);
     BTreeMap::from([
         ("runs with honest registrars", role(None)),
         ("equivocating registrars", role(Some(Role::Equivocate))),
@@ -495,20 +659,21 @@ fn counts(network: &Network, setup: &Setup) -> BTreeMap<&'static str, u64> {
         ("registrars tipping off", role(Some(Role::TipOff))),
         (
             "names granted",
-            names(|event| match event {
+            named(|event| match event {
                 NameEvent::Granted { name, .. } => Some(*name),
                 _ => None,
             }),
         ),
         ("registrations that must hold", count(held.len())),
         ("names contested", count(contested.len())),
+        ("names released", released),
         (
-            "names released",
-            names(|event| match event {
-                NameEvent::Released { name, .. } => Some(*name),
-                _ => None,
-            }),
+            "names released with honest registrars",
+            if setup.faulty.is_none() { released } else { 0 },
         ),
+        ("names kept by a registrar cut off", seen.kept_isolated),
+        ("views frozen while holding names", count(seen.frozen.len())),
+        ("restarts holding names", seen.restarts_holding),
         ("names tipped off", count(network.tipped.len())),
         (
             "names front-run",

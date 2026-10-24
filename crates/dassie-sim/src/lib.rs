@@ -127,9 +127,10 @@ pub static SIMS: [Sim; 17] = [
         about: "peer networks through chaos and calm: membership, peering, routes and settlements",
         describe: dassie_peer::sim::chaos::describe,
         run: dassie_peer::sim::chaos::run,
-        // Its runs take the longest on average, some eight seconds each,
-        // though a `node` run split for days takes longer: a few of them
-        // take about an eighth of the time, more than the scripts together.
+        // Its runs and the `names` simulation's take the longest on
+        // average, some eight to ten seconds each, though a `node` run
+        // split for days takes longer: a few of them take about an eighth
+        // of the time, more than the scripts together.
         weight: 4,
     },
     Sim {
@@ -138,8 +139,8 @@ pub static SIMS: [Sim; 17] = [
                 chaos and calm: one holder per name, no front-running, splits released",
         describe: dassie_peer::sim::names::describe,
         run: dassie_peer::sim::names::run,
-        // Its runs take some five seconds each, as the peer simulation's
-        // do.
+        // Its runs take some ten seconds each, as long as the peer
+        // simulation's, or a little longer.
         weight: 4,
     },
     Sim {

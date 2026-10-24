@@ -31,11 +31,13 @@ fn a_seed_replays_the_same_run() {
 }
 
 /// The names' seeds CI runs: between them, every kind of registrar, each
-/// seed some five hours at production timings and about 5 s of wall time.
+/// seed some seven hours at production timings and about 10 s of wall time.
 const NAMES_SEEDS: [u64; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
 
-/// What the names' seeds must reach between them, at least.
-const NAMES_LEAST: [(&str, u64); 12] = [
+/// What the names' seeds must reach between them, at least. Releases with
+/// every registrar honest count apart, as only those runs check that no
+/// split is left.
+const NAMES_LEAST: [(&str, u64); 16] = [
     ("runs with honest registrars", 1),
     ("equivocating registrars", 1),
     ("registrars withholding receipts", 1),
@@ -44,6 +46,10 @@ const NAMES_LEAST: [(&str, u64); 12] = [
     ("registrations that must hold", 35),
     ("names contested", 8),
     ("names released", 4),
+    ("names released with honest registrars", 1),
+    ("names kept by a registrar cut off", 30),
+    ("views frozen while holding names", 15),
+    ("restarts holding names", 100),
     ("names tipped off", 10),
     ("names front-run", 4),
     ("registrations abandoned", 20),
@@ -51,9 +57,11 @@ const NAMES_LEAST: [(&str, u64); 12] = [
 ];
 
 // spec/designs/names.md#1-what-it-guarantees: names registered through
-// chaos with one registrar of four perhaps faulty never have two holders,
-// are never front-run, and are held once calm, or, with a registrar that
-// withholds receipts, never registered. The seeds must reach every kind of
+// chaos with one registrar of four perhaps faulty, then granted, read and
+// released through chaos again, never have two holders, are never
+// front-run, are never released while a registration holds them, and are
+// held once calm, or, with a registrar that withholds receipts, never
+// registered. The seeds must reach every kind of
 // registrar and every case, so that a change to the generator that stops
 // reaching one fails here rather than going quiet. They run at once, as
 // many at a time as the machine runs threads.
