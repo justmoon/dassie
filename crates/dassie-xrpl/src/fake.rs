@@ -29,6 +29,7 @@
 
 mod meta;
 pub mod pools;
+pub mod shamap;
 mod signers;
 pub mod tokens;
 
