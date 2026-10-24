@@ -26,6 +26,9 @@ use crate::scheme::{LedgerStatus, SchemeError};
 pub enum AssetKind {
     /// An account on the XRP Ledger testnet.
     XrplTestnetAccount,
+    /// An account on the XRP Ledger mainnet
+    /// (spec/decisions/mainnet-schemes.md).
+    XrplAccount,
     /// An account in a settlement hub on the XRP Ledger testnet
     /// (spec/designs/settlement-hubs.md).
     HubTestnetAccount,
@@ -33,13 +36,18 @@ pub enum AssetKind {
 
 impl AssetKind {
     /// Every kind, in a fixed order.
-    pub const ALL: &'static [Self] = &[Self::XrplTestnetAccount, Self::HubTestnetAccount];
+    pub const ALL: &'static [Self] = &[
+        Self::XrplTestnetAccount,
+        Self::XrplAccount,
+        Self::HubTestnetAccount,
+    ];
 
     /// Its name, as IDs and the database write it.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::XrplTestnetAccount => "xrpl-testnet-account",
+            Self::XrplAccount => "xrpl-account",
             Self::HubTestnetAccount => "hub-testnet-account",
         }
     }
@@ -312,6 +320,14 @@ mod tests {
         assert_eq!(
             AssetId::parse("xrpl-testnet-account/65535").map(|id| id.index),
             Some(u16::MAX)
+        );
+        for kind in AssetKind::ALL.iter().copied() {
+            let id = AssetId { kind, index: 0 };
+            assert_eq!(AssetId::parse(&id.to_string()), Some(id));
+        }
+        assert_eq!(
+            AssetId::parse("xrpl-account/0").map(|id| id.kind),
+            Some(AssetKind::XrplAccount)
         );
         for wrong in [
             "",

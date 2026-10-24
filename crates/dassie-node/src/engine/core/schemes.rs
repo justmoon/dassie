@@ -165,9 +165,9 @@ fn schemes_on(asset: AssetId) -> Vec<Name> {
 
 /// Makes the external asset `id` with its config, and the state the books
 /// kept for it. The node's first XRPL testnet account derives its keys at
-/// `node/settlement-module/xrpl-testnet/seed-testnet`, which is frozen
-/// (spec/areas/identity.md#derivation-chain); further accounts are not
-/// built.
+/// `node/settlement-module/xrpl-testnet/seed-testnet`, its network's seed
+/// path, which is frozen (spec/areas/identity.md#derivation-chain); further
+/// accounts, and the mainnet's, are not built.
 ///
 /// # Errors
 ///
@@ -180,8 +180,9 @@ fn create_asset(
 ) -> Result<Box<dyn ExternalAsset>, SchemeError> {
     match (id.kind, id.index) {
         (AssetKind::XrplTestnetAccount, 0) => {
+            let seed = dassie_xrpl::network::TESTNET.seed;
             let entropy = key
-                .settlement_entropy(dassie_xrpl::scheme::SCHEME_ID, "seed-testnet")
+                .settlement_entropy(seed.module, seed.path)
                 .map_err(|_| SchemeError::InvalidConfig)?;
             Ok(Box::new(XrplAccount::new(
                 id,
@@ -876,5 +877,27 @@ impl Core {
             .and_then(|id| self.assets.get(&id))
             .map(|asset| asset.asset.status());
         merged_status(asset, active.scheme.status())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // spec/decisions/real-money.md: until mainnet has schemes of its own, no
+    // scheme settles through a mainnet account, and none is made, whatever
+    // the books name.
+    #[test]
+    fn no_mainnet_account_is_made() {
+        let key = NodeKey::from_bytes(&[7; 32]);
+        let mainnet = dassie_xrpl::network::MAINNET.first();
+        assert!(matches!(
+            create_asset(mainnet, "", &[], (&key, 0)),
+            Err(SchemeError::UnknownScheme)
+        ));
+        assert!(create_asset(dassie_xrpl::account::FIRST, "", &[], (&key, 0)).is_ok());
+        for info in SCHEMES {
+            assert_ne!(asset_of(info.id), Some(mainnet), "{}", info.id);
+        }
     }
 }
