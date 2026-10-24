@@ -745,7 +745,7 @@ impl Core {
         self.take_journal();
     }
 
-    fn peer_event(&mut self, event: Event) {
+    pub(super) fn peer_event(&mut self, event: Event) {
         self.changes.network = true;
         self.report(event.clone());
         match event {

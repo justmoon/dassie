@@ -4,7 +4,9 @@
 //! from the node key at `node/open-payments-client`, so the same passphrase
 //! gives the same key, and publishes it at each wallet address's
 //! `jwks.json`. Clients' keys come from their wallet addresses' `jwks.json`,
-//! fetched over the node's guarded HTTPS client and kept a few minutes.
+//! fetched as the node's Open Payments client fetches anything, checked at
+//! the default front door (spec/areas/payments.md#signed-responses), and
+//! kept a few minutes.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -15,7 +17,9 @@ use dassie_payments::pointer;
 use dassie_payments::{SigningKey, VerifyingKey};
 use sha2::{Digest as _, Sha256};
 
-use crate::peer_client::{PeerClient, WebError, WebRequest};
+use super::client::{self, ClientError};
+use crate::node::Node;
+use crate::peer_client::WebRequest;
 
 /// The seed path of the node's Open Payments key.
 pub const CLIENT_KEY_PATH: &str = "node/open-payments-client";
@@ -126,18 +130,18 @@ impl KeyCache {
 ///
 /// See [`KeyError`].
 pub async fn client_key(
-    cache: &std::sync::Mutex<KeyCache>,
-    client: &PeerClient,
+    node: &Node,
     wallet_address: &str,
     kid: &str,
     now_ms: u64,
 ) -> Result<(Jwk, VerifyingKey), KeyError> {
     pointer::check_wallet_address(wallet_address).map_err(|_| KeyError::InvalidAddress)?;
+    let cache = &node.open_payments().keys;
     let cached = crate::node::lock(cache).get(wallet_address, now_ms);
     let set = match cached {
         Some(set) => set,
         None => {
-            let set = Arc::new(fetch_key_set(client, wallet_address).await?);
+            let set = Arc::new(fetch_key_set(node, wallet_address).await?);
             crate::node::lock(cache).put(wallet_address.to_string(), now_ms, Arc::clone(&set));
             set
         }
@@ -152,19 +156,22 @@ pub async fn client_key(
     Ok((jwk, key))
 }
 
-async fn fetch_key_set(client: &PeerClient, wallet_address: &str) -> Result<Jwks, KeyError> {
+/// Fetches the key set of the client at `wallet_address`. At the default
+/// front door it is taken only from the node of the address's host, so a
+/// front door cannot vouch for a key of its own as another node's.
+async fn fetch_key_set(node: &Node, wallet_address: &str) -> Result<Jwks, KeyError> {
     let url = format!("{}/jwks.json", wallet_address.trim_end_matches('/'));
-    let response = client
-        .web(WebRequest {
-            method: http::Method::GET,
-            url,
-            headers: vec![(http::header::ACCEPT, "application/json".into())],
-            body: None,
-            timeout_ms: FETCH_TIMEOUT_MS,
-            max_response_bytes: MAX_KEY_SET_BYTES,
-        })
+    let request = WebRequest {
+        method: http::Method::GET,
+        url,
+        headers: vec![(http::header::ACCEPT, "application/json".into())],
+        body: None,
+        timeout_ms: FETCH_TIMEOUT_MS,
+        max_response_bytes: MAX_KEY_SET_BYTES,
+    };
+    let response = client::exchange(node, request)
         .await
-        .map_err(|error: WebError| KeyError::Unavailable(error.to_string()))?;
+        .map_err(|error: ClientError| KeyError::Unavailable(error.to_string()))?;
     if response.status != 200 {
         return Err(KeyError::Unavailable(format!(
             "its key set answered {}",

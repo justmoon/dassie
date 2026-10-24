@@ -650,6 +650,30 @@ fn steps_report_what_they_changed() {
     assert!(!core.take_changes().prices);
 }
 
+// spec/areas/payments.md#the-nodes-names: the names the node answers to
+// follow its view. A name it gains is handed over at the end of the step,
+// and so is a name it no longer holds, which it then answers 421 to.
+#[test]
+fn a_held_name_gained_or_lost_is_handed_over() {
+    use dassie_peer::names::Name;
+    use dassie_peer::{Event, NameEvent};
+
+    let mut core = core(14);
+    // At start, the view restored.
+    assert!(core.take_held_names_changed());
+    assert!(!core.take_held_names_changed());
+    let name = Name::parse("alice").unwrap();
+    let holder = *core.peer.own();
+    for event in [
+        NameEvent::Held { name, holder },
+        NameEvent::Unheld { name, holder },
+    ] {
+        core.peer_event(Event::Name(event));
+        assert!(core.take_held_names_changed(), "{event:?}");
+        assert!(!core.take_held_names_changed(), "{event:?}");
+    }
+}
+
 // The owner's fee, spread and rebalancing are checked and persisted.
 #[test]
 fn peer_settings_are_checked_and_kept() {

@@ -156,13 +156,29 @@ pub enum FrontDoorHost {
 }
 
 impl FrontDoorHost {
-    /// Reads the host of `url`, in any case and on any port.
+    /// Reads the host a request to `url` goes to, as the guarded client
+    /// reads it: in any case, on any port, and with or without the dot that
+    /// ends a fully qualified name. A URL the client sends nothing for is
+    /// elsewhere; one whose host it cannot read is refused here too if it
+    /// is at the default front door, so that no form of a host there goes
+    /// unchecked.
     #[must_use]
     pub fn of(url: &str) -> Self {
-        let Ok(uri) = Uri::parse(url) else {
+        let Some(authority) = crate::peer_client::authority(url) else {
             return Self::Elsewhere;
         };
-        let host = uri.host();
+        let Ok(parsed) = authority.parse::<http::uri::Authority>() else {
+            let at_front_door = authority
+                .to_ascii_lowercase()
+                .contains(DEFAULT_FRONT_DOOR_DOMAIN);
+            return if at_front_door {
+                Self::Unknown
+            } else {
+                Self::Elsewhere
+            };
+        };
+        let host = parsed.host().to_ascii_lowercase();
+        let host = host.trim_end_matches('.');
         let Some(first) = host
             .strip_suffix(DEFAULT_FRONT_DOOR_DOMAIN)
             .and_then(|rest| rest.strip_suffix('.'))
@@ -254,10 +270,42 @@ pub fn check_signed(
 /// Sends `request` through the guarded client. At the default front door,
 /// only to a node this node knows there, with a nonce, and its answer is
 /// taken only if that node signed it.
-async fn exchange(node: &Node, mut request: WebRequest) -> Result<WebResponse, ClientError> {
+pub(crate) async fn exchange(node: &Node, request: WebRequest) -> Result<WebResponse, ClientError> {
     let client = node.peer_client().ok_or(ClientError::Unavailable)?;
+    exchange_with(node, request, |request| client.web(request)).await
+}
+
+/// [`exchange`], with `send` in place of the guarded client, for a test to
+/// pass the request on as a front door would, or to answer it as one that
+/// forges answers.
+///
+/// # Errors
+///
+/// As [`exchange`]'s.
+#[cfg(feature = "testing")]
+pub async fn exchange_through<F, R>(
+    node: &Node,
+    request: WebRequest,
+    send: F,
+) -> Result<WebResponse, ClientError>
+where
+    F: FnOnce(WebRequest) -> R,
+    R: Future<Output = Result<WebResponse, WebError>>,
+{
+    exchange_with(node, request, send).await
+}
+
+async fn exchange_with<F, R>(
+    node: &Node,
+    mut request: WebRequest,
+    send: F,
+) -> Result<WebResponse, ClientError>
+where
+    F: FnOnce(WebRequest) -> R,
+    R: Future<Output = Result<WebResponse, WebError>>,
+{
     let Some(signer) = signer(node, &request.url).await? else {
-        return Ok(client.web(request).await?);
+        return Ok(send(request).await?);
     };
     let nonce = URL_SAFE_NO_PAD.encode(super::auth::random_bytes::<16>(node));
     request.headers.push((
@@ -265,7 +313,7 @@ async fn exchange(node: &Node, mut request: WebRequest) -> Result<WebResponse, C
         nonce.clone(),
     ));
     let (method, url) = (request.method.clone(), request.url.clone());
-    let response = client.web(request).await?;
+    let response = send(request).await?;
     check_signed(
         signer,
         (&method, &url, &nonce),
@@ -584,6 +632,7 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::indexing_slicing)]
 
     use dassie_identity::{NodeKey, base64url};
+    use dassie_payments::uri::MAX_URI_BYTES;
 
     use super::*;
 
@@ -662,6 +711,34 @@ mod tests {
                 FrontDoorHost::Elsewhere,
             ),
             ("not a url".into(), FrontDoorHost::Elsewhere),
+            // Found in review: a fully qualified host, which DNS and TLS
+            // take as the same, and a URL too long to read, which the
+            // guarded client still sends, went unchecked.
+            (
+                "https://alice.dassiepay.net./.well-known/pay".into(),
+                FrontDoorHost::Name(alice),
+            ),
+            (
+                format!("https://{label}.dassiepay.net.:443/"),
+                FrontDoorHost::Label(id),
+            ),
+            ("https://dassiepay.net./".into(), FrontDoorHost::Unknown),
+            (
+                format!("https://alice.dassiepay.net/{}", "a".repeat(MAX_URI_BYTES)),
+                FrontDoorHost::Name(alice),
+            ),
+            // A host the client cannot read is never sent, but is not
+            // taken as elsewhere either.
+            (
+                "https://alice.dassiepay.net^/".into(),
+                FrontDoorHost::Unknown,
+            ),
+            ("https://pay.example^/".into(), FrontDoorHost::Elsewhere),
+            // The guarded client sends only `https`.
+            (
+                "http://alice.dassiepay.net/".into(),
+                FrontDoorHost::Elsewhere,
+            ),
         ] {
             assert_eq!(FrontDoorHost::of(&url), host, "{url}");
         }

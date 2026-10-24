@@ -387,7 +387,7 @@ fn signature_fields(headers: &http::HeaderMap) -> Vec<(String, String)> {
 
 /// The authority of an `https` URL, as the guard reads it: none if the URL
 /// has none, or user info, which no request of the node's carries.
-fn authority(url: &str) -> Option<&str> {
+pub(crate) fn authority(url: &str) -> Option<&str> {
     url.strip_prefix("https://")
         .and_then(|rest| rest.split(['/', '?', '#']).next())
         .filter(|authority| !authority.is_empty() && !authority.contains('@'))
