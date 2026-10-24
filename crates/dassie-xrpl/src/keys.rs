@@ -103,6 +103,17 @@ impl PublicKey {
         }
     }
 
+    /// A key built in, such as a list publisher's: one of a kind the ledger
+    /// knows, or the build fails.
+    #[must_use]
+    pub const fn built_in(bytes: [u8; 33]) -> Self {
+        assert!(
+            matches!(bytes[0], ED25519_PREFIX | 0x02 | 0x03),
+            "a built-in key of a kind the ledger knows"
+        );
+        Self(bytes)
+    }
+
     /// Its bytes, as the ledger writes them.
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8; 33] {
