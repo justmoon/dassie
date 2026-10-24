@@ -27,7 +27,7 @@ use super::config::{HubConfig, ValidatorConfig};
 use super::driver::{Driver, DriverError, Effects, Peer, Step, hex};
 use super::escrow::EscrowView;
 use super::transport::{Hubs, INBOX, Inbound, Route, Sender, bounded};
-use super::{HubClient, xrpl};
+use super::{HubAnswer, HubClient, HubExchangeError, xrpl};
 use crate::clock::Clock;
 use crate::log::target;
 use crate::node::Node;
@@ -53,6 +53,12 @@ const ESCROW_QUEUE: usize = 64;
 /// and the longest.
 const BACKOFF_MIN: Duration = Duration::from_millis(250);
 const BACKOFF_MAX: Duration = Duration::from_secs(30);
+
+/// How long a validator that answered busy is left alone: it is up, and
+/// its places for validators' requests were taken for a moment, as in a
+/// burst of a node that validates several hubs. Consensus sends again what
+/// matters.
+const BUSY_RETRY: Duration = Duration::from_millis(50);
 
 /// Runs the validators of the hubs in `config` until `shutdown`, once the
 /// node has its key. A hub the node is not a validator of, or whose stored
@@ -546,14 +552,32 @@ impl Exchange {
                 }
             }
             Err(error) => {
-                let wait = backoffs
-                    .get(&peer.node)
-                    .map_or(BACKOFF_MIN, |(_, wait)| (*wait * 2).min(BACKOFF_MAX));
-                backoffs.insert(peer.node, (tokio::time::Instant::now() + wait, wait));
+                let previous = backoffs.get(&peer.node).map(|(_, wait)| *wait);
+                let (pause, wait) = after_failure(&error, previous);
+                backoffs.insert(peer.node, (tokio::time::Instant::now() + pause, wait));
                 tracing::debug!(target: target::HUB, node = %peer.node, %error, "a validator could not be reached");
             }
         }
     }
+}
+
+/// How long to leave a validator alone after an exchange failed with
+/// `error`, and the wait the next failure doubles from, after `previous`:
+/// one that answered busy, or that this node's own bound on requests in
+/// flight kept it from, is tried again shortly, and its wait does not
+/// grow; one that could not be reached waits twice as long as last time,
+/// from [`BACKOFF_MIN`] up to [`BACKOFF_MAX`].
+fn after_failure(error: &HubExchangeError, previous: Option<Duration>) -> (Duration, Duration) {
+    if matches!(
+        error,
+        HubExchangeError::Refused(HubAnswer::Busy) | HubExchangeError::Busy
+    ) {
+        return (BUSY_RETRY, previous.unwrap_or(Duration::ZERO));
+    }
+    let wait = previous
+        .filter(|wait| !wait.is_zero())
+        .map_or(BACKOFF_MIN, |wait| (wait * 2).min(BACKOFF_MAX));
+    (wait, wait)
 }
 
 /// Whether `node` could not be reached lately, so nothing is sent to it
@@ -564,4 +588,37 @@ fn backing_off(backoffs: &Backoffs, node: &NodeId) -> bool {
         .unwrap_or_else(PoisonError::into_inner)
         .get(node)
         .is_some_and(|(until, _)| *until > tokio::time::Instant::now())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A validator that answered busy is up: it is tried again shortly, and
+    // a burst of busy answers never backs off from it for longer.
+    #[test]
+    fn busy_is_no_failure_to_back_off_from() {
+        let busy = HubExchangeError::Refused(HubAnswer::Busy);
+        let unreachable = HubExchangeError::Unreachable;
+        let mut wait = None;
+        for _ in 0..10 {
+            let (pause, next) = after_failure(&busy, wait);
+            assert_eq!(pause, BUSY_RETRY);
+            wait = Some(next);
+        }
+        assert_eq!(
+            after_failure(&unreachable, wait),
+            (BACKOFF_MIN, BACKOFF_MIN)
+        );
+        let mut wait = None;
+        for _ in 0..10 {
+            wait = Some(after_failure(&unreachable, wait).1);
+        }
+        assert_eq!(
+            wait,
+            Some(BACKOFF_MAX),
+            "an unreachable one is left alone longer"
+        );
+        assert_eq!(after_failure(&busy, wait), (BUSY_RETRY, BACKOFF_MAX));
+    }
 }
