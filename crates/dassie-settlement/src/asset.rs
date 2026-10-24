@@ -212,6 +212,19 @@ pub enum Detach {
     Stopped,
 }
 
+/// What an external asset could not prove of its ledger, counted since it
+/// was made, never kept: the node warns of each new one and shows the
+/// counts to the owner ([`ExternalAsset::unproven`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Unproven {
+    /// Gaps in the history it read that its server no longer had: what
+    /// fell in one, its schemes matched through suspense.
+    pub history_gaps: u64,
+    /// Settlements of its own past their last ledger it could prove
+    /// neither applied nor absent: each stays pending, for the owner.
+    pub settlements: u64,
+}
+
 /// An external asset (spec/areas/settlement.md#external-assets), sans-IO.
 ///
 /// The node keeps one connection per asset, feeds it what comes over it,
@@ -242,6 +255,12 @@ pub trait ExternalAsset: Send + Any {
     /// the owner beside its status. Nothing by default.
     fn waiting(&self) -> Option<&'static str> {
         None
+    }
+
+    /// What it could not prove of its ledger, counted since it was made:
+    /// nothing by default.
+    fn unproven(&self) -> Unproven {
+        Unproven::default()
     }
 
     /// Where the node connects for its ledger, if it has one: a WebSocket

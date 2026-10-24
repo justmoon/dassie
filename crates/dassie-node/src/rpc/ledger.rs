@@ -460,6 +460,8 @@ pub(super) fn external_asset(view: &AssetView) -> proto::ExternalAsset {
         connection_problem: problem(view.status, view.waiting),
         settlement_schemes: view.schemes.clone(),
         faucet: view.faucet,
+        history_gaps: view.unproven.history_gaps,
+        unproven_settlements: view.unproven.settlements,
     }
 }
 
@@ -672,6 +674,26 @@ mod tests {
         );
         let largest = holding(&token(u128::MAX));
         assert_eq!((largest.amount, largest.asset_scale), (u64::MAX, 0));
+    }
+
+    // The owner sees what an external asset could not prove of its
+    // ledger since the node started (spec/areas/xrpl.md#what-it-could-not-prove).
+    #[test]
+    fn an_external_asset_shows_what_it_could_not_prove() {
+        let shown = external_asset(&AssetView {
+            id: "xrpl-testnet-account/0".into(),
+            address: None,
+            holdings: Vec::new(),
+            status: dassie_settlement::LedgerStatus::Synced,
+            waiting: None,
+            schemes: vec!["xrpl-testnet".into()],
+            faucet: false,
+            unproven: dassie_settlement::Unproven {
+                history_gaps: 2,
+                settlements: 1,
+            },
+        });
+        assert_eq!((shown.history_gaps, shown.unproven_settlements), (2, 1));
     }
 
     // The owner sees why a dollar token's scheme is paused, and the last
