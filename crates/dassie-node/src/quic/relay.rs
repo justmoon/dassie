@@ -477,10 +477,11 @@ impl Quic {
             return Err(RelayError::Unreachable);
         }
         let place = self.place(relay.0).ok_or(RelayError::Unreachable)?;
-        // A relay out of reach is not marked so for peer requests: those
-        // may reach it over HTTPS, but a relayed stream has no other way.
+        // A relayed stream dials its relay whenever it is asked for, backoff
+        // or not: its caller paces it. A relay out of reach is not backed
+        // off from for peer requests either.
         let connection = self
-            .connection(&place, relay, resolver, CONNECT_TIMEOUT)
+            .connection(&place, relay, resolver, CONNECT_TIMEOUT, true)
             .await
             .map_err(|_| RelayError::Unreachable)?;
         // A relay with no room for us read nothing: it is busy, not broken.
@@ -544,7 +545,7 @@ impl Quic {
         };
         let place = self.place(destination).ok_or(RelayError::Unreachable)?;
         let connection = self
-            .connection(&place, (destination, url), resolver, CONNECT_TIMEOUT)
+            .connection(&place, (destination, url), resolver, CONNECT_TIMEOUT, true)
             .await
             .map_err(|_| RelayError::Unreachable)?;
         let stream = open_relayed_on(&connection, own, purpose).await?;

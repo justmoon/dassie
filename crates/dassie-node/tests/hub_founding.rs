@@ -404,10 +404,10 @@ impl dassie_node::quic::Handler for Dialer {
         _client: std::net::IpAddr,
         _body: dassie_node::quic::Body<'a>,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = dassie_node::http::peer::Answer> + Send + 'a>,
+        Box<dyn std::future::Future<Output = dassie_node::peer_server::Answer> + Send + 'a>,
     > {
         Box::pin(async {
-            dassie_node::http::peer::Answer {
+            dassie_node::peer_server::Answer {
                 status: 404,
                 body: Vec::new(),
             }

@@ -3,8 +3,8 @@
 //! spec/areas/peer-protocol.md#the-hubs-stream): four validators, each with
 //! its own endpoint and database, finalize blocks; a member asks them over
 //! the hub's stream and trusts what f + 1 signed alike; a validator that
-//! restarts goes on from what it stored; a node that validates no such
-//! hub says so; and `POST /hub` takes only a member's request.
+//! restarts goes on from what it stored; and a node that validates no such
+//! hub says so.
 
 // The validators run over real sockets, so on the system's clock: their
 // timers are the production ones (spec/areas/testing.md).
@@ -32,14 +32,12 @@ use dassie_hub::service::wire::Message;
 use dassie_hub::{HubId, Millis};
 use dassie_identity::{NodeKey, PublicKey};
 use dassie_node::clock::{Clock, SystemClock};
-use dassie_node::http::peer::Answer;
 use dassie_node::hub::driver::Driver;
 use dassie_node::hub::service::{EscrowLinks, HubTask};
-use dassie_node::hub::transport::{
-    HubPermit, MAX_MEMBER_MESSAGE_BYTES, MEDIA_TYPE, Route, StateReply, encode_request,
-};
+use dassie_node::hub::transport::{HubPermit, MAX_MEMBER_MESSAGE_BYTES, Route, StateReply};
 use dassie_node::hub::{HubAccess, HubAnswer, HubClient, HubExchangeError, Hubs, Sender};
 use dassie_node::peer_client::PeerClient;
+use dassie_node::peer_server::Answer;
 use dassie_node::quic::{Body, Handler, Quic};
 use dassie_node::store::Store;
 use dassie_node_core::connections::ConnectionLimits;
@@ -87,7 +85,7 @@ impl Handler for HubHandler {
     }
 
     fn hub_permit(&self, from: &PublicKey, access: HubAccess) -> Option<HubPermit> {
-        self.0.request_permit(access, &Sender::Node(*from))
+        self.0.request_permit(access, &Sender(*from))
     }
 
     fn hub<'a>(
@@ -95,7 +93,7 @@ impl Handler for HubHandler {
         from: PublicKey,
         request: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Option<HubAnswer>> + Send + 'a>> {
-        Box::pin(async move { Some(self.0.answer(Sender::Node(from), &request, false).await) })
+        Box::pin(async move { Some(self.0.answer(Sender(from), &request).await) })
     }
 
     fn hub_state<'a>(
@@ -361,7 +359,7 @@ async fn a_node_that_validates_no_such_hub_resets_the_stream() {
     let hub = HubId(dassie_hub::Digest([9; 32]));
     let to = validator.key.node_id();
     let answer = member
-        .exchange_quic(
+        .exchange(
             to,
             &validator.endpoint,
             &hub,
@@ -378,7 +376,7 @@ async fn a_node_that_validates_no_such_hub_resets_the_stream() {
     // A key other than the validator's own is never reached.
     let stranger = NodeKey::from_bytes(&[3; 32]).node_id();
     let answer = member
-        .exchange_quic(
+        .exchange(
             stranger,
             &validator.endpoint,
             &hub,
@@ -388,46 +386,6 @@ async fn a_node_that_validates_no_such_hub_resets_the_stream() {
         .await;
     assert_eq!(answer, Err(HubExchangeError::Unreachable));
     shutdown.cancel();
-}
-
-// spec/areas/peer-protocol.md#the-hubs-stream: `POST /hub` takes only a
-// member's request, and says when the node validates no such hub.
-#[tokio::test]
-async fn post_hub_takes_only_a_members_request() {
-    let node = support::TestNode::start().await;
-    let hub = HubId(dassie_hub::Digest([9; 32]));
-    let post = |media: &str, message: Vec<u8>| {
-        hyper::Request::post("/hub")
-            .header("host", node.host())
-            .header("content-type", media)
-            .body(http_body_util::Full::new(bytes::Bytes::from(
-                encode_request(&hub, &message),
-            )))
-            .unwrap()
-    };
-    let key = NodeKey::from_bytes(&[1; 32]).public_key();
-    let request = Message::Request(Request::Account(key)).to_vec();
-    let reply = support::send(node.https, true, post(MEDIA_TYPE, request.clone())).await;
-    assert_eq!(reply.status, 404, "the node validates no such hub");
-    // Once it validates the hub, a validator's message is still refused.
-    let (validators, _from_validators) = tokio::sync::mpsc::channel(1);
-    let (members, _from_members) = tokio::sync::mpsc::channel(1);
-    let route = Route {
-        validators,
-        members,
-        nodes: std::collections::BTreeSet::new(),
-    };
-    node.node.upgrade().unwrap().hubs().register(hub, route);
-    let vote = Message::Consensus(vec![1]).to_vec();
-    let reply = support::send(node.https, true, post(MEDIA_TYPE, vote)).await;
-    assert_eq!(reply.status, 400, "validators never use HTTPS");
-    // A body past a member's largest request is not read.
-    let large = vec![0xff; MAX_MEMBER_MESSAGE_BYTES + 1];
-    let reply = support::send(node.https, true, post(MEDIA_TYPE, large)).await;
-    assert_eq!(reply.status, 413);
-    let reply = support::send(node.https, true, post("application/json", request)).await;
-    assert_eq!(reply.status, 415);
-    node.stop().await;
 }
 
 // spec/areas/hubs.md#in-the-node: a node with the hub scheme reaches the
@@ -601,7 +559,7 @@ async fn a_strangers_request_is_cut_at_the_member_bound() {
         async move {
             let message = vec![0xff; length];
             client
-                .exchange_quic(to, &endpoint, &hub, &message, Duration::from_secs(5))
+                .exchange(to, &endpoint, &hub, &message, Duration::from_secs(5))
                 .await
         }
     };
@@ -622,40 +580,6 @@ async fn a_strangers_request_is_cut_at_the_member_bound() {
     );
     assert_eq!(taken.load(std::sync::atomic::Ordering::Relaxed), 0);
     shutdown.cancel();
-}
-
-// spec/areas/peer-protocol.md#the-hubs-stream: `POST /hub` has a rate of
-// its own, so a member polling a validator over HTTPS at its full rate
-// leaves its peer requests to the same node unrefused.
-#[tokio::test]
-async fn a_member_polling_hub_leaves_its_peer_requests_alone() {
-    use dassie_peer::wire::MESSAGE_CONTENT_TYPE;
-
-    let node = support::TestNode::start().await;
-    let hub = HubId(dassie_hub::Digest([9; 32]));
-    let key = NodeKey::from_bytes(&[1; 32]).public_key();
-    let request = Message::Request(Request::Account(key)).to_vec();
-    // More than the peer protocol's burst for an address, within a hub's.
-    for _ in 0..40 {
-        let post = hyper::Request::post("/hub")
-            .header("host", node.host())
-            .header("content-type", MEDIA_TYPE)
-            .body(http_body_util::Full::new(bytes::Bytes::from(
-                encode_request(&hub, &request),
-            )))
-            .unwrap();
-        let reply = support::send(node.https, true, post).await;
-        assert_eq!(reply.status, 404);
-    }
-    let peer = hyper::Request::post("/peer")
-        .header("host", node.host())
-        .header("content-type", MESSAGE_CONTENT_TYPE)
-        .header("accept", MESSAGE_CONTENT_TYPE)
-        .body(http_body_util::Full::new(bytes::Bytes::from_static(b"x")))
-        .unwrap();
-    let reply = support::send(node.https, true, peer).await;
-    assert_ne!(reply.status, 429, "the peer protocol's rate is untouched");
-    node.stop().await;
 }
 
 /// What the owner of `node` sees of its ledgers.

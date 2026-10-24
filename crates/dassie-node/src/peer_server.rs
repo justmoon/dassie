@@ -1,8 +1,8 @@
-//! `POST /peer`: the peer protocol's endpoint over HTTPS, and what it shares
-//! with the one over QUIC (spec/areas/peer-protocol.md#transport).
+//! The node's side of its QUIC endpoint (spec/areas/peer-protocol.md#quic):
+//! peer requests, the hubs' streams and relayed streams.
 //!
-//! This layer checks only what needs no state: the media types, the body's
-//! size and pace, the number of requests waiting, and the rate of
+//! For peer requests, this layer checks only what needs no state: the
+//! body's size and pace, the number of requests waiting, and the rate of
 //! unauthenticated or failing requests per address. The engine's peer node
 //! decides the rest, including the status (NET-11) and what a network of
 //! addresses may hold, and answers once what the request changed is on
@@ -19,15 +19,9 @@ use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
 use tokio_util::sync::CancellationToken;
 
-use dassie_peer::wire::{
-    Authentication, Envelope, MAX_MESSAGE_BYTES, MESSAGE_CONTENT_TYPE, RESPONSE_CONTENT_TYPE,
-};
-use http_body_util::{BodyExt, Limited};
-use hyper::body::Incoming;
-use hyper::header;
-use hyper::{Request, Response, StatusCode};
+use dassie_peer::wire::{Authentication, Envelope, MAX_MESSAGE_BYTES};
+use hyper::StatusCode;
 
-use super::response::{self, Body, header_str};
 use crate::node::Node;
 use crate::quic::places::Peerings;
 use crate::quic::relay::{Purpose, ServedStream};
@@ -64,9 +58,9 @@ impl Answer {
     }
 }
 
-/// Answers a peer request from `client` whose body `body` reads, whichever
-/// transport carried it. The body is read only once the request may be
-/// handled, and within the node's time for a body.
+/// Answers a peer request from `client` whose body `body` reads. The body
+/// is read only once the request may be handled, and within the node's time
+/// for a body.
 pub async fn answer<F>(node: &Node, client: IpAddr, body: F) -> Answer
 where
     F: Future<Output = Result<Vec<u8>, BodyError>>,
@@ -117,9 +111,10 @@ async fn answer_body(
     }
 }
 
-/// Answers peer requests over QUIC with the node, as over HTTPS: the same
-/// checks, limits and statuses, and the same bound on connections from
-/// anyone. Core peers and downlinks have places of their own.
+/// Answers what comes over QUIC with the node: peer requests under the
+/// node's checks, limits and statuses, and connections from anyone under
+/// the bound the HTTPS listener has too. Core peers and downlinks have
+/// places of their own.
 #[derive(Debug)]
 pub struct QuicHandler(pub Arc<Node>);
 
@@ -130,7 +125,7 @@ impl crate::quic::Handler for QuicHandler {
 
     fn limits(&self) -> ConnectionLimits {
         ConnectionLimits {
-            max_total: super::MAX_CONNECTIONS,
+            max_total: crate::http::MAX_CONNECTIONS,
             max_per_client: self.0.policies().http_connections_per_client,
         }
     }
@@ -161,8 +156,8 @@ impl crate::quic::Handler for QuicHandler {
         request: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Option<crate::hub::HubAnswer>> + Send + 'a>> {
         Box::pin(async move {
-            let from = crate::hub::Sender::Node(from);
-            Some(self.0.hubs().answer(from, &request, false).await)
+            let from = crate::hub::Sender(from);
+            Some(self.0.hubs().answer(from, &request).await)
         })
     }
 
@@ -181,7 +176,7 @@ impl crate::quic::Handler for QuicHandler {
     ) -> Option<crate::hub::transport::HubPermit> {
         self.0
             .hubs()
-            .request_permit(access, &crate::hub::Sender::Node(*from))
+            .request_permit(access, &crate::hub::Sender(*from))
     }
 
     /// The states the node keeps of the hubs it validates, for their other
@@ -241,41 +236,10 @@ impl crate::quic::Handler for QuicHandler {
         Box::pin(async move {
             match purpose {
                 Purpose::Payments => {
-                    super::serve_relayed(node, stream, client, relay, shutdown).await;
+                    crate::http::serve_relayed(node, stream, client, relay, shutdown).await;
                 }
                 Purpose::Owner => crate::owner_app::serve(node, stream, client, shutdown).await,
             }
         })
-    }
-}
-
-/// Handles a peer request over HTTPS.
-pub async fn handle(node: &Node, peer: SocketAddr, request: Request<Incoming>) -> Response<Body> {
-    let headers = request.headers();
-    if header_str(headers, &header::ACCEPT) != Some(MESSAGE_CONTENT_TYPE) {
-        return response::text(
-            StatusCode::NOT_ACCEPTABLE,
-            "Not Acceptable, expected application/dassie-message",
-        );
-    }
-    if header_str(headers, &header::CONTENT_TYPE) != Some(MESSAGE_CONTENT_TYPE) {
-        return response::text(
-            StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            "Unsupported Media Type, expected application/dassie-message",
-        );
-    }
-    let body = async {
-        Limited::new(request.into_body(), MAX_MESSAGE_BYTES)
-            .collect()
-            .await
-            .map(|collected| collected.to_bytes().to_vec())
-            .map_err(|_| BodyError::TooLarge)
-    };
-    let answer = answer(node, peer.ip(), body).await;
-    let status = StatusCode::from_u16(answer.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    if status == StatusCode::OK {
-        response::with_body(status, RESPONSE_CONTENT_TYPE, answer.body)
-    } else {
-        response::with_body(status, "text/plain; charset=utf-8", answer.body)
     }
 }

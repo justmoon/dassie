@@ -168,7 +168,7 @@ const HUB_EXCHANGE_TIMEOUT: Duration =
 /// Sends a hub account's message (a hub `Message::Request`) to one
 /// validator on a task of its own, over the hub's stream
 /// (spec/areas/peer-protocol.md#the-hubs-stream): QUIC pinned to its node
-/// key, or `POST /hub` when QUIC cannot reach it. Each message it sends
+/// key. Each message it sends
 /// back goes to the core as from that validator. What does not arrive, or
 /// finds the account with as many exchanges in flight with that validator
 /// as it may have (`MAX_EXCHANGES_PER_VALIDATOR`), the account sends again.

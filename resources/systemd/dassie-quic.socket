@@ -1,6 +1,6 @@
 # UDP port 443 for the node, IPv4 and IPv6: the peer protocol over QUIC
-# (spec/areas/peer-protocol.md#transport). The node runs without it, over
-# HTTPS only, where it is missing or its port is taken.
+# (spec/areas/peer-protocol.md#transport), its only transport: the node does
+# not run without it.
 [Unit]
 Description=Dassie node, QUIC
 

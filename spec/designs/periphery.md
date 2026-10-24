@@ -36,13 +36,13 @@ This is a design ([core-and-periphery](../decisions/core-and-periphery.md)). Of 
 
 Every peer link, core or periphery, runs over QUIC. Peer traffic is heavy: a busy core node forwards a great many packets. One `POST /peer` per message carries an HTTP request for each packet, while QUIC streams carry the same messages over one connection that either side can send on.
 
-- **Messages.** Each request is a bidirectional QUIC stream: the request is a v1 `PeerMessage`, the response a v1 `PeerResponse`. Both have the same bytes, MACs and replay rules as over HTTPS ([Peer protocol](../areas/peer-protocol.md)). The [statuses](../areas/peer-protocol.md#statuses) travel ahead of the body, with the same meaning. Messages keep their own authentication, so the transport does not need to be trusted for that.
+- **Messages.** Each request is a bidirectional QUIC stream: the request is a v1 `PeerMessage`, the response a v1 `PeerResponse`. Both have the bytes, MACs and replay rules of the [peer protocol](../areas/peer-protocol.md). The [statuses](../areas/peer-protocol.md#statuses) travel ahead of the body, with the same meaning. Messages keep their own authentication, so the transport does not need to be trusted for that.
 - **Either side opens streams**, as built ([Peer protocol](../areas/peer-protocol.md#quic)): the core node sends to its downlink over the connection the downlink opened. That is all a periphery node needs to receive: it never needs to accept a connection.
 - **Keys, not certificates.** The TLS 1.3 handshake inside QUIC uses a self-signed certificate for each side's Ed25519 node key, and each side checks that key against the node ID it expects. No certificate authority is involved, and no hostname has to match. The ALPN is `dassie/1`. A client that is not a node (an owner's app, a front door) presents a key of its own (§6, §7).
 - **One connection per pair of nodes.** When two core nodes dial each other at once, the connection the lower node ID opened stays, as crossed peering requests resolve ([Network](../areas/network.md#asking-and-answering)).
 - **Liveness.** Heartbeats ([Network](../areas/network.md#advertised-peers)) also keep the NAT's mapping open. A periphery node that loses its connection dials again, backing off from 1 s to 60 s.
 - **Where UDP is blocked,** a periphery node falls back to TLS over TCP on port 443, with each stream framed by length, or to WebSocket. A browser node (§9) uses WebTransport, which can trust a self-signed certificate by its hash (`serverCertificateHashes`), or WebSocket.
-- **Link-state URLs** keep their syntax, `https://host[:port]` ([Peer protocol](../areas/peer-protocol.md#link-states)). The host and port then name the QUIC endpoint, on UDP, 443 by default. A link-state extension says that a node speaks QUIC; a node that does not say so is reached over `POST /peer`, until a release drops it.
+- **Link-state URLs** keep their syntax, `https://host[:port]` ([Peer protocol](../areas/peer-protocol.md#link-states)). The host and port then name the QUIC endpoint, on UDP, 443 by default. A link-state extension says that a node speaks QUIC, as every node does ([quic-only](../decisions/quic-only.md)).
 
 ## 3. Periphery nodes
 
@@ -188,7 +188,7 @@ A browser node is a short-lived periphery node, for demos: it lets someone join 
 
 ## 11. Open questions
 
-- **Core nodes over TCP.** Whether core nodes must also serve the TCP fallback, or may require UDP.
+- **Core nodes over TCP.** Whether core nodes must also serve the TCP fallback to periphery nodes, or may require UDP of them. A core node takes UDP itself ([quic-only](../decisions/quic-only.md)).
 - **Choosing uplinks.** Which core nodes a periphery node picks by default, and whether the operator of a front door it uses counts.
 - **Front doors.** Whether anyone may run one, or only core nodes. Dassie-aware clients check signatures either way.
 - **A cold lookup** adds a round trip to a home node before the first stream. Caching and relays make it rare; whether that is enough is for measurement.

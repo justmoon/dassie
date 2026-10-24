@@ -237,9 +237,9 @@ pub struct PeerOptions {
 /// Most inbound peer requests waiting on the engine at once.
 const MAX_PEER_REQUESTS: usize = 256;
 
-/// Most of those one client may hold: as many as HTTP/1.1 lets it, one per
-/// connection, so that over QUIC, where one connection carries many, a
-/// single address cannot take every place either.
+/// Most of those one client may hold: a share, so that a single address
+/// cannot take every place, though one QUIC connection carries many
+/// requests at once.
 pub const MAX_PEER_REQUESTS_PER_CLIENT: u32 = 64;
 
 const _: () = assert!(MAX_PEER_REQUESTS_PER_CLIENT as usize * 4 <= MAX_PEER_REQUESTS);

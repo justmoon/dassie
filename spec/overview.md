@@ -47,14 +47,14 @@ Dassie works with test money only: the `live` realm is refused until the conditi
 ```
   Owner's browser ── wallet, RPC over WebSocket ──┐
   `dassie` CLI ───── RPC over the IPC socket ─────┤
-  Other Dassie nodes ── peer protocol (HTTPS) ────┤        ┌──▶ underlying ledgers (XRP Ledger)
+  Other Dassie nodes ── peer protocol (QUIC) ─────┤        ┌──▶ underlying ledgers (XRP Ledger)
   ILP clients ───── BTP ──────────────────────────┼─▶ node ┼──▶ exchange-rate sources
   Open Payments clients and wallets ──────────────┤        └──▶ other nodes' Open Payments servers
   ACME CA ───────── http-01 ──────────────────────┘
 ```
 
 - **One Rust binary**, `dassie`, is the daemon and the CLI, with the wallet's built assets embedded. Under systemd it is socket-activated; standalone, it binds its own ports ([Node](areas/node.md)).
-- Everything outside faces one HTTPS listener ([HTTP](areas/http.md)); the CLI talks to the daemon over a local socket that only members of a group may use.
+- Everything outside faces one HTTPS listener ([HTTP](areas/http.md)) and, for other nodes, one QUIC endpoint on UDP at the same port ([Peer protocol](areas/peer-protocol.md#quic)); the CLI talks to the daemon over a local socket that only members of a group may use.
 - The node keeps its state in one SQLite database.
 
 ## Life of a node

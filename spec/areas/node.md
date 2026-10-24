@@ -63,7 +63,7 @@ On SIGTERM or SIGINT the daemon stops accepting, gives requests in progress a bo
 
 - **standalone** binds the configured ports (or `--http-port`/`--https-port` for one run), a UDP socket for QUIC on the HTTPS listener's address and port, a UDP socket for the [rate feed](rate-feed.md#the-socket) on the HTTPS listener's address at the feed's port (or `--feed-listen`), and an IPC socket path of its own. A host that embeds the daemon may bind QUIC on an address of its own (`DaemonOptions::quic`), so that a node whose listeners stay on loopback, where only its owner reaches the wallet, still dials its relay and uplinks from every address, as the [desktop app](desktop.md#sockets) does.
 - **systemd** takes its sockets by name from the socket units ([Release](release.md#systemd-units)), and reports readiness to `NOTIFY_SOCKET` itself. Sockets that are not this process's, or a missing name of the three it needs, stop the daemon rather than letting it bind its own.
-- **QUIC is optional.** Without its UDP socket (units from before QUIC, or a port taken), the node runs as before and says so in its log: its link state does not say it takes QUIC, so peers ask it over HTTPS ([Peer protocol](peer-protocol.md#transport)).
+- **QUIC is required.** Without its UDP socket (systemd passed none, or the port is taken), the node does not start: QUIC is the peer protocol's only transport, and a node peers cannot reach is no node ([quic-only](../decisions/quic-only.md)).
 - **So is the rate feed.** Without its UDP socket (`dassie-feed.socket`, units from before the feed, or a port taken), the node runs, says so in its log, and publishes no feed: neither `GET /stats` nor its link state names a feed port ([Rate feed](rate-feed.md#the-socket)).
 - **Either way,** URLs the node prints or redirects to use the ports it actually listens on, which under systemd need not be the configured ones.
 
@@ -131,7 +131,7 @@ The validator role of [settlement hubs](hubs.md#the-validator-in-the-node) is co
 
 Events go through `tracing` (`log.rs`). Core crates do not log; the node maps their events ([engineering](../engineering.md)). Besides standard output, the node keeps a bounded ring of its last lines for the wallet's logs page, whatever the log level says, with fields named like secrets redacted.
 
-Which transport the peer protocol uses can be read from the journal at the default level, under either runtime, without watching the network: the line that says the node listens names its QUIC endpoint and its rate feed's socket, or says it has none, and each peer's transport ([Peer protocol](peer-protocol.md#transport)) is logged when its first answer in a peering, or since the engine started, arrives and whenever it changes. Never once per request, so the volume stays that of the peerings.
+Where the node takes peers and subscribers can be read from the journal at the default level, under either runtime, without watching the network: the line that says the node listens names its QUIC endpoint ([Peer protocol](peer-protocol.md#transport)) and its rate feed's socket, or says it has no feed.
 
 ## The `dassie` command
 

@@ -10,7 +10,7 @@
 //! - a downlink's, among the downlinks' places, which fit `max_downlinks`;
 //! - anyone else's (relay clients, nodes that chose us as their relay,
 //!   registrants, nodes asking to peer, tools), among the others' places,
-//!   counted per client address as over HTTPS.
+//!   counted per client address too.
 //!
 //! So downlinks never take the room of core peers or relayed streams, and
 //! no stranger takes the core peers'. Core peers and downlinks hold a share

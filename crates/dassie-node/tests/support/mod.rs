@@ -164,8 +164,7 @@ impl Bound {
             (http.local_addr().unwrap(), https.local_addr().unwrap());
         let (hand_out, handed) = tokio::sync::oneshot::channel();
         let (node_out, node_handed) = tokio::sync::oneshot::channel();
-        let mut prepared = Prepared::from_parts(settings, store, http, https, ipc)
-            .with_quic(quic)
+        let mut prepared = Prepared::from_parts(settings, store, (http, https), ipc, quic)
             .handing_out(hand_out)
             .handing_out_node(node_out);
         if with_feed {

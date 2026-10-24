@@ -12,7 +12,7 @@ use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
 use hyper::StatusCode;
 
-use crate::http::peer::Answer;
+use crate::peer_server::Answer;
 use crate::quic::{Body, Handler};
 
 /// Most nodes connected at once.

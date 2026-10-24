@@ -26,9 +26,9 @@ use dassie_node::clock::{Clock, ManualClock};
 use dassie_node::front_door::nodes::STREAMS_PER_NODE;
 use dassie_node::front_door::{self, CertificateFiles, Parts, Sockets, key};
 use dassie_node::http::open_payments::MAX_BODY_BYTES;
-use dassie_node::http::peer::Answer;
 use dassie_node::node::Policies;
 use dassie_node::peer_client::PeerClient;
+use dassie_node::peer_server::Answer;
 use dassie_node::quic::relay::{KeepWhile, Purpose, RelayError, ServedStream};
 use dassie_node::quic::{Body, Handler, Quic};
 use dassie_node::rpc::proto::{self, request::Method, response};
@@ -346,7 +346,7 @@ async fn the_front_door_serves_only_its_names_and_open_payments() {
     door.until_reached(&name).await;
     // Paths outside Open Payments, and upgrades, reach no node. The root
     // is the front door's own page, but only for GET and HEAD.
-    for path in ["/index.html", "/stats", "/api/login", "/peer", "/rpc"] {
+    for path in ["/index.html", "/stats", "/api/login", "/rpc"] {
         let reply = door.get(&name, path).await;
         assert_eq!(reply.status, StatusCode::NOT_FOUND, "{path}");
         assert_eq!(json_of(&reply)["error"]["code"], "not_found", "{path}");

@@ -36,12 +36,6 @@ pub const VERSION: u8 = 1;
 /// keeps node info signed under v0 from passing as a v1 link state.
 pub const NODE_INFO_OID: [u8; 14] = oid::encode(&[1, 3, 6, 1, 4, 1, 54392, 5, 1399, 1, 3]);
 
-/// The media type of requests, which `Accept` must also name.
-pub const MESSAGE_CONTENT_TYPE: &str = "application/dassie-message";
-
-/// The media type of responses.
-pub const RESPONSE_CONTENT_TYPE: &str = "application/dassie-peer-response";
-
 /// Most bytes in a request body.
 pub const MAX_MESSAGE_BYTES: usize = 64 * 1024;
 

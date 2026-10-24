@@ -152,7 +152,7 @@ impl Quic {
         // was sent, and a fresh one is made once.
         for _ in 0..2 {
             let Ok(connection) = self
-                .connection(&place, (to, &url), resolver, connect_within)
+                .connection(&place, (to, &url), resolver, connect_within, true)
                 .await
             else {
                 return Err(HubExchangeError::Unreachable);

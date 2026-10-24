@@ -10,7 +10,7 @@ This is the second implementation of Dassie, written in Rust, Node and Solid 2. 
 
 ## Installing a node
 
-You need a Linux server with systemd, on x86-64 or arm64, with a public IP address, a domain name that points to it, and TCP ports 80 and 443 open. The installer is tested on Debian 12, Ubuntu 24.04, Fedora 42 and CentOS Stream 9. On the server, run:
+You need a Linux server with systemd, on x86-64 or arm64, with a public IP address, a domain name that points to it, TCP ports 80 and 443 open, and UDP port 443 open for QUIC, over which nodes talk to each other. The installer is tested on Debian 12, Ubuntu 24.04, Fedora 42 and CentOS Stream 9. On the server, run:
 
 ```sh
 curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh
@@ -82,7 +82,7 @@ The node that asks to peer extends the other 1.1 units of credit; the node that 
 | `crates/dassie-payments` | Open Payments without IO: resources, GNAP grants, HTTP message signatures, payment pointers, intervals, quote math |
 | `crates/dassie-feed` | The public rate feed without IO: signed UDP datagrams, the subscriber table and its address cookies, when to publish, a subscriber's side; the node does not publish one yet |
 | `crates/dassie-node-core` | The node's decisions without IO: config, setup, sessions, origins, rate limits, ACME and TLS policy |
-| `crates/dassie-node` | The daemon: database, HTTP(S) and IPC listeners, TLS, ACME, owner login, RPC with its live streams, the engine (ledger, peer protocol, Open Payments, bans), `/peer` and the peer client, the BTP server, the STREAM receiver, the rate fetcher, `/stats`, the log ring, and a fake XRP Ledger for tests |
+| `crates/dassie-node` | The daemon: database, HTTP(S) and IPC listeners, TLS, ACME, owner login, RPC with its live streams, the engine (ledger, peer protocol, Open Payments, bans), the QUIC endpoint and the peer client, the BTP server, the STREAM receiver, the rate fetcher, `/stats`, the log ring, and a fake XRP Ledger for tests |
 | `crates/dassie-cli` | The `dassie` binary: `daemon`, `init`, `update`, `verify-install` |
 | `crates/dassie-release` | What a release is and how to trust one: versions and channels, the mirror's layout, `SHA256SUMS` and its minisign signature |
 | `crates/dassie-sim` | Runs the simulations from any seed, to replay and explain failures: `dassie-sim run peer 0..1000`, `dassie-sim explain peer 42` ([random-seed-simulations](spec/decisions/random-seed-simulations.md)); a developer tool, never released |

@@ -1,7 +1,6 @@
 //! The hub's stream (spec/areas/peer-protocol.md#the-hubs-stream): how
 //! validators and members exchange the hub's messages, over the node's
-//! QUIC endpoint, or `POST /hub` for members whose QUIC cannot reach a
-//! validator.
+//! QUIC endpoint, the only transport (spec/decisions/quic-only.md).
 //!
 //! Every exchange is a request and its reply. The request names the hub and
 //! carries one message (`dassie_hub::service::wire::Message`); the reply
@@ -14,13 +13,9 @@
 //!
 //! ```text
 //! request = hub ID (32 bytes) || message
-//! reply   = status (1 byte) || frames          (over QUIC)
+//! reply   = status (1 byte) || frames
 //! frames  = *(length (4 bytes, big-endian) || message)
 //! ```
-//!
-//! Over HTTPS the request is the body of `POST /hub`, and the reply is the
-//! frames with a status of 200, or 404, 503, 400 or 429 for the statuses
-//! below.
 //!
 //! A validator far behind fetches the state after a final block from
 //! another on a stream of its own, over QUIC only, which serves the hub's
@@ -45,7 +40,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::net::IpAddr;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -57,12 +51,11 @@ use dassie_hub::ledger::Phase;
 use dassie_hub::service::MAX_SINCE_ANSWER_BYTES;
 use dassie_hub::service::wire::{ENVELOPE, MAX_MEMBER_MESSAGE, MAX_MESSAGE, Message};
 use dassie_identity::{NodeId, PublicKey};
-use dassie_node_core::rate_limit::{ClientKey, RateLimitPolicy, RateLimiter};
 use sha2::{Digest as _, Sha256};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::node::Node;
-use crate::peer_client::{PeerClient, WebError, WebRequest};
+use crate::peer_client::PeerClient;
 use crate::quic::Quic;
 use crate::store::Store;
 
@@ -81,59 +74,28 @@ pub const MAX_REQUEST_BYTES: usize = HUB_ID_BYTES + MAX_MESSAGE_BYTES;
 /// commitments any rules allow.
 pub const MAX_MEMBER_MESSAGE_BYTES: usize = MAX_MEMBER_MESSAGE;
 
-/// The largest request read from anyone but a validator of the hub, over
-/// QUIC or as the body of `POST /hub`.
-pub const MAX_MEMBER_REQUEST_BYTES: usize = HUB_ID_BYTES + MAX_MEMBER_MESSAGE_BYTES;
-
-/// The most requests on the hub's stream and `POST /hub` from anyone but a
-/// hub's validators read and waiting at once, node-wide: each holds at most
-/// [`MAX_MEMBER_REQUEST_BYTES`], so together a few tens of MiB, about what
-/// the peer protocol's requests may hold.
+/// The most requests on the hub's stream from anyone but a hub's validators
+/// read and waiting at once, node-wide: each holds at most a member's
+/// request ([`MAX_MEMBER_MESSAGE_BYTES`] and the hub's ID), so together a
+/// few tens of MiB, about what the peer protocol's requests may hold.
 pub const MAX_MEMBER_REQUESTS: usize = 128;
 
-/// Most of [`MAX_MEMBER_REQUESTS`] one sender may hold at once: one node's
-/// key over QUIC, or one address on `POST /hub`. A member keeps at most
-/// [`MAX_EXCHANGES_PER_VALIDATOR`] exchanges of an account in flight at a
-/// validator, so this is [`MEMBERS_PER_ADDRESS`] accounts of one node, or
-/// as many members behind one address; a key anyone can make, or one
-/// address, never takes every place, for up to the request timeout each.
+/// Most of [`MAX_MEMBER_REQUESTS`] one node's key may hold at once. A
+/// member keeps at most [`MAX_EXCHANGES_PER_VALIDATOR`] exchanges of an
+/// account in flight at a validator, so this is [`ACCOUNTS_PER_SENDER`]
+/// accounts of one node; a key anyone can make never takes every place,
+/// for up to the request timeout each.
 pub const MAX_MEMBER_REQUESTS_PER_SENDER: u32 = 16;
+
+/// The accounts of one node a validator serves at once in full: one per
+/// asset it settles over hubs, which a node has few of.
+const ACCOUNTS_PER_SENDER: u64 = 4;
 
 const _: () = assert!(
     MAX_MEMBER_REQUESTS_PER_SENDER as u64
-        == MEMBERS_PER_ADDRESS * MAX_EXCHANGES_PER_VALIDATOR as u64
+        == ACCOUNTS_PER_SENDER * MAX_EXCHANGES_PER_VALIDATOR as u64
 );
 const _: () = assert!(MAX_MEMBER_REQUESTS_PER_SENDER as usize * 4 <= MAX_MEMBER_REQUESTS);
-
-/// The members one address may stand for at a validator, for the rate of
-/// `POST /hub`: a few nodes behind one NAT.
-const MEMBERS_PER_ADDRESS: u64 = 4;
-
-/// The requests a member sends one validator a second at most, in
-/// thousandths: a poll every `POLL_MS` while it has holds or operations
-/// (one every `IDLE_POLL_MS` otherwise), its own account every
-/// `ACCOUNT_EVERY_MS`, and an operation again every `RESUBMIT_MS`. Lookups
-/// of peers' keys come in short bursts, which the burst covers.
-const MEMBER_MILLI_REQUESTS_PER_S: u64 = 1_000_000 / dassie_hub::member::account::POLL_MS
-    + 1_000_000 / dassie_hub::member::account::ACCOUNT_EVERY_MS
-    + 1_000_000 / dassie_hub::member::account::RESUBMIT_MS;
-
-/// Requests to `POST /hub` per address: [`MEMBERS_PER_ADDRESS`] members
-/// polling at their full rate, with two seconds of them at once. It is a
-/// limiter of its own: a member on the HTTPS fallback never takes the
-/// rate, places or charges of the peer protocol from its address.
-pub const HUB_RATE: RateLimitPolicy = RateLimitPolicy {
-    client_burst: HUB_BURST,
-    client_refill_ms: 1_000_000 / (MEMBERS_PER_ADDRESS * MEMBER_MILLI_REQUESTS_PER_S),
-    client_slots: 1024,
-};
-
-/// Two seconds of [`HUB_RATE`].
-const HUB_BURST: u32 = 92;
-
-const _: () =
-    assert!(HUB_BURST as u64 == MEMBERS_PER_ADDRESS * MEMBER_MILLI_REQUESTS_PER_S * 2 / 1_000);
-const _: () = assert!(HUB_RATE.client_refill_ms > 0);
 
 /// The most requests from hubs' validators read and waiting at once,
 /// node-wide: each holds at most [`MAX_REQUEST_BYTES`], a consensus
@@ -160,9 +122,6 @@ pub const MAX_STATE_REPLY_BYTES: usize = 1 + crate::store::MAX_HUB_LEDGER_BYTES;
 
 /// The largest founding request or answer.
 pub const MAX_FOUNDING_BYTES: usize = dassie_hub::founding::wire::MAX_FOUNDING_MESSAGE_BYTES;
-
-/// The media type of `POST /hub`'s body and of its reply.
-pub const MEDIA_TYPE: &str = "application/dassie-hub";
 
 /// The longest a request waits for the validator's reply, in its queue and
 /// in its step.
@@ -316,34 +275,19 @@ pub enum HubAccess {
     Validator,
 }
 
-/// Who sent a message, as the transport proved it. Taken apart at once:
-/// boxing would only allocate.
-#[allow(clippy::large_enum_variant)]
+/// Who sent a message: the node whose key the QUIC connection proved.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Sender {
-    /// The node whose key the QUIC connection proved.
-    Node(PublicKey),
-    /// A client of `POST /hub`, which proves no key: its address.
-    Address(IpAddr),
-}
+pub struct Sender(pub PublicKey);
 
 impl Sender {
     /// Its handle for the validator: the same for every message from the
-    /// same node, or address, so its requests find their place again. A
-    /// handle names nobody: a statement is signed whoever it goes to.
+    /// same node, so its requests find their place again. A handle names
+    /// nobody: a statement is signed whoever it goes to.
     #[must_use]
     pub fn peer(&self) -> PeerId {
         let mut hash = Sha256::new();
-        match self {
-            Self::Node(node) => {
-                hash.update(b"dassie hub node\0");
-                hash.update(node.node_id().as_str().as_bytes());
-            }
-            Self::Address(address) => {
-                hash.update(b"dassie hub address\0");
-                hash.update(address.to_canonical().to_string().as_bytes());
-            }
-        }
+        hash.update(b"dassie hub node\0");
+        hash.update(self.0.node_id().as_str().as_bytes());
         let digest: [u8; 32] = hash.finalize().into();
         let mut first = [0_u8; 8];
         first.copy_from_slice(digest.get(..8).unwrap_or(&[0; 8]));
@@ -416,32 +360,15 @@ pub struct Route {
 /// never takes the room of another.
 pub const MAX_EXCHANGES_PER_VALIDATOR: u8 = 4;
 
-/// Who holds places among [`MAX_MEMBER_REQUESTS`]: a node by its key, or
-/// a client of `POST /hub` by its address.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum Holder {
-    Node(NodeId),
-    Address(ClientKey),
-}
+/// The places each sender holds among [`MAX_MEMBER_REQUESTS`], by node.
+type HeldBySender = Arc<Mutex<BTreeMap<NodeId, u32>>>;
 
-impl Holder {
-    fn of(sender: &Sender) -> Self {
-        match sender {
-            Sender::Node(key) => Self::Node(key.node_id()),
-            Sender::Address(address) => Self::Address(ClientKey::from_ip(address.to_canonical())),
-        }
-    }
-}
-
-/// The places each sender holds among [`MAX_MEMBER_REQUESTS`].
-type HeldBySender = Arc<Mutex<BTreeMap<Holder, u32>>>;
-
-/// A place for one incoming request on the hub's stream or `POST /hub`,
-/// given back when it drops.
+/// A place for one incoming request on the hub's stream, given back when it
+/// drops.
 #[derive(Debug)]
 pub struct HubPermit {
     _place: tokio::sync::OwnedSemaphorePermit,
-    holder: Option<(HeldBySender, Holder)>,
+    holder: Option<(HeldBySender, NodeId)>,
 }
 
 impl Drop for HubPermit {
@@ -498,8 +425,6 @@ pub struct Hubs {
     /// The places among members' each sender holds
     /// ([`MAX_MEMBER_REQUESTS_PER_SENDER`]).
     members_held: HeldBySender,
-    /// The rate of `POST /hub` per address ([`HUB_RATE`]).
-    limiter: Mutex<RateLimiter>,
     /// Places for states being served ([`MAX_STATE_SERVES`]).
     state_serves: Arc<tokio::sync::Semaphore>,
 }
@@ -513,7 +438,6 @@ impl Default for Hubs {
             incoming_members: Arc::new(tokio::sync::Semaphore::new(MAX_MEMBER_REQUESTS)),
             incoming_validators: Arc::new(tokio::sync::Semaphore::new(MAX_VALIDATOR_REQUESTS)),
             members_held: Arc::default(),
-            limiter: Mutex::new(RateLimiter::new(HUB_RATE)),
             state_serves: Arc::new(tokio::sync::Semaphore::new(MAX_STATE_SERVES)),
         }
     }
@@ -539,16 +463,6 @@ impl Hubs {
             in_flight: Arc::clone(&self.exchanges),
             key,
         })
-    }
-
-    /// Charges `client` for a request to `POST /hub` at `now`: whether it
-    /// may make one ([`HUB_RATE`]).
-    pub fn charge(&self, client: IpAddr, now_ms: u64) -> bool {
-        self.limiter
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .check(ClientKey::from_ip(client), now_ms)
-            .is_ok()
     }
 
     /// Who `from` is to the hub named `hub`: whether the node validates it,
@@ -583,7 +497,7 @@ impl Hubs {
                 })
             }
             HubAccess::Member => {
-                let holder = Holder::of(sender);
+                let holder = sender.0.node_id();
                 let mut held = self
                     .members_held
                     .lock()
@@ -656,9 +570,8 @@ impl Hubs {
     }
 
     /// Hands `request` from `from` to its hub's validator and waits for the
-    /// reply. With `requests_only`, as over HTTPS, which validators never
-    /// use, only a member's request is taken.
-    pub async fn answer(&self, from: Sender, request: &[u8], requests_only: bool) -> HubAnswer {
+    /// reply.
+    pub async fn answer(&self, from: Sender, request: &[u8]) -> HubAnswer {
         let Some((hub, message)) = decode_request(request) else {
             return HubAnswer::Malformed;
         };
@@ -669,11 +582,12 @@ impl Hubs {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .get(&hub)
-            .map(|route| match from {
-                Sender::Node(node) if route.nodes.contains(&node.node_id()) => {
+            .map(|route| {
+                if route.nodes.contains(&from.0.node_id()) {
                     (HubAccess::Validator, route.validators.clone())
+                } else {
+                    (HubAccess::Member, route.members.clone())
                 }
-                Sender::Node(_) | Sender::Address(_) => (HubAccess::Member, route.members.clone()),
             });
         let Some((access, inbox)) = route else {
             return HubAnswer::UnknownHub;
@@ -681,18 +595,13 @@ impl Hubs {
         if access == HubAccess::Member && message.len() > MAX_MEMBER_MESSAGE_BYTES {
             return HubAnswer::Malformed;
         }
-        match Message::decode_exact(message) {
-            Ok(Message::Request(_)) => {}
-            Ok(_) if !requests_only => {}
-            _ => return HubAnswer::Malformed,
+        if Message::decode_exact(message).is_err() {
+            return HubAnswer::Malformed;
         }
         let (reply, replied) = oneshot::channel();
         let inbound = Inbound {
             from: from.peer(),
-            node: match from {
-                Sender::Node(node) => Some(node),
-                Sender::Address(_) => None,
-            },
+            node: Some(from.0),
             message: message.to_vec(),
             reply: Some(reply),
         };
@@ -811,12 +720,8 @@ pub enum HubExchangeError {
     /// The request was sent, and no reply came: it may have been taken.
     Failed(String),
     /// It answered, but took nothing: it validates no such hub, its queue
-    /// is full, or the request was not one it takes (over HTTPS, only a
-    /// member's request).
+    /// is full, or the request was malformed.
     Refused(HubAnswer),
-    /// Too many of the node's requests are in flight to its host: nothing
-    /// was sent.
-    Busy,
     /// It answered with something that is no reply.
     BadReply,
     /// It keeps no state after the block asked for.
@@ -829,7 +734,6 @@ impl fmt::Display for HubExchangeError {
             Self::Unreachable => f.write_str("the validator cannot be reached"),
             Self::Failed(error) => write!(f, "the exchange failed: {error}"),
             Self::Refused(answer) => write!(f, "the validator took nothing: {answer:?}"),
-            Self::Busy => f.write_str("too many requests in flight"),
             Self::BadReply => f.write_str("the validator's reply is broken"),
             Self::NotKept => f.write_str("the validator keeps no such state"),
         }
@@ -839,8 +743,7 @@ impl fmt::Display for HubExchangeError {
 impl std::error::Error for HubExchangeError {}
 
 /// How the node reaches hubs' validators: over its QUIC endpoint, pinned to
-/// each validator's node key, and as a member over HTTPS when QUIC cannot
-/// reach one.
+/// each validator's node key, validators and members alike.
 #[derive(Clone)]
 pub struct HubClient {
     quic: Option<Arc<Quic>>,
@@ -871,47 +774,15 @@ impl HubClient {
 
     /// Sends `message` (a [`Message`] encoded) for `hub` to the validator
     /// whose node is `node`, at its `endpoint` (`host:port`, as its
-    /// acceptance names it), and returns what it sent back, each a
-    /// [`Message`] encoded, in order: for a member's `Request`, its
-    /// `Statements`. Over QUIC, pinned to the validator's node key, in at
-    /// most half of `timeout` for the connection; when QUIC cannot reach
-    /// it, over HTTPS (`POST /hub` at the endpoint) in the time left, which
-    /// a validator answers only for a member's request. A request that may
-    /// have reached the validator is never sent again over HTTPS.
+    /// acceptance names it), over QUIC pinned to the validator's node key,
+    /// in at most half of `timeout` for the connection, and returns what it
+    /// sent back, each a [`Message`] encoded, in order: for a member's
+    /// `Request`, its `Statements`.
     ///
     /// # Errors
     ///
     /// See [`HubExchangeError`].
     pub async fn exchange(
-        &self,
-        node: NodeId,
-        endpoint: &str,
-        hub: &HubId,
-        message: &[u8],
-        timeout: Duration,
-    ) -> Result<Vec<Vec<u8>>, HubExchangeError> {
-        let deadline = tokio::time::Instant::now() + timeout;
-        let request = encode_request(hub, message);
-        if let Some(quic) = &self.quic {
-            let within = timeout / 2;
-            let sent = quic.hub_exchange(node, endpoint, &request, &self.client, within);
-            match tokio::time::timeout_at(deadline, sent).await {
-                Ok(Err(HubExchangeError::Unreachable)) => {}
-                Ok(result) => return result,
-                Err(_) => return Err(HubExchangeError::Failed("timed out".into())),
-            }
-        }
-        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-        self.exchange_https(endpoint, request, left).await
-    }
-
-    /// As [`exchange`](Self::exchange), over QUIC only: how validators
-    /// reach each other.
-    ///
-    /// # Errors
-    ///
-    /// See [`HubExchangeError`].
-    pub async fn exchange_quic(
         &self,
         node: NodeId,
         endpoint: &str,
@@ -985,42 +856,6 @@ impl HubClient {
             .await
             .unwrap_or_else(|_| Err(HubExchangeError::Failed("timed out".into())))
     }
-
-    async fn exchange_https(
-        &self,
-        endpoint: &str,
-        request: Vec<u8>,
-        left: Duration,
-    ) -> Result<Vec<Vec<u8>>, HubExchangeError> {
-        let timeout_ms = u64::try_from(left.as_millis()).unwrap_or(u64::MAX);
-        if timeout_ms == 0 {
-            return Err(HubExchangeError::Unreachable);
-        }
-        let request = WebRequest {
-            method: http::Method::POST,
-            url: format!("https://{endpoint}/hub"),
-            headers: vec![
-                (http::header::CONTENT_TYPE, MEDIA_TYPE.into()),
-                (http::header::ACCEPT, MEDIA_TYPE.into()),
-            ],
-            body: Some(request),
-            timeout_ms,
-            max_response_bytes: MAX_REPLY_BYTES,
-        };
-        let response = match self.client.web(request).await {
-            Ok(response) => response,
-            Err(WebError::Refused) => return Err(HubExchangeError::Unreachable),
-            Err(WebError::Busy) => return Err(HubExchangeError::Busy),
-            Err(error) => return Err(HubExchangeError::Failed(error.to_string())),
-        };
-        match response.status {
-            200 => decode_frames(&response.body).ok_or(HubExchangeError::BadReply),
-            404 => Err(HubExchangeError::Refused(HubAnswer::UnknownHub)),
-            400 | 413 | 415 => Err(HubExchangeError::Refused(HubAnswer::Malformed)),
-            429 | 503 => Err(HubExchangeError::Refused(HubAnswer::Busy)),
-            status => Err(HubExchangeError::Failed(format!("status {status}"))),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -1064,39 +899,23 @@ mod tests {
         assert_eq!(decode_request(&request[..31]), None);
     }
 
-    // One sender, by key or by address, holds at most its share of the
-    // members' places, whoever else is still served; its places come back
-    // as its requests end.
+    // One sender holds at most its share of the members' places, whoever
+    // else is still served; its places come back as its requests end.
     #[test]
     fn a_sender_holds_only_its_share_of_members_places() {
         let hubs = Hubs::default();
-        let key =
-            |seed| Sender::Node(dassie_identity::NodeKey::from_bytes(&[seed; 32]).public_key());
+        let key = |seed| Sender(dassie_identity::NodeKey::from_bytes(&[seed; 32]).public_key());
         let share = MAX_MEMBER_REQUESTS_PER_SENDER as usize;
-        for one in [key(1), Sender::Address("192.0.2.1".parse().unwrap())] {
-            let held: Vec<HubPermit> = (0..share)
-                .map_while(|_| hubs.request_permit(HubAccess::Member, &one))
-                .collect();
-            assert_eq!(held.len(), share);
-            assert!(hubs.request_permit(HubAccess::Member, &one).is_none());
-            assert!(hubs.request_permit(HubAccess::Member, &key(2)).is_some());
-            assert!(hubs.request_permit(HubAccess::Validator, &one).is_some());
-            drop(held);
-            assert!(hubs.request_permit(HubAccess::Member, &one).is_some());
-        }
-        let same = Sender::Address("::ffff:192.0.2.1".parse().unwrap());
+        let one = key(1);
         let held: Vec<HubPermit> = (0..share)
-            .map_while(|_| hubs.request_permit(HubAccess::Member, &same))
+            .map_while(|_| hubs.request_permit(HubAccess::Member, &one))
             .collect();
-        assert!(
-            hubs.request_permit(
-                HubAccess::Member,
-                &Sender::Address("192.0.2.1".parse().unwrap())
-            )
-            .is_none(),
-            "an address is one however it came"
-        );
+        assert_eq!(held.len(), share);
+        assert!(hubs.request_permit(HubAccess::Member, &one).is_none());
+        assert!(hubs.request_permit(HubAccess::Member, &key(2)).is_some());
+        assert!(hubs.request_permit(HubAccess::Validator, &one).is_some());
         drop(held);
+        assert!(hubs.request_permit(HubAccess::Member, &one).is_some());
         let mut all = Vec::new();
         for seed in 0..MAX_MEMBER_REQUESTS / share {
             let sender = key(10 + u8::try_from(seed).unwrap());
@@ -1110,15 +929,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_sender_keeps_its_handle() {
-        let a = Sender::Address("192.0.2.1".parse().unwrap());
-        let b = Sender::Address("::ffff:192.0.2.1".parse().unwrap());
-        assert_eq!(a.peer(), b.peer(), "an IPv4 client is one however it came");
-        let c = Sender::Address("192.0.2.2".parse().unwrap());
-        assert_ne!(a.peer(), c.peer());
-    }
-
     #[tokio::test]
     async fn requests_go_to_their_hubs_validator() {
         let hubs = Hubs::default();
@@ -1126,10 +936,8 @@ mod tests {
         let key = dassie_identity::NodeKey::from_bytes(&[1; 32]).public_key();
         let request = dassie_hub::client::Request::Account(key);
         let message = dassie_oer::Encode::to_vec(&Message::Request(request));
-        let from = Sender::Address("192.0.2.1".parse().unwrap());
-        let unknown = hubs
-            .answer(from, &encode_request(&hub, &message), false)
-            .await;
+        let from = Sender(dassie_identity::NodeKey::from_bytes(&[3; 32]).public_key());
+        let unknown = hubs.answer(from, &encode_request(&hub, &message)).await;
         assert_eq!(unknown, HubAnswer::UnknownHub);
         let (members, mut queue) = mpsc::channel(1);
         let (validators, mut theirs) = mpsc::channel(1);
@@ -1147,23 +955,15 @@ mod tests {
             let inbound = theirs.recv().await.unwrap();
             inbound.reply.unwrap().send(Vec::new()).unwrap();
         });
-        let answer = hubs
-            .answer(from, &encode_request(&hub, &message), true)
-            .await;
+        let answer = hubs.answer(from, &encode_request(&hub, &message)).await;
         assert_eq!(answer, HubAnswer::Taken(vec![message.clone()]));
         // A co-validator's message goes to a queue members cannot fill.
-        let theirs = Sender::Node(co_key);
-        let answer = hubs
-            .answer(theirs, &encode_request(&hub, &message), false)
-            .await;
+        let theirs = Sender(co_key);
+        let answer = hubs.answer(theirs, &encode_request(&hub, &message)).await;
         assert_eq!(answer, HubAnswer::Taken(Vec::new()));
         validator.await.unwrap();
-        let vote = dassie_oer::Encode::to_vec(&Message::Consensus(vec![1]));
-        let refused = hubs.answer(from, &encode_request(&hub, &vote), true).await;
-        assert_eq!(refused, HubAnswer::Malformed, "HTTPS takes only requests");
         assert_eq!(
-            hubs.answer(from, &encode_request(&hub, &[0xff]), false)
-                .await,
+            hubs.answer(from, &encode_request(&hub, &[0xff])).await,
             HubAnswer::Malformed
         );
     }
