@@ -701,3 +701,69 @@ fn losses_of_each_cause_are_booked_once_each() {
             .collect();
     assert_eq!(ids.len(), 3);
 }
+
+// An account restored with its operation on its way sends it again once it
+// is in step with the hub; until then nothing is due for it, so a host
+// does not wake it over and over at one instant.
+#[test]
+fn an_operation_on_its_way_waits_for_the_restored_account_to_sync() {
+    let hub = Hub::new();
+    let mut account = hub.account();
+    for v in 0..2 {
+        from(
+            &mut account,
+            v,
+            &hub.says(v, &[hub.account_statement(5, false)]),
+        );
+    }
+    assert_eq!(submitted(&mut account).len(), 4, "the disbursal address");
+    let state = account.state();
+    let mut restored = HubAccount::new(
+        FIRST,
+        hub.rules.clone(),
+        Arc::clone(&hub.key),
+        Destination {
+            account: [5; 20],
+            tag: None,
+        },
+        Name::new(SCHEME_ID).unwrap(),
+        &state,
+    )
+    .unwrap();
+    assert!(!restored.is_synced());
+    let now = 1_800_000_000_000;
+    restored.on_timer(now);
+    assert!(
+        restored.deadline().is_none_or(|at| at > now),
+        "due again at once: {:?}",
+        restored.deadline()
+    );
+    // In step with the hub again, it sends the operation at once.
+    let _ = submitted(&mut restored);
+    let caught_up = [
+        hub.account_statement(6, false),
+        Statement::Final {
+            height: 6,
+            timestamp: 1_006,
+        },
+    ];
+    for v in 0..3 {
+        restored.on_ledger(
+            now,
+            LedgerInput::From {
+                endpoint: v,
+                message: &hub.says(v, &caught_up),
+            },
+        );
+    }
+    assert!(restored.is_synced());
+    restored.on_timer(now);
+    let again = submitted(&mut restored);
+    assert!(
+        again
+            .iter()
+            .any(|signed| matches!(signed.operation, MemberOperation::SetDisbursal(_))),
+        "{again:?}"
+    );
+    restored.check_invariants();
+}

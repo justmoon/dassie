@@ -1395,10 +1395,14 @@ impl ExternalAsset for HubAccount {
         if self.failed.is_some() || self.stopped {
             return None;
         }
+        // An operation on its way is sent again only once the account is
+        // in step with the hub (`pump`): until then it is not due, or a
+        // restored one, sent at 0, would wake the host over and over.
         let resend = self
             .queue
             .iter()
             .find_map(|q| q.sent.as_ref())
+            .filter(|_| self.is_synced())
             .map(|(_, sent)| sent.saturating_add(RESUBMIT_MS));
         [Some(self.next_poll_ms), resend, self.wake_ms]
             .into_iter()
