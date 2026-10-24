@@ -15,7 +15,7 @@
 - **Weighted by the fees each earned us.** A first hop's weight is a base weight plus what the node earned in fees on packets it sent to that peer and that were fulfilled, decaying over time. Fees, not outcomes: a Reject counts for nothing, so no one can make a hop look bad, and making one look good costs the node's fee on every unit pushed through it.
 - **The base weight keeps every usable hop drawn,** so a new or idle peer can earn; **the decay** takes a hop that stopped delivering back down. With no fee charged, the default, every hop weighs the same.
 - **Per peer, in memory.** A weight belongs to a peer, whatever the destination, so it is bounded by the peers. A restart starts every peer from the base weight: weights only pace routing.
-- **Only among the shortest paths' first hops,** so no path grows longer and no packet loops.
+- **Only among the shortest paths' first hops,** so no path grows longer and no packet loops. Where some of them keep the packet's ledger, the draw is among those ([settlement-methods](settlement-methods.md)).
 - **The owner's own packets** draw only among the first hops on the ledger the owner pays from, since the owner's own endpoints never convert ([owner-ledger](owner-ledger.md)).
 - **Room is not a weight.** A hop short of room answers T04 and earns nothing while it does, but its weight falls only as earnings decay, far slower than a settlement restores room. So a STREAM sender still sees T04 and slows down, and a short shortage moves no traffic for good.
 
