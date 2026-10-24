@@ -1,0 +1,29 @@
+# The proof server's TLS front (README.md). startup.sh replaces the host
+# name. Caddy gets the certificate from Let's Encrypt itself and renews it.
+#
+# xrpld trusts the client address in X-Forwarded-For and Forwarded from
+# 127.0.0.1 (secure_gateway in its config), and takes the first one, so
+# Caddy sets that address itself and drops whatever the client sent. It
+# drops X-User too: xrpld lifts its resource limits for any user a gateway
+# names.
+
+@HOST@ {
+	@websocket {
+		header Connection *Upgrade*
+		header Upgrade websocket
+	}
+	handle @websocket {
+		reverse_proxy 127.0.0.1:6006 {
+			header_up X-Forwarded-For {remote_host}
+			header_up -Forwarded
+			header_up -X-User
+		}
+	}
+	handle {
+		reverse_proxy 127.0.0.1:5006 {
+			header_up X-Forwarded-For {remote_host}
+			header_up -Forwarded
+			header_up -X-User
+		}
+	}
+}

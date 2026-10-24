@@ -1,0 +1,9 @@
+# The testnet proof server's validator list: the testnet's publisher. The
+# server's own UNL only decides which ledgers it follows; a Dassie node
+# checks every answer against its own.
+
+[validator_list_sites]
+https://vl.altnet.rippletest.net
+
+[validator_list_keys]
+ED264807102805220DA0F312E71FC2C69E1552C9C5790F6C25E3729DEB573D5860

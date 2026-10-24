@@ -50,6 +50,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | `tests/interop` | [Testing](areas/testing.md), [STREAM](areas/stream.md), [Payments](areas/payments.md) |
 | `resources/`, `nix/`, `scripts/release.ts`, `scripts/flake-latest.ts`, `scripts/flake-latest/`, `.github/workflows/release.yml` | [Release](areas/release.md) |
 | `resources/front-door/` | [Front doors](areas/http.md#front-doors), [Node](areas/node.md#a-chosen-relay) |
+| `resources/proof-server/` | [Proof servers](areas/proof-servers.md), [Checking the validators](designs/xrpl-validation.md#3-the-proof-api) |
 | `flake.nix`, `.github/workflows/ci.yml`, `package.json`, `Cargo.toml` | [Engineering](engineering.md) |
 | `testdata/` | [Testing](areas/testing.md), and the area the vectors pin |
 | `scripts/sim-campaign.ts`, `scripts/sim-campaign/` | [Testing](areas/testing.md#the-campaign) |
@@ -81,6 +82,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [Dev](areas/dev.md) | The local dev network and its dashboard |
 | [DSUSD keeper](areas/dsusd-keeper.md) | The testnet dollar token of our own: its issuer, its pool, and the keeper that holds the pool at the market |
 | [Market maker VM](areas/market-maker-vm.md) | The VM that runs a market maker and its two nodes against testnet core nodes: secrets, releases and updates, settings |
+| [Proof servers](areas/proof-servers.md) | The patched XRP Ledger servers that answer the node's proofs: the patch, its build, and the public server per network |
 | [Testing](areas/testing.md) | Test levels, golden vectors, simulations and the simulation runner |
 
 Not built yet: the [roadmap](roadmap.md), and the designs in `designs/`: what is not built of [settlement hubs](designs/settlement-hubs.md), what is not built of the [periphery](designs/periphery.md), and [checking the XRP Ledger's validators](designs/xrpl-validation.md).
