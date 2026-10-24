@@ -1402,9 +1402,10 @@ fn drops_number() -> BoxedStrategy<Leaf> {
 }
 
 /// The scheme, driven as the node drives it, against a ledger that says
-/// anything, but for the proofs that anchor the account, which an honest
-/// fake ledger gives: anything else could never be validated, and the
-/// account would read nothing past them.
+/// anything, but for the proofs that anchor the account and prove what it
+/// holds, which an honest fake ledger gives: anything else could never be
+/// validated, and the account would read nothing past them. What it says
+/// to the proofs of transactions is anything, which proves nothing.
 struct Run {
     scheme: XrplScheme,
     /// What answers the proofs, and serves the validator list.
@@ -1433,7 +1434,10 @@ impl Run {
             .iter()
             .map(|h| from_hex(h.as_str().unwrap()).unwrap().try_into().unwrap());
         let hashes = blobs.chain(recovering).collect();
-        let proofs = dassie_xrpl::fake::FakeLedger::new();
+        // The account exists, with 1,000 XRP.
+        let mut proofs = dassie_xrpl::fake::FakeLedger::new();
+        proofs.fund(ours());
+        proofs.close();
         Self {
             scheme,
             now: proofs.now_ms(),
@@ -1599,7 +1603,8 @@ impl Run {
     }
 }
 
-/// A scheme up to date with a ledger on which its account holds 1,000 XRP.
+/// A scheme up to date with a ledger on which its account holds 1,000 XRP,
+/// as the anchor proves it.
 fn synced_scheme() -> XrplScheme {
     let mut run = Run::new(scheme());
     run.input(LedgerInput::Connected);
@@ -1609,8 +1614,6 @@ fn synced_scheme() -> XrplScheme {
             { "seq": ledger, "close_time": 10, "base_fee": 10, "reserve_base": 1_000_000,
               "reserve_inc": 200_000 } } }),
         json!({}),
-        json!({ "account_data": { "Balance": "1000000000", "Sequence": 5, "OwnerCount": 0 },
-            "ledger_index": ledger }),
     ];
     for result in results {
         let (id, _) = run.sent.remove(0);

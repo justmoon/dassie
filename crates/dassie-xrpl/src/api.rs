@@ -16,7 +16,7 @@
 //! `account_objects`; and the destination tag a transaction names.
 //!
 //! Proofs (spec/designs/xrpl-validation.md#3-the-proof-api): the methods a
-//! proof server adds, `state_proof` and `validations`, and rippled's
+//! proof server adds, `state_proof`, `tx_proof` and `validations`, and rippled's
 //! `manifest`, their answers read as bytes for the verifier to check:
 //! nothing in them is believed here.
 
@@ -1244,6 +1244,17 @@ pub fn state_proof(id: u64, keys: &[[u8; 32]], at: Option<&[u8; 32]>) -> Vec<u8>
     request(id, "state_proof", params)
 }
 
+/// `tx_proof` of the transaction `hash`: in ledger `ledger`, or wherever
+/// the server finds it.
+#[must_use]
+pub fn tx_proof(id: u64, hash: &[u8; 32], ledger: Option<u32>) -> Vec<u8> {
+    let mut params = json!({ "tx_hash": hex_upper(hash) });
+    if let (Some(object), Some(ledger)) = (params.as_object_mut(), ledger) {
+        object.insert("ledger_index".into(), ledger.into());
+    }
+    request(id, "tx_proof", params)
+}
+
 /// `validations` of the ledger of `hash`: every validation the server
 /// holds for it.
 #[must_use]
@@ -1283,6 +1294,22 @@ pub struct StateProof {
     pub header: Vec<u8>,
     /// Each key's entry, as the server gave them.
     pub entries: Vec<ProofEntry>,
+}
+
+/// A `tx_proof` answer, unchecked: a transaction and its metadata, its
+/// ledger's header, and its branch in that ledger's transaction tree. The
+/// ledger's index and hash and whether it is validated, which the server
+/// says too, are hints, and not read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TxProof {
+    /// The transaction, in binary.
+    pub tx: Vec<u8>,
+    /// Its metadata, in binary.
+    pub meta: Vec<u8>,
+    /// Its ledger's header, without its hash.
+    pub header: Vec<u8>,
+    /// Its branch, deepest node first.
+    pub path: Vec<Vec<u8>>,
 }
 
 /// Bytes in hex, at most `max` of them.
@@ -1329,6 +1356,29 @@ pub fn state_proof_result(result: &Value) -> Option<StateProof> {
     Some(StateProof {
         header,
         entries: out,
+    })
+}
+
+/// Reads `tx_proof`'s result: a transaction and its metadata of at most
+/// [`MAX_VL_BYTES`](crate::binary::MAX_VL_BYTES) each, and a branch of at
+/// most [`MAX_BRANCH_NODES`](crate::shamap::MAX_BRANCH_NODES) nodes.
+#[must_use]
+pub fn tx_proof_result(result: &Value) -> Option<TxProof> {
+    use crate::binary::MAX_VL_BYTES;
+    use crate::shamap::{MAX_BRANCH_NODES, MAX_NODE_BYTES};
+
+    let nodes = result.get("path")?.as_array()?;
+    if nodes.len() > MAX_BRANCH_NODES {
+        return None;
+    }
+    let path: Option<Vec<Vec<u8>>> = (nodes.iter())
+        .map(|node| hex_bytes(Some(node), MAX_NODE_BYTES))
+        .collect();
+    Some(TxProof {
+        tx: hex_bytes(result.get("tx_blob"), MAX_VL_BYTES)?,
+        meta: hex_bytes(result.get("meta_blob"), MAX_VL_BYTES)?,
+        header: hex_bytes(result.get("ledger_header"), crate::header::HEADER_BYTES)?,
+        path: path?,
     })
 }
 

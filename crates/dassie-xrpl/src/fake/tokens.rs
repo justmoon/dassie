@@ -13,8 +13,6 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 
-use sha2::{Digest, Sha512};
-
 use super::{
     Account, DSUSD_CURRENCY, DSUSD_ISSUER, FEE_BASE, FakeLedger, Outcome, RLUSD_CURRENCY,
     RLUSD_ISSUER, Touched, Tx, unsigned,
@@ -208,15 +206,7 @@ pub(super) fn line_key(a: AccountId, b: AccountId, currency: Currency) -> LineKe
 /// A line's ledger index, as the ledger keys it: SHA-512Half of its space
 /// (`r`), its accounts and its currency.
 pub(super) fn line_index((low, high, currency): &LineKey) -> [u8; 32] {
-    let mut hasher = Sha512::new();
-    hasher.update([0x00, b'r']);
-    hasher.update(low.0);
-    hasher.update(high.0);
-    hasher.update(currency.0);
-    let digest = hasher.finalize();
-    let mut out = [0; 32];
-    out.copy_from_slice(digest.get(..32).unwrap_or(&[0; 32]));
-    out
+    crate::records::line_key(*low, *high, *currency)
 }
 
 /// What a TrustSet alone may be refused for.

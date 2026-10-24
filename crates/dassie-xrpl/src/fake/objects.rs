@@ -26,7 +26,8 @@ use crate::amount::Asset;
 use crate::api::{SignerList, TrustLine};
 use crate::binary::{self, Field, FieldId, Fields, Type};
 use crate::codec::{Amount, Currency, TokenAmount, TokenValue};
-use crate::keys::{AccountId, sha512_half};
+use crate::keys::AccountId;
+use crate::records;
 use crate::{MAX_DROPS, hex_upper};
 
 /// What last changed an object: a transaction's hash and its ledger. Zero
@@ -190,37 +191,12 @@ const TRANSACTION_TYPES: [(u16, &str); 7] = [
     (POOL_SET, "AMMSet"),
 ];
 
-/// The results a transaction in a ledger can have, by their codes
-/// (`TER.h`): success, or a failure that claims the fee.
-const RESULTS: [(&str, u8); 18] = [
-    ("tesSUCCESS", 0),
-    ("tecPATH_PARTIAL", 101),
-    ("tecUNFUNDED_PAYMENT", 104),
-    ("tecINSUF_RESERVE_LINE", 122),
-    ("tecNO_DST", 124),
-    ("tecNO_DST_INSUF_XRP", 125),
-    ("tecNO_LINE_INSUF_RESERVE", 126),
-    ("tecNO_LINE_REDUNDANT", 127),
-    ("tecPATH_DRY", 128),
-    ("tecUNFUNDED", 129),
-    ("tecNO_ALTERNATIVE_KEY", 130),
-    ("tecNO_LINE", 135),
-    ("tecNO_PERMISSION", 139),
-    ("tecINSUFFICIENT_RESERVE", 141),
-    ("tecNEED_MASTER_KEY", 142),
-    ("tecDST_TAG_NEEDED", 143),
-    ("tecINTERNAL", 144),
-    ("tecPRECISION_LOSS", 197),
-];
-
-/// The code of a transaction's result. A result no ledger holds, such as
-/// a failure the fake reports where a bug left it no other, is written as
-/// the ledger's internal failure.
+/// The code of a transaction's result, as the ledger keeps it
+/// ([`records::RESULTS`]). A result no ledger holds, such as a failure the
+/// fake reports where a bug left it no other, is written as the ledger's
+/// internal failure.
 pub(super) fn result_code(result: &str) -> u8 {
-    RESULTS
-        .iter()
-        .find(|(name, _)| *name == result)
-        .map_or(144, |(_, code)| *code)
+    records::result_code(result).unwrap_or(144)
 }
 
 /// A ledger object, a transaction or metadata: its fields by id, written
@@ -331,26 +307,14 @@ pub(super) const fn is_threaded(entry_type: u16) -> bool {
     !matches!(entry_type, LEDGER_HASHES | FEE_SETTINGS)
 }
 
-fn key(space: u8, parts: &[&[u8]]) -> [u8; 32] {
-    let mut message = vec![0, space];
-    for part in parts {
-        message.extend_from_slice(part);
-    }
-    sha512_half(&message)
-}
-
 /// An account root's key.
 pub(super) fn account_key(account: AccountId) -> [u8; 32] {
-    key(b'a', &[&account.0])
+    records::account_key(account)
 }
 
-/// The key of the `AMM` object of the pool of XRP and `token`: its two
-/// issues, each an issuer and a currency, XRP's first, as it sorts first.
+/// The key of the `AMM` object of the pool of XRP and `token`.
 pub(super) fn amm_key(token: Token) -> [u8; 32] {
-    key(
-        b'A',
-        &[&[0; 20], &[0; 20], &token.issuer.0, &token.currency.0],
-    )
+    records::amm_key(token.issuer, token.currency)
 }
 
 /// The key of the skip list of the last 256 ledgers' hashes.
@@ -366,7 +330,7 @@ pub(super) fn flag_skip_key(ledger: u32) -> [u8; 32] {
 
 /// The key of the fee settings.
 pub(super) fn fees_key() -> [u8; 32] {
-    key(b'e', &[])
+    records::fees_key()
 }
 
 fn put_thread(object: &mut Object, (txn, ledger): Thread) {
@@ -663,9 +627,7 @@ fn leaf_json(field: &Field<'_>) -> Option<Value> {
     };
     Some(match field.id.kind() {
         Type::UInt8 if field.id == TRANSACTION_RESULT => {
-            let code = field.uint8().ok()?;
-            let (name, _) = RESULTS.iter().find(|(_, known)| *known == code)?;
-            Value::from(*name)
+            Value::from(records::result_name(field.uint8().ok()?)?)
         }
         Type::UInt8 => field.uint8().ok()?.into(),
         Type::UInt16 if field.id == LEDGER_ENTRY_TYPE => named(&ENTRY_TYPES, field.uint16().ok()?)?,

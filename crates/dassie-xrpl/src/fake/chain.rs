@@ -33,8 +33,13 @@ use crate::MAX_DROPS;
 use crate::header::LedgerHeader;
 use crate::shamap::Tree;
 
-/// The most ledgers whose headers are kept: days of ledgers.
+/// The most ledgers whose headers are kept: days of ledgers, the history
+/// bound every proof server keeps ([`crate::account::HISTORY_BOUND`]).
 pub const MAX_KEPT_LEDGERS: usize = 1 << 16;
+const _: () = assert!(
+    MAX_KEPT_LEDGERS as u64 >= crate::account::HISTORY_BOUND as u64,
+    "the fake keeps the history every proof server keeps"
+);
 /// The most recent ledgers whose state is kept, for proofs of their state.
 pub const MAX_STATE_LEDGERS: usize = 64;
 /// The most recent ledgers whose signers are kept, beside the flag

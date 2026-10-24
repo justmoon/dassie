@@ -2,7 +2,7 @@
 //! spec/decisions/issued-assets.md), sans-IO: it pauses the token's scheme
 //! while the token's AMM pool of XRP prices it off a dollar.
 //!
-//! A reading is the pool's two balances at one validated ledger, which the
+//! A reading is the pool's two balances, proven at one anchor, which the
 //! account reads for the scheme ([`crate::XrplAccount::read_pool`]), and
 //! the node's own XRP/USD rate. The token's price is their ratio times the
 //! rate, exact, in millionths of a dollar. A reading counts only if the pool

@@ -96,14 +96,8 @@ fn an_account_runs_only_on_its_own_network() {
             let connection = connect(&mut account, &mut ledger);
             if reported.is_some_and(reports) {
                 assert_eq!(
-                    connection.asked[..5],
-                    [
-                        "server_state",
-                        "subscribe",
-                        "state_proof",
-                        "validations",
-                        "account_info"
-                    ]
+                    connection.asked[..4],
+                    ["server_state", "subscribe", "state_proof", "validations"]
                 );
                 assert_eq!(account.status(), LedgerStatus::Unfunded, "{reported:?}");
             } else {
