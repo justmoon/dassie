@@ -19,7 +19,7 @@ Every endpoint has an ILP address, the [ledger](ledger.md) account its packets d
 ## Routing
 
 - **Below the node's own address,** only children and downlinks, by whole-segment prefix; a downlink whose peering is ending takes no new Prepare. The node's own address itself is unroutable.
-- **Beyond it,** the longest whole-segment prefix in the route table, which the peer protocol's routing fills with a few first hops per node, best first ([Network](network.md)). The connector takes the first that is an endpoint, is not the packet's source (so packets do not bounce between peers), and is not draining.
+- **Beyond it,** the longest whole-segment prefix in the route table, which the peer protocol's routing fills with a few first hops per node, best first ([Network](network.md)). The connector takes the first that is an endpoint, is not the packet's source (so packets do not bounce between peers), and is not draining. Drawing it at random, weighted by the fees each earned us, is not built yet ([roadmap](../roadmap.md#random-next-hops)).
 - **The owner's first hop.** For a packet from one of the node's own endpoints, the connector says which ledger its first hop is on: what the owner must pay from, since the owner's endpoints never convert ([Ledger](ledger.md#the-owners-accounts)).
 
 ## A periphery node

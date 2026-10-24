@@ -150,6 +150,16 @@ A peering settles by every scheme both nodes peer on, each a method of the peeri
   - hubs: whether a hub becomes one method beside its underlying ledger's, and which of the two a packet takes, to be decided.
 - **Done when:** in the `node` simulation, a pair that runs two schemes carries packets on both, each on the ledger it came in on; a payment whose two ends share a ledger crosses core nodes that also share it without converting; a method short of room answers T04 and moves no packet to another method; a scheme both nodes add joins their peering, and one removed is dropped within a bounded time, what is left staying on its accounts, the peering kept; a node of today and one with methods peer and carry packets on one method, and a stored peering carries on as one method after an upgrade; and the per-node oracles hold the bound on what each peer can cost, summed over its methods.
 
+### Random next hops
+
+A packet's next hop drawn at random among its first hops, weighted by the fees each earned us, so that one node cannot stop a payment and a node with a poor rate earns nothing ([weighted-next-hops](decisions/weighted-next-hops.md)). Today the connector takes the first usable hop by node ID.
+
+- **Parts that can be built side by side:**
+  - the connector: a draw per packet among the usable first hops from the node's random number generator, the owner's own packets only among those on the ledger the owner pays from;
+  - the weights: per peer, a base weight plus the fees earned on packets fulfilled through it, decaying, in memory;
+  - STREAM senders that send money again after a Reject from a node on the path or a rate below the minimum, rather than stopping, within a bound on retries that make no progress.
+- **Done when:** in the `node` simulation, a payment to a destination with two paths, one through a node that refuses its packets or converts below the sender's minimum, completes through the other, and that node earns nothing; packets an attacker sends itself through a hop and rejects leave its weight as it was, and raising a hop's weight costs the node's fee on every unit; a hop short of room answers T04 and keeps its weight for longer than a settlement takes.
+
 ## Not built yet
 
 Gaps between what the spec's contract or decisions ask for and what `main` does. Each can be picked up on its own.
@@ -216,3 +226,4 @@ Designs that stay future work. The architecture must not preclude them.
 - [default-relay](decisions/default-relay.md): the default relay, until an onboarding asks.
 - [issued-assets](decisions/issued-assets.md): the peg guard, test RLUSD disabled; transfer fees.
 - [settlement-methods](decisions/settlement-methods.md): settlement methods within a peering, and packets that keep their ledger.
+- [weighted-next-hops](decisions/weighted-next-hops.md): random next hops weighted by fees.
