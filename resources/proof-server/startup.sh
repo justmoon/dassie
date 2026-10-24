@@ -73,6 +73,8 @@ rm /tmp/Caddyfile
 if [ -n "$wipe_db" ] && [ "$(cat "$state/wiped" 2> /dev/null || true)" != "$wipe_db" ]; then
   systemctl stop xrpld.service 2> /dev/null || true
   rm -rf "$state/db"
+  # The resync that follows is not xrpld being stuck (watchdog.sh).
+  rm -f /var/lib/xrpld-watchdog/synced /run/xrpld-watchdog/stuck-since
   echo "$wipe_db" > "$state/wiped"
   echo "proof-server: wiped the database ($wipe_db)" > /dev/console
 fi

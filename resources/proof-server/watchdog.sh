@@ -11,13 +11,24 @@
 # alarm costs an hour of downtime, never a wrong answer.
 set -eu
 
+# Whether xrpld has been in sync since its database was last wiped; the
+# wipe in startup.sh clears it too.
 state=/var/lib/xrpld-watchdog
+# Since when it has been out of sync. Under /run, so that a boot starts the
+# count afresh: time the VM spent stopped is not time xrpld spent stuck.
+run=/run/xrpld-watchdog
 db=/var/lib/xrpld/db
 # Longer than xrpld takes to catch up after a restart or a network outage,
 # shorter than a node is willing to wait.
 stuck_limit=1800
 
-mkdir -p "$state"
+# Only the testnet resets. Whatever installs this, a mainnet server is
+# never wiped.
+network=$(curl -fsS -m 5 -H 'Metadata-Flavor: Google' \
+  http://metadata.google.internal/computeMetadata/v1/instance/attributes/proof-network || true)
+[ "$network" = testnet ] || exit 0
+
+mkdir -p "$state" "$run"
 now=$(date +%s)
 
 info=$(curl -fsS -m 10 http://127.0.0.1:5005 -d '{"method":"server_info"}' || true)
@@ -32,7 +43,7 @@ case "$server_state" in
   full | tracking | proposing | validating)
     if [ "$age" -lt 120 ]; then
       touch "$state/synced"
-      rm -f "$state/stuck-since"
+      rm -f "$run/stuck-since"
       exit 0
     fi
     ;;
@@ -41,8 +52,8 @@ esac
 # Not synced. Before the first sync after a wipe, that is the sync itself.
 [ -f "$state/synced" ] || exit 0
 
-[ -f "$state/stuck-since" ] || echo "$now" > "$state/stuck-since"
-since=$(cat "$state/stuck-since")
+[ -f "$run/stuck-since" ] || echo "$now" > "$run/stuck-since"
+since=$(cat "$run/stuck-since")
 if [ $((now - since)) -lt "$stuck_limit" ]; then
   exit 0
 fi
@@ -50,5 +61,5 @@ fi
 echo "proof-server: out of sync for $((now - since)) s (state $server_state, validated ledger $age s old), wiping the database" > /dev/console
 systemctl stop xrpld.service
 rm -rf "$db"
-rm -f "$state/synced" "$state/stuck-since"
+rm -f "$state/synced" "$run/stuck-since"
 systemctl start xrpld.service
