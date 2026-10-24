@@ -520,7 +520,9 @@ impl XrplAccount {
         let before = (proof.proven.decoded.threads.iter()).find(|(of, _)| *of == key);
         let (Some((_, before)), true) = (before.copied(), record.ledger_index == ledger) else {
             // The object names a transaction that did not change it, or one
-            // of another ledger.
+            // of another ledger. The proof goes, so that the next
+            // connection proves it anew rather than doubting it again.
+            self.proofs.remove(&hash);
             self.doubted(Doubt::History);
             return Step::Stopped;
         };
@@ -793,11 +795,17 @@ impl XrplAccount {
     }
 
     /// Our transactions past their last ledger whose proof came: each is
-    /// told, as one of ours the ledger validated.
+    /// told, as one of ours the ledger validated. Only once the history is
+    /// told up to the anchor, as when a walk left a gap: a walk dropped
+    /// halfway, by a stall, leaves older transactions untold, and one of
+    /// ours told before them would move the schemes' cursors past them.
     fn advance_ours(&mut self) {
         let Some(anchor) = self.anchor.map(|kept| kept.anchor) else {
             return;
         };
+        if self.at.is_none_or(|at| at.0 < anchor.index) {
+            return;
+        }
         let asked: Vec<[u8; 32]> = (self.in_flight.iter())
             .filter(|t| t.looked_up && self.proofs.contains_key(&t.hash))
             .map(|t| t.hash)
@@ -1127,5 +1135,175 @@ impl XrplAccount {
         }
         self.lists.insert((at, key), list);
         self.advance();
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use alloc::string::ToString;
+
+    use super::*;
+    use crate::account::{FIRST, News, TESTNET_NETWORK_ID};
+    use crate::anchor::KeptAnchor;
+    use crate::api::BalanceChange;
+    use crate::header::LedgerHeader;
+    use crate::keys::Wallet;
+    use crate::records::Decoded;
+    use dassie_ledger::Name;
+    use dassie_settlement::ExternalAsset;
+
+    const ANCHOR: Anchor = Anchor {
+        index: 50,
+        close_time: 800_000_000,
+        hash: [9; 32],
+    };
+
+    /// An account through which `scheme` settles, synced at ledger 10, its
+    /// scheme's cursor there.
+    fn synced_account(scheme: Name) -> XrplAccount {
+        let mut account = XrplAccount::new(FIRST, &[scheme], "", &[1; 32], &[]).unwrap();
+        account.phase = Phase::Synced;
+        account.at = Some((10, u32::MAX));
+        account.sequence = 5;
+        account.balance = Some(1_000_000_000);
+        account.validated = 10;
+        account.follow(scheme, Some((10, u32::MAX)), true);
+        account
+    }
+
+    /// The account, anchored at [`ANCHOR`].
+    fn anchor(account: &mut XrplAccount) {
+        account.anchor = Some(KeptAnchor::of(ANCHOR, None));
+        account.validated = ANCHOR.index;
+    }
+
+    /// A proof, its ledger proven, of a Payment `account` signed with
+    /// `sequence`, in ledger `ledger`, whose metadata names no object's
+    /// thread.
+    fn proof(account: AccountId, hash: [u8; 32], ledger: u32, sequence: u32) -> Proof {
+        let header = LedgerHeader {
+            sequence: ledger,
+            total_drops: 1,
+            parent_hash: [0; 32],
+            transaction_hash: [0; 32],
+            account_hash: [0; 32],
+            parent_close_time: 0,
+            close_time: 0,
+            close_time_resolution: 10,
+            close_flags: 0,
+        };
+        let record = TxRecord {
+            hash,
+            ledger_index: ledger,
+            index: 0,
+            validated: true,
+            account,
+            is_payment: true,
+            destination: Some(Wallet::from_entropy(&[2; 32]).account()),
+            destination_tag: None,
+            sequence,
+            fee: 12,
+            result: "tesSUCCESS".to_string(),
+            delivered: Some(1_000),
+            delivered_token: None,
+            memo: None,
+            changes: alloc::vec![BalanceChange {
+                account,
+                before: 1_000_000_000,
+                after: 999_998_988,
+                owner_count: Some(0),
+            }],
+            lines: Vec::new(),
+        };
+        Proof {
+            proven: ProvenTx {
+                ledger_hash: header.hash(),
+                header,
+                decoded: Decoded {
+                    record,
+                    threads: Vec::new(),
+                    uses: (sequence, 1),
+                },
+            },
+            holds: true,
+        }
+    }
+
+    // spec/designs/xrpl-validation.md#6-the-account-on-proofs: the schemes
+    // book the history in ledger order. A walk a stall dropped halfway
+    // leaves untold what it had not reached before the anchor; one of ours
+    // proven meanwhile is told only once the history is told up to the
+    // anchor, or it would move the schemes' cursors past what was left.
+    #[test]
+    fn ours_is_told_only_once_the_history_reaches_the_anchor() {
+        let scheme = dassie_ledger::name!(crate::scheme::SCHEME_ID);
+        let mut account = synced_account(scheme);
+        let to = Wallet::from_entropy(&[2; 32]).account();
+        let hash = account.sign_payment(scheme, to, 1_000, Vec::new()).unwrap();
+        assert!(account.execute(scheme, hash));
+        anchor(&mut account);
+        // Past its last ledger, with the account's sequence past its own:
+        // its proof is asked for.
+        account.proven_sequence = 6;
+        account.expire();
+        account.told();
+        let us = account.account();
+        account.proofs.insert(hash, proof(us, hash, 30, 5));
+        // Told up to ledger 40 alone: a walk to the anchor was dropped.
+        account.at = Some((40, u32::MAX));
+        account.advance();
+        assert!(account.news().is_empty(), "{:?}", account.news());
+        assert!(account.holds_transaction(&hash));
+        // Told up to the anchor, as after a walk that left a gap: ours is
+        // told.
+        account.at = Some((ANCHOR.index, u32::MAX));
+        account.advance();
+        assert!(matches!(
+            account.news(),
+            [News::Transaction { ours: Some(ours), .. }] if ours.scheme == scheme
+        ));
+        assert!(!account.holds_transaction(&hash));
+        account.check_invariants();
+    }
+
+    // A proof whose metadata does not thread an object whose chain names it
+    // doubts the history, and goes, so the next connection proves it anew
+    // instead of doubting it for good; and a line followed anew drops every
+    // proof kept, each read for the objects followed before it.
+    #[test]
+    fn a_proof_that_does_not_thread_an_object_is_proven_anew() {
+        let scheme = dassie_ledger::name!(crate::dsusd::SCHEME_ID);
+        let mut account = synced_account(scheme);
+        anchor(&mut account);
+        account.network_id = Some(TESTNET_NETWORK_ID);
+        let us = account.account();
+        let line = records::line_key(us, crate::dsusd::ISSUER, crate::dsusd::CURRENCY);
+        let hash = [7; 32];
+        let view = View {
+            anchor: ANCHOR,
+            recent: None,
+            root: None,
+            lines: BTreeMap::new(),
+            threads: BTreeMap::new(),
+            issuers: BTreeMap::new(),
+            fees: None,
+            pools: BTreeMap::new(),
+        };
+        account.walk = Some(Walk {
+            view,
+            told: (10, u32::MAX),
+            chains: BTreeMap::from([(line, Some((hash, 30)))]),
+            found: BTreeMap::new(),
+            gap: false,
+        });
+        account.proofs.insert(hash, proof(us, hash, 30, 5));
+        account.advance();
+        assert_eq!(account.doubts(Doubt::History), 1);
+        assert!(account.proofs.is_empty(), "proven anew");
+        account.proofs.insert(hash, proof(us, hash, 30, 5));
+        account.follow_line(crate::dsusd::LINE);
+        assert!(account.proofs.is_empty(), "read for the objects followed");
+        account.check_invariants();
     }
 }

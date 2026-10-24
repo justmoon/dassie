@@ -863,6 +863,10 @@ impl XrplAccount {
             "more lines than schemes on an account"
         );
         self.lines.insert(key, None);
+        // A proof kept names the objects changed of those followed when it
+        // came: without the new line's, its history would seem to leave out
+        // what the line names. Each is proven anew as needed.
+        self.proofs.clear();
     }
 
     /// The trust line `key`, as last proven: `None` until it was, then
