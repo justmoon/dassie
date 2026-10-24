@@ -4,7 +4,7 @@
 
 Dassie is a payment node you run on your own server. It finds other Dassie nodes, peers with them on its own, and routes [Interledger](https://interledger.org) payments through them. Peers keep track of what they owe each other and settle it on a real ledger, today the XRP Ledger testnet. You run your node from a web wallet that it serves itself, and apps can pay through it with [Open Payments](https://openpayments.dev) or BTP.
 
-**Status:** Dassie is early and works with test money only. A new node joins the public testnet through its three bootstrap nodes, `boot1`–`boot3.dassie.xyz` ([bootstrap-network](spec/decisions/bootstrap-network.md)).
+**Status:** Dassie is early and works with test money only. A new node joins the public testnet through its four bootstrap nodes, `boot1`–`boot4.dassie.xyz` ([bootstrap-network](spec/decisions/bootstrap-network.md)).
 
 This is the second implementation of Dassie, written in Rust, Node and Solid 2. It replaced the original TypeScript implementation, which you can still find at the tag `original`. The [specification](spec/README.md) describes Dassie as it is on `main`; start with its README, which says which docs to read for the code you touch. It has one doc per area, such as the [wallet](spec/areas/wallet.md) or the [connector](spec/areas/connector.md), which states that area's rules; one file per [decision](spec/decisions/README.md), which records why a rule is what it is; and [the original's chapters](spec/original/README.md), which describe how the original works, for reference.
 
@@ -46,14 +46,14 @@ A node without a hostname answers Open Payments at `https://<label>.dassiepay.ne
 
 **Exchange rates.** When your ledgers hold different currencies, the node converts between them at rates it fetches from Coinbase, Kraken, Bitstamp and the European Central Bank, taking the median of the three that cover each currency. You can change the sources and the currency the wallet shows totals in, in the wallet's settings or with `setRateSources` and `setDisplayCurrency`.
 
-**Peers.** Nodes find each other through bootstrap nodes: by default the testnet's, `boot1`–`boot3.dassie.xyz`. A node needs a hostname to take part; it then registers with them by itself, and peers with nodes that share one of its settlement schemes. The bootstrap nodes run `xrpl-testnet` and `xrpl-testnet-rlusd`.
+**Peers.** Nodes find each other through bootstrap nodes: by default the testnet's, `boot1`–`boot4.dassie.xyz`. A node needs a hostname to take part; it then registers with them by itself, and peers with nodes that share one of its settlement schemes. The bootstrap nodes run `xrpl-testnet` and `xrpl-testnet-rlusd`.
 
 `DASSIE_BOOTSTRAP_NODES` replaces the list, as JSON: `[{"id": "d…", "url": "https://host:port", "publicKey": "<base64url>"}]`, or `[]` to run alone. Under systemd, set it in a drop-in, then `sudo systemctl daemon-reload && sudo systemctl restart dassie`; `dassie update` leaves drop-ins alone. Version 0.1.1 and earlier have no default list, so they join the testnet with this one:
 
 ```ini
 # /etc/systemd/system/dassie.service.d/bootstrap.conf
 [Service]
-Environment='DASSIE_BOOTSTRAP_NODES=[{"id":"dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"},{"id":"dE0GE90-9QCQI78S2_h5QaG81oo_cVKz1","url":"https://boot2.dassie.xyz","publicKey":"s9xgWff_UZ26HQwHT_aPd0q0SwyKPGXS74fd2xQjh14"},{"id":"dtTay2e6AV4J940nFJ6_WPkVL-TyrVKGW","url":"https://boot3.dassie.xyz","publicKey":"--P-gYMJ_ZZrFHa4GiNfVQ0x2jSu9_dr7z0mI_bcngY"}]'
+Environment='DASSIE_BOOTSTRAP_NODES=[{"id":"dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"},{"id":"dE0GE90-9QCQI78S2_h5QaG81oo_cVKz1","url":"https://boot2.dassie.xyz","publicKey":"s9xgWff_UZ26HQwHT_aPd0q0SwyKPGXS74fd2xQjh14"},{"id":"dtTay2e6AV4J940nFJ6_WPkVL-TyrVKGW","url":"https://boot3.dassie.xyz","publicKey":"--P-gYMJ_ZZrFHa4GiNfVQ0x2jSu9_dr7z0mI_bcngY"},{"id":"dxZ8EFGaoQLvgSQacinFm64zjWeA0BzV-","url":"https://boot4.dassie.xyz","publicKey":"qNW0ZwnIvaca6f54gIG-YFLQSefzC6JA4h3Oh1QJU6I"}]'
 ```
 
 A node without a hostname still peers, as a periphery node: it asks core nodes to be its uplinks and is reached through them. `DASSIE_UPLINKS` pins them, as node IDs separated by commas (`d…,d…`): the node then asks only those, and looks for as many uplinks as it names, which is what a market maker's nodes need to trade through one core node. A node with a hostname ignores it, and says so when it starts.

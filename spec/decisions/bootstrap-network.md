@@ -4,12 +4,13 @@
 
 ## Decision
 
-The project runs the default bootstrap nodes itself: at least three, in one region, each in a zone of its own, so that one zone's failure does not block majority. Their node IDs are checked against their keys at startup. They also run the XRPL testnet scheme, so that a new node has someone to peer with, and validate the testnet's default settlement hub, which needs its validators within tens of milliseconds of each other ([settlement-hubs](settlement-hubs.md)).
+The project runs the default bootstrap nodes itself: four, in one region, spread over its zones, so that one node down does not block majority (three of four lists). Four is what a settlement hub needs to tolerate one faulty validator (n = 3f + 1), and a region has three zones, so two of them share a zone. Their node IDs are checked against their keys at startup. They also run the XRPL testnet scheme, so that a new node has someone to peer with, and validate the testnet's default settlement hub, which needs its validators within tens of milliseconds of each other ([settlement-hubs](settlement-hubs.md)).
 
 Each bootstrap node names all of them, itself included, in its own configuration (a systemd drop-in), rather than relying on the built-in default: a node takes registrations only while it is one of its own bootstrap nodes.
 
 ## Accepted
 
+- Losing the zone that holds two of them leaves two of four lists, short of a majority: membership freezes, no new node becomes a member, and the default hub, which loses f + 1 of its validators, halts until the zone is back. Five nodes over three zones would not avoid it either (two zones with two each); the testnet takes the risk.
 - One region's failure blocks majority and registrations for the whole network, and halts the default hub with them. Running the hub's validators apart from the bootstrap nodes would avoid that at the cost of more nodes to run; the testnet takes the risk.
 
 ## Operations

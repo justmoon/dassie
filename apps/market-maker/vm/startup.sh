@@ -176,7 +176,7 @@ number() {
 #
 # The targets, the core nodes to trade through: the metadata's mm-targets,
 # URLs separated by commas, or else its mm-target-url, the one target of
-# the release before, or else the three bootstrap nodes. At most as many
+# the release before, or else boot1–boot3 (boot4 runs no DSUSD scheme). At most as many
 # as a node pins (MAX_TARGETS in crates/dassie-cli/src/market_maker/
 # config.rs), each once.
 max_targets=128

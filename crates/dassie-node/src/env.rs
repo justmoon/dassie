@@ -471,7 +471,7 @@ mod tests {
     }
 
     // spec/decisions/bootstrap-network.md: the default list names the
-    // testnet's three bootstrap nodes, and each passes the same checks as a
+    // testnet's four bootstrap nodes, and each passes the same checks as a
     // configured entry.
     #[test]
     fn the_default_bootstrap_nodes_are_the_testnet() {
