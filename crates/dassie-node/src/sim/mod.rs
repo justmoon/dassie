@@ -102,7 +102,7 @@ use dassie_peer::{Bootstrap, Failure, InboundId, OwnInfo, RequestId, Response};
 use dassie_settlement::policy;
 use dassie_stream::{AssetDetails, BUFFER_LENGTH, Config, Connection, Policy, Role};
 use dassie_xrpl::DROPS_PER_XRP;
-use dassie_xrpl::account::{Doubt, Proofs};
+use dassie_xrpl::account::{Doubt, LEDGER_SILENCE_MS, Proofs, REQUEST_TIMEOUT_MS, STALL_MS};
 use dassie_xrpl::codec::TokenValue;
 use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, Lie, Token};
 use dassie_xrpl::network::{MAINNET, Network, TESTNET};
@@ -125,6 +125,23 @@ pub const TRIGGER: u64 = policy::trigger(Policies::DEFAULT.connector.max_packet_
 /// after a measurement failed or a rate too low stopped its money, or to
 /// connect again, after its connection closed.
 pub const RATE_RETRY_MS: u64 = 5_000;
+/// How long a node's connection to the ledger takes to come back after it
+/// dropped, as the driver's would.
+pub const LEDGER_RECONNECT_MS: u64 = 5_000;
+/// The longest a server lies to a node before its connection drops again:
+/// twice the longest of the production timings that end a connection, so
+/// that a node meets the lie however it asks, and some lies end before the
+/// node leaves for one it caught while others outlast it.
+pub const LONGEST_LIE_MS: u64 = 2 * {
+    let mut longest = STALL_MS;
+    if REQUEST_TIMEOUT_MS > longest {
+        longest = REQUEST_TIMEOUT_MS;
+    }
+    if LEDGER_SILENCE_MS > longest {
+        longest = LEDGER_SILENCE_MS;
+    }
+    longest
+};
 /// How often the fake ledger closes a ledger.
 pub const LEDGER_CLOSE_MS: u64 = 3_500;
 /// The longest a replayed request arrives after the original: past the
@@ -657,10 +674,10 @@ pub struct Sim {
     /// Each freeze of the issuer, from when it applied to when it was
     /// lifted, if it was.
     pub freezes: Vec<(IssuerFreeze, u64, Option<u64>)>,
-    /// Each stretch in which the ledger's servers and validators failed
-    /// the nodes, from when it began to when it ended: lying, withholding
-    /// a quorum or letting a list lapse.
-    pub outages: Vec<(u64, u64)>,
+    /// Each stretch in which the ledger's servers or validators failed a
+    /// node, or every node, from when it began to when it ended: a server
+    /// lying to one node, or a quorum withheld or a list lapsed for all.
+    pub outages: Vec<(Option<usize>, u64, u64)>,
     /// The payments under way or done, of nodes that did not crash.
     pub payments: Vec<Payment>,
     /// Payments whose sender's node crashed: its client is gone.
@@ -1790,7 +1807,7 @@ impl Sim {
             },
         );
         self.schedule(
-            5_000,
+            LEDGER_RECONNECT_MS,
             Delivery::LedgerEvent {
                 to: index,
                 generation,
@@ -1820,7 +1837,7 @@ impl Sim {
             for_ms / 1_000
         ));
         self.schedule(
-            5_000 + for_ms,
+            LEDGER_RECONNECT_MS + for_ms,
             Delivery::Honest {
                 to: index,
                 connection,

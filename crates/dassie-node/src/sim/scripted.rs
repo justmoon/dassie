@@ -10,13 +10,11 @@ use std::collections::BTreeMap;
 
 use dassie_connector::SpendingCap;
 use dassie_node_core::testing::{Outcome, Run, SeededRng};
-use dassie_xrpl::account::{
-    LEDGER_SILENCE_MS, LIST_REFRESH_MS, LIST_RETRY_MS, REQUEST_TIMEOUT_MS, STALL_MS,
-};
+use dassie_xrpl::account::{LIST_REFRESH_MS, LIST_RETRY_MS, STALL_MS};
 use dassie_xrpl::fake::Lie;
 
 use super::checks::{check, check_across, check_events, check_settled, check_withdrawn};
-use super::{IssuerFreeze, START, Settling, Sim, key};
+use super::{IssuerFreeze, LEDGER_RECONNECT_MS, LONGEST_LIE_MS, START, Settling, Sim, key};
 use crate::node::Policies;
 use crate::store::OutgoingState;
 
@@ -178,11 +176,9 @@ pub fn run_lies(seed: u64) -> Run {
     ended(sim, result)
 }
 
-/// How long a server of [`run_lies`] lies to a node: twice the longest of
-/// the production timings that end a connection, so that the node meets
-/// the lie however it asks, and leaves for a lie it catches before.
-const LIE_MS: u64 = 2 * STALL_MS;
-const _: () = assert!(LIE_MS > REQUEST_TIMEOUT_MS && LIE_MS > LEDGER_SILENCE_MS);
+/// How long a server of [`run_lies`] lies to a node: the longest a drawn
+/// one does.
+const LIE_MS: u64 = LONGEST_LIE_MS;
 
 /// How long a quorum of the validators is withheld: longer than the account
 /// waits before it connects anew.
@@ -201,7 +197,6 @@ fn script_lies(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
         ));
     }
     pay(sim, rng);
-    let failing = sim.now;
     for lie in Lie::ALL {
         // Its owner asks the faucet for more three times as the node's
         // connection drops, and once more while the server lies: so the
@@ -211,6 +206,13 @@ fn script_lies(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
         for _ in 0..3 {
             sim.fund(liar);
         }
+        // Only the liar's pairs may be withdrawn meanwhile: it sees nothing
+        // of its ledger until its next connection anchors.
+        sim.outages.push((
+            Some(liar),
+            sim.now,
+            sim.now + LEDGER_RECONNECT_MS + LIE_MS + STALL_MS,
+        ));
         sim.lie_to(liar, lie, LIE_MS);
         sim.run_until(sim.now + STALL_MS / 2);
         sim.fund(liar);
@@ -232,23 +234,27 @@ fn script_lies(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     sim.trace
         .push(format!("{} validators {quorum_short:?} withheld", sim.now));
     sim.count("quorums withheld");
+    let withheld = sim.now;
     sim.run_until(sim.now + WITHHELD_MS);
     for validator in quorum_short {
         sim.ledger.withhold_validator(validator, false);
     }
+    sim.outages.push((None, withheld, sim.now + STALL_MS));
     // A list that lapses: every node fetches it, it expires, and the nodes
     // wait until the publisher publishes another.
     let seconds = |ms: u64| u32::try_from(dassie_xrpl::unl::ledger_seconds(ms)).unwrap();
-    sim.ledger
-        .publish_validator_list(seconds(sim.now + LAPSING_LIST_MS), None);
+    let lapses = sim.now + LAPSING_LIST_MS;
+    sim.ledger.publish_validator_list(seconds(lapses), None);
     sim.trace.push(format!("{} the list is to lapse", sim.now));
-    sim.run_until(sim.now + LAPSING_LIST_MS + LIST_RETRY_MS);
+    sim.run_until(lapses + LIST_RETRY_MS);
     sim.count("validator lists lapsed");
     sim.ledger
         .publish_validator_list(seconds(sim.now + 30 * 24 * 3_600_000), None);
     sim.trace
         .push(format!("{} a new list is published", sim.now));
-    sim.outages.push((failing, sim.now));
+    // Every node waits from the list's lapse until it fetched the new one.
+    sim.outages
+        .push((None, lapses, sim.now + LIST_RETRY_MS + STALL_MS));
     // The payments left finish, and the network settles down as before.
     sim.run_until_or(sim.now + PAID_WITHIN_MS, paid);
     let calm = |sim: &Sim| {
