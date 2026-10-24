@@ -29,8 +29,8 @@ use dassie_node::sim::checks::{
     check, check_across, check_books, check_events, check_ledgers, drifted_past, not_settled_down,
 };
 use dassie_node::sim::{
-    CHARGES, CREDIT, LIVE_XRP, START, Settling, Sim, USD, XRP, key, received, scripted, sent,
-    xrpl_account,
+    CHARGES, CREDIT, LEDGER_CLOSE_MS, LIVE_XRP, START, Settling, Sim, USD, XRP, key, received,
+    scripted, sent, xrpl_account,
 };
 use dassie_node::store::{Aim, ForeignAmount, OutgoingRow, OutgoingState, PaymentId, PeerSettings};
 use dassie_node_core::testing::{Outcome, assert_seeds_pass, caught};
@@ -1522,5 +1522,94 @@ fn a_payment_short_by_less_than_its_tolerance_is_paid_in_full() {
     let paid = received(&sim, &sim.payments[0]);
     assert!(paid < amount, "received {paid} of {amount}: no remainder");
     assert!(sim.payments[0].done, "{}", sim.trace.join("\n"));
+    check(&sim).unwrap();
+}
+
+// Two XRP nodes peered on the fake ledger, node 1 owing node 0 past the
+// credit node 0 extends, so that node 1 settles; returns as node 1 signs
+// its first settlement, before its submission reaches the ledger.
+fn settling_pair(settling: Settling) -> Sim {
+    let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), settling);
+    sim.loss_per_mille = 0;
+    let (zero, one) = (key(0).node_id(), key(1).node_id());
+    let peered = |sim: &Sim| sim.peers(0).contains(&one) && sim.peers(1).contains(&zero);
+    assert!(
+        sim.run_until_or(START + 5 * 60_000, peered),
+        "the nodes did not peer"
+    );
+    sim.pay(1, 0, 3_000_000_000, None, None);
+    let mark = sim.trace.len();
+    let settling = format!(" 1 Settlement(Settling {{ node: {zero:?}");
+    let leaves = |sim: &Sim| {
+        sim.trace[mark..]
+            .iter()
+            .any(|line| line.contains(&settling))
+    };
+    assert!(
+        sim.run_until_or(sim.now + 120_000, leaves),
+        "node 1 never settled"
+    );
+    sim
+}
+
+// The check that each node's books hold to what its proven ledger state
+// allows (`check_true`) fires: an XRP moves into node 0's account on the
+// fake ledger in no transaction, and node 0's link drops. Synced again,
+// its scheme finds the balance above its books, which nothing it read
+// explains, and reconciles. The run fails for safety under that check's
+// name, though no XRP was made or lost and the books match the account.
+#[test]
+fn an_unexplained_reconciliation_fails_the_run() {
+    let mut sim = settling_pair(Settling::Xrpl);
+    sim.run_until(sim.now + 120_000);
+    assert!(sim.payments[0].done, "the payment did not finish");
+    assert!(sim.unexplained.is_empty(), "{:?}", sim.unexplained);
+    check(&sim).unwrap();
+    sim.ledger.move_unrecorded(xrpl_account(0), 1_000_000);
+    assert!(sim.drop_ledger_link(0), "the link did not drop");
+    sim.run_until(sim.now + 60_000);
+    assert!(!sim.unexplained.is_empty(), "node 0 reconciled nothing");
+    let outcome = check(&sim);
+    let Err(Outcome::Safety(finding)) = outcome else {
+        panic!("the run did not fail for safety: {outcome:?}");
+    };
+    assert_eq!(finding.at, "proven", "{}", finding.message);
+}
+
+// spec/designs/xrpl-validation.md#4-what-is-proven-and-how: node 1's ledger
+// link drops just as it signs its settlement, so its submission never
+// reaches the fake ledger, and stays down past the transaction's last
+// ledger. Back, the node proves at an anchor that its account's sequence
+// never moved past the settlement's, so it can never apply: the settlement
+// fails, is made again, and the books hold. The drawn runs never reach
+// this: a link comes back within seconds, and the account sends what it
+// has in flight again, well within the transaction's last ledger.
+#[test]
+fn a_settlement_that_never_reached_the_ledger_is_proven_never_to_apply() {
+    let mut sim = settling_pair(Settling::Xrpl);
+    let mark = sim.trace.len();
+    let sequence = sim.ledger.sequence(xrpl_account(1));
+    sim.ledger_down.insert(1);
+    assert!(sim.drop_ledger_link(1), "the link did not drop");
+    // Past the transaction's last ledger, 20 ledgers on.
+    sim.run_until(sim.now + 30 * LEDGER_CLOSE_MS);
+    assert_eq!(sim.ledger.sequence(xrpl_account(1)), sequence, "it applied");
+    sim.ledger_down.clear();
+    sim.run_until(sim.now + 180_000);
+    let never = (sim.counts)
+        .get("transactions proven never to apply")
+        .copied()
+        .unwrap_or(0);
+    assert!(
+        never >= 1,
+        "nothing proven never to apply: {:?}",
+        sim.counts
+    );
+    let failed = format!(" 1 Settlement(Failed {{ peer: {:?}", key(0).node_id());
+    assert!(
+        sim.trace[mark..].iter().any(|line| line.contains(&failed)),
+        "the settlement never failed"
+    );
+    assert!(sim.payments[0].done, "the payment did not finish");
     check(&sim).unwrap();
 }
