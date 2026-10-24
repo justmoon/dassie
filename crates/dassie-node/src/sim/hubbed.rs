@@ -358,7 +358,7 @@ fn check_calm(sim: &Sim, liar: Option<(usize, MemberLie)>) -> Result<(), Outcome
             super::checks::check_hub_credit(sim)
                 .map_err(|problem| Outcome::safety("hub-credit", problem)),
             check_losses(sim).map_err(|problem| Outcome::safety("hub-losses", problem)),
-            check_hub_books(sim).map_err(|problem| {
+            check_hub_books(sim, liar.map(|(node, _)| node)).map_err(|problem| {
                 Outcome::safety("hub-books", format!("{problem}; {}", hub_standing(sim)))
             }),
             check_owners(sim).map_err(|problem| Outcome::safety("hub-owner-books", problem)),
@@ -442,7 +442,12 @@ fn check_losses(sim: &Sim) -> Result<(), String> {
 /// which is its account's balance and what its peers' holds toward it hold,
 /// as the hub's honest validators have it once the network is calm and
 /// it read the operations of its own they applied.
-fn check_hub_books(sim: &Sim) -> Result<(), String> {
+///
+/// Once the network is calm and an honest node read up to the hub's newest
+/// block, it has read every operation of its own the hub applied; only a
+/// liar's claims, held back to just before their commitments expire, may
+/// land after, and its books are checked once it read them.
+fn check_hub_books(sim: &Sim, liar: Option<usize>) -> Result<(), String> {
     let hub = sim.hub.as_deref().unwrap();
     let ledger = hub.ledger().ok_or("no honest validator runs")?;
     for index in 0..sim.nodes.len() {
@@ -460,11 +465,23 @@ fn check_hub_books(sim: &Sim) -> Result<(), String> {
             .ok_or_else(|| format!("node {index} has no account in the hub"))?;
         let account = ledger.account(number).unwrap();
         // An operation of its own the hub applied after the state it read
-        // is booked once it reads it. Once the network is calm only a
-        // liar's claims, held back to just before their commitments
-        // expire, still land.
-        if sim.core(index).hub_sequence() != Some(account.sequence) {
-            continue;
+        // is booked once it reads it.
+        // An honest node may be a block or so behind the newest, as it reads
+        // the hub every so often; once it read up to it, it read all.
+        let read = sim.core(index).hub_sequence();
+        if read != Some(account.sequence) {
+            let cursor = sim
+                .core(index)
+                .hub_reading()
+                .map_or(0, |(cursor, _, _)| cursor);
+            if Some(index) == liar || cursor < ledger.height() {
+                continue;
+            }
+            return Err(format!(
+                "node {index} read its hub account up to sequence {read:?}, where the hub \
+                 applied its operations up to {}",
+                account.sequence
+            ));
         }
         let toward: u64 = ledger
             .holds()
