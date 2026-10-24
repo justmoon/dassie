@@ -1,7 +1,10 @@
-//! The `xrpl-testnet` settlement scheme (spec/areas/xrpl.md), sans-IO.
+//! The XRP scheme (spec/areas/xrpl.md), sans-IO: `xrpl-testnet` on the
+//! testnet ([`XrplScheme`]).
 //!
-//! It settles in the XRP of the node's first XRPL testnet account
+//! It settles in the XRP of the node's first XRPL account on its network
 //! ([`XrplAccount`]), which connects, signs and follows the ledger for it.
+//! Each network's XRP it settles in is an [`Xrp`]: its scheme's ID, its
+//! memo type, its ledger and its network.
 //! Every validated transaction the account tells it of is booked once, in
 //! ledger order, from a cursor kept with the books:
 //!
@@ -23,16 +26,18 @@
 //! (ACC-21), failures are checked (ACC-22), and an account created by a
 //! payment is a deposit like any other (ACC-20).
 //!
-//! It settles only on the testnet, which the account checks before it
-//! reads anything (spec/decisions/real-money.md). The original's mainnet
-//! module, never registered, would have taken every settlement for a
-//! deposit (ACC-13); a mainnet scheme waits for real money, with a memo
-//! type of its own.
+//! It settles only on its account's network, which the account checks
+//! before it reads anything (spec/decisions/real-money.md). Only the
+//! testnet's runs. The original's mainnet module, never registered, would
+//! have taken every settlement for a deposit (ACC-13); a mainnet scheme
+//! waits for real money, with a memo type of its own
+//! (spec/decisions/mainnet-schemes.md).
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::any::Any;
+use core::marker::PhantomData;
 
 use dassie_ledger::{LedgerId, MAX_TOTAL, Name};
 use dassie_settlement::{
@@ -43,17 +48,65 @@ use dassie_settlement::{
 use rand_core::CryptoRng;
 use serde_json::{Value, json};
 
-use crate::account::{self, MAX_ACCOUNT_DROPS, News, Ours, Resumed, XrplAccount};
+use crate::account::{MAX_ACCOUNT_DROPS, News, Ours, Resumed, XrplAccount};
 use crate::api::{AccountInfo, TxRecord};
 use crate::codec::Memo;
 use crate::keys::AccountId;
+use crate::network::{self, Network};
 use crate::{UNITS_PER_DROP, from_hex, hex_upper};
 
-/// The scheme's ID.
+/// The testnet scheme's ID.
 pub const SCHEME_ID: &str = "xrpl-testnet";
-/// The memo that marks a settlement, as the original wrote it
-/// (spec/areas/xrpl.md#the-payment-it-signs).
+/// The memo that marks a settlement on the testnet, as the original wrote
+/// it (spec/areas/xrpl.md#the-payment-it-signs).
 pub const MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrp-testnet/v1";
+
+/// A network's XRP, as the scheme settles in it: what tells one XRP scheme
+/// from another. Each is a contract between peers that run its scheme, so
+/// none changes but with the peer protocol's version
+/// (spec/areas/xrpl.md#the-payment-it-signs).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Xrp {
+    /// The scheme's ID, which is also the slug of its ledger.
+    pub scheme_id: &'static str,
+    /// The scheme's ID as a name: its network's XRP scheme, whose books
+    /// hold the account's XRP.
+    pub scheme: Name,
+    /// The memo that marks a settlement in it: its own, so a Payment is
+    /// never read as a settlement of another XRPL scheme.
+    pub memo_type: &'static [u8],
+    /// The ledger the scheme books on, of its network's realm.
+    pub ledger: LedgerId,
+    /// The network whose XRP it is.
+    pub network: &'static Network,
+}
+
+/// XRP on the testnet, as `xrpl-testnet` settles in it.
+pub const TESTNET_XRP: Xrp = Xrp {
+    scheme_id: SCHEME_ID,
+    scheme: dassie_ledger::name!(SCHEME_ID),
+    memo_type: MEMO_TYPE,
+    ledger: LedgerId::XrplTestnetXrp,
+    network: &network::TESTNET,
+};
+
+/// A network's XRP an [`XrpScheme`] settles in, as a type, so each
+/// network's XRP scheme is a type of its own ([`XrplScheme`]).
+pub trait NativeXrp: 'static {
+    /// The XRP.
+    const XRP: Xrp;
+}
+
+/// XRP on the testnet, as a type.
+#[derive(Clone, Copy, Debug)]
+pub enum TestnetXrp {}
+
+impl NativeXrp for TestnetXrp {
+    const XRP: Xrp = TESTNET_XRP;
+}
+
+/// The `xrpl-testnet` scheme.
+pub type XrplScheme = XrpScheme<TestnetXrp>;
 
 /// The memo type of the owner's payments out of the account
 /// ([`SettlementScheme::pay_owner`]), such as a deposit into a settlement
@@ -128,8 +181,8 @@ impl Recovering {
     }
 }
 
-/// The `xrpl-testnet` scheme.
-pub struct XrplScheme {
+/// The scheme that settles in the XRP of `N`'s network.
+pub struct XrpScheme<N: NativeXrp> {
     /// The account it settles from.
     account: AccountId,
     /// Our node's ID, as our memos carry it.
@@ -165,22 +218,33 @@ pub struct XrplScheme {
     validated: u32,
     /// Told that the account is synced, since it was last written off.
     synced: bool,
+    /// The network's XRP, as a type only.
+    xrp: PhantomData<fn() -> N>,
 }
 
-impl XrplScheme {
+impl<N: NativeXrp> XrpScheme<N> {
     /// The scheme that settles from `account`, for node `node`, with what
     /// the books last checkpointed and the state they kept.
     ///
     /// # Errors
     ///
-    /// If the state is invalid, or looks up a transaction the account has
-    /// in flight or remembers as never sent: a state the two never wrote.
+    /// If the account is on another network, or the state is invalid, or
+    /// looks up a transaction the account has in flight or remembers as
+    /// never sent: a state the two never wrote.
     pub fn new(
         account: &XrplAccount,
         node: Name,
         checkpoint: Option<u64>,
         state: &[u8],
     ) -> Result<Self, SchemeError> {
+        let xrp = N::XRP;
+        assert_eq!(xrp.scheme.as_str(), xrp.scheme_id, "the scheme's name");
+        assert_eq!(xrp.scheme, xrp.network.xrp_scheme, "its network's");
+        assert_eq!(xrp.ledger.asset().code, "XRP", "a ledger of XRP");
+        assert_eq!(xrp.ledger.realm(), xrp.network.realm, "its realm");
+        if account.network() != xrp.network {
+            return Err(SchemeError::InvalidConfig);
+        }
         let mut scheme = Self {
             account: account.account(),
             node,
@@ -198,6 +262,7 @@ impl XrplScheme {
             matched_reserve: None,
             validated: 0,
             synced: false,
+            xrp: PhantomData,
         };
         if !state.is_empty() {
             scheme.restore(state).ok_or(SchemeError::InvalidData)?;
@@ -640,7 +705,7 @@ impl XrplScheme {
         }
         record.delivered?;
         let (memo_type, memo_data) = record.memo.as_ref()?;
-        if memo_type.as_slice() != MEMO_TYPE {
+        if memo_type.as_slice() != N::XRP.memo_type {
             return None;
         }
         let peer = Name::new(core::str::from_utf8(memo_data).ok()?).ok()?;
@@ -669,7 +734,7 @@ impl XrplScheme {
 }
 
 /// What is kept with the books.
-impl XrplScheme {
+impl<N: NativeXrp> XrpScheme<N> {
     /// A number that changes whenever what [`state`](SettlementScheme::state)
     /// keeps does, cheaply: the node writes the state only then.
     fn fingerprint(&self) -> u64 {
@@ -926,17 +991,17 @@ pub(crate) fn parse_address(bytes: &[u8]) -> Result<AccountId, SchemeError> {
     AccountId::parse(text).ok_or(SchemeError::InvalidData)
 }
 
-impl SettlementScheme for XrplScheme {
+impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
     fn id(&self) -> Name {
-        dassie_ledger::name!(SCHEME_ID)
+        N::XRP.scheme
     }
 
     fn ledger(&self) -> LedgerId {
-        LedgerId::XrplTestnetXrp
+        N::XRP.ledger
     }
 
     fn asset(&self) -> Option<AssetId> {
-        Some(account::FIRST)
+        Some(N::XRP.network.first())
     }
 
     fn supported_versions(&self) -> &'static [u16] {
@@ -1087,7 +1152,7 @@ impl SettlementScheme for XrplScheme {
         let account = asset.and_then(account_of).ok_or(SchemeError::Unavailable)?;
         let drops = amount / UNITS_PER_DROP;
         let memo = Memo {
-            memo_type: MEMO_TYPE.to_vec(),
+            memo_type: N::XRP.memo_type.to_vec(),
             memo_data: self.node.as_str().as_bytes().to_vec(),
         };
         let hash = account.sign_payment(self.id(), destination, drops, alloc::vec![memo])?;

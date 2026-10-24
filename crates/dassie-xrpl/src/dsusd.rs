@@ -37,6 +37,7 @@ pub const TOKEN: Token = Token {
     issuer: ISSUER,
     currency: CURRENCY,
     ledger: LedgerId::XrplTestnetDsusdUsd,
+    network: &crate::network::TESTNET,
 };
 /// The line the scheme settles on.
 pub const LINE: LineKey = TOKEN.line();
