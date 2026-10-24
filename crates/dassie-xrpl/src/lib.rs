@@ -27,7 +27,8 @@
 //!   account's trust line to its issuer, with the account's XRP as gas;
 //!   [`rlusd`] is it in RLUSD on mainnet (`xrpl-rlusd`), and keeps disabled
 //!   test RLUSD's constants; [`dsusd`] is it in DSUSD on the testnet
-//!   (`xrpl-testnet-dsusd`).
+//!   (`xrpl-testnet-dsusd`); [`peg`] is the guard that pauses a dollar
+//!   token's scheme while its AMM pool prices it off a dollar.
 //! - `fake` (feature `fake`): a model of the ledger, with tokens, AMM
 //!   pools and signer lists, for simulations and tests.
 //!
@@ -51,6 +52,7 @@ pub mod dsusd;
 pub mod fake;
 pub mod keys;
 pub mod network;
+pub mod peg;
 pub mod rlusd;
 pub mod scheme;
 pub mod token;

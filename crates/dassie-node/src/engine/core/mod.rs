@@ -726,6 +726,9 @@ impl Core {
         {
             self.prices.due = true;
         }
+        // A guard that paused or resumed its scheme on a reading: the
+        // prices leave its ledger out, or take it back.
+        self.follow_pegs();
         self.price_if_due();
     }
 
@@ -748,7 +751,14 @@ impl Core {
         };
         let mut inventories = [none; MAX_PRICED_LEDGERS];
         let mut count = 0;
-        let ledgers = self.schemes.values().map(|active| active.scheme.ledger());
+        // A ledger whose scheme converts nothing now, such as a dollar
+        // token off its peg, is left out, as one whose rate is stale: its
+        // pairs convert nothing (spec/decisions/issued-assets.md).
+        let ledgers = self
+            .schemes
+            .values()
+            .filter(|active| active.scheme.converts())
+            .map(|active| active.scheme.ledger());
         for ledger in ledgers {
             let Ok(owner) = self.account(ledger, AccountName::EquityOwner) else {
                 continue;
@@ -819,12 +829,17 @@ impl Core {
             .map(|(hop, ledger)| (ledger, !hop.is_peer()))
     }
 
-    /// The currencies of the active ledgers.
+    /// The currencies of the active ledgers, and those their schemes read,
+    /// such as XRP for a dollar token's peg guard.
     pub fn rate_currencies(&self) -> Vec<&'static str> {
         let mut codes: Vec<&'static str> = self
             .schemes
             .values()
-            .map(|active| active.scheme.ledger().asset().code)
+            .flat_map(|active| {
+                let own = active.scheme.ledger().asset().code;
+                let read = active.scheme.rate_currencies().iter().copied();
+                core::iter::once(own).chain(read)
+            })
             .collect();
         codes.sort_unstable();
         codes.dedup();

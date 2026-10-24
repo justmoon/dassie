@@ -111,11 +111,12 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     id: "dsusd-settlement",
     name: "DSUSD Settlement",
     description:
-      "Network with two nodes settling in test DSUSD on the XRP Ledger, minted by the fake ledger's issuer",
+      "Network with two nodes settling in test DSUSD on the XRP Ledger, minted by the fake ledger's issuer, beside the fake ledger's XRP/DSUSD pool at the dev rate, which keeps DSUSD on its peg",
     schemes: [["xrpl-testnet-dsusd"], ["xrpl-testnet-dsusd"]],
     addedSchemes: ["xrpl-testnet-dsusd"],
     bootstrap: [0, 1],
     mint: { token: "DSUSD", value: "100" },
+    pool: { token: "DSUSD", value: "50000", tradingFee: 500 },
   },
   {
     id: "cross-currency",

@@ -175,6 +175,7 @@ mod tests {
             issuer: None,
             faucet: false,
             status: LedgerStatus::Synced,
+            peg: None,
             removal_blockers: Vec::new(),
         }
     }

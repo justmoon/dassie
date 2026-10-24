@@ -368,7 +368,7 @@ impl<N: NativeXrp> XrpScheme<N> {
             News::Unread { hash, ours } if ours.scheme == id => self.unread(*hash),
             News::Unread { .. } => {}
             News::Found { hash, record } => self.recovered(*hash, record, effects),
-            News::Line { .. } | News::Issuer { .. } => {}
+            News::Line { .. } | News::Issuer { .. } | News::Pool { .. } => {}
         }
     }
 
