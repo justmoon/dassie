@@ -1,6 +1,6 @@
 /** Ledgers (spec/areas/wallet.md#pages): each active ledger, with its
- * balances, and the exchange rates the node converts at, with their age
- * (spec/decisions/exchange-rates.md). */
+ * balances and, for a dollar token's, its peg guard, and the exchange rates
+ * the node converts at, with their age (spec/decisions/exchange-rates.md). */
 
 import type { JSX } from "@solidjs/web";
 import { For, Show } from "solid-js";
@@ -13,6 +13,7 @@ import { assetName, assetOf } from "../assets/assets.ts";
 import { ageText, rateText } from "../settings/rates.ts";
 import { connectionText } from "./connection.ts";
 import { DepositAddress } from "./DepositAddress.tsx";
+import { PegGuard } from "./PegGuard.tsx";
 
 export function Ledgers(): JSX.Element {
   const data = useNodeData();
@@ -54,6 +55,7 @@ export function Ledgers(): JSX.Element {
                 </p>
               )}
             </Show>
+            <PegGuard ledger={ledger()} />
             <Show
               when={assetOf(ledger().settlementScheme, data.externalAssets())}
             >

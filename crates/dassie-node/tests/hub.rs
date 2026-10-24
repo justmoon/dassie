@@ -686,6 +686,7 @@ async fn a_member_node_opens_its_hub_account_by_a_deposit() {
     })
     .await;
     let xrpl = dassie_node::fake_ledger::Server::start(dassie_node::fake_ledger::Options {
+        network: &dassie_xrpl::network::TESTNET,
         listen: "127.0.0.1:0".parse().unwrap(),
         faucet: None,
         close_every: Duration::from_millis(100),

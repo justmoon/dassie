@@ -235,8 +235,9 @@ fn create_asset(
 }
 
 /// Makes the scheme `id` with its config, what the books last kept for it,
-/// and the asset it settles through. The original's RPC dropped every key of
-/// the config (RT-21), and it never passed on what it stored (ACC-12).
+/// and the asset it settles through; a dollar token's peg guard runs on
+/// `peg`. The original's RPC dropped every key of the config (RT-21), and it
+/// never passed on what it stored (ACC-12).
 ///
 /// # Errors
 ///
@@ -248,6 +249,7 @@ fn create(
     key: &NodeKey,
     asset: Option<&dyn ExternalAsset>,
     max_packet: u64,
+    peg: dassie_xrpl::peg::Timings,
 ) -> Result<Box<dyn SettlementScheme>, SchemeError> {
     let balance = checkpoint.map(|c| c.balance);
     let account = || {
@@ -271,18 +273,16 @@ fn create(
             balance,
             state,
         )?)),
-        dassie_xrpl::rlusd::SCHEME_ID => Ok(Box::new(RlusdScheme::new(
-            account()?,
-            node()?,
-            balance,
-            state,
-        )?)),
-        dassie_xrpl::dsusd::SCHEME_ID => Ok(Box::new(DsusdScheme::new(
-            account()?,
-            node()?,
-            balance,
-            state,
-        )?)),
+        dassie_xrpl::rlusd::SCHEME_ID => {
+            let mut scheme = RlusdScheme::new(account()?, node()?, balance, state)?;
+            scheme.set_peg_timings(peg);
+            Ok(Box::new(scheme))
+        }
+        dassie_xrpl::dsusd::SCHEME_ID => {
+            let mut scheme = DsusdScheme::new(account()?, node()?, balance, state)?;
+            scheme.set_peg_timings(peg);
+            Ok(Box::new(scheme))
+        }
         dassie_hub::member::SCHEME_ID => {
             let any: Option<&dyn core::any::Any> = asset.map(|asset| asset as _);
             let account = any
@@ -384,6 +384,7 @@ impl Core {
                 &self.key,
                 None,
                 self.settle.max_packet,
+                self.settle.peg,
             )
             .map_err(invalid)?;
             return Ok((scheme, None));
@@ -416,6 +417,7 @@ impl Core {
                 &self.key,
                 Some(active.asset.as_ref()),
                 self.settle.max_packet,
+                self.settle.peg,
             )
             .map_err(invalid),
             _ => Err(EngineError::Precondition(
@@ -1000,7 +1002,15 @@ mod tests {
         let key = NodeKey::from_bytes(&[7; 32]);
         let asset = create_asset(dassie_xrpl::account::FIRST, "", &[], (&key, 0)).unwrap();
         assert!(matches!(
-            create(id, "", None, &key, Some(asset.as_ref()), 0),
+            create(
+                id,
+                "",
+                None,
+                &key,
+                Some(asset.as_ref()),
+                0,
+                dassie_xrpl::peg::Timings::DEFAULT
+            ),
             Err(SchemeError::UnknownScheme)
         ));
         assert_eq!(asset_of(id), Some(dassie_xrpl::account::FIRST));

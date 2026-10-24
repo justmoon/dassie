@@ -29,6 +29,7 @@ const RECEIVE: u64 = 2_000_000_000;
 
 async fn fake_ledger() -> Server {
     Server::start(Options {
+        network: &dassie_xrpl::network::TESTNET,
         listen: "127.0.0.1:0".parse().unwrap(),
         faucet: Some((
             "127.0.0.1:0".parse().unwrap(),

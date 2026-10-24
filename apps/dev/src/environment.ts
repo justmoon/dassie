@@ -42,6 +42,7 @@ import {
 import {
   MAX_NODES,
   peripheryOf,
+  resumes,
   type ScenarioDef,
   unavailable,
 } from "./scenario/scenarios.ts";
@@ -387,8 +388,17 @@ export class Environment {
   async #run(wipe: boolean): Promise<void> {
     await this.#stopScenario();
     if (this.#stopping) return;
-    if (wipe) await this.#wipe();
     const def = findScenario(this.#scenarioId)!;
+    // A live scenario's nodes cannot resume on the new fake mainnet, which
+    // never resets: they start from scratch.
+    const fresh = wipe || !resumes(def);
+    if (fresh && !wipe) {
+      this.log(
+        LogLevel.INFO,
+        `${def.id} runs on a new fake mainnet, which never resets: its nodes start from scratch`,
+      );
+    }
+    if (fresh) await this.#wipe();
     this.#statuses.clear();
     for (let index = 0; index < def.schemes.length + this.#added; index++) {
       this.#statuses.set(`d${index + 1}`, {
@@ -397,7 +407,10 @@ export class Environment {
       });
     }
     this.#changed();
-    this.log(LogLevel.INFO, `starting ${def.id}${wipe ? " from scratch" : ""}`);
+    this.log(
+      LogLevel.INFO,
+      `starting ${def.id}${fresh ? " from scratch" : ""}`,
+    );
     let scenario: Scenario;
     try {
       scenario = await Scenario.start(def.id, {

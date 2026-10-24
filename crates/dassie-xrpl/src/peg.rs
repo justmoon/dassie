@@ -23,6 +23,10 @@
 //! pegged, as if read in the band when it started: a de-peg already under
 //! way trips it as one that starts then would, and without a reading it
 //! pauses as any guard does.
+//!
+//! Its holds and bounds are [`Timings::DEFAULT`]. A node on dev timers runs
+//! the same rule on [`Timings::DEV`], a reading a second, so dev and the
+//! end-to-end tests see a token pause and resume in seconds.
 
 use dassie_settlement::{DollarRate, PegPause, PegView};
 use serde_json::{Value, json};
@@ -66,6 +70,60 @@ pub const MAX_RATE_AGE_MS: u64 = 10 * 60_000;
 /// How often the guard reads the pool: once a minute, as the node fetches
 /// rates, so a hold sees ten readings or more before it ends.
 pub const READ_EVERY_MS: u64 = 60_000;
+/// How long the guard's holds and bounds are: the pool read every so often,
+/// and each hold and the staleness bound as many readings long as in
+/// production; the rate's bound is the rate fetcher's, which dev timers do
+/// not change.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Timings {
+    /// How often the pool is read.
+    pub read_every_ms: u64,
+    /// How long every reading must be outside the band to trip the guard.
+    pub trip_hold_ms: u64,
+    /// How long every reading must be inside the inner band to recover.
+    pub recover_hold_ms: u64,
+    /// How long the guard goes without a reading that counts before it
+    /// pauses the scheme.
+    pub max_reading_age_ms: u64,
+    /// The oldest the XRP rate may be for a reading to count.
+    pub max_rate_age_ms: u64,
+}
+
+impl Timings {
+    /// The production values: [`READ_EVERY_MS`], [`TRIP_HOLD_MS`],
+    /// [`RECOVER_HOLD_MS`], [`MAX_READING_AGE_MS`] and [`MAX_RATE_AGE_MS`].
+    pub const DEFAULT: Self = Self::reading_every(READ_EVERY_MS);
+
+    /// The production rule on dev timers, for dev environments and the
+    /// end-to-end tests: a reading a second, so the trip hold is ten
+    /// seconds and recovery a minute. The node fetches rates as often as in
+    /// production, so the rate's bound stays.
+    pub const DEV: Self = Self::reading_every(1_000);
+
+    /// The production rule with the pool read every `read_every_ms`.
+    const fn reading_every(read_every_ms: u64) -> Self {
+        Self {
+            read_every_ms,
+            trip_hold_ms: read_every_ms * (TRIP_HOLD_MS / READ_EVERY_MS),
+            recover_hold_ms: read_every_ms * (RECOVER_HOLD_MS / READ_EVERY_MS),
+            max_reading_age_ms: read_every_ms * (MAX_READING_AGE_MS / READ_EVERY_MS),
+            max_rate_age_ms: MAX_RATE_AGE_MS,
+        }
+    }
+}
+
+// The production values are whole readings long, so the rule scales.
+const _: () = assert!(TRIP_HOLD_MS.is_multiple_of(READ_EVERY_MS));
+const _: () = assert!(RECOVER_HOLD_MS.is_multiple_of(READ_EVERY_MS));
+const _: () = assert!(MAX_READING_AGE_MS.is_multiple_of(READ_EVERY_MS));
+const _: () = assert!(Timings::DEFAULT.trip_hold_ms == TRIP_HOLD_MS);
+const _: () = assert!(Timings::DEFAULT.recover_hold_ms == RECOVER_HOLD_MS);
+const _: () = assert!(Timings::DEFAULT.max_reading_age_ms == MAX_READING_AGE_MS);
+// Recovering takes longer than tripping, and a gap as long as a trip
+// pauses, on either timings.
+const _: () = assert!(Timings::DEV.recover_hold_ms > Timings::DEV.trip_hold_ms);
+const _: () = assert!(Timings::DEV.max_reading_age_ms == Timings::DEV.trip_hold_ms);
+
 /// The highest price the guard tells apart, in millionths of a dollar: a
 /// million dollars. Any price above is as far off its peg.
 pub const MAX_PRICE_PPM: u64 = 1_000_000_000_000;
@@ -146,6 +204,7 @@ impl Standing {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Guard {
     peg: Peg,
+    timings: Timings,
     // Kept with the scheme's state.
     standing: Standing,
     /// Since when every reading that counted has been on the other side:
@@ -166,11 +225,12 @@ pub struct Guard {
 
 impl Guard {
     /// A guard new to a scheme: pegged, as if read in the band when it
-    /// first learns the time.
+    /// first learns the time, on [`Timings::DEFAULT`].
     #[must_use]
     pub const fn new(peg: Peg) -> Self {
         Self {
             peg,
+            timings: Timings::DEFAULT,
             standing: Standing::Pegged,
             crossing_ms: None,
             read_ms: None,
@@ -180,13 +240,19 @@ impl Guard {
         }
     }
 
+    /// The guard on `timings`, which are not kept with its state.
+    #[must_use]
+    pub const fn timed(self, timings: Timings) -> Self {
+        Self { timings, ..self }
+    }
+
     /// Takes the time. The first time is when the guard started. With no
     /// reading that counted for [`MAX_READING_AGE_MS`], a pegged guard is
     /// unread, and any hold under way starts again: one toward tripping, or
     /// one off its peg toward recovering.
     pub fn tick(&mut self, now_ms: u64) {
         let read_ms = *self.read_ms.get_or_insert(now_ms);
-        if now_ms.saturating_sub(read_ms) <= MAX_READING_AGE_MS {
+        if now_ms.saturating_sub(read_ms) <= self.timings.max_reading_age_ms {
             return;
         }
         if self.standing == Standing::Pegged {
@@ -203,9 +269,9 @@ impl Guard {
     /// Whether the pool is due to be read at `now_ms`: never read yet, or
     /// last asked for [`READ_EVERY_MS`] ago. Once due, it counts as asked.
     pub fn ask(&mut self, now_ms: u64) -> bool {
-        let due = self
-            .asked_ms
-            .is_none_or(|at| now_ms < at || now_ms.saturating_sub(at) >= READ_EVERY_MS);
+        let due = self.asked_ms.is_none_or(|at| {
+            now_ms < at || now_ms.saturating_sub(at) >= self.timings.read_every_ms
+        });
         if due {
             self.asked_ms = Some(now_ms);
         }
@@ -229,9 +295,10 @@ impl Guard {
         if pool.drops < self.peg.min_pool_drops {
             return Reading::TooThin;
         }
+        let max_rate_age_ms = self.timings.max_rate_age_ms;
         let Some(rate) = self
             .rate
-            .filter(|rate| rate.as_of_ms <= now_ms && now_ms - rate.as_of_ms <= MAX_RATE_AGE_MS)
+            .filter(|rate| rate.as_of_ms <= now_ms && now_ms - rate.as_of_ms <= max_rate_age_ms)
         else {
             return Reading::NoRate;
         };
@@ -248,10 +315,16 @@ impl Guard {
         self.read_ms = Some(now_ms);
         self.last = Some((price_ppm, ledger_index));
         let (crossing, hold, across) = match self.standing {
-            Standing::Pegged | Standing::Unread => {
-                (off > OUTER_BAND_PPM, TRIP_HOLD_MS, Standing::Off)
-            }
-            Standing::Off => (off <= INNER_BAND_PPM, RECOVER_HOLD_MS, Standing::Pegged),
+            Standing::Pegged | Standing::Unread => (
+                off > OUTER_BAND_PPM,
+                self.timings.trip_hold_ms,
+                Standing::Off,
+            ),
+            Standing::Off => (
+                off <= INNER_BAND_PPM,
+                self.timings.recover_hold_ms,
+                Standing::Pegged,
+            ),
         };
         if !crossing {
             // Unread, and back in the band: pegged, as it was.
@@ -721,5 +794,57 @@ mod tests {
         assert!(guard.ask(READ_EVERY_MS + 1));
         // A clock gone back asks at once.
         assert!(guard.ask(0));
+    }
+
+    // On dev timers the rule is the same, a reading a second: ten readings
+    // off trip it, a minute of them back recovers it, and ten seconds
+    // without one pause it. What it keeps is the same, and restored on
+    // either timings.
+    #[test]
+    fn on_dev_timers_the_rule_is_the_same_in_seconds() {
+        let dev = Timings::DEV;
+        assert_eq!(dev.read_every_ms, 1_000);
+        assert_eq!(
+            (
+                dev.trip_hold_ms,
+                dev.recover_hold_ms,
+                dev.max_reading_age_ms
+            ),
+            (10_000, 60_000, 10_000)
+        );
+        assert_eq!(dev.max_rate_age_ms, MAX_RATE_AGE_MS);
+        let readings = |timings: Timings, hold_ms: u64| hold_ms / timings.read_every_ms;
+        let production = Timings::DEFAULT;
+        assert_eq!(
+            readings(dev, dev.trip_hold_ms),
+            readings(production, production.trip_hold_ms)
+        );
+        assert_eq!(
+            readings(dev, dev.recover_hold_ms),
+            readings(production, production.recover_hold_ms)
+        );
+        let mut guard = Guard::new(PEG).timed(dev);
+        assert!(guard.ask(0));
+        assert!(!guard.ask(999));
+        assert!(guard.ask(1_000));
+        let every = |guard: &mut Guard, from_ms: u64, to_ms: u64, ppm: u64| {
+            let mut at = from_ms;
+            while at <= to_ms {
+                assert!(matches!(read(guard, at, ppm), Reading::Counted(_)));
+                at += dev.read_every_ms;
+            }
+        };
+        every(&mut guard, 0, 9_000, 900_000);
+        assert_eq!(guard.paused(), None);
+        every(&mut guard, 10_000, 10_000, 900_000);
+        assert_eq!(guard.paused(), Some(PegPause::OffPeg));
+        let kept = Guard::restore(PEG, &guard.state()).unwrap().timed(dev);
+        assert_eq!(kept.fingerprint(), guard.fingerprint());
+        every(&mut guard, 11_000, 70_000, PAR_PPM);
+        assert_eq!(guard.paused(), Some(PegPause::OffPeg));
+        every(&mut guard, 71_000, 71_000, PAR_PPM);
+        assert_eq!(guard.paused(), None);
+        guard.tick(71_000 + dev.max_reading_age_ms + 1);
+        assert_eq!(guard.paused(), Some(PegPause::Stale));
     }
 }

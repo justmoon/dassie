@@ -1,10 +1,12 @@
-/** Settlement schemes as the wallet names and describes them. */
+/** Settlement schemes as the wallet names and describes them. Disabled
+ * test RLUSD (`xrpl-testnet-rlusd`) is not among them: no node runs or
+ * offers it (spec/decisions/issued-assets.md). */
 
 const NAMES: Record<string, string> = {
   stub: "Stub",
   xrpl: "XRP Ledger",
+  "xrpl-rlusd": "RLUSD on the XRP Ledger",
   "xrpl-testnet": "XRP Ledger Testnet",
-  "xrpl-testnet-rlusd": "RLUSD on the XRP Ledger Testnet",
   "xrpl-testnet-dsusd": "DSUSD on the XRP Ledger Testnet",
   "hub-xrp-testnet": "XRP in a settlement hub on the XRP Ledger Testnet",
 };
@@ -14,12 +16,12 @@ const DESCRIPTIONS: Record<string, string> = {
     "Stub Settlement simulates settlement delays but does not actually connect to any external ledger.",
   xrpl:
     "Settles in XRP on the XRP Ledger mainnet: real money. There is no faucet: send XRP to the account to fund it; the ledger holds back a reserve.",
+  "xrpl-rlusd":
+    "Settles in RLUSD, Ripple's dollar token, on the XRP Ledger mainnet: real money, from the same account as XRP. The account pays its fees and its reserve in XRP, which you send to it: there is no faucet. The node pauses it while RLUSD's XRP/RLUSD AMM pool prices it off a dollar.",
   "xrpl-testnet":
     "Settles in test XRP on the XRP Ledger testnet. The testnet faucet funds the account; the ledger holds back a reserve.",
-  "xrpl-testnet-rlusd":
-    "Settles in test RLUSD, Ripple's dollar token, on the XRP Ledger testnet, from the same account as XRP. The account pays its fees and its reserve in XRP, from the testnet faucet; RLUSD is sent to it.",
   "xrpl-testnet-dsusd":
-    "Settles in test DSUSD, Dassie's testnet dollar token, on the XRP Ledger testnet, from the same account as XRP. The account pays its fees and its reserve in XRP, from the testnet faucet; DSUSD is bought with XRP on the testnet's XRP/DSUSD AMM pool, as there is no faucet for it.",
+    "Settles in test DSUSD, Dassie's testnet dollar token, on the XRP Ledger testnet, from the same account as XRP. The account pays its fees and its reserve in XRP, from the testnet faucet; DSUSD is bought with XRP on the testnet's XRP/DSUSD AMM pool, as there is no faucet for it. The node pauses it while that pool prices it off a dollar.",
   "hub-xrp-testnet":
     "Settles in test XRP through the testnet's settlement hub, a ledger kept by a few validators and backed by an escrow on the XRP Ledger testnet, with peers in the same hub. It needs the XRP Ledger Testnet scheme: the node moves about 2.5 test XRP from that account into the hub at once (the hub account's 2 XRP reserve, and some to spend), and keeps its hub balance between a floor and a ceiling from there on.",
 };
@@ -38,14 +40,23 @@ export interface TokenScheme {
   /** How the owner gets the token, when it is not simply sent: for
    * people, a sentence or two. */
   readonly obtain?: string;
+  /** The AMM pool whose price the node's peg guard reads, such as
+   * "XRP/RLUSD", for a token that has one. */
+  readonly pool?: string;
 }
 
 const TOKENS: Record<string, TokenScheme> = {
-  "xrpl-testnet-rlusd": { token: "RLUSD", issuerName: "Ripple", gas: "XRP" },
+  "xrpl-rlusd": {
+    token: "RLUSD",
+    issuerName: "Ripple",
+    gas: "XRP",
+    pool: "XRP/RLUSD",
+  },
   "xrpl-testnet-dsusd": {
     token: "DSUSD",
     issuerName: "Dassie",
     gas: "XRP",
+    pool: "XRP/DSUSD",
     obtain:
       "DSUSD has no faucet: buy it with XRP on the testnet's XRP/DSUSD AMM pool, from any XRP Ledger wallet. A payment to this address whose amount is DSUSD, paid for with XRP, swaps through the pool and arrives here as DSUSD.",
   },

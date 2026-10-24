@@ -167,8 +167,8 @@ pub struct Settings {
     /// Whether peers may be at private addresses, such as `localhost` in
     /// dev and tests (`DASSIE_PEER_ALLOW_PRIVATE=1`).
     pub peer_allow_private: bool,
-    /// Whether the peer protocol runs on dev timers, polling every second
-    /// (`DASSIE_DEV_TIMINGS=1`).
+    /// Whether the peer protocol and the peg guard run on dev timers,
+    /// polling and reading pools every second (`DASSIE_DEV_TIMINGS=1`).
     pub dev_timings: bool,
     /// Whether the node may run in the live realm, for dev and the
     /// end-to-end tests against a fake ledger (`DASSIE_DEV_LIVE_REALM=1`):

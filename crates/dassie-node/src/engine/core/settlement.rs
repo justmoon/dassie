@@ -77,6 +77,8 @@ pub(super) struct Settlements {
     pub sends_no_claims: bool,
     /// The largest packet, which schemes that count in packets need.
     pub max_packet: u64,
+    /// The timings of a dollar token's peg guard.
+    pub peg: dassie_xrpl::peg::Timings,
 }
 
 impl Settlements {
@@ -89,6 +91,7 @@ impl Settlements {
             minimum: policy::minimum(policies.connector.max_packet_amount),
             credit_cap: policy::credit_cap(policies.connector.max_packet_amount),
             max_packet: policies.connector.max_packet_amount,
+            peg: policies.peg,
             growth: super::growth::Growth::new(),
             asked: BTreeMap::new(),
             settling: BTreeMap::new(),
