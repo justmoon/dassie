@@ -57,7 +57,9 @@
 //! mints each node its token once its line exists, then claws some back
 //! and freezes lines, deep or for every holder; each node's books count
 //! what the issuer did as its owner's deposits and withdrawals, and hold
-//! its line.
+//! its line. The token's pool stays at a dollar at the run's rates, which
+//! nodes learn every minute, so its peg guard lets it settle throughout
+//! (spec/decisions/issued-assets.md).
 //!
 //! A node that never settles, or spends the credit it was given and
 //! vanishes, costs its peer no more than that credit
@@ -101,6 +103,7 @@ use dassie_peer::wire::SchemeId;
 use dassie_peer::{Bootstrap, Failure, InboundId, OwnInfo, RequestId, Response};
 use dassie_settlement::policy;
 use dassie_stream::{AssetDetails, BUFFER_LENGTH, Config, Connection, Policy, Role};
+use dassie_xrpl::DROPS_PER_XRP;
 use dassie_xrpl::codec::TokenValue;
 use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, Token};
 use dassie_xrpl::network::{MAINNET, Network, TESTNET};
@@ -192,6 +195,9 @@ const XRPL_LIVE_CONFIG: &str = r#"{"server":"ws://ledger.test"}"#;
 /// What the fake ledger's issuer mints each node on its token's ledger once
 /// its line exists, in millionths of a dollar: as much as the stub gives.
 pub const MINT_MICROS: u64 = 100_000_000;
+/// What a token's pool holds of it, in whole tokens: beside twice as many
+/// XRP, a dollar at [`RATES`], and deep enough for either network's floor.
+pub const POOL_TOKENS: u64 = 100_000;
 
 impl Settling {
     /// The ledger a run of one ledger settles over.
@@ -340,8 +346,10 @@ impl IssuerFreeze {
     }
 }
 
-/// The rates of runs across currencies: a dollar buys two XRP. A node
-/// learns them when it starts, and a run is shorter than they take to age.
+/// The rates of runs across currencies and on a token: a dollar buys two
+/// XRP. A node learns them when it starts, and again every minute, as a
+/// node fetches them, so a token's peg guard reads its pool at a fresh
+/// rate.
 pub const RATES: [(&str, u128); 2] = [
     ("USD", 1_000_000_000_000_000),
     ("XRP", 2_000_000_000_000_000),
@@ -726,6 +734,8 @@ pub struct Sim {
     fifo: BTreeMap<(usize, bool), u64>,
     next_connection: u64,
     next_close: u64,
+    /// When the nodes next learn [`RATES`] again, in a run that needs them.
+    next_rates: u64,
     /// What happened, a line per event, to compare runs by.
     pub trace: Vec<String>,
     /// What the nodes reported as errors, or the events they lost.
@@ -891,6 +901,7 @@ impl Sim {
             fifo: BTreeMap::new(),
             next_connection: 0,
             next_close: START + LEDGER_CLOSE_MS,
+            next_rates: START + Policies::DEFAULT.rates_every_ms,
             trace: Vec::new(),
             errors: Vec::new(),
             refused: Vec::new(),
@@ -915,6 +926,13 @@ impl Sim {
             hub_losses: BTreeMap::new(),
             hub_most_held: BTreeMap::new(),
         };
+        // The token's pool, at a dollar at the run's rates.
+        if let Some((_, token)) = settling.token() {
+            let tokens = TokenValue::from_units(POOL_TOKENS, 0).unwrap();
+            sim.ledger
+                .set_pool(token, 2 * POOL_TOKENS * DROPS_PER_XRP, tokens, 300)
+                .unwrap();
+        }
         for &skew_ms in skews_ms {
             sim.nodes.push(SimNode {
                 store: Arc::new(Store::open_in_memory().unwrap()),
@@ -1001,10 +1019,7 @@ impl Sim {
         };
         node.core = Some(Core::start(parts, now).unwrap());
         self.trace.push(format!("{} start {index}", self.now));
-        let rates = self
-            .settling
-            .across()
-            .then(|| RATES.map(|(c, r)| (c, r, now)));
+        let rates = self.needs_rates().then(|| RATES.map(|(c, r)| (c, r, now)));
         self.step(index, |core| {
             if let Some(rates) = rates {
                 core.set_rates(&rates);
@@ -1645,6 +1660,26 @@ impl Sim {
         )
     }
 
+    /// Whether the run's nodes need rates: to convert across currencies,
+    /// or for a token's peg guard.
+    const fn needs_rates(&self) -> bool {
+        self.settling.across() || self.settling.token().is_some()
+    }
+
+    /// Every running node learns [`RATES`] again, once a minute, as a node
+    /// fetches them, in a run that needs them.
+    fn learn_rates(&mut self) {
+        if !self.needs_rates() || self.now < self.next_rates {
+            return;
+        }
+        self.next_rates = self.now + Policies::DEFAULT.rates_every_ms;
+        for index in 0..self.nodes.len() {
+            let now = self.local_now(index);
+            let rates = RATES.map(|(c, r)| (c, r, now));
+            self.step(index, |core| core.set_rates(&rates));
+        }
+    }
+
     /// The issuer mints [`MINT_MICROS`] of its token to each node it has
     /// not yet minted to whose line exists, in the ledger about to close.
     fn mint(&mut self) {
@@ -1779,6 +1814,7 @@ impl Sim {
     /// mints first to each node whose line has come to exist.
     fn close_ledger(&mut self) {
         self.next_close = self.now + LEDGER_CLOSE_MS;
+        self.learn_rates();
         self.mint();
         self.submit_payout();
         let closed = self.ledger.close();

@@ -48,13 +48,14 @@ use dassie_settlement::{
 };
 use serde_json::{Value, json};
 
-use crate::amount::{Currency, TokenAmount, TokenValue};
+use crate::amount::{Asset, Currency, TokenAmount, TokenValue};
 use crate::api::{
     self, AccountInfo, AccountSettings, ApiError, LedgerClosed, Message, TrustLine, TxRecord,
 };
 use crate::codec::{Amount, Memo, Payment, Signing, Transact, TrustSet};
 use crate::keys::{AccountId, Wallet};
 use crate::network::{Network, TESTNET};
+use crate::peg::PoolReading;
 use crate::{UNITS_PER_DROP, from_hex, hex_upper};
 
 /// The scale the account reports a token it holds at: fifteen decimals,
@@ -91,8 +92,9 @@ const REQUEST_TIMEOUT_MS: u64 = 20_000;
 const FUND_RETRY_MS: u64 = 60_000;
 /// Most requests waiting for an answer: a submission and a lookup for
 /// each transaction in flight, the schemes' lookups, the four that keep
-/// the account in sync, and for each scheme a line and an issuer read.
-const MAX_PENDING: usize = 2 * MAX_IN_FLIGHT + MAX_LOOKUPS + 4 + 2 * MAX_SCHEMES;
+/// the account in sync, and for each scheme a line, an issuer and a pool
+/// read.
+const MAX_PENDING: usize = 2 * MAX_IN_FLIGHT + MAX_LOOKUPS + 4 + 3 * MAX_SCHEMES;
 /// Most transactions held while catching up.
 const MAX_BUFFERED: usize = 256;
 /// Most transactions remembered as never sent, until their schemes have
@@ -105,11 +107,12 @@ const MAX_NEVER_SENT: usize = 2 * MAX_IN_FLIGHT;
 const MAX_PARKED: usize = MAX_IN_FLIGHT * MAX_SCHEMES;
 /// Most news kept between two tellings: one message's worth, at most a page
 /// of history, what was held while catching up, what was in flight, and
-/// what was kept for schemes and not read again.
+/// what was kept for schemes and not read again, and for each scheme its
+/// line, its issuer and its pool.
 // PAGE is a few hundred: no truncation.
 #[allow(clippy::cast_possible_truncation)]
 const MAX_NEWS: usize =
-    api::PAGE as usize + MAX_BUFFERED + MAX_IN_FLIGHT + MAX_PARKED + 4 + 2 * MAX_SCHEMES;
+    api::PAGE as usize + MAX_BUFFERED + MAX_IN_FLIGHT + MAX_PARKED + 4 + 3 * MAX_SCHEMES;
 /// Most effects between two takings: one message's worth.
 const MAX_EFFECTS: usize = MAX_PENDING + MAX_IN_FLIGHT + 4;
 /// Most bytes of config.
@@ -197,6 +200,17 @@ pub struct LineKey {
     pub issuer: AccountId,
     /// The token's currency.
     pub currency: Currency,
+}
+
+impl LineKey {
+    /// The token, as an asset.
+    #[must_use]
+    pub const fn asset(&self) -> Asset {
+        Asset::Token {
+            currency: self.currency,
+            issuer: self.issuer,
+        }
+    }
 }
 
 /// Where the account connects, and where it asks for test XRP.
@@ -353,6 +367,15 @@ pub enum News {
         /// What its account says about its tokens.
         settings: Option<AccountSettings>,
     },
+    /// The AMM pool of XRP and a token a scheme asked for
+    /// ([`XrplAccount::read_pool`]), as of a validated ledger at or past
+    /// the newest the account had seen: `None` if there is none.
+    Pool {
+        /// The token, as its issuer and currency.
+        key: LineKey,
+        /// The pool.
+        pool: Option<PoolReading>,
+    },
 }
 
 /// What became of a settlement a scheme still holds pending after a
@@ -445,6 +468,8 @@ enum Request {
     Line(LineKey, u32),
     /// An issuer's account, for a scheme.
     Issuer(AccountId),
+    /// The pool of XRP and a token, for a scheme's peg guard.
+    Pool(LineKey),
 }
 
 /// Where the account stands with its ledger.
@@ -719,6 +744,28 @@ impl XrplAccount {
             .any(|(request, _)| *request == Request::Issuer(issuer));
         if self.phase == Phase::Synced && !reading {
             self.send(Request::Issuer(issuer));
+        }
+    }
+
+    /// Reads the AMM pool of XRP and the token `key` names for a scheme's
+    /// peg guard, if synced and not being read already: what it holds comes
+    /// as [`News::Pool`], only as of a validated ledger at or past the
+    /// newest the account has seen.
+    ///
+    /// Today the pool is the server's word, from `amm_info`, which finds it
+    /// by its asset pair and gives both balances at one ledger, as all the
+    /// account reads is (spec/areas/xrpl.md#following-the-account). Under
+    /// the validators' design, the same reading comes from one state proof
+    /// of the `AMM` object and its account's root and line, at one anchor
+    /// (spec/designs/xrpl-validation.md#4-what-is-proven-and-how): only how
+    /// it is read changes, not what the scheme is told.
+    pub fn read_pool(&mut self, key: LineKey) {
+        let reading = self
+            .pending
+            .values()
+            .any(|(request, _)| *request == Request::Pool(key));
+        if self.phase == Phase::Synced && !reading {
+            self.send(Request::Pool(key));
         }
     }
 
@@ -1198,6 +1245,7 @@ impl XrplAccount {
                 api::ripple_state_at(id, account, key.issuer, key.currency, ledger)
             }
             Request::Issuer(issuer) => api::account_info(id, issuer),
+            Request::Pool(key) => api::amm_info(id, Asset::Xrp, key.asset()),
         };
         self.pending.insert(id, (request, self.now_ms));
         self.effect(AssetEffect::Send { message });
@@ -1280,6 +1328,7 @@ impl XrplAccount {
             Request::LookUp(hash) => self.found(hash, outcome),
             Request::Line(key, ledger) => self.line_read(key, ledger, outcome),
             Request::Issuer(issuer) => self.issuer_read(issuer, outcome),
+            Request::Pool(key) => self.pool_read(key, outcome),
         }
     }
 
@@ -1362,6 +1411,44 @@ impl XrplAccount {
             };
         }
         self.tell(News::Issuer { issuer, settings });
+    }
+
+    /// The pool of XRP and a token a scheme asked for: news only as of a
+    /// validated ledger at or past the newest the account has seen, with
+    /// both balances as of that one ledger, as `amm_info` gives them; an
+    /// older answer, or one of another pool, is dropped, and the scheme
+    /// asks again.
+    fn pool_read(&mut self, key: LineKey, outcome: Result<Value, ApiError>) {
+        let seen = self.seen();
+        let pool = match outcome {
+            Ok(result) => match api::amm_info_result(&result) {
+                Some(info) if info.validated && info.ledger_index >= seen => {
+                    let (Amount::Xrp(drops), Amount::Token(token)) = (info.amount, info.amount2)
+                    else {
+                        return;
+                    };
+                    if token.issuer != key.issuer || token.currency != key.currency {
+                        return;
+                    }
+                    Some(PoolReading {
+                        account: info.account,
+                        drops,
+                        value: token.value,
+                        ledger_index: info.ledger_index,
+                    })
+                }
+                _ => return,
+            },
+            Err(error)
+                if error.error == "actNotFound"
+                    && error.validated
+                    && error.ledger_index.is_some_and(|at| at >= seen) =>
+            {
+                None
+            }
+            Err(_) => return,
+        };
+        self.tell(News::Pool { key, pool });
     }
 
     /// The server's state, the first answer on a connection: a server off

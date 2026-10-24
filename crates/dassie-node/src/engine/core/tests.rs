@@ -2176,6 +2176,140 @@ fn dsusd_beside_xrp_and_no_test_rlusd() {
     );
 }
 
+// spec/decisions/issued-assets.md: RLUSD's peg guard, in the node. The node
+// fetches XRP's rate for it beside its own ledgers', and hands it over at
+// each settlement check. Once mainnet's pool has priced RLUSD off its peg
+// for the trip hold, the price table leaves `xrpl-rlusd+usd` out, so nothing
+// converts to or from it, the link state leaves the scheme out, and the
+// owner sees the guard and is told; what arrives is still booked. Back at a
+// dollar for the recovery hold, it comes back.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn rlusd_off_its_peg_converts_nothing() {
+    use dassie_ledger::LedgerId;
+    use dassie_node_core::config::LiveRealm;
+    use dassie_settlement::PegPause;
+    use dassie_xrpl::codec::TokenValue;
+    use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, Token};
+    use dassie_xrpl::peg::{RECOVER_HOLD_MS, TRIP_HOLD_MS};
+    use dassie_xrpl::{DROPS_PER_XRP, Wallet};
+
+    use super::events::{Event, SettlementEvent};
+
+    let config = r#"{"server":"ws://ledger.test"}"#;
+    let entropy = NodeKey::from_bytes(&[7; 32])
+        .settlement_entropy("xrpl", "seed-mainnet")
+        .unwrap();
+    let address = Wallet::from_entropy(entropy.as_bytes()).account();
+    let mut ledger = FakeLedger::mainnet();
+    ledger.deposit(address, FAUCET_DROPS);
+    ledger.close();
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_in(store, 12, Realm::Live, LiveRealm::DevSwitch).unwrap();
+    for scheme in ["xrpl", "xrpl-rlusd"] {
+        core.add_scheme(scheme, config.into()).unwrap();
+        follow_xrpl(&mut core, &mut ledger);
+    }
+    assert_eq!(core.rate_currencies(), ["USD", "XRP"]);
+    let token = |text: &str| TokenValue::parse(text).unwrap();
+    ledger
+        .issue(address, Token::RLUSD.amount(token("10")))
+        .unwrap();
+    // A dollar buys two XRP: a pool of 200,000 XRP and 100,000 RLUSD
+    // prices RLUSD at a dollar.
+    let pool = |ledger: &mut FakeLedger, xrp: u64| {
+        let drops = xrp * DROPS_PER_XRP;
+        let value = token("100000");
+        ledger.set_pool(Token::RLUSD, drops, value, 205).unwrap();
+    };
+    pool(&mut ledger, 200_000);
+    let one = 10_u128.pow(dassie_connector::RATE_PRECISION);
+    let mut now = NOW;
+    // Minutes pass, a ledger closing in each, with the rates fresh: what
+    // the steps put out.
+    let mut minutes = |core: &mut Core, ledger: &mut FakeLedger, count: u64| {
+        let mut outputs = Vec::new();
+        for _ in 0..count {
+            now += 60_000;
+            core.begin_step(now);
+            core.set_rates(&[("USD", one, now), ("XRP", 2 * one, now)]);
+            let asset = ledger.network().first();
+            let epoch = core.assets[&asset].epoch;
+            for (_, message) in ledger.close() {
+                let event = super::LedgerEvent::Message(message);
+                core.ledger_event(&asset.to_string(), epoch, &event);
+            }
+            outputs.extend(follow_xrpl_outputs(core, ledger));
+        }
+        outputs
+    };
+    let rlusd = LedgerId::XrplRlusdUsd;
+    let priced = |core: &Core| core.price_table().ledger(rlusd).is_some();
+    let advertised = |core: &Core| {
+        core.peer
+            .schemes()
+            .iter()
+            .any(|scheme| scheme.as_str() == "xrpl-rlusd")
+    };
+    let peg = |core: &Core| {
+        let views = core.ledger_views();
+        views
+            .iter()
+            .find(|view| view.id == rlusd)
+            .unwrap()
+            .peg
+            .unwrap()
+    };
+    minutes(&mut core, &mut ledger, 2);
+    assert_eq!(peg(&core).paused, None);
+    assert_eq!(peg(&core).last.map(|(price, _)| price), Some(1_000_000));
+    assert!(priced(&core) && advertised(&core));
+    assert!(core.price_table().price(LedgerId::XrplXrp, rlusd).is_some());
+
+    // 5% under a dollar: priced on until the hold is over.
+    pool(&mut ledger, 190_000);
+    minutes(&mut core, &mut ledger, TRIP_HOLD_MS / 60_000);
+    assert!(priced(&core) && advertised(&core));
+    let events = minutes(&mut core, &mut ledger, 1);
+    assert_eq!(peg(&core).paused, Some(PegPause::OffPeg));
+    assert_eq!(peg(&core).last.map(|(price, _)| price), Some(950_000));
+    assert!(!priced(&core), "converts while off its peg");
+    assert!(core.price_table().ledger(LedgerId::XrplXrp).is_some());
+    assert!(!advertised(&core), "in the link state while off its peg");
+    let told = |events: &[Output], paused: bool| {
+        events.iter().any(|output| match output {
+            Output::Event(Event::Settlement(SettlementEvent::PegPaused { scheme, .. })) => {
+                paused && scheme.as_str() == "xrpl-rlusd"
+            }
+            Output::Event(Event::Settlement(SettlementEvent::PegResumed { scheme })) => {
+                !paused && scheme.as_str() == "xrpl-rlusd"
+            }
+            _ => false,
+        })
+    };
+    assert!(told(&events, true));
+    // What arrives is still booked.
+    ledger
+        .issue(address, Token::RLUSD.amount(token("1")))
+        .unwrap();
+    minutes(&mut core, &mut ledger, 1);
+    let view = core
+        .ledger_views()
+        .into_iter()
+        .find(|v| v.id == rlusd)
+        .unwrap();
+    assert_eq!(view.owner_balance, 11_000_000_000);
+
+    // Back at a dollar, for the recovery hold.
+    pool(&mut ledger, 200_000);
+    minutes(&mut core, &mut ledger, RECOVER_HOLD_MS / 60_000);
+    assert!(!priced(&core));
+    let events = minutes(&mut core, &mut ledger, 1);
+    assert_eq!(peg(&core).paused, None);
+    assert!(priced(&core) && advertised(&core));
+    assert!(told(&events, false));
+}
+
 /// A core node at `https://core.test` that takes QUIC, and so downlinks,
 /// on `store`, of `realm` as `live` allows, started at `now`.
 fn core_taking_downlinks(

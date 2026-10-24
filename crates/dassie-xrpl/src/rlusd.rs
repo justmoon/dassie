@@ -10,9 +10,11 @@
 
 use dassie_ledger::LedgerId;
 
+use crate::DROPS_PER_XRP;
 use crate::account::LineKey;
 use crate::amount::Currency;
 use crate::keys::AccountId;
+use crate::peg::Peg;
 use crate::token::{IssuedToken, Token, TokenScheme};
 
 pub use crate::token::UNITS_PER_MICRO;
@@ -43,6 +45,14 @@ pub const TOKEN: Token = Token {
     currency: CURRENCY,
     ledger: LedgerId::XrplRlusdUsd,
     network: &crate::network::MAINNET,
+    peg: Some(PEG),
+};
+/// What prices RLUSD: mainnet's RLUSD/XRP pool, while it holds at least
+/// 100,000 XRP. It held about 1.86 million when measured; drained to a
+/// twentieth of that, it has lost the depth that makes its price costly to
+/// move.
+pub const PEG: Peg = Peg {
+    min_pool_drops: 100_000 * DROPS_PER_XRP,
 };
 /// The line the scheme settles on.
 pub const LINE: LineKey = TOKEN.line();
@@ -77,6 +87,8 @@ pub const TESTNET_TOKEN: Token = Token {
     currency: CURRENCY,
     ledger: LedgerId::XrplTestnetRlusdUsd,
     network: &crate::network::TESTNET,
+    // The testnet's RLUSD/XRP pool prices it nowhere near a dollar.
+    peg: None,
 };
 
 #[cfg(test)]

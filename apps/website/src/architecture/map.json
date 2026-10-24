@@ -420,6 +420,7 @@
         "Settles in a dollar token, DSUSD on the testnet or RLUSD on mainnet, on a trust line it sets up itself, booked in dollars by what reaches the line, the issuer's clawbacks included",
         "Pays a token scheme's fees in XRP: booked on the XRP ledger when the XRP scheme shares the account, off the books otherwise",
         "Stops settling while the issuer freezes the line, and stops asking peers to pay while the line cannot receive",
+        "Pauses a dollar token's scheme, and the node's conversions to and from its ledger, while the token's AMM pool, priced at the node's XRP rate, says it is off its dollar peg or cannot be read",
         "Never books the reserve, and catches up after a restart",
         "Asks the testnet faucet when the account is new, or when the owner wants more test XRP; mainnet has none, so its account waits for the owner's deposit",
         "Reports what the account holds, as the ledger says, for the wallet: XRP and its reserve, and each line with its freezes",
