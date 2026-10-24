@@ -83,7 +83,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [Market maker VM](areas/market-maker-vm.md) | The VM that runs a market maker and its two nodes against testnet core nodes: secrets, releases and updates, settings |
 | [Testing](areas/testing.md) | Test levels, golden vectors, simulations and the simulation runner |
 
-Not built yet: the [roadmap](roadmap.md), and the designs in `designs/`: what is not built of [settlement hubs](designs/settlement-hubs.md), and what is not built of the [periphery](designs/periphery.md).
+Not built yet: the [roadmap](roadmap.md), and the designs in `designs/`: what is not built of [settlement hubs](designs/settlement-hubs.md), what is not built of the [periphery](designs/periphery.md), and [checking the XRP Ledger's validators](designs/xrpl-validation.md).
 
 ## What belongs here
 

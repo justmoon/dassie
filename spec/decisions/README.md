@@ -26,8 +26,9 @@ Each file records one choice between real alternatives: the facts that forced it
 | [full-or-stopped-short](full-or-stopped-short.md) | A receiver says whether it is full or stopped short | payments, stream |
 | [headless-setup](headless-setup.md) | An owner who keeps the passphrase on the node's host sets the node up with `dassie setup`, through the node's own setup route | node, http, identity, overview |
 | [hub-founding](hub-founding.md) | The sponsor founds a hub over a stream of its own, and a quorum's signatures of the genesis found it | hubs, peer-protocol, designs/settlement-hubs |
-| [issued-assets](issued-assets.md) | An issued asset's issuer is the owner's counterparty (transfer fees not built) | xrpl, settlement, connector |
-| [ledger-resets](ledger-resets.md) | A ledger below the newest seen is a reset only on the testnet | xrpl |
+| [issued-assets](issued-assets.md) | An issued asset's issuer is the owner's counterparty, and a dollar token pauses off its peg (transfer fees and the peg guard not built) | xrpl, settlement, connector |
+| [ledger-resets](ledger-resets.md) | A ledger below the newest seen is a reset only on the testnet, and only once its UNL validates it (the UNL's part not built) | xrpl, designs/xrpl-validation |
+| [mainnet-schemes](mainnet-schemes.md) | Mainnet has schemes of its own, and a ledger runs only in its node's realm (not built) | xrpl, settlement, ledger, node, identity |
 | [membership-economics](membership-economics.md) | Network membership economics (fee not built) | network |
 | [named-decisions](named-decisions.md) | Decisions are named, not numbered | engineering |
 | [nix-flake-on-the-mirror](nix-flake-on-the-mirror.md) | NixOS takes a release from a flake on the mirror | release |
@@ -47,7 +48,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [promotion-to-core](promotion-to-core.md) | A node becomes core by registering and being promoted (not built) | network, peer-protocol, designs/periphery |
 | [random-seed-simulations](random-seed-simulations.md) | Simulations run continuously, from random seeds (partly built) | testing |
 | [ready-after-first-step](ready-after-first-step.md) | A node is up once its engine has committed a step | node, release |
-| [real-money](real-money.md) | Real money | xrpl, roadmap |
+| [real-money](real-money.md) | Real money | xrpl, node, designs/settlement-hubs, roadmap |
 | [receive-limit-alone](receive-limit-alone.md) | A receive limit alone bounds nothing: it is refused, and grants kept with one are revoked | payments |
 | [receive-limit-caps-delivery](receive-limit-caps-delivery.md) | A receive limit caps what payments deliver, not only what they reserve | payments, stream |
 | [release-integrity](release-integrity.md) | Release integrity | release |
@@ -60,6 +61,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [tigerstyle](tigerstyle.md) | Engineering style: pragmatic TigerStyle and deterministic simulation | engineering, testing |
 | [unreachable-peers](unreachable-peers.md) | A node takes no Prepare from a peer it cannot reach | connector, peer-protocol, settlement |
 | [unusable-limits](unusable-limits.md) | A limit no payment can use is caught before approval | payments, wallet |
+| [verified-ledgers](verified-ledgers.md) | The node books only what ledgers its own UNL validated prove (design, not built) | designs/xrpl-validation, xrpl, designs/settlement-hubs |
 | [versions-0-1-and-0-2](versions-0-1-and-0-2.md) | Nodes of 0.1 and 0.2 do not settle with each other | peer-protocol, settlement, release |
 | [website-hosting](website-hosting.md) | dassie.land is a bucket behind the mirror's load balancer | website, release |
 

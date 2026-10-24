@@ -11,7 +11,7 @@ The account is an external asset (`account.rs`). `xrpl-testnet` is a scheme on i
 
 ## Real money
 
-Real money is refused at every level until the conditions of [real-money](../decisions/real-money.md) hold, which the [roadmap](../roadmap.md#real-money) lists. The scheme meets the XRP Ledger's part of them (the reserve is never booked, an account's creation is a deposit, it settles whole drops, books fees and checks results and senders); mainnet also needs a memo type of its own. Until then:
+Real money is refused at every level until the conditions of [real-money](../decisions/real-money.md) hold, which the [roadmap](../roadmap.md#real-money) lists. The scheme meets the XRP Ledger's part of them (the reserve is never booked, an account's creation is a deposit, it settles whole drops, books fees and checks results and senders); mainnet also needs [schemes of its own](../roadmap.md#mainnet-schemes) and the [validators checked](../roadmap.md#checking-xrp-ledger-validators). Until then:
 
 - The realm `live` is refused ([Node](node.md)), a scheme on a ledger outside the test realm does not activate ([Settlement](settlement.md#schemes-and-ledgers)), and there is no mainnet scheme.
 - **The testnet account refuses other networks.** Before it reads the account, it checks that its server reports the testnet's network ID. A server that reports another, or none, stops the account as failed, and every scheme on it with it, before anything is booked, written off or signed. An owner who points it at a mainnet server gets a failed scheme, not mainnet XRP booked or signed for with a testnet wallet.
@@ -130,7 +130,7 @@ The scheme books **every validated transaction that touches its account once, in
 
 **Only what is newer** ([ledger-resets](../decisions/ledger-resets.md)). The account acts only on what a server says as of a validated ledger at or past the newest it has seen, by the ledger stream, a server's state or what a scheme on it booked. A public address spreads its connections over several servers, and one may answer from a ledger minutes old: its answers, an absent account included, are not acted on, and are asked for again as ledgers close, until it has caught up. Validated ledgers are final, so a server behind can only delay the account. The newest ledger seen, with its close time, is kept with the account's state.
 
-**The server is trusted.** The account takes its server's word on which ledgers are validated and what they hold: it checks no validator's signature. Only what is newer protects against a server that lags, not one that lies, which can have a scheme book anything, or claim a testnet reset. Checking the validators against a UNL of the node's own is [not built](../roadmap.md#checking-xrp-ledger-validators).
+**The server is trusted.** The account takes its server's word on which ledgers are validated and what they hold: it checks no validator's signature. Only what is newer protects against a server that lags, not one that lies, which can have a scheme book anything, or claim a testnet reset. Checking the validators against a UNL of the node's own is [not built](../roadmap.md#checking-xrp-ledger-validators) ([the design](../designs/xrpl-validation.md)).
 
 **Connecting.** On each connection: check the network, read the server's fees and reserves, and tell from its validated ledger whether it is behind or on a chain started again; subscribe to the account and the ledger stream; only then read the account at the validated ledger, so nothing falls between what it says and what the stream says next, and each line a scheme follows as of that same ledger, so what the line says and what the transactions after it say add up; catch up from the earliest cursor with the account's history, holding the stream's transactions meanwhile; then the schemes make their books match the balance and the lines and book what was held, and the account submits what waits. A server whose history does not reach back leaves the balance and the lines to say what changed, through suspense, without who it was.
 
@@ -219,6 +219,8 @@ The fake checks who signs as the ledger does (`fake/signers.rs`), so that a hub'
 - [issued-assets](../decisions/issued-assets.md): a token's issuer as the owner's counterparty, and a dollar token at par.
 - [dsusd](../decisions/dsusd.md): a testnet dollar of Dassie's own beside RLUSD, bought only with XRP through a pool kept at the market.
 - [real-money](../decisions/real-money.md): the gates before real money, and the testnet-only network check.
+- [verified-ledgers](../decisions/verified-ledgers.md): checking the XRP Ledger's validators (not built).
+- [mainnet-schemes](../decisions/mainnet-schemes.md): mainnet's schemes and the realm gate (not built).
 - [tigerstyle](../decisions/tigerstyle.md): sans-IO, so the fake ledger can stand in for the network.
 - [synced-before-peering](../decisions/synced-before-peering.md): no peering on the scheme before its first sync.
 - [closing-channels](../decisions/closing-channels.md): a peer's address goes when its settlement channel closes.

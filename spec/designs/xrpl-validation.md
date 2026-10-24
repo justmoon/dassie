@@ -1,0 +1,148 @@
+# Checking the XRP Ledger's validators
+
+An XRPL account takes its server's word today on which ledgers are validated and what they hold ([XRPL](../areas/xrpl.md#following-the-account)). Acting only on what is newer than the newest ledger seen protects against a server that lags, not one that lies: a dishonest server can have a scheme book a settlement that never arrived, cancel one that applied, or claim a testnet reset that writes off the node's balance. With real money, that would let a server's operator take a node's money.
+
+This design has the node check the XRP Ledger's validators itself, on both networks, so that **nothing is booked, cancelled or written off on a server's word**. The reasons are [verified-ledgers](../decisions/verified-ledgers.md); it is not built yet ([roadmap](../roadmap.md#checking-xrp-ledger-validators)). The mainnet schemes ([mainnet-schemes](../decisions/mainnet-schemes.md)) and the dollar token's peg guard ([issued-assets](../decisions/issued-assets.md)) build on it: the guard's price is state this design ties to verified transactions. Every bound named below is a constant of the code, set there from what was measured on mainnet; the design gives only the reason for each.
+
+## 1. The rule
+
+- **A ledger counts as validated** only when a quorum of the node's own UNL signed its hash, with signing times recent enough that no old validation can be replayed.
+- **A transaction counts** only when its bytes and its metadata are a leaf of a validated ledger's transaction tree, which one gate checks: `verify(root, key, leaf, branch)`.
+- **State counts** (an account's balance and sequence, a trust line) only as the outcome of such a transaction, through the object's `PreviousTxnID`.
+- **An absence counts** only when it is proven. A transaction is absent only when every ledger it could have applied in was read in full and it is in none. An account is gone only by a verified `AccountDelete`, or a reset the UNL validated.
+- **Everything else a server says is a hint:** fees, reserves, an issuer's flags, `submit` results, which ledger is newest, what the stream says happened. A hint may steer what the node asks for, signs or waits for. At worst it makes the node wait, or waste a bounded fee. Hints never reach the books, but for the reserve, which can only hold back more of the owner's own funds (§3.2).
+
+## 2. Trust model
+
+- **Trusted:** the list publishers' keys, built in per network or set by the owner (§9); the UNL their signed lists name, with each validator's current signing key from manifests its listed master key signed; and the cryptography.
+- **Assumed:** a quorum of the UNL is honest and signs one chain. This is the XRP Ledger's own assumption; the node adds none.
+- **Untrusted:** the WebSocket server, the path to it (TLS authenticates only the server), the list sites (the lists are signed, so a site only has to be available), and the streams.
+- **What binds the network** is the UNL, not a server's network ID. A validation signs no network ID, the stream's network ID is the relaying server's claim, and the mainnet and testnet UNLs share no key. So an account's network is a constant of the account, and so is whether it resets ([ledger-resets](../decisions/ledger-resets.md)). The server's network ID stays a cheap first check, which catches a misconfigured server at once.
+
+## 3. Every read, and what it becomes
+
+Words used below: a **validated ledger** is a ledger hash a quorum of the UNL signed with fresh signing times. A **proven header** is a ledger header that hashes to a validated ledger's hash, or to the parent hash of a proven header, which proves every ledger below a validated one by walking down the chain. A **proven transaction** is a leaf the gate accepts against a proven header's transaction root. **Tied state** is an object whose fields the node takes from the metadata of the proven transaction its `PreviousTxnID` names: the `FinalFields`, or the `NewFields` with defaults for what they leave out.
+
+| Read | Becomes | What a lying server can at worst cause |
+|---|---|---|
+| The server's state, the ledger stream | Hints: the network ID (a mismatch reconnects, backing off, and no longer fails the account, since a server on another network can get nothing booked), fees, reserves, the ledger to look for. The newest ledger and the schemes' news of closed ledgers move only with validated ledgers. | A stall. A fee above the real one costs at most the fee ceiling, and the fee booked is the proven transaction's. |
+| The validations stream | Verified: decoded from its serialized bytes, its signing key mapped through verified manifests to a listed master, full and fully canonical, its signing time fresh, its signature checked. | Withholding stalls. Forging needs a UNL key; replaying needs a fresh signing time. |
+| Manifests (stream and `manifest`) | Verified under the master key a verified list names; the highest sequence wins; a revocation removes the key. The lists' own manifests already lag behind validators that rotated their keys, so newer ones are taken from any source. | Withholding a rotation: that validator's validations do not count. |
+| The account's history, its stream and `tx` lookups | Hints: hashes and ledgers to prove. Each record is built from the proven binary transaction and metadata, never from the server's JSON. | Omitting records is caught by the object's chain (§3.1). Invented records are refused: they are no leaves. |
+| `tx` not found, a `tem` from `submit` | Hints, never a cancel. A transaction past its last ledger is cancelled only by the **absence scan**: every ledger from when it was submitted to its last ledger is a proven header whose full transaction set rebuilds its root, and the transaction is in none. | A stall. Cancelling a settlement that applied, which pays the peer twice, is exactly what this closes. |
+| `account_info` of our account, `ledger_entry` of a line we follow | Tied state, as of the tie's ledger, not the ledger the answer names. A thread-only node (§3.1) is walked back through its `PreviousTxnID`, within a bound. An absent account or line is a hint: believed only while the books hold nothing of it; otherwise the account waits. | A stale state (§3.3) or a stall. Never a write-off. |
+| `account_info` of a token's issuer | A hint, untied ([issued-assets](../decisions/issued-assets.md)): the issuer's account is threaded by every line made or deleted, so a tie is impractical. It only steers whether the scheme tries; the ledger enforces a freeze and a fee whatever the node believes. | A claimed freeze or fee stalls the scheme. A hidden one makes our Payments fail on the ledger, each a proven failure whose fee is booked, with the scheme's backoff. |
+| An AMM pool, for the peg guard | Tied state of the pool account's root (its XRP) and its line to the issuer (the token), which a swap changes and the `AMM` object does not. The pool account is checked by its `AMMID`, derived from the asset pair, so a server cannot substitute another account. | A real but stale price (§3.3). |
+| The faucet's answer | A hint to read the account again. | A wasted request. |
+
+### 3.1 The account's own chain
+
+Every transaction that changes an object names the object's previous `PreviousTxnID` on its node in the metadata, and becomes the object's new one. So the proven transactions that touch our account root, and separately each line we follow, form a hash chain. The account keeps, for each object, its **head**: the last proven transaction it applied to it.
+
+- **Continuity.** A proven record is applied to an object only if it names the head as its predecessor. If it names another, a record is missing between them: the account fetches the predecessor by its hash, proves it, and walks back until it meets the head, within a bound, then delivers the records in ledger order. A server cannot drop a transaction from the middle of the account's history; it can only withhold the newest, which is a server behind.
+- **Ties start the chain.** A tie is needed only where no proven record exists yet: at the first sync, after a write-off, or where the history does not reach back to the head. With a head, the state is the last proven record's, and a server's answer only cross-checks it.
+- **Thread-only nodes.** A transaction that makes or deletes an object of an account without otherwise changing the account (a check or an escrow made to us, a line made with an issuer) threads the account root with no `FinalFields`. It keeps the chain and changes no field: it is proven like any record, and books nothing.
+
+### 3.2 Fees and reserves stay hints
+
+The ledger's fee settings change only by a pseudo-transaction on a voting ledger, possibly years back, and validations carry fee votes only when they differ from the current values. Tying them would mean walking millions of headers. So fees steer signing only: a low lie leaves the transaction out (it waits, and only the absence scan cancels it), a high one costs at most the fee ceiling.
+
+The reserve reaches the books, which hold the balance less the reserve. So the account takes **the higher of the server's reserve and a floor that is a constant of its network**. A liar can then only make the account hold back more of the owner's own XRP; it can never make the books show more spendable XRP than the account has. When the network lowers its reserve, nodes hold back the old floor until a release lowers it, which costs the owner a few XRP held back.
+
+### 3.3 What a tie cannot prove
+
+A tie proves that right after transaction T, in a validated ledger, the object held s. It cannot prove that no later transaction changed it: the public API has no state proofs. A server can return an old state and hide what came after.
+
+- **The scheme's cursor is set at the tie,** never at the ledger the server named. A hidden transaction surfaces once the next proven one names it as its predecessor, and is booked in order: a peer's settlement is still booked as the peer's.
+- **Beyond the bounds,** a predecessor that cannot be fetched or proven makes the gap history that does not reach back, which is how a server without history is handled today: the books end at the proven balance through suspense, a peer's settlement in the gap is booked as the owner's deposit, and a settlement of ours stays pending for the owner, never cancelled.
+- **A stale sequence** signs a used sequence, which never applies: the absence scan proves it, and it is cancelled rightly.
+- **A stale pool price** can hold the peg guard on the wrong side for as long as the guard's freshness bound allows ([issued-assets](../decisions/issued-assets.md)).
+
+Every movement the schemes book comes from a proven transaction's metadata; a tie only sets where the chain starts. So a stale tie can delay a booking, or beyond the bounds move it from a peer's account into the owner's suspense, but it can never credit a peer, cancel a settlement or write anything off. Proofs from rippled's peer network, which give state branches, would end this residual ([roadmap](../roadmap.md#checking-xrp-ledger-validators)).
+
+## 4. The verifier
+
+New sans-IO modules in `dassie-xrpl`, under the crate's rules ([tigerstyle](../decisions/tigerstyle.md)): time is an input, nothing recurses, every queue and walk has a named bound, no float (a quorum is integer arithmetic), and untrusted bytes get an error value, never a panic. Each stateful part checks its invariants.
+
+- **A generic codec walker** reads any canonical serialization field by field, knowing only the types: header forms, strictly ascending fields, lengths by type, objects and arrays nested within a bound. An unknown type, a field out of order or nesting too deep is an error. It also cuts named fields out of a serialization, which gives a validation's and a manifest's signed bytes. The strict codec for what the node signs stays as it is.
+- **Binary records.** A binary transaction and its metadata decode into the record the schemes read today, so the schemes and the hub read it unchanged. Its ledger is the proven ledger, never a claim. A record carries a mark that only the verifier sets. The JSON parsers stay, for the hub and the market maker, but the account no longer builds records from JSON.
+- **The header** parses and hashes, and its parent hash chains it to the one below.
+- **The tree.** A builder takes a ledger's whole transaction set and yields its root and the branch of each key asked for, iteratively. The gate `verify(root, key, leaf, branch)` is the only way a transaction counts. A leaf hash commits to its key, so a leaf cannot be moved to another path. Absence is the full set rebuilding the root without the key.
+- **Manifests, lists and the UNL.** A publisher's list is verified against a configured publisher key: its manifest, its signature by the publisher's current signing key, its sequence (a lower one is stale, also after a restart), its expiry, and a pending list kept until it takes effect. A validator manifest in a list applies only to a master the list names. The trusted set and quorum follow rippled's rules for combining publishers, including that quorum is disabled while too many publishers are unavailable: with the two mainnet publishers, either one unavailable stalls the node, as it stalls rippled in its default configuration.
+- **Validations and quorum.** A validation counts only if its key is a listed master's current signing key, it is full and fully canonical, its signing time is within the window rippled counts as current, and its signature checks. The cheapest checks come first, so a flood costs at most one signature check per master and ledger. Tallies are bitsets per ledger and hash, for a bounded window of sequences, and no validation is kept once counted. A master that signs two hashes for one sequence counts for neither. A tally that reaches quorum makes a validated ledger, kept in a bounded ring.
+- **Quorum** is ⌈0.8·n⌉ of the whole UNL. **No negative UNL at launch:** a ledger is never accepted with fewer than four fifths of the whole UNL's signatures, the trust rippled itself requires but for validators the network marked unreliable. It costs liveness only while more than a fifth of the UNL is offline at once.
+
+## 5. The proof engine
+
+The account asks the engine for proofs, and the engine asks the account to send requests through its own request table.
+
+- **What it is asked:** to prove a ledger's transactions, to tie an object's claimed state, and to scan ledgers for an absence. A bounded number of ledgers wait at once. Results come out in ledger order, a ledger only once every lower one waiting is settled.
+- **A ledger's hash** comes from the ring of validated ledgers, or by a **header walk** down from the nearest proven anchor above it: the newest validated ledger, or the persisted newest header, which proves everything below it without waiting for live validations. A walk asks for a bounded number of headers ahead, keeps only the hashes it needs, and reaches a bounded depth.
+- **A ledger's transactions** come as its whole binary set, fetched only for ledgers in which the account has a transaction. The engine hashes each leaf, builds the tree, checks the root against the proven header, takes the branches it needs through the gate, and decodes only the records asked for. Few sets are fetched at once, since public servers throttle heavy requests per address.
+- **Giving up within the bounds.** A set above its bound, a ledger below the walk's reach, or one the server will not serve after reconnecting is unprovable, and the account treats it as history that does not reach back (§3.3), logged as a warning and counted. Waiting instead would let anyone who can fill one ledger, for a few XRP of escalated fees, stall a node's scheme.
+- **A lie is a reconnect.** A header that hashes wrong, a root that does not match, a claim that is not its tie, a predecessor missing: the engine counts it by kind, and the account connects anew, as for a request left unanswered. So does silence while a proof waits.
+- **A fork,** a proven header whose parent is not the validated ledger below it, means the UNL validated two chains: the account stops as failed. Under the trust assumption it cannot happen.
+- **A boundary for the source.** Between the engine and fetching whole sets sits one interface, so that a source from rippled's peer network (`TMProofPathRequest`) can replace the builder later and feed the same gate, with state branches too.
+
+## 6. How the account takes validated ledgers
+
+- **The newest validated ledger,** which last ledgers and expiry use, moves only with validated ledgers. A transaction's last ledger takes the server's hint only within a bound above the newest validated ledger, so a lie can neither expire our transactions at once nor keep them valid for good.
+- **The newest header** (index, close time, hash) moves with proven headers, and the chain rule of resets runs on proven headers only (§8).
+- **Phases.** Connecting becomes: the server's state, the subscriptions, a UNL ready (a verified list per publisher, quorum enabled, manifests asked for), a validated ledger with its header, the account's and lines' claims tied or their heads cross-checked, the history proven in order, then synced. Each step that waits shows a reason, such as waiting for the validator list, no quorum of validators, or answers it cannot prove, so the owner sees why a scheme stands still.
+- **Signing and submitting** need what they need today, a proven balance and sequence. Executed transactions are submitted again on each connection, proven or not: submitting books nothing.
+- **Expiry.** Past its last ledger, an executed transaction gets its absence scan: found on the way, it is booked; proven absent, cancelled; while no scan completes, it stays in flight.
+
+## 7. IO
+
+- **Streams.** Manifests always: the stream carries only new ones. **Validations on demand:** the account subscribes while it needs a validated ledger (a proof waits, a scan, a hint of a new chain, a guard's reading, the first anchor after connecting, and periodically to keep its newest header fresh) and unsubscribes a while after the last need. A mainnet server streams every validation it hears, gigabytes a day, which a desktop node on a metered line should not pay for. A transaction reaches the stream only after its server saw its ledger validated, so the account proves it from the next validated ledger, one parent hash down.
+- **Requests** added beside the account's: a header by index or hash, a ledger's binary transaction set, a binary `tx`, a `manifest`, and subscribing to and leaving the two streams; all at the API version the account already pins.
+- **The message bound** of the account's connection must hold the largest transaction set the engine accepts, hex-encoded. The largest set measured on mainnet already exceeds the bound the connection has today, so it rises with this design.
+- **The lists over HTTPS,** through a new pair beside the faucet's in the external-asset interface: the account asks for a fetch, the node carries it out and hands back the body, or nothing on any failure. No redirects are followed, so a built-in site is the address that serves the list. Public addresses only, but where private ones are allowed (dev, tests). A list is refreshed periodically, more often near its expiry, at once when quorum was lost, and from a publisher's second site when the first fails.
+- **Never trust instead.** A list keeps counting until its expiry, whether or not its site answers. An expired list makes its publisher unavailable, and with the mainnet defaults every proof waits, with the reason shown. There is no fallback to the server's word, to an expired list, or to the last validators seen. Lists are persisted, so a restart does not need the sites first.
+
+## 8. Resets under a UNL
+
+- **A reset is a chain the testnet's UNL validates.** On a proven header of a validated ledger, with a lower index than the newest header and a later close time, an account whose network resets writes off and follows the new chain. A server that shows a lower ledger is only a hint to look for one ([ledger-resets](../decisions/ledger-resets.md)).
+- **Along one chain both index and close time grow.** A proven header with a higher index but an earlier close time is on an older chain, and is ignored, so validations of the old chain replayed after a reset never flip the account back. The signing-time window already stops replays; this keeps the rule right on its own.
+- **After a restart,** the first validated ledger closed near now, later than any header written before: above it is the same chain, below it a reset that happened while the node was down. The UNL decides both.
+- **New validator keys.** A reset that also re-keys the testnet's validators leaves no quorum until the new list is fetched; the refresh on lost quorum finds it, then the reset is seen.
+- **On a network that never resets,** a lower validated ledger that closed later means the validators went back: the account stops as failed, as today.
+- **The clock.** Fresh validations need the node's clock within the window. A clock minutes off stalls the account with its reason; it never makes it accept anything.
+
+## 9. Configuration and state
+
+- **Per network,** built in: the network ID the first check expects, whether it resets, its list publishers (each a master key and the sites that serve its list), and its reserve floor. Mainnet's publishers are Ripple's and the XRP Ledger Foundation's, the two rippled's default configuration names; the testnet has its own.
+- **The owner's override.** The account's config may name the list publishers, each by its key and its sites, which then replace the network's defaults entirely: an owner who trusts one publisher only, or runs their own. A static list of validators without a publisher is not offered. Like the server and the faucet, the publishers are the account's config, which the scheme that activates it names.
+- **Kept with the account's state:** the newest header with its hash; each object's head; each publisher's current list and a pending one, as received; and validator manifests newer than their lists'.
+- **At load,** lists and manifests are verified again. One that no longer verifies, because the owner changed the publishers, or that expired, is dropped and fetched again: a config change, not an impossible state. Refused as impossible: a head newer than a proven newest header, two heads for one object, two current lists for one publisher, more manifests than the UNL's bound or two for one master.
+- **A state written before verification** has a newest ledger without a hash. It is kept as a hint, as trusted as it was when written; the first proven header replaces it by the chain rule, and one that would stop the account as having gone back replaces it instead, since only the old hint can have been wrong.
+
+## 10. In the simulation
+
+The `node` simulation closes ledgers fast, for long simulated stretches, with several validators and up to a dozen nodes. Checking every validation's secp256k1 signature, and the fake signing them, would cost minutes per simulated day. So validation signatures sit behind a narrow interface, as [engineering](../engineering.md#pragmatic-tigerstyle) asks of costly crypto:
+
+- **The node's** checks the real signature.
+- **The simulation's** has each fake validator sign with a keyed hash of the signed bytes under a secret only the fake and the checker hold. A lying server holds no secret, so it can withhold or replay, never forge. Only the testing build can pass it in.
+- **Only validation signatures are substituted.** Lists and manifests are checked for real, and so is everything else: the validation's bytes and digest, its key's manifest, the window, the tallies, every header, walk, tree, branch, tie and absence scan, the list rules and the reset rule.
+- **Where the real path runs:** the golden tests on mainnet and testnet captures, the account's unit tests against an in-process fake with real signatures, and the end-to-end tests, whose `fake_ledger` signs for real.
+
+## 11. The fake ledger and the lying server
+
+- **Real headers and binary.** Each closed ledger has a real header whose transaction root is its set's, built with the same tree the mainnet fixtures pin against rippled, so the fake and the node cannot agree on a wrong tree. Every applied transaction keeps its binary form and binary metadata as rippled writes them, thread-only nodes included, and every object its `PreviousTxnID`. A test checks, for every kind of transaction the fake applies, that the binary decoder gives the same record as the fake's JSON.
+- **Validators and a publisher.** A few validators, enough that one can be withheld and the network still validates, each with a master key, a signing key and a manifest, sign every ledger; a publisher signs their list, served in-process and by `fake_ledger` beside its faucet. Tests can rotate a validator's key, publish a new list, let one expire and revoke. In mainnet mode the fake has validators of its own, so the two networks' UNLs share no key, as live.
+- **A reset** starts the chain again with a later close time, and the same validators validate it; optionally with new keys and a new list.
+- **A lying server.** A connection can be made dishonest, in-process and through `fake_ledger`, with each kind of lie: a transaction no ledger holds, altered state with a real `PreviousTxnID`, real but old answers, an absent account that exists, a reset with a made-up header, withheld validations, forged or replayed validations, a `tx` not found or a `tem` for what applied, and headers or sets that hash wrong.
+- **The node simulation's fault.** A linked node's connection drops and comes back to a lying server of a drawn kind, for a time drawn from the production timings that end a connection; the next connection is honest. Beside the per-node checks against the fake's truth: no settlement cancelled that the fake applied, no write-off without a reset of the fake, and settling as before after the heal, whose deadline derives from those timings. Scripted runs set up each kind once, and a real reset under the UNL, a key rotation, an expired list and a withheld quorum.
+- **Coverage.** Each run counts every kind of lie, rotations, lists fetched, ledgers proven and absence scans; CI asserts a minimum of each over the fixed seeds, and that every XRPL node proved a ledger, so a change that quietly bypasses the verifier fails.
+
+## 12. Who else uses it
+
+- **The peg guard** reads its pool through the account, as tied state (§3), on whatever network its token is on ([issued-assets](../decisions/issued-assets.md)).
+- **Hub validators** ([settlement hubs](settlement-hubs.md#6-deposits-and-withdrawals)) each run the same verifier against their own servers, with the UNL of the escrow's network, and attest only records the verifier marked. The escrow's setup check becomes tied state: the account root's flags, regular key and owner count tied to its `AccountSet`s, the signer list tied to its `SignerListSet`, and "no other objects" from the tied owner count rather than from `account_objects`, whose completeness no server can prove. The hub reads the same records as now, so its code changes only where it takes them from.
+- **The market maker** keeps trusting its server: it trades its own money, by its operator's choice.
+
+## 13. What pins it
+
+Golden fixtures captured from mainnet and the testnet, trimmed and committed under `testdata/xrpl/` with the scripts that captured them: ledger headers and their chain, one ledger's validations by the whole UNL and a flag ledger's, the publishers' lists and the validators' manifests, a ledger's whole transaction set with its root and a branch, objects tied to the transactions that made them, and both pools. One ledger is also captured as JSON, so the binary decoder is checked against rippled's JSON field by field.
+
+The fixtures are to settle four points that rest on reading rippled rather than on what was captured: how the delivered amount is derived (the metadata's `DeliveredAmount`, else a Payment's `Amount`), the order of the two assets in an AMM's key, that a trust line is never a thread-only node, and the full set of serialized types the walker must know.
