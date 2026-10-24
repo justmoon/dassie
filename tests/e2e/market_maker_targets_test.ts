@@ -26,12 +26,7 @@ import {
   type ScenarioNode,
 } from "@dassie/dev/scenario";
 
-import {
-  DASSIE,
-  FAKE_LEDGER,
-  missingScenarioTools,
-  SCENARIO_PORT_OFFSET,
-} from "./harness.ts";
+import { DASSIE, FAKE_LEDGER, missingScenarioTools } from "./harness.ts";
 import {
   DSUSD,
   feedPort,
@@ -53,14 +48,16 @@ const SCENARIO = "market-maker-two-targets";
  */
 const RUN_MS = 600_000;
 /**
- * Clear of every other file's ports, which run beside these: the other
- * files take offsets of `SCENARIO_PORT_OFFSET` up to 900 more, so their
- * nodes' HTTP, HTTPS (and QUIC) and feed ports fill 18000–20999 and their
- * fake ledgers and rate servers 24200–25210. A thousand more would put
- * this file's HTTP on another file's HTTPS, and its HTTPS and QUIC on
- * another's feed.
+ * Clear of every other file's ports, which run beside these, and below the
+ * ports the system hands out (32768 up). The other scenario files take
+ * `SCENARIO_PORT_OFFSET` up to 900 more, so their nodes' HTTP, HTTPS (and
+ * QUIC) and feed ports fill 18000–20999 and their fake ledgers and rate
+ * servers 24200–25210; dev_test.ts takes 16000, so 20001 up, 21001 up,
+ * 22001 up and 26100–26210; Pebble takes 14000 and 15000. At 10000 this
+ * file's nodes take 14001 up, 15001 up and 16001 up, and its fake ledger
+ * and rate server 20200 and 20210 on TCP, where the others' feeds are UDP.
  */
-const PORT_OFFSET = SCENARIO_PORT_OFFSET + 3_000;
+const PORT_OFFSET = 10_000;
 /**
  * The peer accounts once settled, both sides of each: d3 and d4 with d1
  * and d2, at least; d1 and d2 peer with each other too.
