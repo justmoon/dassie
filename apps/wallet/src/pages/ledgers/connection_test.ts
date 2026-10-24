@@ -19,6 +19,25 @@ test("a ledger's connection is told only when it is not in step", () => {
   );
 });
 
+// What a ledger that connects or catches up waits for, it says: such as an
+// XRPL account without a validator list, or on a server without proofs.
+test("a ledger says what it waits for", () => {
+  const text = (connection: LedgerConnection, connectionProblem: string) =>
+    connectionText({ connection, connectionProblem, faucet: false });
+  assertEquals(
+    text(LedgerConnection.SYNCING, "the server serves no proofs"),
+    "Catching up with the ledger: waiting, as the server serves no proofs.",
+  );
+  assertEquals(
+    text(LedgerConnection.CONNECTING, "the server did not answer"),
+    "Connecting to the ledger: waiting, as the server did not answer.",
+  );
+  assertEquals(
+    text(LedgerConnection.SYNCING, ""),
+    "Catching up with the ledger…",
+  );
+});
+
 // Mainnet has no faucet: an account there waits for the owner's XRP alone.
 test("an account without a faucet is told to wait for XRP alone", () => {
   const unfunded = (faucet: boolean) =>

@@ -751,11 +751,15 @@ impl Node {
         use dassie_settlement::{ExternalAsset, LedgerInput};
 
         let scheme_id = dassie_ledger::Name::new(dassie_xrpl::scheme::SCHEME_ID).unwrap();
-        let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
+        // It trusts the fake ledger's validators.
+        let config = dassie_xrpl::fake::with_publishers(
+            r#"{"server":"ws://ledger.test","faucet":null}"#,
+            &dassie_xrpl::network::TESTNET,
+        );
         let mut account = dassie_xrpl::XrplAccount::new(
             dassie_xrpl::account::FIRST,
             &[scheme_id],
-            config,
+            &config,
             &[61; 32],
             &[],
         )
@@ -764,7 +768,7 @@ impl Node {
         xrpl.close();
         let node = dassie_ledger::Name::new("dnode").unwrap();
         let scheme = dassie_xrpl::XrplScheme::new(&account, node, None, &[]).unwrap();
-        account.on_ledger(0, LedgerInput::Connected);
+        account.on_ledger(xrpl.now_ms(), LedgerInput::Connected);
         let mut node = Self {
             account,
             scheme,
@@ -809,9 +813,21 @@ impl Node {
                 return;
             }
             for effect in asked {
-                if let AssetEffect::Send { message } = effect {
-                    let reply = xrpl.request(NODE_CONNECTION, &message);
-                    self.account.on_ledger(0, LedgerInput::Message(&reply));
+                match effect {
+                    AssetEffect::Send { message } => {
+                        let reply = xrpl.request(NODE_CONNECTION, &message);
+                        let now = xrpl.now_ms();
+                        self.account.on_ledger(now, LedgerInput::Message(&reply));
+                    }
+                    AssetEffect::Fetch { url, .. } => {
+                        let body = xrpl.fetch(&url);
+                        let fetched = LedgerInput::Fetched {
+                            url: &url,
+                            body: body.as_deref(),
+                        };
+                        self.account.on_ledger(xrpl.now_ms(), fetched);
+                    }
+                    _ => {}
                 }
             }
         }
@@ -824,7 +840,8 @@ impl Node {
 
         for (connection, message) in xrpl.close() {
             if connection == NODE_CONNECTION {
-                self.account.on_ledger(0, LedgerInput::Message(&message));
+                let now = xrpl.now_ms();
+                self.account.on_ledger(now, LedgerInput::Message(&message));
             }
         }
         self.follow(xrpl);

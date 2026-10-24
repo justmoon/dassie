@@ -126,7 +126,7 @@ pub struct Freeze {
 }
 
 /// What the node passes an external asset from its connection to its
-/// ledger, and from the faucet.
+/// ledger, from the faucet, and from a document it fetched.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LedgerInput<'a> {
     /// The connection is up.
@@ -138,6 +138,15 @@ pub enum LedgerInput<'a> {
     Disconnected,
     /// The faucet answered, or did not.
     Funded(bool),
+    /// A fetch ([`AssetEffect::Fetch`]) of `url` answered with `body`, or
+    /// failed: `None` for no answer, a status other than success, a
+    /// redirect, or a body longer than asked for.
+    Fetched {
+        /// What was fetched, as the asset asked.
+        url: &'a str,
+        /// What came, whole.
+        body: Option<&'a [u8]>,
+    },
     /// A message came from one of its endpoints
     /// ([`ExternalAsset::endpoints`]), named by its index. The node takes
     /// it only from that endpoint, so the asset may take who sent it as
@@ -178,6 +187,17 @@ pub enum AssetEffect {
         /// What to post.
         body: Vec<u8>,
     },
+    /// Fetch a document by an HTTPS GET of `url`, such as a validator list
+    /// from its publisher's site, following no redirect and reading at
+    /// most `max_bytes`. The answer comes as [`LedgerInput::Fetched`], on
+    /// the connection it was asked on: one made anew drops it, and the
+    /// asset asks again.
+    Fetch {
+        /// What to fetch.
+        url: String,
+        /// The longest body taken.
+        max_bytes: usize,
+    },
 }
 
 /// Why a scheme no longer settles through an external asset
@@ -217,6 +237,13 @@ pub trait ExternalAsset: Send + Any {
     /// How it stands with its ledger.
     fn status(&self) -> LedgerStatus;
 
+    /// What it waits for, while it connects or syncs and something keeps
+    /// it from going on, such as a validator list it has none of: shown to
+    /// the owner beside its status. Nothing by default.
+    fn waiting(&self) -> Option<&'static str> {
+        None
+    }
+
     /// Where the node connects for its ledger, if it has one: a WebSocket
     /// URL.
     fn connection(&self) -> Option<&str> {
@@ -232,7 +259,7 @@ pub trait ExternalAsset: Send + Any {
         &[]
     }
 
-    /// Takes in what came from its ledger, or the faucet.
+    /// Takes in what came from its ledger, the faucet, or a fetch.
     fn on_ledger(&mut self, now_ms: u64, input: LedgerInput<'_>);
 
     /// When [`on_timer`](Self::on_timer) is due next, if ever.

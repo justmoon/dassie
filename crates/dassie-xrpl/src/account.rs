@@ -31,12 +31,19 @@
 //! It runs only on its own network ([`Network`], which its kind names): a
 //! server that reports another network, or none, stops it before the
 //! account is read, so another network's XRP is never booked, written off
-//! or signed for (spec/decisions/real-money.md). Only the testnet's
-//! account runs yet. It acts only on what a server says as of a validated
-//! ledger at or past the newest it has seen; a ledger below the newest
-//! that closed later is a new chain, which only a testnet reset makes, and
-//! only on a network [`resets`] allows (spec/decisions/ledger-resets.md).
+//! or signed for (spec/decisions/real-money.md). It acts only on what a
+//! server says as of a validated ledger at or past its anchor: a ledger a
+//! quorum of its own UNL validated, from its publishers' lists
+//! ([`anchors`]), which alone moves what it takes as validated. An anchor
+//! that the kept one's chain does not hold is a new chain, which only a
+//! testnet reset makes, and only on a network [`resets`] allows
+//! (spec/decisions/ledger-resets.md). What it reads of the account is
+//! still its server's word, until it is proven at the anchor
+//! (spec/roadmap.md#checking-xrp-ledger-validators).
 
+mod anchors;
+
+use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -49,14 +56,23 @@ use dassie_settlement::{
 use serde_json::{Value, json};
 
 use crate::amount::{Asset, Currency, TokenAmount, TokenValue};
+use crate::anchor::KeptAnchor;
 use crate::api::{
     self, AccountInfo, AccountSettings, ApiError, LedgerClosed, Message, TrustLine, TxRecord,
 };
 use crate::codec::{Amount, Memo, Payment, Signing, Transact, TrustSet};
-use crate::keys::{AccountId, Wallet};
+use crate::keys::{AccountId, PublicKey, Wallet};
 use crate::network::{Network, TESTNET};
 use crate::peg::PoolReading;
+use crate::skip_list::recent_key;
+use crate::unl::{Secp256k1Signatures, Unl, ValidationSignatures};
+use crate::validator_list::{MAX_PUBLISHERS, UnlConfig};
 use crate::{UNITS_PER_DROP, from_hex, hex_upper};
+
+pub use anchors::{
+    Doubt, FETCH_TIMEOUT_MS, LIST_REFRESH_MS, LIST_RETRY_MS, MAX_MANIFEST_ASKS, STALL_MS,
+};
+use anchors::{Fetching, Round};
 
 /// The scale the account reports a token it holds at: fifteen decimals,
 /// the most a token's sixteen digits leave below a unit of it.
@@ -92,9 +108,10 @@ const REQUEST_TIMEOUT_MS: u64 = 20_000;
 const FUND_RETRY_MS: u64 = 60_000;
 /// Most requests waiting for an answer: a submission and a lookup for
 /// each transaction in flight, the schemes' lookups, the four that keep
-/// the account in sync, and for each scheme a line, an issuer and a pool
-/// read.
-const MAX_PENDING: usize = 2 * MAX_IN_FLIGHT + MAX_LOOKUPS + 4 + 3 * MAX_SCHEMES;
+/// the account in sync, for each scheme a line, an issuer and a pool
+/// read, and an anchoring round's proof or its manifests.
+const MAX_PENDING: usize =
+    2 * MAX_IN_FLIGHT + MAX_LOOKUPS + 4 + 3 * MAX_SCHEMES + 1 + MAX_MANIFEST_ASKS;
 /// Most transactions held while catching up.
 const MAX_BUFFERED: usize = 256;
 /// Most transactions remembered as never sent, until their schemes have
@@ -113,10 +130,12 @@ const MAX_PARKED: usize = MAX_IN_FLIGHT * MAX_SCHEMES;
 #[allow(clippy::cast_possible_truncation)]
 const MAX_NEWS: usize =
     api::PAGE as usize + MAX_BUFFERED + MAX_IN_FLIGHT + MAX_PARKED + 4 + 3 * MAX_SCHEMES;
-/// Most effects between two takings: one message's worth.
-const MAX_EFFECTS: usize = MAX_PENDING + MAX_IN_FLIGHT + 4;
-/// Most bytes of config.
-const MAX_CONFIG: usize = 1024;
+/// Most effects between two takings: one message's worth, and a fetch of
+/// each publisher's list.
+const MAX_EFFECTS: usize = MAX_PENDING + MAX_IN_FLIGHT + 4 + MAX_PUBLISHERS;
+/// Most bytes of config: a server, a faucet and the most publishers, each
+/// with its key and its sites.
+const MAX_CONFIG: usize = 4096;
 /// How long the connection may say nothing, no ledger closing, before it
 /// is made anew: a ledger closes every few seconds.
 const LEDGER_SILENCE_MS: u64 = 30_000;
@@ -129,10 +148,13 @@ const TOO_MUCH_XRP: &str = "the server reported more XRP for the account than th
 /// devnet's 2. Nothing signs for a server that reports another
 /// (spec/decisions/real-money.md).
 pub const TESTNET_NETWORK_ID: u32 = TESTNET.id;
-/// Why the account stops when a network that is never reset starts again
-/// below a ledger it has seen.
+/// Why the account stops when its validators validate a ledger below its
+/// anchor that closed later, on a network that is never reset.
 const CHAIN_WENT_BACK: &str =
-    "the server's ledger went back on a network that is never reset; nothing was written off";
+    "the validators went back on a network that is never reset; nothing was written off";
+/// Why the account stops when its validators validate a later ledger off
+/// its anchor's chain, on a network that is never reset.
+const CHAIN_FORKED: &str = "the validators validated another chain on a network that is never reset; nothing was written off";
 /// Why the account stops when it is gone from a network that is never
 /// reset.
 pub(crate) const ACCOUNT_GONE: &str =
@@ -150,46 +172,13 @@ pub const fn resets(network_id: u32) -> bool {
     network_id == TESTNET_NETWORK_ID
 }
 
-/// A validated ledger: its index, and when it closed, in seconds since the
-/// XRP Ledger's epoch.
+/// The newest validated ledger a state written before anchors kept: its
+/// index, and when it closed, in seconds since the XRP Ledger's epoch. A
+/// hint, without a hash, which the first anchor replaces.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Validated {
     index: u32,
     close_time: u64,
-}
-
-/// Where a server's validated ledger stands against the newest the account
-/// has seen.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Chain {
-    /// At or past it: the chain the account follows.
-    Current,
-    /// Below it, closed before it: a server behind the others, whose
-    /// answers are old.
-    Behind,
-    /// Below it, closed after it: a new chain, which a lagging server
-    /// cannot make. A reset, on a network that [`resets`].
-    Restarted,
-    /// The same, on a network that never resets: refused.
-    WentBack,
-}
-
-/// Where `ledger`, of a server on network `network_id`, stands against
-/// `newest`, the newest the account has seen. Close times only grow along
-/// a chain, so a lower ledger that closed later is on another.
-fn chain(newest: Option<Validated>, network_id: u32, ledger: Validated) -> Chain {
-    match newest {
-        Some(newest) if ledger.index < newest.index => {
-            if ledger.close_time <= newest.close_time {
-                Chain::Behind
-            } else if resets(network_id) {
-                Chain::Restarted
-            } else {
-                Chain::WentBack
-            }
-        }
-        _ => Chain::Current,
-    }
 }
 
 /// A trust line the account follows for a scheme on it: of its token's
@@ -222,6 +211,10 @@ pub struct Config {
     pub server: String,
     /// The faucet, an HTTPS URL; `None` to never ask.
     pub faucet: Option<String>,
+    /// The validator list publishers it trusts, and the floor on its UNL:
+    /// its network's, or the owner's, which replace them entirely
+    /// (spec/designs/xrpl-validation.md#10-configuration-and-state).
+    pub unl: UnlConfig,
 }
 
 impl Config {
@@ -237,8 +230,11 @@ impl Config {
 
     /// The config of an account on `network` in `text`: empty for the
     /// network's defaults, or JSON with `server` and `faucet` (a URL or
-    /// `null`), each optional. A network without a faucet takes none but
-    /// `null` (spec/decisions/mainnet-schemes.md).
+    /// `null`), each optional, and the owner's validator list `publishers`
+    /// with perhaps a `floor`, as [`UnlConfig::with_override`] reads them.
+    /// A network without a faucet takes none but `null`
+    /// (spec/decisions/mainnet-schemes.md); a floor comes only with
+    /// publishers.
     ///
     /// # Errors
     ///
@@ -247,6 +243,7 @@ impl Config {
         let mut config = Self {
             server: network.server.to_string(),
             faucet: network.faucet.map(ToString::to_string),
+            unl: UnlConfig::for_network(network.id).ok_or(SchemeError::InvalidConfig)?,
         };
         let text = text.trim();
         if text.is_empty() {
@@ -257,8 +254,12 @@ impl Config {
         }
         let value: Value = serde_json::from_str(text).map_err(|_| SchemeError::InvalidConfig)?;
         let object = value.as_object().ok_or(SchemeError::InvalidConfig)?;
+        let mut unl = serde_json::Map::new();
         for (key, field) in object {
             match (key.as_str(), field) {
+                ("publishers" | "floor", _) => {
+                    unl.insert(key.clone(), field.clone());
+                }
                 ("server", Value::String(server))
                     if server.starts_with("wss://") || server.starts_with("ws://") =>
                 {
@@ -272,6 +273,11 @@ impl Config {
                 ("faucet", Value::Null) => config.faucet = None,
                 _ => return Err(SchemeError::InvalidConfig),
             }
+        }
+        if !unl.is_empty() {
+            config.unl = (config.unl)
+                .with_override(&Value::Object(unl))
+                .ok_or(SchemeError::InvalidConfig)?;
         }
         Ok(config)
     }
@@ -470,6 +476,15 @@ enum Request {
     Issuer(AccountId),
     /// The pool of XRP and a token, for a scheme's peg guard.
     Pool(LineKey),
+    /// An anchoring round's state proof at the server's validated ledger.
+    Anchor,
+    /// The validations of the ledger of this hash.
+    Validations([u8; 32]),
+    /// The newest manifest of a validator, by its master key.
+    Manifest(PublicKey),
+    /// A skip list, by its key, at the ledger of a hash: to tell a later
+    /// anchor's ancestry.
+    SkipList([u8; 32], [u8; 32]),
 }
 
 /// Where the account stands with its ledger.
@@ -478,11 +493,12 @@ enum Phase {
     /// No connection.
     Disconnected,
     /// Connected; waiting for the server's state, which must be of the
-    /// account's network, then the subscription, then the account's state, as of
-    /// a ledger the stream covers.
+    /// account's network, then the subscription, then an anchor, then the
+    /// account's state, as of a ledger the stream covers.
     Starting {
         subscribed: bool,
         state: bool,
+        anchored: bool,
         info: Option<AccountInfo>,
     },
     /// Reading the history from ledger `from`, the earliest cursor of its
@@ -510,12 +526,45 @@ pub struct XrplAccount {
     /// How many times the account was written off: a scheme that kept
     /// another count missed a write-off while it was not on the account.
     write_offs: u64,
-    /// The newest validated ledger seen, by its server's state or the
-    /// ledger stream. Kept with the books whenever the rest is: any ledger
-    /// of the chain tells a server behind from a chain started again.
-    newest: Option<Validated>,
+    /// The newest anchor: a ledger a quorum of its UNL validated. Kept
+    /// with the books whenever the rest is: any anchor of the chain tells
+    /// a server behind from a chain started again.
+    anchor: Option<KeptAnchor>,
+    /// The newest ledger a state written before anchors kept: a hint the
+    /// first anchor replaces.
+    hint: Option<Validated>,
+    /// The UNL, from its publishers' lists, with the validators'
+    /// manifests: kept with the books.
+    unl: Unl,
+    /// Counted up whenever what the UNL keeps changes, so that it is
+    /// written.
+    unl_changes: u64,
+    /// How validation signatures are checked: for real, but in a
+    /// simulation.
+    signatures: Box<dyn ValidationSignatures + Send>,
     // Learnt from the ledger.
     phase: Phase,
+    /// Each publisher's list, as it is fetched, in the config's order.
+    fetches: Vec<Fetching>,
+    /// The anchoring round in flight.
+    round: Option<Round>,
+    /// Until when the account waits after a server refused a proof, before
+    /// it connects anew; 0 while it does not.
+    stalled_until_ms: u64,
+    /// Why it waits, while it does.
+    waiting: Option<&'static str>,
+    /// The lies it caught, by kind.
+    doubts: BTreeMap<Doubt, u64>,
+    /// Where in the UNL's validators that did not count the next round's
+    /// questions for newer manifests start.
+    manifests_from: usize,
+    /// Whether the reserve changed, by the hints, since the schemes were
+    /// last told of a closed ledger.
+    reserve_changed: bool,
+    /// The newest ledger an answer the account took was as of, on this
+    /// chain: an answer as of one before is older than what it told, and
+    /// never moves it back.
+    taken_at: u32,
     /// The network the connection's server is on, once checked.
     network_id: Option<u32>,
     next_id: u64,
@@ -587,18 +636,31 @@ impl XrplAccount {
             "more schemes on an account than there may be"
         );
         let network = Network::of(id.kind).ok_or(SchemeError::UnknownScheme)?;
+        let config = Config::parse_on(config, network)?;
         let mut account = Self {
             id,
             network,
             schemes: schemes.to_vec(),
-            config: Config::parse_on(config, network)?,
             wallet: Wallet::from_entropy(entropy),
             sequence: 0,
             in_flight: Vec::new(),
             never_sent: Vec::new(),
             parked: Vec::new(),
             write_offs: 0,
-            newest: None,
+            anchor: None,
+            hint: None,
+            unl: Unl::new(config.unl.clone()),
+            unl_changes: 0,
+            signatures: Box::new(Secp256k1Signatures),
+            fetches: alloc::vec![Fetching::default(); config.unl.publishers.len()],
+            config,
+            round: None,
+            stalled_until_ms: 0,
+            waiting: None,
+            doubts: BTreeMap::new(),
+            manifests_from: 0,
+            reserve_changed: false,
+            taken_at: 0,
             phase: Phase::Disconnected,
             network_id: None,
             next_id: 1,
@@ -674,6 +736,37 @@ impl XrplAccount {
     #[must_use]
     pub const fn reserve_params(&self) -> (u64, u64) {
         (self.reserve_base, self.reserve_inc)
+    }
+
+    /// Its anchor: the newest ledger a quorum of its UNL validated that it
+    /// acted from.
+    #[must_use]
+    pub fn anchor(&self) -> Option<crate::unl::Anchor> {
+        self.anchor.map(|kept| kept.anchor)
+    }
+
+    /// Its UNL, and the lists and manifests that make it.
+    #[must_use]
+    pub const fn unl(&self) -> &Unl {
+        &self.unl
+    }
+
+    /// The lies it caught, by kind (spec/designs/xrpl-validation.md#6-the-account-on-proofs).
+    #[must_use]
+    pub fn doubts(&self, doubt: Doubt) -> u64 {
+        self.doubts.get(&doubt).copied().unwrap_or(0)
+    }
+
+    /// Checks validation signatures with `signatures` from now on, as a
+    /// simulation does with the fake ledger's keyed check
+    /// (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation):
+    /// only a build with the fake ledger can.
+    #[cfg(feature = "fake")]
+    pub fn check_validations_with(
+        &mut self,
+        signatures: impl ValidationSignatures + Send + 'static,
+    ) {
+        self.signatures = Box::new(signatures);
     }
 
     /// `scheme` settles through the account, and is at `cursor`; `holds`
@@ -1246,6 +1339,10 @@ impl XrplAccount {
             }
             Request::Issuer(issuer) => api::account_info(id, issuer),
             Request::Pool(key) => api::amm_info(id, Asset::Xrp, key.asset()),
+            Request::Anchor => api::state_proof(id, &[recent_key()], None),
+            Request::Validations(hash) => api::validations(id, &hash),
+            Request::Manifest(master) => api::manifest(id, &master),
+            Request::SkipList(at, key) => api::state_proof(id, &[key], Some(&at)),
         };
         self.pending.insert(id, (request, self.now_ms));
         self.effect(AssetEffect::Send { message });
@@ -1262,10 +1359,15 @@ impl XrplAccount {
         self.pending.clear();
         self.buffer.clear();
         // A faucet's answer may come for an older connection, and be
-        // dropped: it is asked again in time.
+        // dropped: it is asked again in time. So may a list's.
         self.funding = false;
         self.ask_account = false;
         self.reads.clear();
+        self.round = None;
+        self.stalled_until_ms = 0;
+        for fetching in &mut self.fetches {
+            fetching.forget();
+        }
         for transaction in &mut self.in_flight {
             transaction.needs_submit = transaction.executed;
             transaction.looked_up = false;
@@ -1278,13 +1380,16 @@ impl XrplAccount {
         self.phase = Phase::Starting {
             subscribed: false,
             state: false,
+            anchored: false,
             info: None,
         };
         // The network is checked first, so nothing is read or booked from
-        // another; then the account is subscribed, and read once the
-        // subscription is on, so nothing falls between what it says and
-        // what the stream says next.
+        // another; then the account is subscribed, anchored on a ledger
+        // its UNL validated, and read once the subscription is on, so
+        // nothing falls between what it says and what the stream says
+        // next. The lists it lacks are fetched meanwhile.
         self.send(Request::ServerState);
+        self.fetch_lists();
     }
 
     fn message(&mut self, bytes: &[u8]) {
@@ -1317,7 +1422,7 @@ impl XrplAccount {
                     self.reconnect();
                 } else if let Phase::Starting { subscribed, .. } = &mut self.phase {
                     *subscribed = true;
-                    self.send(Request::AccountInfo);
+                    self.anchor_now();
                 }
             }
             Request::ServerState => self.server_state(outcome),
@@ -1329,6 +1434,10 @@ impl XrplAccount {
             Request::Line(key, ledger) => self.line_read(key, ledger, outcome),
             Request::Issuer(issuer) => self.issuer_read(issuer, outcome),
             Request::Pool(key) => self.pool_read(key, outcome),
+            Request::Anchor => self.proved_anchor(outcome),
+            Request::Validations(_) => self.validated_anchor(outcome),
+            Request::Manifest(_) => self.manifest_read(outcome),
+            Request::SkipList(at, key) => self.skip_list_read((at, key), outcome),
         }
     }
 
@@ -1403,6 +1512,9 @@ impl XrplAccount {
             }
             Err(_) => return,
         };
+        if let Some(settings) = &settings {
+            self.taken_at = self.taken_at.max(settings.ledger_index);
+        }
         // What the owner sees of the lines it issues.
         if self.lines.keys().any(|key| key.issuer == issuer) {
             match settings {
@@ -1448,14 +1560,18 @@ impl XrplAccount {
             }
             Err(_) => return,
         };
+        if let Some(pool) = &pool {
+            self.taken_at = self.taken_at.max(pool.ledger_index);
+        }
         self.tell(News::Pool { key, pool });
     }
 
     /// The server's state, the first answer on a connection: a server off
     /// the account's network, or that does not say, stops the account
-    /// before anything is read from it. On its network, its ledger says
-    /// whether it is behind, or on a chain started again; then the account
-    /// is subscribed.
+    /// before anything is read from it, a cheap first check; the UNL is
+    /// what binds the account to its network. Its validated ledger is a
+    /// hint, which moves nothing: only an anchor does. Then the account is
+    /// subscribed.
     fn server_state(&mut self, outcome: Result<Value, ApiError>) {
         let Some(state) = outcome.ok().as_ref().and_then(api::server_state_result) else {
             self.reconnect();
@@ -1467,23 +1583,6 @@ impl XrplAccount {
             return;
         };
         self.network_id = Some(network_id);
-        let ledger = Validated {
-            index: state.validated_ledger,
-            close_time: state.close_time,
-        };
-        match chain(self.newest, network_id, ledger) {
-            Chain::Current => self.newest = Some(ledger),
-            // What it says of the account is older than what the account
-            // saw: its answers wait for it to catch up.
-            Chain::Behind => {}
-            Chain::Restarted => self.restarted(ledger),
-            Chain::WentBack => {
-                self.failed = Some(CHAIN_WENT_BACK);
-                self.disconnected();
-                return;
-            }
-        }
-        self.validated = self.validated.max(state.validated_ledger);
         self.fee_base = state.base_fee;
         self.load = (state.load_factor, state.load_base);
         self.reserve_base = state.reserve_base;
@@ -1511,6 +1610,7 @@ impl XrplAccount {
                     self.ask_account = true;
                     return;
                 }
+                self.taken_at = info.ledger_index;
                 let next = self
                     .in_flight
                     .iter()
@@ -1524,6 +1624,7 @@ impl XrplAccount {
                         self.phase = Phase::Starting {
                             subscribed: true,
                             state: true,
+                            anchored: true,
                             info: Some(info),
                         };
                     }
@@ -1550,10 +1651,13 @@ impl XrplAccount {
         }
     }
 
-    /// The newest validated ledger the account has seen, or a scheme on it
-    /// booked from: what a server says as of one before it is old.
+    /// The newest validated ledger the account has seen, its anchor, or a
+    /// scheme on it booked from: what a server says as of one before it is
+    /// old.
     fn seen(&self) -> u32 {
-        let newest = self.newest.map_or(0, |newest| newest.index);
+        let newest = (self.anchor)
+            .map_or(0, |kept| kept.anchor.index)
+            .max(self.taken_at);
         let booked = self
             .followers
             .values()
@@ -1590,18 +1694,6 @@ impl XrplAccount {
         self.fund();
     }
 
-    /// The chain started again below the newest ledger seen (a testnet
-    /// reset): it follows the new one, and what the books held is gone.
-    fn restarted(&mut self, ledger: Validated) {
-        assert!(
-            self.network_id.is_some_and(resets),
-            "only a network that resets starts again"
-        );
-        self.newest = Some(ledger);
-        self.validated = ledger.index;
-        self.write_off(true);
-    }
-
     /// What the books hold of the account is gone (a testnet reset): what
     /// was in flight can never apply now, since an account made again
     /// starts its sequence anew. Its schemes write off what they held; one
@@ -1636,6 +1728,7 @@ impl XrplAccount {
         }
         self.at = None;
         self.balance = None;
+        self.taken_at = 0;
         // The lines went with the account, and the issuers' accounts with
         // the chain: read again once it is back.
         for state in self.lines.values_mut() {
@@ -1672,6 +1765,7 @@ impl XrplAccount {
     fn start(&mut self) {
         let Phase::Starting {
             state: true,
+            anchored: true,
             info: Some(info),
             ..
         } = self.phase.clone()
@@ -1771,7 +1865,6 @@ impl XrplAccount {
         self.at = Some(self.at.map_or((info.ledger_index, u32::MAX), |at| {
             at.max((info.ledger_index, u32::MAX))
         }));
-        self.validated = self.validated.max(info.ledger_index);
         self.phase = Phase::Synced;
         for (key, line) in core::mem::take(&mut self.reads) {
             if let Some(state) = self.lines.get_mut(&key) {
@@ -1815,52 +1908,18 @@ impl XrplAccount {
         self.expire();
     }
 
+    /// A ledger closed, as the stream says: a hint, which moves nothing the
+    /// account takes as validated, and may start an anchoring round, whose
+    /// anchor does ([`anchor_on_hint`](Self::anchor_on_hint)). Its fees and
+    /// reserve are the server's word.
     fn ledger_closed(&mut self, closed: LedgerClosed) {
-        let ledger = Validated {
-            index: closed.ledger_index,
-            close_time: closed.close_time,
-        };
-        match self.network_id.map(|id| chain(self.newest, id, ledger)) {
-            Some(Chain::Current) => self.newest = Some(ledger),
-            // The chain started again under the connection: made anew, so
-            // that the server's state says so before anything is read.
-            Some(Chain::Restarted | Chain::WentBack) => {
-                self.reconnect();
-                return;
-            }
-            Some(Chain::Behind) | None => {}
-        }
-        self.validated = self.validated.max(closed.ledger_index);
         self.fee_base = closed.fee_base;
-        let reserve_changed =
-            (closed.reserve_base, closed.reserve_inc) != (self.reserve_base, self.reserve_inc);
+        if (closed.reserve_base, closed.reserve_inc) != (self.reserve_base, self.reserve_inc) {
+            self.reserve_changed = true;
+        }
         self.reserve_base = closed.reserve_base;
         self.reserve_inc = closed.reserve_inc;
-        let asking = self
-            .pending
-            .values()
-            .any(|(r, _)| *r == Request::AccountInfo);
-        match self.phase {
-            Phase::Synced => {
-                self.tell(News::LedgerClosed { reserve_changed });
-                // An answer older than what the account had seen was
-                // dropped, such as the sequence read again after a
-                // settlement was given up: asked again.
-                if core::mem::take(&mut self.ask_account) && !asking {
-                    self.send(Request::AccountInfo);
-                }
-                self.expire();
-            }
-            Phase::Unfunded
-            | Phase::Starting {
-                subscribed: true,
-                info: None,
-                ..
-            } if !asking => {
-                self.send(Request::AccountInfo);
-            }
-            _ => {}
-        }
+        self.anchor_on_hint();
     }
 
     /// Looks for our transactions past their last ledger. One the node
@@ -2145,9 +2204,8 @@ impl XrplAccount {
 impl XrplAccount {
     /// A number that changes whenever what [`state`](ExternalAsset::state)
     /// keeps does, cheaply: the node writes the state only then. Except
-    /// the newest ledger seen, which changes as each ledger closes, and is
-    /// written with the rest: an older ledger of the same chain tells a
-    /// reset as well.
+    /// the anchor, which changes as ledgers close, and is written with the
+    /// rest: an older anchor of the same chain tells a reset as well.
     fn fingerprint(&self) -> u64 {
         let mut mix: u64 = 0xcbf2_9ce4_8422_2325;
         let mut add = |value: u64| {
@@ -2173,6 +2231,7 @@ impl XrplAccount {
         }
         add(self.parked.len() as u64);
         add(self.write_offs);
+        add(self.unl_changes);
         mix
     }
 
@@ -2235,7 +2294,10 @@ impl XrplAccount {
             "never_sent": never_sent,
             "parked": parked,
             "write_offs": self.write_offs,
-            "newest": self.newest.map(|newest| json!([newest.index, newest.close_time])),
+            "anchor": self.anchor.as_ref().map(KeptAnchor::state),
+            "newest": self.hint.map(|hint| json!([hint.index, hint.close_time])),
+            "unl": self.unl.state(),
+            "unl_at_ms": self.now_ms,
         })
     }
 
@@ -2249,13 +2311,29 @@ impl XrplAccount {
             None => 0,
             Some(count) => count.as_u64()?,
         };
-        self.newest = match value.get("newest") {
+        self.anchor = match value.get("anchor") {
             None | Some(Value::Null) => None,
+            Some(anchor) => Some(KeptAnchor::restore(anchor)?),
+        };
+        self.validated = self.anchor.map_or(0, |kept| kept.anchor.index);
+        // A state written before anchors kept the newest ledger seen
+        // without a hash: a hint, which the first anchor replaces.
+        self.hint = match value.get("newest") {
+            None | Some(Value::Null) => None,
+            Some(_) if self.anchor.is_some() => return None,
             Some(newest) => Some(Validated {
                 index: number(newest.get(0)?)?,
                 close_time: newest.get(1)?.as_u64()?,
             }),
         };
+        // Lists and manifests verify again, as of when they were written:
+        // what no longer does, as for publishers the owner changed, is
+        // dropped and fetched again; what expired since goes as time moves
+        // on.
+        if let Some(unl) = value.get("unl") {
+            let at_ms = value.get("unl_at_ms").and_then(Value::as_u64).unwrap_or(0);
+            self.unl = Unl::restore(self.config.unl.clone(), unl, at_ms)?;
+        }
         // More than the account keeps is a state it did not write: refused,
         // rather than orphaning a settlement by dropping it.
         let in_flight = value.get("in_flight")?.as_array()?;
@@ -2438,13 +2516,37 @@ impl XrplAccount {
                 assert!(!self.ask_account, "asked again on a connection");
                 assert!(self.buffer.is_empty());
                 assert!(!self.funding);
+                assert!(self.round.is_none(), "a round is a connection's");
+                assert_eq!(self.stalled_until_ms, 0, "a stall is a connection's");
+                assert!(
+                    self.fetches.iter().all(|fetching| !fetching.is_asked()),
+                    "a fetch is a connection's"
+                );
+            }
+            Phase::Starting {
+                subscribed,
+                anchored,
+                ..
+            } => {
+                assert!(
+                    subscribed || (self.round.is_none() && !anchored),
+                    "anchored only once subscribed"
+                );
             }
             Phase::Synced => {
                 assert!(self.buffer.is_empty(), "what was held is told once synced");
                 assert!(self.at.is_some(), "a synced account read its holding");
             }
-            Phase::Starting { .. } | Phase::CatchingUp { .. } | Phase::Unfunded => {}
+            Phase::CatchingUp { .. } | Phase::Unfunded => {}
         }
+        assert!(
+            self.round.is_none() || self.network_id.is_some(),
+            "anchored only on the account's network"
+        );
+        assert!(
+            self.round.is_none() || self.stalled_until_ms == 0,
+            "no round while stalled"
+        );
     }
 }
 
@@ -2506,6 +2608,14 @@ impl ExternalAsset for XrplAccount {
         }
     }
 
+    /// Why it cannot anchor: no UNL, no quorum, a server that serves no
+    /// proofs or refuses them, an older ledger than its anchor, or answers
+    /// that do not prove. Until it anchors anew, nothing it takes as
+    /// validated moves.
+    fn waiting(&self) -> Option<&'static str> {
+        self.waiting.filter(|_| self.failed.is_none())
+    }
+
     fn connection(&self) -> Option<&str> {
         Some(&self.config.server)
     }
@@ -2528,6 +2638,7 @@ impl ExternalAsset for XrplAccount {
                     self.send(Request::AccountInfo);
                 }
             }
+            LedgerInput::Fetched { url, body } => self.fetched(url, body),
             // It names no endpoints: nothing comes from one.
             LedgerInput::From { .. } => {}
         }
@@ -2546,7 +2657,11 @@ impl ExternalAsset for XrplAccount {
             .then_some(self.fund_at_ms);
         let silence = (self.phase != Phase::Disconnected)
             .then_some(self.heard_ms.saturating_add(LEDGER_SILENCE_MS));
-        [request, fund, silence].into_iter().flatten().min()
+        let stall = (self.stalled_until_ms > 0).then_some(self.stalled_until_ms);
+        [request, fund, silence, stall, self.lists_deadline()]
+            .into_iter()
+            .flatten()
+            .min()
     }
 
     fn on_timer(&mut self, now_ms: u64) {
@@ -2558,13 +2673,19 @@ impl ExternalAsset for XrplAccount {
             .pending
             .values()
             .any(|(_, sent)| sent.saturating_add(REQUEST_TIMEOUT_MS) <= now_ms);
-        // A connection that went quiet may be half open: made anew.
+        // A connection that went quiet may be half open, and one that
+        // refused a proof may reach another server: made anew.
         let silent = self.phase != Phase::Disconnected
             && self.heard_ms.saturating_add(LEDGER_SILENCE_MS) <= now_ms;
-        if late || silent {
+        let stalled = self.stalled_until_ms > 0 && self.stalled_until_ms <= now_ms;
+        if late || silent || stalled {
+            if late && self.round.is_some() {
+                self.waiting = Some(anchors::NOT_ANSWERED);
+            }
             self.reconnect();
             return;
         }
+        self.lists_on_timer();
         if self.phase == Phase::Unfunded {
             self.fund();
         }
@@ -2653,6 +2774,24 @@ impl ExternalAsset for XrplAccount {
         assert!(self.news.len() <= MAX_NEWS);
         assert!(self.effects.len() <= MAX_EFFECTS);
         assert!(self.next_id >= 1, "request IDs start at 1");
+        assert_eq!(
+            self.fetches.len(),
+            self.config.unl.publishers.len(),
+            "one fetch for each publisher"
+        );
+        assert_eq!(self.unl.config(), &self.config.unl, "the config's UNL");
+        assert!(
+            self.anchor.is_none() || self.hint.is_none(),
+            "a hint only until the first anchor"
+        );
+        if let Some(kept) = &self.anchor {
+            kept.check_invariants();
+            assert!(
+                kept.anchor.index <= self.validated,
+                "nothing below its anchor is validated"
+            );
+        }
+        self.unl.check_invariants();
         self.check_in_flight();
         self.check_phase();
     }
@@ -2663,39 +2802,50 @@ impl ExternalAsset for XrplAccount {
 mod tests {
     use super::*;
 
+    use crate::unl::Anchor;
+    use anchors::{Judged, judge};
+
     const NEWEST: Validated = Validated {
         index: 5_000_000,
         close_time: 800_000_000,
     };
 
-    // spec/decisions/ledger-resets.md: a ledger below the newest seen that
-    // closed later is a reset only on the testnet. On mainnet, devnet or any
-    // other network it is never taken, whatever lets the account run there;
-    // one that closed earlier is a server behind, anywhere.
+    fn ledger(index: u32, close_time: u32, hash: u8) -> Anchor {
+        Anchor {
+            index,
+            close_time,
+            hash: [hash; 32],
+        }
+    }
+
+    // spec/designs/xrpl-validation.md#7-resets-under-a-unl: against the
+    // anchor kept, a lower ledger that closed earlier is older, never
+    // current; one that closed later, or another of the index that did, is
+    // another chain, a reset only where the network resets (`resets`); a
+    // higher one that closed earlier is of an older chain, ignored where
+    // the network resets and a fork elsewhere; a higher one that closed
+    // later is current once its skip lists hold the kept anchor. A state written before anchors kept the newest ledger
+    // without its hash, which the chain rule judges alone.
     #[test]
-    fn only_the_testnet_starts_again() {
-        let lower_later = Validated {
-            index: 2_000,
-            close_time: 800_000_004,
-        };
-        let lower_earlier = Validated {
-            index: 4_999_990,
-            close_time: 799_999_960,
-        };
-        let higher = Validated {
-            index: 5_000_001,
-            close_time: 800_000_004,
-        };
-        assert_eq!(chain(Some(NEWEST), 1, lower_later), Chain::Restarted);
+    fn an_anchor_is_judged_against_the_one_kept() {
+        let kept = ledger(5_000_000, 800_000_000, 1);
+        let judged = |new: Anchor| judge(Some(&kept), None, &new);
+        assert_eq!(judged(kept), Judged::Take);
+        assert_eq!(judged(ledger(4_999_990, 799_999_960, 2)), Judged::Older);
+        assert_eq!(judged(ledger(2_000, 800_000_004, 3)), Judged::Reset);
+        assert_eq!(judged(ledger(5_000_000, 800_000_004, 4)), Judged::Reset);
+        assert_eq!(judged(ledger(5_000_000, 800_000_000, 4)), Judged::Ignore);
+        assert_eq!(judged(ledger(5_000_001, 799_999_996, 5)), Judged::Ignore);
+        assert_eq!(judged(ledger(5_000_001, 800_000_004, 6)), Judged::Later);
+        let hinted = |new: Anchor| judge(None, Some(NEWEST), &new);
+        assert_eq!(hinted(ledger(2_000, 800_000_004, 3)), Judged::Reset);
+        assert_eq!(hinted(ledger(4_999_990, 799_999_960, 2)), Judged::Older);
+        assert_eq!(hinted(ledger(5_000_001, 800_000_004, 6)), Judged::Take);
+        assert_eq!(judge(None, None, &ledger(2_000, 1, 3)), Judged::Take);
+        // Only the testnet resets, whatever lets the account run elsewhere.
+        assert!(resets(TESTNET_NETWORK_ID));
         for network in [0, 2, 21_338, u32::MAX] {
             assert!(!resets(network));
-            assert_eq!(chain(Some(NEWEST), network, lower_later), Chain::WentBack);
-        }
-        for network in [0, 1, 2, 21_338] {
-            assert_eq!(chain(Some(NEWEST), network, lower_earlier), Chain::Behind);
-            assert_eq!(chain(Some(NEWEST), network, NEWEST), Chain::Current);
-            assert_eq!(chain(Some(NEWEST), network, higher), Chain::Current);
-            assert_eq!(chain(None, network, lower_later), Chain::Current);
         }
     }
 
@@ -2830,7 +2980,9 @@ mod tests {
         for restarted in [true, false] {
             let mut account = synced_account(&[dsusd]);
             account.network_id = Some(TESTNET_NETWORK_ID);
-            account.newest = Some(NEWEST);
+            let kept = ledger(NEWEST.index, 800_000_000, 1);
+            account.anchor = Some(KeptAnchor::of(kept, None));
+            account.validated = NEWEST.index;
             account.follow_line(crate::dsusd::LINE);
             account.issuer_read(
                 issuer,
@@ -2839,17 +2991,17 @@ mod tests {
             assert!(account.issuers[&issuer].global_freeze());
             account.check_invariants();
             if restarted {
-                // Told by the server's state, the first answer on a
-                // connection.
+                // Told by the first anchor on a connection: a lower
+                // ledger that closed later.
                 account.phase = Phase::Starting {
-                    subscribed: false,
-                    state: false,
+                    subscribed: true,
+                    state: true,
+                    anchored: false,
                     info: None,
                 };
-                account.restarted(Validated {
-                    index: 2_000,
-                    close_time: NEWEST.close_time + 4,
-                });
+                let reset = ledger(2_000, 800_000_004, 2);
+                account.off_chain(reset, None, CHAIN_WENT_BACK);
+                assert_eq!(account.anchor(), Some(reset));
             } else {
                 account.absent();
             }

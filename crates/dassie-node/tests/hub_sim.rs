@@ -38,7 +38,7 @@ use dassie_node_core::testing::{Run, caught};
 
 /// The seeds CI runs: between them, every validator fault and member lie
 /// the run draws, restarts, hubs of 4, 5 and 7, and a collusion.
-const SEEDS: [u64; 10] = [8, 13, 16, 27, 30, 42, 46, 47, 56, 62];
+const SEEDS: [u64; 10] = [8, 13, 16, 18, 30, 42, 46, 47, 56, 62];
 
 /// What the seeds must reach between them, at least.
 const LEAST: [(&str, u64); 16] = [

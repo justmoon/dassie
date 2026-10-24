@@ -14,12 +14,13 @@ use dassie_xrpl::{XrplMainnetScheme, XrplScheme};
 const MAX_ROUNDS: usize = 64;
 
 /// An account on `network` with the config `config`, which only the
-/// network's XRP scheme may settle through.
+/// network's XRP scheme may settle through, trusting the validators of the
+/// network's fake ledger.
 fn account_on(network: &Network, config: &str) -> Result<XrplAccount, SchemeError> {
     XrplAccount::new(
         network.first(),
         &[network.xrp_scheme],
-        config,
+        &dassie_xrpl::fake::with_publishers(config, network),
         &[7; 32],
         &[],
     )
@@ -39,7 +40,7 @@ fn connect(account: &mut XrplAccount, ledger: &mut FakeLedger) -> Connection {
         asked: Vec::new(),
         funds: Vec::new(),
     };
-    account.on_ledger(1_000, LedgerInput::Connected);
+    account.on_ledger(ledger.now_ms(), LedgerInput::Connected);
     answer(account, ledger, &mut connection);
     connection
 }
@@ -61,9 +62,17 @@ fn answer(account: &mut XrplAccount, ledger: &mut FakeLedger, connection: &mut C
                     let command = request["command"].as_str().unwrap_or_default();
                     connection.asked.push(command.to_string());
                     let reply = ledger.request(1, &message);
-                    account.on_ledger(1_000, LedgerInput::Message(&reply));
+                    account.on_ledger(ledger.now_ms(), LedgerInput::Message(&reply));
                 }
                 AssetEffect::Fund { url, .. } => connection.funds.push(url),
+                AssetEffect::Fetch { url, .. } => {
+                    let body = ledger.fetch(&url);
+                    let fetched = LedgerInput::Fetched {
+                        url: &url,
+                        body: body.as_deref(),
+                    };
+                    account.on_ledger(ledger.now_ms(), fetched);
+                }
                 other => panic!("{other:?}"),
             }
         }
@@ -80,15 +89,21 @@ fn an_account_runs_only_on_its_own_network() {
     for network in NETWORKS {
         let reports = |id: u32| network.id == id;
         for reported in [Some(TESTNET.id), Some(MAINNET.id), Some(2), None] {
-            let mut ledger = FakeLedger::new();
+            let mut ledger = fake_of(network);
             ledger.set_network_id(reported);
             let mut account = account_on(network, "").unwrap();
             assert_eq!(account.connection(), Some(network.server));
             let connection = connect(&mut account, &mut ledger);
             if reported.is_some_and(reports) {
                 assert_eq!(
-                    connection.asked[..3],
-                    ["server_state", "subscribe", "account_info"]
+                    connection.asked[..5],
+                    [
+                        "server_state",
+                        "subscribe",
+                        "state_proof",
+                        "validations",
+                        "account_info"
+                    ]
                 );
                 assert_eq!(account.status(), LedgerStatus::Unfunded, "{reported:?}");
             } else {
@@ -133,7 +148,7 @@ fn only_the_testnet_account_asks_a_faucet() {
         }
         ledger.deposit(account.account(), 50_000_000);
         for (_, message) in ledger.close() {
-            account.on_ledger(1_000, LedgerInput::Message(&message));
+            account.on_ledger(ledger.now_ms(), LedgerInput::Message(&message));
             answer(&mut account, &mut ledger, &mut connection);
         }
         assert_eq!(account.status(), LedgerStatus::Synced, "{}", network.name);
@@ -179,6 +194,47 @@ fn a_config_names_a_faucet_only_where_there_is_one() {
     assert_eq!(config, account::Config::parse_on("", &TESTNET).unwrap());
     assert_eq!(config.server, account::DEFAULT_SERVER);
     assert_eq!(config.faucet.as_deref(), Some(account::DEFAULT_FAUCET));
+}
+
+// spec/designs/xrpl-validation.md#10-configuration-and-state: each network
+// trusts its own list publishers, with its own floor, unless the owner names
+// others, which replace them entirely; a floor comes only with them. What
+// is not a publisher an account can follow is refused.
+#[test]
+fn a_config_names_the_validator_list_publishers() {
+    use dassie_xrpl::validator_list::{MAINNET_FLOOR, TESTNET_FLOOR, UnlConfig};
+
+    for (network, floor) in [(&TESTNET, TESTNET_FLOOR), (&MAINNET, MAINNET_FLOOR)] {
+        let config = account::Config::parse_on("", network).unwrap();
+        assert_eq!(config.unl, UnlConfig::for_network(network.id).unwrap());
+        assert_eq!(config.unl.floor, floor);
+        let key = dassie_xrpl::fake::publisher_key(dassie_xrpl::fake::DEFAULT_SEED);
+        let own = serde_json::json!({
+            "publishers": [{
+                "key": key.to_node_public(),
+                "sites": ["https://lists.example/vl"],
+            }],
+        });
+        let config = account::Config::parse_on(&own.to_string(), network).unwrap();
+        assert_eq!(config.unl.publishers.len(), 1);
+        assert_eq!(config.unl.publishers[0].master_key, key);
+        assert_eq!(config.unl.floor, floor, "the network's floor");
+        let mut floored = own.clone();
+        floored["floor"] = 3.into();
+        let config = account::Config::parse_on(&floored.to_string(), network).unwrap();
+        assert_eq!(config.unl.floor, 3);
+        for bad in [
+            serde_json::json!({ "floor": 3 }),
+            serde_json::json!({ "publishers": [] }),
+            serde_json::json!({ "publishers": [{ "key": "ED00", "sites": ["https://a.example"] }] }),
+        ] {
+            assert_eq!(
+                account::Config::parse_on(&bad.to_string(), network),
+                Err(SchemeError::InvalidConfig),
+                "{bad}"
+            );
+        }
+    }
 }
 
 // A scheme settles only through an account on its own network: the
@@ -228,8 +284,10 @@ fn sent(account: &mut XrplAccount) -> Vec<serde_json::Value> {
     account.take_effects(&mut effects);
     effects
         .into_iter()
-        .map(|effect| match effect {
-            AssetEffect::Send { message } => serde_json::from_slice(&message).unwrap(),
+        .filter_map(|effect| match effect {
+            AssetEffect::Send { message } => Some(serde_json::from_slice(&message).unwrap()),
+            // Its validator lists, fetched meanwhile.
+            AssetEffect::Fetch { .. } => None,
             other => panic!("{other:?}"),
         })
         .collect()

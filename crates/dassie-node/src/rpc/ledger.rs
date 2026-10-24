@@ -430,10 +430,7 @@ pub(super) fn ledger(view: &LedgerView) -> proto::Ledger {
         faucet: view.faucet,
         realm: realm(view.id.realm()).into(),
         connection: connection(view.status).into(),
-        connection_problem: match view.status {
-            LedgerStatus::Failed(why) => why.into(),
-            _ => String::new(),
-        },
+        connection_problem: problem(view.status, view.waiting),
         peg: view.peg.map(peg),
     }
 }
@@ -460,10 +457,7 @@ pub(super) fn external_asset(view: &AssetView) -> proto::ExternalAsset {
         address: view.address.clone().unwrap_or_default(),
         holdings: view.holdings.iter().map(holding).collect(),
         connection: connection(view.status).into(),
-        connection_problem: match view.status {
-            LedgerStatus::Failed(why) => why.into(),
-            _ => String::new(),
-        },
+        connection_problem: problem(view.status, view.waiting),
         settlement_schemes: view.schemes.clone(),
         faucet: view.faucet,
     }
@@ -497,6 +491,14 @@ const fn realm(realm: dassie_ledger::Realm) -> proto::Realm {
     match realm {
         dassie_ledger::Realm::Test => proto::Realm::Test,
         dassie_ledger::Realm::Live => proto::Realm::Live,
+    }
+}
+
+/// Why a ledger is not in step: why it failed, or what it waits for.
+fn problem(status: LedgerStatus, waiting: Option<&'static str>) -> String {
+    match (status, waiting) {
+        (LedgerStatus::Failed(why), _) | (_, Some(why)) => why.into(),
+        (_, None) => String::new(),
     }
 }
 

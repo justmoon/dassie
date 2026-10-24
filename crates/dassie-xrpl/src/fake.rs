@@ -67,7 +67,10 @@ pub use lies::Lie;
 pub use pools::{POOL_ACCOUNT_FLAGS, PoolState, pool_account};
 pub use proofs::MAX_STATE_PROOF_KEYS;
 pub use tokens::{ExactSum, Token};
-pub use validators::{DEFAULT_SEED, KeyedSignatures, MAINNET_SEED, UNL_FLOOR, VALIDATORS};
+pub use validators::{
+    DEFAULT_SEED, KeyedSignatures, LIST_SITE, MAINNET_SEED, UNL_FLOOR, VALIDATORS, publisher_key,
+    with_publishers,
+};
 
 use chain::Chain;
 use meta::{Applied, Touched};
@@ -89,6 +92,9 @@ pub const FAUCET_DROPS: u64 = 1_000_000_000;
 pub const FIRST_LEDGER: u32 = 5_000_000;
 /// When the first ledger closed, in seconds since the XRP Ledger's epoch.
 pub const FIRST_CLOSE_TIME: u64 = 800_000_000;
+/// The same, by a node's clock: milliseconds since 1970. A test whose clock
+/// starts here reads the fake's validations as fresh.
+pub const FIRST_CLOSE_MS: u64 = (FIRST_CLOSE_TIME + crate::unl::RIPPLE_EPOCH_UNIX_S) * 1_000;
 /// The seconds between one ledger's close and the next's.
 pub const CLOSE_INTERVAL_S: u64 = 4;
 /// The ledger a reset starts the chain again from: far below where it was,
@@ -638,11 +644,12 @@ impl FakeLedger {
     }
 
     /// Closes a ledger at `close_time`, in seconds since the XRP Ledger's
-    /// epoch, or with the last if that is later: close times never go
-    /// back along a chain.
+    /// epoch, or a second after the last if that is later: close times
+    /// grow along a chain, as rippled makes each ledger's close at least a
+    /// second after its parent's.
     pub fn close_at(&mut self, close_time: u64) -> Vec<(ConnectionId, Vec<u8>)> {
         self.ledger = self.ledger.saturating_add(1);
-        self.close_time = self.close_time.max(close_time);
+        self.close_time = close_time.max(self.close_time.saturating_add(1));
         let mut out = Vec::new();
         let queued = core::mem::take(&mut self.queued);
         self.queued_hashes.clear();
