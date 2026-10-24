@@ -2958,6 +2958,65 @@ impl Validators {
         self.say(core, &statements);
     }
 
+    /// The node's account 5 opened a hold of `amount` toward account 9, in
+    /// a new final block, after which it holds `balance`.
+    fn opened_hold(&mut self, core: &mut Core, amount: u64, balance: u64, deposited: u64) {
+        use dassie_hub::client::{AccountView, Statement};
+        use dassie_hub::ledger::{Detail, Outcome};
+        use dassie_hub::operation::{
+            AccountNumber, MemberOperation, Operation, SignedMemberOperation,
+        };
+        use dassie_hub::promise::HoldNumber;
+
+        self.height += 1;
+        let key = dassie_hub::escrow::member_key(&NodeKey::from_bytes(&[7; 32]), &self.rules.id())
+            .unwrap();
+        let fees = self.rules.terms.fees;
+        let operation = SignedMemberOperation::sign(
+            &self.rules.id(),
+            AccountNumber(5),
+            1,
+            fees.operation,
+            MemberOperation::HoldOpen {
+                payee: AccountNumber(9),
+                amount,
+            },
+            &key,
+        );
+        let view = AccountView {
+            key: self.member,
+            balance,
+            reserve: fees.account_reserve,
+            sequence: 2,
+            disbursal: true,
+            closing: false,
+            deposited,
+            withdrawn: 0,
+        };
+        let statements = [
+            Statement::Executed {
+                height: self.height,
+                timestamp: NOW + self.height,
+                index: 0,
+                operation: Operation::Member(operation),
+                outcome: Outcome::Applied {
+                    fee: fees.operation,
+                    detail: Detail::Hold(HoldNumber(1)),
+                },
+            },
+            Statement::Account {
+                height: self.height,
+                key: self.member,
+                account: Some((AccountNumber(5), view)),
+            },
+            Statement::Final {
+                height: self.height,
+                timestamp: NOW + self.height,
+            },
+        ];
+        self.say(core, &statements);
+    }
+
     fn escrow(&self) -> dassie_xrpl::AccountId {
         dassie_xrpl::AccountId(self.rules.terms.escrow)
     }
@@ -3275,5 +3334,44 @@ fn a_late_deposit_given_up_is_booked_once_if_credited() {
         deposits(&mut ledger, escrow).len(),
         3,
         "moving by itself again"
+    );
+}
+
+// spec/areas/hubs.md#in-the-node: what the node keeps in the hub counts its
+// own holds toward peers, the credit it extends them there: below the
+// floor, a deposit fills only what the ceiling leaves once they and the
+// hold's reserve count.
+#[test]
+fn our_holds_count_toward_the_hub_ceiling() {
+    use dassie_settlement::policy;
+
+    let (mut ledger, _) = funded_ledger();
+    let mut core = funding_core(&mut ledger);
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    hub.no_account(&mut core);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let opening = deposits(&mut ledger, escrow)[0].amount;
+    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let floor =
+        policy::hub_floor(p, Policies::DEFAULT.peer_credit, 0) / dassie_xrpl::UNITS_PER_DROP;
+    let ceiling = policy::hub_ceiling(p) / dassie_xrpl::UNITS_PER_DROP;
+    hub.account(&mut core, floor, opening);
+
+    let fees = hub.rules.terms.fees;
+    let hold = 7_000_000;
+    let balance = 100_000;
+    hub.opened_hold(&mut core, hold, balance, opening);
+    let status = core.hub_status().unwrap();
+    assert_eq!(status.paying.len(), 1, "the hold is ours");
+    assert_eq!(status.paying[0].amount, hold * dassie_xrpl::UNITS_PER_DROP);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    let made = deposits(&mut ledger, escrow);
+    assert_eq!(made.len(), 2, "below the floor: {made:?}");
+    let kept = balance + fees.account_reserve + fees.hold_reserve + hold;
+    assert_eq!(made[1].amount, ceiling - kept, "up to the ceiling only");
+    assert!(
+        made[1].amount < floor.midpoint(ceiling) - balance,
+        "less than the midpoint asks"
     );
 }
