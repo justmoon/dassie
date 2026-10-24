@@ -21,7 +21,8 @@
 //!   it says what to send its ledger, signs, keeps the sequence and what is
 //!   in flight, and tells the schemes on it what the ledger says.
 //! - [`scheme`]: the XRP scheme, which settles in the account's XRP and
-//!   books what the account tells it; on the testnet, `xrpl-testnet`.
+//!   books what the account tells it: `xrpl-testnet` on the testnet, `xrpl`
+//!   on mainnet.
 //! - [`token`]: the token scheme, which settles in a dollar token on the
 //!   account's trust line to its issuer, with the account's XRP as gas;
 //!   [`rlusd`] is it in RLUSD (`xrpl-testnet-rlusd`), [`dsusd`] in DSUSD
@@ -58,7 +59,7 @@ pub use dsusd::DsusdScheme;
 pub use keys::{AccountId, Wallet};
 pub use network::Network;
 pub use rlusd::RlusdScheme;
-pub use scheme::{NativeXrp, Xrp, XrpScheme, XrplScheme};
+pub use scheme::{NativeXrp, Xrp, XrpScheme, XrplMainnetScheme, XrplScheme};
 pub use token::{IssuedToken, Token, TokenScheme};
 
 /// Drops per XRP. The ledger counts in drops, at scale 6.

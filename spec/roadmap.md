@@ -126,10 +126,10 @@ The XRPL account takes its server's word on which ledgers are validated and what
 Settling with real money on the XRP Ledger's mainnet, in XRP and in RLUSD ([mainnet-schemes](decisions/mainnet-schemes.md)), with no DSUSD on mainnet, and DSUSD as the testnet's stand-in for RLUSD. A condition for [real money](#real-money); the `live` realm stays refused after it.
 
 - **Parts that can be built side by side:**
-  - `xrpl` and `xrpl-rlusd` on one mainnet account, with memo types of their own, and a test that every XRPL scheme's memo type, ledger and network are distinct;
+  - `xrpl-rlusd` on mainnet's account beside `xrpl`, with a memo type of its own, in the test that holds every XRPL scheme's memo type and ledger distinct;
   - test RLUSD disabled: the testnet's RLUSD scheme no longer offered or activated, the bootstrap nodes without it, and every run of it moved to mainnet RLUSD in the live realm on the fake, or to DSUSD: dev's and the end-to-end tests' scenarios, the `node` simulation's scripted runs and the in-process tests;
-  - the realm gate: a ledger activates only in its node's realm, a node offers only its realm's schemes, a `live` realm stored in the database is refused at start, and the live realm runs in-process in tests, and in dev and the end-to-end tests through a switch only builds with debug assertions honour;
-  - the fake ledger's mainnet mode: mainnet's network ID, no faucet, RLUSD's mainnet issuer and a pool, never a reset;
+  - the live realm in dev and the end-to-end tests through the node's dev switch, which only builds with debug assertions honour, and a live node that takes none of the test network's defaults, its bootstrap nodes and its relay;
+  - the fake ledger's mainnet: RLUSD's mainnet issuer and a pool;
   - **the peg guard** ([issued-assets](decisions/issued-assets.md)), on one state proof of its pool ([above](#checking-xrp-ledger-validators)): mainnet RLUSD priced by mainnet's RLUSD/XRP pool and testnet DSUSD by its DSUSD/XRP pool, the scheme and the connector pausing both ways off the peg and when the reading is stale, the guard's state kept and shown to the owner;
   - the wallet, dev and the end-to-end tests: the mainnet schemes' names, Receive without a faucet and with the reserve to send, the guard's state, a mainnet scenario on the fake, and a pool moved off its peg.
 - **Done when:** live-realm nodes against the mainnet fake settle in XRP and in RLUSD at addresses under `g.`; a test-realm node never activates a mainnet scheme, nor a live-realm node a testnet one; no node activates test RLUSD; a release binary refuses the dev switch; a pool moved off its peg pauses the token's scheme and its conversions once the guard's hold has passed, on mainnet RLUSD and on testnet DSUSD, and they resume after recovery, with nothing converted at par meanwhile, while what arrives is still booked; the guard pauses the scheme when its reading is stale.
@@ -150,7 +150,7 @@ Gaps between what the spec's contract or decisions ask for and what `main` does.
 
 ## Real money
 
-The `live` realm is refused, and the XRP Ledger mainnet has no scheme ([real-money](decisions/real-money.md), [XRP Ledger](areas/xrpl.md#real-money)). `live` is enabled only when all of these hold:
+The `live` realm is refused, so the XRP Ledger mainnet's scheme, `xrpl`, runs only by a dev switch no release build honours ([real-money](decisions/real-money.md), [XRP Ledger](areas/xrpl.md#real-money)). `live` is enabled only when all of these hold:
 
 - the peer protocol's sender authentication is in place ([Peer protocol](areas/peer-protocol.md));
 - the ledger is durable: journal and reconciliation ([Ledger](areas/ledger.md));

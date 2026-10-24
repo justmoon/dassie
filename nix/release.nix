@@ -394,8 +394,10 @@ let
       touch $out
     '';
 
-  # The release binaries are static, name their version, and pass
-  # `verify-install`, the arm64 one under qemu.
+  # The release binaries are static, name their version, pass
+  # `verify-install`, the arm64 one under qemu, and refuse to start with the
+  # live realm's dev switch, which only builds with debug assertions honour
+  # (spec/decisions/mainnet-schemes.md).
   static-binaries =
     pkgs.runCommand "dassie-static-binaries"
       {
@@ -414,6 +416,16 @@ let
           fi
           [ "$($run $binary --version)" = "dassie ${releaseVersion}" ]
           $run $binary verify-install
+          # Refused before it starts, naming the switch: a daemon that
+          # started, and so ran out its time or warned of the switch, fails.
+          local status=0
+          DASSIE_STATE_DIRECTORY=$TMPDIR/live DASSIE_DEV_LIVE_REALM=1 \
+            timeout 60 $run $binary daemon 2> live.err || status=$?
+          if [ "$status" != 1 ] || ! grep -q '^dassie: DASSIE_DEV_LIVE_REALM' live.err; then
+            echo "$binary did not refuse DASSIE_DEV_LIVE_REALM (exit $status)" >&2
+            cat live.err >&2
+            exit 1
+          fi
         }
         check ${released.x64}/bin/dassie ""
         check ${released.arm64}/bin/dassie qemu-aarch64

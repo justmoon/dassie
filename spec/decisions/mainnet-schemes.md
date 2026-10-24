@@ -1,6 +1,6 @@
 # Mainnet has schemes of its own, and a ledger runs only in its node's realm
 
-**Areas:** [XRPL](../areas/xrpl.md), [Settlement](../areas/settlement.md#schemes-and-ledgers), [Ledger](../areas/ledger.md), [Node](../areas/node.md), [Identity](../areas/identity.md). Not built yet ([roadmap](../roadmap.md#mainnet-schemes)).
+**Areas:** [XRPL](../areas/xrpl.md), [Settlement](../areas/settlement.md#schemes-and-ledgers), [Ledger](../areas/ledger.md), [Node](../areas/node.md), [Identity](../areas/identity.md). Built: the account by network, `xrpl` with its memo type on mainnet's account, the realm gate, `live` refused at three points, the dev switch in the node, and the fake ledger's mainnet without RLUSD. Not built yet ([roadmap](../roadmap.md#mainnet-schemes)): `xrpl-rlusd`, test RLUSD disabled, the peg guard, a live node without the test network's bootstrap nodes and relay, the live realm in dev and the end-to-end tests, and the wallet's mainnet pages.
 
 ## Facts
 
@@ -28,7 +28,7 @@
 
 - **A dev switch that turns on the live realm,** guarded only by the build profile. Without it, the first time a binary ran a mainnet scheme would be with real money.
 - **A live node starts alone** until a mainnet bootstrap node list exists, unless its owner names one.
-- **A node whose realm changed** with schemes of the other realm active shows them failed. Changing the realm with schemes active stays out of scope while `live` cannot be set.
+- **A node whose realm changed** with schemes of the other realm active starts without them and tells the owner; they stay stored, and run again if the realm changes back. Changing the realm with schemes active stays out of scope while `live` cannot be set.
 - **RLUSD's issuer is a counterparty** on mainnet as on the testnet ([issued-assets](issued-assets.md)), there with real money; the peg guard bounds what a de-peg costs at the boundaries.
 
 ## Rejected

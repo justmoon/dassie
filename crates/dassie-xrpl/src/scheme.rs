@@ -1,5 +1,5 @@
 //! The XRP scheme (spec/areas/xrpl.md), sans-IO: `xrpl-testnet` on the
-//! testnet ([`XrplScheme`]).
+//! testnet ([`XrplScheme`]), `xrpl` on mainnet ([`XrplMainnetScheme`]).
 //!
 //! It settles in the XRP of the node's first XRPL account on its network
 //! ([`XrplAccount`]), which connects, signs and follows the ledger for it.
@@ -27,11 +27,13 @@
 //! payment is a deposit like any other (ACC-20).
 //!
 //! It settles only on its account's network, which the account checks
-//! before it reads anything (spec/decisions/real-money.md). Only the
-//! testnet's runs. The original's mainnet module, never registered, would
-//! have taken every settlement for a deposit (ACC-13); a mainnet scheme
-//! waits for real money, with a memo type of its own
-//! (spec/decisions/mainnet-schemes.md).
+//! before it reads anything (spec/decisions/real-money.md). Each network's
+//! scheme has a memo type of its own, so a Payment of one is never read as
+//! a settlement of the other (spec/decisions/mainnet-schemes.md): the
+//! original's mainnet module, never registered, wrote the testnet's, and
+//! would have taken every settlement for a deposit (ACC-13). Mainnet's
+//! books on a ledger of the live realm, which runs only in a node of that
+//! realm, still refused (spec/decisions/real-money.md).
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::{String, ToString};
@@ -107,6 +109,33 @@ impl NativeXrp for TestnetXrp {
 
 /// The `xrpl-testnet` scheme.
 pub type XrplScheme = XrpScheme<TestnetXrp>;
+
+/// The mainnet scheme's ID.
+pub const MAINNET_SCHEME_ID: &str = "xrpl";
+/// The memo that marks a settlement on mainnet: its own, never the
+/// testnet's, which the original wrote on both (ACC-13). A contract between
+/// peers, as the testnet's is (spec/areas/xrpl.md#the-payment-it-signs).
+pub const MAINNET_MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrp/v1";
+
+/// XRP on mainnet, as `xrpl` settles in it: real money.
+pub const MAINNET_XRP: Xrp = Xrp {
+    scheme_id: MAINNET_SCHEME_ID,
+    scheme: dassie_ledger::name!(MAINNET_SCHEME_ID),
+    memo_type: MAINNET_MEMO_TYPE,
+    ledger: LedgerId::XrplXrp,
+    network: &network::MAINNET,
+};
+
+/// XRP on mainnet, as a type.
+#[derive(Clone, Copy, Debug)]
+pub enum MainnetXrp {}
+
+impl NativeXrp for MainnetXrp {
+    const XRP: Xrp = MAINNET_XRP;
+}
+
+/// The `xrpl` scheme, on mainnet.
+pub type XrplMainnetScheme = XrpScheme<MainnetXrp>;
 
 /// The memo type of the owner's payments out of the account
 /// ([`SettlementScheme::pay_owner`]), such as a deposit into a settlement
@@ -1335,5 +1364,62 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    /// A successful Payment of XRP from `from` to `to`, with one memo of
+    /// `memo_type` naming `peer`.
+    fn payment(from: AccountId, to: AccountId, memo_type: &[u8], peer: Name) -> TxRecord {
+        TxRecord {
+            hash: [1; 32],
+            ledger_index: 10,
+            index: 0,
+            validated: true,
+            account: from,
+            is_payment: true,
+            destination: Some(to),
+            destination_tag: None,
+            sequence: 1,
+            fee: 10,
+            result: "tesSUCCESS".into(),
+            delivered: Some(1_000_000),
+            delivered_token: None,
+            memo: Some((memo_type.to_vec(), peer.as_str().as_bytes().to_vec())),
+            changes: Vec::new(),
+            lines: Vec::new(),
+        }
+    }
+
+    /// Whether the scheme of `N` takes a Payment from its peer's address,
+    /// naming the peer, with `memo_type` for the peer's settlement.
+    fn settles<N: NativeXrp>(memo_type: &[u8]) -> bool {
+        let network = N::XRP.network;
+        let account =
+            XrplAccount::new(network.first(), &[network.xrp_scheme], "", &[7; 32], &[]).unwrap();
+        let node = Name::new("node0").unwrap();
+        let mut scheme = XrpScheme::<N>::new(&account, node, None, &[]).unwrap();
+        let (peer, address) = (Name::new("node1").unwrap(), AccountId([1; 20]));
+        scheme.learn(peer, address);
+        scheme.check_invariants();
+        let record = payment(address, account.account(), memo_type, peer);
+        scheme.settled_by(&record) == Some(peer)
+    }
+
+    // spec/decisions/mainnet-schemes.md: each network's XRP scheme reads
+    // only its own memo type, so a Payment with the other network's, from
+    // a peer's address and naming the peer, is never its settlement but the
+    // owner's deposit; the original wrote the testnet's on both (ACC-13).
+    #[test]
+    fn a_settlement_of_the_other_network_is_a_deposit() {
+        assert!(settles::<TestnetXrp>(MEMO_TYPE));
+        assert!(!settles::<TestnetXrp>(MAINNET_MEMO_TYPE));
+        assert!(settles::<MainnetXrp>(MAINNET_MEMO_TYPE));
+        assert!(!settles::<MainnetXrp>(MEMO_TYPE));
+        assert!(!settles::<MainnetXrp>(OWNER_MEMO_TYPE));
     }
 }

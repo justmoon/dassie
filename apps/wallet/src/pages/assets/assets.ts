@@ -11,6 +11,7 @@ import { type Currency, currencyOf } from "@dassie/ui/currency";
  * which a faucet gives and fees are paid in. */
 const KINDS: Record<string, { name: string; native: string }> = {
   "xrpl-testnet-account": { name: "XRP Ledger Testnet account", native: "XRP" },
+  "xrpl-account": { name: "XRP Ledger account", native: "XRP" },
 };
 
 /** An asset's name for people, from its ID: its kind, and which of them

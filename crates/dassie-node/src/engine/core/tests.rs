@@ -23,10 +23,22 @@ fn core(seed: u64) -> Core {
 }
 
 fn core_on(store: Arc<Store>, seed: u64) -> Core {
+    let refused = dassie_node_core::config::LiveRealm::Refused;
+    core_in(store, seed, Realm::Test, refused).unwrap()
+}
+
+/// A core of `realm`, which may be the live realm as `live` allows.
+fn core_in(
+    store: Arc<Store>,
+    seed: u64,
+    realm: Realm,
+    live: dassie_node_core::config::LiveRealm,
+) -> Result<Core, String> {
     let parts = CoreParts {
         store,
         key: Arc::new(NodeKey::from_bytes(&[7; 32])),
-        realm: Realm::Test,
+        realm,
+        live,
         policies: Policies::DEFAULT,
         rng: Box::new(SeededRng::new(seed)),
         peer_rng: Box::new(SeededRng::new(seed + 1)),
@@ -40,7 +52,7 @@ fn core_on(store: Arc<Store>, seed: u64) -> Core {
         bootstrap: Vec::new(),
         uplinks: Vec::new(),
     };
-    Core::start(parts, NOW).unwrap()
+    Core::start(parts, NOW)
 }
 
 /// A short session: a scheme, a token, a client that asks for its address.
@@ -1499,6 +1511,7 @@ fn a_downlink_that_owes_nothing_is_never_short_of_room() {
             store,
             key: Arc::new(NodeKey::from_bytes(&[7; 32])),
             realm: Realm::Test,
+            live: dassie_node_core::config::LiveRealm::Refused,
             policies: Policies::DEFAULT,
             rng: Box::new(SeededRng::new(5)),
             peer_rng: Box::new(SeededRng::new(6)),
@@ -2190,6 +2203,7 @@ fn rlusd_core(ledger: &mut dassie_xrpl::fake::FakeLedger) -> Core {
             store: Arc::new(Store::open_in_memory().unwrap()),
             key,
             realm: Realm::Test,
+            live: dassie_node_core::config::LiveRealm::Refused,
             policies: Policies::DEFAULT,
             rng: Box::new(SeededRng::new(5)),
             peer_rng: Box::new(SeededRng::new(6)),
@@ -2396,6 +2410,7 @@ fn a_periphery_node_refuses_an_uplink_it_has_not() {
             store: Arc::new(Store::open_in_memory().unwrap()),
             key: Arc::new(NodeKey::from_bytes(&[7; 32])),
             realm: Realm::Test,
+            live: dassie_node_core::config::LiveRealm::Refused,
             policies: Policies::DEFAULT,
             rng: Box::new(SeededRng::new(13)),
             peer_rng: Box::new(SeededRng::new(14)),
@@ -2618,12 +2633,98 @@ fn a_hub_is_joined_only_if_it_fits_the_message_window() {
 // filled in could only fail.
 #[test]
 fn a_hub_scheme_is_offered_only_with_a_default_hub() {
-    assert!(super::offered("stub"));
-    assert!(super::offered(dassie_xrpl::scheme::SCHEME_ID));
+    let info = |id: &str| super::SCHEMES.iter().find(|info| info.id == id).unwrap();
+    let test = dassie_ledger::Realm::Test;
+    assert!(super::offered(info("stub"), test));
+    assert!(super::offered(info(dassie_xrpl::scheme::SCHEME_ID), test));
     assert_eq!(
-        super::offered(dassie_hub::member::SCHEME_ID),
+        super::offered(info(dassie_hub::member::SCHEME_ID), test),
         dassie_hub::member::DEFAULT_TESTNET_HUB.is_some()
     );
+}
+
+// spec/decisions/mainnet-schemes.md: a ledger runs only in its node's
+// realm. A test-realm node activates no mainnet scheme, and a live-realm
+// node, by the dev switch, no scheme of the test realm, the stub's
+// included; it runs `xrpl`, at an address under `g.`.
+#[test]
+fn a_ledger_runs_only_in_its_nodes_realm() {
+    use dassie_node_core::config::LiveRealm;
+
+    let mainnet = dassie_xrpl::scheme::MAINNET_SCHEME_ID;
+    let mut test = core(3);
+    assert!(matches!(
+        test.add_scheme(mainnet, String::new()),
+        Err(super::EngineError::Precondition(_))
+    ));
+    assert!(test.ledger_views().is_empty());
+    assert!(test.assets.is_empty(), "the account was let go");
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut live = core_in(store, 3, Realm::Live, LiveRealm::DevSwitch).unwrap();
+    assert!(live.own_address().starts_with("g.das."));
+    for id in [
+        "stub",
+        dassie_xrpl::scheme::SCHEME_ID,
+        dassie_xrpl::rlusd::SCHEME_ID,
+    ] {
+        assert!(
+            matches!(
+                live.add_scheme(id, String::new()),
+                Err(super::EngineError::Precondition(_))
+            ),
+            "{id}"
+        );
+    }
+    let view = live.add_scheme(mainnet, String::new()).unwrap();
+    assert_eq!(view.id, dassie_ledger::LedgerId::XrplXrp);
+    assert!(!view.faucet, "mainnet has no faucet");
+    assert_eq!(
+        live.assets.keys().copied().collect::<Vec<_>>(),
+        [dassie_xrpl::network::MAINNET.first()]
+    );
+}
+
+// spec/decisions/mainnet-schemes.md: `live` stays refused where the
+// realm is set, and at start: a node whose database names it starts only by
+// the dev switch.
+#[test]
+fn a_stored_live_realm_is_refused_at_start() {
+    use dassie_node_core::config::LiveRealm;
+
+    let store = || Arc::new(Store::open_in_memory().unwrap());
+    let refused = core_in(store(), 1, Realm::Live, LiveRealm::Refused);
+    assert!(refused.err().unwrap().contains("live realm"));
+    assert!(core_in(store(), 1, Realm::Live, LiveRealm::DevSwitch).is_ok());
+    assert!(core_in(store(), 1, Realm::Test, LiveRealm::DevSwitch).is_ok());
+}
+
+// spec/decisions/mainnet-schemes.md: a node whose realm changed with a
+// scheme of the other realm stored starts without it, and says so; the
+// scheme is kept, and runs again once the realm is changed back.
+#[test]
+fn a_stored_scheme_of_another_realm_does_not_run() {
+    use dassie_node_core::config::LiveRealm;
+
+    use super::{Event, SettlementEvent};
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut test = core_on(Arc::clone(&store), 4);
+    test.add_scheme("stub", String::new()).unwrap();
+    let mut outputs = Vec::new();
+    test.finish_step(&mut outputs);
+    drop(test);
+    let mut live = core_in(Arc::clone(&store), 4, Realm::Live, LiveRealm::DevSwitch).unwrap();
+    assert!(live.ledger_views().is_empty());
+    let mut outputs = Vec::new();
+    live.finish_step(&mut outputs);
+    assert!(outputs.iter().any(|output| matches!(
+        output,
+        Output::Event(Event::Settlement(SettlementEvent::OtherRealm { scheme }))
+            if scheme.as_str() == "stub"
+    )));
+    drop(live);
+    let test = core_on(store, 4);
+    assert_eq!(test.ledger_views().len(), 1);
 }
 
 /// A core node at `https://core.test` that takes QUIC, over the stub with
@@ -2635,6 +2736,7 @@ fn hub_core_with_downlink(seed: u64) -> (Core, dassie_identity::NodeId) {
             store,
             key: Arc::new(NodeKey::from_bytes(&[7; 32])),
             realm: Realm::Test,
+            live: dassie_node_core::config::LiveRealm::Refused,
             policies: Policies::DEFAULT,
             rng: Box::new(SeededRng::new(seed)),
             peer_rng: Box::new(SeededRng::new(seed + 1)),

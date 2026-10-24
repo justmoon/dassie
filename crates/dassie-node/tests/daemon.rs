@@ -710,3 +710,46 @@ async fn an_engine_that_fails_at_every_start_ends_the_daemon_unready() {
     }
     assert_eq!(notifications(&notify), ["STOPPING=1"]);
 }
+
+// spec/decisions/mainnet-schemes.md: `live` is refused where it is set and
+// where the node starts, but by the dev switch, which the tests, built with
+// debug assertions, honour. A node the owner set to it by the switch runs
+// in it again with the switch, and without it does not start.
+#[tokio::test]
+async fn the_live_realm_runs_only_by_the_dev_switch() {
+    const SWITCH: [(&str, &str); 1] = [("DASSIE_DEV_LIVE_REALM", "1")];
+    let node = Bound::new()
+        .start(ManualClock::new(START_MS), 1, Policies::DEFAULT, &SWITCH)
+        .await;
+    set_up(&node, &key()).await;
+    let live = proto::SetRealmRequest {
+        realm: proto::Realm::Live.into(),
+    };
+    let reply = node.ipc().await.call(Method::SetRealm(live)).await;
+    let Ok(response::Method::SetRealm(reply)) = reply else {
+        panic!("{reply:?}")
+    };
+    assert_eq!(
+        reply.config.map(|config| config.realm),
+        Some(proto::Realm::Live.into())
+    );
+    let (dir, clock) = node.stop().await;
+    let node = Bound::bind_in(dir)
+        .start(clock, 2, Policies::DEFAULT, &SWITCH)
+        .await;
+    let ledgers = node
+        .ipc()
+        .await
+        .call(Method::ListLedgers(proto::ListLedgersRequest {}))
+        .await;
+    assert!(ledgers.is_ok(), "{ledgers:?}");
+    let (dir, clock) = node.stop().await;
+    let node = Bound::bind_in(dir)
+        .start(clock, 3, Policies::DEFAULT, &[])
+        .await;
+    let (outcome, _dir) = node.ended().await;
+    match outcome {
+        Err(DaemonError::StartFailed { service, .. }) => assert_eq!(service, "engine"),
+        other => panic!("{other:?}"),
+    }
+}
