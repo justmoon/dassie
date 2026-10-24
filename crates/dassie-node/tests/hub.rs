@@ -36,7 +36,7 @@ use dassie_node::http::peer::Answer;
 use dassie_node::hub::driver::Driver;
 use dassie_node::hub::service::{EscrowLinks, HubTask};
 use dassie_node::hub::transport::{
-    MAX_MEMBER_MESSAGE_BYTES, MEDIA_TYPE, Route, StateReply, encode_request,
+    HubPermit, MAX_MEMBER_MESSAGE_BYTES, MEDIA_TYPE, Route, StateReply, encode_request,
 };
 use dassie_node::hub::{HubAccess, HubAnswer, HubClient, HubExchangeError, Hubs, Sender};
 use dassie_node::peer_client::PeerClient;
@@ -86,8 +86,8 @@ impl Handler for HubHandler {
         self.0.access(Some(from), hub)
     }
 
-    fn hub_permit(&self, access: HubAccess) -> Option<tokio::sync::OwnedSemaphorePermit> {
-        self.0.request_permit(access)
+    fn hub_permit(&self, from: &PublicKey, access: HubAccess) -> Option<HubPermit> {
+        self.0.request_permit(access, &Sender::Node(*from))
     }
 
     fn hub<'a>(

@@ -176,9 +176,12 @@ impl crate::quic::Handler for QuicHandler {
 
     fn hub_permit(
         &self,
+        from: &dassie_identity::PublicKey,
         access: crate::hub::HubAccess,
-    ) -> Option<tokio::sync::OwnedSemaphorePermit> {
-        self.0.hubs().request_permit(access)
+    ) -> Option<crate::hub::transport::HubPermit> {
+        self.0
+            .hubs()
+            .request_permit(access, &crate::hub::Sender::Node(*from))
     }
 
     /// The states the node keeps of the hubs it validates, for their other

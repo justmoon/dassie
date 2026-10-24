@@ -220,13 +220,15 @@ pub trait Handler: Send + Sync + 'static {
         crate::hub::HubAccess::Unknown
     }
 
-    /// A place for one request on the hub's stream from a sender of
-    /// `access`, taken before its message is read; `None` when there is
-    /// none, and the request is answered busy.
+    /// A place for one request on the hub's stream from the node `from`,
+    /// of `access`, taken before its message is read; `None` when there is
+    /// none, or `from` holds its share already, and the request is
+    /// answered busy.
     fn hub_permit(
         &self,
+        _from: &PublicKey,
         _access: crate::hub::HubAccess,
-    ) -> Option<tokio::sync::OwnedSemaphorePermit> {
+    ) -> Option<crate::hub::transport::HubPermit> {
         None
     }
 
