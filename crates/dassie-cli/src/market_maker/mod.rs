@@ -130,6 +130,9 @@ struct MarketMaker {
     token: Node,
     wallets: Wallets,
     unbooked: Option<Unbooked>,
+    /// The target, in the config's order, the last trade went through, so
+    /// that targets that pay alike take turns.
+    last_target: Option<usize>,
 }
 
 /// A target the market maker follows ([`target::follow`]).
@@ -252,6 +255,7 @@ impl MarketMaker {
             token,
             wallets,
             unbooked: None,
+            last_target: None,
         })
     }
 
@@ -324,6 +328,7 @@ impl MarketMaker {
         let params = self.config.params;
         let inputs = Inputs {
             targets: &quotes,
+            last_target: self.last_target,
             pool,
             holdings,
             params: &params,
@@ -336,6 +341,7 @@ impl MarketMaker {
                 let through = current.iter().find(|target| target.index == trade.target);
                 assert!(through.is_some(), "a trade through a target it was given");
                 if let Some(through) = through {
+                    self.last_target = Some(trade.target);
                     self.trade(&trade, through, &inputs, now_ms).await;
                 }
             }

@@ -6,12 +6,11 @@
  * periphery nodes each pinned to both: d3 with XRP, d4 with DSUSD. The
  * fake ledger holds an XRP/DSUSD pool at the dev rate.
  *
- * Both core nodes lack DSUSD, so both feeds price it above the pool.
- * `dassie market-maker`, from the e2e build, follows both feeds, and each
- * tick pays DSUSD from d4 to d3 through whichever pays best. Each trade
- * lowers what that node pays for DSUSD, so the next goes through the
- * other: both core nodes take DSUSD in, through two nodes of the market
- * maker's, each with an uplink to both.
+ * Both core nodes lack DSUSD, so both feeds price it above the pool, alike,
+ * at their curve's cap. `dassie market-maker`, from the e2e build, follows
+ * both feeds, and pays DSUSD from d4 to d3 through whichever pays best;
+ * targets that pay alike take turns. So both core nodes take DSUSD in,
+ * through two nodes of the market maker's, each with an uplink to both.
  */
 
 import { test } from "node:test";

@@ -246,8 +246,12 @@ pub struct TargetQuote {
 #[derive(Clone, Copy, Debug)]
 pub struct Inputs<'a> {
     /// The targets with a current feed, at most
-    /// [`MAX_TARGETS`](super::config::MAX_TARGETS); ties go to the first.
+    /// [`MAX_TARGETS`](super::config::MAX_TARGETS).
     pub targets: &'a [TargetQuote],
+    /// The target the last trade went through, if any: of trades that gain
+    /// alike, the first target after it, in the order of `targets` and
+    /// around, is taken, so that targets that pay alike take turns.
+    pub last_target: Option<usize>,
     /// The pool.
     pub pool: Pool,
     /// The nodes' holdings.
@@ -357,12 +361,21 @@ pub fn decide(inputs: &Inputs<'_>) -> Decision {
 
 /// The best trade from one of the nodes `from` through one of the peered
 /// targets, or why there is none: of all the reasons met, the one that got
-/// furthest ([`further`]). Of trades that gain alike, the first target's,
-/// and the first node's, is taken.
+/// furthest ([`further`]). Of trades that gain alike, the first target's
+/// after the last trade's ([`Inputs::last_target`]), and the first node's,
+/// is taken.
 fn trade(inputs: &Inputs<'_>, from: &[Side]) -> Decision {
     let mut best: Option<Trade> = None;
     let mut hold = Hold::Unpeered;
-    for quote in inputs.targets.iter().filter(|quote| quote.peered) {
+    // Looked at from the target after the last trade's, around: the first
+    // of those alike wins.
+    let start = inputs
+        .targets
+        .iter()
+        .position(|quote| Some(quote.target) == inputs.last_target)
+        .map_or(0, |last| last + 1);
+    let (before, after) = inputs.targets.split_at(start.min(inputs.targets.len()));
+    for quote in after.iter().chain(before).filter(|quote| quote.peered) {
         hold = further(hold, Hold::NoRate);
         for &from in from {
             let Some(rate) = quote.rates.from(from) else {
@@ -659,6 +672,7 @@ mod tests {
     ) -> Inputs<'a> {
         Inputs {
             targets,
+            last_target: None,
             pool: pool(),
             holdings,
             params,
@@ -893,9 +907,38 @@ mod tests {
             panic!("a trade");
         };
         assert_eq!((trade.target, trade.from), (1, Side::Token));
-        // Alike, the first is taken.
-        let targets = [quote(4, good, true), quote(3, good, true)];
-        let Decision::Trade(trade) = decide(&inputs(&targets, MIDDLE, &params)) else {
+    }
+
+    #[test]
+    fn targets_that_pay_alike_take_turns() {
+        let params = params();
+        let good = rates(POOL_XRP_TO_TOKEN / 100 * 102, POOL_TOKEN_TO_XRP);
+        let targets = [
+            quote(4, good, true),
+            quote(3, good, false),
+            quote(7, good, true),
+        ];
+        let after = |last| {
+            let mut inputs = inputs(&targets, MIDDLE, &params);
+            inputs.last_target = last;
+            match decide(&inputs) {
+                Decision::Trade(trade) => trade.target,
+                decision => panic!("a trade, not {decision:?}"),
+            }
+        };
+        // With no trade before, or one through a target gone, the first.
+        assert_eq!(after(None), 4);
+        assert_eq!(after(Some(9)), 4);
+        // Then the next peered one after the last, around.
+        assert_eq!(after(Some(4)), 7);
+        assert_eq!(after(Some(3)), 7);
+        assert_eq!(after(Some(7)), 4);
+        // A better one wins whatever came last.
+        let better = rates(POOL_XRP_TO_TOKEN / 100 * 103, POOL_TOKEN_TO_XRP);
+        let targets = [quote(4, better, true), quote(7, good, true)];
+        let mut inputs = inputs(&targets, MIDDLE, &params);
+        inputs.last_target = Some(4);
+        let Decision::Trade(trade) = decide(&inputs) else {
             panic!("a trade");
         };
         assert_eq!(trade.target, 4);
@@ -1179,6 +1222,7 @@ mod tests {
         const TARGETS: [TargetQuote; 1] = one(VM_RATES);
         Inputs {
             targets: &TARGETS,
+            last_target: None,
             pool: Pool {
                 drops: 7_600 * 1_000_000,
                 value: TokenValue::parse("10000").unwrap(),
