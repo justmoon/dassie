@@ -30,7 +30,7 @@ A proof server is relied on to answer, never trusted ([verified-ledgers](../deci
 - **History.** Each keeps a little more than the node's history bound, the age beyond which a node takes the server's `lgrNotFound` as history it no longer has ([the account on proofs](../designs/xrpl-validation.md#6-the-account-on-proofs)). A longer history costs disk; a shorter one sends more nodes that were away down that path.
 - **Per-client limits behind the proxy.** xrpld charges each request to an address. Behind Caddy, every request would come from one address, so one client could slow down all. xrpld therefore takes the client's address from Caddy, which sets it itself and drops what a client sends there, and drops the header with which a gateway lifts the limits.
 - **A testnet reset** leaves a server on a chain the network no longer has; it is wiped and syncs anew, once per request in the metadata, since nothing on the VM can tell a reset from a lying peer.
-- **No SSH.** It logs to the serial console; a new build or configuration is new metadata and a reset.
+- **No SSH.** It logs to the serial console; a new build or configuration is new metadata and a restart, stopped cleanly so that xrpld closes its databases.
 
 ## Decisions
 

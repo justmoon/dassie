@@ -7,12 +7,12 @@
 # host name, and the xrpld build to run, by URL and SHA-256. It installs
 # that build after checking its hash, the configuration for the network from
 # this directory on `main` (or the branch the metadata `config-ref` names),
-# and Caddy in front of it. So a new build is new metadata and a reset
-# (README.md#updating), and a changed configuration needs only a reset.
+# and Caddy in front of it. So a new build is new metadata and a restart
+# (README.md#updating), and a changed configuration needs only a restart.
 #
 # A testnet reset leaves xrpld with a chain the network no longer has. To
 # start it on an empty database, set the metadata `wipe-db` to a value it
-# has not had before and reset the VM: the database is wiped once per value.
+# has not had before and restart the VM: the database is wiped once per value.
 set -eu
 export HOME=/root
 

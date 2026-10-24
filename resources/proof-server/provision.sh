@@ -6,7 +6,7 @@
 # Without --apply it prints the gcloud commands and runs nothing. With it,
 # it runs them, as an owner of the project, once. startup.sh and the files
 # it installs come from `main` at each boot, so a change to them needs only
-# a reset of the VM (one to startup.sh itself needs
+# a restart of the VM (one to startup.sh itself needs
 # `gcloud compute instances add-metadata … --metadata-from-file`).
 #
 # What it makes:
