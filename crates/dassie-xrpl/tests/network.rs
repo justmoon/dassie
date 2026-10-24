@@ -191,17 +191,16 @@ fn a_config_names_a_faucet_only_where_there_is_one() {
 }
 
 // spec/designs/xrpl-validation.md#10-configuration-and-state: each network
-// trusts its own list publishers, with its own floor, unless the owner names
-// others, which replace them entirely; a floor comes only with them. What
-// is not a publisher an account can follow is refused.
+// trusts its own list publishers unless the owner names others, which
+// replace them entirely. What is not a publisher an account can follow,
+// and a floor, are refused.
 #[test]
 fn a_config_names_the_validator_list_publishers() {
-    use dassie_xrpl::validator_list::{MAINNET_FLOOR, TESTNET_FLOOR, UnlConfig};
+    use dassie_xrpl::validator_list::UnlConfig;
 
-    for (network, floor) in [(&TESTNET, TESTNET_FLOOR), (&MAINNET, MAINNET_FLOOR)] {
+    for network in [&TESTNET, &MAINNET] {
         let config = account::Config::parse_on("", network).unwrap();
         assert_eq!(config.unl, UnlConfig::for_network(network.id).unwrap());
-        assert_eq!(config.unl.floor, floor);
         let key = dassie_xrpl::fake::publisher_key(dassie_xrpl::fake::DEFAULT_SEED);
         let own = serde_json::json!({
             "publishers": [{
@@ -212,12 +211,10 @@ fn a_config_names_the_validator_list_publishers() {
         let config = account::Config::parse_on(&own.to_string(), network).unwrap();
         assert_eq!(config.unl.publishers.len(), 1);
         assert_eq!(config.unl.publishers[0].master_key, key);
-        assert_eq!(config.unl.floor, floor, "the network's floor");
         let mut floored = own.clone();
         floored["floor"] = 3.into();
-        let config = account::Config::parse_on(&floored.to_string(), network).unwrap();
-        assert_eq!(config.unl.floor, 3);
         for bad in [
+            floored,
             serde_json::json!({ "floor": 3 }),
             serde_json::json!({ "publishers": [] }),
             serde_json::json!({ "publishers": [{ "key": "ED00", "sites": ["https://a.example"] }] }),

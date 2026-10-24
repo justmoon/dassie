@@ -1,6 +1,7 @@
-//! The UNL: the validators every trusted publisher's list names, each with
-//! its current signing key, and the quorum of them that makes a ledger
-//! validated (spec/designs/xrpl-validation.md#5-the-unl-from-its-publishers),
+//! The UNL: the validators enough of the trusted publishers' lists name,
+//! each with its current signing key, and the quorum of them that makes a
+//! ledger validated, as rippled's defaults have them
+//! (spec/designs/xrpl-validation.md#5-the-unl-from-its-publishers),
 //! sans-IO.
 //!
 //! - **A list counts** when its publisher's manifest verifies under the
@@ -14,10 +15,13 @@
 //!   only when that master signed them: the highest sequence wins, and a
 //!   revocation leaves the master no key to sign with. A signing key serves
 //!   one master only, and never is a listed master's own key.
-//! - **The UNL** is the validators every publisher's list in effect names,
-//!   and none while any publisher has no list in effect, or while fewer
-//!   remain than the floor. Quorum is four fifths of it, rounded up: there
-//!   is no negative UNL.
+//! - **The UNL** is the validators that at least [`list_threshold`] of the
+//!   lists in effect name, less any whose master revoked its key, as
+//!   rippled's `ValidatorList::updateTrusted` has it: with one or two
+//!   publishers, the union. There is none while [`unavailable_limit`]
+//!   publishers or more have no list in effect, as rippled then has no
+//!   quorum, nor while it names no validator. Quorum is [`quorum`], with
+//!   the whole UNL effective: there is no negative UNL.
 //! - **A ledger is validated** when a quorum of the UNL signed its hash with
 //!   full, fully canonical validations, each signed by its master's current
 //!   signing key at a time fresh by the node's clock. A master counts once,
@@ -67,10 +71,79 @@ pub const fn ledger_seconds(now_ms: u64) -> u64 {
     (now_ms / 1_000).saturating_sub(RIPPLE_EPOCH_UNIX_S)
 }
 
-/// How many of `validators` make a quorum: four fifths, rounded up.
+/// How many of a UNL of `validators`, `effective` of them not on a
+/// negative UNL, make a quorum, as rippled's
+/// `ValidatorList::calculateQuorum` has it: four fifths of the effective
+/// ones or three fifths of all, whichever is more, each rounded up, and
+/// each reckoned in `f32` as rippled does, which makes three fifths of
+/// some sizes one more than the exact fraction. The node has no negative
+/// UNL, so it passes the UNL's size as both, and then the four fifths are
+/// always the more.
 #[must_use]
-pub const fn quorum(validators: usize) -> usize {
-    (4 * validators).div_ceil(5)
+pub fn quorum(validators: usize, effective: usize) -> usize {
+    assert!(effective <= validators, "the effective UNL is part of it");
+    let most = ceil_f32(effective, FOUR_FIFTHS_F32);
+    let least = ceil_f32(validators, THREE_FIFTHS_F32);
+    most.max(least)
+}
+
+/// `0.8f`, as an `f32` holds it, in 2^-24ths.
+const FOUR_FIFTHS_F32: u64 = 13_421_773;
+/// `0.6f`, so.
+const THREE_FIFTHS_F32: u64 = 10_066_330;
+/// The bits of an `f32`'s significand.
+const F32_BITS: u32 = 24;
+
+/// `n` times `fraction`, in 2^-24ths, rounded up to a whole number as
+/// `f32` reckons it: the product rounded to the nearest `f32`, a tie to the
+/// even one, then up. `n` itself is an `f32` exactly up to 2^24, far more
+/// validators than a UNL holds.
+fn ceil_f32(n: usize, fraction: u64) -> usize {
+    let n = u64::try_from(n).unwrap_or(u64::MAX);
+    assert!(n <= 1 << F32_BITS, "an f32 holds the UNL's size exactly");
+    let product = n * fraction;
+    let bits = u64::BITS - product.leading_zeros();
+    let rounded = if bits <= F32_BITS {
+        product
+    } else {
+        let shift = bits - F32_BITS;
+        let kept = product >> shift;
+        let rest = product & ((1 << shift) - 1);
+        let half = 1 << (shift - 1);
+        let up = rest > half || (rest == half && kept % 2 == 1);
+        (kept + u64::from(up)) << shift
+    };
+    usize::try_from(rounded.div_ceil(1 << F32_BITS)).unwrap_or(usize::MAX)
+}
+
+/// How many publishers' lists must name a validator for it to be on the
+/// UNL, of `publishers` configured: rippled's default
+/// `validator_list_threshold`, one with fewer than three publishers, else
+/// a majority.
+#[must_use]
+pub const fn list_threshold(publishers: usize) -> usize {
+    assert!(publishers > 0, "a UNL has a publisher");
+    if publishers < 3 {
+        1
+    } else {
+        publishers / 2 + 1
+    }
+}
+
+/// How many of `publishers` without a list in effect leave no quorum, as
+/// rippled's `ValidatorList::calculateQuorum` has it: as many as could keep
+/// a validator below [`list_threshold`] that would otherwise be on the
+/// UNL, or as leave too few lists for any validator to reach it, whichever
+/// is fewer.
+#[must_use]
+pub const fn unavailable_limit(publishers: usize) -> usize {
+    let threshold = list_threshold(publishers);
+    let none_reach = publishers - threshold + 1;
+    if threshold < none_reach {
+        threshold
+    } else {
+        none_reach
+    }
 }
 
 /// Checks a validation's signature, as the node does with the real
@@ -118,20 +191,17 @@ pub enum Unavailable {
 /// Why there is no UNL.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UnlError {
-    /// A publisher, by its place in the config, has no list in effect.
+    /// [`unavailable_limit`] publishers or more have no list in effect:
+    /// the first of them, by its place in the config.
     Unavailable {
         /// The publisher.
         publisher: usize,
         /// Why.
         why: Unavailable,
     },
-    /// The lists in effect leave fewer validators than the floor.
-    BelowFloor {
-        /// How many they leave.
-        validators: usize,
-        /// The floor.
-        floor: usize,
-    },
+    /// Enough lists are in effect, but they name no validator often
+    /// enough that has not revoked its key.
+    Empty,
 }
 
 /// Why a validator's manifest is not taken.
@@ -499,35 +569,45 @@ impl Unl {
         self.prune();
     }
 
-    /// The UNL at `now_ms`: the masters every publisher's list in effect
-    /// names, in key order.
+    /// The UNL at `now_ms`: the masters at least [`list_threshold`] of the
+    /// lists in effect name, less those whose newest manifest revokes them,
+    /// in key order.
     ///
     /// # Errors
     ///
-    /// Why there is none.
+    /// Why there is none: [`unavailable_limit`] publishers or more without
+    /// a list in effect, or no validator.
     pub fn unl(&self, now_ms: u64) -> Result<Vec<PublicKey>, UnlError> {
         let now_s = ledger_seconds(now_ms);
-        let mut lists = Vec::with_capacity(self.publishers.len());
+        let publishers = self.publishers.len();
+        let mut unavailable = None;
+        let mut missing = 0;
+        let mut listings: BTreeMap<PublicKey, usize> = BTreeMap::new();
         for (publisher, state) in self.publishers.iter().enumerate() {
-            let kept =
-                (state.in_effect(now_s)).map_err(|why| UnlError::Unavailable { publisher, why })?;
-            lists.push(&kept.list);
+            match state.in_effect(now_s) {
+                Ok(kept) => {
+                    for master in kept.list.validators.keys() {
+                        *listings.entry(*master).or_default() += 1;
+                    }
+                }
+                Err(why) => {
+                    missing += 1;
+                    unavailable.get_or_insert(UnlError::Unavailable { publisher, why });
+                }
+            }
         }
-        let Some((first, rest)) = lists.split_first() else {
-            return Err(UnlError::Unavailable {
-                publisher: 0,
-                why: Unavailable::NoList,
-            });
-        };
-        let validators: Vec<PublicKey> = (first.validators.keys())
-            .filter(|master| rest.iter().all(|list| list.validators.contains_key(master)))
-            .copied()
+        if let Some(error) = unavailable.filter(|_| missing >= unavailable_limit(publishers)) {
+            return Err(error);
+        }
+        let threshold = list_threshold(publishers);
+        let revoked =
+            |master: &PublicKey| (self.manifests.get(master)).is_some_and(Manifest::is_revocation);
+        let validators: Vec<PublicKey> = (listings.into_iter())
+            .filter(|(master, lists)| *lists >= threshold && !revoked(master))
+            .map(|(master, _)| master)
             .collect();
-        if validators.len() < self.config.floor {
-            return Err(UnlError::BelowFloor {
-                validators: validators.len(),
-                floor: self.config.floor,
-            });
+        if validators.is_empty() {
+            return Err(UnlError::Empty);
         }
         Ok(validators)
     }
@@ -778,7 +858,7 @@ impl Unl {
             .into_iter()
             .collect();
         let mut tally = Tally {
-            quorum: quorum(unl.len()),
+            quorum: quorum(unl.len(), unl.len()),
             validators: unl.len(),
             ..Tally::default()
         };
@@ -1239,13 +1319,12 @@ mod tests {
         }
     }
 
-    fn unl(publishers: &[&TestPublisher], floor: usize) -> Unl {
+    fn unl(publishers: &[&TestPublisher]) -> Unl {
         Unl::new(UnlConfig {
             publishers: publishers
                 .iter()
                 .map(|publisher| publisher.config())
                 .collect(),
-            floor,
         })
     }
 
@@ -1266,18 +1345,54 @@ mod tests {
             .unwrap()
     }
 
+    // rippled's `calculateQuorum`: four fifths of the effective UNL, never
+    // below three fifths of the whole, each rounded up.
     #[test]
-    fn quorum_is_four_fifths_rounded_up() {
-        for (validators, quorum) in [
-            (1, 1),
-            (4, 4),
-            (5, 4),
-            (6, 5),
-            (10, 8),
-            (35, 28),
-            (128, 103),
+    fn quorum_is_rippled_s() {
+        for (validators, effective, quorum) in [
+            (0, 0, 0),
+            (1, 1, 1),
+            (4, 4, 4),
+            (5, 5, 4),
+            (6, 6, 5),
+            (10, 10, 8),
+            (35, 35, 28),
+            (128, 128, 103),
+            (512, 512, 410),
+            // With validators on a negative UNL, three fifths of the whole
+            // is the least.
+            (35, 30, 24),
+            (35, 26, 21),
+            (35, 20, 21),
+            (10, 5, 6),
+            (10, 0, 6),
+            // rippled's `f32` makes three fifths of 25 a hair over 15.
+            (25, 15, 16),
+            (25, 20, 16),
+            (25, 21, 17),
         ] {
-            assert_eq!(super::quorum(validators), quorum, "{validators}");
+            assert_eq!(
+                super::quorum(validators, effective),
+                quorum,
+                "{validators}, {effective}"
+            );
+        }
+    }
+
+    // rippled's default `validator_list_threshold`, and how many publishers
+    // without a list leave no quorum.
+    #[test]
+    fn the_threshold_and_the_unavailable_limit_are_rippled_s() {
+        for (publishers, threshold, limit) in [
+            (1, 1, 1),
+            (2, 1, 1),
+            (3, 2, 2),
+            (4, 3, 2),
+            (5, 3, 3),
+            (6, 4, 3),
+        ] {
+            assert_eq!(list_threshold(publishers), threshold, "{publishers}");
+            assert_eq!(unavailable_limit(publishers), limit, "{publishers}");
         }
     }
 
@@ -1288,7 +1403,7 @@ mod tests {
     fn a_list_counts_when_its_publisher_signed_it_and_it_has_not_expired() {
         let ours = publisher(1);
         let validators = validators(10..15);
-        let mut unl = unl(&[&ours], 4);
+        let mut unl = unl(&[&ours]);
         assert_eq!(
             unl.unl(NOW_MS),
             Err(UnlError::Unavailable {
@@ -1365,7 +1480,7 @@ mod tests {
         let ours = publisher(1);
         let theirs = publisher(2);
         let validators = validators(10..15);
-        let mut unl = unl(&[&ours], 4);
+        let mut unl = unl(&[&ours]);
         assert_eq!(
             unl.take_list(&theirs.body(&[list(1, &validators)]), NOW_MS),
             Err(ListError::UnknownPublisher)
@@ -1395,7 +1510,7 @@ mod tests {
     fn publishers_rotate_their_keys_and_revoke_them() {
         let mut ours = publisher(1);
         let validators = validators(10..15);
-        let mut unl = unl(&[&ours], 4);
+        let mut unl = unl(&[&ours]);
         assert_eq!(
             unl.take_list(&ours.body(&[list(1, &validators)]), NOW_MS),
             Ok(Taken::Current)
@@ -1445,7 +1560,7 @@ mod tests {
     fn a_list_that_takes_effect_later_waits_until_then() {
         let ours = publisher(1);
         let validators = validators(10..16);
-        let mut unl = unl(&[&ours], 4);
+        let mut unl = unl(&[&ours]);
         let current = list(1, &validators[..5]);
         let mut later = list(2, &validators[1..]);
         later.effective = Some(NOW_S + 60);
@@ -1488,14 +1603,21 @@ mod tests {
         assert_eq!(unl.signing_key(&validators[0].key()), None);
     }
 
-    // spec/decisions/verified-ledgers.md: every publisher must list a
-    // validator, and the UNL has a floor.
+    fn keys(validators: &[&TestValidator]) -> Vec<PublicKey> {
+        let mut keys: Vec<PublicKey> = validators.iter().map(|validator| validator.key()).collect();
+        keys.sort();
+        keys
+    }
+
+    // spec/decisions/verified-ledgers.md: with two publishers, as mainnet
+    // has, the UNL is the union of their lists, and either one without a
+    // list in effect leaves no quorum.
     #[test]
-    fn the_unl_is_what_every_publisher_lists_above_the_floor() {
+    fn two_publishers_give_the_union() {
         let first = publisher(1);
         let second = publisher(2);
         let validators = validators(10..18);
-        let mut unl = unl(&[&first, &second], 5);
+        let mut unl = unl(&[&first, &second]);
         assert_eq!(
             unl.take_list(&first.body(&[list(1, &validators[..7])]), NOW_MS),
             Ok(Taken::Current)
@@ -1507,34 +1629,114 @@ mod tests {
                 why: Unavailable::NoList
             })
         );
+        let mut short = list(1, &validators[1..]);
+        short.expiration = NOW_S + 600;
         assert_eq!(
-            unl.take_list(&second.body(&[list(1, &validators[1..])]), NOW_MS),
+            unl.take_list(&second.body(&[short]), NOW_MS),
             Ok(Taken::Current)
         );
         unl.check_invariants();
-        let mut both: Vec<PublicKey> = validators[1..7].iter().map(TestValidator::key).collect();
-        both.sort();
-        assert_eq!(unl.unl(NOW_MS).unwrap(), both);
-        // Either publisher alone can shrink it, never below the floor.
+        let all: Vec<&TestValidator> = validators.iter().collect();
+        assert_eq!(unl.unl(NOW_MS).unwrap(), keys(&all));
+        // A validator only one publisher lists counts: the one only the
+        // first lists, or the one only the second lists, makes the quorum
+        // with the six both list.
+        let validations = |signers: &[TestValidator]| -> Vec<Vec<u8>> {
+            (signers.iter())
+                .map(|validator| validator.validation([7; 32], 100, NOW_S))
+                .collect()
+        };
+        let both_list = tally(&unl, &validations(&validators[1..7]), NOW_MS);
         assert_eq!(
-            unl.take_list(&second.body(&[list(2, &validators[3..])]), NOW_MS),
+            (both_list.counted, both_list.quorum, both_list.validators),
+            (6, 7, 8)
+        );
+        assert!(!both_list.reached());
+        let with_first_s = tally(&unl, &validations(&validators[..7]), NOW_MS);
+        assert_eq!((with_first_s.counted, with_first_s.untrusted), (7, 0));
+        assert!(with_first_s.reached());
+        let with_second_s = tally(&unl, &validations(&validators[1..]), NOW_MS);
+        assert_eq!((with_second_s.counted, with_second_s.untrusted), (7, 0));
+        assert!(with_second_s.reached());
+        // The second's list expires: no quorum, though the first's still
+        // names validators.
+        assert_eq!(
+            unl.unl(NOW_MS + 600_000),
+            Err(UnlError::Unavailable {
+                publisher: 1,
+                why: Unavailable::Expired
+            })
+        );
+        // Lists that name no validator give no UNL.
+        assert_eq!(
+            unl.take_list(&first.body(&[list(2, &[])]), NOW_MS),
             Ok(Taken::Current)
         );
         assert_eq!(
-            unl.unl(NOW_MS),
-            Err(UnlError::BelowFloor {
-                validators: 4,
-                floor: 5
+            unl.take_list(&second.body(&[list(2, &[])]), NOW_MS),
+            Ok(Taken::Current)
+        );
+        assert_eq!(unl.unl(NOW_MS), Err(UnlError::Empty));
+    }
+
+    // With three publishers or more, a validator needs a majority of the
+    // lists, and quorum holds while fewer publishers than
+    // `unavailable_limit` have no list.
+    #[test]
+    fn more_publishers_take_a_majority() {
+        let publishers = [publisher(1), publisher(2), publisher(3), publisher(4)];
+        let v = validators(10..16);
+        let bodies = [
+            publishers[0].body(&[list(1, &v[..5])]),
+            publishers[1].body(&[list(1, &v[1..])]),
+            // The same validators as v[0], v[2] and v[3].
+            publishers[2].body(&[list(1, &[validator(10), validator(12), validator(13)])]),
+        ];
+        // Three publishers: a validator needs two lists, and two without a
+        // list leave no quorum.
+        let mut three = unl(&[&publishers[0], &publishers[1], &publishers[2]]);
+        three.take_list(&bodies[0], NOW_MS).unwrap();
+        assert_eq!(
+            three.unl(NOW_MS),
+            Err(UnlError::Unavailable {
+                publisher: 1,
+                why: Unavailable::NoList
             })
         );
-        // Nor add to it: what only one lists is not on it.
-        unl.config.floor = 4;
-        assert!(unl.signing_key(&validators[7].key()).is_some());
-        let validations: Vec<Vec<u8>> = (validators[2..8].iter())
-            .map(|validator| validator.validation([7; 32], 100, NOW_S))
-            .collect();
-        let tally = tally(&unl, &validations, NOW_MS);
-        assert_eq!((tally.counted, tally.quorum, tally.untrusted), (4, 4, 2));
+        // One publisher without a list: both others must list a validator.
+        three.take_list(&bodies[1], NOW_MS).unwrap();
+        assert_eq!(
+            three.unl(NOW_MS).unwrap(),
+            keys(&[&v[1], &v[2], &v[3], &v[4]])
+        );
+        // All three: what two of them list, and not what one lists alone.
+        three.take_list(&bodies[2], NOW_MS).unwrap();
+        three.check_invariants();
+        assert_eq!(
+            three.unl(NOW_MS).unwrap(),
+            keys(&[&v[0], &v[1], &v[2], &v[3], &v[4]])
+        );
+        // Four publishers: a validator needs three lists, and two without
+        // a list leave no quorum.
+        let mut four = unl(&publishers.each_ref());
+        assert_eq!(
+            four.unl(NOW_MS),
+            Err(UnlError::Unavailable {
+                publisher: 0,
+                why: Unavailable::NoList
+            })
+        );
+        four.take_list(&bodies[0], NOW_MS).unwrap();
+        four.take_list(&bodies[1], NOW_MS).unwrap();
+        assert_eq!(
+            four.unl(NOW_MS),
+            Err(UnlError::Unavailable {
+                publisher: 2,
+                why: Unavailable::NoList
+            })
+        );
+        four.take_list(&bodies[2], NOW_MS).unwrap();
+        assert_eq!(four.unl(NOW_MS).unwrap(), keys(&[&v[2], &v[3]]));
     }
 
     // Validators rotate their keys with manifests the lists lag behind:
@@ -1544,7 +1746,7 @@ mod tests {
     fn newer_manifests_of_listed_masters_count() {
         let ours = publisher(1);
         let validators = validators(10..15);
-        let mut unl = unl(&[&ours], 4);
+        let mut unl = unl(&[&ours]);
         assert_eq!(
             unl.take_list(&ours.body(&[list(1, &validators)]), NOW_MS),
             Ok(Taken::Current)
@@ -1597,6 +1799,15 @@ mod tests {
         assert_eq!(unl.master_of(&rotated.public_key()), None);
         assert_eq!(unl.take_manifest(&newer.to_bytes()), Ok(false));
         unl.check_invariants();
+        // And leaves the UNL, as rippled trusts no revoked master: the
+        // quorum is of the four left.
+        let left: Vec<&TestValidator> = validators[1..].iter().collect();
+        assert_eq!(unl.unl(NOW_MS).unwrap(), keys(&left));
+        let validations: Vec<Vec<u8>> = (validators[1..].iter())
+            .map(|validator| validator.validation([7; 32], 100, NOW_S))
+            .collect();
+        let tally = tally(&unl, &validations, NOW_MS);
+        assert_eq!((tally.counted, tally.quorum, tally.validators), (4, 4, 4));
     }
 
     // spec/designs/xrpl-validation.md#8-the-verifier: a validation counts
@@ -1607,7 +1818,7 @@ mod tests {
     fn a_quorum_of_fresh_signatures_validates() {
         let ours = publisher(1);
         let validators = validators(10..15);
-        let mut unl = unl(&[&ours], 4);
+        let mut unl = unl(&[&ours]);
         unl.take_list(&ours.body(&[list(1, &validators)]), NOW_MS)
             .unwrap();
         let sign = |validator: &TestValidator| validator.validation([7; 32], 100, NOW_S);
@@ -1657,7 +1868,7 @@ mod tests {
     fn signatures_are_fresh_within_rippled_s_window() {
         let ours = publisher(1);
         let validators = validators(10..15);
-        let mut unl = unl(&[&ours], 4);
+        let mut unl = unl(&[&ours]);
         unl.take_list(&ours.body(&[list(1, &validators)]), NOW_MS)
             .unwrap();
         let validations: Vec<Vec<u8>> = (validators.iter())
@@ -1683,7 +1894,7 @@ mod tests {
     fn stale_validations_count_once_per_master_and_only_signed() {
         let ours = publisher(1);
         let validators = validators(10..15);
-        let mut unl = unl(&[&ours], 4);
+        let mut unl = unl(&[&ours]);
         unl.take_list(&ours.body(&[list(1, &validators)]), NOW_MS)
             .unwrap();
         let late = NOW_MS + FRESH_FOR_MS;
@@ -1713,7 +1924,7 @@ mod tests {
     fn a_flood_costs_two_signature_checks_per_master() {
         let ours = publisher(1);
         let validators = validators(10..15);
-        let mut unl = unl(&[&ours], 4);
+        let mut unl = unl(&[&ours]);
         unl.take_list(&ours.body(&[list(1, &validators)]), NOW_MS)
             .unwrap();
         let mut flood = Vec::new();
@@ -1758,7 +1969,7 @@ mod tests {
     fn an_anchor_is_a_validated_ledger_not_older_than_the_kept_one() {
         let ours = publisher(1);
         let validators = validators(10..15);
-        let mut unl = unl(&[&ours], 4);
+        let mut unl = unl(&[&ours]);
         unl.take_list(&ours.body(&[list(1, &validators)]), NOW_MS)
             .unwrap();
         let kept_header = header(100, NOW_S - 10);
@@ -1817,7 +2028,7 @@ mod tests {
     fn kept_state() -> (Unl, [TestPublisher; 2], Vec<TestValidator>) {
         let publishers = [publisher(1), publisher(2)];
         let validators = validators(10..16);
-        let mut unl = unl(&[&publishers[0], &publishers[1]], 4);
+        let mut unl = unl(&[&publishers[0], &publishers[1]]);
         let mut later = list(9, &validators[1..]);
         later.effective = Some(NOW_S + 600);
         let first = publishers[0].body(&[list(7, &validators[..5]), later]);
@@ -1879,7 +2090,7 @@ mod tests {
     fn a_restart_never_takes_a_master_back_to_an_older_key() {
         let publishers = [publisher(1), publisher(2)];
         let validators = validators(10..15);
-        let mut unl = unl(&[&publishers[0], &publishers[1]], 4);
+        let mut unl = unl(&[&publishers[0], &publishers[1]]);
         let rotated = Secp256k1Key::from_secret(&[60; 32]).unwrap();
         let first = &validators[0];
         let newer = Manifest::sign(2, &first.master, Some(&rotated as &dyn Key), None);

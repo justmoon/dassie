@@ -54,11 +54,11 @@ pub const STALL_MS: u64 = 30_000;
 pub const MAX_MANIFEST_ASKS: usize = 16;
 
 // Why the account waits, as the owner reads it.
-pub(super) const NO_LIST: &str = "waiting for a validator list from each publisher";
+pub(super) const NO_LIST: &str = "waiting for validator lists from enough of the publishers";
 pub(super) const LIST_EXPIRED: &str =
     "a publisher's validator list expired, and no newer one came yet";
 pub(super) const PUBLISHER_REVOKED: &str = "a validator list publisher revoked its key";
-pub(super) const BELOW_FLOOR: &str = "the validator lists name fewer validators than the floor";
+pub(super) const NO_VALIDATORS: &str = "no validator is on enough of the validator lists";
 pub(super) const NO_QUORUM: &str = "no quorum of validators signed the server's validated ledger";
 pub(super) const CUT: &str = "the server cut its validations short before a quorum of the account's validators; name a proof server that trusts them";
 pub(super) const NO_PROOFS: &str = "the server serves no proofs; name a proof server";
@@ -251,7 +251,7 @@ const fn unl_reason(error: UnlError) -> &'static str {
             Unavailable::Expired => LIST_EXPIRED,
             Unavailable::Revoked => PUBLISHER_REVOKED,
         },
-        UnlError::BelowFloor { .. } => BELOW_FLOOR,
+        UnlError::Empty => NO_VALIDATORS,
     }
 }
 

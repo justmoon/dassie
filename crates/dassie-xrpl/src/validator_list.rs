@@ -68,13 +68,6 @@ pub const TESTNET: PublicKey = PublicKey::built_in([
 /// Its site.
 pub const TESTNET_SITE: &str = "https://vl.altnet.rippletest.net";
 
-/// Mainnet's floor on its UNL: the quorum of the 35 validators its lists
-/// name, so that validators may leave, while a forged quorum still takes
-/// the keys of 23.
-pub const MAINNET_FLOOR: usize = 28;
-/// The testnet's: the quorum of the 6 validators its list names.
-pub const TESTNET_FLOOR: usize = 5;
-
 /// Why a list is not taken.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ListError {
@@ -110,19 +103,16 @@ pub struct Publisher {
     pub sites: Vec<String>,
 }
 
-/// The publishers an account trusts, and the floor on its UNL.
+/// The publishers an account trusts, whose lists make its UNL as rippled's
+/// defaults combine them ([`crate::unl`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnlConfig {
-    /// Every one must list a validator for it to be on the UNL.
+    /// Each by its master key, in the order the account fetches them.
     pub publishers: Vec<Publisher>,
-    /// The fewest validators that make a UNL: lists that leave fewer give
-    /// none.
-    pub floor: usize,
 }
 
 impl UnlConfig {
-    /// Mainnet's: the two publishers rippled's default configuration names,
-    /// and [`MAINNET_FLOOR`].
+    /// Mainnet's: the two publishers rippled's default configuration names.
     #[must_use]
     pub fn mainnet() -> Self {
         Self {
@@ -136,11 +126,10 @@ impl UnlConfig {
                     sites: alloc::vec![XRPLF_SITE.to_string()],
                 },
             ],
-            floor: MAINNET_FLOOR,
         }
     }
 
-    /// The testnet's: its publisher, and [`TESTNET_FLOOR`].
+    /// The testnet's: its publisher.
     #[must_use]
     pub fn testnet() -> Self {
         Self {
@@ -148,7 +137,6 @@ impl UnlConfig {
                 master_key: TESTNET,
                 sites: alloc::vec![TESTNET_SITE.to_string()],
             }],
-            floor: TESTNET_FLOOR,
         }
     }
 
@@ -166,33 +154,28 @@ impl UnlConfig {
     }
 
     /// The owner's publishers in `value`, which replace this config's
-    /// entirely: `{"publishers": [{"key": …, "sites": […]}, …], "floor": n}`,
-    /// each key as hex or as a node public key, and the floor optional,
-    /// this config's if left out. `None` if it is not that, or does not
-    /// pass [`Self::check`].
+    /// entirely: `{"publishers": [{"key": …, "sites": […]}, …]}`, each key
+    /// as hex or as a node public key. `None` if it is not that, or does
+    /// not pass [`Self::check`].
     #[must_use]
     pub fn with_override(&self, value: &Value) -> Option<Self> {
         let object = value.as_object()?;
         let mut publishers = None;
-        let mut floor = self.floor;
         for (key, field) in object {
             match key.as_str() {
                 "publishers" => publishers = Some(parse_publishers(field)?),
-                "floor" => floor = usize::try_from(field.as_u64()?).ok()?,
                 _ => return None,
             }
         }
         let config = Self {
             publishers: publishers?,
-            floor,
         };
         config.check().then_some(config)
     }
 
     /// Whether it is one an account can follow: one to [`MAX_PUBLISHERS`]
     /// publishers, each once, each with one to [`MAX_SITES`] sites of at
-    /// most [`MAX_SITE_BYTES`], and a floor of at least one validator and
-    /// at most a list's.
+    /// most [`MAX_SITE_BYTES`].
     #[must_use]
     pub fn check(&self) -> bool {
         let count = self.publishers.len();
@@ -208,10 +191,7 @@ impl UnlConfig {
             (1..=MAX_SITES).contains(&publisher.sites.len())
                 && publisher.sites.iter().all(|site| site_fits(site))
         });
-        (1..=MAX_PUBLISHERS).contains(&count)
-            && distinct
-            && sites
-            && (1..=MAX_LIST_VALIDATORS).contains(&self.floor)
+        (1..=MAX_PUBLISHERS).contains(&count) && distinct && sites
     }
 }
 
@@ -554,8 +534,8 @@ mod tests {
     }
 
     // spec/designs/xrpl-validation.md#10-configuration-and-state: the
-    // owner's publishers replace the network's entirely, with its floor
-    // unless they name one.
+    // owner's publishers replace the network's entirely, and name nothing
+    // else.
     #[test]
     fn the_owner_s_publishers_replace_the_network_s() {
         let mainnet = UnlConfig::mainnet();
@@ -569,22 +549,18 @@ mod tests {
             .unwrap();
         assert_eq!(own.publishers.len(), 1);
         assert_eq!(own.publishers[0].master_key, TESTNET);
-        assert_eq!(own.floor, MAINNET_FLOOR);
         let hex = hex_upper(XRPLF.as_bytes());
-        let floored = mainnet
-            .with_override(&json!({
-                "publishers": [{"key": hex, "sites": [XRPLF_SITE]}],
-                "floor": 3,
-            }))
+        let named = mainnet
+            .with_override(&json!({"publishers": [{"key": hex, "sites": [XRPLF_SITE]}]}))
             .unwrap();
-        assert_eq!(floored.publishers[0].master_key, XRPLF);
-        assert_eq!(floored.floor, 3);
+        assert_eq!(named.publishers[0].master_key, XRPLF);
         let site = |site: &str| json!({"publishers": [{"key": hex, "sites": [site]}]});
         for bad in [
             json!({}),
             json!({"publishers": []}),
             json!({"publishers": [{"key": hex, "sites": []}]}),
-            json!({"publishers": [{"key": hex, "sites": [XRPLF_SITE]}], "floor": 0}),
+            // There is no floor.
+            json!({"publishers": [{"key": hex, "sites": [XRPLF_SITE]}], "floor": 3}),
             json!({"publishers": [{"key": hex, "sites": [XRPLF_SITE]}], "other": 1}),
             json!({"publishers": [
                 {"key": hex, "sites": [XRPLF_SITE]},
