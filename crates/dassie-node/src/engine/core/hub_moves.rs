@@ -149,6 +149,15 @@ impl Core {
         any.downcast_ref::<HubAccount>()
     }
 
+    /// The sequence the hub account's newest state says its next operation
+    /// carries, for a simulation to tell whether it read the operations of
+    /// its own the hub applied.
+    #[cfg(feature = "testing")]
+    #[must_use]
+    pub fn hub_sequence(&self) -> Option<u64> {
+        self.hub_account()?.view().map(|(_, view)| view.sequence)
+    }
+
     /// How far the hub account read the hub, for a simulation to tell one
     /// behind from one in step: the height through which it read every
     /// operation that touched it, the height of the state it last heard of

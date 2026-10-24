@@ -1466,7 +1466,8 @@ impl Sim {
                 self.now
             ));
         }
-        let (now, ledger) = (self.now, self.ledger.ledger());
+        // What goes in now applies in the ledger after the last validated.
+        let (now, ledger) = (self.now, self.ledger.ledger() + 1);
         let payout = self.hub_mut().payout.as_mut().unwrap();
         payout.next = until;
         payout.waiting = true;

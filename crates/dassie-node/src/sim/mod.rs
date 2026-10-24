@@ -77,6 +77,7 @@
 
 pub mod checks;
 pub mod hub;
+pub mod hubbed;
 pub mod scripted;
 pub mod swarm;
 
