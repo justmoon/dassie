@@ -184,7 +184,9 @@ const TOO_LITTLE: &str = "the payment that funds the escrow was too little to cr
 const TOO_LITTLE_RESULT: &str = "tecNO_DST_INSUF_XRP";
 
 /// Whether the failed payment `payment`, its ID the transaction's hash,
-/// failed for being too little to create the account it paid.
+/// failed for being too little to create the account it paid. One the
+/// ledger does not know never reached it: the XRP scheme cancelled it, it
+/// moved nothing, and it is paid again.
 ///
 /// # Errors
 ///
@@ -207,13 +209,15 @@ async fn failed_for_too_little(session: &mut Session, payment: &str) -> Result<b
     if !read {
         return Err("the payment that funds the escrow has no transaction hash".into());
     }
-    let answer = session.call(|id| api::tx_anywhere(id, &hash)).await?;
-    let record = answer
-        .ok()
-        .as_ref()
-        .and_then(api::tx_result)
-        .ok_or("the XRPL server does not say how the escrow's funding failed")?;
-    Ok(record.result == TOO_LITTLE_RESULT)
+    let unread = "the XRPL server does not say how the escrow's funding failed";
+    match session.call(|id| api::tx_anywhere(id, &hash)).await? {
+        Ok(result) => {
+            let record = api::tx_result(&result).ok_or(unread)?;
+            Ok(record.result == TOO_LITTLE_RESULT)
+        }
+        Err(error) if error.error == "txnNotFound" => Ok(false),
+        Err(_) => Err(unread.into()),
+    }
 }
 
 /// What the ledger shows of the escrow as of a validated ledger: `None`

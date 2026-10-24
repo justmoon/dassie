@@ -567,3 +567,59 @@ async fn a_funding_too_little_for_the_escrow_is_paid_once() {
     drop(owner);
     net.stop().await;
 }
+
+// spec/areas/hubs.md#founding-a-hub: a funding payment the XRP scheme
+// cancels before it reaches the ledger moved nothing, so the sponsor pays
+// again, once, and the founding goes on.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn a_cancelled_funding_is_paid_again() {
+    use dassie_xrpl::api;
+
+    let net = Net::start(|_| {}).await;
+    let address = ledgers(&net.sponsor)
+        .await
+        .into_iter()
+        .find(|l| l.id == "xrpl-testnet+xrp")
+        .unwrap()
+        .deposit_address;
+    let sponsor = dassie_xrpl::AccountId::parse(&address).unwrap();
+    // The account's sequence moves on behind the scheme's back, as a
+    // transaction of another wallet of the owner's would: the funding
+    // payment the scheme signs next can never apply, and once past its
+    // last ledger the scheme cancels it.
+    let reply = net
+        .xrpl
+        .ledger()
+        .request(77, &api::account_info(5, sponsor));
+    let api::Message::Response {
+        outcome: Ok(result),
+        ..
+    } = api::parse(&reply)
+    else {
+        panic!("no account");
+    };
+    let sequence = api::account_info_result(&result).unwrap().sequence;
+    net.xrpl.ledger().set_sequence(sponsor, sequence + 5);
+    let mut owner = net.sponsor.ipc().await;
+    let found = owner
+        .call(Method::FoundHub(proto::FoundHubRequest {
+            validators: net.invites(),
+            terms: String::new(),
+            escrow_funding_drops: None,
+            xrpl_server: String::new(),
+        }))
+        .await;
+    assert!(found.is_ok(), "{found:?}");
+    until(&net.clock, 250, async || {
+        founding(&net.sponsor).await.stage() == proto::HubFoundingStage::Founded
+    })
+    .await;
+    let escrow = dassie_xrpl::AccountId::parse(&founding(&net.sponsor).await.escrow).unwrap();
+    assert_eq!(
+        payments(&net.xrpl, sponsor, escrow),
+        vec!["tesSUCCESS".to_string()],
+        "the cancelled one never reached the ledger; the second paid"
+    );
+    drop(owner);
+    net.stop().await;
+}
