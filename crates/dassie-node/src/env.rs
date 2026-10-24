@@ -24,14 +24,16 @@ use serde::Deserialize;
 use crate::log::{LogFilter, LogLevel};
 
 /// The public testnet's bootstrap nodes
-/// (spec/decisions/bootstrap-network.md), one per region: boot1 in us-east1,
-/// boot2 in europe-west3, boot3 in asia-northeast1. Each ID is checked
-/// against its key at startup, like any entry (NET-19).
+/// (spec/decisions/bootstrap-network.md), in one region, us-east1, so that
+/// they can validate the testnet's settlement hub: boot1 and boot4 in zone
+/// b, boot2 in c, boot3 in d. Each ID is checked against its key at
+/// startup, like any entry (NET-19).
 /// `DASSIE_BOOTSTRAP_NODES=[]` makes a node run alone.
 pub const DEFAULT_BOOTSTRAP_NODES: &str = r#"[
   {"id":"dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"},
   {"id":"dE0GE90-9QCQI78S2_h5QaG81oo_cVKz1","url":"https://boot2.dassie.xyz","publicKey":"s9xgWff_UZ26HQwHT_aPd0q0SwyKPGXS74fd2xQjh14"},
-  {"id":"dtTay2e6AV4J940nFJ6_WPkVL-TyrVKGW","url":"https://boot3.dassie.xyz","publicKey":"--P-gYMJ_ZZrFHa4GiNfVQ0x2jSu9_dr7z0mI_bcngY"}
+  {"id":"dtTay2e6AV4J940nFJ6_WPkVL-TyrVKGW","url":"https://boot3.dassie.xyz","publicKey":"--P-gYMJ_ZZrFHa4GiNfVQ0x2jSu9_dr7z0mI_bcngY"},
+  {"id":"dxZ8EFGaoQLvgSQacinFm64zjWeA0BzV-","url":"https://boot4.dassie.xyz","publicKey":"qNW0ZwnIvaca6f54gIG-YFLQSefzC6JA4h3Oh1QJU6I"}
 ]"#;
 
 /// The relay a node keeps a connection to while it has no hostname, unless
@@ -469,7 +471,7 @@ mod tests {
     }
 
     // spec/decisions/bootstrap-network.md: the default list names the
-    // testnet's three bootstrap nodes, and each passes the same checks as a
+    // testnet's four bootstrap nodes, and each passes the same checks as a
     // configured entry.
     #[test]
     fn the_default_bootstrap_nodes_are_the_testnet() {
@@ -481,7 +483,7 @@ mod tests {
         });
         assert_eq!(
             urls,
-            Ok(["boot1", "boot2", "boot3"]
+            Ok(["boot1", "boot2", "boot3", "boot4"]
                 .map(|host| format!("https://{host}.dassie.xyz"))
                 .to_vec())
         );
