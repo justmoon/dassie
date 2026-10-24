@@ -102,6 +102,8 @@ pub struct Ledger {
     pub(crate) shutdown_votes: Signers,
     /// The validators that attested a reset since the last write-off.
     pub(crate) reset_votes: Signers,
+    /// The timestamp of the block that took the first of `reset_votes`.
+    pub(crate) reset_votes_since: Option<Millis>,
     /// The timestamp of the block that last wrote off a reset.
     pub(crate) written_off_at: Option<Millis>,
     /// The height from which the validators in force sign blocks: no block
@@ -114,7 +116,8 @@ pub struct Ledger {
 pub const TESTNET_NETWORK: u32 = 1;
 
 /// How long after a write-off the hub takes no attestation of a reset, by
-/// block timestamps: one hour.
+/// block timestamps, and how long votes for a reset count without reaching
+/// a quorum: one hour.
 ///
 /// Reset votes count validators, not the ledger each names, since honest
 /// validators see a new chain at different ledgers. So a vote must never
@@ -125,7 +128,9 @@ pub const TESTNET_NETWORK: u32 = 1;
 /// its server's next validated ledger, or when it connects again (backing
 /// off at most a minute), and its attestation is in a block within a few
 /// views: seconds to a minute or two. An hour is well above that, and far
-/// below the months between resets of the test network.
+/// below the months between resets of the test network. Votes that reached
+/// no quorum within it lapse, so stray votes months apart, each a faulty
+/// validator's or one fooled by a lying server, never add up.
 pub const RESET_QUIET_MS: Millis = 60 * 60 * 1_000;
 
 impl Ledger {
@@ -166,6 +171,7 @@ impl Ledger {
             signer_list_votes: Vec::new(),
             shutdown_votes: Signers::NONE,
             reset_votes: Signers::NONE,
+            reset_votes_since: None,
             written_off_at: None,
             set_since: 1,
             rules,

@@ -154,7 +154,8 @@ impl Ledger {
     /// validators, whatever ledger of the new chain each first saw, which
     /// differs between honest ones; so for [`RESET_QUIET_MS`] after a
     /// write-off no vote is taken, and the late votes for the reset written
-    /// off never count toward another.
+    /// off never count toward another; and votes that reach no quorum within
+    /// it lapse.
     fn attest_reset(&mut self, index: ValidatorIndex, _ledger: u32) -> Executed {
         if self.rules.terms.network != TESTNET_NETWORK {
             return Err(Err(Refusal::NotAllowed));
@@ -162,8 +163,19 @@ impl Ledger {
         let quiet = self
             .written_off_at
             .is_some_and(|at| self.timestamp < at.saturating_add(RESET_QUIET_MS));
+        let lapsed = self
+            .reset_votes_since
+            .is_some_and(|since| self.timestamp >= since.saturating_add(RESET_QUIET_MS));
+        if lapsed {
+            self.reset_votes = Signers::NONE;
+            self.reset_votes_since = None;
+            self.reset_votes_since = None;
+        }
         if quiet || self.reset_votes.contains(index) {
             return Err(Err(Refusal::NotAllowed));
+        }
+        if self.reset_votes_since.is_none() {
+            self.reset_votes_since = Some(self.timestamp);
         }
         self.reset_votes = self.reset_votes.with(index);
         if self.reset_votes.count() >= self.validators.quorum() {

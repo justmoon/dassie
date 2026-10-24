@@ -1195,6 +1195,32 @@ fn late_reset_votes_never_make_a_second_write_off() {
     assert!(hub.ledger.supply() > 0, "no second write-off");
 }
 
+// Votes that reach no quorum within the quiet period lapse: stray votes
+// months apart never add up to a write-off.
+#[test]
+fn reset_votes_that_reach_no_quorum_lapse() {
+    let mut hub = Hub::new();
+    hub.join(1, 10_000_000);
+    let ops: Vec<Operation> = [0, 1]
+        .into_iter()
+        .map(|i| hub.validator_op(i, ValidatorOperation::AttestReset { ledger: 1 }))
+        .collect();
+    hub.block(ops);
+    assert!(hub.ledger.supply() > 0, "two votes are no quorum");
+    let later = hub.ledger.timestamp() + crate::ledger::RESET_QUIET_MS;
+    let third = hub.validator_op(2, ValidatorOperation::AttestReset { ledger: 2 });
+    let votes = [(hub.ledger.height(), Signers::from_bits(0b1111))];
+    hub.block_at(later, vec![third], &votes);
+    assert!(hub.ledger.supply() > 0, "the first two lapsed");
+    // Within the period of the new first vote, a quorum still counts.
+    let ops: Vec<Operation> = [0, 1]
+        .into_iter()
+        .map(|i| hub.validator_op(i, ValidatorOperation::AttestReset { ledger: 2 }))
+        .collect();
+    hub.block(ops);
+    assert_eq!(hub.ledger.supply(), 0);
+}
+
 #[test]
 fn a_reset_vote_counts_again_after_the_quiet_period() {
     let mut hub = written_off();
