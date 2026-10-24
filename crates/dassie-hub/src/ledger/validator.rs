@@ -169,7 +169,6 @@ impl Ledger {
         if lapsed {
             self.reset_votes = Signers::NONE;
             self.reset_votes_since = None;
-            self.reset_votes_since = None;
         }
         if quiet || self.reset_votes.contains(index) {
             return Err(Err(Refusal::NotAllowed));
@@ -327,6 +326,7 @@ impl Ledger {
         }
         self.shutdown_votes = Signers::NONE;
         self.reset_votes = Signers::NONE;
+        self.reset_votes_since = None;
         self.escrow_votes.clear();
         self.rules_votes.clear();
         self.signer_list_votes.clear();

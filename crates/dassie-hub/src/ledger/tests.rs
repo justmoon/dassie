@@ -1221,6 +1221,40 @@ fn reset_votes_that_reach_no_quorum_lapse() {
     assert_eq!(hub.ledger.supply(), 0);
 }
 
+// A change of rules starts reset votes again, the time of their tally's
+// first vote included: a tally started after it lasts its whole period.
+#[test]
+fn a_change_of_rules_starts_the_reset_tally_afresh() {
+    let mut hub = Hub::new();
+    hub.join(1, 10_000_000);
+    let (rules, _) = rules(4);
+    let rules = resigned(rules, |rules| rules.terms.fees.operation = 20);
+    let ops: Vec<Operation> = (0..3)
+        .map(|i| hub.validator_op(i, ValidatorOperation::Reconfigure(rules.clone())))
+        .collect();
+    hub.block(ops);
+    let at = hub.ledger.timestamp() + hub.ledger.terms().timers.reconfigure_notice;
+    hub.block_at(at, vec![], &[]);
+    // A vote just before the new rules take over, two blocks later.
+    let first = hub.validator_op(3, ValidatorOperation::AttestReset { ledger: 1 });
+    hub.block(vec![first]);
+    let started = hub.ledger.timestamp();
+    hub.block(vec![]);
+    assert_eq!(hub.ledger.terms().fees.operation, 20);
+    let ops: Vec<Operation> = [0, 1]
+        .into_iter()
+        .map(|i| hub.validator_op(i, ValidatorOperation::AttestReset { ledger: 2 }))
+        .collect();
+    hub.block(ops);
+    // Past the period of the vote before the change, within the new one's.
+    let at = started + crate::ledger::RESET_QUIET_MS;
+    assert!(at < hub.ledger.timestamp() + crate::ledger::RESET_QUIET_MS);
+    let third = hub.validator_op(2, ValidatorOperation::AttestReset { ledger: 2 });
+    let votes = [(hub.ledger.height(), Signers::from_bits(0b1111))];
+    hub.block_at(at, vec![third], &votes);
+    assert_eq!(hub.ledger.supply(), 0, "the new tally made its quorum");
+}
+
 #[test]
 fn a_reset_vote_counts_again_after_the_quiet_period() {
     let mut hub = written_off();
