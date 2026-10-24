@@ -95,14 +95,14 @@ pub static SIMS: [Sim; 15] = [
     },
     Sim {
         name: "node-rlusd",
-        about: "the same, settling in RLUSD, while its issuer claws back and freezes lines",
+        about: "the same in the live realm, settling in RLUSD on the fake mainnet, while its issuer claws back and freezes lines",
         describe: dassie_node::sim::scripted::describe,
         run: dassie_node::sim::scripted::run_rlusd,
         weight: 5,
     },
     Sim {
         name: "node-xrp-rlusd",
-        about: "the same across RLUSD and XRP, both schemes on one account at the nodes that run both",
+        about: "the same across RLUSD and XRP in the live realm, both schemes on one mainnet account at the nodes that run both",
         describe: dassie_node::sim::scripted::describe_xrp_rlusd,
         run: dassie_node::sim::scripted::run_xrp_rlusd,
         weight: 5,

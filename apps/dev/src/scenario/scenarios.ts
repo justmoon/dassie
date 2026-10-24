@@ -25,7 +25,7 @@ export interface ScenarioDef {
   /**
    * What the fake ledger's issuers mint each node that runs the token's
    * scheme, once its trust line exists: a token and its value in dollars,
-   * such as RLUSD `"100"`. Only the fake ledger mints on demand, so such a
+   * such as DSUSD `"100"`. Only the fake ledger mints on demand, so such a
    * scenario needs it.
    */
   readonly mint?: { readonly token: IssuedToken; readonly value: string };
@@ -63,12 +63,13 @@ export interface PoolDef {
   readonly tradingFee: number;
 }
 
-/** The dollar tokens the fake ledger issues, by their currency codes. */
-export type IssuedToken = "RLUSD" | "DSUSD";
+/** The dollar tokens the fake ledger's testnet issues, by their currency
+ * codes: DSUSD, the testnet's stand-in for RLUSD, whose test token's scheme
+ * is disabled (spec/decisions/issued-assets.md). */
+export type IssuedToken = "DSUSD";
 
 /** The settlement scheme that settles in each token. */
 export const TOKEN_SCHEMES: Readonly<Record<IssuedToken, string>> = {
-  RLUSD: "xrpl-testnet-rlusd",
   DSUSD: "xrpl-testnet-dsusd",
 };
 
@@ -76,7 +77,6 @@ export const TOKEN_SCHEMES: Readonly<Record<IssuedToken, string>> = {
  * the testnet, or on the fake ledger. */
 export const XRPL_SCHEMES: readonly string[] = [
   "xrpl-testnet",
-  "xrpl-testnet-rlusd",
   "xrpl-testnet-dsusd",
 ];
 
@@ -106,16 +106,6 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     schemes: [["xrpl-testnet"], ["xrpl-testnet"]],
     addedSchemes: ["xrpl-testnet"],
     bootstrap: [0, 1],
-  },
-  {
-    id: "rlusd-settlement",
-    name: "RLUSD Settlement",
-    description:
-      "Network with two nodes settling in test RLUSD on the XRP Ledger, minted by the fake ledger's issuer",
-    schemes: [["xrpl-testnet-rlusd"], ["xrpl-testnet-rlusd"]],
-    addedSchemes: ["xrpl-testnet-rlusd"],
-    bootstrap: [0, 1],
-    mint: { token: "RLUSD", value: "100" },
   },
   {
     id: "dsusd-settlement",

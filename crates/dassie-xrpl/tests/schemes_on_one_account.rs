@@ -1,5 +1,5 @@
 //! Two schemes on the node's first XRPL testnet account, against the fake
-//! ledger, as RLUSD shares it with `xrpl-testnet`
+//! ledger, as DSUSD shares it with `xrpl-testnet`
 //! (spec/areas/settlement.md#external-assets): the `xrpl-testnet` scheme,
 //! and a witness that books nothing and keeps the account running while
 //! the other is away. What a scheme misses while it is not on the account,

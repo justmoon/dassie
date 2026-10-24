@@ -37,9 +37,9 @@
 //! against a fake ledger in the same process (M7b): its connections lag,
 //! lose requests and drop, and the books must still match every node's
 //! account, less its reserve, with no XRP made or lost. A run in the live
-//! realm settles over mainnet's scheme, `xrpl`, against the fake ledger's
-//! mainnet, which has no faucet: each node's owner deposits
-//! (spec/decisions/mainnet-schemes.md).
+//! realm settles over mainnet's schemes, `xrpl` and `xrpl-rlusd`, against
+//! the fake ledger's mainnet, which has no faucet: each node's owner
+//! deposits (spec/decisions/mainnet-schemes.md).
 //!
 //! Runs across currencies (M7c) give some nodes dollars, some XRP and
 //! some both, at a fixed snapshot of rates, one charging a fee and a
@@ -50,14 +50,14 @@
 //! its curve allows, takes anything out of a ledger it holds nothing on, or
 //! is better than at what its owner has posted alone.
 //!
-//! Runs on RLUSD settle in the fake ledger's test RLUSD
-//! (spec/areas/xrpl.md#rlusd), alone or across XRP and RLUSD, with both
-//! schemes on one account; runs across XRP and DSUSD do the same in the
-//! fake ledger's test DSUSD (spec/areas/xrpl.md#dsusd). The issuer mints
-//! each node its token once its line exists, then claws some back and
-//! freezes lines, deep or for every holder; each node's books count what
-//! the issuer did as its owner's deposits and withdrawals, and hold its
-//! line.
+//! Runs on RLUSD settle in RLUSD of the fake ledger's mainnet, in the live
+//! realm (spec/areas/xrpl.md#rlusd), alone or across XRP and RLUSD, with
+//! both schemes on one account; runs across XRP and DSUSD do the same in
+//! the fake ledger's testnet DSUSD (spec/areas/xrpl.md#dsusd). The issuer
+//! mints each node its token once its line exists, then claws some back
+//! and freezes lines, deep or for every holder; each node's books count
+//! what the issuer did as its owner's deposits and withdrawals, and hold
+//! its line.
 //!
 //! A node that never settles, or spends the credit it was given and
 //! vanishes, costs its peer no more than that credit
@@ -151,13 +151,15 @@ pub enum Settling {
     XrplLive,
     /// Node 0 on the stub, 2 on the XRP Ledger, 1 and 3 on both (M7c).
     Cross,
-    /// The RLUSD scheme alone, against the fake ledger and its issuer: the
-    /// account's XRP is gas, off the books.
+    /// The RLUSD scheme alone, `xrpl-rlusd`, in the live realm, against the
+    /// fake ledger's mainnet and its issuer: the account's XRP is gas, off
+    /// the books.
     Rlusd,
-    /// Node 0 on RLUSD, 2 on XRP, 1 and 3 on both, through one account:
-    /// the RLUSD scheme's gas is on the XRP ledger's books there.
+    /// Node 0 on RLUSD, 2 on XRP, 1 and 3 on both, through one account, in
+    /// the live realm on the fake ledger's mainnet: the RLUSD scheme's gas
+    /// is on the XRP ledger's books there.
     XrpRlusd,
-    /// As [`Self::XrpRlusd`], in DSUSD.
+    /// As [`Self::XrpRlusd`], in DSUSD and XRP on the testnet.
     XrpDsusd,
     /// A settlement hub of this many validators, run in the simulation,
     /// whose escrow is on the fake ledger: each node funds its account in
@@ -172,8 +174,9 @@ pub const USD: LedgerId = LedgerId::StubUsd;
 pub const XRP: LedgerId = LedgerId::XrplTestnetXrp;
 /// The XRP Ledger mainnet: real money, in the live realm.
 pub const LIVE_XRP: LedgerId = LedgerId::XrplXrp;
-/// RLUSD on the XRP Ledger testnet, in dollars.
-pub const RLUSD: LedgerId = LedgerId::XrplTestnetRlusdUsd;
+/// RLUSD on the XRP Ledger mainnet, in dollars: real money, in the live
+/// realm.
+pub const RLUSD: LedgerId = LedgerId::XrplRlusdUsd;
 /// DSUSD on the XRP Ledger testnet, in dollars.
 pub const DSUSD: LedgerId = LedgerId::XrplTestnetDsusdUsd;
 /// XRP in a settlement hub on the XRP Ledger testnet.
@@ -209,11 +212,11 @@ impl Settling {
     pub fn ledgers(self, index: usize) -> &'static [LedgerId] {
         match (self, index % 4) {
             (Self::Stub | Self::StubHub(_), _) | (Self::Cross, 0) => &[USD],
-            (Self::Xrpl, _) | (Self::Cross | Self::XrpRlusd | Self::XrpDsusd, 2) => &[XRP],
-            (Self::XrplLive, _) => &[LIVE_XRP],
+            (Self::Xrpl, _) | (Self::Cross | Self::XrpDsusd, 2) => &[XRP],
+            (Self::XrplLive, _) | (Self::XrpRlusd, 2) => &[LIVE_XRP],
             (Self::Cross, _) => &[USD, XRP],
             (Self::Rlusd, _) | (Self::XrpRlusd, 0) => &[RLUSD],
-            (Self::XrpRlusd, _) => &[RLUSD, XRP],
+            (Self::XrpRlusd, _) => &[RLUSD, LIVE_XRP],
             (Self::XrpDsusd, 0) => &[DSUSD],
             (Self::XrpDsusd, _) => &[DSUSD, XRP],
             (Self::Hub(_), _) => &[HUB],
@@ -248,7 +251,7 @@ impl Settling {
     /// The XRP Ledger network its nodes settle on, if they do.
     pub const fn network(self) -> &'static Network {
         match self {
-            Self::XrplLive => &MAINNET,
+            Self::XrplLive | Self::Rlusd | Self::XrpRlusd => &MAINNET,
             _ => &TESTNET,
         }
     }
@@ -256,9 +259,9 @@ impl Settling {
     /// The realm of its nodes: live on mainnet, which they run by the dev
     /// switch, as tests do (spec/decisions/mainnet-schemes.md).
     pub const fn realm(self) -> (Realm, LiveRealm) {
-        match self {
-            Self::XrplLive => (Realm::Live, LiveRealm::DevSwitch),
-            _ => (Realm::Test, LiveRealm::Refused),
+        match self.network().realm {
+            dassie_ledger::Realm::Live => (Realm::Live, LiveRealm::DevSwitch),
+            dassie_ledger::Realm::Test => (Realm::Test, LiveRealm::Refused),
         }
     }
 
@@ -274,9 +277,7 @@ impl Settling {
             LedgerId::XrplTestnetXrp | LedgerId::XrplXrp => {
                 (FAUCET_DROPS as i128 - 1_000_000) * 1_000
             }
-            LedgerId::XrplTestnetRlusdUsd | LedgerId::XrplTestnetDsusdUsd => {
-                MINT_MICROS as i128 * 1_000
-            }
+            LedgerId::XrplRlusdUsd | LedgerId::XrplTestnetDsusdUsd => MINT_MICROS as i128 * 1_000,
             _ => 100_000_000_000,
         }
     }
@@ -286,7 +287,7 @@ impl Settling {
         match ledger {
             LedgerId::XrplTestnetXrp => ("xrpl-testnet", XRPL_CONFIG),
             LedgerId::XrplXrp => ("xrpl", XRPL_LIVE_CONFIG),
-            LedgerId::XrplTestnetRlusdUsd => ("xrpl-testnet-rlusd", XRPL_CONFIG),
+            LedgerId::XrplRlusdUsd => ("xrpl-rlusd", XRPL_LIVE_CONFIG),
             LedgerId::XrplTestnetDsusdUsd => ("xrpl-testnet-dsusd", XRPL_CONFIG),
             LedgerId::HubXrpTestnetXrp => (dassie_hub::member::SCHEME_ID, ""),
             _ => ("stub", ""),
@@ -882,9 +883,9 @@ impl Sim {
             apart: BTreeSet::new(),
             credits,
             settling,
-            ledger: match settling {
-                Settling::XrplLive => FakeLedger::mainnet(),
-                _ => FakeLedger::new(),
+            ledger: match settling.network().faucet {
+                None => FakeLedger::mainnet(),
+                Some(_) => FakeLedger::new(),
             },
             links: BTreeMap::new(),
             fifo: BTreeMap::new(),
@@ -1631,12 +1632,17 @@ impl Sim {
         );
     }
 
-    /// The token the run's issuer issues: RLUSD unless the run is on
-    /// another.
+    /// The token the run's issuer issues: its network's dollar unless the
+    /// run is on another.
     fn token(&self) -> Token {
-        self.settling
-            .token()
-            .map_or(Token::RLUSD, |(_, token)| token)
+        self.settling.token().map_or(
+            if self.settling.network().faucet.is_some() {
+                Token::DSUSD
+            } else {
+                Token::RLUSD
+            },
+            |(_, token)| token,
+        )
     }
 
     /// The issuer mints [`MINT_MICROS`] of its token to each node it has
@@ -1652,7 +1658,7 @@ impl Sim {
         for index in lined {
             let value = TokenValue::from_units(MINT_MICROS, 6).unwrap();
             self.ledger
-                .issue(xrpl_account(index), token.amount(value))
+                .issue(self.xrpl_account(index), token.amount(value))
                 .unwrap();
             self.to_mint.remove(&index);
             self.issued.entry(index).or_default().0 += MINT_MICROS as i128 * 1_000;
@@ -1670,7 +1676,7 @@ impl Sim {
     pub fn line(&self, index: usize) -> Option<i128> {
         let held = self
             .ledger
-            .token_balance(xrpl_account(index), self.token())?;
+            .token_balance(self.xrpl_account(index), self.token())?;
         Some(held.floor_units(6)? * 1_000)
     }
 
@@ -1683,7 +1689,7 @@ impl Sim {
         let value = TokenValue::from_units(micros, 6).unwrap();
         let token = self.token();
         self.ledger
-            .claw_back(xrpl_account(index), token.amount(value))
+            .claw_back(self.xrpl_account(index), token.amount(value))
             .unwrap();
         self.issued.entry(index).or_default().1 += units;
         self.count("issuer clawbacks");
@@ -1698,12 +1704,13 @@ impl Sim {
     pub fn issuer_freeze(&mut self, freeze: IssuerFreeze, on: bool) {
         let token = self.token();
         match freeze {
-            IssuerFreeze::Line(index) => self.ledger.freeze(xrpl_account(index), token, on),
+            IssuerFreeze::Line(index) => self.ledger.freeze(self.xrpl_account(index), token, on),
             IssuerFreeze::Deep(index) if on => {
-                self.ledger.deep_freeze(xrpl_account(index), token, true)
+                self.ledger
+                    .deep_freeze(self.xrpl_account(index), token, true)
             }
             // Lifted whole, the freeze with the deep freeze.
-            IssuerFreeze::Deep(index) => self.ledger.freeze(xrpl_account(index), token, false),
+            IssuerFreeze::Deep(index) => self.ledger.freeze(self.xrpl_account(index), token, false),
             IssuerFreeze::Global => self.ledger.global_freeze(token.issuer, on),
         }
         .unwrap();
@@ -2525,7 +2532,7 @@ impl Sim {
                 let fundings = i128::from(self.fundings.get(&index).copied().unwrap_or(0));
                 (fundings * i128::from(FAUCET_DROPS) - 1_000_000).max(0) * 1_000
             }
-            LedgerId::XrplTestnetRlusdUsd | LedgerId::XrplTestnetDsusdUsd => {
+            LedgerId::XrplRlusdUsd | LedgerId::XrplTestnetDsusdUsd => {
                 let (minted, clawed) = self.issued.get(&index).copied().unwrap_or((0, 0));
                 minted - clawed
             }

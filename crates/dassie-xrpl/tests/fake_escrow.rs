@@ -811,7 +811,7 @@ fn account_objects_come_a_page_at_a_time() {
     // A trust line is another object, after the list.
     let line = dassie_xrpl::codec::TrustSet {
         account: id,
-        limit: dassie_xrpl::fake::Token::RLUSD.amount(dassie_xrpl::codec::TokenValue::MAX),
+        limit: dassie_xrpl::fake::Token::DSUSD.amount(dassie_xrpl::codec::TokenValue::MAX),
         fee: multi_signed_fee(FEE_BASE, 2),
         sequence: sequence(&mut ledger, id),
         last_ledger_sequence: None,

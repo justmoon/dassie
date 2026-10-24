@@ -35,8 +35,13 @@ pub enum LedgerId {
     /// RLUSD on the XRP Ledger testnet, a dollar token booked as `USD` at
     /// par (spec/decisions/issued-assets.md). Its slug, `xrpl-testnet-rlusd`,
     /// differs from the XRP ledger's, since a ledger's slug names its
-    /// receiver, its seed path and its wallet address.
+    /// receiver, its seed path and its wallet address. Its scheme is
+    /// disabled (spec/decisions/mainnet-schemes.md); the ledger stays, so
+    /// the books of a node that ran it keep their name.
     XrplTestnetRlusdUsd,
+    /// RLUSD on the XRP Ledger mainnet, booked as `USD` at par as test
+    /// RLUSD was: real money.
+    XrplRlusdUsd,
     /// DSUSD on the XRP Ledger testnet, Dassie's own testnet dollar token,
     /// booked as `USD` at par as RLUSD is, on a ledger of its own.
     XrplTestnetDsusdUsd,
@@ -48,11 +53,12 @@ pub enum LedgerId {
 
 impl LedgerId {
     /// Every ledger, in a fixed order.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::StubUsd,
         Self::XrplTestnetXrp,
         Self::XrplXrp,
         Self::XrplTestnetRlusdUsd,
+        Self::XrplRlusdUsd,
         Self::XrplTestnetDsusdUsd,
         Self::HubXrpTestnetXrp,
     ];
@@ -65,6 +71,7 @@ impl LedgerId {
             Self::XrplTestnetXrp => "xrpl-testnet+xrp",
             Self::XrplXrp => "xrpl+xrp",
             Self::XrplTestnetRlusdUsd => "xrpl-testnet-rlusd+usd",
+            Self::XrplRlusdUsd => "xrpl-rlusd+usd",
             Self::XrplTestnetDsusdUsd => "xrpl-testnet-dsusd+usd",
             Self::HubXrpTestnetXrp => "hub-xrp-testnet+xrp",
         }
@@ -81,7 +88,10 @@ impl LedgerId {
     #[must_use]
     pub const fn asset(self) -> Asset {
         match self {
-            Self::StubUsd | Self::XrplTestnetRlusdUsd | Self::XrplTestnetDsusdUsd => Asset {
+            Self::StubUsd
+            | Self::XrplTestnetRlusdUsd
+            | Self::XrplRlusdUsd
+            | Self::XrplTestnetDsusdUsd => Asset {
                 code: "USD",
                 scale: 9,
             },
@@ -101,7 +111,7 @@ impl LedgerId {
             | Self::XrplTestnetRlusdUsd
             | Self::XrplTestnetDsusdUsd
             | Self::HubXrpTestnetXrp => Realm::Test,
-            Self::XrplXrp => Realm::Live,
+            Self::XrplXrp | Self::XrplRlusdUsd => Realm::Live,
         }
     }
 }

@@ -3,10 +3,10 @@
 //! closed every so often. For tests and dev environments only (feature
 //! `testing`): CI and `node --run dev -- --xrpl fake` settle against it.
 //!
-//! Next to the faucet, under `/tokens/`, the issuers of its test RLUSD and
-//! DSUSD take requests: each mints to an address, freezes, deep-freezes and
-//! globally freezes, sets a transfer fee and claws back, and makes or sets
-//! an AMM pool of XRP and its token, each in the next ledger
+//! Next to the faucet, under `/tokens/`, the issuer of its test DSUSD takes
+//! requests: it mints to an address, freezes, deep-freezes and globally
+//! freezes, sets a transfer fee and claws back, and makes or sets an AMM
+//! pool of XRP and its token, each in the next ledger
 //! (spec/areas/xrpl.md#the-fake-ledger).
 
 use std::collections::BTreeMap;
@@ -325,7 +325,7 @@ fn answer(ledger: &mut FakeLedger, path: &str, body: &[u8]) -> (StatusCode, Stri
     }
 }
 
-/// The issuer of the fake's test RLUSD, or of the token `"token"` names
+/// The issuer of the fake's dollar token, or of the token `"token"` names
 /// (`"RLUSD"` or `"DSUSD"`), does `action`, in the next ledger; `None` if
 /// there is no such action.
 ///
@@ -348,7 +348,7 @@ fn issuer_request(
     body: &serde_json::Value,
 ) -> Option<Result<(), &'static str>> {
     let token = match body.get("token") {
-        None => Token::RLUSD,
+        None => dollar(ledger),
         Some(code) => match code.as_str().and_then(Token::by_code) {
             Some(token) => token,
             None => return Some(Err("no such token")),
@@ -416,6 +416,17 @@ fn issuer_request(
     })
 }
 
+/// The dollar token of the fake's network, which a request to its issuer
+/// is of unless it names another: DSUSD on the testnet, RLUSD on mainnet,
+/// where only RLUSD runs (spec/decisions/mainnet-schemes.md).
+fn dollar(ledger: &FakeLedger) -> Token {
+    if *ledger.network() == dassie_xrpl::network::MAINNET {
+        Token::RLUSD
+    } else {
+        Token::DSUSD
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::indexing_slicing)]
 mod tests {
@@ -431,14 +442,15 @@ mod tests {
         TokenValue::parse(text).unwrap()
     }
 
-    /// A holder with a line to the issuer, as the scheme makes it.
-    fn holder(ledger: &mut FakeLedger) -> AccountId {
+    /// A holder with a line to the issuer of `token`, as the scheme makes
+    /// it.
+    fn holder(ledger: &mut FakeLedger, token: Token) -> AccountId {
         let wallet = Wallet::from_seed([1; 16]);
         ledger.deposit(wallet.account(), 100_000_000);
         ledger.close();
         let signed = TrustSet {
             account: wallet.account(),
-            limit: Token::RLUSD.amount(TokenValue::MAX),
+            limit: token.amount(TokenValue::MAX),
             fee: FEE_BASE,
             // A new account's first sequence is the ledger it was made in.
             sequence: ledger.ledger(),
@@ -464,15 +476,16 @@ mod tests {
         status
     }
 
+    // A request that names no token is of DSUSD's issuer, the testnet's.
     #[test]
     fn the_issuer_mints_freezes_and_claws_back_on_request() {
         let mut ledger = FakeLedger::new();
-        let holder = holder(&mut ledger);
+        let holder = holder(&mut ledger, Token::DSUSD);
         let address = holder.to_address();
-        let held = |ledger: &FakeLedger| ledger.token_balance(holder, Token::RLUSD);
+        let held = |ledger: &FakeLedger| ledger.token_balance(holder, Token::DSUSD);
         let theirs = |ledger: &FakeLedger| {
             let line = ledger
-                .line(holder, RLUSD_ISSUER, Token::RLUSD.currency)
+                .line(holder, DSUSD_ISSUER, Token::DSUSD.currency)
                 .unwrap();
             line.view(holder).unwrap().theirs
         };
@@ -492,7 +505,7 @@ mod tests {
             ask(&mut ledger, "/tokens/global-freeze", &global),
             StatusCode::OK
         );
-        let flags = ledger.account_flags(RLUSD_ISSUER).unwrap();
+        let flags = ledger.account_flags(DSUSD_ISSUER).unwrap();
         assert_ne!(flags & account_flags::GLOBAL_FREEZE, 0);
         let rate = json!({ "rate": 1_002_000_000 });
         assert_eq!(
@@ -535,6 +548,12 @@ mod tests {
             Some(value("7"))
         );
         assert_eq!(ledger.token_balance(wallet.account(), Token::RLUSD), None);
+        // RLUSD's issuer is mainnet's, which the testnet does not have.
+        let rlusd = json!({ "token": "RLUSD", "destination": address, "value": "7" });
+        assert_eq!(
+            ask(&mut ledger, "/tokens/mint", &rlusd),
+            StatusCode::BAD_REQUEST
+        );
         let on = json!({ "token": "DSUSD", "account": address, "on": true });
         assert_eq!(ask(&mut ledger, "/tokens/freeze", &on), StatusCode::OK);
         let line = ledger
@@ -549,12 +568,35 @@ mod tests {
         assert!(ledger.tokens_conserved());
     }
 
+    // On mainnet, a request that names no token is of RLUSD's issuer, at
+    // its mainnet address; DSUSD is not there.
+    #[test]
+    fn on_mainnet_the_rlusd_issuer_takes_requests() {
+        let mut ledger = FakeLedger::mainnet();
+        let holder = holder(&mut ledger, Token::RLUSD);
+        let address = holder.to_address();
+        let mint = json!({ "destination": address, "value": "3" });
+        assert_eq!(ask(&mut ledger, "/tokens/mint", &mint), StatusCode::OK);
+        assert_eq!(ledger.token_balance(holder, Token::RLUSD), Some(value("3")));
+        assert!(
+            ledger
+                .line(holder, RLUSD_ISSUER, Token::RLUSD.currency)
+                .is_some()
+        );
+        let dsusd = json!({ "token": "DSUSD", "destination": address, "value": "3" });
+        assert_eq!(
+            ask(&mut ledger, "/tokens/mint", &dsusd),
+            StatusCode::BAD_REQUEST
+        );
+        assert!(ledger.tokens_conserved());
+    }
+
     #[test]
     fn the_issuer_makes_and_sets_a_pool_on_request() {
         let mut ledger = FakeLedger::new();
         let pool = json!({ "drops": "1000000000", "value": "500", "fee": 500 });
         assert_eq!(ask(&mut ledger, "/tokens/amm", &pool), StatusCode::OK);
-        let state = ledger.pool(Token::RLUSD).unwrap();
+        let state = ledger.pool(Token::DSUSD).unwrap();
         assert_eq!(
             (state.drops, state.value, state.trading_fee),
             (1_000_000_000, value("500"), 500)
@@ -564,16 +606,16 @@ mod tests {
             "drops": "2000000000",
             "value": "250.5",
             "fee": 0,
-            "currency": Token::RLUSD.currency.to_string(),
-            "issuer": RLUSD_ISSUER.to_address(),
+            "currency": Token::DSUSD.currency.to_string(),
+            "issuer": DSUSD_ISSUER.to_address(),
         });
         assert_eq!(ask(&mut ledger, "/tokens/amm", &again), StatusCode::OK);
-        let state = ledger.pool(Token::RLUSD).unwrap();
+        let state = ledger.pool(Token::DSUSD).unwrap();
         assert_eq!(
             (state.drops, state.value, state.trading_fee),
             (2_000_000_000, value("250.5"), 0)
         );
-        // The DSUSD issuer's pool, named by its code.
+        // Named by its code.
         let dsusd = json!({ "token": "DSUSD", "drops": "3000000000", "value": "4", "fee": 300 });
         assert_eq!(ask(&mut ledger, "/tokens/amm", &dsusd), StatusCode::OK);
         let state = ledger.pool(Token::DSUSD).unwrap();

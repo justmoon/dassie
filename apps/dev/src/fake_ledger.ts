@@ -2,8 +2,8 @@
  * The fake XRP Ledger: the node's own model of the ledger, served over
  * WebSocket with a faucet over HTTPS, for scenarios that settle on the XRP
  * Ledger without the public testnet. CI's end-to-end tests run against it,
- * and `node --run dev -- --xrpl fake`. Next to its faucet, the issuers of
- * its test RLUSD and DSUSD mint, freeze and claw back on request
+ * and `node --run dev -- --xrpl fake`. Next to its faucet, the issuer of
+ * its test DSUSD mints, freezes and claws back on request
  * (spec/areas/xrpl.md#tokens-in-the-fake-ledger): the only source of test
  * tokens a scenario has.
  *
@@ -144,15 +144,15 @@ export async function startFakeLedger(
   };
 }
 
-/** What the fake ledger's issuer of test RLUSD, or of the test token
- * `token` names, can be asked to do, each in the next ledger: mint to an
+/** What the fake ledger's issuer of test DSUSD, or of the token `token`
+ * names, can be asked to do, each in the next ledger: mint to an
  * address, freeze or deep-freeze a line or lift that, freeze every line,
  * set a transfer fee in billionths, claw back, or make or set the token's
  * pool with XRP (spec/areas/xrpl.md#pools-in-the-fake-ledger), its
  * trading fee in hundred-thousandths. Values are decimal dollars, such as
  * `"12.5"`. */
 export type IssuerRequest =
-  & { token?: "RLUSD" | "DSUSD" }
+  & { token?: "DSUSD" }
   & (
     | { action: "mint"; destination: string; value: string }
     | { action: "freeze" | "deep-freeze"; account: string; on: boolean }
@@ -163,9 +163,8 @@ export type IssuerRequest =
   );
 
 /**
- * Asks the issuer of `ledger`'s test RLUSD (or of `request.token`), whose
- * certificate comes from
- * the CA in `caFile`. It is queued once this returns, and applies in the
+ * Asks the issuer of `ledger`'s test DSUSD (or of `request.token`), whose
+ * certificate comes from the CA in `caFile`. It is queued once this returns, and applies in the
  * next ledger; one the ledger refuses, such as a mint to an account
  * without a line, changes nothing.
  */

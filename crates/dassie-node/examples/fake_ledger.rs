@@ -8,8 +8,8 @@
 //!
 //! Once up, it prints one line of JSON, `{"url": "ws://…", "faucet":
 //! "https://…" | null, "tokens": "https://…" | null}`, and serves until
-//! stdin closes or it is killed. `tokens` is where the issuers of its test
-//! RLUSD and DSUSD mint, freeze and claw back on request.
+//! stdin closes or it is killed. `tokens` is where the issuer of its test
+//! DSUSD mints, freezes and claws back on request.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 // A process for the end-to-end tests: it watches stdin from a thread, and

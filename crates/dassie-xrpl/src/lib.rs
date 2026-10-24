@@ -25,7 +25,8 @@
 //!   on mainnet.
 //! - [`token`]: the token scheme, which settles in a dollar token on the
 //!   account's trust line to its issuer, with the account's XRP as gas;
-//!   [`rlusd`] is it in RLUSD (`xrpl-testnet-rlusd`), [`dsusd`] in DSUSD
+//!   [`rlusd`] is it in RLUSD on mainnet (`xrpl-rlusd`), and keeps disabled
+//!   test RLUSD's constants; [`dsusd`] is it in DSUSD on the testnet
 //!   (`xrpl-testnet-dsusd`).
 //! - `fake` (feature `fake`): a model of the ledger, with tokens, AMM
 //!   pools and signer lists, for simulations and tests.

@@ -253,6 +253,13 @@ pub enum SettlementEvent {
         /// The scheme.
         scheme: Name,
     },
+    /// A stored scheme is disabled, such as test RLUSD: it does not run, and
+    /// its books and its line stay as they are
+    /// (spec/decisions/issued-assets.md).
+    Disabled {
+        /// The scheme.
+        scheme: Name,
+    },
     /// The books refused a scheme's effects, all of them: it is fed nothing
     /// more.
     SchemeStopped {
@@ -480,6 +487,7 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
         }
         | SettlementEvent::DepositFromStranger { .. }
         | SettlementEvent::OtherRealm { .. }
+        | SettlementEvent::Disabled { .. }
         | SettlementEvent::BooksCannotSettle { .. }
         | SettlementEvent::SchemeUnavailable { .. }
         | SettlementEvent::PrepareFailed { .. }
