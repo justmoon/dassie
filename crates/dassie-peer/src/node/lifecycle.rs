@@ -372,12 +372,14 @@ impl PeerNode {
         self.gossip.routes_dirty = true;
     }
 
-    /// Looks after the peerings: ends silent ones, sets the advertise
-    /// flags, tells terminations, and ends those that are done.
+    /// Looks after the peerings: ends silent ones and those on a scheme
+    /// the node does not run, sets the advertise flags, tells
+    /// terminations, and ends those that are done.
     pub(super) fn review_peers(&mut self, hooks: &dyn PeeringHooks) {
         self.end_downlinks();
         self.terminate_silent();
         self.terminate_short();
+        self.end_unrun(hooks);
         self.advance_depeerings(hooks);
         self.update_advertised();
         let telling: Vec<NodeId> = self.telling.keys().copied().collect();
@@ -559,6 +561,37 @@ impl PeerNode {
             .collect();
         for peer in short {
             self.begin_depeering(peer, TerminationReason::ShortOfRoom);
+        }
+    }
+
+    /// Ends the peerings on a scheme the node does not run, as one disabled
+    /// or of the other realm, which the node starts without
+    /// (spec/areas/settlement.md#schemes-and-ledgers): no packet crosses
+    /// them, no settlement on them can be booked, and while one lasts the
+    /// pair cannot peer on a scheme it shares. So nothing is collected
+    /// first, as for a ban: the peer is told at once. A decision already
+    /// taken keeps its reason, so an end for the owner or for room keeps
+    /// its cooldown; otherwise the reason is unspecified, and the pair may
+    /// peer again after a backoff (spec/decisions/ending-a-peering.md).
+    /// Looked at with each review, which runs at least once a heartbeat
+    /// while the node has a peer, so at start too.
+    fn end_unrun(&mut self, hooks: &dyn PeeringHooks) {
+        let unrun: Vec<(NodeId, TerminationReason)> = self
+            .table
+            .iter()
+            .filter_map(|(id, entry)| {
+                let peering = entry.active_peering()?;
+                let reason = peering
+                    .depeering
+                    .map_or(TerminationReason::Unspecified, |depeering| depeering.reason);
+                hooks
+                    .versions(peering.scheme)
+                    .is_empty()
+                    .then_some((*id, reason))
+            })
+            .collect();
+        for (peer, reason) in unrun {
+            self.begin_termination(peer, reason, true);
         }
     }
 

@@ -197,4 +197,4 @@ Designs that stay future work. The architecture must not preclude them.
 - [random-seed-simulations](decisions/random-seed-simulations.md): the simulation campaign.
 - [ledger-resets](decisions/ledger-resets.md): a lagging server is handled; a reset counts once the testnet's UNL validates it.
 - [default-relay](decisions/default-relay.md): the default relay, until an onboarding asks.
-- [issued-assets](decisions/issued-assets.md): the peg guard, test RLUSD disabled; transfer fees.
+- [issued-assets](decisions/issued-assets.md): the peg guard; transfer fees.
