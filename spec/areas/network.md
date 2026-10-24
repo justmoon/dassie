@@ -89,7 +89,7 @@ Every probe spends a token of the node's probe bucket, whatever its outcome: fai
 
 ## Peering
 
-Each node looks for a few peers on its own (auto-peering). A peering is between two nodes on one settlement scheme, at one version of that scheme.
+Each node looks for a few peers on its own (auto-peering). A peering is between two nodes on one settlement scheme, at one version of that scheme. A peering that settles by every scheme both run is not built yet ([roadmap](../roadmap.md#settlement-methods)).
 
 ### Looking for peers
 
@@ -237,3 +237,4 @@ Periphery nodes peer with their uplinks on the same simulated network in `crates
 - [core-and-periphery](../decisions/core-and-periphery.md): core and periphery; why periphery nodes are in no node list and no link state.
 - [places-by-proved-key](../decisions/places-by-proved-key.md): downlinks' connections hold places of their own.
 - [periphery-lists-no-neighbors](../decisions/periphery-lists-no-neighbors.md): a periphery node's link state lists no neighbors, so it may keep many uplinks.
+- [settlement-methods](../decisions/settlement-methods.md): a peering settling by every scheme both run (not built).

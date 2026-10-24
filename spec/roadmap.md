@@ -139,6 +139,17 @@ Settling with real money on the XRP Ledger's mainnet, in XRP and in RLUSD ([main
   - the wallet, dev and the end-to-end tests: the mainnet schemes' names, Receive without a faucet and with the reserve to send, the guard's state, a mainnet scenario on the fake, and a pool moved off its peg.
 - **Done when:** live-realm nodes against the mainnet fake settle in XRP and in RLUSD at addresses under `g.`; a test-realm node never activates a mainnet scheme, nor a live-realm node a testnet one; no node activates test RLUSD; a release binary refuses the dev switch; a pool moved off its peg pauses the token's scheme and its conversions once the guard's hold has passed, on mainnet RLUSD and on testnet DSUSD, and they resume after recovery, with nothing converted at par meanwhile, while what arrives is still booked; the guard pauses the scheme when its reading is stale.
 
+### Settlement methods
+
+A peering settles by every scheme both nodes peer on, each a method of the peering, and a packet keeps the ledger it came in on where a first hop has a method on it ([settlement-methods](decisions/settlement-methods.md)). Today a peering is on one scheme, picked alphabetically, and stays on it.
+
+- **Parts that can be built side by side:**
+  - the peer protocol: the methods agreed when a peering is made, added and wound down while it lasts, and named on each Prepare;
+  - the node: accounts, credit, thresholds, requests to settle and withdrawal for room per method, the end for room and its mark per peering, a scheme both come to run added to their peerings, and one removed, or unable to receive for as long as a silent peer is kept, wound down with its position collected;
+  - the connector: among a destination's first hops, one with a method on the packet's incoming ledger first, and otherwise the method with the best rate in the price table; a method chosen by structure only, so one short of room gives T04;
+  - hubs: whether a hub becomes one method beside its underlying ledger's, and which of the two a packet takes, to be decided.
+- **Done when:** in the `node` simulation, a pair that runs two schemes carries packets on both, each on the ledger it came in on; a payment whose two ends share a ledger crosses core nodes that also share it without converting; a method short of room answers T04 and moves no packet to another method; a scheme both nodes add joins their peering, and one removed is wound down with its position collected, the peering kept; and the per-node oracles hold the bound on what each peer can cost, summed over its methods.
+
 ## Not built yet
 
 Gaps between what the spec's contract or decisions ask for and what `main` does. Each can be picked up on its own.
@@ -204,3 +215,4 @@ Designs that stay future work. The architecture must not preclude them.
 - [ledger-resets](decisions/ledger-resets.md): a lagging server is handled; a reset counts once the testnet's UNL validates it.
 - [default-relay](decisions/default-relay.md): the default relay, until an onboarding asks.
 - [issued-assets](decisions/issued-assets.md): the peg guard, test RLUSD disabled; transfer fees.
+- [settlement-methods](decisions/settlement-methods.md): settlement methods within a peering, and packets that keep their ledger.
