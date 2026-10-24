@@ -490,6 +490,10 @@ async fn a_member_node_hears_its_validators_through_its_engine() {
         if connection == proto::LedgerConnection::Unfunded {
             break;
         }
+        // The account asks again on its own timers, which run on the
+        // member's clock: an exchange lost to a slow machine is asked again,
+        // as in a running node.
+        member.clock.advance(250);
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert_eq!(
