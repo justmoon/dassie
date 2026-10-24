@@ -648,7 +648,7 @@ const fn fits(kind: Type, length: usize) -> bool {
 }
 
 /// A length prefix's length, and the length it writes.
-fn length_prefix(bytes: &[u8]) -> Result<(usize, usize), DecodeError> {
+pub(crate) fn length_prefix(bytes: &[u8]) -> Result<(usize, usize), DecodeError> {
     let byte = |index: usize| {
         bytes
             .get(index)
@@ -805,7 +805,7 @@ pub fn xrp(drops: u64) -> [u8; 8] {
 }
 
 /// Writes a length prefix, in the form its length needs.
-fn write_length(out: &mut Vec<u8>, length: usize) {
+pub(crate) fn write_length(out: &mut Vec<u8>, length: usize) {
     assert!(length <= MAX_VL_BYTES, "lengths a prefix writes");
     let byte = |value: usize| u8::try_from(value & 0xff).unwrap_or(0);
     if length <= MAX_VL_ONE_BYTE {
