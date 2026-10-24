@@ -47,13 +47,16 @@ pub enum Event {
     },
     /// A rate measurement could not get a precise enough result.
     ExchangeRateMeasurementFailed,
-    /// The receiver got less than the minimum the rate promises, so sending
-    /// money stopped until the application sets a new rate.
-    ExchangeRateTooLow {
-        /// What the sender asked for at least.
-        expected: u64,
-        /// What arrived.
-        received: u64,
+    /// Packets kept failing with none fulfilled in between, refused by the
+    /// receiver for delivering less than the minimum rate or failed by
+    /// nodes on the path, so sending money stopped until the application
+    /// sets a rate again (spec/areas/stream.md#responses).
+    MoneyStopped {
+        /// The latest of them the receiver refused for too low a rate, if
+        /// any: what the packet asked for at least, and what arrived. A
+        /// lower rate may then get money through. Without one, nodes on
+        /// the path failed them all.
+        too_low: Option<(u64, u64)>,
     },
     /// The connection is closed. Nothing more happens on it.
     ConnectionClosed {

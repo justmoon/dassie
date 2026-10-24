@@ -561,6 +561,44 @@ fn a_grant_that_limits_only_what_is_received_pays_nothing() {
     });
 }
 
+// spec/areas/payments.md#outgoing-payments: a payment whose packets keep
+// failing stops its connection's money, and connects again for as long as
+// its deadline lets it, not the few times a connection that closed may.
+// The peers cannot reach each other for six minutes: node 0 soon refuses
+// the payment's packets itself, without a reply from the receiver. Once
+// the path is back, the payment completes, before its ten minutes are up.
+#[test]
+fn a_payment_whose_money_stopped_tries_until_its_deadline() {
+    let mut sim = Sim::new(90, 2, 1);
+    sim.loss_per_mille = 0;
+    sim.run_until(START + 60_000);
+    assert!(!sim.peers(0).is_empty(), "the nodes did not peer");
+    sim.cut.extend([(0, 1), (1, 0)]);
+    sim.pay_outgoing(0, 1, 500_000_000).unwrap();
+    let id = sim.outgoing[0].3;
+    let created = sim.now;
+    let row = |sim: &Sim| sim.nodes[0].store.outgoing_payment(id).unwrap().unwrap();
+    sim.run_until(created + 6 * 60_000);
+    assert_eq!(row(&sim).state, OutgoingState::Sending);
+    let stops = sim
+        .trace
+        .iter()
+        .filter(|line| {
+            line.contains(" 0 Payment(OutgoingReconnects") && line.contains("kept failing")
+        })
+        .count();
+    // More than the eight times a connection that closed is opened again.
+    assert!(stops > 8, "{stops} stops");
+    sim.cut.clear();
+    let done = |sim: &Sim| row(sim).state != OutgoingState::Sending;
+    assert!(
+        sim.run_until_or(created + 10 * 60_000, done),
+        "still sending"
+    );
+    assert_eq!(row(&sim).state, OutgoingState::Completed, "{:?}", row(&sim));
+    check(&sim).unwrap();
+}
+
 // Two outgoing payments race into one incoming payment, each on a
 // connection of its own, each to deliver all it asks for: the receiver takes
 // at most what it asked for, split between them. Both end at once rather

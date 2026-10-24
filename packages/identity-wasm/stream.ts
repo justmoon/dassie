@@ -145,7 +145,7 @@ export class ClientDriver {
       const event = await this.waitFor(
         (event) =>
           done() || event.kind === "connectionClosed" ||
-          event.kind === "exchangeRateTooLow",
+          event.kind === "moneyStopped",
         options.timeoutMs,
       );
       if (!done()) throw new Error(`payment stopped: ${event.kind}`);

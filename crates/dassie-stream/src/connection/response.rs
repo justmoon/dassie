@@ -5,7 +5,9 @@ use dassie_ilp::{
 };
 use dassie_oer::Decode;
 
-use super::{BUFFER_LENGTH, Connection, PacketKind, Slot, State, digits};
+use super::{
+    BUFFER_LENGTH, Connection, MAX_FAILURES_WITHOUT_PROGRESS, PacketKind, Slot, State, digits,
+};
 use crate::event::Event;
 use crate::frame::{ErrorCode, Frame};
 use crate::packet::{Packet, PacketType};
@@ -15,13 +17,17 @@ use crate::receipt::RECEIPT_LENGTH;
 /// How a rejection or loss affects sending.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Failure {
-    /// The receiver rejected the packet but processed it.
+    /// The receiver rejected the packet with F99 but processed it.
     Receiver,
     /// The path said the packet was too large.
     TooLarge,
     /// Worth retrying later.
     Temporary,
-    /// The path will not carry this connection's packets.
+    /// A final error without the receiver's reply: a node on the path
+    /// failed the packet, and another packet may take another path.
+    Path,
+    /// A final error with the receiver's reply: the receiver will not take
+    /// this connection's packets.
     Final,
 }
 
@@ -63,11 +69,11 @@ impl Connection {
                 self.settle_fulfilled(&slot, reply);
             }
             Ok(Response::Reject(reject)) => {
-                let reply = if reject.code == IlpErrorCode::F99_APPLICATION_ERROR {
-                    self.open_reply(&slot, reject.data, PacketType::Reject, buffer)
-                } else {
-                    None
-                };
+                // Whatever its code, only a reply that decrypts and matches
+                // the request is the receiver's word; a reject without one
+                // came from a node on the path, or says nothing it can
+                // prove (spec/areas/stream.md#responses).
+                let reply = self.open_reply(&slot, reject.data, PacketType::Reject, buffer);
                 self.settle_rejected(now, &slot, &reject, reply);
             }
             // Malformed responses and fulfillments that do not match the
@@ -259,6 +265,13 @@ impl Connection {
         }
         self.increase_concurrency();
         self.retry_delay_ms = self.policy.retry_delay_start_ms;
+        // Progress: a path delivered money at the rate. A packet without
+        // money says nothing of that, or data flowing would keep a sender
+        // retrying money that no path delivers.
+        if slot.source_amount > 0 {
+            self.failures_without_progress = 0;
+            self.failures_too_low = None;
+        }
     }
 
     fn acknowledge_closes(&mut self, slot: &Slot) {
@@ -309,9 +322,10 @@ impl Connection {
         let failure = match (reject.code, reply) {
             (IlpErrorCode::F99_APPLICATION_ERROR, Some(_)) => Failure::Receiver,
             (IlpErrorCode::F08_AMOUNT_TOO_LARGE, _) => Failure::TooLarge,
-            (code, _) => match code.class() {
+            (code, reply) => match code.class() {
                 ErrorClass::Temporary | ErrorClass::Relative => Failure::Temporary,
-                ErrorClass::Final | ErrorClass::Unknown => Failure::Final,
+                ErrorClass::Final | ErrorClass::Unknown if reply.is_some() => Failure::Final,
+                ErrorClass::Final | ErrorClass::Unknown => Failure::Path,
             },
         };
         if failure == Failure::TooLarge {
@@ -322,29 +336,73 @@ impl Connection {
             return;
         }
         match failure {
-            Failure::Receiver => {
-                if let Some(received) = reply
-                    && slot.source_amount > 0
+            Failure::Receiver => match reply {
+                // Less arrived than the minimum: the path this packet took
+                // is too dear. Its money goes again in a later packet,
+                // which may take a cheaper one. Not congestion, so no
+                // back-off.
+                Some(received)
+                    if slot.source_amount > 0 && received < slot.min_destination_amount =>
                 {
-                    if received < slot.min_destination_amount {
-                        self.rate_too_low = true;
-                        self.push_event(Event::ExchangeRateTooLow {
-                            expected: slot.min_destination_amount,
-                            received,
-                        });
-                    } else {
+                    self.fail_without_progress(Some((slot.min_destination_amount, received)));
+                }
+                _ => {
+                    if let Some(received) = reply
+                        && slot.source_amount > 0
+                    {
                         self.learn_rate(received, slot.source_amount);
                     }
+                    // The receiver refused; its new limits are applied, but
+                    // sending again at once could repeat the refusal.
+                    self.back_off_for(now, slot);
                 }
-                // The receiver refused; its new limits are applied, but
-                // sending again at once could repeat the refusal.
-                self.back_off_for(now, slot);
-            }
+            },
             Failure::TooLarge => {}
             Failure::Temporary => self.back_off_for(now, slot),
-            // As upstream does: a final error means this connection's
-            // packets cannot get through (the original kept retrying).
+            // A node on the path failed the packet: another packet may
+            // take another path, so its money goes again, without a
+            // back-off, which would let one bad node slow every packet.
+            // Close packets are bounded by their own attempts. Once
+            // failures stopped money, what still goes backs off as after
+            // a temporary error, so data cannot loop on a path that never
+            // delivers.
+            Failure::Path => {
+                if slot.kind == PacketKind::Normal {
+                    self.fail_without_progress(None);
+                }
+                if self.money_stopped {
+                    self.back_off_for(now, slot);
+                }
+            }
+            // The receiver itself will not take this connection's packets:
+            // a final error, as upstream reads one.
             Failure::Final => self.finish_close(ErrorCode::INTERNAL_ERROR, false),
+        }
+    }
+
+    /// Counts a packet that failed without progress: refused by the
+    /// receiver for too low a rate, `too_low` saying what it asked for and
+    /// what arrived, or failed by a node on the path. The last of
+    /// [`MAX_FAILURES_WITHOUT_PROGRESS`] in a row stops money until the
+    /// application sets a rate again: no path the packets took delivered
+    /// at the rate, and retrying for ever would loop.
+    fn fail_without_progress(&mut self, too_low: Option<(u64, u64)>) {
+        if too_low.is_some() {
+            self.failures_too_low = too_low;
+        }
+        if self.failures_without_progress >= MAX_FAILURES_WITHOUT_PROGRESS {
+            return;
+        }
+        self.failures_without_progress += 1;
+        if self.failures_without_progress < MAX_FAILURES_WITHOUT_PROGRESS || self.money_stopped {
+            return;
+        }
+        self.money_stopped = true;
+        // A closed connection says nothing more.
+        if !matches!(self.state, State::Closed) {
+            self.push_event(Event::MoneyStopped {
+                too_low: self.failures_too_low,
+            });
         }
     }
 

@@ -39,7 +39,8 @@ pub mod token;
 mod wasm;
 
 pub use connection::{
-    AssetDetails, BUFFER_LENGTH, Config, Connection, Role, StreamError, Transmit,
+    AssetDetails, BUFFER_LENGTH, Config, Connection, MAX_FAILURES_WITHOUT_PROGRESS, Role,
+    StreamError, Transmit,
 };
 pub use event::{Event, Stats};
 pub use frame::{ErrorCode, Frame};

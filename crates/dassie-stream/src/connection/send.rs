@@ -161,7 +161,7 @@ impl Connection {
     }
 
     fn plan_money(&self, slot: &mut Slot) {
-        let (Some(rate), false) = (self.exchange_rate, self.rate_too_low) else {
+        let (Some(rate), false) = (self.exchange_rate, self.money_stopped) else {
             return;
         };
         let mut budget = self.max_packet_amount;

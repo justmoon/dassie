@@ -223,13 +223,22 @@ fn a_packet_that_timed_out_is_rejected_once_the_hub_decided() {
     peered(&mut sim);
     paying(&mut sim, 0, 1);
     sim.cut.insert((1, 0));
-    sim.run_until(sim.now + 60_000);
-    assert!(ended(
-        &sim,
-        0,
-        PacketState::Rejected(ErrorCode::R00_TRANSFER_TIMED_OUT)
-    ));
-    assert_eq!(held_with(&mut sim, 0, 1).ours, 0);
+    // The client keeps sending meanwhile, so at any moment a packet may be
+    // in flight: node 0 forgets the ones decided, so once one timed out it
+    // comes to hold nothing.
+    let deadline = sim.now + 120_000;
+    loop {
+        sim.run_until(sim.now + 100);
+        let timed_out = ended(
+            &sim,
+            0,
+            PacketState::Rejected(ErrorCode::R00_TRANSFER_TIMED_OUT),
+        );
+        if timed_out && held_with(&mut sim, 0, 1).ours == 0 {
+            break;
+        }
+        assert!(sim.now < deadline, "node 0 kept what the hub decided");
+    }
     assert!(held_with(&mut sim, 1, 0).unclaimed > 0);
     sim.cut.clear();
     paid(&mut sim, 180_000);

@@ -48,6 +48,15 @@ const DEFAULT_REMOTE_MAX_STREAM_ID: u64 = 20;
 /// Most probes a rate measurement has outstanding.
 const MAX_PROBES: usize = 8;
 
+/// Most packets in a row that fail with no Fulfill of a packet with money
+/// in between, refused by the receiver for a rate below the minimum or
+/// failed by a node on the path, before money stops until the application
+/// sets a rate again
+/// (spec/areas/stream.md#responses). Until then each one's money goes
+/// again in a later packet, which may take another path; this bounds how
+/// often a connection retries when no path delivers.
+pub const MAX_FAILURES_WITHOUT_PROGRESS: u32 = 32;
+
 /// Which end of the connection this is. Clients open odd stream IDs,
 /// servers even ones (RFC 29 §2.2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -272,7 +281,17 @@ pub struct Connection {
     /// Whether a reply showed what a packet with money delivered: until
     /// then a stream with a delivery cap offers at most half of it.
     rate_seen: bool,
-    rate_too_low: bool,
+    /// Packets failed in a row with no Fulfill of a packet with money in
+    /// between: refused by the
+    /// receiver for a rate below the minimum, or failed by a node on the
+    /// path. Never more than [`MAX_FAILURES_WITHOUT_PROGRESS`].
+    failures_without_progress: u32,
+    /// The latest of them that the receiver refused for too low a rate:
+    /// what the packet asked for at least, and what arrived.
+    failures_too_low: Option<(u64, u64)>,
+    /// Whether that many failures stopped money until the application sets
+    /// a rate again.
+    money_stopped: bool,
     max_packet_amount: u64,
     retry_at: Option<Timestamp>,
     retry_delay_ms: u64,
@@ -356,7 +375,9 @@ impl Connection {
             exchange_rate: None,
             expected_rate: None,
             rate_seen: false,
-            rate_too_low: false,
+            failures_without_progress: 0,
+            failures_too_low: None,
+            money_stopped: false,
             max_packet_amount: policy.max_packet_amount,
             retry_at: None,
             retry_delay_ms: policy.retry_delay_start_ms,
@@ -674,14 +695,24 @@ impl Connection {
     }
 
     /// Sets the minimum exchange rate packets are sent at, and resumes
-    /// sending money if a too-low rate stopped it.
+    /// sending money if packets that kept failing stopped it
+    /// ([`Event::MoneyStopped`]).
     pub fn set_exchange_rate(&mut self, rate: Rate) {
         self.exchange_rate = Some(rate);
         self.expected_rate = (!rate.is_zero()).then_some(rate);
         // The expected rate starts again from the minimum, so a delivery
         // cap is approached as before any reply.
         self.rate_seen = false;
-        self.rate_too_low = false;
+        self.money_stopped = false;
+        self.failures_without_progress = 0;
+        self.failures_too_low = None;
+    }
+
+    /// Whether packets that kept failing stopped money until the
+    /// application sets a rate again ([`Event::MoneyStopped`]).
+    #[must_use]
+    pub const fn money_stopped(&self) -> bool {
+        self.money_stopped
     }
 
     /// Sends money without caring how much arrives. The receiver's limits
@@ -911,6 +942,14 @@ impl Connection {
         assert!(
             self.back_off_sequence <= self.next_sequence,
             "back-off after a packet not yet sent"
+        );
+        assert!(
+            self.failures_without_progress <= MAX_FAILURES_WITHOUT_PROGRESS,
+            "more failures counted than the bound"
+        );
+        assert!(
+            self.failures_without_progress < MAX_FAILURES_WITHOUT_PROGRESS || self.money_stopped,
+            "failures reached the bound but money goes on"
         );
         for stream in &self.streams {
             stream.check_invariants();

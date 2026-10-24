@@ -54,6 +54,22 @@ pub struct Path {
     pub latency_ms: u64,
     /// Chance that a packet or response is dropped, in thousandths.
     pub loss_permille: u64,
+    /// Chance that a packet from the client takes the detour instead, in
+    /// thousandths, drawn per packet as a sender that spreads its packets
+    /// over several routes would.
+    pub detour_permille: u64,
+    /// The other route.
+    pub detour: Detour,
+}
+
+/// Another route to the server, which some of the client's packets take.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Detour {
+    /// A node on it cannot reach the server, and says so with F02.
+    Unreachable,
+    /// It delivers at this rate instead of the path's, as a dearer route
+    /// does.
+    Rate(u64, u64),
 }
 
 impl Default for Path {
@@ -63,6 +79,8 @@ impl Default for Path {
             max_packet_amount: u64::MAX,
             latency_ms: 10,
             loss_permille: 0,
+            detour_permille: 0,
+            detour: Detour::Unreachable,
         }
     }
 }
@@ -277,7 +295,7 @@ impl Simulation {
     }
 
     /// Converts a Prepare as a connector would, or rejects it.
-    fn forward(&self, from: Side, prepare: &Prepare<'_>) -> Result<u64, Vec<u8>> {
+    fn forward(&mut self, from: Side, prepare: &Prepare<'_>) -> Result<u64, Vec<u8>> {
         if prepare.amount > self.path.max_packet_amount {
             let data = AmountTooLarge {
                 received_amount: prepare.amount,
@@ -292,9 +310,27 @@ impl Simulation {
             };
             return Err(reject.to_vec());
         }
-        let (numerator, denominator) = match from {
-            Side::Client => self.path.rate,
-            Side::Server(_) => (self.path.rate.1, self.path.rate.0),
+        // Drawn only when there is a detour, so runs without one draw as
+        // they always did.
+        let detour = from == Side::Client
+            && self.path.detour_permille > 0
+            && self.rng.below(1000) < self.path.detour_permille;
+        if detour {
+            let _ = writeln!(self.trace, "{} detour", self.now.unix_ms);
+        }
+        let (numerator, denominator) = match (from, detour, self.path.detour) {
+            (Side::Client, true, Detour::Unreachable) => {
+                let reject = Reject {
+                    code: IlpErrorCode::F02_UNREACHABLE,
+                    triggered_by: Address::parse("test.detour").ok(),
+                    message: "",
+                    data: &[],
+                };
+                return Err(reject.to_vec());
+            }
+            (Side::Client, true, Detour::Rate(numerator, denominator)) => (numerator, denominator),
+            (Side::Client, ..) => self.path.rate,
+            (Side::Server(_), ..) => (self.path.rate.1, self.path.rate.0),
         };
         let converted =
             u128::from(prepare.amount) * u128::from(numerator) / u128::from(denominator);
