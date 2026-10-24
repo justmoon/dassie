@@ -212,6 +212,28 @@ impl Validators {
         self.attest(&ValidatorOperation::AttestDeposit(deposit));
     }
 
+    /// A deposit of `drops` to account `number`, by its tag.
+    fn top_up(&mut self, number: AccountNumber, drops: u64) {
+        self.deposits += 1;
+        let deposit = Deposit {
+            transaction: Digest([u8::try_from(self.deposits).unwrap(); 32]),
+            ledger: 1_000 + self.deposits,
+            amount: drops,
+            sender: [0xaa; 20],
+            tag: number.0,
+            key: None,
+        };
+        self.attest(&ValidatorOperation::AttestDeposit(deposit));
+    }
+
+    /// The escrow's payment of withdrawal `sequence` delivered, or failed.
+    fn settle_withdrawal(&mut self, sequence: u32, delivered: bool) {
+        self.attest(&ValidatorOperation::AttestWithdrawal {
+            escrow_sequence: sequence,
+            delivered,
+        });
+    }
+
     /// Takes an operation for a block, once.
     fn submit(&mut self, operation: Operation) {
         let hash = operation.hash();
@@ -419,6 +441,9 @@ struct Books {
     cancelled: Vec<Name>,
     losses: Vec<(Name, u64, LossCause)>,
     ids: BTreeSet<Name>,
+    /// The owner's payments held while on their way, as the node holds
+    /// them: by ID, what each pays.
+    held: BTreeMap<Name, u64>,
 }
 
 impl Books {
@@ -431,6 +456,13 @@ impl Books {
             Effect::Withdrawal { amount } => {
                 self.settlement -= i128::from(amount);
                 self.owner -= i128::from(amount);
+            }
+            Effect::OwnerPaid { id, applied } => {
+                let amount = self.held.remove(&id).unwrap();
+                if applied {
+                    self.settlement -= i128::from(amount);
+                    self.owner -= i128::from(amount);
+                }
             }
             Effect::IncomingSettlement { peer, amount, id } => {
                 assert!(self.ids.insert(id.unwrap()), "a settlement booked once");
@@ -1580,4 +1612,128 @@ fn a_hold_is_funded_with_at_most_what_the_account_can_spend() {
         2 * XRP + spendable
     );
     assert_eq!(world.balance(a), 0);
+}
+
+/// The owner's deposits and withdrawals are booked as theirs, from how far
+/// the account's counters grew, never through suspense
+/// (spec/areas/hubs.md#the-members-side): a deposit by the account's tag, a
+/// withdrawal, and a withdrawal the escrow could not pay, which comes back
+/// as a deposit. The fee of the operation is a fee.
+#[test]
+fn deposits_and_withdrawals_are_the_owners() {
+    let (mut world, a, _) = World::pair([Fault::Honest; 4], 2);
+    let owner = world.members[a].books.owner;
+    let number = world.number(a);
+    world.validators.top_up(number, 7 * XRP);
+    world.run(3_000);
+    assert_eq!(
+        world.members[a].books.owner,
+        owner + i128::from(units(7 * XRP))
+    );
+    let to = Destination {
+        account: [9; 20],
+        tag: None,
+    };
+    let withdrawal = |amount| MemberOperation::Withdraw { amount, to };
+    world.raw(a, withdrawal(3 * XRP));
+    world.run(3_000);
+    let ledger_fee = world.validators.ledger.terms().fees.ledger;
+    let taken = i128::from(units(3 * XRP + ledger_fee));
+    assert_eq!(
+        world.members[a].books.owner,
+        owner + i128::from(units(7 * XRP)) - taken
+    );
+    let (sequence, _) = world.validators.ledger.withdrawals().next().unwrap();
+    world.validators.settle_withdrawal(sequence, true);
+    world.raw(a, withdrawal(2 * XRP));
+    world.run(3_000);
+    let (sequence, _) = world.validators.ledger.withdrawals().next().unwrap();
+    world.validators.settle_withdrawal(sequence, false);
+    world.run(3_000);
+    let back = i128::from(units(2 * XRP));
+    let books = &world.members[a].books;
+    assert_eq!(
+        books.owner,
+        owner + i128::from(units(7 * XRP)) - taken - (back + i128::from(units(ledger_fee))) + back
+    );
+    assert_eq!(books.suspense, 0, "nothing left to explain");
+    assert_eq!(books.reserve, -i128::from(units(HOLD_RESERVE)));
+    assert_eq!(world.members[a].scheme.balance(), world.truth(a));
+    let account = world.validators.ledger.account(number).unwrap();
+    assert_eq!(account.deposited, 100 * XRP + 7 * XRP);
+    assert_eq!(account.returned, 2 * XRP, "the withdrawal that came back");
+    assert_eq!(account.withdrawn, 5 * XRP + 2 * ledger_fee);
+    world.restart(a);
+    world.run(3_000);
+    assert_eq!(world.members[a].books.suspense, 0, "the counters are kept");
+}
+
+/// The owner's withdrawal through the scheme (`pay_owner`): one at a time,
+/// at least the hub's least payout, to an address the escrow can pay. Once
+/// the hub executed it, what it paid out is booked as the owner's
+/// withdrawal, and the operation's fee and the ledger's as fees; neither
+/// twice across a restart, nor the counter's growth as a withdrawal.
+#[test]
+fn the_owner_withdraws_through_the_scheme() {
+    use dassie_settlement::{OwnerPayment, OwnerPaymentState};
+
+    let (mut world, a, _) = World::pair([Fault::Honest; 4], 2);
+    let owner = world.members[a].books.owner;
+    let fees = world.members[a].books.fees;
+    let payment = |destination: [u8; 20], drops: u64| OwnerPayment {
+        destination: dassie_xrpl::AccountId(destination).to_address(),
+        tag: Some(3),
+        memo: None,
+        amount: units(drops),
+    };
+    let escrow = world.validators.ledger.terms().escrow;
+    let member = &mut world.members[a];
+    for refused in [payment(escrow, 2 * XRP), payment([9; 20], XRP / 2)] {
+        assert_eq!(
+            member.scheme.pay_owner(Some(&mut member.account), &refused),
+            Err(SchemeError::InvalidData)
+        );
+    }
+    let id = member
+        .scheme
+        .pay_owner(Some(&mut member.account), &payment([9; 20], 2 * XRP))
+        .unwrap();
+    member.books.held.insert(id, units(2 * XRP));
+    assert_eq!(member.scheme.owner_payment(id), OwnerPaymentState::InFlight);
+    assert_eq!(
+        member
+            .scheme
+            .pay_owner(Some(&mut member.account), &payment([9; 20], 2 * XRP)),
+        Err(SchemeError::Unavailable),
+        "one at a time"
+    );
+    world.heard(a);
+    // Executed, and then a restart before an agreed state shows what it
+    // took: its hold is posted and its ledger fee booked, once, the counter
+    // still to show them.
+    world.run(500);
+    let member = &world.members[a];
+    assert_eq!(member.scheme.owner_payment(id), OwnerPaymentState::Applied);
+    assert!(member.books.held.is_empty(), "the hold is posted");
+    assert_eq!(member.books.owner, owner - i128::from(units(2 * XRP)));
+    world.restart(a);
+    world.run(3_000);
+    let member = &world.members[a];
+    assert_eq!(member.scheme.owner_payment(id), OwnerPaymentState::Applied);
+    let ledger_fee = world.validators.ledger.terms().fees.ledger;
+    assert_eq!(member.books.owner, owner - i128::from(units(2 * XRP)));
+    assert_eq!(
+        member.books.fees,
+        fees + i128::from(units(FEE + ledger_fee))
+    );
+    assert_eq!(member.books.suspense, 0);
+    let (_, withdrawal) = world.validators.ledger.withdrawals().next().unwrap();
+    assert_eq!(
+        withdrawal.to,
+        Destination {
+            account: [9; 20],
+            tag: Some(3)
+        }
+    );
+    assert_eq!(member.scheme.balance(), world.truth(a));
 }

@@ -122,6 +122,27 @@ impl Ledger {
         }
     }
 
+    /// Counts what a deposit credited an account.
+    pub(super) fn count_deposit(&mut self, to: AccountNumber, amount: Amount) {
+        if let Some(account) = self.accounts.get_mut(&to) {
+            account.deposited = account.deposited.saturating_add(amount);
+        }
+    }
+
+    /// Counts what a withdrawal that came back credited an account.
+    pub(super) fn count_returned(&mut self, to: AccountNumber, amount: Amount) {
+        if let Some(account) = self.accounts.get_mut(&to) {
+            account.returned = account.returned.saturating_add(amount);
+        }
+    }
+
+    /// Counts what a withdrawal or a payout took from an account.
+    fn count_withdrawal(&mut self, from: AccountNumber, amount: Amount) {
+        if let Some(account) = self.accounts.get_mut(&from) {
+            account.withdrawn = account.withdrawn.saturating_add(amount);
+        }
+    }
+
     fn transfer(
         &mut self,
         from: AccountNumber,
@@ -180,6 +201,9 @@ impl Ledger {
                 withdrawals: 0,
                 validator: false,
                 member_slot: true,
+                deposited: 0,
+                withdrawn: 0,
+                returned: 0,
             },
         );
         Some(number)
@@ -348,6 +372,7 @@ impl Ledger {
         self.spendable(from, amount.saturating_add(ledger_fee))?;
         let sequence = self.queue_withdrawal(Some(from), amount, to, false)?;
         self.debit(from, amount.saturating_add(ledger_fee));
+        self.count_withdrawal(from, amount.saturating_add(ledger_fee));
         Ok(Detail::Withdrawal(sequence))
     }
 
@@ -418,6 +443,7 @@ impl Ledger {
                 }
                 let sequence = self.queue_withdrawal(Some(from), amount, destination, true)?;
                 self.empty_account(from);
+                self.count_withdrawal(from, total);
                 if let Some(account) = self.accounts.get_mut(&from) {
                     account.closing = true;
                 }

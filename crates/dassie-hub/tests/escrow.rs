@@ -682,3 +682,213 @@ fn a_withdrawals_outcome_is_its_own_payment() {
         None
     );
 }
+
+/// A node's own XRPL testnet account and the `xrpl-testnet` scheme on it,
+/// on the hub's XRP Ledger, as the node runs them: what the account asks
+/// goes to the ledger and the answer comes back, and what the scheme books
+/// is added up.
+struct Node {
+    account: dassie_xrpl::XrplAccount,
+    scheme: dassie_xrpl::XrplScheme,
+    /// The owner's funds on the XRP Ledger, as the scheme booked them.
+    owner: i128,
+    fees: i128,
+    /// The owner's payments held while on their way, as the node holds
+    /// them: by ID, what each pays.
+    held: std::collections::BTreeMap<dassie_ledger::Name, u64>,
+}
+
+/// The node's connection to the fake ledger.
+const NODE_CONNECTION: u64 = 2;
+
+impl Node {
+    fn new(xrpl: &mut FakeLedger) -> Self {
+        use dassie_settlement::{ExternalAsset, LedgerInput};
+
+        let scheme_id = dassie_ledger::Name::new(dassie_xrpl::scheme::SCHEME_ID).unwrap();
+        let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
+        let mut account = dassie_xrpl::XrplAccount::new(
+            dassie_xrpl::account::FIRST,
+            &[scheme_id],
+            config,
+            &[61; 32],
+            &[],
+        )
+        .unwrap();
+        xrpl.fund(account.account());
+        xrpl.close();
+        let node = dassie_ledger::Name::new("dnode").unwrap();
+        let scheme = dassie_xrpl::XrplScheme::new(&account, node, None, &[]).unwrap();
+        account.on_ledger(0, LedgerInput::Connected);
+        let mut node = Self {
+            account,
+            scheme,
+            owner: 0,
+            fees: 0,
+            held: std::collections::BTreeMap::new(),
+        };
+        node.follow(xrpl);
+        node
+    }
+
+    /// Tells the scheme what the account learnt, books it, and carries
+    /// what the account asks to the ledger, until it asks nothing more.
+    fn follow(&mut self, xrpl: &mut FakeLedger) {
+        use dassie_settlement::{
+            AssetEffect, Effect, ExternalAsset, LedgerInput, SettlementScheme,
+        };
+
+        for _ in 0..50 {
+            let mut effects = Vec::new();
+            self.scheme.on_asset(0, &mut self.account, &mut effects);
+            self.account.told();
+            for effect in effects {
+                match effect {
+                    Effect::Deposit { amount } => self.owner += i128::from(amount),
+                    Effect::Withdrawal { amount } => self.owner -= i128::from(amount),
+                    Effect::OwnerPaid { id, applied } => {
+                        let amount = self.held.remove(&id).unwrap();
+                        if applied {
+                            self.owner -= i128::from(amount);
+                        }
+                    }
+                    Effect::Fee { amount, .. } => self.fees += i128::from(amount),
+                    Effect::Reconcile { .. } => panic!("nothing to reconcile: {effect:?}"),
+                    other => panic!("not the owner's: {other:?}"),
+                }
+            }
+            self.scheme.check_invariants();
+            let mut asked = Vec::new();
+            self.account.take_effects(&mut asked);
+            if asked.is_empty() {
+                return;
+            }
+            for effect in asked {
+                if let AssetEffect::Send { message } = effect {
+                    let reply = xrpl.request(NODE_CONNECTION, &message);
+                    self.account.on_ledger(0, LedgerInput::Message(&reply));
+                }
+            }
+        }
+        panic!("the account kept talking");
+    }
+
+    /// Closes a ledger, and tells the account what its stream says.
+    fn close(&mut self, xrpl: &mut FakeLedger) {
+        use dassie_settlement::{ExternalAsset, LedgerInput};
+
+        for (connection, message) in xrpl.close() {
+            if connection == NODE_CONNECTION {
+                self.account.on_ledger(0, LedgerInput::Message(&message));
+            }
+        }
+        self.follow(xrpl);
+    }
+
+    /// The owner pays `drops` to `destination`, with a tag and a memo.
+    fn pay(
+        &mut self,
+        xrpl: &mut FakeLedger,
+        destination: AccountId,
+        tag: u32,
+        memo: Option<Vec<u8>>,
+        drops: u64,
+    ) -> [u8; 32] {
+        use dassie_settlement::{OwnerPayment, OwnerPaymentState, SettlementScheme};
+
+        let payment = OwnerPayment {
+            destination: destination.to_address(),
+            tag: Some(tag),
+            memo,
+            amount: drops * dassie_xrpl::UNITS_PER_DROP,
+        };
+        let id = self
+            .scheme
+            .pay_owner(Some(&mut self.account), &payment)
+            .unwrap();
+        self.held.insert(id, payment.amount);
+        self.follow(xrpl);
+        let before = xrpl.balance(destination).unwrap();
+        self.close(xrpl);
+        assert_eq!(self.scheme.owner_payment(id), OwnerPaymentState::Applied);
+        assert_eq!(xrpl.balance(destination).unwrap(), before + drops);
+        let escrow_txs = request(xrpl, &api::account_tx(5, destination, 0, u32::MAX, None));
+        let records = api::account_tx_result(&escrow_txs).unwrap();
+        records
+            .transactions
+            .iter()
+            .filter(|record| record.account == self.account.account())
+            .map(|record| record.hash)
+            .next_back()
+            .unwrap()
+    }
+}
+
+// spec/areas/hubs.md#in-the-node: a node moves its own funds into its hub
+// and out again. Its first deposit pays the escrow with tag 0 and its hub
+// key as the memo, which the validators read as a deposit that opens its
+// account; later ones name the account by its tag. A withdrawal pays the
+// node's own XRPL account, which the `xrpl-testnet` scheme books as the
+// owner's deposit, as any payment from an address no peer gave; each
+// payment into the hub is the owner's withdrawal there.
+#[test]
+fn a_node_moves_its_funds_into_the_hub_and_out() {
+    let mut hub = Hub::found();
+    let mut node = Node::new(&mut hub.xrpl);
+    let funded = node.owner;
+    assert!(funded > 0);
+    let member = NodeKey::from_bytes(&[62; 32]);
+    let escrow = hub.escrow();
+    let key = member.public_key().as_bytes().to_vec();
+    let hash = node.pay(&mut hub.xrpl, escrow, 0, Some(key), 20_000_000);
+    let deposit = deposit_of(&record(&mut hub.xrpl, &hash), escrow).unwrap();
+    assert_eq!((deposit.tag, deposit.key), (0, Some(member.public_key())));
+    assert_eq!(deposit.amount, 20_000_000);
+    hub.attest(|_| ValidatorOperation::AttestDeposit(deposit));
+    let number = hub.ledger.account_of(&member.public_key()).unwrap();
+    let hash = node.pay(&mut hub.xrpl, escrow, number.0, None, 5_000_000);
+    let deposit = deposit_of(&record(&mut hub.xrpl, &hash), escrow).unwrap();
+    assert_eq!((deposit.tag, deposit.key), (number.0, None));
+    hub.attest(|_| ValidatorOperation::AttestDeposit(deposit));
+    let account = hub.ledger.account(number).unwrap();
+    assert_eq!(account.deposited, 25_000_000);
+    let units = |drops: u64| i128::from(drops * dassie_xrpl::UNITS_PER_DROP);
+    assert_eq!(node.owner, funded - units(25_000_000));
+    assert_eq!(node.fees, units(2 * FEE_BASE));
+
+    let to = Destination {
+        account: node.account.account().0,
+        tag: None,
+    };
+    hub.member(number, &member, MemberOperation::SetDisbursal(to));
+    let outcome = hub.member(
+        number,
+        &member,
+        MemberOperation::Withdraw {
+            amount: 8_000_000,
+            to,
+        },
+    );
+    let Outcome::Applied {
+        detail: Detail::Withdrawal(sequence),
+        ..
+    } = outcome
+    else {
+        panic!("{outcome:?}");
+    };
+    let (_, withdrawal) = hub.ledger.withdrawals().next().unwrap();
+    let payment = withdrawal_payment(&hub.rules, sequence, withdrawal);
+    let signers: Vec<Signer> = hub.validators[..3]
+        .iter()
+        .map(|keys| payment.multi_sign(keys.escrow.account(), &keys.escrow))
+        .collect();
+    hub.submit_signed(payment, signers);
+    node.close(&mut hub.xrpl);
+    assert_eq!(
+        node.owner,
+        funded - units(25_000_000) + units(8_000_000),
+        "the withdrawal is the owner's deposit on the XRP Ledger"
+    );
+    let account = hub.ledger.account(number).unwrap();
+    assert_eq!(account.withdrawn, 8_000_000 + LEDGER_FEE);
+}

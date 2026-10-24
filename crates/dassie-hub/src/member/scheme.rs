@@ -18,9 +18,15 @@
 //!   reconciled against the account as agreed, through suspense.
 //! - **Its promises** ([`Commitments`]): see `payer.rs` and `payee.rs`.
 //!
-//! Deposits and withdrawals by the owner, moving funds between the hub and
-//! the node's XRPL account, and joining a hub by being paid are not built
-//! yet: [`deposit`](SettlementScheme::deposit) is unsupported.
+//! - **The owner's moves.** A deposit is credited by the validators'
+//!   attestations, a withdrawal debits the account, and a withdrawal that
+//!   comes back is credited again: the account's state counts each, and
+//!   the scheme books their growth as the owner's deposits and withdrawals
+//!   ([`SettlementScheme::pay_owner`] submits a withdrawal).
+//!
+//! Joining a hub by being paid is not built yet, and
+//! [`deposit`](SettlementScheme::deposit) is unsupported: the owner
+//! deposits from the underlying ledger.
 
 use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;
@@ -32,8 +38,8 @@ use dassie_ledger::{LedgerId, Name};
 use dassie_oer::{Encode, Reader};
 use dassie_settlement::policy::redeem_threshold;
 use dassie_settlement::{
-    AssetId, Commitments, Decided, Effect, ExternalAsset, LedgerStatus, LossCause,
-    PreparedSettlement, Promised, ReconcileCause, SchemeError, SettlementScheme,
+    AssetId, Commitments, Decided, Effect, ExternalAsset, LedgerStatus, LossCause, OwnerPayment,
+    OwnerPaymentState, PreparedSettlement, Promised, ReconcileCause, SchemeError, SettlementScheme,
 };
 use rand_core::CryptoRng;
 
@@ -110,8 +116,23 @@ pub struct HubScheme {
     pub(super) account: Option<AccountNumber>,
     pub(super) peers: BTreeMap<Name, Peer>,
     pub(super) settling: BTreeMap<Name, Settling>,
+    /// What the account had been credited by deposits, debited by
+    /// withdrawals, and credited by withdrawals that came back, as of the
+    /// last state the books were matched to.
+    pub(super) counters: Option<(Amount, Amount, Amount)>,
     // Learnt.
     reserve: Amount,
+    /// The account reserve as of the last state the books were matched to.
+    account_reserve: Option<Amount>,
+    /// The owner's last withdrawal, by its number, and what became of it.
+    pub(super) withdrawal: Option<(u64, OwnerPaymentState)>,
+    /// How many withdrawals the owner made: the next one's number.
+    pub(super) withdrawals_made: u64,
+    /// What our withdrawals took that the scheme booked when the hub
+    /// executed them (what each paid out, as the owner's, and its ledger
+    /// fee, as a fee), which the account's withdrawals counter has not
+    /// shown yet: that much of its growth is booked already.
+    pub(super) booked_ahead: Amount,
     strangers: BTreeMap<HoldNumber, SignedMemberOperation>,
     losses: VecDeque<(Name, Loss)>,
     decided: VecDeque<Decided>,
@@ -142,6 +163,22 @@ pub(super) fn loss_id(loss: &Loss) -> Name {
     hash.update(loss.sequence.to_be_bytes());
     let bytes: [u8; 32] = hash.finalize().into();
     Name::hex(&bytes, false)
+}
+
+/// The ID of the ledger fee of our withdrawal `operation`: never a hash,
+/// so never the ID of the operation's own fee.
+fn ledger_fee_id(operation: &Digest) -> Name {
+    let mut bytes = [0; 31];
+    bytes.copy_from_slice(operation.as_bytes().get(..31).unwrap_or(&[0; 31]));
+    let hex = Name::hex(&bytes, false);
+    let mut text = alloc::string::String::from(hex.as_str());
+    text.push_str("lf");
+    Name::new(&text).unwrap_or(hex)
+}
+
+/// The ID of the owner's withdrawal `number`.
+fn withdrawal_name(number: u64) -> Name {
+    Name::hex(&number.to_be_bytes(), false)
 }
 
 /// The hash of a member's operation, as the journal keys what it moved.
@@ -175,7 +212,12 @@ impl HubScheme {
             account: None,
             peers: BTreeMap::new(),
             settling: BTreeMap::new(),
+            counters: None,
             reserve: 0,
+            account_reserve: None,
+            withdrawal: None,
+            withdrawals_made: 0,
+            booked_ahead: 0,
             strangers: BTreeMap::new(),
             losses: VecDeque::new(),
             decided: VecDeque::new(),
@@ -268,7 +310,10 @@ impl HubScheme {
 
     /// Makes the books hold what the account and the holds toward us from
     /// our peers held as of a block: on the first sync, the owner's
-    /// deposit; after, a difference reconciled through suspense.
+    /// deposit; after, the owner's deposits and withdrawals since the last
+    /// state, by how far the account's counters grew, and the rest
+    /// reconciled through suspense, as the reserve's when the account
+    /// reserve changed.
     fn match_balance(
         &mut self,
         account: &HubAccount,
@@ -283,7 +328,9 @@ impl HubScheme {
             .filter_map(|hold| account.hold(hold).map(|mirror| mirror.amount))
             .fold(0, Amount::saturating_add);
         let target = units(view.balance.saturating_add(toward_us));
-        if !self.synced {
+        if self.synced {
+            self.book_moves(view, effects);
+        } else {
             self.synced = true;
             if target > self.booked {
                 effects.push(Effect::Deposit {
@@ -292,13 +339,96 @@ impl HubScheme {
                 self.booked = target;
             }
         }
+        let (deposited, withdrawn, returned) = self.counters.unwrap_or_default();
+        self.counters = Some((
+            deposited.max(view.deposited),
+            withdrawn.max(view.withdrawn),
+            returned.max(view.returned),
+        ));
+        let reserve_moved = self
+            .account_reserve
+            .is_some_and(|reserve| reserve != view.reserve);
+        self.account_reserve = Some(view.reserve);
         if target != self.booked {
             effects.push(Effect::Reconcile {
                 amount: target.abs_diff(self.booked),
                 gain: target > self.booked,
-                cause: ReconcileCause::Unexplained,
+                cause: if reserve_moved {
+                    ReconcileCause::Reserve
+                } else {
+                    ReconcileCause::Unexplained
+                },
             });
             self.booked = target;
+        }
+    }
+
+    /// Books the owner's deposits and withdrawals since the last state the
+    /// books were matched to: what the account's counters grew by. A
+    /// deposit is credited by the validators' attestations, which never
+    /// reach the account as an operation, so only the counters tell it
+    /// from a difference nothing explains
+    /// (spec/areas/hubs.md#the-members-side).
+    fn book_moves(&mut self, view: &AccountView, effects: &mut Vec<Effect>) {
+        let Some((deposited, withdrawn, returned)) = self.counters else {
+            return;
+        };
+        let added = units(
+            view.deposited
+                .saturating_sub(deposited)
+                .saturating_add(view.returned.saturating_sub(returned)),
+        );
+        if added > 0 {
+            effects.push(Effect::Deposit { amount: added });
+            self.booked = self.booked.saturating_add(added);
+        }
+        let grown = view.withdrawn.saturating_sub(withdrawn);
+        let ahead = grown.min(self.booked_ahead);
+        self.booked_ahead -= ahead;
+        let taken = units(grown - ahead);
+        if taken > 0 {
+            effects.push(Effect::Withdrawal { amount: taken });
+            self.booked = self.booked.saturating_sub(taken);
+        }
+    }
+
+    /// What became of the owner's withdrawal on its way, which posts the
+    /// node's hold on the owner's funds if it applied, and voids it
+    /// otherwise: one whose outcome the scheme cannot tell, the account's
+    /// counters book. Whether one was on its way.
+    pub(super) fn withdrawal_done(
+        &mut self,
+        outcome: OwnerPaymentState,
+        effects: &mut Vec<Effect>,
+    ) -> bool {
+        let Some((number, OwnerPaymentState::InFlight)) = self.withdrawal else {
+            return false;
+        };
+        self.withdrawal = Some((number, outcome));
+        effects.push(Effect::OwnerPaid {
+            id: withdrawal_name(number),
+            applied: outcome == OwnerPaymentState::Applied,
+        });
+        true
+    }
+
+    /// The hub executed our withdrawal of `amount`: what it paid out is the
+    /// owner's withdrawal, its hold posted now, and its ledger fee a fee,
+    /// both kept back from the growth of the withdrawals counter that shows
+    /// them.
+    fn withdrew(&mut self, operation: Digest, amount: Amount, effects: &mut Vec<Effect>) {
+        if self.withdrawal_done(OwnerPaymentState::Applied, effects) {
+            self.booked = self.booked.saturating_sub(units(amount));
+            self.booked_ahead = self.booked_ahead.saturating_add(amount);
+        }
+        let fee = self.terms.fees.ledger;
+        if fee > 0 {
+            effects.push(Effect::Fee {
+                amount: units(fee),
+                id: ledger_fee_id(&operation),
+            });
+            self.booked = self.booked.saturating_sub(units(fee));
+            self.booked_ahead = self.booked_ahead.saturating_add(fee);
         }
     }
 
@@ -334,6 +464,15 @@ impl HubScheme {
                     };
                     self.book_loss(peer, loss, effects);
                     return;
+                }
+            }
+            Purpose::Withdraw => {
+                if let (true, MemberOperation::Withdraw { amount, .. }) =
+                    (applied, &operation.operation)
+                {
+                    self.withdrew(id, *amount, effects);
+                } else {
+                    self.withdrawal_done(OwnerPaymentState::Failed, effects);
                 }
             }
             Purpose::Redeem(_) | Purpose::Disbursal => {}
@@ -454,6 +593,9 @@ impl HubScheme {
                         }
                     }
                 }
+            }
+            Purpose::Withdraw => {
+                self.withdrawal_done(OwnerPaymentState::Failed, effects);
             }
             Purpose::Redeem(_) | Purpose::Disbursal => {}
         }
@@ -815,6 +957,10 @@ impl SettlementScheme for HubScheme {
         }
         // Holds toward us are followed from our peers only.
         account.follow(self.peers.values().map(|peer| peer.account));
+        if !account.has(Purpose::Withdraw) {
+            // Not queued, and not told: only the counters can say.
+            self.withdrawal_done(OwnerPaymentState::Unknown, effects);
+        }
         self.refresh(account);
         self.adopt_holds(account, effects);
         if self.synced {
@@ -1070,6 +1216,55 @@ impl SettlementScheme for HubScheme {
         Err(SchemeError::Unsupported)
     }
 
+    /// A withdrawal from the hub to `payment`'s address on the XRP Ledger,
+    /// with its tag: the hub takes it and its ledger fee from the balance,
+    /// and its escrow pays it. Booked as the owner's withdrawal from the
+    /// account's counters once an agreed state shows it.
+    fn pay_owner(
+        &mut self,
+        asset: Option<&mut dyn ExternalAsset>,
+        payment: &OwnerPayment,
+    ) -> Result<Name, SchemeError> {
+        let destination =
+            dassie_xrpl::AccountId::parse(&payment.destination).ok_or(SchemeError::InvalidData)?;
+        let drops = payment.amount / UNITS_PER_DROP;
+        let fees = self.terms.fees;
+        let unpayable = destination.0 == self.terms.escrow || destination.0 == [0; 20];
+        if unpayable || payment.memo.is_some() || drops < fees.least_payout {
+            return Err(SchemeError::InvalidData);
+        }
+        let account = asset.and_then(account_of).ok_or(SchemeError::Unavailable)?;
+        if account.has(Purpose::Withdraw) {
+            return Err(SchemeError::Unavailable);
+        }
+        let balance = account.view().map_or(0, |(_, view)| view.balance);
+        let spendable = balance
+            .saturating_sub(account.committed())
+            .saturating_sub(fees.operation)
+            .saturating_sub(fees.ledger);
+        if spendable < drops {
+            return Err(SchemeError::Unavailable);
+        }
+        let to = crate::operation::Destination {
+            account: destination.0,
+            tag: payment.tag,
+        };
+        account.submit(
+            Purpose::Withdraw,
+            MemberOperation::Withdraw { amount: drops, to },
+        )?;
+        self.withdrawals_made = self.withdrawals_made.saturating_add(1);
+        self.withdrawal = Some((self.withdrawals_made, OwnerPaymentState::InFlight));
+        Ok(withdrawal_name(self.withdrawals_made))
+    }
+
+    fn owner_payment(&self, id: Name) -> OwnerPaymentState {
+        match self.withdrawal {
+            Some((number, outcome)) if withdrawal_name(number) == id => outcome,
+            _ => OwnerPaymentState::Unknown,
+        }
+    }
+
     fn commitments(&mut self) -> Option<&mut dyn Commitments> {
         Some(self)
     }
@@ -1096,6 +1291,10 @@ impl SettlementScheme for HubScheme {
         );
         if self.synced {
             assert!(self.account.is_some(), "a synced scheme knows its account");
+            assert!(
+                self.counters.is_some(),
+                "a synced scheme counts the owner's moves from its first sync"
+            );
         }
     }
 }

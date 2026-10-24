@@ -76,6 +76,38 @@ pub const fn least_credit(max_packet: u64, drift: u64) -> u64 {
         .saturating_add(drift)
 }
 
+/// The least a node keeps spendable in its settlement hub: for each of its
+/// peerings over the hub, and for one while it has none, the most one
+/// request to settle has it fund the hold toward the peer. A payer over a
+/// hub settles as a junior that extends the default `credit` would, with
+/// its hold counted as paid in advance, so a request takes at most what
+/// [`requested_amount`] gives at that credit, and never less than the
+/// least settlement: kept for every peering, no settlement asked of us
+/// waits for a deposit. At most half the [`hub_ceiling`], which bounds how
+/// many peerings it funds fully, so that the floor and the ceiling stay far
+/// enough apart that each move between the hub and the node's own account
+/// carries many packets' worth (spec/designs/settlement-hubs.md#11-choosing-a-hub).
+#[must_use]
+pub fn hub_floor(max_packet: u64, credit: u64, peerings: u64) -> u64 {
+    let asked = requested_amount(u128::from(credit), trigger(max_packet), minimum(max_packet));
+    let each = asked.max(minimum(max_packet));
+    let peerings = if peerings == 0 { 1 } else { peerings };
+    let floor = each.saturating_mul(peerings);
+    let most = hub_ceiling(max_packet) / 2;
+    if floor < most { floor } else { most }
+}
+
+/// The most a node keeps in its settlement hub, its holds toward peers and
+/// theirs toward it included:
+/// as much as the most credit any peer can earn, a hundred of the largest
+/// packets. A hub that fails costs the node no more than a peer that
+/// earned all the credit it can and walked away
+/// (spec/designs/settlement-hubs.md#11-choosing-a-hub).
+#[must_use]
+pub const fn hub_ceiling(max_packet: u64) -> u64 {
+    credit_cap(max_packet)
+}
+
 /// The share of the fees a peer earned us by which the credit we extend
 /// to it grows, in millionths: 10%. A packet comes in through one peer and
 /// leaves through another, so its fee counts toward both; at most 50%, so
@@ -206,6 +238,22 @@ mod tests {
         let least = u128::from(T) + 2 * u128::from(M);
         assert_eq!(requested_amount(least - 1, T, M), 0);
         assert_eq!(requested_amount(least, T, M), M);
+    }
+
+    // spec/designs/settlement-hubs.md#11-choosing-a-hub: a hub's floor is,
+    // per peering over it, what one request to settle has a payer fund at
+    // the default credit of eleven packets: half the way down to the
+    // trigger, 4.75 packets; one peering's worth with none, never less than
+    // the least settlement, and at most half the ceiling of a hundred
+    // packets: ten peerings are funded fully.
+    #[test]
+    fn the_hub_keeps_between_its_floor_and_its_ceiling() {
+        assert_eq!(hub_floor(P, C, 0), 475 * P / 100);
+        assert_eq!(hub_floor(P, C, 1), 475 * P / 100);
+        assert_eq!(hub_floor(P, C, 10), 475 * P / 10);
+        assert_eq!(hub_floor(P, C, 11), 50 * P);
+        assert_eq!(hub_floor(P, 0, 2), 2 * P, "at least the least settlement");
+        assert_eq!(hub_ceiling(P), 100 * P);
     }
 
     #[test]

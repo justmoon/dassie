@@ -54,6 +54,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_30,
     MIGRATION_31,
     MIGRATION_32,
+    MIGRATION_33,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -1031,6 +1032,76 @@ CREATE TABLE hub_bundles (
 ) STRICT, WITHOUT ROWID;
 ";
 
+/// Settlement hubs (spec/areas/hubs.md#in-the-node): whether the node moves
+/// funds between its XRPL account and its hub by itself, which the owner
+/// may turn off; until when an owner's move pauses that; and the move on
+/// its way, with the counter value that shows it done and its payment, so
+/// that a restart never pays it twice; and the move the owner gave up,
+/// while it holds the node's own moves back. The journal is rebuilt, as its
+/// CHECKs change: the owner's payment on its way is a pending transfer of
+/// its own kind, which outlives a restart.
+const MIGRATION_33: &str = "
+CREATE TABLE hub_funding (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  automatic INTEGER NOT NULL CHECK (automatic IN (0, 1)),
+  paused_until_ms INTEGER NOT NULL CHECK (paused_until_ms >= 0),
+  move_kind TEXT CHECK (move_kind IN ('deposit', 'withdraw')),
+  move_drops INTEGER CHECK (move_drops > 0),
+  move_target INTEGER CHECK (move_target > 0),
+  move_payment TEXT CHECK (length(move_payment) BETWEEN 1 AND 64),
+  move_by_owner INTEGER CHECK (move_by_owner IN (0, 1)),
+  move_sent_ms INTEGER CHECK (move_sent_ms >= 0),
+  move_applied_ms INTEGER CHECK (move_applied_ms >= 0),
+  given_up_kind TEXT CHECK (given_up_kind IN ('deposit', 'withdraw')),
+  given_up_drops INTEGER CHECK (given_up_drops > 0),
+  CHECK ((given_up_kind IS NULL) = (given_up_drops IS NULL)),
+  CHECK ((move_kind IS NULL) = (move_drops IS NULL)
+    AND (move_kind IS NULL) = (move_target IS NULL)
+    AND (move_kind IS NULL) = (move_payment IS NULL)
+    AND (move_kind IS NULL) = (move_by_owner IS NULL)
+    AND (move_kind IS NULL) = (move_sent_ms IS NULL)
+    AND (move_kind IS NOT NULL OR move_applied_ms IS NULL))
+) STRICT;
+INSERT INTO hub_funding (id, automatic, paused_until_ms) VALUES (1, 1, 0);
+
+CREATE TABLE ledger_transfers_new (
+  id INTEGER PRIMARY KEY CHECK (id >= 0),
+  debit INTEGER NOT NULL REFERENCES ledger_accounts (id),
+  credit INTEGER NOT NULL REFERENCES ledger_accounts (id) CHECK (credit != debit),
+  amount INTEGER NOT NULL CHECK (amount > 0),
+  state TEXT NOT NULL CHECK (state IN ('pending', 'posted', 'voided')),
+  created_at_ms INTEGER NOT NULL,
+  resolved_at_ms INTEGER CHECK ((state = 'pending') = (resolved_at_ms IS NULL)),
+  reference TEXT NOT NULL CHECK (reference IN
+    ('packet', 'settlement', 'trust', 'deposit', 'withdrawal', 'reconciliation', 'refusal', 'fee',
+     'loss', 'owner_payment')),
+  packet_epoch INTEGER CHECK ((reference IN ('packet', 'refusal')) = (packet_epoch IS NOT NULL)),
+  packet_sequence INTEGER CHECK ((reference IN ('packet', 'refusal')) = (packet_sequence IS NOT NULL)),
+  settlement_scheme TEXT
+    CHECK ((reference IN ('settlement', 'fee', 'loss', 'owner_payment'))
+      = (settlement_scheme IS NOT NULL)),
+  settlement_id TEXT
+    CHECK ((reference IN ('settlement', 'fee', 'loss', 'owner_payment'))
+      = (settlement_id IS NOT NULL)),
+  sequence INTEGER NOT NULL UNIQUE CHECK (sequence > 0)
+) STRICT;
+
+INSERT INTO ledger_transfers_new SELECT * FROM ledger_transfers;
+DROP TABLE ledger_transfers;
+ALTER TABLE ledger_transfers_new RENAME TO ledger_transfers;
+
+CREATE INDEX ledger_transfers_by_debit ON ledger_transfers (debit, state);
+CREATE INDEX ledger_transfers_by_credit ON ledger_transfers (credit, state);
+CREATE INDEX ledger_transfers_pending ON ledger_transfers (state) WHERE state = 'pending';
+CREATE INDEX ledger_transfers_by_debit_sequence ON ledger_transfers (debit, sequence);
+CREATE INDEX ledger_transfers_by_credit_sequence ON ledger_transfers (credit, sequence);
+CREATE INDEX ledger_transfers_refusals ON ledger_transfers (credit, created_at_ms)
+  WHERE reference = 'refusal';
+CREATE INDEX ledger_transfers_by_packet ON ledger_transfers (packet_epoch, packet_sequence)
+  WHERE packet_epoch IS NOT NULL;
+CREATE INDEX ledger_transfers_trust ON ledger_transfers (sequence) WHERE reference = 'trust';
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1445,6 +1516,24 @@ pub const TABLES: &[Table] = &[
             ("incoming_payment", "BLOB", true, true),
             ("connection", "BLOB", true, true),
             ("received", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "hub_funding",
+        without_rowid: false,
+        columns: &[
+            ("id", "INTEGER", false, true),
+            ("automatic", "INTEGER", true, false),
+            ("paused_until_ms", "INTEGER", true, false),
+            ("move_kind", "TEXT", false, false),
+            ("move_drops", "INTEGER", false, false),
+            ("move_target", "INTEGER", false, false),
+            ("move_payment", "TEXT", false, false),
+            ("move_by_owner", "INTEGER", false, false),
+            ("move_sent_ms", "INTEGER", false, false),
+            ("move_applied_ms", "INTEGER", false, false),
+            ("given_up_kind", "TEXT", false, false),
+            ("given_up_drops", "INTEGER", false, false),
         ],
     },
     Table {

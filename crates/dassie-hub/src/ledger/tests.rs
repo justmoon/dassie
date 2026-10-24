@@ -605,6 +605,71 @@ fn a_withdrawal_settles_by_quorum_and_a_failed_one_comes_back() {
     assert_eq!(hub.ledger.withdrawals().count(), 0);
 }
 
+// spec/areas/hubs.md#the-members-side: an account counts what deposits
+// credited it, opening it included, and what withdrawals took from it,
+// ledger fees included; a withdrawal that comes back counts apart, so a
+// deposit is told by its own counter. Fees, transfers and holds count as
+// none of them.
+#[test]
+fn an_account_counts_its_deposits_and_withdrawals() {
+    let mut hub = Hub::new();
+    let (alice, key) = hub.join(1, 10_000_000);
+    let (bob, _) = hub.join(2, 10_000_000);
+    let counters = |hub: &Hub| {
+        let account = hub.ledger.account(alice).unwrap();
+        (account.deposited + account.returned, account.withdrawn)
+    };
+    assert_eq!(counters(&hub), (10_000_000, 0));
+    hub.deposit(alice.0, None, 4_000_000);
+    hub.run(
+        alice,
+        &key,
+        MemberOperation::Transfer {
+            to: bob,
+            amount: 1_000_000,
+        },
+    );
+    assert_eq!(counters(&hub), (14_000_000, 0));
+    let to = Destination {
+        account: [7; 20],
+        tag: None,
+    };
+    let ledger_fee = hub.ledger.terms().fees.ledger;
+    for delivered in [true, false] {
+        let outcome = hub.run(
+            alice,
+            &key,
+            MemberOperation::Withdraw {
+                amount: 2_000_000,
+                to,
+            },
+        );
+        let Outcome::Applied {
+            detail: Detail::Withdrawal(sequence),
+            ..
+        } = outcome
+        else {
+            panic!("{outcome:?}");
+        };
+        hub.all_validators(|_| ValidatorOperation::AttestWithdrawal {
+            escrow_sequence: sequence,
+            delivered,
+        });
+    }
+    assert_eq!(
+        counters(&hub),
+        (16_000_000, 2 * (2_000_000 + ledger_fee)),
+        "the second came back"
+    );
+    let account = hub.ledger.account(alice).unwrap();
+    assert_eq!(
+        (account.deposited, account.returned),
+        (14_000_000, 2_000_000)
+    );
+    let restored = Ledger::restore(&hub.ledger.snapshot(), &hub.ledger.state_root()).unwrap();
+    assert_eq!(restored, hub.ledger, "kept with the state");
+}
+
 #[test]
 fn close_pays_out_the_reserve_and_ends_the_account() {
     let mut hub = Hub::new();
@@ -1381,22 +1446,31 @@ mod properties {
         members: Vec<(AccountNumber, [u8; 32])>,
         sequence: u64,
         totals: alloc::collections::BTreeMap<HoldNumber, Amount>,
+        /// What each account's counters should say: what deposits and
+        /// withdrawals that came back credited it, and what withdrawals
+        /// took from it.
+        counted: alloc::collections::BTreeMap<AccountNumber, (Amount, Amount)>,
     }
 
     impl Run {
         fn new() -> Self {
             let mut hub = Hub::new();
-            let members = (1..=3)
+            let members: Vec<(AccountNumber, [u8; 32])> = (1..=3)
                 .map(|seed| {
                     let (number, key) = hub.join(seed, 20_000_000);
                     (number, *key.as_bytes())
                 })
+                .collect();
+            let counted = members
+                .iter()
+                .map(|(number, _)| (*number, (20_000_000, 0)))
                 .collect();
             Self {
                 hub,
                 members,
                 sequence: 0,
                 totals: alloc::collections::BTreeMap::new(),
+                counted,
             }
         }
 
@@ -1480,11 +1554,18 @@ mod properties {
                     .map(|(sequence, _)| sequence);
                 if let Some(sequence) = oldest {
                     let delivered = step.amount.is_multiple_of(2);
+                    let withdrawal = self.hub.ledger.withdrawals().next().map(|(_, w)| w.clone());
                     self.hub
                         .all_validators(|_| ValidatorOperation::AttestWithdrawal {
                             escrow_sequence: sequence,
                             delivered,
                         });
+                    if let Some(withdrawal) = withdrawal.filter(|_| !delivered)
+                        && let Some(number) = withdrawal.account
+                        && let Some((deposited, _)) = self.counted.get_mut(&number)
+                    {
+                        *deposited += withdrawal.amount;
+                    }
                 }
                 return;
             }
@@ -1493,8 +1574,27 @@ mod properties {
                 return;
             }
             if let Some(operation) = self.operation(step) {
-                self.hub.run(me, &NodeKey::from_bytes(&seed), operation);
+                let withdraws = match operation {
+                    MemberOperation::Withdraw { amount, .. } => Some(amount),
+                    _ => None,
+                };
+                let outcome = self.hub.run(me, &NodeKey::from_bytes(&seed), operation);
+                if let (Some(amount), Outcome::Applied { .. }) = (withdraws, outcome)
+                    && let Some((_, withdrawn)) = self.counted.get_mut(&me)
+                {
+                    *withdrawn += amount + self.hub.ledger.terms().fees.ledger;
+                }
             }
+        }
+
+        /// Whether every account that is left counts what the run did.
+        fn counts(&self) -> bool {
+            self.counted.iter().all(|(number, counted)| {
+                self.hub
+                    .ledger
+                    .account(*number)
+                    .is_none_or(|a| (a.deposited + a.returned, a.withdrawn) == *counted)
+            })
         }
     }
 
@@ -1502,8 +1602,9 @@ mod properties {
         #![proptest_config(ProptestConfig::with_cases(256))]
 
         /// Whatever members do, the books add up after every block (the
-        /// ledger asserts it), and two validators executing the same steps
-        /// reach the same state.
+        /// ledger asserts it), every account counts exactly what deposits
+        /// and withdrawals moved, and two validators executing the same
+        /// steps reach the same state, which a snapshot keeps.
         #[test]
         fn random_runs_keep_the_books_and_agree(steps in proptest::collection::vec(step(), 1..60)) {
             let mut first = Run::new();
@@ -1511,6 +1612,7 @@ mod properties {
             for step in &steps {
                 first.step(step);
                 second.step(step);
+                prop_assert!(first.counts(), "the counters grow by exactly what moved");
             }
             prop_assert_eq!(first.hub.ledger.state_root(), second.hub.ledger.state_root());
             prop_assert_eq!(first.hub.ledger.liabilities(), first.hub.ledger.supply());

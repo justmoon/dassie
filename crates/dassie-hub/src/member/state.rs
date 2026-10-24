@@ -17,6 +17,7 @@ use alloc::vec::Vec;
 
 use dassie_ledger::Name;
 use dassie_oer::{Encode, Reader};
+use dassie_settlement::OwnerPaymentState;
 
 use super::account::{HubAccount, Purpose, Queued};
 use super::mirror::HoldMirror;
@@ -214,6 +215,7 @@ fn write_purpose(out: &mut Out, purpose: Purpose) {
             out.u64(hold.0);
         }
         Purpose::Disbursal => out.u8(3),
+        Purpose::Withdraw => out.u8(4),
     }
 }
 
@@ -223,6 +225,7 @@ fn read_purpose(reader: &mut Reader<'_>) -> Option<Purpose> {
         1 => Purpose::Redeem(HoldNumber(reader.read_u64().ok()?)),
         2 => Purpose::Claim(HoldNumber(reader.read_u64().ok()?)),
         3 => Purpose::Disbursal,
+        4 => Purpose::Withdraw,
         _ => return None,
     })
 }
@@ -311,6 +314,25 @@ pub(super) fn scheme_state(scheme: &HubScheme) -> Vec<u8> {
         out.name(&settling.peer);
         out.u64(settling.drops);
     }
+    out.option(
+        scheme.counters.as_ref(),
+        |out, (deposited, withdrawn, returned)| {
+            out.u64(*deposited);
+            out.u64(*withdrawn);
+            out.u64(*returned);
+        },
+    );
+    out.u64(scheme.withdrawals_made);
+    out.option(scheme.withdrawal.as_ref(), |out, (number, outcome)| {
+        out.u64(*number);
+        out.u8(match outcome {
+            OwnerPaymentState::Unknown => 0,
+            OwnerPaymentState::InFlight => 1,
+            OwnerPaymentState::Applied => 2,
+            OwnerPaymentState::Failed => 3,
+        });
+    });
+    out.u64(scheme.booked_ahead);
     out.0
 }
 
@@ -495,6 +517,22 @@ pub(super) fn restore_scheme(scheme: &mut HubScheme, state: &[u8]) -> Option<()>
             return None;
         }
     }
+    scheme.counters = read_option(&mut reader, |r| {
+        Some((r.read_u64().ok()?, r.read_u64().ok()?, r.read_u64().ok()?))
+    })?;
+    scheme.withdrawals_made = reader.read_u64().ok()?;
+    scheme.withdrawal = read_option(&mut reader, |r| {
+        let number = r.read_u64().ok()?;
+        let outcome = match r.read_u8().ok()? {
+            0 => OwnerPaymentState::Unknown,
+            1 => OwnerPaymentState::InFlight,
+            2 => OwnerPaymentState::Applied,
+            3 => OwnerPaymentState::Failed,
+            _ => return None,
+        };
+        (number <= scheme.withdrawals_made).then_some((number, outcome))
+    })?;
+    scheme.booked_ahead = reader.read_u64().ok()?;
     reader.finish().ok()?;
     Some(())
 }

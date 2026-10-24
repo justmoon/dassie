@@ -42,7 +42,8 @@
 //! that answer it.
 //!
 //! One scheme settles through an account. Deposits from the underlying
-//! ledger, withdrawals and closing are the owner's, and not built yet.
+//! ledger reach it only as what its state counts; the owner's withdrawals
+//! it submits as any operation. Closing is not built yet.
 
 use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::string::String;
@@ -155,6 +156,8 @@ pub enum Purpose {
     Claim(HoldNumber),
     /// Setting the disbursal address, which a new account does first.
     Disbursal,
+    /// The owner's withdrawal to the underlying ledger.
+    Withdraw,
 }
 
 /// What the account learnt for its scheme, in the order it did.
@@ -498,6 +501,7 @@ impl HubAccount {
                         amount.saturating_add(fees.hold_reserve)
                     }
                     MemberOperation::HoldFund { amount, .. } => amount,
+                    MemberOperation::Withdraw { amount, .. } => amount.saturating_add(fees.ledger),
                     _ => 0,
                 };
                 spent.saturating_add(fees.operation)
@@ -648,6 +652,18 @@ impl HubAccount {
                 self.take_hold(number, mirror);
             }
         }
+    }
+
+    /// How many validators the hub has, and how many of them answered, from
+    /// their own endpoints, up to the block the account has read to.
+    #[must_use]
+    pub fn answering(&self) -> (usize, usize) {
+        let up_to_date = self
+            .covered
+            .iter()
+            .filter(|height| **height > 0 && **height >= self.cursor)
+            .count();
+        (self.set.len(), up_to_date)
     }
 
     /// Whether it is reading its state anew.

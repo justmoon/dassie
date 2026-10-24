@@ -36,8 +36,8 @@ use core::any::Any;
 
 use dassie_ledger::{LedgerId, MAX_TOTAL, Name};
 use dassie_settlement::{
-    AssetId, Effect, ExternalAsset, LedgerStatus, PreparedSettlement, ReconcileCause, SchemeError,
-    SettlementScheme,
+    AssetId, Effect, ExternalAsset, LedgerStatus, MAX_OWNER_MEMO_BYTES, OwnerPayment,
+    OwnerPaymentState, PreparedSettlement, ReconcileCause, SchemeError, SettlementScheme,
 };
 use rand_core::CryptoRng;
 use serde_json::{Value, json};
@@ -53,6 +53,11 @@ pub const SCHEME_ID: &str = "xrpl-testnet";
 /// The memo that marks a settlement, as the original wrote it
 /// (spec/areas/xrpl.md#the-payment-it-signs).
 pub const MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrp-testnet/v1";
+
+/// The memo type of the owner's payments out of the account
+/// ([`SettlementScheme::pay_owner`]), such as a deposit into a settlement
+/// hub, whose memo names the account to open there. Never a settlement's.
+pub const OWNER_MEMO_TYPE: &[u8] = b"https://dassie.land/owner-payment/v1";
 
 /// Most peers whose addresses are kept: at least the node's settlement
 /// channels open, with core nodes and with downlinks, so every node it
@@ -140,7 +145,12 @@ pub struct XrplScheme {
     /// How many times the account was written off, as the scheme last saw
     /// it ([`XrplAccount::write_offs`]).
     write_offs: u64,
+    /// The owner's payment on its way: its hash, and the drops it pays.
+    owner_payment: Option<([u8; 32], u64)>,
     // Learnt from the account, as it told the scheme.
+    /// The owner's last payment that is no longer on its way, and what
+    /// became of it, kept with the books so a restart still answers for it.
+    owner_outcome: Option<([u8; 32], OwnerPaymentState)>,
     /// The account's balance after the last transaction booked, in drops.
     balance: Option<u64>,
     owner_count: u32,
@@ -179,6 +189,8 @@ impl XrplScheme {
             next_learnt: 0,
             recovering: Vec::new(),
             write_offs: 0,
+            owner_payment: None,
+            owner_outcome: None,
             balance: None,
             owner_count: 0,
             reserve: (0, 0),
@@ -235,9 +247,13 @@ impl XrplScheme {
                 self.transaction(record, mine, other, effects);
             }
             News::Cancelled { scheme, hash, .. } if *scheme == id => {
-                effects.push(Effect::Cancel {
-                    settlement: hash_name(hash),
-                });
+                if self.is_owner_payment(hash) {
+                    self.owner_done(OwnerPaymentState::Failed, effects);
+                } else {
+                    effects.push(Effect::Cancel {
+                        settlement: hash_name(hash),
+                    });
+                }
             }
             News::Cancelled { .. } => {}
             News::WrittenOff { restarted } => self.written_off(*restarted, effects),
@@ -246,6 +262,10 @@ impl XrplScheme {
                     self.match_balance(effects);
                 }
                 self.ask_recover(account);
+            }
+            // What became of it is in the balance the sync matched.
+            News::Unread { hash, .. } if self.is_owner_payment(hash) => {
+                self.owner_done(OwnerPaymentState::Unknown, effects);
             }
             News::Unread { hash, ours } if ours.scheme == id => self.unread(*hash),
             News::Unread { .. } => {}
@@ -348,7 +368,7 @@ impl XrplScheme {
         let at = (record.ledger_index, record.index);
         if self.cursor.is_none_or(|cursor| at <= cursor) {
             if let Some(ours) = mine {
-                let booked = self.resolve(record, units(ours.drops), effects);
+                let booked = self.ours(record, ours, effects);
                 self.hold(booked, effects);
                 self.match_balance(effects);
             } else if other.is_some_and(|other| !other.again) && self.cursor.is_some() {
@@ -368,7 +388,7 @@ impl XrplScheme {
         }
         let mut booked = i128::from(self.booked);
         if let Some(ours) = mine {
-            booked = self.resolve(record, units(ours.drops), effects);
+            booked = self.ours(record, ours, effects);
         } else if other.is_some() {
             // Its fee is ours to book; anything else it did to the XRP is
             // a deposit or a withdrawal, as from anyone.
@@ -440,6 +460,97 @@ impl XrplScheme {
             id: settlement,
         });
         booked - i128::from(units(record.fee))
+    }
+
+    /// Whether `hash` is the owner's payment on its way.
+    fn is_owner_payment(&self, hash: &[u8; 32]) -> bool {
+        self.owner_payment.is_some_and(|(owner, _)| owner == *hash)
+    }
+
+    /// The owner's payment on its way is no longer: what became of it,
+    /// which posts the node's hold on the owner's funds if it applied, and
+    /// voids it otherwise. One whose outcome the scheme never read is in
+    /// the balance it synced to.
+    fn owner_done(&mut self, outcome: OwnerPaymentState, effects: &mut Vec<Effect>) {
+        if let Some((hash, _)) = self.owner_payment.take() {
+            self.owner_outcome = Some((hash, outcome));
+            effects.push(Effect::OwnerPaid {
+                id: hash_name(&hash),
+                applied: outcome == OwnerPaymentState::Applied,
+            });
+        }
+    }
+
+    /// Books one of our transactions the ledger validated: the owner's
+    /// payment on its way, the owner's last one read again, or a
+    /// settlement. Returns what the books then hold.
+    fn ours(&mut self, record: &TxRecord, ours: Ours, effects: &mut Vec<Effect>) -> i128 {
+        if self.is_owner_payment(&record.hash) {
+            self.owner_paid(record, effects)
+        } else if self.was_owner_payment(&record.hash) {
+            self.owner_read_again(record, ours.drops, effects)
+        } else {
+            self.resolve(record, units(ours.drops), effects)
+        }
+    }
+
+    /// Whether `hash` is the owner's last payment no longer on its way.
+    fn was_owner_payment(&self, hash: &[u8; 32]) -> bool {
+        self.owner_outcome.is_some_and(|(owner, _)| owner == *hash)
+    }
+
+    /// The owner's last payment, read again: never a settlement. One whose
+    /// outcome the scheme had given up on as unknown, its hold voided, is
+    /// booked now as the owner's withdrawal of the `drops` it paid when it
+    /// succeeded, with its fee either way, and what the balance booked
+    /// through suspense meanwhile comes back out; one already booked books
+    /// nothing again. Returns what the books then hold.
+    fn owner_read_again(
+        &mut self,
+        record: &TxRecord,
+        drops: u64,
+        effects: &mut Vec<Effect>,
+    ) -> i128 {
+        let mut booked = i128::from(self.booked);
+        let Some((hash, OwnerPaymentState::Unknown)) = self.owner_outcome else {
+            return booked;
+        };
+        if record.succeeded() {
+            let amount = units(drops);
+            effects.push(Effect::Withdrawal { amount });
+            booked -= i128::from(amount);
+            self.owner_outcome = Some((hash, OwnerPaymentState::Applied));
+        } else {
+            self.owner_outcome = Some((hash, OwnerPaymentState::Failed));
+        }
+        let fee = units(record.fee);
+        effects.push(Effect::Fee {
+            amount: fee,
+            id: hash_name(&record.hash),
+        });
+        booked - i128::from(fee)
+    }
+
+    /// Books the owner's payment the ledger validated: the hold on the
+    /// owner's funds posted when it succeeded, voided when it failed, and
+    /// its fee either way. Returns what the books then hold.
+    fn owner_paid(&mut self, record: &TxRecord, effects: &mut Vec<Effect>) -> i128 {
+        let mut booked = i128::from(self.booked);
+        let Some((_, drops)) = self.owner_payment else {
+            return booked;
+        };
+        if record.succeeded() {
+            booked -= i128::from(units(drops));
+            self.owner_done(OwnerPaymentState::Applied, effects);
+        } else {
+            self.owner_done(OwnerPaymentState::Failed, effects);
+        }
+        let fee = units(record.fee);
+        effects.push(Effect::Fee {
+            amount: fee,
+            id: hash_name(&record.hash),
+        });
+        booked - i128::from(fee)
     }
 
     /// Books the fee of a transaction another scheme on the account signed:
@@ -571,6 +682,14 @@ impl XrplScheme {
         }
         add(self.recovering.len() as u64);
         add(self.write_offs);
+        if let Some((hash, drops)) = self.owner_payment {
+            add(u64::from(hash[0]) << 8 | u64::from(hash[1]));
+            add(drops);
+        }
+        if let Some((hash, outcome)) = self.owner_outcome {
+            add(u64::from(hash[0]) << 8 | u64::from(hash[1]));
+            add(outcome_code(outcome));
+        }
         mix
     }
 
@@ -591,6 +710,12 @@ impl XrplScheme {
             "recovering": recovering,
             "write_offs": self.write_offs,
             "unread": unread_value(&self.recovering),
+            "owner_payment": self
+                .owner_payment
+                .map(|(hash, drops)| json!([hex_upper(&hash), drops])),
+            "owner_outcome": self
+                .owner_outcome
+                .map(|(hash, outcome)| json!([hex_upper(&hash), outcome_code(outcome)])),
         })
     }
 
@@ -633,7 +758,52 @@ impl XrplScheme {
             }
             self.recovering.push(Recovering::new(hash));
         }
-        restore_unread(&value, &mut self.recovering)
+        restore_unread(&value, &mut self.recovering)?;
+        self.owner_payment = restore_owner_payment(&value)?;
+        self.owner_outcome = restore_owner_outcome(&value)?;
+        Some(())
+    }
+}
+
+/// How a state writes what became of an owner's payment.
+const fn outcome_code(outcome: OwnerPaymentState) -> u64 {
+    match outcome {
+        OwnerPaymentState::Unknown | OwnerPaymentState::InFlight => 0,
+        OwnerPaymentState::Applied => 1,
+        OwnerPaymentState::Failed => 2,
+    }
+}
+
+/// The owner's last payment no longer on its way, and what became of it.
+fn restore_owner_outcome(state: &Value) -> Option<Option<([u8; 32], OwnerPaymentState)>> {
+    match state.get("owner_outcome") {
+        None | Some(Value::Null) => Some(None),
+        Some(outcome) => {
+            let hash = from_hex(outcome.get(0)?.as_str()?)?.try_into().ok()?;
+            let outcome = match outcome.get(1)?.as_u64()? {
+                0 => OwnerPaymentState::Unknown,
+                1 => OwnerPaymentState::Applied,
+                2 => OwnerPaymentState::Failed,
+                _ => return None,
+            };
+            Some(Some((hash, outcome)))
+        }
+    }
+}
+
+/// The owner's payment on its way, as a scheme's state keeps it: written
+/// only since the owner pays out of the account.
+fn restore_owner_payment(state: &Value) -> Option<Option<([u8; 32], u64)>> {
+    match state.get("owner_payment") {
+        None | Some(Value::Null) => Some(None),
+        Some(payment) => {
+            let hash = from_hex(payment.get(0)?.as_str()?)?.try_into().ok()?;
+            let drops = payment
+                .get(1)?
+                .as_u64()
+                .filter(|drops| *drops <= MAX_ACCOUNT_DROPS)?;
+            Some(Some((hash, drops)))
+        }
     }
 }
 
@@ -812,6 +982,14 @@ impl SettlementScheme for XrplScheme {
         for item in &news {
             self.tell(account, item, effects);
         }
+        // One the account keeps no more, and told nothing of, was lost
+        // with its state: what it did is in the balance. One it keeps for
+        // the scheme, validated while the scheme was away, it tells again.
+        if let Some((hash, _)) = self.owner_payment
+            && !account.keeps_transaction(&hash)
+        {
+            self.owner_done(OwnerPaymentState::Unknown, effects);
+        }
         account.follow(self.id(), self.cursor, self.holds_anything());
     }
 
@@ -986,8 +1164,63 @@ impl SettlementScheme for XrplScheme {
         Err(SchemeError::Unsupported)
     }
 
+    /// A Payment of whole drops of XRP, never partial, with the tag and
+    /// one memo of [`OWNER_MEMO_TYPE`] if given, executed at once: its
+    /// submission goes out after the batch that keeps it with the account's
+    /// and the scheme's state (spec/areas/xrpl.md#deposits-and-withdrawals).
+    fn pay_owner(
+        &mut self,
+        asset: Option<&mut dyn ExternalAsset>,
+        payment: &OwnerPayment,
+    ) -> Result<Name, SchemeError> {
+        if self.owner_payment.is_some() {
+            return Err(SchemeError::Unavailable);
+        }
+        let destination = AccountId::parse(&payment.destination).ok_or(SchemeError::InvalidData)?;
+        let drops = payment.amount / UNITS_PER_DROP;
+        let memo_too_long = payment
+            .memo
+            .as_ref()
+            .is_some_and(|memo| memo.len() > MAX_OWNER_MEMO_BYTES);
+        if destination == self.account || drops == 0 || drops > MAX_ACCOUNT_DROPS || memo_too_long {
+            return Err(SchemeError::InvalidData);
+        }
+        let account = asset.and_then(account_of).ok_or(SchemeError::Unavailable)?;
+        let memos = payment
+            .memo
+            .iter()
+            .map(|data| Memo {
+                memo_type: OWNER_MEMO_TYPE.to_vec(),
+                memo_data: data.clone(),
+            })
+            .collect();
+        let hash = account.sign_payment_to(self.id(), (destination, payment.tag), drops, memos)?;
+        let executed = account.execute(self.id(), hash);
+        assert!(executed, "a payment just signed is in flight");
+        self.owner_payment = Some((hash, drops));
+        Ok(hash_name(&hash))
+    }
+
+    fn owner_payment(&self, id: Name) -> OwnerPaymentState {
+        let Some(hash) = name_hash(id) else {
+            return OwnerPaymentState::Unknown;
+        };
+        if self.is_owner_payment(&hash) {
+            return OwnerPaymentState::InFlight;
+        }
+        match self.owner_outcome {
+            Some((done, outcome)) if done == hash => outcome,
+            _ => OwnerPaymentState::Unknown,
+        }
+    }
+
     fn check_invariants(&self) {
         assert!(self.peers.len() <= MAX_PEERS);
+        assert!(
+            self.owner_outcome
+                .is_none_or(|(_, outcome)| outcome != OwnerPaymentState::InFlight),
+            "the last owner's payment done is no longer on its way"
+        );
         assert!(self.recovering.len() <= MAX_RECOVERING);
         let mut seen = BTreeSet::new();
         assert!(

@@ -71,6 +71,14 @@ impl Membership {
     }
 }
 
+/// The account in `hub` of the peer whose state, as the scheme keeps it
+/// for a peering, is `state`: how the node tells which of its holds is
+/// toward which peer.
+#[must_use]
+pub fn peer_account(state: &[u8], hub: &HubId) -> Option<AccountNumber> {
+    Membership::read(state, hub).ok().map(|m| m.account)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

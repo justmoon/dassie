@@ -2511,12 +2511,24 @@ fn a_peer_loss_is_booked_from_where_the_money_left() {
 /// commitments expiring `margin` early, and legs between members of
 /// `allowance`.
 fn hub_config(margin: u64, allowance: u64) -> String {
+    use dassie_oer::Encode;
+
+    let hex: String = hub_rules(margin, allowance)
+        .to_vec()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    serde_json::json!({ "rules": hex }).to_string()
+}
+
+/// The hub's rules: four validators, the nodes of keys 1 to 4, and an
+/// escrow the sponsor of key 100 made.
+fn hub_rules(margin: u64, allowance: u64) -> dassie_hub::Rules {
     use dassie_hub::escrow::{ValidatorKeys, escrow_master};
     use dassie_hub::rules::{Fees, Limits, Rules, Terms, Timers};
     use dassie_identity::NodeKey;
-    use dassie_oer::Encode;
 
-    let nonce = [7; 32];
+    let nonce = HUB_NONCE;
     let sponsor = NodeKey::from_bytes(&[100; 32]);
     let master = escrow_master(&sponsor, &nonce).unwrap();
     let terms = Terms {
@@ -2567,14 +2579,11 @@ fn hub_config(margin: u64, allowance: u64) -> String {
                 .unwrap()
         })
         .collect();
-    let rules = Rules { terms, validators };
-    let hex: String = rules
-        .to_vec()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
-    serde_json::json!({ "rules": hex }).to_string()
+    Rules { terms, validators }
 }
+
+/// The nonce of the hub of [`hub_rules`].
+const HUB_NONCE: [u8; 32] = [7; 32];
 
 // A node joins a hub only when its legs between members fit in the
 // connector's message window (spec/designs/settlement-hubs.md#4-peering-over-a-hub):
@@ -2837,4 +2846,833 @@ fn the_credit_over_a_hub_is_kept_in_step_on_a_full_journal() {
     // Down to what it owes: no room left beyond it.
     let (credit, room, _) = core.hub_books(stub, node).unwrap();
     assert_eq!((credit, room), (500, 0));
+}
+
+/// The node's hub account, as `hub-testnet-account/0`.
+const HUB_ACCOUNT: &str = "hub-testnet-account/0";
+
+/// The hub of [`hub_rules`] as its validators speak for it: each signs
+/// alone with its consensus key.
+struct Validators {
+    rules: dassie_hub::Rules,
+    keys: Vec<dassie_identity::NodeKey>,
+    /// The node's key in the hub.
+    member: dassie_identity::PublicKey,
+    height: u64,
+}
+
+impl Validators {
+    fn new() -> Self {
+        let rules = hub_rules(500, 300);
+        let keys = (1..=4u8)
+            .map(|i| {
+                let node = NodeKey::from_bytes(&[i; 32]);
+                dassie_hub::escrow::ValidatorKeys::derive(&node, &HUB_NONCE)
+                    .unwrap()
+                    .consensus
+            })
+            .collect();
+        let member = dassie_hub::escrow::member_key(&NodeKey::from_bytes(&[7; 32]), &rules.id())
+            .unwrap()
+            .public_key();
+        Self {
+            rules,
+            keys,
+            member,
+            height: 1,
+        }
+    }
+
+    /// Every validator says `statements`, each from its own endpoint.
+    fn say(&self, core: &mut Core, statements: &[dassie_hub::client::Statement]) {
+        use dassie_hub::client::SignedStatement;
+        use dassie_hub::validators::ValidatorIndex;
+
+        let epoch = core.assets[&dassie_hub::member::FIRST].epoch;
+        for (i, key) in self.keys.iter().enumerate() {
+            let signed: Vec<SignedStatement> = statements
+                .iter()
+                .map(|statement| {
+                    SignedStatement::sign(
+                        &self.rules.id(),
+                        ValidatorIndex::new(i).unwrap(),
+                        statement.clone(),
+                        key,
+                    )
+                })
+                .collect();
+            let message =
+                dassie_oer::Encode::to_vec(&dassie_hub::service::wire::Message::Statements(signed));
+            core.ledger_event(
+                HUB_ACCOUNT,
+                epoch,
+                &super::LedgerEvent::From {
+                    endpoint: i,
+                    message,
+                },
+            );
+        }
+    }
+
+    /// The hub has no account for the node.
+    fn no_account(&mut self, core: &mut Core) {
+        use dassie_hub::client::Statement;
+
+        self.height += 1;
+        let statements = [Statement::Account {
+            height: self.height,
+            key: self.member,
+            account: None,
+        }];
+        self.say(core, &statements);
+    }
+
+    /// The node's account 5 holds `balance` drops, and deposits credited it
+    /// `deposited`, as of a new final block.
+    fn account(&mut self, core: &mut Core, balance: u64, deposited: u64) {
+        self.account_with(core, balance, deposited, 0);
+    }
+
+    /// As [`account`](Self::account), with `returned` brought back by
+    /// withdrawals the escrow could not pay.
+    fn account_with(&mut self, core: &mut Core, balance: u64, deposited: u64, returned: u64) {
+        use dassie_hub::client::{AccountView, Statement};
+        use dassie_hub::operation::AccountNumber;
+
+        self.height += 1;
+        let view = AccountView {
+            key: self.member,
+            balance,
+            reserve: self.rules.terms.fees.account_reserve,
+            sequence: 1,
+            disbursal: true,
+            closing: false,
+            deposited,
+            withdrawn: 0,
+            returned,
+        };
+        let statements = [
+            Statement::Account {
+                height: self.height,
+                key: self.member,
+                account: Some((AccountNumber(5), view)),
+            },
+            Statement::Final {
+                height: self.height,
+                timestamp: NOW + self.height,
+            },
+        ];
+        self.say(core, &statements);
+    }
+
+    /// The node's account 5 opened a hold of `amount` toward account 9, in
+    /// a new final block, after which it holds `balance`.
+    fn opened_hold(&mut self, core: &mut Core, amount: u64, balance: u64, deposited: u64) {
+        use dassie_hub::client::{AccountView, Statement};
+        use dassie_hub::ledger::{Detail, Outcome};
+        use dassie_hub::operation::{
+            AccountNumber, MemberOperation, Operation, SignedMemberOperation,
+        };
+        use dassie_hub::promise::HoldNumber;
+
+        self.height += 1;
+        let key = dassie_hub::escrow::member_key(&NodeKey::from_bytes(&[7; 32]), &self.rules.id())
+            .unwrap();
+        let fees = self.rules.terms.fees;
+        let operation = SignedMemberOperation::sign(
+            &self.rules.id(),
+            AccountNumber(5),
+            1,
+            fees.operation,
+            MemberOperation::HoldOpen {
+                payee: AccountNumber(9),
+                amount,
+            },
+            &key,
+        );
+        let view = AccountView {
+            key: self.member,
+            balance,
+            reserve: fees.account_reserve,
+            sequence: 2,
+            disbursal: true,
+            closing: false,
+            deposited,
+            withdrawn: 0,
+            returned: 0,
+        };
+        let statements = [
+            Statement::Executed {
+                height: self.height,
+                timestamp: NOW + self.height,
+                index: 0,
+                operation: Operation::Member(operation),
+                outcome: Outcome::Applied {
+                    fee: fees.operation,
+                    detail: Detail::Hold(HoldNumber(1)),
+                },
+            },
+            Statement::Account {
+                height: self.height,
+                key: self.member,
+                account: Some((AccountNumber(5), view)),
+            },
+            Statement::Final {
+                height: self.height,
+                timestamp: NOW + self.height,
+            },
+        ];
+        self.say(core, &statements);
+    }
+
+    fn escrow(&self) -> dassie_xrpl::AccountId {
+        dassie_xrpl::AccountId(self.rules.terms.escrow)
+    }
+}
+
+/// A core with the XRP Ledger testnet scheme synced on `ledger`, and the
+/// hub of [`hub_rules`].
+fn funding_core(ledger: &mut dassie_xrpl::fake::FakeLedger) -> Core {
+    let mut core = core(9);
+    core.add_scheme("xrpl-testnet", SHARED_CONFIG.into())
+        .unwrap();
+    follow_xrpl(&mut core, ledger);
+    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 300))
+        .unwrap();
+    follow_xrpl(&mut core, ledger);
+    core
+}
+
+/// Moves the core's time on by `ms`, then by a few ledgers' closes, each
+/// a funding check: the XRP Ledger account, silent for long, connects
+/// again and syncs first. What was submitted is validated.
+fn wait_and_close(
+    core: &mut Core,
+    ledger: &mut dassie_xrpl::fake::FakeLedger,
+    ms: u64,
+) -> Vec<Output> {
+    let mut outputs = Vec::new();
+    for step in [ms, 4_000, 4_000] {
+        let now = core.now_ms() + step;
+        core.begin_step(now);
+        outputs.extend(follow_xrpl_outputs(core, ledger));
+        close_xrpl(core, ledger);
+    }
+    outputs
+}
+
+/// The deposits the node made to the escrow, as the validators read them.
+fn deposits(
+    ledger: &mut dassie_xrpl::fake::FakeLedger,
+    escrow: dassie_xrpl::AccountId,
+) -> Vec<dassie_hub::operation::Deposit> {
+    use dassie_xrpl::api;
+
+    let reply = ledger.request(77, &api::account_tx(5, escrow, 0, u32::MAX, None));
+    let outcome = match api::parse(&reply) {
+        api::Message::Response { outcome, .. } => Some(outcome),
+        _ => None,
+    };
+    let records = api::account_tx_result(&outcome.unwrap().unwrap()).unwrap();
+    records
+        .transactions
+        .iter()
+        .filter_map(|record| dassie_hub::escrow::deposit_of(record, escrow))
+        .collect()
+}
+
+/// The withdrawals the node submitted to the validators.
+fn withdrawals(outputs: &[Output]) -> Vec<(u64, dassie_hub::operation::Destination)> {
+    use dassie_hub::client::Request;
+    use dassie_hub::operation::{MemberOperation, Operation};
+    use dassie_hub::service::wire::Message;
+
+    let mut seen = Vec::new();
+    for output in outputs {
+        let Output::HubSend { message, .. } = output else {
+            continue;
+        };
+        if let Ok(Message::Request(Request::Submit(Operation::Member(signed)))) =
+            Message::decode_exact(message)
+            && let MemberOperation::Withdraw { amount, to } = signed.operation
+            && !seen.contains(&(amount, to))
+        {
+            seen.push((amount, to));
+        }
+    }
+    seen
+}
+
+// spec/areas/hubs.md#in-the-node: a node in a hub that has no account for
+// it opens one by its first deposit (tag 0, its hub key as the memo, the
+// account reserve, the floor and the fees of the first operations). Below
+// the floor, it deposits up to
+// the midpoint, by its account's tag, one move at a time: the next waits
+// until the hub credited it. Above the ceiling, it withdraws down to the
+// midpoint, to its own XRPL account.
+#[test]
+fn the_node_keeps_its_hub_between_floor_and_ceiling() {
+    use dassie_settlement::policy;
+
+    let (mut ledger, own) = funded_ledger();
+    let mut core = funding_core(&mut ledger);
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    hub.no_account(&mut core);
+    let fees = hub.rules.terms.fees;
+    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let credit = Policies::DEFAULT.peer_credit;
+    let floor = policy::hub_floor(p, credit, 0) / dassie_xrpl::UNITS_PER_DROP;
+    let ceiling = policy::hub_ceiling(p) / dassie_xrpl::UNITS_PER_DROP;
+    let middle = floor.midpoint(ceiling);
+    assert_eq!((floor, ceiling), (475_000, 10_000_000));
+
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let made = deposits(&mut ledger, escrow);
+    let opening = fees.account_reserve + floor + fees.starting_balance;
+    assert_eq!(made.len(), 1, "{made:?}");
+    assert_eq!(
+        (made[0].tag, made[0].key, made[0].amount, made[0].sender),
+        (0, Some(hub.member), opening, own.0)
+    );
+
+    // Credited, and spent below the floor: a deposit by tag, one at a time.
+    hub.account(&mut core, floor + 1_000, opening);
+    hub.account(&mut core, 100_000, opening);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    let made = deposits(&mut ledger, escrow);
+    assert_eq!(made.len(), 2, "one on its way: {made:?}");
+    assert_eq!((made[1].tag, made[1].key), (5, None));
+    assert_eq!(made[1].amount, middle - 100_000);
+
+    // Credited, then peers' settlements taken past the ceiling: withdrawn
+    // to the midpoint, counting the account reserve.
+    hub.account(&mut core, middle, opening + made[1].amount);
+    let balance = 12_000_000;
+    hub.account(&mut core, balance, opening + made[1].amount);
+    let outputs = wait_and_close(&mut core, &mut ledger, 4_000);
+    let exposure = balance + fees.account_reserve;
+    let to = dassie_hub::operation::Destination {
+        account: own.0,
+        tag: None,
+    };
+    assert_eq!(withdrawals(&outputs), [(exposure - middle, to)]);
+    assert_eq!(deposits(&mut ledger, escrow).len(), 2);
+    let status = core.hub_status().unwrap();
+    assert_eq!(status.account, Some(5));
+    assert_eq!(
+        (status.floor, status.ceiling),
+        (
+            floor * dassie_xrpl::UNITS_PER_DROP,
+            ceiling * dassie_xrpl::UNITS_PER_DROP
+        )
+    );
+    assert!(
+        status
+            .moving
+            .is_some_and(|m| m.direction == super::Direction::Withdraw)
+    );
+}
+
+// spec/areas/hubs.md#in-the-node: the owner's own moves go one at a time,
+// open the account when the hub has none, and pause the automatic moves for
+// a while; turned off, the node moves nothing by itself, and the database
+// keeps that.
+#[test]
+fn the_owners_moves_pause_the_automatic_ones() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut ledger, _) = funded_ledger();
+    let mut core = core_on(Arc::clone(&store), 9);
+    core.add_scheme("xrpl-testnet", SHARED_CONFIG.into())
+        .unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 300))
+        .unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    assert!(
+        core.hub_deposit(3_000_000_000).is_err(),
+        "not before the hub says"
+    );
+    hub.no_account(&mut core);
+    let units = dassie_xrpl::UNITS_PER_DROP;
+    assert!(core.hub_deposit(units).is_err(), "too little to open it");
+    let opened = core.hub_deposit(3_000_000 * units).unwrap();
+    assert!(opened.moving.is_some_and(|m| m.owner));
+    assert!(
+        core.hub_deposit(3_000_000 * units).is_err(),
+        "one at a time"
+    );
+    follow_xrpl(&mut core, &mut ledger);
+    close_xrpl(&mut core, &mut ledger);
+    let made = deposits(&mut ledger, escrow);
+    assert_eq!((made.len(), made[0].tag, made[0].amount), (1, 0, 3_000_000));
+
+    // Credited, and below the floor: nothing moves while the owner's move
+    // pauses the automatic ones.
+    hub.account(&mut core, 100_000, 3_000_000);
+    wait_and_close(&mut core, &mut ledger, super::hub_funding::FIRST_BACKOFF_MS);
+    assert_eq!(deposits(&mut ledger, escrow).len(), 1);
+    wait_and_close(&mut core, &mut ledger, super::hub_funding::OWNER_PAUSE_MS);
+    assert_eq!(deposits(&mut ledger, escrow).len(), 2, "after the pause");
+
+    // Off, and kept off across a restart.
+    core.set_hub_automatic(false).unwrap();
+    core.flush();
+    drop(core);
+    let core = core_on(Arc::clone(&store), 10);
+    assert!(!core.funding.automatic);
+}
+
+// spec/areas/hubs.md#in-the-node: the move on its way is kept with the
+// books, so a restart between the XRP Ledger applying a deposit and the hub
+// crediting it never pays it again, however slow the hub: the move is late
+// after a while, and done once the account counts it.
+#[test]
+fn a_restart_never_pays_a_deposit_twice() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut ledger, _) = funded_ledger();
+    let mut core = core_on(Arc::clone(&store), 9);
+    core.add_scheme("xrpl-testnet", SHARED_CONFIG.into())
+        .unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 300))
+        .unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    hub.no_account(&mut core);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let made = deposits(&mut ledger, escrow);
+    assert_eq!(made.len(), 1, "applied on the XRP Ledger");
+    let opening = made[0].amount;
+    core.flush();
+    drop(core);
+
+    let mut core = core_on(Arc::clone(&store), 10);
+    follow_xrpl(&mut core, &mut ledger);
+    let moving = core.hub_status().unwrap().moving.unwrap();
+    assert_eq!(
+        (moving.direction, moving.drops, moving.target),
+        (super::Direction::Deposit, opening, opening)
+    );
+    hub.no_account(&mut core);
+    for _ in 0..4 {
+        wait_and_close(&mut core, &mut ledger, super::hub_funding::FIRST_BACKOFF_MS);
+    }
+    assert_eq!(deposits(&mut ledger, escrow).len(), 1, "not paid again");
+    wait_and_close(&mut core, &mut ledger, super::hub_funding::CREDIT_WAIT_MS);
+    let status = core.hub_status().unwrap();
+    assert!(
+        status.late && status.moving.is_some(),
+        "late, and waited for"
+    );
+    assert_eq!(
+        deposits(&mut ledger, escrow).len(),
+        1,
+        "still not paid again"
+    );
+
+    hub.account(&mut core, opening - 2_001_000, opening);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    let status = core.hub_status().unwrap();
+    assert_eq!((status.moving, status.late), (None, false), "credited");
+    assert_eq!(deposits(&mut ledger, escrow).len(), 1);
+}
+
+/// What the owner holds on the hub's ledger, as the books say.
+fn hub_owner_balance(core: &Core) -> i128 {
+    core.ledger_views()
+        .into_iter()
+        .find(|view| view.id == dassie_ledger::LedgerId::HubXrpTestnetXrp)
+        .unwrap()
+        .owner_balance
+}
+
+// spec/areas/hubs.md#in-the-node: the owner may give up a move only once it
+// is late. Giving up forgets it and books nothing; the node then moves
+// nothing by itself until the owner turns its moves on again, and a credit
+// the hub makes later anyway is booked as a deposit, once.
+#[test]
+fn a_late_deposit_given_up_is_booked_once_if_credited() {
+    let (mut ledger, _) = funded_ledger();
+    let mut core = funding_core(&mut ledger);
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    hub.no_account(&mut core);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let opening = deposits(&mut ledger, escrow)[0].amount;
+    hub.account(&mut core, 100_000, opening);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    let made = deposits(&mut ledger, escrow);
+    assert_eq!(made.len(), 2, "below the floor: {made:?}");
+    let amount = made[1].amount;
+    assert!(core.hub_give_up().is_err(), "not late yet");
+    wait_and_close(&mut core, &mut ledger, super::hub_funding::CREDIT_WAIT_MS);
+    assert!(core.hub_status().unwrap().late);
+    let status = core.hub_give_up().unwrap();
+    assert_eq!(status.moving, None);
+    assert_eq!(status.given_up, Some((super::Direction::Deposit, amount)));
+    for _ in 0..3 {
+        wait_and_close(&mut core, &mut ledger, super::hub_funding::OWNER_PAUSE_MS);
+    }
+    assert_eq!(
+        deposits(&mut ledger, escrow).len(),
+        2,
+        "waits for the owner"
+    );
+
+    let before = hub_owner_balance(&core);
+    hub.account(&mut core, 100_000 + amount, opening + amount);
+    hub.account(&mut core, 100_000 + amount, opening + amount);
+    let units = i128::from(dassie_xrpl::UNITS_PER_DROP);
+    assert_eq!(
+        hub_owner_balance(&core) - before,
+        i128::from(amount) * units,
+        "the late credit is a deposit, once"
+    );
+
+    core.set_hub_automatic(true).unwrap();
+    assert_eq!(core.hub_status().unwrap().given_up, None);
+    hub.account(&mut core, 100_000, opening + amount);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    assert_eq!(
+        deposits(&mut ledger, escrow).len(),
+        3,
+        "moving by itself again"
+    );
+}
+
+// spec/areas/hubs.md#in-the-node: what the node keeps in the hub counts its
+// own holds toward peers, the credit it extends them there: below the
+// floor, a deposit fills only what the ceiling leaves once they and the
+// hold's reserve count.
+#[test]
+fn our_holds_count_toward_the_hub_ceiling() {
+    use dassie_settlement::policy;
+
+    let (mut ledger, _) = funded_ledger();
+    let mut core = funding_core(&mut ledger);
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    hub.no_account(&mut core);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let opening = deposits(&mut ledger, escrow)[0].amount;
+    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let floor =
+        policy::hub_floor(p, Policies::DEFAULT.peer_credit, 0) / dassie_xrpl::UNITS_PER_DROP;
+    let ceiling = policy::hub_ceiling(p) / dassie_xrpl::UNITS_PER_DROP;
+    hub.account(&mut core, floor, opening);
+
+    let fees = hub.rules.terms.fees;
+    let hold = 7_000_000;
+    let balance = 100_000;
+    hub.opened_hold(&mut core, hold, balance, opening);
+    let status = core.hub_status().unwrap();
+    assert_eq!(status.paying.len(), 1, "the hold is ours");
+    assert_eq!(status.paying[0].amount, hold * dassie_xrpl::UNITS_PER_DROP);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    let made = deposits(&mut ledger, escrow);
+    assert_eq!(made.len(), 2, "below the floor: {made:?}");
+    let kept = balance + fees.account_reserve + fees.hold_reserve + hold;
+    assert_eq!(made[1].amount, ceiling - kept, "up to the ceiling only");
+    assert!(
+        made[1].amount < floor.midpoint(ceiling) - balance,
+        "less than the midpoint asks"
+    );
+}
+
+// spec/areas/hubs.md#in-the-node: a deposit on its way is done only once
+// the account's deposits counter shows it: a withdrawal that came back in
+// the meantime counts apart, and does not end the move early.
+#[test]
+fn a_returned_withdrawal_does_not_end_a_deposit_early() {
+    let (mut ledger, _) = funded_ledger();
+    let mut core = funding_core(&mut ledger);
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    hub.no_account(&mut core);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let opening = deposits(&mut ledger, escrow)[0].amount;
+    hub.account(&mut core, 100_000, opening);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    let made = deposits(&mut ledger, escrow);
+    assert_eq!(made.len(), 2, "below the floor: {made:?}");
+    let amount = made[1].amount;
+    hub.account_with(&mut core, 100_000, opening, amount);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    let status = core.hub_status().unwrap();
+    assert!(
+        status.moving.is_some(),
+        "still waiting for the hub to credit it"
+    );
+    assert_eq!(status.returned, amount * dassie_xrpl::UNITS_PER_DROP);
+    hub.account_with(&mut core, 100_000 + amount, opening + amount, amount);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    assert_eq!(core.hub_status().unwrap().moving, None, "credited");
+}
+
+/// A core with both schemes on `store`, whose hub says it has no account
+/// for the node, and the hub.
+fn holding_core(
+    store: &Arc<Store>,
+    ledger: &mut dassie_xrpl::fake::FakeLedger,
+) -> (Core, Validators) {
+    let mut core = core_on(Arc::clone(store), 9);
+    core.add_scheme("xrpl-testnet", SHARED_CONFIG.into())
+        .unwrap();
+    follow_xrpl(&mut core, ledger);
+    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 300))
+        .unwrap();
+    follow_xrpl(&mut core, ledger);
+    let mut hub = Validators::new();
+    hub.no_account(&mut core);
+    (core, hub)
+}
+
+/// Whether the books would let the owner's funds on the XRP Ledger pay
+/// `amount` now, as a conversion or a payer's packet takes them: a pending
+/// debit of the owner's group toward an account outside it.
+fn owner_could_pay(core: &Core, amount: u64) -> bool {
+    use dassie_ledger::{AccountName, LedgerId, Reference, TraceId, TransferSpec};
+
+    let ledger = LedgerId::XrplTestnetXrp;
+    let spec = TransferSpec {
+        debit: core.account(ledger, AccountName::EquityOwner).unwrap(),
+        credit: core.account(ledger, AccountName::AssetsSettlement).unwrap(),
+        amount,
+        pending: true,
+        reference: Reference::Packet(TraceId {
+            epoch: 0,
+            sequence: 1,
+        }),
+    };
+    core.ledger.validate(&spec).is_ok()
+}
+
+/// The owner's group on the XRP Ledger: posted, net, and still pending out.
+fn owner_xrp(core: &Core) -> (i128, u128) {
+    use dassie_ledger::{AccountName, LedgerId};
+
+    let owner = core
+        .account(LedgerId::XrplTestnetXrp, AccountName::EquityOwner)
+        .unwrap();
+    let balance = core.ledger.group_balance(owner).unwrap();
+    let posted = i128::try_from(balance.credits_posted).unwrap()
+        - i128::try_from(balance.debits_posted).unwrap();
+    (posted, balance.debits_pending)
+}
+
+// spec/areas/settlement.md#the-scheme-interface: an owner's payment out of
+// the XRP Ledger account, here a deposit into the hub that takes all the
+// owner's XRP, is held against the owner's funds from the moment it is
+// made: what a conversion or a payer's packet would spend meanwhile is
+// refused, and once the payment applied the owner's funds are not below
+// zero.
+#[test]
+fn a_deposit_holds_the_owners_funds_while_on_its_way() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut ledger, _) = funded_ledger();
+    let (mut core, _hub) = holding_core(&store, &mut ledger);
+    let units = dassie_xrpl::UNITS_PER_DROP;
+    let funds = core.owner_available(dassie_ledger::LedgerId::XrplTestnetXrp);
+    let all = funds / units - dassie_xrpl::account::MAX_FEE_DROPS;
+    assert!(owner_could_pay(&core, all * units));
+    core.hub_deposit(all * units).unwrap();
+    let (posted, pending) = owner_xrp(&core);
+    let fee = dassie_xrpl::account::MAX_FEE_DROPS * units;
+    assert_eq!(
+        pending,
+        u128::from(all * units + fee),
+        "held while on its way, with the most its fee may cost"
+    );
+    assert!(!owner_could_pay(&core, all * units), "a packet is refused");
+    assert!(!owner_could_pay(&core, 1), "nor even the fee's worth");
+    assert!(!owner_could_pay(&core, funds - all * units + 1));
+    follow_xrpl(&mut core, &mut ledger);
+    close_xrpl(&mut core, &mut ledger);
+    let (after, pending) = owner_xrp(&core);
+    assert_eq!(pending, 0, "posted once it applied");
+    assert!(after >= 0, "the owner's funds are not below zero: {after}");
+    assert_eq!(
+        after,
+        posted - i128::from(all * units) - i128::from(10 * units),
+        "the deposit and its fee"
+    );
+}
+
+/// Carries the XRP Ledger account's requests to `ledger`, but loses every
+/// submission, until it has nothing more to say.
+fn follow_xrpl_losing_submits(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger) {
+    use super::LedgerEvent;
+
+    for _ in 0..50 {
+        let mut outputs = Vec::new();
+        core.finish_step(&mut outputs);
+        let events: Vec<(u64, LedgerEvent)> = outputs
+            .iter()
+            .filter_map(|output| match output {
+                Output::LedgerConnect { epoch, .. } => Some((*epoch, LedgerEvent::Connected)),
+                Output::LedgerSend { epoch, message, .. } => {
+                    let request: serde_json::Value = serde_json::from_slice(message).unwrap();
+                    (request["command"] != "submit")
+                        .then(|| (*epoch, LedgerEvent::Message(ledger.request(1, message))))
+                }
+                _ => None,
+            })
+            .collect();
+        if events.is_empty() {
+            return;
+        }
+        for (epoch, event) in &events {
+            core.ledger_event(XRPL_ACCOUNT, *epoch, event);
+        }
+    }
+    panic!("the scheme kept talking");
+}
+
+// spec/areas/settlement.md#the-scheme-interface: an owner's payment that
+// never applies releases its hold, and costs no fee.
+#[test]
+fn a_failed_owner_payment_releases_its_hold() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut ledger, _) = funded_ledger();
+    let (mut core, _hub) = holding_core(&store, &mut ledger);
+    let units = dassie_xrpl::UNITS_PER_DROP;
+    let funds = core.owner_available(dassie_ledger::LedgerId::XrplTestnetXrp);
+    core.hub_deposit(3_000_000 * units).unwrap();
+    let fee = dassie_xrpl::account::MAX_FEE_DROPS * units;
+    assert_eq!(owner_xrp(&core).1, u128::from(3_000_000 * units + fee));
+    let epoch = core.assets[&dassie_xrpl::account::FIRST].epoch;
+    for _ in 0..30 {
+        follow_xrpl_losing_submits(&mut core, &mut ledger);
+        for (_, message) in ledger.close() {
+            core.ledger_event(XRPL_ACCOUNT, epoch, &super::LedgerEvent::Message(message));
+        }
+    }
+    follow_xrpl_losing_submits(&mut core, &mut ledger);
+    assert_eq!(owner_xrp(&core).1, 0, "released");
+    assert_eq!(
+        core.owner_available(dassie_ledger::LedgerId::XrplTestnetXrp),
+        funds,
+        "the owner's funds are whole again"
+    );
+}
+
+// spec/areas/settlement.md#the-scheme-interface: the hold outlives a
+// restart between the payment leaving and the XRP Ledger applying it, and is
+// posted once after it.
+#[test]
+fn an_owner_payment_held_across_a_restart_is_posted_once() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut ledger, _) = funded_ledger();
+    let (mut core, _hub) = holding_core(&store, &mut ledger);
+    let units = dassie_xrpl::UNITS_PER_DROP;
+    let (posted, _) = owner_xrp(&core);
+    core.hub_deposit(3_000_000 * units).unwrap();
+    core.flush();
+    drop(core);
+    let mut core = core_on(Arc::clone(&store), 10);
+    let fee = dassie_xrpl::account::MAX_FEE_DROPS * units;
+    assert_eq!(
+        owner_xrp(&core),
+        (posted, u128::from(3_000_000 * units + fee)),
+        "still held"
+    );
+    follow_xrpl(&mut core, &mut ledger);
+    close_xrpl(&mut core, &mut ledger);
+    close_xrpl(&mut core, &mut ledger);
+    assert_eq!(
+        owner_xrp(&core),
+        (
+            posted - i128::from(3_000_000 * units) - i128::from(10 * units),
+            0
+        ),
+        "posted once, with its fee"
+    );
+    core.flush();
+    drop(core);
+    let core = core_on(Arc::clone(&store), 11);
+    assert_eq!(owner_xrp(&core).1, 0);
+}
+
+// spec/areas/settlement.md#the-scheme-interface: a withdrawal from the hub
+// takes only the owner's funds on the hub's ledger, never what the account
+// holds for what the node owes its hub peers.
+#[test]
+fn a_hub_withdrawal_takes_only_the_owners_funds() {
+    use dassie_ledger::{AccountName, LedgerId, Reference, TransferSpec};
+
+    let (mut ledger, _) = funded_ledger();
+    let mut core = funding_core(&mut ledger);
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    hub.no_account(&mut core);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let opening = deposits(&mut ledger, escrow)[0].amount;
+    // Only the floor, so nothing moves by itself.
+    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let floor = dassie_settlement::policy::hub_floor(p, Policies::DEFAULT.peer_credit, 0)
+        / dassie_xrpl::UNITS_PER_DROP;
+    let units = dassie_xrpl::UNITS_PER_DROP;
+    let balance = floor + 3_000_000;
+    hub.account(&mut core, balance, opening);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+    // The node owes a hub peer most of it.
+    let hub_ledger = LedgerId::HubXrpTestnetXrp;
+    let peer = dassie_ledger::Name::new("dpeer").unwrap();
+    let (interledger, _) = core.ledger.open_peer(NOW, hub_ledger, peer, 0).unwrap();
+    let owner = core.account(hub_ledger, AccountName::EquityOwner).unwrap();
+    let owed = core.owner_available(hub_ledger) - 1_500_000 * units;
+    let spec = TransferSpec {
+        debit: owner,
+        credit: interledger,
+        amount: owed,
+        pending: false,
+        reference: Reference::Withdrawal,
+    };
+    core.ledger.create(NOW, &spec).unwrap();
+    let refused = core.hub_withdraw(2_000_000 * units);
+    assert!(
+        matches!(refused, Err(super::EngineError::Refused(_))),
+        "{refused:?}"
+    );
+    assert!(core.hub_status().unwrap().moving.is_none());
+    core.hub_withdraw(1_000_000 * units).unwrap();
+}
+
+// spec/areas/settlement.md#the-scheme-interface: the XRP Ledger scheme
+// removed while the owner's payment is on its way, and added again: the
+// hold stays meanwhile, and is posted once, with the actual fee, once the
+// scheme is back and reads what became of the payment.
+#[test]
+fn an_owner_payment_outlives_its_scheme_removed_and_added_again() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut ledger, _) = funded_ledger();
+    let (mut core, _hub) = holding_core(&store, &mut ledger);
+    let units = dassie_xrpl::UNITS_PER_DROP;
+    let (posted, _) = owner_xrp(&core);
+    core.hub_deposit(3_000_000 * units).unwrap();
+    core.remove_scheme("xrpl-testnet").unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    let fee = dassie_xrpl::account::MAX_FEE_DROPS * units;
+    assert_eq!(
+        owner_xrp(&core),
+        (posted, u128::from(3_000_000 * units + fee))
+    );
+    core.add_scheme("xrpl-testnet", SHARED_CONFIG.into())
+        .unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    close_xrpl(&mut core, &mut ledger);
+    close_xrpl(&mut core, &mut ledger);
+    assert_eq!(
+        owner_xrp(&core),
+        (
+            posted - i128::from(3_000_000 * units) - i128::from(10 * units),
+            0
+        ),
+        "posted once, with its fee"
+    );
 }

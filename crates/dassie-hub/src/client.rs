@@ -53,6 +53,12 @@ pub struct AccountView {
     pub disbursal: bool,
     /// Whether it is closing.
     pub closing: bool,
+    /// Everything deposits credited it, and withdrawals that came back.
+    pub deposited: Amount,
+    /// Everything its withdrawals took from it, ledger fees included.
+    pub withdrawn: Amount,
+    /// What withdrawals that came back credited it.
+    pub returned: Amount,
 }
 
 /// A hold, as a statement tells it.
@@ -195,6 +201,9 @@ impl AccountView {
             sequence: account.sequence,
             disbursal: account.disbursal.is_some(),
             closing: account.closing,
+            deposited: account.deposited,
+            withdrawn: account.withdrawn,
+            returned: account.returned,
         }
     }
 }
@@ -586,7 +595,7 @@ impl Agreement {
 
 impl Encode for AccountView {
     fn encoded_len(&self) -> usize {
-        32 + 8 * 3 + 2
+        32 + 8 * 3 + 2 + 8 * 3
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
@@ -596,6 +605,9 @@ impl Encode for AccountView {
         writer.write_u64(self.sequence);
         writer.write_bool(self.disbursal);
         writer.write_bool(self.closing);
+        writer.write_u64(self.deposited);
+        writer.write_u64(self.withdrawn);
+        writer.write_u64(self.returned);
     }
 }
 
@@ -608,6 +620,9 @@ impl AccountView {
             sequence: reader.read_u64()?,
             disbursal: reader.read_bool()?,
             closing: reader.read_bool()?,
+            deposited: reader.read_u64()?,
+            withdrawn: reader.read_u64()?,
+            returned: reader.read_u64()?,
         })
     }
 }
@@ -1135,6 +1150,9 @@ mod tests {
                         sequence: 7,
                         disbursal: true,
                         closing: false,
+                        deposited: 8,
+                        withdrawn: 9,
+                        returned: 10,
                     },
                 )),
             },

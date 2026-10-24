@@ -14,10 +14,13 @@
 
 mod events;
 mod growth;
+mod hub_funding;
+mod hub_moves;
 mod hubs;
 mod incoming;
 mod invariants;
 mod ledgers;
+mod owner_payments;
 mod packets;
 mod payers;
 mod peers;
@@ -46,6 +49,8 @@ use dassie_stream::BUFFER_LENGTH;
 pub use events::{
     BtpEvent, EngineEvent, Event, MAX_EVENTS, PaymentEvent, PeerEvent, SettlementEvent, Severity,
 };
+pub use hub_funding::{Direction, Move};
+pub use hub_moves::{HubHold, HubStatus};
 #[cfg(feature = "testing")]
 pub use hubs::HubPeer;
 pub use incoming::{IncomingPolicy, NewIncoming};
@@ -340,6 +345,8 @@ pub struct Core {
     sweeps: Sweeps,
     /// What the core reports, until it is handed over.
     events: Events,
+    /// Moving the owner's funds between the XRPL account and the hub.
+    funding: hub_funding::Funding,
 }
 
 /// The exchange rates, and the price table the connector charges transit and
@@ -476,6 +483,7 @@ impl Core {
             peer_settings: PeerSettings::DEFAULT,
             sweeps: Sweeps::DUE,
             events: Events::new(),
+            funding: hub_funding::Funding::new(now_ms, policies.settlement_interval_ms),
         };
         core.restore()?;
         Ok(core)
@@ -489,6 +497,7 @@ impl Core {
             self.prices.rates.set_at(code, rate, as_of_ms);
         }
         self.peer_settings = store.peer_settings().map_err(text)?;
+        self.load_funding()?;
         self.load_tokens(&store).map_err(text)?;
         self.load_schemes(&store)?;
         self.load_incoming()?;
@@ -521,6 +530,7 @@ impl Core {
             }
         }
         self.reconcile_settlements(None);
+        self.reconcile_owner_payments();
         self.update_routes();
         self.after_peer();
         self.flush();
@@ -579,6 +589,7 @@ impl Core {
             self.outgoing_deadline(),
             self.probe_deadline(),
             self.schemes_deadline(),
+            self.funding_deadline(),
             self.work_left(),
         ]
         .into_iter()
@@ -607,6 +618,7 @@ impl Core {
         self.peer_timers();
         self.scheme_timers();
         self.settlement_timers();
+        self.fund_hub();
         self.expire(self.now_ms);
         self.hub_waits(self.now_ms);
         self.drain_local(self.now_ms);
@@ -671,7 +683,9 @@ impl Core {
             && batch.asset_checkpoints.is_empty()
             && batch.tokens_created.is_empty()
             && batch.tokens_revoked.is_empty()
-            && batch.token_caps.is_empty());
+            && batch.token_caps.is_empty()
+            && batch.hub_automatic.is_none()
+            && batch.hub_funding.is_none());
         self.changes.network |= !batch.peer.is_empty();
         self.changes.payments |= batch.changes_payments();
         self.batch.at_ms = self.now_ms;

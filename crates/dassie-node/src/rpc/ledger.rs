@@ -119,6 +119,9 @@ async fn dispatch_more(
             let _permit = permit(node)?;
             return subscribe_packets(engine, items).await;
         }
+        other if super::hub::is_hub(&other) => {
+            return super::hub::dispatch(engine, other).await;
+        }
         other if super::grants::is_grants(&other) => {
             return super::grants::dispatch(node, engine, other, items).await;
         }
@@ -481,7 +484,7 @@ const fn realm(realm: dassie_ledger::Realm) -> proto::Realm {
     }
 }
 
-const fn connection(status: LedgerStatus) -> proto::LedgerConnection {
+pub(super) const fn connection(status: LedgerStatus) -> proto::LedgerConnection {
     match status {
         LedgerStatus::Synced => proto::LedgerConnection::Synced,
         LedgerStatus::Connecting => proto::LedgerConnection::Connecting,
@@ -559,6 +562,9 @@ fn transfer(row: &JournalRow) -> proto::Transfer {
         Reference::Fee { scheme, id } => proto::transfer::Reference::Fee(format!("{scheme}:{id}")),
         Reference::Loss { scheme, id } => {
             proto::transfer::Reference::Loss(format!("{scheme}:{id}"))
+        }
+        Reference::OwnerPayment { scheme, id } => {
+            proto::transfer::Reference::OwnerPayment(format!("{scheme}:{id}"))
         }
     };
     let state = match row.state {

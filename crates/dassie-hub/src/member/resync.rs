@@ -39,6 +39,7 @@ use crate::digest::Digest;
 use crate::operation::MemberOperation;
 use crate::promise::HoldNumber;
 use crate::rules::Amount;
+use dassie_settlement::OwnerPaymentState;
 
 /// What a hold was funded with, as far as its mirror says: what it holds
 /// and what was taken from it.
@@ -78,6 +79,12 @@ impl HubScheme {
             }
             Some((purpose @ Purpose::Claim(_), _)) => {
                 self.dropped(*purpose, effects);
+                None
+            }
+            // Whether it applied, only the account's counters say, and
+            // they book it, its ledger fee with it.
+            Some((Purpose::Withdraw, _)) => {
+                self.withdrawal_done(OwnerPaymentState::Unknown, effects);
                 None
             }
             _ => None,

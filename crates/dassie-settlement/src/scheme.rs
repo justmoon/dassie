@@ -46,6 +46,18 @@ pub enum Effect {
         /// How much.
         amount: u64,
     },
+    /// The owner's payment `id` out of the scheme's account
+    /// ([`SettlementScheme::pay_owner`]) is no longer on its way: the node
+    /// posts the pending transfer it held the owner's funds with (Dr
+    /// `equity/owner`, Cr `assets/settlement`) if it applied, and voids it
+    /// if it moved nothing, or if the scheme cannot tell, in which case its
+    /// ledger's balance said what it did.
+    OwnerPaid {
+        /// The payment.
+        id: Name,
+        /// Whether it applied.
+        applied: bool,
+    },
     /// Send a scheme message to a peer.
     SendMessage {
         /// The peer.
@@ -151,6 +163,44 @@ pub struct PreparedSettlement {
     /// The peer's new scheme state, if it changed. The node keeps it; the
     /// original dropped it (ACC-15).
     pub peer_state: Option<Vec<u8>>,
+}
+
+/// The most bytes of the memo an [`OwnerPayment`] carries.
+pub const MAX_OWNER_MEMO_BYTES: usize = 64;
+
+/// A payment of the owner's funds out of a scheme's account, to an address
+/// its ledger pays: how the node moves the owner's funds between two of
+/// its ledgers, such as into a settlement hub and out of it
+/// (spec/areas/hubs.md#in-the-node). The scheme books it as the owner's
+/// withdrawal once its ledger shows it applied, with its fee; the ledger
+/// it arrives on books it as a deposit when it sees it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OwnerPayment {
+    /// Where, as the ledger writes an address.
+    pub destination: String,
+    /// The destination tag, on a ledger that has them.
+    pub tag: Option<u32>,
+    /// One memo's data, at most [`MAX_OWNER_MEMO_BYTES`].
+    pub memo: Option<Vec<u8>>,
+    /// How much, in internal units: whole units of the ledger.
+    pub amount: u64,
+}
+
+/// What became of an owner's payment out of a scheme's account
+/// ([`SettlementScheme::pay_owner`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OwnerPaymentState {
+    /// The scheme does not know: not its last payment, or one whose outcome
+    /// it never read, such as one its ledger settled while the scheme was
+    /// stopped. Only what it reached on the other side can tell.
+    #[default]
+    Unknown,
+    /// It is on its way: no other is made meanwhile.
+    InFlight,
+    /// Its ledger applied it.
+    Applied,
+    /// It never applied, or failed and cost only its fee: it moved nothing.
+    Failed,
 }
 
 /// Why a scheme refused.
@@ -438,6 +488,38 @@ pub trait SettlementScheme: Send {
     /// [`SchemeError::Unsupported`] where the owner deposits on the
     /// underlying ledger itself.
     fn deposit(&mut self, amount: u64, effects: &mut Vec<Effect>) -> Result<(), SchemeError>;
+
+    /// Pays `payment` out of the owner's funds, through the scheme's asset:
+    /// one at a time. Returns the payment's ID, which
+    /// [`owner_payment`](Self::owner_payment) answers for, also after a
+    /// restart. The node holds the payment against the owner's funds as a
+    /// pending transfer under that ID, booked in the batch that keeps the
+    /// payment, so the books refuse it if the owner's funds do not cover it.
+    /// The scheme reports once the payment is no longer on its way
+    /// ([`Effect::OwnerPaid`]), which posts or voids the hold, and books its
+    /// fee either way.
+    ///
+    /// # Errors
+    ///
+    /// [`SchemeError::Unsupported`] by default; [`SchemeError::InvalidData`]
+    /// for a destination the ledger cannot pay, a memo too long or an
+    /// amount below the ledger's unit; [`SchemeError::Unavailable`] while
+    /// one is on its way, or the asset cannot sign it now.
+    fn pay_owner(
+        &mut self,
+        asset: Option<&mut dyn ExternalAsset>,
+        payment: &OwnerPayment,
+    ) -> Result<Name, SchemeError> {
+        let _ = (asset, payment);
+        Err(SchemeError::Unsupported)
+    }
+
+    /// What became of the owner's payment `id`: the scheme keeps the one
+    /// on its way and the outcome of the last, with its state.
+    fn owner_payment(&self, id: Name) -> OwnerPaymentState {
+        let _ = id;
+        OwnerPaymentState::Unknown
+    }
 
     /// Its side that signs and takes promises per packet, if its peerings
     /// carry them, as a settlement hub's do

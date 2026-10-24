@@ -106,6 +106,7 @@ impl Ledger {
         if let Some(number) = self.deposit_account(deposit) {
             self.escrow.balance = self.escrow.balance.saturating_add(deposit.amount);
             self.credit(number, deposit.amount);
+            self.count_deposit(number, deposit.amount);
             return true;
         }
         let fees = self.rules.terms.fees;
@@ -251,7 +252,9 @@ impl Ledger {
                 account.closing = false;
             }
         } else if !delivered {
+            // It came back: a deposit, as its member books it.
             self.credit(number, withdrawal.amount);
+            self.count_returned(number, withdrawal.amount);
         }
     }
 

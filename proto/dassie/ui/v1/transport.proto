@@ -55,6 +55,7 @@ import "dassie/ui/v1/btp.proto";
 import "dassie/ui/v1/config.proto";
 import "dassie/ui/v1/debug.proto";
 import "dassie/ui/v1/devices.proto";
+import "dassie/ui/v1/hub_member.proto";
 import "dassie/ui/v1/inspect.proto";
 import "dassie/ui/v1/ledger.proto";
 import "dassie/ui/v1/network.proto";
@@ -183,6 +184,13 @@ message Request {
     GetRateSourcesRequest get_rate_sources = 125;
     SetRateSourcesRequest set_rate_sources = 126;
     SetDisplayCurrencyRequest set_display_currency = 127;
+
+    // HubMemberService (hub_member.proto).
+    GetHubStatusRequest get_hub_status = 130;
+    HubDepositRequest hub_deposit = 131;
+    HubWithdrawRequest hub_withdraw = 132;
+    SetHubAutomaticRequest set_hub_automatic = 133;
+    HubGiveUpRequest hub_give_up = 134;
   }
 }
 
@@ -277,6 +285,12 @@ message Response {
     GetRateSourcesResponse get_rate_sources = 125;
     SetRateSourcesResponse set_rate_sources = 126;
     SetDisplayCurrencyResponse set_display_currency = 127;
+
+    GetHubStatusResponse get_hub_status = 130;
+    HubDepositResponse hub_deposit = 131;
+    HubWithdrawResponse hub_withdraw = 132;
+    SetHubAutomaticResponse set_hub_automatic = 133;
+    HubGiveUpResponse hub_give_up = 134;
   }
 }
 

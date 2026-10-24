@@ -712,6 +712,14 @@ impl XrplAccount {
             || self.never_sent.iter().any(|n| n.hash == *hash)
     }
 
+    /// Whether transaction `hash` is in flight, remembered as never sent,
+    /// or kept for its scheme, validated while the scheme was not on the
+    /// account: the account will still tell the scheme what became of it.
+    #[must_use]
+    pub fn keeps_transaction(&self, hash: &[u8; 32]) -> bool {
+        self.holds_transaction(hash) || self.parked.iter().any(|p| p.hash == *hash)
+    }
+
     /// The reserve the account holds back now, in drops.
     fn reserve_drops(&self, owner_count: u32) -> u64 {
         self.reserve_base
@@ -828,6 +836,24 @@ impl XrplAccount {
         drops: u64,
         memos: Vec<Memo>,
     ) -> Result<[u8; 32], SchemeError> {
+        self.sign_payment_to(scheme, (destination, None), drops, memos)
+    }
+
+    /// Signs a Payment of `drops` to `destination` with its destination
+    /// tag, if any, as [`sign_payment`](Self::sign_payment) does: how the
+    /// owner pays an account that tells its payers apart by tags, such as a
+    /// settlement hub's escrow.
+    ///
+    /// # Errors
+    ///
+    /// As [`sign_payment`](Self::sign_payment).
+    pub fn sign_payment_to(
+        &mut self,
+        scheme: Name,
+        (destination, tag): (AccountId, Option<u32>),
+        drops: u64,
+        memos: Vec<Memo>,
+    ) -> Result<[u8; 32], SchemeError> {
         let fee = self.fee();
         if drops == 0 || !self.can_sign(scheme, drops, fee, 0) {
             return Err(SchemeError::Unavailable);
@@ -835,7 +861,7 @@ impl XrplAccount {
         let payment = Payment {
             account: self.account(),
             destination,
-            destination_tag: None,
+            destination_tag: tag,
             amount: Amount::Xrp(drops),
             send_max: None,
             fee,

@@ -60,7 +60,7 @@ Each transfer carries a reference saying what it is for (`reference.rs`). A pack
 Every engine step that changes the ledger queues journal entries. The engine persists all of one step's entries, with everything else the step changed, in one SQLite transaction, and acts on the step's outcome only once that is on disk ([Node](node.md#the-engine)). What the journal says is what happened.
 
 - **Posted transfers** are journaled, with the accounts' cached totals in the same transaction.
-- **Pending settlement transfers** are journaled too, and then their posting or voiding: the money may already be on its way when the node restarts, and the scheme reconciles them at activation ([Settlement](settlement.md#outgoing-settlements)).
+- **Pending settlement transfers** are journaled too, and then their posting or voiding: the money may already be on its way when the node restarts, and the scheme reconciles them at activation ([Settlement](settlement.md#outgoing-settlements)). So are the holds of the owner's payments out of a scheme's account, for the same reason ([Settlement](settlement.md#the-scheme-interface)).
 - **Pending packet transfers** are not: packets in flight cannot survive a restart, so a restarted ledger has none, and a voided one never touched a posted balance. Transfer IDs in the journal therefore have gaps.
 - Rows are ordered by a write sequence, not by transfer ID, since a packet's transfer is written when it posts. Readers page by that sequence and see every change once.
 

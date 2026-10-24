@@ -657,3 +657,197 @@ async fn a_member_polling_hub_leaves_its_peer_requests_alone() {
     assert_ne!(reply.status, 429, "the peer protocol's rate is untouched");
     node.stop().await;
 }
+
+/// What the owner of `node` sees of its ledgers.
+async fn ledgers(node: &support::TestNode) -> Vec<dassie_node::rpc::proto::Ledger> {
+    use dassie_node::rpc::proto::{self, request::Method, response};
+
+    match node
+        .ipc()
+        .await
+        .call(Method::ListLedgers(proto::ListLedgersRequest {}))
+        .await
+    {
+        Ok(response::Method::ListLedgers(list)) => list.ledgers,
+        other => panic!("{other:?}"),
+    }
+}
+
+/// The node's hub account, as its owner sees it.
+async fn hub_status(node: &support::TestNode) -> Option<dassie_node::rpc::proto::HubStatus> {
+    use dassie_node::rpc::proto::{self, request::Method, response};
+
+    match node
+        .ipc()
+        .await
+        .call(Method::GetHubStatus(proto::GetHubStatusRequest {}))
+        .await
+    {
+        Ok(response::Method::GetHubStatus(reply)) => reply.status,
+        _ => None,
+    }
+}
+
+/// The deposits to `escrow` the fake ledger holds, as validators read them.
+fn deposits(
+    xrpl: &dassie_node::fake_ledger::Server,
+    escrow: dassie_xrpl::AccountId,
+) -> Vec<dassie_hub::operation::Deposit> {
+    use dassie_xrpl::api;
+
+    let reply = xrpl
+        .ledger()
+        .request(77, &api::account_tx(5, escrow, 0, u32::MAX, None));
+    let api::Message::Response {
+        outcome: Ok(result),
+        ..
+    } = api::parse(&reply)
+    else {
+        return Vec::new();
+    };
+    api::account_tx_result(&result).map_or_else(Vec::new, |records| {
+        records
+            .transactions
+            .iter()
+            .filter_map(|record| dassie_hub::escrow::deposit_of(record, escrow))
+            .collect()
+    })
+}
+
+/// Adds settlement scheme `id` with `config`, once the engine takes it.
+async fn add_scheme(node: &support::TestNode, id: &str, config: &str) {
+    use dassie_node::rpc::proto::{self, request::Method, response};
+
+    let mut owner = node.ipc().await;
+    for _ in 0..200 {
+        let reply = owner
+            .call(Method::AddSettlementScheme(
+                proto::AddSettlementSchemeRequest {
+                    id: id.into(),
+                    config: config.into(),
+                },
+            ))
+            .await;
+        if let Ok(response::Method::AddSettlementScheme(_)) = reply {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("{id} is not added");
+}
+
+// spec/areas/hubs.md#in-the-node, end to end: a member node with its XRP
+// Ledger testnet account on the fake ledger and the hub scheme hears from
+// four validators over QUIC that it has no account, and opens one by its
+// first deposit from its own XRP Ledger account: tag 0, its hub key as the
+// memo. Once the validators attest it, the hub credits it, the member reads
+// its account, and its books hold what the hub holds for it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_member_node_opens_its_hub_account_by_a_deposit() {
+    use dassie_node::rpc::proto;
+
+    let shutdown = CancellationToken::new();
+    let nodes: Vec<Node> = (1..=4).map(|seed| node(seed, &shutdown)).collect();
+    let rules = rules(&nodes);
+    let genesis = SystemClock.now_ms();
+    let running: Vec<Running> = nodes.iter().map(|n| start(n, &rules, genesis)).collect();
+    for validator in &running {
+        let attest = ValidatorOperation::AttestEscrow { sequence: 5 };
+        validator.links.attest.send(attest).await.unwrap();
+    }
+    until("a quorum checked the escrow", || {
+        nodes
+            .iter()
+            .all(|n| n.hubs.statuses().iter().all(|s| s.escrow_checked))
+    })
+    .await;
+    let xrpl = dassie_node::fake_ledger::Server::start(dassie_node::fake_ledger::Options {
+        listen: "127.0.0.1:0".parse().unwrap(),
+        faucet: None,
+        close_every: Duration::from_millis(100),
+    })
+    .await
+    .unwrap();
+
+    let member = support::Bound::new()
+        .start(
+            dassie_node::clock::ManualClock::new(support::START_MS),
+            1,
+            dassie_node::node::Policies::DEFAULT,
+            &[
+                ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+                ("DASSIE_PEER_CA_FILE", support::pair::CA),
+            ],
+        )
+        .await;
+    let member_key = NodeKey::from_bytes(&[60; 32]);
+    support::set_up(&member, &member_key).await;
+    let xrpl_config = serde_json::json!({ "server": xrpl.url, "faucet": null });
+    add_scheme(&member, "xrpl-testnet", &xrpl_config.to_string()).await;
+    let address = ledgers(&member)
+        .await
+        .into_iter()
+        .find(|l| l.id == "xrpl-testnet+xrp")
+        .unwrap()
+        .deposit_address;
+    xrpl.ledger()
+        .fund(dassie_xrpl::AccountId::parse(&address).unwrap());
+    support::pair::until(&member.clock, async || {
+        ledgers(&member).await.iter().any(|l| {
+            l.id == "xrpl-testnet+xrp" && l.connection() == proto::LedgerConnection::Synced
+        })
+    })
+    .await;
+    let hex: String = rules.to_vec().iter().map(|b| format!("{b:02x}")).collect();
+    let hub_config = serde_json::json!({ "rules": hex }).to_string();
+    add_scheme(&member, dassie_hub::member::SCHEME_ID, &hub_config).await;
+
+    // Told it has no account, the node opens one from its XRP Ledger
+    // account; the validators attest the deposit they see.
+    let escrow = dassie_xrpl::AccountId(rules.terms.escrow);
+    support::pair::until(&member.clock, async || !deposits(&xrpl, escrow).is_empty()).await;
+    let made = deposits(&xrpl, escrow);
+    let hub_key = dassie_hub::escrow::member_key(&member_key, &rules.id())
+        .unwrap()
+        .public_key();
+    assert_eq!(made.len(), 1);
+    assert_eq!((made[0].tag, made[0].key), (0, Some(hub_key)));
+    for validator in &running {
+        let attest = ValidatorOperation::AttestDeposit(made[0]);
+        validator.links.attest.send(attest).await.unwrap();
+    }
+    support::pair::until(&member.clock, async || {
+        hub_status(&member)
+            .await
+            .is_some_and(|s| s.account.is_some() && s.moving.is_none() && s.balance > 0)
+    })
+    .await;
+    let status = hub_status(&member).await.unwrap();
+    let fees = rules.terms.fees;
+    let units = dassie_xrpl::UNITS_PER_DROP;
+    assert_eq!(status.deposited, made[0].amount * units, "what it credited");
+    assert_eq!(status.reserve, fees.account_reserve * units);
+    // Once the account reads its own setting of the disbursal address and
+    // the state after it, the books hold what the hub holds for it.
+    // The deposit less the reserve and the fee of setting the disbursal
+    // address.
+    let expected = (made[0].amount - fees.account_reserve - fees.operation) * units;
+    support::pair::until(&member.clock, async || {
+        let balance = hub_status(&member).await.map(|s| s.balance);
+        let booked = ledgers(&member)
+            .await
+            .into_iter()
+            .find(|l| l.settlement_scheme == dassie_hub::member::SCHEME_ID)
+            .and_then(|l| u64::try_from(l.owner_balance).ok());
+        balance == Some(expected) && booked == Some(expected)
+    })
+    .await;
+    assert_eq!(deposits(&xrpl, escrow).len(), 1, "paid once");
+
+    member.stop().await;
+    shutdown.cancel();
+    for validator in running {
+        validator.stop.cancel();
+        validator.task.await.unwrap();
+    }
+}

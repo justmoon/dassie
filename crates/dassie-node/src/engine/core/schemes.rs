@@ -128,13 +128,8 @@ fn create_hub_account(
     }
     let member =
         dassie_hub::escrow::member_key(key, &rules.id()).ok_or(SchemeError::InvalidConfig)?;
-    let entropy = key
-        .settlement_entropy(dassie_xrpl::scheme::SCHEME_ID, "seed-testnet")
-        .map_err(|_| SchemeError::InvalidConfig)?;
     let disbursal = dassie_hub::operation::Destination {
-        account: dassie_xrpl::Wallet::from_entropy(entropy.as_bytes())
-            .account()
-            .0,
+        account: own_xrpl_account(key)?.0,
         tag: None,
     };
     let scheme =
@@ -147,6 +142,15 @@ fn create_hub_account(
         scheme,
         state,
     )?))
+}
+
+/// The node's first XRPL testnet account: where its hub account pays out,
+/// and where it withdraws to.
+pub(super) fn own_xrpl_account(key: &NodeKey) -> Result<dassie_xrpl::AccountId, SchemeError> {
+    let entropy = key
+        .settlement_entropy(dassie_xrpl::scheme::SCHEME_ID, "seed-testnet")
+        .map_err(|_| SchemeError::InvalidConfig)?;
+    Ok(dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account())
 }
 
 /// The schemes that may settle through `asset`.

@@ -372,6 +372,9 @@ impl Ledger {
                 withdrawals: 0,
                 validator: true,
                 member_slot: false,
+                deposited: 0,
+                withdrawn: 0,
+                returned: 0,
             },
         );
         number

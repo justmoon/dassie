@@ -35,6 +35,11 @@ struct Books {
     cancelled: Vec<Name>,
     /// Each reconciliation, in order: what the books gained, and why.
     reconciled: Vec<(i128, ReconcileCause)>,
+    /// The transaction of each fee, in order.
+    fee_ids: Vec<Name>,
+    /// The owner's payments held while on their way, as the node holds
+    /// them: by ID, what each pays.
+    held: BTreeMap<Name, u64>,
 }
 
 struct Node {
@@ -178,6 +183,13 @@ impl World {
                     books.settlement -= i128::from(amount);
                     books.owner -= i128::from(amount);
                 }
+                Effect::OwnerPaid { id, applied } => {
+                    let amount = books.held.remove(&id).unwrap();
+                    if applied {
+                        books.settlement -= i128::from(amount);
+                        books.owner -= i128::from(amount);
+                    }
+                }
                 Effect::Reconcile {
                     amount,
                     gain,
@@ -192,9 +204,10 @@ impl World {
                     books.suspense += amount;
                     books.reconciled.push((amount, cause));
                 }
-                Effect::Fee { amount, .. } => {
+                Effect::Fee { amount, id } => {
                     books.settlement -= i128::from(amount);
                     books.fees += i128::from(amount);
+                    books.fee_ids.push(id);
                 }
                 Effect::IncomingSettlement { peer, amount, id } => {
                     assert!(books.credited.insert(id.unwrap()), "credited twice");
@@ -304,6 +317,22 @@ impl World {
         self.nodes[b].scheme.on_peered(name_a, &state_at_b);
         self.nodes[a].scheme.on_peered(name_b, &state_at_a);
         (state_at_a, state_at_b)
+    }
+
+    /// Node `index`'s owner pays `payment` out of the account, which the
+    /// node holds against the owner's funds while it is on its way.
+    fn pay_owner(
+        &mut self,
+        index: usize,
+        payment: &dassie_settlement::OwnerPayment,
+        effects: &mut Vec<Effect>,
+    ) -> Result<Name, SchemeError> {
+        let id = self.nodes[index].scheme.pay_owner(payment, effects)?;
+        self.nodes[index]
+            .books
+            .held
+            .insert(id, payment.amount / UNITS_PER_DROP * UNITS_PER_DROP);
+        Ok(id)
     }
 
     /// `from` settles `amount` with `to`, whose state at `from` is
@@ -1260,4 +1289,173 @@ fn a_synced_scheme_whose_server_leaves_the_testnet_stops() {
     assert_eq!(world.nodes[0].scheme.balance(), FUNDED);
     assert_eq!(world.nodes[0].scheme.deadline(), None);
     assert_eq!(world.nodes[1].scheme.status(), LedgerStatus::Synced);
+}
+
+/// What the ledger holds under `hash`, validated.
+fn validated(world: &mut World, hash: &str) -> dassie_xrpl::api::TxRecord {
+    let hash: [u8; 32] = dassie_xrpl::from_hex(hash).unwrap().try_into().unwrap();
+    let reply = world
+        .ledger
+        .request(999, &dassie_xrpl::api::tx_anywhere(1, &hash));
+    let outcome = match dassie_xrpl::api::parse(&reply) {
+        dassie_xrpl::api::Message::Response { outcome, .. } => Some(outcome),
+        _ => None,
+    };
+    dassie_xrpl::api::tx_result(&outcome.unwrap().unwrap()).unwrap()
+}
+
+/// The transaction of the last fee node `index` booked.
+fn submitted_hash(world: &World, index: usize) -> String {
+    let fee_ids: Vec<&Name> = world.nodes[index].books.fee_ids.iter().collect();
+    fee_ids.last().unwrap().as_str().to_string()
+}
+
+// spec/areas/xrpl.md#deposits-and-withdrawals: the owner pays out of the
+// account, to a destination with a tag and one memo, as a deposit into a
+// settlement hub is made. Once the ledger validated it, it is the owner's
+// withdrawal, with its fee; the account it reached books it as a deposit,
+// as it books any payment from an address no peer gave. One at a time.
+#[test]
+fn the_owner_pays_out_of_the_account() {
+    use dassie_settlement::{OwnerPayment, OwnerPaymentState};
+
+    let (mut world, _, _) = funded_pair();
+    let to = world.account(1);
+    let payment = OwnerPayment {
+        destination: to.to_address(),
+        tag: Some(42),
+        memo: Some(vec![7; 32]),
+        amount: 3_000_000_999,
+    };
+    let mut effects = Vec::new();
+    let id = world.pay_owner(0, &payment, &mut effects).unwrap();
+    assert_eq!(
+        world.nodes[0].scheme.owner_payment(id),
+        OwnerPaymentState::InFlight
+    );
+    assert_eq!(
+        world.pay_owner(0, &payment, &mut Vec::new()),
+        Err(SchemeError::Unavailable),
+        "one at a time"
+    );
+    world.apply(0, effects);
+    world.close();
+    assert_eq!(
+        world.nodes[0].scheme.owner_payment(id),
+        OwnerPaymentState::Applied
+    );
+    let fee = 10 * i128::from(UNITS_PER_DROP);
+    let (a, b) = (&world.nodes[0].books, &world.nodes[1].books);
+    assert_eq!(a.owner, i128::from(FUNDED) - 3_000_000_000);
+    assert_eq!(a.fees, fee);
+    assert_eq!(b.owner, i128::from(FUNDED) + 3_000_000_000);
+    assert!(b.credited.is_empty(), "no settlement");
+    assert_eq!(a.suspense + b.suspense, 0);
+    let hash = submitted_hash(&world, 0);
+    assert_eq!(hash, id.as_str(), "its ID is its hash");
+    let record = validated(&mut world, &hash);
+    assert_eq!(record.destination, Some(to));
+    assert_eq!(record.destination_tag, Some(42));
+    assert_eq!(record.delivered, Some(3_000_000));
+    assert_eq!(
+        record.memo,
+        Some((dassie_xrpl::scheme::OWNER_MEMO_TYPE.to_vec(), vec![7; 32]))
+    );
+}
+
+// spec/areas/xrpl.md#deposits-and-withdrawals: the owner's payment on its
+// way is kept across a restart and booked once after; what became of it
+// outlives the next restart, for the last payment only.
+#[test]
+fn the_owners_payment_outlives_a_restart() {
+    use dassie_settlement::{OwnerPayment, OwnerPaymentState};
+
+    let (mut world, _, _) = funded_pair();
+    let payment = OwnerPayment {
+        destination: world.account(1).to_address(),
+        tag: None,
+        memo: None,
+        amount: 3_000_000_000,
+    };
+    let mut effects = Vec::new();
+    let id = world.pay_owner(0, &payment, &mut effects).unwrap();
+    world.apply(0, effects);
+    world.close();
+    let fee = 10 * i128::from(UNITS_PER_DROP);
+    world.nodes[0].drop_submits = true;
+    let second = world.pay_owner(0, &payment, &mut Vec::new()).unwrap();
+    let state = world.nodes[0].scheme.state();
+    let checkpoint = world.nodes[0].scheme.balance();
+    world.disconnect(0);
+    let node = world.nodes[0].name;
+    world.nodes[0].scheme =
+        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
+    assert_eq!(
+        world.nodes[0].scheme.owner_payment(second),
+        OwnerPaymentState::InFlight
+    );
+    world.nodes[0].drop_submits = false;
+    world.connect(0);
+    world.closes(2);
+    // Its outcome outlives another restart; the one before is no longer
+    // the scheme's to tell.
+    let state = world.nodes[0].scheme.state();
+    let checkpoint = world.nodes[0].scheme.balance();
+    world.nodes[0].scheme =
+        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
+    assert_eq!(
+        world.nodes[0].scheme.owner_payment(second),
+        OwnerPaymentState::Applied
+    );
+    assert_eq!(
+        world.nodes[0].scheme.owner_payment(id),
+        OwnerPaymentState::Unknown
+    );
+    let a = &world.nodes[0].books;
+    assert_eq!(a.owner, i128::from(FUNDED) - 6_000_000_000);
+    assert_eq!(a.fees, 2 * fee);
+    assert_eq!(a.suspense, 0);
+}
+
+// An owner's payment the ledger refuses costs its fee and nothing else; one
+// to the account itself, of nothing, or with too long a memo is refused
+// before anything is signed.
+#[test]
+fn a_failed_owner_payment_costs_only_its_fee() {
+    use dassie_settlement::{OwnerPayment, OwnerPaymentState};
+
+    let (mut world, _, _) = funded_pair();
+    let nobody = dassie_xrpl::Wallet::from_seed([77; 16]).account();
+    let payment = |destination: AccountId, amount: u64, memo: usize| OwnerPayment {
+        destination: destination.to_address(),
+        tag: None,
+        memo: (memo > 0).then(|| vec![1; memo]),
+        amount,
+    };
+    let own = world.account(0);
+    for refused in [
+        payment(own, 1_000_000, 0),
+        payment(nobody, 999, 0),
+        payment(nobody, 1_000_000, 65),
+    ] {
+        assert_eq!(
+            world.pay_owner(0, &refused, &mut Vec::new()),
+            Err(SchemeError::InvalidData)
+        );
+    }
+    // Too little to make a new account.
+    let mut effects = Vec::new();
+    let id = world
+        .pay_owner(0, &payment(nobody, 1_000_000, 0), &mut effects)
+        .unwrap();
+    world.apply(0, effects);
+    world.close();
+    assert_eq!(
+        world.nodes[0].scheme.owner_payment(id),
+        OwnerPaymentState::Failed
+    );
+    let books = &world.nodes[0].books;
+    assert_eq!(books.owner, i128::from(FUNDED));
+    assert_eq!(books.fees, 10 * i128::from(UNITS_PER_DROP));
+    assert!(books.cancelled.is_empty() && books.finalized.is_empty());
 }

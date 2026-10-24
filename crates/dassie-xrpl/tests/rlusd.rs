@@ -64,6 +64,7 @@ impl Books {
                 self.owner += i128::from(amount);
                 self.deposits.push(amount);
             }
+            Effect::OwnerPaid { .. } => panic!("a token scheme pays the owner nothing"),
             Effect::Withdrawal { amount } => {
                 self.settlement -= i128::from(amount);
                 self.owner -= i128::from(amount);

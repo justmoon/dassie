@@ -56,6 +56,12 @@ pub struct LedgerBatch {
     pub outgoing: super::OutgoingBatch,
     /// The owner's peer settings, if they changed.
     pub peer_settings: Option<super::PeerSettings>,
+    /// Whether the node moves funds between its XRPL account and its hub
+    /// by itself, if the owner changed it.
+    pub hub_automatic: Option<bool>,
+    /// The move between them on its way, and until when the owner's last
+    /// move pauses the node's own, if either changed.
+    pub hub_funding: Option<super::HubFundingRow>,
 }
 
 impl LedgerBatch {
@@ -77,6 +83,8 @@ impl LedgerBatch {
             && self.incoming_connections_gone.is_empty()
             && self.outgoing.is_empty()
             && self.peer_settings.is_none()
+            && self.hub_automatic.is_none()
+            && self.hub_funding.is_none()
     }
 
     /// Whether it changes Open Payments resources.
@@ -335,6 +343,11 @@ impl Store {
         )?;
         super::outgoing::write_outgoing(&transaction, &batch.outgoing)?;
         super::peer_settings::write_peer_settings(&transaction, batch.peer_settings)?;
+        super::hub_funding::write_hub_funding(
+            &transaction,
+            batch.hub_automatic,
+            batch.hub_funding.as_ref(),
+        )?;
         #[cfg(feature = "testing")]
         self.fail_if_aimed(&transaction, batch);
         transaction.commit()?;
@@ -536,6 +549,10 @@ fn read_transfer(row: &Row<'_>) -> rusqlite::Result<TransferRow> {
                 scheme: name(&scheme, "settlement scheme")?,
                 id: name(&id, "loss ID")?,
             },
+            ("owner_payment", None, None, Some(scheme), Some(id)) => Reference::OwnerPayment {
+                scheme: name(&scheme, "settlement scheme")?,
+                id: name(&id, "owner payment ID")?,
+            },
             ("settlement", None, None, Some(scheme), Some(id)) => Reference::Settlement {
                 scheme: name(&scheme, "settlement scheme")?,
                 id: name(&id, "settlement ID")?,
@@ -662,6 +679,13 @@ fn insert_transfer(
         ),
         Reference::Loss { scheme, id } => (
             "loss",
+            None,
+            None,
+            Some(scheme.as_str().to_string()),
+            Some(id.as_str().to_string()),
+        ),
+        Reference::OwnerPayment { scheme, id } => (
+            "owner_payment",
             None,
             None,
             Some(scheme.as_str().to_string()),

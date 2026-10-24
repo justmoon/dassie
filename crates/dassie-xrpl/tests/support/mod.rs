@@ -40,6 +40,10 @@ pub enum Effect {
     Withdrawal {
         amount: u64,
     },
+    OwnerPaid {
+        id: Name,
+        applied: bool,
+    },
     SendMessage {
         peer: Name,
         message: Vec<u8>,
@@ -74,6 +78,7 @@ impl From<dassie_settlement::Effect> for Effect {
             E::Cancel { settlement } => Self::Cancel { settlement },
             E::Deposit { amount } => Self::Deposit { amount },
             E::Withdrawal { amount } => Self::Withdrawal { amount },
+            E::OwnerPaid { id, applied } => Self::OwnerPaid { id, applied },
             E::SendMessage { peer, message } => Self::SendMessage { peer, message },
             E::Fee { amount, id } => Self::Fee { amount, id },
             E::Reconcile {
@@ -256,6 +261,20 @@ impl XrplScheme {
             .execute_settlement(Some(&mut self.account), settlement, &mut booked);
         effects.extend(booked.into_iter().map(Effect::from));
         self.drain(effects);
+    }
+
+    pub fn pay_owner(
+        &mut self,
+        payment: &dassie_settlement::OwnerPayment,
+        effects: &mut Vec<Effect>,
+    ) -> Result<Name, SchemeError> {
+        let paid = self.scheme.pay_owner(Some(&mut self.account), payment);
+        self.drain(effects);
+        paid
+    }
+
+    pub fn owner_payment(&self, id: Name) -> dassie_settlement::OwnerPaymentState {
+        self.scheme.owner_payment(id)
     }
 
     pub fn discard_settlement(&mut self, settlement: Name) {
