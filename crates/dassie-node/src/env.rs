@@ -18,7 +18,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use dassie_identity::{NodeId, PublicKey, base64url};
-use dassie_node_core::config::Hostname;
+use dassie_node_core::config::{Hostname, LiveRealm};
 use serde::Deserialize;
 
 use crate::log::{LogFilter, LogLevel};
@@ -170,6 +170,11 @@ pub struct Settings {
     /// Whether the peer protocol runs on dev timers, polling every second
     /// (`DASSIE_DEV_TIMINGS=1`).
     pub dev_timings: bool,
+    /// Whether the node may run in the live realm, for dev and the
+    /// end-to-end tests against a fake ledger (`DASSIE_DEV_LIVE_REALM=1`):
+    /// only a build with debug assertions takes the switch
+    /// (spec/decisions/mainnet-schemes.md).
+    pub live_realm: LiveRealm,
     /// The names a node without a hostname answers Open Payments to, beside
     /// its default front door name (`DASSIE_PUBLIC_NAMES`, comma-separated;
     /// spec/areas/payments.md#the-nodes-names).
@@ -199,6 +204,7 @@ impl Settings {
             peer_ca_file: env.path("DASSIE_PEER_CA_FILE"),
             peer_allow_private: flag(env, "DASSIE_PEER_ALLOW_PRIVATE")?,
             dev_timings: flag(env, "DASSIE_DEV_TIMINGS")?,
+            live_realm: live_realm(env, cfg!(debug_assertions))?,
             public_names: public_names(env)?,
             uplinks: uplinks(env)?,
             validator: validator(env)?,
@@ -280,6 +286,24 @@ fn flag(env: &Env, variable: &'static str) -> Result<bool, EnvError> {
         Some(_) => Err(EnvError {
             variable,
             problem: "must be 1 or 0".into(),
+        }),
+    }
+}
+
+/// The live realm's dev switch, `DASSIE_DEV_LIVE_REALM`, in a build with
+/// debug assertions or without: a build without them refuses to start
+/// with it set, so no release binary is turned to real money by a variable
+/// (spec/decisions/mainnet-schemes.md).
+fn live_realm(env: &Env, debug_assertions: bool) -> Result<LiveRealm, EnvError> {
+    const VARIABLE: &str = "DASSIE_DEV_LIVE_REALM";
+    match (flag(env, VARIABLE)?, debug_assertions) {
+        (false, _) => Ok(LiveRealm::Refused),
+        (true, true) => Ok(LiveRealm::DevSwitch),
+        (true, false) => Err(EnvError {
+            variable: VARIABLE,
+            problem: "is a development switch, which a release build refuses: \
+                      the live realm is not supported yet"
+                .into(),
         }),
     }
 }
@@ -515,6 +539,7 @@ mod tests {
             ("DASSIE_DEV_WALLET_DIR", "relative/dist"),
             ("DASSIE_DEV_WALLET_DIR", "/no/such/directory"),
             ("DASSIE_PEER_ALLOW_PRIVATE", "yes"),
+            ("DASSIE_DEV_LIVE_REALM", "live"),
             ("DASSIE_PUBLIC_NAMES", "pay.example.com,not a name"),
             ("DASSIE_PUBLIC_NAMES", "pay.example.com,PAY.example.com"),
             ("DASSIE_PUBLIC_NAMES", "192.0.2.1"),
@@ -534,6 +559,30 @@ mod tests {
             let result = settings(&[("HOME", "/h"), (variable, value)]);
             assert_eq!(result.err().map(|e| e.variable), Some(variable), "{value}");
         }
+    }
+
+    // spec/decisions/mainnet-schemes.md: the live realm's dev switch is
+    // honoured only by a build with debug assertions, as tests are; a
+    // release build refuses to start with it set, naming it, and runs as
+    // ever without it.
+    #[test]
+    fn a_release_build_refuses_the_live_realms_dev_switch() {
+        let on = Env::from_pairs([("DASSIE_DEV_LIVE_REALM", "1")]);
+        let off = Env::from_pairs([("DASSIE_DEV_LIVE_REALM", "0")]);
+        assert_eq!(live_realm(&on, true), Ok(LiveRealm::DevSwitch));
+        assert_eq!(
+            live_realm(&on, false).map_err(|error| error.variable),
+            Err("DASSIE_DEV_LIVE_REALM")
+        );
+        for debug_assertions in [true, false] {
+            assert_eq!(live_realm(&off, debug_assertions), Ok(LiveRealm::Refused));
+            assert_eq!(
+                live_realm(&Env::default(), debug_assertions),
+                Ok(LiveRealm::Refused)
+            );
+        }
+        let switched = settings(&[("HOME", "/h"), ("DASSIE_DEV_LIVE_REALM", "1")]);
+        assert_eq!(switched.map(|s| s.live_realm), Ok(LiveRealm::DevSwitch));
     }
 
     // spec/areas/hubs.md#the-validator-in-the-node: validating is opt-in,

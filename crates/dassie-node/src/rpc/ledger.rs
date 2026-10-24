@@ -312,9 +312,10 @@ fn list_schemes(node: &Node) -> Result<Reply, RpcError> {
         .settlement_schemes()
         .map_err(RpcError::internal)?;
     let is_active = |id: &str| active.iter().any(|(active, _)| active.as_str() == id);
+    let node_realm = crate::engine::ledger_realm(node.config().realm);
     let schemes = crate::engine::SCHEMES
         .iter()
-        .filter(|info| crate::engine::offered(info.id) || is_active(info.id))
+        .filter(|info| crate::engine::offered(info, node_realm) || is_active(info.id))
         .map(|info| {
             let asset = info.ledger.asset();
             proto::SettlementSchemeInfo {

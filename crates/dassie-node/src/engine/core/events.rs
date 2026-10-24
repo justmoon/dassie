@@ -247,6 +247,12 @@ pub enum SettlementEvent {
         /// How much.
         amount: u64,
     },
+    /// A stored scheme is of another realm than the node's: it does not run
+    /// (spec/decisions/mainnet-schemes.md).
+    OtherRealm {
+        /// The scheme.
+        scheme: Name,
+    },
     /// The books refused a scheme's effects, all of them: it is fed nothing
     /// more.
     SchemeStopped {
@@ -473,6 +479,7 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
             ..
         }
         | SettlementEvent::DepositFromStranger { .. }
+        | SettlementEvent::OtherRealm { .. }
         | SettlementEvent::BooksCannotSettle { .. }
         | SettlementEvent::SchemeUnavailable { .. }
         | SettlementEvent::PrepareFailed { .. }

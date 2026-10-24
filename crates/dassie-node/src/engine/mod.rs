@@ -38,7 +38,7 @@ pub use self::core::{
     EngineError, EngineEvent, Event, HubHold, HubStatus, IncomingPolicy, LedgerEvent, LedgerView,
     Lie, Measured, Move, NetworkView, NewIncoming, NewOutgoing, NewToken, Outbound, Output,
     PaymentEvent, PeerEvent, PeerView, Prober, RemovalBlocker, SCHEMES, SettlementEvent, Severity,
-    TokenView, ledger_slug, offered,
+    TokenView, ledger_realm, ledger_slug, offered,
 };
 
 use crate::log::target;
@@ -615,6 +615,7 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         store: node.store_handle(),
         key,
         realm: node.config().realm,
+        live: node.live_realm(),
         policies: *node.policies(),
         rng: node.shared_rng(),
         peer_rng: node.shared_rng(),

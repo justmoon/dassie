@@ -85,9 +85,11 @@ impl Node {
         Ok(config)
     }
 
-    /// Sets the realm; `live` is refused (spec/decisions/real-money.md).
+    /// Sets the realm; `live` is refused (spec/decisions/real-money.md),
+    /// but by the dev switch (spec/decisions/mainnet-schemes.md). It takes
+    /// effect when the engine starts again.
     pub fn set_realm(&self, realm: Realm) -> Result<NodeConfig, SettingsError> {
-        let realm = realm.check_settable()?;
+        let realm = realm.check_settable(self.live_realm())?;
         let (config, _) = self.change_config(|config| {
             config.realm = realm;
             Ok(true)

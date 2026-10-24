@@ -218,6 +218,9 @@ pub struct NodeOptions {
     /// The names the owner added, which a node without a hostname answers
     /// Open Payments to.
     pub public_names: Vec<dassie_node_core::config::Hostname>,
+    /// Whether the live realm may be set and run: by the dev switch only
+    /// (spec/decisions/mainnet-schemes.md).
+    pub live_realm: dassie_node_core::config::LiveRealm,
 }
 
 /// The peer protocol's settings, from the environment.
@@ -431,6 +434,8 @@ pub struct Node {
     founding: std::sync::OnceLock<Arc<crate::hub::founding::Founding>>,
     /// The hubs the node founds as a sponsor.
     sponsoring: crate::hub::sponsor::Sponsoring,
+    /// Whether the live realm may be set and run.
+    live_realm: dassie_node_core::config::LiveRealm,
 }
 
 impl std::fmt::Debug for Node {
@@ -484,6 +489,7 @@ impl Node {
             peer,
             dev_wallet_dir,
             public_names,
+            live_realm,
         } = options;
         let peer = PeerSide::new(peer)?;
         let now_ms = clock.now_ms();
@@ -541,7 +547,15 @@ impl Node {
             hubs: Arc::new(crate::hub::Hubs::default()),
             founding: std::sync::OnceLock::new(),
             sponsoring: crate::hub::sponsor::Sponsoring::default(),
+            live_realm,
         }))
+    }
+
+    /// Whether the live realm may be set and run: by the dev switch, in a
+    /// build with debug assertions only (spec/decisions/mainnet-schemes.md).
+    #[must_use]
+    pub const fn live_realm(&self) -> dassie_node_core::config::LiveRealm {
+        self.live_realm
     }
 
     /// The validator's side of founding hubs, where the owner turned

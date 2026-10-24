@@ -469,6 +469,7 @@ fn make_node(
         peer: peer_options(settings),
         dev_wallet_dir: settings.dev_wallet_dir.clone(),
         public_names: settings.public_names.clone(),
+        live_realm: settings.live_realm,
     })
     .map_err(DaemonError::Node)?;
     if let Some(to) = extras.node_out {
@@ -569,6 +570,11 @@ const DEV_TIMINGS: DevFlag = DevFlag {
     effect: "the peer protocol runs on dev timers, polling and settling every second",
 };
 
+const LIVE_REALM: DevFlag = DevFlag {
+    variable: "DASSIE_DEV_LIVE_REALM",
+    effect: "the node may run in the live realm, whose schemes settle real money on a mainnet server",
+};
+
 /// The development switches that are set, if the node listens beyond
 /// loopback. On loopback, as in dev and the tests, they are expected and
 /// none are returned. An unspecified address (`0.0.0.0`, `::`) listens on
@@ -580,6 +586,10 @@ fn exposed_dev_flags(settings: &Settings, bound: &[IpAddr]) -> Vec<DevFlag> {
     [
         (settings.peer_allow_private, PEER_ALLOW_PRIVATE),
         (settings.dev_timings, DEV_TIMINGS),
+        (
+            settings.live_realm == dassie_node_core::config::LiveRealm::DevSwitch,
+            LIVE_REALM,
+        ),
     ]
     .into_iter()
     .filter_map(|(set, flag)| set.then_some(flag))

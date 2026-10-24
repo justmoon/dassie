@@ -2,7 +2,10 @@
 //! balances, sequences and reserves, Payments of XRP checked as the ledger
 //! checks them (signature, sequence, fee, last ledger, funds), ledgers that
 //! close on command with real result codes and close times, the metadata,
-//! streams and history the node reads, resets, and a faucet.
+//! streams and history the node reads, resets, and a faucet. It is the
+//! testnet ([`FakeLedger::new`]) or mainnet ([`FakeLedger::mainnet`]),
+//! whose network ID it reports, which has no faucet and never resets
+//! (spec/decisions/mainnet-schemes.md).
 //!
 //! Tokens on trust lines ([`tokens`]): lines as `RippleState` entries with
 //! their owner reserve, `TrustSet`, token Payments that ripple through the
@@ -41,6 +44,7 @@ use crate::codec::{
     Amount, Currency, Payment, Signing, TokenAmount, Transact, Transaction, hash, multi_signed_fee,
 };
 use crate::keys::AccountId;
+use crate::network::{MAINNET, Network, TESTNET};
 use crate::{DROPS_PER_XRP, from_hex, hex_upper};
 
 pub use pools::{POOL_ACCOUNT_FLAGS, PoolState, pool_account};
@@ -246,7 +250,9 @@ pub struct FakeLedger {
     wiped: u64,
     /// The reserve, which [`set_reserve`](Self::set_reserve) changes.
     reserve: (u64, u64),
-    /// The network ID `server_state` reports: the testnet's, unless
+    /// The network it is: whether it has a faucet, and whether it resets.
+    network: &'static Network,
+    /// The network ID `server_state` reports: its network's, unless
     /// [`set_network_id`](Self::set_network_id) changes it.
     network_id: Option<u32>,
 }
@@ -258,14 +264,30 @@ impl Default for FakeLedger {
 }
 
 impl FakeLedger {
-    /// A ledger with only the genesis account and the issuers of RLUSD and
-    /// DSUSD.
+    /// The testnet: a ledger with only the genesis account and the
+    /// issuers of RLUSD and DSUSD.
     #[must_use]
     pub fn new() -> Self {
+        let mut ledger = Self::on(&TESTNET);
+        ledger.add_issuer(RLUSD_ISSUER);
+        ledger.add_issuer(DSUSD_ISSUER);
+        ledger
+    }
+
+    /// Mainnet: a ledger with only the genesis account, which reports
+    /// mainnet's network ID, has no faucet and never resets. The testnet's
+    /// test tokens are not on it.
+    #[must_use]
+    pub fn mainnet() -> Self {
+        Self::on(&MAINNET)
+    }
+
+    /// A ledger of `network` with only the genesis account.
+    fn on(network: &'static Network) -> Self {
         let genesis = AccountId([0xAB; 20]);
         let mut accounts = BTreeMap::new();
         accounts.insert(genesis, Account::new(crate::MAX_DROPS, 1));
-        let mut ledger = Self {
+        Self {
             accounts,
             lines: BTreeMap::new(),
             issuers: BTreeSet::new(),
@@ -285,11 +307,15 @@ impl FakeLedger {
             burned: 0,
             wiped: 0,
             reserve: (RESERVE_BASE, RESERVE_INC),
-            network_id: Some(1),
-        };
-        ledger.add_issuer(RLUSD_ISSUER);
-        ledger.add_issuer(DSUSD_ISSUER);
-        ledger
+            network,
+            network_id: Some(network.id),
+        }
+    }
+
+    /// The network it is.
+    #[must_use]
+    pub const fn network(&self) -> &'static Network {
+        self.network
     }
 
     /// Makes `issuer` an account the fake acts as, with [`ISSUER_FLAGS`]
@@ -393,7 +419,9 @@ impl FakeLedger {
     /// Starts the chain again, as a testnet reset does: every account but
     /// genesis and the issuers, every trust line, signer list and pool, and
     /// all history wiped, from a ledger below the last, which closes later.
+    /// Only the testnet resets.
     pub fn reset(&mut self) {
+        assert!(self.network.resets(), "only the testnet resets");
         self.ledger = RESTART_LEDGER.min(self.ledger.saturating_sub(1));
         self.close_time = self.close_time.saturating_add(CLOSE_INTERVAL_S);
         self.history_from = self.ledger;
@@ -481,8 +509,10 @@ impl FakeLedger {
         }
     }
 
-    /// The faucet: funds `to` in the next ledger.
+    /// The faucet: funds `to` in the next ledger. Only the testnet has
+    /// one; on mainnet, the owner deposits ([`deposit`](Self::deposit)).
     pub fn fund(&mut self, to: AccountId) {
+        assert!(self.network.faucet.is_some(), "mainnet has no faucet");
         self.deposit(to, FAUCET_DROPS);
     }
 

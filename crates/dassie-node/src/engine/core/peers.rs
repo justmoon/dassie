@@ -407,7 +407,7 @@ impl Core {
     pub fn network(&self) -> NetworkView {
         NetworkView {
             own: *self.peer.own(),
-            allocation_scheme: self.allocation_scheme,
+            allocation_scheme: self.realm.ilp_allocation_scheme(),
             nodes: self.peer.nodes(),
             peers: self
                 .peer
@@ -891,7 +891,7 @@ impl Core {
         let address = if self.peer.is_downlink(&node) {
             format!("{}.{node}", self.connector.own_address())
         } else {
-            format!("{}.das.{node}", self.allocation_scheme)
+            format!("{}.das.{node}", self.realm.ilp_allocation_scheme())
         };
         let first = self.rng.next_u32();
         self.connector
@@ -917,7 +917,7 @@ impl Core {
     /// Gives the connector the peer node's routes, as prefixes and peer
     /// endpoints.
     pub(super) fn update_routes(&mut self) {
-        let scheme = self.allocation_scheme;
+        let scheme = self.realm.ilp_allocation_scheme();
         let routes: Vec<(String, Vec<EndpointId>)> = self
             .peer
             .routes()
@@ -967,7 +967,7 @@ impl Core {
     fn child_address(&self, uplink: &NodeId) -> String {
         format!(
             "{}.das.{uplink}.{}",
-            self.allocation_scheme,
+            self.realm.ilp_allocation_scheme(),
             self.peer.own()
         )
     }

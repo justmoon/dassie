@@ -13,8 +13,8 @@ use dassie_settlement::policy;
 use dassie_ledger::LedgerId;
 
 use super::{
-    DSUSD, Drift, Payment, RLUSD, START, Settling, Sim, TRIGGER, USD, Withdrawal, XRP, key,
-    received, sent, xrpl_account,
+    DSUSD, Drift, LIVE_XRP, Payment, RLUSD, START, Settling, Sim, TRIGGER, USD, Withdrawal, XRP,
+    key, received, sent,
 };
 use crate::node::Policies;
 use crate::store::{OutgoingState, PaymentId};
@@ -663,7 +663,7 @@ pub fn check_funded(sim: &Sim) -> Result<(), String> {
         sim.settling
             .ledgers(*index)
             .iter()
-            .any(|ledger| [XRP, RLUSD, DSUSD].contains(ledger))
+            .any(|ledger| [XRP, LIVE_XRP, RLUSD, DSUSD].contains(ledger))
     };
     if let Some(index) = (0..sim.nodes.len())
         .filter(on_xrpl)
@@ -720,8 +720,8 @@ pub fn check_held(sim: &Sim, index: usize, ledger: LedgerId) -> Result<i128, Str
         ));
     }
     match ledger {
-        XRP => {
-            let drops = sim.ledger.balance(xrpl_account(index)).unwrap_or(0);
+        XRP | LIVE_XRP => {
+            let drops = sim.ledger.balance(sim.xrpl_account(index)).unwrap_or(0);
             let bookable = i128::from(drops) * 1_000 - i128::from(view.reserve);
             if booked != bookable.max(0) {
                 return Err(format!(

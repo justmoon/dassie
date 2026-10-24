@@ -36,7 +36,10 @@
 //! Each run settles over the stub, or over the XRP Ledger testnet scheme
 //! against a fake ledger in the same process (M7b): its connections lag,
 //! lose requests and drop, and the books must still match every node's
-//! account, less its reserve, with no XRP made or lost.
+//! account, less its reserve, with no XRP made or lost. A run in the live
+//! realm settles over mainnet's scheme, `xrpl`, against the fake ledger's
+//! mainnet, which has no faucet: each node's owner deposits
+//! (spec/decisions/mainnet-schemes.md).
 //!
 //! Runs across currencies (M7c) give some nodes dollars, some XRP and
 //! some both, at a fixed snapshot of rates, one charging a fee and a
@@ -90,7 +93,7 @@ use dassie_connector::SpendingCap;
 use dassie_identity::{NodeId, NodeKey};
 use dassie_ilp::{Address, Prepare, Timestamp};
 use dassie_ledger::LedgerId;
-use dassie_node_core::config::Realm;
+use dassie_node_core::config::{LiveRealm, Realm};
 use dassie_node_core::testing::SeededRng;
 use dassie_oer::Decode;
 use dassie_payments::amount::paid_in_full;
@@ -100,6 +103,7 @@ use dassie_settlement::policy;
 use dassie_stream::{AssetDetails, BUFFER_LENGTH, Config, Connection, Policy, Role};
 use dassie_xrpl::codec::TokenValue;
 use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, Token};
+use dassie_xrpl::network::{MAINNET, Network, TESTNET};
 
 use crate::engine::{
     Core, CoreParts, EngineEvent, Event, LedgerEvent, NewIncoming, NewOutgoing, Outbound, Output,
@@ -107,10 +111,6 @@ use crate::engine::{
 };
 use crate::node::Policies;
 use crate::store::{Aim, FailedCommit, ForeignAmount, Holds, PaymentId, PeerSettings, Store};
-
-/// The node's first XRPL testnet account, which the XRP Ledger scheme
-/// settles through: the connection to the fake ledger is the account's.
-const XRPL_ACCOUNT: &str = "xrpl-testnet-account/0";
 
 /// When every simulation starts.
 pub const START: u64 = 1_800_000_000_000;
@@ -146,6 +146,9 @@ pub enum Settling {
     StubHub(usize),
     /// The XRP Ledger testnet scheme, against the fake ledger.
     Xrpl,
+    /// The XRP Ledger mainnet scheme, `xrpl`, in the live realm, against
+    /// the fake ledger's mainnet.
+    XrplLive,
     /// Node 0 on the stub, 2 on the XRP Ledger, 1 and 3 on both (M7c).
     Cross,
     /// The RLUSD scheme alone, against the fake ledger and its issuer: the
@@ -167,6 +170,8 @@ pub enum Settling {
 pub const USD: LedgerId = LedgerId::StubUsd;
 /// The XRP Ledger testnet.
 pub const XRP: LedgerId = LedgerId::XrplTestnetXrp;
+/// The XRP Ledger mainnet: real money, in the live realm.
+pub const LIVE_XRP: LedgerId = LedgerId::XrplXrp;
 /// RLUSD on the XRP Ledger testnet, in dollars.
 pub const RLUSD: LedgerId = LedgerId::XrplTestnetRlusdUsd;
 /// DSUSD on the XRP Ledger testnet, in dollars.
@@ -178,6 +183,8 @@ pub const HUB: LedgerId = LedgerId::HubXrpTestnetXrp;
 /// through one account.
 const XRPL_CONFIG: &str =
     r#"{"server":"ws://ledger.test","faucet":"https://faucet.test/accounts"}"#;
+/// The config of mainnet's scheme: mainnet has no faucet.
+const XRPL_LIVE_CONFIG: &str = r#"{"server":"ws://ledger.test"}"#;
 
 /// What the fake ledger's issuer mints each node on its token's ledger once
 /// its line exists, in millionths of a dollar: as much as the stub gives.
@@ -189,6 +196,7 @@ impl Settling {
         match self {
             Self::Stub | Self::StubHub(_) => USD,
             Self::Xrpl => XRP,
+            Self::XrplLive => LIVE_XRP,
             Self::Rlusd => RLUSD,
             Self::Hub(_) => HUB,
             Self::Cross | Self::XrpRlusd | Self::XrpDsusd => {
@@ -202,6 +210,7 @@ impl Settling {
         match (self, index % 4) {
             (Self::Stub | Self::StubHub(_), _) | (Self::Cross, 0) => &[USD],
             (Self::Xrpl, _) | (Self::Cross | Self::XrpRlusd | Self::XrpDsusd, 2) => &[XRP],
+            (Self::XrplLive, _) => &[LIVE_XRP],
             (Self::Cross, _) => &[USD, XRP],
             (Self::Rlusd, _) | (Self::XrpRlusd, 0) => &[RLUSD],
             (Self::XrpRlusd, _) => &[RLUSD, XRP],
@@ -227,7 +236,29 @@ impl Settling {
         match self {
             Self::Rlusd | Self::XrpRlusd => Some((RLUSD, Token::RLUSD)),
             Self::XrpDsusd => Some((DSUSD, Token::DSUSD)),
-            Self::Stub | Self::StubHub(_) | Self::Xrpl | Self::Cross | Self::Hub(_) => None,
+            Self::Stub
+            | Self::StubHub(_)
+            | Self::Xrpl
+            | Self::XrplLive
+            | Self::Cross
+            | Self::Hub(_) => None,
+        }
+    }
+
+    /// The XRP Ledger network its nodes settle on, if they do.
+    pub const fn network(self) -> &'static Network {
+        match self {
+            Self::XrplLive => &MAINNET,
+            _ => &TESTNET,
+        }
+    }
+
+    /// The realm of its nodes: live on mainnet, which they run by the dev
+    /// switch, as tests do (spec/decisions/mainnet-schemes.md).
+    pub const fn realm(self) -> (Realm, LiveRealm) {
+        match self {
+            Self::XrplLive => (Realm::Live, LiveRealm::DevSwitch),
+            _ => (Realm::Test, LiveRealm::Refused),
         }
     }
 
@@ -240,7 +271,9 @@ impl Settling {
     /// what the faucet gives above the reserve, or what the issuer mints.
     pub const fn deposit(ledger: LedgerId) -> i128 {
         match ledger {
-            LedgerId::XrplTestnetXrp => (FAUCET_DROPS as i128 - 1_000_000) * 1_000,
+            LedgerId::XrplTestnetXrp | LedgerId::XrplXrp => {
+                (FAUCET_DROPS as i128 - 1_000_000) * 1_000
+            }
             LedgerId::XrplTestnetRlusdUsd | LedgerId::XrplTestnetDsusdUsd => {
                 MINT_MICROS as i128 * 1_000
             }
@@ -252,6 +285,7 @@ impl Settling {
     pub const fn scheme(ledger: LedgerId) -> (&'static str, &'static str) {
         match ledger {
             LedgerId::XrplTestnetXrp => ("xrpl-testnet", XRPL_CONFIG),
+            LedgerId::XrplXrp => ("xrpl", XRPL_LIVE_CONFIG),
             LedgerId::XrplTestnetRlusdUsd => ("xrpl-testnet-rlusd", XRPL_CONFIG),
             LedgerId::XrplTestnetDsusdUsd => ("xrpl-testnet-dsusd", XRPL_CONFIG),
             LedgerId::HubXrpTestnetXrp => (dassie_hub::member::SCHEME_ID, ""),
@@ -848,7 +882,10 @@ impl Sim {
             apart: BTreeSet::new(),
             credits,
             settling,
-            ledger: FakeLedger::new(),
+            ledger: match settling {
+                Settling::XrplLive => FakeLedger::mainnet(),
+                _ => FakeLedger::new(),
+            },
             links: BTreeMap::new(),
             fifo: BTreeMap::new(),
             next_connection: 0,
@@ -914,6 +951,12 @@ impl Sim {
             if settling.across() && index == 1 {
                 sim.step(index, |core| core.set_peer_settings(CHARGES).unwrap());
             }
+            // Mainnet has no faucet: the owner deposits as much as the
+            // testnet's gives.
+            if settling.network().faucet.is_none() {
+                sim.ledger.deposit(sim.xrpl_account(index), FAUCET_DROPS);
+                *sim.fundings.entry(index).or_default() += 1;
+            }
         }
         sim
     }
@@ -928,10 +971,12 @@ impl Sim {
         node.copied.clear();
         node.replays.clear();
         node.fulfills.clear();
+        let (realm, live) = self.settling.realm();
         let parts = CoreParts {
             store: Arc::clone(&node.store),
             key: key(index),
-            realm: Realm::Test,
+            realm,
+            live,
             policies: Policies {
                 peer_credit: self
                     .credits
@@ -1694,8 +1739,9 @@ impl Sim {
         };
         self.ledger.disconnect(link.connection);
         let generation = self.nodes[index].generation;
+        let asset = self.xrpl_asset();
         let stepped = self.step(index, |core| {
-            core.ledger_event(XRPL_ACCOUNT, link.epoch, &LedgerEvent::Disconnected);
+            core.ledger_event(&asset, link.epoch, &LedgerEvent::Disconnected);
         });
         if !stepped {
             return;
@@ -1869,7 +1915,8 @@ impl Sim {
                 event,
             } => {
                 if self.nodes[to].generation == generation {
-                    self.step(to, |core| core.ledger_event(XRPL_ACCOUNT, epoch, &event));
+                    let asset = self.xrpl_asset();
+                    self.step(to, |core| core.ledger_event(&asset, epoch, &event));
                 }
             }
             Delivery::HubRequest {
@@ -2472,7 +2519,7 @@ impl Sim {
     /// back, which is the owner's withdrawal.
     pub fn deposit(&self, index: usize) -> i128 {
         match self.settling.ledger() {
-            LedgerId::XrplTestnetXrp => {
+            LedgerId::XrplTestnetXrp | LedgerId::XrplXrp => {
                 let fundings = i128::from(self.fundings.get(&index).copied().unwrap_or(0));
                 (fundings * i128::from(FAUCET_DROPS) - 1_000_000).max(0) * 1_000
             }
@@ -2606,13 +2653,32 @@ pub fn client(credentials: &(String, String, [u8; 32]), ledger: LedgerId) -> Con
     connection
 }
 
-/// Node `index`'s account on the XRP Ledger: the original's wallet of its
-/// key.
+/// Node `index`'s account on the XRP Ledger testnet: the original's
+/// wallet of its key.
 pub fn xrpl_account(index: usize) -> dassie_xrpl::AccountId {
+    xrpl_account_on(index, &TESTNET)
+}
+
+/// Node `index`'s account on `network`: the original's wallet of its key,
+/// at the network's seed path.
+pub fn xrpl_account_on(index: usize, network: &Network) -> dassie_xrpl::AccountId {
     let entropy = key(index)
-        .settlement_entropy("xrpl-testnet", "seed-testnet")
+        .settlement_entropy(network.seed.module, network.seed.path)
         .unwrap();
     dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account()
+}
+
+impl Sim {
+    /// Node `index`'s account on the run's network.
+    pub fn xrpl_account(&self, index: usize) -> dassie_xrpl::AccountId {
+        xrpl_account_on(index, self.settling.network())
+    }
+
+    /// The external asset of the nodes' first account on the run's
+    /// network, whose connection to the fake ledger the account keeps.
+    fn xrpl_asset(&self) -> String {
+        self.settling.network().first().to_string()
+    }
 }
 
 impl Sim {
