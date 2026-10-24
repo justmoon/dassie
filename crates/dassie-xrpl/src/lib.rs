@@ -2,7 +2,7 @@
 //!
 //! - [`keys`]: the original's wallet, derived from the node's settlement
 //!   entropy, so the same phrase finds the same funds; secp256k1 keys;
-//!   account IDs and their addresses ([`base58`]).
+//!   account IDs and their addresses, and validators' keys ([`base58`]).
 //! - [`amount`]: amounts of XRP and of tokens, exact, and their
 //!   conversion to and from whole units.
 //! - [`codec`]: the binary form of the transactions the node sends, a
@@ -11,6 +11,11 @@
 //!   account several keys control (`AccountSet`, `SetRegularKey`,
 //!   `SignerListSet`); their signing by one key or by several, each
 //!   alone, and their hash.
+//! - [`binary`]: the ledger's binary format, any of it, read in its
+//!   canonical form only, for what the node proves rather than signs:
+//!   [`header`], a ledger's header and its hash; [`validation`], a
+//!   validator's signature on a ledger; [`manifest`], the keys a
+//!   validator or a list publisher signs with.
 //! - [`api`]: the rippled WebSocket JSON the node speaks: requests, and
 //!   what comes back, parsed and bounded.
 //! - [`amm`]: an AMM pool's price, exact, for a client that swaps through
@@ -46,16 +51,20 @@ pub mod amm;
 pub mod amount;
 pub mod api;
 pub mod base58;
+pub mod binary;
 pub mod codec;
 pub mod dsusd;
 #[cfg(feature = "fake")]
 pub mod fake;
+pub mod header;
 pub mod keys;
+pub mod manifest;
 pub mod network;
 pub mod peg;
 pub mod rlusd;
 pub mod scheme;
 pub mod token;
+pub mod validation;
 
 pub use account::{Config, XrplAccount};
 pub use dsusd::DsusdScheme;
