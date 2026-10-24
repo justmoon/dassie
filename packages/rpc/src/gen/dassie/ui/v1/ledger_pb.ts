@@ -100,7 +100,8 @@ export type Ledger = Message<"dassie.ui.v1.Ledger"> & {
   connection: LedgerConnection;
 
   /**
-   * Why, when it is FAILED.
+   * Why, when it is FAILED; otherwise what it waits for, if something
+   * keeps it from going on, such as a validator list it has none of.
    *
    * @generated from field: string connection_problem = 12;
    */
@@ -464,7 +465,8 @@ export type ExternalAsset = Message<"dassie.ui.v1.ExternalAsset"> & {
   connection: LedgerConnection;
 
   /**
-   * Why, when it is FAILED.
+   * Why, when it is FAILED; otherwise what it waits for, if something
+   * keeps it from going on, such as a validator list it has none of.
    *
    * @generated from field: string connection_problem = 5;
    */

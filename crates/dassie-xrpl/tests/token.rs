@@ -253,7 +253,9 @@ fn entropy(seed: u8) -> [u8; 32] {
 /// `state`.
 fn new_account(seed: u8, state: &[u8]) -> XrplAccount {
     let schemes = [name(dassie_xrpl::scheme::SCHEME_ID), name(dsusd::SCHEME_ID)];
-    XrplAccount::new(account::FIRST, &schemes, "", &entropy(seed), state).unwrap()
+    // It trusts the fake ledger's validators.
+    let config = dassie_xrpl::fake::with_publishers("", &dassie_xrpl::network::TESTNET);
+    XrplAccount::new(account::FIRST, &schemes, &config, &entropy(seed), state).unwrap()
 }
 
 /// Dollars in internal units.
@@ -269,7 +271,7 @@ impl World {
         let mut world = Self {
             ledger: FakeLedger::new(),
             nodes: Vec::new(),
-            now: 1_000,
+            now: dassie_xrpl::fake::FIRST_CLOSE_MS,
             next_connection: 1,
             drop_lookups: false,
             refuse_own: None,
@@ -333,6 +335,8 @@ impl World {
     }
 
     fn input(&mut self, index: usize, input: LedgerInput<'_>) {
+        // The node's clock reads the ledger's validations as fresh.
+        self.now = self.now.max(self.ledger.now_ms());
         self.nodes[index].account.on_ledger(self.now, input);
         self.tell(index);
     }
@@ -419,6 +423,14 @@ impl World {
                     self.ledger.fund(to);
                     self.input(index, LedgerInput::Funded(true));
                 }
+                AssetEffect::Fetch { url, .. } => {
+                    let body = self.ledger.fetch(&url);
+                    let fetched = LedgerInput::Fetched {
+                        url: &url,
+                        body: body.as_deref(),
+                    };
+                    self.input(index, fetched);
+                }
                 AssetEffect::SendTo { .. } => panic!("an XRPL account names no endpoints"),
             }
         }
@@ -445,7 +457,8 @@ impl World {
     /// against the ledger.
     fn close(&mut self) {
         self.now += 4_000;
-        for (connection, message) in self.ledger.close() {
+        let close_time = dassie_xrpl::unl::ledger_seconds(self.now);
+        for (connection, message) in self.ledger.close_at(close_time) {
             if let Some(index) = self
                 .nodes
                 .iter()
@@ -796,7 +809,7 @@ fn no_line_without_xrp_for_it() {
     let mut world = World {
         ledger: FakeLedger::new(),
         nodes: Vec::new(),
-        now: 1_000,
+        now: dassie_xrpl::fake::FIRST_CLOSE_MS,
         next_connection: 1,
         drop_lookups: false,
         refuse_own: None,
@@ -880,7 +893,7 @@ fn a_line_made_outside_the_node_is_corrected() {
     let mut world = World {
         ledger,
         nodes: Vec::new(),
-        now: 1_000,
+        now: dassie_xrpl::fake::FIRST_CLOSE_MS,
         next_connection: 1,
         drop_lookups: false,
         refuse_own: None,
@@ -1164,7 +1177,7 @@ fn gas_on_a_shared_account_is_the_owners_to_spend() {
     let mut world = World {
         ledger: FakeLedger::new(),
         nodes: Vec::new(),
-        now: 1_000,
+        now: dassie_xrpl::fake::FIRST_CLOSE_MS,
         next_connection: 1,
         drop_lookups: false,
         refuse_own: None,

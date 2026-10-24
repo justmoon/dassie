@@ -85,10 +85,12 @@ impl World {
 
     /// `count` nodes, connected to `ledger`.
     fn on(ledger: FakeLedger, count: u8) -> Self {
+        // The node's clock reads the ledger's validations as fresh.
+        let now = ledger.now_ms();
         let mut world = Self {
             ledger,
             nodes: Vec::new(),
-            now: 1_000,
+            now,
             next_connection: 1,
         };
         for seed in 0..count {
@@ -238,14 +240,27 @@ impl World {
                     self.ledger.fund(to);
                     self.input(index, LedgerInput::Funded(true));
                 }
+                Effect::Fetch { url } => self.fetch(index, &url),
             }
         }
+    }
+
+    /// Node `index` fetches `url`: the fake's validator list, from its
+    /// site.
+    fn fetch(&mut self, index: usize, url: &str) {
+        let body = self.ledger.fetch(url);
+        let fetched = LedgerInput::Fetched {
+            url,
+            body: body.as_deref(),
+        };
+        self.input(index, fetched);
     }
 
     /// Closes a ledger, and delivers the streams.
     fn close(&mut self) {
         self.now += 4_000;
-        for (connection, message) in self.ledger.close() {
+        let close_time = dassie_xrpl::unl::ledger_seconds(self.now);
+        for (connection, message) in self.ledger.close_at(close_time) {
             if let Some(index) = self
                 .nodes
                 .iter()
@@ -1224,12 +1239,23 @@ fn failed(world: &World, index: usize) -> bool {
 }
 
 // The network is checked first: the first request on a connection is
-// `server_state`, and the account is subscribed only after it.
+// `server_state`, and the account is subscribed only after it, then
+// anchored on a ledger its UNL validated before it is read
+// (spec/designs/xrpl-validation.md#6-the-account-on-proofs).
 #[test]
 fn the_network_is_checked_before_the_account_is_read() {
     let (world, _, _) = funded_pair();
     let asked = &world.nodes[0].asked;
-    assert_eq!(asked[..3], ["server_state", "subscribe", "account_info"]);
+    assert_eq!(
+        asked[..5],
+        [
+            "server_state",
+            "subscribe",
+            "state_proof",
+            "validations",
+            "account_info"
+        ]
+    );
 }
 
 // A server off the XRP Ledger testnet (mainnet 0, devnet 2, a network

@@ -9,6 +9,10 @@
 //! `wss://` connects with the node's TLS trust; `ws://` only where private
 //! addresses are allowed (dev and tests). Names resolve as for the node's
 //! requests: public addresses only, unless private ones are allowed.
+//!
+//! Beside the connections, what an asset asks of the web: a faucet's
+//! funding, and documents it fetches, such as its validator lists, over
+//! HTTPS, following no redirect (spec/designs/xrpl-validation.md#9-io).
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -25,8 +29,11 @@ use super::{Command, LedgerEvent};
 use crate::log::target;
 use crate::peer_client::{PeerClient, WebRequest};
 
-/// Most bytes in one message from a ledger.
-const MAX_MESSAGE: usize = 1 << 20;
+/// Most bytes in one message from a ledger: the longest answer an XRPL
+/// account reads, a proof server's proofs and validations
+/// ([`dassie_xrpl::api::MAX_ANSWER_BYTES`]). A server whose message is
+/// longer is cut off, and the asset connects anew.
+const MAX_LEDGER_MESSAGE: usize = dassie_xrpl::api::MAX_ANSWER_BYTES;
 /// Messages waiting to go out on one connection; beyond, they are dropped,
 /// and the asset, hearing nothing, connects anew.
 const QUEUE: usize = 64;
@@ -37,6 +44,10 @@ const BACKOFF_MAX: Duration = Duration::from_secs(60);
 /// Bounds on asking a faucet.
 const FAUCET_TIMEOUT_MS: u64 = 30_000;
 const FAUCET_MAX_BYTES: usize = 64 * 1024;
+/// How long a fetch may take: within the account's own bound
+/// ([`dassie_xrpl::account::FETCH_TIMEOUT_MS`]), so its answer is still
+/// taken.
+const FETCH_TIMEOUT_MS: u64 = dassie_xrpl::account::FETCH_TIMEOUT_MS / 2;
 
 struct Link {
     epoch: u64,
@@ -137,6 +148,59 @@ pub(super) fn fund(
         };
         tracing::info!(target: target::SETTLEMENT, %asset, funded, "asked the faucet");
         report(&commands, asset, epoch, LedgerEvent::Funded(funded)).await;
+    });
+}
+
+/// A document an asset fetches.
+pub(super) struct Fetch {
+    /// The asset.
+    pub asset: String,
+    /// Its connection, which the answer is for.
+    pub epoch: u64,
+    /// What to fetch: `https://`.
+    pub url: String,
+    /// The longest body taken.
+    pub max_bytes: usize,
+}
+
+/// Fetches a document for an asset by an HTTPS GET, and tells the core what
+/// came: the body of a successful answer, or nothing. A redirect is no
+/// answer: the client follows none, so a site is the address that serves
+/// it.
+pub(super) fn fetch(client: Option<PeerClient>, commands: mpsc::Sender<Command>, fetch: Fetch) {
+    let Fetch {
+        asset,
+        epoch,
+        url,
+        max_bytes,
+    } = fetch;
+    tokio::spawn(async move {
+        let body = match client {
+            Some(client) => {
+                let request = WebRequest {
+                    method: http::Method::GET,
+                    url: url.clone(),
+                    headers: Vec::new(),
+                    body: None,
+                    timeout_ms: FETCH_TIMEOUT_MS,
+                    max_response_bytes: max_bytes,
+                };
+                match client.web(request).await {
+                    Ok(response) if (200..300).contains(&response.status) => Some(response.body),
+                    Ok(response) => {
+                        tracing::warn!(target: target::SETTLEMENT, %asset, %url, status = response.status, "a fetch was refused");
+                        None
+                    }
+                    Err(error) => {
+                        tracing::warn!(target: target::SETTLEMENT, %asset, %url, ?error, "a fetch failed");
+                        None
+                    }
+                }
+            }
+            None => None,
+        };
+        tracing::debug!(target: target::SETTLEMENT, %asset, %url, fetched = body.is_some(), "fetched");
+        report(&commands, asset, epoch, LedgerEvent::Fetched { url, body }).await;
     });
 }
 
@@ -335,8 +399,8 @@ impl Task {
             .await
             .map_err(|e| e.to_string())?;
         let config = WebSocketConfig::default()
-            .max_message_size(Some(MAX_MESSAGE))
-            .max_frame_size(Some(MAX_MESSAGE));
+            .max_message_size(Some(MAX_LEDGER_MESSAGE))
+            .max_frame_size(Some(MAX_LEDGER_MESSAGE));
         if secure {
             let name = ServerName::try_from(host.to_string()).map_err(|e| e.to_string())?;
             let tls = tokio_rustls::TlsConnector::from(client.tls())

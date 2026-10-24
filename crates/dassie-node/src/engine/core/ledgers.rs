@@ -70,6 +70,9 @@ pub struct LedgerView {
     pub faucet: bool,
     /// How the scheme stands with its ledger.
     pub status: LedgerStatus,
+    /// What its asset waits for, if something keeps it from going on, such
+    /// as a validator list.
+    pub waiting: Option<&'static str>,
     /// What its peg guard says, for a dollar token's scheme that has one.
     pub peg: Option<PegView>,
     /// What keeps the scheme from being removed now.
@@ -829,6 +832,7 @@ impl Core {
                 ),
                 None => self.scheme_status(active),
             },
+            waiting: asset.and_then(|asset| asset.asset.waiting()),
             peg: active.scheme.peg(),
             removal_blockers: self.removal_blockers(*id, ledger),
         })

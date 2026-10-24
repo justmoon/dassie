@@ -245,6 +245,37 @@ fn a_stopped_scheme_is_not_peered_on() {
     assert_eq!(core.peer.schemes(), [stub]);
 }
 
+/// The fake XRP Ledger, testnet or `mainnet`, its clock at the tests'
+/// [`NOW`], so that the validations a node reads of it are fresh.
+fn fake_ledger(mainnet: bool) -> dassie_xrpl::fake::FakeLedger {
+    let mut ledger = if mainnet {
+        dassie_xrpl::fake::FakeLedger::mainnet()
+    } else {
+        dassie_xrpl::fake::FakeLedger::new()
+    };
+    ledger.set_close_time(dassie_xrpl::unl::ledger_seconds(NOW));
+    ledger
+}
+
+/// `config`, of the XRPL scheme `scheme`, trusting the validators of the
+/// fake ledger of its network.
+fn trusting_fake(scheme: &str, config: &str) -> String {
+    let network = if matches!(scheme, "xrpl" | "xrpl-rlusd") {
+        &dassie_xrpl::network::MAINNET
+    } else {
+        &dassie_xrpl::network::TESTNET
+    };
+    dassie_xrpl::fake::with_publishers(config, network)
+}
+
+/// What a fetch of `url` from `ledger`'s list site gives.
+fn fetched(ledger: &dassie_xrpl::fake::FakeLedger, url: &str) -> super::LedgerEvent {
+    super::LedgerEvent::Fetched {
+        url: url.to_string(),
+        body: ledger.fetch(url),
+    }
+}
+
 /// Carries the XRP Ledger account's requests to `ledger` and the answers
 /// back, until it has nothing more to say: the account on the fake's
 /// network.
@@ -274,6 +305,12 @@ fn follow_xrpl_outputs(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedg
                 } if *a == asset => {
                     Some((*epoch, LedgerEvent::Message(ledger.request(1, message))))
                 }
+                Output::Fetch {
+                    epoch,
+                    url,
+                    asset: a,
+                    ..
+                } if *a == asset => Some((*epoch, fetched(ledger, url))),
                 _ => None,
             })
             .collect();
@@ -297,7 +334,6 @@ fn follow_xrpl_outputs(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedg
 fn a_refused_batch_read_again_is_never_booked_twice() {
     use dassie_ledger::{AccountName, LedgerId, MAX_TOTAL, Reference, TransferSpec};
     use dassie_settlement::LedgerStatus;
-    use dassie_xrpl::fake::FakeLedger;
     use dassie_xrpl::{UNITS_PER_DROP, Wallet};
 
     const SCHEME: &str = "xrpl-testnet";
@@ -307,13 +343,14 @@ fn a_refused_batch_read_again_is_never_booked_twice() {
         .settlement_entropy(SCHEME, "seed-testnet")
         .unwrap();
     let account = Wallet::from_entropy(entropy.as_bytes()).account();
-    let mut ledger = FakeLedger::new();
+    let mut ledger = fake_ledger(false);
     ledger.fund(account);
     ledger.close();
     let store = Arc::new(Store::open_in_memory().unwrap());
     let settlement = {
         let mut core = core_on(Arc::clone(&store), 9);
-        core.add_scheme(SCHEME, config.into()).unwrap();
+        core.add_scheme(SCHEME, trusting_fake(SCHEME, config))
+            .unwrap();
         follow_xrpl(&mut core, &mut ledger);
         assert_eq!(core.ledger_views()[0].status, LedgerStatus::Synced);
         let ledger_id = LedgerId::XrplTestnetXrp;
@@ -374,7 +411,7 @@ fn a_reserve_change_is_reconciled_as_information() {
     use dassie_ledger::{AccountName, LedgerId, Name};
     use dassie_settlement::ReconcileCause;
     use dassie_xrpl::UNITS_PER_DROP;
-    use dassie_xrpl::fake::{FakeLedger, RESERVE_BASE, RESERVE_INC};
+    use dassie_xrpl::fake::{RESERVE_BASE, RESERVE_INC};
 
     use super::{Event, LedgerEvent, SettlementEvent, Severity};
 
@@ -384,11 +421,12 @@ fn a_reserve_change_is_reconciled_as_information() {
         .settlement_entropy(SCHEME, "seed-testnet")
         .unwrap();
     let account = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account();
-    let mut ledger = FakeLedger::new();
+    let mut ledger = fake_ledger(false);
     ledger.fund(account);
     ledger.close();
     let mut core = core(9);
-    core.add_scheme(SCHEME, config.into()).unwrap();
+    core.add_scheme(SCHEME, trusting_fake(SCHEME, config))
+        .unwrap();
     follow_xrpl(&mut core, &mut ledger);
     let suspense = core
         .account(LedgerId::XrplTestnetXrp, AccountName::EquitySuspense)
@@ -904,7 +942,6 @@ fn strangers_on_its_network_never_stop_an_approved_apps_probes() {
 fn a_stopped_scheme_closes_its_connection() {
     use super::LedgerEvent;
     use dassie_settlement::LedgerStatus;
-    use dassie_xrpl::fake::FakeLedger;
 
     const SCHEME: &str = "xrpl-testnet";
     let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
@@ -915,16 +952,21 @@ fn a_stopped_scheme_closes_its_connection() {
         })
     };
     let mut core = core(9);
-    core.add_scheme(SCHEME, config.into()).unwrap();
+    core.add_scheme(SCHEME, trusting_fake(SCHEME, config))
+        .unwrap();
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
     let epoch = connected(&outputs).unwrap();
-    let mut ledger = FakeLedger::new();
+    let mut ledger = fake_ledger(false);
     ledger.set_network_id(Some(0));
     core.ledger_event(XRPL_ACCOUNT, epoch, &LedgerEvent::Connected);
     outputs.clear();
     core.finish_step(&mut outputs);
-    let [Output::LedgerSend { message, .. }] = outputs.as_slice() else {
+    // Its validator list is fetched meanwhile.
+    let sent: Vec<&Output> = (outputs.iter())
+        .filter(|output| !matches!(output, Output::Fetch { .. }))
+        .collect();
+    let [Output::LedgerSend { message, .. }] = sent.as_slice() else {
         panic!("{outputs:?}");
     };
     let reply = ledger.request(1, message);
@@ -954,7 +996,8 @@ fn a_stopped_scheme_closes_its_connection() {
         "{outputs:?}"
     );
     core.remove_scheme(SCHEME).unwrap();
-    core.add_scheme(SCHEME, config.into()).unwrap();
+    core.add_scheme(SCHEME, trusting_fake(SCHEME, config))
+        .unwrap();
     outputs.clear();
     core.finish_step(&mut outputs);
     assert!(connected(&outputs).is_some_and(|again| again != epoch));
@@ -1573,7 +1616,9 @@ fn close_xrpl(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger) {
 
     let asset = ledger.network().first();
     let epoch = core.assets[&asset].epoch;
-    for (_, message) in ledger.close() {
+    // On the core's clock, which a test may move on by minutes.
+    let close_time = dassie_xrpl::unl::ledger_seconds(core.now_ms());
+    for (_, message) in ledger.close_at(close_time) {
         core.ledger_event(&asset.to_string(), epoch, &LedgerEvent::Message(message));
     }
     follow_xrpl(core, ledger);
@@ -1583,10 +1628,20 @@ fn close_xrpl(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger) {
 /// the XRP Ledger scheme's state split between the account and the scheme.
 fn store_from_before_external_assets(dir: &std::path::Path) -> Arc<Store> {
     let database = dir.join(crate::store::DATABASE_FILE);
-    rusqlite::Connection::open(&database)
-        .unwrap()
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    connection
         .execute_batch(include_str!("../../store/testdata/xrpl-scheme-v25.sql"))
         .unwrap();
+    // Its scheme trusts the fake ledger's validators, which the node it was
+    // written by did not check.
+    let config = trusting_fake(
+        "xrpl-testnet",
+        r#"{"server":"ws://ledger.test","faucet":null}"#,
+    );
+    connection
+        .execute("UPDATE settlement_schemes SET config = ?1", [config])
+        .unwrap();
+    drop(connection);
     let store = Arc::new(Store::open(dir).unwrap());
     let checkpoint = store.checkpoints().unwrap().remove(0).1;
     assert_eq!(checkpoint.balance, 999_000_000_000);
@@ -1655,7 +1710,6 @@ fn a_database_from_before_external_assets_restarts_and_books_nothing_anew() {
     use dassie_ledger::{Reference, TransferState};
     use dassie_settlement::LedgerStatus;
     use dassie_xrpl::Wallet;
-    use dassie_xrpl::fake::FakeLedger;
 
     const XRP: u64 = 1_000_000_000;
     let temp = tempfile::tempdir().unwrap();
@@ -1668,7 +1722,7 @@ fn a_database_from_before_external_assets_restarts_and_books_nothing_anew() {
         .settlement_entropy("xrpl-testnet", "seed-testnet")
         .unwrap();
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
-    let mut ledger = FakeLedger::new();
+    let mut ledger = fake_ledger(false);
     ledger.fund(address);
     ledger.close();
     let mut core = core_on(Arc::clone(&store), 10);
@@ -1849,7 +1903,7 @@ fn funded_ledger() -> (dassie_xrpl::fake::FakeLedger, dassie_xrpl::AccountId) {
         .settlement_entropy("xrpl-testnet", "seed-testnet")
         .unwrap();
     let account = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account();
-    let mut ledger = dassie_xrpl::fake::FakeLedger::new();
+    let mut ledger = fake_ledger(false);
     ledger.fund(account);
     ledger.close();
     (ledger, account)
@@ -1888,7 +1942,8 @@ fn a_refused_write_off_asks_the_ledger_nothing() {
     let config = r#"{"server":"ws://ledger.test","faucet":"https://faucet.test/accounts"}"#;
     let (mut ledger, account) = funded_ledger();
     let mut core = core(9);
-    core.add_scheme("xrpl-testnet", config.into()).unwrap();
+    core.add_scheme("xrpl-testnet", trusting_fake("xrpl-testnet", config))
+        .unwrap();
     follow_xrpl(&mut core, &mut ledger);
     assert_eq!(core.ledger_views()[0].status, LedgerStatus::Synced);
     // Through suspense and back, leaving it room for less to be lost
@@ -1942,11 +1997,12 @@ fn a_scheme_activated_on_a_synced_account_is_told_it_has_synced() {
 
     let (mut ledger, _) = funded_ledger();
     let mut core = core(9);
-    core.add_scheme(WITNESS, SHARED_CONFIG.into()).unwrap();
+    core.add_scheme(WITNESS, trusting_fake(WITNESS, SHARED_CONFIG))
+        .unwrap();
     follow_xrpl(&mut core, &mut ledger);
     assert_eq!(core.asset_views()[0].status, LedgerStatus::Synced);
     let before = core.assets[&dassie_xrpl::account::FIRST].epoch;
-    core.add_scheme("xrpl-testnet", SHARED_CONFIG.into())
+    core.add_scheme("xrpl-testnet", trusting_fake("xrpl-testnet", SHARED_CONFIG))
         .unwrap();
     let outputs = follow_xrpl_outputs(&mut core, &mut ledger);
     assert!(closes(&outputs, before), "{outputs:?}");
@@ -1973,7 +2029,8 @@ fn a_scheme_activated_on_a_closed_account_connects_it_again() {
 
     let (mut ledger, _) = funded_ledger();
     let mut core = core(9);
-    core.add_scheme(WITNESS, SHARED_CONFIG.into()).unwrap();
+    core.add_scheme(WITNESS, trusting_fake(WITNESS, SHARED_CONFIG))
+        .unwrap();
     follow_xrpl(&mut core, &mut ledger);
     let epoch = core.assets[&dassie_xrpl::account::FIRST].epoch;
     let deposit = Effect::Deposit { amount: MAX_TOTAL };
@@ -1984,7 +2041,7 @@ fn a_scheme_activated_on_a_closed_account_connects_it_again() {
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
     assert!(closes(&outputs, epoch), "{outputs:?}");
-    core.add_scheme("xrpl-testnet", SHARED_CONFIG.into())
+    core.add_scheme("xrpl-testnet", trusting_fake("xrpl-testnet", SHARED_CONFIG))
         .unwrap();
     let outputs = follow_xrpl_outputs(&mut core, &mut ledger);
     assert!(!connects(&outputs).is_empty(), "{outputs:?}");
@@ -2010,22 +2067,24 @@ fn rlusd_beside_xrp_on_one_account() {
     use dassie_settlement::LedgerStatus;
     use dassie_xrpl::Wallet;
     use dassie_xrpl::codec::TokenValue;
-    use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, FakeLedger, RESERVE_BASE, RESERVE_INC, Token};
+    use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, RESERVE_BASE, RESERVE_INC, Token};
 
     let config = r#"{"server":"ws://ledger.test"}"#;
     let entropy = NodeKey::from_bytes(&[7; 32])
         .settlement_entropy("xrpl", "seed-mainnet")
         .unwrap();
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
-    let mut ledger = FakeLedger::mainnet();
+    let mut ledger = fake_ledger(true);
     // Mainnet has no faucet: the owner deposits.
     ledger.deposit(address, FAUCET_DROPS);
     ledger.close();
     let store = Arc::new(Store::open_in_memory().unwrap());
     let mut core = core_in(Arc::clone(&store), 12, Realm::Live, LiveRealm::DevSwitch).unwrap();
-    core.add_scheme("xrpl", config.into()).unwrap();
+    core.add_scheme("xrpl", trusting_fake("xrpl", config))
+        .unwrap();
     follow_xrpl(&mut core, &mut ledger);
-    core.add_scheme("xrpl-rlusd", config.into()).unwrap();
+    core.add_scheme("xrpl-rlusd", trusting_fake("xrpl-rlusd", config))
+        .unwrap();
     follow_xrpl(&mut core, &mut ledger);
     close_xrpl(&mut core, &mut ledger);
     let view = |core: &Core, ledger: LedgerId| {
@@ -2129,24 +2188,28 @@ fn dsusd_beside_xrp_and_no_test_rlusd() {
     use dassie_settlement::LedgerStatus;
     use dassie_xrpl::Wallet;
     use dassie_xrpl::codec::TokenValue;
-    use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, FakeLedger, RESERVE_BASE, RESERVE_INC, Token};
+    use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, RESERVE_BASE, RESERVE_INC, Token};
 
     let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
     let entropy = NodeKey::from_bytes(&[7; 32])
         .settlement_entropy("xrpl-testnet", "seed-testnet")
         .unwrap();
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
-    let mut ledger = FakeLedger::new();
+    let mut ledger = fake_ledger(false);
     ledger.fund(address);
     ledger.close();
     let store = Arc::new(Store::open_in_memory().unwrap());
     let mut core = core_on(Arc::clone(&store), 12);
     for scheme in ["xrpl-testnet", "xrpl-testnet-dsusd"] {
-        core.add_scheme(scheme, config.into()).unwrap();
+        core.add_scheme(scheme, trusting_fake(scheme, config))
+            .unwrap();
         follow_xrpl(&mut core, &mut ledger);
     }
     assert!(matches!(
-        core.add_scheme(dassie_xrpl::rlusd::TESTNET_SCHEME_ID, config.into()),
+        core.add_scheme(
+            dassie_xrpl::rlusd::TESTNET_SCHEME_ID,
+            trusting_fake(dassie_xrpl::rlusd::TESTNET_SCHEME_ID, config)
+        ),
         Err(super::EngineError::Precondition(_))
     ));
     close_xrpl(&mut core, &mut ledger);
@@ -2231,13 +2294,14 @@ fn rlusd_off_its_peg_converts_nothing() {
         .settlement_entropy("xrpl", "seed-mainnet")
         .unwrap();
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
-    let mut ledger = FakeLedger::mainnet();
+    let mut ledger = fake_ledger(true);
     ledger.deposit(address, FAUCET_DROPS);
     ledger.close();
     let store = Arc::new(Store::open_in_memory().unwrap());
     let mut core = core_in(store, 12, Realm::Live, LiveRealm::DevSwitch).unwrap();
     for scheme in ["xrpl", "xrpl-rlusd"] {
-        core.add_scheme(scheme, config.into()).unwrap();
+        core.add_scheme(scheme, trusting_fake(scheme, config))
+            .unwrap();
         follow_xrpl(&mut core, &mut ledger);
     }
     assert_eq!(core.rate_currencies(), ["USD", "XRP"]);
@@ -2265,7 +2329,8 @@ fn rlusd_off_its_peg_converts_nothing() {
             core.set_rates(&[("USD", one, now), ("XRP", 2 * one, now)]);
             let asset = ledger.network().first();
             let epoch = core.assets[&asset].epoch;
-            for (_, message) in ledger.close() {
+            let close_time = dassie_xrpl::unl::ledger_seconds(now);
+            for (_, message) in ledger.close_at(close_time) {
                 let event = super::LedgerEvent::Message(message);
                 core.ledger_event(&asset.to_string(), epoch, &event);
             }
@@ -2377,13 +2442,14 @@ fn on_dev_timers_the_peg_guard_trips_in_seconds() {
         .settlement_entropy("xrpl", "seed-mainnet")
         .unwrap();
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
-    let mut ledger = FakeLedger::mainnet();
+    let mut ledger = fake_ledger(true);
     ledger.deposit(address, FAUCET_DROPS);
     ledger.close();
     let store = Arc::new(Store::open_in_memory().unwrap());
     let live = (Realm::Live, LiveRealm::DevSwitch);
     let mut core = core_with(store, 12, live, Policies::DEV).unwrap();
-    core.add_scheme("xrpl-rlusd", config.into()).unwrap();
+    core.add_scheme("xrpl-rlusd", trusting_fake("xrpl-rlusd", config))
+        .unwrap();
     follow_xrpl(&mut core, &mut ledger);
     let value = TokenValue::parse("100000").unwrap();
     // 200,000 XRP for 100,000 RLUSD at two XRP to the dollar: a dollar.
@@ -2401,7 +2467,8 @@ fn on_dev_timers_the_peg_guard_trips_in_seconds() {
             core.set_rates(&[("USD", one, now), ("XRP", 2 * one, now)]);
             let asset = ledger.network().first();
             let epoch = core.assets[&asset].epoch;
-            for (_, message) in ledger.close() {
+            let close_time = dassie_xrpl::unl::ledger_seconds(now);
+            for (_, message) in ledger.close_at(close_time) {
                 let event = super::LedgerEvent::Message(message);
                 core.ledger_event(&asset.to_string(), epoch, &event);
             }
@@ -2467,7 +2534,8 @@ fn rlusd_core(ledger: &mut dassie_xrpl::fake::FakeLedger) -> Core {
     )
     .unwrap();
     let config = r#"{"server":"ws://ledger.test"}"#;
-    core.add_scheme("xrpl-rlusd", config.into()).unwrap();
+    core.add_scheme("xrpl-rlusd", trusting_fake("xrpl-rlusd", config))
+        .unwrap();
     follow_xrpl(&mut core, ledger);
     close_xrpl(&mut core, ledger);
     ledger
@@ -2544,7 +2612,7 @@ fn a_transfer_fee_asks_no_peer_and_ends_none_for_room() {
     use dassie_settlement::LedgerStatus;
     use dassie_xrpl::fake::FakeLedger;
 
-    let mut ledger = FakeLedger::mainnet();
+    let mut ledger = fake_ledger(true);
     let mut core = rlusd_core(&mut ledger);
     let rlusd = Name::new("xrpl-rlusd").unwrap();
     let mut now = NOW + 1_000;
@@ -3042,7 +3110,10 @@ fn a_stored_test_rlusd_scheme_does_not_run() {
     assert!(core.assets.is_empty(), "no account made for it");
     assert_eq!(held(&core), i128::from(dollars));
     let view = core
-        .add_scheme(dassie_xrpl::scheme::SCHEME_ID, config.into())
+        .add_scheme(
+            dassie_xrpl::scheme::SCHEME_ID,
+            trusting_fake(dassie_xrpl::scheme::SCHEME_ID, config),
+        )
         .unwrap();
     assert_eq!(view.id, LedgerId::XrplTestnetXrp);
     core.flush();
@@ -3055,7 +3126,7 @@ fn a_stored_test_rlusd_scheme_does_not_run() {
         [
             (
                 dassie_ledger::Name::new("xrpl-testnet").unwrap(),
-                config.into()
+                trusting_fake("xrpl-testnet", config)
             ),
             (rlusd, config.into())
         ]
@@ -3529,7 +3600,7 @@ impl Validators {
 /// hub of [`hub_rules`].
 fn funding_core(ledger: &mut dassie_xrpl::fake::FakeLedger) -> Core {
     let mut core = core(9);
-    core.add_scheme("xrpl-testnet", SHARED_CONFIG.into())
+    core.add_scheme("xrpl-testnet", trusting_fake("xrpl-testnet", SHARED_CONFIG))
         .unwrap();
     follow_xrpl(&mut core, ledger);
     core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 300))
@@ -3550,6 +3621,11 @@ fn wait_and_close(
     for step in [ms, 4_000, 4_000] {
         let now = core.now_ms() + step;
         core.begin_step(now);
+        // Ledgers closed meanwhile, as they do every few seconds: the
+        // account, connected anew, anchors on a fresh one.
+        if step > 4_000 {
+            ledger.close_at(dassie_xrpl::unl::ledger_seconds(now));
+        }
         outputs.extend(follow_xrpl_outputs(core, ledger));
         close_xrpl(core, ledger);
     }
@@ -3679,7 +3755,7 @@ fn the_owners_moves_pause_the_automatic_ones() {
     let store = Arc::new(Store::open_in_memory().unwrap());
     let (mut ledger, _) = funded_ledger();
     let mut core = core_on(Arc::clone(&store), 9);
-    core.add_scheme("xrpl-testnet", SHARED_CONFIG.into())
+    core.add_scheme("xrpl-testnet", trusting_fake("xrpl-testnet", SHARED_CONFIG))
         .unwrap();
     follow_xrpl(&mut core, &mut ledger);
     core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 300))
@@ -3730,7 +3806,7 @@ fn a_restart_never_pays_a_deposit_twice() {
     let store = Arc::new(Store::open_in_memory().unwrap());
     let (mut ledger, _) = funded_ledger();
     let mut core = core_on(Arc::clone(&store), 9);
-    core.add_scheme("xrpl-testnet", SHARED_CONFIG.into())
+    core.add_scheme("xrpl-testnet", trusting_fake("xrpl-testnet", SHARED_CONFIG))
         .unwrap();
     follow_xrpl(&mut core, &mut ledger);
     core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 300))
@@ -3916,7 +3992,7 @@ fn holding_core(
     ledger: &mut dassie_xrpl::fake::FakeLedger,
 ) -> (Core, Validators) {
     let mut core = core_on(Arc::clone(store), 9);
-    core.add_scheme("xrpl-testnet", SHARED_CONFIG.into())
+    core.add_scheme("xrpl-testnet", trusting_fake("xrpl-testnet", SHARED_CONFIG))
         .unwrap();
     follow_xrpl(&mut core, ledger);
     core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 300))
@@ -4015,6 +4091,7 @@ fn follow_xrpl_losing_submits(core: &mut Core, ledger: &mut dassie_xrpl::fake::F
                     (request["command"] != "submit")
                         .then(|| (*epoch, LedgerEvent::Message(ledger.request(1, message))))
                 }
+                Output::Fetch { epoch, url, .. } => Some((*epoch, fetched(ledger, url))),
                 _ => None,
             })
             .collect();
@@ -4157,7 +4234,7 @@ fn an_owner_payment_outlives_its_scheme_removed_and_added_again() {
         owner_xrp(&core),
         (posted, u128::from(3_000_000 * units + fee))
     );
-    core.add_scheme("xrpl-testnet", SHARED_CONFIG.into())
+    core.add_scheme("xrpl-testnet", trusting_fake("xrpl-testnet", SHARED_CONFIG))
         .unwrap();
     follow_xrpl(&mut core, &mut ledger);
     close_xrpl(&mut core, &mut ledger);

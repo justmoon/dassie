@@ -14,6 +14,11 @@
 //! its master key is disabled and destination tags are required, its
 //! regular key, and its signer list with what else it owns, from
 //! `account_objects`; and the destination tag a transaction names.
+//!
+//! Proofs (spec/designs/xrpl-validation.md#3-the-proof-api): the methods a
+//! proof server adds, `state_proof` and `validations`, and rippled's
+//! `manifest`, their answers read as bytes for the verifier to check:
+//! nothing in them is believed here.
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -1216,6 +1221,143 @@ pub fn submit_result(result: &Value) -> Option<String> {
     Some(result.get("engine_result")?.as_str()?.to_string())
 }
 
+/// The longest message the account reads from its server: a state proof
+/// of [`MAX_PROOF_KEYS`] keys, each with a branch of a few inner nodes and
+/// an object as large as a skip list, or the validations of one ledger by a
+/// thousand validators, each in hex, fit many times over. A server whose
+/// answer is longer is cut off, and the account connects anew.
+pub const MAX_ANSWER_BYTES: usize = 4 << 20;
+
+/// The most distinct keys one `state_proof` names, as the proof API bounds
+/// them (spec/designs/xrpl-validation.md#3-the-proof-api).
+pub const MAX_PROOF_KEYS: usize = 32;
+
+/// `state_proof` of `keys` at the ledger of `hash`, or at the server's
+/// newest validated ledger.
+#[must_use]
+pub fn state_proof(id: u64, keys: &[[u8; 32]], at: Option<&[u8; 32]>) -> Vec<u8> {
+    let keys: Vec<Value> = keys.iter().map(|key| hex_upper(key).into()).collect();
+    let params = match at {
+        Some(hash) => json!({ "keys": keys, "ledger_hash": hex_upper(hash) }),
+        None => json!({ "keys": keys, "ledger_index": "validated" }),
+    };
+    request(id, "state_proof", params)
+}
+
+/// `validations` of the ledger of `hash`: every validation the server
+/// holds for it.
+#[must_use]
+pub fn validations(id: u64, hash: &[u8; 32]) -> Vec<u8> {
+    request(id, "validations", json!({ "ledger_hash": hex_upper(hash) }))
+}
+
+/// `manifest` of the validator whose master key is `key`: the newest of
+/// its manifests the server knows.
+#[must_use]
+pub fn manifest(id: u64, key: &crate::keys::PublicKey) -> Vec<u8> {
+    request(
+        id,
+        "manifest",
+        json!({ "public_key": key.to_node_public() }),
+    )
+}
+
+/// One key of a `state_proof` answer, unchecked.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProofEntry {
+    /// The key.
+    pub key: [u8; 32],
+    /// The object the state holds under it, as the server says; `None` for
+    /// one it says the state does not hold.
+    pub object: Option<Vec<u8>>,
+    /// Its branch, deepest node first.
+    pub path: Vec<Vec<u8>>,
+}
+
+/// A `state_proof` answer, unchecked: a ledger's header and each key's
+/// entry. The ledger's index and hash and whether it is validated, which
+/// the server says too, are hints, and not read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StateProof {
+    /// The header, without its hash.
+    pub header: Vec<u8>,
+    /// Each key's entry, as the server gave them.
+    pub entries: Vec<ProofEntry>,
+}
+
+/// Bytes in hex, at most `max` of them.
+fn hex_bytes(value: Option<&Value>, max: usize) -> Option<Vec<u8>> {
+    let text = value?.as_str()?;
+    if text.len() > max.saturating_mul(2) {
+        return None;
+    }
+    from_hex(text)
+}
+
+/// Reads `state_proof`'s result: at most [`MAX_PROOF_KEYS`] entries, each
+/// with a branch of at most [`MAX_BRANCH_NODES`](crate::shamap::MAX_BRANCH_NODES)
+/// nodes.
+#[must_use]
+pub fn state_proof_result(result: &Value) -> Option<StateProof> {
+    use crate::shamap::{MAX_BRANCH_NODES, MAX_NODE_BYTES};
+
+    let header = hex_bytes(result.get("ledger_header"), crate::header::HEADER_BYTES)?;
+    let entries = result.get("entries")?.as_array()?;
+    if entries.len() > MAX_PROOF_KEYS {
+        return None;
+    }
+    let mut out = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let key = hex_bytes(entry.get("key"), 32)?.try_into().ok()?;
+        let object = match entry.get("node_binary") {
+            None => None,
+            Some(object) => Some(hex_bytes(Some(object), MAX_NODE_BYTES)?),
+        };
+        let nodes = entry.get("path")?.as_array()?;
+        if nodes.len() > MAX_BRANCH_NODES {
+            return None;
+        }
+        let path: Option<Vec<Vec<u8>>> = (nodes.iter())
+            .map(|node| hex_bytes(Some(node), MAX_NODE_BYTES))
+            .collect();
+        out.push(ProofEntry {
+            key,
+            object,
+            path: path?,
+        });
+    }
+    Some(StateProof {
+        header,
+        entries: out,
+    })
+}
+
+/// Reads `validations`' result: each validation's bytes, at most
+/// [`MAX_VALIDATIONS`](crate::unl::MAX_VALIDATIONS) of them.
+#[must_use]
+pub fn validations_result(result: &Value) -> Option<Vec<Vec<u8>>> {
+    use crate::validation::MAX_VALIDATION_BYTES;
+
+    let validations = result.get("validations")?.as_array()?;
+    if validations.len() > crate::unl::MAX_VALIDATIONS {
+        return None;
+    }
+    (validations.iter())
+        .map(|validation| hex_bytes(Some(validation), MAX_VALIDATION_BYTES))
+        .collect()
+}
+
+/// Reads `manifest`'s result: the manifest's bytes, if the server knows
+/// one.
+#[must_use]
+pub fn manifest_result(result: &Value) -> Option<Vec<u8>> {
+    let text = result.get("manifest")?.as_str()?;
+    if text.len() > crate::manifest::MAX_MANIFEST_BYTES.div_ceil(3) * 4 {
+        return None;
+    }
+    crate::base64::decode(text)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::indexing_slicing)]
 mod tests {
@@ -1493,5 +1635,53 @@ mod tests {
             settings.regular_key,
             AccountId::parse("rGUM1gzaff5U3gW7BVabm6ibgn2y8ThJ4i")
         );
+    }
+
+    // spec/designs/xrpl-validation.md#3-the-proof-api: the proof methods'
+    // answers are read as bytes, bounded before they are, and nothing in
+    // them is believed here.
+    #[test]
+    fn proof_answers_are_read_bounded() {
+        let entry =
+            |key: u8| json!({ "key": hex_upper(&[key; 32]), "node_binary": "AB", "path": ["CD"] });
+        let header = hex_upper(&[0; crate::header::HEADER_BYTES]);
+        let answer = |entries: Vec<Value>| {
+            state_proof_result(&json!({ "ledger_header": header, "entries": entries }))
+        };
+        let read = answer(alloc::vec![
+            entry(1),
+            json!({ "key": hex_upper(&[2; 32]), "path": [] })
+        ])
+        .unwrap();
+        assert_eq!(read.entries[0].object, Some(alloc::vec![0xAB]));
+        assert_eq!(read.entries[0].path, [alloc::vec![0xCD]]);
+        assert_eq!(read.entries[1].object, None);
+        let most = (0..MAX_PROOF_KEYS).map(|key| entry(u8::try_from(key).unwrap()));
+        assert!(answer(most.clone().collect()).is_some());
+        assert!(answer(most.chain([entry(99)]).collect()).is_none());
+        let deep = json!({
+            "key": hex_upper(&[1; 32]),
+            "path": alloc::vec!["CD"; crate::shamap::MAX_BRANCH_NODES + 1],
+        });
+        assert!(answer(alloc::vec![deep]).is_none());
+        let long = hex_upper(&[0; crate::header::HEADER_BYTES + 1]);
+        assert!(state_proof_result(&json!({ "ledger_header": long, "entries": [] })).is_none());
+        let validations =
+            |count: usize| validations_result(&json!({ "validations": alloc::vec!["AB"; count] }));
+        assert_eq!(validations(2).unwrap().len(), 2);
+        assert!(validations(crate::unl::MAX_VALIDATIONS + 1).is_none());
+        assert!(validations_result(&json!({ "validations": ["XY"] })).is_none());
+        assert_eq!(
+            manifest_result(&json!({ "manifest": "AAEC" })),
+            Some(alloc::vec![0, 1, 2])
+        );
+        assert_eq!(manifest_result(&json!({ "requested": "n9…" })), None);
+        let request: Value = serde_json::from_slice(&state_proof(3, &[[1; 32]], None)).unwrap();
+        assert_eq!(request["command"], "state_proof");
+        assert_eq!(request["ledger_index"], "validated");
+        let at: Value =
+            serde_json::from_slice(&state_proof(4, &[[1; 32]], Some(&[2; 32]))).unwrap();
+        assert_eq!(at["ledger_hash"], hex_upper(&[2; 32]));
+        assert!(at.get("ledger_index").is_none());
     }
 }

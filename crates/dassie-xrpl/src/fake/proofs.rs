@@ -48,7 +48,7 @@ use crate::{DROPS_PER_XRP, MAX_DROPS, from_hex, hex_upper};
 /// The most distinct keys one `state_proof` names, as the proof API bounds
 /// them: an account's root, its lines, their issuers, the fee settings,
 /// the skip lists and a pool, with room.
-pub const MAX_STATE_PROOF_KEYS: usize = 32;
+pub const MAX_STATE_PROOF_KEYS: usize = crate::api::MAX_PROOF_KEYS;
 /// How much longer before the newest ledger than its validations stay
 /// fresh an old anchor closed, in seconds.
 const STALE_BY_S: u32 = 60;
