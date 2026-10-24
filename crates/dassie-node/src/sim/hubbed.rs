@@ -591,22 +591,28 @@ fn check_owners(sim: &Sim) -> Result<(), String> {
     Ok(())
 }
 
-/// The escrow holds what the hub owes and what the sponsor left in it, no
-/// more and no less, once nothing is on its way; and the fake ledger made
-/// or lost no XRP.
+/// The escrow holds what the hub owes and what the sponsor left in it, and
+/// beyond that at most the moves on their way; and the fake ledger made or
+/// lost no XRP.
+///
+/// A move on its way, a liar's among them, is in the escrow and not yet in
+/// the hub, or has left the hub and not yet the escrow: the escrow then
+/// holds more than the hub owes, by no more than the move and its ledger
+/// fee, never less.
 fn check_escrow(sim: &Sim) -> Result<(), String> {
     let hub = sim.hub.as_deref().unwrap();
     let ledger = hub.ledger().ok_or("no honest validator runs")?;
-    // A move on its way is in the escrow and not yet in the hub, or the
-    // other way round: [`check_moved`] says.
-    if (0..sim.nodes.len()).any(|index| moving(sim, index)) {
-        return Ok(());
-    }
+    let fee = hub.rules.terms.fees.ledger;
+    let on_its_way: u64 = (0..sim.nodes.len())
+        .filter_map(|index| sim.core(index).hub_status()?.moving)
+        .map(|moving| moving.drops + fee)
+        .sum();
     let escrow = sim.ledger.balance(hub.escrow()).unwrap_or(0);
     let owed = hub.escrow_funding + ledger.supply();
-    if escrow != owed {
+    if escrow < owed || escrow - owed > on_its_way {
         return Err(format!(
-            "the escrow holds {escrow}, while the hub owes {} and the sponsor left {}",
+            "the escrow holds {escrow}, while the hub owes {} and the sponsor left {}, and \
+             {on_its_way} is on its way",
             ledger.supply(),
             hub.escrow_funding
         ));
