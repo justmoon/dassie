@@ -14,4 +14,4 @@ Each bootstrap node names all of them, itself included, in its own configuration
 
 ## Operations
 
-The nodes run in GCP project `dassie-390023`, which also holds the `dassie.xyz` DNS zone and their recovery phrases (Secret Manager, `dassie-boot<N>-phrase`).
+The nodes run in GCP project `dassie-390023`, which also holds the `dassie.xyz` DNS zone and their recovery phrases (Secret Manager, `dassie-boot<N>-phrase`). Four of them run in us-east1, boot1 and boot4 in zone b, boot2 in c, boot3 in d. Each looks for an update in an hour of its own (a drop-in on `dassie-update.timer`: boot*N* at 0*N*:05 UTC, within half an hour), so at most one restarts at a time: membership needs more than half of the configured lists, three of four, and the hub's validators tolerate one of four (f = 1).

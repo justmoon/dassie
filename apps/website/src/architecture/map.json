@@ -1685,7 +1685,7 @@
       "version": "0.1.2",
       "date": "2026-10-16",
       "changes": [
-        "A new node joins the public testnet on its own: its bootstrap nodes are boot1–boot3.dassie.xyz unless `DASSIE_BOOTSTRAP_NODES` names others.",
+        "A new node joins the public testnet on its own: its bootstrap nodes are boot1–boot4.dassie.xyz unless `DASSIE_BOOTSTRAP_NODES` names others.",
         "The installer and the updater keep to the channel a node was installed from.",
         "XRP Ledger settlement runs on the testnet only.",
         "Connections share the node's slots fairly, and a BTP client that has gone away answers with an ILP Reject.",
