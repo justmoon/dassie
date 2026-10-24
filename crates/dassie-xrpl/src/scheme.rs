@@ -1366,3 +1366,60 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
         }
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    /// A successful Payment of XRP from `from` to `to`, with one memo of
+    /// `memo_type` naming `peer`.
+    fn payment(from: AccountId, to: AccountId, memo_type: &[u8], peer: Name) -> TxRecord {
+        TxRecord {
+            hash: [1; 32],
+            ledger_index: 10,
+            index: 0,
+            validated: true,
+            account: from,
+            is_payment: true,
+            destination: Some(to),
+            destination_tag: None,
+            sequence: 1,
+            fee: 10,
+            result: "tesSUCCESS".into(),
+            delivered: Some(1_000_000),
+            delivered_token: None,
+            memo: Some((memo_type.to_vec(), peer.as_str().as_bytes().to_vec())),
+            changes: Vec::new(),
+            lines: Vec::new(),
+        }
+    }
+
+    /// Whether the scheme of `N` takes a Payment from its peer's address,
+    /// naming the peer, with `memo_type` for the peer's settlement.
+    fn settles<N: NativeXrp>(memo_type: &[u8]) -> bool {
+        let network = N::XRP.network;
+        let account =
+            XrplAccount::new(network.first(), &[network.xrp_scheme], "", &[7; 32], &[]).unwrap();
+        let node = Name::new("node0").unwrap();
+        let mut scheme = XrpScheme::<N>::new(&account, node, None, &[]).unwrap();
+        let (peer, address) = (Name::new("node1").unwrap(), AccountId([1; 20]));
+        scheme.learn(peer, address);
+        scheme.check_invariants();
+        let record = payment(address, account.account(), memo_type, peer);
+        scheme.settled_by(&record) == Some(peer)
+    }
+
+    // spec/decisions/mainnet-schemes.md: each network's XRP scheme reads
+    // only its own memo type, so a Payment with the other network's, from
+    // a peer's address and naming the peer, is never its settlement but the
+    // owner's deposit; the original wrote the testnet's on both (ACC-13).
+    #[test]
+    fn a_settlement_of_the_other_network_is_a_deposit() {
+        assert!(settles::<TestnetXrp>(MEMO_TYPE));
+        assert!(!settles::<TestnetXrp>(MAINNET_MEMO_TYPE));
+        assert!(settles::<MainnetXrp>(MAINNET_MEMO_TYPE));
+        assert!(!settles::<MainnetXrp>(MEMO_TYPE));
+        assert!(!settles::<MainnetXrp>(OWNER_MEMO_TYPE));
+    }
+}
