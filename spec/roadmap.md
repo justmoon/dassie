@@ -127,9 +127,7 @@ Settling with real money on the XRP Ledger's mainnet, in XRP and in RLUSD ([main
 
 - **Parts that can be built side by side:**
   - the live realm in dev and the end-to-end tests through the node's dev switch, which only builds with debug assertions honour, and a live node that takes none of the test network's defaults, its bootstrap nodes and its relay;
-  - the fake ledger's mainnet: a pool of RLUSD, whose mainnet issuer it has;
-  - **the peg guard** ([issued-assets](decisions/issued-assets.md)), on one state proof of its pool ([above](#checking-xrp-ledger-validators)): mainnet RLUSD priced by mainnet's RLUSD/XRP pool and testnet DSUSD by its DSUSD/XRP pool, the scheme and the connector pausing both ways off the peg and when the reading is stale, the guard's state kept and shown to the owner;
-  - the wallet, dev and the end-to-end tests: the mainnet schemes' names, Receive without a faucet and with the reserve to send, the guard's state, a mainnet scenario on the fake, and a pool moved off its peg.
+  - the wallet, dev and the end-to-end tests: the mainnet schemes' names, Receive without a faucet and with the reserve to send, the peg guard's state in the owner's RPC and the wallet ([XRPL](areas/xrpl.md#the-peg-guard)), a mainnet scenario on the fake, and a pool moved off its peg.
 - **Done when:** live-realm nodes against the mainnet fake settle in XRP and in RLUSD at addresses under `g.`; a test-realm node never activates a mainnet scheme, nor a live-realm node a testnet one; no node activates test RLUSD; a release binary refuses the dev switch; a pool moved off its peg pauses the token's scheme and its conversions once the guard's hold has passed, on mainnet RLUSD and on testnet DSUSD, and they resume after recovery, with nothing converted at par meanwhile, while what arrives is still booked; the guard pauses the scheme when its reading is stale.
 
 ## Not built yet
@@ -161,7 +159,7 @@ The `live` realm is refused, so the XRP Ledger mainnet's scheme, `xrpl`, runs on
 - there has been an external review;
 - a mainnet bootstrap node list exists.
 
-The first four are on `main`. Until the rest are, the testnet account stops unless its server reports the testnet's network ID, so a mainnet server never gets XRP booked or signed for with a testnet wallet; and the account still takes its server's word on what is validated. The issuer's conditions for a dollar token are decided ([issued-assets](decisions/issued-assets.md)): the issuer is the owner's counterparty, its freezes and clawbacks are booked as built, and the scheme pauses while its pool prices it off its peg, once the guard is built.
+The first four are on `main`. Until the rest are, the testnet account stops unless its server reports the testnet's network ID, so a mainnet server never gets XRP booked or signed for with a testnet wallet; and the account still takes its server's word on what is validated. The issuer's conditions for a dollar token are decided ([issued-assets](decisions/issued-assets.md)): the issuer is the owner's counterparty, its freezes and clawbacks are booked as built, and the scheme pauses while its pool prices it off its peg.
 
 ## Smaller open points
 

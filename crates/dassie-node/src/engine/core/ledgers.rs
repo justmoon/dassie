@@ -4,8 +4,8 @@ use dassie_ledger::{
     AccountId, AccountName, AccountPath, LedgerId, Name, Realm, Reference, TransferSpec,
 };
 use dassie_settlement::{
-    Activation, AssetId, Detach, Effect, LedgerStatus, LossCause, SchemeError, SettlementScheme,
-    activation,
+    Activation, AssetId, Detach, Effect, LedgerStatus, LossCause, PegPause, PegView, SchemeError,
+    SettlementScheme, activation,
 };
 
 use super::Core;
@@ -27,6 +27,11 @@ pub(super) struct ActiveScheme {
     /// Whether its peerings are over a settlement hub: it signs and takes
     /// promises per packet ([`SettlementScheme::commitments`]).
     pub over_hub: bool,
+    /// Why its peg guard paused it, as the owner was last told.
+    pub paused: Option<PegPause>,
+    /// Whether it converted when the prices were last built
+    /// ([`SettlementScheme::converts`]).
+    pub converts: bool,
 }
 
 /// A ledger as the owner sees it.
@@ -55,6 +60,8 @@ pub struct LedgerView {
     pub faucet: bool,
     /// How the scheme stands with its ledger.
     pub status: LedgerStatus,
+    /// What its peg guard says, for a dollar token's scheme that has one.
+    pub peg: Option<PegView>,
     /// What keeps the scheme from being removed now.
     pub removal_blockers: Vec<RemovalBlocker>,
 }
@@ -169,6 +176,7 @@ impl Core {
     ) -> Result<LedgerId, EngineError> {
         let (mut scheme, asset) = self.make_scheme(id, &config, checkpoint.as_ref())?;
         let over_hub = scheme.commitments().is_some();
+        let converts = scheme.converts();
         let ledger = scheme.ledger();
         if let Err(error) = self.open_ledger(id, scheme.as_ref(), checkpoint.as_ref()) {
             if let Some(asset) = asset {
@@ -187,6 +195,9 @@ impl Core {
                 version: 0,
                 failed: None,
                 over_hub,
+                // A guard paused before a restart is told again.
+                paused: None,
+                converts,
             },
         );
         if let Some(asset) = asset {
@@ -808,6 +819,7 @@ impl Core {
                 ),
                 None => self.scheme_status(active),
             },
+            peg: active.scheme.peg(),
             removal_blockers: self.removal_blockers(*id, ledger),
         })
     }

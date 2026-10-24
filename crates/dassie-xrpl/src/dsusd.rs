@@ -6,9 +6,11 @@
 
 use dassie_ledger::LedgerId;
 
+use crate::DROPS_PER_XRP;
 use crate::account::LineKey;
 use crate::amount::Currency;
 use crate::keys::AccountId;
+use crate::peg::Peg;
 use crate::token::{IssuedToken, Token, TokenScheme};
 
 pub use crate::token::UNITS_PER_MICRO;
@@ -38,6 +40,14 @@ pub const TOKEN: Token = Token {
     currency: CURRENCY,
     ledger: LedgerId::XrplTestnetDsusdUsd,
     network: &crate::network::TESTNET,
+    peg: Some(PEG),
+};
+/// What prices DSUSD: the testnet's DSUSD/XRP pool, which its keeper holds
+/// at the market (spec/decisions/dsusd.md), while it holds at least 100
+/// XRP. It held about 1,100 when measured, and a pool of a hundred moves a
+/// percent for about a DSUSD.
+pub const PEG: Peg = Peg {
+    min_pool_drops: 100 * DROPS_PER_XRP,
 };
 /// The line the scheme settles on.
 pub const LINE: LineKey = TOKEN.line();
