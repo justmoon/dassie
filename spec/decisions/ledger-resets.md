@@ -1,6 +1,6 @@
 # A ledger below the newest seen is a reset only on the testnet, and only once its UNL validates it
 
-**Areas:** [XRPL](../areas/xrpl.md#following-the-account), [Checking the XRP Ledger's validators](../designs/xrpl-validation.md#7-resets-under-a-unl). Built: only what is newer, and a lower ledger that closed later as a reset on the testnet. Waiting for the validators to be checked ([roadmap](../roadmap.md#checking-xrp-ledger-validators)): the UNL's validation of a reset, the network's constant as the reset gate (today the gate is the network ID the server reports, which the account accepts only as the testnet's), the kept hash, a higher ledger that closed earlier ignored as an older chain, a higher ledger off the kept chain as a reset, and an account gone only when proven.
+**Areas:** [XRPL](../areas/xrpl.md#following-the-account), [Checking the XRP Ledger's validators](../designs/xrpl-validation.md#7-resets-under-a-unl). Built: only what is newer than the anchor, a reset only once the testnet's UNL validated it, a lower ledger that closed later or a higher one off the kept chain, told by the kept hash and the skip lists, a higher ledger that closed earlier ignored as an older chain, and the network's constant as the reset gate. Waiting for what anchors hold to be proven ([roadmap](../roadmap.md#checking-xrp-ledger-validators)): an account gone only when proven.
 
 ## Facts
 
@@ -24,8 +24,8 @@
 - While its server is behind, or withholds the new chain's validations, the scheme stays syncing and settles nothing, until the server catches up or goes silent and the connection is made anew.
 - A reset that also gives the testnet new validator keys is seen only once the node has fetched the new validator list, which it does when quorum is lost.
 - A node whose clock runs minutes ahead sees no validation as fresh, and sees no reset until its clock is right. One whose clock runs behind can take an older anchor for fresh, but never one older than its newest, so its view never goes back.
-- Until the validators are checked, a server that lies can still claim a reset on the testnet and have the node write off its balance; it can make the scheme book anything else it says too.
-- Until the validators are checked, on the testnet, an account absent as of a ledger the scheme has not seen past is still written off, as when its owner deletes it.
+- Until what anchors hold is proven, a server that lies can still make the scheme book what it says of the account; it can no longer claim a reset.
+- Until an absence is proven, on the testnet, an account absent as of a ledger the scheme has not seen past is still written off, as when its owner deletes it.
 
 ## Rejected
 

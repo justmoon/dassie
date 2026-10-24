@@ -67,6 +67,8 @@ struct Shared {
     ledger: Mutex<FakeLedger>,
     connections: Mutex<BTreeMap<u64, mpsc::Sender<Vec<u8>>>>,
     next: AtomicU64,
+    /// The clock its ledgers close on.
+    clock: Mutex<Arc<dyn Clock>>,
 }
 
 /// A running fake ledger.
@@ -103,12 +105,14 @@ impl Server {
         } else {
             FakeLedger::new()
         };
-        ledger.set_close_time(close_time_now().saturating_add(1));
+        let clock: Arc<dyn Clock> = Arc::new(SystemClock);
+        ledger.set_close_time(close_time_of(clock.as_ref()).saturating_add(1));
         let publisher_key = ledger.publisher_key();
         let shared = Arc::new(Shared {
             ledger: Mutex::new(ledger),
             connections: Mutex::new(BTreeMap::new()),
             next: AtomicU64::new(1),
+            clock: Mutex::new(clock),
         });
         let cancel = CancellationToken::new();
         let listener = TcpListener::bind(options.listen)
@@ -165,6 +169,27 @@ impl Server {
             .unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Closes its ledgers on `clock` from now on, a test's, whose nodes then
+    /// read its validations as fresh: a second after the last at least, so
+    /// a ledger never closes before its parent.
+    pub fn close_on(&self, clock: Arc<dyn Clock>) {
+        *self
+            .shared
+            .clock
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = clock;
+    }
+
+    /// What an account's config names to trust its validators: its
+    /// publisher, whose list it serves, and the floor its validators meet,
+    /// as an owner's publishers; `None` without the HTTPS listener that
+    /// serves the list.
+    #[must_use]
+    pub fn publishers(&self) -> Option<serde_json::Value> {
+        let site = self.validator_list_url.as_ref()?;
+        Some(self.ledger().publishers(site))
+    }
+
     /// Stops serving, and drops every connection.
     pub fn stop(&self) {
         self.cancel.cancel();
@@ -184,7 +209,12 @@ const RIPPLE_EPOCH_UNIX_S: u64 = 946_684_800;
 /// fake ledger's servers close their ledgers then.
 #[must_use]
 pub fn close_time_now() -> u64 {
-    (SystemClock.now_ms() / 1_000).saturating_sub(RIPPLE_EPOCH_UNIX_S)
+    close_time_of(&SystemClock)
+}
+
+/// Now by `clock`, as the XRP Ledger counts close times.
+fn close_time_of(clock: &dyn Clock) -> u64 {
+    (clock.now_ms() / 1_000).saturating_sub(RIPPLE_EPOCH_UNIX_S)
 }
 
 async fn close_ledgers(every: Duration, shared: Arc<Shared>, cancel: CancellationToken) {
@@ -194,11 +224,12 @@ async fn close_ledgers(every: Duration, shared: Arc<Shared>, cancel: Cancellatio
             () = cancel.cancelled() => return,
             _ = interval.tick() => {}
         }
+        let clock = Arc::clone(&shared.clock.lock().unwrap_or_else(PoisonError::into_inner));
         let out = shared
             .ledger
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .close_at(close_time_now());
+            .close_at(close_time_of(clock.as_ref()));
         let connections = shared
             .connections
             .lock()

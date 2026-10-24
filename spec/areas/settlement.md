@@ -50,7 +50,9 @@ An external asset is something the node holds outside its books, of a type: an a
 
 ### Assets that follow a ledger
 
-An asset with a ledger to follow names a WebSocket URL; it says what to send and the node feeds it what comes back, then tells its schemes what it learnt and carries out what it asks. The driver (`engine/links.rs`) runs one connection per asset, however many schemes settle through it, bound to an epoch, so a message from a connection the engine has replaced is dropped. A connection whose queue overflows drops messages, and the asset, hearing nothing, connects anew. Names resolve under the node's outbound rules: public addresses only, unless private ones are allowed (dev and tests).
+An asset with a ledger to follow names a WebSocket URL; it says what to send and the node feeds it what comes back, then tells its schemes what it learnt and carries out what it asks. The driver (`engine/links.rs`) runs one connection per asset, however many schemes settle through it, bound to an epoch, so a message from a connection the engine has replaced is dropped. A connection whose queue overflows drops messages, and the asset, hearing nothing, connects anew; so does one whose message is longer than the bound, which fits the longest answer an XRPL account reads, a proof server's. Names resolve under the node's outbound rules: public addresses only, unless private ones are allowed (dev and tests).
+
+Beside its connection, an asset may ask the node to fetch a document, such as a validator list from its publisher's site (`AssetEffect::Fetch`): an HTTPS GET under the same rules, following no redirect and reading a bounded body, whose body, or nothing on any failure, comes back on the connection it was asked on (`LedgerInput::Fetched`). A connection made anew drops it, and the asset asks again. An asset that waits for something, such as a list it has none of, says what (`waiting`), and the node shows it beside the asset's status and its schemes'.
 
 ### Assets that talk to several endpoints
 

@@ -60,7 +60,9 @@ struct Shared {
 impl Shared {
     fn new(ledger: FakeLedger, state: &[u8], witness: Option<(u32, u32)>) -> Self {
         let schemes = [XRPL, WITNESS];
-        let account = XrplAccount::new(account::FIRST, &schemes, "", &ENTROPY, state).unwrap();
+        // It trusts the fake ledger's validators.
+        let config = dassie_xrpl::fake::with_publishers("", &dassie_xrpl::network::TESTNET);
+        let account = XrplAccount::new(account::FIRST, &schemes, &config, &ENTROPY, state).unwrap();
         Self {
             ledger,
             account,
@@ -74,7 +76,7 @@ impl Shared {
             drop_lookups: false,
             refuse_own: false,
             tamper_lookup: None,
-            now: 1_000,
+            now: dassie_xrpl::fake::FIRST_CLOSE_MS,
         }
     }
 
@@ -139,12 +141,22 @@ impl Shared {
                 AssetEffect::Send { message } => self.request(&message),
                 AssetEffect::Reconnect => self.connect(),
                 AssetEffect::Fund { .. } => panic!("the account exists"),
+                AssetEffect::Fetch { url, .. } => {
+                    let body = self.ledger.fetch(&url);
+                    let fetched = LedgerInput::Fetched {
+                        url: &url,
+                        body: body.as_deref(),
+                    };
+                    self.input(fetched);
+                }
                 AssetEffect::SendTo { .. } => panic!("an XRPL account names no endpoints"),
             }
         }
     }
 
     fn input(&mut self, input: LedgerInput<'_>) {
+        // The node's clock reads the ledger's validations as fresh.
+        self.now = self.now.max(self.ledger.now_ms());
         self.account.on_ledger(self.now, input);
         self.tell();
     }
@@ -177,7 +189,8 @@ impl Shared {
 
     fn close(&mut self) {
         self.now += 4_000;
-        for (connection, message) in self.ledger.close() {
+        let close_time = dassie_xrpl::unl::ledger_seconds(self.now);
+        for (connection, message) in self.ledger.close_at(close_time) {
             if connection == self.connection {
                 self.input(LedgerInput::Message(&message));
             }

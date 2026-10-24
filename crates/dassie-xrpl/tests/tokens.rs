@@ -194,7 +194,7 @@ impl World {
             net,
             ledger,
             nodes: Vec::new(),
-            now: 1_000,
+            now: dassie_xrpl::fake::FIRST_CLOSE_MS,
             next_connection: 1,
         };
         for (index, schemes) in runs.iter().enumerate() {
@@ -207,7 +207,9 @@ impl World {
         let node = name(&format!("node{seed}"));
         let ids: Vec<Name> = self.net.ids.iter().map(|id| name(id)).collect();
         let first = self.net.network.first();
-        let account = XrplAccount::new(first, &ids, "", &[seed; 32], &[]).unwrap();
+        // It trusts the fake ledger's validators.
+        let config = dassie_xrpl::fake::with_publishers("", self.net.network);
+        let account = XrplAccount::new(first, &ids, &config, &[seed; 32], &[]).unwrap();
         if self.net.network.faucet.is_some() {
             self.ledger.fund(account.account());
         } else {
@@ -247,6 +249,8 @@ impl World {
     }
 
     fn input(&mut self, index: usize, input: LedgerInput<'_>) {
+        // The node's clock reads the ledger's validations as fresh.
+        self.now = self.now.max(self.ledger.now_ms());
         self.nodes[index].account.on_ledger(self.now, input);
         self.tell(index);
     }
@@ -296,6 +300,14 @@ impl World {
                     self.input(index, LedgerInput::Connected);
                 }
                 AssetEffect::Fund { .. } => panic!("the faucet funded the account"),
+                AssetEffect::Fetch { url, .. } => {
+                    let body = self.ledger.fetch(&url);
+                    let fetched = LedgerInput::Fetched {
+                        url: &url,
+                        body: body.as_deref(),
+                    };
+                    self.input(index, fetched);
+                }
                 AssetEffect::SendTo { .. } => panic!("an XRPL account names no endpoints"),
             }
         }
@@ -305,7 +317,8 @@ impl World {
     /// against the ledger.
     fn close(&mut self) {
         self.now += 4_000;
-        for (connection, message) in self.ledger.close() {
+        let close_time = dassie_xrpl::unl::ledger_seconds(self.now);
+        for (connection, message) in self.ledger.close_at(close_time) {
             if let Some(index) = self.nodes.iter().position(|n| n.connection == connection) {
                 self.input(index, LedgerInput::Message(&message));
             }

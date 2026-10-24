@@ -17,6 +17,7 @@
 //! server holds neither the keys nor the secret, so it can withhold or
 //! replay validations, never forge them.
 
+use alloc::string::ToString;
 use alloc::vec::Vec;
 
 use super::FakeLedger;
@@ -483,4 +484,95 @@ impl FakeLedger {
     pub fn rekey_validators(&mut self, expiration: u32) {
         self.validators.rekey(expiration);
     }
+
+    /// What an account's config names to trust this fake's validators: its
+    /// publisher, whose list `site` serves, and [`UNL_FLOOR`], as an
+    /// owner's publishers (spec/designs/xrpl-validation.md#10-configuration-and-state).
+    #[must_use]
+    pub fn publishers(&self, site: &str) -> serde_json::Value {
+        publishers(self.publisher_key(), site)
+    }
+
+    /// An account's config that connects to `server`, asks `faucet`, and
+    /// trusts this fake's validators, whose list [`LIST_SITE`] serves.
+    #[must_use]
+    pub fn account_config(&self, server: &str, faucet: Option<&str>) -> alloc::string::String {
+        let mut config = self.publishers(LIST_SITE);
+        if let Some(object) = config.as_object_mut() {
+            object.insert("server".into(), server.into());
+            object.insert("faucet".into(), faucet.into());
+        }
+        config.to_string()
+    }
+
+    /// What a site serving the publisher's list answers to `url`: the list
+    /// at [`LIST_SITE`], nothing anywhere else.
+    #[must_use]
+    pub fn fetch(&self, url: &str) -> Option<Vec<u8>> {
+        (url == LIST_SITE).then(|| self.validator_list())
+    }
+
+    /// When the last ledger closed, by a node's clock: milliseconds since
+    /// 1970. A test whose clock is at least this, and not much more, reads
+    /// the fake's validations as fresh.
+    #[must_use]
+    pub fn now_ms(&self) -> u64 {
+        (self
+            .close_time
+            .saturating_add(crate::unl::RIPPLE_EPOCH_UNIX_S))
+        .saturating_mul(1_000)
+    }
+}
+
+/// Where tests serve the fake's validator list: no site is fetched, a
+/// harness answers it ([`FakeLedger::fetch`]).
+pub const LIST_SITE: &str = "https://validators.fake.test/vl";
+
+/// The master key of the publisher of the fake's validators of `seed`.
+#[must_use]
+pub fn publisher_key(seed: [u8; 32]) -> PublicKey {
+    Wallet::from_seed(seed16(derive(&[&seed, b"publisher"]))).public_key()
+}
+
+/// The owner's publishers in a config that trusts `publisher`, whose list
+/// `site` serves, with [`UNL_FLOOR`].
+fn publishers(publisher: PublicKey, site: &str) -> serde_json::Value {
+    serde_json::json!({
+        "publishers": [{
+            "key": crate::hex_upper(publisher.as_bytes()),
+            "sites": [site],
+        }],
+        "floor": UNL_FLOOR,
+    })
+}
+
+/// `config`, an account's config of `network`, trusting the validators of
+/// the fake of that network's default seed ([`DEFAULT_SEED`], or
+/// [`MAINNET_SEED`]) instead of the network's publishers, whose list
+/// [`LIST_SITE`] serves, unless it names publishers itself: how a test
+/// sets up an account against the fake.
+#[must_use]
+pub fn with_publishers(config: &str, network: &crate::network::Network) -> alloc::string::String {
+    let seed = if *network == crate::network::MAINNET {
+        MAINNET_SEED
+    } else {
+        DEFAULT_SEED
+    };
+    let mut value: serde_json::Value = if config.trim().is_empty() {
+        serde_json::json!({})
+    } else {
+        match serde_json::from_str(config) {
+            Ok(value) => value,
+            Err(_) => return config.into(),
+        }
+    };
+    let Some(object) = value.as_object_mut() else {
+        return config.into();
+    };
+    if !object.contains_key("publishers")
+        && let serde_json::Value::Object(added) = publishers(publisher_key(seed), LIST_SITE)
+    {
+        object.extend(added);
+    }
+    value.to_string()
 }

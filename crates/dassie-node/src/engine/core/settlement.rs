@@ -68,6 +68,10 @@ pub(super) struct Settlements {
     pub unavailable_warned: BTreeMap<Name, u64>,
     /// Whether this node lies that it never settles, in a simulation.
     pub never_settles: bool,
+    /// The secret its XRPL accounts check validations under, in a
+    /// simulation, rather than their signatures.
+    #[cfg(feature = "testing")]
+    pub validation_secret: Option<[u8; 32]>,
     /// The largest packet, which schemes that count in packets need.
     pub max_packet: u64,
     /// The timings of a dollar token's peg guard.
@@ -93,6 +97,8 @@ impl Settlements {
             announce: Vec::new(),
             unavailable_warned: BTreeMap::new(),
             never_settles: false,
+            #[cfg(feature = "testing")]
+            validation_secret: None,
         }
     }
 }
@@ -124,6 +130,18 @@ impl Core {
     pub fn lie(&mut self, lie: Lie) {
         match lie {
             Lie::NeverSettle => self.settle.never_settles = true,
+        }
+    }
+
+    /// Has this node's XRPL accounts, those it has and those to come, check
+    /// validations by the fake ledger's keyed hash under `secret`, as a
+    /// simulation does, rather than by their signatures
+    /// (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
+    #[cfg(feature = "testing")]
+    pub fn check_validations_with(&mut self, secret: [u8; 32]) {
+        self.settle.validation_secret = Some(secret);
+        for active in self.assets.values_mut() {
+            super::schemes::check_validations_with(active.asset.as_mut(), secret);
         }
     }
 

@@ -144,15 +144,25 @@ struct Net {
 
 impl Net {
     async fn start(before_sync: impl FnOnce(&Server)) -> Self {
+        // Its HTTPS listener serves its validators' list; the sponsor asks
+        // no faucet.
         let xrpl = Server::start(Options {
             network: &dassie_xrpl::network::TESTNET,
             listen: "127.0.0.1:0".parse().unwrap(),
-            faucet: None,
+            faucet: Some((
+                "127.0.0.1:0".parse().unwrap(),
+                dassie_node::store::StoredCertificate {
+                    source: dassie_node_core::certificate::CertificateSource::Manual,
+                    chain_pem: std::fs::read_to_string(CERT).unwrap(),
+                    key_pem: std::fs::read_to_string(KEY).unwrap(),
+                },
+            )),
             close_every: Duration::from_millis(100),
         })
         .await
         .unwrap();
         let clock = ManualClock::new(START_MS);
+        xrpl.close_on(std::sync::Arc::new(clock.clone()));
         let sponsor_key = NodeKey::from_bytes(&[70; 32]);
         let files = tempfile::tempdir().unwrap();
         let file = validator_file(files.path(), &sponsor_key, &xrpl.url);
@@ -180,7 +190,12 @@ impl Net {
             .start(clock.clone(), 70, Policies::DEV, &env)
             .await;
         prepare(&sponsor, &sponsor_key).await;
-        let xrpl_config = serde_json::json!({ "server": xrpl.url, "faucet": null });
+        let mut xrpl_config = serde_json::json!({ "server": xrpl.url, "faucet": null });
+        if let (Some(config), Some(serde_json::Value::Object(publishers))) =
+            (xrpl_config.as_object_mut(), xrpl.publishers())
+        {
+            config.extend(publishers);
+        }
         add_scheme(&sponsor, "xrpl-testnet", &xrpl_config.to_string()).await;
         let address = ledgers(&sponsor)
             .await

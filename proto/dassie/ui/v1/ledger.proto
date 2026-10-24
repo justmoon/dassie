@@ -32,7 +32,8 @@ message Ledger {
   string deposit_address = 10;
   // How the scheme stands with its underlying ledger.
   LedgerConnection connection = 11;
-  // Why, when it is FAILED.
+  // Why, when it is FAILED; otherwise what it waits for, if something
+  // keeps it from going on, such as a validator list it has none of.
   string connection_problem = 12;
   // Whether the node can ask a faucet for test money on it: AskFaucet.
   bool faucet = 13;
@@ -159,7 +160,8 @@ message ExternalAsset {
   repeated Holding holdings = 3;
   // How it stands with its ledger.
   LedgerConnection connection = 4;
-  // Why, when it is FAILED.
+  // Why, when it is FAILED; otherwise what it waits for, if something
+  // keeps it from going on, such as a validator list it has none of.
   string connection_problem = 5;
   // The settlement schemes that settle through it, for example
   // "xrpl-testnet" and "xrpl-testnet-dsusd".

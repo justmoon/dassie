@@ -44,11 +44,8 @@ pub const MAX_VALIDATED_LEDGERS: usize = 256;
 /// server serves those of the ledgers that closed this long before the
 /// newest, or since.
 pub const VALIDATIONS_HELD_S: u32 = 600;
-/// The hashes a skip list holds: of the last 256 ledgers, or of 256 flag
-/// ledgers.
-pub const SKIP_HASHES: usize = 256;
-/// Every 256th ledger is a flag ledger.
-const FLAG_INTERVAL: u32 = 256;
+use crate::skip_list::FLAG_INTERVAL;
+use crate::skip_list::SKIP_HASHES;
 /// How finely close times are rounded, in seconds, as on mainnet.
 pub(super) const CLOSE_TIME_RESOLUTION_S: u8 = 10;
 

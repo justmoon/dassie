@@ -17,12 +17,14 @@
 //!   validator's signature on a ledger; [`manifest`], the keys a
 //!   validator or a list publisher signs with; [`shamap`], a ledger's
 //!   trees of transactions and of state, and the branch that proves a
-//!   leaf in either, or a key's absence.
+//!   leaf in either, or a key's absence; [`skip_list`], the lists of
+//!   earlier ledgers' hashes that prove older ledgers from a newer one.
 //! - [`validator_list`]: the publishers' signed validator lists, and the
 //!   publishers each network trusts; [`unl`], the validators every
 //!   publisher lists with their current keys, and the quorum of them that
 //!   validates a ledger and makes it an anchor; [`base64`], as the lists
-//!   carry their blobs.
+//!   carry their blobs; [`anchor`], what a state proof proves, and whether
+//!   a later anchor is on the chain of the one kept.
 //! - [`api`]: the rippled WebSocket JSON the node speaks: requests, and
 //!   what comes back, parsed and bounded.
 //! - [`amm`]: an AMM pool's price, exact, for a client that swaps through
@@ -30,8 +32,9 @@
 //! - [`network`]: the XRP Ledger's networks, the testnet and mainnet, and
 //!   everything that tells one from the other to an account on it.
 //! - [`account`]: the node's XRPL account on a network, an external asset:
-//!   it says what to send its ledger, signs, keeps the sequence and what is
-//!   in flight, and tells the schemes on it what the ledger says.
+//!   it says what to send its ledger, fetches its validator lists and
+//!   anchors on ledgers its UNL validated, signs, keeps the sequence and
+//!   what is in flight, and tells the schemes on it what the ledger says.
 //! - [`scheme`]: the XRP scheme, which settles in the account's XRP and
 //!   books what the account tells it: `xrpl-testnet` on the testnet, `xrpl`
 //!   on mainnet.
@@ -59,6 +62,7 @@ extern crate std;
 pub mod account;
 pub mod amm;
 pub mod amount;
+pub mod anchor;
 pub mod api;
 pub mod base58;
 pub mod base64;
@@ -75,6 +79,7 @@ pub mod peg;
 pub mod rlusd;
 pub mod scheme;
 pub mod shamap;
+pub mod skip_list;
 pub mod token;
 pub mod unl;
 pub mod validation;

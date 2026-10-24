@@ -65,6 +65,9 @@ pub enum Effect {
         url: String,
         body: Vec<u8>,
     },
+    Fetch {
+        url: String,
+    },
 }
 
 impl From<dassie_settlement::Effect> for Effect {
@@ -101,13 +104,23 @@ impl From<AssetEffect> for Effect {
             AssetEffect::Send { message } => Self::LedgerSend { message },
             AssetEffect::Reconnect => Self::Reconnect,
             AssetEffect::Fund { url, body } => Self::Fund { url, body },
+            AssetEffect::Fetch { url, .. } => Self::Fetch { url },
             AssetEffect::SendTo { .. } => panic!("an XRPL account names no endpoints"),
         }
     }
 }
 
 /// Keys of the joined state that are the account's.
-const ACCOUNT_KEYS: [&str; 5] = ["sequence", "in_flight", "never_sent", "parked", "newest"];
+const ACCOUNT_KEYS: [&str; 8] = [
+    "sequence",
+    "in_flight",
+    "never_sent",
+    "parked",
+    "newest",
+    "anchor",
+    "unl",
+    "unl_at_ms",
+];
 
 /// The account and its scheme.
 pub struct XrplScheme {
@@ -126,7 +139,9 @@ impl XrplScheme {
     ) -> Result<Self, SchemeError> {
         let (account_state, scheme_state) = split(state).ok_or(SchemeError::InvalidData)?;
         let schemes = [dassie_ledger::name!(dassie_xrpl::scheme::SCHEME_ID)];
-        let account = XrplAccount::new(account::FIRST, &schemes, config, entropy, &account_state)?;
+        // It trusts the fake ledger's validators.
+        let config = dassie_xrpl::fake::with_publishers(config, &dassie_xrpl::network::TESTNET);
+        let account = XrplAccount::new(account::FIRST, &schemes, &config, entropy, &account_state)?;
         let scheme = dassie_xrpl::XrplScheme::new(&account, node, checkpoint, &scheme_state)?;
         let mut both = Self { account, scheme };
         let mut effects = Vec::new();
