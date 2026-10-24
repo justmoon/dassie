@@ -37,4 +37,8 @@ test("a running guard is not told; a paused one says why", () => {
     "Paused: the price of DSUSD cannot be read",
   );
   assertEquals(lastPriceText(stale), undefined);
+
+  // A reason from a newer node is still a pause.
+  const unknown = create(LedgerPegSchema, { paused: 99 as PegPause });
+  assert(pegNotice(unknown, "RLUSD", "XRP/RLUSD")?.title.startsWith("Paused"));
 });

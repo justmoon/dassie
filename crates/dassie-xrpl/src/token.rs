@@ -889,7 +889,8 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
 
     /// The issuer's account is read at each check: a global freeze and a
     /// transfer fee change only its account, which our account's stream
-    /// never carries. The pool is read once a minute, for the peg guard.
+    /// never carries. The pool is read once a minute, for the peg guard, or
+    /// once a second on dev timers.
     fn on_check(&mut self, now_ms: u64, asset: &mut dyn ExternalAsset) {
         let read_pool = self.guard.as_mut().is_some_and(|guard| {
             guard.tick(now_ms);
