@@ -545,13 +545,18 @@ async fn a_stranger_without_room_backs_off() {
         assert!(answered(&stranger, &server).await);
     }
     let late = side(9, &shutdown);
-    let result = late
-        .quic
-        .send(&request(&server, b"hello".to_vec()), &client())
-        .await;
+    let hello = request(&server, b"hello".to_vec());
+    let result = late.quic.send(&hello, &client()).await;
     assert_eq!(result, Err(Failure::NotDelivered));
     assert!(late.quic.backing_off(&server.id));
     assert_eq!(server.quic.places(), Some(counts(0, 0, ANYONE)));
+    // Refused again once the first wait is over, it waits twice as long:
+    // the handshake the server let through ends no backoff.
+    until(|| !late.quic.backing_off(&server.id)).await;
+    let result = late.quic.send(&hello, &client()).await;
+    assert_eq!(result, Err(Failure::NotDelivered));
+    tokio::time::sleep(std::time::Duration::from_millis(1_500)).await;
+    assert!(late.quic.backing_off(&server.id), "the wait did not double");
     drop(classes);
     shutdown.cancel();
 }

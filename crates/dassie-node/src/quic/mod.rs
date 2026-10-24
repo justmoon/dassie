@@ -603,8 +603,8 @@ impl Quic {
         );
     }
 
-    /// Stops backing off from `node`: a connection with it was made, by
-    /// either side.
+    /// Stops backing off from `node`: it kept a connection, one it made to
+    /// us or one of ours it did not close for want of room.
     fn reached(&self, node: &NodeId) {
         self.backoff
             .lock()
@@ -684,6 +684,12 @@ impl Quic {
                 }
                 continue;
             }
+            // The request reached a connection the node kept: it has room,
+            // and is reached. A dial alone says neither, since a node without
+            // room closes only after the handshake.
+            if result != Err(Failure::NotDelivered) {
+                self.reached(&request.to);
+            }
             if result.is_ok() {
                 self.stats.sent.fetch_add(1, Ordering::Relaxed);
             }
@@ -697,7 +703,8 @@ impl Quic {
     /// requests to a node wait for its connection, never for each other;
     /// one that waits past its time for another's dial fails, nothing sent.
     /// The caller decides whether a dial that failed backs off from the
-    /// node; one that succeeded ends any backoff.
+    /// node, and whether one that succeeded ends a backoff: the node may
+    /// still close it for want of room.
     async fn connection(
         self: &Arc<Self>,
         place: &tokio::sync::Mutex<Option<Link>>,
@@ -728,7 +735,6 @@ impl Quic {
                 NoConnection::NoTime
             });
         };
-        self.reached(&to);
         self.answer_on(&connection);
         *held = Some(Link {
             connection: connection.clone(),

@@ -95,8 +95,15 @@ fn socket_activated_daemon_reports_ready_and_stopping() {
     let notify_path = dir.path().join("notify");
     let notify = UnixDatagram::bind(&notify_path).unwrap();
     let ipc = dir.path().join("ipc.sock");
+    // One activator listens on datagrams only, so the QUIC socket comes from
+    // an outer one, which the inner passes on first.
     let child = Command::new("systemd-socket-activate")
         .args([
+            "--now",
+            "--datagram",
+            "-l",
+            "127.0.0.1:18296",
+            "systemd-socket-activate",
             "--now",
             "-l",
             "127.0.0.1:18294",
@@ -105,7 +112,7 @@ fn socket_activated_daemon_reports_ready_and_stopping() {
             "-l",
         ])
         .arg(&ipc)
-        .arg("--fdname=dassie-http.socket:dassie-https.socket:dassie-ipc.socket")
+        .arg("--fdname=dassie-quic.socket:dassie-http.socket:dassie-https.socket:dassie-ipc.socket")
         .arg(format!(
             "--setenv=DASSIE_STATE_DIRECTORY={}",
             dir.path().join("state").display()
@@ -123,12 +130,12 @@ fn socket_activated_daemon_reports_ready_and_stopping() {
     assert_eq!(receive(&notify, &mut child), "STOPPING=1");
     let output = child.take().unwrap().wait_with_output().unwrap();
     assert!(output.status.success(), "{}", describe(&output));
-    // Without the optional UDP sockets, the node runs, and says so.
+    // Without the optional rate feed's socket, the node runs, and says so;
+    // it takes QUIC on the socket it was given.
     let log = String::from_utf8_lossy(&output.stdout);
-    for socket in ["dassie-quic.socket", "dassie-feed.socket"] {
-        assert!(log.contains(socket), "{log}");
-    }
+    assert!(log.contains("dassie-feed.socket"), "{log}");
     assert!(log.contains("feed=none"), "{log}");
+    assert!(log.contains("quic=127.0.0.1:18296"), "{log}");
 }
 
 fn run(args: &[&str], env: &[(&str, &str)]) -> Output {
