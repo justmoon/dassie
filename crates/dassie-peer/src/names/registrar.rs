@@ -1,0 +1,1219 @@
+//! A registrar's side of names (spec/designs/names.md#4-the-rule-at-each-registrar,
+//! spec/areas/network.md#names): its log of sealed commitments, the rule
+//! that grants a name to the commitment logged first among its valid
+//! unsealings, expiry, renewal and grace, and the list it serves. All of it
+//! is the registrar's own, by its own clock: registrars never agree on time
+//! or order with each other.
+//!
+//! A commitment is:
+//!
+//! 1. **Logged**, at the next position and at the registrar's time, both
+//!    only rising, across restarts too, and answered with its receipt once
+//!    it is on disk. Its window closes a set time after it was logged.
+//! 2. **Unsealed** within its window by the node named in it, with the name
+//!    and salt. The unsealing is valid only if the name was free here when
+//!    the commitment was logged: neither listed nor in its grace period. A
+//!    valid one contends for the name, unless the name is held by then,
+//!    which only a commitment logged earlier can have won.
+//! 3. **Decided** once its window has closed: one that contends is granted
+//!    the name if it is the earliest contender left, and only once every
+//!    earlier window has closed too, since an earlier commitment can still
+//!    take the name until then; any other is lost, or lapses if it was never
+//!    unsealed.
+//!
+//! A granted name is listed until it expires, kept for its holder alone for
+//! a grace period after, and then free; what it was is kept a while longer,
+//! so that a commitment logged while it was held stays void for it.
+
+use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::vec::Vec;
+
+use dassie_identity::NodeId;
+use dassie_oer::Encode;
+use sha2::{Digest, Sha256};
+
+use super::{Commitment, Name, Salt};
+use crate::config::Rate;
+use crate::persist::PeerBatch;
+use crate::table::{Bucket, Network};
+use crate::wire::{MAX_NAME_LIST, NameHolding, NameListResponse, NameReceipt};
+
+/// A registrar's timers and bounds (spec/designs/names.md#5-holding-a-name).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RegistrarConfig {
+    /// How long after it is logged a commitment may be unsealed: long
+    /// enough for a registrant to commit at every registrar and unseal at
+    /// each, retrying ([`least_window_ms`]). A name waits this long before
+    /// it is granted.
+    pub window_ms: u64,
+    /// How long a name is held once granted, or from its expiry once
+    /// renewed.
+    pub ttl_ms: u64,
+    /// How long after it expires a name is kept for its holder alone, so
+    /// that a renewal that reached some registrars late hands it to no one
+    /// else.
+    pub grace_ms: u64,
+    /// How long before its expiry a name is renewed: an earlier renewal is
+    /// answered with the expiry it has, so that a holder cannot move its
+    /// list's hash at will.
+    pub renew_before_ms: u64,
+    /// New commitments the registrar logs: free for now, so throttled
+    /// (spec/roadmap.md#registration-fees).
+    pub commit_rate: Rate,
+    /// Most commitments in the log.
+    pub max_commitments: usize,
+    /// Most names kept, listed, in grace or freed less than a window ago,
+    /// with the commitments in the log, each of which may become one. At
+    /// most [`MAX_NAME_LIST`], so the list served always decodes.
+    pub max_names: usize,
+    /// Most commitments in the log from one /24 or /48.
+    pub max_commitments_per_network: usize,
+    /// Most commitments in the log from one node.
+    pub max_commitments_per_node: usize,
+    /// Most names one node holds, with the commitments it has in the log.
+    pub max_names_per_node: usize,
+}
+
+/// The least window that gives a commitment and its unsealing each a
+/// request's time and a retry after the shortest backoff, twice over.
+#[must_use]
+pub const fn least_window_ms(request_timeout_ms: u64, min_backoff_ms: u64) -> u64 {
+    4 * (request_timeout_ms + min_backoff_ms)
+}
+
+impl RegistrarConfig {
+    /// The production values.
+    pub const DEFAULT: Self = Self {
+        window_ms: 3_600_000,
+        ttl_ms: 31_536_000_000,
+        grace_ms: 2_592_000_000,
+        renew_before_ms: 2_592_000_000,
+        commit_rate: Rate {
+            burst: 20,
+            refill_ms: 60_000,
+        },
+        max_commitments: 1024,
+        max_names: MAX_NAME_LIST,
+        max_commitments_per_network: 8,
+        max_commitments_per_node: 4,
+        max_names_per_node: 8,
+    };
+}
+
+/// Where the log stands: the position the next commitment takes, and the
+/// time the last one was logged at. Persisted, so that both only rise.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LogHead {
+    /// The next position.
+    pub next_position: u64,
+    /// When the last commitment was logged, by the registrar's clock.
+    pub last_logged_ms: u64,
+}
+
+/// The unsealing of a logged commitment.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Unsealing {
+    /// The name.
+    pub name: Name,
+    /// The node named in the commitment, which sent the unsealing.
+    pub holder: NodeId,
+    /// Whether it contends for the name: the name was not held here when
+    /// it was unsealed. One that does not has lost, and is kept only so
+    /// that a retry is answered as the first was.
+    pub contends: bool,
+}
+
+/// A commitment in the log.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Logged {
+    /// The commitment.
+    pub commitment: Commitment,
+    /// Its position: the order the registrar took it in.
+    pub position: u64,
+    /// When it was logged, by the registrar's clock.
+    pub logged_ms: u64,
+    /// When its window closes.
+    pub window_end_ms: u64,
+    /// The node that sent it.
+    pub committer: NodeId,
+    /// The network it came from, for the cap per network.
+    pub network: Option<Network>,
+    /// Its unsealing, once unsealed.
+    pub unsealing: Option<Unsealing>,
+}
+
+/// A name granted here, held or freed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Granted {
+    /// The name.
+    pub name: Name,
+    /// Its holder.
+    pub holder: NodeId,
+    /// When it was granted.
+    pub granted_ms: u64,
+    /// When it expires unless renewed.
+    pub expires_ms: u64,
+    /// When it stopped being held: kept until every commitment logged
+    /// before then has left the log.
+    pub freed_ms: Option<u64>,
+}
+
+impl Granted {
+    /// When it stops being held, or stopped: at the end of its grace,
+    /// unless it was freed otherwise.
+    #[must_use]
+    pub const fn held_until_ms(&self, grace_ms: u64) -> u64 {
+        match self.freed_ms {
+            Some(freed) => freed,
+            None => self.expires_ms.saturating_add(grace_ms),
+        }
+    }
+
+    /// Whether it is held at `now_ms`: listed, or in its grace period.
+    #[must_use]
+    pub const fn is_held(&self, now_ms: u64, grace_ms: u64) -> bool {
+        self.freed_ms.is_none() && now_ms < self.held_until_ms(grace_ms)
+    }
+
+    /// Whether it is listed at `now_ms`.
+    #[must_use]
+    pub const fn is_listed(&self, now_ms: u64) -> bool {
+        self.freed_ms.is_none() && now_ms < self.expires_ms
+    }
+}
+
+/// What came of a commitment that was taken.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Committed {
+    /// Logged now, with this receipt.
+    New(NameReceipt),
+    /// Logged before: its receipt again, at no cost.
+    Again(NameReceipt),
+}
+
+/// Why a commitment is not logged.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommitError {
+    /// The log is full.
+    LogFull,
+    /// The names, with the commitments that may become names, are full.
+    NamesFull,
+    /// Its network has as many commitments in the log as it may.
+    Network,
+    /// Its node has as many commitments in the log as it may.
+    Commitments,
+    /// Its node holds as many names as it may, with its commitments.
+    Names,
+    /// Too many new commitments lately.
+    Rate,
+}
+
+/// What came of an unsealing that was taken.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unsealed {
+    /// Taken now; it contends for the name, or has lost already.
+    New {
+        /// Whether it contends.
+        contends: bool,
+    },
+    /// Taken before.
+    Again,
+}
+
+/// Why an unsealing is not valid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnsealError {
+    /// The name is reserved.
+    Reserved,
+    /// No commitment in the log opens with it: none was logged, its window
+    /// closed long ago, or it is another node's.
+    Unknown,
+    /// The commitment's window has closed.
+    Closed,
+    /// The name was held here when the commitment was logged, so the
+    /// commitment is void for it.
+    Taken,
+}
+
+/// What a renewal did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Renewal {
+    /// When the name expires now.
+    pub expires_ms: u64,
+    /// Whether the renewal moved it: one that comes before the name's
+    /// expiry is near leaves it as it is.
+    pub extended: bool,
+}
+
+/// Why a renewal is refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RenewError {
+    /// The name is not held here: neither listed nor in its grace period.
+    NotHeld,
+    /// Another node holds it.
+    NotHolder,
+}
+
+/// What the passing of time did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Happened {
+    /// A name was granted.
+    Granted {
+        /// The name.
+        name: Name,
+        /// Its holder.
+        holder: NodeId,
+    },
+    /// An unsealed commitment lost the name to one logged earlier.
+    Lost {
+        /// The name.
+        name: Name,
+        /// The node that unsealed it.
+        holder: NodeId,
+    },
+    /// A commitment was not unsealed within its window.
+    Lapsed {
+        /// The node that sent it.
+        committer: NodeId,
+        /// Its position.
+        position: u64,
+    },
+    /// A name's grace period ended unrenewed: it is free.
+    Freed {
+        /// The name.
+        name: Name,
+        /// Its holder until now.
+        holder: NodeId,
+    },
+}
+
+/// A registrar's state: the log, the names granted, and the list served.
+pub struct Registrar {
+    config: RegistrarConfig,
+    head: LogHead,
+    /// The log, by position.
+    log: BTreeMap<u64, Logged>,
+    /// The log's positions, by commitment.
+    positions: BTreeMap<Commitment, u64>,
+    names: BTreeMap<Name, Granted>,
+    commits: Bucket,
+    /// Up to when the passing of time is taken in.
+    processed_ms: u64,
+    next_due_ms: Option<u64>,
+    served: Vec<u8>,
+    served_hash: [u8; 32],
+    served_changed: bool,
+    head_dirty: bool,
+    logged_dirty: BTreeSet<u64>,
+    logged_removed: Vec<Commitment>,
+    names_dirty: BTreeSet<Name>,
+    names_removed: Vec<Name>,
+}
+
+impl Registrar {
+    /// A registrar from what it persisted, at `now_ms`. What is beyond the
+    /// bounds is left out: the earliest commitments and the names first
+    /// are kept.
+    #[must_use]
+    pub fn restore(
+        config: RegistrarConfig,
+        head: LogHead,
+        log: Vec<Logged>,
+        names: Vec<Granted>,
+        now_ms: u64,
+    ) -> Self {
+        let mut registrar = Self {
+            config,
+            head,
+            log: BTreeMap::new(),
+            positions: BTreeMap::new(),
+            names: BTreeMap::new(),
+            commits: Bucket::full(config.commit_rate, now_ms),
+            processed_ms: 0,
+            next_due_ms: None,
+            served: Vec::new(),
+            served_hash: [0; 32],
+            served_changed: true,
+            head_dirty: false,
+            logged_dirty: BTreeSet::new(),
+            logged_removed: Vec::new(),
+            names_dirty: BTreeSet::new(),
+            names_removed: Vec::new(),
+        };
+        for granted in names.into_iter().take(config.max_names) {
+            registrar.names.insert(granted.name, granted);
+        }
+        let room = config
+            .max_commitments
+            .min(config.max_names.saturating_sub(registrar.names.len()));
+        let mut log = log;
+        log.sort_unstable_by_key(|logged| logged.position);
+        for logged in log.into_iter().take(room) {
+            registrar
+                .positions
+                .insert(logged.commitment, logged.position);
+            registrar.log.insert(logged.position, logged);
+        }
+        // The head stays ahead of what was logged, so neither positions
+        // nor times ever go back.
+        if let Some(last) = registrar.log.values().next_back() {
+            registrar.head.next_position = registrar
+                .head
+                .next_position
+                .max(last.position.saturating_add(1));
+            registrar.head.last_logged_ms = registrar.head.last_logged_ms.max(last.logged_ms);
+        }
+        registrar.recompute_due();
+        registrar
+    }
+
+    /// The configuration.
+    #[must_use]
+    pub const fn config(&self) -> &RegistrarConfig {
+        &self.config
+    }
+
+    /// Where the log stands.
+    #[must_use]
+    pub const fn head(&self) -> LogHead {
+        self.head
+    }
+
+    /// The commitments in the log, by position.
+    pub fn logged(&self) -> impl Iterator<Item = &Logged> {
+        self.log.values()
+    }
+
+    /// The names granted here, held or freed a short while ago, by name.
+    pub fn granted(&self) -> impl Iterator<Item = &Granted> {
+        self.names.values()
+    }
+
+    /// The receipt of `commitment`, if it is in the log.
+    #[must_use]
+    pub fn receipt(&self, commitment: &Commitment) -> Option<NameReceipt> {
+        let logged = self.log.get(self.positions.get(commitment)?)?;
+        Some(NameReceipt {
+            position: logged.position,
+            window_end_ms: logged.window_end_ms,
+        })
+    }
+
+    /// Logs `commitment` from `committer`, or gives its receipt again if
+    /// it is in the log. The bounds and caps come first; a token of the
+    /// rate is spent only on a commitment logged.
+    ///
+    /// # Errors
+    ///
+    /// A bound, a cap or the rate refuses it.
+    pub fn commit(
+        &mut self,
+        commitment: Commitment,
+        committer: NodeId,
+        network: Option<Network>,
+        now_ms: u64,
+    ) -> Result<Committed, CommitError> {
+        if let Some(receipt) = self.receipt(&commitment) {
+            return Ok(Committed::Again(receipt));
+        }
+        self.commit_refusal(&committer, network)?;
+        let next_position = self
+            .head
+            .next_position
+            .checked_add(1)
+            .ok_or(CommitError::LogFull)?;
+        if !self.commits.take(self.config.commit_rate, now_ms) {
+            return Err(CommitError::Rate);
+        }
+        let logged_ms = now_ms.max(self.head.last_logged_ms.saturating_add(1));
+        let logged = Logged {
+            commitment,
+            position: self.head.next_position,
+            logged_ms,
+            window_end_ms: logged_ms.saturating_add(self.config.window_ms),
+            committer,
+            network,
+            unsealing: None,
+        };
+        self.head = LogHead {
+            next_position,
+            last_logged_ms: logged_ms,
+        };
+        self.head_dirty = true;
+        self.positions.insert(commitment, logged.position);
+        self.log.insert(logged.position, logged);
+        self.logged_dirty.insert(logged.position);
+        self.recompute_due();
+        Ok(Committed::New(NameReceipt {
+            position: logged.position,
+            window_end_ms: logged.window_end_ms,
+        }))
+    }
+
+    /// Why a new commitment from `committer` is refused, if it is.
+    fn commit_refusal(
+        &self,
+        committer: &NodeId,
+        network: Option<Network>,
+    ) -> Result<(), CommitError> {
+        let config = &self.config;
+        if self.log.len() >= config.max_commitments {
+            return Err(CommitError::LogFull);
+        }
+        if self.log.len() + self.names.len() >= config.max_names {
+            return Err(CommitError::NamesFull);
+        }
+        if let Some(network) = network {
+            let from_network = self
+                .log
+                .values()
+                .filter(|logged| logged.network == Some(network))
+                .count();
+            if from_network >= config.max_commitments_per_network {
+                return Err(CommitError::Network);
+            }
+        }
+        let (commitments, names) = self.held_by(committer);
+        if commitments >= config.max_commitments_per_node {
+            return Err(CommitError::Commitments);
+        }
+        if commitments + names >= config.max_names_per_node {
+            return Err(CommitError::Names);
+        }
+        Ok(())
+    }
+
+    /// The commitments `node` has in the log, and the names it holds.
+    fn held_by(&self, node: &NodeId) -> (usize, usize) {
+        let commitments = self
+            .log
+            .values()
+            .filter(|logged| logged.committer == *node)
+            .count();
+        let names = self
+            .names
+            .values()
+            .filter(|granted| granted.holder == *node && granted.freed_ms.is_none())
+            .count();
+        (commitments, names)
+    }
+
+    /// Takes `holder`'s unsealing of its commitment to `name` under
+    /// `salt`. A retry is answered as the first was.
+    ///
+    /// # Errors
+    ///
+    /// The unsealing is not valid here.
+    pub fn unseal(
+        &mut self,
+        holder: NodeId,
+        name: Name,
+        salt: &Salt,
+        now_ms: u64,
+    ) -> Result<Unsealed, UnsealError> {
+        if name.is_reserved() {
+            return Err(UnsealError::Reserved);
+        }
+        let commitment = Commitment::seal(&name, &holder, salt);
+        let position = *self
+            .positions
+            .get(&commitment)
+            .ok_or(UnsealError::Unknown)?;
+        let grace = self.config.grace_ms;
+        let granted = self.names.get(&name).copied();
+        let logged = self.log.get_mut(&position).ok_or(UnsealError::Unknown)?;
+        if logged.window_end_ms <= now_ms {
+            return Err(UnsealError::Closed);
+        }
+        if logged.unsealing.is_some() {
+            return Ok(Unsealed::Again);
+        }
+        // Void if the name was held here when the commitment was logged,
+        // whatever other registrars list.
+        let at = logged.logged_ms;
+        if granted.is_some_and(|g| g.granted_ms <= at && at < g.held_until_ms(grace)) {
+            return Err(UnsealError::Taken);
+        }
+        // Held now, by a commitment logged earlier: this one has lost.
+        let contends = !granted.is_some_and(|g| g.is_held(now_ms, grace));
+        logged.unsealing = Some(Unsealing {
+            name,
+            holder,
+            contends,
+        });
+        self.logged_dirty.insert(position);
+        Ok(Unsealed::New { contends })
+    }
+
+    /// Renews `name` for `holder`: by its lifetime from its expiry, or from
+    /// now if it has expired, once its expiry is near.
+    ///
+    /// # Errors
+    ///
+    /// The name is not held here, or not by `holder`.
+    pub fn renew(
+        &mut self,
+        holder: &NodeId,
+        name: &Name,
+        now_ms: u64,
+    ) -> Result<Renewal, RenewError> {
+        let config = self.config;
+        let granted = self
+            .names
+            .get_mut(name)
+            .filter(|granted| granted.is_held(now_ms, config.grace_ms))
+            .ok_or(RenewError::NotHeld)?;
+        if granted.holder != *holder {
+            return Err(RenewError::NotHolder);
+        }
+        if granted.expires_ms > now_ms.saturating_add(config.renew_before_ms) {
+            return Ok(Renewal {
+                expires_ms: granted.expires_ms,
+                extended: false,
+            });
+        }
+        granted.expires_ms = granted.expires_ms.max(now_ms).saturating_add(config.ttl_ms);
+        let expires_ms = granted.expires_ms;
+        self.names_dirty.insert(*name);
+        self.served_changed = true;
+        self.recompute_due();
+        Ok(Renewal {
+            expires_ms,
+            extended: true,
+        })
+    }
+
+    /// Takes in the passing of time up to `now_ms`: frees names whose grace
+    /// ended, decides the commitments whose windows closed, and forgets
+    /// freed names no commitment in the log can be void for any more.
+    pub fn on_time(&mut self, now_ms: u64, happened: &mut Vec<Happened>) {
+        if self.next_due_ms.is_none_or(|due| due > now_ms) {
+            return;
+        }
+        self.free_names(now_ms, happened);
+        self.close_windows(now_ms, happened);
+        self.forget_freed();
+        self.processed_ms = self.processed_ms.max(now_ms);
+        self.recompute_due();
+    }
+
+    /// When [`on_time`](Self::on_time) next has something to do.
+    #[must_use]
+    pub const fn next_due(&self) -> Option<u64> {
+        self.next_due_ms
+    }
+
+    fn recompute_due(&mut self) {
+        let (processed, grace) = (self.processed_ms, self.config.grace_ms);
+        let windows = self.log.values().map(|logged| logged.window_end_ms);
+        let names = self
+            .names
+            .values()
+            .filter(|granted| granted.freed_ms.is_none())
+            .flat_map(|granted| [granted.expires_ms, granted.held_until_ms(grace)]);
+        self.next_due_ms = windows.chain(names).filter(|at| *at > processed).min();
+    }
+
+    fn free_names(&mut self, now_ms: u64, happened: &mut Vec<Happened>) {
+        let (processed, grace) = (self.processed_ms, self.config.grace_ms);
+        for (name, granted) in &mut self.names {
+            if granted.freed_ms.is_some() {
+                continue;
+            }
+            // Out of the list once it expires.
+            if processed < granted.expires_ms && granted.expires_ms <= now_ms {
+                self.served_changed = true;
+            }
+            let until = granted.held_until_ms(grace);
+            if until <= now_ms {
+                granted.freed_ms = Some(until);
+                self.names_dirty.insert(*name);
+                happened.push(Happened::Freed {
+                    name: *name,
+                    holder: granted.holder,
+                });
+            }
+        }
+    }
+
+    /// Decides the commitments whose windows closed, in the order of the
+    /// log. One that contends waits while an earlier window is open.
+    fn close_windows(&mut self, now_ms: u64, happened: &mut Vec<Happened>) {
+        let first_open = self
+            .log
+            .values()
+            .find(|logged| logged.window_end_ms > now_ms)
+            .map_or(u64::MAX, |logged| logged.position);
+        let closed: Vec<Logged> = self
+            .log
+            .values()
+            .filter(|logged| logged.window_end_ms <= now_ms)
+            .filter(|logged| {
+                logged.position < first_open || !logged.unsealing.is_some_and(|u| u.contends)
+            })
+            .copied()
+            .collect();
+        for logged in closed {
+            self.remove_logged(&logged);
+            let Some(unsealing) = logged.unsealing else {
+                happened.push(Happened::Lapsed {
+                    committer: logged.committer,
+                    position: logged.position,
+                });
+                continue;
+            };
+            let (name, holder) = (unsealing.name, unsealing.holder);
+            let taken = self
+                .names
+                .get(&name)
+                .is_some_and(|granted| granted.is_held(now_ms, self.config.grace_ms));
+            if unsealing.contends && !taken {
+                self.grant(name, holder, now_ms);
+                happened.push(Happened::Granted { name, holder });
+            } else {
+                happened.push(Happened::Lost { name, holder });
+            }
+        }
+    }
+
+    fn remove_logged(&mut self, logged: &Logged) {
+        self.log.remove(&logged.position);
+        self.positions.remove(&logged.commitment);
+        self.logged_dirty.remove(&logged.position);
+        self.logged_removed.push(logged.commitment);
+    }
+
+    /// Grants `name` to `holder`: listed from now. It takes the place of
+    /// its commitment, or of what was kept of it when it was freed, so the
+    /// bound on names holds.
+    fn grant(&mut self, name: Name, holder: NodeId, now_ms: u64) {
+        let granted = Granted {
+            name,
+            holder,
+            granted_ms: now_ms,
+            expires_ms: now_ms.saturating_add(self.config.ttl_ms),
+            freed_ms: None,
+        };
+        self.names.insert(name, granted);
+        assert!(
+            self.names.len() + self.log.len() <= self.config.max_names,
+            "a name granted takes its commitment's place"
+        );
+        self.names_removed.retain(|removed| *removed != name);
+        self.names_dirty.insert(name);
+        self.served_changed = true;
+    }
+
+    /// Forgets the freed names no commitment in the log was logged before
+    /// they were freed, and so none can be void for.
+    fn forget_freed(&mut self) {
+        // Logged times rise with positions.
+        let oldest = self.log.values().next().map(|logged| logged.logged_ms);
+        let forgotten: Vec<Name> = self
+            .names
+            .values()
+            .filter(|granted| {
+                granted
+                    .freed_ms
+                    .is_some_and(|freed| oldest.is_none_or(|oldest| oldest >= freed))
+            })
+            .map(|granted| granted.name)
+            .collect();
+        for name in forgotten {
+            self.names.remove(&name);
+            self.names_dirty.remove(&name);
+            self.names_removed.push(name);
+        }
+    }
+
+    /// The list served, encoded, and its hash: the names listed now. Built
+    /// again only when it may have changed.
+    pub fn served(&mut self, now_ms: u64) -> (&[u8], [u8; 32]) {
+        if self.served_changed {
+            self.served_changed = false;
+            let listed: BTreeMap<Name, NameHolding> = self
+                .names
+                .values()
+                .filter(|granted| granted.is_listed(now_ms))
+                .take(MAX_NAME_LIST)
+                .map(|granted| {
+                    let holding = NameHolding {
+                        holder: granted.holder,
+                        expires_at_ms: granted.expires_ms,
+                    };
+                    (granted.name, holding)
+                })
+                .collect();
+            self.served = NameListResponse(listed).to_vec();
+            self.served_hash = Sha256::digest(&self.served).into();
+        }
+        (&self.served, self.served_hash)
+    }
+
+    /// Whether `node` has a part here that its later messages must get
+    /// through for: a commitment in the log, an unsealing, or a name held
+    /// (spec/areas/peer-protocol.md#replay-protection).
+    #[must_use]
+    pub fn involves(&self, node: &NodeId) -> bool {
+        self.parties().any(|party| party == *node)
+    }
+
+    /// Every node with a part here, as [`involves`](Self::involves) says,
+    /// some more than once.
+    pub fn parties(&self) -> impl Iterator<Item = NodeId> + '_ {
+        let logged = self.log.values().flat_map(|logged| {
+            core::iter::once(logged.committer).chain(logged.unsealing.map(|u| u.holder))
+        });
+        let held = self
+            .names
+            .values()
+            .filter(|granted| granted.freed_ms.is_none())
+            .map(|granted| granted.holder);
+        logged.chain(held)
+    }
+
+    /// What changed since the last call, for the same transaction as the
+    /// ledger's.
+    pub fn take_changes(&mut self, batch: &mut PeerBatch) {
+        if core::mem::take(&mut self.head_dirty) {
+            batch.name_log = Some(self.head);
+        }
+        batch.commitments_removed.append(&mut self.logged_removed);
+        for position in core::mem::take(&mut self.logged_dirty) {
+            if let Some(logged) = self.log.get(&position) {
+                batch.commitments.push(*logged);
+            }
+        }
+        batch.names_removed.append(&mut self.names_removed);
+        for name in core::mem::take(&mut self.names_dirty) {
+            if let Some(granted) = self.names.get(&name) {
+                batch.names.push(*granted);
+            }
+        }
+    }
+
+    /// Checks the registrar's invariants (spec/decisions/tigerstyle.md).
+    ///
+    /// # Panics
+    ///
+    /// If one does not hold.
+    pub fn check_invariants(&self) {
+        let config = &self.config;
+        assert!(
+            self.log.len() <= config.max_commitments
+                && self.log.len() + self.names.len() <= config.max_names,
+            "the log and the names within bounds"
+        );
+        assert_eq!(
+            self.log.len(),
+            self.positions.len(),
+            "a position per commitment"
+        );
+        let mut previous: Option<&Logged> = None;
+        for (position, logged) in &self.log {
+            assert!(
+                *position == logged.position
+                    && self.positions.get(&logged.commitment) == Some(position),
+                "the log is indexed by position and by commitment"
+            );
+            assert!(
+                logged.position < self.head.next_position
+                    && logged.logged_ms <= self.head.last_logged_ms,
+                "the head is ahead of the log"
+            );
+            assert!(
+                previous.is_none_or(|p| p.logged_ms < logged.logged_ms),
+                "logged times rise with positions"
+            );
+            assert!(
+                logged.window_end_ms >= logged.logged_ms,
+                "a window closes after it opens"
+            );
+            previous = Some(logged);
+        }
+        for (name, granted) in &self.names {
+            assert!(*name == granted.name, "names are indexed by name");
+            assert!(
+                granted.expires_ms >= granted.granted_ms,
+                "a name expires after it is granted"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::vec;
+
+    use dassie_identity::NodeKey;
+
+    use super::*;
+
+    const START: u64 = 1_800_000_000_000;
+
+    const CONFIG: RegistrarConfig = RegistrarConfig {
+        window_ms: 1_000,
+        ttl_ms: 100_000,
+        grace_ms: 10_000,
+        renew_before_ms: 10_000,
+        ..RegistrarConfig::DEFAULT
+    };
+
+    fn node(seed: u8) -> NodeId {
+        NodeKey::from_bytes(&[seed; 32]).node_id()
+    }
+
+    fn alice() -> Name {
+        Name::parse("alice").unwrap()
+    }
+
+    fn registrar() -> Registrar {
+        Registrar::restore(CONFIG, LogHead::default(), vec![], vec![], START)
+    }
+
+    /// Seals `name` for `holder` and logs it, from `holder`.
+    fn commit(registrar: &mut Registrar, holder: u8, name: &Name, now: u64) -> NameReceipt {
+        let commitment = Commitment::seal(name, &node(holder), &Salt([holder; 32]));
+        match registrar.commit(commitment, node(holder), None, now) {
+            Ok(Committed::New(receipt)) => receipt,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    fn unseal(
+        registrar: &mut Registrar,
+        holder: u8,
+        name: &Name,
+        now: u64,
+    ) -> Result<Unsealed, UnsealError> {
+        registrar.unseal(node(holder), *name, &Salt([holder; 32]), now)
+    }
+
+    fn run(registrar: &mut Registrar, now: u64) -> Vec<Happened> {
+        let mut happened = Vec::new();
+        registrar.on_time(now, &mut happened);
+        registrar.check_invariants();
+        happened
+    }
+
+    fn holder(registrar: &mut Registrar, name: &Name, now: u64) -> Option<NodeId> {
+        let (served, _) = registrar.served(now);
+        let list = <NameListResponse as dassie_oer::Decode>::decode_exact(served).unwrap();
+        list.0.get(name).map(|holding| holding.holder)
+    }
+
+    // spec/designs/names.md#4-the-rule-at-each-registrar: the earliest
+    // commitment wins, even unsealed last, and only once its window closes.
+    #[test]
+    fn the_earliest_commitment_wins_however_late_it_is_unsealed() {
+        let mut registrar = registrar();
+        let first = commit(&mut registrar, 1, &alice(), START);
+        let second = commit(&mut registrar, 2, &alice(), START + 10);
+        assert!(first.position < second.position);
+        assert_eq!(first.window_end_ms, START + CONFIG.window_ms);
+        assert_eq!(
+            unseal(&mut registrar, 2, &alice(), START + 20),
+            Ok(Unsealed::New { contends: true })
+        );
+        assert_eq!(
+            unseal(&mut registrar, 1, &alice(), START + 500),
+            Ok(Unsealed::New { contends: true })
+        );
+        // Nothing is shown before the window closes.
+        assert!(run(&mut registrar, first.window_end_ms - 1).is_empty());
+        assert_eq!(holder(&mut registrar, &alice(), START + 999), None);
+        let happened = run(&mut registrar, first.window_end_ms);
+        assert_eq!(
+            happened,
+            [Happened::Granted {
+                name: alice(),
+                holder: node(1)
+            }]
+        );
+        assert_eq!(registrar.next_due(), Some(second.window_end_ms));
+        let happened = run(&mut registrar, second.window_end_ms);
+        assert_eq!(
+            happened,
+            [Happened::Lost {
+                name: alice(),
+                holder: node(2)
+            }]
+        );
+        assert_eq!(
+            holder(&mut registrar, &alice(), START + 2_000),
+            Some(node(1))
+        );
+    }
+
+    // A commitment not unsealed in its window lapses, and an earlier one
+    // that lapses takes nothing from a later one.
+    #[test]
+    fn a_commitment_not_unsealed_lapses() {
+        let mut registrar = registrar();
+        let first = commit(&mut registrar, 1, &alice(), START);
+        let second = commit(&mut registrar, 2, &alice(), START + 10);
+        unseal(&mut registrar, 2, &alice(), START + 20).unwrap();
+        assert_eq!(
+            unseal(&mut registrar, 1, &alice(), first.window_end_ms),
+            Err(UnsealError::Closed)
+        );
+        assert_eq!(
+            run(&mut registrar, first.window_end_ms),
+            [Happened::Lapsed {
+                committer: node(1),
+                position: first.position
+            }]
+        );
+        assert_eq!(
+            run(&mut registrar, second.window_end_ms),
+            [Happened::Granted {
+                name: alice(),
+                holder: node(2)
+            }]
+        );
+        assert_eq!(
+            unseal(&mut registrar, 1, &alice(), START + 5_000),
+            Err(UnsealError::Unknown)
+        );
+    }
+
+    // A commitment opens only for the node named in it, with its name and
+    // salt, and an unsealing is taken once.
+    #[test]
+    fn only_the_holder_opens_its_commitment() {
+        let mut registrar = registrar();
+        commit(&mut registrar, 1, &alice(), START);
+        let bob = Name::parse("bob").unwrap();
+        assert_eq!(
+            registrar.unseal(node(2), alice(), &Salt([1; 32]), START + 1),
+            Err(UnsealError::Unknown)
+        );
+        assert_eq!(
+            unseal(&mut registrar, 1, &bob, START + 1),
+            Err(UnsealError::Unknown)
+        );
+        let www = Name::parse("www").unwrap();
+        assert_eq!(
+            unseal(&mut registrar, 1, &www, START + 1),
+            Err(UnsealError::Reserved)
+        );
+        assert!(unseal(&mut registrar, 1, &alice(), START + 1).is_ok());
+        assert_eq!(
+            unseal(&mut registrar, 1, &alice(), START + 2),
+            Ok(Unsealed::Again)
+        );
+    }
+
+    // A commitment logged while the name is listed, or in its grace period,
+    // is void for it; one logged after the name is free is not.
+    #[test]
+    fn a_commitment_logged_while_the_name_is_held_is_void() {
+        let mut registrar = registrar();
+        let won = commit(&mut registrar, 1, &alice(), START);
+        unseal(&mut registrar, 1, &alice(), START + 1).unwrap();
+        run(&mut registrar, won.window_end_ms);
+        let granted = *registrar.granted().next().unwrap();
+        commit(&mut registrar, 2, &alice(), START + 2_000);
+        assert_eq!(
+            unseal(&mut registrar, 2, &alice(), START + 2_001),
+            Err(UnsealError::Taken)
+        );
+        // In grace, out of the list: still void.
+        let grace_at = granted.expires_ms + 1;
+        run(&mut registrar, grace_at);
+        assert_eq!(holder(&mut registrar, &alice(), grace_at), None);
+        let free_at = granted.held_until_ms(CONFIG.grace_ms);
+        commit(&mut registrar, 3, &alice(), free_at - 10);
+        assert_eq!(
+            unseal(&mut registrar, 3, &alice(), free_at - 9),
+            Err(UnsealError::Taken)
+        );
+        // Free: still void, since it was logged while the name was held,
+        // but one logged now contends, and wins.
+        let happened = run(&mut registrar, free_at);
+        assert!(happened.contains(&Happened::Freed {
+            name: alice(),
+            holder: node(1)
+        }));
+        assert_eq!(
+            unseal(&mut registrar, 3, &alice(), free_at + 1),
+            Err(UnsealError::Taken)
+        );
+        let late = commit(&mut registrar, 4, &alice(), free_at + 2);
+        unseal(&mut registrar, 4, &alice(), free_at + 3).unwrap();
+        run(&mut registrar, late.window_end_ms);
+        assert_eq!(
+            holder(&mut registrar, &alice(), late.window_end_ms),
+            Some(node(4))
+        );
+    }
+
+    // A commitment logged before the name was granted to another, and
+    // unsealed after, has lost: it is answered as taken, and lost when its
+    // window closes.
+    #[test]
+    fn a_later_commitment_unsealed_after_the_grant_loses() {
+        let mut registrar = registrar();
+        let won = commit(&mut registrar, 1, &alice(), START);
+        let later = commit(&mut registrar, 2, &alice(), START + 500);
+        unseal(&mut registrar, 1, &alice(), START + 1).unwrap();
+        run(&mut registrar, won.window_end_ms);
+        assert_eq!(
+            unseal(&mut registrar, 2, &alice(), won.window_end_ms + 1),
+            Ok(Unsealed::New { contends: false })
+        );
+        assert_eq!(
+            run(&mut registrar, later.window_end_ms),
+            [Happened::Lost {
+                name: alice(),
+                holder: node(2)
+            }]
+        );
+    }
+
+    // A name expires unless its holder renews it near its expiry, or in its
+    // grace period; only the holder renews.
+    #[test]
+    fn names_are_renewed_by_their_holders_alone() {
+        let mut registrar = registrar();
+        let won = commit(&mut registrar, 1, &alice(), START);
+        unseal(&mut registrar, 1, &alice(), START + 1).unwrap();
+        run(&mut registrar, won.window_end_ms);
+        let expires = registrar.granted().next().unwrap().expires_ms;
+        assert_eq!(expires, won.window_end_ms + CONFIG.ttl_ms);
+        let (_, hash) = registrar.served(won.window_end_ms);
+        // Early: the expiry it has, and the list is the same.
+        let renewed = |expires_ms, extended| {
+            Ok(Renewal {
+                expires_ms,
+                extended,
+            })
+        };
+        assert_eq!(
+            registrar.renew(&node(1), &alice(), START + 2),
+            renewed(expires, false)
+        );
+        assert_eq!(registrar.served(START + 2).1, hash);
+        assert_eq!(
+            registrar.renew(&node(2), &alice(), expires - 1),
+            Err(RenewError::NotHolder)
+        );
+        let near = expires - CONFIG.renew_before_ms;
+        assert_eq!(
+            registrar.renew(&node(1), &alice(), near),
+            renewed(expires + CONFIG.ttl_ms, true)
+        );
+        assert_ne!(registrar.served(near).1, hash);
+        // In grace, from now.
+        let expires = expires + CONFIG.ttl_ms;
+        run(&mut registrar, expires);
+        assert_eq!(holder(&mut registrar, &alice(), expires), None);
+        let late = expires + CONFIG.grace_ms - 1;
+        assert_eq!(
+            registrar.renew(&node(1), &alice(), late),
+            renewed(late + CONFIG.ttl_ms, true)
+        );
+        assert_eq!(holder(&mut registrar, &alice(), late), Some(node(1)));
+        // Freed after its grace, it is renewed by no one.
+        let gone = late + CONFIG.ttl_ms + CONFIG.grace_ms;
+        run(&mut registrar, gone);
+        assert_eq!(
+            registrar.renew(&node(1), &alice(), gone),
+            Err(RenewError::NotHeld)
+        );
+        // Nothing in the log could be void for it: it is forgotten.
+        assert_eq!(registrar.granted().count(), 0);
+    }
+
+    // The log's positions and times only rise, whatever the clock says.
+    #[test]
+    fn positions_and_times_only_rise() {
+        let mut registrar = registrar();
+        let bob = Name::parse("bob").unwrap();
+        let first = commit(&mut registrar, 1, &alice(), START + 100);
+        let second = commit(&mut registrar, 2, &bob, START);
+        assert_eq!(second.position, first.position + 1);
+        assert_eq!(second.window_end_ms, first.window_end_ms + 1);
+        let head = registrar.head();
+        assert_eq!(
+            head,
+            LogHead {
+                next_position: 2,
+                last_logged_ms: START + 101
+            }
+        );
+        // Restored from a head ahead of its log, it stays ahead.
+        let restored = Registrar::restore(
+            CONFIG,
+            LogHead {
+                next_position: 9,
+                last_logged_ms: START + 500,
+            },
+            registrar.logged().copied().collect(),
+            vec![],
+            START,
+        );
+        assert_eq!(restored.head().next_position, 9);
+        restored.check_invariants();
+    }
+
+    // The caps: per node, per network, and the rate, spent only on what is
+    // logged; a duplicate costs nothing.
+    #[test]
+    fn commitments_are_capped() {
+        let config = RegistrarConfig {
+            commit_rate: Rate {
+                burst: 6,
+                refill_ms: 60_000,
+            },
+            max_commitments_per_network: 3,
+            max_commitments_per_node: 2,
+            max_names_per_node: 3,
+            ..CONFIG
+        };
+        let mut registrar = Registrar::restore(config, LogHead::default(), vec![], vec![], START);
+        let network = Some(Network([4, 198, 51, 100, 0, 0, 0]));
+        let c = |seed: u8| Commitment([seed; 32]);
+        let mut commit =
+            |seed, from, network| registrar.commit(c(seed), node(from), network, START);
+        assert!(commit(1, 1, None).is_ok());
+        assert!(matches!(commit(1, 2, None), Ok(Committed::Again(_))));
+        assert!(commit(2, 1, network).is_ok());
+        assert_eq!(commit(3, 1, None), Err(CommitError::Commitments));
+        assert!(commit(4, 2, network).is_ok());
+        assert!(commit(5, 3, network).is_ok());
+        assert_eq!(commit(6, 4, network), Err(CommitError::Network));
+        assert!(commit(7, 4, None).is_ok());
+        assert!(commit(8, 5, None).is_ok());
+        assert_eq!(commit(9, 6, None), Err(CommitError::Rate));
+    }
+
+    // The log and the names it may become stay within their bounds.
+    #[test]
+    fn the_log_is_bounded() {
+        let config = RegistrarConfig {
+            max_commitments: 2,
+            max_names: 3,
+            ..CONFIG
+        };
+        let mut registrar = Registrar::restore(config, LogHead::default(), vec![], vec![], START);
+        let names = ["aaa", "bbb", "ccc"].map(|text| Name::parse(text).unwrap());
+        let first = commit(&mut registrar, 1, &names[0], START);
+        commit(&mut registrar, 2, &names[1], START);
+        let full = Commitment::seal(&names[2], &node(3), &Salt([3; 32]));
+        assert_eq!(
+            registrar.commit(full, node(3), None, START),
+            Err(CommitError::LogFull)
+        );
+        unseal(&mut registrar, 1, &names[0], START + 1).unwrap();
+        unseal(&mut registrar, 2, &names[1], START + 1).unwrap();
+        run(&mut registrar, first.window_end_ms + 1);
+        assert_eq!(registrar.granted().count(), 2);
+        commit(&mut registrar, 3, &names[2], START + 2_000);
+        let more = Commitment::seal(&names[2], &node(4), &Salt([4; 32]));
+        assert_eq!(
+            registrar.commit(more, node(4), None, START + 2_000),
+            Err(CommitError::NamesFull)
+        );
+    }
+}

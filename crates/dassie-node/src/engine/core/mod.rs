@@ -991,6 +991,7 @@ fn check_bounds(policies: &Policies) {
         connector.max_routes >= policies.peer.max_nodes,
         "every node the peer node knows can be routed to"
     );
+    check_name_bounds(policies);
     assert!(
         policies.ledger.max_journal >= 64,
         "a command's journal entries fit the journal"
@@ -1009,6 +1010,16 @@ fn check_bounds(policies: &Policies) {
         usize::try_from(policies.ledger.max_accounts).unwrap_or(usize::MAX)
             >= ledgers::OWN_ACCOUNTS + 2 * (policies.peer.max_channels + downlinks),
         "the accounts hold the node's own and every open channel's"
+    );
+}
+
+/// A registrar's bounds fit the node's (spec/areas/network.md#names).
+fn check_name_bounds(policies: &Policies) {
+    // `MAX_NAME_LIST` entries fit a response over QUIC
+    // (`crates/dassie-node/src/quic/mod.rs`).
+    assert!(
+        policies.peer.names.max_names <= dassie_peer::wire::MAX_NAME_LIST,
+        "a registrar's name list fits a response"
     );
 }
 

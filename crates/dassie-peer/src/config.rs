@@ -2,7 +2,16 @@
 //! All of them are configuration, so tests and simulations can shorten them.
 
 use crate::auth::AuthConfig;
+use crate::names::RegistrarConfig;
+use crate::names::registrar::least_window_ms;
 use crate::node::{MAX_UPLINKS, own_link_state_fits};
+use crate::wire::MAX_NAME_LIST;
+
+/// How long a registration lasts in dev.
+const DEV_REGISTRATION_TTL_MS: u64 = 120_000;
+
+/// The shortest backoff in dev.
+const DEV_MIN_BACKOFF_MS: u64 = 1_000;
 
 /// A token bucket's shape: how many at once, and how fast they refill.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -151,6 +160,9 @@ pub struct Config {
     /// each asks the books, which scan what is pending, so a channel the
     /// books hold open is not asked at every step.
     pub channel_check_ms: u64,
+    /// A registrar's timers and bounds, when the node is one of its own
+    /// bootstrap nodes (spec/areas/network.md#names).
+    pub names: RegistrarConfig,
 }
 
 impl Config {
@@ -222,6 +234,7 @@ impl Config {
         settlement_retry_min_ms: 1_000,
         settlement_retry_max_ms: 3_600_000,
         channel_check_ms: 60_000,
+        names: RegistrarConfig::DEFAULT,
     };
 
     /// The dev settings: the same rules, faster, for what runs on a real
@@ -231,12 +244,12 @@ impl Config {
         list_fresh_ms: 10_000,
         issue_debounce_ms: 500,
         sweep_interval_ms: 1_000,
-        registration_ttl_ms: 120_000,
+        registration_ttl_ms: DEV_REGISTRATION_TTL_MS,
         registration_renew_ms: 30_000,
         removal_grace_ms: 10_000,
         bridge_check_ms: 2_000,
         unreachable_grace_ms: 4_000,
-        min_backoff_ms: 1_000,
+        min_backoff_ms: DEV_MIN_BACKOFF_MS,
         max_backoff_ms: 30_000,
         peer_dead_ms: 120_000,
         advertise_hold_min_ms: 5_000,
@@ -250,6 +263,17 @@ impl Config {
         owner_termination_cooldown_ms: 300_000,
         settlement_retry_max_ms: 10_000,
         channel_check_ms: 5_000,
+        // As in production, a name lasts 365 registrations, and its grace
+        // and the time to renew it 30 each; the window is the least that
+        // lets a registrant retry (`validate`), as dev registrars run side
+        // by side.
+        names: RegistrarConfig {
+            window_ms: least_window_ms(Self::DEFAULT.request_timeout_ms, DEV_MIN_BACKOFF_MS),
+            ttl_ms: 365 * DEV_REGISTRATION_TTL_MS,
+            grace_ms: 30 * DEV_REGISTRATION_TTL_MS,
+            renew_before_ms: 30 * DEV_REGISTRATION_TTL_MS,
+            ..RegistrarConfig::DEFAULT
+        },
         ..Self::DEFAULT
     };
 
@@ -339,6 +363,39 @@ impl Config {
         assert!(
             own_link_state_fits(self.max_peers),
             "our own link state always decodes"
+        );
+        self.validate_names();
+    }
+
+    /// Checks a registrar's values (spec/areas/network.md#names).
+    fn validate_names(&self) {
+        let names = &self.names;
+        assert!(
+            names.window_ms >= least_window_ms(self.request_timeout_ms, self.min_backoff_ms),
+            "a commitment and its unsealing each get retries within the window"
+        );
+        assert!(
+            names.window_ms < names.ttl_ms && names.renew_before_ms < names.ttl_ms,
+            "a name outlives a window, and is renewed before it expires"
+        );
+        // A renewal is retried after the longest backoff before the name
+        // expires, and one that reached a registrar late still lands in
+        // its grace.
+        let retry_ms = 2 * (self.request_timeout_ms + self.max_backoff_ms);
+        assert!(
+            names.renew_before_ms >= retry_ms && names.grace_ms >= retry_ms,
+            "renewals have time for their retries"
+        );
+        assert!(
+            names.max_names <= MAX_NAME_LIST && names.max_commitments < names.max_names,
+            "the list served always decodes, and names have room beside the log"
+        );
+        assert!(
+            names.commit_rate.burst >= 1
+                && names.max_commitments_per_network >= 1
+                && names.max_commitments_per_node >= 1
+                && names.max_commitments_per_node <= names.max_names_per_node,
+            "a node may commit"
         );
     }
 }

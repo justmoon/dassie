@@ -2,7 +2,7 @@
 
 A node is known by its ID, and in DNS by its 39-character [label](../areas/identity.md#node-label). That is fine for machines, not for people: `$alice.dassiepay.net` is an address someone can say aloud, `$<39 characters>.dassiepay.net` is not. This design lets a node's owner register a **name** on the network, held for the node's ID by the bootstrap nodes that decide membership ([Network](../areas/network.md#membership)), so that every core node agrees who holds it.
 
-Registering a name is a race that anyone watching could join, so a registrant first commits to the name sealed, and pays, and reveals it only once its commitments are in place everywhere. The reasons are [names-by-earliest-commitment](../decisions/names-by-earliest-commitment.md). Names, commitments and their messages are built, and refused by every node until the rest is ([Peer protocol](../areas/peer-protocol.md#names)); the rest of the design is not built yet ([roadmap](../roadmap.md#names)). Durations and sizes are starting points, to be set from the simulation when it is built.
+Registering a name is a race that anyone watching could join, so a registrant first commits to the name sealed, and pays, and reveals it only once its commitments are in place everywhere. The reasons are [names-by-earliest-commitment](../decisions/names-by-earliest-commitment.md). Names, commitments and their messages are built ([Peer protocol](../areas/peer-protocol.md#names)), and so is the registrar's side of §3 to §5: its log, the rule, granting, expiry, renewal and grace, and its list ([Network](../areas/network.md#names)); the rest of the design is not built yet ([roadmap](../roadmap.md#names)). Durations and sizes are starting points, to be set from the simulation when it is built.
 
 ## 1. What it guarantees
 
@@ -32,7 +32,7 @@ No wait is needed between committing and unsealing: the receipts are what protec
 
 ## 4. The rule at each registrar
 
-**Among the valid unsealings of a name, the commitment logged first wins.** Each registrar orders by its own log, so registrars never agree on time or order with each other, and a log's order is total, so there are no ties.
+**Among the valid unsealings of a name, the commitment logged first wins.** Each registrar orders by its own log, so registrars never agree on time or order with each other, and a log's order is total, so there are no ties. This rule is built ([Network](../areas/network.md#names)).
 
 - **Priority is fixed when a commitment is logged,** while the name is still sealed. A commitment made after anyone could have learned the name is later in every honest registrar's log than the one that revealed it.
 - **Granting.** An unsealed commitment can still lose to an earlier one for the same name until every earlier commitment's window has closed, which is by the end of its own window. So the registrar grants the name when the winning commitment's window closes, and lists it only then. Until then, the name is pending, and the registrar shows it to no one.

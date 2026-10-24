@@ -196,14 +196,15 @@ fn packets_need_a_peering() {
     );
 }
 
-// Names are on the wire before a node takes them
-// (spec/areas/peer-protocol.md#message-set): every name message is refused
-// with 409, which says it was not acted upon, at a bootstrap node too; one
+// Only a registrar, a node that is one of its own bootstrap nodes, takes
+// name messages (spec/areas/network.md#names): any other refuses each with
+// 409, which says it was not acted upon, as it refuses registrations; one
 // that must be authenticated and is not gets 401 first.
 #[test]
-fn name_messages_are_refused_until_names_are_built() {
+fn only_a_registrar_takes_name_messages() {
     use dassie_peer::names::{Commitment, Name, Salt};
     let mut network = Network::new(2, 2, 1, Config::DEV);
+    assert!(network.node(0).registrar().is_some() && network.node(1).registrar().is_none());
     settle(&mut network, 30_000);
     let stranger = Arc::new(NodeKey::from_bytes(&[79; 32]));
     let alice = Name::parse("alice").unwrap();
@@ -219,8 +220,8 @@ fn name_messages_are_refused_until_names_are_built() {
     ];
     let mut auth = Authenticator::new(Arc::clone(&stranger), AuthConfig::DEFAULT, START - 1);
     for content in &contents {
-        let body = request_by(&mut auth, network.clock(0), 0, content);
-        assert_eq!(network.inbound(0, &body).status, 409, "{content:?}");
+        let body = request_by(&mut auth, network.clock(1), 1, content);
+        assert_eq!(network.inbound(1, &body).status, 409, "{content:?}");
         let bare = encode_envelope(
             &stranger.node_id(),
             &Authentication::None,
@@ -231,7 +232,7 @@ fn name_messages_are_refused_until_names_are_built() {
         } else {
             409
         };
-        assert_eq!(network.inbound(0, &bare).status, status, "{content:?}");
+        assert_eq!(network.inbound(1, &bare).status, status, "{content:?}");
     }
 }
 

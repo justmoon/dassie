@@ -1,8 +1,8 @@
 # Network
 
-How Dassie nodes find each other and stay connected: the node table, link states and how they spread, membership through bootstrap nodes, peering and its lifecycle, bans, and routing. The messages these use are in [Peer protocol](peer-protocol.md).
+How Dassie nodes find each other and stay connected: the node table, link states and how they spread, membership through bootstrap nodes, names, peering and its lifecycle, bans, and routing. The messages these use are in [Peer protocol](peer-protocol.md).
 
-**Paths:** `crates/dassie-peer/src/node/`, `crates/dassie-peer/src/table.rs`, `crates/dassie-peer/src/routing.rs`, `crates/dassie-peer/src/channel.rs`, `crates/dassie-peer/src/persist.rs`, `crates/dassie-peer/src/config.rs` (every timer and bound, with the dev values), `crates/dassie-peer/src/hooks.rs`, `crates/dassie-node/src/env.rs` (bootstrap list)
+**Paths:** `crates/dassie-peer/src/node/`, `crates/dassie-peer/src/names/registrar.rs`, `crates/dassie-peer/src/table.rs`, `crates/dassie-peer/src/routing.rs`, `crates/dassie-peer/src/channel.rs`, `crates/dassie-peer/src/persist.rs`, `crates/dassie-peer/src/config.rs` (every timer and bound, with the dev values), `crates/dassie-peer/src/hooks.rs`, `crates/dassie-node/src/env.rs` (bootstrap list)
 **Read with:** [Peer protocol](peer-protocol.md), [Settlement](settlement.md), [Connector](connector.md), [Identity](identity.md), [Node](node.md)
 
 ## The peer node
@@ -86,6 +86,23 @@ Every probe spends a token of the node's probe bucket, whatever its outcome: fai
 2. Other nodes poll the lists; once a majority lists it, they add it to their tables.
 3. They learn its link state from refreshes, sweeps or flooding.
 4. Nodes that peer with it advertise it as a neighbor, which makes it routable.
+
+## Names
+
+A node's owner can register a name for the node's ID, held by the bootstrap nodes as its registrars ([the design](../designs/names.md), [names-by-earliest-commitment](../decisions/names-by-earliest-commitment.md)); the messages are in [Peer protocol](peer-protocol.md#names). The registrar's side is built: the rule in `crates/dassie-peer/src/names/registrar.rs`, who may ask what in `crates/dassie-peer/src/node/names.rs`. Registrants, every node's view of who holds a name, and releasing a split are not ([roadmap](../roadmap.md#names)).
+
+### The registrar
+
+A node is a registrar when it is one of its own bootstrap nodes, as it takes registrations only then ([Bootstrap nodes](#bootstrap-nodes)). Any other node refuses every name message with 409, the list requests too: only registrars' lists count. Everything a registrar decides is by its own log and clock; registrars never agree on time or order with each other.
+
+- **The log.** A commitment is logged at the next position and at the registrar's time, `max(now, last + 1)`, both persisted, so both only rise across restarts, as the own link state's sequence does ([The own link state](#the-own-link-state)). Its window closes a set time after it was logged. It is on disk, in the batch that logs it, before its receipt goes out, so a crash loses no receipted commitment and never reorders the log. A commitment in the log sent again gets its receipt again, at no cost, since a registrant retries until it holds every receipt.
+- **Unsealing.** An unsealing is valid if it opens a commitment in the log, sealed for its sender, before the commitment's window closes, for a name that is not reserved, and the name was neither listed nor in its grace period here when the commitment was logged. An invalid one is refused with 409. A valid one is answered alike whether it still contends for the name or has lost already, to a name granted since its commitment was logged, so the answer says nothing of commitments still sealed.
+- **Deciding.** As windows close, commitments are decided in the order of the log. One never unsealed lapses. One that contends is granted the name if no commitment earlier in the log won it, and only once every earlier window has closed, since until then an earlier commitment can still take the name; nothing about a name is shown before. The rest lose. So the commitment logged first among a name's valid unsealings wins, whenever it was unsealed, and a name waits a window before it is granted.
+- **Holding.** A granted name is listed for a lifetime. Its holder alone renews it, once its expiry is near, to a lifetime past that expiry, or in its grace period, to a lifetime from now; a renewal before its expiry is near is answered with the expiry it has, so a holder cannot move the list's hash at will. Unrenewed, it leaves the list at its expiry, stays the holder's for its grace period, and is then free. What it was is kept until no commitment in the log was logged while it was held, so such a commitment stays void for it.
+- **The list** is the names listed, with their holders and expiries, sorted by name, served by hash and download like the node list ([Node lists and the majority](#node-lists-and-the-majority)), and rebuilt only once a grant, a renewal or an expiry changed it. Its bound, `MAX_NAME_LIST`, holds the bound on names below.
+- **Free, so throttled,** as registration is until there are fees ([roadmap](../roadmap.md#registration-fees)). New commitments draw from a global bucket, spent only on one logged; the log holds a bounded number from each /24 or /48, and from each node, which together with the names it holds stay under a cap of their own. The log is bounded, and so are the names with the commitments in the log, each of which may become one, so a grant never finds the names full. A bound refuses with 503, a cap with 409 and the bucket with 429, as for registration.
+- **Replay state.** A node with a commitment in the log, an unsealing there or a name held keeps its replay state, so strangers filling the pool cannot turn its unsealing or renewal away, and lets it go once it has none ([Peer protocol](peer-protocol.md#replay-protection)).
+- **Timers and bounds** are `RegistrarConfig` (`crates/dassie-peer/src/names/registrar.rs`). The window gives a commitment and its unsealing each a request's time and retries (`least_window_ms`); renewals and the grace period leave room for a renewal to be retried at the longest backoff; dev values follow production's rules (`Config::DEV`).
 
 ## Peering
 
@@ -213,13 +230,15 @@ Routing runs a breadth-first search from this node over edges that both ends adv
 
 ## Persistence
 
-The peer node's state is written in the same transaction as the ledger, on every change (`crates/dassie-peer/src/persist.rs`, `crates/dassie-node/src/store/peer.rs`). What survives a restart is chosen so that a restart neither drops a peer nor forgives one: peerings with when each was last heard from and how long its room has been short, peerings being ended (decided or told), replay floors, the own sequence, the majority, settlement channels (with whether a peering with the node was ended for room), open or closed, and bans. Only open channels are loaded at start; a closed one is read when it is needed. Link states were verified when received and are not verified again.
+The peer node's state is written in the same transaction as the ledger, on every change (`crates/dassie-peer/src/persist.rs`, `crates/dassie-node/src/store/peer.rs`). What survives a restart is chosen so that a restart neither drops a peer nor forgives one: peerings with when each was last heard from and how long its room has been short, peerings being ended (decided or told), replay floors, the own sequence, the majority, settlement channels (with whether a peering with the node was ended for room), open or closed, bans, and at a registrar its log's head, the commitments in its log with their unsealings, and its names ([Names](#names)). Only open channels are loaded at start; a closed one is read when it is needed. Link states were verified when received and are not verified again.
 
-What is lost is either fetched again (bootstrap lists) or only paces the node's own attempts: backoffs, flood counters, hold-downs, the cooldown after a termination, and how long each channel has been idle. A peering attempt cut short by a restart is dropped.
+What is lost is either fetched again (bootstrap lists) or only paces the node's own attempts: backoffs, flood counters, hold-downs, the cooldown after a termination, how long each channel has been idle, and a registrar's bucket of new commitments. A peering attempt cut short by a restart is dropped.
 
 ## Tests
 
 The `peer` simulation (`dassie_peer::sim::chaos`) runs this protocol on a rough network with crashes, partitions, terminations and bans, and checks that link states and routes converge, peerings are two-sided, every termination finishes, and each settlement is applied exactly once ([Testing](testing.md#the-simulations)).
+
+A registrar takes commitments, unsealings and renewals over the protocol on the same simulated network in `crates/dassie-peer/tests/names_registrar.rs`: the commitment logged first wins, a receipted commitment survives a crash, names expire unless renewed, and commitments are throttled.
 
 Periphery nodes peer with their uplinks on the same simulated network in `crates/dassie-peer/tests/periphery.rs`, pinned ones too, to more uplinks than a link state could list; `crates/dassie-node/tests/periphery.rs` has a periphery daemon peer with a core daemon over QUIC and get paid beneath it, one pinned to a core node ask only that one, and one pinned to two get paid beneath each, as its owner names it.
 
@@ -238,3 +257,4 @@ Periphery nodes peer with their uplinks on the same simulated network in `crates
 - [places-by-proved-key](../decisions/places-by-proved-key.md): downlinks' connections hold places of their own.
 - [periphery-lists-no-neighbors](../decisions/periphery-lists-no-neighbors.md): a periphery node's link state lists no neighbors, so it may keep many uplinks.
 - [settlement-methods](../decisions/settlement-methods.md): a peering settling by every scheme both run (not built).
+- [names-by-earliest-commitment](../decisions/names-by-earliest-commitment.md): a name goes to its earliest sealed commitment at each registrar, and is held by a quorum of their lists.

@@ -1,10 +1,12 @@
 //! The peer protocol's tables (spec/areas/network.md#persistence): the node
 //! table with each node's link state, registration and peering, our own
 //! link-state sequence, settlement channels, bans and replay floors (NET-1,
-//! NET-2, NET-7, ACC-18). They are written in the same transaction as the ledger, so a
-//! peering and its accounts, or a settlement and its message, land together.
+//! NET-2, NET-7, ACC-18), and a registrar's log and names. They are written
+//! in the same transaction as the ledger, so a peering and its accounts, or
+//! a settlement and its message, land together.
 
 use dassie_identity::{NodeId, PublicKey};
+use dassie_peer::names::{Commitment, Granted, LogHead, Logged, Name, Unsealing};
 use dassie_peer::wire::{SchemeId, TerminationReason};
 use dassie_peer::{
     Channel, Closed, Depeering, Network, Outgoing, PeerBatch, Peering, Registration, Sources,
@@ -57,6 +59,9 @@ impl Store {
             channels: load_channels(&connection)?,
             bans: load_bans(&connection)?,
             floors: load_floors(&connection)?,
+            name_log: load_name_log(&connection)?,
+            commitments: load_commitments(&connection)?,
+            names: load_names(&connection)?,
         })
     }
 
@@ -152,6 +157,109 @@ fn load_floors(connection: &Connection) -> Result<Vec<StoredFloor>, StoreError> 
         });
     }
     Ok(floors)
+}
+
+/// Where a registrar's log stands (spec/areas/network.md#names).
+fn load_name_log(connection: &Connection) -> Result<LogHead, StoreError> {
+    let (next_position, last_logged_ms): (i64, i64) = connection.query_row(
+        "SELECT next_position, last_logged_ms FROM name_log WHERE id = 1",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    Ok(LogHead {
+        next_position: from_sql_position(next_position)?,
+        last_logged_ms: from_sql_time(last_logged_ms),
+    })
+}
+
+fn to_sql_position(position: u64) -> Result<i64, StoreError> {
+    i64::try_from(position).map_err(|_| StoreError::Corrupt("log position beyond i64"))
+}
+
+fn from_sql_position(position: i64) -> Result<u64, StoreError> {
+    u64::try_from(position).map_err(|_| StoreError::Corrupt("negative log position"))
+}
+
+fn parse_node(text: &str) -> Result<NodeId, StoreError> {
+    NodeId::parse(text).map_err(|_| StoreError::Corrupt("node ID"))
+}
+
+fn parse_name(text: &str) -> Result<Name, StoreError> {
+    Name::parse(text).map_err(|_| StoreError::Corrupt("name"))
+}
+
+/// The commitments in a registrar's log, by position.
+fn load_commitments(connection: &Connection) -> Result<Vec<Logged>, StoreError> {
+    let mut statement = connection.prepare(
+        "SELECT commitment, position, logged_ms, window_end_ms, committer, network, name,
+                holder, contends
+         FROM name_commitments ORDER BY position",
+    )?;
+    let rows = statement.query_map([], |row| Ok(read_logged(row)))?;
+    let mut log = Vec::new();
+    for row in rows {
+        log.push(row??);
+    }
+    Ok(log)
+}
+
+fn read_logged(row: &Row<'_>) -> Result<Logged, StoreError> {
+    let commitment: Vec<u8> = row.get(0)?;
+    let commitment = <[u8; 32]>::try_from(commitment.as_slice())
+        .map_err(|_| StoreError::Corrupt("commitment"))?;
+    let unsealing = match (
+        row.get::<_, Option<String>>(6)?,
+        row.get::<_, Option<String>>(7)?,
+        row.get::<_, Option<bool>>(8)?,
+    ) {
+        (Some(name), Some(holder), Some(contends)) => Some(Unsealing {
+            name: parse_name(&name)?,
+            holder: parse_node(&holder)?,
+            contends,
+        }),
+        (None, None, None) => None,
+        _ => return Err(StoreError::Corrupt("unsealing")),
+    };
+    Ok(Logged {
+        commitment: Commitment(commitment),
+        position: from_sql_position(row.get(1)?)?,
+        logged_ms: from_sql_time(row.get(2)?),
+        window_end_ms: from_sql_time(row.get(3)?),
+        committer: parse_node(&row.get::<_, String>(4)?)?,
+        network: row
+            .get::<_, Option<Vec<u8>>>(5)?
+            .and_then(|bytes| <[u8; 7]>::try_from(bytes).ok())
+            .map(Network),
+        unsealing,
+    })
+}
+
+/// The names a registrar granted, by name.
+fn load_names(connection: &Connection) -> Result<Vec<Granted>, StoreError> {
+    let mut statement = connection.prepare(
+        "SELECT name, holder, granted_ms, expires_ms, freed_ms FROM granted_names ORDER BY name",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, i64>(2)?,
+            row.get::<_, i64>(3)?,
+            row.get::<_, Option<i64>>(4)?,
+        ))
+    })?;
+    let mut names = Vec::new();
+    for row in rows {
+        let (name, holder, granted_ms, expires_ms, freed_ms) = row?;
+        names.push(Granted {
+            name: parse_name(&name)?,
+            holder: parse_node(&holder)?,
+            granted_ms: from_sql_time(granted_ms),
+            expires_ms: from_sql_time(expires_ms),
+            freed_ms: freed_ms.map(from_sql_time),
+        });
+    }
+    Ok(names)
 }
 
 /// A row of the node table, joined with its peering.
@@ -288,6 +396,76 @@ pub(super) fn write_peer(
             params![floor.node.as_str(), to_sql_time(floor.floor_ms)],
         )?;
     }
+    write_registrar(transaction, batch)
+}
+
+/// Writes what a registrar changed: its log's head, the commitments in the
+/// log and the names granted (spec/areas/network.md#names).
+fn write_registrar(transaction: &Transaction<'_>, batch: &PeerBatch) -> Result<(), StoreError> {
+    if let Some(head) = batch.name_log {
+        transaction.execute(
+            "UPDATE name_log SET next_position = ?1, last_logged_ms = ?2 WHERE id = 1",
+            params![
+                to_sql_position(head.next_position)?,
+                to_sql_time(head.last_logged_ms)
+            ],
+        )?;
+    }
+    // Removals first, as for nodes.
+    for removed in &batch.commitments_removed {
+        transaction.execute(
+            "DELETE FROM name_commitments WHERE commitment = ?1",
+            [removed.0.as_slice()],
+        )?;
+    }
+    for logged in &batch.commitments {
+        write_logged(transaction, logged)?;
+    }
+    for removed in &batch.names_removed {
+        transaction.execute(
+            "DELETE FROM granted_names WHERE name = ?1",
+            [removed.as_str()],
+        )?;
+    }
+    for granted in &batch.names {
+        transaction.execute(
+            "INSERT INTO granted_names (name, holder, granted_ms, expires_ms, freed_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT (name) DO UPDATE SET holder = ?2, granted_ms = ?3, expires_ms = ?4,
+               freed_ms = ?5",
+            params![
+                granted.name.as_str(),
+                granted.holder.as_str(),
+                to_sql_time(granted.granted_ms),
+                to_sql_time(granted.expires_ms),
+                granted.freed_ms.map(to_sql_time),
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn write_logged(transaction: &Transaction<'_>, logged: &Logged) -> Result<(), StoreError> {
+    let unsealing = logged.unsealing.as_ref();
+    transaction.execute(
+        "INSERT INTO name_commitments (commitment, position, logged_ms, window_end_ms,
+           committer, network, name, holder, contends)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+         ON CONFLICT (commitment) DO UPDATE SET position = ?2, logged_ms = ?3,
+           window_end_ms = ?4, committer = ?5, network = ?6, name = ?7, holder = ?8,
+           contends = ?9",
+        params![
+            logged.commitment.0.as_slice(),
+            to_sql_position(logged.position)?,
+            to_sql_time(logged.logged_ms),
+            to_sql_time(logged.window_end_ms),
+            logged.committer.as_str(),
+            logged.network.map(|network| network.0.to_vec()),
+            unsealing.map(|u| u.name.as_str()),
+            unsealing.map(|u| u.holder.as_str()),
+            unsealing.map(|u| u.contends),
+        ],
+    )?;
     Ok(())
 }
 

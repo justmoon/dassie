@@ -35,8 +35,8 @@ pub use channel::{Channel, Closed, Outgoing};
 pub use config::{Config, Rate};
 pub use hooks::{Agreed, Declined, PeeringHooks};
 pub use io::{
-    Event, Failure, Inbound, InboundId, Output, PacketAnswer, Reply, Request, RequestId, Response,
-    SettlementAnswer, Stats, VERDICT_ACCEPTED,
+    Event, Failure, Inbound, InboundId, NameEvent, Output, PacketAnswer, Reply, Request, RequestId,
+    Response, SettlementAnswer, Stats, VERDICT_ACCEPTED,
 };
 pub use node::{
     BanError, Bootstrap, MAX_SCHEMES, MAX_UPLINKS, NodeView, OwnInfo, PeerNode, PeerStatus,

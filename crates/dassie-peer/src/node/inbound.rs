@@ -2,7 +2,7 @@
 //! spec/areas/peer-protocol.md#statuses): decoding, authentication, and
 //! what each kind gets, with HTTP statuses that mean something (NET-11,
 //! NET-27, NET-28). Registrations and peering requests wait on a probe of
-//! the requester's URL.
+//! the requester's URL; name messages go to the registrar (`names.rs`).
 
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -137,13 +137,13 @@ impl PeerNode {
                 Inbound::Reply(self.termination_request(&accepted, reason))
             }
             Content::SettlementRequest { scheme } => self.settle_on_request(accepted, scheme),
-            // Names are not taken yet (spec/roadmap.md#names): refused as
-            // not acted upon, so that a registrant takes nothing as done.
-            Content::NameCommit(_)
-            | Content::NameUnseal { .. }
-            | Content::NameRenew(_)
-            | Content::NameListHashRequest
-            | Content::NameListRequest => refuse(409, "names are not built"),
+            Content::NameCommit(commitment) => {
+                Inbound::Reply(self.name_commit(&accepted, commitment, network))
+            }
+            Content::NameUnseal { name, salt } => {
+                Inbound::Reply(self.name_unseal(&accepted, name, &salt))
+            }
+            Content::NameRenew(name) => Inbound::Reply(self.name_renew(&accepted, name)),
             other => Inbound::Reply(self.answer(hooks, &accepted, other)),
         }
     }
@@ -290,6 +290,8 @@ impl PeerNode {
                 let (served, _) = self.lists.served();
                 ok(accepted, served)
             }
+            Content::NameListHashRequest => self.name_list(accepted, true),
+            Content::NameListRequest => self.name_list(accepted, false),
             Content::PeeringInfoRequest { scheme } => {
                 let mut info = Vec::new();
                 if hooks.peering_info(scheme, &mut info).is_err() {
@@ -307,9 +309,7 @@ impl PeerNode {
             | Content::PeeringTermination(_)
             | Content::NameCommit(_)
             | Content::NameUnseal { .. }
-            | Content::NameRenew(_)
-            | Content::NameListHashRequest
-            | Content::NameListRequest => Reply::refuse(400, "unexpected"),
+            | Content::NameRenew(_) => Reply::refuse(400, "unexpected"),
         }
     }
 

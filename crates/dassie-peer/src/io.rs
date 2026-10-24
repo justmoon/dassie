@@ -6,6 +6,7 @@ use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
 
+use crate::names::Name;
 use crate::wire::{Kind, SchemeId, TerminationReason};
 
 /// Our number for a request we send.
@@ -359,6 +360,68 @@ pub enum Event {
         /// The status.
         status: u16,
     },
+    /// As a registrar, something happened to a name or a commitment
+    /// (spec/areas/network.md#names).
+    Name(NameEvent),
+}
+
+/// What happened at a registrar (spec/areas/network.md#names).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NameEvent {
+    /// We logged a commitment.
+    Committed {
+        /// The node that sent it.
+        committer: NodeId,
+        /// Its position in the log.
+        position: u64,
+    },
+    /// We took the unsealing of a commitment.
+    Unsealed {
+        /// The name.
+        name: Name,
+        /// The node named in the commitment.
+        holder: NodeId,
+        /// Whether it contends for the name: it has not lost to a name
+        /// granted already.
+        contends: bool,
+    },
+    /// We granted a name: we list it from now.
+    Granted {
+        /// The name.
+        name: Name,
+        /// Its holder.
+        holder: NodeId,
+    },
+    /// An unsealed commitment lost its name to one we logged earlier.
+    Lost {
+        /// The name.
+        name: Name,
+        /// The node that unsealed it.
+        holder: NodeId,
+    },
+    /// A commitment was not unsealed within its window.
+    Lapsed {
+        /// The node that sent it.
+        committer: NodeId,
+        /// Its position in the log.
+        position: u64,
+    },
+    /// Its holder renewed a name.
+    Renewed {
+        /// The name.
+        name: Name,
+        /// Its holder.
+        holder: NodeId,
+        /// When it expires now.
+        expires_ms: u64,
+    },
+    /// A name's grace period ended unrenewed: it is free.
+    Freed {
+        /// The name.
+        name: Name,
+        /// Its holder until now.
+        holder: NodeId,
+    },
 }
 
 /// What the node has counted, for the logs and the simulations.
@@ -393,4 +456,14 @@ pub struct Stats {
     pub channels_closed: u64,
     /// Settlement requests sent (spec/decisions/own-fulfills.md).
     pub settlements_requested: u64,
+    /// Commitments to names logged, as a registrar.
+    pub commitments_logged: u64,
+    /// Commitments that lapsed unsealed.
+    pub commitments_lapsed: u64,
+    /// Names granted.
+    pub names_granted: u64,
+    /// Names renewed.
+    pub names_renewed: u64,
+    /// Names freed after their grace period.
+    pub names_freed: u64,
 }

@@ -66,10 +66,10 @@ Registration is free, and throttled instead ([Network](areas/network.md#registra
 
 ### Names
 
-Names that people can say, held for a node ID by a quorum of the bootstrap nodes' lists: a registrant commits to a name sealed, and paid, at every registrar, and unseals it once it holds every receipt; the earliest commitment wins. The design is [designs/names.md](designs/names.md); the reasons are [names-by-earliest-commitment](decisions/names-by-earliest-commitment.md). Names, commitments and their messages are built, and every node refuses the messages until a registrar takes them ([Peer protocol](areas/peer-protocol.md#names)).
+Names that people can say, held for a node ID by a quorum of the bootstrap nodes' lists: a registrant commits to a name sealed, and paid, at every registrar, and unseals it once it holds every receipt; the earliest commitment wins. The design is [designs/names.md](designs/names.md); the reasons are [names-by-earliest-commitment](decisions/names-by-earliest-commitment.md). Names, commitments and their messages are built ([Peer protocol](areas/peer-protocol.md#names)), and so is the registrar's side: its log, the rule, granting, renewal and grace, and its list ([Network](areas/network.md#names)).
 
 - **Parts that can be built side by side:**
-  - the registrar: its log of commitments, persisted before each receipt, windows, granting, renewal and grace, its list served as the node list is, and releasing a split;
+  - releasing a split: registrars polling each other's name lists, and dropping a name that more than f of the others' fresh lists lack ([designs/names.md §5](designs/names.md#5-holding-a-name));
   - the registrant: committing at every registrar, unsealing once it holds every receipt, renewing, and the owner's view of it in the wallet;
   - holding: every node reading the lists and computing each name's holder by a quorum, frozen when fewer than a quorum of the lists are fresh, in a bounded table;
   - the quote and payment, shared with [registration fees](#registration-fees);

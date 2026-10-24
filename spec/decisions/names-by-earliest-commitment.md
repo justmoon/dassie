@@ -1,6 +1,6 @@
 # A name goes to its earliest sealed commitment, held by a quorum of the bootstrap nodes' lists
 
-**Areas:** [Names](../designs/names.md), [Network](../areas/network.md#membership), [Peer protocol](../areas/peer-protocol.md#names). A design, partly built: names, commitments and their messages, which every node refuses until the rest is ([Peer protocol](../areas/peer-protocol.md#names)); the rest is on the [roadmap](../roadmap.md#names).
+**Areas:** [Names](../designs/names.md), [Network](../areas/network.md#names), [Peer protocol](../areas/peer-protocol.md#names). A design, partly built: names, commitments and their messages ([Peer protocol](../areas/peer-protocol.md#names)), and the registrar's side ([Network](../areas/network.md#names)); the rest is on the [roadmap](../roadmap.md#names).
 
 ## Facts
 

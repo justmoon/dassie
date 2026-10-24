@@ -235,6 +235,8 @@ pub struct SimNode {
     pub stored_channels: BTreeMap<NodeId, crate::StoredChannel>,
     stored_bans: BTreeSet<NodeId>,
     stored_floors: BTreeMap<NodeId, u64>,
+    stored_commitments: BTreeMap<crate::names::Commitment, crate::names::Logged>,
+    stored_names: BTreeMap<crate::names::Name, crate::names::Granted>,
     /// How far its clock is off the network's.
     pub skew_ms: i64,
     generation: u64,
@@ -405,6 +407,8 @@ impl Network {
                 stored_channels: BTreeMap::new(),
                 stored_bans: BTreeSet::new(),
                 stored_floors: BTreeMap::new(),
+                stored_commitments: BTreeMap::new(),
+                stored_names: BTreeMap::new(),
                 skew_ms: skew,
                 generation: 0,
                 next_inbound: 0,
@@ -438,6 +442,8 @@ impl Network {
                 floor_ms: *floor_ms,
             })
             .collect();
+        sim.stored.commitments = sim.stored_commitments.values().copied().collect();
+        sim.stored.names = sim.stored_names.values().copied().collect();
         let periphery = self.periphery.contains(&index);
         let mut node = PeerNode::new(
             self.config,
@@ -541,6 +547,22 @@ impl Network {
         }
         for floor in batch.floors {
             sim.stored_floors.insert(floor.node, floor.floor_ms);
+        }
+        // Removals first, as the store writes them.
+        if let Some(head) = batch.name_log {
+            sim.stored.name_log = head;
+        }
+        for removed in batch.commitments_removed {
+            sim.stored_commitments.remove(&removed);
+        }
+        for logged in batch.commitments {
+            sim.stored_commitments.insert(logged.commitment, logged);
+        }
+        for removed in batch.names_removed {
+            sim.stored_names.remove(&removed);
+        }
+        for granted in batch.names {
+            sim.stored_names.insert(granted.name, granted);
         }
         for output in outputs {
             self.carry(index, output);

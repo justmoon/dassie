@@ -452,7 +452,7 @@ impl Event {
 }
 
 const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
-    use dassie_peer::Event;
+    use dassie_peer::{Event, NameEvent};
     match event {
         Event::Peered { .. }
         | Event::Depeering { .. }
@@ -460,7 +460,10 @@ const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
         | Event::PeeringEnded { .. }
         | Event::ChannelClosed { .. }
         | Event::Reachable { .. }
-        | Event::Advertised { short: true, .. } => Severity::Info,
+        | Event::Advertised { short: true, .. }
+        | Event::Name(
+            NameEvent::Granted { .. } | NameEvent::Renewed { .. } | NameEvent::Freed { .. },
+        ) => Severity::Info,
         Event::SettlementRefused { .. } => Severity::Error,
         Event::RoutesChanged
         | Event::NodeAdded(_)
@@ -474,7 +477,13 @@ const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
         | Event::SettlementDelivered { .. }
         | Event::SettlementRequestAnswered { .. }
         | Event::SettlementRequestRefused { .. }
-        | Event::SettlementRequestNotDelivered { .. } => Severity::Debug,
+        | Event::SettlementRequestNotDelivered { .. }
+        | Event::Name(
+            NameEvent::Committed { .. }
+            | NameEvent::Unsealed { .. }
+            | NameEvent::Lost { .. }
+            | NameEvent::Lapsed { .. },
+        ) => Severity::Debug,
     }
 }
 

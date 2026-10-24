@@ -1,14 +1,16 @@
 //! What the peer node persists (spec/areas/network.md#persistence): the
 //! table's nodes with their link states, registrations and peerings, our
 //! own sequence, the settlement channels, the bans and the replay floors
-//! (NET-1, NET-2, NET-7, ACC-18). Changes come out as snapshots of what changed, written in the
-//! same transaction as the ledger.
+//! (NET-1, NET-2, NET-7, ACC-18), and a registrar's log and names
+//! (spec/areas/network.md#names). Changes come out as snapshots of what
+//! changed, written in the same transaction as the ledger.
 
 use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
 
 use crate::channel::{Channel, Closed};
+use crate::names::{Commitment, Granted, LogHead, Logged, Name};
 use crate::table::{Peering, Registration, Sources, Termination};
 
 /// A node, as stored.
@@ -76,6 +78,12 @@ pub struct Stored {
     /// The replay floors of the senders whose replay state is kept for
     /// good, and of those let go whose floors are not stale yet.
     pub floors: Vec<StoredFloor>,
+    /// Where a registrar's log stands, which only rises.
+    pub name_log: LogHead,
+    /// The commitments in a registrar's log.
+    pub commitments: Vec<Logged>,
+    /// The names a registrar granted, held or freed a short while ago.
+    pub names: Vec<Granted>,
 }
 
 /// What changed since the last batch.
@@ -101,6 +109,16 @@ pub struct PeerBatch {
     pub floors: Vec<StoredFloor>,
     /// Senders whose floors are stale, and protect nothing any more.
     pub floors_removed: Vec<NodeId>,
+    /// Where a registrar's log stands, if it moved.
+    pub name_log: Option<LogHead>,
+    /// Commitments logged or unsealed, as they are now.
+    pub commitments: Vec<Logged>,
+    /// Commitments that left the log.
+    pub commitments_removed: Vec<Commitment>,
+    /// Names granted, renewed or freed, as they are now.
+    pub names: Vec<Granted>,
+    /// Names forgotten.
+    pub names_removed: Vec<Name>,
 }
 
 impl PeerBatch {
@@ -116,5 +134,10 @@ impl PeerBatch {
             && self.unbanned.is_empty()
             && self.floors.is_empty()
             && self.floors_removed.is_empty()
+            && self.name_log.is_none()
+            && self.commitments.is_empty()
+            && self.commitments_removed.is_empty()
+            && self.names.is_empty()
+            && self.names_removed.is_empty()
     }
 }

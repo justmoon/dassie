@@ -1,6 +1,6 @@
-//! The table's upkeep: restoring it, persisting its changes, expiring
-//! registrations, removing nodes nobody needs, the routes, and the
-//! invariants.
+//! The table's upkeep: restoring it, and a registrar's state, persisting
+//! their changes, expiring registrations, removing nodes nobody needs, the
+//! routes, and the invariants.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -11,6 +11,7 @@ use dassie_oer::Decode;
 use super::PeerNode;
 use crate::channel::Retry;
 use crate::io::Event;
+use crate::names::Registrar;
 use crate::persist::{PeerBatch, Stored, StoredChannel, StoredClosed, StoredFloor, StoredNode};
 use crate::routing;
 use crate::table::{
@@ -76,8 +77,9 @@ pub struct NodeView {
 impl PeerNode {
     /// Fills the table from what was persisted. Link states were verified
     /// when received, so they are only decoded.
-    pub(super) fn restore(&mut self, stored: Stored) {
+    pub(super) fn restore(&mut self, mut stored: Stored) {
         let now = self.now_ms;
+        self.restore_registrar(&mut stored);
         self.restore_channels(stored.channels, stored.bans);
         let mut peered = false;
         let mut downlinks = 0;
@@ -151,6 +153,21 @@ impl PeerNode {
             // themselves before others are sought.
             let wait = self.config.heartbeat_min_ms + self.config.heartbeat_jitter_ms;
             self.peering.hold_until(now.saturating_add(wait));
+        }
+    }
+
+    /// Restores the registrar's state, if this node is a registrar: one of
+    /// its own bootstrap nodes. What another node kept of being one stays
+    /// on disk, unread.
+    fn restore_registrar(&mut self, stored: &mut Stored) {
+        if self.bootstrap.iter().any(|node| node.id == self.own) {
+            self.registrar = Some(Registrar::restore(
+                self.config.names,
+                stored.name_log,
+                core::mem::take(&mut stored.commitments),
+                core::mem::take(&mut stored.names),
+                self.now_ms,
+            ));
         }
     }
 
@@ -275,6 +292,9 @@ impl PeerNode {
         );
         batch.banned.append(&mut self.banned);
         batch.unbanned.append(&mut self.unbanned);
+        if let Some(registrar) = &mut self.registrar {
+            registrar.take_changes(batch);
+        }
         if self.gossip.sequence_dirty {
             self.gossip.sequence_dirty = false;
             batch.own_sequence = Some(self.gossip.own_sequence);
@@ -494,8 +514,9 @@ impl PeerNode {
     }
 
     /// Whether `node`'s replay state is kept for good: it is a bootstrap
-    /// node, a peer, a node we hold a settlement channel with, or one
-    /// registered with us (spec/areas/peer-protocol.md#replay-protection).
+    /// node, a peer, a node we hold a settlement channel with, one
+    /// registered with us, or one our registrar involves
+    /// (spec/areas/peer-protocol.md#replay-protection).
     pub(super) fn keeps_replay_state(&self, node: &NodeId) -> bool {
         self.bootstrap.iter().any(|bootstrap| bootstrap.id == *node)
             || self.channels.contains_key(node)
@@ -503,6 +524,10 @@ impl PeerNode {
                 .table
                 .get(node)
                 .is_some_and(|entry| entry.peering().is_some() || entry.registration.is_some())
+            || self
+                .registrar
+                .as_ref()
+                .is_some_and(|registrar| registrar.involves(node))
     }
 
     /// When [`maintain`](Self::maintain) next has something to do.
@@ -625,6 +650,7 @@ impl PeerNode {
         self.check_periphery();
         self.check_channels();
         self.check_pins();
+        self.check_names();
         self.check_entries();
         assert!(
             !self.routes.contains_key(&self.own),

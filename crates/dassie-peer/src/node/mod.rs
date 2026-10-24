@@ -7,6 +7,7 @@ mod gossip;
 mod inbound;
 mod lifecycle;
 mod membership;
+mod names;
 mod peering;
 mod settle;
 mod state;
@@ -26,6 +27,7 @@ use crate::channel::{Channel, Closed, Retry};
 use crate::config::Config;
 use crate::io::VERDICT_ACCEPTED;
 use crate::io::{Event, Failure, Output, Request, RequestId, Response, Stats};
+use crate::names::Registrar;
 use crate::routing::Routes;
 use crate::table::{Bucket, Entry, NetworkBuckets, Sources};
 use crate::wire::{
@@ -270,6 +272,9 @@ pub struct PeerNode {
     /// The only nodes a periphery node asks to be its uplinks, sorted;
     /// empty for any (spec/areas/network.md#pinned-uplinks).
     pub(crate) pinned: Vec<NodeId>,
+    /// The registrar's state, if this node is one of its own bootstrap
+    /// nodes (spec/areas/network.md#names).
+    pub(crate) registrar: Option<Registrar>,
 }
 
 impl PeerNode {
@@ -332,21 +337,25 @@ impl PeerNode {
             unreached: BTreeSet::new(),
             told_not_peered: BTreeMap::new(),
             pinned: Vec::new(),
+            registrar: None,
             config,
         };
         node.restore(stored);
-        // Bootstrap nodes, and nodes registered with us, keep their replay
-        // state (spec/areas/peer-protocol.md#replay-protection).
+        // Bootstrap nodes, nodes registered with us, and those our
+        // registrar involves keep their replay state
+        // (spec/areas/peer-protocol.md#replay-protection).
         let registered = node
             .table
             .iter()
             .filter(|(_, entry)| entry.registration.is_some())
             .map(|(id, _)| *id);
+        let parties = node.registrar.iter().flat_map(Registrar::parties);
         let pinned: Vec<NodeId> = node
             .bootstrap
             .iter()
             .map(|b| b.id)
             .chain(registered)
+            .chain(parties)
             .collect();
         for id in pinned {
             node.auth.pin(id);
@@ -757,6 +766,7 @@ impl PeerNode {
         self.register_with_bootstrap();
         self.refresh();
         self.maintain();
+        self.tend_names();
         self.seek_peers(hooks);
         self.update_routes();
     }
@@ -774,6 +784,7 @@ impl PeerNode {
             self.next_maintenance(),
             self.answers.iter().map(|(at, _)| *at).min(),
             self.next_settlement_retry(),
+            self.registrar.as_ref().and_then(Registrar::next_due),
         ];
         candidates.into_iter().flatten().min()
     }

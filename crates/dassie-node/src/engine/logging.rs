@@ -118,6 +118,49 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         | Event::SettlementRequestRefused { .. }
         | Event::SettlementRequestNotDelivered { .. }
         | Event::SettlementRefused { .. } => peer_settlement(severity, event),
+        Event::Name(event) => peer_names(severity, event),
+    }
+}
+
+/// The peer node's events as a registrar (spec/areas/network.md#names).
+fn peer_names(severity: Severity, event: &dassie_peer::NameEvent) {
+    use dassie_peer::NameEvent as Event;
+    match event {
+        Event::Committed {
+            committer,
+            position,
+        } => {
+            emit!(severity, target: target::PEER, %committer, position, "logged a commitment to a name");
+        }
+        Event::Unsealed {
+            name,
+            holder,
+            contends,
+        } => {
+            emit!(severity, target: target::PEER, %name, %holder, contends, "a commitment to a name was unsealed");
+        }
+        Event::Granted { name, holder } => {
+            emit!(severity, target: target::PEER, %name, %holder, "granted a name");
+        }
+        Event::Lost { name, holder } => {
+            emit!(severity, target: target::PEER, %name, %holder, "a commitment lost its name to an earlier one");
+        }
+        Event::Lapsed {
+            committer,
+            position,
+        } => {
+            emit!(severity, target: target::PEER, %committer, position, "a commitment lapsed unsealed");
+        }
+        Event::Renewed {
+            name,
+            holder,
+            expires_ms,
+        } => {
+            emit!(severity, target: target::PEER, %name, %holder, expires_ms, "renewed a name");
+        }
+        Event::Freed { name, holder } => {
+            emit!(severity, target: target::PEER, %name, %holder, "a name's grace ended unrenewed: it is free");
+        }
     }
 }
 
