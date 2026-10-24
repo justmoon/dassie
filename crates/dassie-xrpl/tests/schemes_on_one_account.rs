@@ -26,6 +26,8 @@ const XRPL: Name = dassie_ledger::name!(dassie_xrpl::scheme::SCHEME_ID);
 const WITNESS: Name = dassie_ledger::name!("witness");
 /// What the `xrpl-testnet` scheme settles: 50 XRP.
 const AMOUNT: u64 = 50_000_000 * UNITS_PER_DROP;
+/// What the owner pays out of the account: 20 XRP.
+const OWNER_AMOUNT: u64 = 20_000_000 * UNITS_PER_DROP;
 
 /// The account as the node runs it, with both schemes on it.
 struct Shared {
@@ -199,6 +201,20 @@ impl Shared {
         prepared.id
     }
 
+    /// The owner pays [`OWNER_AMOUNT`] to `to`. Returns its ID.
+    fn pay_owner(&mut self, to: AccountId) -> Name {
+        let payment = dassie_settlement::OwnerPayment {
+            destination: to.to_address(),
+            tag: Some(7),
+            memo: None,
+            amount: OWNER_AMOUNT,
+        };
+        let scheme = self.scheme.as_mut().unwrap();
+        let id = scheme.pay_owner(Some(&mut self.account), &payment).unwrap();
+        self.tell();
+        id
+    }
+
     /// Hands the scheme what the books still hold pending, as the node does
     /// once it activated.
     fn reconcile(&mut self, pending: &[(Name, u64)]) {
@@ -225,6 +241,7 @@ impl Shared {
                 Effect::Reconcile { amount, gain, .. } if gain => i128::from(amount),
                 Effect::Reconcile { amount, .. } => -i128::from(amount),
                 Effect::Finalize { .. } => -i128::from(AMOUNT),
+                Effect::OwnerPaid { applied: true, .. } => -i128::from(OWNER_AMOUNT),
                 _ => 0,
             }
         };
@@ -588,4 +605,39 @@ fn a_lookup_past_what_the_books_hold_stops_the_account() {
         });
         assert_eq!(settled, 0, "{:?}", restarted.booked);
     }
+}
+
+// Found in review: an owner's payment the ledger validated while the
+// `xrpl-testnet` scheme was stopped, and the other scheme kept the account
+// running, is kept for the scheme; after a restart the scheme reads it
+// again as the owner's payment, and its hold is posted once: never voided
+// as one whose outcome is unknown, nor read as a settlement.
+#[test]
+fn an_owner_payment_validated_while_its_scheme_stopped_is_posted_once() {
+    let (mut shared, theirs) = synced();
+    let id = shared.pay_owner(theirs);
+    let (state, checkpoint) = (shared.scheme().state(), shared.scheme().balance());
+    shared.stop();
+    shared.close();
+    shared.close();
+    let kept = shared.account.state();
+    let mut restarted = Shared::new(shared.ledger, &kept, None);
+    restarted.activate(Some(checkpoint), &state);
+    restarted.connect();
+    restarted.close();
+    restarted.close();
+    let posted = restarted.count(|e| *e == Effect::OwnerPaid { id, applied: true });
+    let voided = restarted.count(|e| matches!(e, Effect::OwnerPaid { applied: false, .. }));
+    let fees = restarted.count(|e| matches!(e, Effect::Fee { id: fee, .. } if *fee == id));
+    let settled = restarted.count(|e| matches!(e, Effect::Finalize { .. } | Effect::Cancel { .. }));
+    let withdrawals = restarted.count(|e| matches!(e, Effect::Withdrawal { .. }));
+    assert_eq!(
+        (posted, voided, fees, settled, withdrawals),
+        (1, 0, 1, 0, 0),
+        "{:?}",
+        restarted.booked
+    );
+    assert_eq!(suspense(&restarted.booked), 0, "{:?}", restarted.booked);
+    assert_eq!(restarted.scheme().balance(), restarted.bookable());
+    assert_eq!(restarted.books(), i128::from(restarted.bookable()));
 }

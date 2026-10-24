@@ -712,6 +712,14 @@ impl XrplAccount {
             || self.never_sent.iter().any(|n| n.hash == *hash)
     }
 
+    /// Whether transaction `hash` is in flight, remembered as never sent,
+    /// or kept for its scheme, validated while the scheme was not on the
+    /// account: the account will still tell the scheme what became of it.
+    #[must_use]
+    pub fn keeps_transaction(&self, hash: &[u8; 32]) -> bool {
+        self.holds_transaction(hash) || self.parked.iter().any(|p| p.hash == *hash)
+    }
+
     /// The reserve the account holds back now, in drops.
     fn reserve_drops(&self, owner_count: u32) -> u64 {
         self.reserve_base

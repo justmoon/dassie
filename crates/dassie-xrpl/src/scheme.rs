@@ -367,12 +367,8 @@ impl XrplScheme {
     ) {
         let at = (record.ledger_index, record.index);
         if self.cursor.is_none_or(|cursor| at <= cursor) {
-            if mine.is_some() && self.is_owner_payment(&record.hash) {
-                let booked = self.owner_paid(record, effects);
-                self.hold(booked, effects);
-                self.match_balance(effects);
-            } else if let Some(ours) = mine {
-                let booked = self.resolve(record, units(ours.drops), effects);
+            if let Some(ours) = mine {
+                let booked = self.ours(record, ours, effects);
                 self.hold(booked, effects);
                 self.match_balance(effects);
             } else if other.is_some_and(|other| !other.again) && self.cursor.is_some() {
@@ -391,10 +387,8 @@ impl XrplScheme {
             }
         }
         let mut booked = i128::from(self.booked);
-        if mine.is_some() && self.is_owner_payment(&record.hash) {
-            booked = self.owner_paid(record, effects);
-        } else if let Some(ours) = mine {
-            booked = self.resolve(record, units(ours.drops), effects);
+        if let Some(ours) = mine {
+            booked = self.ours(record, ours, effects);
         } else if other.is_some() {
             // Its fee is ours to book; anything else it did to the XRP is
             // a deposit or a withdrawal, as from anyone.
@@ -485,6 +479,56 @@ impl XrplScheme {
                 applied: outcome == OwnerPaymentState::Applied,
             });
         }
+    }
+
+    /// Books one of our transactions the ledger validated: the owner's
+    /// payment on its way, the owner's last one read again, or a
+    /// settlement. Returns what the books then hold.
+    fn ours(&mut self, record: &TxRecord, ours: Ours, effects: &mut Vec<Effect>) -> i128 {
+        if self.is_owner_payment(&record.hash) {
+            self.owner_paid(record, effects)
+        } else if self.was_owner_payment(&record.hash) {
+            self.owner_read_again(record, ours.drops, effects)
+        } else {
+            self.resolve(record, units(ours.drops), effects)
+        }
+    }
+
+    /// Whether `hash` is the owner's last payment no longer on its way.
+    fn was_owner_payment(&self, hash: &[u8; 32]) -> bool {
+        self.owner_outcome.is_some_and(|(owner, _)| owner == *hash)
+    }
+
+    /// The owner's last payment, read again: never a settlement. One whose
+    /// outcome the scheme had given up on as unknown, its hold voided, is
+    /// booked now as the owner's withdrawal of the `drops` it paid when it
+    /// succeeded, with its fee either way, and what the balance booked
+    /// through suspense meanwhile comes back out; one already booked books
+    /// nothing again. Returns what the books then hold.
+    fn owner_read_again(
+        &mut self,
+        record: &TxRecord,
+        drops: u64,
+        effects: &mut Vec<Effect>,
+    ) -> i128 {
+        let mut booked = i128::from(self.booked);
+        let Some((hash, OwnerPaymentState::Unknown)) = self.owner_outcome else {
+            return booked;
+        };
+        if record.succeeded() {
+            let amount = units(drops);
+            effects.push(Effect::Withdrawal { amount });
+            booked -= i128::from(amount);
+            self.owner_outcome = Some((hash, OwnerPaymentState::Applied));
+        } else {
+            self.owner_outcome = Some((hash, OwnerPaymentState::Failed));
+        }
+        let fee = units(record.fee);
+        effects.push(Effect::Fee {
+            amount: fee,
+            id: hash_name(&record.hash),
+        });
+        booked - i128::from(fee)
     }
 
     /// Books the owner's payment the ledger validated: the hold on the
@@ -938,10 +982,11 @@ impl SettlementScheme for XrplScheme {
         for item in &news {
             self.tell(account, item, effects);
         }
-        // One the account holds no more, and told nothing of, was lost
-        // with its state: what it did is in the balance.
+        // One the account keeps no more, and told nothing of, was lost
+        // with its state: what it did is in the balance. One it keeps for
+        // the scheme, validated while the scheme was away, it tells again.
         if let Some((hash, _)) = self.owner_payment
-            && !account.holds_transaction(&hash)
+            && !account.keeps_transaction(&hash)
         {
             self.owner_done(OwnerPaymentState::Unknown, effects);
         }
