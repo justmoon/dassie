@@ -34,11 +34,10 @@ use super::scripted::{
     PAID_WITHIN_MS, READY_WITHIN_MS, collected_before_telling, ended, ready,
     settled_nothing_once_ending, trace_ms, until_peered,
 };
-use super::{Delivery, START, Settling, Sim, key};
+use super::{Delivery, LONGEST_LIE_MS, START, Settling, Sim, key};
 use crate::engine::LedgerEvent;
 use crate::node::Policies;
 use crate::store::{Aim, OutgoingState};
-use dassie_xrpl::account::{LEDGER_SILENCE_MS, REQUEST_TIMEOUT_MS, STALL_MS};
 use dassie_xrpl::fake::{Lie, VALIDATORS};
 
 /// How long a healed network has to settle down, from the production rules
@@ -313,20 +312,6 @@ fn proof_faults(seed: u64, settling: Settling) -> (u64, u64) {
     let mut rng = SeededRng::new(seed ^ 0x11e5_0000);
     (switched(&mut rng, 11), switched(&mut rng, 4))
 }
-
-/// The longest a server lies to a node before its connection drops again:
-/// twice the longest of the production timings that end a connection, so
-/// that some lies end first and some outlast the node's own reconnect.
-const LONGEST_LIE_MS: u64 = 2 * {
-    let mut longest = STALL_MS;
-    if REQUEST_TIMEOUT_MS > longest {
-        longest = REQUEST_TIMEOUT_MS;
-    }
-    if LEDGER_SILENCE_MS > longest {
-        longest = LEDGER_SILENCE_MS;
-    }
-    longest
-};
 
 /// Off in a third of the seeds, and below `bound` in the rest.
 fn switched(rng: &mut SeededRng, bound: u64) -> u64 {
