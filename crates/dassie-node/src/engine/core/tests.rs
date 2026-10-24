@@ -2274,6 +2274,10 @@ fn rlusd_off_its_peg_converts_nothing() {
     assert_eq!(peg(&core).paused, Some(PegPause::OffPeg));
     assert_eq!(peg(&core).last.map(|(price, _)| price), Some(950_000));
     assert!(!priced(&core), "converts while off its peg");
+    assert!(
+        core.price_table().halted(rlusd),
+        "converts at spot while off its peg"
+    );
     assert!(core.price_table().ledger(LedgerId::XrplXrp).is_some());
     assert!(!advertised(&core), "in the link state while off its peg");
     let told = |events: &[Output], paused: bool| {
@@ -2307,7 +2311,22 @@ fn rlusd_off_its_peg_converts_nothing() {
     let events = minutes(&mut core, &mut ledger, 1);
     assert_eq!(peg(&core).paused, None);
     assert!(priced(&core) && advertised(&core));
+    assert!(!core.price_table().halted(rlusd));
     assert!(told(&events, false));
+
+    // Once the books stopped the scheme, its guard is fed nothing more and
+    // can no longer tell a token off its peg: its ledger converts nothing.
+    let at = core.now_ms + 1_000;
+    core.begin_step(at);
+    let scheme = dassie_ledger::Name::new("xrpl-rlusd").unwrap();
+    core.stop_scheme(
+        scheme,
+        super::EngineError::Internal("stopped by the test".into()),
+    );
+    core.finish_step(&mut Vec::new());
+    assert_eq!(peg(&core).paused, None);
+    assert!(!priced(&core) && core.price_table().halted(rlusd));
+    assert!(core.price_table().ledger(LedgerId::XrplXrp).is_some());
 }
 
 /// A core node at `https://core.test` that takes QUIC, and so downlinks,

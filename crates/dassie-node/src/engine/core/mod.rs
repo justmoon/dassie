@@ -760,7 +760,7 @@ impl Core {
         let ledgers = self
             .schemes
             .values()
-            .filter(|active| active.scheme.converts())
+            .filter(|active| active.converts_now())
             .map(|active| active.scheme.ledger());
         for ledger in ledgers {
             let Ok(owner) = self.account(ledger, AccountName::EquityOwner) else {
@@ -778,13 +778,22 @@ impl Core {
                 count += 1;
             }
         }
-        let table = PriceTable::build(
+        let mut table = PriceTable::build(
             &self.prices.rates,
             inventories.get(..count).unwrap_or_default(),
             self.peer_settings.pricing(),
             self.now_ms,
             self.connector.config().max_rate_age_ms,
         );
+        // Nor does it convert at spot into the owner's own endpoints, which
+        // in the same currency needs no rate.
+        for active in self
+            .schemes
+            .values()
+            .filter(|active| !active.converts_now())
+        {
+            table.halt(active.scheme.ledger());
+        }
         // What a feed says: the charges, the ledgers and the prices. The
         // holdings move with every packet, and only move the prices.
         let old = &self.prices.table;

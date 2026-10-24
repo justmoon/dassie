@@ -40,7 +40,7 @@ The checks run in the order of `connector/prepare.rs`; the first that fails answ
 
 - **Same ledger:** what goes on is what came, less our fee.
 - **Across ledgers, from one peer to another:** what came less our fee, at the curve's rate for the packet: spot, moved by the owner's inventory after the packet's own move, less the spread ([below](#inventory-pricing)).
-- **Across ledgers, from a peer into the owner's own endpoints:** what came, at spot, uncharged. Only a packet from a peer converts.
+- **Across ledgers, from a peer into the owner's own endpoints:** what came, at spot, uncharged; one to one in the same currency, without a rate, but never to or from a ledger whose scheme converts nothing now, such as a dollar token's off its peg ([XRPL](xrpl.md#the-peg-guard)). Only a packet from a peer converts.
 
 Conversion is exact integer arithmetic, rounding down, never floating point: at spot on rates relative to the dollar (`fx.rs`), on transit at the curve's rate (`pricing.rs`). It uses only rates learned at most an hour before `now` and not after it, so a clock that went back cannot make a rate young; without them the packet gets T00.
 

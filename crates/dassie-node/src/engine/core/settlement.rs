@@ -278,7 +278,7 @@ impl Core {
         let mut changed = Vec::new();
         for (id, active) in &mut self.schemes {
             let paused = active.scheme.peg().and_then(|peg| peg.paused);
-            let converts = active.scheme.converts();
+            let converts = active.converts_now();
             if paused != active.paused {
                 changed.push((*id, paused));
                 active.paused = paused;
