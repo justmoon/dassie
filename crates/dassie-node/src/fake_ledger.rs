@@ -11,6 +11,12 @@
 //! an AMM pool of XRP and its token, each in the next ledger. At `/deposit`,
 //! XRP arrives from outside, as an owner sends it to fund an account on
 //! mainnet (spec/areas/xrpl.md#the-fake-ledger).
+//!
+//! Its validators sign every ledger, and their publisher's list is served
+//! at `/vl`, as a list site serves one; under `/validators/` a validator's
+//! key rotates, it is withheld or revokes its key, and a new list is
+//! published; and `/lie` makes every connection lie in one way, or be
+//! honest again (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
 
 use std::collections::BTreeMap;
 use std::convert::Infallible;
@@ -22,7 +28,8 @@ use std::time::Duration;
 use bytes::Bytes;
 use dassie_xrpl::AccountId;
 use dassie_xrpl::codec::{Currency, TokenValue};
-use dassie_xrpl::fake::{FakeLedger, Token};
+use dassie_xrpl::fake::{FakeLedger, Lie, Token};
+use dassie_xrpl::keys::PublicKey;
 use dassie_xrpl::network::{MAINNET, Network};
 use futures_util::{SinkExt, StreamExt};
 use http_body_util::{BodyExt, Full, Limited};
@@ -74,6 +81,11 @@ pub struct Server {
     pub tokens_url: Option<String>,
     /// Where XRP is deposited from outside, with the faucet: `…/deposit`.
     pub deposit_url: Option<String>,
+    /// Where its validators' publisher serves its list, with the faucet:
+    /// `…/vl`.
+    pub validator_list_url: Option<String>,
+    /// The master key of its validators' publisher.
+    pub publisher_key: PublicKey,
 }
 
 impl Server {
@@ -92,6 +104,7 @@ impl Server {
             FakeLedger::new()
         };
         ledger.set_close_time(close_time_now().saturating_add(1));
+        let publisher_key = ledger.publisher_key();
         let shared = Arc::new(Shared {
             ledger: Mutex::new(ledger),
             connections: Mutex::new(BTreeMap::new()),
@@ -108,7 +121,7 @@ impl Server {
             Arc::clone(&shared),
             cancel.clone(),
         ));
-        let (faucet_url, tokens_url, deposit_url) = match options.faucet {
+        let (faucet_url, tokens_url, deposit_url, validator_list_url) = match options.faucet {
             Some((listen, certificate)) => {
                 let listener = TcpListener::bind(listen).await.map_err(|e| e.to_string())?;
                 let address = listener.local_addr().map_err(|e| e.to_string())?;
@@ -127,9 +140,10 @@ impl Server {
                     options.network.faucet.map(|_| format!("{base}/accounts")),
                     Some(format!("{base}/tokens")),
                     Some(format!("{base}/deposit")),
+                    Some(format!("{base}/vl")),
                 )
             }
-            None => (None, None, None),
+            None => (None, None, None, None),
         };
         Ok(Self {
             shared,
@@ -138,6 +152,8 @@ impl Server {
             faucet_url,
             tokens_url,
             deposit_url,
+            validator_list_url,
+            publisher_key,
         })
     }
 
@@ -312,11 +328,25 @@ async fn serve_request(
     response
 }
 
-/// What a request to `path` with `body` gets, done to `ledger`: an
-/// issuer's request under `/tokens/`, a deposit at `/deposit`, else the
-/// faucet's, which mainnet does not have.
+/// What a request to `path` with `body` gets, done to `ledger`: the
+/// validator list, a validator's or a lie's under `/validators/` and
+/// `/lie`, an issuer's request under `/tokens/`, a deposit at `/deposit`,
+/// else the faucet's, which mainnet does not have.
 fn answer(ledger: &mut FakeLedger, path: &str, body: &[u8]) -> (StatusCode, String) {
     let body = serde_json::from_slice::<serde_json::Value>(body).unwrap_or_default();
+    if path == "/vl" {
+        let list = String::from_utf8_lossy(&ledger.validator_list()).into_owned();
+        return (StatusCode::OK, list);
+    }
+    if let Some(answered) = validators_request(ledger, path, &body) {
+        return match answered {
+            Ok(()) => (StatusCode::OK, "{}".into()),
+            Err(error) => (
+                StatusCode::BAD_REQUEST,
+                serde_json::json!({ "error": error }).to_string(),
+            ),
+        };
+    }
     let destination = body
         .get("destination")
         .and_then(serde_json::Value::as_str)
@@ -367,6 +397,62 @@ fn answer(ledger: &mut FakeLedger, path: &str, body: &[u8]) -> (StatusCode, Stri
             serde_json::json!({ "error": error }).to_string(),
         ),
     }
+}
+
+/// What the validators and the server do on request, at once; `None` if
+/// `path` is none of theirs.
+///
+/// - `/lie`, `{"kind": "altered-object"}`: every connection, open or to
+///   come, tells that lie ([`Lie::name`]); `"honest"` ends it.
+/// - `/validators/rotate`, `{"validator": 0}`: the validator signs with a
+///   new key from the next ledger.
+/// - `/validators/withhold`, `{"validator": 0, "on": true}`: it signs
+///   nothing while on.
+/// - `/validators/revoke`, `{"validator": 0}`: it revokes its master key.
+/// - `/validators/publish`, `{"expiration": 900000000}`: the publisher
+///   publishes a list of the validators as their keys stand, expiring
+///   then, in seconds since 2000-01-01, and in effect from `"effective"`,
+///   if given.
+fn validators_request(
+    ledger: &mut FakeLedger,
+    path: &str,
+    body: &serde_json::Value,
+) -> Option<Result<(), &'static str>> {
+    let validator = || {
+        body.get("validator")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|index| usize::try_from(index).ok())
+            .filter(|index| *index < dassie_xrpl::fake::VALIDATORS)
+            .ok_or("no validator")
+    };
+    let seconds = |key: &str| {
+        body.get(key)
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|seconds| u32::try_from(seconds).ok())
+    };
+    Some(match path {
+        "/lie" => match body.get("kind").and_then(serde_json::Value::as_str) {
+            Some("honest") => {
+                ledger.set_lie_for_all(None);
+                Ok(())
+            }
+            Some(kind) => Lie::by_name(kind)
+                .map(|lie| ledger.set_lie_for_all(Some(lie)))
+                .ok_or("no such lie"),
+            None => Err("no kind"),
+        },
+        "/validators/rotate" => validator().map(|index| ledger.rotate_validator(index)),
+        "/validators/revoke" => validator().map(|index| ledger.revoke_validator(index)),
+        "/validators/withhold" => validator().and_then(|index| {
+            let on = body.get("on").and_then(serde_json::Value::as_bool);
+            on.map(|on| ledger.withhold_validator(index, on))
+                .ok_or("no on")
+        }),
+        "/validators/publish" => seconds("expiration")
+            .map(|expiration| ledger.publish_validator_list(expiration, seconds("effective")))
+            .ok_or("no expiration"),
+        _ => return None,
+    })
 }
 
 /// The issuer of the fake's dollar token, or of the token `"token"` names
@@ -757,5 +843,77 @@ mod tests {
         let mut testnet = FakeLedger::new();
         assert_eq!(ask(&mut testnet, "/deposit", &deposit), StatusCode::OK);
         assert_eq!(testnet.balance(someone), Some(50_000_000));
+    }
+
+    /// What the ledger answers `request` on connection 1.
+    fn command(ledger: &mut FakeLedger, request: &serde_json::Value) -> serde_json::Value {
+        let reply = ledger.request(1, &serde_json::to_vec(request).unwrap());
+        serde_json::from_slice(&reply).unwrap()
+    }
+
+    #[test]
+    fn the_list_is_served_and_the_validators_and_lies_change_on_request() {
+        let mut ledger = FakeLedger::new();
+        let (status, list) = answer(&mut ledger, "/vl", b"");
+        assert_eq!(status, StatusCode::OK);
+        let message = dassie_xrpl::validator_list::Message::parse(list.as_bytes()).unwrap();
+        assert_eq!(message.publisher, ledger.publisher_key());
+        // A validator's key rotates at once, and a list carries it once
+        // published.
+        let rotate = json!({ "validator": 0 });
+        assert_eq!(
+            ask(&mut ledger, "/validators/rotate", &rotate),
+            StatusCode::OK
+        );
+        let master = ledger.validator_keys()[0].to_node_public();
+        let manifest = command(
+            &mut ledger,
+            &json!({ "command": "manifest", "public_key": master }),
+        );
+        assert_eq!(manifest["result"]["details"]["seq"], 2);
+        let publish = json!({ "expiration": 900_000_000 });
+        assert_eq!(
+            ask(&mut ledger, "/validators/publish", &publish),
+            StatusCode::OK
+        );
+        let (_, list) = answer(&mut ledger, "/vl", b"");
+        let message = dassie_xrpl::validator_list::Message::parse(list.as_bytes()).unwrap();
+        let blob = dassie_xrpl::validator_list::List::parse(&message.blobs[0].blob).unwrap();
+        assert_eq!((blob.sequence, blob.expiration), (2, 900_000_000));
+        let withhold = json!({ "validator": 1, "on": true });
+        assert_eq!(
+            ask(&mut ledger, "/validators/withhold", &withhold),
+            StatusCode::OK
+        );
+        let revoke = json!({ "validator": 2 });
+        assert_eq!(
+            ask(&mut ledger, "/validators/revoke", &revoke),
+            StatusCode::OK
+        );
+        // Every connection lies, then is honest again.
+        let proof = json!({ "command": "state_proof", "keys": [dassie_xrpl::hex_upper(&[1; 32])] });
+        assert_eq!(
+            ask(&mut ledger, "/lie", &json!({ "kind": "refusal" })),
+            StatusCode::OK
+        );
+        assert_eq!(command(&mut ledger, &proof)["error"], "tooBusy");
+        assert_eq!(
+            ask(&mut ledger, "/lie", &json!({ "kind": "honest" })),
+            StatusCode::OK
+        );
+        assert_eq!(command(&mut ledger, &proof)["status"], "success");
+        for (path, body) in [
+            ("/lie", json!({ "kind": "truth" })),
+            ("/lie", json!({})),
+            ("/validators/rotate", json!({ "validator": 9 })),
+            ("/validators/withhold", json!({ "validator": 0 })),
+            ("/validators/publish", json!({})),
+        ] {
+            assert_eq!(
+                ask(&mut ledger, path, &body),
+                StatusCode::BAD_REQUEST,
+                "{path} {body}"
+            );
+        }
     }
 }

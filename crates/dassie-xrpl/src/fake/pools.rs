@@ -35,12 +35,14 @@ use crate::keys::AccountId;
 /// authorisation (`lsfDepositAuth`), so no Payment pays it directly.
 pub const POOL_ACCOUNT_FLAGS: u32 = 0x0010_0000 | account_flags::DEFAULT_RIPPLE | 0x0100_0000;
 
-/// A pool of XRP and a token: its account and its trading fee. What it
-/// holds is its account's XRP and its line's balance.
+/// A pool of XRP and a token: its account, its trading fee, and the LP
+/// tokens it issued as it was made or last set, which no swap changes.
+/// What it holds is its account's XRP and its line's balance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Pool {
-    account: AccountId,
-    trading_fee: u32,
+    pub account: AccountId,
+    pub trading_fee: u32,
+    pub lp_tokens: TokenValue,
 }
 
 /// What a pool holds and charges, as of the last ledger.
@@ -69,21 +71,6 @@ pub(super) struct PoolSet {
     pub drops: u64,
     pub value: TokenValue,
     pub trading_fee: u32,
-}
-
-impl PoolSet {
-    /// Its fields, as the fake writes it.
-    pub(super) fn json(&self) -> Value {
-        json!({
-            "TransactionType": "AMMSet",
-            "Asset": { "currency": "XRP" },
-            "Asset2": { "currency": self.token.currency.to_string(), "issuer": self.token.issuer.to_address() },
-            "Amount": self.drops.to_string(),
-            "Amount2": token_json(&self.token.amount(self.value)),
-            "TradingFee": self.trading_fee,
-            "Flags": 0,
-        })
-    }
 }
 
 /// The account of the pool of XRP and `token`. The ledger derives one
@@ -302,11 +289,13 @@ impl FakeLedger {
         let supply = self.supply.entry(token).or_default();
         supply.add(set.value);
         supply.sub(held);
+        touched.pool(token, self.pools.get(&token).copied());
         self.pools.insert(
             token,
             Pool {
                 account,
                 trading_fee: set.trading_fee,
+                lp_tokens: amm::lp_tokens(set.drops, set.value).unwrap_or(TokenValue::ZERO),
             },
         );
         "tesSUCCESS"

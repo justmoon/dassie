@@ -3,12 +3,15 @@
 //! `SHAMap::getProofPath` gives it, leaf first, which proves the key's leaf,
 //! or for a key the tree does not hold, its absence ([`crate::shamap`]).
 //!
-//! It keeps only the leaves, by key, and builds the inner nodes from them
-//! when asked, with a stack of at most [`MAX_DEPTH`] frames, never by
-//! recursion: a leaf hangs where its key is unique, so the leaves alone
-//! decide the tree.
+//! It keeps only the leaves, by key, each with its hash, and builds the
+//! inner nodes from them when asked, with a stack of at most [`MAX_DEPTH`]
+//! frames, never by recursion: a leaf hangs where its key is unique, so the
+//! leaves alone decide the tree. A leaf's item is shared, so a copy of a
+//! tree, as the fake ledger keeps of each recent ledger's state, costs a
+//! count per leaf; and an object set again as it was keeps its leaf's hash.
 
 use alloc::collections::BTreeMap;
+use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -24,12 +27,18 @@ pub const MAX_LEAVES: usize = 1 << 20;
 
 const EMPTY: [u8; 32] = [0; 32];
 
+/// A leaf as the builder reads it: its key, its item and its hash.
+type Leaf<'a> = (&'a [u8; 32], &'a [u8], &'a [u8; 32]);
+
+/// A leaf as the tree keeps it: its item, shared, and its hash.
+type Kept = (Arc<[u8]>, [u8; 32]);
+
 /// A tree of one kind, by its leaves.
 #[derive(Clone, Debug)]
 pub struct ShaMap {
     tree: Tree,
-    /// Each leaf's item, by its key.
-    leaves: BTreeMap<[u8; 32], Vec<u8>>,
+    /// Each leaf's item and hash, by its key.
+    leaves: BTreeMap<[u8; 32], Kept>,
 }
 
 impl ShaMap {
@@ -71,15 +80,38 @@ impl ShaMap {
 
     /// Adds or replaces an object, under its key, which is not zero. Only
     /// into a state tree, and an object of at least [`MIN_ITEM_BYTES`] (a
-    /// bug otherwise).
+    /// bug otherwise). An object set again as it was keeps its leaf's hash.
     pub fn insert_object(&mut self, key: [u8; 32], object: &[u8]) {
         assert_eq!(self.tree, Tree::State, "a state tree");
-        self.insert(key, object.to_vec());
+        let unchanged = self
+            .leaves
+            .get(&key)
+            .is_some_and(|(item, _)| item.as_ref() == object);
+        if !unchanged {
+            self.insert(key, object.to_vec());
+        }
+    }
+
+    /// The object under `key`, if the tree holds one.
+    #[must_use]
+    pub fn object(&self, key: &[u8; 32]) -> Option<&[u8]> {
+        self.leaves.get(key).map(|(item, _)| item.as_ref())
+    }
+
+    /// Its keys, in order.
+    pub fn keys(&self) -> impl Iterator<Item = &[u8; 32]> {
+        self.leaves.keys()
     }
 
     /// Removes the leaf of a key, if there is one.
     pub fn remove(&mut self, key: &[u8; 32]) {
         self.leaves.remove(key);
+        self.check_invariants();
+    }
+
+    /// Keeps only the leaves whose keys `keep` takes.
+    pub fn retain(&mut self, mut keep: impl FnMut(&[u8; 32]) -> bool) {
+        self.leaves.retain(|key, _| keep(key));
         self.check_invariants();
     }
 
@@ -89,7 +121,8 @@ impl ShaMap {
             item.len() >= MIN_ITEM_BYTES && item.len() < MAX_LEAF_BYTES - 32,
             "a leaf's item is as long as rippled's are"
         );
-        self.leaves.insert(key, item);
+        let leaf = leaf_hash(self.tree, &key, &item);
+        self.leaves.insert(key, (Arc::from(item), leaf));
         self.check_invariants();
     }
 
@@ -100,7 +133,7 @@ impl ShaMap {
         if leaves.is_empty() {
             return EMPTY;
         }
-        inner_hash(&children(&leaves, 0, leaves.len(), 0, self.tree))
+        inner_hash(&children(&leaves, 0, leaves.len(), 0))
     }
 
     /// The branch of `key`, leaf first: down to its leaf if the tree holds
@@ -116,13 +149,13 @@ impl ShaMap {
             if low == high {
                 return None;
             }
-            branch.push(inner_wire(&children(&leaves, low, high, depth, self.tree)));
+            branch.push(inner_wire(&children(&leaves, low, high, depth)));
             let slot = nibble(key, depth);
             let (start, end) = group_of(&leaves, low, high, depth, slot);
             match end - start {
                 0 => break,
                 1 => {
-                    let (leaf_key, item) = leaves.get(start)?;
+                    let (leaf_key, item, _) = leaves.get(start)?;
                     branch.push(leaf_wire(self.tree, leaf_key, item));
                     break;
                 }
@@ -134,10 +167,10 @@ impl ShaMap {
         Some(branch)
     }
 
-    fn sorted(&self) -> Vec<(&[u8; 32], &[u8])> {
+    fn sorted(&self) -> Vec<Leaf<'_>> {
         self.leaves
             .iter()
-            .map(|(key, item)| (key, item.as_slice()))
+            .map(|(key, (item, leaf))| (key, item.as_ref(), leaf))
             .collect()
     }
 
@@ -152,36 +185,33 @@ impl ShaMap {
 /// The leaves of `low..high` whose nibble at `depth` is `slot`, given that
 /// they share every nibble above and are in order.
 fn group_of(
-    leaves: &[(&[u8; 32], &[u8])],
+    leaves: &[Leaf<'_>],
     low: usize,
     high: usize,
     depth: usize,
     slot: usize,
 ) -> (usize, usize) {
     let range = leaves.get(low..high).unwrap_or_default();
-    let start = low + range.partition_point(|(key, _)| nibble(key, depth) < slot);
-    let end = low + range.partition_point(|(key, _)| nibble(key, depth) <= slot);
+    let start = low + range.partition_point(|(key, _, _)| nibble(key, depth) < slot);
+    let end = low + range.partition_point(|(key, _, _)| nibble(key, depth) <= slot);
     (start, end)
 }
 
 /// The children's hashes of the inner node at `depth` over the leaves of
 /// `low..high`, which share every nibble above it.
 fn children(
-    leaves: &[(&[u8; 32], &[u8])],
+    leaves: &[Leaf<'_>],
     low: usize,
     high: usize,
     depth: usize,
-    tree: Tree,
 ) -> [[u8; 32]; BRANCH_FACTOR] {
     let mut out = [EMPTY; BRANCH_FACTOR];
     for (slot, child) in out.iter_mut().enumerate() {
         let (start, end) = group_of(leaves, low, high, depth, slot);
         *child = match end - start {
             0 => EMPTY,
-            1 => leaves
-                .get(start)
-                .map_or(EMPTY, |(key, item)| leaf_hash(tree, key, item)),
-            _ => subtree_hash(leaves, start, end, depth + 1, tree),
+            1 => leaves.get(start).map_or(EMPTY, |(_, _, leaf)| **leaf),
+            _ => subtree_hash(leaves, start, end, depth + 1),
         };
     }
     out
@@ -191,13 +221,7 @@ fn children(
 /// at least two, which share every nibble above it. A stack of the inner
 /// nodes being built, each with the next of its leaves to place and the
 /// slot it takes in the one above.
-fn subtree_hash(
-    leaves: &[(&[u8; 32], &[u8])],
-    low: usize,
-    high: usize,
-    depth: usize,
-    tree: Tree,
-) -> [u8; 32] {
+fn subtree_hash(leaves: &[Leaf<'_>], low: usize, high: usize, depth: usize) -> [u8; 32] {
     struct Frame {
         next: usize,
         high: usize,
@@ -222,16 +246,16 @@ fn subtree_hash(
         );
         if top.next < top.high {
             let slot = nibble(
-                leaves.get(top.next).map_or(&EMPTY, |(key, _)| key),
+                leaves.get(top.next).map_or(&EMPTY, |(key, _, _)| key),
                 top.depth,
             );
             let (start, end) = group_of(leaves, top.next, top.high, top.depth, slot);
             top.next = end;
             if end - start == 1 {
-                if let (Some(child), Some((key, item))) =
+                if let (Some(child), Some((_, _, leaf))) =
                     (top.children.get_mut(slot), leaves.get(start))
                 {
-                    *child = leaf_hash(tree, key, item);
+                    *child = **leaf;
                 }
             } else {
                 let below = frame(start, end, top.depth + 1, slot);
