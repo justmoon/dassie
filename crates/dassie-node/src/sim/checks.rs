@@ -349,9 +349,9 @@ pub fn not_settled_down(sim: &mut Sim, seconds: u64, what: &str) -> Outcome {
 /// holds, and for a grace after it is lifted, a pair it touches that
 /// settles in the token may be withdrawn; a pair that settles in XRP may not
 /// (spec/areas/settlement.md#when-peers-cannot-pay-us). So does a stretch in
-/// which the ledger's servers and validators fail the nodes: a node that
-/// cannot see its ledger settles nothing, honestly, and its peers may
-/// withdraw it, until a grace after the stretch.
+/// which the ledger's servers or validators fail a node, or every node: a
+/// node that cannot see its ledger settles nothing, honestly, so a pair it
+/// is in may be withdrawn, until a grace after the stretch.
 pub fn check_withdrawn(sim: &Sim) -> Result<(), String> {
     let grace = sim.peer.advertise_short_grace_ms;
     let token = sim
@@ -374,8 +374,11 @@ pub fn check_withdrawn(sim: &Sim) -> Result<(), String> {
             })
     };
     let unseen = |withdrawal: &Withdrawal| {
-        (sim.outages.iter())
-            .any(|&(from, until)| withdrawal.at >= from && withdrawal.at <= until + grace)
+        sim.outages.iter().any(|&(node, from, until)| {
+            node.is_none_or(|index| index == withdrawal.by || id(index) == withdrawal.peer)
+                && withdrawal.at >= from
+                && withdrawal.at <= until + grace
+        })
     };
     match (sim.withdrawn.iter()).find(|withdrawal| !frozen(withdrawal) && !unseen(withdrawal)) {
         Some(withdrawal) => Err(format!(
