@@ -241,6 +241,8 @@ pub struct PriceTable {
     pricing: Pricing,
     ledgers: [Option<LedgerPrice>; MAX_PRICED_LEDGERS],
     prices: [Option<Price>; MAX_PRICES],
+    /// The ledgers that convert nothing now ([`Self::halt`]).
+    halted: [Option<LedgerId>; MAX_PRICED_LEDGERS],
 }
 
 /// A table never built: nothing charged, nothing converts, and it is due
@@ -265,6 +267,7 @@ impl PriceTable {
             pricing,
             ledgers: [None; MAX_PRICED_LEDGERS],
             prices: [None; MAX_PRICES],
+            halted: [None; MAX_PRICED_LEDGERS],
         }
     }
 
@@ -392,6 +395,36 @@ impl PriceTable {
     /// when the table was built.
     pub fn prices(&self) -> impl Iterator<Item = &Price> + '_ {
         self.prices.iter().flatten()
+    }
+
+    /// Marks `ledger` as one that converts nothing now, such as a dollar
+    /// token's while its peg guard pauses it
+    /// (spec/decisions/issued-assets.md): no packet converts to or from
+    /// it, not even at spot into the owner's own endpoints in the same
+    /// currency, which needs no rate. The table is built without it.
+    ///
+    /// # Panics
+    ///
+    /// If the table prices `ledger`: one that converts nothing is left out
+    /// of what it is built from.
+    pub fn halt(&mut self, ledger: LedgerId) {
+        assert!(
+            self.ledger(ledger).is_none(),
+            "a ledger that converts nothing is not priced"
+        );
+        if self.halted(ledger) {
+            return;
+        }
+        // There is a slot for every ledger.
+        if let Some(slot) = self.halted.iter_mut().find(|slot| slot.is_none()) {
+            *slot = Some(ledger);
+        }
+    }
+
+    /// Whether `ledger` converts nothing now ([`Self::halt`]).
+    #[must_use]
+    pub fn halted(&self, ledger: LedgerId) -> bool {
+        self.halted.contains(&Some(ledger))
     }
 
     /// The ledger `ledger`, if it is priced.
@@ -553,12 +586,13 @@ impl PriceTable {
 
     /// What `amount` on `from` is worth on `to` at spot, uncharged: what a
     /// peer's packet into the owner's own endpoints converts at. The same
-    /// currency converts one to one without a rate.
+    /// currency converts one to one without a rate, unless either ledger
+    /// converts nothing now ([`Self::halt`]).
     ///
     /// # Errors
     ///
-    /// A rate it needs is missing or older than `max_rate_age_ms`, or the
-    /// result does not fit.
+    /// A rate it needs is missing or older than `max_rate_age_ms`, either
+    /// ledger converts nothing now, or the result does not fit.
     pub fn convert_at_spot(
         &self,
         from: LedgerId,
@@ -567,6 +601,9 @@ impl PriceTable {
         now_ms: u64,
         max_rate_age_ms: u64,
     ) -> Result<u64, PriceError> {
+        if self.halted(from) || self.halted(to) {
+            return Err(PriceError::Stale);
+        }
         let (from_asset, to_asset) = (from.asset(), to.asset());
         let (from_rate, to_rate) = if from_asset.code == to_asset.code {
             (1, 1)
@@ -962,8 +999,26 @@ mod tests {
             Err(PriceError::Stale)
         );
         // The same currency needs no rate.
-        let none = PriceTable::without_rates(Pricing::NONE);
+        let mut none = PriceTable::without_rates(Pricing::NONE);
         assert_eq!(none.convert_at_spot(USD, RLUSD, 7, NOW, AGE), Ok(7));
+        // Unless either ledger converts nothing now, as a dollar token's
+        // off its peg: then not even the same currency converts.
+        none.halt(RLUSD);
+        none.halt(RLUSD);
+        assert!(none.halted(RLUSD) && !none.halted(USD));
+        for (from, to) in [(USD, RLUSD), (RLUSD, USD)] {
+            assert_eq!(
+                none.convert_at_spot(from, to, 7, NOW, AGE),
+                Err(PriceError::Stale)
+            );
+        }
+        let mut halted = build(&inventories, pricing(50_000, 5_000));
+        halted.halt(RLUSD);
+        assert_eq!(halted.convert_at_spot(USD, XRP, 1_000, NOW, AGE), Ok(2_000));
+        assert_eq!(
+            halted.convert_at_spot(XRP, RLUSD, 2, NOW, AGE),
+            Err(PriceError::Stale)
+        );
     }
 
     // A group's balance as a holding: posted, and pending as the outside

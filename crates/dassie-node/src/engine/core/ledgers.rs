@@ -30,8 +30,18 @@ pub(super) struct ActiveScheme {
     /// Why its peg guard paused it, as the owner was last told.
     pub paused: Option<PegPause>,
     /// Whether it converted when the prices were last built
-    /// ([`SettlementScheme::converts`]).
+    /// ([`ActiveScheme::converts_now`]).
     pub converts: bool,
+}
+
+impl ActiveScheme {
+    /// Whether the connector converts to and from its ledger now
+    /// ([`SettlementScheme::converts`]). A dollar token's scheme the books
+    /// stopped does not: its peg guard is fed nothing more, so it can no
+    /// longer tell a token off its peg (spec/decisions/issued-assets.md).
+    pub fn converts_now(&self) -> bool {
+        self.scheme.converts() && (self.failed.is_none() || self.scheme.peg().is_none())
+    }
 }
 
 /// A ledger as the owner sees it.
