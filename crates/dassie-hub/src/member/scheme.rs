@@ -39,7 +39,8 @@ use dassie_oer::{Encode, Reader};
 use dassie_settlement::policy::redeem_threshold;
 use dassie_settlement::{
     AssetId, Commitments, Decided, Effect, ExternalAsset, LedgerStatus, LossCause, OwnerPayment,
-    OwnerPaymentState, PreparedSettlement, Promised, ReconcileCause, SchemeError, SettlementScheme,
+    OwnerPaymentState, PaymentFailure, PreparedSettlement, Promised, ReconcileCause, SchemeError,
+    SettlementScheme,
 };
 use rand_core::CryptoRng;
 
@@ -472,7 +473,7 @@ impl HubScheme {
                 {
                     self.withdrew(id, *amount, effects);
                 } else {
-                    self.withdrawal_done(OwnerPaymentState::Failed, effects);
+                    self.withdrawal_done(OwnerPaymentState::Failed(PaymentFailure::Other), effects);
                 }
             }
             Purpose::Redeem(_) | Purpose::Disbursal => {}
@@ -595,7 +596,7 @@ impl HubScheme {
                 }
             }
             Purpose::Withdraw => {
-                self.withdrawal_done(OwnerPaymentState::Failed, effects);
+                self.withdrawal_done(OwnerPaymentState::Failed(PaymentFailure::Other), effects);
             }
             Purpose::Redeem(_) | Purpose::Disbursal => {}
         }

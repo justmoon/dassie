@@ -218,6 +218,19 @@ impl Net {
             .collect()
     }
 
+    /// Stops the sponsor's daemon and starts it again on its database.
+    async fn restart_sponsor(self) -> Self {
+        let (dir, clock) = self.sponsor.stop().await;
+        let env = [
+            ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+            ("DASSIE_PEER_CA_FILE", CA),
+        ];
+        let sponsor = Bound::bind_in(dir)
+            .start(clock, 70, Policies::DEV, &env)
+            .await;
+        Self { sponsor, ..self }
+    }
+
     async fn stop(self) {
         self.sponsor.stop().await;
         for node in self.validators {
@@ -565,6 +578,19 @@ async fn a_funding_too_little_for_the_escrow_is_paid_once() {
     );
     assert!(!founding(&net.sponsor).await.escrow_set_up);
     drop(owner);
+    // Nor after a restart, when the server no longer holds the payment:
+    // the founding kept why it stopped, and asks the ledger nothing.
+    net.xrpl.ledger().forget_history();
+    let net = net.restart_sponsor().await;
+    for _ in 0..40 {
+        net.clock.advance(250);
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert!(
+        payments(&net.xrpl, sponsor, escrow).is_empty(),
+        "paid again after a restart"
+    );
+    assert!(founding(&net.sponsor).await.problem.contains("too little"));
     net.stop().await;
 }
 

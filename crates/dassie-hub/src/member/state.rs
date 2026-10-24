@@ -17,7 +17,7 @@ use alloc::vec::Vec;
 
 use dassie_ledger::Name;
 use dassie_oer::{Encode, Reader};
-use dassie_settlement::OwnerPaymentState;
+use dassie_settlement::{OwnerPaymentState, PaymentFailure};
 
 use super::account::{HubAccount, Purpose, Queued};
 use super::mirror::HoldMirror;
@@ -329,7 +329,9 @@ pub(super) fn scheme_state(scheme: &HubScheme) -> Vec<u8> {
             OwnerPaymentState::Unknown => 0,
             OwnerPaymentState::InFlight => 1,
             OwnerPaymentState::Applied => 2,
-            OwnerPaymentState::Failed => 3,
+            OwnerPaymentState::Failed(PaymentFailure::Other) => 3,
+            OwnerPaymentState::Failed(PaymentFailure::TooLittle) => 4,
+            OwnerPaymentState::Cancelled => 5,
         });
     });
     out.u64(scheme.booked_ahead);
@@ -527,7 +529,9 @@ pub(super) fn restore_scheme(scheme: &mut HubScheme, state: &[u8]) -> Option<()>
             0 => OwnerPaymentState::Unknown,
             1 => OwnerPaymentState::InFlight,
             2 => OwnerPaymentState::Applied,
-            3 => OwnerPaymentState::Failed,
+            3 => OwnerPaymentState::Failed(PaymentFailure::Other),
+            4 => OwnerPaymentState::Failed(PaymentFailure::TooLittle),
+            5 => OwnerPaymentState::Cancelled,
             _ => return None,
         };
         (number <= scheme.withdrawals_made).then_some((number, outcome))

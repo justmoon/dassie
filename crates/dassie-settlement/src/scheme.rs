@@ -199,8 +199,22 @@ pub enum OwnerPaymentState {
     InFlight,
     /// Its ledger applied it.
     Applied,
-    /// It never applied, or failed and cost only its fee: it moved nothing.
-    Failed,
+    /// Its ledger recorded it as failed: it moved nothing but its fee. The
+    /// same payment again fails alike, at a fee each time, unless what made
+    /// it fail changed.
+    Failed(PaymentFailure),
+    /// It never reached its ledger, which can never apply it now: it moved
+    /// nothing, not even a fee, and nothing stands against paying again.
+    Cancelled,
+}
+
+/// Why an owner's payment its ledger recorded failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PaymentFailure {
+    /// Its destination does not exist, and it was too little to create it.
+    TooLittle,
+    /// Anything else.
+    Other,
 }
 
 /// Why a scheme refused.

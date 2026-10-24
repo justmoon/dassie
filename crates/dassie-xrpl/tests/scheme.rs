@@ -1422,7 +1422,7 @@ fn the_owners_payment_outlives_a_restart() {
 // before anything is signed.
 #[test]
 fn a_failed_owner_payment_costs_only_its_fee() {
-    use dassie_settlement::{OwnerPayment, OwnerPaymentState};
+    use dassie_settlement::{OwnerPayment, OwnerPaymentState, PaymentFailure};
 
     let (mut world, _, _) = funded_pair();
     let nobody = dassie_xrpl::Wallet::from_seed([77; 16]).account();
@@ -1450,12 +1450,71 @@ fn a_failed_owner_payment_costs_only_its_fee() {
         .unwrap();
     world.apply(0, effects);
     world.close();
-    assert_eq!(
-        world.nodes[0].scheme.owner_payment(id),
-        OwnerPaymentState::Failed
-    );
+    // A failure the ledger recorded, too little: never taken for one that
+    // never reached the ledger, also after a restart.
+    let too_little = OwnerPaymentState::Failed(PaymentFailure::TooLittle);
+    assert_eq!(world.nodes[0].scheme.owner_payment(id), too_little);
     let books = &world.nodes[0].books;
     assert_eq!(books.owner, i128::from(FUNDED));
     assert_eq!(books.fees, 10 * i128::from(UNITS_PER_DROP));
     assert!(books.cancelled.is_empty() && books.finalized.is_empty());
+    // Any other failure is told apart from it: to an account that takes
+    // only payments with a destination tag, without one.
+    let peer = world.account(1);
+    let flags = world.ledger.account_flags(peer).unwrap();
+    world.ledger.set_account_flags(
+        peer,
+        flags | dassie_xrpl::api::account_flags::REQUIRE_DEST_TAG,
+    );
+    let mut effects = Vec::new();
+    let other = world
+        .pay_owner(0, &payment(peer, 1_000_000, 0), &mut effects)
+        .unwrap();
+    world.apply(0, effects);
+    world.close();
+    assert_eq!(
+        world.nodes[0].scheme.owner_payment(other),
+        OwnerPaymentState::Failed(PaymentFailure::Other)
+    );
+    // What became of the last outlives a restart.
+    let mut effects = Vec::new();
+    let again = world
+        .pay_owner(0, &payment(nobody, 1_000_000, 0), &mut effects)
+        .unwrap();
+    world.apply(0, effects);
+    world.close();
+    let state = world.nodes[0].scheme.state();
+    let checkpoint = world.nodes[0].scheme.balance();
+    let node = world.nodes[0].name;
+    world.nodes[0].scheme =
+        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
+    assert_eq!(world.nodes[0].scheme.owner_payment(again), too_little);
+}
+
+// An owner's payment whose submission was lost is looked for once past its
+// last ledger and, never seen there, cancelled: it moved nothing, not even
+// a fee, which a failure the ledger recorded would have cost.
+#[test]
+fn a_lost_owners_payment_is_cancelled_not_failed() {
+    use dassie_settlement::{OwnerPayment, OwnerPaymentState};
+
+    let (mut world, _, _) = funded_pair();
+    world.nodes[0].drop_submits = true;
+    let payment = OwnerPayment {
+        destination: world.account(1).to_address(),
+        tag: None,
+        memo: None,
+        amount: 3_000_000_000,
+    };
+    let mut effects = Vec::new();
+    let id = world.pay_owner(0, &payment, &mut effects).unwrap();
+    world.apply(0, effects);
+    world.closes(25);
+    assert_eq!(
+        world.nodes[0].scheme.owner_payment(id),
+        OwnerPaymentState::Cancelled
+    );
+    let books = &world.nodes[0].books;
+    assert_eq!(books.owner, i128::from(FUNDED));
+    assert_eq!(books.fees, 0);
 }

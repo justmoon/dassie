@@ -150,7 +150,11 @@ impl Core {
             match state {
                 None | Some(OwnerPaymentState::InFlight) => {}
                 Some(OwnerPaymentState::Applied) => self.owner_paid(scheme, id, true),
-                Some(OwnerPaymentState::Failed | OwnerPaymentState::Unknown) => {
+                Some(
+                    OwnerPaymentState::Failed(_)
+                    | OwnerPaymentState::Cancelled
+                    | OwnerPaymentState::Unknown,
+                ) => {
                     self.owner_paid(scheme, id, false);
                 }
             }
