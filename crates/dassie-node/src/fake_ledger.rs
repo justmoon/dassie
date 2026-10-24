@@ -2,12 +2,15 @@
 //! one: its WebSocket API on `ws://`, its faucet on HTTPS, and a ledger
 //! closed every so often. For tests and dev environments only (feature
 //! `testing`): CI and `node --run dev -- --xrpl fake` settle against it.
+//! It is the testnet, or mainnet, which has no faucet
+//! (spec/decisions/mainnet-schemes.md).
 //!
-//! Next to the faucet, under `/tokens/`, the issuer of its test DSUSD takes
-//! requests: it mints to an address, freezes, deep-freezes and globally
-//! freezes, sets a transfer fee and claws back, and makes or sets an AMM
-//! pool of XRP and its token, each in the next ledger
-//! (spec/areas/xrpl.md#the-fake-ledger).
+//! Next to the faucet, under `/tokens/`, the issuer of its network's dollar
+//! takes requests: it mints to an address, freezes, deep-freezes and
+//! globally freezes, sets a transfer fee and claws back, and makes or sets
+//! an AMM pool of XRP and its token, each in the next ledger. At `/deposit`,
+//! XRP arrives from outside, as an owner sends it to fund an account on
+//! mainnet (spec/areas/xrpl.md#the-fake-ledger).
 
 use std::collections::BTreeMap;
 use std::convert::Infallible;
@@ -20,6 +23,7 @@ use bytes::Bytes;
 use dassie_xrpl::AccountId;
 use dassie_xrpl::codec::{Currency, TokenValue};
 use dassie_xrpl::fake::{FakeLedger, Token};
+use dassie_xrpl::network::{MAINNET, Network};
 use futures_util::{SinkExt, StreamExt};
 use http_body_util::{BodyExt, Full, Limited};
 use hyper::server::conn::http1;
@@ -37,13 +41,20 @@ use crate::store::StoredCertificate;
 /// How the fake ledger is served.
 #[derive(Clone, Debug)]
 pub struct Options {
+    /// The network it is: the testnet or mainnet.
+    pub network: &'static Network,
     /// Where its WebSocket API listens.
     pub listen: SocketAddr,
-    /// Where its faucet listens, over HTTPS with this certificate.
+    /// Where its faucet, its issuer and its deposits listen, over HTTPS
+    /// with this certificate. Mainnet's has no faucet.
     pub faucet: Option<(SocketAddr, StoredCertificate)>,
     /// How often a ledger closes.
     pub close_every: Duration,
 }
+
+/// The most XRP one request to `/deposit` sends, in drops: a hundred
+/// thousand XRP, more than any test needs and far less than genesis holds.
+pub const MAX_DEPOSIT_DROPS: u64 = 100_000 * dassie_xrpl::DROPS_PER_XRP;
 
 struct Shared {
     ledger: Mutex<FakeLedger>,
@@ -57,10 +68,12 @@ pub struct Server {
     cancel: CancellationToken,
     /// Its WebSocket URL.
     pub url: String,
-    /// Its faucet's URL, if it has one.
+    /// Its faucet's URL, if it has one: never on mainnet.
     pub faucet_url: Option<String>,
     /// Where its issuer takes requests, with the faucet: `…/tokens`.
     pub tokens_url: Option<String>,
+    /// Where XRP is deposited from outside, with the faucet: `…/deposit`.
+    pub deposit_url: Option<String>,
 }
 
 impl Server {
@@ -73,7 +86,11 @@ impl Server {
         // Its ledgers close on the wall clock, the first a second after
         // any ledger of a server before it: a new server is a new chain,
         // and nodes that knew an earlier one see a testnet reset.
-        let mut ledger = FakeLedger::new();
+        let mut ledger = if *options.network == MAINNET {
+            FakeLedger::mainnet()
+        } else {
+            FakeLedger::new()
+        };
         ledger.set_close_time(close_time_now().saturating_add(1));
         let shared = Arc::new(Shared {
             ledger: Mutex::new(ledger),
@@ -91,7 +108,7 @@ impl Server {
             Arc::clone(&shared),
             cancel.clone(),
         ));
-        let (faucet_url, tokens_url) = match options.faucet {
+        let (faucet_url, tokens_url, deposit_url) = match options.faucet {
             Some((listen, certificate)) => {
                 let listener = TcpListener::bind(listen).await.map_err(|e| e.to_string())?;
                 let address = listener.local_addr().map_err(|e| e.to_string())?;
@@ -105,12 +122,14 @@ impl Server {
                     Arc::clone(&shared),
                     cancel.clone(),
                 ));
+                let base = format!("https://localhost:{}", address.port());
                 (
-                    Some(format!("https://localhost:{}/accounts", address.port())),
-                    Some(format!("https://localhost:{}/tokens", address.port())),
+                    options.network.faucet.map(|_| format!("{base}/accounts")),
+                    Some(format!("{base}/tokens")),
+                    Some(format!("{base}/deposit")),
                 )
             }
-            None => (None, None),
+            None => (None, None, None),
         };
         Ok(Self {
             shared,
@@ -118,6 +137,7 @@ impl Server {
             url: format!("ws://{address}"),
             faucet_url,
             tokens_url,
+            deposit_url,
         })
     }
 
@@ -293,21 +313,45 @@ async fn serve_request(
 }
 
 /// What a request to `path` with `body` gets, done to `ledger`: an
-/// issuer's request under `/tokens/`, else the faucet's.
+/// issuer's request under `/tokens/`, a deposit at `/deposit`, else the
+/// faucet's, which mainnet does not have.
 fn answer(ledger: &mut FakeLedger, path: &str, body: &[u8]) -> (StatusCode, String) {
     let body = serde_json::from_slice::<serde_json::Value>(body).unwrap_or_default();
-    let Some(action) = path.strip_prefix("/tokens/") else {
-        // The faucet: `{"destination": "r…"}` gets 1000 test XRP in the
-        // next ledger.
-        let destination = body
-            .get("destination")
+    let destination = body
+        .get("destination")
+        .and_then(serde_json::Value::as_str)
+        .and_then(AccountId::parse);
+    let no_destination = || {
+        (
+            StatusCode::BAD_REQUEST,
+            r#"{"error":"no destination"}"#.to_string(),
+        )
+    };
+    if path == "/deposit" {
+        // `{"destination": "r…", "drops": "1000000"}`: XRP from outside,
+        // in the next ledger, as an owner funds an account.
+        let drops = body
+            .get("drops")
             .and_then(serde_json::Value::as_str)
-            .and_then(AccountId::parse);
-        let Some(destination) = destination else {
+            .and_then(|drops| drops.parse::<u64>().ok())
+            .filter(|drops| (1..=MAX_DEPOSIT_DROPS).contains(drops));
+        let (Some(destination), Some(drops)) = (destination, drops) else {
             return (
                 StatusCode::BAD_REQUEST,
-                r#"{"error":"no destination"}"#.into(),
+                r#"{"error":"no destination or drops"}"#.into(),
             );
+        };
+        ledger.deposit(destination, drops);
+        return (StatusCode::OK, r#"{"queued":true}"#.into());
+    }
+    let Some(action) = path.strip_prefix("/tokens/") else {
+        // The faucet: `{"destination": "r…"}` gets 1000 test XRP in the
+        // next ledger. Mainnet has none.
+        if ledger.network().faucet.is_none() {
+            return (StatusCode::NOT_FOUND, r#"{"error":"no faucet"}"#.into());
+        }
+        let Some(destination) = destination else {
+            return no_destination();
         };
         ledger.fund(destination);
         return (
@@ -681,5 +725,37 @@ mod tests {
         let fund = json!({ "destination": address });
         assert_eq!(ask(&mut ledger, "/accounts", &fund), StatusCode::OK);
         assert!(ledger.balance(someone).is_some());
+    }
+
+    // Mainnet has no faucet: an account there is funded by a deposit from
+    // outside, as an owner sends XRP, which either network takes.
+    #[test]
+    fn mainnet_takes_deposits_and_has_no_faucet() {
+        let mut ledger = FakeLedger::mainnet();
+        let someone = AccountId([7; 20]);
+        let address = someone.to_address();
+        let fund = json!({ "destination": address });
+        assert_eq!(ask(&mut ledger, "/accounts", &fund), StatusCode::NOT_FOUND);
+        assert_eq!(ledger.balance(someone), None);
+        for refused in [
+            json!({ "destination": address }),
+            json!({ "destination": address, "drops": 5 }),
+            json!({ "destination": address, "drops": "0" }),
+            json!({ "destination": address, "drops": (MAX_DEPOSIT_DROPS + 1).to_string() }),
+            json!({ "drops": "5" }),
+        ] {
+            assert_eq!(
+                ask(&mut ledger, "/deposit", &refused),
+                StatusCode::BAD_REQUEST,
+                "{refused}"
+            );
+        }
+        assert_eq!(ledger.queued(), 0);
+        let deposit = json!({ "destination": address, "drops": "50000000" });
+        assert_eq!(ask(&mut ledger, "/deposit", &deposit), StatusCode::OK);
+        assert_eq!(ledger.balance(someone), Some(50_000_000));
+        let mut testnet = FakeLedger::new();
+        assert_eq!(ask(&mut testnet, "/deposit", &deposit), StatusCode::OK);
+        assert_eq!(testnet.balance(someone), Some(50_000_000));
     }
 }

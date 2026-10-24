@@ -34,12 +34,22 @@ fn core_in(
     realm: Realm,
     live: dassie_node_core::config::LiveRealm,
 ) -> Result<Core, String> {
+    core_with(store, seed, (realm, live), Policies::DEFAULT)
+}
+
+/// [`core_in`] with `policies`.
+fn core_with(
+    store: Arc<Store>,
+    seed: u64,
+    (realm, live): (Realm, dassie_node_core::config::LiveRealm),
+    policies: Policies,
+) -> Result<Core, String> {
     let parts = CoreParts {
         store,
         key: Arc::new(NodeKey::from_bytes(&[7; 32])),
         realm,
         live,
-        policies: Policies::DEFAULT,
+        policies,
         rng: Box::new(SeededRng::new(seed)),
         peer_rng: Box::new(SeededRng::new(seed + 1)),
         own_info: dassie_peer::OwnInfo {
@@ -2327,6 +2337,73 @@ fn rlusd_off_its_peg_converts_nothing() {
     assert_eq!(peg(&core).paused, None);
     assert!(!priced(&core) && core.price_table().halted(rlusd));
     assert!(core.price_table().ledger(LedgerId::XrplXrp).is_some());
+}
+
+// On dev timers, as in dev and the end-to-end tests, the node runs RLUSD's
+// peg guard on the same rule in seconds: a reading a second, and the trip
+// hold ten of them (spec/areas/xrpl.md#the-peg-guard).
+#[test]
+fn on_dev_timers_the_peg_guard_trips_in_seconds() {
+    use dassie_ledger::LedgerId;
+    use dassie_node_core::config::LiveRealm;
+    use dassie_settlement::PegPause;
+    use dassie_xrpl::codec::TokenValue;
+    use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, Token};
+    use dassie_xrpl::peg::Timings;
+    use dassie_xrpl::{DROPS_PER_XRP, Wallet};
+
+    let config = r#"{"server":"ws://ledger.test"}"#;
+    let entropy = NodeKey::from_bytes(&[7; 32])
+        .settlement_entropy("xrpl", "seed-mainnet")
+        .unwrap();
+    let address = Wallet::from_entropy(entropy.as_bytes()).account();
+    let mut ledger = FakeLedger::mainnet();
+    ledger.deposit(address, FAUCET_DROPS);
+    ledger.close();
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let live = (Realm::Live, LiveRealm::DevSwitch);
+    let mut core = core_with(store, 12, live, Policies::DEV).unwrap();
+    core.add_scheme("xrpl-rlusd", config.into()).unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    let value = TokenValue::parse("100000").unwrap();
+    // 200,000 XRP for 100,000 RLUSD at two XRP to the dollar: a dollar.
+    let pool = |ledger: &mut FakeLedger, xrp: u64| {
+        let drops = xrp * DROPS_PER_XRP;
+        ledger.set_pool(Token::RLUSD, drops, value, 205).unwrap();
+    };
+    pool(&mut ledger, 200_000);
+    let one = 10_u128.pow(dassie_connector::RATE_PRECISION);
+    let mut now = NOW;
+    let mut seconds = |core: &mut Core, ledger: &mut FakeLedger, count: u64| {
+        for _ in 0..count {
+            now += Timings::DEV.read_every_ms;
+            core.begin_step(now);
+            core.set_rates(&[("USD", one, now), ("XRP", 2 * one, now)]);
+            let asset = ledger.network().first();
+            let epoch = core.assets[&asset].epoch;
+            for (_, message) in ledger.close() {
+                let event = super::LedgerEvent::Message(message);
+                core.ledger_event(&asset.to_string(), epoch, &event);
+            }
+            follow_xrpl_outputs(core, ledger);
+        }
+    };
+    let peg = |core: &Core| {
+        core.ledger_views()
+            .into_iter()
+            .find(|view| view.id == LedgerId::XrplRlusdUsd)
+            .and_then(|view| view.peg)
+            .unwrap()
+    };
+    seconds(&mut core, &mut ledger, 2);
+    assert_eq!(peg(&core).last.map(|(price, _)| price), Some(1_000_000));
+    pool(&mut ledger, 190_000);
+    let hold = Timings::DEV.trip_hold_ms / Timings::DEV.read_every_ms;
+    seconds(&mut core, &mut ledger, hold);
+    assert_eq!(peg(&core).paused, None, "within the hold");
+    seconds(&mut core, &mut ledger, 2);
+    assert_eq!(peg(&core).paused, Some(PegPause::OffPeg));
+    assert!(core.price_table().halted(LedgerId::XrplRlusdUsd));
 }
 
 /// A core node at `https://core.test` that takes QUIC, and so downlinks,

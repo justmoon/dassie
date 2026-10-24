@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use dassie_connector::{EndpointId, PacketRecord, PacketState, TraceEvent};
 use dassie_ledger::{Reference, TraceId, TransferState};
-use dassie_settlement::{Holding, LedgerStatus};
+use dassie_settlement::{Holding, LedgerStatus, PegPause, PegView};
 use tokio::sync::broadcast::error::RecvError;
 
 use super::handlers::{Items, Reply};
@@ -434,6 +434,21 @@ pub(super) fn ledger(view: &LedgerView) -> proto::Ledger {
             LedgerStatus::Failed(why) => why.into(),
             _ => String::new(),
         },
+        peg: view.peg.map(peg),
+    }
+}
+
+/// What a dollar token's peg guard says (spec/areas/xrpl.md#the-peg-guard).
+fn peg(view: PegView) -> proto::LedgerPeg {
+    let paused = match view.paused {
+        None => proto::PegPause::Unspecified,
+        Some(PegPause::OffPeg) => proto::PegPause::OffPeg,
+        Some(PegPause::Stale) => proto::PegPause::Stale,
+    };
+    proto::LedgerPeg {
+        paused: paused.into(),
+        price_ppm: view.last.map(|(price, _)| price),
+        ledger_index: view.last.map_or(0, |(_, ledger)| ledger),
     }
 }
 
@@ -655,5 +670,28 @@ mod tests {
         );
         let largest = holding(&token(u128::MAX));
         assert_eq!((largest.amount, largest.asset_scale), (u64::MAX, 0));
+    }
+
+    // The owner sees why a dollar token's scheme is paused, and the last
+    // price its guard read; a guard that read nothing yet shows no price.
+    #[test]
+    fn the_peg_guard_is_shown_with_its_reason_and_last_price() {
+        let off = peg(PegView {
+            paused: Some(PegPause::OffPeg),
+            last: Some((950_000, 42)),
+        });
+        assert_eq!(off.paused(), proto::PegPause::OffPeg);
+        assert_eq!((off.price_ppm, off.ledger_index), (Some(950_000), 42));
+        let stale = peg(PegView {
+            paused: Some(PegPause::Stale),
+            last: None,
+        });
+        assert_eq!(stale.paused(), proto::PegPause::Stale);
+        assert_eq!((stale.price_ppm, stale.ledger_index), (None, 0));
+        let running = peg(PegView {
+            paused: None,
+            last: Some((1_000_000, 7)),
+        });
+        assert_eq!(running.paused(), proto::PegPause::Unspecified);
     }
 }

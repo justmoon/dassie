@@ -66,7 +66,7 @@ use crate::api::{AccountInfo, AccountSettings, LineView, TxRecord};
 use crate::codec::{Memo, TF_SET_NO_RIPPLE};
 use crate::keys::AccountId;
 use crate::network::Network;
-use crate::peg::{Guard, Peg};
+use crate::peg::{Guard, Peg, Timings};
 use crate::scheme::{
     MAX_PEERS, MAX_RECOVER_WAIT_LEDGERS, MAX_RECOVERING, Recovering, account_of, address_bytes,
     hash_name, missed_write_off, name_hash, narrow, parse_address, recover, restore_unread,
@@ -277,6 +277,13 @@ impl<T: IssuedToken> TokenScheme<T> {
     fn cannot_receive(&self) -> bool {
         matches!(self.line, Some(Some(view)) if view.theirs.deep_freeze)
             || matches!(self.issuer, Some(Some(issuer)) if issuer.global_freeze || issuer.transfer_fee)
+    }
+
+    /// Runs its peg guard, if it has one, on `timings`: the node's, which
+    /// are dev timers' in dev and the end-to-end tests
+    /// ([`Timings::DEV`]). What the guard keeps does not change.
+    pub fn set_peg_timings(&mut self, timings: Timings) {
+        self.guard = self.guard.take().map(|guard| guard.timed(timings));
     }
 
     /// Whether the peg guard pauses the scheme now.

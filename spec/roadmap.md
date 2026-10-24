@@ -139,9 +139,7 @@ The XRPL account takes its server's word on which ledgers are validated and what
 
 Settling with real money on the XRP Ledger's mainnet, in XRP and in RLUSD ([mainnet-schemes](decisions/mainnet-schemes.md)), with no DSUSD on mainnet, and DSUSD as the testnet's stand-in for RLUSD. A condition for [real money](#real-money); the `live` realm stays refused after it.
 
-- **Parts that can be built side by side:**
-  - the live realm in dev and the end-to-end tests through the node's dev switch, which only builds with debug assertions honour, and a live node that takes none of the test network's defaults, its bootstrap nodes and its relay;
-  - the wallet, dev and the end-to-end tests: the mainnet schemes' names, Receive without a faucet and with the reserve to send, the peg guard's state in the owner's RPC and the wallet ([XRPL](areas/xrpl.md#the-peg-guard)), a mainnet scenario on the fake, and a pool moved off its peg.
+- **Left to build:** a live node that takes none of the test network's defaults, its bootstrap nodes and its relay.
 - **Done when:** live-realm nodes against the mainnet fake settle in XRP and in RLUSD at addresses under `g.`; a test-realm node never activates a mainnet scheme, nor a live-realm node a testnet one; no node activates test RLUSD; a release binary refuses the dev switch; a pool moved off its peg pauses the token's scheme and its conversions once the guard's hold has passed, on mainnet RLUSD and on testnet DSUSD, and they resume after recovery, with nothing converted at par meanwhile, while what arrives is still booked; the guard pauses the scheme when its reading is stale.
 
 ### Settlement methods
