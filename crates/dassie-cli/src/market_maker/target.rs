@@ -1,19 +1,38 @@
-//! Who the target is, from its `GET /stats` (spec/areas/http.md#get-stats):
+//! Who a target is, from its `GET /stats` (spec/areas/http.md#get-stats):
 //! its node ID, its public key, and its feed's port if it names one. The
 //! ID must be the key's, so a feed that verifies under the key is the
 //! target's.
+//!
+//! [`follow`] finds one target and then keeps its feed: a task per target,
+//! so that a target that does not answer holds up none of the others, and
+//! is asked again until it does.
+
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::sync::Arc;
+use std::time::Duration;
 
 use dassie_identity::{NodeId, PublicKey, base64url};
+use dassie_node::clock::Clock;
 use dassie_node::peer_client::{PeerClient, WebRequest};
 use serde_json::Value;
+use tokio::net::UdpSocket;
+use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
+
+use super::TARGET;
+use super::config::Target;
+use super::feed::{self, FeedClient, FeedView};
 
 /// How long `/stats` may take.
 const STATS_TIMEOUT_MS: u64 = 10_000;
 
+/// How long it waits to ask a target that could not be found again.
+const FIND_RETRY_MS: u64 = 60_000;
+
 /// Most bytes of `/stats` read: it lists the target's peers too.
 const MAX_STATS_BYTES: usize = 256 * 1024;
 
-/// The target, as its `/stats` names it.
+/// A target, as its `/stats` names it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TargetInfo {
     /// Its node ID.
@@ -24,7 +43,77 @@ pub struct TargetInfo {
     pub feed_port: Option<u16>,
 }
 
-/// Fetches and reads the target's `/stats`.
+/// Finds `target` from its `/stats`, again every [`FIND_RETRY_MS`] until
+/// it is found, then publishes who it is to `found` and keeps its feed on
+/// a socket of its own, publishing each feed it takes to `feeds`, until
+/// `cancel`.
+pub async fn follow(
+    client: PeerClient,
+    target: Target,
+    clock: Arc<dyn Clock>,
+    found: watch::Sender<Option<TargetInfo>>,
+    feeds: watch::Sender<Option<FeedView>>,
+    cancel: CancellationToken,
+) {
+    let (info, address, socket) = loop {
+        let problem = tokio::select! {
+            () = cancel.cancelled() => return,
+            outcome = find(&client, &target) => match outcome {
+                Ok(found) => break found,
+                Err(problem) => problem,
+            },
+        };
+        tracing::warn!(
+            target: TARGET, url = %target.url, %problem,
+            "cannot find a target: asking again in a minute"
+        );
+        tokio::select! {
+            () = cancel.cancelled() => return,
+            () = tokio::time::sleep(Duration::from_millis(FIND_RETRY_MS)) => {}
+        }
+    };
+    tracing::info!(
+        target: TARGET, url = %target.url, node = %info.node_id, feed = %address,
+        "following a target's feed"
+    );
+    let client = FeedClient::new(address, info.node_id, info.public_key, clock.now_ms());
+    found.send_replace(Some(info));
+    feed::run(socket, client, clock, feeds, cancel).await;
+}
+
+/// Who `target` is, where its feed is, and a socket to subscribe on.
+async fn find(
+    client: &PeerClient,
+    target: &Target,
+) -> Result<(TargetInfo, SocketAddr, UdpSocket), String> {
+    let info = fetch(client, &target.url).await?;
+    let port = info
+        .feed_port
+        .or(target.feed_port)
+        .ok_or("it names no feed port, and the config none")?;
+    let address = client
+        .resolve(&target.host, port)
+        .await
+        .map_err(|e| format!("{}: {e}", target.host))?
+        .into_iter()
+        .next()
+        .ok_or("its name resolves to no address")?;
+    let socket = UdpSocket::bind(unspecified(address))
+        .await
+        .map_err(|e| format!("cannot open a UDP socket: {e}"))?;
+    Ok((info, address, socket))
+}
+
+/// The unspecified address of `address`'s family, on any port.
+const fn unspecified(address: SocketAddr) -> SocketAddr {
+    let ip = match address {
+        SocketAddr::V4(_) => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+        SocketAddr::V6(_) => IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+    };
+    SocketAddr::new(ip, 0)
+}
+
+/// Fetches and reads a target's `/stats`.
 ///
 /// # Errors
 ///

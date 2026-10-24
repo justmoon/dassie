@@ -1,12 +1,12 @@
 # One of the market maker's two nodes (spec/areas/market-maker-vm.md), on
 # its VM, which startup.sh installs: dassie-mm-node@xrp settles in XRP,
 # dassie-mm-node@dsusd in DSUSD. Each is a periphery node with
-# no hostname, pinned to the target as its only uplink
-# (spec/areas/rate-feed.md#two-nodes-pinned-to-the-target).
+# no hostname, pinned to every target as its uplinks
+# (spec/areas/rate-feed.md#two-nodes-pinned-to-every-target).
 #
 # It runs standalone and binds its own ports, from /etc/dassie-mm/%i.env,
 # on every address: QUIC binds the HTTPS listener's address, and must reach
-# the target. Nothing reaches them from outside, since the VM's network has
+# the targets. Nothing reaches them from outside, since the VM's network has
 # no firewall rule. Its rate feed's socket is on loopback, at a port of the
 # system's choosing: a periphery node publishes no feed, and the two must
 # not both take 7768.
@@ -20,7 +20,7 @@ After=network-online.target time-set.target
 Type=notify
 NotifyAccess=main
 EnvironmentFile=/etc/dassie-mm/%i.env
-# DASSIE_UPLINKS: the target's node ID, which startup.sh reads from the
+# DASSIE_UPLINKS: the targets' node IDs, which startup.sh reads from each
 # target's /stats.
 EnvironmentFile=/etc/dassie-mm/uplink.env
 ExecStart=/opt/dassie/current/bin/dassie daemon --runtime standalone \

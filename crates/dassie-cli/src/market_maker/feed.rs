@@ -1,4 +1,7 @@
-//! The target's feed, over UDP (spec/areas/rate-feed.md#subscribing).
+//! A target's feed, over UDP (spec/areas/rate-feed.md#subscribing). The
+//! market maker keeps one subscription per target, each on a socket of its
+//! own and checked against that target's address and key alone, so one
+//! target's feed never sets another's rates.
 //!
 //! [`FeedClient`] decides, from the datagrams that come and the time it is
 //! told, what to send and which feed is current; [`run`] carries that out
@@ -189,7 +192,7 @@ pub async fn run(
         if let Some(subscribe) = client.due(now_ms)
             && let Err(error) = socket.send_to(&subscribe, client.target()).await
         {
-            tracing::warn!(target: TARGET, %error, "could not send a subscribe to the target's feed");
+            tracing::warn!(target: TARGET, feed = %client.target(), %error, "could not send a subscribe to a target's feed");
         }
         let wait_ms = client.next_subscribe_ms().saturating_sub(now_ms);
         tokio::select! {
@@ -205,16 +208,16 @@ pub async fn run(
                         }
                         Event::Challenge => {}
                         Event::Foreign => {
-                            tracing::debug!(target: TARGET, %from, "dropped a datagram from another address");
+                            tracing::debug!(target: TARGET, feed = %client.target(), %from, "dropped a datagram from another address");
                         }
                         Event::Rejected(Rejected::Old) => {}
                         Event::Rejected(rejected) => {
-                            tracing::debug!(target: TARGET, ?rejected, "dropped a datagram from the target");
+                            tracing::debug!(target: TARGET, feed = %client.target(), ?rejected, "dropped a datagram from the target");
                         }
                     }
                 }
                 Err(error) => {
-                    tracing::warn!(target: TARGET, %error, "the feed's socket failed");
+                    tracing::warn!(target: TARGET, feed = %client.target(), %error, "the feed's socket failed");
                     tokio::select! {
                         () = cancel.cancelled() => return,
                         () = tokio::time::sleep(Duration::from_millis(RECEIVE_ERROR_PAUSE_MS)) => {}
@@ -457,5 +460,111 @@ mod tests {
 
         cancel.cancel();
         task.await.unwrap();
+    }
+
+    /// Subscribes to `server` with a client of `key`'s feed, as the market
+    /// maker follows one target: the task, its feeds, and the address the
+    /// server sees it at once subscribed.
+    async fn follow(
+        server: &mut Server,
+        key: &NodeKey,
+        clock: &Arc<ManualClock>,
+        cancel: &CancellationToken,
+    ) -> (
+        tokio::task::JoinHandle<()>,
+        watch::Receiver<Option<FeedView>>,
+        SocketAddr,
+    ) {
+        let public_key = key.public_key();
+        let client = FeedClient::new(
+            server.socket.local_addr().unwrap(),
+            public_key.node_id(),
+            *public_key.as_bytes(),
+            NOW_MS,
+        );
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let (sender, feeds) = watch::channel(None);
+        let clock: Arc<dyn Clock> = Arc::clone(clock) as Arc<dyn Clock>;
+        let task = tokio::spawn(run(socket, client, clock, sender, cancel.clone()));
+        let (_, decision) = server.answer().await;
+        assert!(matches!(decision, Decision::Challenge(_)));
+        let (subscriber, decision) = server.answer().await;
+        assert!(matches!(decision, Decision::Subscribed { new: true, .. }));
+        (task, feeds, subscriber)
+    }
+
+    #[tokio::test]
+    async fn it_follows_several_targets_each_by_its_own_key() {
+        let (key_a, key_b) = (key(), NodeKey::from_bytes(&[6; 32]));
+        let mut a = Server::bind().await;
+        let mut b = Server::bind().await;
+        let clock = Arc::new(ManualClock::new(NOW_MS));
+        let cancel = CancellationToken::new();
+        let (task_a, mut feeds_a, at_a) = follow(&mut a, &key_a, &clock, &cancel).await;
+        let (task_b, mut feeds_b, at_b) = follow(&mut b, &key_b, &clock, &cancel).await;
+        assert_ne!(at_a, at_b, "a socket per target");
+
+        // Each takes its own target's feed.
+        let signed_by = |key: &NodeKey, sequence_ms, rate| {
+            sign_feed(key, &feed(key, sequence_ms, rate)).unwrap()
+        };
+        a.socket
+            .send_to(&signed_by(&key_a, NOW_MS, 7), at_a)
+            .await
+            .unwrap();
+        b.socket
+            .send_to(&signed_by(&key_b, NOW_MS, 11), at_b)
+            .await
+            .unwrap();
+        feeds_a.changed().await.unwrap();
+        feeds_b.changed().await.unwrap();
+        let rate = |feeds: &mut watch::Receiver<Option<FeedView>>| {
+            let feed = feeds.borrow_and_update().clone().unwrap();
+            (feed.sequence_ms, feed.rate(XRP, DSUSD))
+        };
+        assert_eq!(rate(&mut feeds_a), (NOW_MS, Some(7)));
+        assert_eq!(rate(&mut feeds_b), (NOW_MS, Some(11)));
+
+        // To b's subscriber, each newer than what follows: a's feed from
+        // a's address, a's feed from b's address, and b's own feed expired.
+        // Had any been taken, b's next feed, older, would not be.
+        a.socket
+            .send_to(&signed_by(&key_a, NOW_MS + 9, 90), at_b)
+            .await
+            .unwrap();
+        b.socket
+            .send_to(&signed_by(&key_a, NOW_MS + 8, 80), at_b)
+            .await
+            .unwrap();
+        clock.advance(30_000);
+        let mut expired = feed(&key_b, NOW_MS + 7, 70);
+        expired.valid_until_ms = NOW_MS + 20_000;
+        b.socket
+            .send_to(&sign_feed(&key_b, &expired).unwrap(), at_b)
+            .await
+            .unwrap();
+        b.socket
+            .send_to(&signed_by(&key_b, NOW_MS + 1, 12), at_b)
+            .await
+            .unwrap();
+        feeds_b.changed().await.unwrap();
+        assert_eq!(rate(&mut feeds_b), (NOW_MS + 1, Some(12)));
+        // a's own client took none of it.
+        assert!(!feeds_a.has_changed().unwrap());
+
+        // Each feed counts until its validity ends, and then no longer.
+        let counts = |feeds: &watch::Receiver<Option<FeedView>>, now_ms| {
+            feeds
+                .borrow()
+                .as_ref()
+                .is_some_and(|feed| feed.is_current(now_ms))
+        };
+        assert!(counts(&feeds_a, NOW_MS + 59_999));
+        assert!(!counts(&feeds_a, NOW_MS + 60_000));
+        assert!(counts(&feeds_b, NOW_MS + 60_000));
+
+        cancel.cancel();
+        task_a.await.unwrap();
+        task_b.await.unwrap();
     }
 }

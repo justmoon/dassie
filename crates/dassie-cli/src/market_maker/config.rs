@@ -3,7 +3,7 @@
 //!
 //! ```json
 //! {
-//!   "target": { "url": "https://node.example", "feedPort": 7768 },
+//!   "targets": ["https://a.example", { "url": "https://b.example", "feedPort": 7768 }],
 //!   "xrpl": {
 //!     "server": "wss://s.altnet.rippletest.net:51233",
 //!     "token": { "currency": "DSUSD", "issuer": "rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M" }
@@ -21,12 +21,15 @@
 //! }
 //! ```
 //!
-//! `target.feedPort` is for a target whose `GET /stats` names no feed port.
+//! `targets` lists the core nodes to trade through, at least one and at
+//! most [`MAX_TARGETS`], each once: a URL, or `{ url, feedPort }` for a
+//! target whose `GET /stats` names no feed port. The form of the release
+//! before, `"target": { url, feedPort }`, still reads, as a list of one.
 //! Amounts are in the nodes' ledger units (scale 9). `caFile` adds roots
-//! to trust the target by, and `allowPrivate` lets the target and the XRPL
-//! server be on private addresses, and the server on `ws://`: both for dev
-//! and tests. Every problem is a [`ConfigError`]; nothing here panics on
-//! what the file says.
+//! to trust the targets by, and `allowPrivate` lets the targets and the
+//! XRPL server be on private addresses, and the server on `ws://`: both for
+//! dev and tests. Every problem is a [`ConfigError`]; nothing here panics
+//! on what the file says.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -52,11 +55,17 @@ const MAX_TEXT_BYTES: usize = 1024;
 /// can be.
 pub const MAX_UNITS: u64 = i64::MAX.unsigned_abs();
 
+/// Most targets a config names: no more than a node pins, since both nodes
+/// pin every target (spec/areas/rate-feed.md#market-maker).
+pub const MAX_TARGETS: usize = 128;
+
+const _: () = assert!(MAX_TARGETS <= dassie_node::env::MAX_UPLINKS);
+
 /// The path the node derives its first XRPL testnet account's keys at,
 /// under its scheme (spec/areas/xrpl.md#the-wallet).
 const XRPL_SEED_PATH: &str = "seed-testnet";
 
-/// The target node, as the config names it.
+/// A target node, as the config names it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Target {
     /// Its URL, `https://host[:port]`, without a trailing slash.
@@ -83,8 +92,9 @@ pub struct NodeConfig {
 /// The whole config, checked.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {
-    /// The node to trade through.
-    pub target: Target,
+    /// The nodes to trade through, in the config's order: at least one, at
+    /// most [`MAX_TARGETS`], none twice.
+    pub targets: Vec<Target>,
     /// The XRPL server, `wss://` (or `ws://` with `allow_private`).
     pub xrpl_server: String,
     /// The token the pool pairs with XRP.
@@ -162,6 +172,7 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         &value,
         "",
         &[
+            "targets",
             "target",
             "xrpl",
             "xrp",
@@ -178,7 +189,7 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
             .as_bool()
             .ok_or_else(|| root.invalid("allowPrivate"))?,
     };
-    let target = target(&root.object("target", &["url", "feedPort"])?)?;
+    let targets = targets(&root)?;
     let xrpl = root.object("xrpl", &["server", "token"])?;
     let xrpl_server = websocket_url(&xrpl, "server", allow_private)?;
     let token = token(&xrpl.object("token", &["currency", "issuer"])?)?;
@@ -204,7 +215,7 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         Some(_) => Some(PathBuf::from(root.text("caFile")?)),
     };
     Ok(Config {
-        target,
+        targets,
         xrpl_server,
         token,
         xrp,
@@ -290,6 +301,52 @@ impl<'a> Fields<'a> {
             .filter(|ppm| *ppm <= max)
             .ok_or_else(|| self.invalid(key))
     }
+}
+
+/// The targets: the list `targets`, or the one `target` of the release
+/// before as a list of one, but not both.
+fn targets(root: &Fields<'_>) -> Result<Vec<Target>, ConfigError> {
+    let list = match (root.get("targets"), root.get("target")) {
+        (Some(_), Some(_)) => return Err(root.invalid("targets")),
+        (None, None) => return Err(ConfigError::Missing("targets".into())),
+        (None, Some(_)) => vec![target(&root.object("target", &["url", "feedPort"])?)?],
+        (Some(value), None) => {
+            let entries = value
+                .as_array()
+                .filter(|entries| !entries.is_empty() && entries.len() <= MAX_TARGETS)
+                .ok_or_else(|| root.invalid("targets"))?;
+            let mut list = Vec::with_capacity(entries.len());
+            for (index, entry) in entries.iter().enumerate() {
+                let path = format!("targets[{index}]");
+                // A bare URL is a target that names nothing else.
+                let wrapped = entry
+                    .is_string()
+                    .then(|| serde_json::json!({ "url": entry }));
+                let fields = Fields::of(
+                    wrapped.as_ref().unwrap_or(entry),
+                    &path,
+                    &["url", "feedPort"],
+                )?;
+                list.push(target(&fields)?);
+            }
+            list
+        }
+    };
+    // Each once: one host and port twice would subscribe to one feed twice,
+    // and pin one uplink twice.
+    for (index, target) in list.iter().enumerate() {
+        let twice = list.iter().take(index).any(|earlier| {
+            earlier.port == target.port && earlier.host.eq_ignore_ascii_case(&target.host)
+        });
+        if twice {
+            return Err(root.invalid("targets"));
+        }
+    }
+    assert!(
+        !list.is_empty() && list.len() <= MAX_TARGETS,
+        "checked above"
+    );
+    Ok(list)
 }
 
 fn target(fields: &Fields<'_>) -> Result<Target, ConfigError> {
@@ -444,7 +501,7 @@ mod tests {
 
     fn valid() -> Value {
         json!({
-            "target": { "url": "https://node.example/" },
+            "targets": ["https://node.example/"],
             "xrpl": {
                 "server": "wss://s.altnet.rippletest.net:51233",
                 "token": { "currency": "DSUSD", "issuer": "rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M" },
@@ -477,10 +534,13 @@ mod tests {
     #[test]
     fn a_valid_config_reads_whole() {
         let config = parse(&valid().to_string()).unwrap();
-        assert_eq!(config.target.url, "https://node.example");
-        assert_eq!(config.target.host, "node.example");
-        assert_eq!(config.target.port, 443);
-        assert_eq!(config.target.feed_port, None);
+        let [target] = config.targets.as_slice() else {
+            panic!("one target");
+        };
+        assert_eq!(target.url, "https://node.example");
+        assert_eq!(target.host, "node.example");
+        assert_eq!(target.port, 443);
+        assert_eq!(target.feed_port, None);
         assert_eq!(config.token.currency, dassie_xrpl::dsusd::CURRENCY);
         assert_eq!(config.token.issuer, dassie_xrpl::dsusd::ISSUER);
         assert_eq!(config.xrp.ledger, "xrpl-testnet+xrp");
@@ -489,15 +549,101 @@ mod tests {
         assert_eq!(config.params.xrp.band.high, 100_000_000_000);
         assert!(!config.allow_private);
         let config = with(|v| {
-            v["target"]["url"] = json!("https://[::1]:8443");
-            v["target"]["feedPort"] = json!(7768);
+            v["targets"] = json!([
+                "https://a.example",
+                { "url": "https://[::1]:8443", "feedPort": 7768 },
+            ]);
         })
         .unwrap();
+        let hosts: Vec<_> = config
+            .targets
+            .iter()
+            .map(|t| (t.host.as_str(), t.port, t.feed_port))
+            .collect();
+        assert_eq!(hosts, [("a.example", 443, None), ("::1", 8443, Some(7768))]);
+    }
+
+    #[test]
+    fn the_one_target_of_the_release_before_still_reads() {
+        let one = |v: &mut Value| {
+            v.as_object_mut().unwrap().remove("targets");
+            v["target"] = json!({ "url": "https://node.example/", "feedPort": 7768 });
+        };
+        let config = with(one).unwrap();
+        let [target] = config.targets.as_slice() else {
+            panic!("one target");
+        };
         assert_eq!(
-            (config.target.host.as_str(), config.target.port),
-            ("::1", 8443)
+            (target.url.as_str(), target.feed_port),
+            ("https://node.example", Some(7768))
         );
-        assert_eq!(config.target.feed_port, Some(7768));
+        assert_eq!(
+            with(|v| {
+                one(v);
+                v["target"]["url"] = json!("http://node.example");
+            }),
+            Err(ConfigError::Invalid("target.url".into()))
+        );
+        // Not both forms.
+        assert_eq!(
+            with(|v| v["target"] = json!({ "url": "https://b.example" })),
+            Err(ConfigError::Invalid("targets".into()))
+        );
+    }
+
+    #[test]
+    fn the_targets_are_checked() {
+        let invalid = |field: &str| Err(ConfigError::Invalid(field.into()));
+        let targets = |list: Value| with(|v| v["targets"] = list);
+        assert_eq!(
+            with(|v| {
+                v.as_object_mut().unwrap().remove("targets");
+            }),
+            Err(ConfigError::Missing("targets".into()))
+        );
+        assert_eq!(targets(json!([])), invalid("targets"));
+        assert_eq!(targets(json!("https://a.example")), invalid("targets"));
+        let most: Vec<String> = (0..MAX_TARGETS)
+            .map(|i| format!("https://n{i}.example"))
+            .collect();
+        assert_eq!(targets(json!(most)).unwrap().targets.len(), MAX_TARGETS);
+        let too_many: Vec<String> = (0..=MAX_TARGETS)
+            .map(|i| format!("https://n{i}.example"))
+            .collect();
+        assert_eq!(targets(json!(too_many)), invalid("targets"));
+        // The same host and port twice, however it is written.
+        assert_eq!(
+            targets(json!(["https://a.example", "https://A.example:443/"])),
+            invalid("targets")
+        );
+        assert!(targets(json!(["https://a.example", "https://a.example:8443"])).is_ok());
+        // Each entry's problem names it.
+        assert_eq!(
+            targets(json!(["https://a.example", "http://b.example"])),
+            invalid("targets[1].url")
+        );
+        assert_eq!(
+            targets(json!(["https://a.example", { "url": "https://b.example/path" }])),
+            invalid("targets[1].url")
+        );
+        assert_eq!(
+            targets(json!([{ "url": "https://a.example", "feedPort": 0 }])),
+            invalid("targets[0].feedPort")
+        );
+        assert_eq!(
+            targets(json!([{ "url": "https://a.example", "feedPort": 70_000 }])),
+            invalid("targets[0].feedPort")
+        );
+        assert_eq!(
+            targets(json!([{ "url": "https://a.example", "port": 1 }])),
+            Err(ConfigError::Unknown("targets[0].port".into()))
+        );
+        assert_eq!(
+            targets(json!([{ "feedPort": 7768 }])),
+            Err(ConfigError::Missing("targets[0].url".into()))
+        );
+        assert_eq!(targets(json!([7])), invalid("targets[0]"));
+        assert_eq!(targets(json!([""])), invalid("targets[0].url"));
     }
 
     #[test]
@@ -518,22 +664,6 @@ mod tests {
                 v["xrp"].as_object_mut().unwrap().remove("socket");
             }),
             Err(ConfigError::Missing("xrp.socket".into()))
-        );
-        assert_eq!(
-            with(|v| v["target"]["url"] = json!("http://node.example")),
-            invalid("target.url")
-        );
-        assert_eq!(
-            with(|v| v["target"]["url"] = json!("https://node.example/path")),
-            invalid("target.url")
-        );
-        assert_eq!(
-            with(|v| v["target"]["feedPort"] = json!(0)),
-            invalid("target.feedPort")
-        );
-        assert_eq!(
-            with(|v| v["target"]["feedPort"] = json!(70_000)),
-            invalid("target.feedPort")
         );
         assert_eq!(
             with(|v| v["xrpl"]["server"] = json!("ws://localhost:6006")),

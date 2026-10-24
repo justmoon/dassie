@@ -1,11 +1,13 @@
 //! What the market maker does next, as a pure function
 //! (spec/areas/rate-feed.md#market-maker).
 //!
-//! Two nodes of the market maker's, pinned to the target, hold one asset
-//! each: XRP on one, an issued token on the other. A trade pays from the
-//! node of asset `a` through the target to the node of `b`; it pays when
-//! the `b` it delivers, swapped back to `a` on the XRP Ledger's AMM pool,
-//! comes to more than it cost by the margin. A rebalance moves a node's
+//! Two nodes of the market maker's, each pinned to every target, hold one
+//! asset each: XRP on one, an issued token on the other. A trade pays from
+//! the node of asset `a` through one target to the node of `b`; it pays
+//! when the `b` it delivers, swapped back to `a` on the XRP Ledger's AMM
+//! pool, comes to more than it cost by the margin. Each target's trade is
+//! scored at that target's rates, and the best taken; a target that is not
+//! a confirmed uplink of both nodes is passed over. A rebalance moves a node's
 //! holding back into its band: one Payment from its XRPL account to the
 //! other node's, which delivers the other asset, no more than the other
 //! node's band has room for, and spends at most what is above the band's
@@ -133,7 +135,7 @@ impl Params {
     }
 }
 
-/// What the target's feed says it converts at between the two nodes'
+/// What a target's feed says it converts at between the two nodes'
 /// ledgers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rates {
@@ -225,11 +227,27 @@ impl Holdings {
     }
 }
 
+/// What one target offers: its rates, and whether a trade can go through
+/// it now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TargetQuote {
+    /// Which target, as the caller counts them; a trade through it names
+    /// it.
+    pub target: usize,
+    /// Its rates, from a current feed.
+    pub rates: Rates,
+    /// Whether it is a confirmed uplink of both nodes, so the payee's
+    /// credentials can name the address beneath it and the payer's first
+    /// hop is it (spec/areas/rate-feed.md#market-maker).
+    pub peered: bool,
+}
+
 /// Everything a decision looks at.
 #[derive(Clone, Copy, Debug)]
 pub struct Inputs<'a> {
-    /// The target's rates, from a current feed.
-    pub rates: Rates,
+    /// The targets with a current feed, at most
+    /// [`MAX_TARGETS`](super::config::MAX_TARGETS); ties go to the first.
+    pub targets: &'a [TargetQuote],
     /// The pool.
     pub pool: Pool,
     /// The nodes' holdings.
@@ -238,9 +256,11 @@ pub struct Inputs<'a> {
     pub params: &'a Params,
 }
 
-/// A trade to quote: send `debit` from `from`'s node through the target.
+/// A trade to quote: send `debit` from `from`'s node through `target`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Trade {
+    /// The target it goes through, as its [`TargetQuote`] names it.
+    pub target: usize,
     /// The node that pays.
     pub from: Side,
     /// What it sends, in its ledger's units.
@@ -266,7 +286,10 @@ pub struct Rebalance {
 /// Why nothing is done.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hold {
-    /// The feed names no rate between the two ledgers.
+    /// No target with a current feed is a confirmed uplink of both nodes
+    /// yet.
+    Unpeered,
+    /// No feed names a rate between the two ledgers.
     NoRate,
     /// No node may send: each is at the bottom of its band.
     Bands,
@@ -296,7 +319,9 @@ pub enum Decision {
 }
 
 /// What to do now: a rebalance if a node is above its band, else the trade
-/// that gains most beyond the margin, if any does.
+/// that gains most beyond the margin through any peered target, if any
+/// does. The bands are the nodes', whichever target a trade goes through,
+/// so a rebalance does not depend on the targets.
 ///
 /// A rebalance that can move nothing, since the other node has no room in
 /// its band or what it would deliver rounds to nothing, does not hold the
@@ -330,49 +355,75 @@ pub fn decide(inputs: &Inputs<'_>) -> Decision {
     trade(inputs, &Side::BOTH)
 }
 
-/// The best trade from one of the nodes `from`, or why there is none.
+/// The best trade from one of the nodes `from` through one of the peered
+/// targets, or why there is none: of all the reasons met, the one that got
+/// furthest ([`further`]). Of trades that gain alike, the first target's,
+/// and the first node's, is taken.
 fn trade(inputs: &Inputs<'_>, from: &[Side]) -> Decision {
     let mut best: Option<Trade> = None;
-    let mut hold = Hold::NoRate;
-    for &from in from {
-        let Some(rate) = inputs.rates.from(from) else {
-            continue;
-        };
-        let node = inputs.params.node(from);
-        let room = inputs.holdings.of(from).books.saturating_sub(node.band.low);
-        let debit = node.trade_size.min(room);
-        if debit == 0 {
-            if hold == Hold::NoRate {
-                hold = Hold::Bands;
-            }
-            continue;
-        }
-        let Some(receive) = through_target(debit, inputs.rates.fee_ppm, rate) else {
-            hold = Hold::Range;
-            continue;
-        };
-        let back = match swap_back(&inputs.pool, from.other(), receive) {
-            Ok(back) => back,
-            Err(error) => {
-                hold = error;
+    let mut hold = Hold::Unpeered;
+    for quote in inputs.targets.iter().filter(|quote| quote.peered) {
+        hold = further(hold, Hold::NoRate);
+        for &from in from {
+            let Some(rate) = quote.rates.from(from) else {
+                continue;
+            };
+            // What a node may send does not depend on the target: its band
+            // is its own.
+            let node = inputs.params.node(from);
+            let room = inputs.holdings.of(from).books.saturating_sub(node.band.low);
+            let debit = node.trade_size.min(room);
+            if debit == 0 {
+                hold = further(hold, Hold::Bands);
                 continue;
             }
-        };
-        hold = Hold::Margin;
-        if !clears(debit, back, inputs.params.margin_ppm) {
-            continue;
-        }
-        let candidate = Trade {
-            from,
-            debit,
-            receive,
-            back,
-        };
-        if best.is_none_or(|best| gains_more(&candidate, &best)) {
-            best = Some(candidate);
+            let Some(receive) = through_target(debit, quote.rates.fee_ppm, rate) else {
+                hold = further(hold, Hold::Range);
+                continue;
+            };
+            let back = match swap_back(&inputs.pool, from.other(), receive) {
+                Ok(back) => back,
+                Err(error) => {
+                    hold = further(hold, error);
+                    continue;
+                }
+            };
+            hold = further(hold, Hold::Margin);
+            if !clears(debit, back, inputs.params.margin_ppm) {
+                continue;
+            }
+            let candidate = Trade {
+                target: quote.target,
+                from,
+                debit,
+                receive,
+                back,
+            };
+            if best.is_none_or(|best| gains_more(&candidate, &best)) {
+                best = Some(candidate);
+            }
         }
     }
     best.map_or(Decision::Hold(hold), Decision::Trade)
+}
+
+/// Of two reasons not to trade, the one a trade got further to: no peered
+/// target, then no rate, then no room in the bands, then an amount the
+/// ledger or the pool cannot take, and last a trade priced that did not
+/// clear the margin. So the reason logged does not depend on the order of
+/// the targets.
+fn further(a: Hold, b: Hold) -> Hold {
+    const fn stage(hold: Hold) -> u8 {
+        match hold {
+            Hold::Unpeered | Hold::Dust | Hold::Full => 0,
+            Hold::NoRate => 1,
+            Hold::Bands => 2,
+            Hold::Range => 3,
+            Hold::Pool(_) => 4,
+            Hold::Margin => 5,
+        }
+    }
+    if stage(b) > stage(a) { b } else { a }
 }
 
 /// Whether `a` gains more per unit sent than `b`: `a.back / a.debit >
@@ -601,12 +652,29 @@ mod tests {
     const POOL_XRP_TO_TOKEN: u64 = 500_000_000_000_000;
     const POOL_TOKEN_TO_XRP: u64 = 2_000_000_000_000_000;
 
-    fn inputs<'a>(rates: Rates, holdings: Holdings, params: &'a Params) -> Inputs<'a> {
+    fn inputs<'a>(
+        targets: &'a [TargetQuote],
+        holdings: Holdings,
+        params: &'a Params,
+    ) -> Inputs<'a> {
         Inputs {
-            rates,
+            targets,
             pool: pool(),
             holdings,
             params,
+        }
+    }
+
+    /// One target, peered, at `rates`.
+    const fn one(rates: Rates) -> [TargetQuote; 1] {
+        [quote(0, rates, true)]
+    }
+
+    const fn quote(target: usize, rates: Rates, peered: bool) -> TargetQuote {
+        TargetQuote {
+            target,
+            rates,
+            peered,
         }
     }
 
@@ -638,7 +706,7 @@ mod tests {
     fn no_trade_when_the_target_quotes_the_pools_price() {
         let params = params();
         let decision = decide(&inputs(
-            rates(POOL_XRP_TO_TOKEN, POOL_TOKEN_TO_XRP),
+            &one(rates(POOL_XRP_TO_TOKEN, POOL_TOKEN_TO_XRP)),
             MIDDLE,
             &params,
         ));
@@ -653,7 +721,11 @@ mod tests {
         // The target gives 0.4 % more token per XRP than the pool: below
         // the margin of 0.5 %.
         let rate = POOL_XRP_TO_TOKEN / 1_000 * 1_004;
-        let decision = decide(&inputs(rates(rate, POOL_TOKEN_TO_XRP), MIDDLE, &params));
+        let decision = decide(&inputs(
+            &one(rates(rate, POOL_TOKEN_TO_XRP)),
+            MIDDLE,
+            &params,
+        ));
         assert_eq!(decision, Decision::Hold(Hold::Margin));
     }
 
@@ -662,9 +734,11 @@ mod tests {
         let params = params();
         // 2 % more token per XRP than the pool: send XRP.
         let rate = POOL_XRP_TO_TOKEN / 100 * 102;
-        let Decision::Trade(trade) =
-            decide(&inputs(rates(rate, POOL_TOKEN_TO_XRP), MIDDLE, &params))
-        else {
+        let Decision::Trade(trade) = decide(&inputs(
+            &one(rates(rate, POOL_TOKEN_TO_XRP)),
+            MIDDLE,
+            &params,
+        )) else {
             panic!("a trade");
         };
         assert_eq!(trade.from, Side::Xrp);
@@ -675,9 +749,11 @@ mod tests {
 
         // The other way: 2 % more XRP per token than the pool.
         let rate = POOL_TOKEN_TO_XRP / 100 * 102;
-        let Decision::Trade(trade) =
-            decide(&inputs(rates(POOL_XRP_TO_TOKEN, rate), MIDDLE, &params))
-        else {
+        let Decision::Trade(trade) = decide(&inputs(
+            &one(rates(POOL_XRP_TO_TOKEN, rate)),
+            MIDDLE,
+            &params,
+        )) else {
             panic!("a trade");
         };
         assert_eq!(trade.from, Side::Token);
@@ -692,7 +768,7 @@ mod tests {
         // A fee of 2 % eats the gain.
         with_fee.fee_ppm = 20_000;
         assert_eq!(
-            decide(&inputs(with_fee, MIDDLE, &params)),
+            decide(&inputs(&one(with_fee), MIDDLE, &params)),
             Decision::Hold(Hold::Margin)
         );
         assert_eq!(
@@ -707,10 +783,15 @@ mod tests {
     fn the_pools_fee_counts_against_the_margin() {
         let params = params();
         let rate = POOL_XRP_TO_TOKEN / 1_000 * 1_010;
-        let decision = decide(&inputs(rates(rate, POOL_TOKEN_TO_XRP), MIDDLE, &params));
+        let decision = decide(&inputs(
+            &one(rates(rate, POOL_TOKEN_TO_XRP)),
+            MIDDLE,
+            &params,
+        ));
         assert!(matches!(decision, Decision::Trade(_)));
         // At the pool's largest fee, 1 %, a 1 % gap no longer clears.
-        let mut inputs = inputs(rates(rate, POOL_TOKEN_TO_XRP), MIDDLE, &params);
+        let targets = one(rates(rate, POOL_TOKEN_TO_XRP));
+        let mut inputs = inputs(&targets, MIDDLE, &params);
         inputs.pool.trading_fee = amm::MAX_TRADING_FEE;
         assert_eq!(decide(&inputs), Decision::Hold(Hold::Margin));
     }
@@ -719,7 +800,10 @@ mod tests {
     fn the_better_direction_wins() {
         let params = params();
         let decision = decide(&inputs(
-            rates(POOL_XRP_TO_TOKEN / 100 * 102, POOL_TOKEN_TO_XRP / 100 * 105),
+            &one(rates(
+                POOL_XRP_TO_TOKEN / 100 * 102,
+                POOL_TOKEN_TO_XRP / 100 * 105,
+            )),
             MIDDLE,
             &params,
         ));
@@ -735,7 +819,8 @@ mod tests {
         let rate = POOL_XRP_TO_TOKEN / 100 * 102;
         // Half a unit above the band's bottom: a trade of half a unit.
         let near = held(10 * ONE + ONE / 2, 25 * ONE);
-        let Decision::Trade(trade) = decide(&inputs(rates(rate, POOL_TOKEN_TO_XRP), near, &params))
+        let Decision::Trade(trade) =
+            decide(&inputs(&one(rates(rate, POOL_TOKEN_TO_XRP)), near, &params))
         else {
             panic!("a trade");
         };
@@ -743,18 +828,26 @@ mod tests {
         // At the bottom: nothing.
         let bottom = held(10 * ONE, 25 * ONE);
         assert_eq!(
-            decide(&inputs(rates(rate, POOL_TOKEN_TO_XRP), bottom, &params)),
+            decide(&inputs(
+                &one(rates(rate, POOL_TOKEN_TO_XRP)),
+                bottom,
+                &params
+            )),
             Decision::Hold(Hold::Margin)
         );
         let both = held(10 * ONE, 5 * ONE);
         assert_eq!(
-            decide(&inputs(rates(rate, POOL_TOKEN_TO_XRP), both, &params)),
+            decide(&inputs(&one(rates(rate, POOL_TOKEN_TO_XRP)), both, &params)),
             Decision::Hold(Hold::Bands)
         );
         // Below the bottom, as after a loss: nothing either.
         let below = held(0, 0);
         assert_eq!(
-            decide(&inputs(rates(rate, POOL_TOKEN_TO_XRP), below, &params)),
+            decide(&inputs(
+                &one(rates(rate, POOL_TOKEN_TO_XRP)),
+                below,
+                &params
+            )),
             Decision::Hold(Hold::Bands)
         );
     }
@@ -768,9 +861,118 @@ mod tests {
             token_to_xrp_e15: None,
         };
         assert_eq!(
-            decide(&inputs(none, MIDDLE, &params)),
+            decide(&inputs(&one(none), MIDDLE, &params)),
             Decision::Hold(Hold::NoRate)
         );
+    }
+
+    #[test]
+    fn the_better_target_wins() {
+        let params = params();
+        // Target 1 gives 2 % more of the token per XRP than the pool,
+        // target 2 gives 3 %: the trade goes through 2.
+        let good = rates(POOL_XRP_TO_TOKEN / 100 * 102, POOL_TOKEN_TO_XRP);
+        let better = rates(POOL_XRP_TO_TOKEN / 100 * 103, POOL_TOKEN_TO_XRP);
+        let targets = [quote(1, good, true), quote(2, better, true)];
+        let Decision::Trade(trade) = decide(&inputs(&targets, MIDDLE, &params)) else {
+            panic!("a trade");
+        };
+        assert_eq!((trade.target, trade.from), (2, Side::Xrp));
+        assert_eq!(trade.receive, 1_030_000_000);
+        // In either order.
+        let targets = [quote(2, better, true), quote(1, good, true)];
+        let Decision::Trade(trade) = decide(&inputs(&targets, MIDDLE, &params)) else {
+            panic!("a trade");
+        };
+        assert_eq!(trade.target, 2);
+        // The best of both nodes' trades over both targets: the token node
+        // through target 1, at 5 % more XRP per token.
+        let other_way = rates(POOL_XRP_TO_TOKEN, POOL_TOKEN_TO_XRP / 100 * 105);
+        let targets = [quote(1, other_way, true), quote(2, better, true)];
+        let Decision::Trade(trade) = decide(&inputs(&targets, MIDDLE, &params)) else {
+            panic!("a trade");
+        };
+        assert_eq!((trade.target, trade.from), (1, Side::Token));
+        // Alike, the first is taken.
+        let targets = [quote(4, good, true), quote(3, good, true)];
+        let Decision::Trade(trade) = decide(&inputs(&targets, MIDDLE, &params)) else {
+            panic!("a trade");
+        };
+        assert_eq!(trade.target, 4);
+    }
+
+    #[test]
+    fn a_target_not_peered_with_both_nodes_is_passed_over() {
+        let params = params();
+        let good = rates(POOL_XRP_TO_TOKEN / 100 * 102, POOL_TOKEN_TO_XRP);
+        let better = rates(POOL_XRP_TO_TOKEN / 100 * 103, POOL_TOKEN_TO_XRP);
+        // The better target is not peered yet: the trade goes through the
+        // other.
+        let targets = [quote(0, better, false), quote(1, good, true)];
+        let Decision::Trade(trade) = decide(&inputs(&targets, MIDDLE, &params)) else {
+            panic!("a trade");
+        };
+        assert_eq!(trade.target, 1);
+        assert_eq!(trade.receive, 1_020_000_000);
+        // None peered: nothing to trade through.
+        let targets = [quote(0, better, false), quote(1, good, false)];
+        assert_eq!(
+            decide(&inputs(&targets, MIDDLE, &params)),
+            Decision::Hold(Hold::Unpeered)
+        );
+        assert_eq!(
+            decide(&inputs(&[], MIDDLE, &params)),
+            Decision::Hold(Hold::Unpeered)
+        );
+        // A rebalance does not need a target: the bands are the nodes'.
+        let full = held(120 * ONE, 5 * ONE);
+        assert!(matches!(
+            decide(&inputs(&targets, full, &params)),
+            Decision::Rebalance(Rebalance {
+                from: Side::Xrp,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn a_rebalance_comes_first_whatever_the_targets_offer() {
+        let params = params();
+        let better = rates(POOL_XRP_TO_TOKEN / 100 * 110, POOL_TOKEN_TO_XRP / 100 * 110);
+        let targets = [quote(0, better, true), quote(1, better, true)];
+        let full = held(50 * ONE, 60 * ONE);
+        assert!(matches!(
+            decide(&inputs(&targets, full, &params)),
+            Decision::Rebalance(Rebalance {
+                from: Side::Token,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn the_reason_to_hold_is_the_furthest_any_target_got() {
+        let params = params();
+        let none = Rates {
+            fee_ppm: 0,
+            xrp_to_token_e15: None,
+            token_to_xrp_e15: None,
+        };
+        let at_pool = rates(POOL_XRP_TO_TOKEN, POOL_TOKEN_TO_XRP);
+        // One names no rate, the other's trades miss the margin: whichever
+        // comes first, the margin is the reason.
+        for targets in [
+            [quote(0, none, true), quote(1, at_pool, true)],
+            [quote(1, at_pool, true), quote(0, none, true)],
+        ] {
+            assert_eq!(
+                decide(&inputs(&targets, MIDDLE, &params)),
+                Decision::Hold(Hold::Margin)
+            );
+        }
+        assert_eq!(further(Hold::Bands, Hold::NoRate), Hold::Bands);
+        assert_eq!(further(Hold::Unpeered, Hold::NoRate), Hold::NoRate);
+        assert_eq!(further(Hold::Range, Hold::Margin), Hold::Margin);
     }
 
     #[test]
@@ -782,7 +984,7 @@ mod tests {
         // of the token at most. The XRP node has room for what that buys.
         let full = held(20 * ONE, 60 * ONE);
         let Decision::Rebalance(rebalance) =
-            decide(&inputs(rates(rate, POOL_TOKEN_TO_XRP), full, &params))
+            decide(&inputs(&one(rates(rate, POOL_TOKEN_TO_XRP)), full, &params))
         else {
             panic!("a rebalance");
         };
@@ -815,7 +1017,7 @@ mod tests {
         // The XRP node above its band pays the token to the token node.
         let full = held(120 * ONE, 5 * ONE);
         let Decision::Rebalance(rebalance) =
-            decide(&inputs(rates(rate, POOL_TOKEN_TO_XRP), full, &params))
+            decide(&inputs(&one(rates(rate, POOL_TOKEN_TO_XRP)), full, &params))
         else {
             panic!("a rebalance");
         };
@@ -852,7 +1054,7 @@ mod tests {
         // them so far: the rebalance spends 30, less the fee's headroom.
         let mut unsettled = held(120 * ONE, 25 * ONE);
         unsettled.xrp.on_ledger = 30 * ONE;
-        let Decision::Rebalance(rebalance) = decide(&inputs(rates(1, 1), unsettled, &params))
+        let Decision::Rebalance(rebalance) = decide(&inputs(&one(rates(1, 1)), unsettled, &params))
         else {
             panic!("a rebalance");
         };
@@ -860,7 +1062,7 @@ mod tests {
         // Nothing settled yet: nothing to spend.
         unsettled.xrp.on_ledger = 0;
         assert_eq!(
-            decide(&inputs(rates(1, 1), unsettled, &params)),
+            decide(&inputs(&one(rates(1, 1)), unsettled, &params)),
             Decision::Hold(Hold::Dust)
         );
     }
@@ -870,7 +1072,7 @@ mod tests {
         let params = params();
         for token in [50 * ONE + 1, 51 * ONE, 500 * ONE, u64::MAX / 2] {
             let holdings = held(50 * ONE, token);
-            match decide(&inputs(rates(1, 1), holdings, &params)) {
+            match decide(&inputs(&one(rates(1, 1)), holdings, &params)) {
                 Decision::Rebalance(rebalance) => {
                     let spend = to_units(rebalance.send_max).unwrap();
                     assert!(token - spend >= params.token.band.low);
@@ -890,7 +1092,8 @@ mod tests {
         // 32.5 of the token above its middle, which would buy about 61 XRP
         // and send the XRP node above its band, to be rebalanced back.
         let holdings = held(95 * ONE, 60 * ONE);
-        let Decision::Rebalance(rebalance) = decide(&inputs(rates(1, 1), holdings, &params)) else {
+        let Decision::Rebalance(rebalance) = decide(&inputs(&one(rates(1, 1)), holdings, &params))
+        else {
             panic!("a rebalance");
         };
         assert_eq!(rebalance.from, Side::Token);
@@ -917,7 +1120,8 @@ mod tests {
         );
         // With slippage, a share more, and never more than the excess.
         params.slippage_ppm = 10_000;
-        let Decision::Rebalance(slipping) = decide(&inputs(rates(1, 1), holdings, &params)) else {
+        let Decision::Rebalance(slipping) = decide(&inputs(&one(rates(1, 1)), holdings, &params))
+        else {
             panic!("a rebalance");
         };
         assert_eq!(slipping.deliver, Amount::Xrp(5_000_000));
@@ -933,7 +1137,7 @@ mod tests {
         // Both above their bands: nothing to rebalance into.
         let full = held(100 * ONE, 60 * ONE);
         assert_eq!(
-            decide(&inputs(rates(1, 1), full, &params)),
+            decide(&inputs(&one(rates(1, 1)), full, &params)),
             Decision::Hold(Hold::Full)
         );
     }
@@ -972,8 +1176,9 @@ mod tests {
     /// A pool at the testnet's price then: 0.76 XRP for the token, with a
     /// fee of half a percent.
     fn vm_inputs<'a>(holdings: Holdings, params: &'a Params) -> Inputs<'a> {
+        const TARGETS: [TargetQuote; 1] = one(VM_RATES);
         Inputs {
-            rates: VM_RATES,
+            targets: &TARGETS,
             pool: Pool {
                 drops: 7_600 * 1_000_000,
                 value: TokenValue::parse("10000").unwrap(),
@@ -1071,12 +1276,13 @@ mod tests {
         // Only the trade the other way clears the margin: from the XRP node
         // into the token node, which has no room. It would take the token
         // node above its band, both above theirs: the rebalance holds.
-        let mut inputs = vm_inputs(VM_STALLED, &params);
-        inputs.rates = Rates {
+        let targets = one(Rates {
             fee_ppm: 0,
             xrp_to_token_e15: Some(1_400_000_000_000_000),
             token_to_xrp_e15: Some(700_000_000_000_000),
-        };
+        });
+        let mut inputs = vm_inputs(VM_STALLED, &params);
+        inputs.targets = &targets;
         assert_eq!(decide(&inputs), Decision::Hold(Hold::Full));
         // Within its band, the XRP node makes that trade.
         inputs.holdings.xrp.books = 50 * ONE;

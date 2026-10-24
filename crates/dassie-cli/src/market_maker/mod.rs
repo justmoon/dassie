@@ -1,18 +1,19 @@
-//! `dassie market-maker` (spec/areas/rate-feed.md#market-maker): watches a
-//! core node's feed, trades through it with two nodes of its own when its
-//! rates and an AMM pool on the XRP Ledger leave a margin, and moves its
-//! own funds back on the ledger.
+//! `dassie market-maker` (spec/areas/rate-feed.md#market-maker): watches
+//! the feeds of one or more core nodes, its targets, trades through the
+//! one that pays best with two nodes of its own when its rates and an AMM
+//! pool on the XRP Ledger leave a margin, and moves its own funds back on
+//! the ledger.
 //!
 //! - [`config`]: the config file, checked whole before anything connects;
-//! - [`target`]: who the target is, from its `/stats`;
-//! - [`feed`]: its feed over UDP, verified;
+//! - [`target`]: who each target is, from its `/stats`;
+//! - [`feed`]: each target's feed over UDP, verified;
 //! - [`xrpl`]: the pool, and the rebalancing Payment;
 //! - [`nodes`]: the two nodes, over their IPC sockets;
 //! - [`strategy`]: what to do, as a pure function of all that.
 //!
-//! The loop decides once a tick, from the current feed, the pool and both
-//! nodes' holdings, and logs one line per decision. Every wait is bounded,
-//! and a tick does at most one thing.
+//! The loop decides once a tick, from the current feeds, the pool, both
+//! nodes' holdings and the targets each is peered with, and logs one line
+//! per decision. Every wait is bounded, and a tick does at most one thing.
 
 pub mod config;
 pub mod feed;
@@ -21,12 +22,13 @@ pub mod strategy;
 pub mod target;
 pub mod xrpl;
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
+use dassie_identity::NodeId;
 use dassie_node::clock::{Clock, SystemClock};
 use dassie_node::env::{self, Env};
 use dassie_node::log;
@@ -34,14 +36,14 @@ use dassie_node::peer_client::PeerClient;
 use dassie_xrpl::Wallet;
 use dassie_xrpl::keys::AccountId;
 use lexopt::prelude::*;
-use tokio::net::UdpSocket;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
-use self::config::Config;
-use self::feed::{FeedClient, FeedView};
+use self::config::{Config, MAX_TARGETS};
+use self::feed::FeedView;
 use self::nodes::{LedgerState, Node, TradeOutcome};
-use self::strategy::{Decision, Holdings, Inputs, Rates, Side, Token};
+use self::strategy::{Decision, Holdings, Inputs, Rates, Side, TargetQuote, Token};
+use self::target::TargetInfo;
 use self::xrpl::Xrpl;
 
 /// What its log lines are under.
@@ -121,12 +123,38 @@ pub fn run(options: &Options) -> ExitCode {
 struct MarketMaker {
     config: Config,
     clock: Arc<dyn Clock>,
-    feeds: watch::Receiver<Option<FeedView>>,
+    /// One per target, in the config's order.
+    targets: Vec<Following>,
     xrpl: Xrpl,
     xrp: Node,
     token: Node,
     wallets: Wallets,
     unbooked: Option<Unbooked>,
+}
+
+/// A target the market maker follows ([`target::follow`]).
+struct Following {
+    /// Its URL, for log lines.
+    url: String,
+    /// Who it is, once its `/stats` answered.
+    found: watch::Receiver<Option<TargetInfo>>,
+    /// Its newest feed.
+    feed: watch::Receiver<Option<FeedView>>,
+    /// Whether it was found to be a node an earlier target is too, and
+    /// said so.
+    duplicate: bool,
+}
+
+/// A target with a current feed, at a tick.
+struct Current {
+    /// Which, in the config's order.
+    index: usize,
+    /// Its node ID.
+    node: NodeId,
+    /// Its URL.
+    url: String,
+    /// Its rates between the two nodes' ledgers.
+    rates: Rates,
 }
 
 /// A rebalance that paid, or may have, from a node's account, which the
@@ -161,7 +189,8 @@ impl Wallets {
 
 impl MarketMaker {
     /// Derives the keys, checks that each node runs its ledger on the
-    /// account they open, finds the target and subscribes to its feed.
+    /// account they open, and starts following each target: a target that
+    /// does not answer yet is asked again, while the others trade.
     async fn start(
         config: Config,
         clock: Arc<dyn Clock>,
@@ -186,42 +215,38 @@ impl MarketMaker {
         let client = PeerClient::new(config.ca_file.as_deref(), config.allow_private)?;
         let mut xrpl = Xrpl::new(config.xrpl_server.clone(), client.clone());
         xrpl.testnet_state().await?;
-        let info = target::fetch(&client, &config.target.url).await?;
-        let port = info
-            .feed_port
-            .or(config.target.feed_port)
-            .ok_or("the target names no feed port, and the config none")?;
-        let address = client
-            .resolve(&config.target.host, port)
-            .await
-            .map_err(|e| format!("{}: {e}", config.target.host))?
-            .into_iter()
-            .next()
-            .ok_or("the target's name resolves to no address")?;
-        let socket = UdpSocket::bind(unspecified(address))
-            .await
-            .map_err(|e| format!("cannot open a UDP socket: {e}"))?;
-        let feed_client = FeedClient::new(address, info.node_id, info.public_key, clock.now_ms());
-        let (sender, feeds) = watch::channel(None);
-        tokio::spawn(feed::run(
-            socket,
-            feed_client,
-            Arc::clone(&clock),
-            sender,
-            shutdown,
-        ));
+        // A task per target, as many as the config may name.
+        assert!(!config.targets.is_empty() && config.targets.len() <= MAX_TARGETS);
+        let mut targets = Vec::with_capacity(config.targets.len());
+        for target in &config.targets {
+            let (found_sender, found) = watch::channel(None);
+            let (feed_sender, feed) = watch::channel(None);
+            tokio::spawn(target::follow(
+                client.clone(),
+                target.clone(),
+                Arc::clone(&clock),
+                found_sender,
+                feed_sender,
+                shutdown.clone(),
+            ));
+            targets.push(Following {
+                url: target.url.clone(),
+                found,
+                feed,
+                duplicate: false,
+            });
+        }
         tracing::info!(
             target: TARGET,
-            node = %info.node_id,
-            feed = %address,
+            targets = targets.len(),
             xrp = %wallets.xrp.account(),
             token = %wallets.token.account(),
-            "trading through the target"
+            "trading through the targets"
         );
         Ok(Self {
             config,
             clock,
-            feeds,
+            targets,
             xrpl,
             xrp,
             token,
@@ -251,20 +276,11 @@ impl MarketMaker {
     /// Decides once, and does what it decided.
     async fn tick(&mut self) {
         let now_ms = self.clock.now_ms();
-        let feed = self
-            .feeds
-            .borrow()
-            .clone()
-            .filter(|feed| feed.is_current(now_ms));
-        let Some(feed) = feed else {
-            tracing::info!(target: TARGET, "hold: no current feed from the target");
+        let current = self.current(now_ms);
+        if current.is_empty() {
+            tracing::info!(target: TARGET, "hold: no current feed from any target");
             return;
-        };
-        let rates = Rates {
-            fee_ppm: feed.fee_ppm,
-            xrp_to_token_e15: feed.rate(&self.xrp.ledger, &self.token.ledger),
-            token_to_xrp_e15: feed.rate(&self.token.ledger, &self.xrp.ledger),
-        };
+        }
         let pool = match self.xrpl.pool(self.config.token).await {
             Ok(pool) => pool,
             Err(problem) => {
@@ -272,15 +288,9 @@ impl MarketMaker {
                 return;
             }
         };
-        let holdings = match (
-            self.xrp.ledger_state().await,
-            self.token.ledger_state().await,
-        ) {
-            (Ok(xrp), Ok(token)) => Holdings {
-                xrp: xrp.holding,
-                token: token.holding,
-            },
-            (Err(problem), _) | (_, Err(problem)) => {
+        let holdings = match self.holdings().await {
+            Ok(holdings) => holdings,
+            Err(problem) => {
                 tracing::warn!(target: TARGET, %problem, "hold: cannot read a node's holding");
                 return;
             }
@@ -296,44 +306,139 @@ impl MarketMaker {
             }
             self.unbooked = None;
         }
+        let peered = match self.peered().await {
+            Ok(peered) => peered,
+            Err(problem) => {
+                tracing::warn!(target: TARGET, %problem, "hold: cannot read a node's peers");
+                return;
+            }
+        };
+        let quotes: Vec<TargetQuote> = current
+            .iter()
+            .map(|target| TargetQuote {
+                target: target.index,
+                rates: target.rates,
+                peered: peered.contains(&target.node),
+            })
+            .collect();
         let params = self.config.params;
         let inputs = Inputs {
-            rates,
+            targets: &quotes,
             pool,
             holdings,
             params: &params,
         };
         match strategy::decide(&inputs) {
             Decision::Hold(hold) => {
-                tracing::info!(target: TARGET, ?hold, ?rates, ?holdings, "hold");
+                tracing::info!(target: TARGET, ?hold, targets = ?quotes, ?holdings, "hold");
             }
-            Decision::Trade(trade) => self.trade(&trade, &inputs, now_ms).await,
+            Decision::Trade(trade) => {
+                let through = current.iter().find(|target| target.index == trade.target);
+                assert!(through.is_some(), "a trade through a target it was given");
+                if let Some(through) = through {
+                    self.trade(&trade, through, &inputs, now_ms).await;
+                }
+            }
             Decision::Rebalance(rebalance) => self.rebalance(&rebalance, &holdings).await,
         }
     }
 
-    async fn trade(&mut self, trade: &strategy::Trade, inputs: &Inputs<'_>, now_ms: u64) {
+    /// What each node holds.
+    async fn holdings(&mut self) -> Result<Holdings, String> {
+        Ok(Holdings {
+            xrp: self.xrp.ledger_state().await?.holding,
+            token: self.token.ledger_state().await?.holding,
+        })
+    }
+
+    /// The targets both nodes are confirmed with now. A trade goes through
+    /// a target only where both are, so that the payee's credentials can
+    /// name the address beneath it and the payer's first hop is it.
+    async fn peered(&mut self) -> Result<BTreeSet<NodeId>, String> {
+        let xrp = self.xrp.confirmed_uplinks().await?;
+        let token = self.token.confirmed_uplinks().await?;
+        Ok(xrp.intersection(&token).copied().collect())
+    }
+
+    /// The targets found, each node once, whose feed is current at
+    /// `now_ms`, in the config's order. A target that is a node an earlier
+    /// one is too is passed over, and said so once.
+    fn current(&mut self, now_ms: u64) -> Vec<Current> {
+        let mut nodes = BTreeSet::new();
+        let mut current = Vec::with_capacity(self.targets.len());
+        for (index, following) in self.targets.iter_mut().enumerate() {
+            let Some(node) = following.found.borrow().as_ref().map(|info| info.node_id) else {
+                continue;
+            };
+            if !nodes.insert(node) {
+                if !following.duplicate {
+                    following.duplicate = true;
+                    tracing::warn!(
+                        target: TARGET, url = %following.url, %node,
+                        "a target is a node another target is too: trading through it once"
+                    );
+                }
+                continue;
+            }
+            let feed = following.feed.borrow();
+            let Some(feed) = feed.as_ref().filter(|feed| feed.is_current(now_ms)) else {
+                continue;
+            };
+            current.push(Current {
+                index,
+                node,
+                url: following.url.clone(),
+                rates: Rates {
+                    fee_ppm: feed.fee_ppm,
+                    xrp_to_token_e15: feed.rate(&self.xrp.ledger, &self.token.ledger),
+                    token_to_xrp_e15: feed.rate(&self.token.ledger, &self.xrp.ledger),
+                },
+            });
+        }
+        assert!(current.len() <= MAX_TARGETS);
+        current
+    }
+
+    async fn trade(
+        &mut self,
+        trade: &strategy::Trade,
+        through: &Current,
+        inputs: &Inputs<'_>,
+        now_ms: u64,
+    ) {
         let (from, to) = match trade.from {
             Side::Xrp => (&mut self.xrp, &mut self.token),
             Side::Token => (&mut self.token, &mut self.xrp),
         };
-        let outcome = nodes::trade(from, to, trade, &inputs.pool, inputs.params, now_ms).await;
+        let outcome = nodes::trade(
+            from,
+            to,
+            through.node,
+            trade,
+            &inputs.pool,
+            inputs.params,
+            now_ms,
+        )
+        .await;
         let from = trade.from.name();
+        let (target, url) = (through.node, &through.url);
         match outcome {
             Ok(TradeOutcome::Declined { receive }) => tracing::info!(
-                target: TARGET, from, debit = trade.debit, feed_receive = trade.receive,
-                quote_receive = receive, "trade declined: the quote is below the margin"
+                target: TARGET, %target, %url, from, debit = trade.debit,
+                feed_receive = trade.receive, quote_receive = receive,
+                "trade declined: the quote is below the margin"
             ),
             Ok(TradeOutcome::Paid {
                 state,
                 sent,
                 receive,
             }) => tracing::info!(
-                target: TARGET, from, debit = trade.debit, sent, quote_receive = receive,
-                back = trade.back, %state, "trade"
+                target: TARGET, %target, %url, from, debit = trade.debit, sent,
+                quote_receive = receive, back = trade.back, %state, "trade"
             ),
             Err(problem) => tracing::warn!(
-                target: TARGET, from, debit = trade.debit, %problem, "trade failed"
+                target: TARGET, %target, %url, from, debit = trade.debit, %problem,
+                "trade failed"
             ),
         }
     }
@@ -397,15 +502,6 @@ fn check_ledger(
         )),
         Side::Xrp | Side::Token => Ok(()),
     }
-}
-
-/// The unspecified address of `address`'s family, on any port.
-const fn unspecified(address: SocketAddr) -> SocketAddr {
-    let ip = match address {
-        SocketAddr::V4(_) => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-        SocketAddr::V6(_) => IpAddr::V6(Ipv6Addr::UNSPECIFIED),
-    };
-    SocketAddr::new(ip, 0)
 }
 
 #[cfg(test)]
