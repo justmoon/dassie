@@ -6,7 +6,7 @@
 
 Settling is up to the node that owes, so peering needs trust, which the credit a node extends only bounds. Some owners would rather trust a few well-known validators once than every peer.
 
-That trust matters most with real money. A hub's validators learn of deposits and withdrawals from XRP Ledger servers, which can lie unless the validators check the ledger's own validators. The XRP Ledger's testnet and mainnet share addresses, and a transaction names no network.
+That trust matters most with real money. A hub's validators learn of deposits and withdrawals from XRP Ledger servers, which can lie unless the validators check the ledger's own validators against proofs. The XRP Ledger's testnet and mainnet share addresses, and a transaction names no network.
 
 ## Decision
 
@@ -23,7 +23,7 @@ Add settlement hubs as another way to peer, beside bilateral peering, which stay
 - **A node moves its own funds** between its account on the underlying ledger and the hub, to stay between a floor its holds need and a ceiling its owner sets, both counted in largest packets.
 - **Fees are rules,** flat, with caps, and **accounts and holds lock reserves,** as on the XRP Ledger, which price their place in the hub and pay each account out at shutdown.
 - **The asset is XRP** at first, on the testnet and on mainnet, where hubs are part of the launch ([real-money](real-money.md)): `hub-xrp-testnet` and `hub-xrp`. The default list of validators is kept like the default bootstrap node list, and so is a **default hub** for each asset and ledger, which owners may override. Each network has its own entries: a validator's record on the testnet vouches for nothing on mainnet, and mainnet's default hub comes with mainnet's default list of validators.
-- **Validators attest only what they verified,** each against the XRP Ledger's validators itself ([verified-ledgers](verified-ledgers.md)): a deposit or a withdrawal's outcome once it is a transaction proven in a ledger the network's UNL validated, and the escrow's setup as state tied to the transactions that made it. A server's word that a ledger is validated attests nothing.
+- **Validators attest only what they verified,** each against the XRP Ledger's validators itself ([verified-ledgers](verified-ledgers.md)): a deposit or a withdrawal's outcome once it is a transaction proven in a ledger the network's UNL validated, and the escrow's setup once its state is proven at such a ledger. A server's word attests nothing. A validator may run the patched rippled that serves the proofs, which adds a proof server for every node.
 - **Validators accept the terms, not the set,** so one that fails while a hub is founded is replaced alone. A validator accepts only from sponsors its owner lists.
 - **The hub's messages prove themselves** and travel over a QUIC stream kind of their own. Commitments go in one message with their Prepare, and a claim after the byte that accepts a Fulfill.
 - **A reset of the test network** is written off in the hub, which makes its escrow again at the same address and keeps its ID. A validator attests one only once the testnet's UNL validated the new chain ([ledger-resets](ledger-resets.md)). Mainnet is never reset.

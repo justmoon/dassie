@@ -11,7 +11,7 @@
 
 ## Decision
 
-- **DSUSD, a testnet dollar token of our own,** issued by an account of ours, sits beside RLUSD: nodes settle in either, and book both as `USD` at par. It stands in for RLUSD until RLUSD's testnet price is fixed.
+- **DSUSD, a testnet dollar token of our own,** issued by an account of ours, sits beside RLUSD: nodes settle in either, and book both as `USD` at par. It stands in for RLUSD until RLUSD's testnet price is fixed. Once the mainnet schemes disable test RLUSD, DSUSD is the testnet's only dollar token, and the one its peg guard runs on ([issued-assets](issued-assets.md)).
 - **DSUSD is had only by paying XRP for it, on the ledger, through the XRP/DSUSD pool.** The issuer mints only into the pool, never to a person, so it holds no XRP that anyone could drain, and there is no faucet. Every DSUSD outstanding was paid for with XRP that sits in the pool, or is still in the pool.
 - **A keeper holds the pool at one exchange's XRP/USD price.** On the testnet nothing of value rides on the price, so one source is enough. The keeper refuses a ticker that is stale, crossed, too wide or out of bounds, rather than move the pool on it.
 - **The keeper reprices as the pool's main liquidity provider, with DSUSD alone:** it deposits newly minted DSUSD to raise XRP's price, and withdraws DSUSD, which it gives back to the issuer to burn, to lower it. It never buys or sells XRP, so the pool's XRP is what buyers paid in, plus faucet XRP the keeper adds, with DSUSD beside it at the pool's price, to keep the pool deep.
