@@ -1,6 +1,6 @@
 //! Branches in the ledger's hash trees (spec/designs/xrpl-validation.md#8-the-verifier):
 //! a real mainnet ledger's transaction tree rebuilt to its root, real
-//! branches in the form rippled sends them, state trees with proofs of
+//! branches with each node as rippled hashes it, state trees with proofs of
 //! absence, and branches that lie.
 
 #![allow(
@@ -16,9 +16,10 @@ use std::sync::OnceLock;
 use dassie_xrpl::codec;
 use dassie_xrpl::fake::shamap::ShaMap;
 use dassie_xrpl::header::LedgerHeader;
+use dassie_xrpl::keys::sha512_half;
 use dassie_xrpl::shamap::{
-    BRANCH_FACTOR, BranchError, Leaf, MAX_BRANCH_NODES, MAX_DEPTH, Tree, inner_hash, inner_wire,
-    leaf_hash, leaf_wire, nibble, transaction_item, verify,
+    BRANCH_FACTOR, BranchError, Leaf, MAX_BRANCH_NODES, MAX_DEPTH, Tree, inner_hash, inner_node,
+    leaf_hash, leaf_node, nibble, transaction_item, verify,
 };
 use dassie_xrpl::{from_hex, hex_upper};
 use proptest::prelude::*;
@@ -46,8 +47,8 @@ fn transaction_set() -> &'static Value {
 }
 
 /// A branch given as each inner node's sixteen children, root first, and
-/// its leaf, in the form rippled sends it: the leaf first, then each inner
-/// node up to the root.
+/// its leaf, as a proof server gives it: the leaf first, then each inner
+/// node up to the root, each as rippled hashes it.
 fn branch_from_levels(levels: &Value, leaf: Vec<u8>) -> Vec<Vec<u8>> {
     let mut branch = vec![leaf];
     for level in levels.as_array().unwrap().iter().rev() {
@@ -58,7 +59,7 @@ fn branch_from_levels(levels: &Value, leaf: Vec<u8>) -> Vec<Vec<u8>> {
                 .try_into()
                 .unwrap();
         }
-        branch.push(inner_wire(&children));
+        branch.push(inner_node(&children));
     }
     branch
 }
@@ -88,7 +89,7 @@ fn a_mainnet_transaction_tree_rebuilds_its_root() {
     let mut depths = BTreeMap::new();
     for (transaction, metadata) in &transactions {
         let key = codec::hash(transaction);
-        let branch = tree.branch(&key).unwrap();
+        let branch = tree.branch(&key);
         *depths.entry(branch.len() - 1).or_insert(0) += 1;
         let leaf = Leaf::Transaction {
             transaction,
@@ -104,8 +105,8 @@ fn a_mainnet_transaction_tree_rebuilds_its_root() {
     assert_eq!(depths, BTreeMap::from([(2, 90), (3, 54), (5, 2)]));
 }
 
-// Branches taken from mainnet ledgers verify in the form rippled sends
-// them, against the transaction roots of headers that hash to their
+// Branches taken from mainnet ledgers verify with each node as rippled
+// hashes it, against the transaction roots of headers that hash to their
 // ledgers, and the tree builder gives the same bytes.
 #[test]
 fn mainnet_branches_verify() {
@@ -124,21 +125,21 @@ fn mainnet_branches_verify() {
         hex_upper(&leaf_hash(Tree::Transactions, &key, &item)),
         text(branch, "leaf_hash")
     );
-    let wire = branch_from_levels(
+    let nodes = branch_from_levels(
         &branch["levels"],
-        leaf_wire(Tree::Transactions, &key, &item),
+        leaf_node(Tree::Transactions, &key, &item),
     );
     let root = hash(data, "transaction_hash");
     let leaf = Leaf::Transaction {
         transaction: &transaction,
         metadata: &metadata,
     };
-    assert_eq!(verify(&root, &key, leaf, &wire), Ok(()));
+    assert_eq!(verify(&root, &key, leaf, &nodes), Ok(()));
     let mut tree = ShaMap::new(Tree::Transactions);
     for entry in data["transactions"].as_array().unwrap() {
         tree.insert_transaction(&bytes(entry, "tx_blob"), &bytes(entry, "meta"));
     }
-    assert_eq!(tree.branch(&key).unwrap(), wire);
+    assert_eq!(tree.branch(&key), nodes);
 
     let others = data["other_branches"].as_array().unwrap();
     assert_eq!(others.len(), 2);
@@ -150,16 +151,17 @@ fn mainnet_branches_verify() {
         let key = hash(other, "key");
         assert_eq!(codec::hash(&transaction), key);
         let item = transaction_item(&transaction, &metadata);
-        let wire = branch_from_levels(&other["levels"], leaf_wire(Tree::Transactions, &key, &item));
+        let nodes =
+            branch_from_levels(&other["levels"], leaf_node(Tree::Transactions, &key, &item));
         let leaf = Leaf::Transaction {
             transaction: &transaction,
             metadata: &metadata,
         };
         assert_eq!(
-            verify(&hash(other, "transaction_hash"), &key, leaf, &wire),
+            verify(&hash(other, "transaction_hash"), &key, leaf, &nodes),
             Ok(())
         );
-        assert_eq!(verify(&root, &key, leaf, &wire), Err(BranchError::Hash));
+        assert_eq!(verify(&root, &key, leaf, &nodes), Err(BranchError::Hash));
     }
 }
 
@@ -208,7 +210,7 @@ fn a_state_tree_proves_objects_and_absences() {
     let (tree, objects) = state_tree(&keys);
     let root = tree.root();
     for (key, object) in &objects {
-        let branch = tree.branch(key).unwrap();
+        let branch = tree.branch(key);
         assert_eq!(verify(&root, key, Leaf::State(object), &branch), Ok(()));
         assert_eq!(
             verify(&root, key, Leaf::State(b"another object"), &branch),
@@ -226,8 +228,8 @@ fn a_state_tree_proves_objects_and_absences() {
             if objects.iter().any(|(key, _)| *key == missing) {
                 continue;
             }
-            let branch = tree.branch(&missing).unwrap();
-            if branch[0].last() == Some(&1) {
+            let branch = tree.branch(&missing);
+            if branch[0].starts_with(b"MLN\0") {
                 at_another_leaf += 1;
             } else {
                 at_empty_slot += 1;
@@ -242,7 +244,7 @@ fn a_state_tree_proves_objects_and_absences() {
             );
             // Another key's leaf is of its tree's kind; an empty slot is
             // the same in both, and the root tells the trees apart.
-            if branch[0].last() == Some(&1) {
+            if branch[0].starts_with(b"MLN\0") {
                 assert_eq!(
                     verify(&root, &missing, Leaf::Absent(Tree::Transactions), &branch),
                     Err(BranchError::Node)
@@ -257,20 +259,26 @@ fn a_state_tree_proves_objects_and_absences() {
 fn an_empty_tree_and_a_tree_of_one() {
     let mut tree = ShaMap::new(Tree::State);
     assert_eq!(tree.root(), [0; 32]);
-    assert_eq!(tree.branch(&[1; 32]), None);
+    // An empty tree's branch is empty, and proves every key absent.
+    let empty = tree.branch(&[1; 32]);
+    assert!(empty.is_empty());
+    assert_eq!(
+        verify(&tree.root(), &[1; 32], Leaf::Absent(Tree::State), &empty),
+        Ok(())
+    );
     tree.insert_object([0x12; 32], b"the only object");
     let leaf = leaf_hash(Tree::State, &[0x12; 32], b"the only object");
     let mut children = [[0; 32]; BRANCH_FACTOR];
     children[1] = leaf;
     let root = tree.root();
     assert_eq!(root, inner_hash(&children));
-    let branch = tree.branch(&[0x12; 32]).unwrap();
+    let branch = tree.branch(&[0x12; 32]);
     assert_eq!(branch.len(), 2);
     let object = Leaf::State(b"the only object");
     assert_eq!(verify(&root, &[0x12; 32], object, &branch), Ok(()));
     // Absent at the root's empty slot, and beside the only leaf.
     for missing in [[0x22; 32], [0x13; 32]] {
-        let branch = tree.branch(&missing).unwrap();
+        let branch = tree.branch(&missing);
         assert_eq!(
             verify(&root, &missing, Leaf::Absent(Tree::State), &branch),
             Ok(())
@@ -291,13 +299,13 @@ fn keys_that_part_in_the_last_nibble_hang_at_the_deepest_level() {
     let root = tree.root();
     for key in [one, other] {
         let object = [&key[..], b"an object"].concat();
-        let branch = tree.branch(&key).unwrap();
+        let branch = tree.branch(&key);
         assert_eq!(branch.len(), MAX_BRANCH_NODES);
         assert_eq!(verify(&root, &key, Leaf::State(&object), &branch), Ok(()));
     }
     let mut beside = one;
     beside[31] ^= 0x01;
-    let branch = tree.branch(&beside).unwrap();
+    let branch = tree.branch(&beside);
     assert_eq!(branch.len(), MAX_DEPTH);
     assert_eq!(
         verify(&root, &beside, Leaf::Absent(Tree::State), &branch),
@@ -317,7 +325,7 @@ fn a_truncated_or_padded_branch_proves_nothing() {
     let root = tree.root();
     let (key, object) = &objects[0];
     let leaf = Leaf::State(object);
-    let branch = tree.branch(key).unwrap();
+    let branch = tree.branch(key);
     assert!(branch.len() >= 2);
     let empty: [Vec<u8>; 0] = [];
     assert_eq!(verify(&root, key, leaf, &empty), Err(BranchError::Length));
@@ -335,7 +343,12 @@ fn a_truncated_or_padded_branch_proves_nothing() {
     let mut cut = branch.clone();
     let last = cut.len() - 1;
     cut[last].remove(0);
-    assert_eq!(verify(&root, key, leaf, &cut), Err(BranchError::Node));
+    assert_eq!(verify(&root, key, leaf, &cut), Err(BranchError::Hash));
+    // A root that is no node, whatever it hashes to.
+    assert_eq!(
+        verify(&root_of(&cut[last..]), key, leaf, &cut[last..]),
+        Err(BranchError::Node)
+    );
     let below = [vec![branch[0].clone()], branch.clone()].concat();
     assert_eq!(verify(&root, key, leaf, &below), Err(BranchError::Length));
     let above = [branch.clone(), vec![branch[branch.len() - 1].clone()]].concat();
@@ -344,7 +357,7 @@ fn a_truncated_or_padded_branch_proves_nothing() {
     assert_eq!(verify(&root, key, leaf, &long), Err(BranchError::Length));
     // An absence proof cut above its empty slot names a node not given.
     let missing = neighbour(key, branch.len() - 1);
-    let absence = tree.branch(&missing).unwrap();
+    let absence = tree.branch(&missing);
     assert_eq!(
         verify(&root, &missing, Leaf::Absent(Tree::State), &absence[1..]),
         Err(BranchError::Length)
@@ -358,7 +371,7 @@ fn a_leaf_of_another_key_proves_nothing() {
     let (tree, objects) = state_tree(&[[0x41; 32], [0x42; 32]]);
     let root = tree.root();
     let (key, object) = &objects[0];
-    let branch = tree.branch(key).unwrap();
+    let branch = tree.branch(key);
     // Another key that hangs at the same slot: the leaf is not its.
     let other = neighbour(key, branch.len() - 1);
     assert_eq!(
@@ -386,7 +399,7 @@ fn a_leaf_of_another_key_proves_nothing() {
     let key = transactions.insert_transaction(&transaction, &metadata);
     transactions.insert_transaction(&bytes(&data["transactions"][1], "tx_blob"), &metadata);
     let root = transactions.root();
-    let branch = transactions.branch(&key).unwrap();
+    let branch = transactions.branch(&key);
     let leaf = Leaf::Transaction {
         transaction: &transaction,
         metadata: &metadata,
@@ -408,30 +421,10 @@ fn a_leaf_of_another_key_proves_nothing() {
     );
 }
 
-/// The root over a branch built from the bottom up: `nodes` from the
-/// bottom, each node's wire form, the root's last.
-fn root_of(nodes: &[Vec<u8>], tree: Tree) -> [u8; 32] {
-    let top = nodes.last().unwrap();
-    let (kind, body) = top.split_last().unwrap();
-    match kind {
-        2 | 3 => {
-            let mut children = [[0; 32]; BRANCH_FACTOR];
-            if *kind == 2 {
-                for (child, hash) in children.iter_mut().zip(body.chunks(32)) {
-                    child.copy_from_slice(hash);
-                }
-            } else {
-                for chunk in body.chunks(33) {
-                    children[usize::from(chunk[32])].copy_from_slice(&chunk[..32]);
-                }
-            }
-            inner_hash(&children)
-        }
-        _ => {
-            let (item, key) = body.split_at(body.len() - 32);
-            leaf_hash(tree, key.try_into().unwrap(), item)
-        }
-    }
+/// The root over a branch built from the bottom up: the hash of its top
+/// node, as rippled hashes it.
+fn root_of(nodes: &[Vec<u8>]) -> [u8; 32] {
+    node_hash(nodes.last().unwrap())
 }
 
 /// An inner node with these children.
@@ -440,12 +433,12 @@ fn inner(children: &[(usize, [u8; 32])]) -> Vec<u8> {
     for (slot, hash) in children {
         all[*slot] = *hash;
     }
-    inner_wire(&all)
+    inner_node(&all)
 }
 
-/// The hash of a node in wire form.
-fn node_hash(node: &[u8], tree: Tree) -> [u8; 32] {
-    root_of(&[node.to_vec()], tree)
+/// The hash of a node as rippled hashes it.
+fn node_hash(node: &[u8]) -> [u8; 32] {
+    sha512_half(node)
 }
 
 // Trees rippled never builds, with their roots: whatever their hashes, a
@@ -454,63 +447,46 @@ fn node_hash(node: &[u8], tree: Tree) -> [u8; 32] {
 fn shapes_rippled_never_builds_prove_nothing() {
     let key = [0xAB; 32];
     let object = b"an object at its key";
-    let leaf = leaf_wire(Tree::State, &key, object);
+    let leaf = leaf_node(Tree::State, &key, object);
     let claim = Leaf::State(object);
 
     // The leaf one level deeper than it hangs, below an inner node with no
     // other child.
-    let deeper = inner(&[(nibble(&key, 1), node_hash(&leaf, Tree::State))]);
-    let root = inner(&[
-        (nibble(&key, 0), node_hash(&deeper, Tree::State)),
-        (0, [7; 32]),
-    ]);
+    let deeper = inner(&[(nibble(&key, 1), node_hash(&leaf))]);
+    let root = inner(&[(nibble(&key, 0), node_hash(&deeper)), (0, [7; 32])]);
     let branch = [leaf.clone(), deeper, root];
     assert_eq!(
-        verify(&root_of(&branch, Tree::State), &key, claim, &branch),
+        verify(&root_of(&branch), &key, claim, &branch),
         Err(BranchError::Shape)
     );
     // With a sibling, the same depth is rippled's.
-    let beside = inner(&[
-        (nibble(&key, 1), node_hash(&leaf, Tree::State)),
-        (0, [8; 32]),
-    ]);
-    let root = inner(&[(nibble(&key, 0), node_hash(&beside, Tree::State))]);
+    let beside = inner(&[(nibble(&key, 1), node_hash(&leaf)), (0, [8; 32])]);
+    let root = inner(&[(nibble(&key, 0), node_hash(&beside))]);
     let branch = [leaf.clone(), beside, root];
-    assert_eq!(
-        verify(&root_of(&branch, Tree::State), &key, claim, &branch),
-        Ok(())
-    );
+    assert_eq!(verify(&root_of(&branch), &key, claim, &branch), Ok(()));
 
     // A leaf as the root.
     let branch = [leaf.clone()];
     assert_eq!(
-        verify(&root_of(&branch, Tree::State), &key, claim, &branch),
+        verify(&root_of(&branch), &key, claim, &branch),
         Err(BranchError::Shape)
     );
 
     // A leaf off the key's path, offered as the key's absence: its key
     // differs in the first nibble, so it cannot hang under the key's.
     let stray_key = neighbour(&key, 0);
-    let stray = leaf_wire(Tree::State, &stray_key, object);
-    let root = inner(&[
-        (nibble(&key, 0), node_hash(&stray, Tree::State)),
-        (0, [9; 32]),
-    ]);
+    let stray = leaf_node(Tree::State, &stray_key, object);
+    let root = inner(&[(nibble(&key, 0), node_hash(&stray)), (0, [9; 32])]);
     let branch = [stray, root];
     assert_eq!(
-        verify(
-            &root_of(&branch, Tree::State),
-            &key,
-            Leaf::Absent(Tree::State),
-            &branch
-        ),
+        verify(&root_of(&branch), &key, Leaf::Absent(Tree::State), &branch),
         Err(BranchError::Shape)
     );
 
     // Inner nodes below the last nibble.
     let mut branch = vec![inner(&[(0, [1; 32])])];
     for depth in (0..MAX_DEPTH).rev() {
-        let below = node_hash(branch.last().unwrap(), Tree::State);
+        let below = node_hash(branch.last().unwrap());
         branch.push(inner(&[
             (nibble(&key, depth), below),
             ((nibble(&key, depth) + 1) % 16, [2; 32]),
@@ -518,12 +494,7 @@ fn shapes_rippled_never_builds_prove_nothing() {
     }
     assert_eq!(branch.len(), MAX_BRANCH_NODES);
     assert_eq!(
-        verify(
-            &root_of(&branch, Tree::State),
-            &key,
-            Leaf::Absent(Tree::State),
-            &branch
-        ),
+        verify(&root_of(&branch), &key, Leaf::Absent(Tree::State), &branch),
         Err(BranchError::Shape)
     );
 }
@@ -554,12 +525,12 @@ proptest! {
         let (tree, objects) = state_tree(&keys);
         let root = tree.root();
         for (key, object) in &objects {
-            let branch = tree.branch(key).unwrap();
+            let branch = tree.branch(key);
             prop_assert!(branch.len() <= MAX_BRANCH_NODES);
             prop_assert_eq!(verify(&root, key, Leaf::State(object), &branch), Ok(()));
         }
         let held = objects.iter().find(|(key, _)| *key == probe);
-        let branch = tree.branch(&probe).unwrap();
+        let branch = tree.branch(&probe);
         let claim = held.map_or(Leaf::Absent(Tree::State), |(_, object)| Leaf::State(object));
         prop_assert_eq!(verify(&root, &probe, claim, &branch), Ok(()));
         // One bit changed anywhere in the branch.
