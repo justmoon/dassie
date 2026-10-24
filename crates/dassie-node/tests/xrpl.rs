@@ -2,7 +2,8 @@
 //! WebSocket to the fake ledger and its faucet over HTTPS (M7b): funded by
 //! the faucet, they peer, pay several times the credit, so they settle on
 //! the ledger, and after both restart the books still match each account,
-//! less its reserve. A deposit from outside is booked once.
+//! less its reserve. A deposit from outside is booked once. A server that
+//! lies, or serves no proofs, and a quorum withheld get nothing booked.
 
 #![allow(
     clippy::unwrap_used,
@@ -24,6 +25,7 @@ use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, request::Method, response};
 use dassie_node::store::StoredCertificate;
 use dassie_node_core::certificate::CertificateSource;
+use dassie_xrpl::fake::Lie;
 use dassie_xrpl::{AccountId, Wallet};
 use support::btp_client::{BtpClient, pay_stream_waiting};
 use support::pair::{CA, CERT, KEY, bootstrap, key, peered_on, prepare_with, settle, until};
@@ -261,6 +263,132 @@ async fn two_daemons_settle_on_the_xrp_ledger_across_restarts() {
         owner_a + 3_000_000_000 - fees_a
     );
     assert_eq!(ledger_of(&b).await.unwrap().owner_balance, owner_b - fees_b);
+    a.stop().await;
+    b.stop().await;
+    server.stop();
+}
+
+/// Why a node waits for its ledger, if it does.
+async fn problem(node: &TestNode) -> String {
+    ledger_of(node)
+        .await
+        .map(|ledger| ledger.connection_problem)
+        .unwrap_or_default()
+}
+
+/// What a node's books hold of its account and its owner's funds.
+async fn books(node: &TestNode) -> (u64, i64) {
+    let ledger = ledger_of(node).await.unwrap();
+    (ledger.on_ledger_balance, ledger.owner_balance)
+}
+
+// spec/designs/xrpl-validation.md#1-the-rule: the daemons prove what they
+// book against the fake ledger's validators. A server that lies, or serves
+// no proofs, or a quorum withheld, gets nothing booked: each daemon waits,
+// and says why, while what really happened meanwhile, a deposit, waits with
+// it. Once its server is honest and its validators sign again, it books the
+// deposit once, and settles as before.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_lying_server_gets_nothing_booked_and_settling_resumes() {
+    let clock = ManualClock::new(START_MS);
+    let server = fake_ledger(&clock).await;
+    let config = config_of(&server);
+    let (key_a, key_b) = (key(33), key(34));
+    let (bound_a, bound_b) = (Bound::new(), Bound::new());
+    let nodes = bootstrap(&key_a, bound_a.https_port());
+    let env = [
+        ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
+        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+    ];
+    let a = bound_a.start(clock.clone(), 1, Policies::DEV, &env).await;
+    let b = bound_b.start(clock.clone(), 2, Policies::DEV, &env).await;
+    prepare_with(&a, &key_a, "xrpl-testnet", &config).await;
+    prepare_with(&b, &key_b, "xrpl-testnet", &config).await;
+    let both_in_step =
+        async || in_step(&a, &key_a, &server).await && in_step(&b, &key_b, &server).await;
+    until(&clock, both_in_step).await;
+    until(&clock, async || {
+        peered_on(&a, &key_b, LEDGER).await && peered_on(&b, &key_a, LEDGER).await
+    })
+    .await;
+    settle(&clock).await;
+    until(&clock, both_in_step).await;
+
+    let reasons = [
+        (
+            Some(Lie::AlteredObject),
+            "the server's answers did not prove",
+        ),
+        (
+            Some(Lie::NoProofs),
+            "the server serves no proofs; name a proof server",
+        ),
+        (
+            None,
+            "no quorum of validators signed the server's validated ledger",
+        ),
+    ];
+    for (lie, why) in reasons {
+        let kept = (books(&a).await, books(&b).await);
+        match lie {
+            Some(lie) => server.ledger().set_lie_for_all(Some(lie)),
+            // Two of the five validators sign nothing: four make a quorum.
+            None => {
+                for validator in [1, 2] {
+                    server.ledger().withhold_validator(validator, true);
+                }
+            }
+        }
+        // Someone sends A 3 XRP meanwhile.
+        server.ledger().deposit(account_of(&key_a), 3_000_000);
+        until(&clock, async || {
+            problem(&a).await == why && problem(&b).await == why
+        })
+        .await;
+        settle(&clock).await;
+        assert_eq!((books(&a).await, books(&b).await), kept, "{why}");
+        server.ledger().set_lie_for_all(None);
+        for validator in [1, 2] {
+            server.ledger().withhold_validator(validator, false);
+        }
+        until(&clock, both_in_step).await;
+        assert_eq!(problem(&a).await, "");
+    }
+    assert_eq!(
+        deposits(&a).await,
+        [FUNDED as u64, 3_000_000_000, 3_000_000_000, 3_000_000_000]
+    );
+    assert_eq!(deposits(&b).await, [FUNDED as u64]);
+
+    // A pays B beyond the credit: it settles on the ledger as before.
+    let before = server.ledger().balance(account_of(&key_b)).unwrap();
+    let Ok(response::Method::CreateBtpToken(token)) = a
+        .ipc()
+        .await
+        .call(Method::CreateBtpToken(proto::CreateBtpTokenRequest {
+            label: "wallet".into(),
+            ledger: LEDGER.into(),
+            cap: None,
+        }))
+        .await
+    else {
+        panic!("no token")
+    };
+    let credentials = b.ipc().await.incoming_payment(None).await;
+    let mut client = BtpClient::connect(&a, &token.secret).await.unwrap();
+    pay_stream_waiting(
+        &clock,
+        &mut client,
+        &credentials.destination_account,
+        &credentials.shared_secret,
+        PAYMENT,
+        Duration::from_millis(5),
+    )
+    .await;
+    until(&clock, both_in_step).await;
+    let settled = (server.ledger().balance(account_of(&key_b)).unwrap() - before) * 1_000;
+    assert!(settled >= PAYMENT - 1_100_000_000, "settled {settled}");
     a.stop().await;
     b.stop().await;
     server.stop();

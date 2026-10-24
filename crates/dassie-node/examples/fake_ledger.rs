@@ -8,13 +8,15 @@
 //!
 //! Once up, it prints one line of JSON, `{"url": "ws://…", "faucet":
 //! "https://…" | null, "tokens": "https://…" | null, "deposit": "https://…"
-//! | null, "publishers": {…} | null}`, and serves until stdin closes or it
-//! is killed. It is the testnet, or with `--network mainnet` mainnet, which
-//! has no faucet. `tokens` is where the issuer of its network's dollar,
-//! DSUSD or RLUSD, mints, freezes and claws back on request, `deposit`
-//! where XRP arrives from outside, and `publishers` what a scheme's config
-//! names to trust its validators: their publisher, whose list it serves
-//! with the faucet.
+//! | null, "control": "https://…" | null, "publishers": {…} | null}`, and
+//! serves until stdin closes or it is killed. It is the testnet, or with
+//! `--network mainnet` mainnet, which has no faucet. `tokens` is where the
+//! issuer of its network's dollar, DSUSD or RLUSD, mints, freezes and claws
+//! back on request, `deposit` where XRP arrives from outside, `control`
+//! where its validators rotate, withhold and publish, and its servers lie,
+//! on request (`/validators/…` and `/lie`), and `publishers` what a
+//! scheme's config names to trust its validators: their publisher, whose
+//! list it serves with the faucet.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 // A process for the end-to-end tests: it watches stdin from a thread, and
@@ -74,6 +76,7 @@ async fn main() {
             "faucet": server.faucet_url,
             "tokens": server.tokens_url,
             "deposit": server.deposit_url,
+            "control": server.control_url,
             "publishers": server.publishers(),
         })
     );

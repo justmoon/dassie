@@ -13,10 +13,14 @@ import { join } from "node:path";
 import { caFile, certificate } from "../certs.ts";
 import {
   askIssuer,
+  askValidators,
   depositXrp,
   type FakeLedger,
   type IssuerRequest,
+  type LieKind,
   startFakeLedger,
+  tellLies,
+  type ValidatorsRequest,
   xrplConfig,
 } from "../fake_ledger.ts";
 import { type Layout, layout as defaultLayout } from "../paths.ts";
@@ -65,6 +69,8 @@ export { caFile, certificate } from "../certs.ts";
 export {
   fakeLedgerBinary,
   type IssuerRequest,
+  type LieKind,
+  type ValidatorsRequest,
   type XrplNetwork,
 } from "../fake_ledger.ts";
 export { DEV_RATES, RATES_PORT, type RateTable } from "../rates.ts";
@@ -370,6 +376,19 @@ export class Scenario {
   async askIssuer(request: IssuerRequest): Promise<void> {
     if (!this.ledger) throw new Error("the scenario runs no fake ledger");
     await askIssuer(this.ledger, this.caFile, request);
+  }
+
+  /** Makes every connection to the fake ledger tell the lie `kind`, or
+   * be honest again. */
+  async lie(kind: LieKind): Promise<void> {
+    if (!this.ledger) throw new Error("the scenario runs no fake ledger");
+    await tellLies(this.ledger, this.caFile, kind);
+  }
+
+  /** Asks the fake ledger's validators to act. */
+  async askValidators(request: ValidatorsRequest): Promise<void> {
+    if (!this.ledger) throw new Error("the scenario runs no fake ledger");
+    await askValidators(this.ledger, this.caFile, request);
   }
 
   /**

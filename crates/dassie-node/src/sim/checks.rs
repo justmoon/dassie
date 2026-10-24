@@ -348,7 +348,10 @@ pub fn not_settled_down(sim: &mut Sim, seconds: u64, what: &str) -> Outcome {
 /// stops what the nodes it touches pay or are paid in it, so while it
 /// holds, and for a grace after it is lifted, a pair it touches that
 /// settles in the token may be withdrawn; a pair that settles in XRP may not
-/// (spec/areas/settlement.md#when-peers-cannot-pay-us).
+/// (spec/areas/settlement.md#when-peers-cannot-pay-us). So does a stretch in
+/// which the ledger's servers and validators fail the nodes: a node that
+/// cannot see its ledger settles nothing, honestly, and its peers may
+/// withdraw it, until a grace after the stretch.
 pub fn check_withdrawn(sim: &Sim) -> Result<(), String> {
     let grace = sim.peer.advertise_short_grace_ms;
     let token = sim
@@ -370,7 +373,11 @@ pub fn check_withdrawn(sim: &Sim) -> Result<(), String> {
                     && until.is_none_or(|until| withdrawal.at <= until + grace)
             })
     };
-    match sim.withdrawn.iter().find(|withdrawal| !frozen(withdrawal)) {
+    let unseen = |withdrawal: &Withdrawal| {
+        (sim.outages.iter())
+            .any(|&(from, until)| withdrawal.at >= from && withdrawal.at <= until + grace)
+    };
+    match (sim.withdrawn.iter()).find(|withdrawal| !frozen(withdrawal) && !unseen(withdrawal)) {
         Some(withdrawal) => Err(format!(
             "node {} withdrew {} for room at {}",
             withdrawal.by,
@@ -648,11 +655,50 @@ pub fn check_books(sim: &Sim) -> Result<(), Outcome> {
     first_failure([
         check_owner_books(sim).map_err(|problem| Outcome::safety("owner-books", problem)),
         check_ledgers(sim).map_err(|problem| Outcome::safety("ledgers", problem)),
+        check_true(sim).map_err(|problem| Outcome::safety("proven", problem)),
         check_funded(sim).map_err(|problem| Outcome::liveness("funded", problem)),
+        check_anchored(sim).map_err(|problem| Outcome::liveness("anchored", problem)),
         check_pegged(sim).map_err(|problem| Outcome::liveness("pegged", problem)),
         check_settled(sim).map_err(|problem| Outcome::liveness("settled", problem)),
         check_delivered(sim).map_err(|problem| Outcome::liveness("delivered", problem)),
     ])
+}
+
+/// Each node's books hold to the fake ledger's truth, whatever its servers
+/// lied (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation):
+/// nothing booked that the fake did not apply, no settlement cancelled that
+/// it applied, and nothing written off, since the fake never resets in a
+/// simulation. Each would leave the books apart from the account, which the
+/// scheme could only reconcile without a reason it can name: so no node
+/// reconciled anything but a change of the reserve.
+pub fn check_true(sim: &Sim) -> Result<(), String> {
+    match sim.unexplained.first() {
+        Some(first) => Err(format!(
+            "a node's books left its ledger, unexplained: {first}"
+        )),
+        None => Ok(()),
+    }
+}
+
+/// Every node on the XRP Ledger anchored: its account took a ledger its
+/// UNL validated, so it proved what it booked rather than taking a
+/// server's word (spec/designs/xrpl-validation.md#1-the-rule).
+pub fn check_anchored(sim: &Sim) -> Result<(), String> {
+    if !sim.settling.on_xrpl() {
+        return Ok(());
+    }
+    for index in 0..sim.nodes.len() {
+        let Some(core) = sim.nodes[index].core.as_ref() else {
+            continue;
+        };
+        if core
+            .xrpl_accounts()
+            .any(|account| account.anchor().is_none())
+        {
+            return Err(format!("node {index}'s XRPL account never anchored"));
+        }
+    }
+    Ok(())
 }
 
 /// On the XRP Ledger, the faucet funded every node, and on a token the
@@ -824,7 +870,9 @@ pub fn check_across(sim: &Sim) -> Result<(), Outcome> {
                 .map_err(|problem| Outcome::safety("received-across", problem)),
             check_prices(sim).map_err(|problem| Outcome::safety("prices", problem)),
             check_assets(sim).map_err(|problem| Outcome::safety("assets", problem)),
+            check_true(sim).map_err(|problem| Outcome::safety("proven", problem)),
             check_funded(sim).map_err(|problem| Outcome::liveness("funded", problem)),
+            check_anchored(sim).map_err(|problem| Outcome::liveness("anchored", problem)),
             check_pegged(sim).map_err(|problem| Outcome::liveness("pegged", problem)),
             check_finished(sim).map_err(|problem| Outcome::liveness("finished", problem)),
             check_settled(sim).map_err(|problem| Outcome::liveness("settled", problem)),

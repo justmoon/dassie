@@ -207,6 +207,7 @@
         "An SNI proxy on port 443, local certificates, vanity node identities, a rates server",
         "Sets nodes up through their own RPC, the same way the end-to-end tests do",
         "The scenario library: one node, two, six, the XRP Ledger ones, DSUSD that the fake ledger's issuer mints each node, two nodes in the live realm on the fake ledger's mainnet settling in XRP or in RLUSD, and one or two core nodes with a market maker's two periphery nodes pinned to each, beside a pool",
+        "Drives the fake ledger as a scenario or a test asks: its issuer mints, freezes and claws back, its validators rotate a key or sign nothing, and its server lies",
         "Runs the live realm only by the node's dev switch and only against the fake ledger's mainnet, funding each node's account by a deposit, as mainnet has no faucet; a live scenario's nodes start from scratch each run, since mainnet never resets"
       ]
     },
@@ -225,6 +226,7 @@
         "Open Payments, including a third party's full flow with consent in the wallet",
         "XRP Ledger settlement in XRP and in DSUSD, with the issuer freezing a line and clawing back, and payments across currencies",
         "Mainnet's schemes in the live realm, by the dev switch, on the fake ledger's mainnet: two nodes settle in XRP and in RLUSD at addresses under `g.`, and RLUSD pauses while its pool prices it off its peg, still booking what arrives, and runs again once the pool is back",
+        "Nodes that prove what they book: while the fake ledger's server lies, serves no proofs, or its validators fall short of a quorum, each node waits and says why, books nothing, not even a deposit, and books it once the server is honest again",
         "Passive rebalancing end to end: a market maker trades through a core node short of dollars and swaps back through the fake ledger's pool, which moves the node toward balance and earns the market maker; with two such core nodes, it trades through each",
         "The wallet, the dev dashboard and dassie.land in a browser",
         "The installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers"
@@ -363,7 +365,7 @@
         "Founding settlement hubs: as a sponsor, it asks the validators its owner picked to accept the terms, gathers a quorum's signatures of the genesis and hands them the certificate, then funds the escrow from its XRP Ledger account and sets it up; as a validator, it accepts only listed sponsors' terms, within its bound on hubs, signs one genesis per nonce and runs the hub its certificate founds",
         "A member's copies of its hub's payout bundles, fetched from each validator once the hub ended or stalled, checked against the rules and kept, so the member can pay itself out if the validators are gone",
         "Funding its hub account: the node opens it with a first deposit from its XRP Ledger account, deposits when what it can spend falls below a floor of what its hub peerings need, and withdraws what goes above a ceiling, both counted in the largest packet; one move at a time, kept in the database until the hub account's counters show it, so a restart never pays one twice; the owner moves funds too, and may turn the node's own moves off",
-        "Simulated as a network of real engine cores, in tests and by `dassie-sim`: each seed draws its nodes, faults and payments, runs them through chaos, then heals the network, which must settle down"
+        "Simulated as a network of real engine cores, in tests and by `dassie-sim`: each seed draws its nodes, faults and payments, runs them through chaos, then heals the network, which must settle down; on the fake XRP Ledger, a node's connection may come back to a server that lies, and every node's books must still hold to what the ledger really did"
       ]
     },
     "desktop": {
@@ -437,7 +439,7 @@
         "Reports what the account holds, as its anchor proves it, for the wallet: XRP and its reserve, and each line with its freezes",
         "Fakes the ledger for tests: XRP, trust lines, token payments through the issuer and their failures, issuers of DSUSD and RLUSD that mint, freeze and claw back, AMM pools that Payments with a `SendMax` swap through, and signer lists, regular keys and destination tags, with who may sign checked again as a transaction applies",
         "Gives each fake ledger a real header and real hash trees of its transactions and its state, in rippled's binary form, pinned by objects captured from mainnet; validators that sign it, under a list their publisher signs; and the proof methods a patched rippled serves",
-        "Lies on request, in each way a server can lie to a node that checks the validators: made-up transactions, balances and absences, the branch of another key, old anchors, forged, replayed or withheld validations, a header that hashes wrong, a skip list of another chain, history left out, refusals and a made-up reset"
+        "Lies on request, in each way a server can lie to a node that checks the validators: made-up transactions, balances and absences, the branch of another key, old anchors, forged, replayed or withheld validations, a header that hashes wrong, a skip list of another chain, history left out, refusals and a made-up reset; over HTTPS too, beside its faucet, where its validators also rotate keys, sign nothing or publish a list on request"
       ]
     },
     "settlement": {
@@ -1571,7 +1573,7 @@
   "tests": [
     {
       "t": "Deterministic simulation",
-      "p": "Whole networks run in one process with a fake clock and a seeded random generator, at the timings of a real node: a simulated day takes seconds. Faults are injected: latency, loss, replayed messages, clocks that are off, crashes, mid-payment too, commits that fail, restarts, and partitions, some longer than a day, and owners end peerings and ban peers. Every state machine checks its invariants after each step, and a failure prints the seed that reproduces it. A node run draws its whole network, its faults and its payments from the seed, and once healed must settle down. Scripted node runs settle in XRP and in DSUSD on a fake XRP Ledger's testnet, and in the live realm in XRP and in RLUSD on its mainnet, whose issuers freeze lines and claw back, and each node is judged by its own books. One runs nodes peered over a settlement hub whose validators, some of them faulty, run in the same process, with a member that lies about its claims, until the hub stalls and its escrow on the fake ledger pays everyone out. Tests run fixed seeds, and check that between them they reach every kind of fault; `dassie-sim` runs any other seed.",
+      "p": "Whole networks run in one process with a fake clock and a seeded random generator, at the timings of a real node: a simulated day takes seconds. Faults are injected: latency, loss, replayed messages, clocks that are off, crashes, mid-payment too, commits that fail, restarts, and partitions, some longer than a day, and owners end peerings and ban peers. Every state machine checks its invariants after each step, and a failure prints the seed that reproduces it. A node run draws its whole network, its faults and its payments from the seed, and once healed must settle down. Scripted node runs settle in XRP and in DSUSD on a fake XRP Ledger's testnet, and in the live realm in XRP and in RLUSD on its mainnet, whose issuers freeze lines and claw back, and each node is judged by its own books. On the fake ledger, servers lie to the nodes, each kind of lie in turn in a scripted run, and validators rotate keys, withhold a quorum and let a list lapse: no node may book, cancel or write off anything the ledger did not do, and each counts what it proved, so a run shows that it went through the checks of the validators. One runs nodes peered over a settlement hub whose validators, some of them faulty, run in the same process, with a member that lies about its claims, until the hub stalls and its escrow on the fake ledger pays everyone out. Tests run fixed seeds, and check that between them they reach every kind of fault and every kind of lie; `dassie-sim` runs any other seed.",
       "ev": "src/sim in dassie-stream, dassie-connector, dassie-peer, dassie-hub and dassie-node, run by their tests and by dassie-sim"
     },
     {
@@ -1596,7 +1598,7 @@
     },
     {
       "t": "End to end",
-      "p": "Real binaries and real sockets: a fresh install, payments and settlement across nodes, mainnet's schemes in the live realm on the fake ledger, Open Payments, the wallet in a browser, and the installer and updater on four Linux distributions.",
+      "p": "Real binaries and real sockets: a fresh install, payments and settlement across nodes, mainnet's schemes in the live realm on the fake ledger, nodes that book nothing while its server lies, Open Payments, the wallet in a browser, and the installer and updater on four Linux distributions.",
       "ev": "tests/e2e · dassie-node/tests · dassie-cli/tests"
     }
   ],
