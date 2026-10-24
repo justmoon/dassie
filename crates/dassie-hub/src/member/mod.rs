@@ -22,6 +22,7 @@ pub mod account;
 mod mirror;
 mod payee;
 mod payer;
+pub mod payout;
 mod peering;
 mod resync;
 pub mod scheme;
@@ -29,6 +30,7 @@ mod state;
 
 pub use account::{FIRST, HubAccount, News, Purpose};
 pub use mirror::HoldMirror;
+pub use payout::{Payouts, Taken};
 pub use peering::peer_account;
 pub use scheme::{HubScheme, SCHEME_ID};
 

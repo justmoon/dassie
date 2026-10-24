@@ -23,6 +23,8 @@
 //!   statements, attestations and escrow signatures.
 //! - [`escrow`]: the escrow on the XRP Ledger: keys, setup and check,
 //!   withdrawals, what validators attest, and the payout set.
+//! - [`founding`]: founding a hub: the sponsor's proposal, the
+//!   validators' acceptances and the genesis certificate.
 //! - [`consensus`]: Simplex, which orders the hub's log, generic over the
 //!   payload of its blocks.
 //! - [`member`]: a member's side: its account in the hub as an external
@@ -43,6 +45,7 @@ pub mod codec;
 pub mod consensus;
 pub mod digest;
 pub mod escrow;
+pub mod founding;
 pub mod ledger;
 pub mod member;
 pub mod operation;

@@ -44,6 +44,9 @@ pub enum Domain {
     Result,
     /// What a validator tells a member the log holds.
     Statement,
+    /// A validator's signature of a hub's genesis, a share of its genesis
+    /// certificate.
+    Genesis,
 }
 
 impl Domain {
@@ -62,6 +65,7 @@ impl Domain {
             Self::Claim => b"dassie-hub/claim",
             Self::Result => b"dassie-hub/result",
             Self::Statement => b"dassie-hub/statement",
+            Self::Genesis => b"dassie-hub/genesis",
         }
     }
 }
