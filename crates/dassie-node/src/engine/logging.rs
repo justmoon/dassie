@@ -310,6 +310,8 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::PeerSettled { .. }
         | SettlementEvent::SettlementBooked { .. }
         | SettlementEvent::PeerSettlementRefused { .. }
+        | SettlementEvent::PegPaused { .. }
+        | SettlementEvent::PegResumed { .. }
         | SettlementEvent::CreditRaised { .. }
         | SettlementEvent::HubCredit { .. }
         | SettlementEvent::EarningsNotRead { .. } => settlement_outcome(severity, event),
@@ -339,6 +341,13 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         }
         SettlementEvent::PeerSettlementRefused { from, error } => {
             emit!(severity, target: target::SETTLEMENT, %from, %error, "a settlement was refused");
+        }
+        SettlementEvent::PegPaused { scheme, why } => {
+            let why = why.message();
+            emit!(severity, target: target::SETTLEMENT, %scheme, why, "the scheme is paused: it settles nothing, and its ledger converts nothing");
+        }
+        SettlementEvent::PegResumed { scheme } => {
+            emit!(severity, target: target::SETTLEMENT, %scheme, "the token is back on its peg: the scheme runs again");
         }
         SettlementEvent::CreditRaised { peer, credit } => {
             emit!(severity, target: target::SETTLEMENT, %peer, credit, "a peer earned more credit");

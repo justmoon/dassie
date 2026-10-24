@@ -14,7 +14,7 @@ use dassie_ledger::{
 };
 use dassie_peer::Room;
 use dassie_peer::wire::SchemeId;
-use dassie_settlement::{LedgerStatus, policy};
+use dassie_settlement::{DollarRate, LedgerStatus, policy};
 
 use super::events::SettlementEvent;
 use super::{Core, EngineError};
@@ -235,11 +235,26 @@ impl Core {
 
     /// The settlement check of each scheme that settles through an asset:
     /// what it reads of its ledger each time, such as an issuer's account,
-    /// is asked for now, and comes as news.
+    /// is asked for now, and comes as news. Each is first handed the rates
+    /// it reads, as the node has them, such as XRP's for a dollar token's
+    /// peg guard.
     fn check_schemes(&mut self) {
         let now = self.now_ms;
         let schemes: Vec<Name> = self.schemes.keys().copied().collect();
         for scheme in schemes {
+            let rates = &self.prices.rates;
+            let Some(active) = self.schemes.get_mut(&scheme) else {
+                continue;
+            };
+            for code in active.scheme.rate_currencies() {
+                let rate = rates.get(code).zip(rates.as_of(code));
+                let rate = rate.map(|(per_dollar, as_of_ms)| DollarRate {
+                    per_dollar,
+                    precision: dassie_connector::RATE_PRECISION,
+                    as_of_ms,
+                });
+                active.scheme.on_rate(code, rate);
+            }
             let Some((active, Some(asset))) = self.scheme_and_asset(scheme) else {
                 continue;
             };
@@ -248,6 +263,40 @@ impl Core {
                 self.carry_out(asset);
             }
         }
+        // A guard that went without a reading for too long pauses its
+        // scheme with no news from its ledger.
+        if self.follow_pegs() {
+            self.update_peer_schemes();
+        }
+    }
+
+    /// Follows each scheme's peg guard and whether it converts: once one
+    /// paused or resumed its scheme, the owner is told, and the prices are
+    /// built again at the commit, without its ledger or with it
+    /// (spec/decisions/issued-assets.md). Returns whether any changed.
+    pub(super) fn follow_pegs(&mut self) -> bool {
+        let mut changed = Vec::new();
+        for (id, active) in &mut self.schemes {
+            let paused = active.scheme.peg().and_then(|peg| peg.paused);
+            let converts = active.scheme.converts();
+            if paused != active.paused {
+                changed.push((*id, paused));
+                active.paused = paused;
+            }
+            if converts != active.converts {
+                active.converts = converts;
+                self.prices.due = true;
+            }
+        }
+        let any = !changed.is_empty();
+        for (scheme, paused) in changed {
+            self.changes.ledger = true;
+            self.report(match paused {
+                Some(why) => SettlementEvent::PegPaused { scheme, why },
+                None => SettlementEvent::PegResumed { scheme },
+            });
+        }
+        any
     }
 
     /// Asks each peer that is close to the credit we extend to settle:

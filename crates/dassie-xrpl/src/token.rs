@@ -38,6 +38,14 @@
 //! nothing; while the line is deep-frozen, a global freeze holds or a
 //! transfer fee is set, peers cannot pay us either
 //! ([`can_receive`](SettlementScheme::can_receive)).
+//!
+//! A token its pool prices has a peg guard ([`crate::peg`]): the account
+//! reads the pool for it once a minute, and the node hands it its XRP/USD
+//! rate. While the guard pauses the scheme, off its peg or without a
+//! reading that counts, the scheme settles nothing, peers cannot pay us,
+//! and the connector converts nothing to or from its ledger
+//! ([`converts`](SettlementScheme::converts)); what the line shows is still
+//! booked (spec/decisions/issued-assets.md).
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::{String, ToString};
@@ -46,8 +54,8 @@ use core::marker::PhantomData;
 
 use dassie_ledger::{LedgerId, MAX_TOTAL, Name};
 use dassie_settlement::{
-    AssetId, Effect, ExternalAsset, LedgerStatus, PreparedSettlement, ReconcileCause, SchemeError,
-    SettlementScheme,
+    AssetId, DollarRate, Effect, ExternalAsset, LedgerStatus, PegView, PreparedSettlement,
+    ReconcileCause, SchemeError, SettlementScheme,
 };
 use rand_core::CryptoRng;
 use serde_json::{Value, json};
@@ -58,6 +66,7 @@ use crate::api::{AccountInfo, AccountSettings, LineView, TxRecord};
 use crate::codec::{Memo, TF_SET_NO_RIPPLE};
 use crate::keys::AccountId;
 use crate::network::Network;
+use crate::peg::{Guard, Peg};
 use crate::scheme::{
     MAX_PEERS, MAX_RECOVER_WAIT_LEDGERS, MAX_RECOVERING, Recovering, account_of, address_bytes,
     hash_name, missed_write_off, name_hash, narrow, parse_address, recover, restore_unread,
@@ -87,6 +96,10 @@ pub struct Token {
     pub ledger: LedgerId,
     /// The network it is issued on, whose account the scheme settles from.
     pub network: &'static Network,
+    /// What prices it, for its peg guard: its pool of XRP on its network.
+    /// `None` for a token no pool prices at a dollar, which no scheme may
+    /// settle in (spec/decisions/issued-assets.md).
+    pub peg: Option<Peg>,
 }
 
 impl Token {
@@ -183,6 +196,8 @@ pub struct TokenScheme<T: IssuedToken> {
     /// and how long the next failure makes it wait.
     trust_at: u32,
     trust_wait: u32,
+    /// Its peg guard, if its token has one; kept with the books.
+    guard: Option<Guard>,
     /// The token, as a type only: the scheme holds none of it.
     token: PhantomData<fn() -> T>,
 }
@@ -225,6 +240,7 @@ impl<T: IssuedToken> TokenScheme<T> {
             trust_set: None,
             trust_at: 0,
             trust_wait: 1,
+            guard: token.peg.map(Guard::new),
             token: PhantomData,
         };
         if !state.is_empty() {
@@ -263,13 +279,22 @@ impl<T: IssuedToken> TokenScheme<T> {
             || matches!(self.issuer, Some(Some(issuer)) if issuer.global_freeze || issuer.transfer_fee)
     }
 
-    /// Whether the scheme may settle now, as far as the line and the
-    /// issuer go: synced, the line not frozen, the issuer read, no global
-    /// freeze and no transfer fee, which a Payment without `SendMax` cannot
-    /// pay (spec/roadmap.md#not-built-yet).
+    /// Whether the peg guard pauses the scheme now.
+    fn paused(&self) -> bool {
+        self.guard
+            .as_ref()
+            .is_some_and(|guard| guard.paused().is_some())
+    }
+
+    /// Whether the scheme may settle now, as far as the line, the issuer
+    /// and the peg go: synced, the line not frozen, the issuer read, no
+    /// global freeze and no transfer fee, which a Payment without `SendMax`
+    /// cannot pay (spec/roadmap.md#not-built-yet), and the guard not
+    /// pausing it.
     fn can_settle(&self) -> bool {
         self.synced()
             && !self.frozen()
+            && !self.paused()
             && matches!(
                 self.issuer,
                 Some(Some(Issuer {
@@ -300,15 +325,27 @@ impl<T: IssuedToken> TokenScheme<T> {
         self.cursor.is_some() || self.booked > 0
     }
 
-    /// Takes one piece of news from the account.
-    fn tell(&mut self, account: &mut XrplAccount, news: &News, effects: &mut Vec<Effect>) {
+    /// Takes one piece of news from the account, at `now_ms`.
+    fn tell(
+        &mut self,
+        now_ms: u64,
+        account: &mut XrplAccount,
+        news: &News,
+        effects: &mut Vec<Effect>,
+    ) {
         let id = self.id();
         match news {
             News::Line { key, line } if *key == T::TOKEN.line() => {
                 self.line = Some(line.and_then(|line| line.view(self.account)));
             }
             News::Line { .. } => {}
-            News::Synced(info) => self.synced_at(account, info, effects),
+            News::Synced(info) => {
+                // A new connection: the pool is read at the next check.
+                if let Some(guard) = &mut self.guard {
+                    guard.ask_again();
+                }
+                self.synced_at(account, info, effects);
+            }
             News::Transaction { record, ours } => {
                 let mine = ours.filter(|ours| ours.scheme == id);
                 self.transaction(account, record, mine, effects);
@@ -340,6 +377,12 @@ impl<T: IssuedToken> TokenScheme<T> {
                 self.correct_line(account);
             }
             News::Issuer { .. } => {}
+            News::Pool { key, pool } if *key == T::TOKEN.line() => {
+                if let Some(guard) = &mut self.guard {
+                    guard.reading(now_ms, pool.as_ref());
+                }
+            }
+            News::Pool { .. } => {}
         }
     }
 
@@ -702,6 +745,7 @@ impl<T: IssuedToken> TokenScheme<T> {
         }
         add(self.recovering.len() as u64);
         add(self.write_offs);
+        add(self.guard.as_ref().map_or(0, Guard::fingerprint));
         mix
     }
 
@@ -716,13 +760,17 @@ impl<T: IssuedToken> TokenScheme<T> {
             .iter()
             .map(|r| hex_upper(&r.hash).into())
             .collect();
-        json!({
+        let mut state = json!({
             "cursor": self.cursor.map(|(ledger, index)| json!([ledger, index])),
             "peers": peers,
             "recovering": recovering,
             "write_offs": self.write_offs,
             "unread": unread_value(&self.recovering),
-        })
+        });
+        if let (Some(guard), Some(object)) = (&self.guard, state.as_object_mut()) {
+            object.insert("peg".into(), guard.state());
+        }
+        state
     }
 
     fn restore(&mut self, state: &[u8]) -> Option<()> {
@@ -740,6 +788,10 @@ impl<T: IssuedToken> TokenScheme<T> {
             cursor => Some((number(cursor.get(0)?)?, number(cursor.get(1)?)?)),
         };
         self.write_offs = restore_write_offs(&value)?;
+        // A state from before the guard has none: it starts anew.
+        if let (Some(peg), Some(kept)) = (T::TOKEN.peg, value.get("peg")) {
+            self.guard = Some(Guard::restore(peg, kept)?);
+        }
         let peers = value.get("peers")?.as_object()?;
         let recovering = value.get("recovering")?.as_array()?;
         if peers.len() > MAX_PEERS || recovering.len() > MAX_RECOVERING {
@@ -803,16 +855,44 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         self.cursor.is_some()
     }
 
+    /// Not while the issuer stops what peers pay us, nor while the peg
+    /// guard pauses the scheme: a peer asked to settle in a token off its
+    /// peg would pay us at par.
     fn can_receive(&self) -> bool {
-        !self.cannot_receive()
+        !self.cannot_receive() && !self.paused()
+    }
+
+    fn converts(&self) -> bool {
+        !self.paused()
+    }
+
+    fn peg(&self) -> Option<PegView> {
+        self.guard.as_ref().map(Guard::view)
+    }
+
+    fn rate_currencies(&self) -> &'static [&'static str] {
+        if self.guard.is_some() { &["XRP"] } else { &[] }
+    }
+
+    fn on_rate(&mut self, code: &str, rate: Option<DollarRate>) {
+        if let (Some(guard), "XRP") = (&mut self.guard, code) {
+            guard.rate(rate);
+        }
     }
 
     /// The issuer's account is read at each check: a global freeze and a
     /// transfer fee change only its account, which our account's stream
-    /// never carries.
-    fn on_check(&mut self, _now_ms: u64, asset: &mut dyn ExternalAsset) {
+    /// never carries. The pool is read once a minute, for the peg guard.
+    fn on_check(&mut self, now_ms: u64, asset: &mut dyn ExternalAsset) {
+        let read_pool = self.guard.as_mut().is_some_and(|guard| {
+            guard.tick(now_ms);
+            guard.ask(now_ms)
+        });
         if let Some(account) = account_of(asset) {
             account.read_issuer(T::TOKEN.issuer);
+            if read_pool {
+                account.read_pool(T::TOKEN.line());
+            }
         }
     }
 
@@ -828,7 +908,10 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         self.fingerprint()
     }
 
-    fn on_asset(&mut self, _now_ms: u64, asset: &mut dyn ExternalAsset, effects: &mut Vec<Effect>) {
+    fn on_asset(&mut self, now_ms: u64, asset: &mut dyn ExternalAsset, effects: &mut Vec<Effect>) {
+        if let Some(guard) = &mut self.guard {
+            guard.tick(now_ms);
+        }
         let account = account_of(asset);
         assert!(
             account.is_some(),
@@ -848,7 +931,7 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         }
         self.write_offs = account.write_offs();
         for item in &news {
-            self.tell(account, item, effects);
+            self.tell(now_ms, account, item, effects);
         }
         account.follow(self.id(), self.cursor, self.holds_anything());
     }
@@ -904,10 +987,10 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
     }
 
     /// Unavailable unless synced, the line not frozen, the issuer read with
-    /// no global freeze and no transfer fee, and the account signs the
-    /// Payment now ([`XrplAccount::sign_token_payment`]), with its fee in
-    /// gas. It settles whole millionths, which a token's value holds
-    /// exactly.
+    /// no global freeze and no transfer fee, the peg guard not pausing the
+    /// scheme, and the account signs the Payment now
+    /// ([`XrplAccount::sign_token_payment`]), with its fee in gas. It
+    /// settles whole millionths, which a token's value holds exactly.
     fn prepare_settlement(
         &mut self,
         _rng: &mut dyn CryptoRng,
@@ -1030,6 +1113,14 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         }
         assert!((1..=MAX_TRUST_WAIT_LEDGERS).contains(&self.trust_wait));
         assert!(self.booked <= MAX_TOTAL, "the books hold at most a total");
+        assert_eq!(
+            self.guard.is_some(),
+            T::TOKEN.peg.is_some(),
+            "a guard for a token a pool prices"
+        );
+        if let Some(guard) = &self.guard {
+            guard.check_invariants();
+        }
         assert_eq!(self.booked % UNITS_PER_MICRO, 0, "whole units");
         // The books hold the line in whole units, once the scheme booked
         // from it and knows it.

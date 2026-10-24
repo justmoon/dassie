@@ -217,6 +217,51 @@ pub enum PaymentFailure {
     Other,
 }
 
+/// A currency's exchange rate against the dollar, as the node has it: how
+/// many of its units one dollar buys, times 10^`precision`, and when the
+/// node learnt it (spec/decisions/exchange-rates.md).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DollarRate {
+    /// Units of the currency per dollar, times 10^`precision`.
+    pub per_dollar: u128,
+    /// The decimals of `per_dollar`.
+    pub precision: u32,
+    /// When the node learnt it.
+    pub as_of_ms: u64,
+}
+
+/// What a dollar token's peg guard says, for the owner
+/// (spec/areas/xrpl.md#the-peg-guard).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PegView {
+    /// Why the scheme is paused, if it is.
+    pub paused: Option<PegPause>,
+    /// The token's price in millionths of a dollar at the last reading
+    /// that counted, and the validated ledger it is as of.
+    pub last: Option<(u64, u32)>,
+}
+
+/// Why a dollar token's peg guard pauses its scheme.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PegPause {
+    /// Its pool prices it off its peg, and has for long enough.
+    OffPeg,
+    /// No reading has counted for too long: the pool unread or too thin,
+    /// or the rate stale. The guard fails closed.
+    Stale,
+}
+
+impl PegPause {
+    /// The reason, for people.
+    #[must_use]
+    pub const fn message(self) -> &'static str {
+        match self {
+            Self::OffPeg => "the token is off its peg",
+            Self::Stale => "the token's price could not be read",
+        }
+    }
+}
+
 /// Why a scheme refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SchemeError {
@@ -314,6 +359,34 @@ pub trait SettlementScheme: Send {
     /// scheme stays synced meanwhile: it still sees its ledger.
     fn can_receive(&self) -> bool {
         true
+    }
+
+    /// Whether the connector may convert to or from the scheme's ledger
+    /// now. While it may not, as while a dollar token is off its peg, the
+    /// node prices no pair with the ledger, as for a ledger whose rate is
+    /// stale (spec/areas/connector.md#inventory-pricing); transit on the
+    /// ledger alone still passes.
+    fn converts(&self) -> bool {
+        true
+    }
+
+    /// What its peg guard says, for a dollar token that has one.
+    fn peg(&self) -> Option<PegView> {
+        None
+    }
+
+    /// The currencies whose rates against the dollar the scheme reads,
+    /// beside its own ledger's, such as XRP for a dollar token priced by a
+    /// pool of XRP: the node fetches them, and hands each over before each
+    /// settlement check ([`on_rate`](Self::on_rate)).
+    fn rate_currencies(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// The rate of `code`, one of [`rate_currencies`](Self::rate_currencies),
+    /// as the node has it now: `None` if it has none.
+    fn on_rate(&mut self, code: &str, rate: Option<DollarRate>) {
+        let _ = (code, rate);
     }
 
     /// The node's settlement check: what the scheme reads of its ledger at
